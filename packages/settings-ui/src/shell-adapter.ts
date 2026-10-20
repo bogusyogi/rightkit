@@ -1,81 +1,112 @@
 /**
- * Shell-backed adapters: `rightkit-app-settings` / `rightkit-models` / credential store reached through the
- * `@rightkit/tauri-shell` engine bridge. Import from `@rightkit/settings-ui/shell-adapter`. The engine is
- * described structurally, so this module needs no runtime or type import from `@rightkit/tauri-shell`; any
- * object with the same `engine.call` / `engine.onEvent` shape works.
+ * Shell-backed adapters: the `rightkit_settings_*` and `rightkit_secrets_*` Tauri commands that
+ * `rightkit-tauri-shell` (feature `host-services`) registers through `handler!`. Import from
+ * `@rightkit/settings-ui/shell-adapter`. The transport is described structurally (it is the
+ * `ShellTransport` of `@rightkit/tauri-shell`: `tauriTransport()` or your own), so this module needs
+ * no runtime or type import from `@rightkit/tauri-shell`.
+ *
+ * Only what the host registers is wrapped. The host registers no models command, so there is no
+ * models backend here: an app that shows the Models section supplies its own `ModelsBackend`.
+ * No command returns a secret, and this module has no secret getter.
  */
 import type {
-  ModelEntry,
-  ModelsBackend,
   SecretPresence,
   SecretRef,
   SecretsBackend,
   SettingsBackend,
   SettingsSnapshot,
-  SettingsValues,
+  WriteIntent,
 } from "./types.js";
 
-/** The slice of `@rightkit/tauri-shell`'s `createShell()` these adapters need (structural, so no import cycle). */
-export interface EngineShell {
-  engine: {
-    call<T = unknown>(method: string, params?: unknown): Promise<T>;
-    onEvent(handler: (e: { call: string; event: unknown }) => void): Promise<() => void>;
-  };
+/**
+ * The slice of `@rightkit/tauri-shell`'s `ShellTransport` these adapters need (structural, so no
+ * import cycle). `listen` hands the handler the event payload itself.
+ */
+export interface HostTransport {
+  invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
+  listen<T = unknown>(event: string, handler: (payload: T) => void): Promise<() => void>;
 }
 
-/** Native shell bridge accepted by createShellBackends (structurally `Pick<Shell, "engine">`). */
-export type SettingsShell = { engine: EngineShell["engine"] };
+/** What `createShellBackends` accepts: a transport (`tauriTransport()` of `@rightkit/tauri-shell`). */
+export type SettingsShell = HostTransport;
 
-/** Engine method names: the wire contract between this package and the host's `rightkit-app-settings` / `rightkit-models` handlers. */
+/** Tauri command names registered by `rightkit-tauri-shell`'s host services: the wire contract of this package. */
 export const METHODS = {
-  settingsGet: "rightkit.settings.get",
-  settingsPatch: "rightkit.settings.patch",
-  modelsList: "rightkit.models.list",
-  modelsInstall: "rightkit.models.install",
-  modelsCancel: "rightkit.models.cancel",
-  modelsRemove: "rightkit.models.remove",
-  secretsPresence: "rightkit.secrets.presence",
-  secretsSet: "rightkit.secrets.set",
-  secretsClear: "rightkit.secrets.clear",
+  settingsDescribe: "rightkit_settings_describe",
+  settingsGet: "rightkit_settings_get",
+  settingsPatch: "rightkit_settings_patch",
+  settingsReset: "rightkit_settings_reset",
+  settingsSubscribe: "rightkit_settings_subscribe",
+  settingsUnsubscribe: "rightkit_settings_unsubscribe",
+  secretsPresence: "rightkit_secrets_presence",
+  secretsSet: "rightkit_secrets_set",
+  secretsClear: "rightkit_secrets_clear",
 } as const;
 
+/** Event names the host emits to subscribed windows. */
 export const EVENTS = {
-  settingsChanged: "rightkit.settings.changed",
-  modelsEntry: "rightkit.models.entry",
+  /** Payload `{ keys: string[], revision: number }`, emitted after a commit. */
+  settingsChanged: "rightkit://settings-changed",
 } as const;
+
+/** What `rightkit_settings_describe` answers. `descriptor` is the app's own UI description, opaque here. */
+export interface SettingsDescription {
+  schemaVersion: number;
+  revision: number;
+  descriptor: unknown;
+  /** False when the bridge is read-only or the stored document is refused. */
+  writable: boolean;
+  /** Error code that makes the stored document unreadable (`newer_schema`, `storage`, ...). */
+  refusal?: string;
+  limits: { maxValueBytes: number; maxDocumentBytes: number };
+}
+
+/** Settings backend plus the host-only calls the panel does not need (describe, reset). */
+export interface ShellSettingsBackend extends SettingsBackend {
+  describe(): Promise<SettingsDescription>;
+  /** Remove top-level `keys` from the document (compare-and-set when `expectedRevision` is given). */
+  reset(keys: string[], expectedRevision?: number): Promise<SettingsSnapshot>;
+}
 
 export interface ShellBackends {
-  settings: SettingsBackend;
-  models: ModelsBackend;
+  settings: ShellSettingsBackend;
   secrets: SecretsBackend;
 }
 
-/** Backends over the `@rightkit/tauri-shell` engine bridge. */
-export function createShellBackends(shell: EngineShell | SettingsShell): ShellBackends {
-  const call = shell.engine.call;
-  const on = <T>(name: string, pick: (event: unknown) => T | null, handler: (v: T) => void) =>
-    shell.engine.onEvent((e) => {
-      if (e.call !== name) return;
-      const v = pick(e.event);
-      if (v !== null) handler(v);
-    });
+/** Backends over the host-services Tauri commands. */
+export function createShellBackends(shell: HostTransport | SettingsShell): ShellBackends {
+  const { invoke, listen } = shell;
   return {
     settings: {
-      load: () => call<SettingsSnapshot>(METHODS.settingsGet),
-      patch: (patch, expectedRevision) => call<SettingsSnapshot>(METHODS.settingsPatch, { patch, expectedRevision: expectedRevision ?? null }),
-      subscribe: (handler) => on<string[]>(EVENTS.settingsChanged, (e) => (Array.isArray((e as { keys?: unknown }).keys) ? ((e as { keys: string[] }).keys) : null), handler),
-    },
-    models: {
-      list: () => call<ModelEntry[]>(METHODS.modelsList),
-      install: (id) => call<void>(METHODS.modelsInstall, { id }),
-      cancel: (id) => call<void>(METHODS.modelsCancel, { id }),
-      remove: (id) => call<void>(METHODS.modelsRemove, { id }),
-      subscribe: (handler) => on<ModelEntry>(EVENTS.modelsEntry, (e) => (e && typeof (e as ModelEntry).id === "string" ? (e as ModelEntry) : null), handler),
+      describe: () => invoke<SettingsDescription>(METHODS.settingsDescribe),
+      load: () => invoke<SettingsSnapshot>(METHODS.settingsGet),
+      patch: (patch, expectedRevision) => invoke<SettingsSnapshot>(METHODS.settingsPatch, { patch, expectedRevision: expectedRevision ?? null }),
+      reset: (keys, expectedRevision) => invoke<SettingsSnapshot>(METHODS.settingsReset, { keys, expectedRevision: expectedRevision ?? null }),
+      // The host sends the event only to windows that subscribed (by their native label), so the
+      // listener is attached first, then the window subscribes; unsubscribing reverses both.
+      subscribe: async (handler) => {
+        const off = await listen<{ keys?: unknown }>(EVENTS.settingsChanged, (change) => {
+          const keys = change?.keys;
+          if (Array.isArray(keys) && keys.every((k) => typeof k === "string")) handler(keys as string[]);
+        });
+        try {
+          await invoke<number>(METHODS.settingsSubscribe);
+        } catch (e) {
+          off();
+          throw e;
+        }
+        return () => {
+          off();
+          void invoke<void>(METHODS.settingsUnsubscribe).catch(() => undefined);
+        };
+      },
     },
     secrets: {
-      presence: (refs) => call<SecretPresence[]>(METHODS.secretsPresence, { refs }),
-      set: (ref, value) => call<void>(METHODS.secretsSet, { ref, value }),
-      clear: (ref) => call<void>(METHODS.secretsClear, { ref }),
+      presence: (refs) => invoke<SecretPresence[]>(METHODS.secretsPresence, { refs }),
+      // The value goes in and nothing comes back. `replace` is the default: the settings field
+      // replaces a stored key; pass `create` to refuse an occupied slot (`secret_exists`).
+      set: (ref: SecretRef, value: string, intent: WriteIntent = "replace") => invoke<void>(METHODS.secretsSet, { secret: ref, value, intent }),
+      clear: (ref) => invoke<void>(METHODS.secretsClear, { secret: ref }),
     },
   };
 }

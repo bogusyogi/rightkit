@@ -31,6 +31,7 @@ function PermissionsBody({ backend }: { backend: PermissionsBackend }) {
   return (
     <div className="rk-onboarding__card" data-testid="onboarding-permissions">
       {error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}
+      {items.length === 0 && error ? <Button size="sm" variant="secondary" onClick={() => { setError(null); void reload(); }}>Try again</Button> : null}
       {items.length === 0 && !error ? <p className="rk-onboarding__muted">Checking permissions…</p> : null}
       {items.map((item) => (
         <div className="rk-onboarding__row" key={item.id} data-permission-id={item.id}>
@@ -102,6 +103,7 @@ function ModelsBody({ backend, onReady, autoStartDownload, shouldAutoStart, onMo
     <div className="rk-onboarding__card" data-testid="onboarding-models">
       {intro ? <div className="rk-onboarding__intro" data-testid="onboarding-models-intro">{intro}</div> : null}
       {error ? <p className="rk-onboarding__error" role="alert">{error}</p> : null}
+      {error && !loaded ? <Button size="sm" variant="secondary" onClick={() => { setError(null); void reload(); }}>Try again</Button> : null}
       {models.map((model) => {
         const progress = model.progress ?? (model.state === "installed" ? 1 : 0);
         const active = model.state === "downloading" || model.state === "verifying";

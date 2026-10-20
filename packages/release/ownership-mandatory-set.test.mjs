@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { checkApp, checkApps, compareVersions, loadData, lowerBound, main, renderText } from "./ownership-mandatory-set.mjs";
+import { checkApp, checkApps, compareVersions, loadData, lowerBound, main, renderText, validateApplicabilityRecord } from "./ownership-mandatory-set.mjs";
 
 const data = loadData();
 const tmp = () => mkdtempSync(path.join(tmpdir(), "rk-mandatory-"));
@@ -246,5 +246,117 @@ test("mandatory prerelease minimum cannot be qualified by beta.2 against beta.10
     assert.equal(byOwner(checkApp(root, { data: fixtureData }), "rightkit-fs").status, "below-required");
     put(root, "Cargo.toml", '[dependencies]\nrightkit-fs="^1.0.0-beta.10"');
     assert.equal(byOwner(checkApp(root, { data: fixtureData }), "rightkit-fs").status, "ok");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// ---- PK17.scanner: M21/M23 owners and the M22 applicability record (report only; ownerPending unchanged) ----------
+
+test("data file: M21 and M23 list their pending owners without raising any minimum or leaving ownerPending", () => {
+  const pending = Object.fromEntries(data.pendingRows.map((r) => [r.id, r]));
+  assert.deepEqual(pending.M21.pendingOwners.map((o) => `${o.ecosystem}:${o.name}`).sort(), ["cargo:rightkit-daemon", "cargo:rightkit-fs", "cargo:rightkit-qa"]);
+  assert.deepEqual(pending.M23.pendingOwners.map((o) => `${o.ecosystem}:${o.name}`).sort(), ["cargo:rightkit-daemon", "npm:@rightkit/release"]);
+  for (const row of data.pendingRows) {
+    assert.match(row.ownerPending, /never fails/);
+    assert.deepEqual(row.owners, []);
+    for (const o of row.pendingOwners) assert.equal(o.min, minOf(o.name), `${row.id} ${o.name} keeps today's minimum`);
+  }
+  assert.deepEqual(data.applicabilityRecords.M22.roles, ["client", "host", "both", "absent"]);
+});
+
+test("pending M21/M23 owners are reported per app but never counted: report and --enforce behave as before", () => {
+  const root = tmp();
+  try {
+    goodApp(root);
+    const good = checkApp(root, { data });
+    assert.equal(good.violations, 0);
+    for (const row of good.pending) {
+      assert.ok(row.candidateOwners.length >= 2, row.row);
+      assert.ok(row.candidateOwners.every((c) => c.declarationStatus === "ok" && c.enforced === false), row.row);
+    }
+    // An app that is N/A for M20 and so carries no QA owner: the M21 candidate reports missing, the exit code does not change.
+    goodApp(root, { drop: ["rightkit-qa", "@rightkit/qa", "@rightkit/qa-chrome"] });
+    put(root, "rightkit-mandatory.json", { notApplicable: { M20: "fixture app runs no QA harness of its own" } });
+    const report = checkApp(root, { data });
+    assert.equal(report.violations, 0);
+    const m21 = report.pending.find((p) => p.row === "M21");
+    const qa = m21.candidateOwners.find((c) => c.owner === "rightkit-qa");
+    assert.equal(qa.declarationStatus, "missing");
+    assert.equal(qa.enforced, false);
+    assert.deepEqual(report.pending.find((p) => p.row === "M23").candidateOwners.map((c) => c.declarationStatus), ["ok", "ok"]);
+    assert.equal(checkApps([root], { data, enforce: true }).failed, false);
+    assert.match(renderText(checkApps([root], { data })), /not-enforced\s+M21 missing rightkit-qa/);
+    // A row marked N/A for the app has no candidates either.
+    put(root, "rightkit-mandatory.json", { notApplicable: { M20: "fixture app runs no QA harness of its own", M21: "fixture app has no test mode of its own" } });
+    assert.deepEqual(checkApp(root, { data }).pending.find((p) => p.row === "M21").candidateOwners, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("M22 applicability record: valid records are reported and never change the violations or exit code", () => {
+  const root = tmp();
+  try {
+    goodApp(root);
+    const baseline = checkApp(root, { data });
+    put(root, "src-tauri/src/agent.rs", "pub fn register_tools() {}\n");
+    for (const record of [
+      { role: "client", entrypoints: ["src-tauri/src/agent.rs#register_tools"] },
+      { role: "host", entrypoints: ["src-tauri/src/agent.rs"] },
+      { role: "both", entrypoints: ["src-tauri/src/agent.rs::register_tools", "register_tools"] },
+    ]) {
+      put(root, "rightkit-mandatory.json", { M22: record });
+      const report = checkApp(root, { data });
+      assert.equal(report.applicability.M22.status, "recorded", JSON.stringify(report.problems));
+      assert.equal(report.applicability.M22.role, record.role);
+      assert.equal(report.violations, baseline.violations);
+      assert.deepEqual(report.problems, []);
+      assert.equal(checkApps([root], { data, enforce: true }).failed, false);
+    }
+    assert.equal(checkApp(root, { data }).applicability.M22.unverifiedEntrypoints, 1);
+    assert.match(renderText(checkApps([root], { data })), /applicability\s+M22 recorded role=both entrypoints=2 \(1 unverified symbol\)/);
+    rmSync(path.join(root, "rightkit-mandatory.json"));
+    assert.equal(checkApp(root, { data }).applicability.M22.status, "unrecorded");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("M22 applicability record: role absent keeps the row until notApplicable is declared; contradictions are problems", () => {
+  const root = tmp();
+  try {
+    goodApp(root, { drop: ["rightkit-agent-tools"] });
+    put(root, "rightkit-mandatory.json", { M22: { role: "absent", entrypoints: [] } });
+    const absent = checkApp(root, { data });
+    assert.equal(absent.applicability.M22.status, "recorded");
+    assert.equal(byOwner(absent, "rightkit-agent-tools").status, "missing", "the record alone removes nothing");
+    assert.ok(absent.problems.some((p) => /role is absent but notApplicable\.M22 is not declared/.test(p)));
+    put(root, "rightkit-mandatory.json", { M22: { role: "absent", entrypoints: [] }, notApplicable: { M22: "no agent surface: the app exposes and calls no tools" } });
+    const declared = checkApp(root, { data });
+    assert.equal(byOwner(declared, "rightkit-agent-tools"), undefined);
+    assert.deepEqual(declared.problems, []);
+    put(root, "src-tauri/src/agent.rs", "x\n");
+    put(root, "rightkit-mandatory.json", { M22: { role: "client", entrypoints: ["src-tauri/src/agent.rs"] }, notApplicable: { M22: "claims no agent surface at all here" } });
+    assert.ok(checkApp(root, { data }).problems.some((p) => /notApplicable\.M22 is declared but the applicability record says role client/.test(p)));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("M22 applicability record: bad roles, missing or escaping entrypoints and malformed shapes are reported, not thrown", () => {
+  const root = tmp();
+  try {
+    put(root, "src/agent.rs", "x\n");
+    const spec = data.applicabilityRecords.M22;
+    const check = (raw) => validateApplicabilityRecord("M22", raw, { spec, root });
+    assert.equal(check(undefined).status, "unrecorded");
+    for (const raw of [null, "client", ["client"], 7]) assert.equal(check(raw).status, "invalid", JSON.stringify(raw));
+    const reasons = (raw) => check(raw).problems.join("\n");
+    assert.match(reasons({ role: "both-ish", entrypoints: ["src/agent.rs"] }), /role must be one of client\|host\|both\|absent/);
+    assert.match(reasons({ role: "client" }), /entrypoints must be an array/);
+    assert.match(reasons({ role: "client", entrypoints: [] }), /needs at least one real entrypoint/);
+    assert.match(reasons({ role: "absent", entrypoints: ["src/agent.rs"] }), /absent must list no entrypoints/);
+    assert.match(reasons({ role: "client", entrypoints: ["src/missing.rs#x"] }), /file not found/);
+    assert.match(reasons({ role: "client", entrypoints: ["../outside.rs"] }), /relative path inside the app/);
+    assert.match(reasons({ role: "client", entrypoints: ["/etc/agent.rs"] }), /relative path inside the app/);
+    assert.match(reasons({ role: "client", entrypoints: ["C:/x/agent.rs"] }), /relative path inside the app/);
+    assert.match(reasons({ role: "client", entrypoints: ["src/agent.rs", "src/agent.rs"] }), /listed twice/);
+    assert.match(reasons({ role: "client", entrypoints: [""] }), /non-empty string/);
+    assert.match(reasons({ role: "client", entrypoints: ["src"], extra: 1 }), /unknown applicability record key/);
+    assert.equal(check({ role: "client", entrypoints: ["src/agent.rs"] }).status, "recorded");
+    assert.equal(check({ role: "client", entrypoints: ["src"] }).unverifiedEntrypoints, 1, "a bare token is a symbol, recorded unverified");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

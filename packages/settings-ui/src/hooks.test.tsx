@@ -1,56 +1,67 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { StoredLicense } from "@rightkit/license";
+import { LICENSE_MESSAGES, LicenseClientError, type LicenseView } from "@rightkit/license";
 import { useDoctor, useLicenseSection } from "./index.js";
 import type { DoctorCheck, DoctorResult, LicenseClientLike } from "./index.js";
+import { DEACTIVATED, LIFETIME_FREE, LIFETIME_PRO, licenseView } from "./__fixtures__/license-view.js";
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
 
-const active = { status: "active", deviceId: "d", licenseKind: "perpetual", validUntil: null, entitlements: { tier: "pro" } } as unknown as StoredLicense;
+const active = LIFETIME_PRO;
 const make = (over: Partial<LicenseClientLike> = {}) => {
-  const client: LicenseClientLike = { status: async () => null, activate: vi.fn(async () => active), deactivate: vi.fn(async () => ({})), ...over };
+  const client: LicenseClientLike = { status: async () => licenseView(), activate: vi.fn(async () => active), deactivate: vi.fn(async () => DEACTIVATED), ...over };
   return client;
 };
 
 describe("useLicenseSection", () => {
-  it("reads the licence on mount (status or load) and reports pro", async () => {
+  it("reads the licence on mount with status() and reports pro and tier", async () => {
     const { result } = renderHook(() => useLicenseSection({ client: make({ status: async () => active }) }));
     await waitFor(() => expect(result.current.pro).toBe(true));
     expect(result.current.license).toBe(active);
     expect(result.current.tier).toBe("pro");
-    const viaLoad = renderHook(() => useLicenseSection({ client: { activate: async () => active, deactivate: async () => ({}), load: async () => active } }));
-    await waitFor(() => expect(viaLoad.result.current.pro).toBe(true));
   });
-  it("an active licence below the pro tier is licensed but not pro", async () => {
-    const free = { ...active, entitlements: { tier: "free" } } as unknown as StoredLicense;
-    const { result } = renderHook(() => useLicenseSection({ client: make({ status: async () => free }) }));
-    await waitFor(() => expect(result.current.license).toBe(free));
+  it("a licensed view below the pro tier is licensed but not pro", async () => {
+    const { result } = renderHook(() => useLicenseSection({ client: make({ status: async () => LIFETIME_FREE }) }));
+    await waitFor(() => expect(result.current.license).toBe(LIFETIME_FREE));
     expect(result.current.pro).toBe(false);
   });
+  it("a stored but expired licence is not pro", async () => {
+    const expired = licenseView({ ...LIFETIME_PRO, status: "expired", lifecycle: "expired", kind: "term" });
+    const { result } = renderHook(() => useLicenseSection({ client: make({ status: async () => expired }) }));
+    await waitFor(() => expect(result.current.license).toBe(expired));
+    expect(result.current.pro).toBe(false);
+    expect(result.current.tier).toBe("pro");
+  });
   it("is not pro without a licence; a client with no reader means none", async () => {
-    const { result } = renderHook(() => useLicenseSection({ client: { activate: async () => active, deactivate: async () => ({}) } }));
+    const { result } = renderHook(() => useLicenseSection({ client: { activate: async () => active, deactivate: async () => DEACTIVATED } }));
     expect(result.current.pro).toBe(false);
     expect(await result.current.refresh()).toBeNull();
   });
-  it("surfaces a failed read as error; refresh recovers and clears it", async () => {
+  it("surfaces a failed read as its fixed message; refresh recovers and clears it", async () => {
     let fail = true;
-    const client = make({ status: async () => { if (fail) throw new Error("read failed"); return active; } });
+    const client = make({ status: async () => { if (fail) throw new LicenseClientError("network", "networkUnavailable"); return active; } });
     const { result } = renderHook(() => useLicenseSection({ client }));
-    await waitFor(() => expect(result.current.error).toBe("read failed"));
+    await waitFor(() => expect(result.current.error).toBe(LICENSE_MESSAGES.networkUnavailable));
     fail = false;
     await act(async () => { await result.current.refresh(); });
     expect(result.current.error).toBeNull();
     expect(result.current.pro).toBe(true);
   });
-  it("activate success: sets license, fires onChange, returns the licence", async () => {
+  it("shows only the generic text for an untyped error, never its message", async () => {
+    const client = make({ status: async () => { throw new Error("server said: secret-detail"); } });
+    const { result } = renderHook(() => useLicenseSection({ client }));
+    await waitFor(() => expect(result.current.error).toBe(LICENSE_MESSAGES.unknown));
+    expect(result.current.error).not.toContain("secret-detail");
+  });
+  it("activate success: sets the view, fires onChange, returns the view", async () => {
     const onChange = vi.fn();
     const client = make();
     const { result } = renderHook(() => useLicenseSection({ client, onChange }));
-    let out: StoredLicense | null = null;
+    let out: LicenseView | null = null;
     await act(async () => { out = await result.current.activate("KEY"); });
     expect(client.activate).toHaveBeenCalledWith("KEY");
     expect(out).toBe(active);
@@ -65,28 +76,28 @@ describe("useLicenseSection", () => {
     await act(async () => { expect(await result.current.activate("  ")).toBeNull(); });
     expect(client.activate).not.toHaveBeenCalled();
   });
-  it("activate failure: thrown error is error, returns null, no onChange", async () => {
+  it("activate failure: a typed error shows its fixed text, returns null, no onChange", async () => {
     const onChange = vi.fn();
-    const client = make({ activate: async () => { throw new Error("offline"); } });
+    const client = make({ activate: async () => { throw new LicenseClientError("network", "networkUnavailable"); } });
     const { result } = renderHook(() => useLicenseSection({ client, onChange }));
     await act(async () => { expect(await result.current.activate("K")).toBeNull(); });
-    expect(result.current.error).toBe("offline");
+    expect(result.current.error).toBe(LICENSE_MESSAGES.networkUnavailable);
     expect(result.current.pro).toBe(false);
     expect(onChange).not.toHaveBeenCalled();
   });
-  it("activate with a rejected licence: error is its message or the fallback, onChange still fires", async () => {
+  it("activate with a rejected view: the message code selects the fixed text, onChange still fires", async () => {
     const onChange = vi.fn();
-    const rejected = { status: "invalid", message: "Key revoked" } as StoredLicense;
-    const { result, rerender } = renderHook((p: { c: LicenseClientLike }) => useLicenseSection({ client: p.c, onChange, notAcceptedMessage: "Nope." }), { initialProps: { c: make({ activate: async () => rejected }) } });
+    const revoked = licenseView({ status: "invalid", lifecycle: "invalid", message: "revoked" });
+    const { result, rerender } = renderHook((p: { c: LicenseClientLike }) => useLicenseSection({ client: p.c, onChange, notAcceptedMessage: "Nope." }), { initialProps: { c: make({ activate: async () => revoked }) } });
     await act(async () => { await result.current.activate("K"); });
-    expect(result.current.error).toBe("Key revoked");
-    expect(onChange).toHaveBeenCalledWith(rejected);
-    rerender({ c: make({ activate: async () => ({ status: "failed" } as StoredLicense) }) });
+    expect(result.current.error).toBe(LICENSE_MESSAGES.revoked);
+    expect(onChange).toHaveBeenCalledWith(revoked);
+    rerender({ c: make({ activate: async () => licenseView({ status: "invalid", message: "none" }) }) });
     await act(async () => { await result.current.activate("K"); });
     expect(result.current.error).toBe("Nope.");
   });
   it("activating is true while the call is in flight", async () => {
-    let release!: (l: StoredLicense) => void;
+    let release!: (l: LicenseView) => void;
     const client = make({ activate: () => new Promise((r) => { release = r; }) });
     const { result } = renderHook(() => useLicenseSection({ client }));
     let p!: Promise<unknown>;
@@ -96,15 +107,16 @@ describe("useLicenseSection", () => {
     await act(async () => { release(active); await p; });
     expect(result.current.activating).toBe(false);
   });
-  it("deactivate(): runs at once regardless of confirmDeactivate, then clears licence and fires onChange(null)", async () => {
+  it("deactivate(): runs at once regardless of confirmDeactivate, then applies the returned view and fires onChange", async () => {
     const onChange = vi.fn();
     const client = make({ status: async () => active });
     const { result } = renderHook(() => useLicenseSection({ client, onChange, confirmDeactivate: true }));
     await waitFor(() => expect(result.current.pro).toBe(true));
     await act(async () => { await result.current.deactivate(); });
     expect(client.deactivate).toHaveBeenCalledTimes(1);
-    expect(result.current.license).toBeNull();
-    expect(onChange).toHaveBeenCalledWith(null);
+    expect(result.current.license).toBe(DEACTIVATED);
+    expect(result.current.pro).toBe(false);
+    expect(onChange).toHaveBeenCalledWith(DEACTIVATED);
   });
   it("requestDeactivate with confirmation on: first call arms, second confirms, cancel disarms", async () => {
     const client = make({ status: async () => active });
@@ -118,7 +130,7 @@ describe("useLicenseSection", () => {
     act(() => result.current.requestDeactivate());
     await act(async () => { result.current.requestDeactivate(); });
     await waitFor(() => expect(client.deactivate).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current.license).toBeNull());
+    await waitFor(() => expect(result.current.license).toBe(DEACTIVATED));
     expect(result.current.confirmPending).toBe(false);
   });
   it("requestDeactivate confirmation disarms itself after 4 seconds", async () => {
@@ -142,28 +154,28 @@ describe("useLicenseSection", () => {
   });
   it("beforeDeactivate runs first; a throw aborts, shows the error and keeps the licence", async () => {
     const order: string[] = [];
-    const client = make({ status: async () => active, deactivate: vi.fn(async () => { order.push("client"); return {}; }) });
+    const client = make({ status: async () => active, deactivate: vi.fn(async () => { order.push("client"); return DEACTIVATED; }) });
     const onChange = vi.fn();
     const { result, rerender } = renderHook((p: { b: () => void }) => useLicenseSection({ client, onChange, beforeDeactivate: p.b }), { initialProps: { b: () => { order.push("before"); } } });
     await waitFor(() => expect(result.current.pro).toBe(true));
     await act(async () => { await result.current.deactivate(); });
     expect(order).toEqual(["before", "client"]);
-    rerender({ b: () => { throw new Error("bridge busy"); } });
+    rerender({ b: () => { throw new LicenseClientError("busy", "busy"); } });
     onChange.mockClear();
     await act(async () => { await result.current.activate("K"); }); // back to active
     (client.deactivate as ReturnType<typeof vi.fn>).mockClear();
     await act(async () => { await result.current.deactivate(); });
     expect(client.deactivate).not.toHaveBeenCalled();
-    expect(result.current.error).toBe("bridge busy");
+    expect(result.current.error).toBe(LICENSE_MESSAGES.busy);
     expect(result.current.pro).toBe(true);
     expect(onChange).toHaveBeenCalledTimes(1); // the re-activation only
   });
-  it("a failed client.deactivate keeps the licence and sets error", async () => {
-    const client = make({ status: async () => active, deactivate: async () => { throw new Error("server down"); } });
+  it("a failed client.deactivate keeps the licence and sets its fixed error", async () => {
+    const client = make({ status: async () => active, deactivate: async () => { throw new LicenseClientError("network", "networkUnavailable"); } });
     const { result } = renderHook(() => useLicenseSection({ client }));
     await waitFor(() => expect(result.current.pro).toBe(true));
     await act(async () => { await result.current.deactivate(); });
-    expect(result.current.error).toBe("server down");
+    expect(result.current.error).toBe(LICENSE_MESSAGES.networkUnavailable);
     expect(result.current.pro).toBe(true);
   });
 });
@@ -278,18 +290,18 @@ describe("useDoctor", () => {
 
 describe("useLicenseSection loaded", () => {
   it("is false until the first read settles, then true (also after a failed read)", async () => {
-    let release!: (l: StoredLicense | null) => void;
+    let release!: (l: LicenseView) => void;
     const { result } = renderHook(() => useLicenseSection({ client: make({ status: () => new Promise((r) => { release = r; }) }) }));
     expect(result.current.loaded).toBe(false);
     expect(result.current.license).toBeNull();
-    await act(async () => { release(null); });
+    await act(async () => { release(licenseView()); });
     await waitFor(() => expect(result.current.loaded).toBe(true));
     const failing = renderHook(() => useLicenseSection({ client: make({ status: async () => { throw new Error("ipc down"); } }) }));
     await waitFor(() => expect(failing.result.current.loaded).toBe(true));
-    expect(failing.result.current.error).toBe("ipc down");
+    expect(failing.result.current.error).toBe(LICENSE_MESSAGES.unknown);
   });
   it("is true at once for a client that cannot read", () => {
-    const { result } = renderHook(() => useLicenseSection({ client: { activate: async () => active, deactivate: async () => ({}) } }));
+    const { result } = renderHook(() => useLicenseSection({ client: { activate: async () => active, deactivate: async () => DEACTIVATED } }));
     expect(result.current.loaded).toBe(true);
   });
 });
@@ -317,5 +329,43 @@ describe("useDoctor probe", () => {
     await act(async () => { await result.current.runAll(); });
     expect(result.current.status.a).toEqual({ state: "done", result: { ok: false, detail: "no report" } });
     expect(result.current.report).toBeNull();
+  });
+});
+
+describe("useLicenseSection verify", () => {
+  const verifying = licenseView({ status: "active", lifecycle: "verification_required", tier: "pro", revisionState: "active" });
+  it("applies the refreshed view through state and onChange, and clears canVerify once it no longer needs verifying", async () => {
+    const onChange = vi.fn();
+    const client = make({ status: async () => verifying, refresh: vi.fn(async () => ({ view: LIFETIME_PRO, outcome: "refreshed" as const })) });
+    const { result } = renderHook(() => useLicenseSection({ client, onChange }));
+    await waitFor(() => expect(result.current.canVerify).toBe(true));
+    let out: LicenseView | null = null;
+    await act(async () => { out = await result.current.verify(); });
+    expect(out).toBe(LIFETIME_PRO);
+    expect(result.current.license).toBe(LIFETIME_PRO);
+    expect(result.current.canVerify).toBe(false);
+    expect(onChange).toHaveBeenCalledWith(LIFETIME_PRO);
+    expect(result.current.verifying).toBe(false);
+  });
+  it("verifying is true while refresh runs; a typed error sets verifyError to its fixed text and keeps the licence", async () => {
+    let fail!: (e: unknown) => void;
+    const client = make({ status: async () => verifying, refresh: () => new Promise((_, reject) => { fail = reject; }) });
+    const { result } = renderHook(() => useLicenseSection({ client }));
+    await waitFor(() => expect(result.current.canVerify).toBe(true));
+    let p!: Promise<unknown>;
+    act(() => { p = result.current.verify(); });
+    expect(result.current.verifying).toBe(true);
+    await act(async () => { fail(new LicenseClientError("busy", "busy")); await p; });
+    expect(result.current.verifying).toBe(false);
+    expect(result.current.verifyError).toBe(LICENSE_MESSAGES.busy);
+    expect(result.current.license).toBe(verifying);
+  });
+  it("canVerify is false without refresh, and verify resolves null", async () => {
+    const { result } = renderHook(() => useLicenseSection({ client: make({ status: async () => verifying }) }));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.canVerify).toBe(false);
+    let out: LicenseView | null = verifying;
+    await act(async () => { out = await result.current.verify(); });
+    expect(out).toBeNull();
   });
 });

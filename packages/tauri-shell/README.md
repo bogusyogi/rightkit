@@ -6,7 +6,7 @@ Typed renderer bridge for the `rightkit-tauri-shell` Tauri crate. It exposes win
 |---|---|
 | Where it runs | App webview UI (renderer side of the Tauri IPC) |
 | Rust pair | `rightkit-tauri-shell` (webview hardening, window state, native menu, tray, single instance, deep links, autostart, clipboard, engine wiring) |
-| Version | 0.1.1 (see CHANGELOG.md) |
+| Version | 0.1.2, unpublished (0.1.1 is the published version; see CHANGELOG.md) |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points
@@ -15,7 +15,7 @@ Typed renderer bridge for the `rightkit-tauri-shell` Tauri crate. It exposes win
 |---|---|
 | `@rightkit/tauri-shell` | `createShell(transport?, options?)`, `tauriTransport()`, `EVENTS`, `asShellError`, `DEFAULT_QUIT_TIMEOUT_MS`; types `ShellBridge`, `ShellTransport`, `ShellStatus`, `ShellCapabilities`, `QuitHandler`, `QuitOptions`, `QuitReport`, `ShellOptions`, `DeepLink`, `WindowSpec`, `MenuEntry`, `NotificationRequest`, `NotifyOutcome`, `PresenceState`, `IdleStatus`, `EngineEvent`, and others |
 
-`createShell()` returns an object with `ready()`, `status()`, `capabilities()`, `quit(options?)`, `onQuitRequested(handler)`, `openExternal(url)`, `window.do(action)`, `menu`, `tray`, `deepLinks`, `onSecondInstance`, `onStall`, `autostart`, `clipboard`, `notifications`, `presence`, `idle`, `paths`, `recovery`, `engine`, and `bridge()`. `bridge()` returns a `ShellBridge` with `window.minimize()`, `window.toggleMaximize()`, `window.close()`, `openExternal(url)`, `onMenuAction(handler)` and `setNativeTheme(theme)`; `onMenuAction` and `setNativeTheme` are not on the `createShell()` object itself.
+`createShell()` returns an object with `ready()`, `status()`, `capabilities()`, `quit(options?)`, `onQuitRequested(handler)`, `openExternal(url)`, `window.do(action)`, `menu` (`setEnabled`, `setChecked`, `setState`, `onClick`), `tray`, `deepLinks`, `onSecondInstance`, `onStall`, `autostart`, `clipboard`, `notifications`, `presence`, `idle`, `paths`, `openPaths`, `associations`, `print(ui?)`, `onPrintError`, `recovery`, `surface`, `preview`, `legal`, `update`, `engine`, and `bridge()`. `bridge()` returns a `ShellBridge` with `window.minimize()`, `window.toggleMaximize()`, `window.close()`, `openExternal(url)`, `onMenuAction(handler)` and `setNativeTheme(theme)`; `onMenuAction` and `setNativeTheme` are not on the `createShell()` object itself.
 
 ## Example
 
@@ -108,3 +108,50 @@ await shell.notifications.post({ title: "Send failed", body: "Retry from the out
 
 - `createShell` throws when `__TAURI_INTERNALS__` is absent. Pass a custom `ShellTransport` for tests; `tests/shell.test.mjs` shows one.
 - The quit drain is off unless the host opts in with `ShellBuilder::quit_drain(true)`. Until then `onQuitRequested` rejects with `unsupported` and `quit()` quits at once.
+
+## Menu state, print, open paths and file associations
+
+These wrap host commands that `rightkit_tauri_shell::handler!` registers; they need a host built from the crate minor that carries them.
+
+```ts
+// Check items: `{ kind: 'check', id, label, checked }` in a menu spec; submenus: `{ kind: 'submenu', label, entries }`.
+await shell.menu.setChecked("view.grid", true);
+await shell.menu.setState([{ id: "file.save", enabled: false }, { id: "view.grid", checked: false }]);
+
+await shell.print();            // the calling window; shell.print("system") picks the Windows system dialog
+await shell.onPrintError((message) => report(message));
+
+// Files the app was asked to open. Subscribe first, then call ready(): queued paths come back once.
+await shell.openPaths.onOpen(({ paths }) => open(paths));
+const first = await shell.openPaths.ready();
+
+// Default-handler registration. The file groups are native state; the renderer sends only group ids.
+const status = await shell.associations.status();
+const result = await shell.associations.set(["documents"]); // result.userActionRequired: Windows opened Default apps
+await shell.associations.openDefaultApps();
+```
+
+`window.open(spec)` takes every `WindowSpec` field the host knows: `minWidth`, `minHeight`, `decorations`, `center`, `fullscreen`, `skipTaskbar`, `x`, `y`, `parent`, `resizable`, `shadow`, `visible`, besides label, title, path, size, `focused` and `alwaysOnTop`.
+
+## Surface, preview, legal receipt and update host commands
+
+These wrap commands the crate registers through `rightkit_tauri_shell::handler!`. The preview and legal receipt commands need the crate's `host-services` feature; the update commands need `update`. Each command name is exported as a constant (`SURFACE_COMMAND`, `PREVIEW_COMMANDS`, `LEGAL_RECEIPT_COMMANDS`, `UPDATE_COMMANDS`, `UPDATE_PROGRESS_EVENT`), so another package can import the name instead of repeating it. `LEGAL_RECEIPT_COMMANDS` is identical to the constant in `@rightkit/onboarding`.
+
+```ts
+// Window surfaces: the ids are native config (ShellBuilder::surface); the host shapes the calling window.
+const report = await shell.surface.set("setup"); // { surface, resized, revealed, skipped }
+
+// Preview documents: the iframe URL is built by the host, never supplied by the renderer.
+const { token, url } = await shell.preview.register("mdx", html);
+await shell.preview.revoke(token);
+await shell.preview.revokeAll();
+
+// Legal receipt: send the declaration (no time); the host checks it against its manifest, stamps native UTC time, stores it.
+const record = await shell.legal.read(); // LegalReceiptRecord | null
+await shell.legal.create({ version, documentsHash, documents, eligibilityBasis: "individual", surface: "first_run" });
+await shell.legal.reset();
+```
+
+Host rejections have the shape `{ code, message, details? }` (`HostError`); `asShellError` passes them through. There is no legal `write`: the renderer never supplies a stored record.
+
+`shell.update` is the raw transport for the five `rightkit_update_*` commands and the `rightkit://update-progress` event (`check`, `status`, `download(handleId)`, `install(handleId)`, `cancel(handleId)`, `onProgress`). Its types (`UpdateHostCheck`, `UpdateHostStatus`, `UpdateHostDownload`, `UpdateHostInstall`, `UpdateHostProgress`, `UpdateHostError`) are closed: fixed fields, closed enums and message codes, and no URL, header, token or path. The replies are not validated here; `@rightkit/app-update/native` validates them and owns the policy and message text, so use it for the update UI.

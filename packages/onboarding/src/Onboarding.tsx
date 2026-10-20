@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { LegalGate } from "@rightkit/legal-ui";
 import { Button } from "@rightkit/react-shell/react";
 import { cx } from "./ui.js";
-import { licenseStep, modelsStep, permissionsStep } from "./steps.js";
-import type { LegalAcceptanceRecord, LegalGateDocument, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
+import { licenseStep, modelsStep, permissionsStep, signInStep } from "./steps.js";
+import type { EligibilityBasis, LegalAcceptanceRecord, LegalGateDocument, LegalStepConfig, OnboardingLabels, OnboardingProps, OnboardingResult, OnboardingStep, OnboardingStepContext, PersistedOnboardingState } from "./types.js";
 
 const KEY = "onboarding.state";
 const INITIAL: PersistedOnboardingState = { version: 1, currentStep: 0, completed: [], skipped: false, legalAccepted: false };
@@ -16,7 +16,8 @@ function isCanonicalUtc(value: unknown): value is string {
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
 }
 
-function readAcceptance(value: unknown): LegalAcceptanceRecord | undefined {
+/** @internal Validates one stored or returned acceptance record; `undefined` when it is not a well-formed record. */
+export function readAcceptance(value: unknown): LegalAcceptanceRecord | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const r = value as Partial<LegalAcceptanceRecord>;
   if (typeof r.version !== "string" || !r.version.trim()) return undefined;
@@ -26,7 +27,8 @@ function readAcceptance(value: unknown): LegalAcceptanceRecord | undefined {
   return { version: r.version, documentsHash: r.documentsHash, acceptedAt: r.acceptedAt, eligibilityBasis: r.eligibilityBasis };
 }
 
-function readState(value: unknown): PersistedOnboardingState {
+/** @internal Normalises the persisted `onboarding.state` value. */
+export function readState(value: unknown): PersistedOnboardingState {
   if (!value || typeof value !== "object") return INITIAL;
   const candidate = value as Partial<PersistedOnboardingState>;
   const legalAcceptance = readAcceptance(candidate.legalAcceptance);
@@ -41,6 +43,7 @@ function readState(value: unknown): PersistedOnboardingState {
     legalAccepted: legalAcceptance !== undefined || (!hasStoredAcceptance && candidate.legalAccepted === true),
     eligibilityBasis: legalAcceptance?.eligibilityBasis ?? (candidate.eligibilityBasis === "individual" || candidate.eligibilityBasis === "enterprise" ? candidate.eligibilityBasis : undefined),
     ...(legalAcceptance ? { legalAcceptance } : {}),
+    ...(candidate.legalReopened === true ? { legalReopened: true } : {}),
     ...(Array.isArray(candidate.skippedSteps) ? { skippedSteps: candidate.skippedSteps.filter((x): x is string => typeof x === "string") } : {}),
   };
 }
@@ -59,6 +62,8 @@ export function isLegalAccepted(
   custom?: (state: PersistedOnboardingState) => boolean,
   requiredDocumentsHash?: string,
 ): boolean {
+  // A reopened agreement (`reopenLegalAcceptance`) is not accepted until the user agrees again, whatever the host's check says.
+  if (state.legalReopened === true) return false;
   if (custom) return custom(state);
   // A stored record whose timestamp is not canonical UTC is not an acceptance,
   // even when the host passes no version/hash requirement (same rule as legal receipts).
@@ -103,7 +108,7 @@ function NoticeList({ documents }: { documents: readonly LegalGateDocument[] }) 
   return <ul className="rk-onboarding__notices">{documents.map((d) => <li key={d.title}>{d.onOpen ? <button type="button" onClick={d.onOpen}>{d.title}</button> : d.url ? <a href={d.url} target="_blank" rel="noreferrer">{d.title}</a> : d.title}</li>)}</ul>;
 }
 
-export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides }: OnboardingProps) {
+export function Onboarding({ settings, legal, legalMode = "gate", appName, steps = [], permissions, models, license, signIn, receiptDocuments, onComplete, onSkip, className, layout = "window", requiredVersion, requiredDocumentsHash, isAccepted, documentsHash, beforeLegalGate, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro, allowSkip = true, titlebar, dragRegion, legalDragRegion = false, legalReceipt, labels: labelOverrides }: OnboardingProps) {
   if (legalMode === "gate" && !legal) throw new Error("Onboarding: `legal` is required when legalMode is \"gate\"");
   const L: OnboardingLabels = { ...DEFAULT_LABELS, ...labelOverrides };
   const gated = legalMode === "gate";
@@ -119,6 +124,8 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   /** Values passed to `ctx.setResult`, keyed by step id; handed to `onComplete`. */
   const stepResults = useRef<Record<string, unknown>>({});
   const [continuing, setContinuing] = useState(false);
+  /** A receipt the native service already created for this agreement when saving the settings failed; a retry reuses it instead of stamping a second one. */
+  const createdReceipt = useRef<{ key: string; record: LegalAcceptanceRecord } | null>(null);
   /** Persists a patch; throws when the settings backend rejects it. */
   const persist = useCallback(async (patch: Partial<PersistedOnboardingState>) => {
     setSaving(true); setError(null);
@@ -157,8 +164,9 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     ...(permissions ? [permissionsStep(permissions)] : []),
     ...(models ? [modelsStep(models, { required: requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, intro: modelsIntro, startGuard: modelsStarted })] : []),
     ...(license ? [licenseStep(license)] : []),
+    ...(signIn ? [signInStep(signIn)] : []),
     ...steps,
-  ], [gated, legalMode, legal?.documents, license, models, permissions, steps, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro]);
+  ], [gated, legalMode, legal?.documents, license, signIn, models, permissions, steps, requireModel, autoStartDownload, shouldAutoStart, onModelsStepEnter, modelsIntro]);
   const activeState = state ?? INITIAL;
   const accepted = !gated || isLegalAccepted(activeState, requiredVersion, isAccepted, requiredDocumentsHash);
   const needsGate = state !== null && !accepted;
@@ -180,7 +188,7 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
   }, [needsGate, gateCleared, beforeLegalGate]);
 
   const setResult = useCallback((value: unknown) => { stepResults.current[activeId] = value; }, [activeId]);
-  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, ready: readyMap, setReady, setResult };
+  const context: OnboardingStepContext = { state: activeState, settings, setState: saveStep, permissions, models, license, signIn, ready: readyMap, setReady, setResult };
   const canContinue = active?.canContinue ? active.canContinue(context) : true;
   const runCallback = async (callback: (() => void | Promise<void>) | undefined) => {
     try { await callback?.(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -220,13 +228,38 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
     if (!gateCleared) return <div className={rootClass} aria-busy="true"><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><p className="rk-onboarding__muted">{L.loading}</p></div>;
     if (!legal) return null;
     const reacceptance = activeState.legalAccepted || activeState.legalAcceptance !== undefined;
-    return <div className={cx("rk-onboarding rk-onboarding--legal", layout === "contained" && "rk-onboarding--contained", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} layout={layout} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
-      const legalAcceptance: LegalAcceptanceRecord = { version: requiredVersion ?? "1", documentsHash: documentsHash ?? requiredDocumentsHash ?? await hashDocuments(legal.documents), acceptedAt: new Date().toISOString(), eligibilityBasis };
-      if (legalReceipt) {
-        try { await legalReceipt.write(legalAcceptance); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
+    /** Records the acceptance and returns the record to mirror into the settings state. A throw keeps the gate closed. */
+    const recordAcceptance = async (gate: LegalStepConfig, basis: EligibilityBasis): Promise<LegalAcceptanceRecord> => {
+      const version = requiredVersion ?? "1";
+      const hash = documentsHash ?? requiredDocumentsHash ?? await hashDocuments(gate.documents);
+      if (legalReceipt?.create) {
+        // Native path: the service stamps the time and stores the receipt; nothing is built in the renderer.
+        const key = [version, hash, basis].join("\n");
+        if (createdReceipt.current?.key === key) return createdReceipt.current.record;
+        const declared = receiptDocuments ?? gate.documents.map((d) => ({ title: d.title, ...(d.url ? { url: d.url } : {}) }));
+        const created = readAcceptance(await legalReceipt.create({ version, documentsHash: hash, documents: declared, eligibilityBasis: basis, surface: "first_run" }));
+        if (!created) throw new Error("The legal receipt service returned an invalid record.");
+        // A receipt for another agreement would leave the gate showing again after a "successful" save.
+        if (created.eligibilityBasis !== basis || (requiredVersion !== undefined && created.version !== requiredVersion) || (requiredDocumentsHash !== undefined && created.documentsHash !== requiredDocumentsHash)) {
+          throw new Error("The legal receipt does not match the agreement that was shown.");
+        }
+        createdReceipt.current = { key, record: created };
+        return created;
       }
+      // LEGACY: the renderer builds the record with the webview clock. Deprecated; implement `legalReceipt.create`.
+      const record: LegalAcceptanceRecord = { version, documentsHash: hash, acceptedAt: new Date().toISOString(), eligibilityBasis: basis };
+      if (legalReceipt) {
+        if (!legalReceipt.write) throw new Error("The legal receipt can neither create nor write an acceptance.");
+        await legalReceipt.write(record);
+      }
+      return record;
+    };
+    return <div className={cx("rk-onboarding rk-onboarding--legal", layout === "contained" && "rk-onboarding--contained", className)} data-testid="onboarding-legal" data-variant={reacceptance ? "re-acceptance" : "first-run"}><TitleStrip titlebar={titlebar} dragRegion={legalDragRegion} /><LegalGate {...legal} layout={layout} variant={reacceptance ? "re-acceptance" : "first-run"} onQuit={() => void legal.onQuit?.()} onAgree={async ({ eligibilityBasis }) => {
+      let legalAcceptance: LegalAcceptanceRecord;
+      try { legalAcceptance = await recordAcceptance(legal, eligibilityBasis); } catch (e) { setError(e instanceof Error ? e.message : String(e)); throw e; }
       const progress = reacceptance ? {} : { completed: ["legal"], currentStep: builtins.length > 1 ? 1 : 0 };
-      await persist({ legalAccepted: true, eligibilityBasis, legalAcceptance, ...progress });
+      await persist({ legalAccepted: true, legalReopened: false, eligibilityBasis, legalAcceptance, ...progress });
+      createdReceipt.current = null;
       if (!reacceptance && builtins.length === 1) await onComplete(resultOf(["legal"], []));
     }} /></div>;
   }

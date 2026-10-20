@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/doc-render",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
@@ -11,11 +11,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./styles.css": "./styles.css"
+    "./styles.css": "./styles.css",
+    "./shiki.css": "./shiki.css"
   },
   "files": [
     "dist",
     "styles.css",
+    "shiki.css",
     "README.md",
     "LICENSE-MIT",
     "LICENSE-APACHE",
@@ -31,6 +33,7 @@
     "@types/mdast": "^4.0.4",
     "dompurify": "^3.4.17",
     "github-slugger": "^2.0.0",
+    "parse5": "8.0.1",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",

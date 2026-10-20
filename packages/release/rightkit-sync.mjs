@@ -192,6 +192,14 @@ export function stageSourceVersions(entries, { file = VERSIONS_FILE, root = righ
   return { changes, copies, written };
 }
 
+/** Feed file and consumer-copy root of one requested workspace. recordPublished/stageSourceVersions default to the
+ * location of THIS module, which is inside the package store when right-release runs from an installed
+ * @rightkit/release; every caller that knows its workspace passes these explicitly. */
+export function workspaceFeedOptions(workspaceRoot) {
+  const root = path.resolve(workspaceRoot);
+  return { root, file: path.join(root, "packages", "release", "rightkit-versions.json") };
+}
+
 /** Record one just-published version (the registry index can lag the upload) and refresh the copies.
  * Called by right-release after a verified cargo or npm publish; never fails the publish itself unless `strict` is set. */
 export function recordPublished({ registry, name, version }, { file = VERSIONS_FILE, root = rightkitRoot, log = (line) => process.stdout.write(`${line}\n`), strict = false } = {}) {

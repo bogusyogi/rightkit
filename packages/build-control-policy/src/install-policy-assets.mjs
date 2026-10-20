@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { CORE_FILE, HOOKS, LAUNCH_DIRECTORY, POINTER_FILE, POINTER_SCHEMA } from './hook-launcher.mjs';
 const packageRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const files = [
+  'agent-heavy-write-guard.mjs',
   'ownership-write-hook-cli.mjs',
   'ownership-write-hook.mjs',
   'ownership-source.mjs',

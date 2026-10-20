@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createShell, EVENTS, DEFAULT_QUIT_TIMEOUT_MS } from '../dist/index.js';
+import {
+  createShell, EVENTS, DEFAULT_QUIT_TIMEOUT_MS, asShellError,
+  SURFACE_COMMAND, PREVIEW_COMMANDS, LEGAL_RECEIPT_COMMANDS, UPDATE_COMMANDS, UPDATE_PROGRESS_EVENT,
+} from '../dist/index.js';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -284,4 +287,200 @@ test('a capability probe failure other than a missing command propagates as a ty
     },
   });
   await assert.rejects(createShell(host.transport).capabilities(), { code: 'io', message: 'broken' });
+});
+
+// ---- Menu state, print, open paths, associations, window spec --------------------------------
+
+const noop = () => undefined;
+
+test('menu.setChecked and menu.setState call the registered commands with their native argument names', async () => {
+  const host = fakeHost({ handlers: { rk_shell_set_menu_item_checked: noop, rk_shell_set_menu_state: noop } });
+  const shell = createShell(host.transport);
+  await shell.menu.setChecked('view.grid', true);
+  await shell.menu.setState([{ id: 'file.save', enabled: false }, { id: 'view.grid', checked: false }]);
+  assert.deepEqual(host.calls, [
+    { command: 'rk_shell_set_menu_item_checked', args: { id: 'view.grid', checked: true } },
+    { command: 'rk_shell_set_menu_state', args: { updates: [{ id: 'file.save', enabled: false }, { id: 'view.grid', checked: false }] } },
+  ]);
+});
+
+test('print sends the Windows print UI choice, defaulting to null, and onPrintError listens on the shell event', async () => {
+  const host = fakeHost({ handlers: { rk_shell_print: noop } });
+  const shell = createShell(host.transport);
+  await shell.print();
+  await shell.print('system');
+  assert.deepEqual(host.calls.map((c) => c.args), [{ ui: null }, { ui: 'system' }]);
+  const seen = [];
+  await shell.onPrintError((m) => seen.push(m));
+  host.emit(EVENTS.printError, 'webview2 refused');
+  assert.deepEqual(seen, ['webview2 refused']);
+  assert.equal(EVENTS.printError, 'rightkit-shell://print-error');
+});
+
+test('openPaths.ready drains the granted display paths and onOpen delivers later ones', async () => {
+  const host = fakeHost({ handlers: { rk_shell_open_paths_ready: () => ['C:\docs\a.md'] } });
+  const shell = createShell(host.transport);
+  const later = [];
+  await shell.openPaths.onOpen((e) => later.push(...e.paths));
+  assert.deepEqual(await shell.openPaths.ready(), ['C:\docs\a.md']);
+  host.emit(EVENTS.openPaths, { paths: ['/tmp/b.md'] });
+  assert.deepEqual(later, ['/tmp/b.md']);
+  assert.equal(EVENTS.openPaths, 'rightkit-shell://open-paths');
+});
+
+test('associations pass only group ids and a timeout', async () => {
+  const status = { groups: [{ id: 'docs', extensions: ['md'], handlers: [], allSet: false }] };
+  const host = fakeHost({
+    handlers: {
+      rk_shell_associations_status: () => status,
+      rk_shell_associations_set: () => ({ groups: status.groups, allSet: false, userActionRequired: true }),
+      rk_shell_open_default_apps: noop,
+    },
+  });
+  const shell = createShell(host.transport);
+  assert.deepEqual(await shell.associations.status(), status);
+  await shell.associations.status(['docs']);
+  assert.equal((await shell.associations.set(['docs'], 5000)).userActionRequired, true);
+  await shell.associations.set();
+  await shell.associations.openDefaultApps();
+  assert.deepEqual(host.calls.map((c) => [c.command, c.args]), [
+    ['rk_shell_associations_status', { groups: null }],
+    ['rk_shell_associations_status', { groups: ['docs'] }],
+    ['rk_shell_associations_set', { groups: ['docs'], timeoutMs: 5000 }],
+    ['rk_shell_associations_set', { groups: null, timeoutMs: null }],
+    ['rk_shell_open_default_apps', undefined],
+  ]);
+});
+
+test('window.open forwards every WindowSpec field and the tray accepts check and submenu entries as given', async () => {
+  const host = fakeHost({ handlers: { rk_shell_open_window: (a) => a.spec.label, rk_shell_set_tray: noop, rk_shell_open_login_items_settings: noop } });
+  const shell = createShell(host.transport);
+  const spec = { label: 'setup', title: 'Setup', path: 'setup.html', width: 960, height: 640, focused: true, alwaysOnTop: false, minWidth: 800, minHeight: 500, decorations: false, center: true, fullscreen: false, skipTaskbar: true, x: 10, y: 20, parent: 'main', resizable: false, shadow: false, visible: false };
+  assert.equal(await shell.window.open(spec), 'setup');
+  const items = [{ kind: 'check', id: 'view.grid', label: 'Grid', checked: true }, { kind: 'submenu', label: 'Sort', entries: [{ kind: 'item', id: 'sort.name', label: 'Name' }, { kind: 'separator' }] }];
+  await shell.tray.update({ items });
+  await shell.autostart.openLoginItemsSettings();
+  assert.deepEqual(host.calls[0].args, { spec });
+  assert.deepEqual(host.calls[1].args, { update: { items } });
+  assert.equal(host.calls[2].command, 'rk_shell_open_login_items_settings');
+});
+
+// ---- Surface, preview, legal receipt and update host commands -------------------------------
+
+test('command and event constants carry the native names', () => {
+  assert.equal(SURFACE_COMMAND, 'rk_shell_set_surface');
+  assert.deepEqual({ ...PREVIEW_COMMANDS }, {
+    register: 'rightkit_preview_register',
+    revoke: 'rightkit_preview_revoke',
+    revokeAll: 'rightkit_preview_revoke_all',
+  });
+  assert.deepEqual({ ...LEGAL_RECEIPT_COMMANDS }, {
+    read: 'rightkit_legal_receipt_read',
+    create: 'rightkit_legal_receipt_create',
+    reset: 'rightkit_legal_receipt_reset',
+  });
+  assert.deepEqual({ ...UPDATE_COMMANDS }, {
+    check: 'rightkit_update_check',
+    status: 'rightkit_update_status',
+    download: 'rightkit_update_download',
+    install: 'rightkit_update_install',
+    cancel: 'rightkit_update_cancel',
+  });
+  assert.equal(UPDATE_PROGRESS_EVENT, 'rightkit://update-progress');
+  for (const table of [PREVIEW_COMMANDS, LEGAL_RECEIPT_COMMANDS, UPDATE_COMMANDS]) assert.ok(Object.isFrozen(table));
+});
+
+test('surface.set sends only the surface id and returns the host report', async () => {
+  const report = { surface: 'setup', resized: true, revealed: true, skipped: 0 };
+  const host = fakeHost({ handlers: { rk_shell_set_surface: () => report } });
+  const shell = createShell(host.transport);
+  assert.deepEqual(await shell.surface.set('setup'), report);
+  assert.deepEqual(host.calls, [{ command: 'rk_shell_set_surface', args: { surface: 'setup' } }]);
+});
+
+test('preview wrappers send the kind and html, a token, and nothing else; the URL is the host answer', async () => {
+  const handle = { token: 'a'.repeat(64), url: 'http://myapp-preview.localhost/' + 'a'.repeat(64) };
+  const host = fakeHost({
+    handlers: { rightkit_preview_register: () => handle, rightkit_preview_revoke: noop, rightkit_preview_revoke_all: noop },
+  });
+  const shell = createShell(host.transport);
+  assert.deepEqual(await shell.preview.register('mdx', '<p>x</p>'), handle);
+  await shell.preview.revoke(handle.token);
+  await shell.preview.revokeAll();
+  assert.deepEqual(host.calls.map((c) => [c.command, c.args]), [
+    ['rightkit_preview_register', { kind: 'mdx', html: '<p>x</p>' }],
+    ['rightkit_preview_revoke', { token: handle.token }],
+    ['rightkit_preview_revoke_all', undefined],
+  ]);
+});
+
+test('legal receipt wrappers send the declaration without a time and never a stored record', async () => {
+  const record = { version: '1', documentsHash: 'h', acceptedAt: '2026-10-20T10:00:00.000Z', eligibilityBasis: 'individual' };
+  const host = fakeHost({
+    handlers: {
+      rightkit_legal_receipt_read: () => null,
+      rightkit_legal_receipt_create: () => record,
+      rightkit_legal_receipt_reset: noop,
+    },
+  });
+  const shell = createShell(host.transport);
+  assert.equal(await shell.legal.read(), null);
+  const documents = [{ id: 'terms', role: 'terms', version: '1', sha256: 'abc', material: true }];
+  // Extra fields on the request (a time, a stored record) must not reach the host.
+  const request = { version: '1', documentsHash: 'h', documents, eligibilityBasis: 'individual', surface: 'first_run', acceptedAt: 'forged', record };
+  assert.deepEqual(await shell.legal.create(request), record);
+  await shell.legal.reset();
+  assert.deepEqual(host.calls[1].args, {
+    request: { version: '1', documentsHash: 'h', documents, eligibilityBasis: 'individual', surface: 'first_run' },
+  });
+  assert.equal('write' in shell.legal, false);
+  assert.deepEqual(host.commands(), ['rightkit_legal_receipt_read', 'rightkit_legal_receipt_create', 'rightkit_legal_receipt_reset']);
+});
+
+test('host-service rejections pass through as the host error envelope', async () => {
+  const host = fakeHost({
+    handlers: {
+      rightkit_legal_receipt_create: () => {
+        throw { code: 'legal_hash_mismatch', message: 'the documents shown are not the documents this app requires' };
+      },
+    },
+  });
+  const shell = createShell(host.transport);
+  await assert.rejects(
+    shell.legal.create({ version: '1', documentsHash: 'h', documents: [], eligibilityBasis: 'enterprise', surface: 'first_run' }),
+    (e) => e.code === 'legal_hash_mismatch' && asShellError(e).code === 'legal_hash_mismatch',
+  );
+});
+
+test('update wrappers carry only a handle id in, closed DTOs out, and progress on the update event', async () => {
+  const check = { available: true, kind: 'update', version: '2.0.0', eligible: true, refusal: 'none', handleId: 'h1', checkedAt: 1, fresh: true };
+  const host = fakeHost({
+    handlers: {
+      rightkit_update_check: () => check,
+      rightkit_update_status: () => ({ state: 'idle', message: 'none' }),
+      rightkit_update_download: () => ({ handleId: 'h1', state: 'downloaded', message: 'none' }),
+      rightkit_update_install: () => ({ state: 'installing', message: 'none' }),
+      rightkit_update_cancel: () => ({ cancelled: false }),
+    },
+  });
+  const shell = createShell(host.transport);
+  assert.deepEqual(await shell.update.check(), check);
+  assert.equal((await shell.update.status()).state, 'idle');
+  assert.equal((await shell.update.download('h1')).state, 'downloaded');
+  assert.equal((await shell.update.install('h1')).state, 'installing');
+  assert.deepEqual(await shell.update.cancel('h1'), { cancelled: false });
+  assert.deepEqual(host.calls.map((c) => [c.command, c.args]), [
+    ['rightkit_update_check', undefined],
+    ['rightkit_update_status', undefined],
+    ['rightkit_update_download', { handleId: 'h1' }],
+    ['rightkit_update_install', { handleId: 'h1' }],
+    ['rightkit_update_cancel', { handleId: 'h1' }],
+  ]);
+  const seen = [];
+  const off = await shell.update.onProgress((p) => seen.push(p));
+  host.emit('rightkit://update-progress', { handleId: 'h1', received: 5, total: 10 });
+  off();
+  host.emit('rightkit://update-progress', { handleId: 'h1', received: 10, total: 10 });
+  assert.deepEqual(seen, [{ handleId: 'h1', received: 5, total: 10 }]);
+  assert.equal(host.listenerCount('rightkit://update-progress'), 0);
 });

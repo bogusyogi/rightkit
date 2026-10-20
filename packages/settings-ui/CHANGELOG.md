@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0 — unpublished staging
+
+BREAKING: the licence section and hooks move from `StoredLicense` to the `LicenseView` of `@rightkit/license` 0.3.
+
+- BREAKING: peer `@rightkit/license` is `>=0.3.0 <0.4`. 0.2.x `StoredLicense` callers are no longer claimed.
+- BREAKING: `licenseSection`, `useLicenseSection`, `LicenseOptions`, `UseLicenseSectionOptions`, `LicenseClientLike` and `onChange` take and return `LicenseView`. `entitlements.tier` and `entitlements.features` become `view.tier` and `view.features`.
+- BREAKING: `LicenseClientLike.load` is removed; read the view with `status()`. `activate(key)` and `deactivate()` must resolve a `LicenseView`, and `refresh()` on the hook resolves the view (or null).
+- BREAKING: `graceDays` is removed from `licenseSection` and `useLicenseSection`. Expiry and grace come from `view.lifecycle`, computed natively; the renderer no longer reads the local clock or calls `classifyLifecycle`.
+- BREAKING: status and lifecycle text come from the package's fixed message codes (`licenseMessage`, `LICENSE_MESSAGES`). Server text is never rendered. `LicenseLabels.notActivated` is removed; `LicenseLabels.revoked` and `LicenseLabels.attention` are added.
+- BREAKING: an error shows only the fixed text of a typed `LicenseClientError`, or the package's generic text for any other error. Raw error messages are no longer shown.
+- Behaviour: `deactivate()` applies the view the client returns, so `onChange` receives that view (not `null`).
+- Additive: "Verify purchase" (`labels.verify`, `ids.verify`) shows in `licenseSection` and `useLicenseSection.verify()` exposes the action when the client has `refresh()` and the view's lifecycle is `verification_required`, `migration_required`, `lifetime_provisional` or `clock_repair_required`. It calls `refresh()`, applies the returned `.view` like activate, disables while the call runs and shows only the fixed `LicenseClientError` text.
+- Additive: `licenseSection` shows `Confirm by <date>` when `view.confirmationDueAt` is set and `Could not verify online since: <date>` when `view.staleSince` is set. Times are Unix milliseconds, shown as a short local date. `labels.confirmBy` and `labels.unverifiedSince` reword the prefixes.
+- Behaviour: the Deactivate row shows while the stored revision is `active` (`view.revisionState`), so an expired or grace licence can still be removed.
+- Tests use `LicenseView` fixtures (`src/__fixtures__/license-view.ts`, excluded from the build). The e2e harness routes the licence commands through the test host's rpc.
+- BREAKING (`/shell-adapter`, PK04-6): the adapter targets the Tauri commands that `rightkit-tauri-shell` host services register, not engine methods. `createShellBackends` takes a `{ invoke, listen }` transport (`tauriTransport()` of `@rightkit/tauri-shell`) instead of an `engine` bridge. `EngineShell` is removed; `HostTransport` replaces it, `SettingsShell` is now its alias.
+- BREAKING: `METHODS` now holds `rightkit_settings_{describe,get,patch,reset,subscribe,unsubscribe}` and `rightkit_secrets_{presence,set,clear}`. The `rightkit.settings.*`, `rightkit.secrets.*` and `rightkit.models.*` engine names are gone, and `EVENTS.settingsChanged` is `rightkit://settings-changed` (payload `{ keys, revision }`).
+- BREAKING: `ShellBackends.models` and `EVENTS.modelsEntry` are removed. The host registers no models command, so the adapter has none; apps pass their own `ModelsBackend` to the Models section.
+- Additive: `ShellBackends.settings` also has `describe()` and `reset(keys, expectedRevision?)`; `subscribe` attaches the listener, subscribes the invoking window, and its unsubscribe reverses both.
+- Additive: `SecretsBackend.set(ref, value, intent?)` with `WriteIntent` (`"create"` refuses a stored key, `"replace"` overwrites; the shell adapter defaults to `"replace"`). There is no secret getter or export; `createMemorySecrets` honours `intent`.
+- Additive: `SettingsSnapshot` has optional `schemaVersion` and `warning`. `errText` shows the `message` of a host error envelope instead of `[object Object]`.
+- Tests: the adapter test and the e2e host use the registered command names; the e2e harness supplies its own models backend over the test host.
+
 ## 0.6.1 — unpublished staging
 
 - Makes theme peer optional for React-only core consumers.

@@ -449,12 +449,15 @@ private final class WakeDelegateHooks: NSObject {
 
     static let registry = WakeHookRegistry()
 
+    // AppKit delivers remote notifications to the app delegate on the main thread, so the hook is
+    // main-actor isolated: `userInfo` is then used on one actor only and never crosses a boundary.
+    @MainActor
     @objc(rk_application:didReceiveRemoteNotification:)
     func rk_application(_ application: NSApplication, didReceiveRemoteNotification userInfo: NSDictionary) {
         let delegateClass: AnyClass = object_getClass(self) ?? WakeDelegateHooks.self
         let name = NSStringFromClass(delegateClass)
         let host = Self.registry.host
-        MainActor.assumeIsolated { host?.didReceiveRemoteNotification(userInfo, delegateClass: name) }
+        host?.didReceiveRemoteNotification(userInfo, delegateClass: name)
         if let imp = Self.registry.original(.remote, for: delegateClass) {
             typealias Original = @convention(c) (AnyObject, Selector, NSApplication, NSDictionary) -> Void
             unsafeBitCast(imp, to: Original.self)(self, Selector("application:didReceiveRemoteNotification:"), application, userInfo)

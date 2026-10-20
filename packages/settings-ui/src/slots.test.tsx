@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/app-update";
-import type { StoredLicense } from "@rightkit/license";
+import { LICENSE_MESSAGES, LicenseClientError, type Lifecycle, type LicenseView } from "@rightkit/license";
+import { DEACTIVATED, LIFETIME_PRO, licenseView } from "./__fixtures__/license-view.js";
 import { SettingsPanel, UpdatesControls, aboutSection, createMemorySettings, doctorSection, licenseSection, standardSections, updatesSection, useUpdates } from "./index.js";
 import type { DoctorCheck, LicenseClientLike, SettingsContext, SettingsSection, UpdatesAdapter } from "./index.js";
 
@@ -183,24 +184,20 @@ describe("UpdatesControls (embedded)", () => {
 });
 
 describe("license client adapter", () => {
-  const active: StoredLicense = { status: "active", deviceId: "d", licenseKind: "perpetual" as never, validUntil: null };
+  const active = LIFETIME_PRO;
   const make = (over: Partial<LicenseClientLike> = {}) => {
     const calls: string[] = [];
     const client: LicenseClientLike = {
       status: async () => active,
       activate: async (key) => { calls.push(`activate:${key}`); return active; },
-      deactivate: async () => { calls.push("deactivate"); },
+      deactivate: async () => { calls.push("deactivate"); return DEACTIVATED; },
       ...over,
     };
     return { client, calls };
   };
-  it("reads the current licence through status() and falls back to load()", async () => {
+  it("reads the current licence through status(); a client without status() shows the form", async () => {
     const a = make();
     render(<>{body(licenseSection({ client: a.client }))}</>);
-    expect(await screen.findByRole("button", { name: "Deactivate" })).toBeInTheDocument();
-    cleanup();
-    const b = make({ status: undefined, load: async () => active });
-    render(<>{body(licenseSection({ client: b.client }))}</>);
     expect(await screen.findByRole("button", { name: "Deactivate" })).toBeInTheDocument();
     cleanup();
     const c = make({ status: undefined });
@@ -210,7 +207,7 @@ describe("license client adapter", () => {
   it("activates through an app-private client and reports the licence", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const m = make({ status: async () => null });
+    const m = make({ status: async () => licenseView() });
     render(<>{body(licenseSection({ client: m.client, onChange }))}</>);
     await user.type(await screen.findByLabelText("Licence key"), "AAAA-BBBB");
     await user.click(screen.getByRole("button", { name: "Activate" }));
@@ -221,7 +218,7 @@ describe("license client adapter", () => {
     const user = userEvent.setup();
     const order: string[] = [];
     let unblock: () => void = () => {};
-    const m = make({ deactivate: async () => { order.push("deactivate"); } });
+    const m = make({ deactivate: async () => { order.push("deactivate"); return DEACTIVATED; } });
     const beforeDeactivate = vi.fn(() => new Promise<void>((r) => { order.push("before"); unblock = () => { order.push("unblocked"); r(); }; }));
     render(<>{body(licenseSection({ client: m.client, beforeDeactivate }))}</>);
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
@@ -234,11 +231,11 @@ describe("license client adapter", () => {
   });
   it("aborts the deactivation when beforeDeactivate throws and shows the error", async () => {
     const user = userEvent.setup();
-    const deactivate = vi.fn(async () => {});
-    render(<>{body(licenseSection({ client: make({ deactivate }).client, beforeDeactivate: () => { throw new Error("bridge busy"); } }))}</>);
+    const deactivate = vi.fn(async () => DEACTIVATED);
+    render(<>{body(licenseSection({ client: make({ deactivate }).client, beforeDeactivate: () => { throw new LicenseClientError("busy", "busy"); } }))}</>);
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
     await user.click(screen.getByRole("button", { name: "Confirm deactivate" }));
-    expect(await screen.findByText("bridge busy")).toBeInTheDocument();
+    expect(await screen.findByText(LICENSE_MESSAGES.busy)).toBeInTheDocument();
     expect(deactivate).not.toHaveBeenCalled();
   });
   it("accepts a sync beforeDeactivate", async () => {
@@ -291,9 +288,9 @@ describe("about card replacement", () => {
 });
 
 describe("licence labels, ids and one-click deactivate", () => {
-  const active: StoredLicense = { status: "active", deviceId: "d", licenseKind: "perpetual" as never, validUntil: null };
+  const active = LIFETIME_PRO;
   const mk = (over: Partial<LicenseClientLike> = {}) => {
-    const deactivate = vi.fn(async () => {});
+    const deactivate = vi.fn(async () => DEACTIVATED);
     return { deactivate, client: { status: async () => active, activate: async () => active, deactivate, ...over } as LicenseClientLike };
   };
   it("default output is unchanged (no ids, original strings, no wrapper)", async () => {
@@ -307,7 +304,7 @@ describe("licence labels, ids and one-click deactivate", () => {
     expect(s.label).toBe("Licence");
     expect(s.entries?.map((e) => e.label)).toEqual(["Licence status", "Activate licence key"]);
     cleanup();
-    render(<>{body(licenseSection({ client: mk({ status: async () => null }).client }))}</>);
+    render(<>{body(licenseSection({ client: mk({ status: async () => licenseView() }).client }))}</>);
     expect(await screen.findByLabelText("Licence key")).toHaveAttribute("placeholder", "XXXX-XXXX-XXXX-XXXX");
     expect(screen.getByText("Paste the key from your purchase email.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Activate" })).toBeInTheDocument();
@@ -326,8 +323,8 @@ describe("licence labels, ids and one-click deactivate", () => {
   });
   it("rewords the activate state, the free state, the busy label and the rejection", async () => {
     const user = userEvent.setup();
-    let release: (l: StoredLicense) => void = () => {};
-    const client = mk({ status: async () => null, activate: () => new Promise<StoredLicense>((r) => { release = r; }) }).client;
+    let release: (l: LicenseView) => void = () => {};
+    const client = mk({ status: async () => licenseView(), activate: () => new Promise<LicenseView>((r) => { release = r; }) }).client;
     render(<>{body(licenseSection({ client, purchaseUrl: "https://x.test", labels: { keyTitle: "Already bought Pro?", keyHint: "The key is in your purchase email.", keyAria: "License key", keyPlaceholder: "SR-XXXX-XXXX-XXXX", activate: "Activate", activating: "Activating…", free: "Plan: Free", freeDetail: "Free plan.", notAccepted: "License key was not accepted.", purchaseTitle: "Upgrade?", purchase: "Get Pro" } }))}</>);
     expect(await screen.findByText("Already bought Pro?")).toBeInTheDocument();
     expect(screen.getByText("Free plan.")).toBeInTheDocument();
@@ -339,18 +336,18 @@ describe("licence labels, ids and one-click deactivate", () => {
     await user.type(input, "SR-1");
     await user.click(screen.getByRole("button", { name: "Activate" }));
     expect(await screen.findByRole("button", { name: "Activating…" })).toBeDisabled();
-    release({ status: "failed" } as StoredLicense);
+    release(licenseView({ status: "invalid", lifecycle: "invalid", message: "keyNotAccepted" }));
     expect(await screen.findByText("License key was not accepted.")).toBeInTheDocument();
   });
   it("rewords kinds, expired and rejected details", () => {
     const L = { trial: "Probe", subscription: "Term", expired: "Lapsed", expiredDetail: (k: string, u: string | null) => `${k} over ${u ? "on a date" : "now"}`, invalid: "Bad", rejectedDetail: "Nope." };
-    render(<>{body(licenseSection({ client: mk({ status: async () => ({ status: "invalid" } as StoredLicense) }).client, labels: L }))}</>);
+    render(<>{body(licenseSection({ client: mk({ status: async () => licenseView({ status: "invalid", lifecycle: "invalid" }) }).client, labels: L }))}</>);
     return screen.findByText("Bad").then(() => {
       expect(screen.getByText("Nope.")).toBeInTheDocument();
     });
   });
   it("applies stable ids", async () => {
-    const view = render(<>{body(licenseSection({ client: mk({ status: async () => null }).client, planSlot: <p>plan</p>, ids: { section: "settings-pro", licenseKey: "settings-license-key", form: "f", activate: "a", status: "s" } }))}</>);
+    const view = render(<>{body(licenseSection({ client: mk({ status: async () => licenseView() }).client, planSlot: <p>plan</p>, ids: { section: "settings-pro", licenseKey: "settings-license-key", form: "f", activate: "a", status: "s" } }))}</>);
     const root = view.container.querySelector("#settings-pro")!;
     expect(root).toContainElement(screen.getByText("plan"));
     expect(root.querySelector("#settings-license-key")).toBe(await screen.findByLabelText("Licence key"));
@@ -376,15 +373,15 @@ describe("licence labels, ids and one-click deactivate", () => {
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
     await waitFor(() => expect(b.deactivate).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("button", { name: "Confirm deactivate" })).toBeNull();
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(DEACTIVATED));
     expect(await screen.findByLabelText("Licence key")).toBeInTheDocument();
   });
   it("one-click deactivate still honours beforeDeactivate failures", async () => {
     const user = userEvent.setup();
     const m = mk();
-    render(<>{body(licenseSection({ client: m.client, confirmDeactivate: false, beforeDeactivate: () => { throw new Error("busy"); } }))}</>);
+    render(<>{body(licenseSection({ client: m.client, confirmDeactivate: false, beforeDeactivate: () => { throw new LicenseClientError("busy", "busy"); } }))}</>);
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
-    expect(await screen.findByText("busy")).toBeInTheDocument();
+    expect(await screen.findByText(LICENSE_MESSAGES.busy)).toBeInTheDocument();
     expect(m.deactivate).not.toHaveBeenCalled();
   });
 });
@@ -486,5 +483,110 @@ describe("doctor section", () => {
     resolvers[1]!({ ok: false, detail: "second" });
     expect(await screen.findByText("second")).toBeInTheDocument();
     expect(screen.queryByText("first")).toBeNull();
+  });
+});
+
+describe("license verify purchase", () => {
+  const ALL_LIFECYCLES: Lifecycle[] = ["unlicensed", "migration_required", "trial", "expired_trial", "active", "grace", "expired", "lifetime_provisional", "verification_required", "lifetime", "clock_repair_required", "revoked", "invalid"];
+  const VERIFY: Lifecycle[] = ["verification_required", "migration_required", "lifetime_provisional", "clock_repair_required"];
+  const at = (lifecycle: Lifecycle) => licenseView({ status: "active", lifecycle, tier: "pro", kind: "lifetime", revisionState: "active" });
+  const refreshed = (view: LicenseView) => ({ view, outcome: "refreshed" as const });
+  // Lets the first status() read settle, so the section has its lifecycle before the test looks for the button.
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+  it.each(ALL_LIFECYCLES)("shows the button only for verification lifecycles (%s)", async (lifecycle) => {
+    const client: LicenseClientLike = { status: async () => at(lifecycle), activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED, refresh: async () => refreshed(at(lifecycle)) };
+    render(<>{body(licenseSection({ client }))}</>);
+    await settle();
+    const button = screen.queryByRole("button", { name: "Verify purchase" });
+    if (VERIFY.includes(lifecycle)) expect(button).toBeInTheDocument();
+    else expect(button).toBeNull();
+  });
+
+  it("is hidden when the client has no refresh", async () => {
+    const client: LicenseClientLike = { status: async () => at("verification_required"), activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED };
+    render(<>{body(licenseSection({ client }))}</>);
+    await settle();
+    expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull();
+  });
+
+  it("calls refresh and applies the returned view like activate: onChange and the status row update", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const refresh = vi.fn(async () => refreshed(LIFETIME_PRO));
+    const client: LicenseClientLike = { status: async () => at("verification_required"), activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED, refresh };
+    render(<>{body(licenseSection({ client, onChange }))}</>);
+    await user.click(await screen.findByRole("button", { name: "Verify purchase" }));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(LIFETIME_PRO));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Lifetime licence is active.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Verify purchase" })).toBeNull();
+  });
+
+  it("disables the button while refresh runs, then shows the fixed busy text on a typed error", async () => {
+    const user = userEvent.setup();
+    let fail!: (e: unknown) => void;
+    const client: LicenseClientLike = { status: async () => at("verification_required"), activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED, refresh: () => new Promise((_, reject) => { fail = reject; }) };
+    render(<>{body(licenseSection({ client }))}</>);
+    await user.click(await screen.findByRole("button", { name: "Verify purchase" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Verify purchase" })).toBeDisabled());
+    fail(new LicenseClientError("busy", "busy"));
+    expect(await screen.findByText(LICENSE_MESSAGES.busy)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Verify purchase" })).toBeEnabled();
+  });
+
+  it("shows only the generic text for an untyped refresh error, never its message", async () => {
+    const user = userEvent.setup();
+    const client: LicenseClientLike = { status: async () => at("migration_required"), activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED, refresh: async () => { throw new Error("server said: secret-detail"); } };
+    render(<>{body(licenseSection({ client }))}</>);
+    await user.click(await screen.findByRole("button", { name: "Verify purchase" }));
+    expect(await screen.findByText(LICENSE_MESSAGES.unknown)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("secret-detail");
+  });
+
+  it("takes the labels.verify text and the verify id", async () => {
+    const client: LicenseClientLike = { status: async () => at("lifetime_provisional"), activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED, refresh: async () => refreshed(at("lifetime_provisional")) };
+    render(<>{body(licenseSection({ client, labels: { verify: "Check purchase" }, ids: { verify: "verify-btn" } }))}</>);
+    await settle();
+    expect(screen.getByRole("button", { name: "Check purchase" })).toHaveAttribute("id", "verify-btn");
+  });
+});
+
+describe("license provisional and staleness lines", () => {
+  const DUE = Date.UTC(2027, 0, 15, 12);
+  const STALE = Date.UTC(2026, 9, 1, 12);
+  const fmt = (ms: number) => new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const view = (over: Partial<LicenseView>) => licenseView({ status: "active", lifecycle: "lifetime_provisional", tier: "pro", kind: "lifetime", stage: "provisional", revisionState: "active", ...over });
+  const clientFor = (v: LicenseView): LicenseClientLike => ({ status: async () => v, activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED });
+
+  it("shows 'Confirm by <date>' when confirmationDueAt is set", async () => {
+    render(<>{body(licenseSection({ client: clientFor(view({ confirmationDueAt: DUE })) }))}</>);
+    expect(await screen.findByText(`Confirm by ${fmt(DUE)}`)).toBeInTheDocument();
+    expect(screen.queryByText(/Could not verify online since/)).toBeNull();
+  });
+
+  it("shows 'Could not verify online since <date>' when staleSince is set", async () => {
+    render(<>{body(licenseSection({ client: clientFor(view({ staleSince: STALE })) }))}</>);
+    expect(await screen.findByText(`Could not verify online since ${fmt(STALE)}`)).toBeInTheDocument();
+    expect(screen.queryByText(/Confirm by/)).toBeNull();
+  });
+
+  it("shows both lines when both fields are set", async () => {
+    render(<>{body(licenseSection({ client: clientFor(view({ confirmationDueAt: DUE, staleSince: STALE })) }))}</>);
+    expect(await screen.findByText(`Confirm by ${fmt(DUE)}`)).toBeInTheDocument();
+    expect(screen.getByText(`Could not verify online since ${fmt(STALE)}`)).toBeInTheDocument();
+  });
+
+  it("shows neither line when both fields are null", async () => {
+    render(<>{body(licenseSection({ client: clientFor(view({})) }))}</>);
+    await screen.findByText("Lifetime licence is active.");
+    expect(screen.queryByText(/Confirm by/)).toBeNull();
+    expect(screen.queryByText(/Could not verify online since/)).toBeNull();
+  });
+
+  it("rewords the prefixes with labels.confirmBy and labels.unverifiedSince", async () => {
+    render(<>{body(licenseSection({ client: clientFor(view({ confirmationDueAt: DUE, staleSince: STALE })) , labels: { confirmBy: "Confirm before", unverifiedSince: "Offline since" } }))}</>);
+    expect(await screen.findByText(`Confirm before ${fmt(DUE)}`)).toBeInTheDocument();
+    expect(screen.getByText(`Offline since ${fmt(STALE)}`)).toBeInTheDocument();
   });
 });

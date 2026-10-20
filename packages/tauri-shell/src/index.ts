@@ -28,7 +28,46 @@ export const EVENTS = {
   presence: 'rightkit-shell://presence',
   /** Host asks the renderer to drain before exit (needs the `quitDrain` capability). */
   quitRequested: 'rightkit-shell://quit-requested',
+  /** Files from launch argv, a second launch or an OS open-file event, after `openPaths.ready()`. Payload `{ paths }` (granted display paths). */
+  openPaths: 'rightkit-shell://open-paths',
+  /** WebView2 refused the print UI after `print()` had returned (Windows). Payload: the error text. */
+  printError: 'rightkit-shell://print-error',
 } as const;
+
+/**
+ * Window surface command (`rk_shell_set_surface`). The surface ids are native config
+ * (`ShellBuilder::surface`); the renderer sends only an id, and the shaped window is the caller's own.
+ */
+export const SURFACE_COMMAND = 'rk_shell_set_surface';
+
+/** Preview host-service commands (`rightkit_preview_*`, feature `host-services`). Same names as the native handler. */
+export const PREVIEW_COMMANDS = Object.freeze({
+  register: 'rightkit_preview_register',
+  revoke: 'rightkit_preview_revoke',
+  revokeAll: 'rightkit_preview_revoke_all',
+});
+
+/**
+ * Legal receipt host-service commands (`rightkit_legal_receipt_*`, `host/legal.rs`). The same names as
+ * `LEGAL_RECEIPT_COMMANDS` in `@rightkit/onboarding`, which can import this constant later.
+ */
+export const LEGAL_RECEIPT_COMMANDS = Object.freeze({
+  read: 'rightkit_legal_receipt_read',
+  create: 'rightkit_legal_receipt_create',
+  reset: 'rightkit_legal_receipt_reset',
+});
+
+/** Update host commands (`rightkit_update_*`, feature `update`); `@rightkit/app-update/native` is the policy client over them. */
+export const UPDATE_COMMANDS = Object.freeze({
+  check: 'rightkit_update_check',
+  status: 'rightkit_update_status',
+  download: 'rightkit_update_download',
+  install: 'rightkit_update_install',
+  cancel: 'rightkit_update_cancel',
+});
+
+/** Progress event of an update download, sent only to the window that started it. Payload `UpdateProgress`. */
+export const UPDATE_PROGRESS_EVENT = 'rightkit://update-progress';
 
 /** Drain budget for quit handlers when neither `createShell` nor `quit()` sets one. */
 export const DEFAULT_QUIT_TIMEOUT_MS = 10_000;
@@ -67,7 +106,18 @@ export interface ShellOptions {
 
 export type MenuEntry =
   | { kind: 'item'; id: string; label: string; accelerator?: string; enabled?: boolean }
+  /** A checkable item. A native click toggles the tick itself; change it by id with `menu.setChecked` / `menu.setState`. */
+  | { kind: 'check'; id: string; label: string; accelerator?: string; enabled?: boolean; checked?: boolean }
+  /** A nested submenu, up to 4 levels below a top-level menu. */
+  | { kind: 'submenu'; label: string; entries: MenuEntry[] }
   | { kind: 'separator' };
+
+/** One menu item's runtime state for `menu.setState`. `checked` needs a check item. Omitted fields are unchanged. */
+export interface MenuItemState {
+  id: string;
+  enabled?: boolean;
+  checked?: boolean;
+}
 
 export interface ShellStatus {
   appId: string;
@@ -100,6 +150,28 @@ export interface WindowSpec {
   height?: number;
   focused?: boolean;
   alwaysOnTop?: boolean;
+  /** Minimum inner width in logical pixels (host default 320). */
+  minWidth?: number;
+  /** Minimum inner height in logical pixels (host default 240). */
+  minHeight?: number;
+  /** Override native decorations after the shell's frameless policy. */
+  decorations?: boolean;
+  /** Centre on the current monitor. Wins over `x` / `y`. */
+  center?: boolean;
+  fullscreen?: boolean;
+  /** Keep the window out of the taskbar / Dock switcher where the platform supports it. */
+  skipTaskbar?: boolean;
+  /** Initial outer position in logical pixels (needs both `x` and `y`); corrected onto a visible monitor. */
+  x?: number;
+  y?: number;
+  /** Label of an open window to make this window's native parent. An unknown label fails the open. */
+  parent?: string;
+  /** Whether the user may resize the window (host default: resizable). */
+  resizable?: boolean;
+  /** Native window shadow where the platform has one (host default: on). */
+  shadow?: boolean;
+  /** `false` creates the window hidden; the app shows it later (host default: revealed on open). */
+  visible?: boolean;
 }
 
 export type WindowAction = 'minimize' | 'maximize' | 'unmaximize' | 'toggle-maximize' | 'fullscreen' | 'hide' | 'show' | 'close' | 'start-drag';
@@ -261,11 +333,153 @@ export type ClipboardItem =
   | { kind: 'text'; text: string }
   | { kind: 'none' };
 
+/** Which print UI to show on Windows. macOS always uses the system panel. */
+export type PrintUi = 'browser' | 'system';
+
+/** One UTI (macOS) or `extension:.ext` id (Windows) and who handles it now. */
+export interface HandlerStatus {
+  target: string;
+  /** Bundle id (macOS) or ProgID (Windows) currently preferred, when one is known. */
+  preferredHandler: string | null;
+  isDefault: boolean;
+}
+export interface AssociationGroupStatus {
+  id: string;
+  extensions: string[];
+  handlers: HandlerStatus[];
+  /** The group has targets and the app is the default for every one of them. */
+  allSet: boolean;
+}
+export interface AssociationStatus {
+  groups: AssociationGroupStatus[];
+}
+export interface AssociationSetResult {
+  /** Status re-read after the attempt. */
+  groups: AssociationGroupStatus[];
+  allSet: boolean;
+  /** Windows: the OS only lets the user choose; Default apps was opened. Always false on macOS. */
+  userActionRequired: boolean;
+}
+
 /** Site-root grant for an opened document, from `site.grant()`. */
 export interface SiteGrant {
   token: string;
   root: string;
   baseUrl: string;
+}
+
+/** What `surface.set` answers: the surface id, whether the window was resized or revealed, and how many non-fatal steps were skipped. */
+export interface SurfaceReport {
+  surface: string;
+  resized: boolean;
+  revealed: boolean;
+  skipped: number;
+}
+
+/**
+ * Rejection of the host-service commands (preview, legal receipt): `{ code, message, details? }`.
+ * The message never carries a secret value or a file path. `details` is typed facts for the codes that have them.
+ */
+export interface HostError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+/** A registered preview document: the token and the URL its iframe loads. The URL is built natively; the renderer never supplies it. */
+export interface PreviewHandle {
+  token: string;
+  url: string;
+}
+
+export type LegalEligibilityBasis = 'individual' | 'enterprise';
+
+/** One document of the set the legal gate shows (mirrors `DeclaredDocument`; every field optional, unknown fields are refused natively). */
+export interface LegalDeclaredDocument {
+  id?: string;
+  role?: string;
+  title?: string;
+  url?: string;
+  version?: string;
+  sha256?: string;
+  treatment?: string;
+  material?: boolean;
+}
+
+/** The declaration sent when the user agrees. It carries NO time: the host stamps native UTC time. */
+export interface LegalReceiptCreateRequest {
+  version: string;
+  documentsHash: string;
+  documents: LegalDeclaredDocument[];
+  eligibilityBasis: LegalEligibilityBasis;
+  surface: 'first_run';
+}
+
+/** The stored receipt as the host answers it. */
+export interface LegalReceiptRecord {
+  version: string;
+  documentsHash: string;
+  /** Native UTC time, `YYYY-MM-DDTHH:MM:SS.mmmZ`. */
+  acceptedAt: string;
+  eligibilityBasis: LegalEligibilityBasis;
+}
+
+/** Fixed message codes of the update host (the text lives in `@rightkit/app-update/native` `UPDATE_MESSAGES`). */
+export type UpdateHostMessage =
+  | 'none' | 'unconfigured' | 'busy' | 'unresolved' | 'networkUnavailable' | 'revoked' | 'expired'
+  | 'forbidden' | 'unsupported' | 'updateRefused' | 'updateFailed' | 'verifyFailed' | 'storeFailed' | 'unknown';
+export type UpdateHostRefusal =
+  | 'notLicensed' | 'expired' | 'revoked' | 'tierIneligible' | 'busy' | 'unresolved' | 'disabledNoPublicPatch' | 'offline' | 'none';
+export type UpdateHostKind = 'patch' | 'update';
+export type UpdateHostState = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'failed';
+export type UpdateHostErrorCode =
+  | 'unconfigured' | 'busy' | 'unresolved' | 'network' | 'store' | 'verify' | 'forbidden' | 'unsupported' | 'unknown';
+
+/** What an update command rejects with: closed code and closed message code, no free text. */
+export interface UpdateHostError {
+  code: UpdateHostErrorCode;
+  message: UpdateHostMessage;
+}
+
+/** Answer of `rightkit_update_check`. No artifact URL, header or token exists in any of these types. */
+export interface UpdateHostCheck {
+  available: boolean;
+  kind?: UpdateHostKind;
+  version?: string;
+  date?: string;
+  notesSummary?: string;
+  tier?: string;
+  eligible: boolean;
+  refusal: UpdateHostRefusal;
+  /** Present only for an available, eligible release. */
+  handleId?: string;
+  checkedAt: number;
+  fresh: boolean;
+}
+export interface UpdateHostStatus {
+  state: UpdateHostState;
+  handleId?: string;
+  version?: string;
+  kind?: UpdateHostKind;
+  received?: number;
+  total?: number;
+  message: UpdateHostMessage;
+}
+export interface UpdateHostProgress {
+  handleId: string;
+  received: number;
+  total?: number;
+}
+export interface UpdateHostDownload {
+  handleId: string;
+  state: 'downloaded' | 'cancelled' | 'failed' | 'refused';
+  reason?: UpdateHostRefusal;
+  message: UpdateHostMessage;
+}
+export interface UpdateHostInstall {
+  state: 'installing' | 'refused' | 'failed';
+  reason?: UpdateHostRefusal | 'stale' | 'consumed';
+  message: UpdateHostMessage;
 }
 
 interface TauriInternals {
@@ -459,6 +673,13 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
 
     menu: {
       setEnabled: (id: string, enabled: boolean) => invoke<void>('rk_shell_set_menu_item_enabled', { id, enabled }),
+      /** Tick or untick a `check` item by id. Rejects for an unknown id or a non-check item. */
+      setChecked: (id: string, checked: boolean) => invoke<void>('rk_shell_set_menu_item_checked', { id, checked }),
+      /**
+       * Change enabled and/or checked state of several items in one call. Valid updates are applied
+       * even if others name an unknown id or a non-check item; the refusals come back in one rejection.
+       */
+      setState: (updates: MenuItemState[]) => invoke<void>('rk_shell_set_menu_state', { updates }),
       onClick: (h: (id: string) => void) => listen<{ id: string }>(EVENTS.menu, (p) => h(p.id)),
     },
 
@@ -486,6 +707,8 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
     autostart: {
       get: () => invoke<AutostartStatus>('rk_shell_autostart', { enabled: null }),
       set: (enabled: boolean) => invoke<AutostartStatus>('rk_shell_autostart', { enabled }),
+      /** macOS 13+: open System Settings > Login Items for a login item whose status is `requiresApproval`. Rejects elsewhere. */
+      openLoginItemsSettings: () => invoke<void>('rk_shell_open_login_items_settings'),
     },
 
     clipboard: {
@@ -567,6 +790,33 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
       streamUrl: (path: string) => invoke<{ id: string; url: string }>('rk_shell_stream_grant', { path }),
     },
 
+    /**
+     * Files the app was asked to open (launch argv, a second launch, an OS open-file event). The host
+     * queues them until `ready()`, grants each through the path broker, and hands over display
+     * paths only, never raw input. Later paths arrive through `onOpen`.
+     */
+    openPaths: {
+      /** Grant and drain the queued paths and switch the host to live delivery. Call once after subscribing with `onOpen`. */
+      ready: () => invoke<string[]>('rk_shell_open_paths_ready'),
+      onOpen: (h: (e: { paths: string[] }) => void) => listen<{ paths: string[] }>(EVENTS.openPaths, h),
+    },
+
+    /** Default-handler registration for the file groups the app declared natively. The groups are never renderer input; only their ids are. */
+    associations: {
+      /** Is the app the default handler for `groups` (omit for all of the app's groups)? */
+      status: (groups?: string[]) => invoke<AssociationStatus>('rk_shell_associations_status', { groups: groups ?? null }),
+      /** Make the app the default for `groups` (omit for all). `timeoutMs` is clamped by the host to 1 s .. 120 s. */
+      set: (groups?: string[], timeoutMs?: number) =>
+        invoke<AssociationSetResult>('rk_shell_associations_set', { groups: groups ?? null, timeoutMs: timeoutMs ?? null }),
+      /** Open the OS Default apps page. */
+      openDefaultApps: () => invoke<void>('rk_shell_open_default_apps'),
+    },
+
+    /** Print the calling window's webview. `ui` picks the Windows print UI (default `browser`, ignored on macOS). */
+    print: (ui?: PrintUi) => invoke<void>('rk_shell_print', { ui: ui ?? null }),
+    /** A WebView2 refusal that arrives after `print()` resolved (Windows). */
+    onPrintError: (h: (message: string) => void) => listen<string>(EVENTS.printError, h),
+
     recovery: {
       save: (snapshot: unknown) => invoke<void>('rk_shell_recovery_save', { snapshot: typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot) }),
       load: async <T = unknown>(): Promise<T | null> => {
@@ -584,6 +834,55 @@ export function createShell(transport: ShellTransport = tauriTransport(), option
       grant: (document: string) => invoke<SiteGrant>('rk_shell_site_grant', { document }),
       /** Revoke a site-root token (its URLs stop serving at once and never revive). */
       revoke: (token: string) => invoke<void>('rk_shell_site_revoke', { token }),
+    },
+
+    /**
+     * Window surfaces: one window, several declared shapes. The surfaces are native config
+     * (`ShellBuilder::surface`); the renderer names one and the host shapes the CALLING window.
+     */
+    surface: {
+      set: (surface: string) => invoke<SurfaceReport>(SURFACE_COMMAND, { surface }),
+    },
+
+    /** Preview documents under the host's own scheme (`host-services`). The URL comes from the host. */
+    preview: {
+      register: (kind: string, html: string) => invoke<PreviewHandle>(PREVIEW_COMMANDS.register, { kind, html }),
+      revoke: (token: string) => invoke<void>(PREVIEW_COMMANDS.revoke, { token }),
+      revokeAll: () => invoke<void>(PREVIEW_COMMANDS.revokeAll),
+    },
+
+    /**
+     * The native legal receipt (`host-services`). `create` sends the declaration only (no time, no
+     * stored record): the host compares it with its manifest, stamps native UTC time and answers with what it stored.
+     * There is no `write`.
+     */
+    legal: {
+      read: () => invoke<LegalReceiptRecord | null>(LEGAL_RECEIPT_COMMANDS.read),
+      create: (request: LegalReceiptCreateRequest) =>
+        invoke<LegalReceiptRecord>(LEGAL_RECEIPT_COMMANDS.create, {
+          request: {
+            version: request.version,
+            documentsHash: request.documentsHash,
+            documents: request.documents,
+            eligibilityBasis: request.eligibilityBasis,
+            surface: request.surface,
+          },
+        }),
+      reset: () => invoke<void>(LEGAL_RECEIPT_COMMANDS.reset),
+    },
+
+    /**
+     * Raw update host commands (feature `update`). They take and return only closed DTOs; no URL,
+     * header or token crosses. Prefer `@rightkit/app-update/native`, which validates the replies and owns the
+     * policy and status text; this is the unvalidated transport.
+     */
+    update: {
+      check: () => invoke<UpdateHostCheck>(UPDATE_COMMANDS.check),
+      status: () => invoke<UpdateHostStatus>(UPDATE_COMMANDS.status),
+      download: (handleId: string) => invoke<UpdateHostDownload>(UPDATE_COMMANDS.download, { handleId }),
+      install: (handleId: string) => invoke<UpdateHostInstall>(UPDATE_COMMANDS.install, { handleId }),
+      cancel: (handleId: string) => invoke<{ cancelled: boolean }>(UPDATE_COMMANDS.cancel, { handleId }),
+      onProgress: (h: (p: UpdateHostProgress) => void) => listen<UpdateHostProgress>(UPDATE_PROGRESS_EVENT, h),
     },
 
     engine: {

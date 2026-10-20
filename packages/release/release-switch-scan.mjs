@@ -84,20 +84,58 @@ export function featureClosureFindings(treeText, { forbidden = [...REGISTRY.forb
 // M7 lane E: rightkit-daemon `remote` (the HTTPS host with tokio, axum and hyper) may enter a release graph only for an app
 // that declares `releaseSwitches.remoteHost: true` (the Hetzner Pulse and PostRight server builds). `testing` implies `remote`,
 // so it is caught by the same line. Fail-closed: a value other than a boolean throws, and `false` or an absent key refuses.
+// PK17-2: a `remote` that appears ONLY beneath the daemon `remote-loopback` feature (the loopback feature enables the shared
+// router and auth internals) is not a host declaration; that case is judged by `remoteLoopbackFindings`, not here. Any other
+// path to `remote` (a direct request, `testing`, another crate's feature) is still refused exactly as before.
 export const REMOTE_SERVICE_CRATE = "rightkit-daemon";
 export const REMOTE_SERVICE_FEATURE = "remote";
+export const REMOTE_LOOPBACK_FEATURE = "remote-loopback";
+
+// Feature lines of a `cargo tree -e features` text with their parent. Default `--prefix indent` output indents each level by
+// four columns (`├── `, `│   `, `    `; `--charset ascii` keeps the width), so depth is the prefix width / 4 and the parent is
+// the nearest earlier line one level up. A flat tree (`--prefix none`) has depth 0 everywhere, so no feature has a parent and
+// every parent-dependent rule treats it as the direct (stricter) case: this fails closed.
+const TREE_PREFIX = /^[\s│├└─|`+\\-]*/;
+function featureTreeEntries(treeText) {
+  const entries = []; const stack = [];
+  for (const line of String(treeText).split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const depth = Math.floor(TREE_PREFIX.exec(line)[0].length / 4);
+    const m = FEATURE_LINE.exec(line);
+    const entry = { crate: m ? m[1] : null, feature: m ? m[2] : null, parent: depth > 0 ? (stack[depth - 1] ?? null) : null };
+    stack[depth] = entry; stack.length = depth + 1;
+    if (m) entries.push(entry);
+  }
+  return entries;
+}
+const impliedByLoopback = (entry) => entry.parent?.crate === REMOTE_SERVICE_CRATE && entry.parent?.feature === REMOTE_LOOPBACK_FEATURE;
+
 export function remoteServiceFindings(treeText, { remoteHost = false } = {}) {
   if (typeof remoteHost !== "boolean") throw new Error(`releaseSwitches.remoteHost must be true or false, got ${JSON.stringify(remoteHost)}`);
   if (remoteHost) return [];
   const findings = []; const seen = new Set();
-  for (const line of String(treeText).split(/\r?\n/)) {
-    const m = FEATURE_LINE.exec(line);
-    if (!m || m[1] !== REMOTE_SERVICE_CRATE || m[2] !== REMOTE_SERVICE_FEATURE || seen.has(m[1])) continue;
-    seen.add(m[1]);
+  for (const entry of featureTreeEntries(treeText)) {
+    if (entry.crate !== REMOTE_SERVICE_CRATE || entry.feature !== REMOTE_SERVICE_FEATURE || seen.has(entry.crate) || impliedByLoopback(entry)) continue;
+    seen.add(entry.crate);
     const id = "remote-feature-undeclared";
     findings.push({ layer: "feature-closure", rule: id, file: "<cargo tree>", reason: `${id}: crate \`${REMOTE_SERVICE_CRATE}\` has feature \`${REMOTE_SERVICE_FEATURE}\` enabled in the resolved graph, but the app does not declare releaseSwitches.remoteHost: true (only Pulse and PostRight server builds may enable it)` });
   }
   return findings;
+}
+
+// PK17-2 / PK06-5: the daemon loopback feature (CodeRight's loopback HTTP + bearer host, loopback-only bind) is its own release
+// declaration, `releaseSwitches.remoteLoopback: true`, distinct from `remoteHost`. Neither declaration implies the other: a server
+// build with `remoteHost: true` still needs `remoteLoopback: true` to ship the loopback feature, and a loopback app that also
+// enables `remote` on its own still needs `remoteHost: true`. Same fail-closed boolean rule as `remoteHost`.
+export function remoteLoopbackFindings(treeText, { remoteLoopback = false } = {}) {
+  if (typeof remoteLoopback !== "boolean") throw new Error(`releaseSwitches.remoteLoopback must be true or false, got ${JSON.stringify(remoteLoopback)}`);
+  if (remoteLoopback) return [];
+  for (const entry of featureTreeEntries(treeText)) {
+    if (entry.crate !== REMOTE_SERVICE_CRATE || entry.feature !== REMOTE_LOOPBACK_FEATURE) continue;
+    const id = "remote-loopback-undeclared";
+    return [{ layer: "feature-closure", rule: id, file: "<cargo tree>", reason: `${id}: crate \`${REMOTE_SERVICE_CRATE}\` has feature \`${REMOTE_LOOPBACK_FEATURE}\` enabled in the resolved graph, but the app does not declare releaseSwitches.remoteLoopback: true (only a headless engine build that serves its own loopback API may enable it; releaseSwitches.remoteHost does not cover it)` }];
+  }
+  return [];
 }
 
 // A build command (shell string or { cmd, args }) as one flat token list, whole arguments plus their shell re-tokenisation.
@@ -445,7 +483,7 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
 // Every layer is optional input; a layer given no input is skipped, except that `requireBinary` fails a scan that
 // found no native binary. `bypass: ["feature-closure"]` exists only for the negative fixtures that prove the binary
 // layer independently; release.mjs never passes it.
-export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, devtools } = {}) {
+export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, remoteLoopback, devtools } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
   const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
@@ -453,6 +491,7 @@ export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sou
     if (treeText != null) {
       findings.push(...featureClosureFindings(treeText, { allowDevtools: devtools?.mode === "content-only" }));
       findings.push(...remoteServiceFindings(treeText, { remoteHost }));
+      findings.push(...remoteLoopbackFindings(treeText, { remoteLoopback }));
     }
     for (const argv of commands) findings.push(...commandSwitchFindings(argv, { allowDevtools: devtools?.mode === "content-only" }));
   }

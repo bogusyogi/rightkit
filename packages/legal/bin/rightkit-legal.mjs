@@ -3,10 +3,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { generateNpmLicenseAppendix } from "../dist/tooling.js";
 import { options } from "./options.mjs";
+import { runRustLicenses } from "./rust-licenses.mjs";
 
 const USAGE = [
   "rightkit-legal npm-licenses [--root APP] [--product-name NAME] [--output legal/THIRD_PARTY_NPM_LICENSES.html] [--licenses-json FILE]",
-  "rightkit-legal rust-licenses [--root APP]",
+  "rightkit-legal rust-licenses [--root APP] [--config right-release.config.mjs] [--output FILE] [--check] [--right-release FILE]",
 ].join("\n");
 
 const [command, ...rest] = process.argv.slice(2);
@@ -26,14 +27,19 @@ try {
       console.log(`wrote ${result.packageCount} package notices (${result.fallbackCount} installed instances used an SPDX fallback text)`);
     }
   } else if (command === "rust-licenses") {
-    const args = options(rest, ["--root"], ["--help"]);
+    const args = options(rest, ["--root", "--config", "--output", "--right-release"], ["--help", "--check"]);
     if (args["--help"]) {
       console.log(USAGE);
     } else {
-      // BLOCKED: no existing module parses Rust dependency metadata, and this package vendors no
-      // registry metadata. Reading crate licence fields needs a decided source (Cargo.lock plus the
-      // registry cache, or a metadata export from the owning repository); not invented here.
-      throw new Error("BLOCKED rust-licenses: no existing licence-metadata source in @rightkit/legal; see packages/legal/README.md");
+      // The one licence source is `right-release license-notices cargo` (cargo-about through the managed cargo client).
+      const status = runRustLicenses({
+        root: args.root,
+        config: args["--config"],
+        output: args["--output"],
+        check: args["--check"] === true,
+        rightRelease: args["--right-release"],
+      });
+      if (status !== 0) process.exitCode = status;
     }
   } else {
     throw new Error(`unknown command: ${command}\n${USAGE}`);

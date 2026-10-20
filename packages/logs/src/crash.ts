@@ -75,22 +75,91 @@ export function scrubWindowCrashText(text: string, redactValues: readonly string
   return out;
 }
 
-function sourceName(raw: unknown, line: unknown, col: unknown): string | null {
+function sourceName(raw: unknown, line: unknown, col: unknown, redact: readonly string[]): string | null {
   if (typeof raw !== 'string' || raw === '') return null;
-  const clean = raw.split(/[?#]/)[0] ?? '';
+  if (raw.length > 65536) return '[oversized source]';
+  const clean = scrubWindowCrashText(raw, redact).split(/[?#]/)[0] ?? '';
   const file = clean.slice(clean.lastIndexOf('/') + 1) || clean;
   const pos = typeof line === 'number' ? `:${line}${typeof col === 'number' ? `:${col}` : ''}` : '';
-  return `${file}${pos}`.slice(0, 120);
+  return `${file}${pos}`;
 }
 
-function describe(reason: unknown): { message: string; stack: string } {
-  if (reason instanceof Error) return { message: `${reason.name}: ${reason.message}`, stack: reason.stack ?? '' };
-  if (typeof reason === 'string') return { message: reason, stack: '' };
-  const obj = reason as { message?: unknown; stack?: unknown } | null;
-  if (obj && typeof obj.message === 'string') {
-    return { message: obj.message, stack: typeof obj.stack === 'string' ? obj.stack : '' };
+function read(value: unknown, key: string): unknown {
+  try { return value == null ? undefined : (value as Record<string, unknown>)[key]; }
+  catch { return undefined; }
+}
+
+function own(value: object, key: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+  } catch { return undefined; }
+}
+
+/** Admit intact strings before scrubbing; never expose a truncated raw secret prefix. */
+function describe(reason: unknown, redact: readonly string[]): { message: string; stack: string } {
+  let remainingChars = 65536;
+  let remainingNodes = 32;
+  const seen = new WeakSet<object>();
+  function text(value: string): string {
+    if (value.length > remainingChars) return '[oversized value]';
+    remainingChars -= value.length;
+    // Scrub before JSON escaping as well as before final output truncation.
+    return scrubWindowCrashText(value, redact);
   }
-  return { message: 'non-error rejection', stack: '' };
+  function format(value: unknown, depth: number): string {
+    if (remainingNodes-- <= 0) return '"[node limit]"';
+    if (typeof value === 'string') return JSON.stringify(text(value));
+    if (value === null) return 'null';
+    if (typeof value === 'number' || typeof value === 'boolean' || value === undefined) return String(value);
+    if (typeof value === 'bigint') {
+      return value >= -9007199254740991n && value <= 9007199254740991n ? `${value}n` : '"[large bigint]"';
+    }
+    if (typeof value !== 'object') return typeof value === 'symbol' ? '"[symbol]"' : '"[function]"';
+    if (seen.has(value)) return '"[circular]"';
+    if (depth >= 3) return '"[depth limit]"';
+    seen.add(value);
+    const fields: string[] = [];
+    let examined = 0;
+    try {
+      // Stop enumeration at width bound; never invoke accessors, toJSON, or toString.
+      for (const key in value) {
+        if (examined++ >= 8) { fields.push('"[width limit]":true'); break; }
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor) continue;
+        if (remainingNodes <= 0) { fields.push('"[node limit]":true'); break; }
+        const label = JSON.stringify(text(key));
+        fields.push(`${label}:${'value' in descriptor ? format(descriptor.value, depth + 1) : '"[accessor]"'}`);
+      }
+    } catch { fields.push('"[unavailable]":true'); }
+    return `{${fields.join(',')}}`;
+  }
+  try {
+    if (typeof reason === 'string') return { message: text(reason), stack: '' };
+    let error = false;
+    try { error = reason instanceof Error; } catch { /* revoked proxy */ }
+    if (error) {
+      const name = read(reason, 'name');
+      const message = read(reason, 'message');
+      const stack = read(reason, 'stack');
+      return {
+        message: `${typeof name === 'string' ? text(name) : 'Error'}: ${typeof message === 'string' ? text(message) : '[unavailable]'}`,
+        stack: typeof stack === 'string' ? text(stack) : '',
+      };
+    }
+    if (reason && typeof reason === 'object') {
+      const message = own(reason, 'message');
+      if (typeof message === 'string') {
+        const code = own(reason, 'code');
+        const stack = own(reason, 'stack');
+        return {
+          message: `${typeof code === 'string' ? `${text(code)}: ` : ''}${text(message)}`,
+          stack: typeof stack === 'string' ? text(stack) : '',
+        };
+      }
+    }
+    return { message: format(reason, 0), stack: '' };
+  } catch { return { message: '[unavailable reason]', stack: '' }; }
 }
 
 /**
@@ -125,14 +194,14 @@ export function installWindowCrashCapture(config: WindowCrashConfig): () => void
   }
 
   function send(kind: WindowCrashPayload['kind'], message: string, stack: string, source: string | null): void {
-    if (!allow()) return;
-    const payload: WindowCrashPayload = {
-      kind,
-      message: scrubWindowCrashText(message, redact).slice(0, maxMessage),
-      stack: scrubWindowCrashText(stack, redact).slice(0, maxStack),
-      source: source === null ? null : scrubWindowCrashText(source, redact),
-    };
     try {
+      if (!allow()) return;
+      const payload: WindowCrashPayload = {
+        kind,
+        message: scrubWindowCrashText(message, redact).slice(0, maxMessage),
+        stack: scrubWindowCrashText(stack, redact).slice(0, maxStack),
+        source: source === null ? null : scrubWindowCrashText(source, redact).slice(0, 120),
+      };
       void Promise.resolve(config.invoke(RIGHTKIT_CRASH_WINDOW_ERROR_COMMAND, { report: payload })).catch(() => undefined);
     } catch {
       // never raise from the crash path
@@ -140,12 +209,14 @@ export function installWindowCrashCapture(config: WindowCrashConfig): () => void
   }
 
   const onError = (event: any): void => {
-    const err = event?.error;
-    const d = err !== undefined && err !== null ? describe(err) : { message: String(event?.message ?? 'error'), stack: '' };
-    send('error', d.message, d.stack, sourceName(event?.filename, event?.lineno, event?.colno));
+    try {
+      const err = read(event, 'error');
+      const d = describe(err !== undefined && err !== null ? err : read(event, 'message') ?? 'error', redact);
+      send('error', d.message, d.stack, sourceName(read(event, 'filename'), read(event, 'lineno'), read(event, 'colno'), redact));
+    } catch { /* never raise from malformed event or source data */ }
   };
   const onRejection = (event: any): void => {
-    const d = describe(event?.reason);
+    const d = describe(read(event, 'reason'), redact);
     send('unhandledrejection', d.message, d.stack, null);
   };
 

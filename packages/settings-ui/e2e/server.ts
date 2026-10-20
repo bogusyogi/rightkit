@@ -1,8 +1,8 @@
 /**
- * Real local host for the e2e: serves the built harness and implements the engine wire contract over HTTP so the
- * browser exercises `createShellBackends` for real. Settings persist to a JSON file on disk (revisioned, atomic rename);
- * secrets live only in this process's memory and are never echoed; the license endpoints speak the RightApps contract;
- * models simulate an install with progress events pushed over server-sent events.
+ * Real local host for the e2e: serves the built harness and answers the `rightkit_settings_*` / `rightkit_secrets_*`
+ * host-services commands over HTTP so the browser exercises `createShellBackends` for real. Settings persist to a JSON file on disk (revisioned, atomic rename);
+ * secrets live only in this process's memory and are never echoed; the licence commands answer with LicenseView objects (0.3 contract);
+ * models (an app-supplied backend: the shell host registers no models command) simulate an install with progress events pushed over server-sent events.
  *
  * This is a test host, not the Rust handlers: those are the host crate's job (see API.md "host contract").
  */
@@ -11,6 +11,26 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 
 const MIME: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".json": "application/json" };
+
+/** A LicenseView with every field set, as the native host returns it. */
+const licenseView = (over: Record<string, unknown> = {}) => ({
+  mode: "configured",
+  status: "none",
+  lifecycle: "unlicensed",
+  tier: null,
+  features: [],
+  kind: null,
+  stage: null,
+  validUntil: null,
+  confirmationDueAt: null,
+  staleSince: null,
+  licenseIdSuffix: null,
+  busy: false,
+  unresolved: false,
+  revisionState: "none",
+  message: "none",
+  ...over,
+});
 
 export interface TestHost {
   server: Server;
@@ -43,6 +63,7 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
   const wire: TestHost["wire"] = [];
   const logs: unknown[] = [];
   const licenseRequests: TestHost["licenseRequests"] = [];
+  let licenseState: Record<string, unknown> = licenseView();
   const sse = new Set<ServerResponse>();
   const push = (call: string, event: unknown) => {
     for (const res of sse) res.write(`data: ${JSON.stringify({ call, event })}\n\n`);
@@ -67,9 +88,13 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
   const host = {} as TestHost;
   const rpc = (method: string, params: any): { status: number; body: unknown } => {
     switch (method) {
-      case "rightkit.settings.get":
+      case "rightkit_settings_get":
         return { status: 200, body: readSettings() };
-      case "rightkit.settings.patch": {
+      case "rightkit_settings_subscribe":
+        return { status: 200, body: readSettings().revision };
+      case "rightkit_settings_unsubscribe":
+        return { status: 200, body: null };
+      case "rightkit_settings_patch": {
         // Scope the injected disk failure to its intended dictation rollback write so
         // delayed writes from earlier pages cannot consume this test control flag.
         if (host.failNextSettingsPatch && Object.prototype.hasOwnProperty.call(params.patch, "dictation.cleanup")) {
@@ -86,16 +111,17 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
         }
         cur.revision += 1;
         writeSettings(cur);
-        push("rightkit.settings.changed", { keys: Object.keys(params.patch) });
+        push("rightkit://settings-changed", { keys: Object.keys(params.patch), revision: cur.revision });
         return { status: 200, body: cur };
       }
-      case "rightkit.secrets.presence":
+      case "rightkit_secrets_presence":
         return { status: 200, body: (params.refs as Array<{ service: string; account: string }>).map((r) => (secrets.has(`${r.service}/${r.account}`) ? "present" : "absent")) };
-      case "rightkit.secrets.set":
-        secrets.set(`${params.ref.service}/${params.ref.account}`, params.value);
+      case "rightkit_secrets_set":
+        if (params.intent !== "create" && params.intent !== "replace") return { status: 400, body: { error: "intent required", code: "invalid" } };
+        secrets.set(`${params.secret.service}/${params.secret.account}`, params.value);
         return { status: 200, body: null };
-      case "rightkit.secrets.clear":
-        secrets.delete(`${params.ref.service}/${params.ref.account}`);
+      case "rightkit_secrets_clear":
+        secrets.delete(`${params.secret.service}/${params.secret.account}`);
         return { status: 200, body: null };
       case "rightkit.models.list":
         return { status: 200, body: models };
@@ -137,6 +163,17 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
       case "rightkit.logs.clear":
         logs.length = 0;
         return { status: 200, body: null };
+      case "rightkit_license_status":
+        return { status: 200, body: licenseState };
+      case "rightkit_license_activate":
+        licenseRequests.push({ path: "activate", body: params });
+        if (params.key !== "GOOD-KEY-0001") return { status: 200, body: licenseView({ status: "invalid", lifecycle: "invalid", message: "keyNotAccepted" }) };
+        licenseState = licenseView({ status: "active", lifecycle: "lifetime", tier: "pro", features: ["updates"], kind: "lifetime", stage: "final", revisionState: "active", licenseIdSuffix: "0001" });
+        return { status: 200, body: licenseState };
+      case "rightkit_license_deactivate":
+        licenseRequests.push({ path: "deactivate", body: params });
+        licenseState = licenseView({ revisionState: "tombstone" });
+        return { status: 200, body: licenseState };
       default:
         return { status: 404, body: { error: `unknown method ${method}` } };
     }
@@ -161,15 +198,6 @@ export async function startHost(staticDir: string, settingsFile: string): Promis
           const method = decodeURIComponent(url.pathname.slice(5));
           wire.push({ method, body: raw });
           out = rpc(method, body);
-        } else if (url.pathname.startsWith("/v1/licenses/")) {
-          const path = url.pathname.slice("/v1/licenses/".length);
-          licenseRequests.push({ path, body });
-          if (path === "activate") {
-            out =
-              body.licenseKey === "GOOD-KEY-0001"
-                ? { status: 200, body: { ok: true, status: "active", activationToken: "tok-1", licenseId: "L1", validUntil: null, licenseKind: "lifetime", entitlements: { v: 1, tier: "pro", features: ["updates"] } } }
-                : { status: 403, body: { ok: false, status: "invalid", message: "That key was not recognised." } };
-          } else out = { status: 200, body: { ok: true, status: "active" } };
         } else out = { status: 404, body: {} };
         res.writeHead(out.status, { "content-type": "application/json" });
         res.end(JSON.stringify(out.body));

@@ -11,7 +11,7 @@ import type {
  * keeps existing root imports working. Blob-backed or test adapters implement `SettingsBackend` directly.
  */
 export { createShellBackends, METHODS, EVENTS } from "./shell-adapter.js";
-export type { EngineShell, SettingsShell, ShellBackends } from "./shell-adapter.js";
+export type { HostTransport, SettingsDescription, SettingsShell, ShellBackends, ShellSettingsBackend } from "./shell-adapter.js";
 
 export class RevisionConflict extends Error {
   readonly code = "revision_conflict";
@@ -56,7 +56,8 @@ export function createMemorySecrets(): SecretsBackend & { _has(ref: SecretRef): 
     async presence(refs) {
       return refs.map((r) => (store.has(keyOf(r)) ? "present" : "absent"));
     },
-    async set(ref, value) {
+    async set(ref, value, intent = "replace") {
+      if (intent === "create" && store.has(keyOf(ref))) throw Object.assign(new Error("a key is already stored"), { code: "secret_exists" });
       store.set(keyOf(ref), value);
     },
     async clear(ref) {

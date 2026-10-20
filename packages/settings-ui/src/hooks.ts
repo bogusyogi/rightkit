@@ -3,21 +3,25 @@
  * own markup and call these for state and actions. The built-in sections are thin views over the same hooks.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isPro, tier as licenseTier, type StoredLicense } from "@rightkit/license";
+import { LICENSE_MESSAGES, LicenseClientError, isPro, licenseMessage, tier as licenseTier, type LicenseView, type Lifecycle, type RefreshView } from "@rightkit/license";
 import { errText } from "./errors.js";
 
 /* ---- Licence -------------------------------------------------------------------------------- */
 
 /**
- * Minimal licence client. `createLicenseClient(...)` satisfies it; so does an app-private client (IPC commands, a native
- * store). The current licence is read with `status()` (or `load()`, the name `createLicenseClient` uses); neither means "none".
+ * Minimal licence client. `createLicenseClient(...)` from `@rightkit/license` 0.3 satisfies it, and so does an app-private
+ * client with the same shape. Every method resolves a `LicenseView`; the current view is read with `status()`.
  */
 export interface LicenseClientLike {
-  activate(key: string): Promise<StoredLicense>;
-  deactivate(): Promise<unknown>;
-  status?(): Promise<StoredLicense | null>;
-  load?(): Promise<StoredLicense | null>;
+  activate(key: string): Promise<LicenseView>;
+  deactivate(): Promise<LicenseView>;
+  status?(): Promise<LicenseView>;
+  /** Optional. When present and the view needs verification, the section offers "Verify purchase". */
+  refresh?(): Promise<RefreshView>;
 }
+
+/** Lifecycles where a purchase check can help: the licence needs a server verification or refresh. */
+const VERIFY_LIFECYCLES: readonly Lifecycle[] = ["verification_required", "migration_required", "lifetime_provisional", "clock_repair_required"];
 
 export interface UseLicenseSectionOptions {
   client: LicenseClientLike;
@@ -25,39 +29,40 @@ export interface UseLicenseSectionOptions {
   beforeDeactivate?: () => Promise<void> | void;
   /** Only affects `requestDeactivate`. Default true (two steps); false makes `requestDeactivate` deactivate at once. */
   confirmDeactivate?: boolean;
-  /** Days an expired term licence still counts as `pro`. Default 7 (trial licences get none). */
-  graceDays?: number;
-  /** `error` text when the client returns a non-active licence without a `message`. Default "The key was not accepted." */
+  /** `error` text when the client returns a non-active view without a message code. Default: the package's `keyNotAccepted` text. */
   notAcceptedMessage?: string;
-  /** Fired with the new licence (null after deactivation) once activate or deactivate succeeds. */
-  onChange?: (lic: StoredLicense | null) => void;
+  /** Fired with the view once activate or deactivate succeeds (after a deactivation, the view the client returned). */
+  onChange?: (view: LicenseView | null) => void;
 }
 
 export interface UseLicenseSectionResult {
-  /** Current licence; null before the first read, when the client has none, or after deactivation. */
-  license: StoredLicense | null;
+  /** Current view; null before the first read, when the client has no reader, or when the read failed. */
+  license: LicenseView | null;
   /**
-   * The first read has settled (or the client cannot read, or an action already set the licence). Until then a null
+   * The first read has settled (or the client cannot read, or an action already set the view). Until then a null
    * `license` means "not read yet", not "Free": render a placeholder instead of the free state.
    */
   loaded: boolean;
-  /** `@rightkit/license` `isPro`: the licence is active, still valid (within `graceDays`) and its tier is at least "pro". */
+  /** `@rightkit/license` `isPro`: licensed (active or grace, lifecycle grants access, not busy or unresolved) at the pro tier or above. */
   pro: boolean;
-  /** Tier name from the licence (`@rightkit/license` `tier()`), or null. */
+  /** Tier from the view (`@rightkit/license` `tier()`), or null. */
   tier: string | null;
   /** An activate or deactivate call is in flight. */
   busy: boolean;
   /** Narrower than `busy`: the activate call specifically is in flight. */
   activating: boolean;
-  /** Last failure or rejection message (read, activate, deactivate, `beforeDeactivate`, or a non-active activation result). Cleared when the next action starts. */
+  /**
+   * Fixed message text of the last failure (a typed `LicenseClientError` or a non-active view's message code; any other error
+   * shows the package's generic text). Never server text. Cleared when the next action starts.
+   */
   error: string | null;
   /**
-   * Activate with a key. A blank key is ignored (resolves null, no call). Resolves the licence the client returned (also when it
-   * is not `active`: then `error` is the client's `message`, or "The key was not accepted."), or null on a thrown error / blank key.
-   * `onChange` fires with every returned licence, active or not.
+   * Activate with a key. A blank key is ignored (resolves null, no call). Resolves the view the client returned (also when it
+   * is not `active`: then `error` is the message for its code, or `notAcceptedMessage`), or null on a thrown error or blank key.
+   * `onChange` fires with every returned view, active or not.
    */
-  activate(key: string): Promise<StoredLicense | null>;
-  /** Deactivate now: `beforeDeactivate`, then `client.deactivate()`, then `license = null` and `onChange(null)`. Ignores `confirmDeactivate`. */
+  activate(key: string): Promise<LicenseView | null>;
+  /** Deactivate now: `beforeDeactivate`, then `client.deactivate()`, then `license` and `onChange` take the returned view. Ignores `confirmDeactivate`. */
   deactivate(): Promise<void>;
   /**
    * Confirmation-aware deactivation, the two-step API for a Deactivate button. With `confirmDeactivate` true (default) the first
@@ -69,22 +74,40 @@ export interface UseLicenseSectionResult {
   confirmPending: boolean;
   /** Disarm a pending confirmation. */
   cancelDeactivate(): void;
-  /** Re-read the licence from the client (`status()` or `load()`). Resolves it, or null if the client cannot read or the read fails (then `error` is set). */
-  refresh(): Promise<StoredLicense | null>;
+  /** Re-read the view with `client.status()`. Resolves it, or null if the client cannot read or the read fails (then `error` is set). */
+  refresh(): Promise<LicenseView | null>;
+  /** True when the client has `refresh()` and the view's lifecycle is one `verify()` can help with. Hide the "Verify purchase" action otherwise. */
+  canVerify: boolean;
+  /** The `client.refresh()` call of `verify()` is in flight. Disable the action while it is true. */
+  verifying: boolean;
+  /** Fixed message text of the last failed `verify()` (same rules as `error`). Cleared when the next verify starts. */
+  verifyError: string | null;
+  /** Run `client.refresh()` and apply the `.view` it returns (`onChange` fires with it, as for activate). Resolves that view, or null on a failure or without `refresh`. */
+  verify(): Promise<LicenseView | null>;
 }
 
 const CONFIRM_MS = 4000;
+
+const FIXED_LICENSE_TEXT: ReadonlySet<string> = new Set(Object.values(LICENSE_MESSAGES));
+
+/** Fixed text for a caught error. Only a real `LicenseClientError` whose text is one of the package's fixed messages is shown;
+ * `name` and `message` are mutable, so neither alone proves the text is safe. Anything else gets the generic text. */
+function licenseErrorText(e: unknown): string {
+  return e instanceof LicenseClientError && FIXED_LICENSE_TEXT.has(e.message) ? e.message : LICENSE_MESSAGES.unknown;
+}
 
 export function useLicenseSection(options: UseLicenseSectionOptions): UseLicenseSectionResult {
   const { client } = options;
   const opts = useRef(options);
   opts.current = options;
-  const [license, setLicense] = useState<StoredLicense | null>(null);
-  const [loaded, setLoaded] = useState(!(client.status ?? client.load));
+  const [license, setLicense] = useState<LicenseView | null>(null);
+  const [loaded, setLoaded] = useState(!client.status);
   const [busy, setBusy] = useState(false);
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
   const mounted = useRef(true);
   const reads = useRef(0);
   useEffect(() => {
@@ -94,30 +117,30 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
     };
   }, []);
 
-  const apply = useCallback((l: StoredLicense | null) => {
+  const apply = useCallback((view: LicenseView | null) => {
     reads.current += 1; // an action's result supersedes any read still in flight
-    setLicense(l);
+    setLicense(view);
     setLoaded(true);
-    opts.current.onChange?.(l);
+    opts.current.onChange?.(view);
   }, []);
 
-  const refresh = useCallback(async (): Promise<StoredLicense | null> => {
-    const read = client.status ?? client.load;
+  const refresh = useCallback(async (): Promise<LicenseView | null> => {
+    const read = client.status;
     if (!read) {
       setLoaded(true);
       return null;
     }
     const token = ++reads.current;
     try {
-      const l = (await read.call(client)) ?? null;
-      if (!mounted.current || reads.current !== token) return l;
-      setLicense(l);
+      const view = await read.call(client);
+      if (!mounted.current || reads.current !== token) return view;
+      setLicense(view);
       setError(null);
       setLoaded(true);
-      return l;
+      return view;
     } catch (e) {
       if (mounted.current && reads.current === token) {
-        setError(errText(e));
+        setError(licenseErrorText(e));
         setLoaded(true);
       }
       return null;
@@ -131,20 +154,23 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
   }, [refresh]);
 
   const activate = useCallback(
-    async (key: string): Promise<StoredLicense | null> => {
+    async (key: string): Promise<LicenseView | null> => {
       if (!key.trim()) return null;
       setBusy(true);
       setActivating(true);
       setError(null);
       try {
-        const l = await client.activate(key);
+        const view = await client.activate(key);
         if (mounted.current) {
-          apply(l);
-          if (l.status !== "active") setError(l.message ?? opts.current.notAcceptedMessage ?? "The key was not accepted.");
+          apply(view);
+          if (view.status !== "active") {
+            const keyText = opts.current.notAcceptedMessage ?? licenseMessage("keyNotAccepted");
+            setError(view.message === "none" || view.message === "keyNotAccepted" ? keyText : licenseMessage(view.message));
+          }
         }
-        return l;
+        return view;
       } catch (e) {
-        if (mounted.current) setError(errText(e));
+        if (mounted.current) setError(licenseErrorText(e));
         return null;
       } finally {
         if (mounted.current) {
@@ -162,10 +188,10 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
     setError(null);
     try {
       await opts.current.beforeDeactivate?.();
-      await client.deactivate();
-      if (mounted.current) apply(null);
+      const view = await client.deactivate();
+      if (mounted.current) apply(view);
     } catch (e) {
-      if (mounted.current) setError(errText(e));
+      if (mounted.current) setError(licenseErrorText(e));
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -182,11 +208,28 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
   }, [confirmPending, deactivate]);
   const cancelDeactivate = useCallback(() => setConfirmPending(false), []);
 
-  const grace = options.graceDays ?? 7;
+  const verify = useCallback(async (): Promise<LicenseView | null> => {
+    const refreshNow = client.refresh;
+    if (!refreshNow) return null;
+    setVerifying(true);
+    setVerifyError(null);
+    try {
+      const result = await refreshNow.call(client);
+      if (mounted.current) apply(result.view);
+      return result.view;
+    } catch (e) {
+      if (mounted.current) setVerifyError(licenseErrorText(e));
+      return null;
+    } finally {
+      if (mounted.current) setVerifying(false);
+    }
+  }, [client, apply]);
+  const canVerify = typeof client.refresh === "function" && license !== null && VERIFY_LIFECYCLES.includes(license.lifecycle);
+
   return {
     license,
     loaded,
-    pro: isPro(license, grace),
+    pro: isPro(license),
     tier: licenseTier(license) ?? null,
     busy,
     activating,
@@ -197,6 +240,10 @@ export function useLicenseSection(options: UseLicenseSectionOptions): UseLicense
     confirmPending,
     cancelDeactivate,
     refresh,
+    canVerify,
+    verifying,
+    verifyError,
+    verify,
   };
 }
 

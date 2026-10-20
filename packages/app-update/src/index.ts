@@ -527,6 +527,13 @@ export {
 } from './channels.js';
 export { createCheckGate, type CheckGate, type CheckGateOptions } from './check-gate.js';
 export {
+  createPersistedCheckCache,
+  type CheckCacheStore,
+  type PersistedCheckCache,
+  type PersistedCheckCacheOptions,
+  type PersistedCheckResult,
+} from './check-cache.js';
+export {
   createBootProbation,
   previousInstallPath,
   PREVIOUS_SUFFIX,

@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.7.1 — unpublished staging
+## 0.7.2 — unpublished staging
+
+Additive. No existing markup, class or CSS value changes.
+
+- `Table`, `TableCaption`, `TableHead`, `TableBody`, `TableRow`, `TableHeaderCell`, `TableCell` and `TableMessage` (`@rightkit/react-shell/react`): native table elements with shell tokens. Sortable headers (`sort`, `onSort`: `aria-sort` and a real button), `align`, `numeric`, `rowHeader`, `dense`, `pending` (`aria-busy`), activatable rows (`onActivate`: Tab stop, click, Enter, Space; inner controls keep their own events), `selected`, `disabled`, `error`, and `TableMessage` for empty, pending and error rows. No animation, so reduced motion has nothing to disable; `forced-colors` outlines the selected row. Rules are in `shell.visual.css` and `shell.css` (`.rk-table*`); `shell.structure.css` is unchanged. Replaces app-owned raw `<table>` markup (MailRight settings log, runtime health and attachment sheet preview).
+- Docs: the README additions heading read "0.6.9, unreleased" and now reads 0.7.0 (it lists the 0.7.0 additions).
+
+## 0.7.1 (2026-10-19)
 
 - Repairs shortcut and hover behavior.
 

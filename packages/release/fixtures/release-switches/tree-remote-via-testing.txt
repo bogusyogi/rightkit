@@ -1,0 +1,9 @@
+release-switch-fixture v0.0.0 (/work/app)
+└── rightkit-daemon v0.3.1 (/work/rightkit/crates/rightkit-daemon)
+    ├── rightkit-daemon feature "default"
+    │   └── rightkit-daemon feature "local"
+    ├── rightkit-daemon feature "remote-loopback"
+    │   └── rightkit-daemon feature "remote"
+    │       └── rightkit-daemon feature "link"
+    └── rightkit-daemon feature "testing"
+        └── rightkit-daemon feature "remote" (*)

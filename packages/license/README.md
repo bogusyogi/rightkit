@@ -1,63 +1,34 @@
 # @rightkit/license
 
-The license client for Right Suite apps. It exchanges a license key for an activation token (and a signed token when the backend returns one) against the RightApps backend (`https://<host>/v1/licenses/*`), stores the result through an app-supplied storage port, and applies per-kind offline grace.
-
-| Item | Value |
-|---|---|
-| Where it runs | App webview UI (client) talking to the RightApps backend. Offline token verification runs natively. |
-| Rust pair | `rightkit-license` (native Ed25519 entitlement verification and enforcement) |
-| Version | see INDEX.md |
-| License | MIT OR Apache-2.0 |
-
-## Entry points
-
-| Import | Contents |
-|---|---|
-| `@rightkit/license` | `createLicenseClient(config)`, `isLicensed`, `isPro`, `tier`, `hasFeature`, `hasAllFeatures`, `hasAnyFeature`, `tierAtLeast`, `satisfiesRequirement`; types `Entitlements`, `LicenseTier`, `LicenseRequirement`, `LicenseStatus`, `LicenseKind`, `EntitlementStage`, `StoredLicense`, `LicenseStorage`, `LicenseConfig` |
-
-Added in 0.2.0: `classifyLifecycle`, `lifecycleGrantsAccess`, `lifecycleNeedsOnlineRefresh`; types `Lifecycle`, `ClassifyOptions`, `RefreshOutcome`, `RefreshOutcomeKind`, `RefreshResult`.
-
-`createLicenseClient` returns `{ activate(key), refresh(), refreshWithOutcome(), deactivate(), load() }`.
-
-## Refresh semantics
-
-`refreshWithOutcome()` returns `{ outcome, license }`. `refresh()` returns just the record, which carries `lastRefreshOutcome` and, while the server is unreachable, `staleSince`.
-
-| Outcome | When | Record |
-|---|---|---|
-| `tokenReplaced` | active, new `signedToken` | token replaced |
-| `tokenKept` | active, token omitted or identical, cached token's `exp` still in the future | unchanged |
-| `tokenDropped` | active, token omitted or identical, none cached or cached one expired/undecodable | `signedToken` removed, `status` stays `active` |
-| `stale` | no network, 5xx, unstructured error, malformed body | unchanged except `staleSince` (first failure of the episode) and `lastRefreshOutcome`, set to `stale` |
-| `revoked` | structured 4xx rejection, or a non-`active` status | `status: 'invalid'` |
-| `noCredential` | no `activationToken` | nothing sent, nothing written |
-
-The lifecycle classification (`classifyLifecycle`) is a UI hint derived from the stored record. The Rust `Lifecycle` in `rightkit-license` is the authority.
-
-## Peer dependencies
-
-| Peer | Range | Required |
-|---|---|---|
-| `@tauri-apps/plugin-http` | `^2` | Optional (`peerDependenciesMeta`). Needed inside a Tauri webview. |
-
-## Example
+Version 0.3.0 replaces renderer network & storage with native commands. Native code owns credentials, lifecycle, clocks, persistence & authorization. Renderer receives validated display views.
 
 ```ts
-import { createLicenseClient, isPro } from "@rightkit/license";
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { createLicenseClient, licenseMessage } from '@rightkit/license';
 
-const license = createLicenseClient({
-  app: "coderight",
-  host: "coderight.cc",
-  appVersion: "1.0.0",
-  storage, // { get(): Promise<StoredLicense | null>; set(lic): Promise<void> }
-  deviceId: () => deviceId,
-});
-
-const lic = await license.activate("AD-XXXX");
-const pro = isPro(lic);
+const license = createLicenseClient({ invoke, listen });
+const view = await license.status();
+const stop = await license.onChange(view => render(view));
+// On component cleanup:
+stop();
 ```
 
-## Known issues
+Methods: `status()`, `activate(key)`, `refresh()`, `deactivate()`, `requestTrial(email)` & `onChange(callback, onError?)`. `refresh()` returns `{view, outcome}`; trial returns `{accepted, message}`. Mutations reject with `LicenseClientError`, containing safe `code`, optional rejection `reason` & fixed English `message`. View `message` is a MessageCode; use `licenseMessage(view.message)` for display.
 
-- Inside a Tauri webview, requests use `@tauri-apps/plugin-http` to avoid a CORS preflight that the brand hosts do not answer. The app must install that plugin and its capability. Without it, the client falls back to the global `fetch`, and the source comment says the brand hosts do not answer that CORS preflight (`src/index.ts:155-162`).
-- `settings-ui` peers this package with no upper bound (`>=0.1.0`).
+LicenseView carries `mode`, `status`, native `lifecycle`, `tier`, `features`, `kind`, `stage`, nullable Unix-millisecond `validUntil`, `confirmationDueAt`, `staleSince`, nullable `licenseIdSuffix`, `busy`, `unresolved`, `revisionState` & `message`. Unknown fields are discarded. Malformed required fields reject with fixed unknown error. Unknown message codes use fixed unknown text. Invalid change events stop their subscription & report fixed error through optional `onError`.
+
+Helpers `isLicensed`, `isPro`, `tierAtLeast`, `hasFeature`, `hasAllFeatures`, `hasAnyFeature` & `satisfiesRequirement` consume LicenseView. Access hints fail closed during busy/unresolved states. Dates never extend grace or grant access. Native code must authorize protected operations when invoked.
+
+Breaking migration: remove `StoredLicense`, storage/device/host/fetch config, `load`, `refreshWithOutcome`, token readers & `classifyLifecycle`. Move credential migration into native code. Replace nested entitlement reads with `view.tier` & `view.features`; remove local grace/clock arguments. Licence key & trial email are transient command inputs only.
+
+Browser QA uses separate export:
+
+```ts
+import { createLicenseMock } from '@rightkit/license/testing';
+const { client } = createLicenseMock();
+```
+
+Mock implements frozen native commands in memory & carries `RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP`. Testing export resolves only under `development`; default resolution is blocked. Vite development & Vitest can use mock. TypeScript projects using testing export need `customConditions: ["development"]` for declaration resolution.
+
+Release owner must force actual production resolution, including `NODE_ENV=production`, & exclude custom `development` conditions: inherited `NODE_ENV=development` can make even `vite build --mode production` resolve mock. Keep final frontend artifact sentinel gate after bundling/minification. Export conditions & final-artifact gate serve separate checks.

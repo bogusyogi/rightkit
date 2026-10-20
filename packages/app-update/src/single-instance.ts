@@ -1,5 +1,5 @@
 /** Keep in step with package.json; a test enforces this. */
-export const UPDATES_PACKAGE_VERSION = '0.4.0';
+export const UPDATES_PACKAGE_VERSION = '0.4.1';
 
 const REGISTRY_KEY = Symbol.for('@rightkit/app-update.instances');
 

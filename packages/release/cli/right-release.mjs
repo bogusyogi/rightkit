@@ -40,6 +40,7 @@ const commands = new Map([
   ["ownership-approval", "ownership-approval-command.mjs"],
   ["ownership-report", "ownership-report-command.mjs"],
   ["ownership-mandatory", "ownership-mandatory-set.mjs"],
+  ["adoption-evidence", "adoption-evidence.mjs"],
   ["swift-package", "swift-package-command.mjs"],
   ["bundle-scan", "runtime-bundle-scan.mjs"],
   ["check-release-dependencies", "release-dependencies-command.mjs"],
@@ -136,6 +137,9 @@ if (first === "--version" || first === "-v") {
   runBinary("python3", [path.join(packageRoot, "generate-dmg-background.py"), ...args.slice(1)]);
 } else if (first === "build" && args.includes("--web")) {
   run("web-build.mjs", args.slice(1).filter((arg) => arg !== "--web"));
+} else if (first === "license-notices" && (args[1] === "cargo" || args[1] === "binaries")) {
+  // `license-notices npm` stays on the commands map; the Rust and native-binary appendices have their own modules.
+  run(args[1] === "cargo" ? "cargo-license-notices.mjs" : "binary-license-notices.mjs", args.slice(2));
 } else if (commands.has(first)) {
   run(commands.get(first), args.slice(1));
 } else if (first.startsWith("-")) {
@@ -217,6 +221,10 @@ Commands:
                                                       Run the app's declared test suites (config tests.suites / tests.runners) in order; stops at the first failure
   license-notices npm [--config <file>] [--output <file>] [--product-name <name>] [--check]
                                                       Write the third-party npm license appendix HTML from pnpm licenses (config legal.npmNotices); --check only compares
+  license-notices cargo [--config <file>] [--output <file>] [--check]
+                                                      Write the third-party Cargo license appendix HTML through cargo about (config legal.cargoNotices); --check only compares
+  license-notices binaries [--config <file>] [--output <file>] [--product-name <name>] [--receipt <path>] [--check]
+                                                      Write the notices for shipped programs that are not Cargo or npm dependencies (config legal.binaryNotices); --check only compares
   toolchain swift --version <x.y.z> --sha256 <pin> [--url <https url>] [--github-env] [--json]
                                                       Windows: install the pinned swift.org Swift toolchain (sha256 verified before it runs), check swift --version, find the runtime bin; --github-env exports what the installer changed to GITHUB_ENV / GITHUB_PATH
   dev --platform win|mac [--config <path>] [--dry-run] [--build-only]
@@ -288,6 +296,8 @@ Commands:
                                                       Report cross-app ownership & pending requests
   ownership-mandatory [--workspace <dir>] [--app <name>]... [--amendment v2.1] [--enforce] [--json]
                                                       Check each app declares every Table 1 owner at its required version (report by default)
+  adoption-evidence --manifest <published-release-manifest.json> [--packets <dir>] [--app <dir> [--adoption <file>] [--target <target>]] [--json]
+                                                      Validate the handoff manifest (derived fields, AP set = frozen packets) and, with --app, an app's adoption record (lock pins, closure, receipts)
   cache status [--json]                              Inspect the shared local build cache
   cache prune [--dry-run|--apply] [--json]           Plan or apply safe shared-target pruning
   cache migrate --config <file> [--dry-run|--apply] [--json]

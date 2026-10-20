@@ -4,7 +4,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { StoredLicense } from "@rightkit/license";
+import { LICENSE_MESSAGES, LicenseClientError, type LicenseView } from "@rightkit/license";
+import { DEACTIVATED, LIFETIME_PRO, licenseView } from "./__fixtures__/license-view.js";
 import { doctorSection, licenseSection } from "./index.js";
 import type { DoctorCheck, SettingsContext, SettingsSection } from "./index.js";
 
@@ -12,51 +13,49 @@ afterEach(() => cleanup());
 
 const ctx: SettingsContext = { values: {}, set: async () => {}, patch: async () => {}, saving: false, error: null, clearError: () => {} };
 const body = (s: SettingsSection): ReactNode => s.render(ctx);
-const active = { status: "active", deviceId: "d", licenseKind: "perpetual", validUntil: null, tier: "pro" } as unknown as StoredLicense;
-const client = (lic: StoredLicense | null) => ({ status: async () => lic, activate: async () => active, deactivate: async () => ({}) });
+const client = (view: LicenseView = licenseView()) => ({ status: async () => view, activate: async () => LIFETIME_PRO, deactivate: async () => DEACTIVATED });
 const html = (c: HTMLElement) => c.innerHTML;
 
 describe("licenseSection output", () => {
   it("free, with purchase row", async () => {
-    const v = render(<>{body(licenseSection({ client: client(null), purchaseUrl: "https://x.test" }))}</>);
+    const v = render(<>{body(licenseSection({ client: client(), purchaseUrl: "https://x.test" }))}</>);
     await screen.findByText("No licence key is active on this device.");
     expect(html(v.container)).toMatchSnapshot();
   });
   it("free, ids, plan slot and custom labels, key typed", async () => {
-    const v = render(<>{body(licenseSection({ client: client(null), planSlot: <p>plan</p>, ids: { section: "s", licenseKey: "k", form: "f", activate: "a", deactivate: "d", status: "st" }, labels: { activating: "Working", keyHint: "hint" } }))}</>);
+    const v = render(<>{body(licenseSection({ client: client(), planSlot: <p>plan</p>, ids: { section: "s", licenseKey: "k", form: "f", activate: "a", deactivate: "d", status: "st" }, labels: { activating: "Working", keyHint: "hint" } }))}</>);
     await userEvent.setup().type(await screen.findByLabelText("Licence key"), "ABC");
     expect(html(v.container)).toMatchSnapshot();
   });
   it("invalid licence", async () => {
-    const v = render(<>{body(licenseSection({ client: client({ status: "invalid", message: "Key revoked" } as StoredLicense) }))}</>);
-    await screen.findByText("Key revoked");
+    const v = render(<>{body(licenseSection({ client: client(licenseView({ status: "invalid", lifecycle: "invalid", message: "keyNotAccepted" })) }))}</>);
+    await screen.findByText(LICENSE_MESSAGES.keyNotAccepted);
     expect(html(v.container)).toMatchSnapshot();
   });
   it("active, confirm on (idle then armed)", async () => {
-    const v = render(<>{body(licenseSection({ client: client(active), tierLabels: { pro: "Pro" }, ids: { deactivate: "d", status: "st" } }))}</>);
+    const v = render(<>{body(licenseSection({ client: client(LIFETIME_PRO), tierLabels: { pro: "Pro" }, ids: { deactivate: "d", status: "st" } }))}</>);
     const btn = await screen.findByRole("button", { name: "Deactivate" });
     expect(html(v.container)).toMatchSnapshot("idle");
     await userEvent.setup().click(btn);
     expect(html(v.container)).toMatchSnapshot("armed");
   });
   it("active with a pro tier shows the mapped tier badge", async () => {
-    const pro = { ...active, entitlements: { tier: "pro" } } as unknown as StoredLicense;
-    const v = render(<>{body(licenseSection({ client: client(pro), tierLabels: { pro: "Pro Plan" } }))}</>);
+    const v = render(<>{body(licenseSection({ client: client(LIFETIME_PRO), tierLabels: { pro: "Pro Plan" } }))}</>);
     await screen.findByRole("button", { name: "Deactivate" });
     expect(v.container.textContent).toContain("Pro Plan");
   });
   it("active, confirm off", async () => {
-    const v = render(<>{body(licenseSection({ client: client(active), confirmDeactivate: false }))}</>);
+    const v = render(<>{body(licenseSection({ client: client(LIFETIME_PRO), confirmDeactivate: false }))}</>);
     await screen.findByRole("button", { name: "Deactivate" });
     expect(html(v.container)).toMatchSnapshot();
   });
   it("activation error", async () => {
-    const c = { ...client(null), activate: async () => { throw new Error("offline"); } };
+    const c = { ...client(), activate: async () => { throw new LicenseClientError("network", "networkUnavailable"); } };
     const v = render(<>{body(licenseSection({ client: c }))}</>);
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("Licence key"), "K");
     await user.click(screen.getByRole("button", { name: "Activate" }));
-    await screen.findByText("offline");
+    await screen.findByText(LICENSE_MESSAGES.networkUnavailable);
     expect(html(v.container)).toMatchSnapshot();
   });
 });

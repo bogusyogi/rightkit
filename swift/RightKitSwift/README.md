@@ -290,7 +290,7 @@ under development; it is published when `right-release publish swift` pushes its
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.7.0"),
+    .package(url: "https://github.com/bogusyogi/rightkit", exact: "0.9.0"),
 ],
 targets: [
     .target(name: "YourApp", dependencies: [

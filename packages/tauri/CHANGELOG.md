@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — unpublished staging
+
+Breaking:
+- Remove renderer `license.get/set/delete`, licence command maps & `argumentNames.licenseSet`, including app-specific raw licence routes.
+- Remove `TLicense`; generic order is `<TDevice, TLogBundle, TLogEvent, TDiagnostics>`.
+- Migrate licence operations to `@rightkit/license` 0.3.0 native invoke client. Native Rust owns licence storage & entitlement verification.
+
+Device atomic `getOrCreate`, logs, diagnostics & update passthrough behavior remain unchanged.
+
+Added (CutRight gap 8, native file dialogs):
+- `@rightkit/tauri/dialog`: `pickFolder`, `pickFile`, `pickFiles` over `@tauri-apps/plugin-dialog` (new optional peer, `^2.0.0`). `directory` and `multiple` are set by the function; every other plugin option passes through unchanged; cancel resolves `null`; a plugin result of the wrong shape throws. No `saveFile`: its behaviour is unproven. The main entry stays free of the plugin.
+- Tests, written and not yet run: `src/dialog.test.ts`, `src/dialog-export.test.ts` (real Vite resolution of the `./dialog` export map; needs `dist/`), contract types in `type-tests/contract.ts`.
+
+Removed before publication (PK05-7):
+- The staged `dialog-qa` entry (the `rightkit-qa` + `development` export condition on `./dialog`, `src/dialog-qa.ts`, its tests and contract types) is removed: its only candidate consumer is the unpublished rightkit-qa `dialog` module, and no app packet names a consumer for it. `./dialog` resolves `dist/dialog.js` under every condition. If PK14-1 later keeps the rightkit-qa `dialog` module with a named consumer, the QA entry returns in a later minor together with it.
+
 ## 0.2.3 — unpublished staging
 
 - Accepts @rightkit/app-update 0.4.x as a peer; peer identity stays @rightkit/app-update.

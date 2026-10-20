@@ -391,6 +391,10 @@ export const WEB_MOCK_MARKERS = Object.freeze([
   { id: "isBrowserQaMode", pattern: /isBrowserQaMode/ },
   { id: "MockDataSource", pattern: /MockDataSource/ },
   { id: "qa-build-flag", pattern: /\bVITE_[A-Z0-9_]*_QA\b/ },
+
+  // @rightkit/license/testing (M12): its sentinel value, and the subpath a bundle that kept the import still names.
+  { id: "license-testing-sentinel", pattern: /\bRIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP\b/ },
+  { id: "license-testing-entry", pattern: /@rightkit\/license\/testing/ },
 ]);
 const WEB_EXTENSIONS = /\.(?:m?js|cjs|html?|css|map)$/i;
 

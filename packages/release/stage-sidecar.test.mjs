@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
 import {
-  StageSidecarError, builtBinaryCandidates, isNestedBrokerContext, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, builtBinaryCandidates, defaultExtractMember, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
@@ -951,7 +951,7 @@ test("remote extract unpacks one archive member after the archive digest passes,
   const bad = make("swapped");
   await assert.rejects(stageSidecars({ appRoot: APP, target: WIN, manifest: [{ ...entry, clean: true }], deps: bad.deps }), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
   assert.equal(bad.fs.existsSync(at("resources", "ffmpeg", "ffmpeg.exe")), false, "nothing staged");
-  for (const bogus of [{ extract: "a/b.exe" }, { memberSha256: hex("a"), extract: undefined }, { executable: "yes" }, { memberSha256: "z" }]) {
+  for (const bogus of [{ extract: "../b.exe" },{ memberSha256: hex("a"), extract: undefined }, { executable: "yes" }, { memberSha256: "z" }]) {
     assert.throws(() => validateSidecarManifest([{ ...entry, ...bogus }], { target: WIN }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
   }
 });
@@ -1281,4 +1281,125 @@ test("prebuilt `from` per-arch form validates, selects the target arch on a thin
   assert.equal(result.files[0].changed, true);
   assert.equal(fixture.fs.readFileSync(at("src-tauri", "binaries", `sd-server-${MAC}`)).toString(), "sd-bytes");
   await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ ...PREBUILT, from: { x86_64: "build/x86/sd" } }], deps: deps({ fs: prebuiltFixture({ stage: false }).fs }) }), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND", message: /not aarch64/ });
+});
+
+// ---- archive member selection by path (CutRight #724: ORT DirectML nupkgs hold duplicate base names)
+
+const NUPKG_LISTING = [
+  "[Content_Types].xml", "runtimes/win-arm64/native/onnxruntime.dll", "runtimes/win-x64/native/onnxruntime.dll", "runtimes/win-x64/native/onnxruntime_providers_shared.dll",
+  "runtimes/win-x64/native/", "bin/x64-win/DirectML.dll", "bin/arm64-win/DirectML.dll", "lib/net8.0/Microsoft.ML.OnnxRuntime.dll", "",
+].join("\r\n");
+
+/** A fake tar: `-tf` prints `listing`, `-xf` records the extracted member (the last argument). */
+function fakeTar(listing) {
+  const calls = [];
+  const run = (command, args) => { calls.push([command, ...args]); return { status: 0, stdout: args[0] === "-tf" ? listing : "", stderr: "" }; };
+  return { run, calls, extracted: () => calls.filter((call) => call[1] === "-xf").map((call) => call[call.length - 1]) };
+}
+
+test("a member path selects the one archive member at exactly that path among duplicate base names", () => {
+  const destDir = path.resolve("/rk-extract-dest");
+  const cases = [
+    ["runtimes/win-x64/native/onnxruntime.dll", "runtimes/win-x64/native/onnxruntime.dll"],
+    ["runtimes/win-arm64/native/onnxruntime.dll", "runtimes/win-arm64/native/onnxruntime.dll"],
+    ["bin/x64-win/DirectML.dll", "bin/x64-win/DirectML.dll"],
+    ["./bin/arm64-win/DirectML.dll", "bin/arm64-win/DirectML.dll"],
+  ];
+  for (const [member, expected] of cases) {
+    const tar = fakeTar(NUPKG_LISTING);
+    const out = defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName: member, destDir, run: tar.run });
+    assert.deepEqual(tar.extracted(), [expected]);
+    assert.equal(out, path.join(destDir, ...expected.split("/")));
+  }
+  const dotted = fakeTar("./runtimes/win-x64/native/onnxruntime.dll\n./runtimes/win-arm64/native/onnxruntime.dll\n");
+  defaultExtractMember({ archive: path.resolve("/rk-cache/a.tgz"), fileName: "runtimes/win-x64/native/onnxruntime.dll", destDir, run: dotted.run });
+  assert.deepEqual(dotted.extracted(), ["./runtimes/win-x64/native/onnxruntime.dll"], "the listed spelling is what tar is asked for");
+});
+
+test("a member path must match the full path exactly once and case-sensitively", () => {
+  const destDir = path.resolve("/rk-extract-dest");
+  const attempt = (listing, fileName) => defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName, destDir, run: fakeTar(listing).run });
+  for (const fileName of ["runtimes/win-x64/native/OnnxRuntime.dll", "native/onnxruntime.dll", "win-x64/native/onnxruntime.dll", "runtimes/win-x64/native", "runtimes/win-x64/native/onnxruntime.dll.bak"]) {
+    assert.throws(() => attempt(NUPKG_LISTING, fileName), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /has 0 members at the path/ }, fileName);
+  }
+  assert.throws(() => attempt("bin/x64-win/DirectML.dll\n./bin/x64-win/DirectML.dll\n", "bin/x64-win/DirectML.dll"), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /has 2 members at the path/ });
+});
+
+test("a bare member name keeps the unique-basename behaviour and still refuses duplicates", () => {
+  const destDir = path.resolve("/rk-extract-dest");
+  const one = fakeTar(NUPKG_LISTING);
+  const out = defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName: "Microsoft.ML.OnnxRuntime.dll", destDir, run: one.run });
+  assert.deepEqual(one.extracted(), ["lib/net8.0/Microsoft.ML.OnnxRuntime.dll"]);
+  assert.equal(out, path.join(destDir, "lib", "net8.0", "Microsoft.ML.OnnxRuntime.dll"));
+  for (const fileName of ["onnxruntime.dll", "DirectML.dll"]) {
+    const dup = fakeTar(NUPKG_LISTING);
+    assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName, destDir, run: dup.run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: new RegExp(`has 2 members named ${fileName.replace(".", "\\.")}, expected exactly one`) });
+    assert.deepEqual(dup.extracted(), [], "nothing is extracted on an ambiguous name");
+  }
+  assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName: "missing.dll", destDir, run: fakeTar(NUPKG_LISTING).run }), { message: /has 0 members named missing\.dll/ });
+});
+
+test("traversal-shaped member requests are refused before the archive is even listed", () => {
+  const destDir = path.resolve("/rk-extract-dest");
+  const bad = ["../x.dll", "a/../x.dll", "/abs/x.dll", "a//b", "a\\b", "C:/x", "C:\\x.dll", "C:x.dll", "a/b/", "a/./b", "./", "..", ".", "", "a/b*.dll", "a/[b].dll", "a/b?.dll", undefined, 7];
+  for (const fileName of bad) {
+    const tar = fakeTar(NUPKG_LISTING);
+    assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName, destDir, run: tar.run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED" }, String(fileName));
+    assert.equal(tar.calls.length, 0, `tar must not run for ${String(fileName)}`);
+    assert.ok(normalizeArchiveMember(fileName).error, String(fileName));
+  }
+  assert.deepEqual(normalizeArchiveMember("./a/b.dll"), { value: "a/b.dll", byPath: true });
+  assert.deepEqual(normalizeArchiveMember("b.dll"), { value: "b.dll", byPath: false });
+});
+
+test("a listed member that would resolve outside the extraction directory is refused", () => {
+  const destDir = path.resolve("/rk-extract-dest");
+  const tar = fakeTar("../evil/onnxruntime.dll\n");
+  assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/a.nupkg"), fileName: "onnxruntime.dll", destDir, run: tar.run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /outside the extraction directory/ });
+});
+
+test("remote extract accepts an archive path, refuses traversal in the manifest, and the output stays at the declared dest", async () => {
+  const archive = "nupkg-bytes";
+  const member = "bin/x64-win/DirectML.dll";
+  const entry = { kind: "remote", name: "directml", url: "https://example.test/directml.nupkg", sha256: sha(archive), extract: member, memberSha256: sha("dll-bytes"), dest: "resources/runtime/DirectML.dll" };
+  assert.doesNotThrow(() => validateSidecarManifest([entry], { target: WIN }));
+  for (const extract of ["../DirectML.dll", "/bin/DirectML.dll", "bin//DirectML.dll", "bin\\x64-win\\DirectML.dll", "C:/DirectML.dll", "bin/../DirectML.dll"]) {
+    assert.throws(() => validateSidecarManifest([{ ...entry, extract }], { target: WIN }), { code: "STAGE_SIDECAR_CONFIG_INVALID" }, extract);
+  }
+  const { fs, files } = fakeFs();
+  const { fetch } = fetchOf(archive);
+  const seen = [];
+  const extractMember = ({ fileName, destDir }) => { seen.push(fileName); const out = path.join(destDir, ...fileName.split("/")); files.set(out, Buffer.from("dll-bytes")); return out; };
+  const result = await stageSidecars({ appRoot: APP, target: WIN, manifest: [entry], deps: deps({ fs, fetch, extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }) });
+  assert.deepEqual(seen, [member]);
+  assert.equal(fs.readFileSync(at("resources", "runtime", "DirectML.dll")).toString(), "dll-bytes");
+  assert.equal(result.files[0].path, "resources/runtime/DirectML.dll");
+  assert.equal(result.files[0].member, member);
+  assert.ok(![...files.keys()].some((key) => key.startsWith(path.resolve(APP) + path.sep) && key.includes("x64-win")), "the member path is not recreated under the app");
+});
+
+test("onnxruntime extracts the catalog archive.member when present and keeps writing the artifactFileName", async () => {
+  const member = "runtimes/win-x64/native/onnxruntime.dll";
+  const catalogFor = (archiveMember) => ({
+    libraries: [{ id: "ort-win", library: "onnxruntime", version: "1.24.4", os: "windows", arch: "x86_64", status: "pinned", sha256: sha("dll"), artifactFileName: "onnxruntime.dll", archive: { url: "https://example.test/ort.nupkg", sha256: sha("archive"), ...(archiveMember === undefined ? {} : { member: archiveMember }) }, noticeFiles: ["NOTICE.txt"] }],
+  });
+  const crateDir = path.resolve("/rk-fake-crates/rightkit-ffmpeg");
+  const stage = async (archiveMember) => {
+    const { fs, files } = fakeFs({ [path.join(crateDir, "NOTICE.txt")]: "notice" });
+    const seen = [];
+    const extractMember = ({ fileName, destDir }) => { seen.push(fileName); const out = path.join(destDir, ...fileName.split("/")); files.set(out, Buffer.from("dll")); return out; };
+    const result = await stageSidecars({
+      appRoot: APP, target: WIN, manifest: [{ kind: "onnxruntime", version: "1.24.4", catalog: "cat.json" }],
+      deps: deps({ fs, loadNativeCatalog: () => ({ catalog: catalogFor(archiveMember), crateDir }), fetchBytes: async () => Buffer.from("archive"), extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }),
+    });
+    return { seen, files, result };
+  };
+  const withMember = await stage(member);
+  assert.deepEqual(withMember.seen, [member]);
+  assert.equal(withMember.result.files[0].name, "onnxruntime.dll");
+  assert.ok(withMember.files.has(at("src-tauri", "resources", "runtime", "onnxruntime.dll")), "written under the artifactFileName, not the member path");
+  assert.deepEqual((await stage(undefined)).seen, ["onnxruntime.dll"], "without archive.member the artifactFileName is requested as before");
+  for (const bad of ["../onnxruntime.dll", "/onnxruntime.dll", "a//b.dll", "a\\b.dll", "C:/x.dll"]) {
+    await assert.rejects(stage(bad), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /invalid archive member/ }, bad);
+  }
 });

@@ -6,6 +6,10 @@ import {
   createLogsClient,
   scrubLogText,
 } from './index.js';
+import parityVectors from '../../../crates/rightkit-logs/tests/scrub-parity.v1.json';
+
+interface ParityVector { name: string; input?: string; inputParts?: string[]; expected: string; windowCrash?: boolean }
+const parityInput = (v: ParityVector): string => v.input ?? (v.inputParts ?? []).join('');
 
 describe('createLogsClient', () => {
   it('flushes bounded structured events through the standard local command', async () => {
@@ -100,25 +104,21 @@ describe('createLogsClient', () => {
   });
 });
 
-// Shared JS/Rust parity vectors: identical pairs run in
-// `crates/rightkit-logs/tests/scrub_parity.rs` against Rust `scrub_text`.
+// Shared JS/Rust parity vectors: `crates/rightkit-logs/tests/scrub-parity.v1.json` is the single source. The Rust suite
+// (`crates/rightkit-logs/tests/scrub_parity.rs`) runs every entry against `scrub_text`; this suite runs every
+// entry against `scrubLogText`, and `crash.test.ts` runs the `windowCrash` subset against `scrubWindowCrashText`.
 describe('scrubLogText parity with Rust scrub_text', () => {
-  const vectors: Array<[string, string]> = [
-    ['Authorization: Bearer abcdefghijklmnop failed', 'Authorization: Bearer [redacted:credential] failed'],
-    ['contact person@example.com now', 'contact [redacted:email] now'],
-    [
-      'GET https://user:pw@example.com/v1/items?key=abc&x=1#frag failed',
-      'GET https://example.com/v1/items?[redacted] failed',
-    ],
-    ['callback code=4/abc&state=xyz failed', 'callback code=[redacted]&state=[redacted] failed'],
-    [
-      'token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXBhcnQ done',
-      'token [redacted:credential] done',
-    ],
-    ['key ' + 'sk-' + 'a1b2' + 'c3d4e5f6g7h8 used', 'key [redacted:credential] used'],
-    ['crash at /Users/ada/app/src/main.rs:4', 'crash at /Users/<user>/app/src/main.rs:4'],
-  ];
-  it.each(vectors)('scrubs %s', (input, expected) => {
+  it('the shared vector file is well formed', () => {
+    expect(parityVectors.schema).toBe(1);
+    expect(parityVectors.vectors.length).toBeGreaterThanOrEqual(30);
+    const names = parityVectors.vectors.map((v) => v.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const v of parityVectors.vectors) {
+      expect(typeof v.expected).toBe('string');
+      expect(typeof v.input === 'string' || Array.isArray(v.inputParts)).toBe(true);
+    }
+  });
+  it.each(parityVectors.vectors.map((v) => [v.name, parityInput(v), v.expected] as const))('%s', (_name, input, expected) => {
     expect(scrubLogText(input)).toBe(expected);
   });
 });

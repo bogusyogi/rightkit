@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Button, Input, Toggle } from "@rightkit/react-shell/react";
-import { isLicensed, type StoredLicense } from "@rightkit/license";
+import { LICENSE_MESSAGES, isLicensed, licenseMessage, type LicenseView, type Lifecycle, type MessageCode } from "@rightkit/license";
 import type { LogsClient } from "@rightkit/logs";
 import type { AutoUpdateClient, AutoUpdateStatus } from "@rightkit/app-update";
 import { errText } from "./errors.js";
@@ -283,11 +283,13 @@ export interface LicenseLabels {
   /** Search entry labels. Defaults "Licence status" / "Activate licence key". */
   searchStatus?: string;
   searchActivate?: string;
-  /** Status badge texts. Defaults "Free", "Not activated", "Invalid", "Expired". */
+  /** Status badge texts. Defaults "Free", "Invalid", "Revoked", "Expired", "Action needed". */
   free?: string;
-  notActivated?: string;
   invalid?: string;
+  revoked?: string;
   expired?: string;
+  /** Badge for a licence that needs an online refresh or a clock fix. Default "Action needed". */
+  attention?: string;
   /** Licence kind names. Defaults "Trial", "Subscription", "Lifetime". */
   trial?: string;
   subscription?: string;
@@ -310,10 +312,17 @@ export interface LicenseLabels {
   activate?: string;
   /** Button text while the activation call is in flight. Unset keeps `activate`. */
   activating?: string;
-  /** Shown when the client returns a non-active licence without a message. Default "The key was not accepted." */
+  /** Shown when the client rejects the key (its `keyNotAccepted` code, or no code). Default: the package's keyNotAccepted text. */
   notAccepted?: string;
   /** Purchase row. Defaults "Need a licence?", "Get a licence". */
   purchaseTitle?: string;
+  /** Verify-purchase row (shown only when the client has `refresh()` and the view needs verification). Defaults "Licence check", "Check this purchase with the licence server.", "Verify purchase". */
+  verifyTitle?: string;
+  /** Provisional and staleness lines (shown when the view sets `confirmationDueAt` / `staleSince`). Each is the prefix followed by the date. Defaults "Confirm by", "Could not verify online since". `staleSince` is when online verification first failed, not the last success. */
+  confirmBy?: string;
+  unverifiedSince?: string;
+  verifyHint?: string;
+  verify?: string;
   purchase?: string;
 }
 
@@ -331,6 +340,8 @@ export interface LicenseIds {
   deactivate?: string;
   /** The status row's description (the `role="status"` span). */
   status?: string;
+  /** The "Verify purchase" button. */
+  verify?: string;
 }
 
 export interface LicenseOptions {
@@ -339,29 +350,57 @@ export interface LicenseOptions {
   beforeDeactivate?: () => Promise<void> | void;
   /** Ask for a second click before deactivating. Default true; false deactivates on the first click. */
   confirmDeactivate?: boolean;
-  graceDays?: number;
   purchaseUrl?: string;
   openExternal?: (url: string) => void | Promise<void>;
   /** Display names for tiers, e.g. `{ pro: "Pro" }`. Falls back to the tier string. */
   tierLabels?: Record<string, string>;
   /** Plan / upsell panel rendered above the licence rows. */
   planSlot?: ReactNode;
-  /** Fired after activate/deactivate so the app can refresh its entitlements. */
-  onChange?: (lic: StoredLicense | null) => void;
+  /** Fired after activate/deactivate so the app can refresh its licence state. */
+  onChange?: (view: LicenseView | null) => void;
   /** Reword every visible string. */
   labels?: LicenseLabels;
   /** Stable element ids. */
   ids?: LicenseIds;
 }
 
-function describeLicense(lic: StoredLicense | null, grace: number, L: LicenseLabels): { tone: "ok" | "warn" | "bad" | "neutral"; label: string; detail: string } {
-  if (!lic || lic.status === "none") return { tone: "neutral", label: L.free ?? "Free", detail: L.freeDetail ?? "No licence key is active on this device." };
-  if (lic.status === "invalid" || lic.status === "failed") return { tone: "bad", label: lic.status === "failed" ? (L.notActivated ?? "Not activated") : (L.invalid ?? "Invalid"), detail: lic.message ?? L.rejectedDetail ?? "The licence key was not accepted." };
-  const valid = isLicensed(lic, grace);
-  const until = lic.validUntil ? new Date(lic.validUntil).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : null;
-  const kind = lic.licenseKind === "trial" ? (L.trial ?? "Trial") : lic.licenseKind === "term" ? (L.subscription ?? "Subscription") : (L.lifetime ?? "Lifetime");
-  if (!valid) return { tone: "warn", label: L.expired ?? "Expired", detail: L.expiredDetail ? L.expiredDetail(kind, until) : until ? `This ${kind.toLowerCase()} ended on ${until}.` : "This licence is no longer valid." };
-  return { tone: "ok", label: kind, detail: L.activeDetail ? L.activeDetail(kind, until) : until ? `${kind} valid until ${until}.` : `${kind} licence is active.` };
+type Tone = "ok" | "warn" | "bad" | "neutral";
+
+/** Lifecycles that need an online refresh or a clock fix; their detail comes from the package's fixed message codes. */
+const ATTENTION: Partial<Record<Lifecycle, MessageCode>> = {
+  migration_required: "migrationRequired",
+  verification_required: "verifyFailed",
+  clock_repair_required: "clockRepairRequired",
+};
+
+/** Badge and detail for a view. Every string is a label option or a fixed package message; server text is never shown. */
+/** Short date for a licence time (Unix milliseconds from the view). */
+function formatLicenseDate(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** Provisional and staleness lines: each shows only when its view field is set. */
+function licenseDetailLines(view: LicenseView | null, L: LicenseLabels): string[] {
+  const lines: string[] = [];
+  if (view?.confirmationDueAt != null) lines.push(`${L.confirmBy ?? "Confirm by"} ${formatLicenseDate(view.confirmationDueAt)}`);
+  if (view?.staleSince != null) lines.push(`${L.unverifiedSince ?? "Could not verify online since"} ${formatLicenseDate(view.staleSince)}`);
+  return lines;
+}
+
+function describeLicense(view: LicenseView | null, L: LicenseLabels): { tone: Tone; label: string; detail: string } {
+  if (!view || view.status === "none" || view.lifecycle === "unlicensed") return { tone: "neutral", label: L.free ?? "Free", detail: L.freeDetail ?? "No licence key is active on this device." };
+  const message = view.message === "none" ? null : licenseMessage(view.message);
+  if (view.lifecycle === "revoked") return { tone: "bad", label: L.revoked ?? "Revoked", detail: message ?? LICENSE_MESSAGES.revoked };
+  if (view.lifecycle === "invalid") return { tone: "bad", label: L.invalid ?? "Invalid", detail: message ?? L.rejectedDetail ?? LICENSE_MESSAGES.invalidToken };
+  const until = view.validUntil === null ? null : formatLicenseDate(view.validUntil);
+  const kind = view.kind === "trial" ? (L.trial ?? "Trial") : view.kind === "term" ? (L.subscription ?? "Subscription") : (L.lifetime ?? "Lifetime");
+  if (view.lifecycle === "expired" || view.lifecycle === "expired_trial") {
+    return { tone: "warn", label: L.expired ?? "Expired", detail: L.expiredDetail ? L.expiredDetail(kind, until) : until ? `This ${kind.toLowerCase()} ended on ${until}.` : (message ?? LICENSE_MESSAGES.expired) };
+  }
+  const attention = ATTENTION[view.lifecycle];
+  if (attention) return { tone: "warn", label: L.attention ?? "Action needed", detail: message ?? licenseMessage(attention) };
+  if (isLicensed(view)) return { tone: "ok", label: kind, detail: L.activeDetail ? L.activeDetail(kind, until) : until ? `${kind} valid until ${until}.` : `${kind} licence is active.` };
+  return { tone: "warn", label: L.attention ?? "Action needed", detail: message ?? licenseMessage(view.unresolved ? "unresolved" : view.busy ? "busy" : "unknown") };
 }
 
 function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
@@ -370,21 +409,28 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
   const ids = o.ids ?? {};
   const [key, setKey] = useState("");
   const lic = useLicenseSection({ ...o, notAcceptedMessage: L.notAccepted });
-  const grace = o.graceDays ?? 7;
-  const info = describeLicense(lic.license, grace, L);
+  const info = describeLicense(lic.license, L);
+  const detailLines = licenseDetailLines(lic.license, L);
   const t = lic.tier;
-  const active = lic.license?.status === "active";
+  const active = isLicensed(lic.license);
+  // A stored licence (even an expired or revoked one) is removed with Deactivate; a rejected key stays in the activate row.
+  const holds = lic.license?.revisionState === "active";
   const note = lic.error;
   const busy = lic.busy;
   return (
     <SettingsGroup>
-      <SettingRow id="license.status" label={active ? (L.activeStatusLabel ?? L.statusLabel ?? "Licence") : (L.statusLabel ?? "Licence")} description={<span role="status" id={ids.status}>{info.detail}</span>}>
+      <SettingRow id="license.status" label={active ? (L.activeStatusLabel ?? L.statusLabel ?? "Licence") : (L.statusLabel ?? "Licence")} description={<><span role="status" id={ids.status}>{info.detail}</span>{detailLines.map((line) => <div key={line} className="rk-sr__extra">{line}</div>)}</>}>
         <div className="rk-sr__buttons">
           {t ? <Badge tone="accent">{o.tierLabels?.[t] ?? t}</Badge> : null}
           <Badge tone={info.tone}>{info.label}</Badge>
         </div>
       </SettingRow>
-      {active ? (
+      {lic.canVerify ? (
+        <SettingRow id="license.verify" label={L.verifyTitle ?? "Licence check"} description={lic.verifyError ? <span role="alert">{lic.verifyError}</span> : (L.verifyHint ?? "Check this purchase with the licence server.")}>
+          <Button id={ids.verify} size="sm" variant="ghost" disabled={lic.verifying} onClick={() => void lic.verify()}>{L.verify ?? "Verify purchase"}</Button>
+        </SettingRow>
+      ) : null}
+      {holds ? (
         <SettingRow id="license.deactivate" label={L.deactivateTitle ?? "Deactivate this device"} description={note ? <span role="alert">{note}</span> : (L.deactivateHint ?? "Frees the seat so you can activate another device.")}>
           {o.confirmDeactivate === false ? (
             <Button id={ids.deactivate} size="sm" variant="ghost" disabled={busy} onClick={lic.requestDeactivate}>{L.deactivate ?? "Deactivate"}</Button>
@@ -415,7 +461,7 @@ function LicenseBody({ ctx, o }: { ctx: SettingsContext; o: LicenseOptions }) {
               autoComplete="off"
               spellCheck={false}
               onChange={(e) => setKey(e.target.value)}
-              aria-invalid={lic.license?.status === "invalid" || lic.license?.status === "failed" ? true : undefined}
+              aria-invalid={lic.license?.status === "invalid" ? true : undefined}
             />
             <Button id={ids.activate} type="submit" variant="primary" size="sm" disabled={busy || !key.trim()}>{lic.activating && L.activating ? L.activating : (L.activate ?? "Activate")}</Button>
           </form>

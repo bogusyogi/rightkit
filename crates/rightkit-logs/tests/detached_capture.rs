@@ -165,14 +165,20 @@ fn a_stale_position_for_a_gone_raw_file_is_cleared_on_the_next_start() {
 }
 
 #[test]
-fn a_position_beyond_the_file_restarts_at_the_beginning() {
+fn a_position_beyond_the_file_restarts_at_the_beginning_with_the_first_line_guarded() {
+    // A saved position past the end means the raw file was compacted or replaced after it was
+    // saved: reading restarts at offset 0 and the first line becomes the compaction marker, since
+    // its start may be the tail of a line that was cut (0.3.4 compaction guard).
     let dir = tempfile::tempdir().unwrap();
     let log = DetachedLog::new(sink(dir.path()));
     let mut child = log.stderr_file().unwrap();
-    child.write_all(b"kept\n").unwrap();
+    child.write_all(b"cut-tail\nkept\n").unwrap();
     fs::write(dir.path().join("job.log.raw.pos"), "9999").unwrap();
-    assert_eq!(log.drain().unwrap().lines, 1);
-    assert_eq!(sink_text(dir.path()), "kept\n");
+    assert_eq!(log.drain().unwrap().lines, 2);
+    assert_eq!(
+        sink_text(dir.path()),
+        "[redacted: line after raw-file compaction omitted]\nkept\n"
+    );
 }
 
 #[test]

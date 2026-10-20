@@ -20,6 +20,19 @@ function nativeRustFiles(root: string): string[] {
 }
 
 describe("npm package boundary", () => {
+  it("keeps testing outside main entry & removes renderer transport dependencies", () => {
+    const manifest = JSON.parse(readFileSync(path.join(packageRoot, "package.json"), "utf8"));
+    expect(manifest.version).toBe("0.3.0");
+    expect(manifest.exports["./testing"]).toEqual({
+      development: { types: "./dist/testing.d.ts", import: "./dist/testing.js" },
+      default: null,
+    });
+    expect(manifest.peerDependencies?.["@tauri-apps/plugin-http"]).toBeUndefined();
+    expect(manifest.devDependencies["@tauri-apps/plugin-http"]).toBeUndefined();
+    const main = readFileSync(path.join(packageRoot, "src/index.ts"), "utf8");
+    expect(main).not.toMatch(/from ['"].*testing|RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP|classifyLifecycle|\bfetch\(/);
+    // Real resolver fixtures cover export conditions; final-artifact sentinel gate remains separate.
+  });
   it("contains no native Rust policy payload", () => {
     const manifest = JSON.parse(readFileSync(path.join(packageRoot, "package.json"), "utf8")) as {
       files?: string[];

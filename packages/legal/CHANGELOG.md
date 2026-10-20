@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.6.1 — unpublished staging
+## 0.6.2 — unpublished staging
+
+Additive (PK10-2, PK10-4). Manifest, receipt and digest behaviour is unchanged; compatible additions take the next patch (R5).
+
+- Add `acceptanceDeclaration(manifest)` and `LegalAcceptanceDeclaration` (root and `/browser` entries): the manifest identity and document set a renderer declares to a native receipt service, with no `acceptedAt` and no eligibility. The native side stamps its own time; `@rightkit/onboarding` `LegalReceiptPort.create` carries the declaration. `createAcceptanceReceipt` is unchanged and records the same document set.
+- `rightkit-legal rust-licenses` is no longer BLOCKED. It delegates to `right-release license-notices cargo` (`cargo-license-notices.mjs` in `@rightkit/release`, cargo-about through the managed cargo client) found in the app's installed `@rightkit/release`, or at `--right-release FILE`. New options: `--config`, `--output`, `--check`. The route's exit status is returned unchanged; a missing `@rightkit/release` is reported by name. No licence data or cargo logic is added to this package. Requires `@rightkit/release` with the `license-notices cargo` route (PK17-5).
+- README: the tooling section no longer says "(unreleased)" (it shipped in 0.6.0); documents the native receipt path and the Rust licence route.
+
+## 0.6.1 (2026-10-19)
 
 - Repairs legal snapshot and policy handling.
 
@@ -14,7 +22,7 @@ Legal snapshot and npm license notice tooling (Orthic-Labs/rightkit#472; source 
 - `refundPolicy` defaults to the suite 14-day window (`SUITE_REFUND_POLICY`, Adrian's decision 2026-10-17 06:20) and stays overridable per app with `{ kind: "window", days }` or `{ kind: "none", trialDays? }`. The "required per-app" note is removed.
 - Export `effectiveRefundPolicy`; `renderDefaultPolicy` no longer throws when `refundPolicy` is omitted.
 - Snapshot & npm tooling resolves real paths: writes and reads are refused when the resolved target lies outside its declared root, including through a symlinked ancestor. Source masters are contained in `sourceRoot`, which may sit outside the app root.
-- Add `rightkit-legal` bin: `npm-licenses` delegates to `generateNpmLicenseAppendix`; `rust-licenses` is BLOCKED (no licence-metadata source decided).
+- Add `rightkit-legal` bin: `npm-licenses` delegates to `generateNpmLicenseAppendix`; `rust-licenses` was BLOCKED (no licence-metadata source decided; unblocked in 0.6.2).
 - Add Node unit and CLI integration tests (`pnpm run test:tooling`); `pnpm test` runs them after the Vitest suite.
 - Package version stays 0.5.0; the publish step sets the version.
 

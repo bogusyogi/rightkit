@@ -92,15 +92,58 @@ export interface LegalAcceptanceRecord {
   eligibilityBasis: EligibilityBasis;
 }
 
+/** One document of the set the user was shown. Shaped so `@rightkit/legal`'s `acceptanceDeclaration(manifest).documents` fits as is. */
+export interface DeclaredLegalDocument {
+  id?: string;
+  role?: string;
+  title?: string;
+  url?: string;
+  version?: string;
+  sha256?: string;
+  treatment?: string;
+  material?: boolean;
+}
+
+/**
+ * What the renderer declares to a native receipt service when the user agrees. It carries no time: the service stamps its
+ * own UTC `acceptedAt`, compares `version`, `documentsHash` and `documents` with the manifest it embeds, and refuses a
+ * declaration that does not match.
+ */
+export interface LegalReceiptCreateRequest {
+  /** Acceptance version the app requires (`requiredVersion`, else "1"). */
+  version: string;
+  /** Digest of the document set shown (`documentsHash`, else `requiredDocumentsHash`, else a hash of titles and URLs). */
+  documentsHash: string;
+  /** The declared set (`receiptDocuments`, else the gate's documents as `{ title, url }`). */
+  documents: readonly DeclaredLegalDocument[];
+  eligibilityBasis: EligibilityBasis;
+  /** Always "first_run": onboarding is the first-run and re-acceptance surface. */
+  surface: "first_run";
+}
+
 /**
  * App-owned persistence for the legal acceptance. Lets an app keep its existing receipt (any shape, any store) and map it
  * to and from the package's record. When supplied it is the source of truth: `read()` is consulted on load and overrides
- * whatever acceptance the settings backend holds (`null` means "not accepted", so the gate shows), and `write()` is
- * awaited when the user agrees, before the settings backend is patched.
+ * whatever acceptance the settings backend holds (`null` means "not accepted", so the gate shows).
+ *
+ * Recording the acceptance, in order of preference:
+ * - `create(request)`: the NATIVE path. The service owns the time and the stored receipt and returns the record it stored;
+ *   the renderer builds nothing. A throw, or a record that does not match the required version or hash, keeps the gate
+ *   closed. When `create` exists, `write` is not called.
+ * - `write(record)`: LEGACY. The renderer builds the record, including its `acceptedAt` from the webview clock, and the app
+ *   stores it. Kept for apps that have not moved to a native receipt service.
+ *
+ * `reset()` clears the stored receipt (used by `resetLegalAcceptance`). A port needs `create` or `write`; with neither,
+ * agreeing fails and the gate stays closed.
  */
 export interface LegalReceiptPort {
   read(): LegalAcceptanceRecord | null | Promise<LegalAcceptanceRecord | null>;
-  write(record: LegalAcceptanceRecord): void | Promise<void>;
+  /** Native receipt creation: returns the stored record, stamped with native time. Preferred over `write`. */
+  create?(request: LegalReceiptCreateRequest): LegalAcceptanceRecord | Promise<LegalAcceptanceRecord>;
+  /** @deprecated Renderer-built record with webview time. Implement `create` on a native receipt service instead. */
+  write?(record: LegalAcceptanceRecord): void | Promise<void>;
+  /** Clear the stored receipt so the gate shows again as a first run. */
+  reset?(): void | Promise<void>;
 }
 
 export interface PersistedOnboardingState {
@@ -113,6 +156,11 @@ export interface PersistedOnboardingState {
   /** Legacy mirror of `legalAcceptance.eligibilityBasis`. */
   eligibilityBasis?: EligibilityBasis;
   legalAcceptance?: LegalAcceptanceRecord;
+  /**
+   * Set by `reopenLegalAcceptance`: the stored acceptance no longer counts, so the gate shows as a re-acceptance. The old
+   * record stays until a new acceptance replaces it, which clears the flag.
+   */
+  legalReopened?: boolean;
   /** Step ids the user skipped with the per-step Skip button (not marked complete). */
   skippedSteps?: string[];
 }
@@ -204,6 +252,13 @@ export interface OnboardingProps {
   permissions?: PermissionsBackend;
   models?: ModelsBackend;
   license?: LicenseBackend;
+  /**
+   * Adds the built-in sign-in step after the licence step and hands the backend to every step as `ctx.signIn`. Build it
+   * with `signInBackendFromOAuth` over the app's `rightkit-oauth` commands.
+   */
+  signIn?: SignInBackend;
+  /** The document set declared to `legalReceipt.create`. Default: the gate's documents as `{ title, url }`. */
+  receiptDocuments?: readonly DeclaredLegalDocument[];
   /** Called once when setup finishes, with the completed and skipped step ids and the step results. */
   onComplete: (result: OnboardingResult) => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
@@ -242,7 +297,10 @@ export interface OnboardingProps {
   dragRegion?: boolean;
   /** Also render the drag region on the legal stage (loading and gate). Default false: the legal gate has no strip. */
   legalDragRegion?: boolean;
-  /** Read and write the legal acceptance in the app's own receipt instead of (overriding) the settings backend's copy. */
+  /**
+   * Read and record the legal acceptance in the app's own (preferably native) receipt instead of (overriding) the settings
+   * backend's copy. See `LegalReceiptPort`; `createNativeLegalReceiptPort` builds one over the host's receipt commands.
+   */
   legalReceipt?: LegalReceiptPort;
 }
 

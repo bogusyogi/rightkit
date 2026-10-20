@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.1 — unpublished staging
+## 0.4.1 (2026-10-19)
 
 - Adds `layout="contained"` to remove the gate's viewport minimum height; default `window` preserves existing sizing.
 

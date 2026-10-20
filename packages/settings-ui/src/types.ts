@@ -6,6 +6,10 @@ export interface SettingsSnapshot {
   values: SettingsValues;
   /** Monotonic revision from `rightkit-app-settings`; used for compare-and-set. */
   revision: number;
+  /** Schema version of the stored document, when the host reports it. */
+  schemaVersion?: number;
+  /** Set when the write is stored but a later step failed (for example the directory sync). Do not repeat the write. */
+  warning?: string;
 }
 
 /** Persistence port. The shell adapter talks to `rightkit-app-settings`; tests and previews use the memory adapter. */
@@ -58,10 +62,14 @@ export interface SecretRef {
 
 export type SecretPresence = "present" | "absent" | "unknown";
 
+/** What a `set` may do to a slot that already holds a key: `create` refuses (`secret_exists`), `replace` overwrites. */
+export type WriteIntent = "create" | "replace";
+
 /** Credential-store port. Values go in, never come back out: only presence is readable. */
 export interface SecretsBackend {
   presence(refs: SecretRef[]): Promise<SecretPresence[]>;
-  set(ref: SecretRef, value: string): Promise<void>;
+  /** Write-only. `intent` defaults to `"replace"`. */
+  set(ref: SecretRef, value: string, intent?: WriteIntent): Promise<void>;
   clear(ref: SecretRef): Promise<void>;
 }
 

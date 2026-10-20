@@ -125,9 +125,9 @@ private let t0 = Date(timeIntervalSince1970: 1_000)
     var lifecycle = CloudKitSubscriptionLifecycle()
     let attempt = lifecycle.beginAttempt(now: t0)
     #expect(attempt == 0)
-    #expect(lifecycle.beginAttempt(now: t0) == nil, "one attempt at a time")
-    #expect(lifecycle.finishSuccess(generation: 0))
-    #expect(lifecycle.beginAttempt(now: t0) == nil, "already subscribed under this generation: no timer, no work")
+    do { let result = lifecycle.beginAttempt(now: t0); #expect(result == nil, "one attempt at a time") }
+    do { let result = lifecycle.finishSuccess(generation: 0); #expect(result) }
+    do { let result = lifecycle.beginAttempt(now: t0); #expect(result == nil, "already subscribed under this generation: no timer, no work") }
     #expect(lifecycle.retryAttempt == 0 && !lifecycle.retryPending && lifecycle.retryNotBefore == nil)
 }
 
@@ -135,53 +135,53 @@ private let t0 = Date(timeIntervalSince1970: 1_000)
     var lifecycle = CloudKitSubscriptionLifecycle()
     let old = lifecycle.beginAttempt(now: t0)!
     lifecycle.reset() // an account change, an enable flip or a zone-loss report
-    #expect(!lifecycle.isCurrent(old))
-    #expect(!lifecycle.finishSuccess(generation: old), "a stale success records nothing")
+    do { let result = lifecycle.isCurrent(old); #expect(!result) }
+    do { let result = lifecycle.finishSuccess(generation: old); #expect(!result, "a stale success records nothing") }
     #expect(lifecycle.readyGeneration == nil)
     let current = lifecycle.beginAttempt(now: t0)!
     #expect(current == lifecycle.generation && current != old)
     // A stale failure neither clears the live attempt's in-flight flag nor schedules a retry.
-    #expect(lifecycle.finishFailure(generation: old, retryable: true, retryAfter: 0, now: t0) == nil)
+    do { let result = lifecycle.finishFailure(generation: old, retryable: true, retryAfter: 0, now: t0); #expect(result == nil) }
     #expect(lifecycle.inFlight)
-    #expect(lifecycle.beginAttempt(now: t0) == nil)
+    do { let result = lifecycle.beginAttempt(now: t0); #expect(result == nil) }
 }
 
 @Test func retriesAreBoundedHonourTheServerAndRenewAfterAReset() {
     var lifecycle = CloudKitSubscriptionLifecycle()
     var attempt = lifecycle.beginAttempt(now: t0)!
-    #expect(lifecycle.finishFailure(generation: attempt, retryable: true, retryAfter: 0, now: t0) == 2, "first retry after 2 s")
-    #expect(lifecycle.beginAttempt(now: t0.addingTimeInterval(1)) == nil, "not before the delay")
-    #expect(lifecycle.retryFired(generation: attempt))
+    do { let result = lifecycle.finishFailure(generation: attempt, retryable: true, retryAfter: 0, now: t0); #expect(result == 2, "first retry after 2 s") }
+    do { let result = lifecycle.beginAttempt(now: t0.addingTimeInterval(1)); #expect(result == nil, "not before the delay") }
+    do { let result = lifecycle.retryFired(generation: attempt); #expect(result) }
     attempt = lifecycle.beginAttempt(now: t0.addingTimeInterval(2))!
     // The second failure waits the longer of the budget (10 s) and the server's guidance (30 s).
-    #expect(lifecycle.finishFailure(generation: attempt, retryable: true, retryAfter: 30, now: t0.addingTimeInterval(2)) == 30)
-    #expect(lifecycle.retryFired(generation: attempt))
+    do { let result = lifecycle.finishFailure(generation: attempt, retryable: true, retryAfter: 30, now: t0.addingTimeInterval(2)); #expect(result == 30) }
+    do { let result = lifecycle.retryFired(generation: attempt); #expect(result) }
     attempt = lifecycle.beginAttempt(now: t0.addingTimeInterval(40))!
-    #expect(lifecycle.finishFailure(generation: attempt, retryable: true, retryAfter: 0, now: t0.addingTimeInterval(40)) == nil, "the budget of two is spent")
-    #expect(lifecycle.beginAttempt(now: t0.addingTimeInterval(41)) != nil || lifecycle.retryNotBefore == nil)
+    do { let result = lifecycle.finishFailure(generation: attempt, retryable: true, retryAfter: 0, now: t0.addingTimeInterval(40)); #expect(result == nil, "the budget of two is spent") }
+    do { let result = lifecycle.beginAttempt(now: t0.addingTimeInterval(41)); #expect(result != nil || lifecycle.retryNotBefore == nil) }
 
     lifecycle.reset()
     let fresh = lifecycle.beginAttempt(now: t0.addingTimeInterval(50))!
-    #expect(lifecycle.finishFailure(generation: fresh, retryable: true, retryAfter: 0, now: t0.addingTimeInterval(50)) == 2, "a reset renews the budget")
+    do { let result = lifecycle.finishFailure(generation: fresh, retryable: true, retryAfter: 0, now: t0.addingTimeInterval(50)); #expect(result == 2, "a reset renews the budget") }
 }
 
 @Test func aFailureThatCannotSucceedOnRetryNeverSchedulesOne() {
     var lifecycle = CloudKitSubscriptionLifecycle()
     let attempt = lifecycle.beginAttempt(now: t0)!
-    #expect(lifecycle.finishFailure(generation: attempt, retryable: false, retryAfter: 60, now: t0) == nil)
+    do { let result = lifecycle.finishFailure(generation: attempt, retryable: false, retryAfter: 60, now: t0); #expect(result == nil) }
     #expect(!lifecycle.inFlight && !lifecycle.retryPending && lifecycle.retryNotBefore == nil)
-    #expect(lifecycle.beginAttempt(now: t0) != nil, "the next trigger may try again")
+    do { let result = lifecycle.beginAttempt(now: t0); #expect(result != nil, "the next trigger may try again") }
 }
 
 @Test func onlyOneRetryIsPendingAndAStaleTimerDoesNothing() {
     var lifecycle = CloudKitSubscriptionLifecycle()
     let attempt = lifecycle.beginAttempt(now: t0)!
-    #expect(lifecycle.scheduleRetry(generation: attempt, retryAfter: 0, now: t0) == 2)
-    #expect(lifecycle.scheduleRetry(generation: attempt, retryAfter: 0, now: t0) == nil, "one pending retry at a time")
+    do { let result = lifecycle.scheduleRetry(generation: attempt, retryAfter: 0, now: t0); #expect(result == 2) }
+    do { let result = lifecycle.scheduleRetry(generation: attempt, retryAfter: 0, now: t0); #expect(result == nil, "one pending retry at a time") }
     lifecycle.reset()
-    #expect(!lifecycle.retryFired(generation: attempt), "the old timer fires into a moved fence and does nothing")
-    #expect(lifecycle.scheduleRetry(generation: attempt, retryAfter: 0, now: t0) == nil)
-    #expect(lifecycle.scheduleRetry(generation: lifecycle.generation, retryAfter: .infinity, now: t0) == 2, "a non-finite guidance is ignored")
+    do { let result = lifecycle.retryFired(generation: attempt); #expect(!result, "the old timer fires into a moved fence and does nothing") }
+    do { let result = lifecycle.scheduleRetry(generation: attempt, retryAfter: 0, now: t0); #expect(result == nil) }
+    do { let result = lifecycle.scheduleRetry(generation: lifecycle.generation, retryAfter: .infinity, now: t0); #expect(result == 2, "a non-finite guidance is ignored") }
 }
 
 @Test func anUnavailableAccountEndsTheAttemptWithoutSubscribingOrBurningARetry() {
@@ -189,5 +189,5 @@ private let t0 = Date(timeIntervalSince1970: 1_000)
     let attempt = lifecycle.beginAttempt(now: t0)!
     lifecycle.finishWithoutSubscription(generation: attempt)
     #expect(!lifecycle.inFlight && lifecycle.readyGeneration == nil && lifecycle.retryAttempt == 0)
-    #expect(lifecycle.beginAttempt(now: t0) != nil)
+    do { let result = lifecycle.beginAttempt(now: t0); #expect(result != nil) }
 }

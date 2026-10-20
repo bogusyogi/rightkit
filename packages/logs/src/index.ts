@@ -256,3 +256,4 @@ export function createLogsClient(config: LogsClientConfig): LogsClient {
   };
 }
 export * from './crash.js';
+export * from './recorder.js';

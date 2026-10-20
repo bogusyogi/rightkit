@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 (2026-10-19)
+
+- Add `sanitizeShikiHtml` & fixed-code `ShikiSanitizationError` for classic Shiki 4.5 dual-theme HTML, with guarded parse5 8.0.1 parsing, strict source/structure/CSS validation & bounded fixed-tag serialization.
+- Add opt-in `@rightkit/doc-render/shiki.css` with scoped theme colors & font resets. Existing sanitizer/CSS defaults & source/copy behavior remain unchanged.
+- Document original-source text fallback with highlighting-failed notice for unsupported output & finite limits; add real-producer fixture & adversarial test sources.
+
 ## 0.2.0 (2026-10-17)
 
 - Sanitizer policy hooks (#395): `safeLinkHref(href, { allowTel, allowRelative })` and `sanitizeHtml`/`sanitizeMarkdownHtml(html, { allowTel, allowRelative, resolveImageSrc })`. Both link additions default off; tag, attribute and CSS allowlists are unchanged, and `javascript:`, `data:`, `srcdoc`, event handlers and styles stay refused. `resolveImageSrc` runs on relative image sources only; its return value is host-trusted.

@@ -6,7 +6,7 @@ import test from "node:test";
 import { cargoManifestIssues, commandFeatureIssues } from "./qa-build-features.mjs";
 import {
   REGISTRY, TEST_MODE_MARKER, assertNoReleaseSwitches, bufferSwitchFindings, commandSwitchFindings, denyNamesFor,
-  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
+  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteLoopbackFindings, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
 } from "./release-switch-scan.mjs";
 
 const FIX = new URL("./fixtures/release-switches/", import.meta.url);
@@ -322,6 +322,67 @@ test("releaseSwitchFindings applies the remote check through the feature-closure
   assert.equal(refused.findings[0].layer, "feature-closure");
   assert.deepEqual(releaseSwitchFindings({ treeText: REMOTE_TREE, remoteHost: true, requireBinary: false }).findings, []);
   assert.deepEqual(releaseSwitchFindings({ treeText: REMOTE_TREE, remoteHost: true, bypass: ["feature-closure"], requireBinary: false }).findings, []);
+});
+
+// PK17-2 / PK06-5: the daemon loopback feature is its own rule (`remote-loopback-undeclared`, declared by
+// releaseSwitches.remoteLoopback), distinct from `remote-feature-undeclared` (releaseSwitches.remoteHost, unchanged).
+test("loopback feature is refused without remoteLoopback, whether or not it implies remote; remoteLoopback allows only the loopback", () => {
+  for (const name of ["tree-remote-loopback-implied.txt", "tree-remote-loopback-separate.txt"]) {
+    const tree = fixture(`${name}`);
+    assert.deepEqual(ids(remoteLoopbackFindings(tree)), ["remote-loopback-undeclared"], name);
+    assert.deepEqual(ids(remoteLoopbackFindings(tree, { remoteLoopback: false })), ["remote-loopback-undeclared"], name);
+    assert.deepEqual(remoteLoopbackFindings(tree, { remoteLoopback: true }), [], name);
+    // A `remote` reached only through the loopback feature is not a remoteHost case.
+    assert.deepEqual(remoteServiceFindings(tree), [], name);
+    // Through the combined gate: exactly one finding without the declaration, none with it; remoteHost never excuses the loopback.
+    const refused = releaseSwitchFindings({ treeText: tree, requireBinary: false });
+    assert.deepEqual(ids(refused.findings), ["remote-loopback-undeclared"], name);
+    assert.equal(refused.findings[0].layer, "feature-closure");
+    assert.deepEqual(ids(releaseSwitchFindings({ treeText: tree, remoteHost: true, requireBinary: false }).findings), ["remote-loopback-undeclared"], name);
+    assert.deepEqual(releaseSwitchFindings({ treeText: tree, remoteLoopback: true, requireBinary: false }).findings, [], name);
+  }
+  assert.match(remoteLoopbackFindings(fixture("tree-remote-loopback-implied.txt"))[0].reason, /releaseSwitches\.remoteLoopback: true/);
+});
+
+test("a desktop app with remote is still refused; remoteLoopback does not excuse remote, remoteHost does", () => {
+  const tree = fixture("tree-remote-direct.txt");
+  assert.deepEqual(ids(remoteServiceFindings(tree)), ["remote-feature-undeclared"]);
+  assert.deepEqual(remoteLoopbackFindings(tree), []);
+  assert.deepEqual(ids(releaseSwitchFindings({ treeText: tree, remoteLoopback: true, requireBinary: false }).findings), ["remote-feature-undeclared"]);
+  assert.deepEqual(releaseSwitchFindings({ treeText: tree, remoteHost: true, requireBinary: false }).findings, []);
+});
+
+test("remote requested directly next to the loopback feature still needs remoteHost; each declaration covers only its own feature", () => {
+  const tree = fixture("tree-remote-and-loopback.txt");
+  assert.deepEqual(ids(releaseSwitchFindings({ treeText: tree, requireBinary: false }).findings).sort(), ["remote-feature-undeclared", "remote-loopback-undeclared"]);
+  assert.deepEqual(ids(releaseSwitchFindings({ treeText: tree, remoteLoopback: true, requireBinary: false }).findings), ["remote-feature-undeclared"]);
+  assert.deepEqual(ids(releaseSwitchFindings({ treeText: tree, remoteHost: true, requireBinary: false }).findings), ["remote-loopback-undeclared"]);
+  assert.deepEqual(releaseSwitchFindings({ treeText: tree, remoteHost: true, remoteLoopback: true, requireBinary: false }).findings, []);
+});
+
+test("remote reached through testing is not excused by sitting beside the loopback feature", () => {
+  const tree = fixture("tree-remote-via-testing.txt");
+  assert.deepEqual(ids(remoteServiceFindings(tree)), ["remote-feature-undeclared"]);
+  const all = ids(releaseSwitchFindings({ treeText: tree, remoteLoopback: true, requireBinary: false }).findings).sort();
+  assert.deepEqual(all, ["forbidden-feature testing", "remote-feature-undeclared"]);
+});
+
+test("a tree without parent structure fails closed: remote under the loopback feature counts as direct", () => {
+  const flat = 'rightkit-daemon feature "remote-loopback"\nrightkit-daemon feature "remote"\n';
+  assert.deepEqual(ids(remoteServiceFindings(flat)), ["remote-feature-undeclared"]);
+  assert.deepEqual(ids(remoteLoopbackFindings(flat)), ["remote-loopback-undeclared"]);
+  const ascii = 'app v0.0.0 (/work/app)\n`-- rightkit-daemon v0.3.1 (/work/rightkit/crates/rightkit-daemon)\n    `-- rightkit-daemon feature "remote-loopback"\n        `-- rightkit-daemon feature "remote"\n';
+  assert.deepEqual(remoteServiceFindings(ascii), [], "ascii charset keeps the four-column indent");
+  assert.deepEqual(ids(remoteLoopbackFindings(ascii)), ["remote-loopback-undeclared"]);
+});
+
+test("remoteLoopback that is not a boolean fails closed, and other crates' remote-loopback features are ignored", () => {
+  const tree = fixture("tree-remote-loopback-implied.txt");
+  assert.throws(() => remoteLoopbackFindings(tree, { remoteLoopback: "true" }), /releaseSwitches\.remoteLoopback must be true or false/);
+  assert.throws(() => remoteLoopbackFindings(tree, { remoteLoopback: null }), /must be true or false/);
+  assert.deepEqual(remoteLoopbackFindings('app v0.0.0 (/work/app)\nother-crate feature "remote-loopback"\n'), []);
+  assert.deepEqual(remoteLoopbackFindings(fixture("tree-clean.txt")), []);
+  assert.deepEqual(remoteLoopbackFindings(fixture("tree-remote-direct.txt")), []);
 });
 
 // M23: one registry feature vocabulary. The closure list gains the M23 names and the applicable

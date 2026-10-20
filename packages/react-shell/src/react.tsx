@@ -1,6 +1,7 @@
 export * from "./index.js";
 export * from "./react/hooks.js";
 export * from "./react/ui.js";
+export * from "./react/table.js";
 export * from "./react/errors.js";
 export * from "./react/overlays.js";
 export * from "./react/contextmenu.js";

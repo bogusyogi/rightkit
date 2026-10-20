@@ -25,7 +25,7 @@ import { GATE_SCHEMA, MAX_CARGO_JOBS, defaultEvidencePath, enforcePublicationGat
 import { runCargoPublish, runCargoReadOnly, scanCrateForSecrets } from "./publish-cargo.mjs";
 import { cargoIndexUrl } from "./cargo-registry-readback.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
-import { recordPublished, stageSourceVersions } from "./rightkit-sync.mjs";
+import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
 
 export const LOCAL_OPERATOR = "agent (local-build grant)";
@@ -236,6 +236,67 @@ export function allFeatureCheckSets(entry = {}) {
   return entry.checkFeatureSets ?? [["--all-features"]];
 }
 
+const CONSUMER_ROW_KEYS = new Set(["manifestPath", "args", "kind", "targets", "locked"]);
+const CONSUMER_KINDS = new Set(["check"]);
+const CONSUMER_MANIFEST = /^ci\/consumers\/(?:[A-Za-z0-9._-]+\/)+Cargo\.toml$/;
+const CONSUMER_TARGET = /^[A-Za-z0-9_]+(?:-[A-Za-z0-9_.]+){2,3}$/;
+// The row owns manifest, lock, target and output format; arguments may only choose features and target kinds.
+const CONSUMER_RESERVED_ARGS = ["--manifest-path", "--target", "--locked", "--frozen", "--offline", "--package", "--workspace", "--all", "--exclude", "--config", "--message-format", "--jobs", "--release", "--profile", "--lockfile-path", "--"];
+const CONSUMER_RESERVED_SHORT = ["-p", "-j", "-Z", "-r"];
+
+/**
+ * Validate the `consumerRows` of one crate's ci/gate.config.json entry and return them normalised. A consumer row
+ * checks the owning crate through a SEPARATE Cargo workspace (its own Cargo.lock), run as
+ * `cargo check --manifest-path <manifestPath> --locked [--target <t>] <args>`. Unknown fields are refused.
+ */
+export function consumerRows(unit, entry = {}) {
+  const rows = entry.consumerRows;
+  if (rows === undefined) return [];
+  const where = (index) => `${unit} consumerRows[${index}]`;
+  if (!Array.isArray(rows)) refuse(`${unit}: consumerRows must be an array`);
+  const seen = new Set();
+  return rows.map((row, index) => {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) refuse(`${where(index)} must be an object`);
+    for (const key of Object.keys(row)) if (!CONSUMER_ROW_KEYS.has(key)) refuse(`${where(index)}: unknown field ${JSON.stringify(key)} (allowed: ${[...CONSUMER_ROW_KEYS].join(", ")})`);
+    const manifestPath = row.manifestPath;
+    if (typeof manifestPath !== "string" || !CONSUMER_MANIFEST.test(manifestPath) || manifestPath.split("/").some((part) => part === "." || part === "..")) {
+      refuse(`${where(index)}: manifestPath must be a relative ci/consumers/<name>/Cargo.toml path with forward slashes, got ${JSON.stringify(manifestPath)}`);
+    }
+    const kind = row.kind ?? "check";
+    if (!CONSUMER_KINDS.has(kind)) refuse(`${where(index)}: kind must be one of ${[...CONSUMER_KINDS].join(", ")}, got ${JSON.stringify(kind)}`);
+    if (row.locked !== undefined && row.locked !== true) refuse(`${where(index)}: locked must be true; a consumer row never runs without its lock file`);
+    const args = row.args ?? [];
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string" || arg === "")) refuse(`${where(index)}: args must be an array of non-empty strings`);
+    for (const arg of args) {
+      if (CONSUMER_RESERVED_ARGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`)) || CONSUMER_RESERVED_SHORT.some((flag) => arg.startsWith(flag))) {
+        refuse(`${where(index)}: args may not contain ${JSON.stringify(arg)}; the row sets manifest path, lock, target and output itself`);
+      }
+    }
+    const targets = row.targets ?? [];
+    if (!Array.isArray(targets) || targets.some((target) => typeof target !== "string" || !CONSUMER_TARGET.test(target))) refuse(`${where(index)}: targets must be an array of target triples`);
+    if (new Set(targets).size !== targets.length) refuse(`${where(index)}: targets lists a triple twice`);
+    const key = JSON.stringify([manifestPath, args, targets]);
+    if (seen.has(key)) refuse(`${where(index)} repeats an earlier row`);
+    seen.add(key);
+    return { manifestPath, kind, args: [...args], targets: [...targets], locked: true };
+  });
+}
+
+/** One Cargo step per target (or one host step when no target is named) for one consumer row. */
+export function consumerRowInvocations(row) {
+  const targets = row.targets.length ? row.targets : [null];
+  return targets.map((target) => ({ command: "cargo", args: [row.kind, "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...row.args], test: false }));
+}
+
+/** Refuse a consumer row whose manifest or lock is missing from the workspace (fail closed before any command). */
+function assertConsumerFiles(workspaceRoot, unit, rows) {
+  for (const row of rows) {
+    for (const file of [row.manifestPath, row.manifestPath.replace(/Cargo\.toml$/, "Cargo.lock")]) {
+      if (!fs.existsSync(path.join(workspaceRoot, file))) refuse(`${unit}: consumer row needs ${file}, which is not in the workspace`);
+    }
+  }
+}
+
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
 export function localTestPlan({ kind, unit, dir, config, manifest, batch = false, platform = "darwin" }) {
   if (kind === "npm") {
@@ -260,9 +321,13 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
     if (entry.alsoSerial) steps.push({ command: "cargo", args: ["test", "-p", unit, "--message-format=json-render-diagnostics", ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], test: true });
   }
   // Batch mode lints the whole batch once (batchClippyInvocations) and records it as a batch receipt.
-  if (!batch) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], test: false });
+  // Every tested feature set is linted (-D warnings), not only the first.
+  if (!batch) for (const features of featureSets) steps.push({ command: "cargo", args: ["clippy", "-p", unit, "--message-format=json-render-diagnostics", "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"], test: false });
   for (const features of allFeatureCheckSets(entry)) steps.push({ command: "cargo", args: ["check", "-p", unit, "--message-format=json-render-diagnostics", "--all-targets", ...features], test: false });
-  return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), steps };
+  // Consumer rows (separate Cargo workspaces) gate only this crate: they come from this crate's own entry.
+  const consumers = consumerRows(unit, entry);
+  for (const row of consumers) steps.push(...consumerRowInvocations(row));
+  return { id: `rust:${unit}`, featureLabels: featureSets.map((features) => features.join(" ") || "default"), consumerRows: consumers, steps };
 }
 
 /**
@@ -274,14 +339,19 @@ export function localTestPlan({ kind, unit, dir, config, manifest, batch = false
  * unify extra features into a selected crate and each is linted with exactly the features it was before.
  * Crates with a different RIGHTKIT_REQUIRE_ASSETS (asset-gated) stay apart so the environment is unchanged.
  */
-export function batchClippyInvocations(layer, { featuresOf = () => [], assetGatedOf = () => false } = {}) {
+export function batchClippyInvocations(layer, { featuresOf = () => [], featureSetsOf = (unit) => [featuresOf(unit)], assetGatedOf = () => false } = {}) {
   const groups = new Map();
   for (const unit of layer) {
-    const features = featuresOf(unit) ?? [];
-    const shared = features.length === 0 || (features.length === 1 && features[0] === "--all-features");
-    const key = shared ? JSON.stringify([features, assetGatedOf(unit)]) : `unit:${unit}`;
-    if (!groups.has(key)) groups.set(key, { crates: [], features, assetGated: assetGatedOf(unit) });
-    groups.get(key).crates.push(unit);
+    // Every tested feature set of a crate is linted, in order; identical sets of one crate collapse to one run.
+    const sets = featureSetsOf(unit) ?? [[]];
+    const unique = sets.filter((set, index) => sets.findIndex((other) => JSON.stringify(other ?? []) === JSON.stringify(set ?? [])) === index);
+    for (const set of unique) {
+      const features = set ?? [];
+      const shared = features.length === 0 || (features.length === 1 && features[0] === "--all-features");
+      const key = shared ? JSON.stringify([features, assetGatedOf(unit)]) : `unit:${unit}:${JSON.stringify(features)}`;
+      if (!groups.has(key)) groups.set(key, { crates: [], features, assetGated: assetGatedOf(unit) });
+      groups.get(key).crates.push(unit);
+    }
   }
   return [...groups.values()].map(({ crates, features, assetGated }) => ({
     crates, assetGated,
@@ -366,6 +436,13 @@ async function publishUnit(parsed, deps, batch) {
   const gatedSection = assetGated[kind === "npm" ? "npm" : "crates"] ?? {};
   const isAssetGated = Object.hasOwn(gatedSection, unit);
   const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest, batch: Boolean(batch), platform });
+  if (plan.consumerRows?.length) {
+    // The consumer workspaces are part of the qualified commit: present, and unmodified like the unit itself.
+    assertConsumerFiles(workspaceRoot, unit, plan.consumerRows);
+    const consumerDirty = git(["status", "--porcelain", "--", ...new Set(plan.consumerRows.map((row) => path.posix.dirname(row.manifestPath)))], workspaceRoot);
+    if (consumerDirty === null) refuse(`cannot read git status for the consumer rows of ${unit}`);
+    if (consumerDirty !== "") refuse(`tree is not clean for the consumer rows of ${unit}; commit first:\n${consumerDirty}`);
+  }
   if (parsed.qualifyOnly) {
     const violations = (deps.scanSecrets ?? scanCrateForSecrets)(unitPath);
     if (violations.length) refuse(`qualification secret scan rejected: ${violations.join(", ")}`);
@@ -486,14 +563,14 @@ async function publishUnit(parsed, deps, batch) {
 
     // 5. The EXISTING publish path.
     if (kind === "npm") {
-      (deps.publishGatedTarball ?? publishGatedTarball)({ name: unit, version, tarball: artifactFile, evidencePath }, deps.publishDeps ?? {});
+      (deps.publishGatedTarball ?? publishGatedTarball)({ name: unit, version, tarball: artifactFile, evidencePath, workspaceRoot }, deps.publishDeps ?? {});
     } else {
       // trustEvidenceSteps: the evidence just written (and validated by the gate above) proves this commit's tests
       // and clippy, so the publisher does not repeat them; verifyOnPublish: Cargo's verify build runs in the
       // publish itself. Package contents, the runtime budget, the archive hash and the readback always run.
       const execute = deps.cargoExecute ?? (batch ? batchCargoExecute(unit) : undefined);
       const published = await (deps.runCargoPublish ?? runCargoPublish)({ crate: unit, dryRun: false, allowDirty: false, workspaceRoot, evidence: evidencePath, trustEvidenceSteps: true, verifyOnPublish: true, offlineReadOnly: true }, execute, deps.cargoDeps ?? {});
-      await withVersionsLock(() => (deps.recordPublished ?? recordPublished)({ registry: "cargo", name: published.name, version: published.version }));
+      await withVersionsLock(() => (deps.recordPublished ?? recordPublished)({ registry: "cargo", name: published.name, version: published.version }, workspaceFeedOptions(workspaceRoot)));
     }
     log(`[right-release] published ${unit}@${version}`);
     return { kind, name: unit, version, commit: head, artifactSha256, evidencePath };
@@ -538,7 +615,8 @@ async function runLocalPublishBatch(parsed, deps) {
     if (pkg.name !== unit) refuse(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crates entry ${unit}`);
     if (typeof pkg.version !== "string" || !pkg.version.trim()) refuse(`${unit} has no literal version`);
     versions.set(unit, pkg.version);
-    localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true, platform }); // refuses an OS-restricted crate now, not mid-batch
+    // Refuses an OS-restricted crate or a malformed consumer row now, not mid-batch.
+    assertConsumerFiles(workspaceRoot, unit, localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true, platform }).consumerRows ?? []);
   }
   const head = git(["rev-parse", "HEAD"], workspaceRoot);
   if (!head || !/^[0-9a-f]{40}$/.test(head)) refuse("cannot resolve HEAD");
@@ -573,9 +651,9 @@ async function runLocalPublishBatch(parsed, deps) {
   const scanText = `scanCrateForSecrets ${crates.map((unit) => `crates/${unit}`).join(" ")}`;
   checks.push({ name: "secret-scan", command: scanText, ok: true, ...stamp, crates });
   commands.push(scanText);
-  const featuresOf = (unit) => (gateConfig?.rust?.[unit]?.featureSets ?? [[]])[0];
+  const featureSetsOf = (unit) => gateConfig?.rust?.[unit]?.featureSets ?? [[]];
   for (const layer of layers) {
-    for (const invocation of batchClippyInvocations(layer, { featuresOf, assetGatedOf: isAssetGated })) {
+    for (const invocation of batchClippyInvocations(layer, { featureSetsOf, assetGatedOf: isAssetGated })) {
       await batchCheck("clippy", "cargo", invocation.args, invocation.crates, testEnv(deps, invocation.assetGated));
     }
   }

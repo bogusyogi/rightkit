@@ -79,9 +79,9 @@ final class RightKitCallbackRelayTests: XCTestCase {
         let relay = relay(Lines())
         let done = expectation(description: "action ran")
         let flags = Flags()
-        let caller = Thread.current
+        let caller = ObjectIdentifier(Thread.current)
         relay.perform {
-            flags.sameThread = Thread.current == caller
+            flags.sameThread = ObjectIdentifier(Thread.current) == caller
             done.fulfill()
         }
         wait(for: [done], timeout: 5)

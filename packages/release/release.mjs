@@ -54,6 +54,7 @@ import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mj
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
 import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
+import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -382,6 +383,13 @@ try {
     { label: "target.gradle", command: target.gradle },
   ] });
 } catch (error) { fail(error.message); }
+// M12: the frontend build resolves in production mode only (development-only conditional exports such as
+// `@rightkit/license/testing` never resolve). `run` pins NODE_ENV=production for build children; this refuses a
+// Vite config that lists the `development` resolve condition explicitly, which the pin cannot override.
+{
+  const modeProblems = productionModeProblems({ appRoot: root });
+  if (modeProblems.length) fail(`${config.app ?? "app"} release frontend is not production-only:\n- ${modeProblems.join("\n- ")}`);
+}
 
 // D4 (M21/M23) source layer: every environment/argument read in app source is registered in the app's switches.json and
 // every S1-S4 selector is compiled out of release. The inventory is `config.releaseSwitches.inventory` (relative to the
@@ -415,7 +423,8 @@ try {
     console.log(`right-release: dry run: ${error.message}`);
   }
   // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
-  const closureInput = { treeText, devtools: devtoolsAllowance, remoteHost: config.releaseSwitches?.remoteHost, commands: closureCommands.map((c) => commandTokens(c)) };
+  // remoteLoopback: the daemon `remote-loopback` feature is a separate declaration (releaseSwitches.remoteLoopback: true); remoteHost does not cover it.
+  const closureInput = { treeText, devtools: devtoolsAllowance, remoteHost: config.releaseSwitches?.remoteHost, remoteLoopback: config.releaseSwitches?.remoteLoopback, commands: closureCommands.map((c) => commandTokens(c)) };
   if (releaseSwitchInventoryText != null) {
     // iOS: only what the iPhone app compiles — the Xcode project and its local packages, plus the local crates in the
     // resolved aarch64-apple-ios cargo graph (feature-aware, unlike the ownership closure). Other targets walk the app root.
@@ -979,8 +988,8 @@ function sweepStaleRustArtifacts() {
 }
 
 async function runInstall(pm, cwd) {
-  if (pm === "pnpm") await run("pnpm", ["install", "--frozen-lockfile"], cwd);
-  else if (pm === "npm") await run("npm", ["ci"], cwd);
+  if (pm === "pnpm") await run("pnpm", ["install", "--frozen-lockfile"], cwd, {}, { install: true });
+  else if (pm === "npm") await run("npm", ["ci"], cwd, {}, { install: true });
   else fail(`unsupported package manager: ${pm}`);
 }
 
@@ -1772,7 +1781,8 @@ function run(cmd, runArgs, cwd, env = {}, options = {}) {
     const useShell = process.platform === "win32" && !/\.(?:exe|com)$/i.test(cmd);
     const child = spawn(cmd, runArgs, {
       cwd,
-      env: macosCodesignEnvironment({ ...process.env, ...releaseEnv, ...env }),
+      // Build children resolve in production mode; package installs keep the caller's NODE_ENV (production drops devDependencies).
+      env: macosCodesignEnvironment(options.install ? { ...process.env, ...releaseEnv, ...env } : productionBuildEnv({ ...process.env, ...releaseEnv, ...env })),
       stdio: options.captureStdout ? ["inherit", "pipe", "inherit"] : "inherit",
       shell: useShell,
       windowsHide: true,

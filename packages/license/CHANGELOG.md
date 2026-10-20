@@ -1,3 +1,10 @@
+# 0.3.0
+
+- Breaking: use native invoke/listen client & safe LicenseView DTOs; credentials, persistence & lifecycle evaluation stay native.
+- Remove renderer fetch, storage config, plugin-http dependency & local grace classification.
+- Add fixed errors, response/event validation & separate testing-only native command mock.
+- Restrict testing export to development resolution; release builds must force production environment & exclude development conditions.
+
 # Changelog
 
 ## 0.2.1 — unpublished staging
@@ -116,3 +123,4 @@ Shared signed license lifecycle contracts.
 - 2026-07-14: removed the duplicated Rust payload from the npm package (`files` no longer lists `rust`);
   the `rightkit-license` crate is the sole native policy source. A package-contract test now enforces
   that no Rust files ship in the npm package.
+

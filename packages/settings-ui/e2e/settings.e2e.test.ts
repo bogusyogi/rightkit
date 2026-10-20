@@ -115,7 +115,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     host.failNextSettingsPatch = true;
     await page.eval("document.querySelector('[data-setting-id=\\\"dictation.cleanup\\\"] .rk-toggle')?.focus()");
     await page.press("Enter");
-    await waitHost(() => host.wire.some((w) => w.method === "rightkit.settings.patch" && w.body.includes("dictation.cleanup")));
+    await waitHost(() => host.wire.some((w) => w.method === "rightkit_settings_patch" && w.body.includes("dictation.cleanup")));
     await page.waitFor("document.querySelector('.rk-settings__error')");
     expect(await text(".rk-settings__error")).toContain("disk full");
     expect(await page.eval<string>("document.querySelector('[data-setting-id=\"dictation.cleanup\"] .rk-toggle').getAttribute('aria-checked')")).toBe("true");
@@ -168,7 +168,7 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     expect(await page.eval<boolean>(`document.documentElement.outerHTML.includes(${JSON.stringify(secret)})`)).toBe(false);
     expect(await page.eval<boolean>(`[...document.querySelectorAll('input')].every(i => i.value !== ${JSON.stringify(secret)})`)).toBe(true);
     const carriers = host.wire.filter((w) => w.body.includes(secret)).map((w) => w.method);
-    expect(carriers).toEqual(["rightkit.secrets.set"]);
+    expect(carriers).toEqual(["rightkit_secrets_set"]);
     // Reload: presence comes back from the store, never the value.
     await open("section=api-keys");
     await page.waitFor("document.querySelector('[data-setting-id=\"apikeys.openai\"] .rk-badge--ok')");
@@ -181,16 +181,16 @@ describe.skipIf(!chrome)("settings-ui in real headless Chrome (muted) against a 
     expect("secrets.openai" in settingsOnDisk().values).toBe(false);
   });
 
-  it("activates a licence against the license host, rejects a bad key, and deactivates with confirmation", async () => {
+  it("activates a licence through the native licence commands, rejects a bad key, and deactivates with confirmation", async () => {
     await open("section=license");
     await page.waitFor("document.querySelector('[data-setting-id=\"license.activate\"] input[aria-label=\"Licence key\"]')");
     await page.click("input[aria-label='Licence key']");
     await page.type("WRONG-KEY");
     await clickText("Activate");
     try {
-      await page.waitFor("document.querySelector('[data-setting-id=\"license.activate\"] .rk-sr__desc')?.textContent.includes('not recognised')");
+      await page.waitFor("document.querySelector('[data-setting-id=\"license.activate\"] .rk-sr__desc')?.textContent.includes('was not accepted')");
     } catch (e) {
-      const state = await page.eval<string>("JSON.stringify({active: document.activeElement?.outerHTML, body: document.querySelector('[data-setting-id=\\\"license.activate\\\"]')?.outerHTML, requests: performance.getEntriesByType('resource').map(x => x.name).filter(x => x.includes('/v1/licenses'))})");
+      const state = await page.eval<string>("JSON.stringify({active: document.activeElement?.outerHTML, body: document.querySelector('[data-setting-id=\\\"license.activate\\\"]')?.outerHTML, requests: performance.getEntriesByType('resource').map(x => x.name).filter(x => x.includes('/rpc/rightkit_license'))})");
       throw new Error(`${String(e)} state=${state}`);
     }
     await page.eval("document.querySelector('input[aria-label=\"Licence key\"]').select()");

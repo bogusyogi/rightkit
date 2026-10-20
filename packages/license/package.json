@@ -1,16 +1,33 @@
 {
   "name": "@rightkit/license",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "packageManager": "pnpm@11.24.0",
-  "description": "The one license client for every Right Suite app (online token-exchange against the unified RightApps backend, with per-kind offline grace).",
+  "description": "Native licence invoke client & safe display views for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "development": {
+        "types": "./dist/testing.d.ts",
+        "import": "./dist/testing.js"
+      },
+      "default": null
+    }
   },
-  "files": ["dist", "LICENSE-MIT", "LICENSE-APACHE"],
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/testing.js",
+    "dist/testing.d.ts",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsc",
@@ -19,16 +36,9 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@tauri-apps/plugin-http": "^2",
     "@types/node": "^26.6.5",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
-  },
-  "peerDependencies": {
-    "@tauri-apps/plugin-http": "^2"
-  },
-  "peerDependenciesMeta": {
-    "@tauri-apps/plugin-http": { "optional": true }
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",

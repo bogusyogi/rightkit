@@ -235,7 +235,7 @@ Opting out removes an accessibility accommodation for people who asked their sys
 
 `--rk-palette-width` (640px), `--rk-toast-offset` (16px) and `--rk-plane-radius` (20px) size the palette, the toast stack and the content corner. `--rk-toast-width` (default `26rem`) sets the toast stack width; it is still capped at `100vw - 2rem`. `--rk-toast-top-end-offset` (default `3rem`) and `--rk-toast-end-offset` (default `3.5rem`) place `ToastViewport placement="top-end"` (top right). `--rk-toast-translate` (default `-50% 0`) is the stack's horizontal centring, applied with the individual `translate` property (not `transform`), so a host `-translate-x-1/2` utility does not stack with it; set `--rk-toast-translate: 0 0` or `none` to take over the positioning (0.6.1). `ShellProvider toastPlacement` and `ToastViewport placement` take `"bottom-center"` (default, markup unchanged) or `"top-center"`; the latter sets `data-placement="top-center"` on the live region, anchors it with `top: var(--rk-toast-top-offset, 16px)` (so `--rk-toast-top-offset: calc(var(--rk-titlebar-height) + 12px)` puts it 12px under the titlebar) and slides rows in from above (0.6.8). `--rk-menu-exit-ms` is set by `ContextMenu` itself while `exitMs` is above 0.
 
-### Additions (0.6.9, unreleased)
+### Additions (0.7.0)
 
 Every addition is optional. The CHANGELOG lists them with their defaults.
 
@@ -257,6 +257,43 @@ Every addition is optional. The CHANGELOG lists them with their defaults.
 | Controls | `Card onClick / label / flush / selected`, `Checkbox`, `Select`, `Slider`, `Notice`, `ProgressBar`, `Skeleton`, `SkeletonRows` | A clickable card is a button with Enter and Space. `Notice` `warn` and `bad` announce as alerts. |
 | State | `usePersistedState(key, initial)` | `key` null keeps it in memory. Reads and writes never throw. |
 | Platform | `installHoverGuard()` | Sets `data-rk-pointer` so hover washes stop when the pointer leaves the window (WebView2). Returns the detach function. |
+
+### Table (0.7.2)
+
+`Table`, `TableCaption`, `TableHead`, `TableBody`, `TableRow`, `TableHeaderCell`, `TableCell` and `TableMessage` are the native `<table>` elements with the shell's tokens. The markup stays a real table, so headers keep `scope`, a row can be a row header (`TableCell rowHeader`) and the host keeps its own columns, data and sorting.
+
+```tsx
+<Table label="Agent activity log" dense pending={loading}>
+  <TableHead>
+    <TableRow>
+      <TableHeaderCell sort={sort.dir} onSort={() => toggle("at")}>Time</TableHeaderCell>
+      <TableHeaderCell>Result</TableHeaderCell>
+    </TableRow>
+  </TableHead>
+  <TableBody>
+    {rows.length === 0 && <TableMessage colSpan={2}>No activity yet.</TableMessage>}
+    {rows.map((r) => (
+      <TableRow key={r.id} error={r.failed}>
+        <TableCell>{when(r.at)}</TableCell>
+        <TableCell>{r.outcome}</TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
+```
+
+| Prop | Where | Meaning |
+|---|---|---|
+| `label` | `Table` | `aria-label`; give one unless a `TableCaption` or the page names the table. |
+| `dense` | `Table` | Tighter rows for logs. |
+| `pending` | `Table` | `aria-busy`. The rows stay; show a `TableMessage tone="pending"` while there are none. |
+| `sort`, `onSort` | `TableHeaderCell` | `aria-sort` plus a real button in the header. The app owns the data and the next direction. |
+| `align`, `numeric`, `rowHeader` | `TableHeaderCell`, `TableCell` | `start`, `center` or `end`; tabular figures; `<th scope="row">`. |
+| `onActivate` | `TableRow` | The row is a Tab stop and runs on click, Enter and Space. A click or key from a button, link or field inside the row stays with that control. |
+| `selected`, `disabled`, `error` | `TableRow` | `aria-selected` and highlight; out of the tab order with `aria-disabled` (no activation); error marker (say what failed in a cell, never by colour alone). |
+| `tone` | `TableMessage` | `empty`, `pending` (a status) or `error` (an alert), spanning `colSpan` columns. |
+
+The table adds no scroll container (wrap it when it can overflow), no animation or transition (so `prefers-reduced-motion` has nothing to turn off), and a `forced-colors` outline on the selected row. Hover washes follow `installHoverGuard()` like the other rows.
 
 Tokens: `--rk-wash-hover`, `--rk-wash-press` (hover and press washes), `--rk-line-2` (hairline), `--rk-font-body` (set by `applyBodyFont`), `--rk-toast-top-end-offset`, `--rk-toast-end-offset`.
 

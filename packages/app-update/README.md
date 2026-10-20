@@ -15,7 +15,10 @@ It does not build, sign, publish or upload anything. `@rightkit/release` owns th
 
 | Import | Contents |
 |---|---|
-| `@rightkit/app-update` | `createAutoUpdateClient(config)`, `fetchReleaseStatus(url, fetch?)`, `updateTierFromManifest(rawJson)`, `UPDATE_HOST_CONTRACT_VECTORS`; types `UpdateTier`, `AutoUpdateClient`, `AutoUpdateClientConfig`, `AutoUpdateStatus`, `ReleaseStatus`, `RuntimeUpdate`, `CheckForUpdate`, `UpdateHeaders`, `UpdateDownloadEvent`, `UpdateInstallOptions`, `UpdateHostContractVector` |
+| `@rightkit/app-update` | `createAutoUpdateClient(config)`, `fetchReleaseStatus(url, fetch?)`, `updateTierFromManifest(rawJson)`, `UPDATE_HOST_CONTRACT_VECTORS`, `createPersistedCheckCache(options)`; types `PersistedCheckCache`, `PersistedCheckCacheOptions`, `PersistedCheckResult`, `CheckCacheStore`, `UpdateTier`, `AutoUpdateClient`, `AutoUpdateClientConfig`, `AutoUpdateStatus`, `ReleaseStatus`, `RuntimeUpdate`, `CheckForUpdate`, `UpdateHeaders`, `UpdateDownloadEvent`, `UpdateInstallOptions`, `UpdateHostContractVector` |
+| `@rightkit/app-update/contract-vectors` | `UPDATE_HOST_CONTRACT_VECTORS`, `UpdateHostContractVector`, `UpdateTier` (the main entry re-exports them) |
+| `@rightkit/app-update/react` | `UpdateOverlay`, `UpdateConsentCard` (optional `react` peer; the root entry never imports React) |
+| `@rightkit/app-update/native` | `createNativeUpdateClient(transport)`, `NativeUpdateClientError`, `UPDATE_MESSAGES`; types `NativeUpdateClient`, `NativeUpdateTransport`, `UpdateCheckView`, `UpdateStatusView`, `UpdateProgress`, `UpdateDownloadResult`, `UpdateInstallResult`, `UpdateKind`, `UpdateRefusal`, `UpdateState`, `UpdateErrorCode`, `UpdateMessageCode`, `Unlisten`. The renderer side of the native updater; see [Native bridge](#native-bridge-rightkitnative). |
 
 Peer dependencies: none. No runtime dependencies.
 
@@ -38,14 +41,15 @@ if (status.kind === "available") await client.installAvailable();
 
 Status flow: `checking`, then `available`, then `downloading`, then `ready`. `ready` is emitted only after `downloadAndInstall` resolves. A failed install emits `{ kind: "error" }` and never `ready`.
 
-## Opt-in additions (all default off)
+## Opt-in additions
 
 - `verifyMetadata(update, ctx)` config hook: reject update metadata before it is offered. Tauri's updater plugin still verifies the artifact signature against the app's configured pubkey; this package performs no signature verification itself (delegated, by design).
 - `relaunch` + `relaunchAfterInstall`: relaunch after `ready`.
-- `strictInstallHeaders`: never reuse manifest-check headers for the artifact download.
-- `createBootProbation`: boot-probation / rollback-decision state machine; the host supplies storage and performs the restore.
+- `strictInstallHeaders` (default **on**; `false` is the deprecated escape): without `getInstallHeaders` the artifact download gets no headers, so manifest-check credentials are never reused for it.
+- `createBootProbation`: boot-probation state machine; the host supplies storage. A version that does not acknowledge within `maxBootAttempts` boots yields `{ kind: "reinstall_required", failedVersion, fromVersion, guidance: "reinstall" }` (and `onBootFailure`); the host shows reinstall guidance. Nothing is restored: no `.previous` copy is kept or restored, and `previousInstallPath` / `PREVIOUS_SUFFIX` / `onRollback` are deprecated and only help hosts clean a stale copy left by an older RightKit.
+- `createPersistedCheckCache(options)`: an update-check cache persisted through a host `CheckCacheStore` (`read`/`write` text) with a last-known-good fallback; a record stamped more than `maxFutureSkewMs` (default 60000) in the future is distrusted, failures are never persisted, corrupt records are treated as absent, and a write failure is reported as `persistError` without failing the check.
 - `createCheckGate`: check cache and debounce. `resolveChannel` / `validateChannels`: channel endpoint selection. `compareVersions` / `isNewerVersion`: semver compare. `assertSingleUpdatesVersion`: duplicate-copy guard.
-- `@rightkit/app-update/contract-vectors`: test fixtures subpath (the main entry still re-exports them).
+- `@rightkit/app-update/contract-vectors`: test fixtures subpath (the main entry still re-exports them). Four vectors (free and pro, patch and feature update); every app adapter runs them.
 
 ## GitHub Releases endpoint and the suite updater public key
 
@@ -69,12 +73,16 @@ There is one updater trust root for every RightKit app: the Right Suite updater 
 
 The runtime adapter (Tauri updater) exposes only the combined `downloadAndInstall`, so the download step is a **verify-only prefetch**: it does not fetch the artifact bytes. The bytes are fetched during `installStaged`. Use `createUpdateConsentRunner(client)` as the `allowOnce` runner so the download approval runs only `downloadAvailable` and the install approval runs only `installStaged`.
 
+### Native bridge (`@rightkit/app-update/native`)
+
+`createNativeUpdateClient(transport)` is the renderer's only view of a native updater. The transport is `{ invoke, listen }` (Tauri's `invoke` and `listen`). It calls `rightkit_update_check`, `rightkit_update_status`, `rightkit_update_download`, `rightkit_update_install` and `rightkit_update_cancel` and listens to `rightkit://update-progress`, and returns only whitelisted DTO fields (`UpdateCheckView`, `UpdateStatusView`, ...) with closed enums and fixed message codes. `UPDATE_MESSAGES` maps each code to its text; its keys are exactly the `UpdateMessage` codes `rightkit-tauri-shell` sends (a test compares them with `update.rs`) and the text names no licence, key or account. The error codes are `unconfigured`, `busy`, `unresolved`, `network`, `store`, `verify`, `forbidden`, `unsupported` and `unknown`. No URL, header, token or path crosses the IPC boundary. A refusal or failed download or install is a normal result (`state: "refused" | "failed"` with a `reason` and `message`). A rejected command, a malformed reply or a handle id of the wrong shape throws `NativeUpdateClientError` with a closed `code` and fixed text, never the native error text. `dispose()` removes the progress listener, including one whose `listen` call has not resolved yet, and later calls throw `unsupported`. This client needs a host that registers those five commands: the `rightkit-tauri-shell` `update` feature does, and until an app builds with it there is nothing to call. The in-process client above (`createAutoUpdateClient`) is unchanged and does not use it.
+
 ### React subpath
 
 `@rightkit/app-update/react` exports `UpdateOverlay` and `UpdateConsentCard`, typed against `UpdateOverlayModel` and `UpdateConsentState`. `react` is an optional peer dependency; the root entry never imports React.
 
 ## Known issues
 
-- Omitting `getInstallHeaders` reuses the `getHeaders` result for the download. That can send a manifest credential to a different artifact origin. New apps should set `getInstallHeaders` explicitly, returning `undefined` for public patches.
+- `getInstallHeaders` is the place to put artifact credentials; set it explicitly (returning `undefined` for public patches). With the default `strictInstallHeaders` the download sends no headers when it is absent. Only `strictInstallHeaders: false` reuses the manifest-check headers, which can send a manifest credential to a different artifact origin; it is a deprecated compatibility escape.
 - `UPDATE_HOST_CONTRACT_VECTORS` is test data exported from the runtime entry. Within this repository only the package's own test uses it. Consumer tests import it too (npm audit 2026-10-08, updates finding 1).
 - `@rightkit/tauri` 0.2.0 in this tree declares `@rightkit/app-update` as a peer (`^0.2.5`, `packages/tauri/package.json:21-23`), not a pinned dependency; an older published `@rightkit/tauri` that pins `0.2.4` can still give a consumer two copies of this package (npm audit 2026-10-08).

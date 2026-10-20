@@ -1,0 +1,35 @@
+/* Opt-in Shiki profile. Import separately; existing .shiki rules stay unchanged. */
+.rk-shiki-profile {
+  --shiki-light-font-style: initial;
+  --shiki-dark-font-style: initial;
+  --shiki-light-font-weight: initial;
+  --shiki-dark-font-weight: initial;
+  --shiki-light-text-decoration: initial;
+  --shiki-dark-text-decoration: initial;
+  color: var(--shiki-light);
+  background-color: var(--shiki-light-bg);
+  font-style: normal;
+  font-weight: normal;
+  text-decoration: none;
+}
+.rk-shiki-profile code,
+.rk-shiki-profile span {
+  color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style, normal);
+  font-weight: var(--shiki-light-font-weight, normal);
+  text-decoration: var(--shiki-light-text-decoration, none);
+}
+[data-theme="dark"] .rk-shiki-profile,
+.rk-shiki-profile[data-theme="dark"] {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+}
+[data-theme="dark"] .rk-shiki-profile code,
+[data-theme="dark"] .rk-shiki-profile span,
+.rk-shiki-profile[data-theme="dark"] code,
+.rk-shiki-profile[data-theme="dark"] span {
+  color: var(--shiki-dark);
+  font-style: var(--shiki-dark-font-style, normal);
+  font-weight: var(--shiki-dark-font-weight, normal);
+  text-decoration: var(--shiki-dark-text-decoration, none);
+}

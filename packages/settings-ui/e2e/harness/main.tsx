@@ -2,7 +2,7 @@ import { StrictMode, useLayoutEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { AppShell, PageShell, Toggle, createThemeStore, type NavGroup } from "./shell.js";
 import { createAutoUpdateClient } from "@rightkit/app-update";
-import { createLicenseClient, type StoredLicense } from "@rightkit/license";
+import { createLicenseClient } from "@rightkit/license";
 import { createLogsClient } from "@rightkit/logs";
 import {
   SettingRow,
@@ -11,7 +11,9 @@ import {
   createShellBackends,
   mergeSections,
   standardSections,
-  type EngineShell,
+  type HostTransport,
+  type ModelEntry,
+  type ModelsBackend,
   type SettingsSection,
 } from "../../src/index.js";
 import "../../../react-shell/shell.css";
@@ -26,24 +28,37 @@ async function rpc<T>(method: string, params?: unknown): Promise<T> {
   return body as T;
 }
 
-const shell: EngineShell = {
-  engine: {
-    call: rpc,
-    onEvent: async (handler) => {
-      const es = new EventSource("/events");
-      es.onmessage = (m) => handler(JSON.parse(m.data));
-      // A navigated-away document must release its stream: the browser allows 6 connections per origin, and
-      // leaked streams starve the next document's requests.
-      const release = () => es.close();
-      window.addEventListener("pagehide", release, { once: true });
-      return () => {
-        window.removeEventListener("pagehide", release);
-        es.close();
-      };
-    },
-  },
+// Server-sent events carry `{ call, event }`; the transport's `listen` hands the handler the payload, as Tauri's does.
+function sse<T>(name: string, handler: (payload: T) => void): Promise<() => void> {
+  const es = new EventSource("/events");
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data) as { call: string; event: T };
+    if (e.call === name) handler(e.event);
+  };
+  // A navigated-away document must release its stream: the browser allows 6 connections per origin, and
+  // leaked streams starve the next document's requests.
+  const release = () => es.close();
+  window.addEventListener("pagehide", release, { once: true });
+  return Promise.resolve(() => {
+    window.removeEventListener("pagehide", release);
+    es.close();
+  });
+}
+
+const transport: HostTransport = {
+  invoke: (command, args) => rpc(command, args),
+  listen: sse,
 };
-const backends = createShellBackends(shell);
+const backends = createShellBackends(transport);
+
+// The shell host registers no models command, so the models backend is the app's own: here it talks to the test host's models rpc.
+const models: ModelsBackend = {
+  list: () => rpc<ModelEntry[]>("rightkit.models.list"),
+  install: (id) => rpc<void>("rightkit.models.install", { id }),
+  cancel: (id) => rpc<void>("rightkit.models.cancel", { id }),
+  remove: (id) => rpc<void>("rightkit.models.remove", { id }),
+  subscribe: (handler) => sse<ModelEntry>("rightkit.models.entry", (e) => (e && typeof e.id === "string" ? handler(e) : undefined)),
+};
 
 const themeStore = createThemeStore({ storageKey: "h.theme", storage: null });
 
@@ -54,17 +69,10 @@ const logs = createLogsClient({
 });
 logs.info("settings_opened", { screen: "settings", count: 1, transcript: "never on disk" });
 
-const licenseStore = {
-  get: async () => JSON.parse(localStorage.getItem("h.license") ?? "null") as StoredLicense | null,
-  set: async (l: StoredLicense | null) => void (l ? localStorage.setItem("h.license", JSON.stringify(l)) : localStorage.removeItem("h.license")),
-};
+// The licence commands are the native 0.3 contract: the test host answers them over rpc with LicenseView objects (see server.ts).
 const license = createLicenseClient({
-  app: "acme",
-  host: "licenses.test",
-  appVersion: "1.4.2",
-  storage: licenseStore,
-  deviceId: () => "dev-1",
-  fetchImpl: (input, init) => fetch(String(input).replace(/^https:\/\/licenses\.test/, ""), init),
+  invoke: (command, args) => rpc(command, args) as never,
+  listen: async () => () => {},
 });
 
 let updateStep = 0;
@@ -114,7 +122,7 @@ function App() {
         standardSections({
           appearance: { themeStore, accents: [{ id: "brand", label: "Brand", color: "#7040C4" }, { id: "teal", label: "Teal", color: "#0C8A7B" }, { id: "amber", label: "Amber", color: "#B25000" }] },
           updates: { client: updates, supportsAutoInstall: true, currentVersion: "1.4.2", onRestart: () => void (document.title = "restarting") },
-          models: { models: backends.models, title: "Speech models" },
+          models: { models, title: "Speech models" },
           license: { client: license, purchaseUrl: "https://example.test/buy", openExternal: noop, tierLabels: { pro: "Pro" } },
           legal: { documents: [{ title: "Terms of Service", url: "https://example.test/terms" }, { title: "Privacy Policy", url: "https://example.test/privacy" }], acceptedAt: "2026-09-01T12:00:00Z", acceptedVersion: "2026-09", openExternal: noop, onReview: noop },
           apiKeys: { secrets: backends.secrets, slots: [{ id: "openai", label: "Provider API key", description: "Used for cloud cleanup.", ref: { service: "acme", account: "provider-key" } }, { id: "relay", label: "Relay token", ref: { service: "acme", account: "relay" } }] },

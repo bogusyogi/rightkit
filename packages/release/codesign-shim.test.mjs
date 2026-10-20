@@ -12,6 +12,7 @@ import { codesignShimScript, macosCodesignEnvironment } from "./codesign-environ
 import { validateSigningRequest, executeSigningRequest, signingAgentPaths, defaultSigningRoots, MAX_FRAME } from "./rightkit-signing-agent.mjs";
 import { installSigningAgent } from "./signing-agent-install.mjs";
 import { runDevelopment } from "./development.mjs";
+import { productionBuildEnv } from "./production-mode.mjs";
 
 // Not run on Windows: the codesign shim runs on macOS.
 const WINDOWS_SKIP = process.platform === "win32" ? "the codesign shim runs on macOS" : false;
@@ -150,7 +151,7 @@ test("release worker injects PATH after command env overrides before spawning pr
   const start = source.indexOf("function run(cmd, runArgs, cwd"), end = source.indexOf("function ", start + 9);
   const calls = [];
   const context = { process: { platform: "darwin", env: { PATH: "/cargo-shims:/usr/bin", SSH_CONNECTION: "fixture", RIGHTKIT_MANAGED_ROOT: f.managed } },
-    opts: { dryRun: false }, Date, console: { log() {} }, macosCodesignEnvironment,
+    opts: { dryRun: false }, Date, console: { log() {} }, macosCodesignEnvironment, productionBuildEnv,
     spawn(command, argv, options) { calls.push({ command, argv, options }); const child = new EventEmitter(); queueMicrotask(() => child.emit("exit", 0)); return child; } };
   runInNewContext(`${source.slice(start, end)};globalThis.launch = run;`, context);
   for (const phase of ["build", "prePackage", "package"]) await context.launch("tool", [phase], f.cwd, { PATH: "/command/bin:/cargo-shims:/usr/bin", CI: "false", TAURI_BUNDLER_DMG_IGNORE_CI: "true" });

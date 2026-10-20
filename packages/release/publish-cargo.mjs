@@ -7,7 +7,7 @@ import { runCargoSync } from "./managed-cargo.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
-import { recordPublished } from "./rightkit-sync.mjs";
+import { recordPublished, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { runtimeBudgetCheck, RUNTIME_BUDGET_CODE } from "./runtime-budgets.mjs";
 import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
@@ -316,7 +316,7 @@ async function main() {
   const result = await runCargoPublish(options);
   process.stdout.write(`[right-release] ${options.dryRun ? "validated" : "published"} ${options.crate}\n`);
   if (!options.dryRun) {
-    recordPublished({ registry: "cargo", name: result.name, version: result.version });
+    recordPublished({ registry: "cargo", name: result.name, version: result.version }, workspaceFeedOptions(options.workspaceRoot));
   }
 }
 

@@ -203,14 +203,45 @@ export function createAcceptanceReceipt(
     acceptedAt: input.acceptedAt,
     surface: input.surface,
     eligibilityBasis: input.eligibilityBasis,
-    documents: manifest.documents.map(({ id, role, version, sha256, treatment, material }) => ({
-      id,
-      role,
-      version,
-      sha256,
-      treatment,
-      material,
-    })),
+    documents: acceptedDocuments(manifest),
+  };
+}
+
+/**
+ * What a renderer declares to a native receipt service: the manifest's identity and the
+ * document set the user was shown, with NO time and NO eligibility. The native side stamps its
+ * own `acceptedAt`, compares the declared set and digest with the manifest it embeds, and builds
+ * the persisted receipt itself (`createAcceptanceReceipt` is its JS equivalent for hosts without
+ * a native service).
+ */
+export interface LegalAcceptanceDeclaration {
+  schema: typeof RIGHT_SUITE_LEGAL_SCHEMA;
+  suite: "right-suite-desktop";
+  appKey: string;
+  acceptanceVersion: string;
+  documents: AcceptedLegalDocument[];
+}
+
+function acceptedDocuments(manifest: LegalManifest): AcceptedLegalDocument[] {
+  return manifest.documents.map(({ id, role, version, sha256, treatment, material }) => ({
+    id,
+    role,
+    version,
+    sha256,
+    treatment,
+    material,
+  }));
+}
+
+/** The declaration for `manifest` (validated first). Pure: no clock, no hashing. */
+export function acceptanceDeclaration(manifest: LegalManifest): LegalAcceptanceDeclaration {
+  assertLegalManifest(manifest);
+  return {
+    schema: RIGHT_SUITE_LEGAL_SCHEMA,
+    suite: manifest.suite,
+    appKey: manifest.appKey,
+    acceptanceVersion: manifest.acceptanceVersion,
+    documents: acceptedDocuments(manifest),
   };
 }
 

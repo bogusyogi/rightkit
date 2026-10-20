@@ -397,16 +397,59 @@
       "name": "Test mode",
       "profile": "desktop",
       "owners": [],
-      "ownerPending": "No selected owner (D4 unratified); never fails."
+      "ownerPending": "No selected owner (D4 unratified); never fails.",
+      "pendingOwners": [
+        {
+          "name": "rightkit-fs",
+          "ecosystem": "cargo",
+          "min": "0.4.4"
+        },
+        {
+          "name": "rightkit-daemon",
+          "ecosystem": "cargo",
+          "min": "0.3.0"
+        },
+        {
+          "name": "rightkit-qa",
+          "ecosystem": "cargo",
+          "min": "0.7.0",
+          "allowDev": true
+        }
+      ]
     },
     {
       "id": "M23",
       "name": "Release-time switches",
       "profile": "desktop",
       "owners": [],
-      "ownerPending": "No selected owner (D4 unratified); never fails."
+      "ownerPending": "No selected owner (D4 unratified); never fails.",
+      "pendingOwners": [
+        {
+          "name": "@rightkit/release",
+          "ecosystem": "npm",
+          "min": "0.4.0",
+          "allowDev": true
+        },
+        {
+          "name": "rightkit-daemon",
+          "ecosystem": "cargo",
+          "min": "0.3.0"
+        }
+      ]
     }
   ],
+  "applicabilityRecords": {
+    "M22": {
+      "name": "Agent surface",
+      "roles": [
+        "client",
+        "host",
+        "both",
+        "absent"
+      ],
+      "note": "Declared in <app>/rightkit-mandatory.json as M22: { role, entrypoints }. Report-only: a record never removes or adds a violation; only notApplicable (with a reason) removes a row."
+    }
+  },
   "appAmendments": {
     "ember": {
       "issue": "Orthic-Labs/rightkit#280",

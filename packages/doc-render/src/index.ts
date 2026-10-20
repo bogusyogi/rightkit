@@ -20,3 +20,4 @@ export { remarkDefListAbbr } from "./remarkDefListAbbr.js";
 export { remarkWikiLink } from "./remarkWikiLink.js";
 export { resolveShikiLanguage, ensureShikiLanguage, getShikiHighlighter, configureShikiWasm } from "./shikiHighlighter.js";
 export type { LinkPolicy, SanitizeOptions } from "./security.js";
+export { sanitizeShikiHtml, ShikiSanitizationError } from "./shikiSanitizer.js";

@@ -73,6 +73,28 @@ const MODES = new Set(["dev", "release"]);
 const PROFILE = /^[a-z][a-z0-9_-]*$/;
 const PLATFORMS = new Set(["mac", "win", "linux"]);
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+/** One path segment of an archive member path: no glob metacharacters, no separators, no drive colon. */
+const MEMBER_SEGMENT = /^[A-Za-z0-9_.+@~-]+$/;
+
+/**
+ * Normalize and guard a requested archive member. A bare file name (no `/`) selects the one member with that base name; a path
+ * (contains `/`) selects the one member with exactly that archive path. A leading `./` is stripped. Absolute paths, drive
+ * prefixes, backslashes, empty, `.` and `..` segments and glob metacharacters are refused. Returns { value, byPath } or
+ * { error }. The member never influences where the extracted file is written.
+ */
+export function normalizeArchiveMember(member) {
+  if (typeof member !== "string" || !member) return { error: "must be a non-empty string" };
+  if (member.includes("\\")) return { error: "must not contain a backslash" };
+  const value = member.startsWith("./") ? member.slice(2) : member;
+  if (value.startsWith("/")) return { error: "must not be an absolute path" };
+  if (/^[A-Za-z]:/.test(value)) return { error: "must not start with a drive prefix" };
+  const segments = value.split("/");
+  if (segments.some((segment) => segment === "")) return { error: "must not contain an empty segment" };
+  if (segments.some((segment) => segment === "." || segment === "..")) return { error: "must not contain a '.' or '..' segment" };
+  // A bare file name keeps today's matching (any characters but the refused ones above); a path is held to a strict segment alphabet so it can never act as a tar glob.
+  if (segments.length > 1 && !segments.every((segment) => MEMBER_SEGMENT.test(segment))) return { error: "has a segment with characters outside A-Z a-z 0-9 _ . + @ ~ -" };
+  return { value, byPath: segments.length > 1 };
+}
 const KEYS = Object.freeze({
   "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "manifestPath", "sha256", "dest", "clean", "platforms"],
   ffmpeg: ["kind", "variant", "variants", "tools", "notices", "catalog", "stage", "bundleDir", "sources", "probe", "platforms"],
@@ -390,7 +412,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (item.dest === undefined && item.to === undefined) errors.push(`${where}: dest (or to) is required`);
       const dest = destOf(item.dest ?? item.to, item.dest === undefined ? "to" : "dest");
       if (item.size !== undefined && (!Number.isSafeInteger(item.size) || item.size <= 0)) errors.push(`${where}: size must be a positive integer (bytes)`);
-      if (item.extract !== undefined && (typeof item.extract !== "string" || !NAME.test(item.extract))) errors.push(`${where}: extract must be the bare file name of one archive member (no path)`);
+      if (item.extract !== undefined) { const member = normalizeArchiveMember(item.extract); if (member.error || (!member.byPath && !NAME.test(member.value))) errors.push(`${where}: extract must be the bare file name of one archive member or its archive path (posix, no leading /, no .. segment): ${member.error ?? "invalid file name"}`); }
       if (item.memberSha256 !== undefined && (item.extract === undefined || !SHA256.test(item.memberSha256 ?? ""))) errors.push(`${where}: memberSha256 must be a lowercase 64-hex SHA-256 and needs extract`);
       if (item.executable !== undefined && typeof item.executable !== "boolean") errors.push(`${where}: executable must be a boolean`);
       const clean = cleanOf();
@@ -499,15 +521,28 @@ export function defaultRun(command, args, { cwd, env = process.env } = {}) {
   });
 }
 
-/** Default archive member extraction (bsdtar reads tgz and zip/nupkg): the one member whose basename is `fileName`. */
+/**
+ * Default archive member extraction (bsdtar reads tgz and zip/nupkg). A bare `fileName` selects the one member whose basename it is;
+ * a `fileName` containing `/` selects the one member whose full archive path equals it (case-sensitive, leading `./` ignored on both
+ * sides), so archives with the same base name in several directories (ORT DirectML nupkgs) can be addressed. The returned file is
+ * always under `destDir`; callers copy it to their own declared output name, so the member path never decides where anything is written.
+ */
 export function defaultExtractMember({ archive, fileName, destDir, run = defaultRun }) {
+  const wanted = normalizeArchiveMember(fileName);
+  if (wanted.error) fail("STAGE_SIDECAR_EXTRACT_FAILED", `archive member ${JSON.stringify(fileName)} ${wanted.error}`);
   const listing = run("tar", ["-tf", archive], { cwd: path.dirname(archive) });
   if (listing.status !== 0) fail("STAGE_SIDECAR_EXTRACT_FAILED", `cannot list ${archive}`);
-  const members = String(listing.stdout).split(/\r?\n/).map((line) => line.trim()).filter((line) => line && path.posix.basename(line) === fileName);
-  if (members.length !== 1) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${archive} has ${members.length} members named ${fileName}, expected exactly one`);
+  const lines = String(listing.stdout).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const members = wanted.byPath
+    ? lines.filter((line) => (line.startsWith("./") ? line.slice(2) : line) === wanted.value)
+    : lines.filter((line) => path.posix.basename(line) === wanted.value);
+  if (members.length !== 1) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${archive} has ${members.length} members ${wanted.byPath ? "at the path" : "named"} ${wanted.value}, expected exactly one`);
   const extracted = run("tar", ["-xf", archive, "-C", destDir, members[0]], { cwd: path.dirname(archive) });
   if (extracted.status !== 0) fail("STAGE_SIDECAR_EXTRACT_FAILED", `cannot extract ${members[0]} from ${archive}`);
-  return path.join(destDir, ...members[0].split("/"));
+  const out = path.join(destDir, ...members[0].split("/"));
+  const inside = path.relative(path.resolve(destDir), path.resolve(out));
+  if (!inside || inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) fail("STAGE_SIDECAR_EXTRACT_FAILED", `member ${members[0]} of ${archive} resolves outside the extraction directory`);
+  return out;
 }
 
 async function defaultFetchBytes(url) {
@@ -900,6 +935,10 @@ async function stageOnnxRuntimeSlice(entry, ctx, loaded, t, { destDir } = {}) {
   });
   for (const { source } of notices) if (!fs.existsSync(source)) fail("STAGE_SIDECAR_NOTICE_MISSING", `notice file not found: ${source}`);
 
+  // The archive member is the catalog's archive.member (an archive path) when present, else the library file name; the output name never comes from it.
+  const member = row.archive.member ?? row.artifactFileName;
+  const memberCheck = normalizeArchiveMember(member);
+  if (memberCheck.error) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} has an invalid archive member ${JSON.stringify(member)}: ${memberCheck.error}`);
   const outName = entry.as ?? row.artifactFileName;
   const dest = path.resolve(appRoot, destDir ?? entry.resourceDir, outName);
   if (fs.existsSync(dest) && sha256Of(fs.readFileSync(dest)) === row.sha256) {
@@ -915,9 +954,9 @@ async function stageOnnxRuntimeSlice(entry, ctx, loaded, t, { destDir } = {}) {
     }
     const scratch = ctx.makeTempDir();
     try {
-      const library = await ctx.extractMember({ archive, fileName: row.artifactFileName, destDir: scratch });
+      const library = await ctx.extractMember({ archive, fileName: member, destDir: scratch });
       const actual = sha256Of(fs.readFileSync(library));
-      if (actual !== row.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${row.artifactFileName} extracted as ${actual}, the catalog pins ${row.sha256}; nothing staged`, { expected: row.sha256, actual });
+      if (actual !== row.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${member} extracted as ${actual}, the catalog pins ${row.sha256}; nothing staged`, { expected: row.sha256, actual });
       copyInto(ctx, library, dest, { executable: false });
     } finally {
       ctx.removeDir(scratch);
@@ -1042,7 +1081,7 @@ async function ensureCachedDownload(ctx, { url, sha256, size }) {
 
 /**
  * A pinned https download. `dest` is copied only from the verified cache entry. With `extract` the download is an archive
- * (zip, tgz): the one member whose base name is `extract` is unpacked (digest-checked against `memberSha256` when given) and
+ * (zip, tgz): the one member whose base name is `extract` (or, when `extract` contains `/`, whose archive path equals it) is unpacked (digest-checked against `memberSha256` when given) and
  * only that member is staged, so no `command` entry or shell is needed to unpack it.
  */
 async function stageRemote(entry, ctx) {

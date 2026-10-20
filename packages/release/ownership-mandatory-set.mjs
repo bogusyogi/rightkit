@@ -12,7 +12,14 @@
 //                                     [--amendment v2.1] [--enforce] [--json]
 //
 // App-side declaration (optional): <app>/rightkit-mandatory.json
-//   { "profile": "desktop", "notApplicable": { "M16": "reason text" } }
+//   { "profile": "desktop", "notApplicable": { "M16": "reason text" },
+//     "M22": { "role": "client|host|both|absent", "entrypoints": ["src-tauri/src/agent.rs#register_tools"] } }
+//
+// PK17.scanner (report only, never enforcement): rows M21 and M23 stay `ownerPending` and never fail, but each lists its
+// `pendingOwners` (M21: rightkit-fs, rightkit-daemon, rightkit-qa; M23: @rightkit/release, rightkit-daemon) and the report shows
+// how each app's declarations measure up (`pending[].candidateOwners`, `enforced: false`). Moving those owners into `rows` and
+// raising minimums is the separate activation step (PK17.activation). The M22 applicability record (PK15-2) is validated and
+// reported under `applicability.M22`; an invalid or contradictory record is a `problem`, which never changes the exit code.
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -231,9 +238,50 @@ function judge(req, facts) {
   return { ...base, status: "ok", declared: declaredAt, evidence: [] };
 }
 
+// An entrypoint is `<relative file>`, optionally `#<symbol>` or `::<symbol>`; a bare token with no path separator or extension
+// is a symbol or command name and is recorded unverified. A file part must stay inside the app root and exist.
+const entrypointFile = (entry) => entry.split(/#|::/)[0];
+const looksLikePath = (text) => /[\\/]/.test(text) || /\.[A-Za-z0-9]+$/.test(text);
+
+/** Validate one applicability record (`M22: { role, entrypoints }`); report-only, never throws. */
+export function validateApplicabilityRecord(id, raw, { spec, root }) {
+  const result = { row: id, status: "unrecorded", role: null, entrypoints: [], unverifiedEntrypoints: 0, problems: [] };
+  if (raw === undefined) return result;
+  const bad = (reason) => result.problems.push(`${id}: ${reason}`);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) { bad("applicability record must be an object { role, entrypoints }"); result.status = "invalid"; return result; }
+  const extra = Object.keys(raw).filter((key) => key !== "role" && key !== "entrypoints");
+  if (extra.length) bad(`unknown applicability record key(s): ${extra.join(", ")}`);
+  const roles = spec?.roles ?? [];
+  if (!roles.includes(raw.role)) bad(`role must be one of ${roles.join("|")}, got ${JSON.stringify(raw.role)}`);
+  else result.role = raw.role;
+  if (!Array.isArray(raw.entrypoints)) bad("entrypoints must be an array");
+  else {
+    const seen = new Set();
+    for (const entry of raw.entrypoints) {
+      if (typeof entry !== "string" || !entry.trim()) { bad("every entrypoint must be a non-empty string"); continue; }
+      const text = entry.trim();
+      if (seen.has(text)) { bad(`entrypoint ${JSON.stringify(text)} is listed twice`); continue; }
+      seen.add(text);
+      result.entrypoints.push(text);
+      const file = entrypointFile(text);
+      if (!file) { bad(`entrypoint ${JSON.stringify(text)} names no file or symbol`); continue; }
+      if (!looksLikePath(file)) { result.unverifiedEntrypoints += 1; continue; }
+      const normalized = file.replace(/\\/g, "/");
+      if (path.isAbsolute(file) || /^[A-Za-z]:/.test(file) || normalized.split("/").includes("..")) { bad(`entrypoint ${JSON.stringify(text)} must be a relative path inside the app`); continue; }
+      let isFile = false;
+      try { isFile = statSync(path.join(root, normalized)).isFile(); } catch { /* missing */ }
+      if (!isFile) bad(`entrypoint ${JSON.stringify(text)}: file not found under the app root`);
+    }
+    if (result.role === "absent" && raw.entrypoints.length) bad("role absent must list no entrypoints");
+    if (result.role && result.role !== "absent" && !raw.entrypoints.length) bad(`role ${result.role} needs at least one real entrypoint`);
+  }
+  result.status = result.problems.length ? "invalid" : "recorded";
+  return result;
+}
+
 export function loadAppDeclaration(root, data) {
   const file = path.join(root, data.appDeclarationFile);
-  if (!existsSync(file)) return { profile: data.defaultProfile, notApplicable: {}, problems: [] };
+  if (!existsSync(file)) return { profile: data.defaultProfile, notApplicable: {}, records: {}, problems: [] };
   const problems = [];
   let doc = {};
   try { doc = JSON.parse(readFileSync(file, "utf8")); } catch (error) { problems.push(`${data.appDeclarationFile} unparseable: ${error.message}`); }
@@ -242,7 +290,9 @@ export function loadAppDeclaration(root, data) {
     if (typeof reason === "string" && reason.trim().length >= 10) notApplicable[id] = reason.trim();
     else problems.push(`${id}: N/A declaration needs a reason (>= 10 chars); ignored`);
   }
-  return { profile: doc.profile ?? data.defaultProfile, notApplicable, problems };
+  const records = {};
+  for (const id of Object.keys(data.applicabilityRecords ?? {})) if (doc && typeof doc === "object" && Object.hasOwn(doc, id)) records[id] = doc[id];
+  return { profile: doc.profile ?? data.defaultProfile, notApplicable, records, problems };
 }
 
 export function checkApp(root, { data = loadData(), profile, amendments = [] } = {}) {
@@ -263,11 +313,29 @@ export function checkApp(root, { data = loadData(), profile, amendments = [] } =
   }
   const notApplicable = Object.entries(declaration.notApplicable).map(([id, reason]) => ({ row: id, reason }));
   const applicable = rows.filter((r) => !(r.id in declaration.notApplicable));
-  const pending = data.pendingRows.filter((r) => r.profile === active).map((r) => ({ row: r.id, name: r.name, status: "owner-pending", note: r.ownerPending }));
   const manifests = findManifests(root).map((f) => readManifest(f, root));
   resolveWorkspaceInheritance(manifests);
   for (const m of manifests) if (m.error) problems.push(`${m.rel}: ${m.error}`);
   const facts = manifests.flatMap((m) => m.facts);
+  // Pending rows never fail. Their `pendingOwners` are judged like any owner and listed as `candidateOwners` (`enforced: false`)
+  // so the report shows what activation would find; the result is never counted in `violations`.
+  const pending = data.pendingRows.filter((r) => r.profile === active).map((r) => ({
+    row: r.id, name: r.name, status: "owner-pending", note: r.ownerPending,
+    candidateOwners: r.id in declaration.notApplicable ? [] : (r.pendingOwners ?? []).map((o) => {
+      const judged = judge({ ...o, rows: [r.id] }, facts);
+      return { owner: judged.owner, ecosystem: judged.ecosystem, rows: judged.rows, required: judged.required, declared: judged.declared, declarationStatus: judged.status, evidence: judged.evidence, enforced: false };
+    }),
+  }));
+  // Applicability records (PK15-2): validated and reported, never enforced.
+  const applicability = {};
+  for (const [id, spec] of Object.entries(data.applicabilityRecords ?? {})) {
+    const record = validateApplicabilityRecord(id, declaration.records[id], { spec, root });
+    applicability[id] = record;
+    problems.push(...record.problems);
+    const declaredNa = id in declaration.notApplicable;
+    if (record.role === "absent" && !declaredNa) problems.push(`${id}: applicability role is absent but notApplicable.${id} is not declared; the ${id} row still applies until the app declares it not applicable with a reason`);
+    if (record.role && record.role !== "absent" && declaredNa) problems.push(`${id}: notApplicable.${id} is declared but the applicability record says role ${record.role}`);
+  }
   const owners = [...requirements(applicable).values()].map((req) => { const result = judge(req, facts); return { ...result, declarationStatus: result.status }; });
   // A profile that is unknown, marked unratified, or has no rows checks nothing; an app may not select it, so it fails rather than passing empty.
   const profileStatus = !data.profiles[active] ? "unknown-profile" : (data.profiles[active].ratified === false || !data.rows.some((r) => r.profile === active)) ? "unratified" : null;
@@ -276,7 +344,7 @@ export function checkApp(root, { data = loadData(), profile, amendments = [] } =
     owners.push({ owner: `profile:${active}`, ecosystem: "profile", rows: [], required: "ratified profile", status: profileStatus, declared: null, evidence: ["an app may not select a profile that is not ratified"] });
   }
   const violations = owners.filter((o) => o.status !== "ok").length;
-  return { app: name, root, scanned: true, profile: active, manifests: manifests.length, owners, pending, notApplicable, problems, violations };
+  return { app: name, root, scanned: true, profile: active, manifests: manifests.length, owners, pending, applicability, notApplicable, problems, violations };
 }
 
 export function checkApps(roots, options = {}) {
@@ -292,6 +360,8 @@ export function renderText(report) {
     out.push("", `${app.app} [${app.profile}] ${app.scanned ? `ok=${count("ok")} missing=${count("missing")} below-required=${count("below-required")} not-on-registry=${count("not-on-registry")}` : "UNSCANNED"}`
       + (app.pending.length ? ` pending=${app.pending.map((p) => p.row).join(",")}` : "") + (app.notApplicable.length ? ` n/a=${app.notApplicable.map((n) => n.row).join(",")}` : ""));
     for (const o of app.owners.filter((x) => x.status !== "ok")) out.push(`  ${o.status.padEnd(15)} ${o.owner} (${o.rows.join(",")}) requires ${o.required}${o.declared ? `, declared ${o.declared}` : ""}${o.evidence.length ? ` — ${o.evidence.join("; ")}` : ""}`);
+    for (const p of app.pending) for (const c of p.candidateOwners ?? []) if (c.declarationStatus !== "ok") out.push(`  not-enforced    ${p.row} ${c.declarationStatus} ${c.owner} requires ${c.required}${c.declared ? `, declared ${c.declared}` : ""} (owner-pending: report only)`);
+    for (const record of Object.values(app.applicability ?? {})) if (record.status !== "unrecorded") out.push(`  applicability   ${record.row} ${record.status}${record.role ? ` role=${record.role}` : ""} entrypoints=${record.entrypoints.length}${record.unverifiedEntrypoints ? ` (${record.unverifiedEntrypoints} unverified symbol)` : ""}`);
     for (const n of app.notApplicable) out.push(`  n/a             ${n.row}: ${n.reason}`);
     for (const p of app.problems) out.push(`  problem         ${p}`);
   }

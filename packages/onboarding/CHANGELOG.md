@@ -1,10 +1,26 @@
 # Changelog
 
-## 0.6.2 — unpublished staging
+## 0.6.3 — unpublished staging
+
+Additive (PK10-1, PK10-2, PK10-3, PK10-5). Every default is unchanged; the change set has no breaking item, so under R5 (pre-1.0) it takes the next patch.
+
+- `LegalReceiptPort.create(request)`: native receipt creation. The renderer declares `{ version, documentsHash, documents, eligibilityBasis, surface: "first_run" }` and no time; the native service stamps its own UTC time, stores the receipt and returns the record. A throw, a malformed record, or a record for another version, digest or eligibility keeps the gate closed; a retry after only the settings save failed reuses the created receipt (no second stamp). New props `receiptDocuments` (the declared set; default the gate's titles and URLs, never bodies) and the port methods `create` and `reset`.
+- `LegalReceiptPort.write` is DEPRECATED and now optional: the renderer-built record (webview clock) is the legacy path, used only when the port has no `create`. A port with neither cannot accept (gate stays closed). Settings-only apps (no `legalReceipt`) are unchanged.
+- `createNativeLegalReceiptPort({ invoke, commands? })` and `LEGAL_RECEIPT_COMMANDS` (`rightkit_legal_receipt_read|create|reset`, provisional until the `rightkit-tauri-shell` host service is published); host rejections become `Error`s.
+- `reopenLegalAcceptance` (re-acceptance on demand; persisted `legalReopened`, honoured by `isLegalAccepted` even over a custom `isAccepted`) and `resetLegalAcceptance` (clears the receipt, then the settings copy).
+- `licenseBackendFromView(client, options)` and `licenseStateFromView`: `LicenseBackend` over a native `LicenseView` client (structural; no import of `@rightkit/license`).
+- `signIn` prop: built-in sign-in step after the licence step, and `ctx.signIn` is now actually provided to steps (it was typed but never set). `signInBackendFromOAuth(port, providers)` builds the backend over the app's `rightkit-oauth` commands. `signInStep` as an app step is unchanged.
+- Permissions and models steps offer "Try again" when the list itself cannot load (offline); before, only an error message was shown with no way to retry.
+- Exports `LicenseStepCopy` and `LicenseStepOptions`; README documents `layout`, the receipt paths, the adapters, and the `@rightkit/legal-ui` peer `>=0.4.1`.
+- Tests: first run and relaunch at an incomplete step, re-acceptance on digest change, failed assent save (receipt and settings), permission cancel/deny/retry, offline model list and install failure, skip/back/finish, both layouts, native receipt, adapters.
+
+Not built or run; verification is the root integration batch.
+
+## 0.6.2 (2026-10-19)
 
 - Adds `layout="contained"` to let a host size onboarding content; default `window` preserves viewport sizing.
 
-## 0.6.1 — unpublished staging
+## 0.6.1 (2026-10-19)
 
 - Repairs onboarding continuation and persistence behavior.
 - Changed: with no `requiredVersion` or `requiredDocumentsHash`, `isLegalAccepted` requires a recorded `legalAcceptance`; a bare legacy `legalAccepted: true` no longer passes the gate and is shown the re-acceptance screen once.

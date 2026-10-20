@@ -17,7 +17,7 @@ This package is infrastructure, not legal advice.
 
 | Import | Contents |
 |---|---|
-| `@rightkit/legal` | `RIGHT_SUITE_LEGAL_SCHEMA` (2), `assertLegalManifest`, `createAcceptanceReceipt`, `needsLegalAcceptance`, `materialAcceptanceDigest`; types `LegalManifest`, `LegalDocumentDescriptor`, `LegalAppendixDescriptor`, `AcceptedLegalDocument`, `LegalAcceptanceReceipt`, `LegalEligibilityBasis`, `LegalAcceptanceSurface`, `LegalDocumentTreatment`, `LegalDocumentRole` |
+| `@rightkit/legal` | `RIGHT_SUITE_LEGAL_SCHEMA` (2), `assertLegalManifest`, `createAcceptanceReceipt`, `acceptanceDeclaration`, `needsLegalAcceptance`, `materialAcceptanceDigest`; types `LegalManifest`, `LegalDocumentDescriptor`, `LegalAppendixDescriptor`, `AcceptedLegalDocument`, `LegalAcceptanceDeclaration`, `LegalAcceptanceReceipt`, `LegalEligibilityBasis`, `LegalAcceptanceSurface`, `LegalDocumentTreatment`, `LegalDocumentRole` |
 
 | `@rightkit/legal` (defaults) | `RIGHT_SUITE_COMPANY_FACTS`, `SUITE_REFUND_POLICY`, `DEFAULT_DATA_STATEMENT`, `resolveCompanyFacts`, `assertRefundPolicy`, `effectiveRefundPolicy`, `renderDefaultPolicy`, `renderDefaultPolicies`, `defaultPolicyDescriptors`, `DEFAULT_POLICY_ROLE`; types `CompanyFacts`, `RefundPolicy`, `DefaultPolicyInput`, `RenderedPolicyDocument` |
 
@@ -50,6 +50,18 @@ if (needsLegalAcceptance(manifest, storedReceipt)) {
 }
 ```
 
+## Native receipt creation
+
+A webview must not stamp its own acceptance time. `acceptanceDeclaration(manifest)` (also on `@rightkit/legal/browser`) returns what the renderer declares to a native receipt service: schema, suite, `appKey`, `acceptanceVersion` and the document set (`id`, `role`, `version`, `sha256`, `treatment`, `material`), with no `acceptedAt` and no eligibility. `@rightkit/onboarding` sends it (with `materialAcceptanceDigestAsync(manifest)` as the declared digest) through `LegalReceiptPort.create`; the native service compares both with the manifest it embeds, stamps its own UTC time and stores the receipt. `createAcceptanceReceipt` remains the JS builder for hosts without a native service.
+
+```ts
+import { acceptanceDeclaration, materialAcceptanceDigestAsync } from "@rightkit/legal/browser";
+const declaration = acceptanceDeclaration(manifest);
+const digest = await materialAcceptanceDigestAsync(manifest);
+// <Onboarding legalReceipt={nativePort} requiredVersion={declaration.acceptanceVersion}
+//   requiredDocumentsHash={digest} receiptDocuments={declaration.documents} ... />
+```
+
 ## Known issues
 
 - None recorded in this repository.
@@ -58,7 +70,7 @@ if (needsLegalAcceptance(manifest, storedReceipt)) {
 
 Set `profile: "oss"` on the manifest for a free or open-source app: only `privacy_notice` and `third_party_notices` are required. Webviews import from `@rightkit/legal/browser`, which has no `node:crypto` and hashes with WebCrypto (`sha256HexAsync`, `materialAcceptanceDigestAsync`).
 
-## Snapshot & npm notice tooling (unreleased)
+## Snapshot & npm notice tooling (0.6.0)
 
 Node-only entry `@rightkit/legal/tooling` exports `syncLegalSnapshot(config, appRoot?)`,
 `assertFinalLegalSnapshot(config, appRoot?)` & `generateNpmLicenseAppendix(options?)`.
@@ -118,8 +130,15 @@ pnpm exec legal-snapshot --root /path/to/app --config legal-snapshot.config.json
 ```
 
 `rightkit-legal npm-licenses` takes the same options as `generate-npm-license-appendix` and delegates to it.
-`rightkit-legal rust-licenses` is BLOCKED: no licence-metadata source is decided or shipped in this package, so it
-exits nonzero without writing output.
+`rightkit-legal rust-licenses [--root APP] [--config right-release.config.mjs] [--output FILE] [--check]` has one
+source: `right-release license-notices cargo` (`cargo-license-notices.mjs` in `@rightkit/release`, which runs
+`cargo about generate --locked --fail` through the managed cargo client). This package keeps no licence metadata and no
+cargo logic: it finds `@rightkit/release` installed for the app (or the entry file given with `--right-release FILE`),
+forwards the options and returns the route's exit status. The app declares `legal.cargoNotices` (`output`, `template`,
+optional `config`, `manifestPath`, `features`, `allFeatures`) in `right-release.config.mjs`; `--check` writes nothing and
+fails when the file on disk differs. It needs `@rightkit/release` with the `license-notices cargo` route (PK17-5); without
+it the command reports what is missing and exits nonzero. Add the output as an appendix in `legal-snapshot.config.json`
+and run `legal-snapshot` so its hash binds into the manifest.
 
 All bins accept `--help` & exit nonzero on failure.
 

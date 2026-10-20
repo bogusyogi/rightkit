@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AutoUpdateClient } from "@rightkit/app-update";
 import { SectionFrame, SettingsPanel, aboutSection, appearanceSection, createMemorySettings, legalSection, licenseSection, standardSections, updatesSection } from "./index.js";
 import type { SettingsContext, SettingsSection } from "./index.js";
+import { licenseView } from "./__fixtures__/license-view.js";
 
 const ctx: SettingsContext = { values: {}, set: async () => {}, patch: async () => {}, saving: false, error: null, clearError: () => {} };
 const client: AutoUpdateClient = { checkOnce: async () => ({ kind: "idle" }), installAvailable: async () => ({ kind: "idle" }) };
@@ -58,7 +59,7 @@ describe("built-in icons", () => {
 
 describe("license planSlot", () => {
   it("renders above the licence rows", () => {
-    const s = licenseSection({ client: { load: async () => null } as never, planSlot: <div id="plan-slot">Upgrade</div> });
+    const s = licenseSection({ client: { status: async () => licenseView() } as never, planSlot: <div id="plan-slot">Upgrade</div> });
     const h = html(s);
     expect(h).toContain('id="plan-slot"');
     expect(h.indexOf("plan-slot")).toBeLessThan(h.indexOf("license.status"));

@@ -19,16 +19,16 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 | `@rightkit/settings-ui/standard` | `standardSections`, the section factories, `useLicenseSection`, `useDoctor`. Needs the optional peers below. |
 | `@rightkit/settings-ui/headless` | The search state as hooks and no-DOM providers, for a host with its own markup: `SettingsSearchProvider`, `useSettingsSearch`, `useSettingsRow`, `useSettingsItem`, `useSettingsHit`, `useSettingsGroup`, `useSettingsSection`, `useSettingsSearchField`, `useSettingsSearchStatus`, `useSearchKeys`, `highlightText`, `parseSearchTerms`, `defaultAnnouncement`, `SettingsGroupScope`, `SettingsSectionScope`. Imports only `react`; no stylesheet. See [Headless search](#headless-search). |
 | `@rightkit/settings-ui/settings.css` | Stylesheet |
-| `@rightkit/settings-ui/shell-adapter` | `createShellBackends` (settings, models and secrets backends) and the engine wire constants `METHODS` and `EVENTS` for `rightkit-app-settings` / `rightkit-models`, over the `@rightkit/tauri-shell` engine bridge. The engine is described structurally, so this subpath needs no import of `@rightkit/tauri-shell`. |
+| `@rightkit/settings-ui/shell-adapter` | `createShellBackends(transport)` (settings and secrets backends), the Tauri command names `METHODS` and the event name `EVENTS`, for the `rightkit_settings_*` and `rightkit_secrets_*` commands that `rightkit-tauri-shell` (feature `host-services`) registers through `handler!`. `transport` is `{ invoke, listen }`, the `ShellTransport` of `@rightkit/tauri-shell` (`tauriTransport()`), described structurally, so this subpath needs no import of `@rightkit/tauri-shell`. The host registers no models command, so there is no models backend: supply your own `ModelsBackend` to the Models section (0.7.0). |
 
-The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app, or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation. The root and `/core` also export `createMemorySecrets` (an in-memory `SecretsBackend`), `RevisionConflict`, and `createShellBackends`, `METHODS` and `EVENTS` as deprecated re-exports of `/shell-adapter`.
+The persistence port is the `SettingsBackend` interface (`load`, `patch` with `expectedRevision`, optional `subscribe`). Use the shell adapter in a Tauri app (`createShellBackends(tauriTransport())` gives `settings` with `describe`, `reset` and a window subscription, and write-only `secrets`: `set` takes `create` or `replace`, default `replace`, and nothing reads a secret back), or implement the interface over your own store. For example, a blob-backed adapter keeps the whole settings object in one JSON string, bumps a revision on each patch and throws `code: "revision_conflict"` on a stale write. `useSettings(backend)` takes any `SettingsBackend`. `createMemorySettings` is the in-memory reference implementation. The root and `/core` also export `createMemorySecrets` (an in-memory `SecretsBackend`), `RevisionConflict`, and `createShellBackends`, `METHODS` and `EVENTS` as deprecated re-exports of `/shell-adapter`.
 
 ## Peer dependencies
 
 | Peer | Range | Note |
 |---|---|---|
 | `@rightkit/react-shell` | `>=0.2.0 <1` | Not optional. `/standard` and the root entry import `@rightkit/react-shell/react`; `/core` does not import it. |
-| `@rightkit/license` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only. No upper bound. |
+| `@rightkit/license` | `>=0.3.0 <0.4` | Optional. Needed by `/standard` and the root entry only. Takes the 0.3 `LicenseView` API; 0.2.x (`StoredLicense`) is not supported (0.7.0). |
 | `@rightkit/logs` | `>=0.1.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
 | `@rightkit/theme` | `>=0.2.0 <1` | Optional. Needed by `/standard` and the root entry only. |
 | `@rightkit/app-update` | `>=0.2.0` | Optional. Needed by `/standard` and the root entry only (type use). No upper bound. |
@@ -313,7 +313,11 @@ Under `search={false}` the hooks are inert: `SettingsPanel` with `search={false}
 
 Outside a provider every hook is inert: rows render, nothing is hidden, groups and sections are not empty, a hit's `matches` is `true` and `mark` returns the text, and the status is empty. The hooks set no `id`s, no `role`s other than what you ask for, and no `data-` attributes beyond `data-setting-id`, `data-hit`, `data-empty` and `hidden`.
 
+## Licence (0.7.0)
+
+`licenseSection` and `useLicenseSection` work on the `LicenseView` of `@rightkit/license` 0.3. The client's `status()` reads it, `activate(key)` and `deactivate()` resolve it, and `view.tier`, `view.features`, `view.lifecycle` and `view.message` drive the display. Expiry and grace come from `view.lifecycle`, computed natively, so there is no `graceDays` option and no local clock check. Status and lifecycle text come from the package's fixed message codes (`LICENSE_MESSAGES`, `licenseMessage`). The renderer never shows server text, and an error shows the fixed text of a `LicenseClientError` (or the generic text for any other error).
+
 ## Known issues
 
-- Three peers have no upper bound: `@rightkit/license`, `@rightkit/logs` and `@rightkit/app-update` (npm audit 2026-10-08, settings-ui finding).
+- Two peers have no upper bound: `@rightkit/logs` and `@rightkit/app-update` (npm audit 2026-10-08, settings-ui finding). `@rightkit/license` is bounded to `<0.4`.
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:49`).

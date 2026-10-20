@@ -204,14 +204,54 @@ test("a symlinked legal directory pointing outside the app root is refused befor
   assert.deepEqual(readdirSync(outside), []);
 });
 
-test("rightkit-legal npm-licenses delegates; rust-licenses is BLOCKED with nonzero exit", (t) => {
+test("rightkit-legal npm-licenses delegates to the npm appendix generator", (t) => {
   const { root, write } = fixture(t);
   write("deps/pkg/NOTICE", "Notice");
   write("licenses.json", JSON.stringify({ MIT: [{ name: "pkg", versions: ["1"], paths: ["deps/pkg"] }] }));
   const npm = cli("rightkit-legal", ["npm-licenses", "--root", root, "--product-name", "CutRight", "--licenses-json", "licenses.json"]);
   assert.equal(npm.status, 0, npm.stderr);
   assert.match(readFileSync(path.join(root, "legal/THIRD_PARTY_NPM_LICENSES.html"), "utf8"), /CutRight npm third-party licenses/);
-  const rust = cli("rightkit-legal", ["rust-licenses", "--root", root]);
-  assert.equal(rust.status, 1);
-  assert.match(rust.stderr, /BLOCKED rust-licenses/);
+});
+
+/** A stand-in for `right-release`: records its argv next to itself and exits with the code in `exit.txt` (default 0). */
+const RIGHT_RELEASE_STUB = [
+  'import { existsSync, readFileSync, writeFileSync } from "node:fs";',
+  'const here = (name) => new URL(name, import.meta.url);',
+  'writeFileSync(here("argv.json"), JSON.stringify(process.argv.slice(2)));',
+  'process.exitCode = existsSync(here("exit.txt")) ? Number(readFileSync(here("exit.txt"), "utf8")) : 0;',
+  "",
+].join("\n");
+
+test("rightkit-legal rust-licenses delegates to `right-release license-notices cargo` from the app's node_modules", (t) => {
+  const { root, write } = fixture(t);
+  write("node_modules/@rightkit/release/cli/right-release.mjs", RIGHT_RELEASE_STUB);
+  const run = cli("rightkit-legal", ["rust-licenses", "--root", root, "--output", "legal/CARGO.html", "--check"]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(
+    JSON.parse(readFileSync(path.join(root, "node_modules/@rightkit/release/cli/argv.json"), "utf8")),
+    ["license-notices", "cargo", "--config", path.join(root, "right-release.config.mjs"), "--output", "legal/CARGO.html", "--check"],
+  );
+});
+
+test("rightkit-legal rust-licenses forwards --config and the exit status of the route unchanged", (t) => {
+  const { root, write } = fixture(t);
+  write("tools/right-release.mjs", RIGHT_RELEASE_STUB);
+  write("tools/exit.txt", "1");
+  const failed = cli("rightkit-legal", ["rust-licenses", "--root", root, "--config", "conf/release.mjs", "--right-release", "tools/right-release.mjs"]);
+  assert.equal(failed.status, 1);
+  assert.deepEqual(
+    JSON.parse(readFileSync(path.join(root, "tools/argv.json"), "utf8")),
+    ["license-notices", "cargo", "--config", path.join(root, "conf/release.mjs")],
+  );
+});
+
+test("rightkit-legal rust-licenses names the missing piece instead of a blocked state", (t) => {
+  const { root } = fixture(t);
+  const missingFile = cli("rightkit-legal", ["rust-licenses", "--root", root, "--right-release", "nope/right-release.mjs"]);
+  assert.equal(missingFile.status, 1);
+  assert.match(missingFile.stderr, /--right-release nope\/right-release\.mjs does not exist/);
+  assert.doesNotMatch(missingFile.stderr, /BLOCKED/);
+  const help = cli("rightkit-legal", ["rust-licenses", "--help"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /rust-licenses .*--check/);
 });

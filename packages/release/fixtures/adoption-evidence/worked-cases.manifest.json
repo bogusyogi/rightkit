@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "generatedAt": "2026-10-20T00:00:00.000Z",
+  "selectedSnapshot": {
+    "path": "snapshots/0003-publish-cargo-rightkit-qa-0.7.2.json",
+    "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  "packages": [
+    {
+      "event": "publish",
+      "id": "cargo:rightkit-credentials",
+      "ecosystem": "cargo",
+      "name": "rightkit-credentials",
+      "version": "0.3.1",
+      "sourceCommit": "1111111111111111111111111111111111111111",
+      "sourceCommitNullReason": null,
+      "archiveUrl": "https://static.crates.io/crates/rightkit-credentials/rightkit-credentials-0.3.1.crate",
+      "integrity": "1111111111111111111111111111111111111111111111111111111111111111",
+      "archiveSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "publishedAt": "2026-10-20T00:00:00.000Z",
+      "publisherTool": { "version": "0.4.1", "source": "installed-published", "host": "win32" },
+      "snapshotProducer": { "kind": "manual", "tool": "fixture", "host": "win32" },
+      "originalPublication": null,
+      "qualifier": null,
+      "registryReadback": { "lookup": "evidence/index-rightkit-credentials.txt", "versionsJsonSection": null },
+      "features": ["isolated-test-keychain", "helper-trust"],
+      "targets": ["win32-x64", "darwin-arm64"],
+      "qualification": [
+        { "host": "win32", "features": "default", "gateEvidence": "evidence/cred-win-default.log", "result": "pass" },
+        { "host": "darwin", "features": "default", "gateEvidence": "evidence/cred-mac-default.log", "result": "pass" },
+        { "host": "win32", "features": "helper-trust", "gateEvidence": "evidence/cred-win-helper.log", "result": "pass" },
+        { "host": "darwin", "features": "helper-trust", "gateEvidence": "evidence/cred-mac-helper.log", "result": "pass" }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": { "ok": true, "notApplicable": null, "example": "credentials-helper", "evidence": "evidence/cred-packed.log" },
+      "fetchedConsumer": { "ok": true, "example": "credentials-helper", "evidence": "evidence/cred-fetched.log" },
+      "reviewer": "astra"
+    },
+    {
+      "event": "qualify-existing",
+      "id": "cargo:rightkit-device",
+      "ecosystem": "cargo",
+      "name": "rightkit-device",
+      "version": "0.3.1",
+      "sourceCommit": null,
+      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-device/rightkit-device-0.3.1.crate",
+      "integrity": "2222222222222222222222222222222222222222222222222222222222222222",
+      "archiveSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "publishedAt": null,
+      "publisherTool": null,
+      "snapshotProducer": { "kind": "manual", "tool": "fixture", "host": "win32" },
+      "originalPublication": { "publishedAt": null, "publisher": "unrecorded" },
+      "qualifier": { "tool": "right-release 0.4.0", "host": "win32" },
+      "registryReadback": { "lookup": "evidence/index-rightkit-device.txt", "versionsJsonSection": null },
+      "features": [],
+      "targets": ["win32-x64", "darwin-arm64"],
+      "qualification": [
+        { "host": "win32", "features": "default", "gateEvidence": "evidence/device-win.log", "result": "pass" },
+        { "host": "darwin", "features": "default", "gateEvidence": "evidence/device-mac.log", "result": "pass" }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": { "ok": null, "notApplicable": "unchanged published bytes" },
+      "fetchedConsumer": { "ok": true, "example": "device-baseline", "evidence": "evidence/device-fetched.log" },
+      "reviewer": null
+    },
+    {
+      "event": "publish",
+      "id": "cargo:rightkit-qa",
+      "ecosystem": "cargo",
+      "name": "rightkit-qa",
+      "version": "0.7.2",
+      "sourceCommit": "3333333333333333333333333333333333333333",
+      "sourceCommitNullReason": null,
+      "archiveUrl": "https://static.crates.io/crates/rightkit-qa/rightkit-qa-0.7.2.crate",
+      "integrity": "3333333333333333333333333333333333333333333333333333333333333333",
+      "archiveSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "publishedAt": "2026-10-20T00:00:00.000Z",
+      "publisherTool": { "version": "0.4.1", "source": "installed-published", "host": "win32" },
+      "snapshotProducer": { "kind": "manual", "tool": "fixture", "host": "win32" },
+      "originalPublication": null,
+      "qualifier": null,
+      "registryReadback": { "lookup": "evidence/index-rightkit-qa.txt", "versionsJsonSection": null },
+      "features": ["control", "wv2-0_39", "browser", "android"],
+      "targets": ["win32-x64", "darwin-arm64"],
+      "qualification": [
+        { "host": "win32", "features": "default", "gateEvidence": "evidence/qa-win-default.log", "result": "pass" },
+        { "host": "darwin", "features": "default", "gateEvidence": "evidence/qa-mac-default.log", "result": "pass" },
+        { "host": "darwin", "features": "wv2-0_39", "gateEvidence": "not applicable: wv2 features compile to nothing on macOS", "result": "not-applicable" }
+      ],
+      "runtimeBudget": "not-required",
+      "packedConsumer": { "ok": true, "notApplicable": null, "example": "qa-mode", "evidence": "evidence/qa-packed.log" },
+      "fetchedConsumer": { "ok": true, "example": "qa-mode", "evidence": "evidence/qa-fetched.log" },
+      "reviewer": "fable"
+    }
+  ],
+  "capabilities": {
+    "PK01.atomic-baseline": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK02.capture": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK03.protected-store": { "status": "satisfied", "packageIds": ["cargo:rightkit-credentials@0.3.1"], "features": [], "targets": ["win32-x64", "darwin-arm64"], "evidence": ["snapshots/0001-publish-cargo-rightkit-credentials-0.3.1.json"] },
+    "PK03.helper-trust": { "status": "satisfied", "packageIds": ["cargo:rightkit-credentials@0.3.1"], "features": ["helper-trust"], "targets": ["win32-x64", "darwin-arm64"], "evidence": ["snapshots/0001-publish-cargo-rightkit-credentials-0.3.1.json"] },
+    "PK03.encrypted-lifecycle": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK04.settings-baseline": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK05.device": { "status": "satisfied", "packageIds": ["cargo:rightkit-device@0.3.1"], "features": [], "targets": ["win32-x64", "darwin-arm64"], "evidence": ["snapshots/0002-qualify-existing-cargo-rightkit-device-0.3.1.json"] },
+    "PK06.job-queue": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK07.migration": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK08.shell-modules": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK09.primitives": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK10.receipts": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK11.redaction": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK12.redirect": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK13.update": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK14.qa-chrome": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK14.mode-roots": { "status": "satisfied", "packageIds": ["cargo:rightkit-qa@0.7.2"], "features": ["control"], "targets": ["win32-x64", "darwin-arm64"], "evidence": ["snapshots/0003-publish-cargo-rightkit-qa-0.7.2.json"] },
+    "PK14.harness": { "status": "satisfied", "packageIds": ["cargo:rightkit-qa@0.7.2"], "features": [], "targets": ["win32-x64", "darwin-arm64"], "evidence": ["snapshots/0003-publish-cargo-rightkit-qa-0.7.2.json"] },
+    "PK14.fixture-capture": { "status": "deferred-separate-dispatch", "packageIds": [], "evidence": [] },
+    "PK15.agent-tools": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK16.swift-release": { "status": "pending", "packageIds": [], "evidence": [] },
+    "PK17.scanner": { "status": "pending", "packageIds": [], "evidence": [] }
+  },
+  "contracts": {
+    "PK01": { "status": "pending", "capabilities": ["PK01.atomic-baseline"] },
+    "PK02": { "status": "pending", "capabilities": ["PK02.capture"] },
+    "PK03": { "status": "partial", "capabilities": ["PK03.protected-store", "PK03.helper-trust", "PK03.encrypted-lifecycle"] },
+    "PK04": { "status": "pending", "capabilities": ["PK04.settings-baseline"] },
+    "PK05": { "status": "satisfied", "capabilities": ["PK05.device"] },
+    "PK06": { "status": "pending", "capabilities": ["PK06.job-queue"] },
+    "PK07": { "status": "pending", "capabilities": ["PK07.migration"] },
+    "PK08": { "status": "pending", "capabilities": ["PK08.shell-modules"] },
+    "PK09": { "status": "pending", "capabilities": ["PK09.primitives"] },
+    "PK10": { "status": "pending", "capabilities": ["PK10.receipts"] },
+    "PK11": { "status": "pending", "capabilities": ["PK11.redaction"] },
+    "PK12": { "status": "pending", "capabilities": ["PK12.redirect"] },
+    "PK13": { "status": "pending", "capabilities": ["PK13.update"] },
+    "PK14": { "status": "partial", "capabilities": ["PK14.qa-chrome", "PK14.mode-roots", "PK14.harness", "PK14.fixture-capture"] },
+    "PK15": { "status": "pending", "capabilities": ["PK15.agent-tools"] },
+    "PK16": { "status": "pending", "capabilities": ["PK16.swift-release"] },
+    "PK17": { "status": "pending", "capabilities": ["PK17.scanner"] }
+  },
+  "apps": {
+    "pulse": {
+      "tasks": {
+        "AP-PU-01": { "requiresCapabilities": ["PK01.atomic-baseline"], "ready": false, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] }
+      },
+      "readyForAdoption": []
+    },
+    "heardright": {
+      "tasks": {
+        "AP-HR-03": { "requiresCapabilities": ["PK03.helper-trust"], "ready": true, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] },
+        "AP-HR-04": { "requiresCapabilities": ["PK03.encrypted-lifecycle"], "ready": false, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] },
+        "AP-HR-05": { "requiresCapabilities": ["PK03.protected-store"], "ready": false, "applicable": false, "applicabilityResolved": true, "naReason": "HeardRight has no wrapper of this kind to replace", "evidence": ["N/A: source search found no caller"] },
+        "AP-HR-06": { "requiresCapabilities": ["PK05.device"], "ready": true, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] },
+        "AP-HR-07": { "requiresCapabilities": [], "ready": true, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] },
+        "AP-HR-08": { "requiresCapabilities": ["PK03.protected-store"], "ready": false, "applicable": true, "applicabilityResolved": false, "naReason": null, "evidence": ["conditional requirement awaiting source disposition"] }
+      },
+      "readyForAdoption": ["AP-HR-03", "AP-HR-06", "AP-HR-07"]
+    },
+    "viewright": {
+      "tasks": {
+        "AP-VR-01": { "requiresCapabilities": ["PK04.settings-baseline"], "ready": false, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] }
+      },
+      "readyForAdoption": []
+    },
+    "mailright": {
+      "tasks": {
+        "AP-MR-01": { "requiresCapabilities": ["PK04.settings-baseline"], "ready": false, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] }
+      },
+      "readyForAdoption": []
+    },
+    "scraperight": {
+      "tasks": {
+        "AP-SR-01": { "requiresCapabilities": ["PK12.redirect"], "ready": false, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] }
+      },
+      "readyForAdoption": []
+    },
+    "coderight": {
+      "tasks": {
+        "AP-CR-01": { "requiresCapabilities": ["PK14.mode-roots", "PK14.harness"], "ready": true, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] },
+        "AP-CR-02": { "requiresCapabilities": ["PK14.fixture-capture"], "ready": false, "applicable": true, "applicabilityResolved": true, "naReason": null, "evidence": [] }
+      },
+      "readyForAdoption": ["AP-CR-01"]
+    }
+  }
+}

@@ -302,6 +302,8 @@ const BAD_BUNDLES = {
   isBrowserQaMode: "if(isBrowserQaMode())install()",
   MockDataSource: "class MockDataSource{}",
   "qa-build-flag": 'const on=import.meta.env.VITE_MAILRIGHT_QA==="1";',
+  "license-testing-sentinel": 'const s="RIGHTKIT_LICENSE_TESTING_DO_NOT_SHIP";',
+  "license-testing-entry": 'import("@rightkit/license/testing")',
 };
 
 test("web bundle scan: known-good bundle passes, every known-bad marker fails", () => {

@@ -283,6 +283,30 @@
 .rk-card.is-flush { padding: 0; }
 .rk-check__input { margin: 0; }
 .rk-toasts[data-placement="top-end"] .rk-toast { animation-name: rk-toast-in-top; }
+.rk-table { width: 100%; border-collapse: collapse; color: var(--rk-ink); font-size: 13px; line-height: 1.4; }
+.rk-table--dense { font-size: 12px; }
+.rk-table__caption { padding: 0 0 8px; color: var(--rk-ink-2); font-size: 12px; text-align: start; caption-side: top; }
+.rk-table__th { padding: 8px 12px; border-bottom: 1px solid var(--rk-line-strong); color: var(--rk-ink-2); font-size: 11.5px; font-weight: 600; text-align: start; white-space: nowrap; }
+.rk-table__cell { padding: 8px 12px; border-bottom: 1px solid var(--rk-line); text-align: start; vertical-align: top; }
+.rk-table--dense .rk-table__th, .rk-table--dense .rk-table__cell { padding: 4px 8px; }
+.rk-table__rowhead { font-weight: 600; }
+.rk-table__cell--center { text-align: center; }
+.rk-table__cell--end { text-align: end; }
+.rk-table__cell--numeric { font-variant-numeric: tabular-nums; }
+.rk-table__sort { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: default; }
+.rk-table__sort:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: 2px; }
+.rk-table__sort-mark { min-width: 1ch; }
+.rk-table__row.is-selected { background: var(--rk-sel); }
+:root:not([data-rk-pointer="off"]) .rk-table__row--interactive:not(.is-disabled):not(.is-selected):hover { background: var(--rk-wash-hover); }
+.rk-table__row--interactive:focus-visible { outline: 2px solid var(--rk-focus); outline-offset: -2px; }
+.rk-table__row.is-disabled { opacity: .5; }
+.rk-table__row.is-error { background: var(--rk-bad-soft); }
+.rk-table__row.is-error > :first-child { box-shadow: inset 2px 0 0 var(--rk-bad); }
+.rk-table__message .rk-table__cell { padding: 16px 12px; color: var(--rk-ink-2); text-align: center; }
+.rk-table__message--error .rk-table__cell { color: var(--rk-bad); }
+@media (forced-colors: active) {
+  .rk-table__row.is-selected { outline: 2px solid Highlight; outline-offset: -2px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .rk-skeleton:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { animation: none; }
   .rk-progress__fill:where(:not([data-rk-motion="full"], [data-rk-motion="full"] *)) { transition: none; }

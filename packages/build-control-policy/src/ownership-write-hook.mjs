@@ -4,6 +4,7 @@ import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sourceNonCode } from './ownership-source.mjs';
 import { evaluateDependency, validateAllowlist } from './ownership-dependency-allowlist.mjs';
+import { heavyWriteHookDecision } from './agent-heavy-write-guard.mjs';
 
 // Packaged snapshot keeps installed adapters self-contained. Focused test
 // asserts this snapshot matches release catalog before any catalog changes ship.
@@ -603,6 +604,9 @@ function commandDependencies(command) {
 }
 
 export function ownershipWriteDecision(input, options = {}) {
+  // Heavy-write guard (#800): macOS only, runs before every other check so an unloadable catalog cannot skip it.
+  const heavy = heavyWriteHookDecision(input, options.heavyWrite);
+  if (heavy) return heavy;
   try {
     if (catalogError) return advice('Could not load ownership catalog; protected ownership gates remain authoritative.');
     return writeDecision(input, options);

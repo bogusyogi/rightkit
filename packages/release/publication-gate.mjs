@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { recordPublished } from "./rightkit-sync.mjs";
+import { recordPublished, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { fileURLToPath } from "node:url";
 import { digestBytes, readVerifiedArtifact } from "./publication-artifacts.mjs";
 
@@ -253,10 +253,10 @@ export function runNpmPreflight(argv, workspaceRoot = process.cwd(), deps = {}) 
   if (dryRun) throw new Error("--publish and --dry-run are mutually exclusive");
   if (!tarball) throw new Error("--publish requires --tarball <gated .tgz>");
   enforcePublicationGate(options);
-  publishGatedTarball({ name: pkg, version: manifest.version, tarball, evidencePath }, deps);
+  publishGatedTarball({ name: pkg, version: manifest.version, tarball, evidencePath, workspaceRoot }, deps);
 }
 
-export function publishGatedTarball({ name, version, tarball, evidencePath }, deps = {}) {
+export function publishGatedTarball({ name, version, tarball, evidencePath, workspaceRoot }, deps = {}) {
   const run = deps.spawnSync ?? spawnSync;
   const bytes = fs.readFileSync(tarball);
   const evidence = JSON.parse(fs.readFileSync(evidencePath, "utf8"));
@@ -278,7 +278,8 @@ export function publishGatedTarball({ name, version, tarball, evidencePath }, de
   }
   const sha1 = crypto.createHash("sha1").update(bytes).digest("hex");
   verifyNpmRegistryBytes({ name, version, sha1 }, deps);
-  (deps.recordPublished ?? recordPublished)({ registry: "npm", name, version });
+  // Feed and consumer copies belong to the requested workspace, never to this module's own (possibly installed) location.
+  (deps.recordPublished ?? recordPublished)({ registry: "npm", name, version }, workspaceRoot ? workspaceFeedOptions(workspaceRoot) : undefined);
 }
 
 // CI and the authenticated helper share mandatory, fail-closed registry equality.

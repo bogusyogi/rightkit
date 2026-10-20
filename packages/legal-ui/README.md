@@ -43,9 +43,11 @@ import "@rightkit/legal-ui/legal-ui.css";
 />
 ```
 
-Props: `appName`, `trustLine`, `documents`, `agreementStatement`, `variant`, `onAgree`, `onQuit`, and optional `theme`, `version`, `manifestSha256`, `eligibilityLabels`, `lockup`, `dbaLine`, `tradingNameNotice`, `parentLogoSrc`, `wordmarkFontUrl`, `agreeLabel`, `showQuit`, `quitLabel`, `eyebrow`, `heading`, `renderError`, `onError`, `footer`.
+Props: `appName`, `trustLine`, `documents`, `agreementStatement`, `variant`, `onAgree`, `onQuit`, and optional `layout`, `theme`, `version`, `manifestSha256`, `eligibilityLabels`, `lockup`, `dbaLine`, `tradingNameNotice`, `parentLogoSrc`, `wordmarkFontUrl`, `agreeLabel`, `showQuit`, `quitLabel`, `eyebrow`, `heading`, `renderError`, `onError`, `footer`.
 
-`onAgree` receives one object, `{ version, acceptedAt, manifestSha256, eligibilityBasis }`; `acceptedAt` is a UTC ISO string taken at acceptance, and `version`/`manifestSha256` echo the props. It may return a Promise. `eligibilityLabels` overrides the eligibility copy. `lockup` replaces the publisher lockup (`null` hides it). The gate forces no light or dark theme: it sets no `data-theme` or `color-scheme`, so pass host tokens (or `var(--token)` references) in `theme` and the host's `data-theme` applies. While it is pending the button shows `aria-busy`.
+`layout` (0.4.1) is `"window"` by default: the gate fills the viewport with a 100vh minimum height. `layout="contained"` removes that minimum so a host that sizes the gate surface (for example inside `@rightkit/onboarding` with `layout="contained"`) controls the height; nothing else changes.
+
+`onAgree` receives one object, `{ version, acceptedAt, manifestSha256, eligibilityBasis }`; `acceptedAt` is a UTC ISO string taken at acceptance (renderer time: a host that creates its receipt natively, as `@rightkit/onboarding` does through `LegalReceiptPort.create`, uses only `eligibilityBasis` and ignores it), and `version`/`manifestSha256` echo the props. It may return a Promise. `eligibilityLabels` overrides the eligibility copy. `lockup` replaces the publisher lockup (`null` hides it). The gate forces no light or dark theme: it sets no `data-theme` or `color-scheme`, so pass host tokens (or `var(--token)` references) in `theme` and the host's `data-theme` applies. While it is pending the button shows `aria-busy`.
 
 ### Customising the gate (0.2.2)
 
@@ -88,7 +90,7 @@ Notes:
 - Peer React is `<21`, the same range as `doc-render`, `i18n`, `media-ui` and `pdf-ui` (`package.json:28`).
 - Under a strict CSP without `'unsafe-inline'`, the gate injects no style element only when `legal-ui.css` is imported. Without the import, the gate injects its layout at runtime and needs `style-src 'unsafe-inline'`.
 
-## Standalone legal documents (Unreleased)
+## Standalone legal documents (0.4.0)
 
 Package root exports `LegalDocumentBody` & types `LegalDocumentBodyProps`, `LegalContentFormat`.
 Use host layout & styles around its content:

@@ -313,7 +313,7 @@ test('standalone hook honors banned policy independently of tier, Swift dependen
   const root = mkdtempSync(path.join(tmpdir(), 'rk-ownership-hook-'));
   try {
     const source = path.dirname(fileURLToPath(import.meta.url));
-    for (const file of ['ownership-write-hook.mjs', 'ownership-source.mjs', 'ownership-repositories.json', 'ownership-dependency-allowlist.mjs']) cpSync(path.join(source, file), path.join(root, file));
+    for (const file of ['ownership-write-hook.mjs', 'agent-heavy-write-guard.mjs', 'ownership-source.mjs', 'ownership-repositories.json', 'ownership-dependency-allowlist.mjs']) cpSync(path.join(source, file), path.join(root, file));
     const installed = JSON.parse(readFileSync(snapshot));
     const browser = installed.capabilities.find((entry) => entry.package === 'rightkit-browser');
     browser.fingerprints.find((entry) => entry.name === 'puppeteer').tier = 'advise';

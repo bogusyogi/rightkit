@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  acceptanceDeclaration,
   assertLegalManifest,
   createAcceptanceReceipt,
   materialAcceptanceDigest,
@@ -301,5 +302,31 @@ describe("oss profile", () => {
     expect(() => assertLegalManifest(m)).toThrow("missing required document role: eula");
     m.profile = "free" as never;
     expect(() => assertLegalManifest(m)).toThrow("profile");
+  });
+});
+
+describe("acceptance declaration (native receipt creation, PK10-2)", () => {
+  it("declares the manifest identity and document set with no time and no eligibility", () => {
+    const declaration = acceptanceDeclaration(manifest());
+    expect(Object.keys(declaration).sort()).toEqual(["acceptanceVersion", "appKey", "documents", "schema", "suite"]);
+    expect(declaration.acceptanceVersion).toBe("heardright-2026-07-16-v1");
+    expect(declaration.documents).toHaveLength(6);
+    expect(declaration.documents[0]).toEqual({
+      id: "right-suite-license", role: "license", version: "1.0", sha256: HASH_A, treatment: "agree", material: true,
+    });
+  });
+
+  it("carries exactly the document set a receipt for the same manifest records", () => {
+    const value = manifest();
+    const receipt = createAcceptanceReceipt(value, {
+      acceptedAt: "2026-10-17T10:00:00.000Z", surface: "first_run", eligibilityBasis: "individual",
+    });
+    expect(acceptanceDeclaration(value).documents).toEqual(receipt.documents);
+  });
+
+  it("validates the manifest before declaring", () => {
+    const value = manifest();
+    value.documents = value.documents.filter((document) => document.role !== "eula");
+    expect(() => acceptanceDeclaration(value)).toThrow(/eula/);
   });
 });

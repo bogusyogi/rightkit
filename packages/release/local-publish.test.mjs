@@ -9,7 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
-import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublish } from './local-publish.mjs';
+import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublish } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 
 const HEAD = 'a'.repeat(40);
@@ -121,7 +121,7 @@ test('refuses when no test executed, or a skip outside an asset-gated unit', asy
   assert.equal(fs.existsSync(path.join(root, 'release-evidence')), false);
 });
 
-test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clippy on the first set)', () => {
+test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clippy on every set)', () => {
   const config = { rust: { 'rightkit-demo': { featureSets: [['--all-features'], ['--features', 'async']], alsoSerial: true } } };
   const plan = localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'crates/rightkit-demo', config });
   assert.deepEqual(plan.steps.map((s) => s.args.join(' ')), [
@@ -130,6 +130,7 @@ test('the test plan mirrors scripts/ci/gate.mjs (feature sets, serial run, clipp
     'test -p rightkit-demo --message-format=json-render-diagnostics --features async --no-fail-fast -- --show-output',
     'test -p rightkit-demo --message-format=json-render-diagnostics --features async --no-fail-fast -- --test-threads=1 --show-output',
     'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
+    'clippy -p rightkit-demo --message-format=json-render-diagnostics --no-deps --all-targets --features async -- -D warnings',
   ]);
   assert.deepEqual(plan.featureLabels, ['--all-features', '--features async']);
   assert.throws(() => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'x', config: { rust: { 'rightkit-demo': { os: ['windows'] } } } }), /restricted to windows/);
@@ -141,6 +142,91 @@ test('the plan compiles every feature: --all-features by default, explicit sets 
   assert.deepEqual(plan({}), ['check -p rightkit-demo --message-format=json-render-diagnostics --all-targets --all-features']);
   assert.deepEqual(plan({ checkFeatureSets: [['--features', 'a'], ['--features', 'b']] }), ['check -p rightkit-demo --message-format=json-render-diagnostics --all-targets --features a', 'check -p rightkit-demo --message-format=json-render-diagnostics --all-targets --features b']);
   assert.deepEqual(plan({ featureSets: [['--all-features']] }), []);
+});
+
+const WV2_ROW = { manifestPath: 'ci/consumers/wv2-0_39/Cargo.toml', args: ['--no-default-features', '--features', 'wv2-0_39'], kind: 'check', targets: ['x86_64-pc-windows-msvc'], locked: true };
+const consumerPlan = (entry, extra = {}) => localTestPlan({ kind: 'cargo', unit: 'rightkit-demo', dir: 'crates/rightkit-demo', config: { rust: { 'rightkit-demo': entry } }, ...extra });
+
+test('consumerRows: a valid row is normalised, defaults apply, and a crate without rows has none', () => {
+  assert.deepEqual(consumerRows('rightkit-demo', {}), []);
+  assert.deepEqual(consumerRows('rightkit-demo', { consumerRows: [WV2_ROW] }), [WV2_ROW]);
+  assert.deepEqual(consumerRows('rightkit-demo', { consumerRows: [{ manifestPath: 'ci/consumers/a/b/Cargo.toml' }] }), [{ manifestPath: 'ci/consumers/a/b/Cargo.toml', kind: 'check', args: [], targets: [], locked: true }]);
+});
+
+test('consumerRows: refuses unknown fields and malformed values', () => {
+  const bad = (row, pattern) => assert.throws(() => consumerRows('rightkit-demo', { consumerRows: [row] }), (error) => error instanceof LocalPublishError && pattern.test(error.message));
+  bad({ ...WV2_ROW, extra: 1 }, /unknown field "extra"/);
+  bad({ ...WV2_ROW, os: ['windows'] }, /unknown field "os"/);
+  bad({ args: [] }, /manifestPath/);
+  for (const manifestPath of ['Cargo.toml', '/abs/ci/consumers/x/Cargo.toml', 'ci/consumers/../../Cargo.toml', 'ci/consumers/x/../y/Cargo.toml', 'ci/consumers/./x/Cargo.toml', 'ci\\consumers\\x\\Cargo.toml', 'crates/x/Cargo.toml', 'ci/consumers/x/Cargo.lock', 'ci/consumers/Cargo.toml']) bad({ ...WV2_ROW, manifestPath }, /manifestPath/);
+  bad({ ...WV2_ROW, kind: 'test' }, /kind must be/);
+  bad({ ...WV2_ROW, kind: 'clippy' }, /kind must be/);
+  bad({ ...WV2_ROW, locked: false }, /locked must be true/);
+  bad({ ...WV2_ROW, locked: 'yes' }, /locked must be true/);
+  bad({ ...WV2_ROW, args: '--features x' }, /args must be an array/);
+  bad({ ...WV2_ROW, args: ['--features', 3] }, /args must be an array/);
+  for (const arg of ['--manifest-path', '--manifest-path=x', '--target=x86_64-pc-windows-msvc', '--locked', '--offline', '-p', '-pfoo', '--package', '--workspace', '--message-format=json', '--jobs=2', '-j2', '-Zunstable-options', '--release', '--']) bad({ ...WV2_ROW, args: [arg] }, /args may not contain/);
+  bad({ ...WV2_ROW, targets: 'x86_64-pc-windows-msvc' }, /targets must be an array/);
+  bad({ ...WV2_ROW, targets: ['not a triple'] }, /target triples/);
+  bad({ ...WV2_ROW, targets: ['x86_64-pc-windows-msvc', 'x86_64-pc-windows-msvc'] }, /twice/);
+  assert.throws(() => consumerRows('rightkit-demo', { consumerRows: [WV2_ROW, WV2_ROW] }), /repeats an earlier row/);
+  assert.throws(() => consumerRows('rightkit-demo', { consumerRows: 'x' }), /consumerRows must be an array/);
+  assert.throws(() => consumerRows('rightkit-demo', { consumerRows: [null] }), /must be an object/);
+  assert.throws(() => consumerRows('rightkit-demo', { consumerRows: [[]] }), /must be an object/);
+});
+
+test('consumerRows: the plan runs each row as a locked --manifest-path check after the crate checks, one per target, for the owning crate only', () => {
+  const steps = (entry, unit = 'rightkit-demo', extra = {}) => localTestPlan({ kind: 'cargo', unit, dir: `crates/${unit}`, config: { rust: { 'rightkit-demo': entry } }, ...extra }).steps.map((s) => s.args.join(' '));
+  const entry = { consumerRows: [WV2_ROW, { manifestPath: 'ci/consumers/second/Cargo.toml', targets: ['x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc'] }] };
+  assert.deepEqual(steps(entry).filter((a) => a.includes('--manifest-path')), [
+    'check --manifest-path ci/consumers/wv2-0_39/Cargo.toml --locked --target x86_64-pc-windows-msvc --no-default-features --features wv2-0_39',
+    'check --manifest-path ci/consumers/second/Cargo.toml --locked --target x86_64-pc-windows-msvc',
+    'check --manifest-path ci/consumers/second/Cargo.toml --locked --target aarch64-pc-windows-msvc',
+  ]);
+  assert.match(steps(entry).at(-3), /^check --manifest-path ci\/consumers\/wv2-0_39/);
+  assert.deepEqual(steps({ consumerRows: [{ manifestPath: 'ci/consumers/x/Cargo.toml' }] }).at(-1), 'check --manifest-path ci/consumers/x/Cargo.toml --locked');
+  // Another crate reads its own entry: it gets no row from this one, and its plan carries none.
+  assert.deepEqual(steps(entry, 'rightkit-other').filter((a) => a.includes('--manifest-path')), []);
+  assert.deepEqual(consumerPlan({}).consumerRows, []);
+  assert.deepEqual(consumerPlan({ consumerRows: [WV2_ROW] }).consumerRows, [WV2_ROW]);
+  // The rows are not tests, so no test result is demanded of them.
+  assert.ok(consumerPlan({ consumerRows: [WV2_ROW] }).steps.every((s) => s.test === (s.args[0] === 'test')));
+  // Batch mode lints in the batch but still runs the consumer rows per crate.
+  assert.equal(consumerPlan({ consumerRows: [WV2_ROW] }, { batch: true }).steps.filter((s) => s.args.includes('--manifest-path')).length, 1);
+  // A malformed row stops the plan, so a batch refuses before anything runs.
+  assert.throws(() => consumerPlan({ consumerRows: [{ ...WV2_ROW, extra: true }] }), /unknown field/);
+});
+
+test('consumerRows: a cargo publish runs the row with the same evidence recording, and refuses a missing manifest, lock or dirty consumer directory', async () => {
+  const gateConfig = { rust: { 'rightkit-demo': { consumerRows: [WV2_ROW] } } };
+  const expected = 'cargo check --manifest-path ci/consumers/wv2-0_39/Cargo.toml --locked --target x86_64-pc-windows-msvc --no-default-features --features wv2-0_39';
+  const withConsumer = (lock = true) => {
+    const root = workspace({ kind: 'cargo', gateConfig });
+    fs.mkdirSync(path.join(root, 'ci', 'consumers', 'wv2-0_39'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'ci', 'consumers', 'wv2-0_39', 'Cargo.toml'), '[package]\n');
+    if (lock) fs.writeFileSync(path.join(root, 'ci', 'consumers', 'wv2-0_39', 'Cargo.lock'), '');
+    return root;
+  };
+  const root = withConsumer();
+  const h = harness(root, 'cargo');
+  const result = await h.run();
+  const call = h.calls.find((c) => c.args.includes('--manifest-path'));
+  assert.deepEqual([call.command, call.args.join(' ')], ['cargo', expected.slice('cargo '.length)]);
+  const evidence = JSON.parse(fs.readFileSync(result.evidencePath, 'utf8'));
+  assert.ok(evidence.runs[0].steps.some((step) => step.command === expected && step.ok === true && step.executed === undefined));
+  assert.match(evidence.runs[0].command, /cargo check --manifest-path ci\/consumers\/wv2-0_39\/Cargo\.toml --locked --target x86_64-pc-windows-msvc/);
+  // A failing row refuses the publish and writes no evidence.
+  const failing = harness(withConsumer(), 'cargo', { run: (command, args) => (args.includes('--manifest-path') ? { status: 101, stdout: '', stderr: 'error[E0599]' } : { status: 0, stdout: /\btest\b/.test(args.join(' ')) ? LIBTEST : '', stderr: '' }) });
+  await refused(failing.run(), /step failed.*--manifest-path ci\/consumers\/wv2-0_39\/Cargo\.toml/s);
+  assert.deepEqual(failing.published, []);
+  assert.equal(fs.existsSync(path.join(failing.root, 'release-evidence')), false);
+  // Missing lock, and an uncommitted change in the consumer directory, both refuse before any command runs.
+  const noLock = harness(withConsumer(false), 'cargo');
+  await refused(noLock.run(), /consumer row needs ci\/consumers\/wv2-0_39\/Cargo\.lock/);
+  assert.deepEqual(noLock.calls, []);
+  const dirty = harness(withConsumer(), 'cargo', { git: (args) => (args[0] === 'rev-parse' ? HEAD : args.includes('ci/consumers/wv2-0_39') ? ' M ci/consumers/wv2-0_39/Cargo.lock' : '') });
+  await refused(dirty.run(), /not clean for the consumer rows/);
+  assert.deepEqual(dirty.calls, []);
 });
 
 test('npm: writes schema-valid darwin-only evidence the gate accepts and publishes the packed tarball', async () => {
@@ -279,6 +365,14 @@ test('clippy for a batch keeps every per-crate flag: shared -p list for default 
     'clippy -p rightkit-c --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
     'clippy -p rightkit-d --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
     'clippy -p rightkit-e --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+  ]);
+  // Every feature set of a crate is linted: shared sets still share one -p list, other sets run per crate, duplicates collapse.
+  const sets = { 'rightkit-a': [[], ['--features', 'x']], 'rightkit-b': [[], ['--all-features']], 'rightkit-c': [['--features', 'x'], ['--features', 'x']] };
+  assert.deepEqual(batchClippyInvocations(Object.keys(sets), { featureSetsOf: (unit) => sets[unit] }).map((i) => i.args.join(' ')), [
+    'clippy -p rightkit-a -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings',
+    'clippy -p rightkit-a --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
+    'clippy -p rightkit-b --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings',
+    'clippy -p rightkit-c --message-format=json-render-diagnostics --no-deps --all-targets --features x -- -D warnings',
   ]);
   const shared = batchClippyInvocations(['rightkit-a', 'rightkit-f'], {});
   assert.deepEqual(shared.map((i) => i.args.join(' ')), ['clippy -p rightkit-a -p rightkit-f --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings']);

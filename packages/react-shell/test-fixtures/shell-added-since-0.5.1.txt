@@ -234,3 +234,55 @@
 | :root:not([data-rk-pointer="off"]) .rk-seg__item:not(.is-on):hover | background: var(--rk-wash-hover)
 | :root:not([data-rk-pointer="off"]) .rk-toggle[aria-checked="false"]:not(:disabled):hover | background: var(--rk-wash-press)
 | :where(.rk-top, .rk-top__title, .rk-side, .rk-plane, .rk-nav, .rk-item__label, .rk-brand-foot, .rk-page__band, .rk-page__scroll, .rk-page__head h1, .rk-field label, .rk-modal__title, .rk-modal__label, .rk-palette__label, .rk-toast__msg) | color: var(--rk-ink)
+| .rk-table | width: 100%
+| .rk-table | border-collapse: collapse
+| .rk-table | color: var(--rk-ink)
+| .rk-table | font-size: 13px
+| .rk-table | line-height: 1.4
+| .rk-table--dense | font-size: 12px
+| .rk-table__caption | padding: 0 0 8px
+| .rk-table__caption | color: var(--rk-ink-2)
+| .rk-table__caption | font-size: 12px
+| .rk-table__caption | text-align: start
+| .rk-table__caption | caption-side: top
+| .rk-table__th | padding: 8px 12px
+| .rk-table__th | border-bottom: 1px solid var(--rk-line-strong)
+| .rk-table__th | color: var(--rk-ink-2)
+| .rk-table__th | font-size: 11.5px
+| .rk-table__th | font-weight: 600
+| .rk-table__th | text-align: start
+| .rk-table__th | white-space: nowrap
+| .rk-table__cell | padding: 8px 12px
+| .rk-table__cell | border-bottom: 1px solid var(--rk-line)
+| .rk-table__cell | text-align: start
+| .rk-table__cell | vertical-align: top
+| .rk-table--dense .rk-table__th, .rk-table--dense .rk-table__cell | padding: 4px 8px
+| .rk-table__rowhead | font-weight: 600
+| .rk-table__cell--center | text-align: center
+| .rk-table__cell--end | text-align: end
+| .rk-table__cell--numeric | font-variant-numeric: tabular-nums
+| .rk-table__sort | display: inline-flex
+| .rk-table__sort | align-items: center
+| .rk-table__sort | gap: 4px
+| .rk-table__sort | padding: 0
+| .rk-table__sort | border: 0
+| .rk-table__sort | background: none
+| .rk-table__sort | color: inherit
+| .rk-table__sort | font: inherit
+| .rk-table__sort | cursor: default
+| .rk-table__sort:focus-visible | outline: 2px solid var(--rk-focus)
+| .rk-table__sort:focus-visible | outline-offset: 2px
+| .rk-table__sort-mark | min-width: 1ch
+| .rk-table__row.is-selected | background: var(--rk-sel)
+| :root:not([data-rk-pointer="off"]) .rk-table__row--interactive:not(.is-disabled):not(.is-selected):hover | background: var(--rk-wash-hover)
+| .rk-table__row--interactive:focus-visible | outline: 2px solid var(--rk-focus)
+| .rk-table__row--interactive:focus-visible | outline-offset: -2px
+| .rk-table__row.is-disabled | opacity: .5
+| .rk-table__row.is-error | background: var(--rk-bad-soft)
+| .rk-table__row.is-error > :first-child | box-shadow: inset 2px 0 0 var(--rk-bad)
+| .rk-table__message .rk-table__cell | padding: 16px 12px
+| .rk-table__message .rk-table__cell | color: var(--rk-ink-2)
+| .rk-table__message .rk-table__cell | text-align: center
+| .rk-table__message--error .rk-table__cell | color: var(--rk-bad)
+@media (forced-colors: active) | .rk-table__row.is-selected | outline: 2px solid Highlight
+@media (forced-colors: active) | .rk-table__row.is-selected | outline-offset: -2px
