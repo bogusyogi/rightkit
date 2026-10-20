@@ -758,7 +758,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "@rightkit/license@0.3.0": foundation,
     "@rightkit/logs@0.1.6": foundation,
     "@rightkit/react-shell@0.7.2": foundation,
-    "@rightkit/doc-render@0.2.1": { reviewer: "RK2 Astra (R8 exact-archive SIGN)", reviewRef: "agent-review:/root/swift_native_evidence/39466345466/doc-render" },
+    "@rightkit/doc-render@0.2.1": { reviewer: "RK2 Astra (R8 exact-archive SIGN)", reviewRef: "agent-review:/root/swift_native_evidence/39468856523/doc-render" },
   };
   assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
