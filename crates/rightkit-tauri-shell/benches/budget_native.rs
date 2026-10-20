@@ -276,11 +276,7 @@ fn native(mode: String, idle_seconds: u64) {
     let mut context = tauri::test::mock_context(NativeAssets);
     context.config_mut().identifier = format!("app.rightkit.nativebudget.p{}", std::process::id());
     context.config_mut().app.windows.clear();
-    let mut builder = tauri::Builder::<Wry>::new().plugin(shell.plugin());
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.activate_ignoring_other_apps(false);
-    }
+    let builder = tauri::Builder::<Wry>::new().plugin(shell.plugin());
     let mut app = builder
         .setup(move |app| {
             host_services(app.handle(), &fixture_root);
@@ -303,6 +299,8 @@ fn native(mode: String, idle_seconds: u64) {
         })
         .build(context)
         .expect("native Wry desktop & webview prerequisites");
+    // Tauri 2.11 configures activation on App, not Builder. Set it before run(): Tao applies
+    // this policy at application launch before activation, keeping this hidden probe background-only.
     #[cfg(target_os = "macos")]
     app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
     let handle = app.handle().clone();
