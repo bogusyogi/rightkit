@@ -312,12 +312,14 @@ jobs:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        if: ${{ needs.plan.outputs.registry == 'npm' }}
         with:
           version: 11.24.0
       - name: Install the workspace
-        if: ${{ needs.plan.outputs.registry == 'npm' }}
-        run: pnpm install --frozen-lockfile
+        shell: bash
+        env:
+          RK_REGISTRY: ${{ needs.plan.outputs.registry }}
+        run: |
+          if [ "$RK_REGISTRY" = "crates" ]; then pnpm install --frozen-lockfile --ignore-scripts; else pnpm install --frozen-lockfile; fi
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         if: ${{ needs.plan.outputs.registry == 'crates' }}
         with:
