@@ -334,9 +334,8 @@ impl KeyedWriteLocks {
         let process_lock = match &self.options.process_lock_dir {
             Some(dir) => {
                 crate::private::ensure_private_dir(dir)?;
-                let remaining = deadline.map_or(timeout, |at| {
-                    at.saturating_duration_since(Instant::now())
-                });
+                let remaining =
+                    deadline.map_or(timeout, |at| at.saturating_duration_since(Instant::now()));
                 let options = LockOptions::wait(remaining).labeled("rightkit-fs keyed write");
                 Some(FileLock::acquire(&process_lock_path(dir, &key), &options)?)
             }

@@ -41,18 +41,20 @@ impl JsonlStoreConfig {
 
     /// Choose `<dir>/<stem>.jsonl`. Reject separators, dot components &
     /// Windows drive/stream syntax on every host. No directories are created.
-    pub fn from_stem(
-        dir: impl AsRef<Path>,
-        stem: &str,
-        max_file_bytes: u64,
-    ) -> io::Result<Self> {
+    pub fn from_stem(dir: impl AsRef<Path>, stem: &str, max_file_bytes: u64) -> io::Result<Self> {
         if stem.is_empty()
             || matches!(stem, "." | "..")
             || stem.chars().any(|c| matches!(c, '/' | '\\' | ':' | '\0'))
         {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid log stem"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid log stem",
+            ));
         }
-        Ok(Self::new(dir.as_ref().join(format!("{stem}.jsonl")), max_file_bytes))
+        Ok(Self::new(
+            dir.as_ref().join(format!("{stem}.jsonl")),
+            max_file_bytes,
+        ))
     }
 
     /// Collect declared sources through the existing bounded/redacting collector.

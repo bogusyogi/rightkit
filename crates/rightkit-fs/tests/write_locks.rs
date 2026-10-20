@@ -277,7 +277,9 @@ fn the_process_lock_excludes_a_writer_in_another_process() {
             .timeout(Duration::from_millis(100))
             .process_lock_dir(lock_dir.clone()),
     );
-    let busy = locks.try_with_destination(&destination, |_| ()).unwrap_err();
+    let busy = locks
+        .try_with_destination(&destination, |_| ())
+        .unwrap_err();
     assert!(
         matches!(busy, FsError::Locked { .. } | FsError::LockTimeout { .. }),
         "{busy:?}"
@@ -326,8 +328,7 @@ fn a_killed_holder_does_not_leave_the_destination_locked() {
 fn a_timeout_the_clock_cannot_add_waits_without_a_deadline_instead_of_panicking() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("a.txt");
-    let locks =
-        KeyedWriteLocks::with_options(WriteLockOptions::default().timeout(Duration::MAX));
+    let locks = KeyedWriteLocks::with_options(WriteLockOptions::default().timeout(Duration::MAX));
     assert_eq!(locks.with_destination(&path, |_| 5).unwrap(), 5);
 
     let (held_tx, held_rx) = std::sync::mpsc::channel();

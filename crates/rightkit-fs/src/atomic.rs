@@ -1156,9 +1156,13 @@ impl AtomicWriter {
             sync_level = Some(
                 durable_sync_with(
                     &file,
-                    if self.strict_new { SyncPolicy::Strict } else { SyncPolicy::Fallback },
+                    if self.strict_new {
+                        SyncPolicy::Strict
+                    } else {
+                        SyncPolicy::Fallback
+                    },
                 )
-                    .map_err(|e| FsError::io(&self.temp, e))?,
+                .map_err(|e| FsError::io(&self.temp, e))?,
             );
             #[cfg(feature = "testing")]
             testing::record(testing::Step::TempFlushed);
@@ -1190,7 +1194,10 @@ impl AtomicWriter {
 
         // The one step that publishes. An error here means nothing was published.
         let published = publish_captured(
-            &self.temp, &self.target, self.options, self.access_denied,
+            &self.temp,
+            &self.target,
+            self.options,
+            self.access_denied,
             Some((&self.temp_identity, self.strict_new)),
         )?;
 
@@ -1260,7 +1267,9 @@ pub fn atomic_write_reporting(
 fn require_captured_temp(path: &Path, file: &File) -> std::io::Result<()> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_file() || meta.file_type().is_symlink() {
-        return Err(std::io::Error::other("staging name no longer identifies the owned file"));
+        return Err(std::io::Error::other(
+            "staging name no longer identifies the owned file",
+        ));
     }
     #[cfg(windows)]
     {
@@ -1742,18 +1751,18 @@ fn publish_captured(
         Some(retry) => (Some(retry.policy()), is_sharing_or_access_denied),
         None => (options.retry_sharing_violation, is_sharing_violation),
     };
-    let cleanup =
-        retry_with(policy, classify, || match captured {
-            Some(_) => replace_step_captured(temp, target, options, captured),
-            None => replace_step(temp, target, options),
-        }).map_err(|e| {
-            if options.replace == ReplaceMode::NoReplace
-                && e.kind() == std::io::ErrorKind::AlreadyExists
-            {
-                return FsError::AlreadyExists(target.to_path_buf());
-            }
-            FsError::io(target, e)
-        })?;
+    let cleanup = retry_with(policy, classify, || match captured {
+        Some(_) => replace_step_captured(temp, target, options, captured),
+        None => replace_step(temp, target, options),
+    })
+    .map_err(|e| {
+        if options.replace == ReplaceMode::NoReplace
+            && e.kind() == std::io::ErrorKind::AlreadyExists
+        {
+            return FsError::AlreadyExists(target.to_path_buf());
+        }
+        FsError::io(target, e)
+    })?;
     Ok(Published { cleanup })
 }
 
@@ -1963,7 +1972,7 @@ fn replace_step_captured(
             #[cfg(not(unix))]
             let done = rename_exclusive_io(temp, target);
             done.map(|done| done.cleanup)
-        },
+        }
         ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
     }
 }

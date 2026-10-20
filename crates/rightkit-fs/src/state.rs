@@ -1130,7 +1130,6 @@ mod sys {
             self.unlink(name)
         }
 
-
         /// Flush this directory's entries. Unlike a file `fsync`, a failure is returned.
         pub fn sync(&self, policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
             sync_dir_file(&self.0, policy)

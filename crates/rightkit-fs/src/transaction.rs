@@ -151,9 +151,8 @@
 //! deciding which root to open.
 
 use crate::atomic::{
-    create_dir_all_durable, publish_file_with, publish_file_with_access_denied_retry,
-    try_sync_dir, AccessDeniedRetry, AtomicWriteOptions, AtomicWriter, Privacy,
-    ReplaceMode, RetryPolicy,
+    create_dir_all_durable, publish_file_with, publish_file_with_access_denied_retry, try_sync_dir,
+    AccessDeniedRetry, AtomicWriteOptions, AtomicWriter, Privacy, ReplaceMode, RetryPolicy,
 };
 use crate::error::{FsError, Result};
 use crate::file_key::FileKey;
@@ -1312,7 +1311,9 @@ impl Journal {
             if stage != join_rel(dir, &side_name(leaf, &id, index, 's'))
                 || backup != join_rel(dir, &side_name(leaf, &id, index, 'b'))
             {
-                return Err(corrupt("an entry side name does not match its transaction and index"));
+                return Err(corrupt(
+                    "an entry side name does not match its transaction and index",
+                ));
             }
             entries.push(JournalEntry {
                 dest,
@@ -1635,7 +1636,12 @@ impl FileTransaction {
                     Ok(meta) if !is_link(&meta) && meta.is_dir() => {
                         parents.push((parent.clone(), FileKey::of_path(&parent)?));
                     }
-                    Ok(_) => return Err(conflict(&parent, "the destination parent is not a plain directory")),
+                    Ok(_) => {
+                        return Err(conflict(
+                            &parent,
+                            "the destination parent is not a plain directory",
+                        ))
+                    }
                     Err(error) if error.kind() == io::ErrorKind::NotFound => break,
                     Err(error) => return Err(FsError::io(&parent, error)),
                 }
@@ -1727,7 +1733,10 @@ fn verify_parent_identities(parents: &[(PathBuf, FileKey)]) -> Result<()> {
     for (path, expected) in parents {
         let meta = fs::symlink_metadata(path).map_err(|e| FsError::io(path, e))?;
         if is_link(&meta) || !meta.is_dir() || FileKey::of_path(path)? != *expected {
-            return Err(conflict(path, "a directory recorded during preparation was substituted"));
+            return Err(conflict(
+                path,
+                "a directory recorded during preparation was substituted",
+            ));
         }
     }
     Ok(())
@@ -1738,7 +1747,10 @@ impl PreparedTransaction {
         let resolved = canonicalize_plain(&self.requested_root)
             .map_err(|e| FsError::io(&self.requested_root, e))?;
         if resolved != self.root || FileKey::of_path(&resolved)? != self.root_key {
-            return Err(conflict(&self.requested_root, "the prepared root was substituted"));
+            return Err(conflict(
+                &self.requested_root,
+                "the prepared root was substituted",
+            ));
         }
         for entry in &self.entries {
             verify_parent_identities(&entry.parents)?;
@@ -1874,12 +1886,20 @@ fn read_record_claim(path: &Path, expected: &str) -> Result<RecordClaim> {
     let mut file = File::open(path).map_err(|e| FsError::io(path, e))?;
     let before = Ident::of_file(&file, path)?;
     let mut text = String::new();
-    (&mut file).take(MAX_JOURNAL_BYTES + 1).read_to_string(&mut text)
+    (&mut file)
+        .take(MAX_JOURNAL_BYTES + 1)
+        .read_to_string(&mut text)
         .map_err(|e| FsError::io(path, e))?;
     if text != expected || Ident::of_file(&file, path)? != before {
-        return Err(conflict(path, "the protocol record's content changed or is unrecognized"));
+        return Err(conflict(
+            path,
+            "the protocol record's content changed or is unrecognized",
+        ));
     }
-    Ok(RecordClaim { ident: before, text })
+    Ok(RecordClaim {
+        ident: before,
+        text,
+    })
 }
 
 struct Ctx<'a> {
@@ -1891,7 +1911,11 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn claim_record(&self, path: &Path, claim: RecordClaim) {
-        let name = path.file_name().expect("a protocol record has a name").to_string_lossy().into_owned();
+        let name = path
+            .file_name()
+            .expect("a protocol record has a name")
+            .to_string_lossy()
+            .into_owned();
         let mut records = self.records.borrow_mut();
         if let Some(record) = records.iter_mut().find(|record| record.0 == name) {
             record.1 = claim;
@@ -1901,7 +1925,11 @@ impl Ctx<'_> {
     }
 
     fn record_claim(&self, name: &str) -> Option<RecordClaim> {
-        self.records.borrow().iter().find(|record| record.0 == name).map(|record| record.1.clone())
+        self.records
+            .borrow()
+            .iter()
+            .find(|record| record.0 == name)
+            .map(|record| record.1.clone())
     }
 }
 
@@ -1917,7 +1945,8 @@ fn run_commit(
     // Phase 6: publish, entry by entry.
     for (index, planned_entry) in planned.iter().enumerate() {
         if let Err(cause) = verify_parent_identities(&planned_entry.parents)
-            .and_then(|()| apply_entry(ctx, index, &journal.entries[index])) {
+            .and_then(|()| apply_entry(ctx, index, &journal.entries[index]))
+        {
             return Ok(roll_back_here(ctx, journal, cause));
         }
     }
@@ -2176,12 +2205,16 @@ fn link_unsupported(error: &io::Error) -> bool {
 
 /// Publish exclusively with write-through on Windows and strict source/destination parent flushes.
 fn rename_durable_exclusive(from: &Path, to: &Path) -> Result<()> {
-    publish_file_with(from, to, AtomicWriteOptions {
-        durable: true,
-        create_parents: false,
-        replace: ReplaceMode::NoReplace,
-        ..AtomicWriteOptions::default()
-    })?;
+    publish_file_with(
+        from,
+        to,
+        AtomicWriteOptions {
+            durable: true,
+            create_parents: false,
+            replace: ReplaceMode::NoReplace,
+            ..AtomicWriteOptions::default()
+        },
+    )?;
     sync_parent_strict(from)?;
     sync_parent_strict(to)
 }
@@ -2347,7 +2380,9 @@ fn rollback(ctx: &Ctx<'_>, journal: &mut Journal) -> RollbackOutcome {
         // every file. A missing name is not evidence that its unlink reached stable storage.
         for entry in &journal.entries {
             if let Err(error) = sync_parent_strict(&ctx.root.join(&entry.dest)) {
-                outcome.retained.push(RetainedItem::new(ctx.root.join(&entry.dest), error));
+                outcome
+                    .retained
+                    .push(RetainedItem::new(ctx.root.join(&entry.dest), error));
             }
         }
     }
@@ -2514,9 +2549,7 @@ fn complete_committed(ctx: &Ctx<'_>, journal: &Journal) -> Cleanup {
         }
     }
     if cleanup.blocking.is_empty() {
-        cleanup
-            .blocking
-            .extend(finish_dir(ctx));
+        cleanup.blocking.extend(finish_dir(ctx));
     }
     cleanup
 }
@@ -2687,10 +2720,13 @@ fn remove_record(ctx: &Ctx<'_>, name: &str) -> std::result::Result<(), RetainedI
     let claim = ctx.record_claim(name);
     remove_while_identical(
         &path,
-        |now| claim.as_ref().is_some_and(|claim| {
-            *now == claim.ident && read_record_claim(&path, &claim.text)
-                .is_ok_and(|found| found.ident == claim.ident)
-        }),
+        |now| {
+            claim.as_ref().is_some_and(|claim| {
+                *now == claim.ident
+                    && read_record_claim(&path, &claim.text)
+                        .is_ok_and(|found| found.ident == claim.ident)
+            })
+        },
         "the protocol record no longer has its recorded identity and exact content",
         ctx.options.retry,
     )
@@ -2715,7 +2751,10 @@ fn finish_dir(ctx: &Ctx<'_>) -> Vec<RetainedItem> {
             for entry in listing {
                 let entry = match entry {
                     Ok(entry) => entry,
-                    Err(error) => { retained.push(RetainedItem::new(txn_dir, error)); continue; }
+                    Err(error) => {
+                        retained.push(RetainedItem::new(txn_dir, error));
+                        continue;
+                    }
                 };
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let valid = ctx.record_claim(&name).is_some_and(|claim| {
@@ -2723,25 +2762,38 @@ fn finish_dir(ctx: &Ctx<'_>) -> Vec<RetainedItem> {
                         .is_ok_and(|found| found.ident == claim.ident)
                 });
                 if !matches!(name.as_str(), JOURNAL | COMMIT) || !valid {
-                    retained.push(RetainedItem::new(entry.path(), "unclaimed or changed protocol material"));
+                    retained.push(RetainedItem::new(
+                        entry.path(),
+                        "unclaimed or changed protocol material",
+                    ));
                 }
             }
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => return retained,
         Err(error) => return vec![RetainedItem::new(txn_dir, error)],
     }
-    if !retained.is_empty() { return retained; }
+    if !retained.is_empty() {
+        return retained;
+    }
     let journal = txn_dir.join(JOURNAL);
     if let Err(error) = fire(Step::BeforeJournalRemove, &journal) {
         return vec![RetainedItem::new(&journal, error)];
     }
-    if let Err(item) = remove_record(ctx, JOURNAL) { return vec![item]; }
+    if let Err(item) = remove_record(ctx, JOURNAL) {
+        return vec![item];
+    }
     let removed = sync_dir_strict(txn_dir).and_then(|()| fire(Step::AfterJournalRemove, &journal));
-    if let Err(error) = removed { return vec![RetainedItem::new(&journal, error)]; }
-    if let Err(item) = remove_record(ctx, COMMIT) { return vec![item]; }
+    if let Err(error) = removed {
+        return vec![RetainedItem::new(&journal, error)];
+    }
+    if let Err(item) = remove_record(ctx, COMMIT) {
+        return vec![item];
+    }
     let marker = txn_dir.join(COMMIT);
     let synced = sync_dir_strict(txn_dir).and_then(|()| fire(Step::AfterMarkerRemove, &marker));
-    if let Err(error) = synced { return vec![RetainedItem::new(txn_dir, error)]; }
+    if let Err(error) = synced {
+        return vec![RetainedItem::new(txn_dir, error)];
+    }
     match fs::remove_dir(txn_dir) {
         Ok(()) => {
             if let Err(error) = sync_parent_strict(txn_dir) {
@@ -2856,20 +2908,35 @@ fn recover_one(ctx: &Ctx<'_>, name: &str, root_key: FileKey) -> RecoveryOutcome 
         if has_marker {
             let text = match fs::read_to_string(&marker_path) {
                 Ok(text) => text,
-                Err(error) => return retained_outcome("the remaining marker cannot be read",
-                    vec![RetainedItem::new(&marker_path, error)]),
+                Err(error) => {
+                    return retained_outcome(
+                        "the remaining marker cannot be read",
+                        vec![RetainedItem::new(&marker_path, error)],
+                    )
+                }
             };
             let prefix = format!("{COMMIT_MAGIC} {name} ");
-            let valid = text.strip_prefix(&prefix).and_then(|tail| tail.strip_suffix('\n'))
+            let valid = text
+                .strip_prefix(&prefix)
+                .and_then(|tail| tail.strip_suffix('\n'))
                 .is_some_and(|crc| crc.len() == 8 && u32::from_str_radix(crc, 16).is_ok());
             if !valid {
-                return retained_outcome("unrecognized marker without a journal",
-                    vec![RetainedItem::new(&marker_path, "marker does not identify this transaction")]);
+                return retained_outcome(
+                    "unrecognized marker without a journal",
+                    vec![RetainedItem::new(
+                        &marker_path,
+                        "marker does not identify this transaction",
+                    )],
+                );
             }
             match read_record_claim(&marker_path, &text) {
                 Ok(claim) => ctx.claim_record(&marker_path, claim),
-                Err(error) => return retained_outcome("the remaining marker changed",
-                    vec![RetainedItem::new(&marker_path, error)]),
+                Err(error) => {
+                    return retained_outcome(
+                        "the remaining marker changed",
+                        vec![RetainedItem::new(&marker_path, error)],
+                    )
+                }
             }
         }
         let left = finish_dir(ctx);
@@ -2893,8 +2960,12 @@ fn recover_one(ctx: &Ctx<'_>, name: &str, root_key: FileKey) -> RecoveryOutcome 
     };
     match read_record_claim(&journal_path, &journal.render().0) {
         Ok(claim) => ctx.claim_record(&journal_path, claim),
-        Err(error) => return retained_outcome("the journal changed while loading",
-            vec![RetainedItem::new(&journal_path, error)]),
+        Err(error) => {
+            return retained_outcome(
+                "the journal changed while loading",
+                vec![RetainedItem::new(&journal_path, error)],
+            )
+        }
     }
     if journal.id != name {
         return retained_outcome(
@@ -2942,8 +3013,12 @@ fn recover_one(ctx: &Ctx<'_>, name: &str, root_key: FileKey) -> RecoveryOutcome 
         }
         match read_record_claim(&marker_path, &expected) {
             Ok(claim) => ctx.claim_record(&marker_path, claim),
-            Err(error) => return retained_outcome("the marker changed while loading",
-                vec![RetainedItem::new(&marker_path, error)]),
+            Err(error) => {
+                return retained_outcome(
+                    "the marker changed while loading",
+                    vec![RetainedItem::new(&marker_path, error)],
+                )
+            }
         }
         let cleanup = complete_committed(ctx, &journal);
         return if !cleanup.blocking.is_empty() {
@@ -3025,7 +3100,11 @@ mod tests {
     fn identity_compares_the_device_number_too() {
         let value = ident(5, 10, 100);
         assert_eq!(value, ident(5, 10, 100));
-        assert_ne!(value, on_device(value, 99), "another device is another file");
+        assert_ne!(
+            value,
+            on_device(value, 99),
+            "another device is another file"
+        );
         assert_ne!(value, ident(6, 10, 100));
         assert_ne!(value, ident(5, 11, 100));
         assert_ne!(value, ident(5, 10, 101));
@@ -3217,7 +3296,10 @@ mod tests {
                 unpublished,
             )
         };
-        assert!(matches!(replay(Some(PRIOR()), false), EntryState::Conflict(_)));
+        assert!(matches!(
+            replay(Some(PRIOR()), false),
+            EntryState::Conflict(_)
+        ));
         assert!(untouched(replay(Some(PRIOR()), true)));
         assert!(matches!(replay(None, false), EntryState::Conflict(_)));
         assert!(untouched(replay(None, true)));

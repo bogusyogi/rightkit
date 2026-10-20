@@ -1,6 +1,6 @@
 use rightkit_logs::{
-    BundleMetadata, Consent, ConsentStore, EnqueueError, EventRecord, JsonlStore,
-    JsonlStoreConfig, Level, LogSource, Outbox, OutboxConfig,
+    BundleMetadata, Consent, ConsentStore, EnqueueError, EventRecord, JsonlStore, JsonlStoreConfig,
+    Level, LogSource, Outbox, OutboxConfig,
 };
 use serde_json::json;
 
@@ -27,13 +27,19 @@ fn consumer_stems_retention_and_declared_bundle_sources() {
     config.max_file_bytes = 1;
     // CodeRight names this source renderer; ViewRight names it app.
     config.bundle_sources = vec![LogSource::new("renderer", &config.path)];
-    config.collection.redaction.additional_key_fragments.insert("path".into());
+    config
+        .collection
+        .redaction
+        .additional_key_fragments
+        .insert("path".into());
     let store = JsonlStore::from_config(&config);
     for n in 0..4 {
-        store.append(
-            &EventRecord::new(n, Level::Info, format!("event_{n}"))
-                .with_field("source_path", json!("private-diagnostic-path")),
-        ).unwrap();
+        store
+            .append(
+                &EventRecord::new(n, Level::Info, format!("event_{n}"))
+                    .with_field("source_path", json!("private-diagnostic-path")),
+            )
+            .unwrap();
     }
     assert!(dir.path().join("events.jsonl.1").exists());
     assert!(dir.path().join("events.jsonl.2").exists());
@@ -43,7 +49,9 @@ fn consumer_stems_retention_and_declared_bundle_sources() {
     let bundle = config.collect(metadata());
     assert_eq!(bundle.sources.len(), 1);
     assert_eq!(bundle.sources[0].name, "renderer");
-    assert!(!serde_json::to_string(&bundle).unwrap().contains("private-diagnostic-path"));
+    assert!(!serde_json::to_string(&bundle)
+        .unwrap()
+        .contains("private-diagnostic-path"));
     store.clear().unwrap();
     assert!(!config.path.exists());
     assert!(!dir.path().join("events.jsonl.1").exists());
@@ -54,7 +62,10 @@ fn consumer_stems_retention_and_declared_bundle_sources() {
 #[test]
 fn stems_cannot_escape_host_directory() {
     for stem in ["", ".", "..", "../raw", "a/b", "a\\b", "C:raw", "a\0b"] {
-        assert!(JsonlStoreConfig::from_stem("logs", stem, 1).is_err(), "{stem:?}");
+        assert!(
+            JsonlStoreConfig::from_stem("logs", stem, 1).is_err(),
+            "{stem:?}"
+        );
     }
 }
 
@@ -103,7 +114,11 @@ fn outbox_with_cached_store_observes_cross_process_revoke() {
     let dir = tempfile::tempdir().unwrap();
     let consent = ConsentStore::new(dir.path().join("consent.json")).with_cache(true);
     consent.grant("v1").unwrap();
-    let outbox = Outbox::open(dir.path().join("outbox.json"), consent, OutboxConfig::default());
+    let outbox = Outbox::open(
+        dir.path().join("outbox.json"),
+        consent,
+        OutboxConfig::default(),
+    );
     outbox.enqueue("before", json!({"count": 1})).unwrap();
     let status = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "cached_child_revoke", "--nocapture"])
@@ -111,7 +126,10 @@ fn outbox_with_cached_store_observes_cross_process_revoke() {
         .status()
         .unwrap();
     assert!(status.success());
-    assert_eq!(outbox.enqueue("after", json!({})), Err(EnqueueError::NoConsent));
+    assert_eq!(
+        outbox.enqueue("after", json!({})),
+        Err(EnqueueError::NoConsent)
+    );
     assert_eq!(outbox.len(), 1);
     outbox.purge().unwrap();
     assert!(outbox.is_empty());

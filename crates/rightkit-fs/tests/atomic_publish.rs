@@ -821,7 +821,8 @@ fn private_native_import_reports_directory_flush_failure_after_publication() {
     let target = dir.path().join(".record.rktmp-123-1-0");
     let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
     writer.write_all(b"complete").unwrap();
-    let _failure = rightkit_fs::atomic::testing::fail_dir_sync(std::io::ErrorKind::PermissionDenied);
+    let _failure =
+        rightkit_fs::atomic::testing::fail_dir_sync(std::io::ErrorKind::PermissionDenied);
     let error = writer.commit().unwrap_err();
     assert!(matches!(error, FsError::ReplacedButDirSyncFailed { .. }));
     assert!(error.target_replaced());

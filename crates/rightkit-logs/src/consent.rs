@@ -72,7 +72,9 @@ impl ConsentStore {
     /// Drop parsed consent without changing persisted consent.
     pub fn invalidate_cache(&self) {
         if let Some(cache) = &self.cache {
-            *cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            *cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
         }
     }
 
@@ -101,10 +103,11 @@ impl ConsentStore {
     pub fn try_status(&self) -> io::Result<Consent> {
         // Serialize cache replacement with reads, never let an older read
         // overwrite a newer cached state from another thread.
-        let mut cache = self
-            .cache
-            .as_ref()
-            .map(|cache| cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        let mut cache = self.cache.as_ref().map(|cache| {
+            cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        });
         let bytes = match fs::read(&self.path) {
             Ok(bytes) => bytes,
             Err(error) => {

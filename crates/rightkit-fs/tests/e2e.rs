@@ -163,7 +163,9 @@ fn helper_entry() {
         "private_contender" => {
             let target = Path::new(&args[0]);
             let mut writer = AtomicWriter::create_new_private(target).unwrap();
-            writer.write_all(&vec![args[2].as_bytes()[0]; 256 * 1024]).unwrap();
+            writer
+                .write_all(&vec![args[2].as_bytes()[0]; 256 * 1024])
+                .unwrap();
             ready();
             let start = Instant::now();
             while !Path::new(&args[1]).exists() {
@@ -171,7 +173,9 @@ fn helper_entry() {
                 std::thread::sleep(Duration::from_millis(5));
             }
             match writer.commit() {
-                Ok(()) => std::fs::write(Path::new(&args[1]).with_extension(&args[2]), b"won").unwrap(),
+                Ok(()) => {
+                    std::fs::write(Path::new(&args[1]).with_extension(&args[2]), b"won").unwrap()
+                }
                 Err(FsError::AlreadyExists(_)) => {}
                 Err(error) => panic!("private contender failed: {error:?}"),
             }
@@ -929,13 +933,23 @@ fn private_native_import_killed_before_commit_never_exposes_a_destination() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(dir.join(&temps[0])).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(dir.join(&temps[0]))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
     }
     kill_for_sweep(&mut child);
     assert!(!target.exists());
     assert_eq!(sweep_stale_temps(&dir, Duration::ZERO).unwrap(), 0);
     assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
-    assert_eq!(std::fs::metadata(dir.join(&temps[0])).unwrap().len(), 512 * 1024);
+    assert_eq!(
+        std::fs::metadata(dir.join(&temps[0])).unwrap().len(),
+        512 * 1024
+    );
 }
 
 #[cfg(feature = "testing")]
@@ -954,7 +968,10 @@ fn private_native_import_killed_at_publish_boundary_leaves_no_empty_final() {
     assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
     let temps = temps_in(&dir);
     assert_eq!(temps.len(), 1);
-    assert_eq!(std::fs::read(dir.join(&temps[0])).unwrap(), vec![b'P'; 512 * 1024]);
+    assert_eq!(
+        std::fs::read(dir.join(&temps[0])).unwrap(),
+        vec![b'P'; 512 * 1024]
+    );
 }
 
 #[test]
@@ -962,16 +979,31 @@ fn private_native_import_contends_across_processes_without_replacement() {
     let (_guard, dir) = canonical_tmp();
     let target = dir.join(".record.rktmp-123-1-0");
     let start = dir.join("start");
-    let mut children = LoopingHelpers { kids: Vec::new(), stop: start.clone() };
+    let mut children = LoopingHelpers {
+        kids: Vec::new(),
+        stop: start.clone(),
+    };
     for tag in ["A", "B", "C", "D"] {
-        let mut child = spawn_role("private_contender", &[target.to_str().unwrap(), start.to_str().unwrap(), tag]);
+        let mut child = spawn_role(
+            "private_contender",
+            &[target.to_str().unwrap(), start.to_str().unwrap(), tag],
+        );
         wait_ready(&mut child);
         children.kids.push(child);
     }
-    assert!(!target.exists(), "only private staging exists before release");
+    assert!(
+        !target.exists(),
+        "only private staging exists before release"
+    );
     children.tell_to_stop();
     assert!(children.all_succeeded());
-    assert_eq!(["A", "B", "C", "D"].into_iter().filter(|tag| start.with_extension(tag).exists()).count(), 1);
+    assert_eq!(
+        ["A", "B", "C", "D"]
+            .into_iter()
+            .filter(|tag| start.with_extension(tag).exists())
+            .count(),
+        1
+    );
     let payload = std::fs::read(&target).unwrap();
     assert_eq!(payload.len(), 256 * 1024);
     assert!(matches!(payload[0], b'A' | b'B' | b'C' | b'D'));

@@ -1268,12 +1268,22 @@ fn a_committed_transaction_on_an_unproven_device_is_not_completed() {
     let text = fs::read_to_string(dir.join("journal")).unwrap();
     let crc = text.rsplit("crc ").next().unwrap().trim().to_string();
     let id = dir.file_name().unwrap().to_string_lossy().into_owned();
-    fs::write(dir.join("commit"), format!("rktxn-commit 1 {id} {crc}
-")).unwrap();
+    fs::write(
+        dir.join("commit"),
+        format!(
+            "rktxn-commit 1 {id} {crc}
+"
+        ),
+    )
+    .unwrap();
     let report = recover_transactions(&f.root).unwrap();
     assert!(!report.is_clean(), "{report:?}");
     assert_new(&f);
-    assert_eq!(read(&find_side(&f.root, "0b")), "old-a", "the backup was kept");
+    assert_eq!(
+        read(&find_side(&f.root, "0b")),
+        "old-a",
+        "the backup was kept"
+    );
     assert!(dir.join("journal").exists());
     assert!(dir.join("commit").exists());
 }
@@ -1296,7 +1306,10 @@ fn a_journal_written_for_another_root_directory_is_retained_and_nothing_is_touch
     let f = fixture();
     leave_a_pending_transaction(&f);
     rewrite_journal(&only_txn_dir(&f.root), |line| {
-        match line.strip_prefix("root ").and_then(|rest| rest.split_once('.')) {
+        match line
+            .strip_prefix("root ")
+            .and_then(|rest| rest.split_once('.'))
+        {
             Some((volume, index)) => {
                 let index = u64::from_str_radix(index, 16).unwrap() ^ 0x5a5a_5a5a;
                 format!("root {volume}.{index:x}")
@@ -1561,7 +1574,10 @@ fn set_aside_flush_failure(failing: Step) {
     );
     // The commit is decided, but the journal and marker stay: the move is not known durable.
     let dir = only_txn_dir(&f.root);
-    assert!(dir.join("journal").exists(), "{failing:?}: journal released");
+    assert!(
+        dir.join("journal").exists(),
+        "{failing:?}: journal released"
+    );
     assert!(dir.join("commit").exists(), "{failing:?}: marker released");
     // A new transaction is still refused until recovery has finished it.
     let refused = FileTransaction::prepare(
@@ -1733,7 +1749,8 @@ fn staged_name_of(root: &Path, leaf_dir: &str, leaf: &str, index: usize) -> Path
         .unwrap()
         .to_string_lossy()
         .into_owned();
-    root.join(leaf_dir).join(format!(".{leaf}.rktxn-{id}-{index}s"))
+    root.join(leaf_dir)
+        .join(format!(".{leaf}.rktxn-{id}-{index}s"))
 }
 
 #[test]
@@ -1847,13 +1864,19 @@ fn an_error_other_than_not_found_while_looking_for_a_set_aside_keeps_the_journal
     // Recovery cannot tell whether the earlier move happened: the look fails with access denied.
     let guard = seams::on_step(|step| {
         (*step == Step::SetAsideProbe).then(|| {
-            std::io::Error::new(std::io::ErrorKind::PermissionDenied, "injected probe failure")
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected probe failure",
+            )
         })
     });
     let report = recover_transactions(&f.root).unwrap();
     drop(guard);
     assert!(!report.is_clean(), "{report:?}");
-    assert!(dir.join("journal").exists(), "journal released on an unknown");
+    assert!(
+        dir.join("journal").exists(),
+        "journal released on an unknown"
+    );
     assert!(dir.join("commit").exists());
     // Asking again with a working look repeats the flushes and reports the leftover.
     let report = recover_transactions(&f.root).unwrap();
@@ -2032,9 +2055,16 @@ fn a_backup_name_that_changes_hands_during_the_delete_backoff_is_not_deleted() {
         TransactionReport::Committed(done) => done,
         other => panic!("{other:?}"),
     };
-    assert!(!done.retained.is_empty(), "the refused delete was not reported");
+    assert!(
+        !done.retained.is_empty(),
+        "the refused delete was not reported"
+    );
     assert_new(&f);
-    assert_eq!(read(&find_side(&f.root, "0b")), "foreign", "the newcomer was deleted");
+    assert_eq!(
+        read(&find_side(&f.root, "0b")),
+        "foreign",
+        "the newcomer was deleted"
+    );
     let dir = only_txn_dir(&f.root);
     assert!(dir.join("journal").exists());
     assert!(dir.join("commit").exists());
@@ -2068,7 +2098,6 @@ fn a_forced_sharing_failure_is_retried_and_the_identified_file_is_removed() {
     assert_no_residue(&f.root);
 }
 
-
 // Restore boundaries require a failed commit or a pending journal, not the successful commit lane.
 #[test]
 fn killing_during_rollback_and_recovery_restoration_preserves_prior_files() {
@@ -2079,7 +2108,10 @@ fn killing_during_rollback_and_recovery_restoration_preserves_prior_files() {
                 if mode == "recover" {
                     let _aside = aside.then(seams::force_aside_backup);
                     let guard = fail_at(vec![Step::BeforePublish(1), Step::BeforeRestore(0)]);
-                    assert!(matches!(prepared(&f).commit().unwrap(), TransactionReport::RecoveryRequired(_)));
+                    assert!(matches!(
+                        prepared(&f).commit().unwrap(),
+                        TransactionReport::RecoveryRequired(_)
+                    ));
                     drop(guard);
                 }
                 kill_in_mode(&f, &step, aside, mode);
@@ -2087,7 +2119,10 @@ fn killing_during_rollback_and_recovery_restoration_preserves_prior_files() {
                 assert!(report.is_clean(), "{mode} {aside} {step:?}: {report:?}");
                 assert_old(&f);
                 assert_no_residue(&f.root);
-                assert!(recover_transactions(&f.root).unwrap().transactions.is_empty());
+                assert!(recover_transactions(&f.root)
+                    .unwrap()
+                    .transactions
+                    .is_empty());
             }
         }
     }
@@ -2099,7 +2134,10 @@ fn exclusive_rename_crash_placeholders_are_retained_without_guessing_ownership()
         let f = fixture();
         let _aside = seams::force_aside_backup();
         let guard = fail_at(vec![Step::BeforePublish(0), Step::BeforeRestore(0)]);
-        assert!(matches!(prepared(&f).commit().unwrap(), TransactionReport::RecoveryRequired(_)));
+        assert!(matches!(
+            prepared(&f).commit().unwrap(),
+            TransactionReport::RecoveryRequired(_)
+        ));
         drop(guard);
         let backup = find_side(&f.root, "0b");
         if restore_placeholder {
@@ -2113,7 +2151,11 @@ fn exclusive_rename_crash_placeholders_are_retained_without_guessing_ownership()
         let report = recover_transactions(&f.root).unwrap();
         assert!(!report.is_clean(), "{report:?}");
         assert!(only_txn_dir(&f.root).join("journal").exists());
-        let prior = if restore_placeholder { backup } else { f.root.join("a.txt") };
+        let prior = if restore_placeholder {
+            backup
+        } else {
+            f.root.join("a.txt")
+        };
         assert_eq!(read(&prior), "old-a");
     }
 }
@@ -2123,14 +2165,22 @@ fn a_crc_valid_journal_cannot_redirect_side_names_to_sibling_files() {
     for token in [5, 6] {
         let f = fixture();
         let guard = fail_at(vec![Step::BeforePublish(1), Step::BeforeRestore(0)]);
-        assert!(matches!(prepared(&f).commit().unwrap(), TransactionReport::RecoveryRequired(_)));
+        assert!(matches!(
+            prepared(&f).commit().unwrap(),
+            TransactionReport::RecoveryRequired(_)
+        ));
         drop(guard);
         let sibling = f.root.join("sibling.txt");
         fs::write(&sibling, "foreign").unwrap();
         rewrite_journal(&only_txn_dir(&f.root), |line| {
-            if !line.starts_with("entry 0 ") { return line.to_owned(); }
+            if !line.starts_with("entry 0 ") {
+                return line.to_owned();
+            }
             let mut parts: Vec<String> = line.split(' ').map(str::to_owned).collect();
-            parts[token] = "sibling.txt".bytes().map(|byte| format!("{byte:02x}")).collect();
+            parts[token] = "sibling.txt"
+                .bytes()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
             parts.join(" ")
         });
         let report = recover_transactions(&f.root).unwrap();
@@ -2139,7 +2189,6 @@ fn a_crc_valid_journal_cannot_redirect_side_names_to_sibling_files() {
         assert!(only_txn_dir(&f.root).join("journal").exists());
     }
 }
-
 
 #[test]
 fn recovery_restores_private_prior_file_without_weakening_its_permissions() {
@@ -2151,7 +2200,9 @@ fn recovery_restores_private_prior_file_without_weakening_its_permissions() {
         TransactionEntry::create_new("sub/b.txt", f.stage.join("b.txt")).private(),
     ];
     let report = FileTransaction::prepare(&f.root, plan, TransactionOptions::default())
-        .unwrap().commit().unwrap();
+        .unwrap()
+        .commit()
+        .unwrap();
     drop(guard);
     assert!(matches!(report, TransactionReport::RecoveryRequired(_)));
     assert!(rightkit_fs::private::is_owner_only_strict(&f.root.join("a.txt")).unwrap());
@@ -2173,12 +2224,17 @@ fn a_candidate_on_another_volume_is_copied_before_publication() {
     let candidate_dir = tempfile::tempdir_in(other_volume).unwrap();
     let candidate = candidate_dir.path().join("candidate.txt");
     fs::write(&candidate, "cross-volume-new").unwrap();
-    assert_ne!(FileKey::of_path(&f.root).unwrap().volume, FileKey::of_path(&candidate).unwrap().volume,
-        "RIGHTKIT_FS_TEST_OTHER_VOLUME must identify a different filesystem");
+    assert_ne!(
+        FileKey::of_path(&f.root).unwrap().volume,
+        FileKey::of_path(&candidate).unwrap().volume,
+        "RIGHTKIT_FS_TEST_OTHER_VOLUME must identify a different filesystem"
+    );
     let prior = FileKey::of_path(&candidate).unwrap();
     let plan = vec![TransactionEntry::new("a.txt", &candidate).private()];
     let report = FileTransaction::prepare(&f.root, plan, TransactionOptions::default())
-        .unwrap().commit().unwrap();
+        .unwrap()
+        .commit()
+        .unwrap();
     assert!(report.is_committed(), "{report:?}");
     assert_eq!(read(&f.root.join("a.txt")), "cross-volume-new");
     assert_eq!(read(&candidate), "cross-volume-new");
@@ -2186,7 +2242,6 @@ fn a_candidate_on_another_volume_is_copied_before_publication() {
     assert!(rightkit_fs::private::is_owner_only_strict(&f.root.join("a.txt")).unwrap());
     assert_no_residue(&f.root);
 }
-
 
 #[test]
 fn preparation_refuses_substituted_root_and_destination_parent_directories() {
@@ -2205,7 +2260,10 @@ fn preparation_refuses_substituted_root_and_destination_parent_directories() {
         assert!(matches!(error, FsError::Conflict { .. }), "{error:?}");
         assert_eq!(read(&f.root.join("a.txt")), "old-a");
         assert!(!f.root.join("sub/b.txt").exists());
-        assert!(!f.root.join(".rktxn").exists(), "substitution was refused after mutation");
+        assert!(
+            !f.root.join(".rktxn").exists(),
+            "substitution was refused after mutation"
+        );
     }
 }
 
@@ -2218,18 +2276,30 @@ fn rollback_flush_failure_retains_journal_for_aside_restore_and_create_new_delet
         let flush_guard = Rc::new(RefCell::new(None));
         let guard_slot = Rc::clone(&flush_guard);
         let hook = seams::on_step(move |step| {
-            let restore = if aside { Step::BeforeRestore(0) } else { Step::BeforeRestore(1) };
+            let restore = if aside {
+                Step::BeforeRestore(0)
+            } else {
+                Step::BeforeRestore(1)
+            };
             if *step == restore {
                 *guard_slot.borrow_mut() = Some(rightkit_fs::atomic::testing::fail_dir_sync(
-                    std::io::ErrorKind::PermissionDenied));
+                    std::io::ErrorKind::PermissionDenied,
+                ));
             }
-            let failure = if aside { Step::BeforePublish(0) } else { Step::BeforeCommitMarker };
+            let failure = if aside {
+                Step::BeforePublish(0)
+            } else {
+                Step::BeforeCommitMarker
+            };
             (*step == failure).then(|| std::io::Error::other("start rollback"))
         });
         let report = prepared(&f).commit().unwrap();
         drop(hook);
         drop(flush_guard.borrow_mut().take());
-        assert!(matches!(report, TransactionReport::RecoveryRequired(_)), "{report:?}");
+        assert!(
+            matches!(report, TransactionReport::RecoveryRequired(_)),
+            "{report:?}"
+        );
         assert!(only_txn_dir(&f.root).join("journal").exists());
         let recovered = recover_transactions(&f.root).unwrap();
         assert!(recovered.is_clean(), "{recovered:?}");
@@ -2244,7 +2314,11 @@ fn foreign_journal_and_marker_replacements_are_never_deleted_during_cleanup() {
         let f = fixture();
         let root = f.root.clone();
         let hook = seams::on_step(move |step| {
-            let target_step = if marker { Step::AfterJournalRemove } else { Step::BeforeJournalRemove };
+            let target_step = if marker {
+                Step::AfterJournalRemove
+            } else {
+                Step::BeforeJournalRemove
+            };
             if *step == target_step {
                 let name = if marker { "commit" } else { "journal" };
                 swap_in_foreign(&only_txn_dir(&root).join(name));
@@ -2253,7 +2327,10 @@ fn foreign_journal_and_marker_replacements_are_never_deleted_during_cleanup() {
         });
         let report = prepared(&f).commit().unwrap();
         drop(hook);
-        assert!(matches!(&report, TransactionReport::Committed(done) if !done.retained.is_empty()), "{report:?}");
+        assert!(
+            matches!(&report, TransactionReport::Committed(done) if !done.retained.is_empty()),
+            "{report:?}"
+        );
         let path = only_txn_dir(&f.root).join(if marker { "commit" } else { "journal" });
         assert_eq!(read(&path), "foreign");
         assert_new(&f);
@@ -2270,8 +2347,14 @@ fn identical_record_content_under_a_new_identity_during_delete_retry_is_retained
         let failures = Rc::new(RefCell::new(None));
         let failure_slot = Rc::clone(&failures);
         let hook = seams::on_step(move |step| {
-            let start = if marker { Step::AfterJournalRemove } else { Step::BeforeJournalRemove };
-            if *step == start { *failure_slot.borrow_mut() = Some(seams::force_delete_failures(1)); }
+            let start = if marker {
+                Step::AfterJournalRemove
+            } else {
+                Step::BeforeJournalRemove
+            };
+            if *step == start {
+                *failure_slot.borrow_mut() = Some(seams::force_delete_failures(1));
+            }
             if *step == Step::DeleteBackoff {
                 let path = only_txn_dir(&root).join(if marker { "commit" } else { "journal" });
                 let bytes = fs::read(&path).unwrap();
@@ -2281,14 +2364,28 @@ fn identical_record_content_under_a_new_identity_during_delete_retry_is_retained
             }
             None
         });
-        let report = FileTransaction::prepare(&f.root,
-            vec![TransactionEntry::create_new("sub/b.txt", f.stage.join("b.txt"))],
-            TransactionOptions::default()).unwrap().commit().unwrap();
+        let report = FileTransaction::prepare(
+            &f.root,
+            vec![TransactionEntry::create_new(
+                "sub/b.txt",
+                f.stage.join("b.txt"),
+            )],
+            TransactionOptions::default(),
+        )
+        .unwrap()
+        .commit()
+        .unwrap();
         drop(hook);
         drop(failures.borrow_mut().take());
-        assert!(matches!(&report, TransactionReport::Committed(done) if !done.retained.is_empty()), "{report:?}");
+        assert!(
+            matches!(&report, TransactionReport::Committed(done) if !done.retained.is_empty()),
+            "{report:?}"
+        );
         let path = only_txn_dir(&f.root).join(if marker { "commit" } else { "journal" });
-        assert!(path.exists(), "replacement with identical content was deleted");
+        assert!(
+            path.exists(),
+            "replacement with identical content was deleted"
+        );
         assert_eq!(read(&f.root.join("sub/b.txt")), "new-b");
     }
 }
@@ -2297,10 +2394,17 @@ fn identical_record_content_under_a_new_identity_during_delete_retry_is_retained
 fn generated_record_temp_syntax_does_not_authorize_cleanup() {
     let f = fixture();
     let hook = fail_at(vec![Step::BeforeStage(0), Step::BeforeJournalRemove]);
-    assert!(matches!(prepared(&f).commit().unwrap(), TransactionReport::RecoveryRequired(_)));
+    assert!(matches!(
+        prepared(&f).commit().unwrap(),
+        TransactionReport::RecoveryRequired(_)
+    ));
     drop(hook);
     let dir = only_txn_dir(&f.root);
-    let writer = rightkit_fs::AtomicWriter::create_with(&dir.join("journal"), rightkit_fs::AtomicWriteOptions::default()).unwrap();
+    let writer = rightkit_fs::AtomicWriter::create_with(
+        &dir.join("journal"),
+        rightkit_fs::AtomicWriteOptions::default(),
+    )
+    .unwrap();
     let temp = writer.temp_path().to_path_buf();
     drop(writer);
     fs::write(&temp, "foreign").unwrap();

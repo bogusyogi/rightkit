@@ -1,6 +1,6 @@
 //! Windows-only pinned enumeration of ambiguous temporary-looking names; never deletes them.
 
-use crate::atomic::{SweepReport, generated_temp_pid};
+use crate::atomic::{generated_temp_pid, SweepReport};
 use crate::error::{FsError, Result};
 use std::ffi::c_void;
 use std::fs::File;
@@ -177,9 +177,7 @@ fn for_each_candidate(directory: &File, mut visit: impl FnMut(Candidate)) -> Res
             };
             let name = String::from_utf16_lossy(name_wide);
             if name != "." && name != ".." {
-                visit(Candidate {
-                    name,
-                });
+                visit(Candidate { name });
             }
             let next = info.next_entry_offset as usize;
             if next == 0 {
@@ -228,10 +226,12 @@ fn sweep_report(directory: &File) -> Result<SweepReport> {
 pub(crate) fn sweep_path_report(path: &Path) -> Result<SweepReport> {
     let directory = match open_directory(path) {
         Ok(directory) => directory,
-        Err(error) if error.is_not_found() => return Ok(SweepReport {
-            retained_counted: true,
-            ..SweepReport::default()
-        }),
+        Err(error) if error.is_not_found() => {
+            return Ok(SweepReport {
+                retained_counted: true,
+                ..SweepReport::default()
+            })
+        }
         Err(error) => return Err(error),
     };
     sweep_report(&directory)
@@ -254,7 +254,10 @@ mod tests {
         let report = sweep_report(&directory).unwrap();
         assert!(report.retained_counted);
         assert_eq!(report.removed, 0);
-        assert_eq!(report.retained_live + report.retained_unknown + report.retained_other, 1);
+        assert_eq!(
+            report.retained_live + report.retained_unknown + report.retained_other,
+            1
+        );
         assert_eq!(std::fs::read(name).unwrap(), b"replacement record");
         assert_eq!(std::fs::read(old).unwrap(), b"imported record");
     }

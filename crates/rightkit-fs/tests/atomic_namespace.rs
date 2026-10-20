@@ -208,18 +208,29 @@ fn windows_trailing_space_and_period_names_are_refused() {
 
 #[test]
 fn private_native_imports_survive_both_sweepers() {
-    use rightkit_fs::{AtomicWriter, sweep_stale_temps_report};
+    use rightkit_fs::{sweep_stale_temps_report, AtomicWriter};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap().join("records");
     let state = StateDir::create(&root).unwrap();
-    for name in [".record.rktmp-123-1-0", ".record.rktmp-4294967294-2-0", ".record.rktmp-0-3-0"] {
+    for name in [
+        ".record.rktmp-123-1-0",
+        ".record.rktmp-4294967294-2-0",
+        ".record.rktmp-0-3-0",
+    ] {
         let target = root.join(name);
         let mut writer = AtomicWriter::create_new_private(&target).unwrap();
         assert!(!target.exists());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(writer.temp_path()).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                std::fs::metadata(writer.temp_path())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
         }
         writer.write_all(b"complete imported record").unwrap();
         assert!(writer.commit_reporting().unwrap().is_fully_durable());
@@ -229,13 +240,19 @@ fn private_native_imports_survive_both_sweepers() {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(
+                std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
         }
     }
     let report = sweep_stale_temps_report(&root).unwrap();
     assert!(report.retained_counted);
     assert_eq!(report.removed, 0);
-    assert_eq!(report.retained_live + report.retained_unknown + report.retained_other, 3);
+    assert_eq!(
+        report.retained_live + report.retained_unknown + report.retained_other,
+        3
+    );
 }
 
 #[cfg(unix)]
@@ -243,7 +260,9 @@ fn private_native_imports_survive_both_sweepers() {
 fn private_import_preserves_non_utf8_native_leaf() {
     use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
-    let target = dir.path().join(std::ffi::OsString::from_vec(b".record-\xff.rktmp-123-1-0".to_vec()));
+    let target = dir.path().join(std::ffi::OsString::from_vec(
+        b".record-\xff.rktmp-123-1-0".to_vec(),
+    ));
     let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
     writer.write_all(b"native bytes").unwrap();
     writer.commit().unwrap();
@@ -256,22 +275,27 @@ fn private_import_contenders_publish_exactly_one_complete_file() {
     let dir = tempfile::tempdir().unwrap();
     let target = Arc::new(dir.path().join(".record.rktmp-123-1-0"));
     let barrier = Arc::new(Barrier::new(6));
-    let contenders: Vec<_> = (0..6).map(|tag| {
-        let target = target.clone();
-        let barrier = barrier.clone();
-        std::thread::spawn(move || {
-            let payload = vec![tag; 128 * 1024];
-            let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
-            writer.write_all(&payload).unwrap();
-            barrier.wait();
-            match writer.commit() {
-                Ok(()) => Some(payload),
-                Err(FsError::AlreadyExists(_)) => None,
-                Err(error) => panic!("unexpected publication failure: {error:?}"),
-            }
+    let contenders: Vec<_> = (0..6)
+        .map(|tag| {
+            let target = target.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let payload = vec![tag; 128 * 1024];
+                let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
+                writer.write_all(&payload).unwrap();
+                barrier.wait();
+                match writer.commit() {
+                    Ok(()) => Some(payload),
+                    Err(FsError::AlreadyExists(_)) => None,
+                    Err(error) => panic!("unexpected publication failure: {error:?}"),
+                }
+            })
         })
-    }).collect();
-    let winners: Vec<_> = contenders.into_iter().filter_map(|child| child.join().unwrap()).collect();
+        .collect();
+    let winners: Vec<_> = contenders
+        .into_iter()
+        .filter_map(|child| child.join().unwrap())
+        .collect();
     assert_eq!(winners.len(), 1);
     assert_eq!(std::fs::read(target.as_path()).unwrap(), winners[0]);
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
@@ -314,12 +338,16 @@ fn private_import_commit_as_cannot_weaken_exclusivity() {
     std::fs::write(&destination, b"keep").unwrap();
     let mut writer = rightkit_fs::AtomicWriter::create_new_private(&first).unwrap();
     writer.write_all(b"new").unwrap();
-    assert!(writer.commit_as(&destination, rightkit_fs::ReplaceMode::Rename).is_err());
+    assert!(writer
+        .commit_as(&destination, rightkit_fs::ReplaceMode::Rename)
+        .is_err());
     assert_eq!(std::fs::read(&destination).unwrap(), b"keep");
     let mut writer = rightkit_fs::AtomicWriter::create_new_private(&first).unwrap();
     writer.write_all(b"complete").unwrap();
     let native = dir.path().join(".record.rktmp-123-1-0");
-    writer.commit_as(&native, rightkit_fs::ReplaceMode::NoReplace).unwrap();
+    writer
+        .commit_as(&native, rightkit_fs::ReplaceMode::NoReplace)
+        .unwrap();
     assert_eq!(std::fs::read(native).unwrap(), b"complete");
 }
 
