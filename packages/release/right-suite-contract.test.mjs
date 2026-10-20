@@ -23,6 +23,7 @@ import { RENAMED_AWAY } from "./renamed-away.mjs";
 import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
 import { assertPublishDoc, assertPublishWorkflow as assertPublishWorkflowContract, MUTATIONS, proveMutations, VERIFY_HOSTS } from "../../scripts/ci/workflow-contract.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "../../scripts/ci/reviewed-workflow-contract.mjs";
+import { assertSwiftDoc, proveSwiftMutations } from "../../scripts/ci/swift-workflow-contract.mjs";
 import { parseYaml } from "../../scripts/ci/workflow-yaml.mjs";
 
 const workspace = path.resolve(
@@ -1106,6 +1107,7 @@ const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
 const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml"];
 const RIGHTKIT_QUALIFICATION_WORKFLOWS = ["publish.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
+const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
 const publishWorkflowPresent = existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url));
 const reviewedWorkflowPresent = existsSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url));
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
@@ -1170,12 +1172,18 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS];
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS];
     assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
       if (RIGHTKIT_QUALIFICATION_WORKFLOWS.includes(name)) { assertPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_PUBLISHING_WORKFLOWS.includes(name)) { assertReviewedWorkflow(text, name); continue; }
+      if (RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS.includes(name)) {
+        const doc = parseYaml(text);
+        assertSwiftDoc(doc);
+        assert.deepEqual(proveSwiftMutations(doc), [], `${name}: the contract accepts these violations`);
+        continue;
+      }
       assert.doesNotMatch(text, PUBLISHING_WORKFLOW, `${name} must not publish or read secrets`);
       if (RIGHTKIT_EXCEPTION_WORKFLOWS.includes(name)) assertManualBuildWorkflow(text, name);
       if (RIGHTKIT_EVIDENCE_WORKFLOWS.includes(name)) assertEvidenceWorkflow(text, name);
@@ -1201,7 +1209,7 @@ test("publish.yml: every security property is asserted on the parsed workflow an
 test("publish.yml: named violations fail the contract with the property they break", { skip: !publishWorkflowPresent && "no publish.yml (#342)" }, () => {
   const expectations = [
     ["drop the Windows verify host", /verify must run on exactly/],
-    ["qualification final gate loses verify dependency", /qualified must always inspect guard, plan, pack & both-host verify results/],
+    ["qualification final gate loses verify dependency", /qualified must always inspect guard, plan, pack, both-host verify & Linux verify results/],
     ["continue-on-error on a step", /continue-on-error is forbidden/],
     ["guard allows another branch", /refs\/heads\/main/],
     ["verify requests id-token", /verify must not request id-token/],
