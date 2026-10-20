@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sha, REPOSITORY } from "./upload.mjs";
 import { candidateHash } from "./supplemental-proof.mjs";
 import { workloadsFor, supportedPrescription } from "./runtime-qualify.mjs";
@@ -184,6 +185,90 @@ test("frozen budget & trusted helper closure include consumed parsing/graph sema
   for (const key of ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings"]) assert.throws(() => validateFrozenRuntimeBudget({ ...budget, [key]: {} }, budget), /frozen/);
   const paths = trustedRuntimeHelperPaths();
   for (const name of ["packages/release/runtime-budgets.mjs", "packages/release/crate-graph.mjs", "packages/release/publication-gate.mjs", "scripts/ci/runtime-qualify.mjs", "scripts/ci/registry-consumer.mjs", "scripts/ci/consumer-recipes.mjs", "scripts/ci/upload.mjs", "pnpm-lock.yaml"]) assert.ok(paths.includes(name), `missing trusted helper ${name}`);
+  assert.ok(paths.includes("scripts/ci/npm-recipe-consumer.mjs"));
+  assert.ok(!paths.includes("scripts/ci/provenance.mjs"), "generated scratch import is not a source dependency");
+});
+
+function mockTrustedHelperSources(t, sources) {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  t.mock.method(fs, "readFileSync", (absolute) => {
+    const name = path.relative(root, absolute).split(path.sep).join("/");
+    if (!sources.has(name)) throw Object.assign(new Error(`missing helper ${name}`), { code: "ENOENT" });
+    return sources.get(name);
+  });
+}
+
+test("trusted helper closure parses real imports & ignores generated source, strings, regexes & comments", (t) => {
+  const sources = new Map([
+    ["packages/release/runtime-budgets.mjs", ""],
+    ["scripts/ci/runtime-qualify.mjs", [
+      "// import './line-comment.mjs';",
+      "/* export { x } from './block-comment.mjs'; */",
+      "const string = \"import './string.mjs'\";",
+      "const regex = /import '.\\/regex.mjs'/;",
+      "const generated = `import value from './provenance.mjs'; ${import('./interpolation.mjs')}`;",
+      "const nested = `outer ${`inner ${import('./nested-interpolation.mjs')}`}`;",
+      "import './side-effect.mjs';",
+      "import value from './static.mjs';",
+      "export { value } from './named-export.mjs';",
+      "export * from './star-export.mjs';",
+      "const loaded = import /* comment */ ('./dynamic.mjs');",
+      String.raw`import './escaped\u002dmjs.mjs';`,
+      "const ownUrl = import.meta.url;",
+      "import 'node:fs';",
+    ].join("\n")],
+  ]);
+  const expected = ["interpolation", "nested-interpolation", "side-effect", "static", "named-export", "star-export", "dynamic", "escaped-mjs"].map((name) => `scripts/ci/${name}.mjs`);
+  for (const name of expected) sources.set(name, "");
+  // Transitive traversal & cycles remain intact.
+  sources.set("scripts/ci/static.mjs", "export * from './transitive.mjs';");
+  sources.set("scripts/ci/transitive.mjs", "import './static.mjs';");
+  mockTrustedHelperSources(t, sources);
+  assert.deepEqual(trustedRuntimeHelperPaths(), [...sources.keys(), "pnpm-lock.yaml", "package.json", "packages/release/package.json"].sort());
+});
+
+test("trusted helper closure refuses computed imports instead of omitting dependencies", (t) => {
+  const sources = new Map([["packages/release/runtime-budgets.mjs", ""], ["scripts/ci/runtime-qualify.mjs", ""]]);
+  mockTrustedHelperSources(t, sources);
+  for (const expression of ["name", "'./' + name", "`./${name}.mjs`", "new URL('./helper.mjs', import.meta.url)"]) {
+    sources.set("scripts/ci/runtime-qualify.mjs", `import(${expression});`);
+    assert.throws(() => trustedRuntimeHelperPaths(), /computed helper import cannot prove closure: scripts\/ci\/runtime-qualify.mjs/);
+  }
+});
+
+test("trusted computed helper descriptor binds whole source, expression, count & both recursive targets", (t) => {
+  const source = fs.readFileSync(new URL("../../packages/release/local-publish.mjs", import.meta.url), "utf8");
+  const name = "packages/release/local-publish.mjs";
+  const expression = 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href';
+  const sources = new Map([
+    ["packages/release/runtime-budgets.mjs", "import './local-publish.mjs';"],
+    ["scripts/ci/runtime-qualify.mjs", ""],
+    [name, source],
+    ["scripts/ci/test-results.mjs", "import './descriptor-transitive.mjs';"],
+    ["scripts/ci/upload.mjs", ""],
+    ["scripts/ci/descriptor-transitive.mjs", ""],
+  ]);
+  for (const helper of ["background-process", "managed-cargo", "execution-policy", "publication-gate", "publish-cargo", "cargo-registry-readback", "crate-graph", "rightkit-sync", "swap-helper-bundle"]) sources.set(`packages/release/${helper}.mjs`, "");
+  mockTrustedHelperSources(t, sources);
+  assert.deepEqual(trustedRuntimeHelperPaths(), [...sources.keys(), "pnpm-lock.yaml", "package.json", "packages/release/package.json"].sort());
+  for (const changed of [
+    `${source}\n// descriptor source changed\n`,
+    source.replace(expression, 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", "evil.mjs")).href'),
+    source.replace(`import(${expression})`, "Promise.resolve({})"),
+    `${source}\nconst extra = () => import(${expression});\n`,
+    source.replace('load("upload.mjs")', 'load("upload.mjs"), load("evil.mjs")'),
+  ]) {
+    sources.set(name, changed);
+    assert.throws(() => trustedRuntimeHelperPaths(), /computed helper source differs from trusted descriptor: packages\/release\/local-publish.mjs/);
+  }
+});
+
+test("trusted helper closure still refuses missing real source dependencies & escaping imports", (t) => {
+  const sources = new Map([["packages/release/runtime-budgets.mjs", ""], ["scripts/ci/runtime-qualify.mjs", "import './missing.mjs';"]]);
+  mockTrustedHelperSources(t, sources);
+  assert.throws(() => trustedRuntimeHelperPaths(), { code: "ENOENT" });
+  sources.set("scripts/ci/runtime-qualify.mjs", "import '../../../outside.mjs';");
+  assert.throws(() => trustedRuntimeHelperPaths(), /helper import escapes trusted source/);
 });
 
 // rightkit-daemon: three workloads per host; the remote workload is held to the remote profile, not the top-level ceilings.
@@ -260,7 +345,7 @@ test("tauri-shell runtime supplement admits eight delta-gated native records", a
   const records = authenticatedRuntimeProof(handle, f.candidate, f.unit);
   assert.equal(records.length, 8);
   assert.ok(records.every((r) => r.command.includes("--no-default-features") && r.command.endsWith("--bench budget_native") && r.dataScale.unit === "watchdogs" && r.baseline && r.delta));
-  assert.deepEqual(records.slice(0, 4).map((r) => r.command.split(" --features ")[1].split(" ")[0]), ["wv2-0_38", "wv2-0_39", "wv2-0_38,host-services,logs,crash", "wv2-0_39,host-services,logs,crash"]);
+  assert.deepEqual(records.slice(0, 4).map((r) => r.command.split(" --features ")[1].split(" ")[0]), ["wv2-0_38", "wv2-0_39", "wv2-0_38,host-services,logs,crash,content-devtools", "wv2-0_39,host-services,logs,crash,content-devtools"]);
   // A whole-process wake-up rate that would fail the 10.2/s ceiling passes only as a delta of at most 4 over the bare baseline.
   const within = runtimeFixture(t, SHELL);
   rewriteDelta(within, "darwin", "native-host-wv2-0_39", { observed: 9, bare: 6, delta: 3 }); within.refresh();

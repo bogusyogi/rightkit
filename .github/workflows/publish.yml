@@ -468,6 +468,12 @@ jobs:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_DRY_RUN: "false"
         run: node scripts/ci/provision-chrome.mjs
+      - name: Allow pinned Linux Chrome user namespaces
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.linux_units), ' rightkit-browser ')) }}
+        env:
+          RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
+          RIGHTKIT_CHROME_FOR_TESTING: ${{ runner.temp }}/chrome-for-testing/current/chrome-linux64/chrome
+        run: node scripts/ci/chrome-linux-sandbox.mjs
       - name: Build and test exactly the Linux-required units
         shell: bash
         env:

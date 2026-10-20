@@ -6,6 +6,7 @@ import { sha } from "./upload.mjs";
 import { validateSupplementPin, candidateHash, retainedSupplementOriginal, authenticateSupplement } from "./supplemental-proof.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { fileURLToPath } from "node:url";
+import { parse as parseModule } from "es-module-lexer/js";
 import { assertFrozenBudget } from "./runtime-qualify.mjs";
 import { BUDGET_FIGURES, parseBudgetResult, evaluateRuntimeBudget, syncRuntimeBudgetReadme } from "../../packages/release/runtime-budgets.mjs";
 export const RUNTIME_WORKFLOW = ".github/workflows/qualify-runtime.yml";
@@ -15,6 +16,16 @@ const hash = (bytes) => sha("sha256", bytes);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const safe = (name) => typeof name === "string" && /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(name) && name.split("/").every((p) => p !== "." && p !== "..");
 const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+// This source has one computed loader with exactly two fixed call sites. Pin
+// every byte as well as its expression so a new call cannot extend this closure.
+const COMPUTED_HELPER_IMPORTS = Object.freeze({
+  "packages/release/local-publish.mjs": Object.freeze({
+    sha256: "8e6346df537dde58e6ca6511710958fae9ecd4d0098e793f6bb7286595c0d585",
+    expression: 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href',
+    count: 1,
+    paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),
+  }),
+});
 /** Relative helper closure is discovered from trusted files, never producer imports. */
 export function trustedRuntimeHelperPaths() {
   const pending = ["packages/release/runtime-budgets.mjs", "scripts/ci/runtime-qualify.mjs"], seen = new Set();
@@ -24,11 +35,25 @@ export function trustedRuntimeHelperPaths() {
     need(safe(name) && seen.size < 128, "helper closure exceeds supported boundary");
     seen.add(name);
     const text = fs.readFileSync(path.join(TRUST_ROOT, name), "utf8");
-    for (const match of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](\.[^"']+)["']/g)) {
-      const relative = path.posix.normalize(path.posix.join(path.posix.dirname(name), match[1]));
+    const computed = COMPUTED_HELPER_IMPORTS[name];
+    if (computed) need(hash(Buffer.from(text)) === computed.sha256, `computed helper source differs from trusted descriptor: ${name}`);
+    let computedCount = 0;
+    // Parse source syntax only: comments & template text may contain generated
+    // imports, while template interpolations can contain real executable imports.
+    const [imports] = parseModule(text, name);
+    for (const specifier of imports) {
+      if (specifier.d === -2) continue; // import.meta has no dependency.
+      if (typeof specifier.n !== "string") {
+        need(computed && text.slice(specifier.s, specifier.e) === computed.expression && ++computedCount <= computed.count, `computed helper import cannot prove closure: ${name}`);
+        pending.push(...computed.paths);
+        continue;
+      }
+      if (!specifier.n.startsWith(".")) continue;
+      const relative = path.posix.normalize(path.posix.join(path.posix.dirname(name), specifier.n));
       need(safe(relative), "helper import escapes trusted source");
       pending.push(relative);
     }
+    if (computed) need(computedCount === computed.count, `computed helper import count differs from trusted descriptor: ${name}`);
   }
   return [...seen, "pnpm-lock.yaml", "package.json", "packages/release/package.json"].sort();
 }

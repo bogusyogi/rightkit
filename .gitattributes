@@ -2,6 +2,7 @@
 *.sh text eol=lf
 # CI contracts & workflow bytes must match native checkouts & hosted runners.
 /scripts/ci/*.mjs text eol=lf
+/packages/release/local-publish.mjs text eol=lf
 /.github/workflows/*.yml text eol=lf
 # Reviewed registry-consumer recipes are pinned by raw file hash.
 /ci/consumers/** -text

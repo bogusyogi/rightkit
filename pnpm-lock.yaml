@@ -17,6 +17,9 @@ importers:
       '@rightkit/release':
         specifier: workspace:*
         version: link:packages/release
+      es-module-lexer:
+        specifier: 2.3.2
+        version: 2.3.2
 
   packages/app-update:
     devDependencies:

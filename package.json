@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@rightkit/ci": "workspace:*",
-    "@rightkit/release": "workspace:*"
+    "@rightkit/release": "workspace:*",
+    "es-module-lexer": "2.3.2"
   }
 }

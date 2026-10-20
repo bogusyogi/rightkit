@@ -45,7 +45,7 @@ jobs:
           package_json_file: verifier/package.json
           run_install: false
       - name: Install trusted verifier dependencies without lifecycle scripts
-        run: pnpm --dir verifier install --filter @rightkit/release... --frozen-lockfile --ignore-scripts
+        run: pnpm --dir verifier install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts
       - name: Authenticate original source before its data checkout
         id: identify
         env:
