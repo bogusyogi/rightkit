@@ -37,6 +37,43 @@
         "sourceSha": "9bd889c896db99cc57934ed8965d46c87ff272ee",
         "validatorSourceSha": "9bd889c896db99cc57934ed8965d46c87ff272ee"
       }
+    },
+    {
+      "schema": 1,
+      "kind": "runtime-workload-pin",
+      "original": {
+        "candidateId": "cargo-logs-035-4177",
+        "candidateSha256": "e48d17c7f19039a0981b70ef2b71bbac579404c28238daa3c30ca69322570032",
+        "sourceSha": "4177ce89b198cb4605b493280d666d569507d7aa",
+        "manifestSha256": "35569759b000f1b4967e3e274fc17e1085467f0d013c6b639447f4ab1212c703",
+        "packedArtifact": {
+          "id": "12305210611",
+          "digest": "sha256:23760b1c28ba1e76819477eff9cbf1503b7dd349436cdc236a9d52734bfe4770"
+        }
+      },
+      "producer": {
+        "workflowId": "390383213",
+        "runId": "39510741371",
+        "runAttempt": "1",
+        "jobId": "118932917853",
+        "sourceSha": "aac13a3f497379206f6d14fbe3ec9175a015f2c9",
+        "jobs": {
+          "candidate": "118930843864",
+          "win32": "118930940641",
+          "darwin": "118930940547",
+          "qualify": "118932917853"
+        }
+      },
+      "artifact": {
+        "id": "12305068069",
+        "digest": "sha256:863a2937b819964385e9c8c67f83abc529aa536f10832dc406f9962215ea4a65",
+        "proofSha256": "a4c0880471fe860cfd4a974525072feb459c6549ff0fab37ecf9f467f84af4b5"
+      },
+      "policy": {
+        "id": "runtime-workloads/v1",
+        "sourceSha": "aac13a3f497379206f6d14fbe3ec9175a015f2c9",
+        "validatorSourceSha": "aac13a3f497379206f6d14fbe3ec9175a015f2c9"
+      }
     }
   ]
 }
