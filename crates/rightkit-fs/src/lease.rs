@@ -1078,67 +1078,130 @@ mod tests {
         assert!(Guard::acquire(&path, TTL, T0 + 3).unwrap().is_some());
     }
 
-    /// A creator killed after writing its private temp but before the publish leaves only that
-    /// temp: no guard exists, so the next taker publishes its own complete guard and acquires,
-    /// and the orphaned temp never becomes the guard.
+    const KILL_HELPER_ENV: &str = "RIGHTKIT_FS_LEASE_KILL_HELPER";
+
+    /// Child body for the kill tests: an ordinary passing test unless `KILL_HELPER_ENV` is set.
+    /// With it, the child runs the real guard creation and stops at the named boundary: it
+    /// writes the ready file there and blocks until the parent kills it.
     #[test]
-    fn creator_killed_between_write_and_publish_leaves_no_guard() {
+    fn lease_kill_helper_child() {
+        let Ok(spec) = std::env::var(KILL_HELPER_ENV) else {
+            return;
+        };
+        let mut parts = spec.splitn(3, '|');
+        let mode = parts.next().unwrap().to_owned();
+        let lease = PathBuf::from(parts.next().unwrap());
+        let ready = PathBuf::from(parts.next().unwrap());
+        let block = move || -> ! {
+            fs::write(&ready, b"ready").unwrap();
+            loop {
+                std::thread::sleep(Duration::from_secs(60));
+            }
+        };
+        match mode.as_str() {
+            // The complete private temp exists; the hard-link publish has not run.
+            "before-link" => {
+                let guard_path = Guard::path_for(&lease);
+                fs::create_dir_all(guard_path.parent().unwrap()).unwrap();
+                let _ = publish_guard(&guard_path, T0, |from, _to| {
+                    assert!(fs::read_to_string(from).unwrap().starts_with(&format!(
+                        "{GUARD_HEADER}
+"
+                    )));
+                    block()
+                });
+            }
+            // The guard is published; the OS lock has not been taken.
+            "before-lock" => {
+                let _ = Guard::acquire_after_publish(&lease, T0, || block());
+            }
+            other => panic!("unknown kill-helper mode {other}"),
+        }
+        unreachable!("the helper is killed at its boundary");
+    }
+
+    /// Runs the helper child at `mode`, waits for it to reach the boundary, kills and reaps it.
+    fn kill_child_at(mode: &str, lease: &Path, dir: &Path) {
+        use std::process::{Command, Stdio};
+        use std::time::Instant;
+        let ready = dir.join(format!("{mode}.ready"));
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "lease::tests::lease_kill_helper_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(
+                KILL_HELPER_ENV,
+                format!("{mode}|{}|{}", lease.display(), ready.display()),
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while !ready.exists() {
+            if Instant::now() > deadline || child.try_wait().unwrap().is_some() {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("the helper never reached the {mode} boundary");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    /// A creator process killed after writing its complete private temp and before the
+    /// hard-link publish: no guard exists, and a fresh taker publishes its own and acquires.
+    #[test]
+    fn creator_process_killed_between_write_and_publish_leaves_no_guard() {
         let dir = tempfile::tempdir().unwrap();
         let path = lease_path(&dir);
+        kill_child_at("before-link", &path, dir.path());
         let guard_path = Guard::path_for(&path);
-        fs::create_dir_all(guard_path.parent().unwrap()).unwrap();
-        let mut orphan = AtomicWriter::create_with(
-            &guard_path,
-            AtomicWriteOptions {
-                private: true,
-                durable: false,
-                ..AtomicWriteOptions::default()
-            },
-        )
-        .unwrap();
-        orphan
-            .file_mut()
-            .write_all(format!("{GUARD_HEADER}\npid=1\ncreated_ms={T0}\ntoken=dead\n").as_bytes())
-            .unwrap();
-        let orphan_temp = orphan.temp_path().to_path_buf();
-        // The kill: no publish, no Drop cleanup.
-        std::mem::forget(orphan);
-        assert!(!guard_path.exists());
-        assert!(orphan_temp.exists());
-
+        assert!(!guard_path.exists(), "a killed creator published nothing");
         let taken = Guard::acquire(&path, TTL, T0 + 1).unwrap();
-        assert!(
-            taken.is_some(),
-            "the next taker is not blocked by an orphaned temp"
-        );
+        assert!(taken.is_some(), "a fresh taker acquires");
         // Windows refuses reads of a locked region, so read the guard after release.
         drop(taken);
         let text = fs::read_to_string(&guard_path).unwrap();
-        assert!(text.starts_with(&format!("{GUARD_HEADER}\n")));
-        assert!(
-            !text.contains("token=dead"),
-            "the orphaned temp was not published"
-        );
-        assert!(
-            orphan_temp.exists(),
-            "the orphan is left for the stale-temp sweep"
-        );
+        assert!(text.starts_with(&format!(
+            "{GUARD_HEADER}
+"
+        )));
+        assert!(text.contains(&format!(
+            "pid={}
+",
+            std::process::id()
+        )));
     }
 
-    /// A creator killed after publishing but before taking the OS lock leaves a complete guard
-    /// with no holder: the next taker opens it, locks it and acquires.
+    /// A creator process killed after publishing its complete guard and before taking the OS
+    /// lock: the guard is complete and unheld, and the next taker locks and acquires it.
     #[test]
-    fn creator_killed_between_publish_and_lock_leaves_an_acquirable_guard() {
+    fn creator_process_killed_between_publish_and_lock_leaves_an_acquirable_guard() {
         let dir = tempfile::tempdir().unwrap();
         let path = lease_path(&dir);
+        kill_child_at("before-lock", &path, dir.path());
         let guard_path = Guard::path_for(&path);
-        fs::create_dir_all(guard_path.parent().unwrap()).unwrap();
-        assert!(publish_guard(&guard_path, T0, |from, to| fs::hard_link(from, to)).unwrap());
-        assert!(fs::read_to_string(&guard_path)
-            .unwrap()
-            .starts_with(&format!("{GUARD_HEADER}\n")));
+        let text = fs::read_to_string(&guard_path).unwrap();
+        assert!(text.starts_with(&format!(
+            "{GUARD_HEADER}
+"
+        )));
+        assert!(!text.contains(&format!(
+            "pid={}
+",
+            std::process::id()
+        )));
         let taken = Guard::acquire(&path, TTL, T0 + 1).unwrap();
-        assert!(taken.is_some());
+        assert!(
+            taken.is_some(),
+            "the next taker acquires the killed creator's guard"
+        );
         assert!(Guard::acquire(&path, TTL, T0 + 2).unwrap().is_none());
         drop(taken);
         assert!(Guard::acquire(&path, TTL, T0 + 3).unwrap().is_some());
