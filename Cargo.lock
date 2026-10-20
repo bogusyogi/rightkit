@@ -7086,7 +7086,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-logs"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "getrandom 0.4.3",
  "libc",

@@ -85,6 +85,10 @@ store.append(&event)?;
 
 Scrubbing: `scrub_text` keeps its output. `scrub_text_counted` returns the scrubbed text and the number of replacements, and it also redacts a credential prefix that ends the input at any length, because the input may be a cut piece of a longer key. `StderrLine` does not scrub: pass only text that is already safe to write.
 
+Known-value scrub: `KnownSecrets::from_values([...])` removes the exact secrets the app holds (`redact`, `scrub_text`, `redact_value`, `scrub_value`) from text and JSON before it is logged, returned or bundled. It also removes each secret's percent-encoded and JSON- or Debug-escaped forms and merges overlapping matches. Use it for error text; the pattern scrub cannot know a key format it has never seen. `Debug` prints only a count, and the values are held in memory in clear.
+
+Detached capture: `capture_stderr` needs a live parent to drain a pipe. For a child that outlives its parent, give it a file: `Command::stderr(Stdio::from(DetachedLog::new(sink).stderr_file()?))`. Call `drain()` while a parent lives (or `spawn_drainer(interval)`), and `finish()` once the child has exited, including from the next launch after a restart (a saved read position resumes the drain). Drained lines are prefixed, scrubbed (and cleaned of any `KnownSecrets`), and rotated by the `RotatingTextWriter` sink. The raw file (`<sink>.raw`) holds unscrubbed child output until drained: it is owner-only, and must not sit in a directory that diagnostics collection reads. A child that writes faster than the drain can lose bytes when the raw file is emptied (`with_compact_at`), never expose them.
+
 ## Defaults
 
 `redact_url_text` redacts URL queries, userinfo and OAuth-style secret values in free error text (rightkit#371).
