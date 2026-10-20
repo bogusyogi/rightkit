@@ -3,7 +3,7 @@
 
 use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
 use rightkit_job_queue::{
-    CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle,
+    CallOptions, EngineSupervisor, ErrorOrigin, EventFrame, InitialFailure, Lifecycle, LifecycleEvent,
     ProtocolError, ShutdownOutcome, SupervisorConfig, Terminal, CONTRACT_VERSION,
     CONTRACT_VERSION_MISMATCH,
 };
@@ -11,7 +11,99 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+thread_local! {
+    /// The state directory of the rig built on this test thread (failure diagnostics only).
+    static RIG_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+fn unix_ms(at: SystemTime) -> i128 {
+    match at.duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis() as i128,
+        Err(e) => -(e.duration().as_millis() as i128),
+    }
+}
+
+/// Failure diagnostics only: what each fixture process recorded (`FX_TRACE`), as milliseconds
+/// from `since` (negative: before the wait began). A generation whose `main` line is missing
+/// or late was still being created by the OS or the spawn path; one whose `hello` line is on
+/// time but whose supervisor never reached `Ready` was stuck on the supervisor side.
+fn fixture_trace(since: SystemTime) -> String {
+    let Some(dir) = RIG_DIR.with(|d| d.borrow().clone()) else {
+        return "no rig on this thread".into();
+    };
+    let base = unix_ms(since);
+    let Ok(text) = std::fs::read_to_string(dir.join("trace")) else {
+        return "no fixture process has reached main".into();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split(' ');
+            let (n, phase, ms) = (parts.next()?, parts.next()?, parts.next()?);
+            Some(format!(
+                "gen {n} {phase} at {:+}ms",
+                ms.parse::<i128>().ok()? - base
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Failure diagnostics only: boot stages from the existing lifecycle event stream,
+/// as milliseconds from `since`, on the same wall clock as the fixture's `FX_TRACE` lines. Read
+/// them together: `spawn lock probe` (queue for the process-wide spawn lock) -> `spawn begin` ->
+/// `spawn returned` (CreateProcess, job assignment, resume) -> fixture `main` -> fixture `hello`
+/// -> `hello wait ended` -> `ready`. The first gap that is seconds long names the slow stage.
+fn boot_marks(_s: &EngineSupervisor, since: SystemTime) -> String {
+    let base = unix_ms(since);
+    drain_boot_events()
+        .iter()
+        .filter_map(|line| {
+            let (ms, rest) = line.split_once(' ')?;
+            Some(format!("{rest} at {:+}ms", ms.parse::<i128>().ok()? - base))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+struct BootTrace {
+    rx: std::sync::mpsc::Receiver<LifecycleEvent>,
+    recent: std::collections::VecDeque<String>,
+}
+
+thread_local! {
+    static BOOT_TRACE: std::cell::RefCell<Option<BootTrace>> = const { std::cell::RefCell::new(None) };
+}
+
+fn supervisor(cfg: SupervisorConfig) -> EngineSupervisor {
+    let s = EngineSupervisor::new(cfg);
+    BOOT_TRACE.with(|trace| {
+        *trace.borrow_mut() = Some(BootTrace {
+            rx: s.subscribe_lifecycle(),
+            recent: std::collections::VecDeque::new(),
+        });
+    });
+    s
+}
+
+fn drain_boot_events() -> Vec<String> {
+    BOOT_TRACE.with(|trace| {
+        let mut trace = trace.borrow_mut();
+        let Some(trace) = trace.as_mut() else {
+            return Vec::new();
+        };
+        while let Ok(event) = trace.rx.try_recv() {
+            if let Some(mark) = event.message.strip_prefix("boot_stage ") {
+                if trace.recent.len() == 128 {
+                    trace.recent.pop_front();
+                }
+                trace.recent.push_back(mark.to_string());
+            }
+        }
+        trace.recent.iter().cloned().collect()
+    })
+}
 
 fn fixture() -> PathBuf {
     let exe = std::env::current_exe().unwrap();
@@ -49,10 +141,14 @@ fn rig(plan: &str) -> (tempfile::TempDir, SupervisorConfig) {
 fn rig_with(plan: &str, log_methods: bool) -> (tempfile::TempDir, SupervisorConfig) {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
+    RIG_DIR.with(|d| *d.borrow_mut() = Some(state.clone()));
     let plan = plan.to_string();
     let cfg = SupervisorConfig::new("fixture", move || {
         let mut c = OwnedCommand::new(fixture());
-        c.command_mut().env("FX_DIR", &state).env("FX_PLAN", &plan);
+        c.command_mut()
+            .env("FX_DIR", &state)
+            .env("FX_PLAN", &plan)
+            .env("FX_TRACE", "1");
         if log_methods {
             c.command_mut().env("FX_LOG_METHODS", "1");
         }
@@ -68,6 +164,7 @@ fn rig_with(plan: &str, log_methods: bool) -> (tempfile::TempDir, SupervisorConf
 /// sampled about every 100 ms, so a failed wait shows whether the supervisor was still making
 /// progress (slow boots) or had stopped (a stuck state).
 fn note_progress(s: &EngineSupervisor, began: Instant, last: &mut String, trace: &mut Vec<String>) {
+    let _ = drain_boot_events();
     let st = s.status();
     let key = format!(
         "gen {} attempt {} {:?} restarts {}",
@@ -81,6 +178,7 @@ fn note_progress(s: &EngineSupervisor, began: Instant, last: &mut String, trace:
 
 fn wait_until(s: &EngineSupervisor, state: Lifecycle) {
     let began = Instant::now();
+    let began_wall = SystemTime::now();
     let until = began + Duration::from_secs(4);
     let (mut trace, mut last, mut next_sample) = (Vec::new(), String::new(), began);
     while s.lifecycle() != state && Instant::now() < until {
@@ -93,14 +191,17 @@ fn wait_until(s: &EngineSupervisor, state: Lifecycle) {
     assert_eq!(
         s.lifecycle(),
         state,
-        "waited {:?} of a 4 s ceiling for {state:?}; progression: {trace:?}; status: {:?}",
+        "waited {:?} of a 4 s ceiling for {state:?}; progression: {trace:?}; fixture: {}; boot: {}; status: {:?}",
         began.elapsed(),
+        fixture_trace(began_wall),
+        boot_marks(s, began_wall),
         s.status()
     );
 }
 
 fn wait_generation(s: &EngineSupervisor, generation: u64) {
     let began = Instant::now();
+    let began_wall = SystemTime::now();
     let until = began + Duration::from_secs(4);
     let (mut trace, mut last, mut next_sample) = (Vec::new(), String::new(), began);
     while s.status().generation < generation && Instant::now() < until {
@@ -112,8 +213,10 @@ fn wait_generation(s: &EngineSupervisor, generation: u64) {
     }
     assert!(
         s.status().generation >= generation,
-        "waited {:?} of a 4 s ceiling for generation {generation}; progression: {trace:?}; status: {:?}",
+        "waited {:?} of a 4 s ceiling for generation {generation}; progression: {trace:?}; fixture: {}; boot: {}; status: {:?}",
         began.elapsed(),
+        fixture_trace(began_wall),
+        boot_marks(s, began_wall),
         s.status()
     );
 }
@@ -122,11 +225,14 @@ fn wait_generation(s: &EngineSupervisor, generation: u64) {
 /// supervisor status (diagnostics only; the call and its bounds are unchanged).
 fn call_diag(s: &EngineSupervisor, method: &str) -> serde_json::Value {
     let began = Instant::now();
+    let began_wall = SystemTime::now();
     match s.call(method, json!({})) {
         Ok(value) => value,
         Err(e) => panic!(
-            "call {method} failed after {:?}: {e:?}; status: {:?}",
+            "call {method} failed after {:?}: {e:?}; fixture: {}; boot: {}; status: {:?}",
             began.elapsed(),
+            fixture_trace(began_wall),
+            boot_marks(s, began_wall),
             s.status()
         ),
     }
@@ -136,7 +242,7 @@ fn call_diag(s: &EngineSupervisor, method: &str) -> serde_json::Value {
 fn healthy_start_snapshot_events_and_shutdown() {
     let (_d, mut cfg) = rig("ok");
     cfg.rpc_timeout = Duration::from_secs(1);
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     let events = s.subscribe_events();
     s.set_snapshot("settings", "set_settings", json!({"theme":"dark"}))
         .unwrap();
@@ -157,7 +263,7 @@ fn healthy_start_snapshot_events_and_shutdown() {
 #[test]
 fn crash_restarts_and_replays_snapshot_with_redacted_stderr() {
     let (_d, cfg) = rig("crash_on_call,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_restart(
             RestartPolicy::new(
                 RestartMode::Automatic,
@@ -202,7 +308,7 @@ fn restart_budget_exhausts_until_explicit_start_resets_it() {
         Duration::from_millis(1),
     )
     .unwrap();
-    let s = EngineSupervisor::new(cfg.with_restart(policy));
+    let s = supervisor(cfg.with_restart(policy));
     assert!(s.start().is_ok());
     wait_until(&s, Lifecycle::Down);
     assert!(s.call("ping", json!({})).is_err());
@@ -220,7 +326,7 @@ fn rpc_timeout_kills_wedged_child_and_recovers() {
     // about, so the budget leaves wide margin over scheduling latency. The hung child never
     // answers, so a longer budget only delays the expected timeout.
     let budget = Duration::from_millis(600);
-    let s = EngineSupervisor::new(cfg.with_rpc_timeout(budget));
+    let s = supervisor(cfg.with_rpc_timeout(budget));
     s.start().unwrap();
     let e = s
         .call_with(
@@ -244,7 +350,7 @@ fn rpc_timeout_kills_wedged_child_and_recovers() {
 #[test]
 fn health_ping_wedge_recovers() {
     let (_d, cfg) = rig("wedge:30,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_restart(
             RestartPolicy::new(
                 RestartMode::Automatic,
@@ -271,7 +377,7 @@ fn health_ping_wedge_recovers() {
 #[test]
 fn hello_timeout_leaves_down_and_oversized_response_keeps_child() {
     let (_d, cfg) = rig("no_hello");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_hello_timeout(Duration::from_millis(250))
             .with_initial_failure(InitialFailure::Terminal),
     );
@@ -280,7 +386,7 @@ fn hello_timeout_leaves_down_and_oversized_response_keeps_child() {
     assert_eq!(s.lifecycle(), Lifecycle::Down);
 
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg.with_frame_limit(64 * 1024));
+    let s = supervisor(cfg.with_frame_limit(64 * 1024));
     s.start().unwrap();
     let e = s.call("big", json!({})).unwrap_err();
     assert_eq!(e.code, "frame_too_large");
@@ -291,7 +397,7 @@ fn hello_timeout_leaves_down_and_oversized_response_keeps_child() {
 #[test]
 fn on_demand_crash_restarts_on_next_call() {
     let (_d, cfg) = rig("crash:30,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_restart(
             RestartPolicy::new(
                 RestartMode::OnDemand,
@@ -312,7 +418,7 @@ fn on_demand_crash_restarts_on_next_call() {
 #[test]
 fn lifecycle_subscription_observes_boot_and_ready() {
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     let rx = s.subscribe_lifecycle();
     s.start().unwrap();
     let mut seen = Vec::new();
@@ -329,7 +435,7 @@ fn lifecycle_subscription_observes_boot_and_ready() {
 #[test]
 fn frames_carry_the_request_id_and_merge_with_on_event() {
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     s.start().unwrap();
     let frames = Arc::new(Mutex::new(Vec::new()));
     let payloads = Arc::new(AtomicUsize::new(0));
@@ -360,7 +466,7 @@ fn frames_carry_the_request_id_and_merge_with_on_event() {
 #[test]
 fn contract_version_gate_refuses_a_mismatched_engine() {
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg.require_contract_version(CONTRACT_VERSION + 1));
+    let s = supervisor(cfg.require_contract_version(CONTRACT_VERSION + 1));
     let e = s.start().unwrap_err();
     assert_eq!(e.code, CONTRACT_VERSION_MISMATCH);
     assert!(!e.retryable);
@@ -377,12 +483,12 @@ fn contract_version_gate_refuses_a_mismatched_engine() {
 
     // The fixture advertises contract_version 1: the integer and its text both match.
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg.require_contract_version(CONTRACT_VERSION));
+    let s = supervisor(cfg.require_contract_version(CONTRACT_VERSION));
     s.start().unwrap();
     assert_eq!(s.call("ping", json!({})).unwrap()["pong"], true);
     s.shutdown();
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg.require_contract_version("1"));
+    let s = supervisor(cfg.require_contract_version("1"));
     s.start().unwrap();
     s.shutdown();
 }
@@ -390,7 +496,7 @@ fn contract_version_gate_refuses_a_mismatched_engine() {
 #[test]
 fn start_background_returns_at_once_and_readiness_reports_the_boot() {
     let (_d, cfg) = rig("slow_hello:300");
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     let began = Instant::now();
     let readiness = s.start_background();
     assert!(
@@ -413,7 +519,7 @@ fn start_background_returns_at_once_and_readiness_reports_the_boot() {
 #[test]
 fn start_background_boot_failure_is_reported_and_terminal() {
     let (_d, cfg) = rig("no_hello");
-    let s = EngineSupervisor::new(cfg.with_hello_timeout(Duration::from_millis(250)));
+    let s = supervisor(cfg.with_hello_timeout(Duration::from_millis(250)));
     let e = s.start_background().ready().unwrap_err();
     assert_eq!(e.code, "hello_timeout");
     assert_eq!(s.lifecycle(), Lifecycle::Down);
@@ -434,7 +540,7 @@ fn restarts_count_and_a_spent_budget_is_terminal_failed() {
         Duration::from_millis(1),
     )
     .unwrap();
-    let s = EngineSupervisor::new(cfg.with_restart(policy));
+    let s = supervisor(cfg.with_restart(policy));
     assert_eq!(s.status().restarts, 0);
     s.start().unwrap();
     wait_until(&s, Lifecycle::Down);
@@ -455,7 +561,7 @@ fn restarts_count_and_a_spent_budget_is_terminal_failed() {
 #[test]
 fn shutdown_is_terminal_stopped_and_start_clears_it() {
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     assert_eq!(s.status().terminal, None, "never started");
     s.start().unwrap();
     assert_eq!(s.status().terminal, None);
@@ -471,7 +577,7 @@ fn shutdown_is_terminal_stopped_and_start_clears_it() {
 #[test]
 fn on_demand_down_is_recoverable_not_terminal() {
     let (_d, cfg) = rig("crash:30,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_restart(
             RestartPolicy::new(
                 RestartMode::OnDemand,
@@ -505,7 +611,7 @@ fn restart_policy(max_restarts: u32) -> RestartPolicy {
 #[test]
 fn failed_first_boot_is_retried_within_the_budget_by_default() {
     let (_d, cfg) = rig("no_hello,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_hello_timeout(Duration::from_millis(250))
             .with_restart(restart_policy(2)),
     );
@@ -522,7 +628,7 @@ fn failed_first_boot_is_retried_within_the_budget_by_default() {
 #[test]
 fn terminal_initial_failure_gives_up_at_once() {
     let (_d, cfg) = rig("no_hello,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_hello_timeout(Duration::from_millis(250))
             .with_restart(restart_policy(2))
             .with_initial_failure(InitialFailure::Terminal),
@@ -536,7 +642,7 @@ fn terminal_initial_failure_gives_up_at_once() {
 #[test]
 fn contract_mismatch_on_a_replacement_is_terminal_and_not_retried() {
     let (_d, cfg) = rig("crash:30,wrong_contract");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.require_contract_version(CONTRACT_VERSION)
             .with_restart(restart_policy(5)),
     );
@@ -559,7 +665,7 @@ fn protocol_error_sink_sees_malformed_lines_and_calls_still_answer() {
     let (_d, cfg) = rig("ok");
     let seen = Arc::new(Mutex::new(Vec::new()));
     let sink = seen.clone();
-    let s = EngineSupervisor::new(cfg.with_protocol_error_sink(move |e: &ProtocolError| {
+    let s = supervisor(cfg.with_protocol_error_sink(move |e: &ProtocolError| {
         sink.lock().unwrap().push(e.line.clone())
     }));
     s.start().unwrap();
@@ -571,7 +677,7 @@ fn protocol_error_sink_sees_malformed_lines_and_calls_still_answer() {
 #[test]
 fn errors_say_where_they_arose_and_bare_engine_errors_keep_a_message() {
     let (_d, unused) = rig("ok");
-    let never_started = EngineSupervisor::new(unused);
+    let never_started = supervisor(unused);
     let down = never_started.call("ping", json!({})).unwrap_err();
     assert_eq!(
         (down.code.as_str(), down.origin),
@@ -579,7 +685,7 @@ fn errors_say_where_they_arose_and_bare_engine_errors_keep_a_message() {
     );
 
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     s.start().unwrap();
     let unknown = s.call("nope", json!({})).unwrap_err();
     assert_eq!(unknown.origin, ErrorOrigin::Engine);
@@ -590,7 +696,7 @@ fn errors_say_where_they_arose_and_bare_engine_errors_keep_a_message() {
     s.shutdown();
 
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg.with_fallback_error_code("host_fallback"));
+    let s = supervisor(cfg.with_fallback_error_code("host_fallback"));
     s.start().unwrap();
     assert_eq!(
         s.call("bare_error", json!({})).unwrap_err().code,
@@ -631,7 +737,7 @@ fn shutdown_returns_only_after_the_engine_is_reaped_graceful() {
     // call itself failed after the child left.
     for _ in 0..5 {
         let (d, cfg) = rig_with("ok", true);
-        let s = EngineSupervisor::new(cfg);
+        let s = supervisor(cfg);
         s.start().unwrap();
         let report = s.shutdown_detailed();
         let receipt = std::fs::read_to_string(d.path().join("methods")).unwrap_or_default();
@@ -657,7 +763,7 @@ fn shutdown_reaps_an_engine_that_ignores_the_shutdown_request() {
     // `wedge:0` stops reading after hello, so the shutdown request is never answered and
     // the grace period expires before the child is stopped.
     let (_d, cfg) = rig("wedge:0");
-    let s = EngineSupervisor::new(cfg);
+    let s = supervisor(cfg);
     s.start().unwrap();
     let report = s.shutdown_detailed();
     assert_eq!(s.lifecycle(), Lifecycle::Down);
@@ -679,7 +785,7 @@ fn shutdown_reaps_an_engine_that_ignores_the_shutdown_request() {
 #[test]
 fn shutdown_after_the_engine_already_exited_leaves_no_zombie() {
     let (_d, cfg) = rig("crash:30,ok");
-    let s = EngineSupervisor::new(
+    let s = supervisor(
         cfg.with_restart(
             RestartPolicy::new(
                 RestartMode::OnDemand,
@@ -718,7 +824,7 @@ fn shutdown_while_the_engine_is_exiting_by_itself_waits_for_the_reap() {
     // already own the child: shutdown must still not return ahead of the reap.
     for _ in 0..5 {
         let (_d, cfg) = rig("ok");
-        let s = EngineSupervisor::new(cfg);
+        let s = supervisor(cfg);
         s.start().unwrap();
         let _ = s.call("shutdown", json!({}));
         let report = s.shutdown_detailed();

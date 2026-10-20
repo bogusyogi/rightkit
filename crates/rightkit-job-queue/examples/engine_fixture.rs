@@ -3,7 +3,9 @@
 //!
 //! Environment: `FX_DIR` (state directory, required), `FX_PLAN` (comma list of
 //! per-generation modes; the last repeats). The generation number is the count
-//! of lines in `FX_DIR/gen`, appended on every start. When `FX_LOG_METHODS` is set, every
+//! of lines in `FX_DIR/gen`, appended on every start. When `FX_TRACE` is set, the fixture appends
+//! `<generation> <phase> <unix ms>` to `FX_DIR/trace` at `main` and just before hello
+//! (diagnostics only: it splits a slow process start from a slow supervisor). When `FX_LOG_METHODS` is set, every
 //! request received is appended, before it is answered, to `FX_DIR/methods` as
 //! `<generation> <method>` (never its params).
 //!
@@ -37,6 +39,22 @@ fn main() {
     let (name, arg) = mode
         .split_once(':')
         .map_or((mode, 0u64), |(a, b)| (a, b.parse().unwrap_or(0)));
+    let trace = |phase: &str| {
+        if std::env::var_os("FX_TRACE").is_none() {
+            return;
+        }
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        if let Ok(mut t) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("trace"))
+        {
+            let _ = writeln!(t, "{n} {phase} {ms}");
+        }
+    };
+    trace("main");
     eprintln!("fixture gen {n} mode {mode} key=PRIVATE{n}");
 
     let stdout = std::io::stdout();
@@ -53,6 +71,7 @@ fn main() {
         _ => {}
     }
     let contract = if name == "wrong_contract" { 2 } else { 1 };
+    trace("hello");
     put(json!({"type":"hello","engine":"fixture","version":"1.0","contract_version":contract}));
     let started = Instant::now();
     if name == "crash" {

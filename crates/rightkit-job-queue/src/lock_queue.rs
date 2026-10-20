@@ -183,7 +183,7 @@ pub(crate) fn discard(dir: &Path) {
     if !dir.is_dir() {
         return;
     }
-    if tickets(dir).map_or(true, |t| !t.is_empty()) {
+    if !tickets(dir).is_ok_and(|t| t.is_empty()) {
         return;
     }
     let mutex_path = dir.join(MUTEX_FILE);

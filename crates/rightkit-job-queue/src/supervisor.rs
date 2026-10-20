@@ -265,7 +265,7 @@ impl fmt::Display for ExitReason {
     }
 }
 
-/// Broadcast on every lifecycle transition. Carries enough to debug a terminal
+/// Broadcast on lifecycle transitions & boot-stage diagnostics. Carries enough to debug a terminal
 /// `Down` without a debugger: generation, attempt, restarts in the rolling
 /// window, the last exit code and reason, the redacted stderr tail.
 #[derive(Debug, Clone, Serialize)]
@@ -670,6 +670,15 @@ impl Shared {
     }
     fn lock(&self) -> MutexGuard<'_, State> {
         self.st.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    /// Fixed boot-stage diagnostics use the existing lifecycle stream, with no retained history.
+    /// Unix milliseconds align these events with the fixture's process-side trace.
+    fn mark(&self, generation: u64, stage: &str) {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        let g = self.lock();
+        self.emit(&g, format!("boot_stage {ms} gen {generation} {stage}"), None);
     }
     fn now(&self) -> Duration {
         self.epoch.elapsed()
@@ -1363,6 +1372,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         }
         (g.generation, recovering)
     };
+    sh.mark(generation, "boot entered");
 
     let fail = |reason: ExitReason, code: &str, message: String, stderr: String| -> JobResult<()> {
         let err = JobError::supervisor(code, message);
@@ -1440,7 +1450,25 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = match command.spawn() {
+    // Diagnostics only: how long the process-wide spawn lock (taken by every spawn on Windows,
+    // held across CreateProcess) takes to get, separate from the spawn itself.
+    #[cfg(windows)]
+    {
+        sh.mark(generation, "spawn lock probe begin");
+        rightkit_child_process::with_windows_spawn_lock(|| ());
+        sh.mark(generation, "spawn lock probe end");
+    }
+    sh.mark(generation, "spawn begin");
+    let spawned = command.spawn();
+    sh.mark(
+        generation,
+        if spawned.is_ok() {
+            "spawn returned ok"
+        } else {
+            "spawn returned error"
+        },
+    );
+    let mut child = match spawned {
         Ok(c) => c,
         Err(e) => {
             return fail(
@@ -1503,7 +1531,17 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         fallback_error_code: sh.cfg.fallback_error_code.clone(),
         protocol_error_sink: sh.cfg.protocol_error_sink.clone(),
     };
-    let client = match EngineClient::connect_opts(BufReader::new(stdout), stdin, opts) {
+    sh.mark(generation, "hello wait begin");
+    let connected = EngineClient::connect_opts(BufReader::new(stdout), stdin, opts);
+    sh.mark(
+        generation,
+        if connected.is_ok() {
+            "hello wait ended ok"
+        } else {
+            "hello wait ended error"
+        },
+    );
+    let client = match connected {
         Ok(c) => Arc::new(c),
         Err(e) => {
             let slot = sh
@@ -1654,6 +1692,7 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
         .filter(|_| recovering);
     sh.emit(&g, "engine is ready", recovery_ms);
     drop(g);
+    sh.mark(generation, "ready");
     sh.cv.notify_all();
 
     let shared = Arc::clone(sh);
@@ -1936,10 +1975,17 @@ fn on_end(
 /// Wait out the backoff, then boot the replacement if the permit is still valid.
 fn schedule_restart(sh: &Arc<Shared>, permit: RestartPermit) {
     let shared = Arc::clone(sh);
+    let delay = permit.delay();
+    // Start after the exit was timed: passing this deadline also passes permit.not_before.
+    let deadline = Instant::now().checked_add(delay);
     let _ = thread::Builder::new()
         .name(format!("{}-restart", sh.cfg.name))
         .spawn(move || {
-            thread::sleep(permit.delay());
+            match deadline {
+                Some(deadline) => sleep_until(deadline, Instant::now, thread::sleep),
+                None => thread::sleep(delay),
+            }
+            shared.mark(0, "restart thread woke");
             {
                 let g = shared.lock();
                 if g.shutting_down
@@ -1953,9 +1999,49 @@ fn schedule_restart(sh: &Arc<Shared>, permit: RestartPermit) {
         });
 }
 
+/// Recheck the monotonic clock after every wake. An early wake must not silently discard a
+/// not-yet-valid restart permit and leave the supervisor Recovering without scheduled work.
+fn sleep_until(
+    deadline: Instant,
+    mut now: impl FnMut() -> Instant,
+    mut sleep: impl FnMut(Duration),
+) {
+    loop {
+        let left = deadline.saturating_duration_since(now());
+        if left.is_zero() {
+            return;
+        }
+        sleep(left);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_restart_wait_rechecks_the_deadline_after_an_early_wake() {
+        let began = Instant::now();
+        let elapsed = std::cell::Cell::new(Duration::ZERO);
+        let mut wakes = 0;
+        sleep_until(
+            began + Duration::from_millis(60),
+            || began + elapsed.get(),
+            |left| {
+                wakes += 1;
+                // Deterministic early wakes, including a final sub-clock-tick remainder.
+                elapsed.set(elapsed.get() + (left / 3).max(Duration::from_nanos(1)));
+            },
+        );
+        assert!(elapsed.get() >= Duration::from_millis(60));
+        assert!(wakes > 1);
+    }
+
+    #[test]
+    fn a_passed_restart_deadline_does_not_sleep() {
+        let now = Instant::now();
+        sleep_until(now, || now, |_| panic!("a passed deadline must not sleep"));
+    }
 
     #[test]
     fn a_boot_is_refused_while_too_many_engines_are_unreaped() {
