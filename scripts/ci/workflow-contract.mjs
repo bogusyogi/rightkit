@@ -28,7 +28,7 @@ export const PUBLISH_ENV = {
 export const UPLOAD_JOB_KEYS = ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"];
 export const UPLOAD_STEP_KEYS = ["env", "if", "name", "run", "uses", "with"];
 export const UPLOAD_STEPS = [
-  { uses: "actions/checkout@", with: { "persist-credentials": "false", "sparse-checkout": "scripts/ci/upload.mjs", "sparse-checkout-cone-mode": "false" }, env: [] },
+  { uses: "actions/checkout@", with: { "persist-credentials": "false", "sparse-checkout": /^scripts\/ci\/upload\.mjs\nci\/approved-artifacts\.json\n?$/, "sparse-checkout-cone-mode": "false" }, env: [] },
   { uses: "actions/setup-node@", with: { "node-version": /^\d+\.\d+\.\d+$/, "package-manager-cache": "false" }, env: [] },
   { uses: "actions/download-artifact@", with: { name: "publish-packed", path: `${RT}/sealed/packed` }, env: [] },
   { uses: "actions/download-artifact@", with: { pattern: "publish-receipt-verify-*", path: `${RT}/sealed/receipts` }, env: [] },
@@ -62,6 +62,13 @@ const SIGNING_TOOLS = /\b(?:codesign|notarytool|security\s+(?:import|create-keyc
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const sorted = (list) => [...list].sort();
+// Both the dry-run job (seal-check, no secret) and the privileged upload job check out exactly these two files: the
+// uploader and the committed, reviewer-signed ci/approved-artifacts.json, read from the dispatched commit and never
+// from an input. The same script, in both jobs, refuses a sealed unit that has no exact approved name+version+sha256.
+export const SPARSE_UPLOAD = ["scripts/ci/upload.mjs", "ci/approved-artifacts.json"];
+const sparseIsExact = (value) => typeof value === "string" && same(value.split("\n").map((l) => l.trim()).filter(Boolean), SPARSE_UPLOAD);
+// pack builds only the planned units and their workspace dependency closure (publish.mjs build), never the whole workspace.
+export const PACK_BUILD_RUN = "node scripts/ci/publish.mjs build";
 const stepsOf = (job) => (Array.isArray(job?.steps) ? job.steps : []);
 const needsOf = (job) => (Array.isArray(job?.needs) ? job.needs : job?.needs ? [job.needs] : []);
 
@@ -205,7 +212,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
     for (const [key, want] of Object.entries(wantEnv)) check(step.env?.[key] === undefined || String(step.env[key]).trim() === want, `${where}: env ${key} must be ${want}`);
   });
   const checkout = uploadSteps.find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
-  check(checkout?.with?.["sparse-checkout"] === "scripts/ci/upload.mjs" && checkout?.with?.["sparse-checkout-cone-mode"] === "false", "upload must check out scripts/ci/upload.mjs and nothing else");
+  check(sparseIsExact(checkout?.with?.["sparse-checkout"]) && checkout?.with?.["sparse-checkout-cone-mode"] === "false", `upload must check out exactly ${SPARSE_UPLOAD.join(" and ")} (the uploader and the reviewer-approved artifact list) and nothing else`);
   const tokenEnv = (vars) => tokenSteps.filter(({ step }) => Object.keys(step.env ?? {}).some((k) => vars.includes(k)));
   check(tokenSteps.length === 2, "upload must have exactly two steps that read a secret (one per registry)");
   const npmStep = tokenEnv(["NODE_AUTH_TOKEN"])[0]?.step; const cratesStep = tokenEnv(["CARGO_REGISTRY_TOKEN"])[0]?.step;
@@ -263,11 +270,21 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   // The dry run: same script, no secret, no id-token, nothing sent.
   const dryStep = stepsOf(sealCheck).find((s) => s.run?.trim() === SEAL_CHECK_RUN);
   check(dryStep && dryStep.if === undefined, "seal-check must run the upload script with --dry-run, unconditionally");
+  check(dryStep && same(sorted(Object.keys(dryStep.env ?? {})), sorted(Object.keys(PUBLISH_ENV))) && Object.entries(PUBLISH_ENV).every(([k, v]) => String(dryStep.env[k]).trim() === v), "the seal-check dry run may carry exactly the PUBLISH_ request env, taken from the plan (no path, token or option override of the approved-artifact check)");
   check(stepsOf(sealCheck).every((s) => s.run === undefined || s.run.trim() === SEAL_CHECK_RUN), `seal-check may run only ${SEAL_CHECK_RUN}`);
   check(stepsOf(sealCheck).every((s) => s.run !== undefined || SEAL_CHECK_ACTIONS.some((a) => (s.uses ?? "").startsWith(a))), "seal-check may use only checkout, setup-node and the artifact actions");
   check(plan?.outputs?.dry_run === "${{ steps.plan.outputs.dry_run }}", "plan's dry_run output must be the plan step's");
   const sealCheckout = stepsOf(sealCheck).find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
-  check(sealCheckout?.with?.["sparse-checkout"] === "scripts/ci/upload.mjs", "seal-check must check out only the upload script");
+  check(sparseIsExact(sealCheckout?.with?.["sparse-checkout"]) && sealCheckout?.with?.["sparse-checkout-cone-mode"] === "false", `seal-check must check out exactly ${SPARSE_UPLOAD.join(" and ")}, so the reviewer-approved artifact check runs without a secret before the upload job can start`);
+
+  // pack builds only the planned npm units and their workspace dependency closure, never the whole workspace.
+  const packSteps = stepsOf(pack);
+  const packBuildAt = packSteps.findIndex((s) => s.run?.trim() === PACK_BUILD_RUN);
+  const sealAt = packSteps.findIndex((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? ""));
+  check(packBuildAt >= 0 && packSteps.filter((s) => /publish\.mjs build/.test(s.run ?? "")).length === 1 && packBuildAt < sealAt, `pack must run exactly one "${PACK_BUILD_RUN}" step before it seals`);
+  check(packBuildAt >= 0 && same(sorted(Object.keys(packSteps[packBuildAt].env ?? {})), ["PUBLISH_REGISTRY", "PUBLISH_UNITS"]) && packSteps[packBuildAt].env.PUBLISH_REGISTRY === PLAN_OUT("registry") && packSteps[packBuildAt].env.PUBLISH_UNITS === PLAN_OUT("units") && packSteps[packBuildAt].if?.trim() === NPM_STEP_IF, "the pack build step must take PUBLISH_REGISTRY and PUBLISH_UNITS from the plan and run only for npm");
+  const wholeWorkspace = packSteps.filter((s) => /\bpnpm\b[^\n]*(?:\s-r\b|--recursive|--workspace-root)|\brun\s+build\b/.test(s.run ?? ""));
+  check(wholeWorkspace.length === 0, `pack must not build the whole workspace (${wholeWorkspace.map((s) => s.name ?? s.run).join(", ")})`);
 
   // Hygiene on every job.
   for (const [jobName, job] of Object.entries(jobs)) {
@@ -313,6 +330,23 @@ export const MUTATIONS = [
   ["upload adds pnpm", edit((j) => { j.upload.steps.splice(2, 0, actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ["upload adds a Rust toolchain", edit((j) => { j.upload.steps.splice(2, 0, actionStep("dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0")); })],
   ["upload checks out the whole workspace", edit((j) => { delete j.upload.steps[0].with["sparse-checkout"]; })],
+  // The reviewer-approved artifact list (ci/approved-artifacts.json) is checked in seal-check (no secret) and again in upload.
+  ["upload no longer checks out the approved-artifacts list", edit((j) => { j.upload.steps[0].with["sparse-checkout"] = "scripts/ci/upload.mjs\n"; })],
+  ["upload checks out an approved list from another path", edit((j) => { j.upload.steps[0].with["sparse-checkout"] = "scripts/ci/upload.mjs\nci/other-approved.json\n"; })],
+  ["upload checks out more than the uploader and the approved list", edit((j) => { j.upload.steps[0].with["sparse-checkout"] += "scripts/ci/publish.mjs\n"; })],
+  ["seal-check no longer checks out the approved-artifacts list", edit((j) => { j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout"] = "scripts/ci/upload.mjs"; })],
+  ["seal-check checks out the whole workspace", edit((j) => { delete j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout"]; })],
+  ["seal-check loses non-cone sparse checkout", edit((j) => { delete j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout-cone-mode"]; })],
+  ["the approved-artifacts path is overridden through the upload env", edit((j) => { j.upload.steps[5].env.APPROVED_ARTIFACTS_FILE = "${{ runner.temp }}/other.json"; })],
+  ["the approved-artifacts path is overridden through the seal-check env", edit((j) => { j["seal-check"].steps.find((s) => s.run).env.APPROVED_ARTIFACTS_FILE = "${{ runner.temp }}/other.json"; })],
+  ["the dry run no longer runs the uploader (and so the approval check)", edit((j) => { j["seal-check"].steps.find((s) => s.run).run = "echo skipped"; })],
+  // pack builds only the planned units and their dependency closure.
+  ["pack builds the whole workspace", edit((j) => { j.pack.steps.find((s) => s.run?.trim() === PACK_BUILD_RUN).run = "pnpm -r --workspace-concurrency=1 run build"; })],
+  ["pack builds the whole workspace in the install step", edit((j) => { const s = j.pack.steps.find((x) => x.run?.trim() === "pnpm install --frozen-lockfile"); s.run = "pnpm install --frozen-lockfile\npnpm -r run build"; })],
+  ["pack drops the scoped build", edit((j) => { j.pack.steps = j.pack.steps.filter((s) => s.run?.trim() !== PACK_BUILD_RUN); })],
+  ["pack builds after sealing", edit((j) => { const i = j.pack.steps.findIndex((s) => s.run?.trim() === PACK_BUILD_RUN); const [x] = j.pack.steps.splice(i, 1); j.pack.steps.splice(-1, 0, x); })],
+  ["the pack build step is given another unit list", edit((j) => { j.pack.steps.find((s) => s.run?.trim() === PACK_BUILD_RUN).env.PUBLISH_UNITS = "@rightkit/all"; })],
+  ["the pack build step runs for crates too", edit((j) => { delete j.pack.steps.find((s) => s.run?.trim() === PACK_BUILD_RUN).if; })],
   ["upload loses its environment", edit((j) => { delete j.upload.environment; })],
   ["upload loses id-token", edit((j) => { j.upload.permissions = { contents: "read" }; })],
   ["upload runs even after failures", edit((j) => { j.upload.if = "${{ always() }}"; })],
@@ -462,6 +496,68 @@ export function proveMutations(doc) {
   return survivors;
 }
 
+// ---- the uploader's reviewer-approval gate ------------------------------------------------------
+// The workflow cannot show that scripts/ci/upload.mjs still refuses an unapproved artifact, so the script's own
+// gate is pinned here as well: the approval check must run inside executeUpload, unconditionally, before the
+// refusal point and before anything is reconciled, spawned or sent; the approved file's path must be fixed
+// relative to the script (no environment, input or default can name another file); and the checker must
+// still compare registry, name, version and sha256 for every sealed unit. proveUploadScriptMutations shows
+// that removing or weakening any of this is rejected. Behaviour is proven by scripts/ci/publish.test.mjs.
+const APPROVAL_CALL = "problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));";
+const APPROVED_PATH_LINE = 'export const APPROVED_ARTIFACTS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "approved-artifacts.json");';
+const UNIT_LOOP = "const names = new Set();\n  for (const unit of manifest.units) {";
+
+export function assertUploadScript(text, name = "upload.mjs") {
+  const problems = [];
+  const check = (ok, message) => { if (!ok) problems.push(message); };
+  const start = text.indexOf("export async function executeUpload(");
+  const mainAt = text.indexOf("\nif (process.argv[1]");
+  check(start >= 0 && mainAt > start, "executeUpload and the command entry must both exist");
+  const header = start >= 0 ? text.slice(start, text.indexOf("\n", start)) : "";
+  const body = start >= 0 && mainAt > start ? text.slice(start, mainAt) : "";
+  const main = mainAt >= 0 ? text.slice(mainAt) : "";
+  check(/\bapprovedFile\b/.test(header) && !/\bapprovedFile\s*=/.test(header), "executeUpload must take approvedFile with no default (a missing approval file refuses)");
+  check(body.split(APPROVAL_CALL).length === 2 && body.includes(`\n    ${APPROVAL_CALL}`), "executeUpload must run checkApprovedArtifacts exactly once, unconditionally, in the manifest checks");
+  const callAt = body.indexOf(APPROVAL_CALL);
+  const refuseAt = body.indexOf("throw new Error(`sealed upload refused");
+  const firstEffect = Math.min(...["reconcileUnit({", 'spawn("npm"', "fetchImpl(CRATES_PUBLISH_URL", "new Receipt("].map((s) => { const i = body.indexOf(s); return i < 0 ? Infinity : i; }));
+  check(callAt >= 0 && refuseAt > callAt && firstEffect > refuseAt, "the approval check must come before the refusal point, and the refusal before any reconciliation, receipt, spawn or request");
+  check(text.includes(APPROVED_PATH_LINE) && (text.match(/APPROVED_ARTIFACTS_FILE\s*=/g) ?? []).length === 1, "the approved-artifacts path must be fixed relative to upload.mjs (ci/approved-artifacts.json)");
+  check(main.includes("approvedFile: APPROVED_ARTIFACTS_FILE,") && !/approvedFile:\s*(?!\s|APPROVED_ARTIFACTS_FILE,)/.test(main), "the command entry must pass approvedFile: APPROVED_ARTIFACTS_FILE");
+  const fnAt = text.indexOf("export function checkApprovedArtifacts(");
+  const fn = fnAt >= 0 ? text.slice(fnAt, text.indexOf("\n}\n", fnAt)) : "";
+  check(fn.includes(UNIT_LOOP) && fn.includes("e.registry === registry && e.name === unit.name && e.version === unit.version") && fn.includes("if (matches.length === 0) problems.push(") && fn.includes("matches.some((e) => e.sha256 !== unit.sha256)") && fn.includes("manifest.units.length === 0"), "checkApprovedArtifacts must require, for every sealed unit, an entry with the same registry, name, version and sha256");
+  if (problems.length) throw new Error(`${name} drops the reviewer-approval gate:\n  - ${problems.join("\n  - ")}`);
+  return true;
+}
+
+const textEdit = (from, to) => (text) => { if (!text.includes(from)) throw new Error(`mutation anchor not found: ${from.slice(0, 50)}`); return text.replace(from, () => to); };
+export const UPLOAD_SCRIPT_MUTATIONS = [
+  ["the approval check is removed", textEdit(APPROVAL_CALL, "")],
+  ["the approval check only runs for a real upload", textEdit(APPROVAL_CALL, `if (!dryRun) ${APPROVAL_CALL}`)],
+  ["the approval check only runs for a dry run", textEdit(APPROVAL_CALL, `if (dryRun) ${APPROVAL_CALL}`)],
+  ["the approval check runs after the refusal point", (text) => textEdit("\n  const previous =", `\n  ${APPROVAL_CALL}\n  const previous =`)(textEdit(APPROVAL_CALL, "")(text))],
+  ["a missing approvedFile defaults to nothing", textEdit("receiptsDir, approvedFile,", "receiptsDir, approvedFile = null,")],
+  ["the approved path comes from the environment", textEdit(APPROVED_PATH_LINE, "export const APPROVED_ARTIFACTS_FILE = process.env.APPROVED_ARTIFACTS_FILE;")],
+  ["the command entry stops passing approvedFile", textEdit("approvedFile: APPROVED_ARTIFACTS_FILE, ", "")],
+  ["the command entry passes another file", textEdit("approvedFile: APPROVED_ARTIFACTS_FILE,", "approvedFile: process.env.APPROVED_ARTIFACTS_FILE,")],
+  ["the approved hash is no longer compared", textEdit("matches.some((e) => e.sha256 !== unit.sha256)", "false")],
+  ["an unapproved unit is allowed", textEdit("if (matches.length === 0) problems.push(", "if (false) problems.push(")],
+  ["no sealed unit is checked", textEdit(UNIT_LOOP, "const names = new Set();\n  for (const unit of []) {")],
+  ["the version is not matched", textEdit("e.name === unit.name && e.version === unit.version", "e.name === unit.name")],
+  ["an empty manifest is accepted", textEdit("manifest.units.length === 0", "false")],
+];
+
+/** Returns the names of upload-script mutations assertUploadScript failed to reject. */
+export function proveUploadScriptMutations(text) {
+  assertUploadScript(text);
+  const survivors = [];
+  for (const [name, mutate] of UPLOAD_SCRIPT_MUTATIONS) {
+    try { assertUploadScript(mutate(text)); survivors.push(name); } catch (error) { if (/mutation anchor not found/.test(error.message)) throw new Error(`upload script mutation "${name}" could not be applied: ${error.message}`); }
+  }
+  return survivors;
+}
+
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   const file = process.argv[2];
   if (!file) { process.stderr.write("usage: workflow-contract.mjs <publish.yml>\n"); process.exit(2); }
@@ -471,5 +567,9 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
     const survivors = proveMutations(doc);
     if (survivors.length) throw new Error(`the contract accepts these violations: ${survivors.join("; ")}`);
     process.stdout.write(`${file}: publish contract holds; ${MUTATIONS.length} mutations rejected\n`);
+    const uploader = fs.readFileSync(fileURLToPath(new URL("./upload.mjs", import.meta.url)), "utf8");
+    const scriptSurvivors = proveUploadScriptMutations(uploader);
+    if (scriptSurvivors.length) throw new Error(`the uploader gate accepts these violations: ${scriptSurvivors.join("; ")}`);
+    process.stdout.write(`upload.mjs: reviewer-approval gate holds; ${UPLOAD_SCRIPT_MUTATIONS.length} mutations rejected\n`);
   } catch (error) { process.stderr.write(`${error.message}\n`); process.exit(1); }
 }

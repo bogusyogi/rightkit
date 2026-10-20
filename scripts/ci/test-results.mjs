@@ -5,7 +5,7 @@
 //   vitest         `Tests  F failed | N passed | S skipped (T)`
 //   skip markers   a line holding the word SKIP, with or without a prefix (`SKIP x`, `[browser] SKIP x`)
 // Output is buffered by LINE, so a marker or summary split across two stream chunks is still one line.
-// A unit passes only with a positive executed count, no ignored or skipped test the request has not
+// A unit passes only when EVERY test command executed a positive count (the total is a summary, never a pool), no ignored or skipped test the request has not
 // allowed, and no red step (the caller checks exit codes).
 import { StringDecoder } from "node:string_decoder";
 
@@ -93,19 +93,29 @@ export function scanChunks(chunks) {
 export const UNIT_STATUSES = ["pass", "allowed-skips"];
 
 /**
- * Judge one requested unit from its steps. `steps` are gate result rows ({ isTest, executed, failed,
+ * Judge one requested unit from its steps. `steps` are gate result rows ({ command, isTest, executed, failed,
  * ignored, skipped }). Returns { status: "pass" | "allowed-skips" | "fail", executed, ignored, skipped,
- * problems }. A unit that executed nothing, or that ignored or skipped a test the request did not name
- * (allowIgnored for `#[ignore]`/runner skips counted as ignored, allowMissingAssets for SKIP markers and
- * runner-skipped tests), is "fail". Naming a unit does not hide the counts: they stay in the evidence.
+ * rows, problems }.
+ *
+ * Every test command is a required row and must itself have executed at least one test: a feature-set or
+ * serial rerun that ran nothing fails, naming that exact row, whatever another row reported, and a row whose
+ * tests were all skipped or ignored is never credited. `requiredCommands`, when given, is how many test
+ * commands the gate was meant to run for the unit; fewer rows than that fails (a mandatory command that
+ * never ran is not qualified). The totals (executed, ignored, skipped) are a summary only. An ignored or
+ * skipped test fails unless the request names the unit (allowIgnored for `#[ignore]`/runner skips counted as
+ * ignored, allowMissingAssets for SKIP markers and runner-skipped tests); naming it never hides the counts.
  */
-export function judgeUnit({ name, steps, allowIgnored = [], allowMissingAssets = [] }) {
+export function judgeUnit({ name, steps, allowIgnored = [], allowMissingAssets = [], requiredCommands = undefined }) {
   const tests = steps.filter((s) => s.isTest);
   const sum = (key) => tests.reduce((total, s) => total + (s[key] ?? 0), 0);
   const executed = sum("executed"); const ignored = sum("ignored"); const skipped = sum("skipped");
   const problems = [];
+  const rows = tests.map((s, i) => ({ command: s.command ?? `test command ${i + 1}`, executed: s.executed ?? 0, ignored: s.ignored ?? 0, skipped: s.skipped ?? 0, qualified: (s.executed ?? 0) > 0 }));
   if (tests.length === 0) problems.push("no test step ran");
-  else if (executed <= 0) problems.push("no test executed (no runner summary reported a positive passed count)");
+  else for (const row of rows) {
+    if (!row.qualified) problems.push(`required test command \`${row.command}\` executed no test (${row.skipped} skipped, ${row.ignored} ignored; no runner summary reported a positive passed count)`);
+  }
+  if (requiredCommands !== undefined && tests.length < requiredCommands) problems.push(`${tests.length} of ${requiredCommands} required test commands ran; a mandatory command that did not run is not a pass`);
   let allowed = false;
   if (ignored > 0) {
     if (allowIgnored.includes(name)) allowed = true;
@@ -115,5 +125,5 @@ export function judgeUnit({ name, steps, allowIgnored = [], allowMissingAssets =
     if (allowMissingAssets.includes(name)) allowed = true;
     else problems.push(`${skipped} skipped test(s) or SKIP marker(s); a skipped test is not a pass (name the unit in allow_missing_assets to accept missing assets)`);
   }
-  return { status: problems.length ? "fail" : allowed ? "allowed-skips" : "pass", executed, ignored, skipped, problems };
+  return { status: problems.length ? "fail" : allowed ? "allowed-skips" : "pass", executed, ignored, skipped, rows, problems };
 }

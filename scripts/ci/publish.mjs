@@ -3,6 +3,7 @@
 // repository: this runs in GitHub Actions only, never on a developer host.
 //
 //   publish.mjs plan     validate the request, skip versions already published, order the rest
+//   publish.mjs build    unprivileged, npm: build only the planned units and their workspace dependency closure
 //   publish.mjs pack     unprivileged: build the exact artifacts once (npm tarballs, .crate files)
 //                        and seal them with a manifest of name, version, size and hashes
 //   publish.mjs verify   unprivileged, once per host: re-hash the sealed bytes, check those bytes,
@@ -23,6 +24,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
+import { pnpmBuildClosureArgs } from "./select.mjs";
 import { checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 
 // A directory for tar's -C. Git for Windows puts a GNU tar on PATH that reads a backslash as an escape, so
@@ -514,6 +516,23 @@ function packCrates({ units, root, outDir, env, spawn, metadata }) {
   return entries;
 }
 
+/**
+ * Build the planned npm units and their workspace dependency closure (`pnpm --filter "<name>..."`), in dependency
+ * order, and nothing else: an unrelated package that does not build cannot block a publish, and nothing outside
+ * the closure is compiled into the sealed bytes' build tree.
+ */
+export function commandBuild({ env = process.env, spawn = spawnSync, root = ROOT } = {}) {
+  requireNoTokens(env);
+  if (env.GITHUB_ACTIONS !== "true") throw new Error("publication runs in GitHub Actions only");
+  if (env.PUBLISH_REGISTRY !== "npm") throw new Error(`build applies to npm runs, not ${JSON.stringify(env.PUBLISH_REGISTRY)}`);
+  const units = plannedUnits(env, readNpmWorkspace(root));
+  const args = pnpmBuildClosureArgs(units.map((u) => u.name));
+  log(`building ${units.map((u) => u.name).join(", ")} and their workspace dependencies`);
+  const result = spawn("pnpm", args, { cwd: root, stdio: "inherit", env });
+  if (result.error || result.status !== 0) throw new Error("pnpm build of the planned units and their dependencies failed");
+  return args;
+}
+
 /** Build the exact artifacts once, without any secret, and seal them with manifest.json. */
 export function commandPack({ env = process.env, spawn = spawnSync, root = ROOT } = {}) {
   requireNoTokens(env);
@@ -681,7 +700,7 @@ export async function commandLedger(files, { root = ROOT, sync = null } = {}) {
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   const [command, ...rest] = process.argv.slice(2);
-  const run = { plan: commandPlan, pack: () => commandPack(), verify: () => commandVerify(), ledger: () => commandLedger(rest) }[command];
-  if (!run) { process.stderr.write("usage: publish.mjs plan|pack|verify|ledger\n"); process.exit(2); }
+  const run = { plan: commandPlan, build: () => commandBuild(), pack: () => commandPack(), verify: () => commandVerify(), ledger: () => commandLedger(rest) }[command];
+  if (!run) { process.stderr.write("usage: publish.mjs plan|build|pack|verify|ledger\n"); process.exit(2); }
   try { await run(); } catch (error) { process.stderr.write(`publish: ${error.message}\n`); process.exit(1); }
 }

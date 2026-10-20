@@ -28,7 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
-import { changedConfigCrates, changedLockNames, parseLock, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
+import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WIN = process.platform === "win32";
@@ -293,9 +293,14 @@ async function rustGate(selection, config) {
 async function npmGate(selection) {
   const { npm, root, packages } = selection;
   if (npm.test.length) {
-    // Workspace packages resolve each other through built output, so build all of them in
-    // dependency order before any selected package is tested.
-    const built = await run("npm:build", "pnpm", ["-r", "--workspace-concurrency=1", "run", "build"], { timeoutMinutes: 30 });
+    // Workspace packages resolve each other through built output, so build them in dependency order before any
+    // selected package is tested. A publish verification builds only the requested packages and their workspace
+    // dependency closure, so an unrelated package that does not build cannot block them.
+    let buildArgs = ["-r", "--workspace-concurrency=1", "run", "build"];
+    if (UNIT_MODE) {
+      try { buildArgs = pnpmBuildClosureArgs(npm.test.map((dir) => packages.find((p) => p.dir === dir)?.name)); } catch (error) { results.push({ unit: "npm:build", command: `pnpm build closure: ${error.message}`, ok: false, code: 1, seconds: 0 }); buildArgs = null; }
+    }
+    const built = buildArgs ? await run("npm:build", "pnpm", buildArgs, { timeoutMinutes: 30 }) : false;
     for (const dir of npm.test) {
       const pkg = packages.find((p) => p.dir === dir);
       if (!pkg?.scripts.test) {
@@ -327,6 +332,13 @@ async function swiftGate(selection) {
 
 const unitId = (selection, name) => (selection.unitRequest.registry === "crates" ? `rust:${name}` : `npm:${selection.packages.find((p) => p.name === name)?.dir}`);
 
+/** How many test commands the gate runs for a unit on this host: every feature set, doubled when the crate also reruns serially; one for an npm package. */
+function requiredTestCommands(selection, name) {
+  if (selection.unitRequest.registry !== "crates") return 1;
+  const entry = selection.config.rust?.[name] ?? {};
+  return (entry.featureSets ?? [[]]).length * (entry.alsoSerial ? 2 : 1);
+}
+
 /** The runner-reported verdict of every requested unit that was actually run on this host. */
 function unitVerdicts(selection) {
   const { units, excluded, noTest, allowIgnored, allowMissingAssets } = selection.unitRequest;
@@ -334,7 +346,7 @@ function unitVerdicts(selection) {
   for (const name of units) {
     if (excluded.includes(name) || noTest.includes(name)) continue;
     const id = unitId(selection, name);
-    verdicts.set(id, judgeUnit({ name, steps: results.filter((r) => r.unit === id), allowIgnored, allowMissingAssets }));
+    verdicts.set(id, judgeUnit({ name, steps: results.filter((r) => r.unit === id), allowIgnored, allowMissingAssets, requiredCommands: requiredTestCommands(selection, name) }));
   }
   return verdicts;
 }

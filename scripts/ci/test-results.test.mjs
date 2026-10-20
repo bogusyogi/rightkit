@@ -46,8 +46,8 @@ test("a unit passes only with executed tests and no unapproved ignored or skippe
   const step = (over = {}) => ({ isTest: true, executed: 5, failed: 0, ignored: 0, skipped: 0, ...over });
   assert.equal(judgeUnit({ name: "u", steps: [step(), { isTest: false }] }).status, "pass");
   assert.match(judgeUnit({ name: "u", steps: [{ isTest: false }] }).problems.join(), /no test step ran/);
-  assert.match(judgeUnit({ name: "u", steps: [step({ executed: 0 })] }).problems.join(), /no test executed/);
-  assert.equal(judgeUnit({ name: "u", steps: [step({ executed: 0 }), step({ executed: 3 })] }).status, "pass", "the total across a unit's feature sets and serial reruns counts");
+  assert.match(judgeUnit({ name: "u", steps: [step({ executed: 0 })] }).problems.join(), /required test command `test command 1` executed no test/);
+  assert.equal(judgeUnit({ name: "u", steps: [step({ executed: 0 }), step({ executed: 3 })] }).status, "fail", "a positive count from another command is never borrowed");
   const ignored = judgeUnit({ name: "u", steps: [step({ ignored: 2 })] });
   assert.equal(ignored.status, "fail");
   assert.match(ignored.problems.join(), /allow_ignored/);
@@ -58,4 +58,37 @@ test("a unit passes only with executed tests and no unapproved ignored or skippe
   assert.equal(judgeUnit({ name: "u", steps: [step({ skipped: 1 })], allowMissingAssets: ["u"] }).status, "allowed-skips");
   assert.equal(judgeUnit({ name: "u", steps: [step({ skipped: 1, ignored: 1 })], allowMissingAssets: ["u"] }).status, "fail", "an allowance covers only its own kind");
   assert.deepEqual([ignored.executed, ignored.ignored, ignored.skipped], [5, 2, 0], "counts stay in the evidence");
+});
+
+test("every required test command must execute a test itself; the total is a summary only", () => {
+  const step = (command, over = {}) => ({ isTest: true, command, executed: 5, failed: 0, ignored: 0, skipped: 0, ...over });
+  const base = "cargo test -p rightkit-x --no-fail-fast -- --show-output";
+  const feature = "cargo test -p rightkit-x --features extra --no-fail-fast -- --show-output";
+  const serial = "cargo test -p rightkit-x --no-fail-fast -- --test-threads=1 --show-output";
+  // a feature-set row that ran zero tests cannot borrow the base row's count, and the failing row is named exactly
+  const borrowed = judgeUnit({ name: "u", steps: [step(base, { executed: 40 }), step(feature, { executed: 0 })] });
+  assert.equal(borrowed.status, "fail");
+  assert.equal(borrowed.executed, 40, "the aggregate stays a summary");
+  assert.equal(borrowed.problems.length, 1);
+  assert.ok(borrowed.problems[0].includes(`\`${feature}\``) && !borrowed.problems[0].includes(base), borrowed.problems[0]);
+  assert.deepEqual(borrowed.rows.map((r) => [r.command, r.qualified]), [[base, true], [feature, false]]);
+  // the same for a serial rerun
+  const serialZero = judgeUnit({ name: "u", steps: [step(base), step(serial, { executed: 0 })] });
+  assert.equal(serialZero.status, "fail");
+  assert.match(serialZero.problems.join(), /--test-threads=1/);
+  // every row positive passes
+  assert.equal(judgeUnit({ name: "u", steps: [step(base), step(feature), step(serial)], requiredCommands: 3 }).status, "pass");
+  // a skipped mandatory row is not credited even when the unit may skip for missing assets
+  const skippedRow = judgeUnit({ name: "u", steps: [step(base), step(feature, { executed: 0, skipped: 4 })], allowMissingAssets: ["u"] });
+  assert.equal(skippedRow.status, "fail");
+  assert.match(skippedRow.problems[0], /executed no test \(4 skipped/);
+  // an ignored-only row is not credited either
+  assert.equal(judgeUnit({ name: "u", steps: [step(base), step(feature, { executed: 0, ignored: 3 })], allowIgnored: ["u"] }).status, "fail");
+  // a mandatory command that never ran is not a pass
+  const missing = judgeUnit({ name: "u", steps: [step(base)], requiredCommands: 3 });
+  assert.equal(missing.status, "fail");
+  assert.match(missing.problems.join(), /1 of 3 required test commands ran/);
+  assert.equal(judgeUnit({ name: "u", steps: [step(base)], requiredCommands: 1 }).status, "pass");
+  // named allowances still work when every row executed tests
+  assert.equal(judgeUnit({ name: "u", steps: [step(base), step(feature, { skipped: 1 })], allowMissingAssets: ["u"], requiredCommands: 2 }).status, "allowed-skips");
 });

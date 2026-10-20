@@ -213,11 +213,15 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'npm' }}
         with:
           version: 11.24.0
-      - name: Install and build the workspace
+      - name: Install the workspace
         if: ${{ needs.plan.outputs.registry == 'npm' }}
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm -r --workspace-concurrency=1 run build
+        run: pnpm install --frozen-lockfile
+      - name: Build only the planned units and their workspace dependencies
+        if: ${{ needs.plan.outputs.registry == 'npm' }}
+        env:
+          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
+          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
+        run: node scripts/ci/publish.mjs build
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         if: ${{ needs.plan.outputs.registry == 'crates' }}
       - name: Fetch the signed rightkit-swap
@@ -358,7 +362,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/upload.mjs
+          sparse-checkout: |
+            scripts/ci/upload.mjs
+            ci/approved-artifacts.json
           sparse-checkout-cone-mode: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -374,7 +380,7 @@ jobs:
         with:
           pattern: publish-receipt-verify-*
           path: ${{ runner.temp }}/sealed/receipts
-      - name: Dry-run the upload with no credentials
+      - name: Dry-run the upload with no credentials (includes the reviewer-approved artifact check)
         env:
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
@@ -406,7 +412,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/upload.mjs
+          sparse-checkout: |
+            scripts/ci/upload.mjs
+            ci/approved-artifacts.json
           sparse-checkout-cone-mode: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

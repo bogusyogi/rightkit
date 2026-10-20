@@ -6,10 +6,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildCrateUploadMetadata, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
-import { buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
+import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
+import { APPROVED_ARTIFACTS_FILE, buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
-import { assertPublishDoc, MUTATIONS, proveMutations } from "./workflow-contract.mjs";
+import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, SPARSE_UPLOAD, UPLOAD_SCRIPT_MUTATIONS } from "./workflow-contract.mjs";
+import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 
@@ -20,6 +21,19 @@ const tarDir = (dir) => (process.platform === "win32" ? dir.replaceAll("\\", "/"
 const SHA = "a".repeat(40);
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 const tmp = (label) => fs.mkdtempSync(path.join(os.tmpdir(), `rk-${label}-`));
+
+// The uploader refuses any sealed unit without a reviewer-approved entry (ci/approved-artifacts.json). Tests that are
+// not about approval run with a list that approves exactly what the manifest in `packDir` seals, read at call time so a
+// tarball tampered after sealing is still caught by its own checks. Approval tests call executeUploadRaw directly.
+const approvedEntry = (registry, unit, over = {}) => ({ registry, name: unit.name, version: unit.version, sha256: unit.sha256, reviewer: "RK Astra (fixture)", reviewRef: "pulse:fixture", ...over });
+function approvedFor(packDir) {
+  let manifest = { registry: "npm", units: [] };
+  try { manifest = JSON.parse(fs.readFileSync(path.join(packDir, "manifest.json"), "utf8")); } catch { /* the upload refuses an unreadable manifest on its own */ }
+  const file = path.join(tmp("approved"), "approved-artifacts.json");
+  fs.writeFileSync(file, JSON.stringify({ schema: 1, artifacts: (manifest.units ?? []).map((u) => approvedEntry(manifest.registry, u)) }));
+  return file;
+}
+const executeUpload = (options) => executeUploadRaw({ approvedFile: approvedFor(options.packDir), ...options });
 
 // ---- requirements -----------------------------------------------------------------------------
 
@@ -452,6 +466,8 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   // structured results: a pass needs executed tests and nothing ignored or skipped; an allowance must be requested
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { executed: 0 } })), /without a positive executed count/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { skipped: 2 } })), /status pass without a positive executed count and zero ignored\/skipped/);
+  await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { steps: [{ command: "cargo test -p x", ok: true, executed: 40 }, { command: "cargo test -p x --features y", ok: true, executed: 0 }] } })), /required test command `cargo test -p x --features y` executed no test/, "a positive total never covers a row that ran nothing");
+  await run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { steps: [{ command: "cargo clippy -p x", ok: true }, { command: "cargo test -p x", ok: true, executed: 3 }] } })); // non-test steps carry no count
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { status: "allowed-skips", skipped: 2 } })), /not named in allow_missing_assets/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { status: "allowed-skips", ignored: 2 } })), /not named in allow_ignored/);
   await assert.rejects(run(sealed, receipts(sealed.dir, sealed.manifest, { unitOverride: { consumer: { verified: false } } })), /not consumer-verified/);
@@ -480,6 +496,95 @@ test("upload refuses when the sealed bytes, the commit or the receipts do not bi
   await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REF: "refs/heads/dev", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /refs\/heads\/main only/);
   await assert.rejects(run(sealed, ok, actionsEnv({ GITHUB_REPOSITORY: "someone/rightkit", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /in bogusyogi\/rightkit only/);
   await assert.rejects(run(sealed, ok, actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/z", NODE_AUTH_TOKEN: "npm-secret-token", ...oidc })), /differ from the planned units/);
+});
+
+// ---- the reviewer-approved artifact list (ci/approved-artifacts.json) --------------------------------
+
+test("upload refuses a sealed unit the reviewers did not approve, in both modes, before any client, request or token is used", async () => {
+  const sealed = sealNpm({ units: [["@rightkit/a", "packages/a"], ["@rightkit/b", "packages/b"]] });
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const [a, b] = sealed.manifest.units;
+  const entry = (unit, over = {}) => approvedEntry("npm", unit, { reviewRef: "pulse:64ffc522", ...over });
+  const write = (doc) => { const file = path.join(tmp("approved"), "approved-artifacts.json"); fs.writeFileSync(file, typeof doc === "string" ? doc : JSON.stringify(doc)); return file; };
+  const list = (...artifacts) => ({ schema: 1, artifacts });
+  const touched = [];
+  const spawn = spy({ npm: () => { touched.push("npm"); return { status: 0, stdout: "", stderr: "" }; } }).spawn;
+  const fetchImpl = async () => { touched.push("fetch"); throw new Error("no network"); };
+  const dryEnv = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/b" });
+  const realEnv = { ...dryEnv, NODE_AUTH_TOKEN: "npm-secret-token", ...oidc };
+  const attempt = (approvedFile, dryRun) => executeUploadRaw({ env: dryRun ? dryEnv : realEnv, packDir: sealed.dir, receiptsDir, approvedFile, outDir: tmp("out"), dryRun, spawn, fetchImpl, pause: 1 });
+  const cases = [
+    [undefined, /no approved-artifacts file was provided/],
+    [path.join(tmp("none"), "approved-artifacts.json"), /is missing; no artifact is reviewer-approved/],
+    [write("{ not json"), /is not JSON/],
+    [write("[]"), /is not an object/],
+    [write(list()), /@rightkit\/a@0\.1\.0: not reviewer-approved/],
+    [write(list(entry(a))), /@rightkit\/b@0\.1\.0: not reviewer-approved/],
+    [write(list(entry(b))), /@rightkit\/a@0\.1\.0: not reviewer-approved/],
+    [write(list(entry(a), entry(b, { sha256: "e".repeat(64) }))), /@rightkit\/b@0\.1\.0: sealed sha256 [0-9a-f]{12} is not the reviewer-approved eeeeeeeeeeee \(pulse:64ffc522\)/],
+    [write(list(entry(a), entry(b, { version: "0.1.1" }))), /@rightkit\/b@0\.1\.0: not reviewer-approved/],
+    [write(list(entry(a), entry(b, { name: "@rightkit/bb" }))), /@rightkit\/b@0\.1\.0: not reviewer-approved/],
+    [write(list(entry(a), entry(b, { registry: "crates" }))), /@rightkit\/b@0\.1\.0: not reviewer-approved/],
+    // malformed files fail closed even when the sealed units are listed
+    [write({ schema: 2, artifacts: [entry(a), entry(b)] }), /schema 2 is not 1/],
+    [write({ schema: 1, artifacts: [entry(a), entry(b)], extra: true }), /exactly the keys schema and artifacts/],
+    [write({ schema: 1 }), /artifacts is not a list/],
+    [write(list(entry(a), entry(b, { reviewer: "" }))), /reviewer must be a non-empty string/],
+    [write(list(entry(a), entry(b, { reviewRef: undefined }))), /exactly the keys name, registry, reviewRef, reviewer, sha256, version/],
+    [write(list(entry(a), entry(b, { sha256: b.sha256.toUpperCase() }))), /sha256 must be 64 lowercase hex/],
+    [write(list(entry(a), entry(b, { version: "^0.1.0" }))), /version must be a plain MAJOR\.MINOR\.PATCH/],
+    [write(list(entry(a), entry(b), entry(b))), /is approved twice/],
+    [write(list(entry(a), entry(b), { ...entry(b), extra: 1 })), /exactly the keys/],
+  ];
+  for (const [approvedFile, pattern] of cases) {
+    for (const dryRun of [true, false]) await assert.rejects(attempt(approvedFile, dryRun), pattern, `${dryRun ? "dry run" : "real"}: ${pattern}`);
+  }
+  assert.deepEqual(touched, [], "a refused approval never reaches a registry client or request");
+  // exact approval passes; approvals for other units or versions never widen or break it
+  const exact = write(list(entry(a), entry(b)));
+  await attempt(exact, true);
+  await attempt(write(list(entry(a, { version: "0.0.9" }), entry(a), entry(b), { ...entry(a), name: "@rightkit/other" })), true);
+  assert.deepEqual(touched, [], "a dry run sends nothing");
+  // the default path is the committed file next to the uploader: the real job cannot be pointed elsewhere
+  assert.equal(path.relative(path.resolve(fileURLToPath(new URL("../..", import.meta.url))), APPROVED_ARTIFACTS_FILE).split(path.sep).join("/"), "ci/approved-artifacts.json");
+  await assert.rejects(executeUploadRaw({ env: dryEnv, packDir: sealed.dir, receiptsDir, outDir: tmp("out"), dryRun: true, spawn, fetchImpl }), /no approved-artifacts file was provided/, "omitting approvedFile refuses");
+});
+
+test("upload (crates) refuses an unapproved or re-hashed crate before any PUT", async () => {
+  const sealed = sealCrates(["rightkit-a", "rightkit-b"]);
+  const receiptsDir = receipts(sealed.dir, sealed.manifest);
+  const [a, b] = sealed.manifest.units;
+  const write = (artifacts) => { const file = path.join(tmp("approved"), "approved-artifacts.json"); fs.writeFileSync(file, JSON.stringify({ schema: 1, artifacts })); return file; };
+  const requests = [];
+  const fetchImpl = async (url, options = {}) => { requests.push(`${options.method ?? "GET"} ${url}`); throw new Error("no network"); };
+  const env = actionsEnv({ PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a rightkit-b", CARGO_REGISTRY_TOKEN: "crate-secret-token" });
+  const attempt = (approvedFile) => executeUploadRaw({ env, packDir: sealed.dir, receiptsDir, approvedFile, outDir: tmp("out"), dryRun: false, spawn: spy().spawn, fetchImpl, pause: 1 });
+  await assert.rejects(attempt(write([approvedEntry("crates", a)])), /rightkit-b@0\.1\.0: not reviewer-approved/);
+  await assert.rejects(attempt(write([approvedEntry("crates", a), approvedEntry("crates", b, { sha256: "d".repeat(64) })])), /rightkit-b@0\.1\.0: sealed sha256 .* is not the reviewer-approved dddddddddddd/);
+  await assert.rejects(attempt(write([approvedEntry("crates", a), approvedEntry("npm", b)])), /rightkit-b@0\.1\.0: not reviewer-approved/);
+  assert.deepEqual(requests, [], "nothing was fetched or PUT");
+});
+
+test("ci/approved-artifacts.json is well formed and holds exactly the three reviewer-signed npm artifacts", () => {
+  const { entries, problems } = loadApprovedArtifacts(APPROVED_ARTIFACTS_FILE);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(entries.map((e) => `${e.registry} ${e.name}@${e.version} ${e.sha256}`).sort(), [
+    "npm @rightkit/license@0.3.0 758764c8779234bb862cb3fbba53069a5d94a1b8195fbc0bc89f238231e99e79",
+    "npm @rightkit/logs@0.1.6 87688669e0d1c1ac5bbcc8a2d4b10f64085ebdbb672b1454e0909ea7b27b6faf",
+    "npm @rightkit/react-shell@0.7.2 4e36c1cf2d48f1089f145c9323f331a28804c513ae5cb8c7f77c6e266de9c291",
+  ]);
+  // Each artifact cites the full Pulse id of the reviewer message that signed it.
+  const signedBy = { "@rightkit/logs": "pulse:64ffc522-48f7-43c5-a31b-454fdd02dc44", "@rightkit/license": "pulse:64ffc522-48f7-43c5-a31b-454fdd02dc44", "@rightkit/react-shell": "pulse:0248b28c-95a9-4c8b-9e79-b4b9f642f3c2" };
+  assert.ok(entries.every((e) => /RK Astra/.test(e.reviewer) && e.reviewRef === signedBy[e.name]));
+});
+
+test("the uploader keeps its reviewer-approval gate, and every weakening of it is rejected by the contract", () => {
+  const text = fs.readFileSync(new URL("./upload.mjs", import.meta.url), "utf8");
+  assert.equal(assertUploadScript(text), true);
+  assert.deepEqual(proveUploadScriptMutations(text), []);
+  const names = UPLOAD_SCRIPT_MUTATIONS.map(([name]) => name);
+  for (const required of ["the approval check is removed", "the approval check only runs for a real upload", "the approval check runs after the refusal point", "a missing approvedFile defaults to nothing", "the approved path comes from the environment", "the approved hash is no longer compared", "an unapproved unit is allowed"]) assert.ok(names.includes(required), required);
+  assert.throws(() => assertUploadScript(text.replace("problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));", "")), /drops the reviewer-approval gate/);
 });
 
 test("upload re-checks provenance preconditions in the sealed tarball in both modes", async () => {
@@ -749,6 +854,31 @@ test("pack (npm) runs pnpm pack per unit with no credential, seals the bytes, an
   assert.throws(() => commandPack({ env, spawn, root }), /must name https:\/\/github\.com\/bogusyogi\/rightkit/);
 });
 
+test("build (npm) builds only the planned units and their workspace dependency closure, never the whole workspace", () => {
+  const root = npmWorkspaceRoot(["a", "b", "c"]);
+  const { spawn, calls } = spy({ pnpm: () => ({ status: 0 }) });
+  const env = actionsEnv({ PUBLISH_UNITS: "@rightkit/a @rightkit/c" });
+  const args = commandBuild({ env, spawn, root });
+  const builds = calls.filter((c) => c.command === "pnpm");
+  assert.equal(builds.length, 1, "one pnpm build, scoped by filters");
+  assert.deepEqual(builds[0].args, ["--workspace-concurrency=1", "--filter", "@rightkit/a...", "--filter", "@rightkit/c...", "run", "build"]);
+  assert.deepEqual(args, builds[0].args);
+  for (const wide of ["-r", "--recursive", "--workspace-root"]) assert.ok(!builds[0].args.includes(wide), `no ${wide}`);
+  assert.ok(!builds[0].args.some((a) => a.includes("@rightkit/b")), "an unrelated package is not built");
+  assert.throws(() => commandBuild({ env: { ...env, NODE_AUTH_TOKEN: "npm-secret-token" }, spawn, root }), /must not receive secrets/);
+  assert.throws(() => commandBuild({ env: { ...env, PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a" }, spawn, root }), /build applies to npm runs/);
+  assert.throws(() => commandBuild({ env: { ...env, PUBLISH_UNITS: "@rightkit/zzz" }, spawn, root }), /not a publishable npm unit/);
+  assert.throws(() => commandBuild({ env: { ...env, GITHUB_ACTIONS: "false" }, spawn, root }), /GitHub Actions only/);
+  assert.throws(() => commandBuild({ env, spawn: spy({ pnpm: () => ({ status: 1 }) }).spawn, root }), /build of the planned units and their dependencies failed/);
+});
+
+test("the build closure arguments filter each named package with its dependencies and refuse anything that is not a package name", () => {
+  assert.deepEqual(pnpmBuildClosureArgs(["@rightkit/logs", "rightkit-plain", "@rightkit/logs"]), ["--workspace-concurrency=1", "--filter", "@rightkit/logs...", "--filter", "rightkit-plain...", "run", "build"]);
+  assert.throws(() => pnpmBuildClosureArgs([]), /no packages to build/);
+  assert.throws(() => pnpmBuildClosureArgs([undefined]), /unsafe package name/);
+  for (const bad of ["--filter", "-r", "!@rightkit/a", "@rightkit/a...", "...@rightkit/a", "[origin/main]", "./packages/a", "a b", "@rightkit/a;x"]) assert.throws(() => pnpmBuildClosureArgs([bad]), /unsafe package name/, bad);
+});
+
 test("pack (crates) runs one cargo package, reads the packaged manifest, and seals metadata beside the crate", () => {
   const root = tmp("ws");
   const target = tmp("target");
@@ -917,6 +1047,27 @@ test("the real publish workflow holds the contract and every mutation is rejecte
   assert.deepEqual(proveMutations(doc), []);
   const names = MUTATIONS.map(([name]) => name);
   for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
+});
+
+test("seal-check and upload both check out the approved-artifacts list; pack builds only the planned closure", { skip: realWorkflowSkip }, () => {
+  const doc = realDoc();
+  const checkout = (job) => doc.jobs[job].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? ""));
+  for (const job of ["seal-check", "upload"]) {
+    assert.deepEqual(checkout(job).with["sparse-checkout"].split("\n").filter(Boolean), SPARSE_UPLOAD, job);
+    assert.equal(checkout(job).with["sparse-checkout-cone-mode"], "false", job);
+  }
+  assert.deepEqual(SPARSE_UPLOAD, ["scripts/ci/upload.mjs", "ci/approved-artifacts.json"]);
+  const dry = doc.jobs["seal-check"].steps.find((s) => s.run);
+  assert.equal(dry.run.trim(), "node scripts/ci/upload.mjs run --dry-run");
+  const pack = doc.jobs.pack.steps;
+  assert.ok(pack.some((s) => s.run?.trim() === "node scripts/ci/publish.mjs build"));
+  assert.ok(!pack.some((s) => /pnpm[^\n]*(?:\s-r\b|--recursive)|run build/.test(s.run ?? "")), "pack no longer builds the whole workspace");
+  const names = MUTATIONS.map(([name]) => name);
+  for (const required of ["upload no longer checks out the approved-artifacts list", "seal-check no longer checks out the approved-artifacts list", "seal-check checks out the whole workspace", "the approved-artifacts path is overridden through the upload env", "the approved-artifacts path is overridden through the seal-check env", "the dry run no longer runs the uploader (and so the approval check)", "pack builds the whole workspace", "pack drops the scoped build", "pack builds after sealing"]) assert.ok(names.includes(required), required);
+  const broken = (edit) => { const copy = structuredClone(doc); edit(copy.jobs); return () => assertPublishDoc(copy); };
+  assert.throws(broken((j) => { j["seal-check"].steps.find((s) => /^actions\/checkout@/.test(s.uses ?? "")).with["sparse-checkout"] = "scripts/ci/upload.mjs"; }), /seal-check must check out exactly/);
+  assert.throws(broken((j) => { j.upload.steps[0].with["sparse-checkout"] = "scripts/ci/upload.mjs"; }), /upload must check out exactly|sparse-checkout must be/);
+  assert.throws(broken((j) => { j.pack.steps.find((s) => s.run?.trim() === "node scripts/ci/publish.mjs build").run = "pnpm -r run build"; }), /pack must (?:run exactly one|not build the whole workspace)/);
 });
 
 test("the contract compares conditions exactly and finds every secret expression", { skip: realWorkflowSkip }, () => {

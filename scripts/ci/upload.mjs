@@ -4,6 +4,9 @@
 // and compiles, installs and builds nothing: it
 //   1. re-checks the sealed artifacts packed by the unprivileged `pack` job against manifest.json
 //      (name, version, size, sha256) and rejects unlisted files,
+//   1b. requires ci/approved-artifacts.json (read from the dispatched commit's checkout, never from an input)
+//      to hold a reviewer-signed entry whose registry, name, version and sha256 equal every sealed unit; any
+//      missing, mismatched or malformed approval refuses before a registry or token is touched,
 //   2. re-checks that BOTH verify hosts (macos and windows) produced a receipt for exactly those bytes
 //      at this commit, with explicit pass evidence for every unit,
 //   3. uploads those bytes: `npm publish <tgz> --ignore-scripts --provenance`, or a PUT of the sealed
@@ -227,12 +230,83 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
         if ((row.skipped ?? 0) > 0 && !allowAssets.has(unit.name)) bad(`${unit.name}: ${row.skipped} skipped test(s) and not named in allow_missing_assets`);
         if (!((row.ignored ?? 0) > 0 || (row.skipped ?? 0) > 0)) bad(`${unit.name}: allowed-skips with nothing ignored or skipped`);
       }
+      // Each recorded test command is a required row on its own: a positive total never covers a row that ran nothing.
+      if (row.status === "pass" || row.status === "allowed-skips") {
+        for (const step of Array.isArray(row.steps) ? row.steps : []) if (step?.executed !== undefined && !(step.executed > 0)) bad(`${unit.name}: required test command \`${String(step.command).slice(0, 160)}\` executed no test`);
+      }
       if (row.status !== "allowed-exclusion" && row.consumer?.verified !== true) bad(`${unit.name}: the installed or extracted shipped artifact was not consumer-verified on this host`);
       statusByUnit.get(unit.name)?.push(row.status);
     }
   }
   for (const [name, statuses] of statusByUnit) {
     if (statuses.length && !statuses.some((s) => s === "pass" || s === "allowed-skips") && !statuses.every((s) => s === "allowed-no-test")) problems.push(`${name}: no host passed it (${statuses.join(", ")})`);
+  }
+  return problems;
+}
+
+// ---- reviewer-approved artifacts --------------------------------------------------------------
+
+/**
+ * The committed list of artifact hashes a reviewer signed. The `release` environment has no required
+ * reviewer, so this file is the human gate: an upload (and its dry run) proceeds only when EVERY sealed
+ * unit has an entry with the exact registry, name, version and sha256. The path is fixed relative to this
+ * script, which the workflow checks out at the dispatched commit; no input, argument or environment
+ * variable can point at another file.
+ */
+export const APPROVED_ARTIFACTS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "approved-artifacts.json");
+export const APPROVED_ENTRY_KEYS = ["name", "registry", "reviewRef", "reviewer", "sha256", "version"];
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SEMVER_PLAIN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+/** Read and validate the approved-artifacts file. Returns { entries, problems }; any defect is a problem (fail closed). */
+export function loadApprovedArtifacts(file) {
+  if (typeof file !== "string" || !file) return { entries: [], problems: ["no approved-artifacts file was provided; an upload needs ci/approved-artifacts.json from the dispatched commit"] };
+  if (!fs.existsSync(file)) return { entries: [], problems: [`approved-artifacts file ${path.basename(file)} is missing; no artifact is reviewer-approved`] };
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return { entries: [], problems: ["approved-artifacts file is not JSON"] }; }
+  const problems = [];
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) return { entries: [], problems: ["approved-artifacts file is not an object"] };
+  if (JSON.stringify(Object.keys(doc).sort()) !== JSON.stringify(["artifacts", "schema"])) problems.push("approved-artifacts file must hold exactly the keys schema and artifacts");
+  if (doc.schema !== 1) problems.push(`approved-artifacts schema ${JSON.stringify(doc.schema)} is not 1`);
+  if (!Array.isArray(doc.artifacts)) return { entries: [], problems: [...problems, "approved-artifacts.artifacts is not a list"] };
+  const entries = []; const seen = new Set();
+  doc.artifacts.forEach((entry, i) => {
+    const at = `approved-artifacts entry ${i}`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) { problems.push(`${at} is not an object`); return; }
+    const keys = Object.keys(entry).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(APPROVED_ENTRY_KEYS)) { problems.push(`${at} must hold exactly the keys ${APPROVED_ENTRY_KEYS.join(", ")}`); return; }
+    const text = (v) => typeof v === "string" && v.trim() !== "" && v === v.trim();
+    if (entry.registry !== "npm" && entry.registry !== "crates") problems.push(`${at}: registry must be npm or crates`);
+    if (!text(entry.name)) problems.push(`${at}: name must be a non-empty string`);
+    if (!SEMVER_PLAIN.test(entry.version ?? "")) problems.push(`${at}: version must be a plain MAJOR.MINOR.PATCH`);
+    if (!SHA256_HEX.test(entry.sha256 ?? "")) problems.push(`${at}: sha256 must be 64 lowercase hex characters`);
+    if (!text(entry.reviewer)) problems.push(`${at}: reviewer must be a non-empty string`);
+    if (!text(entry.reviewRef)) problems.push(`${at}: reviewRef must be a non-empty string`);
+    const id = `${entry.registry}\u0000${entry.name}\u0000${entry.version}`;
+    if (seen.has(id)) problems.push(`${at}: ${entry.registry} ${entry.name}@${entry.version} is approved twice`);
+    seen.add(id);
+    entries.push(entry);
+  });
+  return { entries, problems };
+}
+
+/**
+ * Every unit in the sealed manifest must have exactly one approved entry with the same registry, name,
+ * version and sha256. A missing entry, a different hash, a malformed file or a duplicate unit refuses;
+ * approvals for units that are not in this run are allowed (an approval is permission, not a request).
+ * Returns problems.
+ */
+export function checkApprovedArtifacts({ manifest, registry, approvedFile }) {
+  const { entries, problems } = loadApprovedArtifacts(approvedFile);
+  if (!manifest || !Array.isArray(manifest.units) || manifest.units.length === 0) { problems.push("the sealed manifest lists no units to approve"); return problems; }
+  if (manifest.registry !== registry) problems.push(`approval: manifest registry ${manifest.registry} is not ${registry}`);
+  const names = new Set();
+  for (const unit of manifest.units) {
+    if (names.has(unit.name)) problems.push(`approval: ${unit.name} is sealed twice`);
+    names.add(unit.name);
+    const matches = entries.filter((e) => e.registry === registry && e.name === unit.name && e.version === unit.version);
+    if (matches.length === 0) problems.push(`${unit.name}@${unit.version}: not reviewer-approved; ci/approved-artifacts.json has no ${registry} entry for it`);
+    else if (!SHA256_HEX.test(unit.sha256 ?? "") || matches.some((e) => e.sha256 !== unit.sha256)) problems.push(`${unit.name}@${unit.version}: sealed sha256 ${String(unit.sha256).slice(0, 12)} is not the reviewer-approved ${matches[0].sha256.slice(0, 12)} (${matches[0].reviewRef})`);
   }
   return problems;
 }
@@ -379,7 +453,7 @@ export async function reconcileUnit({ registry, unit, fetchImpl }) {
  * Check everything, then upload (or, with dryRun, describe) each sealed unit in order. Injectable `spawn`
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
  */
-export async function executeUpload({ env, packDir, receiptsDir, previousDir = null, outDir, dryRun, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
+export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
   const registry = env.PUBLISH_REGISTRY;
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
   if (env.GITHUB_ACTIONS !== "true") throw new Error("upload runs in GitHub Actions only");
@@ -401,6 +475,7 @@ export async function executeUpload({ env, packDir, receiptsDir, previousDir = n
   const { manifest, manifestSha256, problems } = loadSealed({ packDir, registry, unitsText: env.PUBLISH_UNITS, run });
   if (manifest) {
     if (manifest.commit !== env.GITHUB_SHA) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${env.GITHUB_SHA}`);
+    problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));
     problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run }));
     if (registry === "npm") {
       for (const unit of manifest.units) {
@@ -514,6 +589,6 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
   const temp = process.env.RUNNER_TEMP || os.tmpdir();
   const sealed = process.env.SEALED_DIR || path.join(temp, "sealed");
   try {
-    await executeUpload({ env: process.env, packDir: path.join(sealed, "packed"), receiptsDir: path.join(sealed, "receipts"), previousDir: path.join(sealed, "previous"), outDir: path.join(temp, "publication-receipt"), dryRun: flags.includes("--dry-run") });
+    await executeUpload({ env: process.env, packDir: path.join(sealed, "packed"), receiptsDir: path.join(sealed, "receipts"), approvedFile: APPROVED_ARTIFACTS_FILE, previousDir: path.join(sealed, "previous"), outDir: path.join(temp, "publication-receipt"), dryRun: flags.includes("--dry-run") });
   } catch (error) { process.stderr.write(`upload: ${error.message}\n`); process.exit(1); }
 }
