@@ -39,12 +39,14 @@ function prepare(artifact, out) {
 }
 
 async function diagnostic(entry, out) {
-  const report = { diagnosticOnly: true, nativeHostQualified: false, frozen: FROZEN, host: { platform: process.platform, arch: process.arch, node: process.version }, nativeCalls: [], chrome: [], scenarios: [], errors: [], linuxPolicy: {} };
+  const report = { diagnosticOnly: true, nativeHostQualified: false, frozen: FROZEN, host: { platform: process.platform, arch: process.arch, node: process.version }, nativeCalls: [], chrome: [], scenarios: [], errors: [], linuxPolicy: {}, windowsProbes: [] };
   const originalSpawn = childProcess.spawn;
   const originalSpawnSync = childProcess.spawnSync;
   let api;
   let activeBrowser;
   const launches = [];
+  let captureScanner = false;
+  let scannerCaptured = false;
   let nativeBytes = 0;
   // Output is a prefix bounded by a shared budget; loss is explicit, never silently treated as complete.
   const bound = value => {
@@ -52,16 +54,56 @@ async function diagnostic(entry, out) {
     const take = Math.max(0, Math.min(bytes.length, MAX_BYTES - nativeBytes)); nativeBytes += take;
     return { text: bytes.subarray(0, take).toString('utf8'), bytes: bytes.length, truncated: take < bytes.length };
   };
+  function windowsPhaseProbes(command, args, options) {
+    // Capture only the real frozen scanner invocation; no copied script or fallback discovery.
+    const commandIndex = args?.indexOf('-Command');
+    const script = args?.[commandIndex + 1];
+    if (commandIndex !== 2 || args.length !== 4 || args[0] !== '-NoProfile' || args[1] !== '-NonInteractive' || typeof script !== 'string' || !options?.env?.RK_QA_PROFILE || !script.includes('RK_QA_SCAN_COMPLETE')) {
+      report.windowsProbes.push({ kind: 'scanner-capture-refused', reason: 'actual invocation did not match frozen scanner shape' });
+      return;
+    }
+    scannerCaptured = true;
+    const marker = phase => `[Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ${phase}'); [Console]::Error.Flush(); `;
+    const once = (source, anchor, replacement) => {
+      assert.equal(source.split(anchor).length, 2, `diagnostic scanner anchor must occur exactly once: ${anchor}`);
+      return source.replace(anchor, replacement);
+    };
+    function run(kind, body, extra = {}) {
+      const invocation = [...args]; invocation[commandIndex + 1] = body;
+      const started = performance.now();
+      try {
+        // Only diagnostic timeout differs; executable, arguments & isolated environment remain captured.
+        const result = originalSpawnSync(command, invocation, { ...options, timeout: 15_000, maxBuffer: MAX_BYTES });
+        report.windowsProbes.push({ kind, ...extra, timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
+      } catch (error) { report.windowsProbes.push({ kind, ...extra, durationMs: performance.now() - started, error: errorRecord(error) }); }
+    }
+    run('powershell-entry', `${marker('ENTRY')}[ordered]@{ PSVersion = $PSVersionTable.PSVersion.ToString(); LanguageMode = [string]$ExecutionContext.SessionState.LanguageMode; PSHOME = $PSHOME } | ConvertTo-Json -Compress; ${marker('ENTRY_COMPLETE')}`);
+    try {
+      let instrumented = marker('SCRIPT_ENTRY') + script;
+      instrumented = once(instrumented, '$assembly = [AppDomain]', `${marker('REFLECTION_EMIT_BEGIN')}$assembly = [AppDomain]`);
+      instrumented = once(instrumented, '$native = $builder.CreateType();', `$native = $builder.CreateType(); ${marker('REFLECTION_EMIT_END')}`);
+      instrumented = once(instrumented, '$rx = [regex]::new(', `${marker('REGEX_BEGIN')}$rx = [regex]::new(`);
+      instrumented = once(instrumented, '; Get-CimInstance Win32_Process |', `; ${marker('REGEX_END')}& { ${marker('CIM_BEGIN')}Get-CimInstance Win32_Process; ${marker('CIM_END')} } |`);
+      instrumented = once(instrumented, 'function RkProfile([uint32]$id, $rx) {', `function RkProfile([uint32]$id, $rx) { ${marker('PER_PID_NATIVE_BEGIN')}`);
+      const rowQuery = "$row = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [string]$id);";
+      instrumented = once(instrumented, rowQuery, `${marker('PER_PID_NATIVE_END')}${marker('PER_PID_CIM_BEGIN')}${rowQuery} ${marker('PER_PID_CIM_END')}`);
+      instrumented += `; ${marker('SCRIPT_END')}`;
+      run('sealed-scanner-phases', instrumented, { originalScriptSha256: createHash('sha256').update(script).digest('hex'), instrumentedScriptSha256: createHash('sha256').update(instrumented).digest('hex') });
+    } catch (error) { report.windowsProbes.push({ kind: 'scanner-instrumentation-refused', error: errorRecord(error) }); }
+  }
   childProcess.spawnSync = function (command, args, options) {
+    if (process.platform === 'win32' && captureScanner && !scannerCaptured && command === 'powershell.exe') windowsPhaseProbes(command, args, options);
+    const started = performance.now();
     const result = originalSpawnSync.apply(this, arguments); // Preserve every option, timeout & return value.
+    const durationMs = performance.now() - started;
     const profile = options?.env?.RK_QA_PROFILE;
     if (/powershell(?:\.exe)?$/i.test(String(command))) {
-      report.nativeCalls.push({ kind: profile ? 'powershell-owned-probe' : 'powershell-native-call', profile: profile ?? null, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
+      report.nativeCalls.push({ kind: profile ? 'powershell-owned-probe' : 'powershell-native-call', profile: profile ?? null, durationMs, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
     }
     // ps scans enumerate internally; retain only rows bearing this launch's synthetic profile.
     if (command === 'ps') {
       const rows = String(result.stdout ?? '').split(/\r?\n/).filter(line => launches.some(launch => line.includes(`--user-data-dir=${launch.profileDir}`)));
-      report.nativeCalls.push({ kind: 'posix-owned-probe', status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(rows.join('\n')), stderr: bound(result.stderr) });
+      report.nativeCalls.push({ kind: 'posix-owned-probe', durationMs, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(rows.join('\n')), stderr: bound(result.stderr) });
     }
     return result;
   };
@@ -107,6 +149,21 @@ async function diagnostic(entry, out) {
       }
     }
     api = await import(pathToFileURL(entry).href);
+    if (process.platform === 'win32') {
+      const emptyProfile = fs.mkdtempSync(path.join(out, 'rk-empty-scan-'));
+      try {
+        captureScanner = true;
+        const started = performance.now();
+        const scan = api.probeProfileProcesses(emptyProfile);
+        report.windowsProbes.push({ kind: 'original-empty-profile-scan', scan, includesDiagnosticProbes: true, durationMs: performance.now() - started });
+        if (!scannerCaptured) report.windowsProbes.push({ kind: 'scanner-unavailable', reason: 'frozen API did not provide an actual scanner invocation; no diagnostic scanner was run' });
+      } catch (error) { report.windowsProbes.push({ kind: 'empty-profile-probe-error', error: errorRecord(error) }); }
+      finally {
+        captureScanner = false;
+        try { fs.rmdirSync(emptyProfile); }
+        catch (error) { report.windowsProbes.push({ kind: 'empty-profile-cleanup-error', error: errorRecord(error) }); }
+      }
+    }
     const current = fs.realpathSync(api.managedCurrentDir());
     const key = api.chromeForTestingPlatform();
     const pin = api.PINNED_CHROME_FOR_TESTING;

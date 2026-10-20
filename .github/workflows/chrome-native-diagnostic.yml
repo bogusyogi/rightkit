@@ -35,6 +35,12 @@ jobs:
         env:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/rightkit-chrome-managed
         run: node scripts/ci/provision-chrome.mjs
+      - name: Allow pinned Linux Chrome user namespaces
+        if: ${{ runner.os == 'Linux' }}
+        env:
+          RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/rightkit-chrome-managed
+          RIGHTKIT_CHROME_FOR_TESTING: ${{ runner.temp }}/rightkit-chrome-managed/current/chrome-linux64/chrome
+        run: node scripts/ci/chrome-linux-sandbox.mjs
       - name: Observe frozen native behavior
         env:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/rightkit-chrome-managed
