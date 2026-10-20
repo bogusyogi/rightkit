@@ -12,6 +12,9 @@ import { consumerChildEnv } from './npm-recipe-consumer.mjs';
 const FILE = fileURLToPath(import.meta.url);
 const FROZEN = Object.freeze({ runId: '39496214838', runAttempt: '1', repository: 'bogusyogi/rightkit', commit: 'd37da6469cc4bf8a6819bc19778113c62d74f1f1', name: '@rightkit/qa-chrome', version: '0.1.9', file: 'rightkit-qa-chrome-0.1.9.tgz', size: 40513, sha256: 'bab8ff5fdbabfdc7bbdddcec0842fdc3aba398763960f0bf396ff0fd36608ba3' });
 const MAX_BYTES = 2 * 1024 * 1024;
+const WINDOWS_SYSTEM_ENV = ['ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'SystemDrive', 'ProgramData', 'ALLUSERSPROFILE'];
+const WINDOWS_HOME_ENV = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA'];
+const WINDOWS_ENV_BRIDGE = 'RIGHTKIT_DIAGNOSTIC_WINDOWS_ENV';
 const errorRecord = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error), code: error?.code ?? null });
 const requiredPath = name => { assert(process.env[name] && path.isAbsolute(process.env[name]), `${name} must be absolute`); return path.resolve(process.env[name]); };
 
@@ -39,6 +42,10 @@ function prepare(artifact, out) {
 }
 
 async function diagnostic(entry, out) {
+  // Only named standard Windows locations cross this diagnostic bridge; archive never inherits it.
+  const windowsParentEnv = JSON.parse(process.env[WINDOWS_ENV_BRIDGE] ?? '{}');
+  delete process.env[WINDOWS_ENV_BRIDGE];
+  assert(Object.entries(windowsParentEnv).every(([key, value]) => [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV].includes(key) && typeof value === 'string'), 'unexpected diagnostic Windows environment field');
   const report = { diagnosticOnly: true, nativeHostQualified: false, frozen: FROZEN, host: { platform: process.platform, arch: process.arch, node: process.version }, nativeCalls: [], chrome: [], scenarios: [], errors: [], linuxPolicy: {}, windowsProbes: [] };
   const originalSpawn = childProcess.spawn;
   const originalSpawnSync = childProcess.spawnSync;
@@ -100,6 +107,32 @@ ${marker('EXIT')}`);
       const result = originalSpawnSync(observedExecutable, [...args], { ...options, env: { ...options.env, PSModulePath: modulePath }, timeout: 15_000, maxBuffer: MAX_BYTES });
       report.windowsProbes.push({ kind: 'sealed-scanner-trusted-module-path', executablePath: observedExecutable, modulePath, originalScriptSha256: createHash('sha256').update(script).digest('hex'), timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
     } catch (error) { report.windowsProbes.push({ kind: 'trusted-module-path-probe-refused', error: errorRecord(error) }); }
+    for (const restoreHome of [false, true]) {
+      const names = restoreHome ? [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV] : WINDOWS_SYSTEM_ENV;
+      const restored = Object.fromEntries(names.filter(name => Object.hasOwn(windowsParentEnv, name)).map(name => [name, windowsParentEnv[name]]));
+      const kind = restoreHome ? 'sealed-scanner-restored-system-and-home-env' : 'sealed-scanner-restored-system-env';
+      if (!Object.keys(restored).length) {
+        report.windowsProbes.push({ kind, refused: 'parent standard Windows locations unavailable' });
+        continue;
+      }
+      const env = { ...options.env };
+      for (const [name, value] of Object.entries(restored)) {
+        for (const present of Object.keys(env)) if (present.toLowerCase() === name.toLowerCase()) delete env[present];
+        env[name] = value;
+      }
+      const redact = value => {
+        let text = Buffer.from(value ?? '').toString('utf8');
+        for (const [name, location] of Object.entries(restored).sort((a, b) => b[1].length - a[1].length)) {
+          if (location) text = text.split(location).join(`[restored:${name}]`);
+        }
+        return text;
+      };
+      const started = performance.now();
+      try {
+        const result = originalSpawnSync(command, [...args], { ...options, env, timeout: 15_000, maxBuffer: MAX_BYTES });
+        report.windowsProbes.push({ kind, restoredKeys: Object.keys(restored), originalScriptSha256: createHash('sha256').update(script).digest('hex'), timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? { ...errorRecord(result.error), message: redact(result.error.message) } : null, stdout: bound(redact(result.stdout)), stderr: bound(redact(result.stderr)) });
+      } catch (error) { report.windowsProbes.push({ kind, restoredKeys: Object.keys(restored), durationMs: performance.now() - started, error: { ...errorRecord(error), message: redact(error?.message ?? error) } }); }
+    }
     for (const autoLoading of ['None', null]) {
       run(autoLoading ? 'powershell-explicit-cim' : 'powershell-explicit-cim-default-autoload', `function RkDiagnosticMark([string]$text) { [Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ' + $text); [Console]::Error.Flush() }
 $ErrorActionPreference = 'Stop'; ${autoLoading ? "$PSModuleAutoLoadingPreference = 'None';" : ''}
@@ -275,6 +308,14 @@ async function main() {
     const home = path.join(out, 'home'); fs.mkdirSync(home, { recursive: true });
     const env = consumerChildEnv(process.env, home);
     env.RIGHTKIT_CHROME_FOR_TESTING_ROOT = managed;
+    if (process.platform === 'win32') {
+      const locations = {};
+      for (const name of [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV]) {
+        const entry = Object.entries(process.env).find(([key]) => key.toLowerCase() === name.toLowerCase());
+        if (entry) locations[name] = entry[1];
+      }
+      env[WINDOWS_ENV_BRIDGE] = JSON.stringify(locations);
+    }
     const child = childProcess.spawnSync(process.execPath, [FILE, '--child', entry, out], { env, windowsHide: true, encoding: 'utf8', timeout: 240_000, maxBuffer: MAX_BYTES });
     fs.writeFileSync(path.join(out, 'child-status.json'), `${JSON.stringify({ diagnosticOnly: true, nativeHostQualified: false, status: child.status, signal: child.signal, error: child.error ? errorRecord(child.error) : null, stdout: child.stdout, stderr: child.stderr }, null, 2)}\n`);
     process.exitCode = child.error || child.status !== 0 ? 1 : 0;
