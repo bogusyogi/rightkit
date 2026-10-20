@@ -24,7 +24,7 @@
     "@rightkit/license": "0.3.0",
     "@rightkit/logs": "0.1.6",
     "@rightkit/media-ui": "0.3.4",
-    "@rightkit/onboarding": "0.6.2",
+    "@rightkit/onboarding": "0.6.3",
     "@rightkit/outdated": "0.2.0",
     "@rightkit/pdf-ui": "0.2.0",
     "@rightkit/platform-ui": "0.4.0",
@@ -314,7 +314,8 @@
       "0.3.3",
       "0.5.0",
       "0.6.0",
-      "0.6.1"
+      "0.6.1",
+      "0.6.2"
     ],
     "@rightkit/doc-render": [
       "0.1.0",
@@ -599,7 +600,7 @@
       "@rightkit/license": "0.3.0",
       "@rightkit/logs": "0.1.5",
       "@rightkit/media-ui": "0.3.4",
-      "@rightkit/onboarding": "0.6.2",
+      "@rightkit/onboarding": "0.6.3",
       "@rightkit/outdated": "0.2.0",
       "@rightkit/pdf-ui": "0.2.0",
       "@rightkit/platform-ui": "0.4.0",

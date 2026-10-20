@@ -308,7 +308,7 @@ export async function createAppleProfile({ root, config = {}, bundleId, name, co
 async function createDirectProfile({ bundleId, name, certificate, expectedTeam, expectedKeychainGroup, outFile, dryRun, env, run, now, log, request, list, mutate, plan }) {
   const ascCert = (await request("GET", `/v1/certificates/${enc(certificate)}`)).data;
   if (!ascCert?.id || ascCert.id !== certificate) fail("APPLE_PROFILE_CERT_NOT_IN_ASC", "Selected certificate is absent from ASC.");
-  if (ascCert.attributes?.certificateType !== "DEVELOPER_ID_APPLICATION") fail("APPLE_PROFILE_CERT_TYPE", "Direct profiles require an existing DEVELOPER_ID_APPLICATION certificate.");
+  if (!["DEVELOPER_ID_APPLICATION", "DEVELOPER_ID_APPLICATION_G2"].includes(ascCert.attributes?.certificateType)) fail("APPLE_PROFILE_CERT_TYPE", "Direct profiles require an existing DEVELOPER_ID_APPLICATION or DEVELOPER_ID_APPLICATION_G2 certificate.");
   if (!(Date.parse(ascCert.attributes?.expirationDate) > now.getTime())) fail("APPLE_PROFILE_CERT_EXPIRED", "Selected ASC certificate is expired.");
   let leaf;
   try { leaf = new X509Certificate(Buffer.from(ascCert.attributes?.certificateContent ?? "", "base64")); }

@@ -268,6 +268,20 @@ test("direct apply may register only explicit missing bundle & dedicated profile
   assert.equal(mutations(f.calls)[0].body.data.attributes.identifier, DIRECT_BUNDLE);
 });
 
+test("direct accepts Developer ID Application G2 with matching local identity & rejects KEXT G2", async (t) => {
+  const state = directState(); state.certificates[0].attributes.certificateType = "DEVELOPER_ID_APPLICATION_G2";
+  const f = directFixture(t, { state });
+  const result = await createAppleProfile({ ...f.options, dryRun: false });
+  assert.equal(result.certificate.id, "CERTDIRECT1");
+  assert.equal(readFileSync(f.out, "utf8"), "issued CMS bytes");
+
+  const kextState = directState(); kextState.certificates[0].attributes.certificateType = "DEVELOPER_ID_KEXT_G2";
+  const g = directFixture(t, { state: kextState });
+  await assert.rejects(createAppleProfile({ ...g.options, dryRun: false }), { code: "APPLE_PROFILE_CERT_TYPE" });
+  assert.equal(mutations(g.calls).length, 0);
+  assert.deepEqual(readdirSync(g.root), ["AuthKey_SYNTHETIC.p8"]);
+});
+
 const existingDirectProfile = () => ({ id: "PROFILE-1", attributes: { name: DIRECT_NAME, profileType: "MAC_APP_DIRECT", profileState: "ACTIVE", expirationDate: "2030-01-01T00:00:00Z", profileContent: Buffer.from("issued CMS bytes").toString("base64") }, rels: { bundleId: { id: "BUNDLE-1" }, certificates: [{ id: "CERTDIRECT1" }] } });
 test("direct active named profile reuses matching bundle & sole certificate without device lookup", async (t) => {
   const f = directFixture(t, { state: { ...directState(), profiles: [existingDirectProfile()] } });
