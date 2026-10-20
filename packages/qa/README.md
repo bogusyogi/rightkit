@@ -226,7 +226,7 @@ This package drives no native app and no WebView2 window (`spawnQaApp` only star
 
 ## Known issues
 
-- `@rightkit/qa-chrome` is pinned exactly to `0.1.6`. A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers.
+- `@rightkit/qa-chrome` is pinned exactly to `0.1.9` (the published 0.5.1 pins `0.1.8`). A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers.
 
 ## QA root limits
 

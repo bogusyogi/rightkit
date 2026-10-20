@@ -3,9 +3,9 @@ export type UpdateKind = 'patch' | 'update';
 export type UpdateRefusal = 'notLicensed' | 'expired' | 'revoked' | 'tierIneligible' | 'busy' | 'unresolved' | 'disabledNoPublicPatch' | 'offline' | 'none';
 export type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'failed';
 /**
- * Message text for the fixed message codes of the native update host. The keys are exactly the codes
- * `crates/rightkit-tauri-shell/src/update.rs` sends (`UpdateMessage`, camelCase); a key is added here only
- * with the native enum. Native sends the code, the renderer owns the text, and the text names no licence,
+ * Message text for the fixed message codes of the native update host. The keys are the codes the native
+ * `UpdateMessage` enum (camelCase) in `crates/rightkit-tauri-shell/src/update.rs` sends; that file lands with PK13-2.
+ * A key is added here only with the native enum. Native sends the code, the renderer owns the text, and the text names no licence,
  * key, device or account.
  */
 export const UPDATE_MESSAGES = Object.freeze({
