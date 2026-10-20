@@ -746,6 +746,9 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   const { entries, problems } = loadApprovedArtifacts(APPROVED_ARTIFACTS_FILE);
   assert.deepEqual(problems, []);
   assert.deepEqual(entries.map((e) => `${e.registry} ${e.name}@${e.version} ${e.sha256}`).sort(), [
+    "crates rightkit-child-process@0.5.4 b0e29813abd52bdba7629f4a82fa506338c21163d7d8675ce37fd63ea79a5105",
+    "crates rightkit-fs@0.4.6 8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
+    "crates rightkit-http@0.3.8 7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
     "npm @rightkit/doc-render@0.2.1 05d226219b9f7d783d6a106dd1cf0fd6a50b238715c348ebc6c3b4bebbe18e43",
     "npm @rightkit/license@0.3.0 9cccfca32a85198f6bb1f863c8e16fe16260e2c5e6ee99d9d5ee169b87302082",
     "npm @rightkit/logs@0.1.6 72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
@@ -759,6 +762,9 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "@rightkit/logs@0.1.6": foundation,
     "@rightkit/react-shell@0.7.2": foundation,
     "@rightkit/doc-render@0.2.1": { reviewer: "RK2 Astra (R8 exact-archive SIGN)", reviewRef: "agent-review:/root/swift_native_evidence/39468856523/doc-render" },
+    "rightkit-fs@0.4.6": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39482266477/fs-0.4.6" },
+    "rightkit-http@0.3.8": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39485850149/http-0.3.8" },
+    "rightkit-child-process@0.5.4": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39486639316/child-process-0.5.4" },
   };
   assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
