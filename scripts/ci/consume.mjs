@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { runRegistryConsumer } from "./registry-consumer.mjs";
 import { runNpmConsumer } from "./npm-consumer.mjs";
+import { childEnv } from "./upload.mjs";
 const tail = (text, n = 600) => String(text ?? "").trim().slice(-n);
 
 /** How to run npm without a shell: node + npm-cli.js beside the running node, else the npm shim. */
@@ -236,7 +237,7 @@ export function consumeNpm(options) {
     // A unique external report path is required by named runner & removed after readback.
     const reportDirectory = fs.mkdtempSync(path.join(scratchRoot, "rk-pk11-report-"));
     try {
-      const report = (options.npmConsumer ?? runNpmConsumer)({ packDir: options.packDir, name: unit.name, reportFile: path.join(reportDirectory, "report.json"), scratchRoot, spawn: options.spawn ?? spawnSync, env: options.env ?? process.env, ...(options.root ? { root: options.root } : {}) });
+      const report = (options.npmConsumer ?? runNpmConsumer)({ packDir: options.packDir, name: unit.name, reportFile: path.join(reportDirectory, "report.json"), scratchRoot, spawn: options.spawn ?? spawnSync, env: childEnv(options.env ?? process.env), ...(options.root ? { root: options.root } : {}) });
       out.report = { ...report, portability };
       if (out.problems.length || report?.verified !== true || report.qualification !== "R2a" || report.name !== unit.name || report.version !== unit.version || report.archiveSha256 !== unit.sha256 || report.archiveSize !== unit.size) {
         out.report.verified = false;

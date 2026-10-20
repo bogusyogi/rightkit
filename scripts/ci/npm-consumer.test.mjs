@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { validateVectors, validateSurface, validateContext, validateRuntime, pnpmInvocation, spawnPnpm, npmConsumerQualificationProblems, RECIPE_FILES, SOURCE_FILES } from './npm-consumer.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import { consumeNpm } from './consume.mjs';
+import { validateVectors, validateSurface, validateContext, validateManifestPins, validateRuntime, pnpmInvocation, spawnPnpm, npmConsumerQualificationProblems, RECIPE_FILES, SOURCE_FILES } from './npm-consumer.mjs';
 import { sha } from './upload.mjs';
 const vectors = JSON.parse(fs.readFileSync(new URL('../../crates/rightkit-logs/tests/scrub-parity.v1.json', import.meta.url)));
 const pkg = JSON.parse(fs.readFileSync(new URL('../../packages/logs/package.json', import.meta.url)));
@@ -28,7 +31,41 @@ test('native CI identity & credential rejection happen before execution', () => 
   assert.throws(() => validateContext(env, 'linux'));
   assert.throws(() => validateContext({ ...env, GITHUB_ACTIONS: 'false' }, 'win32'));
   assert.throws(() => validateContext({ ...env, ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'present' }, 'win32'));
+  assert.throws(() => validateContext({ ...env, PGPASSWORD: 'fixture-only' }, 'win32'));
   assert.throws(() => validateContext({ ...env, GITHUB_SHA: '' }, 'win32'));
+});
+test('named caller isolates ambient credentials & preserves native identity and OIDC refusal', () => {
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-npm-env-test-'));
+  const unit = { name: '@rightkit/logs', version: pkg.version, file: 'logs.tgz', sha256: 'a'.repeat(64), size: 100 };
+  const env = { GITHUB_ACTIONS: 'true', GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1', RUNNER_OS: 'Windows', Path: 'fixture-path', SystemRoot: 'C:\\Windows', PGPASSWORD: 'fixture-only', NODE_OPTIONS: '--require=untrusted', npm_config_userconfig: 'untrusted' };
+  try {
+    for (const oidc of [false, true]) {
+      let observed;
+      consumeNpm({ units: [unit], packDir: scratchRoot, scratchRoot, env: { ...env, ...(oidc ? { ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'fixture-only' } : {}) }, npm: { command: 'npm', prefix: [], shell: false }, spawn: () => ({ status: 1, stderr: 'fixture portability failure' }), npmConsumer: options => {
+        observed = options.env;
+        return { ...unit, archiveSha256: unit.sha256, archiveSize: unit.size, qualification: 'R2a', verified: true };
+      } });
+      assert.ok(observed);
+      if (oidc) assert.throws(() => validateContext(observed, 'win32'));
+      else assert.doesNotThrow(() => validateContext(observed, 'win32'));
+      for (const key of ['PGPASSWORD', 'NODE_OPTIONS', 'npm_config_userconfig']) assert.equal(Object.hasOwn(observed, key), false);
+      for (const key of ['GITHUB_ACTIONS', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'RUNNER_OS', 'Path', 'SystemRoot']) assert.equal(observed[key], env[key]);
+    }
+    assert.equal(env.PGPASSWORD, 'fixture-only');
+  } finally { fs.rmSync(scratchRoot, { recursive: true, force: true }); }
+});
+test('packed metadata may omit pnpm pin while source, recipe & explicit packed pins stay strict', () => {
+  const root = { packageManager: pkg.packageManager }, consumer = { packageManager: pkg.packageManager };
+  const packed = { ...pkg }; delete packed.packageManager;
+  assert.equal(validateManifestPins(root, pkg, consumer, packed, pkg.name, pkg.version), pkg.packageManager);
+  for (const mutation of [
+    [root, { ...pkg, packageManager: 'pnpm@1.0.0' }, consumer, packed],
+    [root, pkg, { packageManager: 'pnpm@1.0.0' }, packed],
+    [root, pkg, consumer, { ...packed, packageManager: 'pnpm@1.0.0' }],
+    [root, pkg, consumer, { ...packed, packageManager: null }],
+    [root, { ...pkg, version: '0.0.0' }, consumer, packed],
+    [root, pkg, consumer, { ...packed, version: '0.0.0' }],
+  ]) assert.throws(() => validateManifestPins(...mutation, pkg.name, pkg.version));
 });
 test('runtime receipt requires positive exact named counts', () => {
   const counts = { exportNames: 9, parity: 37, crashParity: vectors.vectors.filter(row => row.windowCrash).length, diagnostics: 10, crashCapture: 3, logsExample: 1 };
@@ -70,7 +107,9 @@ function qualificationFixture() {
   const expected = { name: '@rightkit/logs', version: pkg.version, commit, runId: '2', runAttempt: '1', manifestRunId: '2', manifestRunAttempt: '1', manifestSha256: 'b'.repeat(64), archiveSha256: 'c'.repeat(64), archiveSize: 100, archiveIntegrity: `sha512-${'A'.repeat(86)}==`, host: 'macos', runnerOS: 'macOS', arch: 'arm64', packageManager: pkg.packageManager };
   const counts = { exportNames: 9, parity: 37, crashParity: vectors.vectors.filter(row => row.windowCrash).length, diagnostics: 10, crashCapture: 3, logsExample: 1 };
   const manifest = { name: 'rightkit-pk11-npm-consumer', private: true, type: 'module', packageManager: pkg.packageManager, dependencies: { '@rightkit/logs': 'file:/packs/logs.tgz' } };
-  commands.push(command('archive-read', 'tar', ['-xOzf', 'logs.tgz', 'package/package.json'], JSON.stringify(pkg), '/packs'));
+  // Actual hosted pnpm-pack archive omits this source-only toolchain metadata.
+  const packed = { ...pkg }; delete packed.packageManager;
+  commands.push(command('archive-read', 'tar', ['-xOzf', 'logs.tgz', 'package/package.json'], JSON.stringify(packed), '/packs'));
   commands.push(command('archive-read', 'tar', ['-xOzf', 'logs.tgz', 'package/README.md'], readme, '/packs'));
   commands.push(command('toolchain', 'pnpm', ['--version'], `${pkg.packageManager.slice(5)}\n`));
   commands.push(command('install', 'pnpm', ['install', '--ignore-scripts', '--no-frozen-lockfile', '--ignore-workspace', '--store-dir', `${scratch}/store`], 'installed'));
@@ -91,6 +130,8 @@ test('receipt mutations fail closed across identity, stage, actual output, recip
     fixture => { fixture.report.host = 'windows'; },
     fixture => { fixture.report.manifestSha256 = 'd'.repeat(64); },
     fixture => { fixture.report.toolchain.pnpm = '1.0.0'; },
+    fixture => { const row = fixture.report.commands.find(command => command.stage === 'archive-read'); const packed = JSON.parse(row.stdout); packed.packageManager = 'pnpm@1.0.0'; row.stdout = JSON.stringify(packed); },
+    fixture => { const row = fixture.report.commands.find(command => command.stage === 'archive-read'); const packed = JSON.parse(row.stdout); packed.version = '0.0.0'; row.stdout = JSON.stringify(packed); },
     fixture => { fixture.report.commands.pop(); },
     fixture => { fixture.report.commands[0].stage = 'unknown'; },
     fixture => { fixture.report.commands.at(-1).status = 1; },

@@ -166,6 +166,8 @@ fn all_steps() -> Vec<Step> {
         Step::AfterCommitMarker,
         Step::BeforeCleanup(0),
         Step::AfterCleanup(0),
+        Step::SetAsideProbe,
+        Step::SetAsideProbe,
         Step::BeforeJournalRemove,
         Step::AfterJournalRemove,
         Step::AfterMarkerRemove,
@@ -745,7 +747,7 @@ fn unknown_material_in_a_transaction_directory_is_retained_never_deleted() {
     let report = recover_transactions(&f.root).unwrap();
     assert_eq!(
         report.transactions[0].outcome,
-        RecoveryOutcome::Discarded,
+        RecoveryOutcome::RolledBack,
         "{report:?}"
     );
     assert_no_residue(&f.root);
@@ -1408,7 +1410,12 @@ fn a_committed_leftover_that_changed_is_set_aside_and_blocks_nothing() {
     assert_eq!(done.retained.len(), 1, "{:?}", done.retained);
     let moved = done.retained[0].path.clone();
     assert!(
-        moved.starts_with(f.root.join(".rktxn").join("retained")),
+        moved.starts_with(
+            rightkit_fs::canonicalize_plain(&f.root)
+                .unwrap()
+                .join(".rktxn")
+                .join("retained")
+        ),
         "{moved:?}"
     );
     assert_eq!(read(&moved), "old-a-edited", "the edited file was kept");

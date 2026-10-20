@@ -492,33 +492,62 @@ fn a_companion_destination_with_other_content_is_a_collision_and_nothing_is_over
 
 #[test]
 fn companions_must_be_plain_relative_files_not_on_a_participant_path() {
-    let env = env();
     let absolute = if cfg!(windows) {
         PathBuf::from("C:\\Windows\\win.ini")
     } else {
         PathBuf::from("/etc/hosts")
     };
-    for bad in [
-        PathBuf::from("../escape.txt"),
-        absolute,
-        PathBuf::from("empty"),
-    ] {
-        let mut cutover =
-            RootCutover::new(app(&env), &env.old).fs_move(FsMove::Companions(vec![bad.clone()]));
+    for bad in [PathBuf::from("../escape.txt"), absolute] {
+        let env = env();
+        let log = log();
+        let mut cutover = RootCutover::new(app(&env), &env.old)
+            .fs_move(FsMove::Companions(vec![bad.clone()]))
+            .participant(Probe::new("db", &log));
         let err = cutover.run().unwrap_err();
         assert!(
             matches!(err, CutoverError::BadCompanion(_)),
             "{bad:?}: {err}"
         );
+        assert!(lines(&log).is_empty(), "validation runs before any hook");
     }
+
+    {
+        let env = env();
+        let app = app(&env);
+        let before = snapshot(&env.old);
+        let log = log();
+        let mut directory = RootCutover::new(app.clone(), &env.old)
+            .fs_move(FsMove::Companions(vec![PathBuf::from("empty")]))
+            .participant(Probe::new("db", &log));
+        let err = directory.run().unwrap_err();
+        assert!(matches!(err, CutoverError::BadCompanion(_)), "{err}");
+        assert_eq!(
+            lines(&log),
+            [
+                "db:prepare",
+                "db:quiesce",
+                "db:relocate",
+                "db:settle:aborted"
+            ]
+        );
+        assert_eq!(snapshot(&env.old), before);
+        assert!(!app.root().join("a.txt").exists());
+        assert_eq!(
+            RootCutover::status(&app).unwrap().unwrap().phase,
+            CutoverPhase::Aborted
+        );
+    }
+
+    let env = env();
     let log = log();
     let mut conflicted = RootCutover::new(app(&env), &env.old)
         .fs_move(FsMove::Companions(vec![PathBuf::from("sub").join("b.txt")]))
         .participant(Probe::new("db", &log).owning("sub"));
-    assert!(matches!(
-        conflicted.run().unwrap_err(),
-        CutoverError::OwnedPathConflict { .. }
-    ));
+    let err = conflicted.run().unwrap_err();
+    assert!(
+        matches!(err, CutoverError::OwnedPathConflict { .. }),
+        "{err}"
+    );
     assert!(lines(&log).is_empty(), "validation runs before any hook");
 }
 

@@ -527,6 +527,8 @@ pub enum CutoverError {
     /// relative path.
     BadParticipant(String),
     /// A companion path is not a plain relative path to a regular file in the old root.
+    /// Path syntax is checked before participant hooks; file existence and type are checked
+    /// at move time, after `relocate`. A failure then settles prepared participants as aborted.
     BadCompanion(PathBuf),
     /// A companion lies on a path a participant owns.
     OwnedPathConflict {

@@ -8,7 +8,7 @@
         "ci/consumers/npm-logs/package.json": "f56e0a1f61e891f89fcef727be13ccd705af1a4fa299838c83eaa77e0a1c3e50",
         "ci/consumers/npm-logs/README.md": "de869013d91c8490980b3423fc99dc7cb3ca312d4c6189b5950b1deaa6687b0c",
         "ci/consumers/npm-logs/consumer.mjs": "8a398ad2f031d18dd8d927f1d6679cd16e713c0144e35ab06cffa620cbae2b7f",
-        "scripts/ci/npm-consumer.mjs": "9412ac254acc45e7ffe855d846e92879df2cf67a4c46d9051da6413d56d7f1f5"
+        "scripts/ci/npm-consumer.mjs": "f2d1e39d59ed46132a15b88dd5e1f3075edeb32be14658958e4fe00b6e99eb67"
       }
     }
   },

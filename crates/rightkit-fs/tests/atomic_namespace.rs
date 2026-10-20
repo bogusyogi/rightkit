@@ -255,7 +255,7 @@ fn private_native_imports_survive_both_sweepers() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn private_import_preserves_non_utf8_native_leaf() {
     use std::os::unix::ffi::OsStringExt;
@@ -267,6 +267,43 @@ fn private_import_preserves_non_utf8_native_leaf() {
     writer.write_all(b"native bytes").unwrap();
     writer.commit().unwrap();
     assert_eq!(std::fs::read(target).unwrap(), b"native bytes");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn private_import_native_leaf_rejection_preserves_neighbors_and_removes_temp() {
+    use std::os::unix::ffi::OsStringExt;
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(std::ffi::OsString::from_vec(
+        b".record-\xff.rktmp-123-1-0".to_vec(),
+    ));
+    let neighbor = dir.path().join("neighbor");
+    std::fs::write(&neighbor, b"keep this record").unwrap();
+    // Compare publication with the filesystem's own rejection of this native leaf.
+    let native_error = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+        .unwrap_err();
+    assert!(native_error.raw_os_error().is_some(), "{native_error:?}");
+    let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
+    writer.write_all(b"native bytes").unwrap();
+    let temp = writer.temp_path().to_path_buf();
+    assert!(temp.exists());
+    match writer.commit().unwrap_err() {
+        FsError::Io { path, source } => {
+            assert_eq!(path, target);
+            assert_eq!(source.raw_os_error(), native_error.raw_os_error());
+        }
+        error => panic!("unexpected publication failure: {error:?}"),
+    }
+    assert!(!temp.exists());
+    assert_eq!(std::fs::read(&neighbor).unwrap(), b"keep this record");
+    let remaining: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(remaining, vec![neighbor]);
 }
 
 #[test]

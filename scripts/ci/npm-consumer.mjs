@@ -44,6 +44,13 @@ export function validateContext(env, platform = process.platform) {
   if (!/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '') || !/^\d+$/.test(env.GITHUB_RUN_ID ?? '') || !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? '')) throw new Error('missing CI source/run identity');
   for (const [key, value] of Object.entries(env)) if (value && /(?:TOKEN|PASSWORD|SECRET|CREDENTIAL|AUTHORIZATION|ACCESS_KEY|PRIVATE_KEY)/i.test(key)) throw new Error(`credential-bearing environment forbidden: ${key}`);
 }
+export function validateManifestPins(root, source, consumer, packed, name, version) {
+  const pin = root.packageManager;
+  // pnpm pack omits packageManager; source & consumer still bind the executable pin.
+  if (!/^pnpm@\d+\.\d+\.\d+$/.test(pin ?? '') || source.packageManager !== pin || consumer.packageManager !== pin || (Object.hasOwn(packed, 'packageManager') && packed.packageManager !== pin)) throw new Error('manifest pnpm pins differ');
+  if (source.name !== name || packed.name !== name || source.version !== version || packed.version !== version) throw new Error('packed/source package identity differs');
+  return pin;
+}
 export function pnpmInvocation(args, platform = process.platform, env = process.env) {
   if (platform !== 'win32') return { command: 'pnpm', args };
   // cmd is needed for pnpm.cmd; reject expansion & command syntax before quoting.
@@ -122,7 +129,8 @@ function qualificationProblems({ report, expected, recipe, sourceBindings } = {}
       const packed = JSON.parse(archiveRows.find(command => command.args.at(-1) === 'package/package.json').stdout);
       const readme = archiveRows.find(command => command.args.at(-1) === 'package/README.md').stdout;
       validateSurface(packed, readme);
-      if (packed.name !== expected.name || packed.version !== expected.version || packed.packageManager !== pin || sha('sha256', readme) !== sourceBindings['packages/logs/README.md']?.sha256) fail('packed manifest/README/source mismatch');
+      const sourceManifest = file => JSON.parse(sources.find(command => command.args[1] === `${report.commit}:${file}`).stdout);
+      if (validateManifestPins(sourceManifest('package.json'), sourceManifest('packages/logs/package.json'), sourceManifest('ci/consumers/npm-logs/package.json'), packed, expected.name, expected.version) !== pin || sha('sha256', readme) !== sourceBindings['packages/logs/README.md']?.sha256) fail('packed manifest/README/source mismatch');
     } catch { fail('actual packed manifest/README output invalid'); }
     for (const command of sources) if (command.cwd !== iso.checkout) fail('source command checkout mismatch');
     const runtime = commands.find(command => command.stage === 'runtime');
@@ -202,8 +210,7 @@ export function runNpmConsumer({ packDir, name, reportFile, root = ROOT, scratch
     validateSurface(pkg, readme);
     if (pkg.version !== unit.version || fs.readFileSync(path.join(root, 'packages/logs/README.md'), 'utf8') !== readme) throw new Error('packed README/version differs from source identity');
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'ci/consumers/npm-logs/package.json')));
-    const pin = JSON.parse(fs.readFileSync(path.join(root, 'package.json'))).packageManager;
-    if (!/^pnpm@\d+\.\d+\.\d+$/.test(pin) || manifest.packageManager !== pin || pkg.packageManager !== pin) throw new Error('manifest pnpm pins differ');
+    const pin = validateManifestPins(JSON.parse(fs.readFileSync(path.join(root, 'package.json'))), JSON.parse(fs.readFileSync(path.join(root, 'packages/logs/package.json'))), manifest, pkg, name, unit.version);
     manifest.dependencies = { [name]: `file:${archive.replaceAll('\\', '/')}` };
     fs.writeFileSync(path.join(scratch, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     fs.copyFileSync(path.join(root, 'ci/consumers/npm-logs/consumer.mjs'), path.join(scratch, 'consumer.mjs'));
