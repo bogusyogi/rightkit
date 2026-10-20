@@ -326,6 +326,16 @@ jobs:
         if: ${{ needs.plan.outputs.registry == 'crates' }}
         with:
           components: rustfmt, clippy
+      # Native Windows OpenSSL for the SQLCipher system-crypto dependent checks (rightkit-db, rightkit-credentials):
+      # the same committed scripts rk-setup runs for shared CI, for crates runs on the Windows host only.
+      - name: Select native Windows Perl for vendored OpenSSL
+        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' }}
+        shell: pwsh
+        run: '& "$env:GITHUB_WORKSPACE/scripts/ci/select-native-perl.ps1"'
+      - name: Locate native Windows OpenSSL for SQLCipher system crypto
+        if: ${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' }}
+        shell: pwsh
+        run: '& "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"'
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: ${{ needs.plan.outputs.registry == 'crates' }}
         with:

@@ -65,6 +65,14 @@ export const DENY_IF = "${{ inputs.registry == 'crates' && contains(format(' {0}
 export const DENY_TOOL = "cargo-deny@0.20.2";
 export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses";
 const PLAN_ALLOWED_ACTIONS = ["actions/checkout@", "actions/setup-node@", "dtolnay/rust-toolchain@", "taiki-e/install-action@"];
+// Native Windows OpenSSL for the SQLCipher system-crypto dependent checks of a crates run (rightkit-db,
+// rightkit-credentials). verify runs the same committed scripts rk-setup runs for shared CI, only for crates on
+// Windows, before the gate, in exactly these two steps: no env, no inputs, no secrets, no other shell or script.
+export const WIN_OPENSSL_IF = "${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' }}";
+export const WIN_OPENSSL_STEPS = [
+  ["Select native Windows Perl for vendored OpenSSL", '& "$env:GITHUB_WORKSPACE/scripts/ci/select-native-perl.ps1"'],
+  ["Locate native Windows OpenSSL for SQLCipher system crypto", '& "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"'],
+];
 const SIGNING_TOOLS = /\b(?:codesign|notarytool|security\s+(?:import|create-keychain|unlock-keychain|set-key-partition-list)|cargo\b)/;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -171,6 +179,13 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
+  const winAt = WIN_OPENSSL_STEPS.map(([name]) => stepsOf(verify).findIndex((s) => s.name === name));
+  WIN_OPENSSL_STEPS.forEach(([name, run], i) => {
+    const step = stepsOf(verify)[winAt[i]];
+    check(stepsOf(verify).filter((s) => s.name === name).length === 1 && same(sorted(Object.keys(step ?? {})), ["if", "name", "run", "shell"]) && step?.if?.trim() === WIN_OPENSSL_IF && step?.shell === "pwsh" && step?.run?.trim() === run, `verify must run exactly "${run}" (pwsh, no env or inputs) as "${name}" under ${WIN_OPENSSL_IF}`);
+  });
+  check(winAt[0] >= 0 && winAt[1] > winAt[0] && winAt[1] < gateAt, "verify must select native Perl, then locate native OpenSSL, before the unit gate");
+  check(stepsOf(verify).filter((s) => s.shell === "pwsh" || /\.ps1\b/.test(s.run ?? "")).length === WIN_OPENSSL_STEPS.length, "verify may run PowerShell only for the two native Windows OpenSSL steps");
   const fsIf = "${{ needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}";
   const fsCleanupIf = "${{ always() && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}";
   const fsSetupAt = verifyRuns.findIndex(r => r.includes("node scripts/ci/fs-native-fixtures.mjs setup"));
@@ -361,7 +376,20 @@ const LINUX_MUTATIONS = [
 ];
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
+const winStep = (j, i) => j.verify.steps.find((s) => s.name === WIN_OPENSSL_STEPS[i][0]);
 export const MUTATIONS = [
+  ["Windows OpenSSL locate step is removed", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s.name !== WIN_OPENSSL_STEPS[1][0]); })],
+  ["Windows Perl select step is removed", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s.name !== WIN_OPENSSL_STEPS[0][0]); })],
+  ["Windows OpenSSL locate step runs for npm too", edit((j) => { winStep(j, 1).if = "${{ runner.os == 'Windows' }}"; })],
+  ["Windows OpenSSL locate step runs on every host", edit((j) => { winStep(j, 1).if = "${{ needs.plan.outputs.registry == 'crates' }}"; })],
+  ["Windows Perl select step runs on every host", edit((j) => { winStep(j, 0).if = "${{ needs.plan.outputs.registry == 'crates' }}"; })],
+  ["Windows OpenSSL locate step runs inline code", edit((j) => { winStep(j, 1).run = "echo OPENSSL_DIR=x >> $env:GITHUB_ENV"; })],
+  ["Windows OpenSSL locate step runs another script", edit((j) => { winStep(j, 1).run = '& "$env:GITHUB_WORKSPACE/scripts/ci/other.ps1"'; })],
+  ["Windows OpenSSL locate step gains env", edit((j) => { winStep(j, 1).env = { OPENSSL_DIR: "${{ inputs.units }}" }; })],
+  ["Windows OpenSSL locate step changes shell", edit((j) => { winStep(j, 1).shell = "bash"; })],
+  ["Windows OpenSSL steps move after the gate", edit((j) => { const moved = j.verify.steps.filter((s) => WIN_OPENSSL_STEPS.some(([n]) => n === s.name)); j.verify.steps = j.verify.steps.filter((s) => !moved.includes(s)); const g = j.verify.steps.findIndex((s) => /gate\.mjs/.test(s.run ?? "")); j.verify.steps.splice(g + 1, 0, ...moved); })],
+  ["Windows OpenSSL steps run in the wrong order", edit((j) => { const a = j.verify.steps.indexOf(winStep(j, 0)); const b = j.verify.steps.indexOf(winStep(j, 1)); [j.verify.steps[a], j.verify.steps[b]] = [j.verify.steps[b], j.verify.steps[a]]; })],
+  ["verify gains another PowerShell step", edit((j) => { j.verify.steps.splice(-3, 0, { name: "extra", shell: "pwsh", run: "echo extra" }); })],
   ["FS setup regains substring unit matching", edit(j => { const s = j.verify.steps.find(s => s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); s.if = s.if.replace("contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ')", "contains(needs.plan.outputs.units, 'rightkit-fs')"); })],
   ["FS cleanup regains substring unit matching", edit(j => { const s = j.verify.steps.find(s => s.run?.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup"); s.if = s.if.replace("contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ')", "contains(needs.plan.outputs.units, 'rightkit-fs')"); })],
   ["Chrome cache drops qa-chrome coverage", edit(j => { const s = j.verify.steps.find(s => s.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ')", ""); })],

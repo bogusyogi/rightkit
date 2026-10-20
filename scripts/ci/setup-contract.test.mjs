@@ -125,3 +125,26 @@ test("shared baselines use authenticated Actions history rather than cache marke
     assert.ok(!job.steps.some((step) => step.uses?.startsWith("actions/cache")), "cache cannot transport green proof");
   }
 });
+
+test("shared CI and crates qualification run the same native Windows OpenSSL scripts", () => {
+  const publish = readYaml("../../.github/workflows/publish.yml");
+  const scripts = [
+    ["Select native Windows Perl for vendored OpenSSL", "select-native-perl.ps1"],
+    ["Locate native Windows OpenSSL for SQLCipher system crypto", "locate-native-openssl.ps1"],
+  ];
+  for (const [name, file] of scripts) {
+    const call = `& "$env:GITHUB_WORKSPACE/scripts/ci/${file}"`;
+    const shared = ACTION.runs.steps.find((step) => step.name === name);
+    const qualification = publish.jobs.verify.steps.find((step) => step.name === name);
+    assert.equal(shared.if, "${{ inputs.rust == 'true' && runner.os == 'Windows' }}");
+    assert.equal(shared.run.trim(), call);
+    assert.equal(qualification.if, "${{ needs.plan.outputs.registry == 'crates' && runner.os == 'Windows' }}");
+    assert.equal(qualification.run.trim(), call);
+    assert.equal(shared.shell, "pwsh");
+    assert.equal(qualification.shell, "pwsh");
+    const source = fs.readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+    assert.ok(!/secrets|GITHUB_TOKEN|Invoke-WebRequest|Invoke-RestMethod/i.test(source), `${file} must stay offline and secret-free`);
+  }
+  const locate = fs.readFileSync(new URL("./locate-native-openssl.ps1", import.meta.url), "utf8");
+  for (const name of ["OPENSSL_INCLUDE_DIR", "OPENSSL_LIB_DIR"]) assert.ok(locate.includes(name), name);
+});
