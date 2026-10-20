@@ -326,8 +326,8 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-logs/src/main.rs",
       "files": {
-        "Cargo.toml": "a1b73c8d4accfcbe834a6960891c93062b574b125e0f6ee0a447b837499ac5f2",
-        "src/main.rs": "38eb4ea0ab7a2a02ffaf829de8f49b2b05eb2ceef380b9a72fffa54626aa88d4"
+        "Cargo.toml": "dc6a3fa9a3410d43dadb5d62e4874a1e2e91664f416025a4e33ae2c27fbe6655",
+        "src/main.rs": "0293239a91820c36492f4d2fed789a70b595907f69fc65b6fed8d626c262163e"
       }
     },
     "rightkit-credentials": {

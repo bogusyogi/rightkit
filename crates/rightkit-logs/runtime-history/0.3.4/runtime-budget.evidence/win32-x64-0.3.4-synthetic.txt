@@ -1,0 +1,90 @@
+rustright managed-agent: request 9dab747d-b1d6-4d54-9bdf-ef1f7586e5c1
+[rightkit] target cold at start (0 entries, generation 1)
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.46
+   Compiling windows-link v0.2.1
+   Compiling cfg-if v1.0.4
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v2.0.1
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling zeroize v1.9.0
+   Compiling itoa v1.0.18
+   Compiling httparse v1.10.1
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling untrusted v0.9.0
+   Compiling rustls v0.23.45
+   Compiling bytes v1.12.1
+   Compiling thiserror v2.0.21
+   Compiling log v0.4.33
+   Compiling serde_json v1.0.154
+   Compiling getrandom v0.2.17
+   Compiling regex-syntax v0.8.11
+   Compiling getrandom v0.4.3
+   Compiling base64 v0.23.1
+   Compiling tracing-core v0.1.36
+   Compiling subtle v2.6.1
+   Compiling memchr v2.8.3
+   Compiling pin-project-lite v0.2.17
+   Compiling regex-automata v0.4.18
+   Compiling lazy_static v1.5.1
+   Compiling thread_local v1.1.10
+   Compiling percent-encoding v2.3.2
+   Compiling utf8-zero v0.8.1
+   Compiling rustls-pki-types v1.15.0
+   Compiling cc v1.2.67
+   Compiling fastrand v2.4.1
+   Compiling matchers v0.2.0
+   Compiling sharded-slab v0.1.7
+   Compiling windows-result v0.4.1
+   Compiling windows-strings v0.5.1
+   Compiling windows-threading v0.2.1
+   Compiling http v1.4.2
+   Compiling windows-sys v0.61.2
+   Compiling ring v0.17.14
+   Compiling ureq-proto v0.6.4
+   Compiling tempfile v3.27.0
+   Compiling syn v2.0.118
+   Compiling syn v3.0.6
+   Compiling tracing v0.1.44
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling windows-implement v0.60.2
+   Compiling windows-interface v0.59.3
+   Compiling webpki-roots v1.0.9
+   Compiling windows-core v0.62.2
+   Compiling rightkit-fs v0.4.5 (D:\Claude\rightkit\crates\rightkit-fs)
+   Compiling windows-collections v0.3.2
+   Compiling windows-future v0.3.2
+   Compiling windows-numerics v0.3.1
+   Compiling tracing-serde v0.2.0
+   Compiling windows v0.62.2
+   Compiling rightkit-child-process v0.5.3 (D:\Claude\rightkit\crates\rightkit-child-process)
+   Compiling tracing-subscriber v0.3.23
+   Compiling rustls-webpki v0.103.15
+   Compiling ureq v3.4.2
+   Compiling rightkit-logs v0.3.4 (D:\Claude\rightkit\crates\rightkit-logs)
+    Finished `release-iterate` profile [optimized] target(s) in 45.95s
+     Running benches\budget.rs (D:\.rightkit-managed\rightkit-build-control\ws\96b8df33cbc3\g\001\t\x86_64-pc-windows-msvc\release-iterate\deps\budget-1865b7b501aeea73.exe)
+warm-up: 200000 lines in 0.80 s (250101 lines/s), dropped 0, resident 12.2 MiB (before install 5.1 MiB)
+RESULT pending_lines_after_idle=0 lines
+RESULT dropped_lines=0 lines
+RESULT warm_resident_bytes=12763136 bytes
+RESULT idle_resident_bytes=12767232 bytes
+RESULT resident_memory_bytes=12767232 bytes
+RESULT footprint_bytes=6623232 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.052 percent
+RESULT wakeups_per_second=1.394 per_second
+RESULT disk_ops_per_second=0.000 per_second
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=200000 tracing lines written then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-logs version=0.3.4 resident_bytes=12767232 idle_cpu_percent=0.052 wakeups_per_s=1.394 disk_ops_per_s=0.000 scale_unit=lines scale_count=200000
+[rightkit] target cold (target-empty-at-start); not-fresh 89/89

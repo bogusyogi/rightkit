@@ -192,6 +192,8 @@ Published version: see [INDEX.md](../../INDEX.md). Release notes are in [CHANGEL
 
 Passing evidence qualifies this chosen 2-second synthetic workload only; other intervals & installed apps require their own evidence. Recommend caller intervals of at least 2 seconds when latency permits; `spawn_drainer(interval)` keeps its caller-selected interval. Existing 1000 ms failure remains valid.
 
+The detached 1000 ms failure is separate from the 0.3.4 tracing measurement. The unpublished 0.3.4 Windows run recorded 1.394 wake-ups/second against the 1/second ceiling; this overage remains unexplained, and no runtime fix is claimed. See [historical qualification](runtime-history/0.3.4/README.md).
+
 ## Runtime budget
 
 Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.

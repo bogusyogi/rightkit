@@ -1,0 +1,23 @@
+rustright managed-agent: request 4b9923b8-085d-4af3-a006-2fed7e618f75
+[rightkit] target warm-candidate at start (6 entries, generation 2)
+   Compiling rightkit-child-process v0.4.3 (/Volumes/D/claude/rightkit/crates/rightkit-child-process)
+   Compiling rightkit-logs v0.3.2 (/Volumes/D/claude/rightkit/crates/rightkit-logs)
+    Finished `release-iterate` profile [optimized] target(s) in 5.19s
+     Running benches/budget.rs (/Volumes/D/.rightkit-managed/rightkit-build-control/ws/c5c410b6f516/g/002/target/aarch64-apple-darwin/release-iterate/deps/budget-af904ec444a7b158)
+warm-up: 200000 lines in 0.29 s (697888 lines/s), dropped 3494, resident 33.5 MiB (before install 5.4 MiB)
+RESULT pending_lines_after_idle=0 lines
+RESULT dropped_lines=3494 lines
+RESULT warm_resident_bytes=35110912 bytes
+RESULT idle_resident_bytes=26640384 bytes
+RESULT resident_memory_bytes=35110912 bytes
+RESULT footprint_bytes=14139848 bytes
+RESULT idle_window_seconds=30.1 seconds
+RESULT idle_cpu_percent=0.000 percent
+RESULT wakeups_per_second=0.033 per_second
+RESULT disk_ops_per_second=unavailable the host exposes no process disk-operation counter
+RESULT disk_read_bytes_per_second=0.000 bytes_per_second
+RESULT disk_write_bytes_per_second=0.000 bytes_per_second
+RESULT scale=200000 tracing lines written then idle
+RESULT scope=synthetic
+RESULT budget crate=rightkit-logs version=0.3.2 resident_bytes=35110912 idle_cpu_percent=0.000 wakeups_per_s=0.033 disk_ops_per_s=unavailable scale_unit=lines scale_count=200000
+[rightkit] target warm (target-nonempty-with-fresh-artifacts); not-fresh 3/621

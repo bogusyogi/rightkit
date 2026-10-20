@@ -1,0 +1,143 @@
+{
+  "schema": 1,
+  "crate": "rightkit-logs",
+  "ceilings": {
+    "residentMemoryBytes": 62914560,
+    "idleCpuPercent": 1,
+    "wakeupsPerSecond": 1,
+    "diskOpsPerSecond": 1
+  },
+  "ceilingSources": {
+    "residentMemoryBytes": "rule: 2x the larger measured resident set (31391744 B over the recorded hosts), rounded up to a whole MiB; evidence runtime-budget.evidence/",
+    "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
+    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows wake-ups are the sum of ContextSwitchCount over the live threads (crates/rightkit-child-process/src/usage.rs:12)",
+    "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
+  },
+  "requiredScale": {
+    "unit": "lines",
+    "minCount": 200000,
+    "source": "crates/rightkit-logs/benches/budget.rs:21"
+  },
+  "status": {
+    "api": "TracingGuard::status()",
+    "file": "src/tracing_file.rs",
+    "exposes": [
+      "residentMemoryBytes",
+      "idleCpuPercent",
+      "wakeupsPerSecond",
+      "diskOpsPerSecond"
+    ],
+    "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS and Windows only; disk operations are Windows and Linux only."
+  },
+  "measurements": [
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.3.2",
+      "commit": "16e58c6aa56ba8c44738e259231563f8cd084e20",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-logs/benches/budget.rs)",
+        "unit": "lines",
+        "count": 200000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "observed": {
+        "residentMemoryBytes": 11304960,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 0,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.3.2-synthetic.txt",
+        "sha256": "863db031abcbae6493a078313d12ccd6d80df66b230595ee49b7eed928de2ec8"
+      }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.3.2",
+      "commit": "0103b4413d8afa213fbeb11188b56afd94bc2adb",
+      "date": "2026-10-17",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-logs/benches/budget.rs)",
+        "unit": "lines",
+        "count": 200000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "observed": {
+        "residentMemoryBytes": 35110912,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.3.2-synthetic.txt",
+        "sha256": "5c0dbad6bc7790e05ab4b2f7381ff09bc85dc13d3ce189954b52ffb408d298c9"
+      }
+    },
+    {
+      "host": {
+        "os": "darwin",
+        "arch": "arm64",
+        "model": "Mac18,5"
+      },
+      "crateVersion": "0.3.4",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-logs/benches/budget.rs)",
+        "unit": "lines",
+        "count": 200000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "observed": {
+        "residentMemoryBytes": 35651584,
+        "idleCpuPercent": 0,
+        "wakeupsPerSecond": 0.033,
+        "diskOpsPerSecond": null
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/darwin-arm64-0.3.4-synthetic.txt",
+        "sha256": "ac5c8ebba355f66ffc635843f30904fdf72a3593eb4e3cc2e13aa620150d487f"
+      }
+    },
+    {
+      "host": {
+        "os": "win32",
+        "arch": "x64",
+        "model": "13th Gen Intel(R) Core(TM) i9-13900H"
+      },
+      "crateVersion": "0.3.4",
+      "commit": "769ead9af02dae3198ca85fa6ee1a9f88cc3667b",
+      "date": "2026-10-20",
+      "scope": "synthetic",
+      "dataScale": {
+        "description": "synthetic bench at the declared requiredScale (crates/rightkit-logs/benches/budget.rs)",
+        "unit": "lines",
+        "count": 200000
+      },
+      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "observed": {
+        "residentMemoryBytes": 12767232,
+        "idleCpuPercent": 0.052,
+        "wakeupsPerSecond": 1.394,
+        "diskOpsPerSecond": 0
+      },
+      "evidence": {
+        "file": "runtime-budget.evidence/win32-x64-0.3.4-synthetic.txt",
+        "sha256": "06d8990bb2b52016618ce52905288700aeb3c25a026cecccc71343e69945c2cc"
+      }
+    }
+  ],
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below."
+}

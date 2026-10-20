@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.3.4 — 2026-10-20
+## 0.3.5 — 2026-10-21
+
+- Corrected package metadata and retained 0.3.4 qualification evidence. Production behavior is unchanged; fresh qualification is required for 0.3.5. The 0.3.4 Windows tracing wake-up overage remains unexplained, and no runtime fix is claimed.
+
+## 0.3.4 — 2026-10-20 (unpublished candidate)
 
 - Added: `JsonlStoreConfig::{new,from_stem,collect}` & `JsonlStore::from_config` compose existing JSONL rotation, count retention & explicit bundle sources. `ConsentStore::with_cache` reuses parsed consent only after freshly read bytes match; reads, cross-process revocation & fail-closed errors remain unchanged. `invalidate_cache` clears shared parsed state. Regression sources: `tests/logging_config.rs` (consumer config, isolated clear, invalid stems, replacement/deletion/corruption & cross-process revoke through Outbox).
 

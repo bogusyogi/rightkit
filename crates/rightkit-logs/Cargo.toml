@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-logs"
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-safe local JSONL logging and diagnostics for Right Suite desktop apps."
@@ -9,7 +9,7 @@ readme = "README.md"
 repository = "https://github.com/bogusyogi/rightkit"
 keywords = ["logging", "diagnostics", "privacy", "jsonl"]
 categories = ["development-tools::debugging"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "runtime-history/**", "LICENSE-MIT", "LICENSE-APACHE"]
 
 [features]
 default = ["http"]
