@@ -6832,16 +6832,22 @@ dependencies = [
 
 [[package]]
 name = "rightkit-credentials"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
+ "block2",
  "getrandom 0.4.3",
  "keyring-core",
+ "objc2",
+ "objc2-foundation",
  "rightkit-app-settings",
+ "rightkit-db",
  "secret-service",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
  "thiserror 2.0.21",
+ "windows 0.62.2",
  "windows-native-keyring-store",
  "windows-sys 0.61.2",
  "zeroize",
@@ -6857,7 +6863,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-daemon"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
