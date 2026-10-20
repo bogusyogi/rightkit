@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-child-process",
-  "version": "0.5.2",
-  "commit": "27ca118026f2c4d3f7f2fc6791cccd92f8988bf8",
-  "artifactSha256": "2193f2767dda78bcc1b4b2525ebe9aea40810c6bfab7418c285066feaddf350f",
+  "version": "0.5.3",
+  "commit": "7ea7e1eab6e82564e738b3d6a096f562b8bf1d4c",
+  "artifactSha256": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "27ca118026f2c4d3f7f2fc6791cccd92f8988bf8",
+      "commit": "7ea7e1eab6e82564e738b3d6a096f562b8bf1d4c",
       "features": [
         "default"
       ],
-      "artifactSha256": "2193f2767dda78bcc1b4b2525ebe9aea40810c6bfab7418c285066feaddf350f",
+      "artifactSha256": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd",
       "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --show-output && cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-child-process --message-format=json-render-diagnostics --no-deps --all-targets -- -D warnings && cargo check -p rightkit-child-process --message-format=json-render-diagnostics --all-targets --all-features && cargo package --locked --no-verify -p rightkit-child-process && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T20:59:36.066Z",
-      "passed": 444,
+      "timestamp": "2026-10-20T05:10:24.181Z",
+      "passed": 484,
       "failed": 0,
       "skipped": 0,
       "ignored": 2,
@@ -33,7 +33,7 @@
         {
           "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 222,
+          "executed": 242,
           "failed": 0,
           "ignored": 1,
           "skipped": 0,
@@ -42,7 +42,7 @@
         {
           "command": "cargo test -p rightkit-child-process --message-format=json-render-diagnostics --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 222,
+          "executed": 242,
           "failed": 0,
           "ignored": 1,
           "skipped": 0,

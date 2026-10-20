@@ -505,7 +505,7 @@
       "rightkit-browser": "0.3.4",
       "rightkit-cache": "0.2.3",
       "rightkit-channel-memory": "0.2.1",
-      "rightkit-child-process": "0.5.2",
+      "rightkit-child-process": "0.5.3",
       "rightkit-compose": "0.2.0",
       "rightkit-contracts": "0.1.7",
       "rightkit-control": "0.3.0",
