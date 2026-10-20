@@ -84,6 +84,22 @@ async function diagnostic(entry, out) {
 [Console]::Error.WriteLine('PSHOME=' + $PSHOME); [Console]::Error.Flush();
 [Console]::Error.WriteLine('PSModulePath=' + $env:PSModulePath); [Console]::Error.Flush();
 ${marker('EXIT')}`);
+    try {
+      const rawProbe = report.windowsProbes.findLast(probe => probe.kind === 'powershell-raw-console');
+      assert.equal(rawProbe?.status, 0, 'trusted module probe requires successful captured PowerShell host observation');
+      const observedHome = /^PSHOME=(.+)$/m.exec(rawProbe.stderr.text)?.[1].trim();
+      assert(observedHome && path.isAbsolute(observedHome), 'captured PowerShell host directory unavailable');
+      const systemRoot = options.env.SystemRoot ?? options.env.SYSTEMROOT;
+      assert(systemRoot && path.isAbsolute(systemRoot), 'captured Windows system root unavailable');
+      const knownExecutable = fs.realpathSync(path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+      const observedExecutable = fs.realpathSync(path.join(observedHome, 'powershell.exe'));
+      assert.equal(observedExecutable.toLowerCase(), knownExecutable.toLowerCase(), 'captured PowerShell host must match known Windows executable');
+      const modulePath = fs.realpathSync(path.join(path.dirname(observedExecutable), 'Modules'));
+      const started = performance.now();
+      // Exact captured scanner body & flags; restrict only this diagnostic child's module search.
+      const result = originalSpawnSync(observedExecutable, [...args], { ...options, env: { ...options.env, PSModulePath: modulePath }, timeout: 15_000, maxBuffer: MAX_BYTES });
+      report.windowsProbes.push({ kind: 'sealed-scanner-trusted-module-path', executablePath: observedExecutable, modulePath, originalScriptSha256: createHash('sha256').update(script).digest('hex'), timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
+    } catch (error) { report.windowsProbes.push({ kind: 'trusted-module-path-probe-refused', error: errorRecord(error) }); }
     for (const autoLoading of ['None', null]) {
       run(autoLoading ? 'powershell-explicit-cim' : 'powershell-explicit-cim-default-autoload', `function RkDiagnosticMark([string]$text) { [Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ' + $text); [Console]::Error.Flush() }
 $ErrorActionPreference = 'Stop'; ${autoLoading ? "$PSModuleAutoLoadingPreference = 'None';" : ''}
