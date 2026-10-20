@@ -77,7 +77,7 @@ test("parseSettings defaults and validates", () => {
 });
 
 test("the script is safe to embed verbatim in a workflow heredoc", () => {
-  const source = fs.readFileSync(new URL("./supersede.mjs", import.meta.url), "utf8");
+  const source = fs.readFileSync(new URL("./supersede.mjs", import.meta.url), "utf8").replace(/\r\n?/g, "\n");
   assert.doesNotMatch(source, /\$\{/, "no template placeholder or expression syntax");
   assert.doesNotMatch(source, /^RIGHT_GIT_SUPERSEDE_EOF$/m);
   assert.doesNotMatch(source, /\r/);

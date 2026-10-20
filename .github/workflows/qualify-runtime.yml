@@ -1,0 +1,144 @@
+# Manual evidence collection only. Measurement jobs receive no credentials; output stays in artifacts.
+name: qualify-runtime
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: Completed main publish.yml run containing sealed rightkit-logs candidate
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: runtime-qualification-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  candidate:
+    if: ${{ github.ref == 'refs/heads/main' && !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Check qualification harness
+        run: node --test scripts/ci/runtime-qualify.test.mjs
+      - name: Authenticate candidate run & immutable artifact digest
+        id: candidate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RUNTIME_SOURCE_RUN: ${{ inputs.source_run }}
+          RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
+        run: node scripts/ci/runtime-qualify.mjs resolve
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-candidate
+          path: ${{ runner.temp }}/runtime-packed
+          retention-days: 7
+          if-no-files-found: error
+  measure:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            host: win32
+          - runner: xcode-27
+            host: darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.candidate.outputs.source_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.24.0
+          package_json_file: harness/package.json
+      - name: Install trusted validator dependencies without lifecycle scripts
+        working-directory: harness
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: runtime-candidate
+          path: ${{ runner.temp }}/runtime-packed
+      - name: Measure fixed tracing writer workload & record raw provenance
+        env:
+          RUNTIME_SOURCE: ${{ github.workspace }}/candidate
+          RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
+          RUNTIME_OUT: ${{ runner.temp }}/runtime-results
+        run: node harness/scripts/ci/runtime-qualify.mjs measure
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: runtime-${{ matrix.host }}
+          path: ${{ runner.temp }}/runtime-results
+          retention-days: 14
+          if-no-files-found: error
+  qualify:
+    needs: [candidate, measure]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.candidate.outputs.source_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.24.0
+          package_json_file: harness/package.json
+      - working-directory: harness
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: runtime-candidate
+          path: ${{ runner.temp }}/runtime-packed
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: runtime-*
+          path: ${{ runner.temp }}/runtime-hosts
+      - name: Validate both hosts with existing runtime-budget gate & generate reviewable records
+        env:
+          RUNTIME_SOURCE: ${{ github.workspace }}/candidate
+          RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
+          RUNTIME_RESULTS: ${{ runner.temp }}/runtime-hosts
+          RUNTIME_OUT: ${{ runner.temp }}/runtime-qualified
+        run: node harness/scripts/ci/runtime-qualify.mjs combine
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: runtime-qualified
+          path: ${{ runner.temp }}/runtime-qualified
+          retention-days: 14
+          if-no-files-found: error

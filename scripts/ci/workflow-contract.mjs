@@ -560,6 +560,9 @@ const APPROVED_PATH_LINE = 'export const APPROVED_ARTIFACTS_FILE = path.resolve(
 const UNIT_LOOP = "const names = new Set();\n  for (const unit of manifest.units) {";
 
 export function assertUploadScript(text, name = "upload.mjs") {
+  // Git may check this source out with CRLF on Windows. The contract is about JavaScript
+  // structure, so compare canonical line endings while retaining every exact source invariant.
+  text = text.replace(/\r\n?/g, "\n");
   const problems = [];
   const check = (ok, message) => { if (!ok) problems.push(message); };
   const start = text.indexOf("export async function executeUpload(");
@@ -602,6 +605,8 @@ export const UPLOAD_SCRIPT_MUTATIONS = [
 
 /** Returns the names of upload-script mutations assertUploadScript failed to reject. */
 export function proveUploadScriptMutations(text) {
+  // Keep mutation anchors LF-based on Windows checkouts, matching assertUploadScript.
+  text = text.replace(/\r\n?/g, "\n");
   assertUploadScript(text);
   const survivors = [];
   for (const [name, mutate] of UPLOAD_SCRIPT_MUTATIONS) {

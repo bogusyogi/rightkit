@@ -104,6 +104,8 @@ jobs:
         run: |
           node scripts/ci/workflow-contract.mjs .github/workflows/publish.yml
           node --test scripts/ci/publish.test.mjs scripts/ci/select.test.mjs scripts/ci/test-results.test.mjs
+          node scripts/ci/reviewed-workflow-contract.mjs
+          node --test scripts/ci/reviewed-candidate.test.mjs scripts/ci/registry-consumer.test.mjs scripts/ci/workflow-contract-portability.test.mjs
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         if: ${{ inputs.registry == 'crates' }}
       - name: Validate the request and order the units
@@ -323,6 +325,10 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
         run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_UNITS" --allow-host-exclusion "$PUBLISH_ALLOW_HOST_EXCLUSION" --allow-no-test "$PUBLISH_ALLOW_NO_TEST" --allow-ignored "$PUBLISH_ALLOW_IGNORED" --allow-missing-assets "$PUBLISH_ALLOW_MISSING_ASSETS"
+      - name: Run the exact logs archive through an isolated registry consumer
+        if: ${{ needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-logs') }}
+        shell: bash
+        run: node scripts/ci/registry-consumer.mjs "$RUNNER_TEMP/rk-pack" rightkit-logs "$RUNNER_TEMP/rightkit-ci/registry-consumer-logs.json"
       - name: Verify the sealed bytes and write this host's receipt
         shell: bash
         env:

@@ -266,8 +266,10 @@ export function loadApprovedArtifacts(file) {
   try { doc = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return { entries: [], problems: ["approved-artifacts file is not JSON"] }; }
   const problems = [];
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) return { entries: [], problems: ["approved-artifacts file is not an object"] };
-  if (JSON.stringify(Object.keys(doc).sort()) !== JSON.stringify(["artifacts", "schema"])) problems.push("approved-artifacts file must hold exactly the keys schema and artifacts");
-  if (doc.schema !== 1) problems.push(`approved-artifacts schema ${JSON.stringify(doc.schema)} is not 1`);
+  const expectedKeys = doc.schema === 2 ? ["artifacts", "candidates", "schema"] : ["artifacts", "schema"];
+  if (JSON.stringify(Object.keys(doc).sort()) !== JSON.stringify(expectedKeys)) problems.push(`approved-artifacts file must hold exactly the keys ${expectedKeys.join(", ")}`);
+  if (doc.schema !== 1 && doc.schema !== 2) problems.push(`approved-artifacts schema ${JSON.stringify(doc.schema)} is not 1 or 2`);
+  if (doc.schema === 2 && !Array.isArray(doc.candidates)) problems.push("approved-artifacts.candidates is not a list");
   if (!Array.isArray(doc.artifacts)) return { entries: [], problems: [...problems, "approved-artifacts.artifacts is not a list"] };
   const entries = []; const seen = new Set();
   doc.artifacts.forEach((entry, i) => {
@@ -453,7 +455,11 @@ export async function reconcileUnit({ registry, unit, fetchImpl }) {
  * Check everything, then upload (or, with dryRun, describe) each sealed unit in order. Injectable `spawn`
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
  */
-export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
+export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, candidateContext = null, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
+  if (candidateContext) {
+    const { assertAuthenticatedContext } = await import("./reviewed-candidate.mjs");
+    assertAuthenticatedContext(candidateContext, { env, packDir, receiptsDir, approvedFile });
+  }
   const registry = env.PUBLISH_REGISTRY;
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
   if (env.GITHUB_ACTIONS !== "true") throw new Error("upload runs in GitHub Actions only");
@@ -471,10 +477,12 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
   }
   const allow = { hostExclusion: splitNames(env.PUBLISH_ALLOW_HOST_EXCLUSION), noTest: splitNames(env.PUBLISH_ALLOW_NO_TEST), ignored: splitNames(env.PUBLISH_ALLOW_IGNORED), missingAssets: splitNames(env.PUBLISH_ALLOW_MISSING_ASSETS) };
   if (!/^\d+$/.test(env.GITHUB_RUN_ID ?? "") || !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) throw new Error("GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set; the sealed bytes and receipts are bound to this run");
-  const run = { runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
+  const promotionRun = { runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
+  const run = candidateContext ? { runId: candidateContext.candidate.runId, runAttempt: candidateContext.candidate.runAttempt } : promotionRun;
   const { manifest, manifestSha256, problems } = loadSealed({ packDir, registry, unitsText: env.PUBLISH_UNITS, run });
   if (manifest) {
-    if (manifest.commit !== env.GITHUB_SHA) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${env.GITHUB_SHA}`);
+    const sourceSha = candidateContext?.candidate.sourceSha ?? env.GITHUB_SHA;
+    if (manifest.commit !== sourceSha) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${sourceSha}`);
     problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));
     problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run }));
     if (registry === "npm") {
@@ -492,8 +500,8 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
   }
   if (problems.length) throw new Error(`sealed upload refused:\n  - ${problems.join("\n  - ")}`);
 
-  const previous = !dryRun && previousDir ? loadPreviousReceipt({ previousDir, registry, commit: manifest.commit, run }) : null;
-  const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "" }, previous);
+  const previous = !dryRun && previousDir ? loadPreviousReceipt({ previousDir, registry, commit: manifest.commit, run: promotionRun }) : null;
+  const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", ...(candidateContext ? { promotionCommit: env.GITHUB_SHA, candidate: candidateContext.candidate } : {}) }, previous);
   const redact = (text) => (token ? String(text ?? "").split(token).join("<redacted>") : String(text ?? ""));
   log(`sealed ${manifest.units.length} ${registry} unit(s) at ${manifest.commit}; both hosts verified the same bytes`);
   if (previous) log(`continuing run ${run.runId} from attempt ${previous.runAttempt}'s receipt (${previous.receipts.length} unit row(s))`);

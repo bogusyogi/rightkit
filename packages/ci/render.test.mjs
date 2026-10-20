@@ -1379,7 +1379,7 @@ test("default ci renders the supersede job and a job-level wait group instead of
     assert.doesNotMatch(content, /concurrency\.mainPushes queue/);
   }
   // The embedded script is the shipped file, verbatim.
-  const script = fs.readFileSync(new URL("./supersede.mjs", import.meta.url), "utf8").replace(/\n+$/, "");
+  const script = fs.readFileSync(new URL("./supersede.mjs", import.meta.url), "utf8").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
   assert.ok(unset.includes(script.split("\n").map((line) => (line === "" ? "" : `          ${line}`)).join("\n")));
 });
 
