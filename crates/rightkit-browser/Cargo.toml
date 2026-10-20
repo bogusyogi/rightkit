@@ -46,6 +46,8 @@ cookie-export = ["dep:rightkit-fs"]
 [dev-dependencies]
 # `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no multi-thread runtime.
 tokio = { version = "1", features = ["rt-multi-thread"] }
+# `atomic::seams` write-failure injection for the cookie-export publish-failure test (test builds only).
+rightkit-fs = { path = "../rightkit-fs", version = "0.4.3", default-features = false, features = ["test-seams"] }
 
 [package.metadata.rightkit]
 continuous = "held-resource"

@@ -723,32 +723,31 @@ mod tests {
         assert!(verify_staged(&dir.path().join("missing"), b"abc").is_err());
     }
 
-    #[cfg(unix)]
+    /// A publish that fails part-way leaves the old artifact and no temp file behind.
+    ///
+    /// The failure is injected with the `rightkit-fs` `atomic::seams` write budget (dev-dependency
+    /// feature `test-seams`), which is deterministic and the same on every platform. A read-only
+    /// parent (`chmod 0500`) cannot force the failure: the export publishes with
+    /// `private: true, create_parents: true`, and `rightkit-fs` re-applies `0700` to an existing
+    /// parent directory on that path, which makes it writable again, so the publish succeeds. Root
+    /// and Windows ignore directory permissions as well. The seam is per thread and `export_to`
+    /// runs on the calling thread, so the injection reaches the staged write.
     #[test]
     fn failed_publish_leaves_the_old_artifact_and_no_temp_file() {
-        use std::os::unix::fs::PermissionsExt;
+        use rightkit_fs::atomic::seams::fail_write_after;
         let dir = tempfile::tempdir().unwrap();
         let (path, old) = old_artifact(dir.path());
         let parent = path.parent().unwrap().to_path_buf();
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o500)).unwrap();
-        // Root ignores directory permissions: skip when the directory is still writable.
-        let probe = parent.join("probe");
-        let writable = fs::write(&probe, b"x").is_ok();
-        let _ = fs::remove_file(&probe);
-        let result = if writable {
-            None
-        } else {
-            Some(export(&["x.com"]).export_to(&path, &[ck("x.com", "n", SECRET)]))
+        let result = {
+            let _guard = fail_write_after(8, std::io::ErrorKind::StorageFull);
+            export(&["x.com"]).export_to(&path, &[ck("x.com", "n", SECRET)])
         };
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
-        if let Some(result) = result {
-            let e = result.unwrap_err();
-            assert!(matches!(e, CookieExportError::Publish(_)), "{e}");
-            assert!(!e.target_replaced());
-            assert!(!e.to_string().contains(SECRET));
-            assert_eq!(fs::read(&path).unwrap(), old);
-            assert_eq!(dir_names(&parent), ["x_cookies.txt"]);
-        }
+        let e = result.unwrap_err();
+        assert!(matches!(e, CookieExportError::Publish(_)), "{e}");
+        assert!(!e.target_replaced());
+        assert!(!e.to_string().contains(SECRET));
+        assert_eq!(fs::read(&path).unwrap(), old);
+        assert_eq!(dir_names(&parent), ["x_cookies.txt"]);
     }
 
     #[cfg(unix)]
