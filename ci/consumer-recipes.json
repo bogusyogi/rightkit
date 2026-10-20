@@ -33,7 +33,7 @@
         "ci/consumers/npm/app-update/consumer.mjs": "c1d29b8ead2f4574388beeacd74c84ca6c78c9181854dc2373c7a48bcc8f56b7",
         "ci/consumers/npm/app-update/package.json": "2672646d884960b763ff24207d148ba20888678d8a0615d36c5f309ca10f476e",
         "ci/consumers/npm/app-update/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/onboarding": {
@@ -65,7 +65,7 @@
         "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/qa-chrome": {
@@ -85,7 +85,7 @@
         "ci/consumers/npm/qa-chrome/consumer.mjs": "7bad71cec2e6d1f95c93705e8317b9774a38c2e04a8b0fdc13a6d109056f7b09",
         "ci/consumers/npm/qa-chrome/package.json": "6eacf53c660287434f0a95ef8c7cb159196af8b6567f74278654655c0cbf5c30",
         "ci/consumers/npm/qa-chrome/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/settings-ui": {
@@ -125,7 +125,42 @@
         "ci/consumers/npm/settings-ui/consumer.mjs": "6bb455d420a91094e84ea4d417cb352781aff42412a2716a4a25be5e842476ca",
         "ci/consumers/npm/settings-ui/package.json": "2461ab4540bfd71c284cd962ac8b1d69f9892076ca2bb208a84504f9674fb8d9",
         "ci/consumers/npm/settings-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
+      },
+      "importClosures": {
+        ".": {
+          "@rightkit/license": "0.3.0",
+          "@rightkit/platform-ui": "0.4.0",
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/theme": "0.3.1",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "./appearance": {
+          "@rightkit/platform-ui": "0.4.0",
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/theme": "0.3.1",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "./core": {
+          "react": "19.3.1"
+        },
+        "./headless": {
+          "react": "19.3.1"
+        },
+        "./settings.css": {},
+        "./shell-adapter": {
+          "react": "19.3.1"
+        },
+        "./standard": {
+          "@rightkit/license": "0.3.0",
+          "@rightkit/platform-ui": "0.4.0",
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/theme": "0.3.1",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        }
       }
     },
     "@rightkit/tauri-shell": {
@@ -145,7 +180,7 @@
         "ci/consumers/npm/tauri-shell/consumer.mjs": "3c3207fe0254581feb8e6f2626f0c89a32ebaaec1b15beed85a683d589d8feb0",
         "ci/consumers/npm/tauri-shell/package.json": "f4797fc0336d4b4f8cc23b6060757bf9ad193d03b35ddd8287023c10338a1b13",
         "ci/consumers/npm/tauri-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/legal": {
@@ -169,7 +204,7 @@
         "ci/consumers/npm/legal/consumer.mjs": "88b5ebc6b2c3787d47302046aaf28e67006727794bd162d0e9764d2906323fb5",
         "ci/consumers/npm/legal/package.json": "412fca5c15c88350f882032c920c3c9b8f2413548d279512cdf428d2f96f4395",
         "ci/consumers/npm/legal/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/doc-render": {
@@ -204,7 +239,7 @@
         "ci/consumers/npm/doc-render/consumer.mjs": "03ec48728c00e08bb8d0637bccf50703971955ab4616b71b9e092eba6bca9fcd",
         "ci/consumers/npm/doc-render/package.json": "9bfd7a0c02b3a7123319aaefdaf3ab449109dca74fa0e6f152263561a2da5e44",
         "ci/consumers/npm/doc-render/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/tauri": {
@@ -230,7 +265,7 @@
         "ci/consumers/npm/tauri/consumer.mjs": "9f02cf75b03879bce155c87aa629b9a98eef3862852910b2c28267a261f933c2",
         "ci/consumers/npm/tauri/package.json": "68623f64e7b4027f45558855aba0aed90542a52291812eb1d3d78e46c69cb4a0",
         "ci/consumers/npm/tauri/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     },
     "@rightkit/qa": {
@@ -255,7 +290,7 @@
         "ci/consumers/npm/qa/consumer.mjs": "8568000b993001f60b17e804343115162b06138baf78fefbfe02d09b6167bbe3",
         "ci/consumers/npm/qa/package.json": "dfdc3f1965ac5abe4a28bbd1b693cc8909967ec5ceca7fc4b6e3c7b0ac1c95d5",
         "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+        "scripts/ci/npm-recipe-consumer.mjs": "e3e529b9da6fd3a5252b13b8243aabcdf6e7d61dff26870a62e3ac299029a748"
       }
     }
   },
@@ -543,6 +578,78 @@
         }
       ],
       "aggregateSha256": "94806930e65c8a8437d044142118b9fca018acdcee69ea62136ec17d12fd598e"
+    },
+    "rightkit-db": {
+      "pkId": "PK03",
+      "id": "ci/consumers/rightkit-db/src/main.rs",
+      "dependency": "rightkit-db = { version = \"=0.5.1\", features = [\"bundled\"] }",
+      "extraDependencies": [],
+      "gateEvidence": "no OS keychain or SQLCipher key: bundled SQLite only; temp directory removed on exit; encrypted lifecycle (sqlcipher, ProtectedKeyStore, rotation, relocation) not exercised and needs its own PK03-3..6 gate rows",
+      "consumes": "PK03 plan (docs/plans/2026-10-20-rightkit-implementation/01-packages.md:131-146) db 0.5.x surface; public items exercised: DbOptions::new, open_writer_migrated, open_read_pool_with (crates/rightkit-db/src/migrate.rs:788, src/lib.rs:217,383), write_txn (src/lib.rs:735), open_read_only, open_existing_writer, open_in_memory (src/lib.rs:524-534), ReadPoolOptions::with_read_only (src/lib.rs:823), migrate::Migration::sql (src/migrate.rs:31), MigrateOptions (src/migrate.rs:111), user_version (src/migrate.rs:191)",
+      "files": {
+        "Cargo.toml": "da2f729115d28df1d80ce7a18987f42212726156426c54961c34d37f1682ca50",
+        "README.md": "fccbf7c8387ccb776090ac2c717edc090af0a0b6d2368c641017849350b96c21",
+        "src/main.rs": "65570b67678e35565cf128d027c8524b60d7961509e21c4f31137c81900d6152"
+      },
+      "aggregateSha256": "35bb1b2aa4e0cc1ff09dc378a85541e329fcfa513bfc6acbaddbf829191f2999"
+    },
+    "rightkit-license": {
+      "pkId": "PK05",
+      "id": "ci/consumers/rightkit-license/src/main.rs",
+      "dependency": "rightkit-license = { version = \"=0.2.4\" }",
+      "extraDependencies": [],
+      "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; no network, no OS keychain; client, update-auth, engine-gate and subject-entitlement features not enabled",
+      "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118)",
+      "files": {
+        "Cargo.toml": "f6eb5367aa3288a0555ddc13761125141c3f1cb8d9aa41ebdb8b469af05634cd",
+        "README.md": "917ce9afbf3e528dc361fb7f02d204a6731162059e35fe29d45dcf696d490b41",
+        "src/main.rs": "1d5dc73479b09b6d2ccf9a72c410bf87c6911355f0bdd6e53f2530d12fdfe087"
+      },
+      "aggregateSha256": "895141be1a8a2d04483fad0e0dd5a8eb6254dc935e7bf3a6779dec50cd5f0578"
+    },
+    "rightkit-child-process": {
+      "pkId": "PK02",
+      "id": "ci/consumers/rightkit-child-process/src/main.rs",
+      "dependency": "rightkit-child-process = { version = \"=0.5.4\" }",
+      "extraDependencies": [],
+      "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
+      "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216)",
+      "files": {
+        "Cargo.toml": "7b75d3352f146157882afbb707706501e422840fde26ceb817c03e83c08e0d59",
+        "README.md": "fc30937e76a006b428fd44bd8db9ceb0afcb1ee860ae3e0b132f7cbec9b99380",
+        "src/main.rs": "cf03627f44f7f276cd432a51767ced5ee6f5246e923d89d3dd1f4aca532993e4"
+      },
+      "aggregateSha256": "1d451f2dbee538ba3031e83ccfc4bca9e9fc852f4d4d35dfd7068b43238c4bd1"
+    },
+    "rightkit-daemon": {
+      "pkId": "PK07",
+      "id": "ci/consumers/rightkit-daemon/src/main.rs",
+      "dependency": "rightkit-daemon = { version = \"=0.4.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; per-run private temp suite removed on drop; no listener or process; no ci/asset-gated.json entry needed",
+      "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231",
+      "files": {
+        "Cargo.toml": "15a0868c784cc4505f596d7e05da62bbc8e73554208a85efc0605a5eb2599a77",
+        "README.md": "b89ee7a6e9885c773c7b592b000149c7e0e142b76a6184257ae3eec72d188445",
+        "src/main.rs": "6520ef82f8788601e842876d46578bab9e015e2f2535a78be83ffe51d64c3a02"
+      },
+      "aggregateSha256": "ad35b4ad88b463e7aae79ceadef909ba30283f8a017b52a0d3280fe8e4752bc9"
+    },
+    "rightkit-qa": {
+      "pkId": "PK14",
+      "id": "ci/consumers/rightkit-qa/src/main.rs",
+      "dependency": "rightkit-qa = { version = \"=0.8.0\" }",
+      "extraDependencies": [
+        "serde_json = \"1\""
+      ],
+      "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
+      "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
+      "files": {
+        "Cargo.toml": "b5204cb6331bb49b08caedcc59c0220503dd3e324983370bf2f62a03070e3990",
+        "README.md": "0ab46afbb7fafe2120f98250a1d95f8b2998669ce0abe86a7e90876ce8456863",
+        "src/main.rs": "07d122389195670f78149d7eafa72929f7f6cf826d450af986500a3ade38ec64"
+      },
+      "aggregateSha256": "3a6033b298bf8e52ab257af0058f1551e87af138b2c66775d01232ab0d5f1b02"
     }
   }
 }

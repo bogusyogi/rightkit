@@ -17,22 +17,22 @@ Baseline facts used (working tree at HEAD `5a5892a9`, dirty with the staged cand
 | rightkit-credentials | 0.3.0 | 0.3.1 | staged: rotation_status, HelperTrust/new_trusted, resolve_bundled_login_item (11 items) |
 | rightkit-license / @rightkit/license | 0.2.3 / 0.2.1 | 0.2.4 / 0.3.0 | staged: `client`, `update-auth`, `client-testing` (165 items) / native view client (BREAKING) |
 | rightkit-device | 0.3.1 | 0.3.1 | published; no delta |
-| rightkit-daemon | 0.3.0 | 0.3.1 | staged: migrate_from_with + report types (22 items); HELD on known defects |
+| rightkit-daemon | 0.3.0 | 0.3.1 | staged: migrate_from_with + report types (22 items); HELD on known defects. Source candidate 0.4.0 (`crates/rightkit-daemon/Cargo.toml:3`); published 0.3.0 baseline and historical 0.3.1 sub-release retained; hold unchanged. [proposed — needs Fable+Astra sign-off] |
 | rightkit-job-queue | 0.4.0 | 0.4.1 | staged: handshake, activity registry, cross-process FIFO, JobQuery (52 items) |
 | rightkit-tauri-shell / @rightkit/tauri-shell | 0.4.0 / 0.1.1 | 0.5.0 / 0.1.2 | staged: 9 new modules (associations, caller_gate, logs_commands, open_paths, os_settings, preview, print, webview2_env, webview2_menu) + menu/WindowSpec additions (207 items) / adapter repair |
 | @rightkit/tauri | 0.2.3 | 0.3.0 | staged: licence client removal (BREAKING), dialog-qa |
 | @rightkit/app-update | 0.4.0 | 0.4.1 | staged: `./native`, createPersistedCheckCache |
 | @rightkit/settings-ui | 0.6.1 | 0.7.0 | staged: LicenseView migration (BREAKING) |
 | @rightkit/react-shell | 0.7.1 | 0.7.2 | staged: FuseCurves orientation |
-| rightkit-sandbox | 0.5.0 | 0.5.1 | staged: Linux roots choice, ConPTY knobs |
+| rightkit-sandbox | 0.5.0 | 0.5.1 | staged: Linux roots choice, ConPTY knobs. HELD (RV05). Consumer facts: rightkit-browser depends on it (`crates/rightkit-browser/Cargo.toml:31`, target-conditional normal dependency) and calls it (`crates/rightkit-browser/src/proc.rs:518-519`); the frozen RV05 exception (line 89) requires an app-packet or rightkit#821 consumer, or a documented user amendment, neither recorded here, so the hold is retained. [proposed — needs Fable+Astra sign-off] |
 | rightkit-models | 0.4.4 | 0.5.0 | staged: suite tests isolated; floors daemon 0.3.0, qa 0.7.0 |
 | rightkit-browser | 0.3.4 | 0.3.5 | staged: cookies::parse_netscape, import_cookies, ManagedRoot re-export |
-| rightkit-automation | 0.5.0 | 0.5.1 | staged: busy UIA lane refusal |
-| rightkit-agent-tools | 0.2.0 | 0.2.1 | staged: camelCase exposure hardening |
+| rightkit-automation | 0.5.0 | 0.5.1 | staged: busy UIA lane refusal. Source is 0.6.0 (crates/rightkit-automation/Cargo.toml:3), not 0.5.1: BREAKING `paths` feature change (CHANGELOG.md:5; daemon dep `version = "0.4.0"` at Cargo.toml:31; published 0.5.0 pins daemon ^0.3.0). Already depended on at 0.6.0 by rightkit-qa (crates/rightkit-qa/Cargo.toml:40) and rightkit-agent-tools `automation` feature (crates/rightkit-agent-tools/Cargo.toml:16,24). HELD; decision pending, not lifted here. [proposed — needs Fable+Astra sign-off] |
+| rightkit-agent-tools | 0.2.0 | 0.2.1 | staged: camelCase exposure hardening. Source candidate 0.3.0 (`crates/rightkit-agent-tools/Cargo.toml:3`); published 0.2.0 baseline and 0.2.1 candidate retained. [proposed — needs Fable+Astra sign-off] |
 | @rightkit/qa-chrome / @rightkit/qa | 0.1.8 / 0.5.1 | 0.1.9 / 0.5.1 | staged: close budget / none (dep bump needed when qa-chrome publishes) |
 | @rightkit/release | 0.4.0 | 0.4.1 | staged: production-mode frontend build, dev-condition refusal, license-testing markers, Windows `publish cargo --local`; unreleased: iOS recipe, #778 updater signing, disk hygiene |
 | rightkit-qa | 0.7.1 | 0.7.1 (tree) | tree carries unpublished `dialog`, `fake_cli`, `ui_dialog_*` additions under the published number (`src/lib.rs:48,56`); PK14-1 bumps the tree version before any publish |
-| rightkit-oauth | 0.9.0 | 0.9.1 | staged delta not owned by any PK: held (RV08) unless the daemon `remote`/loopback rows (PK06-5) or PK10-3 name a consumer, then qualified with those rows |
+| rightkit-oauth | 0.9.0 | 0.10.0 | staged delta not owned by any PK: held (RV08) unless the daemon `remote`/loopback rows (PK06-5) or PK10-3 name a consumer, then qualified with those rows. Source is 0.10.0 (crates/rightkit-oauth/Cargo.toml:3). Named consumer: `FlowOAuthHandler` (`crates/rightkit-daemon/src/remote/oauth.rs:12-46`: struct 12-15, `OAuthCallbackHandler` impl 17-46, calling `ServerAuthFlow::complete` at line 25), reached through rightkit-daemon optional dep `version = "0.10.0"` (`crates/rightkit-daemon/Cargo.toml:31`) under feature `remote` (`crates/rightkit-daemon/Cargo.toml:74`). HOLD RETAINED (RV08). Prerequisite: rightkit-credentials 0.4.0 (crates/rightkit-oauth/Cargo.toml:44) must publish first. [proposed — needs Fable+Astra sign-off] |
 | rightkit-db, rightkit-app-settings, rightkit-sidecar, @rightkit/platform-ui, @rightkit/theme, @rightkit/legal, @rightkit/legal-ui, @rightkit/onboarding, rightkit-overlay | = source | = source | published; CHANGELOG "staging" labels stale (relabel only) |
 | RightKitSwift | tag 0.8.1 | 0.9.0 | held; `swift test` 835 pass 2026-10-18 on macOS |
 
@@ -86,7 +86,7 @@ npm: `@rightkit/logs` → `@rightkit/tauri` (dep `^0.1.4`); `@rightkit/app-updat
 
 **Readiness groups instead of waves (RV01).** There is no "publish all staged" step. Each PK publishes its owner once the PK's candidate and required work are coded and qualified together, as the next semver step; where a staged candidate is incompatible with the required work it is reshaped before publishing, never published as-is to be fixed later. An intermediate bugfix release is allowed only when it independently unblocks a named consumer and the PK says which (PK01-1 lease fix: every app's `Lease` user; PK02-1 capture fix: ScrapeRight/CodeRight runners; PK03-1 credentials 0.3.1: HeardRight helper trust; PK05-1/2 licence client + renderer view client: all apps' licence migration, published with PK04-2 host registration). App packets start when the fetched receipts (§6) of their declared PK subset exist; unrelated package work never blocks an app task.
 
-**Publication sequence within a group** follows the edges only: a crate publishes after every dependency whose new API it consumes has its readback. http 0.3.7 has no consumer of its change and no dependent floor; it publishes with the next http change or when a consumer names it. `@rightkit/release`: `publish-cargo.mjs` runs the crate gate + `publication-gate.mjs`; the production-mode/dev-condition refusals live in `release.mjs` (app build path), so crate and npm publishes do not depend on a new release version; `@rightkit/release` ships after its own qualification, with the unreleased iOS/#778/disk-hygiene content excluded by this packet's scope (RV02). sandbox 0.5.1 and automation 0.5.1 are held unless an app packet or rightkit#821 names a consumer of the staged change (RV05).
+**Publication sequence within a group** follows the edges only: a crate publishes after every dependency whose new API it consumes has its readback. http 0.3.7 has no consumer of its change and no dependent floor; it publishes with the next http change or when a consumer names it. `@rightkit/release`: `publish-cargo.mjs` runs the crate gate + `publication-gate.mjs`; the production-mode/dev-condition refusals live in `release.mjs` (app build path), so crate and npm publishes do not depend on a new release version; `@rightkit/release` ships after its own qualification, with the unreleased iOS/#778/disk-hygiene content excluded by this packet's scope (RV02). sandbox 0.5.1 stays HELD (RV05): rightkit-browser depends on it (`crates/rightkit-browser/Cargo.toml:31`) and calls it (`crates/rightkit-browser/src/proc.rs:518-519`), but no app-packet or rightkit#821 consumer is recorded and no documented user amendment exists, so the hold is retained [proposed — needs Fable+Astra sign-off]. automation is 0.6.0 in source, not 0.5.1 (row ~30); rightkit-qa already depends on 0.6.0 (`crates/rightkit-qa/Cargo.toml:40`). Automation stays held unless an app packet or rightkit#821 names a consumer of the staged change (RV05); the hold decision is open.
 
 **Collision handling.** Before choosing a version: a live registry lookup (crates.io sparse index fetch for the crate, `npm view <pkg> versions --json`, `git ls-remote --tags` for RightKitSwift) and the `rightkit-versions.json` registry section must both show the target number absent; the lookup output is stored with the handoff evidence. If present, take the next number and re-run R1. A publisher dry-run checks packaging only, never availability. No yank, no overwrite, no numbers reserved in advance. (RV10)
 
@@ -338,7 +338,7 @@ Deletion consumers: all six apps' harnesses, wdio shims, process killers, eviden
 
 ### PK15 — rightkit-agent-tools + daemon admission for hosted surfaces (K15; row M22)
 
-Published: agent-tools 0.2.0; automation 0.5.0. Candidate: agent-tools 0.2.1 (camelCase/PascalCase exposure hardening, speech-client floor 0.4.0, docs `<app>.*` dev/QA-only); automation 0.5.1 (held, RV05).
+Published: agent-tools 0.2.0; automation 0.5.0. Candidate: agent-tools 0.2.1 (camelCase/PascalCase exposure hardening, speech-client floor 0.4.0, docs `<app>.*` dev/QA-only); automation 0.6.0 (held, RV05; source version, decision open, see row ~30) [proposed — needs Fable+Astra sign-off].
 Required: applicability record per app (`client | host | both | absent`) tied to real entrypoints; hosted surfaces (Pulse, MailRight) on PK07-4 approvals + PK07-5 service registration; a `desktop.*` test in agent-tools (README:96); Cargo description drops `rightkit-qa-driver`; CodeRight `desktop.*` authority stays Adrian's decision.
 Source: `crates/rightkit-agent-tools/src/{toolbox.rs, exposure.rs, backends/*}` tests 4 files.
 
@@ -347,7 +347,7 @@ Source: `crates/rightkit-agent-tools/src/{toolbox.rs, exposure.rs, backends/*}` 
 - [ ] PK15-3 Negative tests: `paste` tool cannot register; `max_tier=foreground` refused; HeardRight `eval` refused; denied approval causes no effect.
 
 Qualification: agent-tools gate default + `demo` rows (PK17-4) on W/M.
-Publication: 0.2.1 after PK15-1; automation only if #821 or an app packet names it.
+Publication: 0.2.1 after PK15-1; automation 0.6.0 (source version) only if #821 or an app packet names it; decision open [proposed — needs Fable+Astra sign-off].
 Deletion consumers: Pulse/MailRight tool gates, exposure lists, CLIs, approval transports (after PK07-4); CodeRight tool wrappers where contracts match.
 
 ### PK16 — RightKitSwift 0.9.0 (K16; Apple hosts for M1/M3/M7/M10/M12/M17/M18)

@@ -70,12 +70,15 @@ pub use account::{
     DeleteAccountConfirmation, DeletionRefusal, ACCOUNT_SESSION_TTL_SECS, DEFAULT_SESSION_ACCOUNT,
 };
 pub use bridge::{BridgePlatform, LinkCodeView, LinkRequestOutcome};
+pub use clockstore::{ClientClockError, ClientClockStore};
 pub use invalidation::LicenseInvalidation;
 pub use ops::LegacySource;
-pub use reader::{ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT};
+pub use reader::{
+    ClientNativeEntitlementSource, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT,
+};
 pub use types::{
-    DeviceIdError, DeviceIdSource, LicenseClientConfig, LicenseSetup, SecretString,
-    DEFAULT_RECORD_ACCOUNT,
+    DeviceIdError, DeviceIdSource, LicenseClientConfig, LicenseSetup, PendingLicenseRelease,
+    SecretString, DEFAULT_RECORD_ACCOUNT,
 };
 #[cfg(feature = "update-auth")]
 pub use update_auth::{
@@ -127,6 +130,11 @@ impl LicenseClient {
     /// hint another process. A disabled client never signals.
     pub fn invalidation(&self) -> LicenseInvalidation {
         self.invalidation.clone()
+    }
+
+    /// Clock handle for a native engine using this client's ledger & writer fence.
+    pub fn native_clock_store(&self) -> Result<ClientClockStore, LicenseError> {
+        Ok(ClientClockStore::from_config(&self.configured()?.cfg))
     }
 
     /// Whether licensing is disabled in this build.
@@ -186,6 +194,17 @@ impl LicenseClient {
     ) -> Result<LicenseView, LicenseError> {
         let core = self.configured()?;
         core.signalled(|| core.lease_activate(key, device_label))
+    }
+
+    /// Persist an existing native pending-release queue before the local tombstone.
+    /// Callback may only persist that queue; it must not reenter licensing or use network.
+    /// Failure or panic preserves the active record & performs no server release.
+    pub fn deactivate_with_pending_release(
+        &self,
+        enqueue: impl FnOnce(&PendingLicenseRelease) -> Result<(), ()>,
+    ) -> Result<LicenseView, LicenseError> {
+        let core = self.configured()?;
+        core.signalled(|| core.deactivate_with_pending_release(enqueue))
     }
 
     /// Native only: renew the stored device lease.

@@ -101,6 +101,8 @@ pub(crate) struct StoredRecord {
     pub activated_at: Option<i64>,
     pub last_refreshed_at: Option<i64>,
     pub lease: Option<LeaseRecord>,
+    /// Preserve legacy lease-id presence even when optional lease metadata is incomplete.
+    pub binding_lease_id: Option<String>,
 }
 
 impl fmt::Debug for StoredRecord {
@@ -127,6 +129,7 @@ impl StoredRecord {
             activated_at: None,
             last_refreshed_at: None,
             lease: None,
+            binding_lease_id: None,
         }
     }
 
@@ -150,6 +153,11 @@ impl StoredRecord {
         }
         if let Some(id) = &self.license_id {
             map.insert("licenseId".into(), json!(id));
+        }
+        if self.lease.is_none() {
+            if let Some(id) = &self.binding_lease_id {
+                map.insert("leaseId".into(), json!(id));
+            }
         }
         map.insert("clockInitialized".into(), json!(self.clock_initialized));
         for (name, value) in [
@@ -186,11 +194,24 @@ impl StoredRecord {
     /// Read a record object: this crate's own form, or the bare `@rightkit/license` /
     /// HeardRight form (camelCase or snake_case names; ISO or numeric times).
     pub(crate) fn from_map(map: &Map<String, Value>) -> Self {
-        let status = get_str(map, &["status"])
+        let mut status = get_str(map, &["status"])
             .map(|s| RecordStatus::parse(&s))
             // A record with no status at all is a bare record of the older form: active.
             .unwrap_or(RecordStatus::Active);
         let lease = lease_from_map(map);
+        let binding_value = get(map, &["lease_id", "leaseId"]).or_else(|| {
+            map.get("lease")
+                .and_then(Value::as_object)
+                .and_then(|inner| get(inner, &["leaseId"]))
+        });
+        let binding_lease_id = binding_value.and_then(Value::as_str).map(str::to_owned);
+        if binding_value.is_some() && binding_lease_id.is_none()
+            || (map.get("lease").is_some_and(|v| !v.is_null())
+                && lease.is_none()
+                && binding_lease_id.is_none())
+        {
+            status = RecordStatus::Invalid;
+        }
         Self {
             status,
             device_id: get_str(map, &["deviceId", "device_id"]).unwrap_or_default(),
@@ -210,6 +231,7 @@ impl StoredRecord {
             activated_at: get_time(map, &["activatedAt", "activated_at"]),
             last_refreshed_at: get_time(map, &["lastRefreshedAt", "last_refreshed_at"]),
             lease,
+            binding_lease_id,
         }
     }
 }

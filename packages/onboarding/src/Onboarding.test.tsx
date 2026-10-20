@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Onboarding, isLegalAccepted } from "./Onboarding.js";
 import { signInStep } from "./steps.js";
-import type { LegalAcceptanceRecord, LegalReceiptPort, ModelEntry, ModelsBackend, OnboardingProps, SettingsBackend } from "./types.js";
+import type { LegalAcceptanceRecord, LegalReceiptCreateRequest, LegalReceiptPort, ModelEntry, ModelsBackend, OnboardingProps, SettingsBackend } from "./types.js";
 
 afterEach(() => cleanup());
 
@@ -371,6 +371,63 @@ describe("legalReceipt seam", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/save your acceptance/i);
     expect(screen.queryByText("A body")).toBeNull();
     expect(values["onboarding.state"]).toBeUndefined();
+  });
+  it.each([
+    ["default version", undefined, "version"],
+    ["computed documents hash", undefined, "documentsHash"],
+    ["documentsHash-only version", "sha256:shown", "version"],
+    ["documentsHash-only hash", "sha256:shown", "documentsHash"],
+  ] as const)("rejects a mismatched %s receipt and retries without unlocking", async (_name, documentsHash, field) => {
+    const user = userEvent.setup();
+    let mismatch = true;
+    const create = vi.fn(async (request: LegalReceiptCreateRequest): Promise<LegalAcceptanceRecord> => ({
+      version: request.version,
+      documentsHash: request.documentsHash,
+      acceptedAt: "2026-01-01T00:00:00.000Z",
+      eligibilityBasis: request.eligibilityBasis,
+      ...(mismatch ? { [field]: "another-agreement" } : {}),
+    }));
+    const { values, onComplete } = setup({}, { steps: [step], documentsHash, legalReceipt: { read: async () => null, create } });
+    await agree(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/save your acceptance/i);
+    expect(screen.getByTestId("onboarding-legal")).toBeInTheDocument();
+    expect(screen.queryByText("A body")).toBeNull();
+    expect(values["onboarding.state"]).toBeUndefined();
+    expect(onComplete).not.toHaveBeenCalled();
+    const request = create.mock.calls[0]![0];
+    expect(request.version).toBe("1");
+    if (documentsHash) expect(request.documentsHash).toBe(documentsHash);
+    else expect(request.documentsHash).toMatch(/^(sha256|fnv1a):/);
+
+    mismatch = false;
+    await user.click(screen.getByRole("button", { name: /agree/i }));
+    await screen.findByText("A body");
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1]![0]).toEqual(request);
+    expect((values["onboarding.state"] as { legalAcceptance: LegalAcceptanceRecord }).legalAcceptance).toMatchObject({
+      version: request.version, documentsHash: request.documentsHash, eligibilityBasis: request.eligibilityBasis,
+    });
+  });
+  it("refuses an echoed document hash that conflicts with the independent required hash", async () => {
+    const user = userEvent.setup();
+    const create = vi.fn(async (request: LegalReceiptCreateRequest): Promise<LegalAcceptanceRecord> => ({
+      version: request.version,
+      documentsHash: request.documentsHash,
+      acceptedAt: "2026-01-01T00:00:00.000Z",
+      eligibilityBasis: request.eligibilityBasis,
+    }));
+    const { values, onComplete } = setup({}, { documentsHash: "shown-A", requiredDocumentsHash: "required-B", legalReceipt: { read: async () => null, create } });
+    await agree(user);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/save your acceptance/i);
+    expect(create.mock.calls[0]![0].documentsHash).toBe("shown-A");
+    expect(screen.getByTestId("onboarding-legal")).toBeInTheDocument();
+    expect(values["onboarding.state"]).toBeUndefined();
+    expect(onComplete).not.toHaveBeenCalled();
+    // A refused response must not enter the retry cache.
+    await user.click(screen.getByRole("button", { name: /agree/i }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(values["onboarding.state"]).toBeUndefined();
+    expect(onComplete).not.toHaveBeenCalled();
   });
   it("maps a ScrapeRight-style four-field receipt both ways", async () => {
     type Receipt = { legalAcceptanceVersion: string | null; legalAcceptedAt: string | null; legalEligibilityBasis: "individual" | "enterprise" | null; legalMaterialSha256: string | null };

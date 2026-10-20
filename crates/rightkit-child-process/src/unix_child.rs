@@ -66,8 +66,8 @@
 //!      another thread can be delayed by as long as the closure takes.
 //!      `rightkit-sandbox` passes a descendant sweep with a 200 ms grace. New since 0.3.3.
 //!
-//!   Also, [`UnixChild::require_identity`] reaps a just-killed child with a blocking
-//!   `Child::wait`, before the child is shared at all.
+//!   Unidentified spawn rejection uses `cleanup_unidentified`: runner callers supply a finite
+//!   cleanup budget; ordinary commands retain their existing unlimited cleanup default.
 //! * No wait-class system call names the pid while the lock is released. A blocked
 //!   `waitpid(pid)`/`waitid(P_PID, pid)` outside the lock could be entered after another reader
 //!   reaped the leader and the kernel recycled the number, and would then wait on an unrelated
@@ -86,7 +86,7 @@ use std::{
     io,
     process::{Child, ChildStderr, ChildStdin, ChildStdout, ExitStatus},
     sync::{Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 /// Whether this host can see that the leader exited without reaping it (`probe_exit` is real).
@@ -210,18 +210,45 @@ impl UnixChild {
 
     /// Spawn-time check: a host that has an identity source but would not describe the child
     /// cannot prove later that its pid is still the child's, so the child is not handed out.
-    /// It is killed and reaped here, where the pid is certainly still its own.
+    /// Caller must stop & reap a rejected child through `cleanup_unidentified` before returning.
     pub(crate) fn require_identity(&mut self) -> io::Result<()> {
         if !matches!(self.origin, Origin::Missing) {
             return Ok(());
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        self.leader = Leader::Lost;
         Err(io::Error::other(
-            "the spawned child could not be identified; it was stopped because a later \
+            "the spawned child could not be identified; it must be stopped because a later \
              signal could not be proven to reach it",
         ))
+    }
+
+    /// Used only immediately after creation when identity capture failed. std Child owns
+    /// this just-created child, so kill/try_wait are directed at it before any wrapper escapes.
+    /// A finite caller budget transfers an unreaped child to an exclusive background reaper.
+    pub(crate) fn cleanup_unidentified(mut self, timeout: Option<Duration>) -> bool {
+        let _ = self.child.kill();
+        let Some(timeout) = timeout else {
+            return self.child.wait().is_ok();
+        };
+        let deadline = std::time::Instant::now().checked_add(timeout);
+        #[cfg(test)]
+        let refused = crate::owned::cleanup_test_fault::refuse(timeout);
+        #[cfg(not(test))]
+        let refused = false;
+        let reaped = if refused {
+            Ok(None)
+        } else {
+            self.watch.wait_for(deadline, || self.child.try_wait())
+        };
+        if matches!(reaped, Ok(Some(_))) {
+            return true;
+        }
+        let mut child = self.child;
+        let _ = std::thread::Builder::new()
+            .name("rightkit-partial-reap".into())
+            .spawn(move || {
+                let _ = child.wait();
+            });
+        false
     }
 
     /// The one proof every action by pid starts with: `Ok(true)` when the pid still names the

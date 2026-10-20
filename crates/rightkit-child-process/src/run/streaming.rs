@@ -2,8 +2,9 @@
 //! [`OwnedCommand`](crate::OwnedCommand). Output is shown while the child runs, the caller can
 //! cancel, and nothing is retained except bounded tails.
 
+use super::{failure, stop_after_failure, terminate_runner, LeaderTermination, RunnerPhase};
 use super::{StdinWriter, DRAIN_WAIT};
-use crate::{NativeOutputCapture, OwnedCommand, ReapOutcome};
+use crate::{NativeOutputCapture, OwnedCommand};
 use std::{
     io,
     process::ExitStatus,
@@ -38,6 +39,8 @@ const LINE_CAP: usize = 256 * 1024;
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct StreamOptions {
+    /// Post-exit EOF wait, excluding time spent in caller callbacks (default 2 s).
+    pub drain_grace: Duration,
     /// How long the program may run before its tree is terminated. `None` (the default) is no
     /// deadline: only the child's exit or the cancel predicate ends the call.
     pub timeout: Option<Duration>,
@@ -61,6 +64,7 @@ pub struct StreamOptions {
 impl Default for StreamOptions {
     fn default() -> Self {
         Self {
+            drain_grace: DRAIN_WAIT,
             timeout: None,
             poll: Duration::from_millis(100),
             stdout_tail_cap: 64 * 1024,
@@ -72,6 +76,10 @@ impl Default for StreamOptions {
 }
 
 impl StreamOptions {
+    pub fn drain_grace(mut self, grace: Duration) -> Self {
+        self.drain_grace = grace;
+        self
+    }
     /// No deadline, a 100 ms poll, 64 KiB tails, no window, null stdin.
     pub fn new() -> Self {
         Self::default()
@@ -151,16 +159,19 @@ pub struct StreamOutput {
 /// first output is waited for; callbacks and `cancel` may share state through `Cell`s or
 /// atomics. When it returns true, or when `options.timeout` passes, the tree is terminated
 /// ([`OwnedChild::terminate_tree_bounded`](crate::OwnedChild::terminate_tree_bounded)), the
-/// leader is reaped, and the output still queued is delivered; the call then returns `Ok` with
-/// `cancelled` or `timed_out` set, not an error. A child that exits on its own is not signalled
+/// leader is reaped, and the output still queued is delivered. The call returns `Ok` with
+/// `cancelled` or `timed_out` only if output reaches EOF & cleanup succeeds; incomplete drain
+/// returns `Err` with [`RunnerPhase::Drain`]. A child that exits on its own is not signalled
 /// (its leftover tree is, as for [`run`](crate::run)).
 ///
 /// A slow callback slows the child down (back-pressure on its pipe; at most 64 chunks are
 /// queued) and delays the next `cancel` evaluation by as long as it runs.
 ///
-/// Nothing waits without a bound. After the child is gone the readers get 2 s to reach the end
+/// After the child is gone readers get `options.drain_grace` (default 2 s) to reach the end
 /// of their streams (a grandchild that escaped the tree and kept a pipe open cannot extend it);
-/// they are then stopped and joined, and what they had queued is still delivered. Tails keep
+/// they are then stopped and joined, and what they had queued is still delivered. Time spent
+/// in caller callbacks does not consume this drain budget. Failure to reach EOF on either
+/// stream returns `ErrorKind::TimedOut`, never successful partial output. Tails keep
 /// only the last bytes, so memory stays bounded however much the child writes.
 ///
 /// Stdin input uses the same bounded writer as [`run_with_stdin`](crate::run_with_stdin): it is
@@ -197,16 +208,22 @@ pub fn run_streaming(
     // Recorded, not applied to `Command` here: `spawn` applies it to the std `Command` and to a
     // native Windows spawn config alike, after every caller edit.
     cmd.pipe_stdio(options.input.is_some());
+    cmd.bound_runner_cleanup(super::RUNNER_REAP_WAIT);
     if options.no_window {
         cmd.windows_hide();
     } else {
         cmd.windows_visible();
     }
-    let mut child = cmd.spawn()?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|error| failure(RunnerPhase::Spawn, LeaderTermination::NotStarted, error))?;
     // Declared before the readers so an early `?` return drops (and so stops) them first; the
     // writer's `Drop` cancels it with its bound, and the child's `Drop` kills the tree.
     let writer = match (options.input.as_deref(), child.take_stdin()) {
-        (Some(bytes), Some(stdin)) => Some(StdinWriter::spawn(stdin, bytes.to_vec())?),
+        (Some(bytes), Some(stdin)) => Some(
+            StdinWriter::spawn(stdin, bytes.to_vec())
+                .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?,
+        ),
         _ => None,
     };
     let (sender, receiver) = mpsc::sync_channel::<Message>(QUEUE_CHUNKS);
@@ -215,13 +232,15 @@ pub fn run_streaming(
         .map(|pipe| {
             NativeOutputCapture::stdout_streaming(pipe, forward(sender.clone(), Message::Stdout))
         })
-        .transpose()?;
+        .transpose()
+        .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?;
     let mut stderr = child
         .take_stderr()
         .map(|pipe| {
             NativeOutputCapture::stderr_streaming(pipe, forward(sender.clone(), Message::Stderr))
         })
-        .transpose()?;
+        .transpose()
+        .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?;
     // Only the readers' sinks keep the channel open: it disconnects when both are gone.
     drop(sender);
 
@@ -252,7 +271,10 @@ pub fn run_streaming(
         }
         if streams_done {
             // Nothing more to read, so the wait for the exit is the pause.
-            if let Some(status) = child.wait_exit_then_sweep(step)? {
+            if let Some(status) = child
+                .wait_exit_then_sweep(step)
+                .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Wait, error))?
+            {
                 break Ended::Exited(status);
             }
             continue;
@@ -267,7 +289,10 @@ pub fn run_streaming(
         }
         if last_exit_look.elapsed() >= step {
             last_exit_look = Instant::now();
-            if let Some(status) = child.wait_exit_then_sweep(Duration::ZERO)? {
+            if let Some(status) = child
+                .wait_exit_then_sweep(Duration::ZERO)
+                .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Wait, error))?
+            {
                 break Ended::Exited(status);
             }
         }
@@ -276,10 +301,7 @@ pub fn run_streaming(
     let (status, cancelled, timed_out) = match ended {
         Ended::Exited(status) => (Some(status), false, false),
         Ended::Cancelled | Ended::TimedOut => {
-            let reaped = match child.terminate_tree_bounded(KILL_REAP_WAIT)? {
-                ReapOutcome::Exited(status) => Some(status),
-                ReapOutcome::TimedOut => None,
-            };
+            let reaped = Some(terminate_runner(&mut child, KILL_REAP_WAIT)?);
             (
                 reaped,
                 matches!(ended, Ended::Cancelled),
@@ -290,17 +312,8 @@ pub fn run_streaming(
 
     // The child is gone. Let the readers reach the end of their streams, but never wait longer
     // than DRAIN_WAIT: a process that escaped the tree can keep a pipe open.
-    let drain_end = Instant::now() + DRAIN_WAIT;
-    while !streams_done {
-        let left = drain_end.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        match receiver.recv_timeout(left) {
-            Ok(message) => sinks.handle(message),
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => streams_done = true,
-        }
+    if !streams_done {
+        drain_output(&receiver, &mut sinks, options.drain_grace);
     }
     // Stop and join both readers (each wakes at once and gives up a pending send), then deliver
     // what they had queued.
@@ -319,15 +332,20 @@ pub fn run_streaming(
     // both streams before any return: the delivered output is incomplete, so it is an error.
     let stdout_failure = super::capture_failure("stdout", stdout.as_ref());
     let stderr_failure = super::capture_failure("stderr", stderr.as_ref());
-    stdout_failure?;
-    stderr_failure?;
-    writer_result?;
     let Some(status) = status else {
-        return Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            "the terminated process was not reaped within its bound",
+        return Err(failure(
+            RunnerPhase::Cleanup,
+            LeaderTermination::Unconfirmed,
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                "the terminated process was not reaped within its bound",
+            ),
         ));
     };
+    stdout_failure?;
+    stderr_failure?;
+    writer_result
+        .map_err(|error| failure(RunnerPhase::Stdin, LeaderTermination::Confirmed, error))?;
     Ok(StreamOutput {
         status,
         cancelled,
@@ -335,6 +353,68 @@ pub fn run_streaming(
         stdout_tail: sinks.stdout_tail.into_bytes(),
         stderr_tail: sinks.stderr_tail.into_text(),
     })
+}
+
+fn drain_output(receiver: &mpsc::Receiver<Message>, sinks: &mut Sinks<'_>, grace: Duration) {
+    let mut drain_end = Instant::now() + grace;
+    loop {
+        let left = drain_end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        match receiver.recv_timeout(left) {
+            Ok(message) => {
+                let callback_started = Instant::now();
+                sinks.handle(message);
+                drain_end += callback_started.elapsed();
+            }
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
+
+#[cfg(test)]
+mod drain_tests {
+    use super::*;
+
+    #[test]
+    fn callback_longer_than_grace_does_not_cancel_a_backpressured_reader() {
+        let (sender, receiver) = mpsc::sync_channel(QUEUE_CHUNKS);
+        // Queue starts full, with more output still pending in the reader. This reproduces
+        // leader exit before reader EOF without depending on native pipe buffer sizes.
+        for _ in 0..QUEUE_CHUNKS {
+            sender.send(Message::Stdout(vec![b'x'])).unwrap();
+        }
+        let reader = std::thread::spawn(move || {
+            for _ in 0..QUEUE_CHUNKS {
+                if sender.send(Message::Stdout(vec![b'x'])).is_err() {
+                    return;
+                }
+            }
+        });
+        let mut count = 0;
+        let mut on_stdout = |chunk: &[u8]| {
+            if count == 0 {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            count += chunk.len();
+        };
+        let mut on_stderr = |_: &str| {};
+        {
+            let mut sinks = Sinks {
+                on_stdout: &mut on_stdout,
+                on_stderr_line: &mut on_stderr,
+                stdout_tail: Tail::new(8),
+                stderr_tail: Tail::new(8),
+                splitter: LineSplitter::default(),
+            };
+            drain_output(&receiver, &mut sinks, Duration::from_millis(50));
+        }
+        // Disconnect before joining even when the regression reappears.
+        drop(receiver);
+        reader.join().unwrap();
+        assert_eq!(count, 2 * QUEUE_CHUNKS);
+    }
 }
 
 #[derive(Clone, Copy)]

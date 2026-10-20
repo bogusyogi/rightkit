@@ -141,3 +141,216 @@ mod tests {
         assert!(polled.save(&state(1, 1)).is_ok());
     }
 }
+
+/// Classified native clock failure. Only `Unavailable` permits authenticated continuity.
+#[derive(Debug)]
+pub enum ClientClockError {
+    File(FileClockStoreError),
+    Unavailable,
+    Refused,
+    Busy,
+    Corrupt,
+    Unresolved,
+}
+impl std::fmt::Display for ClientClockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::File(_) => "clock file unavailable",
+            Self::Unavailable => "clock temporarily unavailable",
+            Self::Refused => "clock access refused",
+            Self::Busy => "clock busy",
+            Self::Corrupt => "clock corrupt",
+            Self::Unresolved => "clock unresolved",
+        })
+    }
+}
+impl std::error::Error for ClientClockError {}
+impl ClientClockError {
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+}
+
+#[derive(Clone)]
+enum ClockBackend {
+    File(PolledClockStore),
+    Credential {
+        store: rightkit_credentials::Store,
+        account: String,
+        lock: super::lock::OpLock,
+        wait: Duration,
+    },
+}
+
+/// Opaque clock handle shared by native client & native engine.
+#[derive(Clone)]
+pub struct ClientClockStore {
+    backend: ClockBackend,
+}
+impl ClientClockStore {
+    pub(crate) fn from_config(cfg: &super::types::LicenseClientConfig) -> Self {
+        let backend = match &cfg.credential_clock {
+            None => ClockBackend::File(PolledClockStore::new(cfg.clock_path.clone())),
+            Some((store, account)) => ClockBackend::Credential {
+                store: store.clone(),
+                account: account.clone(),
+                lock: super::lock::OpLock::new(cfg.license_dir.join(".secure-clock.lock")),
+                wait: cfg.persist_wait,
+            },
+        };
+        Self { backend }
+    }
+
+    fn credential_op<R: Send + 'static>(
+        &self,
+        job: impl FnOnce(&rightkit_credentials::Store, &str) -> Result<R, ClientClockError>
+            + Send
+            + 'static,
+    ) -> Result<R, ClientClockError> {
+        use super::lock::{run_fenced_at, Fenced};
+        let ClockBackend::Credential {
+            store,
+            account,
+            lock,
+            wait,
+        } = &self.backend
+        else {
+            unreachable!()
+        };
+        let _level = order::enter(Level::SecureClock);
+        let guard = lock
+            .acquire(CLOCK_WAIT)
+            .map_err(|_| ClientClockError::Busy)?;
+        let (store, account) = (store.pinned().map_err(credential_error)?, account.clone());
+        match run_fenced_at(guard, *wait, Level::SecureClock, move || {
+            let result = job(&store, &account);
+            // A timeout/probe failure never releases the serializing guard early.
+            super::persist::settle(&store, &account);
+            result
+        }) {
+            Fenced::Done(result, _guard) => result,
+            Fenced::TimedOut | Fenced::Failed => Err(ClientClockError::Unresolved),
+        }
+    }
+}
+
+fn credential_error(error: rightkit_credentials::Error) -> ClientClockError {
+    match super::reader::native_store_error(&error) {
+        crate::NativeSourceError::Unavailable => ClientClockError::Unavailable,
+        crate::NativeSourceError::Refused => ClientClockError::Refused,
+    }
+}
+
+fn credential_read(
+    store: &rightkit_credentials::Store,
+    account: &str,
+) -> Result<Option<ClockState>, ClientClockError> {
+    let _rotation = order::enter(Level::Rotation);
+    let status = store
+        .rotation_status(account)
+        .map_err(|_| ClientClockError::Unresolved)?;
+    if status.held {
+        return Err(ClientClockError::Unresolved);
+    }
+    if status.pending {
+        // Clock rotation is one raw ledger value, never a licence record or a tombstone.
+        let pending = store
+            .pending_rotation(account)
+            .map_err(credential_error)?
+            .ok_or(ClientClockError::Unresolved)?;
+        let text = pending
+            .expose_str()
+            .map_err(|_| ClientClockError::Corrupt)?;
+        ClockState::decode(text).map_err(|_| ClientClockError::Corrupt)?;
+        store
+            .commit_rotation_of(account, &pending)
+            .map_err(|_| ClientClockError::Unresolved)?;
+        super::persist::settle(store, account);
+        if !store
+            .rotation_status(account)
+            .map_err(|_| ClientClockError::Unresolved)?
+            .is_idle()
+        {
+            return Err(ClientClockError::Unresolved);
+        }
+    }
+    match store.get(account).map_err(credential_error)? {
+        None => Ok(None),
+        Some(secret) => {
+            let text = secret.expose_str().map_err(|_| ClientClockError::Corrupt)?;
+            ClockState::decode(text)
+                .map(Some)
+                .map_err(|_| ClientClockError::Corrupt)
+        }
+    }
+}
+
+fn credential_write(
+    store: &rightkit_credentials::Store,
+    account: &str,
+    state: &ClockState,
+) -> Result<(), ClientClockError> {
+    let _rotation = order::enter(Level::Rotation);
+    let secret = rightkit_credentials::Secret::from_bytes(state.encode().into_bytes());
+    if !store
+        .begin_rotation(account, &secret)
+        .map_err(|_| ClientClockError::Unresolved)?
+    {
+        return Err(ClientClockError::Unresolved);
+    }
+    store
+        .commit_rotation_of(account, &secret)
+        .map_err(|_| ClientClockError::Unresolved)?;
+    super::persist::settle(store, account);
+    if !store
+        .rotation_status(account)
+        .map_err(|_| ClientClockError::Unresolved)?
+        .is_idle()
+    {
+        return Err(ClientClockError::Unresolved);
+    }
+    Ok(())
+}
+
+impl ClockStore for ClientClockStore {
+    type Error = ClientClockError;
+    fn load(&self) -> Result<Option<ClockState>, Self::Error> {
+        match &self.backend {
+            ClockBackend::File(store) => store.load().map_err(ClientClockError::File),
+            ClockBackend::Credential { .. } => self.credential_op(credential_read),
+        }
+    }
+    fn save(&self, state: &ClockState) -> Result<(), Self::Error> {
+        match &self.backend {
+            ClockBackend::File(store) => store.save(state).map_err(ClientClockError::File),
+            ClockBackend::Credential { .. } => {
+                let state = state.clone();
+                self.credential_op(move |store, account| {
+                    credential_read(store, account)?;
+                    credential_write(store, account, &state)
+                })
+            }
+        }
+    }
+    fn compare_and_save(
+        &self,
+        expected: Option<&ClockState>,
+        new: &ClockState,
+    ) -> Result<bool, Self::Error> {
+        match &self.backend {
+            ClockBackend::File(store) => store
+                .compare_and_save(expected, new)
+                .map_err(ClientClockError::File),
+            ClockBackend::Credential { .. } => {
+                let (expected, new) = (expected.cloned(), new.clone());
+                self.credential_op(move |store, account| {
+                    if credential_read(store, account)? != expected {
+                        return Ok(false);
+                    }
+                    credential_write(store, account, &new)?;
+                    Ok(true)
+                })
+            }
+        }
+    }
+}

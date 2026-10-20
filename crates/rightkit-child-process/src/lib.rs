@@ -30,6 +30,7 @@ mod run;
 mod spawn_windows;
 mod stall;
 mod stderr_tail;
+mod terminal;
 #[cfg(feature = "tokio")]
 pub mod tokio_support;
 #[cfg(unix)]
@@ -66,7 +67,8 @@ pub use restart::{
     RestartTracker,
 };
 pub use run::{
-    run, run_command, run_streaming, run_with_stdin, RunOptions, RunOutput, StreamOptions,
+    run, run_command, run_command_capture, run_streaming, run_with_stdin, CaptureOptions,
+    LeaderTermination, RunOptions, RunOutput, RunnerFailure, RunnerPhase, StreamOptions,
     StreamOutput,
 };
 #[cfg(windows)]
@@ -76,6 +78,7 @@ pub use stall::{
     StallWatchdog,
 };
 pub use stderr_tail::StderrTail;
+pub use terminal::status_inherited_terminal;
 #[cfg(unix)]
 pub use unix_child::UnixChild;
 pub use usage::{

@@ -3,7 +3,9 @@
 //! test seam. Every assertion reads real files or the mock's request log.
 
 use rightkit_models::*;
-use rightkit_qa::mock::{MockServer, Reply};
+#[path = "support/model_http_mock.rs"]
+mod model_http_mock;
+use model_http_mock::{MockServer, Reply};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;

@@ -18,7 +18,7 @@ use rightkit_app_settings::{
 };
 use rightkit_tauri_shell::caller_gate::CallerFacts;
 use rightkit_tauri_shell::host::secrets::secrets_for;
-use rightkit_tauri_shell::host::settings::settings_for;
+use rightkit_tauri_shell::host::settings::{settings_for, SettingsSchema};
 use rightkit_tauri_shell::host::{
     ApiKeySlot, HostError, HostServices, SecretPresence, SecretStore, SecretStoreError,
     SecretValue, SecretWriter, SecretsError, SecretsService, ServiceId, ServiceTrust,
@@ -1066,5 +1066,163 @@ fn the_host_module_has_no_generic_credential_surface() {
                 assert!(!command.contains(banned), "{name}: {command}");
             }
         }
+    }
+}
+
+// Canonical preparation is exercised through the real bridge and CAS-backed document.
+struct PreparingSchema {
+    prepare: Box<
+        dyn Fn(
+                &serde_json::Map<String, Value>,
+                &serde_json::Map<String, Value>,
+            ) -> Result<serde_json::Map<String, Value>, String>
+            + Send
+            + Sync,
+    >,
+    value_limit: usize,
+    document_limit: usize,
+}
+impl SettingsSchema for PreparingSchema {
+    fn schema_version(&self) -> u32 {
+        1
+    }
+    fn max_value_bytes(&self) -> usize {
+        self.value_limit
+    }
+    fn max_document_bytes(&self) -> usize {
+        self.document_limit
+    }
+    fn prepare_patch(
+        &self,
+        current: &serde_json::Map<String, Value>,
+        patch: &serde_json::Map<String, Value>,
+    ) -> Result<serde_json::Map<String, Value>, String> {
+        (self.prepare)(current, patch)
+    }
+    fn validate(&self, candidate: &serde_json::Map<String, Value>) -> Result<(), String> {
+        if candidate.contains_key("raw") {
+            Err("raw value was not canonicalized".into())
+        } else {
+            Ok(())
+        }
+    }
+}
+fn preparing(
+    prepare: impl Fn(
+            &serde_json::Map<String, Value>,
+            &serde_json::Map<String, Value>,
+        ) -> Result<serde_json::Map<String, Value>, String>
+        + Send
+        + Sync
+        + 'static,
+) -> PreparingSchema {
+    PreparingSchema {
+        prepare: Box::new(prepare),
+        value_limit: 64 * 1024,
+        document_limit: 1024 * 1024,
+    }
+}
+
+#[test]
+fn canonical_candidate_is_validated_committed_returned_and_notified() {
+    let dir = tempfile::tempdir().unwrap();
+    open(dir.path())
+        .put(1, json!({"remove": true, "keep": 3}), None)
+        .unwrap();
+    let b = SettingsBridge::new(
+        open(dir.path()),
+        preparing(|current, patch| {
+            let mut next = current.clone();
+            next.remove("remove");
+            next.insert(
+                "canonical".into(),
+                json!(patch["raw"].as_str().unwrap().trim()),
+            );
+            Ok(next)
+        }),
+    );
+    b.get().unwrap();
+    let (seen, _sub) = record(&b);
+    let saved = b.patch(&json!({"raw": "  normalized  "}), Some(1)).unwrap();
+    assert_eq!(saved.values, json!({"keep": 3, "canonical": "normalized"}));
+    assert_eq!(b.get().unwrap(), saved);
+    assert_eq!(open(dir.path()).get().unwrap().unwrap().value, saved.values);
+    assert_eq!(seen.lock().unwrap()[0].keys, ["canonical", "remove"]);
+    assert_eq!(seen.lock().unwrap()[0].revision, saved.revision);
+}
+
+#[test]
+fn stale_revision_never_prepares_or_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    open(dir.path()).put(1, json!({"keep": 1}), None).unwrap();
+    let before = fs::read(doc_path(dir.path())).unwrap();
+    let b = SettingsBridge::new(
+        open(dir.path()),
+        preparing(|_, _| panic!("stale patch prepared")),
+    );
+    assert!(matches!(
+        b.patch(&json!({"raw": 1}), Some(0)),
+        Err(SettingsError::Conflict { .. })
+    ));
+    assert_eq!(fs::read(doc_path(dir.path())).unwrap(), before);
+}
+
+#[test]
+fn canonical_preparation_retries_from_fresh_base_after_cas_loss() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().to_owned();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let b = SettingsBridge::new(
+        open(dir.path()),
+        preparing(move |current, _| {
+            let call = count.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                open(&path).put(1, json!({"external": 7}), None).unwrap();
+            } else {
+                assert_eq!(current["external"], 7);
+            }
+            let mut next = current.clone();
+            next.insert(
+                "canonical".into(),
+                json!(current.get("external").and_then(Value::as_u64).unwrap_or(0) + 1),
+            );
+            Ok(next)
+        }),
+    );
+    let saved = b.patch(&json!({"raw": true}), None).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(saved.values, json!({"external": 7, "canonical": 8}));
+    assert_eq!(saved.revision, 2);
+}
+
+#[test]
+fn preparation_refusal_and_canonical_limits_write_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut schemas = vec![
+        preparing(|_, _| Err("invalid canonical settings".into())),
+        preparing(|_, _| {
+            Ok(json!({"canonical": "expanded"})
+                .as_object()
+                .unwrap()
+                .clone())
+        }),
+        preparing(|_, _| {
+            Ok(json!({"canonical": "expanded"})
+                .as_object()
+                .unwrap()
+                .clone())
+        }),
+    ];
+    schemas[1].value_limit = 4;
+    schemas[2].document_limit = 4;
+    for (schema, code) in
+        schemas
+            .into_iter()
+            .zip(["validation_failed", "value_too_large", "document_too_large"])
+    {
+        let b = SettingsBridge::new(open(dir.path()), schema);
+        assert_eq!(b.patch(&json!({"x": 1}), None).unwrap_err().code(), code);
+        assert!(!doc_path(dir.path()).exists());
     }
 }

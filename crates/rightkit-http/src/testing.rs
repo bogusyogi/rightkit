@@ -148,7 +148,39 @@ impl MockResponse {
     }
 }
 
-type Handler = dyn Fn(&RecordedRequest, usize) -> MockResponse + Send + Sync;
+/// A response that writes exactly `body` while announcing a caller-supplied `Content-Length`.
+/// Served through [`MockServer::start_declared_length`]. Use it for a precise interrupted
+/// download (declare the full length, send a prefix) or a HEAD response (declare the length,
+/// send no body). The server generates the one `Content-Length` header; do not add another.
+pub struct DeclaredLengthResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+    content_length: usize,
+}
+
+impl DeclaredLengthResponse {
+    pub fn new(status: u16, body: Vec<u8>, content_length: usize) -> Self {
+        Self {
+            status,
+            headers: Vec::new(),
+            body,
+            content_length,
+        }
+    }
+    pub fn header(mut self, k: &str, v: &str) -> Self {
+        self.headers.push((k.into(), v.into()));
+        self
+    }
+}
+
+/// What a handler produced, before it is written to the wire.
+enum Outgoing {
+    Mock(MockResponse),
+    Declared(DeclaredLengthResponse),
+}
+
+type Handler = dyn Fn(&RecordedRequest, usize) -> Outgoing + Send + Sync;
 
 pub struct MockServer {
     addr: std::net::SocketAddr,
@@ -162,11 +194,25 @@ impl MockServer {
     pub fn start(
         handler: impl Fn(&RecordedRequest, usize) -> MockResponse + Send + Sync + 'static,
     ) -> Self {
+        Self::spawn(Arc::new(move |request: &RecordedRequest, index: usize| {
+            Outgoing::Mock(handler(request, index))
+        }))
+    }
+
+    /// Like [`MockServer::start`], but each response is a [`DeclaredLengthResponse`].
+    pub fn start_declared_length(
+        handler: impl Fn(&RecordedRequest, usize) -> DeclaredLengthResponse + Send + Sync + 'static,
+    ) -> Self {
+        Self::spawn(Arc::new(move |request: &RecordedRequest, index: usize| {
+            Outgoing::Declared(handler(request, index))
+        }))
+    }
+
+    fn spawn(handler: Arc<Handler>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
         let addr = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(AtomicBool::new(false));
-        let handler: Arc<Handler> = Arc::new(handler);
         let (reqs, stop2) = (requests.clone(), stop.clone());
         let thread = thread::spawn(move || {
             for conn in listener.incoming() {
@@ -215,6 +261,12 @@ impl Drop for MockServer {
     }
 }
 
+/// A response body as it is written to the connection.
+enum Wire {
+    Mock(MockBody),
+    Declared(Vec<u8>, usize),
+}
+
 fn serve(
     stream: TcpStream,
     handler: &Handler,
@@ -259,12 +311,20 @@ fn serve(
         g.push(request.clone());
         g.len() - 1
     };
-    let resp = handler(&request, index);
-    if !resp.delay.is_zero() {
-        thread::sleep(resp.delay);
+    let (status, headers, delay, wire) = match handler(&request, index) {
+        Outgoing::Mock(r) => (r.status, r.headers, r.delay, Wire::Mock(r.body)),
+        Outgoing::Declared(d) => (
+            d.status,
+            d.headers,
+            Duration::ZERO,
+            Wire::Declared(d.body, d.content_length),
+        ),
+    };
+    if !delay.is_zero() {
+        thread::sleep(delay);
     }
     let mut out = stream;
-    let reason = match resp.status {
+    let reason = match status {
         200 => "OK",
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -273,20 +333,17 @@ fn serve(
         503 => "Service Unavailable",
         _ => "Status",
     };
-    let mut head = format!(
-        "HTTP/1.1 {} {}\r\nConnection: close\r\n",
-        resp.status, reason
-    );
-    for (k, v) in &resp.headers {
+    let mut head = format!("HTTP/1.1 {status} {reason}\r\nConnection: close\r\n");
+    for (k, v) in &headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
-    match resp.body {
-        MockBody::Full(b) => {
+    match wire {
+        Wire::Mock(MockBody::Full(b)) => {
             head.push_str(&format!("Content-Length: {}\r\n\r\n", b.len()));
             out.write_all(head.as_bytes())?;
             out.write_all(&b)?;
         }
-        MockBody::Chunks(chunks) => {
+        Wire::Mock(MockBody::Chunks(chunks)) => {
             head.push_str("Transfer-Encoding: chunked\r\n\r\n");
             out.write_all(head.as_bytes())?;
             out.flush()?;
@@ -301,12 +358,46 @@ fn serve(
             }
             out.write_all(b"0\r\n\r\n")?;
         }
-        MockBody::TruncatedAfter(b) => {
+        Wire::Mock(MockBody::TruncatedAfter(b)) => {
             head.push_str(&format!("Content-Length: {}\r\n\r\n", b.len() + 1000));
             out.write_all(head.as_bytes())?;
             out.write_all(&b)?;
         }
+        Wire::Declared(body, content_length) => {
+            head.push_str(&format!("Content-Length: {content_length}\r\n\r\n"));
+            out.write_all(head.as_bytes())?;
+            out.write_all(&body)?;
+        }
     }
     out.flush()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod declared_length_tests {
+    use super::*;
+    #[test]
+    fn declared_length_is_exact_while_body_is_truncated() {
+        let server = MockServer::start_declared_length(|_, _| {
+            DeclaredLengthResponse::new(200, b"abc".to_vec(), 37)
+        });
+        let mut stream = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        let mut wire = Vec::new();
+        stream.read_to_end(&mut wire).unwrap();
+        let split = wire.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        let head = std::str::from_utf8(&wire[..split]).unwrap();
+        assert_eq!(
+            head.lines()
+                .filter(|line| line.starts_with("Content-Length:"))
+                .collect::<Vec<_>>(),
+            vec!["Content-Length: 37"]
+        );
+        assert_eq!(&wire[split + 4..], b"abc");
+    }
 }

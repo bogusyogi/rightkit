@@ -27,6 +27,7 @@ const IDLE_WAIT: Duration = Duration::from_millis(20);
 struct State {
     output: CapturedOutput,
     error: Option<io::Error>,
+    cleanup_failed: bool,
     eof: bool,
     finished: bool,
 }
@@ -165,6 +166,7 @@ impl NativeOutputCapture {
                     let mut state = state.0.lock().unwrap_or_else(|e| e.into_inner());
                     if state.error.is_none() {
                         state.error = Some(error);
+                        state.cleanup_failed = true;
                     }
                 }
                 // Close the read end before Done signals completion to finish_within.
@@ -203,6 +205,14 @@ impl NativeOutputCapture {
             .take()
     }
 
+    pub(crate) fn cleanup_failed(&self) -> bool {
+        self.shared
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cleanup_failed
+    }
+
     /// Wait up to `timeout` for EOF/error, then cancel & join the reader. Always closes the
     /// read end before returning; a writer retained by a descendant cannot extend the wait.
     /// Returned bytes may be partial: consult [`is_complete`](Self::is_complete).
@@ -231,11 +241,9 @@ impl NativeOutputCapture {
         if let Some(handle) = self.handle.take() {
             handle.thread().unpark();
             if handle.join().is_err() {
-                self.shared
-                    .0
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .error = Some(io::Error::other("native pipe reader panicked"));
+                let mut state = self.shared.0.lock().unwrap_or_else(|e| e.into_inner());
+                state.error = Some(io::Error::other("native pipe reader panicked"));
+                state.cleanup_failed = true;
             }
         }
     }

@@ -98,9 +98,9 @@ pub use private::{
 // caller's own use site, not on this re-export.
 pub use app_root::{
     valid_app_name, AppRoot, AppRootError, LinkNotCreated, MigrateOptions, MigratedLink,
-    MigrationOutcome, MigrationReport, MigrationState, OmittedLink, ReparseKind,
-    SkippedReparsePoint, SkippedSpecial, SpecialKind, WriterLock, MAX_APP_NAME_LEN,
-    MIGRATION_MARKER, MIGRATION_STATE,
+    MigrationOutcome, MigrationReport, MigrationScope, MigrationState, MigrationStatus,
+    OmittedLink, ReparseKind, SkippedReparsePoint, SkippedSpecial, SpecialKind, WriterLock,
+    MAX_APP_NAME_LEN, MIGRATION_MARKER, MIGRATION_STATE,
 };
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};

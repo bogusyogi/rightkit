@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8 — unpublished staging
+
+- **Added: `testing::DeclaredLengthResponse` and `testing::MockServer::start_declared_length`** (`testing` feature only; consumer: `rightkit-models` integration tests, which no longer dev-depend on `rightkit-qa`). `start_declared_length` takes a handler that returns a `DeclaredLengthResponse::new(status, body, content_length)`; the mock writes exactly `body` and one generated `Content-Length: content_length`, so a test can serve a precise interrupted download (declare the full length, send a prefix) or a HEAD response (declare the length, send no body). Purely additive: a new type and a new method; `MockBody`, `MockResponse` and `MockServer::start` are unchanged.
+
 ## 0.3.7 — 2026-10-20
 
 - **Fixed: fractional rate-limit reset precision** (PostRight). ISO-8601 reset instants with fractional seconds keep their sub-second part instead of truncating to the whole second, so `parse_rate_limit_reset_at` no longer reports a reset that has not yet arrived as due (or vice versa). The comparison is done in exact durations since the epoch, because a Windows `SystemTime` has 100 ns resolution and would otherwise truncate a sub-100 ns fraction to zero (found by the Windows run on 2026-10-20). Tests in `retry.rs` (107 pass on Windows).

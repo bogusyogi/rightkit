@@ -126,6 +126,20 @@ impl RecordStore {
         }
     }
 
+    /// Bind one logical native target for a complete licence operation.
+    pub(crate) fn pinned(&self) -> Result<Self, CredError> {
+        Ok(Self {
+            store: self.store.pinned()?,
+            account: self.account.clone(),
+            wait: self.wait,
+            unresolved: self.unresolved.clone(),
+        })
+    }
+
+    pub(crate) fn credential_store(&self) -> Store {
+        self.store.clone()
+    }
+
     /// An earlier write in this process did not settle.
     pub(crate) fn flagged_unresolved(&self) -> bool {
         self.unresolved.load(Ordering::SeqCst)
@@ -137,19 +151,21 @@ impl RecordStore {
 
     /// Read the item and its fence. The caller holds the operation lock.
     pub(crate) fn read(&self) -> Result<Snapshot, LicenseError> {
+        self.read_typed().map_err(|_| LicenseError::Store)
+    }
+
+    pub(crate) fn read_typed(&self) -> Result<Snapshot, CredError> {
         // The fence is read first: with it idle and no marker, the primary below is stable.
-        let fence = self
-            .store
-            .rotation_status(&self.account)
-            .map_err(|_| LicenseError::Store)?;
-        let loaded = match self.store.get(&self.account) {
+        let store = self.store.pinned()?;
+        let fence = store.rotation_status(&self.account)?;
+        let loaded = match store.get(&self.account) {
             Ok(None) => Loaded::Absent,
             Ok(Some(secret)) if secret.is_empty() => Loaded::Absent,
             Ok(Some(secret)) => match parse_secret(&secret) {
                 Ok(envelope) => Loaded::Present(Box::new(envelope)),
                 Err(_) => Loaded::Corrupt,
             },
-            Err(_) => return Err(LicenseError::Store),
+            Err(error) => return Err(error),
         };
         Ok(Snapshot {
             loaded,
@@ -158,11 +174,46 @@ impl RecordStore {
         })
     }
 
+    /// Native continuity requires positive proof that no mutation is outstanding.
+    pub(crate) fn read_native(&self) -> Result<Snapshot, crate::NativeSourceError> {
+        use crate::NativeSourceError;
+        let store = self
+            .store
+            .pinned()
+            .map_err(|_| NativeSourceError::Refused)?;
+        let fence = store
+            .rotation_status(&self.account)
+            .map_err(|_| NativeSourceError::Refused)?;
+        if !fence.is_idle() || self.flagged_unresolved() {
+            return Err(NativeSourceError::Refused);
+        }
+        let loaded = match store
+            .get(&self.account)
+            .map_err(|e| super::reader::native_store_error(&e))?
+        {
+            None => Loaded::Absent,
+            Some(secret) if secret.is_empty() => Loaded::Absent,
+            Some(secret) => match parse_secret(&secret) {
+                Ok(value) => Loaded::Present(Box::new(value)),
+                Err(_) => Loaded::Corrupt,
+            },
+        };
+        Ok(Snapshot {
+            loaded,
+            marker: false,
+            held: false,
+        })
+    }
+
     /// Write `envelope` on a fenced worker that owns `guard` for the whole sequence.
     pub(crate) fn write(&self, guard: OpGuard, envelope: &Envelope) -> Written<PersistOutcome> {
         let secret = envelope.encode();
         let revision = envelope.revision.clone().unwrap_or_default();
-        let (store, account) = (self.store.clone(), self.account.clone());
+        let store = match self.store.pinned() {
+            Ok(store) => store,
+            Err(_) => return Written::Done(PersistOutcome::NotCommitted(Refusal::Store), guard),
+        };
+        let account = self.account.clone();
         let fenced = run_fenced(guard, self.wait, move || {
             let outcome = persist(&store, &account, &secret, &revision);
             settle(&store, &account);
@@ -192,7 +243,11 @@ impl RecordStore {
 
     /// Resolve a leftover marker by readback, on a fenced worker.
     pub(crate) fn reconcile(&self, guard: OpGuard, wait: Duration) -> Written<Reconciled> {
-        let (store, account) = (self.store.clone(), self.account.clone());
+        let store = match self.store.pinned() {
+            Ok(store) => store,
+            Err(_) => return Written::Done(Reconciled::Pending, guard),
+        };
+        let account = self.account.clone();
         let fenced = run_fenced(guard, wait, move || {
             let result = reconcile_job(&store, &account);
             settle(&store, &account);
@@ -226,13 +281,13 @@ impl RecordStore {
 
 /// Wait until no credentials call (abandoned or not) of the licence item or its marker is
 /// still running. This is what keeps the operation lock held for a timed-out child worker.
-/// Returns `false` only when the fence cannot be probed at all.
+/// Probe failures retain the guard: only a positive idle observation releases it.
 pub(crate) fn settle(store: &Store, account: &str) -> bool {
     loop {
         match store.rotation_status(account) {
             Ok(status) if !status.held => return true,
             Ok(_) => std::thread::sleep(SETTLE_POLL),
-            Err(_) => return false,
+            Err(_) => std::thread::sleep(SETTLE_POLL),
         }
     }
 }

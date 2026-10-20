@@ -68,6 +68,16 @@ impl From<String> for SecretString {
     }
 }
 
+/// Native release intent for an app's existing durable pending-removal queue.
+/// Never exposed through a view, renderer IPC, Debug or serialization.
+pub enum PendingLicenseRelease {
+    Activation(SecretString),
+    Lease {
+        lease_id: String,
+        device_id_hash: String,
+    },
+}
+
 /// Licensing mode of an app: what a [`LicenseClient`](super::LicenseClient) is built from.
 pub enum LicenseSetup {
     /// No licence product or no provisioned key (a free app, a key that is `None`). `status`
@@ -111,6 +121,7 @@ pub struct LicenseClientConfig {
     pub(crate) account: String,
     pub(crate) license_dir: PathBuf,
     pub(crate) clock_path: PathBuf,
+    pub(crate) credential_clock: Option<(Store, String)>,
     pub(crate) http: HttpConfig,
     pub(crate) mutation_wait: Duration,
     pub(crate) status_wait: Duration,
@@ -160,6 +171,7 @@ impl LicenseClientConfig {
         Ok(Self {
             http: default_http(&host, timeout),
             clock_path: license_dir.join("clock.json"),
+            credential_clock: None,
             // The rotation lock files live beside the other licence locks, so every process of
             // the app (window, engine) derives the same directory from `license_dir`.
             store: store.with_rotation_lock_dir(license_dir.join("rotation")),
@@ -196,6 +208,16 @@ impl LicenseClientConfig {
     /// the app's existing ledger to keep its anchors across the move to this client.
     pub fn with_clock_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.clock_path = path.into();
+        self
+    }
+
+    /// Preserve an existing native credential ledger, including its scalar/JSON codec.
+    /// Every process must use identical licence directory, namespace & account.
+    pub fn with_credential_clock(mut self, store: Store, account: impl Into<String>) -> Self {
+        self.credential_clock = Some((
+            store.with_rotation_lock_dir(self.license_dir.join("clock-rotation")),
+            account.into(),
+        ));
         self
     }
 

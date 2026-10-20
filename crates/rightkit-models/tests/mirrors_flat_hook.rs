@@ -1,12 +1,14 @@
 //! rightkit#240 (for Ember): ordered mirrors with fallback and the same pins, `AllMirrorsFailed`,
 //! the flat-directory adopt convenience, and the test-run loopback hook.
 //!
-//! Downloads run against rightkit-qa's `MockServer` on 127.0.0.1; the stores reach it through
+//! Downloads run against rightkit-http testing transport on 127.0.0.1; the stores reach it through
 //! `Store::with_address_policy`, with retries off so each mirror is tried once.
 
 use rightkit_models::http::{ModelHttpOptions, ProxyMode};
 use rightkit_models::*;
-use rightkit_qa::mock::{MockServer, Reply, Request};
+#[path = "support/model_http_mock.rs"]
+mod model_http_mock;
+use model_http_mock::{MockServer, Reply, Request};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;

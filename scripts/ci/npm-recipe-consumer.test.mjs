@@ -53,7 +53,7 @@ test('reviewed entries dispatch to the recipe runner; logs still dispatches to t
     const calls = [];
     const unit = { name: NAME, version: '0.7.0', file: 'x.tgz', sha256: 'a'.repeat(64), size: 10 };
     const logs = { name: '@rightkit/logs', version: '0.1.6', file: 'l.tgz', sha256: 'b'.repeat(64), size: 11 };
-    const rows = consumeNpm({ units: [unit, logs], packDir: scratchRoot, scratchRoot, npm: { command: 'npm', prefix: [], shell: false }, spawn: () => ({ status: 1, stderr: 'fixture portability failure' }),
+    const rows = consumeNpm({ units: [unit, logs], packDir: scratchRoot, scratchRoot, npm: { command: 'npm', prefix: [], shell: false }, spawn: command => command === 'tar' ? { status: 0, stdout: read('packages/settings-ui/package.json') } : { status: 1, stderr: 'fixture portability failure' },
       npmRecipeConsumer: options => { calls.push(['recipe', options.name]); return { ...unit, archiveSha256: unit.sha256, archiveSize: unit.size, qualification: 'R2a', verified: true }; },
       npmConsumer: options => { calls.push(['logs', options.name]); return { ...logs, archiveSha256: logs.sha256, archiveSize: logs.size, qualification: 'R2a', verified: true }; } });
     assert.deepEqual(calls, [['recipe', NAME], ['logs', '@rightkit/logs']]);

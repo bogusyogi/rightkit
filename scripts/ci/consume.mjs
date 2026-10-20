@@ -17,8 +17,8 @@ import path from "node:path";
 import { runRegistryConsumer } from "./registry-consumer.mjs";
 import { fileURLToPath } from "node:url";
 import { runNpmConsumer } from "./npm-consumer.mjs";
-import { runNpmRecipeConsumer, hasReviewedNpmEntry, runtimeEnvNames } from "./npm-recipe-consumer.mjs";
-import { childEnv } from "./upload.mjs";
+import { runNpmRecipeConsumer, hasReviewedNpmEntry, runtimeEnvNames, validateRecipeEntry, validatePackedClosure, validateImportClosures } from "./npm-recipe-consumer.mjs";
+import { childEnv, tarEntry } from "./upload.mjs";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const tail = (text, n = 600) => String(text ?? "").trim().slice(-n);
 
@@ -155,18 +155,41 @@ for (const item of plan.items) {
 process.stdout.write("RK_CONSUME " + JSON.stringify(out) + "\\n");
 `;
 
+/** Read installed peers, rather than treating omitted CLI pins as proof of absence. */
+export function installedImportClosure({ unit, pkg, dir, scratch, installPins }) {
+  const problems = []; const packages = []; const absentPeers = [];
+  for (const [name, version] of Object.entries(installPins)) {
+    try {
+      const installed = JSON.parse(fs.readFileSync(path.join(scratch, "node_modules", ...name.split("/"), "package.json"), "utf8"));
+      if (installed.name !== name || installed.version !== version) throw new Error(`installed ${installed.name}@${installed.version}`);
+      packages.push({ name, version: installed.version });
+    } catch (error) { problems.push(`${unit.name}: import closure pin ${name}@${version} differs from installed copy: ${error.message}`); }
+  }
+  for (const name of Object.keys(pkg.peerDependencies ?? {}).filter(name => !Object.hasOwn(installPins, name))) {
+    let present = false;
+    // Include every ancestor Node could search, so an ambient parent install cannot mask absence.
+    for (let current = dir; ; current = path.dirname(current)) {
+      if (fs.existsSync(path.join(current, "node_modules", ...name.split("/")))) { present = true; break; }
+      if (path.dirname(current) === current) break;
+    }
+    if (present) problems.push(`${unit.name}: unselected peer ${name} is installed in isolated import closure`);
+    else absentPeers.push(name);
+  }
+  return { problems, evidence: { archive: { name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256 }, packages, absentPeers } };
+}
+
 /**
  * Install the sealed tarballs together into a scratch project and check each from its installed copy.
  * Returns Map(unit name -> { problems: [], report }). Never throws for a package defect.
  */
-export function consumeNpmPortability({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath }) {
+function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath, installPins, onlySubpaths }) {
   const results = new Map(units.map((u) => [u.name, { problems: [], report: {} }]));
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-consume-npm-"));
   try {
     fs.writeFileSync(path.join(scratch, "package.json"), `${JSON.stringify({ name: "rk-consumer", version: "0.0.0", private: true, type: "module" })}\n`);
     const userconfig = path.join(scratch, "npmrc"); fs.writeFileSync(userconfig, "");
     const childEnv = { ...env, npm_config_cache: path.join(scratch, "cache"), npm_config_userconfig: userconfig, npm_config_update_notifier: "false", npm_config_fund: "false", npm_config_audit: "false" };
-    const install = spawn(npm.command, [...npm.prefix, "install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", ...units.map((u) => path.resolve(packDir, u.file))], { cwd: scratch, encoding: "utf8", env: childEnv, shell: npm.shell, maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60_000 });
+    const install = spawn(npm.command, [...npm.prefix, "install", "--ignore-scripts", "--no-audit", "--no-fund", "--no-package-lock", ...(installPins ? ["--legacy-peer-deps"] : []), ...units.map((u) => path.resolve(packDir, u.file)), ...Object.entries(installPins ?? {}).map(([name, version]) => `${name}@${version}`)], { cwd: scratch, encoding: "utf8", env: childEnv, shell: npm.shell, maxBuffer: 64 * 1024 * 1024, timeout: 20 * 60_000 });
     if (install.error || install.status !== 0) {
       const why = `npm install --ignore-scripts of the sealed tarballs failed: ${tail(install.stderr || install.error?.message)}`;
       for (const r of results.values()) r.problems.push(why);
@@ -178,6 +201,8 @@ export function consumeNpmPortability({ units, packDir, scratchRoot = os.tmpdir(
       let pkg;
       try { pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); } catch { out.problems.push(`${unit.name}: not installed from the sealed tarball (no node_modules/${unit.name}/package.json)`); continue; }
       if (pkg.name !== unit.name || pkg.version !== unit.version) { out.problems.push(`${unit.name}: installed ${pkg.name}@${pkg.version}, sealed ${unit.version}`); continue; }
+      const closure = installPins ? installedImportClosure({ unit, pkg, dir, scratch, installPins }) : null;
+      if (closure) out.problems.push(...closure.problems);
       const declared = declaredEntries(pkg);
       const skip = skipImportList(pkg, declared);
       out.problems.push(...skip.problems);
@@ -187,10 +212,11 @@ export function consumeNpmPortability({ units, packDir, scratchRoot = os.tmpdir(
       const smoke = runBinSmoke({ unit, dir, checks: smokePlan.checks, spawn, node, cwd: scratch, env: childEnv });
       out.problems.push(...smoke.problems);
       const items = declared.subpaths
-        .filter((s) => s.runtime.length > 0)
+        .filter((s) => s.runtime.length > 0 && (!onlySubpaths || onlySubpaths.includes(s.subpath)))
         .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skip.list.includes(s.subpath), ...(s.testConditions !== null && s.testConditions !== undefined ? { expectBlocked: true, testConditions: s.testConditions } : {}) }));
       const report = { entries: items.length, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport: skip.list, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
       out.report = report;
+      if (closure) report.installClosure = closure.evidence;
       if (items.length === 0) continue;
       const scriptFile = path.join(scratch, `check-${unit.name.replace(/[^A-Za-z0-9]+/g, "_")}.mjs`);
       const planFile = `${scriptFile}.json`;
@@ -226,6 +252,61 @@ export function consumeNpmPortability({ units, packDir, scratchRoot = os.tmpdir(
       }
     }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+  return results;
+}
+
+/** Partition runtime exports by identical reviewed maps; every export has one owner. */
+export function importClosureGroups(entry, name, declared) {
+  const runtime = declared.subpaths.filter(item => item.runtime.length > 0).map(item => item.subpath);
+  const maps = validateImportClosures(entry, name, runtime);
+  const groups = new Map();
+  for (const subpath of runtime) {
+    const install = maps[subpath];
+    const key = JSON.stringify(install);
+    if (!groups.has(key)) groups.set(key, { install, subpaths: [] });
+    groups.get(key).subpaths.push(subpath);
+  }
+  return groups.size ? [...groups.values()] : [{ install: {}, subpaths: [] }];
+}
+
+/** Existing shared install remains unchanged for units without reviewed per-entry closures. */
+export function consumeNpmPortability(options) {
+  const { units, packDir, root = REPO_ROOT, spawn = spawnSync } = options;
+  const results = new Map();
+  let inventory;
+  try { inventory = JSON.parse(fs.readFileSync(path.join(root, "ci/consumer-recipes.json"), "utf8")); }
+  catch (error) {
+    for (const unit of units) results.set(unit.name, { problems: [`${unit.name}: unreadable reviewed import inventory: ${error.message}`], report: {} });
+    return results;
+  }
+  const shared = units.filter(unit => inventory.npm?.[unit.name]?.importClosures === undefined);
+  if (shared.length) for (const [name, result] of consumeNpmInstallation({ ...options, units: shared })) results.set(name, result);
+  for (const unit of units.filter(unit => !shared.includes(unit))) {
+    const out = { problems: [], report: {} };
+    results.set(unit.name, out);
+    try {
+      const entry = validateRecipeEntry(inventory.npm[unit.name], unit.name);
+      const packed = JSON.parse(tarEntry(path.resolve(packDir, unit.file), "package/package.json", spawn).toString("utf8"));
+      validatePackedClosure(packed, entry, unit.name, unit.version);
+      const declared = declaredEntries(packed);
+      const groups = importClosureGroups(entry, unit.name, declared);
+      const report = { entries: 0, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], importClosures: [] };
+      out.report = report;
+      for (const group of groups) {
+        // Only this sealed unit & this exact map enter a fresh install. npm must not auto-install
+        // other optional/required peers, which would mask a minimal export's dependency contract.
+        const result = consumeNpmInstallation({ ...options, units: [unit], installPins: group.install, onlySubpaths: group.subpaths }).get(unit.name);
+        out.problems.push(...result.problems);
+        const row = result.report;
+        report.entries += row.entries ?? 0;
+        for (const field of ["imported", "resolvedOnly", "productionRejected", "conditionalImports"]) report[field].push(...(row[field] ?? []));
+        for (const field of ["skippedImport", "patterns", "bins", "binSmoke", "filesChecked", "noJsEntry"]) if (row[field] !== undefined) report[field] = row[field];
+        report.importClosures.push({ install: group.install, subpaths: group.subpaths, entries: row.entries ?? 0, installed: row.installClosure ?? null });
+      }
+      const expected = declared.subpaths.filter(item => item.runtime.length > 0).length;
+      if (report.entries !== expected) out.problems.push(`${unit.name}: isolated import checks covered ${report.entries} of ${expected} runtime exports`);
+    } catch (error) { out.problems.push(`${unit.name}: reviewed import closure failed: ${error.message}`); }
+  }
   return results;
 }
 

@@ -9,7 +9,8 @@
 //! 1. The patch is checked: a JSON object, every key allowed by the app's [`SettingsSchema`], no
 //!    value over [`SettingsSchema::max_value_bytes`].
 //! 2. The CURRENT committed document is read and the COMPLETE candidate (current values with the
-//!    patch applied, `null` removing a key) is built and checked: no larger than
+//!    patch prepared by [`SettingsSchema::prepare_patch`]) is checked: each canonical value
+//!    within its limit, no larger than
 //!    [`SettingsSchema::max_document_bytes`], then [`SettingsSchema::validate`].
 //! 3. The candidate is committed with a compare-and-swap on the revision it was built from, so what
 //!    was validated is exactly what is stored. A caller's `expectedRevision` that differs from the
@@ -79,6 +80,19 @@ pub trait SettingsSchema: Send + Sync {
     /// Whether the renderer may set or reset this top-level key. Default: every key.
     fn allows_key(&self, _key: &str) -> bool {
         true
+    }
+
+    /// Prepare the complete canonical candidate from the exact committed base and renderer patch.
+    /// The default replaces top-level values, removes nulls, and replaces nested objects whole.
+    /// Called after the revision check and again from a fresh base after a CAS conflict.
+    /// This hook must be pure: perform no storage writes or other effects.
+    /// Return a renderer-safe error to refuse the mutation before storage is changed.
+    fn prepare_patch(
+        &self,
+        current: &Map<String, Value>,
+        patch: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, String> {
+        Ok(merged(current, patch))
     }
 
     /// Check the COMPLETE candidate document before it is committed. The message goes to the
@@ -545,6 +559,17 @@ impl SettingsBridge {
     }
 
     fn check_candidate(&self, candidate: &Map<String, Value>) -> Result<(), SettingsError> {
+        let value_limit = self.schema.max_value_bytes();
+        for (key, value) in candidate {
+            let len = serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len());
+            if len > value_limit {
+                return Err(SettingsError::ValueTooLarge {
+                    key: key.clone(),
+                    len,
+                    limit: value_limit,
+                });
+            }
+        }
         let limit = self.schema.max_document_bytes();
         let len = serde_json::to_vec(candidate).map_or(usize::MAX, |bytes| bytes.len());
         if len > limit {
@@ -594,7 +619,6 @@ impl SettingsBridge {
         } else {
             UNCONDITIONAL_ATTEMPTS
         };
-        let patch_value = Value::Object(patch.clone());
         let mut lost_race = None;
         for _ in 0..attempts {
             let before = self.read()?;
@@ -608,11 +632,14 @@ impl SettingsBridge {
                     });
                 }
             }
-            let candidate = merged(&before.values, patch);
+            let candidate = self
+                .schema
+                .prepare_patch(&before.values, patch)
+                .map_err(SettingsError::Rejected)?;
             self.check_candidate(&candidate)?;
-            match self.document.patch(
+            match self.document.put(
                 self.schema.schema_version(),
-                &patch_value,
+                Value::Object(candidate.clone()),
                 Some(before.revision),
             ) {
                 Ok(state) => {

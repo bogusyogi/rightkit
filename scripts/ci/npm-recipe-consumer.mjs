@@ -65,18 +65,34 @@ export const hasReviewedNpmEntry = (inventory, name) => inventory?.schema === 1 
 /** Missing, malformed or foreign entries are refused; nothing falls back to a default recipe. */
 export function validateRecipeEntry(entry, name) {
   const dir = recipeDirectory(name);
-  need(entry && typeof entry === 'object' && same(Object.keys(entry).sort(), ENTRY_KEYS), `missing reviewed PK example for ${name}: reviewed npm.${name} entry malformed`);
+  need(entry && typeof entry === 'object' && same(Object.keys(entry).sort(), entry.importClosures === undefined ? ENTRY_KEYS : [...ENTRY_KEYS, 'importClosures'].sort()), `missing reviewed PK example for ${name}: reviewed npm.${name} entry malformed`);
   need(/^PK\d{2}$/.test(entry.pkId) && entry.id === `${dir}/consumer.mjs` && /^[a-z0-9][a-z0-9-]*$/.test(entry.recipeId ?? '') && Number.isSafeInteger(entry.scenarios) && entry.scenarios > 0, `reviewed npm.${name} identity differs from named recipe layout`);
   need(Array.isArray(entry.surface) && entry.surface.length > 0 && entry.surface.every(s => typeof s === 'string' && (s === '.' || s.startsWith('./'))) && same(entry.surface, sorted(new Set(entry.surface))), `reviewed npm.${name} surface must be a sorted unique export list`);
   const { closure } = entry;
   need(closure && same(Object.keys(closure).sort(), ['declaredOnly', 'install']) && closure.install && typeof closure.install === 'object' && Array.isArray(closure.declaredOnly), `reviewed npm.${name} closure malformed`);
   for (const [dep, version] of Object.entries(closure.install)) need(dep !== name && typeof dep === 'string' && !/[:\\]/.test(dep) && typeof version === 'string' && EXACT.test(version), `closure install pin must be exact registry version: ${dep}`);
   need(closure.declaredOnly.every(dep => typeof dep === 'string' && PACKAGE.test(dep) && dep !== name && !Object.hasOwn(closure.install, dep)) && same(closure.declaredOnly, sorted(new Set(closure.declaredOnly))), `closure declaredOnly must be sorted unique, uninstalled package names`);
+  if (entry.importClosures !== undefined) validateImportClosures(entry, name);
   const files = Object.keys(entry.files ?? {});
   need(files.length > 0 && same(files, sorted(files)) && Object.values(entry.files).every(h => /^[a-f0-9]{64}$/.test(h)), `reviewed npm.${name} file inventory malformed`);
   const expected = [`${dir}/consumer.mjs`, `${dir}/package.json`, RUNNER_FILE];
   need(expected.every(f => files.includes(f)) && files.every(f => f === RUNNER_FILE || (f.startsWith(`${dir}/`) && !f.slice(dir.length + 1).includes('..'))), `reviewed npm.${name} files must be the recipe directory plus ${RUNNER_FILE}`);
   return entry;
+}
+
+/** Explicit per-export install maps: exact reviewed pins, no implicit peer union. */
+export function validateImportClosures(entry, name, runtimeSubpaths = entry.surface) {
+  const maps = entry.importClosures;
+  need(maps && typeof maps === 'object' && !Array.isArray(maps), `reviewed npm.${name} importClosures must be an object`);
+  const keys = Object.keys(maps);
+  need(same(keys, sorted(new Set(keys))) && same(keys, entry.surface), `reviewed npm.${name} importClosures must cover reviewed surface exactly once in sorted order`);
+  need(runtimeSubpaths.every(subpath => Object.hasOwn(maps, subpath)), `reviewed npm.${name} importClosures missing runtime export`);
+  for (const [subpath, install] of Object.entries(maps)) {
+    need(install && typeof install === 'object' && !Array.isArray(install), `importClosures ${subpath} install map malformed`);
+    need(same(Object.keys(install), sorted(Object.keys(install))), `importClosures ${subpath} install pins must be sorted`);
+    for (const [dep, version] of Object.entries(install)) need(PACKAGE.test(dep) && dep !== name && EXACT.test(version ?? '') && entry.closure.install[dep] === version, `importClosures ${subpath} pin outside reviewed closure: ${dep}`);
+  }
+  return maps;
 }
 
 /** Packed unit may only depend on the declared closure; export surface is exactly the reviewed list. */

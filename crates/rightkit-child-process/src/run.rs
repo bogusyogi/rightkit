@@ -11,8 +11,11 @@
 //! directory), and [`run_streaming`] is the variant that shows output while it runs, with a cancel
 //! predicate and tail-only retention.
 
+mod failure;
 mod streaming;
 
+pub(crate) use failure::{failure, stop_after_failure, terminate_runner};
+pub use failure::{LeaderTermination, RunnerFailure, RunnerPhase};
 pub use streaming::{run_streaming, StreamOptions, StreamOutput};
 
 use crate::{CapturedOutput, NativeOutputCapture, OwnedCommand};
@@ -29,8 +32,10 @@ use std::{
 };
 
 /// How long to wait for a pipe to end after the child has exited, before returning what was
-/// captured (a grandchild that inherited the pipe can keep it open).
+/// captured (a grandchild that inherited the pipe can keep it open). A capture that fails to
+/// reach EOF within this bound makes the runner return an error.
 const DRAIN_WAIT: Duration = Duration::from_secs(2);
+pub(crate) const RUNNER_REAP_WAIT: Duration = Duration::from_secs(5);
 
 /// How long the stdin writer gets to end by itself once the child is gone, before it is
 /// cancelled. A writer facing a closed pipe ends at once; one still blocked is facing a reader
@@ -94,6 +99,60 @@ impl RunOptions {
     }
 }
 
+/// Options for raw first-N capture, including commands with no execution deadline.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct CaptureOptions {
+    /// Execution deadline; `None` waits for natural leader exit. Cleanup still has finite bounds.
+    pub timeout: Option<Duration>,
+    /// First raw bytes retained from stdout; remaining bytes are drained through EOF.
+    pub stdout_cap: usize,
+    /// First raw bytes retained from stderr; remaining bytes are drained through EOF.
+    pub stderr_cap: usize,
+    /// Hide the Windows console window (default true).
+    pub no_window: bool,
+    /// Post-exit EOF wait per stream (default 2 s), separate from execution timeout.
+    pub drain_grace: Duration,
+}
+
+impl Default for CaptureOptions {
+    fn default() -> Self {
+        Self {
+            timeout: None,
+            stdout_cap: 1024 * 1024,
+            stderr_cap: 1024 * 1024,
+            no_window: true,
+            drain_grace: DRAIN_WAIT,
+        }
+    }
+}
+
+impl CaptureOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn timeout(mut self, value: Duration) -> Self {
+        self.timeout = Some(value);
+        self
+    }
+    pub fn stdout_cap(mut self, value: usize) -> Self {
+        self.stdout_cap = value;
+        self
+    }
+    pub fn stderr_cap(mut self, value: usize) -> Self {
+        self.stderr_cap = value;
+        self
+    }
+    pub fn no_window(mut self, value: bool) -> Self {
+        self.no_window = value;
+        self
+    }
+    pub fn drain_grace(mut self, value: Duration) -> Self {
+        self.drain_grace = value;
+        self
+    }
+}
+
 /// What [`run`] observed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunOutput {
@@ -143,7 +202,10 @@ where
 
 /// Runs `program` with `args` to completion or until `options.timeout`, then returns its status
 /// and bounded output. Fails when the program or native output capture cannot start, or
-/// lifecycle waiting fails. A non-zero exit is a normal `Ok` with `status` set.
+/// lifecycle waiting fails. A non-zero exit is a normal `Ok` with `status` set, provided capture
+/// reaches EOF & cleanup succeeds. Drain expiry is `Err(TimedOut)` carrying
+/// [`RunnerPhase::Drain`], including after an execution timeout or successful leader exit.
+/// Errors carry [`RunnerFailure`]; use its source for the original OS error code.
 pub fn run<I, S>(program: impl AsRef<OsStr>, args: I, options: &RunOptions) -> io::Result<RunOutput>
 where
     I: IntoIterator<Item = S>,
@@ -210,49 +272,99 @@ pub fn run_command(
 }
 
 fn run_owned(
-    mut command: OwnedCommand,
+    command: OwnedCommand,
     input: Option<Vec<u8>>,
     options: &RunOptions,
+) -> io::Result<RunOutput> {
+    run_captured(
+        command,
+        input,
+        &CaptureOptions {
+            timeout: Some(options.timeout),
+            stdout_cap: options.stdout_cap,
+            stderr_cap: options.stderr_cap,
+            no_window: options.no_window,
+            drain_grace: DRAIN_WAIT,
+        },
+    )
+}
+
+/// Configured command capture with an optional deadline. Retains the first N raw bytes per
+/// stream & drains discarded bytes to EOF. `None` timeout waits for natural leader exit;
+/// cleanup & post-exit output draining remain bounded. Errors carry [`RunnerFailure`].
+pub fn run_command_capture(
+    command: OwnedCommand,
+    input: Option<&[u8]>,
+    options: &CaptureOptions,
+) -> io::Result<RunOutput> {
+    run_captured(command, input.map(<[u8]>::to_vec), options)
+}
+
+fn run_captured(
+    mut command: OwnedCommand,
+    input: Option<Vec<u8>>,
+    options: &CaptureOptions,
 ) -> io::Result<RunOutput> {
     // Recorded, not applied to `Command` here: `spawn` applies it to the std `Command` and to a
     // native Windows spawn config alike, after every caller edit.
     command.pipe_stdio(input.is_some());
+    command.bound_runner_cleanup(RUNNER_REAP_WAIT);
     if options.no_window {
         command.windows_hide();
     } else {
         command.windows_visible();
     }
-    let mut child = command.spawn()?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| failure(RunnerPhase::Spawn, LeaderTermination::NotStarted, error))?;
     // Written concurrently with the output drains below; closing stdin when the writer is done
     // is the EOF. Spawn failure returns before any wait is armed. If an early `?` return skips
     // `finish`, `StdinWriter`'s `Drop` cancels the writer with the same bound.
     let writer = match (input, child.take_stdin()) {
-        (Some(bytes), Some(stdin)) => Some(StdinWriter::spawn(stdin, bytes)?),
+        (Some(bytes), Some(stdin)) => Some(
+            StdinWriter::spawn(stdin, bytes)
+                .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?,
+        ),
         _ => None,
     };
     let mut stdout = child
         .take_stdout()
         .map(|pipe| NativeOutputCapture::stdout(pipe, options.stdout_cap))
-        .transpose()?;
+        .transpose()
+        .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?;
     let mut stderr = child
         .take_stderr()
         .map(|pipe| NativeOutputCapture::stderr(pipe, options.stderr_cap))
-        .transpose()?;
+        .transpose()
+        .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Setup, error))?;
     // The command runs to completion within the deadline (`Exited`, no signal sent); only at
     // the deadline is the tree killed and the outcome `Terminated`.
-    let (status, timed_out) = match child.wait_then_kill(options.timeout)? {
-        crate::WaitOutcome::Exited(status) => (status, false),
-        crate::WaitOutcome::Terminated(status) => (status, true),
+    let (status, timed_out) = match options.timeout {
+        Some(timeout) => match child
+            .wait_exit_then_sweep(timeout)
+            .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Wait, error))?
+        {
+            Some(status) => (status, false),
+            None => (terminate_runner(&mut child, RUNNER_REAP_WAIT)?, true),
+        },
+        None => loop {
+            if let Some(status) = child
+                .wait_exit_then_sweep(Duration::from_millis(100))
+                .map_err(|error| stop_after_failure(&mut child, RunnerPhase::Wait, error))?
+            {
+                break (status, false);
+            }
+        },
     };
     let stdout_output = stdout
         .as_mut()
         .map_or_else(CapturedOutput::default, |capture| {
-            capture.finish_within(DRAIN_WAIT)
+            capture.finish_within(options.drain_grace)
         });
     let stderr_output = stderr
         .as_mut()
         .map_or_else(CapturedOutput::default, |capture| {
-            capture.finish_within(DRAIN_WAIT)
+            capture.finish_within(options.drain_grace)
         });
     // The tree is down, but a process that escaped it (a grandchild that left the group or the
     // job) may still hold the read end of stdin without reading, so the writer is not
@@ -265,7 +377,8 @@ fn run_owned(
     let stderr_failure = capture_failure("stderr", stderr.as_ref());
     stdout_failure?;
     stderr_failure?;
-    writer_result?;
+    writer_result
+        .map_err(|error| failure(RunnerPhase::Stdin, LeaderTermination::Confirmed, error))?;
     Ok(RunOutput {
         status,
         timed_out,
@@ -283,9 +396,16 @@ pub(crate) fn capture_failure(
     capture: Option<&NativeOutputCapture>,
 ) -> io::Result<()> {
     match capture.and_then(NativeOutputCapture::take_error) {
-        Some(error) => Err(io::Error::new(
-            error.kind(),
-            format!("{stream} capture failed, output is incomplete: {error}"),
+        Some(error) => Err(failure(
+            if capture.is_some_and(NativeOutputCapture::cleanup_failed) { RunnerPhase::Cleanup }
+            else if stream == "stdout" { RunnerPhase::Stdout } else { RunnerPhase::Stderr },
+            LeaderTermination::Confirmed,
+            error,
+        )),
+        None if capture.is_some_and(|capture| !capture.is_complete()) => Err(failure(
+            RunnerPhase::Drain, LeaderTermination::Confirmed,
+            io::Error::new(io::ErrorKind::TimedOut,
+                format!("{stream} capture did not reach EOF within its drain bound, output is incomplete")),
         )),
         None => Ok(()),
     }
@@ -474,16 +594,24 @@ impl StdinWriter {
                 // `CancelIoEx`, but nothing here can close the handle safely under it.
                 #[cfg(unix)]
                 self.state.close_pipe();
-                Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "the stdin writer did not stop within its cancellation bound",
+                Err(failure(
+                    RunnerPhase::Cleanup,
+                    LeaderTermination::Confirmed,
+                    io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "the stdin writer did not stop within its cancellation bound",
+                    ),
                 ))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 if let Some(handle) = handle {
                     let _ = handle.join();
                 }
-                Err(io::Error::other("the stdin writer thread panicked"))
+                Err(failure(
+                    RunnerPhase::Cleanup,
+                    LeaderTermination::Confirmed,
+                    io::Error::other("the stdin writer thread panicked"),
+                ))
             }
         }
     }
@@ -980,13 +1108,26 @@ mod tests {
         command
     }
 
+    #[test]
+    fn refused_reap_returns_bounded_cleanup_failure() {
+        let mut child = sleeper().spawn().unwrap();
+        crate::owned::cleanup_test_fault::arm();
+        let started = Instant::now();
+        let error = terminate_runner(&mut child, Duration::from_millis(20)).unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let detail = RunnerFailure::from_io(&error).unwrap();
+        assert_eq!(detail.phase(), RunnerPhase::Cleanup);
+        assert_eq!(detail.termination(), LeaderTermination::Unconfirmed);
+    }
+
     /// Runs `command` through `run_streaming`, collecting what the callbacks saw. With
     /// `cancel_on_first_chunk` the predicate turns true once the first stdout chunk arrived.
-    fn stream(
+    fn stream_outcome(
         command: OwnedCommand,
         options: &StreamOptions,
         cancel_on_first_chunk: bool,
-    ) -> (StreamOutput, Vec<u8>, Vec<String>) {
+    ) -> (io::Result<StreamOutput>, Vec<u8>, Vec<String>) {
         let flag = std::cell::Cell::new(false);
         let mut chunks = Vec::new();
         let mut lines = Vec::new();
@@ -1001,9 +1142,30 @@ mod tests {
                 }
             },
             &mut |line: &str| lines.push(line.to_owned()),
-        )
-        .unwrap();
+        );
         (output, chunks, lines)
+    }
+
+    /// Success-only convenience; failure fixtures use `stream_outcome` to inspect metadata.
+    fn stream(
+        command: OwnedCommand,
+        options: &StreamOptions,
+        cancel_on_first_chunk: bool,
+    ) -> (StreamOutput, Vec<u8>, Vec<String>) {
+        let (output, chunks, lines) = stream_outcome(command, options, cancel_on_first_chunk);
+        (
+            output.expect("successful streaming fixture must reach EOF"),
+            chunks,
+            lines,
+        )
+    }
+
+    #[cfg(windows)]
+    fn assert_incomplete_drain(error: &io::Error) {
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        let detail = RunnerFailure::from_io(error).expect("runner failure metadata");
+        assert_eq!(detail.phase(), RunnerPhase::Drain);
+        assert_eq!(detail.termination(), LeaderTermination::Confirmed);
     }
 
     #[test]
@@ -1321,6 +1483,70 @@ mod tests {
     }
 
     #[test]
+    fn configured_capture_without_deadline_keeps_raw_first_bytes() {
+        let options = CaptureOptions::new().stdout_cap(2).stderr_cap(2);
+        assert_eq!(options.timeout, None);
+        let output = run_command_capture(noisy(), None, &options).unwrap();
+        assert!(output.status.success());
+        assert!(!output.timed_out);
+        assert_eq!(output.stdout.bytes, b"ou");
+        assert_eq!(output.stderr.bytes, b"er");
+        assert!(output.stdout.truncated && output.stderr.truncated);
+        assert!(output.stdout.total_bytes >= 3 && output.stderr.total_bytes >= 3);
+    }
+
+    #[test]
+    fn missing_program_is_typed_not_started_for_both_runners() {
+        let missing = std::env::current_exe()
+            .unwrap()
+            .with_extension("rightkit-missing-program");
+        let error = run_command_capture(OwnedCommand::new(&missing), None, &CaptureOptions::new())
+            .unwrap_err();
+        let failure = RunnerFailure::from_io(&error).unwrap();
+        assert_eq!(failure.phase(), RunnerPhase::Spawn);
+        assert_eq!(failure.termination(), LeaderTermination::NotStarted);
+        assert_eq!(failure.source_io_error().kind(), io::ErrorKind::NotFound);
+        let error = run_streaming(
+            OwnedCommand::new(&missing),
+            &StreamOptions::new(),
+            &|| false,
+            &mut |_| {},
+            &mut |_| {},
+        )
+        .unwrap_err();
+        let failure = RunnerFailure::from_io(&error).unwrap();
+        assert_eq!(failure.phase(), RunnerPhase::Spawn);
+        assert_eq!(failure.termination(), LeaderTermination::NotStarted);
+    }
+
+    #[test]
+    fn a_cancelled_capture_without_eof_is_never_successful_output() {
+        let mut command = sleeper();
+        command.pipe_stdio(false);
+        let mut child = command.spawn().unwrap();
+        let mut stdout = NativeOutputCapture::stdout(child.take_stdout().unwrap(), 128).unwrap();
+        let mut stderr = NativeOutputCapture::stderr(child.take_stderr().unwrap(), 128).unwrap();
+        stdout.cancel();
+        stderr.cancel();
+        assert!(matches!(
+            child
+                .terminate_tree_bounded(Duration::from_secs(5))
+                .unwrap(),
+            crate::ReapOutcome::Exited(_)
+        ));
+        for (name, capture) in [("stdout", &stdout), ("stderr", &stderr)] {
+            assert!(!capture.is_complete());
+            let error = capture_failure(name, Some(capture)).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+            assert!(error.to_string().contains(name));
+            assert_eq!(
+                RunnerFailure::from_io(&error).unwrap().phase(),
+                RunnerPhase::Drain
+            );
+        }
+    }
+
+    #[test]
     fn a_capture_read_error_is_an_error_from_run_streaming() {
         use crate::native_capture::{inject_read_fault, Stream};
         let options = StreamOptions::new().timeout(Duration::from_secs(20));
@@ -1330,6 +1556,20 @@ mod tests {
                 .expect_err("a stored capture error must not become an Ok with partial output");
             assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{error}");
             assert!(error.to_string().contains(name), "{error}");
+            let detail = RunnerFailure::from_io(&error).unwrap();
+            assert_eq!(detail.termination(), LeaderTermination::Confirmed);
+            assert_eq!(
+                detail.phase(),
+                if name == "stdout" {
+                    RunnerPhase::Stdout
+                } else {
+                    RunnerPhase::Stderr
+                }
+            );
+            assert_eq!(
+                detail.source_io_error().kind(),
+                io::ErrorKind::PermissionDenied
+            );
         }
         let output = run_streaming(noisy(), &options, &|| false, &mut |_| {}, &mut |_| {}).unwrap();
         assert!(output.status.success());
@@ -2062,7 +2302,7 @@ mod tests {
     /// Windows counterpart of `a_session_escaped_stdin_holder_does_not_hold_run_past_its_exit`:
     /// the leader exits at once without reading 2 MiB of input while a holder that broke away
     /// from the job keeps stdin, stdout and stderr open and never reads. `run_command` returns
-    /// well inside its deadline with the leader's status and no writer thread; the holder is
+    /// well inside its deadline with Drain/Confirmed (EOF is unavailable) and no writer thread; the holder is
     /// still alive; and the write end really is closed: once the test opens the gate the holder
     /// reads stdin to its end and got only what was already in the pipe.
     #[cfg(windows)]
@@ -2073,16 +2313,15 @@ mod tests {
         let big = pattern(0, 2 << 20);
         let options = RunOptions::new(Duration::from_secs(60));
         let started = Instant::now();
-        let output = run_command(
+        let error = run_command(
             fixture.command("hold-read", true, "exit"),
             Some(&big),
             &options,
         )
-        .unwrap();
+        .unwrap_err();
         let elapsed = started.elapsed();
         fixture.track_holder();
-        assert!(!output.timed_out);
-        assert!(output.status.success(), "{:?}", output.status);
+        assert_incomplete_drain(&error);
         // The leader's exit is immediate; the drains get 2 s each and the writer 0.5 s + 2 s.
         assert!(
             elapsed < Duration::from_secs(20),
@@ -2115,7 +2354,8 @@ mod tests {
     /// Windows counterpart of `a_session_escaped_stdin_holder_does_not_hold_run_command_past_its_timeout`:
     /// the leader blocks past the deadline, so the tree kill (not an exit) ends it, while a
     /// holder outside the job keeps all three pipes. The call still returns after the drain and
-    /// writer bounds, reports `timed_out`, leaves no writer thread, and the holder survives.
+    /// writer bounds, reports Drain/Confirmed instead of partial success, leaves no writer thread,
+    /// and the holder survives. The execution timeout does not make incomplete output successful.
     #[cfg(windows)]
     #[test]
     fn a_breakaway_stdin_holder_does_not_hold_run_command_past_its_timeout_windows() {
@@ -2125,11 +2365,11 @@ mod tests {
         let timeout = Duration::from_secs(8);
         let options = RunOptions::new(timeout);
         let started = Instant::now();
-        let output =
-            run_command(fixture.command("hold", true, "block"), Some(&big), &options).unwrap();
+        let error =
+            run_command(fixture.command("hold", true, "block"), Some(&big), &options).unwrap_err();
         let elapsed = started.elapsed();
         fixture.track_holder();
-        assert!(output.timed_out);
+        assert_incomplete_drain(&error);
         assert!(
             elapsed < timeout + Duration::from_secs(15),
             "run_command took {elapsed:?}"
@@ -2152,11 +2392,12 @@ mod tests {
             .timeout(timeout)
             .input(pattern(0, 2 << 20));
         let started = Instant::now();
-        let (output, _chunks, _lines) =
-            stream(fixture.command("hold", true, "block"), &options, false);
+        let (outcome, _chunks, _lines) =
+            stream_outcome(fixture.command("hold", true, "block"), &options, false);
+        let error = outcome.unwrap_err();
         let elapsed = started.elapsed();
         fixture.track_holder();
-        assert!(output.timed_out && !output.cancelled);
+        assert_incomplete_drain(&error);
         assert!(
             elapsed < timeout + Duration::from_secs(15),
             "run_streaming took {elapsed:?}"

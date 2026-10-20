@@ -44,7 +44,7 @@ use crate::suite::{make_private_dir, Suite, SuiteError};
 /// The longest app name accepted, in bytes.
 pub const MAX_APP_NAME_LEN: usize = 64;
 /// The historical commit marker written at the app root once a migration is fully verified. Only a
-/// [`MigrationState::Ready`] migration writes it; readers look only at `source`.
+/// whole-tree [`MigrationState::Ready`] migration writes it; readers look only at `source`.
 pub const MIGRATION_MARKER: &str = ".rightkit-migrated.json";
 /// The versioned completion state of a migration (`Ready`, `ReadyWithOmissions` or `Incomplete`),
 /// written at the app root before the destination is first touched and rewritten when the run
@@ -52,6 +52,7 @@ pub const MIGRATION_MARKER: &str = ".rightkit-migrated.json";
 pub const MIGRATION_STATE: &str = ".rightkit-migration-state.json";
 /// Version of the [`MIGRATION_STATE`] file. Version 1 is the unversioned marker.
 const STATE_VERSION: u64 = 2;
+const SELECTED_STATE_VERSION: u64 = 3;
 const WRITER_LOCK: &str = ".writer.lock";
 #[cfg(test)]
 const TMP_SUFFIX: &str = ".rk-migrating";
@@ -231,7 +232,8 @@ pub enum MigrationOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MigrationState {
-    /// Everything was migrated and verified. The historical marker [`MIGRATION_MARKER`] exists.
+    /// Everything in the recorded scope was migrated & verified. Whole-tree scope also writes
+    /// the historical marker [`MIGRATION_MARKER`].
     Ready,
     /// Every required entry is in place. Only entries the caller declared disposable are missing,
     /// and each is recorded (optional links that could not be created, reparse points skipped on
@@ -267,6 +269,35 @@ impl MigrationState {
             "incomplete" => Some(Self::Incomplete),
             _ => None,
         }
+    }
+}
+
+/// Persisted scope of a migration; selected roots include directory descendants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MigrationScope {
+    /// Historical whole-tree migration.
+    All,
+    /// Canonical relative roots, including an explicit empty selection.
+    Roots(Vec<PathBuf>),
+}
+
+/// Read-only migration state & its persisted scope for one canonical source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct MigrationStatus {
+    state: MigrationState,
+    scope: MigrationScope,
+}
+
+impl MigrationStatus {
+    /// Completion state recorded for this scope.
+    pub fn state(&self) -> MigrationState {
+        self.state
+    }
+    /// Exact persisted scope; observation alone does not prove another scope complete.
+    pub fn scope(&self) -> &MigrationScope {
+        &self.scope
     }
 }
 
@@ -444,6 +475,7 @@ pub struct MigrateOptions {
     reparse_points: bool,
     optional_link: Option<OptionalLinkPolicy>,
     excluded: Vec<PathBuf>,
+    pub(crate) included: Option<Vec<PathBuf>>,
 }
 
 impl fmt::Debug for MigrateOptions {
@@ -454,11 +486,50 @@ impl fmt::Debug for MigrateOptions {
             .field("reparse_points", &self.reparse_points)
             .field("optional_link_policy", &self.optional_link.is_some())
             .field("excluded", &self.excluded)
+            .field("included", &self.included)
             .finish()
     }
 }
 
 impl MigrateOptions {
+    /// Restrict migration to these relative roots, including each directory's descendants.
+    /// An empty list selects nothing; the default selects the whole tree.
+    /// Selected migrations always revalidate source & destination, retain previously selected
+    /// roots for retries of the same source, & use versioned scope-aware state without writing
+    /// a historical whole-tree completion marker.
+    pub fn include_roots(mut self, roots: Vec<PathBuf>) -> Result<Self, AppRootError> {
+        self.included = Some(normalize_roots(roots)?);
+        Ok(self)
+    }
+
+    fn selection(&self, rel: &Path) -> Result<bool, AppRootError> {
+        let Some(roots) = &self.included else {
+            return Ok(true);
+        };
+        for root in roots {
+            if rel.starts_with(root) || root.starts_with(rel) {
+                return Ok(true);
+            }
+            let a: Vec<_> = rel.components().collect();
+            let b: Vec<_> = root.components().collect();
+            if a.iter()
+                .zip(&b)
+                .all(|(x, y)| folded_component(*x) == folded_component(*y))
+            {
+                return Err(AppRootError::UnsupportedSource(rel.to_path_buf()));
+            }
+        }
+        Ok(false)
+    }
+
+    fn scope_state(&self, mut body: serde_json::Value) -> serde_json::Value {
+        if let Some(roots) = &self.included {
+            body["version"] = serde_json::json!(SELECTED_STATE_VERSION);
+            body["selected_roots"] = serde_json::json!(roots);
+        }
+        body
+    }
+
     /// Refuse every symlink and special file (the default).
     pub fn strict() -> Self {
         Self::default()
@@ -572,6 +643,60 @@ impl MigrateOptions {
         }
         Ok(false)
     }
+}
+
+pub(crate) fn normalize_roots(mut roots: Vec<PathBuf>) -> Result<Vec<PathBuf>, AppRootError> {
+    for root in &roots {
+        if root.as_os_str().is_empty()
+            || root.to_str().is_none()
+            || !root.components().all(|c| matches!(c, Component::Normal(_)))
+            || root
+                .components()
+                .any(|c| c.as_os_str().to_string_lossy().contains(['\\', ':', '\0']))
+            || root
+                .to_string_lossy()
+                .split(['/', '\\'])
+                .any(|part| part.is_empty() || part == "." || part == "..")
+            || [MIGRATION_STATE, MIGRATION_MARKER, WRITER_LOCK]
+                .iter()
+                .any(|reserved| roots_overlap(root, Path::new(reserved)))
+        {
+            return Err(AppRootError::PathEscape(root.display().to_string()));
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    for (i, root) in roots.iter().enumerate() {
+        for other in &roots[..i] {
+            let a: Vec<_> = root.components().collect();
+            let b: Vec<_> = other.components().collect();
+            for (x, y) in a.iter().zip(&b) {
+                if x == y {
+                    continue;
+                }
+                if folded_component(*x) == folded_component(*y) {
+                    return Err(AppRootError::PathEscape(root.display().to_string()));
+                }
+                break;
+            }
+        }
+    }
+    let all = roots.clone();
+    roots.retain(|root| {
+        !all.iter()
+            .any(|other| root != other && root.starts_with(other))
+    });
+    Ok(roots)
+}
+
+fn folded_component(component: Component<'_>) -> String {
+    component.as_os_str().to_string_lossy().to_lowercase()
+}
+
+pub(crate) fn roots_overlap(a: &Path, b: &Path) -> bool {
+    a.components()
+        .zip(b.components())
+        .all(|(x, y)| folded_component(x) == folded_component(y))
 }
 
 /// `<Orthic Labs>/<App>`, created private.
@@ -738,8 +863,17 @@ impl AppRoot {
     /// `Incomplete` means the destination must not be used and the old root stays the authority. A
     /// historical marker written by an earlier version counts as `Ready` (as `ReadyWithOmissions`
     /// when it records `"complete": false`). A state file written by a newer version is an error
-    /// (`AppRootError::Io`, `InvalidData`). Takes no lock and changes nothing.
+    /// (`AppRootError::Io`, `InvalidData`). Malformed metadata also fails rather than falling
+    /// back to a historical marker. Takes no lock and changes nothing.
     pub fn migration_state(&self, src: &Path) -> Result<Option<MigrationState>, AppRootError> {
+        Ok(self.migration_status(src)?.map(|status| status.state()))
+    }
+
+    /// Read persisted state & scope without taking a lock or changing files. Missing source or
+    /// metadata returns `None`; valid metadata for another source also returns `None`.
+    /// Malformed, unknown-version or invalid-scope metadata is an error, never evidence that a
+    /// destination is untracked. A historical marker is consulted only when state is absent.
+    pub fn migration_status(&self, src: &Path) -> Result<Option<MigrationStatus>, AppRootError> {
         if !src.is_absolute() || src.components().any(|c| c == Component::ParentDir) {
             return Err(AppRootError::PathEscape(src.display().to_string()));
         }
@@ -748,15 +882,86 @@ impl AppRoot {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        if let Some((state, _)) = self.read_state(&csrc)? {
-            return Ok(Some(state));
+        let invalid = |detail: &str| {
+            AppRootError::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                detail.to_string(),
+            ))
+        };
+        let valid_source = |source: &str| {
+            let path = Path::new(source);
+            path.is_absolute() && !path.components().any(|part| part == Component::ParentDir)
+        };
+        let read = |path: &Path| -> Result<Option<serde_json::Value>, AppRootError> {
+            let text = match fs::read_to_string(path) {
+                Ok(text) => text,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => return Err(error.into()),
+            };
+            serde_json::from_str(&text)
+                .map(Some)
+                .map_err(|_| invalid("invalid migration metadata JSON"))
+        };
+        if let Some(value) = read(&self.root.join(MIGRATION_STATE))? {
+            let source = value
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| invalid("missing migration source"))?;
+            if !valid_source(source) {
+                return Err(invalid("invalid migration source"));
+            }
+            let state = value
+                .get("state")
+                .and_then(serde_json::Value::as_str)
+                .and_then(MigrationState::parse)
+                .ok_or_else(|| invalid("unknown migration state"))?;
+            let scope = match value.get("version").and_then(serde_json::Value::as_u64) {
+                Some(1) | Some(STATE_VERSION) if value.get("selected_roots").is_none() => {
+                    MigrationScope::All
+                }
+                Some(SELECTED_STATE_VERSION) => {
+                    let roots: Vec<PathBuf> = serde_json::from_value(
+                        value
+                            .get("selected_roots")
+                            .cloned()
+                            .ok_or_else(|| invalid("missing selected scope"))?,
+                    )
+                    .map_err(|_| invalid("invalid selected scope"))?;
+                    if normalize_roots(roots.clone())
+                        .map_err(|_| invalid("invalid selected scope"))?
+                        != roots
+                    {
+                        return Err(invalid("noncanonical selected scope"));
+                    }
+                    MigrationScope::Roots(roots)
+                }
+                _ => return Err(invalid("unknown migration version or scope")),
+            };
+            return Ok((Some(source) == csrc.to_str()).then_some(MigrationStatus { state, scope }));
         }
-        Ok(self.legacy_marker(&csrc).map(|complete| {
-            if complete {
+        let Some(marker) = read(&self.root.join(MIGRATION_MARKER))? else {
+            return Ok(None);
+        };
+        let source = marker
+            .get("source")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid("missing historical migration source"))?;
+        if !valid_source(source) {
+            return Err(invalid("invalid historical migration source"));
+        }
+        let complete = match marker.get("complete") {
+            None => true,
+            Some(value) => value
+                .as_bool()
+                .ok_or_else(|| invalid("invalid historical completion flag"))?,
+        };
+        Ok((Some(source) == csrc.to_str()).then_some(MigrationStatus {
+            state: if complete {
                 MigrationState::Ready
             } else {
                 MigrationState::ReadyWithOmissions
-            }
+            },
+            scope: MigrationScope::All,
         }))
     }
 
@@ -794,7 +999,19 @@ impl AppRoot {
             .and_then(|s| s.as_str())
             .and_then(MigrationState::parse);
         match state {
-            Some(state) if version <= STATE_VERSION => Ok(Some((state, v))),
+            Some(state) if version <= SELECTED_STATE_VERSION => {
+                if version < SELECTED_STATE_VERSION && v.get("selected_roots").is_some() {
+                    return Err(AppRootError::PathEscape("legacy state cannot carry selected scope".into()));
+                }
+                if version == SELECTED_STATE_VERSION {
+                    let roots: Vec<PathBuf> = serde_json::from_value(v.get("selected_roots").cloned().ok_or_else(|| AppRootError::PathEscape("missing selected scope".into()))?)
+                        .map_err(|_| AppRootError::PathEscape("invalid selected scope".into()))?;
+                    if normalize_roots(roots.clone())? != roots {
+                        return Err(AppRootError::PathEscape("noncanonical selected scope".into()));
+                    }
+                }
+                Ok(Some((state, v)))
+            },
             _ => Err(AppRootError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!(
@@ -867,7 +1084,22 @@ impl AppRoot {
             return Err(AppRootError::Overlap(src.to_path_buf()));
         }
         let _lock = self.lock_writer()?;
-        match self.read_state(&csrc)? {
+        let prior = self.read_state(&csrc)?;
+        let prior_selected = prior
+            .as_ref()
+            .is_some_and(|(_, state)| state.get("selected_roots").is_some());
+        let mut effective = opts.clone();
+        if let (Some(roots), Some((_, state))) = (&mut effective.included, &prior) {
+            if let Some(previous) = state.get("selected_roots") {
+                let previous: Vec<PathBuf> = serde_json::from_value(previous.clone())
+                    .map_err(|_| AppRootError::PathEscape("invalid selected scope".into()))?;
+                roots.extend(previous);
+                *roots = normalize_roots(std::mem::take(roots))?;
+            }
+        }
+        let opts = &effective;
+        let revalidate = revalidate || opts.included.is_some() || prior_selected;
+        match prior {
             Some((MigrationState::Ready, state)) if !revalidate => {
                 self.repair_marker(&csrc, &state);
                 return Ok(MigrationReport::bare(
@@ -912,16 +1144,16 @@ impl AppRoot {
         }
         // Record the pending state before the first destination write, so that any interruption
         // (a crash included) leaves `Incomplete` on disk and never a state that reads as done.
-        self.write_state(&state_json(
+        self.write_state(&opts.scope_state(state_json(
             MigrationState::Incomplete,
             csrc.to_str(),
             &Lists::default(),
             None,
-        ))?;
+        )))?;
         match self.copy_entries(&csrc, &entries, opts, maker) {
             Ok(done) => self.commit(&csrc, opts, done),
             Err(e) => {
-                self.record_failure(&csrc, &e);
+                self.record_failure(&csrc, opts, &e);
                 Err(e)
             }
         }
@@ -1071,8 +1303,8 @@ impl AppRoot {
         done: Lists,
     ) -> Result<MigrationReport, AppRootError> {
         let state = done.state();
-        self.write_state(&state_json(state, csrc.to_str(), &done, None))?;
-        if state == MigrationState::Ready {
+        self.write_state(&opts.scope_state(state_json(state, csrc.to_str(), &done, None)))?;
+        if state == MigrationState::Ready && opts.included.is_none() {
             let body = marker_json(
                 csrc.to_str(),
                 done.files,
@@ -1098,13 +1330,13 @@ impl AppRoot {
     }
 
     /// Best effort: leave `Incomplete` on disk with the reason, and the link that blocked it.
-    fn record_failure(&self, csrc: &Path, e: &AppRootError) {
-        let mut body = state_json(
+    fn record_failure(&self, csrc: &Path, opts: &MigrateOptions, e: &AppRootError) {
+        let mut body = opts.scope_state(state_json(
             MigrationState::Incomplete,
             csrc.to_str(),
             &Lists::default(),
             Some(&e.to_string()),
-        );
+        ));
         if let (Some(l), Some(obj)) = (e.link_not_created(), body.as_object_mut()) {
             obj.insert(
                 "unresolved".into(),
@@ -1409,7 +1641,7 @@ fn collect(
             continue;
         }
         let r = rel.join(&name);
-        if opts.is_excluded(&r)? {
+        if !opts.selection(&r)? || opts.is_excluded(&r)? {
             continue;
         }
         // Windows: classify a reparse point before anything else. `DirEntry::file_type` reports a
@@ -1418,6 +1650,13 @@ fn collect(
         #[cfg(windows)]
         {
             if let Some(kind) = reparse_of(&e, &base.join(&r))? {
+                if opts
+                    .included
+                    .as_ref()
+                    .is_some_and(|roots| !roots.iter().any(|root| r.starts_with(root)))
+                {
+                    return Err(AppRootError::UnsupportedSource(base.join(&r)));
+                }
                 match kind {
                     Reparse::Symlink => {}
                     Reparse::Socket => {
@@ -1446,6 +1685,14 @@ fn collect(
         }
         // DirEntry::file_type does not follow symlinks.
         let ft = e.file_type()?;
+        if opts
+            .included
+            .as_ref()
+            .is_some_and(|roots| !roots.iter().any(|root| r.starts_with(root)))
+            && !ft.is_dir()
+        {
+            return Err(AppRootError::UnsupportedSource(base.join(&r)));
+        }
         if ft.is_symlink() {
             if !opts.links {
                 return Err(AppRootError::UnsupportedSource(base.join(&r)));
@@ -2541,16 +2788,26 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_state_file_is_refused_and_an_unreadable_one_is_ignored() {
+    fn readback_refuses_ambiguous_state_while_copy_retains_legacy_absent_rules() {
         let (d, s) = suite();
         let a = s.app_root("App").unwrap();
         let old = old_tree(d.path());
         let src = fs::canonicalize(&old).unwrap();
         let state = a.root().join(MIGRATION_STATE);
         let write = |v: serde_json::Value| fs::write(&state, v.to_string()).unwrap();
-        // Another source's state is not ours.
-        write(serde_json::json!({"version": 9, "state": "ready", "source": "/elsewhere"}));
+        // Valid other-source state has no authority here. Unknown metadata cannot prove that.
+        write(
+            serde_json::json!({"version": 2, "state": "ready", "source": src.with_file_name("elsewhere")}),
+        );
         assert_eq!(a.migration_state(&old).unwrap(), None);
+        write(
+            serde_json::json!({"version": 9, "state": "ready", "source": src.with_file_name("elsewhere")}),
+        );
+        assert!(a.migration_state(&old).is_err());
+        assert!(
+            a.read_state(&src).unwrap().is_none(),
+            "copy parser remains source-scoped"
+        );
         // A newer version, and a state this version does not know, are refused, not guessed at.
         for v in [
             serde_json::json!({"version": 99, "state": "ready", "source": src.to_str()}),
@@ -2570,10 +2827,11 @@ mod tests {
             }
             assert!(!a.root().join("a.txt").exists(), "nothing was copied");
         }
-        // Garbage and an unversioned object are not ours: treated as absent.
+        // Strict observation refuses ambiguous metadata. Copy retains its existing absent rule.
         for text in ["not json {", "{\"source\": \"x\"}"] {
             fs::write(&state, text).unwrap();
-            assert_eq!(a.migration_state(&old).unwrap(), None);
+            assert!(a.migration_state(&old).is_err());
+            assert!(a.read_state(&src).unwrap().is_none());
         }
         assert!(matches!(
             settled(|| a.migrate_from(&old)).unwrap(),

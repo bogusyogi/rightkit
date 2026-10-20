@@ -16,6 +16,7 @@ pub(crate) enum Level {
     /// The per-app licence operation lock.
     Op,
     /// The credentials rotation lock (taken inside the credentials calls).
+    SecureClock,
     Rotation,
     /// The anti-rollback clock file lock.
     Clock,
@@ -25,8 +26,9 @@ impl Level {
     fn bit(self) -> u8 {
         match self {
             Level::Op => 1,
-            Level::Rotation => 2,
-            Level::Clock => 4,
+            Level::SecureClock => 2,
+            Level::Rotation => 4,
+            Level::Clock => 8,
         }
     }
 }
@@ -83,12 +85,12 @@ mod tests {
         {
             let _op = enter(Level::Op);
             let _rotation = enter(Level::Rotation);
-            assert_eq!(held_mask(), 0b011);
+            assert_eq!(held_mask(), 0b101);
             {
                 let _clock = enter(Level::Clock);
-                assert_eq!(held_mask(), 0b111);
+                assert_eq!(held_mask(), 0b1101);
             }
-            assert_eq!(held_mask(), 0b011);
+            assert_eq!(held_mask(), 0b101);
             // A sibling at the same depth after the first one ended is fine.
             let _clock = enter(Level::Clock);
         }

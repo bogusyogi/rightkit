@@ -65,7 +65,8 @@ use rightkit_fs::{
 use serde_json::{json, Value};
 
 use crate::app_root::{
-    same_content, write_json_atomic, AppRoot, AppRootError, MigrateOptions, MigrationReport,
+    normalize_roots, roots_overlap, same_content, write_json_atomic, AppRoot, AppRootError,
+    MigrateOptions, MigrationReport,
 };
 use crate::discovery::try_lock_exclusive;
 
@@ -76,6 +77,7 @@ const CUTOVER_LOCK: &str = ".rightkit-cutover.lock";
 /// The `rightkit-fs` transaction area; never copied from an old root.
 const TXN_AREA: &str = ".rktxn";
 const RECORD_VERSION: u64 = 1;
+const SELECTED_RECORD_VERSION: u64 = 2;
 
 // ---------------------------------------------------------------------------------------------
 // Participants
@@ -396,6 +398,44 @@ struct Record {
     error: Option<String>,
     retired: Option<PathBuf>,
     settlement_complete: bool,
+    tree_selection: TreeSelection,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TreeSelection {
+    All,
+    Pending,
+    Roots(Vec<PathBuf>),
+}
+
+impl TreeSelection {
+    fn json(&self) -> Value {
+        match self {
+            Self::All => json!({"mode": "all"}),
+            Self::Pending => json!({"mode": "pending"}),
+            Self::Roots(roots) => json!({"mode": "roots", "roots": roots}),
+        }
+    }
+    fn parse(value: Option<&Value>) -> Result<Self, CutoverError> {
+        let Some(value) = value else {
+            return Ok(Self::All);
+        };
+        let bad = || CutoverError::RecordUnreadable("invalid tree selection".into());
+        match value.get("mode").and_then(Value::as_str) {
+            Some("all") => Ok(Self::All),
+            Some("pending") => Ok(Self::Pending),
+            Some("roots") => {
+                let roots: Vec<PathBuf> =
+                    serde_json::from_value(value.get("roots").cloned().ok_or_else(bad)?)
+                        .map_err(|_| bad())?;
+                if normalize_roots(roots.clone()).map_err(CutoverError::Migrate)? != roots {
+                    return Err(bad());
+                }
+                Ok(Self::Roots(roots))
+            }
+            _ => Err(bad()),
+        }
+    }
 }
 
 fn key_json(key: FileKey) -> Value {
@@ -412,7 +452,7 @@ fn key_from(value: &Value) -> Option<FileKey> {
 impl Record {
     fn to_json(&self) -> Value {
         json!({
-            "version": RECORD_VERSION,
+            "version": if matches!(self.tree_selection, TreeSelection::All) { RECORD_VERSION } else { SELECTED_RECORD_VERSION },
             "id": self.id,
             "generation": self.generation,
             "phase": self.phase.as_str(),
@@ -425,15 +465,18 @@ impl Record {
             "error": self.error,
             "retired": self.retired.as_ref().and_then(|p| p.to_str()),
             "settlement_complete": self.settlement_complete,
+            "tree_selection": self.tree_selection.json(),
         })
     }
 
     fn parse(text: &str) -> Result<Self, CutoverError> {
         let bad = |why: &str| CutoverError::RecordUnreadable(why.to_string());
         let v: Value = serde_json::from_str(text).map_err(|e| bad(&e.to_string()))?;
-        match v.get("version").and_then(Value::as_u64) {
+        let version = v.get("version").and_then(Value::as_u64);
+        match version {
             Some(RECORD_VERSION) => {}
-            Some(n) if n > RECORD_VERSION => {
+            Some(SELECTED_RECORD_VERSION) => {}
+            Some(n) if n > SELECTED_RECORD_VERSION => {
                 return Err(bad("the record was written by a newer version"))
             }
             _ => return Err(bad("missing or unknown record version")),
@@ -480,7 +523,19 @@ impl Record {
                     .as_bool()
                     .ok_or_else(|| bad("invalid settlement_complete"))?,
             },
+            tree_selection: TreeSelection::parse(v.get("tree_selection"))?,
         };
+        if version == Some(SELECTED_RECORD_VERSION)
+            && matches!(record.tree_selection, TreeSelection::All)
+        {
+            return Err(bad("selected record requires explicit scope"));
+        }
+        if version == Some(RECORD_VERSION) && !matches!(record.tree_selection, TreeSelection::All) {
+            return Err(bad("legacy record cannot carry selected scope"));
+        }
+        if let TreeSelection::Roots(roots) = &record.tree_selection {
+            validate_cutover_roots(roots)?;
+        }
         let mut names = BTreeSet::new();
         if record.id.len() != 16
             || !record.id.bytes().all(|b| b.is_ascii_hexdigit())
@@ -492,6 +547,14 @@ impl Record {
                 .any(|name| !valid_participant_name(name) || !names.insert(name))
         {
             return Err(bad("invalid cutover identity, generation or participants"));
+        }
+        if (record.fs_move != "tree" && !matches!(record.tree_selection, TreeSelection::All))
+            || (matches!(
+                record.phase,
+                CutoverPhase::Switched | CutoverPhase::Completed
+            ) && matches!(record.tree_selection, TreeSelection::Pending))
+        {
+            return Err(bad("tree selection inconsistent with phase or file move"));
         }
         for root in [&record.old_root, &record.new_root] {
             if !root.is_absolute() || root.components().any(|c| c == Component::ParentDir) {
@@ -808,6 +871,8 @@ pub struct RootCutover {
     old_root: PathBuf,
     fs_move: FsMove,
     participants: Vec<Box<dyn CutoverParticipant>>,
+    tree_roots:
+        Option<Box<dyn Fn(&CutoverContext) -> Result<Vec<PathBuf>, ParticipantError> + Send>>,
 }
 
 fn valid_participant_name(name: &str) -> bool {
@@ -820,6 +885,18 @@ fn valid_participant_name(name: &str) -> bool {
 
 fn plain_relative(path: &Path) -> bool {
     path.components().count() > 0 && path.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+fn validate_cutover_roots(roots: &[PathBuf]) -> Result<(), CutoverError> {
+    for root in roots {
+        if [CUTOVER_RECORD, CUTOVER_LOCK, TXN_AREA]
+            .iter()
+            .any(|reserved| roots_overlap(root, Path::new(reserved)))
+        {
+            return Err(CutoverError::BadCompanion(root.clone()));
+        }
+    }
+    Ok(())
 }
 
 fn new_id() -> Result<String, CutoverError> {
@@ -893,12 +970,23 @@ impl RootCutover {
             old_root: old_root.into(),
             fs_move: FsMove::None,
             participants: Vec::new(),
+            tree_roots: None,
         }
     }
 
     /// How the files travel (default [`FsMove::None`]).
     pub fn fs_move(mut self, fs_move: FsMove) -> Self {
         self.fs_move = fs_move;
+        self
+    }
+
+    /// Resolve a bounded tree-root descriptor after every writer has quiesced.
+    /// Legal only for `FsMove::Tree` without static `include_roots`.
+    pub fn tree_roots(
+        mut self,
+        resolver: impl Fn(&CutoverContext) -> Result<Vec<PathBuf>, ParticipantError> + Send + 'static,
+    ) -> Self {
+        self.tree_roots = Some(Box::new(resolver));
         self
     }
 
@@ -957,12 +1045,59 @@ impl RootCutover {
                 "participant order or file-move mode changed".into(),
             ));
         }
+        if matches!(record.phase, CutoverPhase::Copying | CutoverPhase::Aborted)
+            && matches!(self.requested_selection()?, TreeSelection::All)
+                != matches!(record.tree_selection, TreeSelection::All)
+        {
+            return Err(CutoverError::RecordMismatch(
+                "tree selection mode changed".into(),
+            ));
+        }
         if record.retired.is_none() {
             let old = fs::canonicalize(&self.old_root)?;
             if old != record.old_root {
                 return Err(CutoverError::RecordMismatch("old root changed".into()));
             }
             check_directory(&old, record.old_key)?;
+        }
+        Ok(())
+    }
+
+    fn requested_selection(&self) -> Result<TreeSelection, CutoverError> {
+        match (&self.fs_move, &self.tree_roots) {
+            (FsMove::Tree(options), Some(_)) if options.included.is_none() => {
+                Ok(TreeSelection::Pending)
+            }
+            (_, Some(_)) => Err(CutoverError::RecordMismatch(
+                "tree_roots requires Tree without static include_roots".into(),
+            )),
+            (FsMove::Tree(options), None) => {
+                if let Some(roots) = &options.included {
+                    self.validate_selected_roots(roots)?;
+                    Ok(TreeSelection::Roots(roots.clone()))
+                } else {
+                    Ok(TreeSelection::All)
+                }
+            }
+            _ => Ok(TreeSelection::All),
+        }
+    }
+
+    fn validate_selected_roots(&self, roots: &[PathBuf]) -> Result<(), CutoverError> {
+        validate_cutover_roots(roots)?;
+        for root in roots {
+            for participant in &self.participants {
+                if participant
+                    .owned_paths()
+                    .iter()
+                    .any(|owned| roots_overlap(root, owned))
+                {
+                    return Err(CutoverError::OwnedPathConflict {
+                        participant: participant.name().into(),
+                        path: root.clone(),
+                    });
+                }
+            }
         }
         Ok(())
     }
@@ -1061,6 +1196,7 @@ impl RootCutover {
         resolve_transactions(&new)?;
         let mut generation = 1;
         let mut resumed = false;
+        let mut selection = self.requested_selection()?;
         if let Some(record) = read_record(&new)? {
             self.validate_resume(&record)?;
             if record.new_root != new {
@@ -1084,6 +1220,10 @@ impl RootCutover {
                     return self.finish(&new, record, true, report);
                 }
                 CutoverPhase::Copying | CutoverPhase::Aborted => {
+                    check_directory(&new, record.new_key)?;
+                    if let TreeSelection::Roots(roots) = record.tree_selection.clone() {
+                        selection = TreeSelection::Roots(roots);
+                    }
                     generation = record.generation.checked_add(1).ok_or_else(|| {
                         CutoverError::RecordUnreadable("generation exhausted".into())
                     })?;
@@ -1109,6 +1249,7 @@ impl RootCutover {
             error: None,
             retired: None,
             settlement_complete: false,
+            tree_selection: selection,
         };
         write_record(&plan.new, &record)?;
         let cx = CutoverContext {
@@ -1119,7 +1260,7 @@ impl RootCutover {
             resumed,
         };
         let mut report = CutoverReport::new(&record);
-        if let Err((prepared, cause)) = self.before_switch(&plan, &cx, &mut report) {
+        if let Err((prepared, cause)) = self.before_switch(&plan, &cx, &mut record, &mut report) {
             return Err(self.abort(&plan, record, &cx, prepared, cause));
         }
 
@@ -1188,6 +1329,7 @@ impl RootCutover {
         &mut self,
         plan: &Plan,
         cx: &CutoverContext,
+        record: &mut Record,
         report: &mut CutoverReport,
     ) -> Result<(), (usize, CutoverError)> {
         let n = self.participants.len();
@@ -1201,14 +1343,62 @@ impl RootCutover {
             self.hook(i, CutoverStep::Quiesce, cx)
                 .map_err(|e| (prepared, e))?;
         }
+        self.resolve_tree_roots(plan, cx, record)
+            .map_err(|e| (prepared, e))?;
         for i in 0..n {
             self.hook(i, CutoverStep::Relocate, cx)
                 .map_err(|e| (prepared, e))?;
         }
-        self.move_files(plan, report).map_err(|e| (prepared, e))?;
+        check_directory(&plan.old, plan.old_key).map_err(|e| (prepared, e))?;
+        check_directory(&plan.new, plan.new_key).map_err(|e| (prepared, e))?;
+        self.move_files(plan, &record.tree_selection, report)
+            .map_err(|e| (prepared, e))?;
         // Path substitution: both roots must still be the directories this run recorded.
         check_directory(&plan.old, plan.old_key).map_err(|e| (prepared, e))?;
         check_directory(&plan.new, plan.new_key).map_err(|e| (prepared, e))?;
+        Ok(())
+    }
+
+    fn resolve_tree_roots(
+        &self,
+        plan: &Plan,
+        cx: &CutoverContext,
+        record: &mut Record,
+    ) -> Result<(), CutoverError> {
+        let current = if let Some(resolve) = &self.tree_roots {
+            match catch_unwind(AssertUnwindSafe(|| resolve(cx))) {
+                Ok(Ok(roots)) => Some(roots),
+                Ok(Err(error)) => {
+                    return Err(CutoverError::Participant {
+                        name: "tree-roots".into(),
+                        step: CutoverStep::Quiesce,
+                        error,
+                    })
+                }
+                Err(payload) => {
+                    return Err(CutoverError::Participant {
+                        name: "tree-roots".into(),
+                        step: CutoverStep::Quiesce,
+                        error: ParticipantError::new(format!("panicked: {}", panic_text(payload))),
+                    })
+                }
+            }
+        } else if let FsMove::Tree(options) = &self.fs_move {
+            options.included.clone()
+        } else {
+            None
+        };
+        if let Some(mut roots) = current {
+            if let TreeSelection::Roots(previous) = &record.tree_selection {
+                roots.extend(previous.iter().cloned());
+            }
+            let roots = normalize_roots(roots).map_err(CutoverError::Migrate)?;
+            self.validate_selected_roots(&roots)?;
+            check_directory(&plan.old, plan.old_key)?;
+            check_directory(&plan.new, plan.new_key)?;
+            record.tree_selection = TreeSelection::Roots(roots);
+            write_record(&plan.new, record)?;
+        }
         Ok(())
     }
 
@@ -1233,7 +1423,9 @@ impl RootCutover {
         record.phase = CutoverPhase::Aborted;
         record.error = Some(cause.to_string());
         // Best effort: `copying` already selects the old root, so a failed write loses nothing.
-        let _ = write_record(&plan.new, &record);
+        if check_directory(&plan.new, plan.new_key).is_ok() {
+            let _ = write_record(&plan.new, &record);
+        }
         if failures.is_empty() {
             cause
         } else {
@@ -1377,7 +1569,12 @@ impl RootCutover {
 
     // ---- the file move ---------------------------------------------------------------------
 
-    fn move_files(&self, plan: &Plan, report: &mut CutoverReport) -> Result<(), CutoverError> {
+    fn move_files(
+        &self,
+        plan: &Plan,
+        selection: &TreeSelection,
+        report: &mut CutoverReport,
+    ) -> Result<(), CutoverError> {
         match &self.fs_move {
             FsMove::None => Ok(()),
             FsMove::Tree(options) => {
@@ -1388,6 +1585,15 @@ impl RootCutover {
                     .exclude(CUTOVER_RECORD)
                     .exclude(CUTOVER_LOCK)
                     .exclude(TXN_AREA);
+                if let TreeSelection::Roots(roots) = selection {
+                    options = options
+                        .include_roots(roots.clone())
+                        .map_err(CutoverError::Migrate)?;
+                } else if matches!(selection, TreeSelection::Pending) {
+                    return Err(CutoverError::RecordMismatch(
+                        "tree selection unresolved".into(),
+                    ));
+                }
                 for participant in &self.participants {
                     for owned in participant.owned_paths() {
                         options = options.exclude(owned);

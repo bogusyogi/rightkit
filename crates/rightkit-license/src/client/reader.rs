@@ -77,3 +77,152 @@ impl CredentialTokenSource {
         })
     }
 }
+
+/// Native-only credential source sharing every client writer's operation fence.
+#[derive(Clone)]
+pub struct ClientNativeEntitlementSource {
+    core: std::sync::Arc<super::ops::Core>,
+}
+
+impl super::LicenseClient {
+    /// Returns a native source; disabled licensing has no authorizer.
+    pub fn native_entitlement_source(&self) -> Result<ClientNativeEntitlementSource, LicenseError> {
+        Ok(ClientNativeEntitlementSource {
+            core: self.configured()?.clone(),
+        })
+    }
+}
+
+pub(crate) fn native_store_error(error: &rightkit_credentials::Error) -> crate::NativeSourceError {
+    use rightkit_credentials::Error;
+    match error {
+        Error::Unavailable(_) => crate::NativeSourceError::Unavailable,
+        _ => crate::NativeSourceError::Refused,
+    }
+}
+
+impl ClientNativeEntitlementSource {
+    fn binding(
+        &self,
+        record: &super::envelope::StoredRecord,
+    ) -> Result<String, crate::NativeSourceError> {
+        let result = if record.lease.is_some() || record.binding_lease_id.is_some() {
+            self.core.device.device_id_hash()
+        } else {
+            self.core.device.device_id()
+        };
+        result.map_err(|_| crate::NativeSourceError::Refused)
+    }
+}
+
+impl crate::NativeEntitlementSource for ClientNativeEntitlementSource {
+    fn read(&self) -> Result<crate::NativeCredential, crate::NativeSourceError> {
+        use super::envelope::{RecordState, RecordStatus};
+        use super::persist::Loaded;
+        use crate::{NativeCredential, NativeSignedCredential, NativeSourceError};
+        let _level = order::enter(Level::Op);
+        let _guard = self
+            .core
+            .op
+            .acquire(ENGINE_WAIT)
+            .map_err(|_| NativeSourceError::Refused)?;
+        let snap = self.core.records.read_native()?;
+        if snap.unresolved() || self.core.records.flagged_unresolved() {
+            return Err(NativeSourceError::Refused);
+        }
+        let envelope = match snap.loaded {
+            Loaded::Absent => return Ok(NativeCredential::Absent),
+            Loaded::Corrupt => return Err(NativeSourceError::Refused),
+            Loaded::Present(value) => value,
+        };
+        if envelope.state == RecordState::Tombstone {
+            return Ok(NativeCredential::Absent);
+        }
+        let record = envelope.record.as_ref().ok_or(NativeSourceError::Refused)?;
+        if record.status == RecordStatus::Revoked {
+            return Ok(NativeCredential::Revoked);
+        }
+        if record.status != RecordStatus::Active {
+            return Err(NativeSourceError::Refused);
+        }
+        let Some(token) = record.signed_token() else {
+            return Ok(if record.activation_token.is_some() {
+                NativeCredential::LegacyUnsigned
+            } else {
+                NativeCredential::Unsigned
+            });
+        };
+        // Bare records must pass the client's authenticated import before marker CAS is possible.
+        let revision = envelope
+            .revision
+            .clone()
+            .ok_or(NativeSourceError::Refused)?;
+        Ok(NativeCredential::Signed(NativeSignedCredential {
+            token: token.to_owned(),
+            device_binding: self.binding(record)?,
+            clock_initialized: record.clock_initialized,
+            revision,
+        }))
+    }
+
+    fn mark_clock_initialized(
+        &self,
+        credential: &crate::NativeSignedCredential,
+    ) -> Result<(), crate::NativeSourceError> {
+        use super::envelope::{Envelope, RecordState, RecordStatus};
+        use super::persist::Loaded;
+        use crate::NativeSourceError;
+        self.core.signalled(|| {
+            let _level = order::enter(Level::Op);
+            let mut guard = self
+                .core
+                .op
+                .acquire(ENGINE_WAIT)
+                .map_err(|_| NativeSourceError::Refused)?;
+            let records = self
+                .core
+                .records
+                .pinned()
+                .map_err(|_| NativeSourceError::Refused)?;
+            guard.records = Some(records.clone());
+            let snap = records
+                .read_typed()
+                .map_err(|_| NativeSourceError::Refused)?;
+            if snap.unresolved() || self.core.records.flagged_unresolved() {
+                return Err(NativeSourceError::Refused);
+            }
+            let Loaded::Present(envelope) = snap.loaded else {
+                return Err(NativeSourceError::Refused);
+            };
+            if envelope.state != RecordState::Active
+                || envelope.revision.as_deref() != Some(credential.revision.as_str())
+            {
+                return Err(NativeSourceError::Refused);
+            }
+            let mut record = envelope.record.ok_or(NativeSourceError::Refused)?;
+            if record.status != RecordStatus::Active
+                || record.signed_token() != Some(credential.token.as_str())
+                || self.binding(&record)? != credential.device_binding
+            {
+                return Err(NativeSourceError::Refused);
+            }
+            if record.clock_initialized {
+                return Ok(());
+            }
+            record.clock_initialized = true;
+            let updated = Envelope::active(record).map_err(|_| NativeSourceError::Refused)?;
+            let _guard = self
+                .core
+                .commit_to(&records, guard, &updated)
+                .map_err(|_| NativeSourceError::Refused)?;
+            // Cleanup-pending commits cannot acknowledge initialization.
+            let confirmed = records
+                .read_typed()
+                .map_err(|_| NativeSourceError::Refused)?;
+            if confirmed.unresolved() || self.core.records.flagged_unresolved() {
+                return Err(NativeSourceError::Refused);
+            }
+            Ok(())
+        })
+    }
+}

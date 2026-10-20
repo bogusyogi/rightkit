@@ -363,6 +363,54 @@ starting a new generation, or shutting down invalidates every older permit.
 and probe outcomes, making startup timeout and consecutive-failure thresholds
 deterministic in tests.
 
+## Command runners
+
+`run`, `run_with_stdin` & `run_command` use `RunOptions` with a finite execution timeout.
+`run_command_capture(OwnedCommand, Option<&[u8]>, &CaptureOptions)` uses the same capture engine
+with an optional execution timeout. `CaptureOptions::new()` has `timeout: None`, 1 MiB caps per
+stream, hidden Windows windows & a 2 s `drain_grace`. Set `.timeout(duration)` for a deadline;
+`.stdout_cap(n)` & `.stderr_cap(n)` retain each stream's raw first N bytes, drain everything else,
+& report `truncated` plus `total_bytes`. Zero caps still drain streams. No text/CR normalization
+occurs in this raw capture path. `.no_window(false)` preserves visible-window intent.
+
+`run_streaming` delivers raw stdout chunks & CR-aware stderr lines on the calling thread.
+`StreamOptions::drain_grace(duration)` configures its post-exit drain budget (default 2 s),
+independent of the optional execution timeout. Slow callbacks apply pipe backpressure; their
+execution time does not consume the post-exit drain budget, but does delay cancellation checks.
+Callbacks must return for the runner to progress.
+
+Every runner `Ok` requires stdout & stderr EOF plus successful capture shutdown. Capture caps
+may intentionally truncate retained bytes; they never stop draining. A timeout or cancellation
+returns `Ok` with its flag only when termination/reap, output drain & cleanup succeed. If an
+escaped descendant keeps an output pipe open, drain expiry returns `io::ErrorKind::TimedOut`
+with `RunnerPhase::Drain`, even after a successful leader exit or execution timeout. Streaming
+callbacks may already have received bytes before that `Err`; those bytes are incomplete, never
+proof of a complete response. No `RunOutput`/`StreamOutput` is returned on failure.
+
+Runner failures carry `RunnerFailure` inside `io::Error`. Use `RunnerFailure::from_io(&error)`,
+then `.phase()`, `.termination()` & `.source_io_error()`; do not parse messages. `RunnerPhase`
+distinguishes `Spawn`, `Setup`, `Wait`, `Terminate`, `Stdout`, `Stderr`, `Stdin`, `Drain` &
+`Cleanup`. `Spawn` with `LeaderTermination::NotStarted` proves no child was created. Partial
+spawn/setup failures are conservatively `Setup/Unconfirmed`; inability to observe cleanup is
+`Cleanup/Unconfirmed`. `Confirmed` proves the leader was reaped; it does not prove escaped
+descendants are gone or output reached EOF. `Unconfirmed` must not be treated as safe retry.
+The original error kind is preserved, but the outer `io::Error::raw_os_error()` is `None` after
+wrapping, including launch failures. Recover OS codes with
+`detail.source_io_error().raw_os_error()`.
+
+Runners bound termination/reap observations to 5 s & clamp partial-spawn cleanup to at most
+5 s (a stricter caller bound stays stricter). Failed partial cleanup transfers eventual reaping
+to an exclusive background waiter & returns `Cleanup/Unconfirmed`. These are runner-local
+bounds: `OwnedCommand` defaults, explicit unlimited execution & detached policy stay unchanged.
+Drain & stdin cancellation have their own budgets; an execution timeout is not a whole-call
+wall-clock deadline.
+
+`status_inherited_terminal(&mut std::process::Command)` runs a foreground terminal command &
+waits without a deadline. It preserves caller arguments, environment, working directory & stdio;
+unconfigured streams inherit. It installs no process group/session, containment job, capture or
+console-window flags. This intentionally uncontained operation returns the original standard
+library error without `RunnerFailure`; owned-child defaults stay unchanged.
+
 ## Verification
 
 Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`
@@ -390,9 +438,9 @@ shell fixture that holds a pipe open without reading it.
 - `job_assignment_mode(BestEffort)` records caller-job and owned-job errors in `job_assignment_failures()`. Strict, the default, fails the spawn.
 - Termination: `terminate_tree` calls `TerminateJobObject` on the owned job, then `TerminateProcess` on the direct child. An ACCESS_DENIED from a child that is already exiting gets a 2 s wait. Processes outside the job are untouched.
 - Detached spawns (`spawn_uncontained_detached`) need the parent job to allow breakaway. The spawn fails without fallback when it does not, and a detached spawn cannot take a caller job.
-- Errors: a `HRESULT_FROM_WIN32` value (0x8007xxxx) is returned as the raw OS error. Other failures are `io::Error::other`.
+- Native errors: a `HRESULT_FROM_WIN32` value (0x8007xxxx) is the underlying raw OS error. Runner errors wrap that source in `RunnerFailure`; use `source_io_error().raw_os_error()` rather than the outer error. Other native failures use `io::Error::other`.
 - Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:18`), with features `Win32_Foundation`, `Win32_Security`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_JobObjects`, `Win32_System_ProcessStatus` (resource usage) and `Win32_System_Threading`. Consumers enable no Windows features.
 - The code has no session or desktop check. The Windows suites (`native_capture`, `output_capture`, `windows_process_tree`, `handle_inheritance`, `drop_bounded`, `parent_death`) passed on Windows 11 (the Dell, build 26300) on 2026-10-20, parallel and serial: 185 passed, 0 failed, 1 ignored helper.
-- Windows runner cases in `src/run.rs` (the `*_windows` unit tests; added after that run, so not in the 185 and to be verified on the Dell with the next gate): `run_with_stdin` / `run_command` / `run_streaming` round-trip 1 MiB of stdin while an in-job descendant holds the pipes (the descendant is gone on return); a child that exits without reading its input is a normal early exit through all three; a descendant that broke away from the job and holds stdin, stdout and stderr does not hold `run_command` past the leader's exit or `run_command` / `run_streaming` past their timeouts, leaves no writer thread, and sees end of input once the call has returned (the write end is closed); `run_with_stdin` refuses a descendant's `CREATE_BREAKAWAY_FROM_JOB` (`ERROR_ACCESS_DENIED`), so nothing can outlive it; `run_streaming` cancelled after the first marker chunk ends the leader and its in-job grandchild (checked by pid); a stderr flood past the capture cap through `run` and `run_command` keeps exactly the first `cap` bytes, reports `truncated` and the full `total_bytes` and lets the child finish; a stderr line flood through `run_streaming` delivers every line and keeps only the tail. They need `CREATE_BREAKAWAY_FROM_JOB` to be allowed for a job the crate creates; a host whose outer job forbids it fails the surviving-holder cases with a message naming error 5, as `tests/windows_process_tree.rs` does for its breakaway cases.
+- Windows runner cases in `src/run.rs` (the `*_windows` unit tests; added after that run, so not in the 185 and to be verified on the Dell with the next gate): `run_with_stdin` / `run_command` / `run_streaming` round-trip 1 MiB of stdin while an in-job descendant holds the pipes (the descendant is gone on return); a child that exits without reading its input is a normal early exit through all three; a descendant that broke away from the job and holds stdin, stdout and stderr does not hold `run_command` past bounded cleanup after the leader's exit or `run_command` / `run_streaming` past bounded cleanup after their timeouts, returns `Drain/Confirmed` because output EOF is missing, leaves no writer thread, and sees end of input once the call has returned (the write end is closed); `run_with_stdin` refuses a descendant's `CREATE_BREAKAWAY_FROM_JOB` (`ERROR_ACCESS_DENIED`), so nothing can outlive it; `run_streaming` cancelled after the first marker chunk ends the leader and its in-job grandchild (checked by pid); a stderr flood past the capture cap through `run` and `run_command` keeps exactly the first `cap` bytes, reports `truncated` and the full `total_bytes` and lets the child finish; a stderr line flood through `run_streaming` delivers every line and keeps only the tail. They need `CREATE_BREAKAWAY_FROM_JOB` to be allowed for a job the crate creates; a host whose outer job forbids it fails the surviving-holder cases with a message naming error 5, as `tests/windows_process_tree.rs` does for its breakaway cases.
 
 Licensed under either MIT or Apache-2.0, at your option.

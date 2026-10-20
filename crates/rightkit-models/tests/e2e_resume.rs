@@ -1,11 +1,13 @@
-//! End-to-end download recovery against rightkit-qa's MockServer, reached
+//! End-to-end download recovery against rightkit-http testing transport, reached
 //! through the store's loopback URL rewrite: pause mid-download, resume with
 //! `Range` (206), the connection drops mid-resume, the server then stops
 //! honouring `Range` (200), and the install restarts that file from zero.
 //! The final bytes are checked byte-for-byte and against the sha256 pin.
 
 use rightkit_models::*;
-use rightkit_qa::mock::{MockServer, Reply, Request};
+#[path = "support/model_http_mock.rs"]
+mod model_http_mock;
+use model_http_mock::{MockServer, Reply, Request};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};

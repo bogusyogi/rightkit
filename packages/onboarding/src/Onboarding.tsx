@@ -239,8 +239,8 @@ export function Onboarding({ settings, legal, legalMode = "gate", appName, steps
         const declared = receiptDocuments ?? gate.documents.map((d) => ({ title: d.title, ...(d.url ? { url: d.url } : {}) }));
         const created = readAcceptance(await legalReceipt.create({ version, documentsHash: hash, documents: declared, eligibilityBasis: basis, surface: "first_run" }));
         if (!created) throw new Error("The legal receipt service returned an invalid record.");
-        // A receipt for another agreement would leave the gate showing again after a "successful" save.
-        if (created.eligibilityBasis !== basis || (requiredVersion !== undefined && created.version !== requiredVersion) || (requiredDocumentsHash !== undefined && created.documentsHash !== requiredDocumentsHash)) {
+        // Bind the response to the declaration sent and any independent required hash.
+        if (created.eligibilityBasis !== basis || created.version !== version || created.documentsHash !== hash || (requiredDocumentsHash !== undefined && created.documentsHash !== requiredDocumentsHash)) {
           throw new Error("The legal receipt does not match the agreement that was shown.");
         }
         createdReceipt.current = { key, record: created };

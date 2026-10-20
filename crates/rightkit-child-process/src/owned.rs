@@ -388,6 +388,12 @@ impl OwnedCommand {
         self.partial_spawn_cleanup_timeout = Some(timeout);
         self
     }
+    pub(crate) fn bound_runner_cleanup(&mut self, timeout: Duration) {
+        self.partial_spawn_cleanup_timeout = Some(
+            self.partial_spawn_cleanup_timeout
+                .map_or(timeout, |current| current.min(timeout)),
+        );
+    }
     pub fn spawn(self) -> io::Result<OwnedChild> {
         self.spawn_inner(false, false, None)
     }
@@ -562,16 +568,21 @@ impl OwnedCommand {
             let mut child = crate::unix_child::UnixChild::new(self.command.spawn()?);
             // A child whose pid cannot be tied to it is stopped here, while the pid is
             // certainly still its own: no later signal could be proven to reach it.
-            child.require_identity()?;
+            if let Err(error) = child.require_identity() {
+                let reaped = child.cleanup_unidentified(self.partial_spawn_cleanup_timeout);
+                return Err(spawn_cleanup_failure(error, reaped));
+            }
             // macOS: the tie is a watchdog armed while the pid is still certainly ours. A
             // child that could not be tied is stopped, never handed out untied.
             #[cfg(target_os = "macos")]
             if self.kill_on_parent_exit {
                 if let Err(error) = crate::process_unix::arm_parent_death_watch(child.id()) {
                     let _ = child.signal(SignalTarget::Group, libc::SIGKILL);
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(error);
+                    let reaped = cleanup_direct(
+                        Arc::new(Mutex::new(child)),
+                        self.partial_spawn_cleanup_timeout,
+                    );
+                    return Err(spawn_cleanup_failure(error, reaped));
                 }
             }
             child
@@ -630,8 +641,8 @@ impl OwnedCommand {
         let handle = match ProcessHandle::new(&child, spawned_at) {
             Ok(handle) => handle,
             Err(error) => {
-                cleanup_direct(child, self.partial_spawn_cleanup_timeout);
-                return Err(error);
+                let reaped = cleanup_direct(child, self.partial_spawn_cleanup_timeout);
+                return Err(spawn_cleanup_failure(error, reaped));
             }
         };
         let mut partial = PartialChild {
@@ -654,14 +665,17 @@ impl OwnedCommand {
         #[cfg(windows)]
         if !detached {
             let owned = partial.child.as_mut().expect("partial child is present");
-            crate::process_windows::assign_jobs(
+            let assignment = crate::process_windows::assign_jobs(
                 &owned.handle,
                 self.caller_job.take(),
                 self.job_assignment,
                 self.windows_breakaway,
                 &mut owned.job,
                 &mut owned.assignment_failures,
-            )?;
+            );
+            if let Err(error) = assignment {
+                return Err(partial.fail(error));
+            }
         }
         #[cfg(windows)]
         {
@@ -671,11 +685,14 @@ impl OwnedCommand {
                 let _ = crate::process_windows::apply_efficiency(&*owned.child());
             }
             if !hold_suspended {
-                owned.child().resume(detached)?;
+                let resumed = owned.child().resume(detached);
+                if let Err(error) = resumed {
+                    return Err(partial.fail(error));
+                }
             }
         }
         if fail_after_spawn {
-            return Err(io::Error::other("injected post-spawn wrapping failure"));
+            return Err(partial.fail(io::Error::other("injected post-spawn wrapping failure")));
         }
         let owned = partial.child.take().expect("partial child is present");
         if !detached {
@@ -1002,6 +1019,10 @@ impl OwnedChild {
         let started = Instant::now();
         options.grace = options.grace.min(timeout);
         self.start_termination(options)?;
+        #[cfg(test)]
+        if cleanup_test_fault::refuse(timeout.saturating_sub(started.elapsed())) {
+            return Ok(ReapOutcome::TimedOut);
+        }
         Ok(
             match self.wait_timeout(timeout.saturating_sub(started.elapsed()))? {
                 Some(status) => ReapOutcome::Exited(status),
@@ -1187,18 +1208,51 @@ impl Drop for OwnedChild {
     }
 }
 
+/// A process was created, but its wrapper could not be completed. PartialChild/direct
+/// cleanup is best effort; its lack of a reap receipt must never become NotStarted.
+pub(crate) fn spawn_setup_failure(error: io::Error) -> io::Error {
+    crate::run::failure(
+        crate::RunnerPhase::Setup,
+        crate::LeaderTermination::Unconfirmed,
+        error,
+    )
+}
+
+pub(crate) fn spawn_cleanup_failure(error: io::Error, reaped: bool) -> io::Error {
+    if reaped {
+        spawn_setup_failure(error)
+    } else {
+        crate::run::failure(
+            crate::RunnerPhase::Cleanup,
+            crate::LeaderTermination::Unconfirmed,
+            error,
+        )
+    }
+}
+
 struct PartialChild {
     child: Option<OwnedChild>,
     timeout: Option<Duration>,
 }
-impl Drop for PartialChild {
-    fn drop(&mut self) {
+impl PartialChild {
+    fn cleanup(&mut self) -> bool {
         if let Some(mut child) = self.child.take() {
-            // Disable unbounded normal Drop before bounded cleanup.
             child.terminate_on_drop = false;
             let _ = child.force_kill(1);
-            cleanup_direct(Arc::clone(&child.child), self.timeout);
+            cleanup_direct(Arc::clone(&child.child), self.timeout)
+        } else {
+            true
         }
+    }
+
+    fn fail(mut self, error: io::Error) -> io::Error {
+        let reaped = self.cleanup();
+        spawn_cleanup_failure(error, reaped)
+    }
+}
+impl Drop for PartialChild {
+    fn drop(&mut self) {
+        self.cleanup();
     }
 }
 /// How long a group signal that macOS refused with `EPERM` (the last members are mid-exit) is
@@ -1280,32 +1334,37 @@ fn wait_out(remaining: Duration) -> io::Result<()> {
 /// so no other thread can contend for its lock. That is why the two blocking-under-lock waits
 /// below, the unbounded one and the `rightkit-partial-reap` thread, cannot hold a deadline-
 /// bearing caller back; both are what 0.3.3 did with `std::process::Child::wait`.
-pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<Duration>) {
+pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<Duration>) -> bool {
     let _ = lock_child(&child).kill();
     let Some(timeout) = timeout else {
         // Unbounded by default, as before. Exclusive child: see above.
-        let _ = lock_child(&child).wait();
-        return;
+        return lock_child(&child).wait().is_ok();
     };
+    #[cfg(test)]
+    let refused = cleanup_test_fault::refuse(timeout);
+    #[cfg(not(test))]
+    let refused = false;
     #[cfg(unix)]
     {
         // Non-blocking looks, each under the lock and released at once, until the child is
         // reaped or the timeout passes. A killed child is gone within one hint or interval.
         let watch = lock_child(&child).exit_watch();
         let deadline = Instant::now().checked_add(timeout);
-        if matches!(
-            watch.wait_for(deadline, || lock_child(&child).try_wait()),
-            Ok(Some(_))
-        ) {
-            return;
+        if !refused
+            && matches!(
+                watch.wait_for(deadline, || lock_child(&child).try_wait()),
+                Ok(Some(_))
+            )
+        {
+            return true;
         }
     }
     #[cfg(windows)]
-    {
+    if !refused {
         let started = Instant::now();
         loop {
             match lock_child(&child).try_wait() {
-                Ok(Some(_)) => return,
+                Ok(Some(_)) => return true,
                 Err(_) => break,
                 Ok(None) => {}
             }
@@ -1323,6 +1382,26 @@ pub(crate) fn cleanup_direct(child: Arc<Mutex<PlatformChild>>, timeout: Option<D
         .spawn(move || {
             let _ = lock_child(&child).wait();
         });
+    false
+}
+
+#[cfg(test)]
+pub(crate) mod cleanup_test_fault {
+    use std::{cell::Cell, time::Duration};
+    thread_local! { static REFUSE_REAP: Cell<bool> = const { Cell::new(false) }; }
+    pub(crate) fn arm() {
+        REFUSE_REAP.with(|armed| armed.set(true));
+    }
+    pub(crate) fn refuse(timeout: Duration) -> bool {
+        if REFUSE_REAP.with(|armed| armed.replace(false)) {
+            // Model an observation that never acknowledges shutdown. Real kill still runs;
+            // eventual native reaping remains owned by Drop or the partial-spawn reaper.
+            std::thread::sleep(timeout);
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1682,9 +1761,14 @@ mod tests {
         command.partial_spawn_cleanup_timeout(Duration::ZERO);
         let captured = Arc::new(AtomicU32::new(0));
         let started = Instant::now();
-        assert!(command
+        super::cleanup_test_fault::arm();
+        let error = command
             .spawn_inner(false, true, Some(Arc::clone(&captured)))
-            .is_err());
+            .err()
+            .unwrap();
+        let detail = crate::RunnerFailure::from_io(&error).unwrap();
+        assert_eq!(detail.phase(), crate::RunnerPhase::Cleanup);
+        assert_eq!(detail.termination(), crate::LeaderTermination::Unconfirmed);
         assert!(started.elapsed() < Duration::from_secs(3));
         let pid = captured.load(Ordering::SeqCst);
         assert_ne!(pid, 0);
@@ -1827,7 +1911,13 @@ mod tests {
         };
         let spawned_pid = Arc::new(AtomicU32::new(0));
 
-        assert!(super::spawn_for_test(command, Arc::clone(&spawned_pid)).is_err());
+        let error = match super::spawn_for_test(command, Arc::clone(&spawned_pid)) {
+            Ok(_) => panic!("injected wrapping failure must fail after spawning"),
+            Err(error) => error,
+        };
+        let detail = crate::RunnerFailure::from_io(&error).expect("partial-spawn provenance");
+        assert_eq!(detail.phase(), crate::RunnerPhase::Setup);
+        assert_eq!(detail.termination(), crate::LeaderTermination::Unconfirmed);
         let pid = spawned_pid.load(Ordering::SeqCst);
         assert_ne!(pid, 0, "test must fail after the OS process was spawned");
         let process = super::AdoptedProcess::new(std::num::NonZeroU32::new(pid).unwrap());

@@ -19,14 +19,14 @@ use rightkit_credentials::Store;
 use serde_json::{Map, Value};
 use zeroize::Zeroizing;
 
-use super::clockstore::{is_lock_held, PolledClockStore};
+use super::clockstore::{is_lock_held, ClientClockError, ClientClockStore};
 use super::envelope::{Envelope, LeaseRecord, RecordState, RecordStatus, StoredRecord};
 use super::invalidation::LicenseInvalidation;
 use super::lock::{OpGuard, OpLock};
 use super::order::{self, Level, LevelGuard};
 use super::persist::{outcome_result, Loaded, RecordStore, Snapshot, Written};
 use super::time::{parse_rfc3339, to_ms};
-use super::types::{DeviceIdSource, LicenseClientConfig, SecretString};
+use super::types::{DeviceIdSource, LicenseClientConfig, PendingLicenseRelease, SecretString};
 use super::view::{
     LicenseError, LicenseMode, LicenseView, MessageCode, RefreshView, RefreshViewOutcome,
     RejectReason, RevisionState, TrialView, ViewKind, ViewStage, ViewStatus,
@@ -55,7 +55,7 @@ pub(crate) struct Core {
     pub(crate) device: Arc<dyn DeviceIdSource>,
     pub(crate) op: OpLock,
     pub(crate) records: RecordStore,
-    pub(crate) clock: AntiRollbackClock<PolledClockStore>,
+    pub(crate) clock: AntiRollbackClock<ClientClockStore>,
     pub(crate) transport: Transport,
     last_view: Mutex<Option<LicenseView>>,
     /// The stored record may have changed since the live engines were last told.
@@ -93,7 +93,7 @@ impl Evaluation {
     }
 }
 
-pub(crate) fn clock_error(error: ClockError<FileClockStoreError>) -> LicenseError {
+pub(crate) fn clock_error(error: ClockError<ClientClockError>) -> LicenseError {
     match error {
         ClockError::Missing => LicenseError::Clock(ClockRefusal::Missing),
         ClockError::ReplayedAnchor {
@@ -102,7 +102,10 @@ pub(crate) fn clock_error(error: ClockError<FileClockStoreError>) -> LicenseErro
             highest_seen: last_server_iat,
         }),
         ClockError::Contended => LicenseError::Busy,
-        ClockError::Storage(error) if is_lock_held(&error) => LicenseError::Busy,
+        ClockError::Storage(ClientClockError::Busy) => LicenseError::Busy,
+        ClockError::Storage(ClientClockError::File(error)) if is_lock_held(&error) => {
+            LicenseError::Busy
+        }
         // Fixed text: the storage error is not carried.
         ClockError::Storage(_) => LicenseError::Clock(ClockRefusal::Storage("ledger".to_string())),
     }
@@ -193,7 +196,7 @@ impl Core {
             op: OpLock::new(cfg.license_dir.join(".lock")),
             records: RecordStore::new(cfg.store.clone(), cfg.account.clone(), cfg.persist_wait),
             clock: AntiRollbackClock::new(
-                PolledClockStore::new(cfg.clock_path.clone()),
+                ClientClockStore::from_config(&cfg),
                 ProcessAnchor::new(wall),
             ),
             transport,
@@ -251,15 +254,17 @@ impl Core {
     ) -> Result<Locked, LicenseError> {
         let level = order::enter(Level::Op);
         let mut guard = self.op.acquire(lock_wait)?;
-        let mut snap = self.records.read()?;
+        let records = self.records.pinned().map_err(|_| LicenseError::Store)?;
+        guard.records = Some(records.clone());
+        let mut snap = records.read()?;
         if self.is_unresolved(&snap) && !snap.held {
-            match self.records.reconcile(guard, reconcile_wait) {
+            match records.reconcile(guard, reconcile_wait) {
                 Written::Done(_, held) => {
                     // A leftover marker was rolled forward or discarded: the stored record may
                     // be a different one now.
                     self.dirty.store(true, Ordering::SeqCst);
                     guard = held;
-                    snap = self.records.read()?;
+                    snap = records.read()?;
                 }
                 Written::TimedOut | Written::Failed => return Err(LicenseError::Unresolved),
             }
@@ -290,10 +295,20 @@ impl Core {
         guard: OpGuard,
         envelope: &Envelope,
     ) -> Result<OpGuard, LicenseError> {
+        let records = guard.records.clone().ok_or(LicenseError::Unresolved)?;
+        self.commit_to(&records, guard, envelope)
+    }
+
+    pub(crate) fn commit_to(
+        &self,
+        records: &RecordStore,
+        guard: OpGuard,
+        envelope: &Envelope,
+    ) -> Result<OpGuard, LicenseError> {
         // Any attempt to change the stored record, whatever its outcome, means a reader's
         // cached verdict may no longer be the stored one: `signalled` tells the live engines.
         self.dirty.store(true, Ordering::SeqCst);
-        match self.records.write(guard, envelope) {
+        match records.write(guard, envelope) {
             Written::Done(outcome, guard) => outcome_result(outcome).map(|()| guard),
             Written::TimedOut | Written::Failed => Err(LicenseError::Unresolved),
         }
@@ -748,6 +763,20 @@ impl Core {
     // ---- deactivate -------------------------------------------------------------------
 
     pub(crate) fn deactivate(&self) -> Result<LicenseView, LicenseError> {
+        self.deactivate_inner(None::<fn(&PendingLicenseRelease) -> Result<(), ()>>)
+    }
+
+    pub(crate) fn deactivate_with_pending_release(
+        &self,
+        enqueue: impl FnOnce(&PendingLicenseRelease) -> Result<(), ()>,
+    ) -> Result<LicenseView, LicenseError> {
+        self.deactivate_inner(Some(enqueue))
+    }
+
+    fn deactivate_inner<F: FnOnce(&PendingLicenseRelease) -> Result<(), ()>>(
+        &self,
+        enqueue: Option<F>,
+    ) -> Result<LicenseView, LicenseError> {
         let Locked {
             guard,
             snap,
@@ -766,8 +795,47 @@ impl Core {
                 return Ok(view);
             }
             Loaded::Present(envelope) => envelope.record.clone(),
+            Loaded::Corrupt if enqueue.is_some() => return Err(LicenseError::Verify),
             Loaded::Corrupt => None,
         };
+        let pending_release = if enqueue.is_some() {
+            match &record {
+                Some(record) => {
+                    let lease_id = record
+                        .lease
+                        .as_ref()
+                        .map(|lease| lease.lease_id.as_str())
+                        .filter(|id| !id.trim().is_empty())
+                        .or_else(|| {
+                            record
+                                .binding_lease_id
+                                .as_deref()
+                                .filter(|id| !id.trim().is_empty())
+                        });
+                    if let Some(lease_id) = lease_id {
+                        Some(PendingLicenseRelease::Lease {
+                            lease_id: lease_id.to_owned(),
+                            device_id_hash: self
+                                .device
+                                .device_id_hash()
+                                .map_err(|_| LicenseError::Verify)?,
+                        })
+                    } else {
+                        record.activation_token().map(|token| {
+                            PendingLicenseRelease::Activation(SecretString::new(token))
+                        })
+                    }
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        if let (Some(enqueue), Some(release)) = (enqueue, pending_release.as_ref()) {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| enqueue(release)))
+                .map_err(|_| LicenseError::Store)?
+                .map_err(|_| LicenseError::Store)?;
+        }
         // What the server call below needs, taken before the record goes.
         let release = match &record {
             Some(record) => match &record.lease {
@@ -785,16 +853,30 @@ impl Core {
         let tombstone = Envelope::tombstone()?;
         let _held = self.commit(guard, &tombstone)?;
         // Best effort, still under the operation lock: free the seat.
-        match release {
-            Release::Lease(lease_id) => {
-                if let Ok(hash) = self.device.device_id_hash() {
-                    let _ = self.transport.lease_remove(&hash, &lease_id);
+        if let Some(pending) = pending_release {
+            match pending {
+                PendingLicenseRelease::Lease {
+                    lease_id,
+                    device_id_hash,
+                } => {
+                    let _ = self.transport.lease_remove(&device_id_hash, &lease_id);
+                }
+                PendingLicenseRelease::Activation(token) => {
+                    let _ = self.transport.deactivate(token.expose());
                 }
             }
-            Release::Activation(token) => {
-                let _ = self.transport.deactivate(&token);
+        } else {
+            match release {
+                Release::Lease(lease_id) => {
+                    if let Ok(hash) = self.device.device_id_hash() {
+                        let _ = self.transport.lease_remove(&hash, &lease_id);
+                    }
+                }
+                Release::Activation(token) => {
+                    let _ = self.transport.deactivate(&token);
+                }
+                Release::None => {}
             }
-            Release::None => {}
         }
         let view = LicenseView {
             revision_state: RevisionState::Tombstone,
@@ -1044,7 +1126,23 @@ impl Core {
             snap,
             _level,
         } = self.begin()?;
-        let text = match source.store.get(&source.account) {
+        let same_item = source.account == self.cfg.account
+            && source.store.namespace() == self.cfg.store.namespace();
+        let source_store = if same_item {
+            guard
+                .records
+                .as_ref()
+                .ok_or(LicenseError::Unresolved)?
+                .credential_store()
+        } else {
+            source
+                .store
+                .clone()
+                .with_rotation_lock_dir(self.cfg.license_dir.join("rotation"))
+                .pinned()
+                .map_err(|_| LicenseError::Store)?
+        };
+        let text = match source_store.get(&source.account) {
             Ok(Some(secret)) if !secret.is_empty() => secret,
             Ok(_) => {
                 let view = self.evaluate(&snap).view;
@@ -1059,12 +1157,13 @@ impl Core {
         // The legacy item is removed only after the new record committed, and never when the
         // legacy item IS the licence item (an in-place upgrade of the older bare record).
         if let Some(guard) = guard {
-            let same_item = source.account == self.cfg.account
-                && source.store.namespace() == self.cfg.store.namespace();
             if !same_item {
-                let (legacy, account) = (source.store.clone(), source.account.clone());
+                let (legacy, account) = (source_store, source.account.clone());
                 let _ = self.records.fenced(guard, move || {
                     let _ = legacy.delete(&account);
+                    // Timeout does not cancel a native delete. Retain Op until this exact
+                    // pinned target positively reports its credential worker idle.
+                    super::persist::settle(&legacy, &account);
                 });
             }
         }
@@ -1108,16 +1207,17 @@ impl Core {
         };
         // Authenticate only (signature, app, device binding): no time check, so an expired
         // licence imports as expired and a grace one keeps its original anchors.
-        let raw = self.device.device_id().map_err(|_| LicenseError::Verify)?;
-        let hash = self
-            .device
-            .device_id_hash()
-            .map_err(|_| LicenseError::Verify)?;
+        let binding = if record.lease.is_some() || record.binding_lease_id.is_some() {
+            self.device.device_id_hash()
+        } else {
+            self.device.device_id()
+        }
+        .map_err(|_| LicenseError::Verify)?;
         let authenticated = authenticate_token_any_device(
             &token,
             &self.cfg.public_key,
             &self.cfg.app,
-            &[raw.as_str(), hash.as_str()],
+            &[binding.as_str()],
         )
         .map_err(|_| LicenseError::Verify)?;
         // The record is bound to whichever id the token carries.
@@ -1288,8 +1388,8 @@ mod tests {
     fn clock_errors_map_to_busy_or_a_fixed_clock_refusal() {
         assert_eq!(clock_error(ClockError::Contended), LicenseError::Busy);
         assert_eq!(
-            clock_error(ClockError::Storage(FileClockStoreError::Io(
-                std::io::Error::from(std::io::ErrorKind::WouldBlock)
+            clock_error(ClockError::Storage(ClientClockError::File(
+                FileClockStoreError::Io(std::io::Error::from(std::io::ErrorKind::WouldBlock))
             ))),
             LicenseError::Busy
         );
@@ -1305,8 +1405,8 @@ mod tests {
             LicenseError::Clock(ClockRefusal::Rollback { highest_seen: 5 })
         ));
         // A storage failure carries no storage text.
-        let text = match clock_error(ClockError::Storage(FileClockStoreError::Io(
-            std::io::Error::other("C:\\secret\\path"),
+        let text = match clock_error(ClockError::Storage(ClientClockError::File(
+            FileClockStoreError::Io(std::io::Error::other("C:\\secret\\path")),
         ))) {
             LicenseError::Clock(ClockRefusal::Storage(text)) => text,
             other => panic!("{other:?}"),

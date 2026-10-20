@@ -42,9 +42,15 @@ pub(crate) fn pause(deadline: Instant) {
 
 /// The held licence operation lock. `Send`, so it can move into the fenced worker; dropping it
 /// releases the OS lock.
-#[derive(Debug)]
 pub(crate) struct OpGuard {
     _lock: CrossProcessLock,
+    /// Exact credential target selected after this licence operation acquired its lock.
+    pub(crate) records: Option<super::persist::RecordStore>,
+}
+impl std::fmt::Debug for OpGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpGuard").finish_non_exhaustive()
+    }
 }
 
 /// The per-app licence operation lock file.
@@ -75,7 +81,12 @@ pub(crate) fn acquire_polled(
     let deadline = now.checked_add(wait).unwrap_or(now);
     loop {
         match CrossProcessLock::try_acquire(path) {
-            Ok(Some(lock)) => return Ok(OpGuard { _lock: lock }),
+            Ok(Some(lock)) => {
+                return Ok(OpGuard {
+                    _lock: lock,
+                    records: None,
+                })
+            }
             Ok(None) => {
                 if Instant::now() >= deadline {
                     return Err(LicenseError::Busy);
@@ -112,11 +123,20 @@ pub(crate) fn run_fenced<R: Send + 'static>(
     wait: Duration,
     job: impl FnOnce() -> R + Send + 'static,
 ) -> Fenced<R> {
+    run_fenced_at(guard, wait, Level::Op, job)
+}
+
+pub(crate) fn run_fenced_at<R: Send + 'static>(
+    guard: OpGuard,
+    wait: Duration,
+    level: Level,
+    job: impl FnOnce() -> R + Send + 'static,
+) -> Fenced<R> {
     let (tx, rx) = mpsc::channel::<(R, OpGuard)>();
     let spawned = std::thread::Builder::new()
         .name("rightkit-license-write".to_string())
         .spawn(move || {
-            let _level = order::enter(Level::Op);
+            let _level = order::enter(level);
             let result = job();
             // A send to a caller that already left returns the pair here, and it drops now.
             let _ = tx.send((result, guard));

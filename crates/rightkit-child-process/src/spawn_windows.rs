@@ -530,8 +530,8 @@ pub(crate) fn spawn(
         pid: info.dwProcessId,
     };
     if let Err(error) = inheritable.restore() {
-        crate::owned::cleanup_direct(Arc::new(Mutex::new(child)), cleanup_timeout);
-        return Err(error);
+        let reaped = crate::owned::cleanup_direct(Arc::new(Mutex::new(child)), cleanup_timeout);
+        return Err(crate::owned::spawn_cleanup_failure(error, reaped));
     }
     Ok((child, stayed_in_parent_job))
 }

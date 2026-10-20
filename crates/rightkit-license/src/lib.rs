@@ -69,6 +69,7 @@ mod file_store;
 mod gate;
 mod lease;
 mod lifecycle;
+mod native_engine;
 mod record_text;
 mod refresh;
 mod revocation;
@@ -93,17 +94,23 @@ pub use subject::{
 pub use client::{
     AccountClientConfig, AccountCommandError, AccountDeletion, AccountDeviceView, AccountError,
     AccountErrorCode, AccountRejectReason, AccountSessionClient, AccountStatusView, BridgePlatform,
-    CommandCode, CommandError, DeleteAccountConfirmation, DeletionRefusal, DeviceIdError,
-    DeviceIdSource, LegacySource, LicenseClient, LicenseClientConfig, LicenseError,
-    LicenseInvalidation, LicenseMode, LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome,
-    MessageCode, RefreshView, RefreshViewOutcome, RejectReason, RevisionState, SecretString,
-    TrialView, ViewKind, ViewStage, ViewStatus, ACCOUNT_SESSION_TTL_SECS, DEFAULT_RECORD_ACCOUNT,
-    DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT, ENGINE_UNRESOLVED_TEXT,
+    ClientClockError, ClientClockStore, ClientNativeEntitlementSource, CommandCode, CommandError,
+    DeleteAccountConfirmation, DeletionRefusal, DeviceIdError, DeviceIdSource, LegacySource,
+    LicenseClient, LicenseClientConfig, LicenseError, LicenseInvalidation, LicenseMode,
+    LicenseSetup, LicenseView, LinkCodeView, LinkRequestOutcome, MessageCode,
+    PendingLicenseRelease, RefreshView, RefreshViewOutcome, RejectReason, RevisionState,
+    SecretString, TrialView, ViewKind, ViewStage, ViewStatus, ACCOUNT_SESSION_TTL_SECS,
+    DEFAULT_RECORD_ACCOUNT, DEFAULT_SESSION_ACCOUNT, ENGINE_BUSY_TEXT, ENGINE_STORE_TEXT,
+    ENGINE_UNRESOLVED_TEXT,
 };
 #[cfg(feature = "update-auth")]
 pub use client::{
     AuthorizedHeaders, LicenseRevision, StagedIdentity, UpdateAuthConfig, UpdateAuthError,
     UpdateAuthProvider, UpdateBinding, UpdateRoute, DEFAULT_HEADER_TTL,
+};
+pub use native_engine::{
+    NativeCredential, NativeEngineEntitlements, NativeEntitlementError, NativeEntitlementSource,
+    NativeSignedCredential, NativeSourceError,
 };
 pub use record_text::stored_signed_token;
 

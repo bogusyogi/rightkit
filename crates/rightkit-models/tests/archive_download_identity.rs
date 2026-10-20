@@ -8,7 +8,9 @@
 use rightkit_models::archive;
 use rightkit_models::download::{self, DownloadRequest};
 use rightkit_models::suite::archive as suite_archive;
-use rightkit_qa::mock::{MockServer, Reply};
+#[path = "support/model_http_mock.rs"]
+mod model_http_mock;
+use model_http_mock::{MockServer, Reply};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;

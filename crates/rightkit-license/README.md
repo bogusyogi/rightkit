@@ -4,7 +4,7 @@ Rust enforcement primitive for Right Suite license entitlements. The crate verif
 
 It is the security half of the licensing system. The JavaScript `@rightkit/license` package is the convenience half. Applications must enforce paid commands at the Rust boundary. Renderer state is never license authority.
 
-Catalog capability: `licensing`. crates.io has 0.1.3; the source is 0.2.2, which is unpublished (see [INDEX.md](../../INDEX.md) and CHANGELOG 0.2.0). Licensed under MIT or Apache-2.0, at your option.
+Catalog capability: `licensing`. crates.io has 0.2.3; source 0.2.4 is unpublished staging (see [INDEX.md](../../INDEX.md) and [CHANGELOG.md](CHANGELOG.md)). Licensed under MIT or Apache-2.0, at your option.
 
 ## What it owns
 
@@ -49,6 +49,33 @@ The same `client` feature carries the rest of the licence-adjacent native work, 
 - `AccountSessionClient` is the passwordless account session: `request_sign_in`, `complete_sign_in`, `status`, `refresh`, `sign_out`, `list_devices`, `rename_device`, `remove_device`, and `delete_account` as a typed destructive action that keeps a server refusal (`AccountDeletion::Refused`) and an unprovable outcome (`Indeterminate`) as results and clears the local session only on a 200. The session token is one revisioned credential item that never leaves native code; a result that arrives after a sign-out is discarded, not written. `request_link` and `redeem_link` run on the `LicenseClient` it is built with.
 - `LicenseClient::{bridge_publish, bridge_exchange}` are the Pro bridge (`/v1/licenses/bridge/{from-activation,exchange}`): the bridge token is a native `SecretString`, and the lease an exchange returns goes through every check of a typed-key lease. `LicenseClient::{link_request, link_redeem}` are the device-link codes (`/v1/pro/{app}/devices/windows-link/{request,redeem}`).
 - `LicenseInvalidation` carries every committed licence change to live engine verifiers: `EngineEntitlements::with_invalidation(&client.invalidation())` makes a verifier re-read the stored record after any change instead of serving its cached verdict, and `subscribe` hints another process.
+
+### Native engine verification
+
+The crate-root `NativeEngineEntitlements` API is available in the default build. A host supplies a `NativeEntitlementSource` & `ClockStore`; each `current()` reads native storage and evaluates the signed credential for Pro access. A source must derive its own device binding and implement revision-conditional `mark_clock_initialized`.
+
+With `client`, use the client's fenced source and matching clock store:
+
+```rust
+use rightkit_license::{
+    LicenseClient, LifecyclePolicy, NativeEngineEntitlements, ProcessAnchor,
+};
+
+let source = client.native_entitlement_source()?;
+let clock = client.native_clock_store()?;
+let engine = NativeEngineEntitlements::new(
+    source, clock, ProcessAnchor::new(wall_now), public_key,
+    "heardright", LifecyclePolicy::default(),
+);
+let report = engine.current()?;
+if report.grants_access() { /* allow the native Pro operation */ }
+```
+
+`current()` returns `Result<LifecycleReport, NativeEntitlementError>`; missing, revoked, unsigned, invalid, expired or insufficient credentials produce a non-granting report. Source refusal, clock failure, invalid input or poisoned state return errors; `require_pro()` returns `NotEntitled` when the report does not grant access. Only `NativeSourceError::Unavailable` may use a prior authenticated final-lifetime report while it remains valid; `Refused` clears that continuity. `invalidate()` also clears it.
+
+For a credential-backed anti-rollback ledger, configure `LicenseClientConfig::with_credential_clock(store, account)` before building `LicenseClient`. Use the same license directory, namespace and account in every process. Disabled licensing makes `native_entitlement_source()` and `native_clock_store()` return `LicenseError::Unconfigured`.
+
+`LicenseClient::deactivate_with_pending_release` accepts a callback `FnOnce(&PendingLicenseRelease) -> Result<(), ()>` to persist existing app queue data before deactivation. The callback receives an activation secret or lease id and device hash; callback error or panic preserves active licensing state. After persistence succeeds, the client writes its tombstone, then attempts best-effort server release.
 
 ## Cargo features
 

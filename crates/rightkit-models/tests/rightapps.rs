@@ -1,6 +1,8 @@
 #![cfg(feature = "rightapps")]
 use rightkit_models::{rightapps::*, *};
-use rightkit_qa::mock::{MockServer, Reply, Request};
+#[path = "support/model_http_mock.rs"]
+mod model_http_mock;
+use model_http_mock::{MockServer, Reply, Request};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
