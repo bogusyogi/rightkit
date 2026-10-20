@@ -1,6 +1,41 @@
 {
   "schema": 2,
-  "candidates": [],
+  "candidates": [
+    {
+      "id": "npm-logs-448e",
+      "sourceSha": "448ec538b4c0c0a0b10341b235a83d5c37f3e22b",
+      "runId": "39437329860",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "a3ac5f70303e26e7217ce40f6e8de131e8e1ded7ec2fcc85572ba78068df7a88",
+      "registry": "npm",
+      "units": [
+        "@rightkit/logs"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12272886905",
+          "digest": "sha256:e23bb31e359002ec96b4b8ec952121bd19ca51e574c93dad15dc3c8a9b42c4b8"
+        },
+        "macos": {
+          "id": "12272437072",
+          "digest": "sha256:bfc6aebaaa6e03d690e45417f87e632fd6695e0d0272c4e6cf126b28e0638247",
+          "receiptSha256": "b2a492aa93508cc4689af2c890a6cc1b11cbc7991b7c38cdc4c0447b0e4ad8d4"
+        },
+        "windows": {
+          "id": "12271932584",
+          "digest": "sha256:621411a22051415c7206be97166b4aeafe2fde2d5742294dfdd6ca71a6f1c140",
+          "receiptSha256": "3cb320f951d4afbe1b42cbf5f4025934acbaf5e6caa37597498f719ddf8c2957"
+        }
+      }
+    }
+  ],
   "artifacts": [
     {
       "registry": "npm",
