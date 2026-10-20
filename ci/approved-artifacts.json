@@ -102,6 +102,40 @@
           "receiptSha256": "f680919fe01b607d65921c30c774c7b99c57e7a37ba7aa0420b7f8db5e3cdf8d"
         }
       }
+    },
+    {
+      "id": "cargo-http-038-d9ac",
+      "sourceSha": "d9acb6fc1c32ca40df48d932c77fcc96fd2f6640",
+      "runId": "39485850149",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "c4b0bfac85e18852492c312d9f2a85e40e43ed0fc431d5655dd9c46464db3fd0",
+      "registry": "crates",
+      "units": [
+        "rightkit-http"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12293871078",
+          "digest": "sha256:4439223e3c4a09a328301e6c51492343bbe05ddf1e85e6d4a4aaf3ed67f0dff0"
+        },
+        "macos": {
+          "id": "12293664485",
+          "digest": "sha256:ab8ed5201238bba27e6c1c39025ad71bb4206de7d8593372a7bd6f00d21d35a2",
+          "receiptSha256": "a1a7bea1e24f924926b4969f6fb61896edcde6289471a20bb06e6636b8f2c9bd"
+        },
+        "windows": {
+          "id": "12295081743",
+          "digest": "sha256:8571d2a381e4cb71dade501de924c9d1b16fe2e0d6f5472b3152147b92287727",
+          "receiptSha256": "f2c5f2871036c493258f3bae906d97b0bd9adf889aa00592dc69098b6b81f801"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -144,6 +178,14 @@
       "sha256": "8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/root/hb_post_foundation/39482266477/fs-0.4.6"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-http",
+      "version": "0.3.8",
+      "sha256": "7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/hb_post_foundation/39485850149/http-0.3.8"
     }
   ]
 }
