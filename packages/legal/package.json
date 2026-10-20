@@ -19,6 +19,12 @@
   },
   "files": ["bin", "dist", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"],
   "sideEffects": false,
+  "peerDependencies": {
+    "@rightkit/release": "^0.4.1"
+  },
+  "peerDependenciesMeta": {
+    "@rightkit/release": { "optional": true }
+  },
   "scripts": {
     "build": "tsc",
     "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && pnpm run build",

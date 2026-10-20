@@ -8,27 +8,66 @@ import { fileURLToPath } from "node:url";
 import { archiveTool } from "./registry-consumer.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const CRATE = "rightkit-logs";
-export const BENCH_ARGS = Object.freeze(["test", "--locked", "--profile", "release-iterate", "-p", CRATE, "--features", "tracing", "--bench", "budget"]);
-export const WORKLOADS = Object.freeze([
-  Object.freeze({ id: "tracing", args: BENCH_ARGS, bench: "budget", description: "CI isolated tracing writer: 200000 lines then default idle window" }),
-  Object.freeze({ id: "detached", args: Object.freeze([...BENCH_ARGS.slice(0, 7), "tracing,log-bridge", "--bench", "budget_detached"]), bench: "budget_detached", description: "CI isolated detached drainer: 200000 lines then idle at chosen 1000 ms interval; coverage only for caller intervals >=1000 ms, not an API default", intervalMs: 1000 }),
-]);
-export const REQUIRED_HOSTS = Object.freeze(["win32", "darwin"]);
-export const WORKLOAD_PRESCRIPTION_PATH = `crates/${CRATE}/benches/workloads.json`;
-export const SUPPORTED_PRESCRIPTION = Object.freeze({
-  schema: 1, crate: CRATE, defaultFeatures: true,
-  coverage: { default: "http and detached API", tracing: "tracing writer", "log-bridge": "compiled in detached workload; no additional background worker", testing: "test-only; excluded" },
-  workloads: WORKLOADS.map((w) => ({ id: w.id, args: [...w.args], bench: w.bench, intervalMs: w.intervalMs ?? null })),
+// The crate is one validated run input. Its name is a single path segment: no separators, dots or case.
+const CRATE_NAME = /^rightkit-[a-z0-9-]+$/;
+export function isCrateName(value) { return typeof value === "string" && CRATE_NAME.test(value); }
+export function assertCrateName(value) { if (!isCrateName(value)) throw new Error("crate must match ^rightkit-[a-z0-9-]+$"); return value; }
+// Trusted coverage, pinned in dispatched main per crate. A candidate's crates/<crate>/benches/workloads.json
+// must equal this exactly, so a candidate cannot shrink its own required coverage. A crate without an
+// entry here is refused until its coverage is pinned.
+const cargoBench = (crate, features, bench) => Object.freeze(["test", "--locked", "--profile", "release-iterate", "-p", crate, "--features", features, "--bench", bench]);
+const TRUSTED_COVERAGE = Object.freeze({
+  "rightkit-logs": Object.freeze({
+    defaultFeatures: true,
+    coverage: Object.freeze({ default: "http and detached API", tracing: "tracing writer", "log-bridge": "compiled in detached workload; no additional background worker", testing: "test-only; excluded" }),
+    workloads: Object.freeze([
+      Object.freeze({ id: "tracing", features: "tracing", bench: "budget", intervalMs: null, description: "CI isolated tracing writer: 200000 lines then default idle window" }),
+      Object.freeze({ id: "detached", features: "tracing,log-bridge", bench: "budget_detached", intervalMs: 2000, description: "CI isolated detached drainer: 200000 lines then idle >=60 s at the chosen 2000 ms interval; proof covers only this 2000 ms workload, not other intervals or an API default" }),
+    ]),
+    // Source the candidate must keep bound beyond the generic crate and bench inventory.
+    requiredSources: Object.freeze(["crates/rightkit-logs/src/detached.rs"]),
+  }),
 });
-export function validateSourcePrescription(value) {
-  const canonical = (item) => Array.isArray(item) ? item.map(canonical) : item && typeof item === "object" ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, canonical(item[key])])) : item;
-  if (JSON.stringify(canonical(value)) !== JSON.stringify(canonical(SUPPORTED_PRESCRIPTION))) throw new Error("candidate workload prescription differs from trusted supported coverage");
-  // Required inventory comes from authenticated candidate bytes, never receipt claims.
-  return value.workloads.map((w) => ({ ...w, description: WORKLOADS.find((supported) => supported.id === w.id).description }));
+function trustedFor(crate) {
+  assertCrateName(crate);
+  if (!Object.hasOwn(TRUSTED_COVERAGE, crate)) throw new Error(`no trusted supported coverage for ${crate}`);
+  return TRUSTED_COVERAGE[crate];
 }
-export function harnessMetadataPaths(prescription) {
-  return [WORKLOAD_PRESCRIPTION_PATH, ...validateSourcePrescription(prescription).map((w) => `crates/${CRATE}/benches/${w.bench}.rs`)];
+export function workloadsFor(crate) {
+  return trustedFor(crate).workloads.map((w) => Object.freeze({ id: w.id, args: cargoBench(crate, w.features, w.bench), bench: w.bench, intervalMs: w.intervalMs, description: w.description }));
+}
+export function trustedRequiredSources(crate) { return [...(trustedFor(crate).requiredSources ?? [])]; }
+export function supportedPrescription(crate) {
+  const trusted = trustedFor(crate);
+  return { schema: 1, crate, defaultFeatures: trusted.defaultFeatures, coverage: { ...trusted.coverage }, workloads: workloadsFor(crate).map((w) => ({ id: w.id, args: [...w.args], bench: w.bench, intervalMs: w.intervalMs })) };
+}
+export function workloadPrescriptionPath(crate) { return `crates/${assertCrateName(crate)}/benches/workloads.json`; }
+export const REQUIRED_HOSTS = Object.freeze(["win32", "darwin"]);
+export function validateSourcePrescription(crate, value) {
+  const canonical = (item) => Array.isArray(item) ? item.map(canonical) : item && typeof item === "object" ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, canonical(item[key])])) : item;
+  if (JSON.stringify(canonical(value)) !== JSON.stringify(canonical(supportedPrescription(crate)))) throw new Error("candidate workload prescription differs from trusted supported coverage");
+  // Required inventory comes from authenticated candidate bytes, never receipt claims.
+  return value.workloads.map((w) => ({ ...w, description: workloadsFor(crate).find((supported) => supported.id === w.id).description }));
+}
+// Reads the prescription from the authenticated source tree; a missing or non-JSON blob refuses.
+export function readSourcePrescription(crate, readBlob) {
+  const relative = workloadPrescriptionPath(crate);
+  let prescription;
+  try { prescription = JSON.parse(Buffer.from(readBlob(relative)).toString("utf8")); } catch { throw new Error(`candidate ${relative} missing or not JSON`); }
+  return { prescription, workloads: validateSourcePrescription(crate, prescription) };
+}
+export function harnessMetadataPaths(crate, prescription) {
+  return [workloadPrescriptionPath(crate), ...validateSourcePrescription(crate, prescription).map((w) => `crates/${crate}/benches/${w.bench}.rs`)];
+}
+// Binds the prescription and every declared bench blob at the candidate SHA; any missing blob refuses.
+export function bindHarnessMetadata(crate, prescription, readBlob) {
+  const bindings = {};
+  for (const full of harnessMetadataPaths(crate, prescription)) {
+    let bytes;
+    try { bytes = readBlob(full); } catch { throw new Error(`candidate harness metadata missing: ${full}`); }
+    bindings[full] = hash(bytes);
+  }
+  return bindings;
 }
 const SHA = /^[a-f0-9]{40}$/;
 const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
@@ -55,12 +94,13 @@ export function selectArtifact(artifacts) {
   if (matches.length !== 1 || !Number.isSafeInteger(matches[0].id) || !/^sha256:[a-f0-9]{64}$/.test(matches[0].digest ?? "")) throw new Error("candidate needs exactly one unexpired publish-packed artifact with SHA-256 digest");
   return matches[0];
 }
-export function validateManifest(manifest, context, packed) {
+export function validateManifest(manifest, context, packed, crate) {
+  assertCrateName(crate);
   if (manifest.schema !== 1 || manifest.registry !== "crates" || manifest.repository !== context.repository || String(manifest.runId) !== context.runId || String(manifest.runAttempt) !== context.runAttempt || manifest.commit !== context.sourceSha || !SHA.test(manifest.commit)) throw new Error("sealed manifest differs from authenticated candidate run");
-  const units = manifest.units?.filter((unit) => unit.name === CRATE) ?? [];
-  if (units.length !== 1) throw new Error(`candidate must contain exactly one ${CRATE}`);
+  const units = manifest.units?.filter((unit) => unit.name === crate) ?? [];
+  if (units.length !== 1) throw new Error(`candidate must contain exactly one ${crate}`);
   const unit = units[0];
-  if (!/^\d+\.\d+\.\d+$/.test(unit.version) || unit.dir !== `crates/${CRATE}` || unit.file !== `${CRATE}-${unit.version}.crate` || !/^[a-f0-9]{64}$/.test(unit.sha256)) throw new Error("candidate crate identity is malformed");
+  if (!/^\d+\.\d+\.\d+$/.test(unit.version) || unit.dir !== `crates/${crate}` || unit.file !== `${crate}-${unit.version}.crate` || !/^[a-f0-9]{64}$/.test(unit.sha256)) throw new Error("candidate crate identity is malformed");
   const bytes = fs.readFileSync(path.join(packed, unit.file));
   if (bytes.length !== unit.size || hash(bytes) !== unit.sha256) throw new Error("sealed crate hash/size mismatch");
   return unit;
@@ -72,6 +112,7 @@ export function safeArchiveMembers(text) {
 }
 async function resolveCandidate(env) {
   if (env.GITHUB_ACTIONS !== "true" || env.GITHUB_REF !== "refs/heads/main" || !/^[1-9]\d*$/.test(env.RUNTIME_SOURCE_RUN ?? "")) throw new Error("dispatch from main with numeric source_run");
+  const crate = assertCrateName(env.RUNTIME_CRATE);
   const repository = env.GITHUB_REPOSITORY;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository ?? "")) throw new Error("invalid repository");
   const api = `https://api.github.com/repos/${repository}`;
@@ -98,8 +139,8 @@ async function resolveCandidate(env) {
   if (new Set(names).size !== names.length || names.some((name) => !/^(?:manifest\.json|[\w.-]+\.(?:crate|upload\.json))$/.test(name))) throw new Error("publish-packed must contain unique flat crate files");
   // Read individual entries as bytes; never materialize ZIP symlinks.
   for (const name of names) fs.writeFileSync(path.join(packed, name), command("unzip", ["-p", zip, name], ROOT, { encoding: "buffer" }));
-  Object.assign(context, { artifactId: artifact.id, artifactDigest: artifact.digest, harnessSha: env.GITHUB_SHA });
-  validateManifest(read(path.join(packed, "manifest.json")), context, packed);
+  Object.assign(context, { crate, artifactId: artifact.id, artifactDigest: artifact.digest, harnessSha: env.GITHUB_SHA });
+  validateManifest(read(path.join(packed, "manifest.json")), context, packed, crate);
   write(path.join(packed, "runtime-context.json"), context);
   fs.appendFileSync(env.GITHUB_OUTPUT, `source_sha=${context.sourceSha}\n`);
 }
@@ -111,20 +152,20 @@ export function assertMeasuredSource(source, sourceSha, run = command) {
 }
 function bindSource(source, packed, env = process.env) {
   const context = read(path.join(packed, "runtime-context.json"));
+  const crate = assertCrateName(context.crate);
   const manifestBytes = fs.readFileSync(path.join(packed, "manifest.json"));
-  const unit = validateManifest(JSON.parse(manifestBytes), context, packed);
+  const unit = validateManifest(JSON.parse(manifestBytes), context, packed, crate);
   assertMeasuredSource(source, context.sourceSha);
   const archive = path.join(packed, unit.file);
   const tar = archiveTool(process.platform, env);
   const names = safeArchiveMembers(command(tar, ["-tzf", archive], source));
-  const prefix = `${CRATE}-${unit.version}/`;
+  const prefix = `${crate}-${unit.version}/`;
   if (names.some((name) => !name.startsWith(prefix))) throw new Error("unexpected crate archive root");
   const bindings = {};
   const sourcePaths = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, `${unit.dir}/src`], source).trim().split(/\r?\n/);
   const sealedSources = names.filter((name) => name.startsWith(`${prefix}src/`) && !name.endsWith("/"));
   if (new Set(names).size !== names.length || sealedSources.length !== sourcePaths.length) throw new Error("sealed source inventory differs from candidate");
-  const prescription = JSON.parse(command("git", ["cat-file", "blob", `${context.sourceSha}:${WORKLOAD_PRESCRIPTION_PATH}`], source));
-  const workloads = validateSourcePrescription(prescription);
+  const { prescription, workloads } = readSourcePrescription(crate, (full) => command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" }));
   for (const full of [...sourcePaths, `${unit.dir}/Cargo.toml`]) {
     const rel = full.slice(unit.dir.length + 1);
     const member = `${prefix}${rel === "Cargo.toml" ? "Cargo.toml.orig" : rel}`;
@@ -137,9 +178,7 @@ function bindSource(source, packed, env = process.env) {
   // Cargo's package include excludes benches/**. Qualification harness metadata is
   // not shipped: bind these exact blobs to authenticated candidate sourceSha only.
   // Missing candidate blobs fail closed; never substitute a newer harness checkout.
-  for (const full of harnessMetadataPaths(prescription)) {
-    bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" }));
-  }
+  Object.assign(bindings, bindHarnessMetadata(crate, prescription, (full) => command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" })));
   const contextFiles = command("git", ["ls-tree", "-r", "--name-only", context.sourceSha, "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo", `${unit.dir}/benches`, "crates/rightkit-child-process/src", "crates/rightkit-child-process/Cargo.toml"], source).trim().split(/\r?\n/).filter(Boolean);
   for (const full of contextFiles) bindings[full] = hash(command("git", ["cat-file", "blob", `${context.sourceSha}:${full}`], source, { encoding: "buffer" }));
   return { context, unit, manifestSha256: hash(manifestBytes), bindings, workloads };
@@ -166,6 +205,7 @@ async function measure(env) {
   const { context, unit, manifestSha256, bindings, workloads } = bindSource(env.RUNTIME_SOURCE, env.RUNTIME_PACKED, env);
   const crateDir = path.join(env.RUNTIME_SOURCE, unit.dir);
   const budget = read(path.join(crateDir, "runtime-budget.json"));
+  const crate = context.crate;
   const original = read(path.join(ROOT, unit.dir, "runtime-budget.json"));
   for (const key of ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings"]) if (JSON.stringify(budget[key]) !== JSON.stringify(original[key])) throw new Error(`candidate changes frozen ${key}`);
   const output = env.RUNTIME_OUT;
@@ -183,7 +223,7 @@ async function measure(env) {
     const raw = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
     const rawFile = `${workload.id}-bench.txt`;
     fs.writeFileSync(path.join(output, rawFile), raw);
-    const receipt = { schema: 2, workload: workload.id, intervalMs: workload.intervalMs ?? null, crate: CRATE, version: unit.version, ...context, qualificationRunId: env.GITHUB_RUN_ID, qualificationRunAttempt: env.GITHUB_RUN_ATTEMPT, manifestSha256, bindings, toolchain, host: { os: process.platform, arch: process.arch, release: os.release(), runner: env.RUNNER_NAME, image: env.ImageVersion }, command: `cargo ${workload.args.join(" ")}`, rawFile, rawSha256: hash(Buffer.from(raw)), exitCode: result.status, signal: result.signal, problems: [] };
+    const receipt = { schema: 2, workload: workload.id, intervalMs: workload.intervalMs ?? null, crate, version: unit.version, ...context, qualificationRunId: env.GITHUB_RUN_ID, qualificationRunAttempt: env.GITHUB_RUN_ATTEMPT, manifestSha256, bindings, toolchain, host: { os: process.platform, arch: process.arch, release: os.release(), runner: env.RUNNER_NAME, image: env.ImageVersion }, command: `cargo ${workload.args.join(" ")}`, rawFile, rawSha256: hash(Buffer.from(raw)), exitCode: result.status, signal: result.signal, problems: [] };
     if (result.error || result.status !== 0) receipt.problems.push(`bench failed: ${result.error?.message ?? result.status}`);
     else {
       try {
@@ -195,7 +235,7 @@ async function measure(env) {
         const priorEvidence = fs.existsSync(alias) ? fs.readFileSync(alias) : null;
         try {
           const record = recordMeasurement({ crateDir, resultFile: path.join(output, rawFile), scope: "synthetic", command: receipt.command, description: workload.description });
-          receipt.record = preserveWorkloadRecord(record, workload.id);
+          receipt.record = preserveWorkloadRecord(record, workload.id, crate);
           fs.copyFileSync(path.join(crateDir, record.evidence.file), path.join(crateDir, receipt.record.evidence.file));
           fs.copyFileSync(path.join(crateDir, receipt.record.evidence.file), path.join(output, `${workload.id}-evidence.txt`));
         } finally {
@@ -212,20 +252,23 @@ async function measure(env) {
   const problems = receipts.flatMap((r) => r.problems.map((p) => `${r.workload}: ${p}`));
   if (problems.length) throw new Error(problems.join("; "));
 }
-export function preserveWorkloadRecord(record, workload) {
-  if (!WORKLOADS.some((w) => w.id === workload) || !/^runtime-budget\.evidence\/[\w.-]+\.txt$/.test(record.evidence.file)) throw new Error("invalid workload/evidence path");
+export function preserveWorkloadRecord(record, workload, crate) {
+  if (!workloadsFor(crate).some((w) => w.id === workload) || !/^runtime-budget\.evidence\/[\w.-]+\.txt$/.test(record.evidence.file)) throw new Error("invalid workload/evidence path");
   return { ...record, evidence: { ...record.evidence, file: record.evidence.file.replace(/\.txt$/, `-${workload}.txt`) } };
 }
 export function validateWorkloadReceipts(receipts, context, unit, manifestSha256, bindings, host, harnessSha, budget, qualificationRun) {
-  if (!Array.isArray(receipts) || receipts.length !== WORKLOADS.length) throw new Error(`${host}: requires exactly both workloads`);
+  const crate = assertCrateName(unit.name);
+  const trusted = workloadsFor(crate);
+  if (context.crate !== crate) throw new Error(`${host}: mixed candidate crate`);
+  if (!Array.isArray(receipts) || receipts.length !== trusted.length) throw new Error(`${host}: requires exactly the trusted workloads`);
   const seen = new Set();
   for (const receipt of receipts) {
-    const workload = WORKLOADS.find((w) => w.id === receipt.workload);
+    const workload = trusted.find((w) => w.id === receipt.workload);
     if (!workload || seen.has(receipt.workload)) throw new Error("unknown/duplicate workload");
     seen.add(receipt.workload);
     if (qualificationRun && (receipt.qualificationRunId !== qualificationRun.id || receipt.qualificationRunAttempt !== qualificationRun.attempt)) throw new Error("mixed qualification run");
-    if (receipt.schema !== 2 || receipt.crate !== CRATE || receipt.version !== unit.version || receipt.host?.os !== host || receipt.exitCode !== 0 || receipt.signal || !Array.isArray(receipt.problems) || receipt.problems.length || receipt.command !== `cargo ${workload.args.join(" ")}` || receipt.intervalMs !== (workload.intervalMs ?? null) || receipt.record?.command !== receipt.command || receipt.record?.crateVersion !== unit.version || receipt.record?.host?.arch !== receipt.host.arch || !receipt.toolchain?.rustc || !receipt.toolchain?.cargo) throw new Error(`${host}: workload identity/status mismatch`);
-    for (const key of ["repository", "runId", "runAttempt", "sourceSha", "artifactId", "artifactDigest"]) if (receipt[key] !== context[key]) throw new Error(`${host}: mixed candidate ${key}`);
+    if (receipt.schema !== 2 || receipt.crate !== crate || receipt.version !== unit.version || receipt.host?.os !== host || receipt.exitCode !== 0 || receipt.signal || !Array.isArray(receipt.problems) || receipt.problems.length || receipt.command !== `cargo ${workload.args.join(" ")}` || receipt.intervalMs !== (workload.intervalMs ?? null) || receipt.record?.command !== receipt.command || receipt.record?.crateVersion !== unit.version || receipt.record?.host?.arch !== receipt.host.arch || !receipt.toolchain?.rustc || !receipt.toolchain?.cargo) throw new Error(`${host}: workload identity/status mismatch`);
+    for (const key of ["crate", "repository", "runId", "runAttempt", "sourceSha", "artifactId", "artifactDigest"]) if (receipt[key] !== context[key]) throw new Error(`${host}: mixed candidate ${key}`);
     if (receipt.manifestSha256 !== manifestSha256 || receipt.harnessSha !== harnessSha || JSON.stringify(Object.entries(receipt.bindings ?? {}).sort()) !== JSON.stringify(Object.entries(bindings).sort())) throw new Error(`${host}: source/manifest/harness binding mismatch`);
     if (receipt.rawFile !== `${workload.id}-bench.txt` || !/^[a-f0-9]{64}$/.test(receipt.rawSha256 ?? "") || receipt.record.evidence.sha256 !== receipt.rawSha256 || !receipt.record.evidence.file.endsWith(`-${workload.id}.txt`)) throw new Error("workload evidence mismatch");
     const problems = measurementProblems(receipt.record, budget, context.sourceSha, host);
@@ -245,6 +288,7 @@ async function combine(env) {
   const { context, unit, manifestSha256, bindings, workloads } = bindSource(env.RUNTIME_SOURCE, env.RUNTIME_PACKED, env);
   const crateDir = path.join(env.RUNTIME_SOURCE, unit.dir);
   const budget = read(path.join(crateDir, "runtime-budget.json"));
+  const crate = context.crate;
   const records = [];
   const proofFiles = {};
   fs.mkdirSync(env.RUNTIME_OUT, { recursive: true });
@@ -279,7 +323,7 @@ async function combine(env) {
   const { syncRuntimeBudgetReadme, evaluateRuntimeBudget } = await import("../../packages/release/runtime-budgets.mjs");
   const readme = path.join(crateDir, "README.md");
   fs.writeFileSync(readme, syncRuntimeBudgetReadme(fs.readFileSync(readme, "utf8"), budget));
-  const verdict = evaluateRuntimeBudget({ crate: CRATE, crateDir, version: unit.version });
+  const verdict = evaluateRuntimeBudget({ crate, crateDir, version: unit.version });
   fs.mkdirSync(env.RUNTIME_OUT, { recursive: true });
   for (const name of ["runtime-budget.json", "README.md"]) fs.copyFileSync(path.join(crateDir, name), path.join(env.RUNTIME_OUT, name));
   fs.cpSync(path.join(crateDir, "runtime-budget.evidence"), path.join(env.RUNTIME_OUT, "runtime-budget.evidence"), { recursive: true });

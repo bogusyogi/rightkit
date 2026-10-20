@@ -1,6 +1,6 @@
 # rightkit-google-identity
 
-Sign in with Google, protocol layer only. Not yet published (0.1.0). Design: Adrian's 2026-10-16 own-cloud identity decision (Orthic-Labs/rightkit#162): Google subject as identity, scopes `openid`, `email` and the Drive appDataFolder scope, refresh token in `rightkit-credentials`.
+Sign in with Google, protocol layer only. Version 0.2.0 is unpublished staging; 0.1.0 is on crates.io. Design: Adrian's 2026-10-16 own-cloud identity decision (Orthic-Labs/rightkit#162): Google subject as identity, scopes `openid`, `email` and the Drive appDataFolder scope, refresh token in `rightkit-credentials`.
 
 - `Pkce::generate()`: verifier and S256 challenge.
 - `AuthRequest::new(client_id, redirect_uri, scopes, login_hint)`: authorization URL, state and PKCE. `parse_redirect(url, expected_state)` returns the code.

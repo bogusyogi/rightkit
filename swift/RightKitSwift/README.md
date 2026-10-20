@@ -285,7 +285,7 @@ edit of the pin, recorded in `rightkit-versions.json`.
 
 The version in the examples below is illustrative. The version apps may pin is the `swift` section of
 `packages/release/rightkit-versions.json`, or `stagedSwift` until the tag is recorded there. `VERSION` is the version
-under development; it is published when `right-release publish swift` pushes its tag.
+under development; it is published when `right-release publish swift` pushes its tag. As of 2026-10-20 the latest tag is `0.8.1`; `0.9.0` is staged and not tagged.
 
 ```swift
 // Package.swift
@@ -310,7 +310,7 @@ packages:
 
 The URL is the public repository `bogusyogi/rightkit`; its root `Package.swift` exposes the same products as
 `swift/RightKitSwift/Package.swift`, with each target pointing into `swift/RightKitSwift`. The tag is a plain semver tag
-(`0.7.0`, no `v`) on that repository, cut from the commit whose `swift/RightKitSwift/VERSION` matches. SwiftPM
+(`0.7.0`, no `v`) on that repository, cut from the commit whose `swift/RightKitSwift/VERSION` matches (`0.8.0` and `0.8.1` do not: their VERSION reads `0.7.0`; see CHANGELOG). SwiftPM
 derives the package identity from the URL, so it is `rightkit` (not `RightKitSwift`): write
 `.product(name: "RightKitLicense", package: "rightkit")` in a `Package.swift`. SwiftPM clones the whole repository
 once per machine (a shared cache under `~/Library/Caches/org.swift.swiftpm`); only the resolved tag is checked out. The tools
@@ -367,7 +367,7 @@ manifests together (`scripts/swift-root-manifest.test.mjs` fails on drift).
 
 ## Releasing a new version
 
-Bump `swift/RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit, then run
+Bump `swift/RightKitSwift/VERSION`, date the changelog section, let CI pass on that commit (the CI Swift gate runs `swift build`, `swift test` and the generic iOS and watchOS `xcodebuild build` rows on macOS), then run
 `right-release publish swift`, which tags that commit `X.Y.Z` (plain semver) and pushes the tag to `bogusyogi/rightkit`. Record the version in `packages/release/rightkit-versions.json` (`stagedSwift`, then `swift` once
 published) so apps can bump their pin.
 

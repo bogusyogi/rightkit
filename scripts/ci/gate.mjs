@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
-import { parseSelectTokens, parseSteps, requiredConsumerLockCommands } from "./shards.mjs";
+import { parseSelectTokens, parseSteps, requiredConsumerLockCommands, swiftXcodebuilds } from "./shards.mjs";
 import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -488,6 +488,9 @@ async function swiftGate(selection) {
     const cwd = path.join(ROOT, dir);
     const built = await run(`swift:${dir}`, "swift", ["build"], { cwd, timeoutMinutes: 45 });
     if (built && fs.existsSync(path.join(cwd, "Tests"))) await run(`swift:${dir}`, "swift", ["test"], { cwd, timeoutMinutes: 60 });
+    const { builds, skipped } = swiftXcodebuilds(dir);
+    for (const platform of skipped) console.log(`swift:${dir}: generic ${platform} build skipped; Package.swift declares no ${platform} platform`);
+    if (built) for (const { args } of builds) await run(`swift:${dir}`, "xcodebuild", args, { cwd, timeoutMinutes: 60 });
   }
 }
 

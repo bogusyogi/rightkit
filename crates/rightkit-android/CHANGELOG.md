@@ -2,7 +2,7 @@
 
 ## 0.3.0 — unpublished staging
 
-- BREAKING (D23): public signatures take `rightkit-credentials` 0.3 types (`Store`, `Secret` or the Android keystore bridge), which changes their type identity from 0.2. Requires rightkit-credentials 0.3.0.
+- BREAKING (D23): public signatures take `rightkit-credentials` 0.4 types (`Store`, `Secret` or the Android keystore bridge), which changes their type identity from 0.2. Requires rightkit-credentials 0.4.0 (unpublished staging).
 
 ## 0.2.0 (2026-10-17)
 

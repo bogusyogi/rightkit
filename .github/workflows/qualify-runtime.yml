@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       source_run:
-        description: Completed main publish.yml run containing sealed rightkit-logs candidate
+        description: Completed main publish.yml run containing the sealed candidate
+        type: string
+        required: true
+      crate:
+        description: Sealed rightkit crate to qualify. Must be a unit of that candidate manifest and match the rightkit name pattern
         type: string
         required: true
 permissions:
@@ -35,6 +39,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           RUNTIME_SOURCE_RUN: ${{ inputs.source_run }}
+          RUNTIME_CRATE: ${{ inputs.crate }}
           RUNTIME_PACKED: ${{ runner.temp }}/runtime-packed
         run: node scripts/ci/runtime-qualify.mjs resolve
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

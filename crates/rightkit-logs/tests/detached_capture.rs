@@ -1,5 +1,5 @@
 //! Durable capture of a detached child's stderr: the child writes a raw file, a later drain turns
-//! it into scrubbed, prefixed, rotated text. The "child" here is the handle `stderr_file` returns.
+//! it into scrubbed, prefixed, rotated text. Tests use append handles & inherited child stderr.
 
 use rightkit_logs::{DetachedLog, DrainReport, KnownSecrets, RotatingTextWriter};
 use std::fs;
@@ -55,6 +55,76 @@ fn a_second_drain_repeats_nothing() {
     child.write_all(b"three\n").unwrap();
     assert_eq!(log.drain().unwrap().lines, 1);
     assert_eq!(sink_text(dir.path()), "one\ntwo\nthree\n");
+}
+
+#[test]
+fn empty_drains_preserve_position_bytes_without_creating_a_lock() {
+    for saved in ["0 guard\n", "0 omit\n", "999 guard\n", "999 omit\n", "17\n"] {
+        let dir = tempfile::tempdir().unwrap();
+        let log = DetachedLog::new(sink(dir.path()));
+        let child = log.stderr_file().unwrap();
+        let position = dir.path().join("job.log.raw.pos");
+        fs::write(&position, saved).unwrap();
+        for _ in 0..3 {
+            assert_eq!(log.drain().unwrap(), DrainReport::default());
+            assert_eq!(fs::read(&position).unwrap(), saved.as_bytes());
+            assert_eq!(fs::metadata(log.raw_path()).unwrap().len(), 0);
+            assert!(!dir.path().join("job.log.raw.lock").exists());
+            assert!(!dir.path().join("job.log").exists());
+        }
+        drop(child);
+        assert!(log.finish().unwrap().finished);
+        assert!(!log.raw_path().exists());
+        assert!(!position.exists());
+    }
+}
+
+#[test]
+fn an_empty_directory_at_the_raw_path_keeps_the_existing_drain_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = DetachedLog::new(sink(dir.path()));
+    fs::create_dir(log.raw_path()).unwrap();
+    let position = dir.path().join("job.log.raw.pos");
+    fs::write(&position, b"0 guard\n").unwrap();
+    assert!(log.drain().is_err());
+    assert!(log.raw_path().is_dir());
+    assert_eq!(fs::read(&position).unwrap(), b"0 guard\n");
+    assert!(!dir.path().join("job.log").exists());
+}
+
+#[test]
+fn appends_after_empty_drains_keep_guard_and_omission_across_restart() {
+    for (saved, expected, lines) in [
+        (
+            "0 guard\n",
+            "[redacted: line after raw-file compaction omitted]\nkept\n",
+            2,
+        ),
+        ("0 omit\n", "kept\n", 1),
+        (
+            "999 guard\n",
+            "[redacted: line after raw-file compaction omitted]\nkept\n",
+            2,
+        ),
+        ("999 omit\n", "kept\n", 1),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let first = DetachedLog::new(sink(dir.path()));
+        let mut child = first.stderr_file().unwrap();
+        fs::write(dir.path().join("job.log.raw.pos"), saved).unwrap();
+        assert_eq!(first.drain().unwrap(), DrainReport::default());
+        drop(first);
+        child.write_all(b"SECRET-CONTINUATION\nkept\n").unwrap();
+        let restarted = DetachedLog::new(sink(dir.path()));
+        assert_eq!(restarted.drain().unwrap().lines, lines);
+        assert_eq!(sink_text(dir.path()), expected);
+        child.write_all(b"last words").unwrap();
+        drop(child);
+        assert!(restarted.finish().unwrap().finished);
+        assert_eq!(sink_text(dir.path()), format!("{expected}last words\n"));
+        assert!(!restarted.raw_path().exists());
+        assert!(!dir.path().join("job.log.raw.pos").exists());
+    }
 }
 
 #[test]
@@ -210,6 +280,113 @@ fn a_background_drainer_drains_while_the_child_writes() {
     drainer.stop();
     assert_eq!(sink_text(dir.path()), "streamed\n");
     assert_eq!(log.last_error(), None);
+}
+
+const INHERITED_STDERR_CHILD: &str = "RIGHTKIT_LOGS_INHERITED_STDERR_CHILD";
+
+#[test]
+fn inherited_stderr_child() {
+    if std::env::var_os(INHERITED_STDERR_CHILD).is_none() {
+        return;
+    }
+    use std::io::Read;
+    let mut command = [0];
+    let mut input = std::io::stdin().lock();
+    input.read_exact(&mut command).unwrap();
+    std::io::stderr()
+        .write_all(b"resumed idle-secret-value\n")
+        .unwrap();
+    std::io::stderr().flush().unwrap();
+    input.read_exact(&mut command).unwrap();
+    std::io::stderr()
+        .write_all(b"after restart\nlast words")
+        .unwrap();
+    std::io::stderr().flush().unwrap();
+}
+
+#[test]
+fn an_inherited_child_resumes_after_idle_and_survives_a_drainer_restart() {
+    use std::process::{Child, Command, Stdio};
+    struct Cleanup {
+        child: Option<Child>,
+        drainer: Option<rightkit_logs::Drainer>,
+    }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            if let Some(drainer) = self.drainer.take() {
+                drainer.stop();
+            }
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let log = Arc::new(
+        DetachedLog::new(sink(dir.path()))
+            .with_known_secrets(KnownSecrets::from_values(["idle-secret-value"])),
+    );
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "inherited_stderr_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(INHERITED_STDERR_CHILD, "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(log.stderr_file().unwrap()))
+        .spawn()
+        .unwrap();
+    let mut cleanup = Cleanup {
+        child: Some(child),
+        drainer: None,
+    };
+    let mut input = cleanup.child.as_mut().unwrap().stdin.take().unwrap();
+    let interval = Duration::from_millis(25);
+    cleanup.drainer = Some(log.spawn_drainer(interval).unwrap());
+    std::thread::sleep(interval * 3);
+    assert_eq!(sink_text(dir.path()), "");
+    assert_eq!(log.last_error(), None);
+    input.write_all(b"1").unwrap();
+    input.flush().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while sink_text(dir.path()) != "resumed [redacted]\n" && Instant::now() < deadline {
+        std::thread::sleep(interval);
+    }
+    cleanup.drainer.take().unwrap().stop();
+    assert_eq!(sink_text(dir.path()), "resumed [redacted]\n");
+    assert_eq!(log.last_error(), None);
+    drop(log);
+    input.write_all(b"2").unwrap();
+    input.flush().unwrap();
+    drop(input);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = cleanup.child.as_mut().unwrap().try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            drop(cleanup);
+            panic!("inherited stderr child did not exit before deadline");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    // try_wait reaped the exited child; only unfinished children need cleanup.
+    cleanup.child.take();
+    assert!(status.success());
+    let restarted = DetachedLog::new(sink(dir.path()));
+    let report = restarted.finish().unwrap();
+    assert_eq!(report.lines, 2);
+    assert!(report.finished);
+    assert_eq!(
+        sink_text(dir.path()),
+        "resumed [redacted]\nafter restart\nlast words\n"
+    );
+    assert!(!restarted.raw_path().exists());
+    assert!(!dir.path().join("job.log.raw.pos").exists());
 }
 
 #[test]

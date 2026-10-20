@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { sha, REPOSITORY } from "./upload.mjs";
 import { candidateHash } from "./supplemental-proof.mjs";
-import { WORKLOADS, SUPPORTED_PRESCRIPTION } from "./runtime-qualify.mjs";
+import { workloadsFor, supportedPrescription } from "./runtime-qualify.mjs";
 import test from "node:test";
 import { validateRuntimeWorkflow, authenticatedRuntimeProof, verifyRuntimeSupplement, validateFrozenRuntimeBudget, validateRuntimeRecords, trustedRuntimeHelperPaths } from "./runtime-supplement.mjs";
+// The proof names its crate; this lane's fixture is rightkit-logs, passed explicitly to every helper.
+const CRATE = "rightkit-logs";
 test("runtime evidence rejects caller JSON before interpreting candidate", () => {
   assert.throws(() => authenticatedRuntimeProof({}, {}, {}), /unauthenticated/);
 });
@@ -42,18 +44,18 @@ function runtimeFixture(t) {
     "crates/rightkit-logs/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-logs/src/detached.rs": 'pub struct DetachedLog;\n',
     "crates/rightkit-logs/README.md": '## Runtime budget\n\nfixture\n',
     "crates/rightkit-logs/runtime-budget.json": JSON.stringify(budget),
-    "crates/rightkit-logs/benches/workloads.json": JSON.stringify(SUPPORTED_PRESCRIPTION),
+    "crates/rightkit-logs/benches/workloads.json": JSON.stringify(supportedPrescription(CRATE)),
     "crates/rightkit-logs/benches/budget.rs": '// tracing fixture\n', "crates/rightkit-logs/benches/budget_detached.rs": '// detached fixture\n',
   };
   const readData = (name) => { assert.ok(Object.hasOwn(data, name), `missing source ${name}`); return Buffer.from(data[name]); };
   const source = { source: { sha: SOURCE }, root: path.join(temp, "candidate"), readData };
   const bindings = Object.fromEntries(Object.keys(data).filter((name) => name !== "crates/rightkit-logs/runtime-budget.json" && name !== "crates/rightkit-logs/README.md").map((name) => [name, hash(readData(name))]));
-  const context = { repository: REPOSITORY, runId: "77", runAttempt: "1", sourceSha: SOURCE, artifactId: 10, artifactDigest: candidate.artifacts.packed.digest, harnessSha: PRODUCER };
+  const context = { repository: REPOSITORY, runId: "77", runAttempt: "1", sourceSha: SOURCE, artifactId: 10, artifactDigest: candidate.artifacts.packed.digest, harnessSha: PRODUCER, crate: CRATE };
   const files = { packed: { "manifest.json": rawManifest, [unit.file]: archive, [unit.metaFile]: metadata }, supplement: {} };
   const proof = { schema: 2, ...context, manifestSha256: candidate.manifestSha256, workloads: ["tracing", "detached"], proofFiles: {}, records: [], verdict: { ok: true } };
   const envelopes = {};
   for (const host of ["win32", "darwin"]) {
-    const envelope = { schema: 2, workloads: WORKLOADS.map((w) => {
+    const envelope = { schema: 2, workloads: workloadsFor(CRATE).map((w) => {
       const raw = Buffer.from(`RESULT budget crate=rightkit-logs version=0.3.4 resident_bytes=100 idle_cpu_percent=0 wakeups_per_s=0 disk_ops_per_s=${host === "darwin" ? "unavailable" : "0"} scale_count=200000 scale_unit=lines\n`);
       const command = `cargo ${w.args.join(" ")}`;
       const record = { host: { os: host, arch: host === "darwin" ? "arm64" : "x64" }, crateVersion: unit.version, commit: SOURCE, date: "2026-10-20", scope: "synthetic", dataScale: { description: w.description, unit: "lines", count: 200000 }, command, observed: { residentMemoryBytes: 100, idleCpuPercent: 0, wakeupsPerSecond: 0, diskOpsPerSecond: host === "darwin" ? null : 0 }, evidence: { file: `runtime-budget.evidence/${host}-${w.id}.txt`, sha256: hash(raw) } };
@@ -128,6 +130,21 @@ test("authenticated hashes cannot bless fabricated RESULT values or invalid owne
     (f) => { f.helperMutations.set("scripts/ci/consumer-recipes.mjs", Buffer.from("// changed transitive harness helper")); },
   ]) { const f = runtimeFixture(t); mutation(f); f.refresh(); await assert.rejects(f.verify(), /runtime supplement refused/); }
 });
+test("runtime proof crate must be a sealed candidate unit with a valid name and a present, pinned prescription", async (t) => {
+  for (const mutation of [
+    (f) => { f.proof.crate = "rightkit-daemon"; },                       // not a candidate unit
+    (f) => { f.proof.crate = "rightkit-Logs"; },                         // fails the name grammar
+    (f) => { f.proof.crate = "rightkit-logs/../rightkit-logs"; },        // path-bearing name
+    (f) => { delete f.proof.crate; },                                    // unnamed proof
+    (f) => { delete f.data["crates/rightkit-logs/benches/workloads.json"]; }, // missing workloads.json
+    (f) => { // workloads.json naming a bench that does not exist
+      const prescription = JSON.parse(f.data["crates/rightkit-logs/benches/workloads.json"]);
+      prescription.workloads[1].bench = "budget_absent"; prescription.workloads[1].args[9] = "budget_absent";
+      f.data["crates/rightkit-logs/benches/workloads.json"] = JSON.stringify(prescription);
+    },
+  ]) { const f = runtimeFixture(t); mutation(f); f.refresh(); await assert.rejects(f.verify(), /runtime supplement refused/); }
+});
+
 test("trusted owner gate rejects negative mismatched bare baseline floor even when raw agrees", (t) => {
   const f = runtimeFixture(t), record = structuredClone(f.envelopes.win32.workloads[0].record);
   record.observed.wakeupsPerSecond = 0; record.baseline = { wakeupsPerSecond: 10 }; record.delta = { wakeupsPerSecond: -10 };

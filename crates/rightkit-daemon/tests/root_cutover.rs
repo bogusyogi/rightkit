@@ -14,6 +14,7 @@ use rightkit_daemon::{
 };
 
 type Log = Arc<Mutex<Vec<String>>>;
+type RelocateHook = Box<dyn Fn(&CutoverContext) + Send>;
 
 struct Probe {
     name: String,
@@ -21,7 +22,7 @@ struct Probe {
     fail: Arc<Mutex<Option<CutoverStep>>>,
     panic_at: Option<CutoverStep>,
     owned: Vec<PathBuf>,
-    on_relocate: Option<Box<dyn Fn(&CutoverContext) + Send>>,
+    on_relocate: Option<RelocateHook>,
 }
 
 impl Probe {

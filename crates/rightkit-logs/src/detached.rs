@@ -286,7 +286,7 @@ impl DetachedLog {
                         return;
                     }
                     let (stopped, _) = wake
-                        .wait_timeout(stopped, interval)
+                        .wait_timeout_while(stopped, interval, |stopped| !*stopped)
                         .unwrap_or_else(|p| p.into_inner());
                     if *stopped {
                         return;
@@ -298,6 +298,12 @@ impl DetachedLog {
 
     fn drain_inner(&self, finish: bool) -> io::Result<DrainReport> {
         let _gate = self.gate.lock().unwrap_or_else(|p| p.into_inner());
+        // An empty snapshot has nothing to consume. Leave the saved guard/omission state
+        // untouched: a child may append a continuation after this check, for the next drain.
+        // Metadata failures still take the ordinary lock/open path and its error handling.
+        if !finish && fs::metadata(&self.raw).is_ok_and(|meta| meta.is_file() && meta.len() == 0) {
+            return Ok(DrainReport::default());
+        }
         let Some(_lock) = self.acquire_lock()? else {
             return Ok(DrainReport {
                 skipped: true,

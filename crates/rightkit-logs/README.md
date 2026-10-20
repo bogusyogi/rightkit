@@ -186,6 +186,12 @@ Tests: `tests/contract.rs` (event shape, collection and redaction) and `tests/ou
 
 Published version: see [INDEX.md](../../INDEX.md). Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
+## Detached runtime qualification
+
+`benches/budget_detached.rs` uses an explicit 2000 ms caller interval, at least 200,000 lines & at least 30 idle intervals (60 seconds by default). Worker stays alive through observation & drains a post-idle probe. Wake-up & disk-operation ceilings remain 1 per second.
+
+Passing evidence qualifies this chosen 2-second synthetic workload only; other intervals & installed apps require their own evidence. Recommend caller intervals of at least 2 seconds when latency permits; `spawn_drainer(interval)` keeps its caller-selected interval. Existing 1000 ms failure remains valid.
+
 ## Runtime budget
 
 Generated from `runtime-budget.json`; edit that file, then run `node packages/release/runtime-budgets.mjs sync <crate-dir>`.

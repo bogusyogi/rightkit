@@ -12,7 +12,7 @@
   "ceilingSources": {
     "residentMemoryBytes": "bounded provisional ceiling of 1 GiB (below the 1400 MiB 2x option) set after LedgerStore::mutate stopped cloning the whole ledger per mutation (#344); to be re-derived by the rule 2x the larger measured resident set, rounded up to a whole MiB, once the bench is recorded on both hosts for the fixed build; evidence runtime-budget.evidence/",
     "idleCpuPercent": "rule: 1 percent absolute for an idle crate; measured at most 0.0 percent on the recorded hosts",
-    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+    "wakeupsPerSecond": "rule: max(1, 2x measured) per second; macOS measured 0.033; Windows wake-ups are the sum of ContextSwitchCount over the live threads (crates/rightkit-child-process/src/usage.rs:12)",
     "diskOpsPerSecond": "rule: max(1, 2x measured) per second; Windows measured 0.0 (GetProcessIoCounters, all I/O including pipes); macOS exposes no per-process disk-operation counter"
   },
   "requiredScale": {
@@ -29,7 +29,7 @@
       "wakeupsPerSecond",
       "diskOpsPerSecond"
     ],
-    "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
+    "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS and Windows only; disk operations are Windows and Linux only."
   },
   "measurements": [
     {

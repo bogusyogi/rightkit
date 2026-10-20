@@ -1633,15 +1633,11 @@ impl FileTransaction {
             for component in components.iter().take(components.len() - 1) {
                 parent.push(component);
                 match fs::symlink_metadata(&parent) {
-                    Ok(meta) if !is_link(&meta) && meta.is_dir() => {
+                    Ok(meta) if is_link(&meta) => return Err(FsError::Symlink(parent)),
+                    Ok(meta) if meta.is_dir() => {
                         parents.push((parent.clone(), FileKey::of_path(&parent)?));
                     }
-                    Ok(_) => {
-                        return Err(conflict(
-                            &parent,
-                            "the destination parent is not a plain directory",
-                        ))
-                    }
+                    Ok(_) => return Err(FsError::NotADirectory(parent)),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => break,
                     Err(error) => return Err(FsError::io(&parent, error)),
                 }

@@ -70,7 +70,7 @@ Redirect URIs must still be `https` (`ServerProvider::validate`); loopback `http
 
 ## Platform support
 
-- Desktop token storage uses `rightkit-credentials`. That crate has a macOS and a Windows backend. On Linux it fails closed, so the `secrets` feature cannot store tokens there.
+- Desktop token storage uses `rightkit-credentials`. That crate has a macOS Keychain, a Windows Credential Manager and a Linux Secret Service (session bus) backend. Where no such store is available, the `secrets` feature fails closed and cannot store tokens.
 - `SealedFileTokenStore` supports Unix local filesystems with reliable advisory locks and atomic rename. On Windows, construction fails closed; supply an ACL or credential-store adapter there.
 - The `server` code uses `cfg(unix)` in `src/server/store.rs` for file permission checks.
 
@@ -166,11 +166,11 @@ token to its own `DriveTokenSource`. The JNI bridge for both is not in this crat
 
 ```toml
 [dependencies]
-rightkit-oauth = { version = "0.3.1", default-features = false, features = ["server"] }
+rightkit-oauth = { version = "0.10.0", default-features = false, features = ["server"] }
 rightkit-http = "0.3.0"
 ```
 
-Daemons can omit `secrets` and `system-sources` (`default-features = false`): Linux has no `rightkit-credentials` backend.
+Daemons can omit `secrets` and `system-sources` (`default-features = false`): the `server` feature does not enable `secrets`, and a headless daemon may have no OS credential store (on Linux, no Secret Service on the session bus).
 All methods are synchronous; call on a blocking executor in an async HTTP route.
 
 Illustrative; not compiled as a doctest. The example at `examples/server_axum.rs` is the compiled reference (`cargo run --example server_axum --features server-example`, through `rightkit cargo`).

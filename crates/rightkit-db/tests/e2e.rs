@@ -8,7 +8,7 @@ use rightkit_db::{
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn migrations() -> Vec<Migration> {
     vec![
@@ -83,11 +83,25 @@ fn migrations_are_transactional_idempotent_and_backed_up() {
     assert_eq!(first.applied, vec![1]);
     conn.execute("INSERT INTO items(body) VALUES ('kept')", [])
         .unwrap();
+    let pages: i64 = conn
+        .query_row("PRAGMA page_count", [], |row| row.get(0))
+        .unwrap();
+    assert!(
+        pages <= 8,
+        "migration fixture must stay small: {pages} pages"
+    );
     drop(conn);
 
+    let backup_started = Instant::now();
     let (conn, second) = options
         .open_writer_migrated(&migrations(), &MigrateOptions::default())
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!(
+                "existing-store open/migration/backup failed after {:?} ({pages} pages, budget {:?}): {error:?}",
+                backup_started.elapsed(),
+                options.busy_timeout,
+            )
+        });
     assert_eq!(second.applied, vec![2]);
     assert!(second.backup.as_ref().is_some_and(|p| p.exists()));
     let count: i64 = conn
@@ -118,14 +132,27 @@ fn failed_step_rolls_back_and_marker_is_reported_then_cleared() {
             .with_down("DROP TABLE items;"),
     ];
     migrate(&conn, Some(&path), &first, &MigrateOptions::default()).unwrap();
+    let pages: i64 = conn
+        .query_row("PRAGMA page_count", [], |row| row.get(0))
+        .unwrap();
+    assert!(
+        pages <= 8,
+        "migration fixture must stay small: {pages} pages"
+    );
     let failing = [
         Migration::sql(1, "items", "CREATE TABLE items(id INTEGER PRIMARY KEY);")
             .with_down("DROP TABLE items;"),
         Migration::sql(2, "broken", "INSERT INTO no_such_table VALUES (1);")
             .with_down("DELETE FROM no_such_table;"),
     ];
+    let migration_started = Instant::now();
     let error = migrate(&conn, Some(&path), &failing, &MigrateOptions::default()).unwrap_err();
-    assert!(matches!(error, DbError::MigrationFailed { version: 2, .. }));
+    assert!(
+        matches!(&error, DbError::MigrationFailed { version: 2, .. }),
+        "expected migration step 2 failure; pre-migration backup/migration elapsed {:?} ({pages} pages, default backup budget {:?}): {error:?}",
+        migration_started.elapsed(),
+        options.busy_timeout,
+    );
     assert_eq!(rightkit_db::user_version(&conn).unwrap(), 1);
     assert!(pending_marker(&path).is_some());
 
@@ -342,55 +369,65 @@ fn sqlcipher_rekey_and_candidate_recovery_round_trip() {
 }
 
 #[test]
-fn recurring_backup_progress_cannot_extend_the_operation_deadline() {
-    struct SlowProgress {
+fn native_backup_reports_completed_step_progress() {
+    struct Progress {
         calls: usize,
+        started: Instant,
+        first_callback: Option<Duration>,
+        last_callback: Option<Duration>,
     }
-    impl BackupProgress for SlowProgress {
+    impl BackupProgress for Progress {
         fn step(&mut self, remaining: i32) -> bool {
-            assert!(remaining > 0, "fixture must still be making progress");
+            let elapsed = self.started.elapsed();
+            self.first_callback.get_or_insert(elapsed);
+            self.last_callback = Some(elapsed);
+            assert!(remaining >= 0, "remaining page count: {remaining}");
             self.calls += 1;
-            std::thread::sleep(Duration::from_millis(25));
             true
         }
     }
     let dir = tempfile::tempdir().unwrap();
     let options = DbOptions::new(dir.path().join("source.sqlite"));
+    let open_started = Instant::now();
     let conn = options.open_writer().unwrap();
-    // About 32 steps of 512 pages at 25 ms each (~800 ms) against a 500 ms deadline: the deadline
-    // must cut the backup short, with room for several progress calls even when the first step
-    // is slow under load (a 150 ms deadline let one slow first step use it all up).
-    conn.execute_batch("CREATE TABLE t(v BLOB); INSERT INTO t VALUES(zeroblob(67108864));")
+    let open_elapsed = open_started.elapsed();
+    // Keep native coverage bounded: multi-step deadline semantics use a controlled clock in
+    // backup's unit tests, rather than requiring SQLite to copy 64 MiB within 500 ms.
+    let populate_started = Instant::now();
+    conn.execute_batch("CREATE TABLE t(v BLOB); INSERT INTO t VALUES(zeroblob(1024));")
         .unwrap();
+    let populate_elapsed = populate_started.elapsed();
     let target = dir.path().join("backup.sqlite");
     std::fs::write(&target, b"previous backup").unwrap();
-    let mut bounded = DbOptions::new(&options.path);
-    bounded.busy_timeout = Duration::from_millis(500);
-    let mut progress = SlowProgress { calls: 0 };
-    let result = online_backup_to(&bounded, &conn, &target, Some(&mut progress));
-    assert!(matches!(result, Err(DbError::Backup(message)) if message.contains("timeout")));
-    assert!(progress.calls > 1, "deadline covers recurring progress");
-    assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
-    assert!(staging_names(dir.path()).is_empty());
-}
-
-#[test]
-fn even_a_completed_step_cannot_publish_after_its_callback_exceeds_deadline() {
-    struct SlowCallback;
-    impl BackupProgress for SlowCallback {
-        fn step(&mut self, _remaining: i32) -> bool {
-            std::thread::sleep(Duration::from_millis(100));
-            true
-        }
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let mut options = DbOptions::new(dir.path().join("source.sqlite"));
-    let conn = options.open_writer().unwrap();
-    conn.execute_batch("CREATE TABLE t(v);").unwrap();
-    options.busy_timeout = Duration::from_millis(50);
-    let target = dir.path().join("backup.sqlite");
-    std::fs::write(&target, b"previous backup").unwrap();
-    assert!(online_backup_to(&options, &conn, &target, Some(&mut SlowCallback)).is_err());
-    assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+    // Public API exposes the first completed step through this existing callback only;
+    // staging, destination open and the first step share the pre-callback interval.
+    let mut progress = Progress {
+        calls: 0,
+        started: Instant::now(),
+        first_callback: None,
+        last_callback: None,
+    };
+    let result = online_backup_to(&options, &conn, &target, Some(&mut progress));
+    let backup_elapsed = progress.started.elapsed();
+    let diagnostics = || {
+        format!(
+            "source open {open_elapsed:?}; populate {populate_elapsed:?}; backup {backup_elapsed:?}; budget {:?}; callbacks {}; staging/destination-open/first-step through first callback {:?}; last callback {:?}; result {result:?}",
+            options.busy_timeout,
+            progress.calls,
+            progress.first_callback,
+            progress.last_callback,
+        )
+    };
+    assert!(result.is_ok(), "{}", diagnostics());
+    assert!(
+        progress.calls >= 1,
+        "native backup must report a completed step; {}",
+        diagnostics(),
+    );
+    let restored = DbOptions::new(&target).open_writer().unwrap();
+    let bytes: i64 = restored
+        .query_row("SELECT length(v) FROM t", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(bytes, 1024);
     assert!(staging_names(dir.path()).is_empty());
 }

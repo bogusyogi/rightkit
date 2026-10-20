@@ -1,9 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
 
 // Pure shard planning for the RightKit CI workflow (.github/workflows/ci.yml): which GitHub Actions jobs a
-// push needs, per runner OS, and which gate tokens each job runs. No process, no filesystem: everything
-// arrives as arguments, so the same functions back scripts/ci/ci-plan.mjs, the gate's `--select` parser and
+// push needs, per runner OS, and which gate tokens each job runs. No process. The only file read is a Swift
+// package's own swift/<pkg>/Package.swift, for its name and declared Apple platforms (swiftManifest); everything
+// else arrives as arguments, so the same functions back scripts/ci/ci-plan.mjs, the gate's `--select` parser and
 // scripts/ci/shards.test.mjs.
 //
 // Rules the plan keeps:
@@ -34,6 +38,30 @@ export const DEFAULT_SHARDS = Object.freeze({
 export const HOSTS = Object.freeze(["windows", "macos", "linux"]);
 export const STEPS = Object.freeze(["lock", "fmt", "test", "closure"]);
 export const SWIFT_ROOT_MANIFEST = "swift/root-manifest";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/** Package name and declared Apple platforms of a Swift package, parsed from its Package.swift text (nothing is compiled or evaluated). */
+export function swiftManifest(dir) {
+  const manifest = path.join(REPO_ROOT, dir, "Package.swift");
+  if (!fs.existsSync(manifest)) throw new Error(`no Package.swift for ${dir}`);
+  const text = fs.readFileSync(manifest, "utf8");
+  const name = /Package\(\s*name:\s*"([^"]+)"/.exec(text)?.[1];
+  if (!name) throw new Error(`missing package name in ${dir}/Package.swift`);
+  const declared = /platforms:\s*\[([^\]]*)\]/.exec(text)?.[1] ?? "";
+  return { name, platforms: [...declared.matchAll(/\.(iOS|watchOS)\(/g)].map((match) => match[1]) };
+}
+
+/** Generic iOS and watchOS builds a Swift package owes, one per declared platform; undeclared platforms are listed as skipped. Scheme is '<Name>-Package', the SwiftPM package scheme. */
+export function swiftXcodebuilds(dir) {
+  const { name, platforms } = swiftManifest(dir);
+  const builds = [];
+  const skipped = [];
+  for (const platform of ["iOS", "watchOS"]) {
+    if (!platforms.includes(platform)) { skipped.push(platform); continue; }
+    builds.push({ platform, args: ["build", "-scheme", `${name}-Package`, "-destination", `generic/platform=${platform}`, "-skipPackagePluginValidation", "CODE_SIGNING_ALLOWED=NO"] });
+  }
+  return { builds, skipped };
+}
 
 /** Lower-case [a-z0-9-] text, safe in an artifact name, a cache key and a job name. */
 export function sanitizeId(text) {
@@ -252,7 +280,11 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
       else add(unit, "pnpm", ["run", name]);
     } else if (kind === "swift") {
       if (name === SWIFT_ROOT_MANIFEST) add(unit, "swift", ["package", "describe", "--type", "json"]);
-      else { add(unit, "swift", ["build"]); if (swiftTests.includes(name)) add(unit, "swift", ["test"]); }
+      else {
+        add(unit, "swift", ["build"]);
+        if (swiftTests.includes(name)) add(unit, "swift", ["test"]);
+        for (const { args } of swiftXcodebuilds(name).builds) add(unit, "xcodebuild", args);
+      }
     } else throw new Error(`unknown shard token kind ${kind}`);
     // Both tested crates & closure-only dependents must compile every standalone consumer row.
     // gate.mjs validates rows before exposing a plan; freeze precisely the same locked invocation.

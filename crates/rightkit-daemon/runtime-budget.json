@@ -27,7 +27,7 @@
       "wakeupsPerSecond",
       "diskOpsPerSecond"
     ],
-    "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS only; disk operations are Windows and Linux only."
+    "note": "The status call returns rightkit_child_process::ProcessUsage (resident and footprint bytes, cumulative CPU seconds, wake-up and disk-operation totals where the host reports them) beside the crate's own queue figures; the rates come from two calls (ProcessUsage::rates_since). Wake-ups are macOS and Windows only; disk operations are Windows and Linux only."
   },
   "measurements": [
     {
@@ -154,7 +154,7 @@
       "ceilingSources": {
         "residentMemoryBytes": "carried from rightkit-daemon 0.1.3 (M7 lane B removed the crate; ceilings at git show ad136ddf^:crates/rightkit-daemon/runtime-budget.json): 2x the larger measured resident set (49430528 B), rounded up to a whole MiB; evidence ad136ddf^:crates/rightkit-daemon/runtime-budget.evidence/ (macos-arm64-0.1.3.txt, windows-x86_64-0.1.3.txt)",
         "idleCpuPercent": "carried from rightkit-daemon 0.1.3: 1 percent absolute for an idle crate; measured at most 0.052 percent",
-        "wakeupsPerSecond": "carried from rightkit-daemon 0.1.3: max(1, 2x measured) per second; macOS measured 0.033; Windows exposes no wake-up counter",
+        "wakeupsPerSecond": "carried from rightkit-daemon 0.1.3: max(1, 2x measured) per second; macOS measured 0.033; Windows wake-ups are the sum of ContextSwitchCount over the live threads (crates/rightkit-child-process/src/usage.rs:12)",
         "diskOpsPerSecond": "carried from rightkit-daemon 0.1.3: max(1, 2x measured) per second; Windows measured 0.0; macOS exposes no per-process disk-operation counter"
       },
       "requiredScale": {

@@ -41,7 +41,7 @@
         "budget_detached"
       ],
       "bench": "budget_detached",
-      "intervalMs": 1000
+      "intervalMs": 2000
     }
   ]
 }

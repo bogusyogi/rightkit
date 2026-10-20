@@ -2,7 +2,7 @@
 
 ## 0.7.0
 
-BREAKING: re-exported automation 0.6.0 types. `rightkit-automation` is now a `0.6.0` dependency, so the paths this crate re-exports (`admission`, `events`, `lease`, `lease_store`, `json`, `keys`, `mac`, `offscreen`) carry the 0.6.0 types. `rightkit-qa` stays at `0.7.0` (no 0.8.0 bump in this tree). Callers that named automation 0.5.0 types through this crate must move to 0.6.0.
+BREAKING: re-exported automation 0.6.0 types. `rightkit-automation` is now a `0.6.0` dependency, so the paths this crate re-exports (`admission`, `events`, `lease`, `lease_store`, `json`, `keys`, `mac`, `offscreen`) carry the 0.6.0 types. `rightkit-qa` is `0.8.0` in this tree, and this crate's optional `rightkit-qa` dependency requires `0.8.0`. Callers that named automation 0.5.0 types through this crate must move to 0.6.0.
 
 ## 0.6.0 — unpublished staging
 

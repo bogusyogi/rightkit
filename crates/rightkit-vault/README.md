@@ -88,7 +88,7 @@ makes the blob unreadable; `Vault::reset` starts over.
   and re-wraps it under the new key; the payload ciphertext is untouched. The service may retire
   an old key once clients have re-wrapped. A blob still under a retired key is
   `Error::KeyUnavailable` (recover with `reset`).
-- **Client secret**: no rotation operation in 0.1.0. Re-keying means `reset` and re-entering the
+- **Client secret**: no rotation operation in 0.2.0. Re-keying means `reset` and re-entering the
   secrets.
 
 ## Pro lapse, account deletion, erase
@@ -138,7 +138,7 @@ for both `GET /v1/vault/wrapping-key` and `POST /v1/vault/rotate`, with
 `Authorization: Bearer <google id token>` and `X-Right-App: <app>`. Not yet confirmed against
 rightsites#81.
 
-## Not in 0.1.0
+## Not in 0.2.0
 
 Rollback detection, compare-and-swap on concurrent saves, client-secret rotation, a Drive
 `BlobStore` (apps implement the trait over `DriveBackend`).

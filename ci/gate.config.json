@@ -77,6 +77,10 @@
         [
           "--features",
           "client,update-auth,subject-entitlement,engine-gate"
+        ],
+        [
+          "--features",
+          "client-testing,update-auth"
         ]
       ],
       "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)"
@@ -106,10 +110,6 @@
         [
           "--features",
           "control,wv2-0_38"
-        ],
-        [
-          "--features",
-          "control,wv2-0_39"
         ]
       ],
       "featureSets": [
@@ -117,6 +117,19 @@
           "--features",
           "control,wv2-0_38"
         ]
+      ],
+      "paths": [
+        "ci/consumers/wv2-0_39"
+      ],
+      "consumerRows": [
+        {
+          "manifestPath": "ci/consumers/wv2-0_39/Cargo.toml",
+          "args": [
+            "--features",
+            "qa"
+          ],
+          "locked": true
+        }
       ]
     },
     "rightkit-qa-driver": {
@@ -323,6 +336,24 @@
       "checkFeatureSets": [
         [
           "--no-default-features"
+        ]
+      ]
+    },
+    "rightkit-device": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "credentials"
+        ]
+      ]
+    },
+    "rightkit-oauth": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "server"
         ]
       ]
     }

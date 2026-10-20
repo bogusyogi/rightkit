@@ -136,19 +136,30 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
     for (const name of trustedRuntimeHelperPaths()) need(hash(await blob(name)) === hash(fs.readFileSync(path.join(TRUST_ROOT, name))), `producer owner helper differs from trusted supported helper: ${name}`);
     need(typeof source.readData === "function", "authenticated source reader required");
     const readSource = (name) => { need(safe(name), "unsafe source path"); return Buffer.from(source.readData(name)); };
-    const workloads = owner.validateSourcePrescription(JSON.parse(readSource(owner.WORKLOAD_PRESCRIPTION_PATH)));
-    const unit = manifest.units.find((u) => u.name === owner.CRATE);
-    need(unit && unit.file === `${owner.CRATE}-${unit.version}.crate`, "missing original logs crate");
-    const archive = fs.readFileSync(path.join(original.packDir, unit.file));
-    need(hash(archive) === unit.sha256 && archive.length === unit.size, "original archive mismatch");
-    if (packDir) need(hash(fs.readFileSync(path.join(packDir, unit.file))) === unit.sha256, "caller archive mismatch");
     const raw = fs.readFileSync(path.join(destination, "qualification.json"));
     need(hash(raw) === pin.artifact.proofSha256, "raw runtime proof mismatch");
     const proof = JSON.parse(raw);
-    const context = { repository: env.GITHUB_REPOSITORY, runId: candidate.runId, runAttempt: candidate.runAttempt, sourceSha: candidate.sourceSha, artifactId: Number(candidate.artifacts.packed.id), artifactDigest: candidate.artifacts.packed.digest };
+    // The authenticated proof names the one crate it measured; that crate must be a sealed candidate unit.
+    need(owner.isCrateName(proof.crate), "proof crate name invalid");
+    const crate = proof.crate;
+    need(Array.isArray(candidate.units) && candidate.units.includes(crate), "proof crate is not a candidate unit");
+    const units = manifest.units.filter((u) => u.name === crate);
+    need(units.length === 1, "proof crate absent from sealed manifest");
+    const unit = units[0];
+    need(unit.file === `${crate}-${unit.version}.crate`, "malformed sealed crate identity");
+    const archive = fs.readFileSync(path.join(original.packDir, unit.file));
+    need(hash(archive) === unit.sha256 && archive.length === unit.size, "original archive mismatch");
+    if (packDir) need(hash(fs.readFileSync(path.join(packDir, unit.file))) === unit.sha256, "caller archive mismatch");
+    let prescribed;
+    try { prescribed = owner.readSourcePrescription(crate, readSource); } catch (error) { need(false, error.message); }
+    const workloads = prescribed.workloads;
+    const context = { repository: env.GITHUB_REPOSITORY, runId: candidate.runId, runAttempt: candidate.runAttempt, sourceSha: candidate.sourceSha, artifactId: Number(candidate.artifacts.packed.id), artifactDigest: candidate.artifacts.packed.digest, crate };
     need(proof.schema === 2 && proof.manifestSha256 === manifestSha256 && Object.entries(context).every(([k,v]) => proof[k] === v) && proof.harnessSha === pin.producer.sourceSha && same(proof.workloads, workloads.map((w) => w.id)), "combined runtime identity mismatch");
-    const budget = JSON.parse(readSource(`crates/${owner.CRATE}/runtime-budget.json`));
-    validateFrozenRuntimeBudget(budget, JSON.parse(fs.readFileSync(path.join(TRUST_ROOT, `crates/${owner.CRATE}/runtime-budget.json`), "utf8")));
+    let budget;
+    try { budget = JSON.parse(readSource(`crates/${crate}/runtime-budget.json`)); } catch { need(false, "candidate runtime budget missing or not JSON"); }
+    let trustedBudget;
+    try { trustedBudget = JSON.parse(fs.readFileSync(path.join(TRUST_ROOT, `crates/${crate}/runtime-budget.json`), "utf8")); } catch { need(false, "trusted runtime budget missing"); }
+    validateFrozenRuntimeBudget(budget, trustedBudget);
     let bindings;
     const reports = [];
     const rawByEvidence = new Map();
@@ -160,13 +171,13 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
       bindings = current;
       for (const [name, digest] of Object.entries(bindings)) {
         need(hash(readSource(name)) === digest, "source binding differs from original candidate");
-        if (name.startsWith(`crates/${owner.CRATE}/src/`) || name === `crates/${owner.CRATE}/Cargo.toml`) {
-          const rel = name.slice(`crates/${owner.CRATE}/`.length);
-          const member = `${owner.CRATE}-${unit.version}/${rel === "Cargo.toml" ? "Cargo.toml.orig" : rel}`;
+        if (name.startsWith(`crates/${crate}/src/`) || name === `crates/${crate}/Cargo.toml`) {
+          const rel = name.slice(`crates/${crate}/`.length);
+          const member = `${crate}-${unit.version}/${rel === "Cargo.toml" ? "Cargo.toml.orig" : rel}`;
           need(hash(command(spawn, "tar", ["-xOzf", path.join(original.packDir, unit.file), member], source.root)) === digest, "sealed source/bench binding mismatch");
         }
       }
-      for (const name of [owner.WORKLOAD_PRESCRIPTION_PATH, `crates/${owner.CRATE}/src/detached.rs`, `crates/${owner.CRATE}/Cargo.toml`, ...workloads.map((w) => `crates/${owner.CRATE}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
+      for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, ...workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
       owner.validateWorkloadReceipts(envelope.workloads, context, unit, manifestSha256, bindings, host, pin.producer.sourceSha, budget, { id: pin.producer.runId, attempt: pin.producer.runAttempt });
       for (const receipt of envelope.workloads) {
         for (const name of [`${receipt.workload}-bench.txt`, `${receipt.workload}-evidence.txt`]) {

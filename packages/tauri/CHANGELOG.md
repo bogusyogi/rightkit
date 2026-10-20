@@ -5,7 +5,7 @@
 Breaking:
 - Remove renderer `license.get/set/delete`, licence command maps & `argumentNames.licenseSet`, including app-specific raw licence routes.
 - Remove `TLicense`; generic order is `<TDevice, TLogBundle, TLogEvent, TDiagnostics>`.
-- Migrate licence operations to `@rightkit/license` 0.3.0 native invoke client. Native Rust owns licence storage & entitlement verification.
+- No licence operations remain: this package has no `@rightkit/license` dependency or import, and no licence client or command.
 
 Device atomic `getOrCreate`, logs, diagnostics & update passthrough behavior remain unchanged.
 

@@ -3,12 +3,13 @@
 //! Load: write 200,000 complete lines (about 120 bytes each) through `stderr_file`, then
 //! let `spawn_drainer` scrub and rotate them using default compaction and a 1 MiB sink.
 //! Keep the drainer alive throughout `observe_idle`, in a separate process from `budget`.
-//! The one-second interval is an explicit measurement parameter, not an API default:
+//! The two-second interval is an explicit measurement parameter, not an API default:
 //! `spawn_drainer` requires its caller to choose an interval.
+//! Qualification covers this chosen two-second synthetic workload only.
 //!
 //! Run: `rightkit cargo test --locked --profile release-iterate -p rightkit-logs
 //! --features tracing,log-bridge --bench budget_detached`
-//! Optional: `-- <lines> <idle_seconds>` (defaults 200000 and 30).
+//! Optional: `-- <lines> <idle_seconds>` (defaults 200000 and 60).
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
 use rightkit_logs::{DetachedLog, RotatingTextWriter};
@@ -16,7 +17,8 @@ use std::io::{BufWriter, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const DRAIN_INTERVAL: Duration = Duration::from_secs(1);
+const DRAIN_INTERVAL: Duration = Duration::from_secs(2);
+const MIN_IDLE_INTERVALS: u32 = 30;
 
 fn wait_until_drained(log: &DetachedLog) {
     let deadline = Instant::now() + Duration::from_secs(300);
@@ -37,9 +39,17 @@ fn main() {
         .filter(|a| a != "--bench")
         .collect();
     let lines: u64 = args.first().and_then(|v| v.parse().ok()).unwrap_or(200_000);
-    let idle_s: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(30);
+    let minimum_idle = DRAIN_INTERVAL * MIN_IDLE_INTERVALS;
+    let idle_s: u64 = args
+        .get(1)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(minimum_idle.as_secs());
+    let idle_duration = Duration::from_secs(idle_s);
     assert!(lines >= 200_000, "required scale is at least 200,000 lines");
-    assert!(idle_s >= 30, "idle window must cover at least 30 intervals");
+    assert!(
+        idle_duration >= minimum_idle,
+        "idle window must cover at least {MIN_IDLE_INTERVALS} intervals"
+    );
 
     let tmp = tempfile::tempdir().unwrap();
     let before = process_usage().expect("process usage");
@@ -70,7 +80,7 @@ fn main() {
         warm.resident_bytes as f64 / 1048576.0,
         before.resident_bytes as f64 / 1048576.0,
     );
-    let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
+    let idle = observe_idle(idle_duration).expect("idle window");
     assert_eq!(log.last_error(), None, "detached idle drain failed");
     assert!(!log.has_pending(), "pending detached bytes after idle");
 
@@ -100,7 +110,7 @@ fn main() {
                 version: env!("CARGO_PKG_VERSION"),
                 scale_unit: "lines",
                 scale: lines,
-                what: "detached stderr lines drained then idle at chosen 1000 ms interval",
+                what: "detached stderr lines drained then idle at chosen 2000 ms interval",
                 scope: "synthetic"
             }
         )

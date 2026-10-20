@@ -39,9 +39,15 @@ pub fn online_backup_to(
     mut progress: Option<&mut dyn BackupProgress>,
 ) -> Result<()> {
     let started = Instant::now();
+    #[cfg(test)]
+    deadline_tests::start(started);
     let deadline = started.checked_add(options.busy_timeout).unwrap_or(started);
     let check_deadline = || -> Result<()> {
-        if Instant::now() >= deadline {
+        #[cfg(test)]
+        let now = deadline_tests::now();
+        #[cfg(not(test))]
+        let now = Instant::now();
+        if now >= deadline {
             Err(DbError::Backup("backup operation timeout expired".into()))
         } else {
             Ok(())
@@ -68,6 +74,9 @@ pub fn online_backup_to(
             let backup = Backup::new(source, &mut dst)?;
             loop {
                 check_deadline()?;
+                #[cfg(test)]
+                let step = deadline_tests::step(&backup)?;
+                #[cfg(not(test))]
                 let step = backup.step(512)?;
                 check_deadline()?;
                 if let Some(sink) = progress.as_deref_mut() {
@@ -375,4 +384,190 @@ fn remove_database_files_except_main(path: &Path) -> std::io::Result<()> {
         }
     }
     first_error.map_or(Ok(()), Err)
+}
+
+// Only unit tests can substitute step outcomes/time. Native integration tests always use SQLite
+// & Instant directly; release builds contain neither this state nor the hooks above.
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+
+    struct Script {
+        started: Instant,
+        elapsed: Duration,
+        steps: VecDeque<(Duration, rusqlite::Result<StepResult>)>,
+        calls: usize,
+    }
+
+    thread_local! {
+        static SCRIPT: RefCell<Option<Script>> = const { RefCell::new(None) };
+    }
+
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            SCRIPT.with(|script| *script.borrow_mut() = None);
+        }
+    }
+
+    pub(super) fn start(started: Instant) {
+        SCRIPT.with(|script| {
+            if let Some(script) = script.borrow_mut().as_mut() {
+                script.started = started;
+            }
+        });
+    }
+
+    pub(super) fn now() -> Instant {
+        SCRIPT.with(|script| {
+            script
+                .borrow()
+                .as_ref()
+                .map_or_else(Instant::now, |script| script.started + script.elapsed)
+        })
+    }
+
+    pub(super) fn step(backup: &Backup<'_, '_>) -> rusqlite::Result<StepResult> {
+        let scripted = SCRIPT.with(|script| {
+            script.borrow_mut().as_mut().map(|script| {
+                let (elapsed, result) = script.steps.pop_front().expect("unexpected backup step");
+                script.elapsed += elapsed;
+                script.calls += 1;
+                result
+            })
+        });
+        scripted.unwrap_or_else(|| backup.step(512))
+    }
+
+    struct Progress {
+        calls: usize,
+        elapsed: Duration,
+    }
+
+    impl BackupProgress for Progress {
+        fn step(&mut self, _remaining: i32) -> bool {
+            self.calls += 1;
+            SCRIPT.with(|script| {
+                script.borrow_mut().as_mut().unwrap().elapsed += self.elapsed;
+            });
+            true
+        }
+    }
+
+    fn run(
+        steps: Vec<(Duration, rusqlite::Result<StepResult>)>,
+        callback_time: Option<Duration>,
+    ) -> (Result<()>, usize, usize) {
+        run_from(Duration::ZERO, steps, callback_time)
+    }
+
+    fn run_from(
+        initial_elapsed: Duration,
+        steps: Vec<(Duration, rusqlite::Result<StepResult>)>,
+        callback_time: Option<Duration>,
+    ) -> (Result<()>, usize, usize) {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("backup.sqlite");
+        std::fs::write(&target, b"previous backup").unwrap();
+        let source = Connection::open_in_memory().unwrap();
+        source.execute_batch("CREATE TABLE t(v);").unwrap();
+        let mut options = DbOptions::new("unused.sqlite");
+        options.busy_timeout = Duration::from_millis(50);
+        SCRIPT.with(|script| {
+            assert!(script.borrow().is_none());
+            *script.borrow_mut() = Some(Script {
+                started: Instant::now(),
+                elapsed: initial_elapsed,
+                steps: steps.into(),
+                calls: 0,
+            });
+        });
+        let _reset = Reset;
+        let mut progress = Progress {
+            calls: 0,
+            elapsed: callback_time.unwrap_or_default(),
+        };
+        let callback = callback_time.map(|_| &mut progress as &mut dyn BackupProgress);
+        let result = online_backup_to(&options, &source, &target, callback);
+        let calls = SCRIPT.with(|script| script.borrow().as_ref().unwrap().calls);
+        assert_eq!(std::fs::read(&target).unwrap(), b"previous backup");
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "owned staging must be removed"
+        );
+        (result, calls, progress.calls)
+    }
+
+    fn assert_timeout(result: &Result<()>) {
+        assert!(
+            matches!(result, Err(DbError::Backup(message)) if message.contains("timeout")),
+            "expected total operation deadline: {result:?}",
+        );
+    }
+
+    #[test]
+    fn expired_operation_never_starts_first_step() {
+        let (result, steps, callbacks) =
+            run_from(Duration::from_millis(50), Vec::new(), Some(Duration::ZERO));
+        assert_timeout(&result);
+        assert_eq!((steps, callbacks), (0, 0));
+    }
+
+    #[test]
+    fn recurring_progress_does_not_reset_total_deadline() {
+        // Two callbacks must occur because this test controls step cost. A third completed
+        // chunk crosses the original 50 ms deadline; progress never grants another budget.
+        let steps = (0..3)
+            .map(|_| (Duration::from_millis(20), Ok(StepResult::More)))
+            .collect();
+        let (result, steps, callbacks) = run(steps, Some(Duration::ZERO));
+        assert_timeout(&result);
+        assert_eq!((steps, callbacks), (3, 2));
+    }
+
+    #[test]
+    fn completed_step_cannot_publish_after_callback_expires_deadline() {
+        let (result, steps, callbacks) = run(
+            vec![(Duration::ZERO, Ok(StepResult::Done))],
+            Some(Duration::from_millis(50)),
+        );
+        assert_timeout(&result);
+        assert_eq!((steps, callbacks), (1, 1));
+    }
+
+    #[test]
+    fn expired_step_stops_before_callback() {
+        let (result, steps, callbacks) = run(
+            vec![(Duration::from_millis(50), Ok(StepResult::Done))],
+            Some(Duration::ZERO),
+        );
+        assert_timeout(&result);
+        assert_eq!((steps, callbacks), (1, 0));
+    }
+
+    #[test]
+    fn progressing_steps_without_callback_share_same_deadline() {
+        let steps = (0..3)
+            .map(|_| (Duration::from_millis(20), Ok(StepResult::More)))
+            .collect();
+        let (result, steps, callbacks) = run(steps, None);
+        assert_timeout(&result);
+        assert_eq!((steps, callbacks), (3, 0));
+    }
+
+    #[test]
+    fn step_error_cleans_staging_without_callback() {
+        let (result, steps, callbacks) = run(
+            vec![(Duration::ZERO, Err(rusqlite::Error::InvalidQuery))],
+            Some(Duration::ZERO),
+        );
+        assert!(matches!(
+            result,
+            Err(DbError::Sqlite(rusqlite::Error::InvalidQuery))
+        ));
+        assert_eq!((steps, callbacks), (1, 0));
+    }
 }

@@ -12,11 +12,15 @@ use std::net::TcpListener;
 use std::time::Duration;
 
 /// Every test here drives a real Chrome for Testing. Without one the test prints a SKIP line
-/// and returns; `RIGHTKIT_REQUIRE_ASSETS=1` turns the gap into a failure.
+/// and returns; required assets or GitHub Actions turn the gap into a failure.
 macro_rules! need_chrome {
     ($test:literal) => {
         if let Err(e) = rightkit_browser::chrome_for_testing_path(None) {
-            if std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|v| v == "1") {
+            let assets_required =
+                std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|value| value == "1");
+            let github_actions =
+                std::env::var_os("GITHUB_ACTIONS").is_some_and(|value| value == "true");
+            if assets_required || github_actions {
                 panic!("{}: {e}", $test);
             }
             println!("[browser] SKIP {}: {e}", $test);

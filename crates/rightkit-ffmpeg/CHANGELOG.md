@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.10 (2026-10-18)
+## 0.2.10 (2026-10-18) — unpublished staging
 
 - New (issue #479): "override first" for the one-call resolver. `ResolveOptions::new().override_first(path)`
   makes `resolve_ffmpeg_handle_with` and `resolve_ffprobe_handle_with` verify the caller-supplied path

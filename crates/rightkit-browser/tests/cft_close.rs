@@ -8,6 +8,24 @@ use rightkit_browser::{chrome_for_testing_path, BrowserSession, LaunchOptions};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+/// Required native qualification must never pass without exercising Chrome.
+fn required_chrome() -> Option<PathBuf> {
+    match chrome_for_testing_path(None) {
+        Ok(path) => Some(path),
+        Err(error) => {
+            let assets_required =
+                std::env::var_os("RIGHTKIT_REQUIRE_ASSETS").is_some_and(|value| value == "1");
+            let github_actions =
+                std::env::var_os("GITHUB_ACTIONS").is_some_and(|value| value == "true");
+            if assets_required || github_actions {
+                panic!("Chrome for Testing close qualification: {error}");
+            }
+            println!("[browser] SKIP Chrome for Testing close qualification: {error}");
+            None
+        }
+    }
+}
+
 /// macOS per-user `X` dirs (from `DARWIN_USER_TEMP_DIR` and `TMPDIR`) holding code-sign clones.
 fn clone_roots() -> Vec<PathBuf> {
     if !cfg!(target_os = "macos") {
@@ -65,12 +83,8 @@ fn group_alive(pid: u32) -> bool {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chrome_for_testing_closes_gracefully_without_leftovers() {
-    let exe = match chrome_for_testing_path(None) {
-        Ok(p) => p,
-        Err(e) => {
-            println!("[browser] SKIP Chrome for Testing close test: {e}");
-            return;
-        }
+    let Some(exe) = required_chrome() else {
+        return;
     };
     let before = clone_entries();
     let session = BrowserSession::launch(LaunchOptions::default())
@@ -103,8 +117,7 @@ async fn chrome_for_testing_closes_gracefully_without_leftovers() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dropped_session_terminates_gracefully_and_removes_profile() {
-    if let Err(e) = chrome_for_testing_path(None) {
-        println!("[browser] SKIP Chrome for Testing drop test: {e}");
+    if required_chrome().is_none() {
         return;
     }
     let before = clone_entries();

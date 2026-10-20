@@ -53,6 +53,7 @@ pub const MIGRATION_STATE: &str = ".rightkit-migration-state.json";
 /// Version of the [`MIGRATION_STATE`] file. Version 1 is the unversioned marker.
 const STATE_VERSION: u64 = 2;
 const WRITER_LOCK: &str = ".writer.lock";
+#[cfg(test)]
 const TMP_SUFFIX: &str = ".rk-migrating";
 
 const WINDOWS_RESERVED: [&str; 22] = [
@@ -1404,9 +1405,6 @@ fn collect(
     entries.sort_by_key(|e| e.file_name());
     for e in entries {
         let name = e.file_name();
-        if name.to_string_lossy().ends_with(TMP_SUFFIX) {
-            continue;
-        }
         if rel.as_os_str().is_empty() && is_reserved_root_name(&name) {
             continue;
         }
@@ -2258,6 +2256,29 @@ mod tests {
             settled(|| a.migrate_from(&old)).unwrap(),
             MigrationOutcome::AlreadyMigrated
         );
+    }
+
+    #[test]
+    fn migration_preserves_legacy_temp_shaped_files_and_directories() {
+        let (d, s) = suite();
+        let a = s.app_root("App").unwrap();
+        let old = old_tree(d.path());
+        let file = Path::new("sub/user.rk-migrating");
+        let directory = Path::new("archive.rk-migrating");
+        fs::write(old.join(file), b"user file").unwrap();
+        fs::create_dir(old.join(directory)).unwrap();
+        fs::write(old.join(directory).join("entry"), b"user entry").unwrap();
+        assert!(matches!(
+            settled(|| a.migrate_from(&old)).unwrap(),
+            MigrationOutcome::Migrated { files: 4, .. }
+        ));
+        for root in [old.as_path(), a.root()] {
+            assert_eq!(fs::read(root.join(file)).unwrap(), b"user file");
+            assert_eq!(
+                fs::read(root.join(directory).join("entry")).unwrap(),
+                b"user entry"
+            );
+        }
     }
 
     #[cfg(unix)]

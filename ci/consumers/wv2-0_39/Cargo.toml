@@ -14,6 +14,8 @@ description = "Gate consumer: builds rightkit-tauri-shell the way a Tauri 2.12 a
 [features]
 # Each feature set mirrors one `wv2-0_39` row of ci/gate.config.json.
 engine = ["rightkit-tauri-shell/engine"]
+# Mirrors the rightkit-qa `wv2-0_39` row (`control,wv2-0_39`, no wv2-0_38): the QA control server on the Tauri 2.12 graph.
+qa = ["dep:rightkit-qa"]
 
 [dependencies]
 # The Tauri 2.12 graph the apps lock (ViewRight src-tauri lock: tauri 2.12.4, tauri-runtime 2.12.2,
@@ -21,6 +23,8 @@ engine = ["rightkit-tauri-shell/engine"]
 tauri = "=2.12.4"
 # default-features = false is what drops wv2-0_38; wv2-0_39 is the only generation selected.
 rightkit-tauri-shell = { path = "../../../crates/rightkit-tauri-shell", default-features = false, features = ["wv2-0_39"] }
+# Optional (feature `qa`): default-features = false keeps the crate's wv2-0_38 generation off; `control` pulls tauri.
+rightkit-qa = { path = "../../../crates/rightkit-qa", default-features = false, features = ["control", "wv2-0_39"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Own uses of the generation, to prove the Tauri boundary matches (see src/lib.rs). The versions equal

@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, SWIFT_ROOT_MANIFEST } from "./shards.mjs";
+import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, SWIFT_ROOT_MANIFEST, swiftXcodebuilds } from "./shards.mjs";
 import { scanTargets } from "./secret-scan.mjs";
 
 const crates = ["rightkit-a", "rightkit-b", "rightkit-c", "rightkit-d", "rightkit-e", "rightkit-heavy", "rightkit-win"];
@@ -178,7 +178,17 @@ test("required evidence includes npm build prerequisites, root & Swift command c
     { unit: "npm:build", command: "pnpm --workspace-concurrency=1 --if-present --filter @rightkit/p1... --filter @rightkit/p2... run build" },
     { unit: "npm:packages/p1", command: "pnpm --dir packages/p1 run test" },
   ]);
-  assert.deepEqual(requiredShardCommands("root:scripts root:test:characterization swift:swift/root-manifest swift:swift/RightKitSwift", { swiftTests: ["swift/RightKitSwift"] }).map((row) => row.command), ["node --test scripts/**/*.test.mjs", "pnpm run test:characterization", "swift package describe --type json", "swift build", "swift test"]);
+  assert.deepEqual(requiredShardCommands("root:scripts root:test:characterization swift:swift/root-manifest swift:swift/RightKitSwift", { swiftTests: ["swift/RightKitSwift"] }).map((row) => row.command), ["node --test scripts/**/*.test.mjs", "pnpm run test:characterization", "swift package describe --type json", "swift build", "swift test", "xcodebuild build -scheme RightKitSwift-Package -destination generic/platform=iOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO", "xcodebuild build -scheme RightKitSwift-Package -destination generic/platform=watchOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO"]);
+});
+
+test("swift packages owe a generic iOS and watchOS build per declared platform; undeclared platforms are skipped", () => {
+  assert.deepEqual(swiftXcodebuilds("swift/RightKitSwift").builds.map((row) => row.args.join(" ")), [
+    "build -scheme RightKitSwift-Package -destination generic/platform=iOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO",
+    "build -scheme RightKitSwift-Package -destination generic/platform=watchOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO",
+  ]);
+  assert.deepEqual(swiftXcodebuilds("swift/RightKitSwift").skipped, []);
+  assert.deepEqual(swiftXcodebuilds("swift/RightKitCloudKitHelper"), { builds: [], skipped: ["iOS", "watchOS"] });
+  assert.deepEqual(requiredShardCommands("swift:swift/RightKitCloudKitHelper", { swiftTests: [] }).map((row) => row.command), ["swift build"]);
 });
 
 test("consumer rows freeze each target after per-set lint & feature checks; missing or substituted commands fail evidence", () => {
