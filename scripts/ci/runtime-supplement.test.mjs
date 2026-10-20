@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { sha, REPOSITORY } from "./upload.mjs";
 import { candidateHash } from "./supplemental-proof.mjs";
@@ -24,8 +25,8 @@ test("runtime measure workflow requires credential-free pinned producer & retain
 const SOURCE = "a".repeat(40), PRODUCER = "b".repeat(40), VALIDATOR = "c".repeat(40);
 const hash = (bytes) => sha("sha256", bytes);
 function runtimeFixture(t) {
-  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
-  const temp = fs.mkdtempSync(path.join(scratch, "runtime-admission-fixture-"));
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
+  const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(scratch, "runtime-admission-fixture-")));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const archive = Buffer.from("original sealed crate fixture"), metadata = Buffer.from('{"name":"rightkit-logs","vers":"0.3.4","deps":[]}');
   const unit = { name: "rightkit-logs", version: "0.3.4", file: "rightkit-logs-0.3.4.crate", size: archive.length, sha256: hash(archive), metaFile: "rightkit-logs-0.3.4.upload.json", metaSha256: hash(metadata) };

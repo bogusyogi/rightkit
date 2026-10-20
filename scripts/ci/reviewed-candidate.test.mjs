@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
@@ -28,8 +29,8 @@ function proofArchive(files, modes = {}) {
   return Buffer.concat([payload, directory, end]);
 }
 function fixture(t, mutate = () => {}, supplemental = false) {
-  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
-  const temp = fs.mkdtempSync(path.join(scratch, "rk-reviewed-"));
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
+  const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(scratch, "rk-reviewed-")));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const crate = Buffer.from("original sealed archive including source Git SHA");
   const metadata = Buffer.from(JSON.stringify({ name: "rightkit-a", vers: "0.1.0", deps: [] }));
@@ -600,8 +601,8 @@ test("actual workflow identify command fails without output on malformed or unau
 });
 
 test("CLI dispatch settles a fresh dynamic admission backedge & fails closed on unfinished work", (t) => {
-  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
-  const temp = fs.mkdtempSync(path.join(scratch, "rk-reviewed-entry-"));
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
+  const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(scratch, "rk-reviewed-entry-")));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const source = fs.readFileSync(new URL("./reviewed-candidate.mjs", import.meta.url), "utf8");
   const marker = "if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {";

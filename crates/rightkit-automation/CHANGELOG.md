@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 — unpublished staging
+
+- BREAKING: the `paths` feature's `per_run_evidence_dir(label) -> Result<(rightkit_daemon::Suite, PathBuf)>` (`src/paths.rs:7`, `:20`) returns a daemon `Suite`. The daemon dependency is 0.4.0 (`Cargo.toml:31`); published 0.5.0 pins `rightkit-daemon ^0.3.0`, so the `Suite` identity changes. Gated behind feature `paths` (`src/lib.rs:54-55`, `Cargo.toml:23`).
+
 ## 0.5.0 — unpublished staging
 
 - Raises the rightkit-daemon dependency floor to 0.3.0 for the current dependency API.

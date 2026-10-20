@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { gzipSync, gunzipSync } from "node:zlib";
@@ -44,8 +45,8 @@ const fixtureOwner = {
 };
 async function scan(bytes, extra = {}) {
   // Root can supply RIGHTKIT_TEST_SCRATCH=D:/scratch (or /Volumes/D/scratch).
-  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
-  const scratchRoot = fs.mkdtempSync(path.join(parent, "archive-scan-fixture-"));
+  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
+  const scratchRoot = fs.realpathSync.native(fs.mkdtempSync(path.join(parent, "archive-scan-fixture-")));
   try {
     const report = await scanArchiveForSecrets({ file: "fixture.tgz", registry: "npm", scratchRoot, scannerOwner: fixtureOwner, readArchive: () => bytes, ...extra });
     assert.deepEqual(fs.readdirSync(scratchRoot), []);

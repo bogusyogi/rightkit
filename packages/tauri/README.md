@@ -6,7 +6,7 @@ Typed renderer adapters for shared Right Suite device, logs & diagnostics comman
 |---|---|
 | Where it runs | App webview UI (renderer side of Tauri IPC) |
 | Rust pair | `rightkit-device` (native device identity) & app log/diagnostics handlers |
-| Version | see INDEX.md |
+| Version | see `package.json` (npm) |
 | License | MIT OR Apache-2.0 |
 
 Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed as `updates` is exposed unchanged as `client.updates`, and this package implements none.
@@ -16,6 +16,7 @@ Updater behavior comes from `@rightkit/app-update`: an `AutoUpdateClient` passed
 | Import | Contents |
 |---|---|
 | `@rightkit/tauri` | `createRightKitTauriClient`, `createRightSuiteAppTauriClient`, `rightSuiteTauriAppConfigs`, `standardRightKitTauriCommands`, `standardRightKitDeviceGetOrCreate`, `createViewRightTauriClient`, `createScrapeRightTauriClient`, `createHeardRightTauriClient`, `createMailRightTauriClient`, `createCodeRightTauriClient`; types `Invoke`, `RightKitTauriCommands`, `RightKitTauriClientConfig`, `RightKitTauriAdapterConfig`, `RightKitTauriAppConfig`, `RightKitTauriClient` |
+| `@rightkit/tauri/dialog` | `pickFolder`, `pickFile`, `pickFiles` (native file dialogs; see below) |
 
 Clients expose `device.getOrCreate`, `logs.write/collect/clear`, `diagnostics.collect/clear` & optional `updates`.
 

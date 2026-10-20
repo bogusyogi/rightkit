@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-oauth"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials."

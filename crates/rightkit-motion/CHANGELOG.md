@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.2.0 - 2026-10-18
+## 0.2.0 — unpublished staging (2026-10-18)
 
 Render and encode owner (rightkit#476, GenRight port; ported from `genright-engine` `motion_service.rs` and `motion_encode.rs`). New feature `encode`; without it the crate is unchanged.
+
+- Dependency `rightkit-transcript` moves from 0.3.0 to 0.4.0 (`Cargo.toml`). The registry's latest `rightkit-motion` is 0.1.0.
 
 - `render`: `FrameSource` trait (`seek(time_s)`, `capture() -> PNG`) so the crate depends on no browser; `render` seeks each frame at `n / fps`, converts it and pipes it to one ffmpeg child through `rightkit_ffmpeg::run_with_stdin`; `render_with_fallback` applies the MPEG-4 retry rule; `capture_still`, `export_still`, `export_poster` (poster frame at two fifths, as GenRight); cancellation through `CancellationToken`; typed `RenderError` whose `code()` keeps GenRight's codes (`h264_encoder_unavailable`, `capture_size_mismatch`, `capture_decode`, `ffmpeg_pipe`, `cancelled`) plus `alpha_encoder_unavailable`.
 - `encoder`: `pick_encoder` (hardware H.264 via `rightkit_ffmpeg::pick_h264`, then `libopenh264`, then MPEG-4 only when allowed), the bits-per-pixel quality map (0.06 / 0.12 / 0.25) as `target_bitrate`, MPEG-4 `-q:v` 6 / 3 / 1, `pick_alpha_encoder` and `AlphaSupport` for ProRes 4444 (`prores_ks`, `.mov`) and VP9 alpha (`libvpx-vp9`, `.webm`), `build_command` for each path.

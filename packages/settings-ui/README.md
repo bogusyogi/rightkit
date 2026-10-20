@@ -6,7 +6,7 @@ Settings panel frame and standard sections for Right Suite apps: appearance, upd
 |---|---|
 | Where it runs | App webview UI (React) |
 | Rust pair | `rightkit-app-settings` is the host persistence store (named in the backend docs). The app supplies the backend adapter. |
-| Version | see INDEX.md |
+| Version | see `package.json` (npm) |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points

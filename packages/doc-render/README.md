@@ -6,7 +6,7 @@ Brand-neutral, read-only renderer for Markdown and sanitized HTML in Right Suite
 |---|---|
 | Where it runs | App webview UI (React) |
 | Rust pair | None |
-| Version | see INDEX.md |
+| Version | see `package.json` (npm) |
 | License | MIT OR Apache-2.0 |
 
 ## Entry points

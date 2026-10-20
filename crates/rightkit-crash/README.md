@@ -40,10 +40,24 @@ fn main() {
 
 `CrashConfig::new(app_name, app_version, crash_dir)` defaults to `NativeCapture::Off`. Set `native_capture` to `NativeCapture::Auto` to also keep a native sample or dump locally. The crash directory is app-owned; RightKit never chooses a location.
 
+## Process kinds and renderer errors
+
+Each process boundary of an app declares its kind. Reports from it carry the fixed code in `process_kind`: `window`, `engine` or `helper` (`ProcessKind`, `src/hook.rs:33-50`). The field is omitted when no kind was declared (`src/report.rs:37-40`).
+
+- `CrashConfig::process_kind(kind)` declares the kind on a configuration (`src/hook.rs:124`).
+- `install_process_hook(kind, config)` installs the panic hook for one boundary; it is the same as setting `process_kind` and calling `install_panic_hook` (`src/hook.rs:300`). Each process calls it once, early in `main`.
+- `record_helper_exit(&config, helper, exit, restart_count)`, called by the supervising process, records a supervised helper's abnormal exit as a `sidecar_crash` report with `process_kind` `helper` (`src/hook.rs:309-319`).
+
+With the opt-in feature `window-errors`, `record_window_error(&config, &gate, &report)` records a renderer or webview error as a `window_error` report, or a `window_rejection` for an unhandled rejection, with `process_kind` `window` (`src/window.rs:121-151`). It never takes a native sample or dump (`src/window.rs:140-142`). The app registers its own command that calls it; nothing is recorded until it does (`src/window.rs:3-8`).
+
+- `WindowErrorReport` carries `kind`, `message`, `stack` and `source` (`src/window.rs:24-34`).
+- `WindowErrorGate::default()` allows 5 reports per 60 seconds and 25 per process; `WindowErrorGate::new(window, max_per_window, max_total)` sets its own limits (`src/window.rs:54-61`).
+- The message is capped at `MAX_WINDOW_MESSAGE_CHARS` (1,000 characters) and the stack at `MAX_WINDOW_STACK_BYTES` (8 KiB) (`src/window.rs:17-19`, `src/window.rs:134-135`). The source keeps no query or fragment (`src/window.rs:136-139`).
+
 ## Platform support
 
 - macOS: `sample`-based native capture.
-- Windows: an out-of-process minidump through the dump helper. The Windows-only test `capture_native_writes_a_minidump_through_an_app_named_helper` covers it (`tests/crash_e2e.rs:296`); it passed on Windows 11 (build 26300, the Dell) on 2026-10-20 with `--all-features`.
+- Windows: an out-of-process minidump through the dump helper. The Windows-only test `capture_native_writes_a_minidump_through_an_app_named_helper` covers it (`tests/crash_e2e.rs:403`); it passed on Windows 11 (build 26300, the Dell) on 2026-10-20 with `--all-features`.
 - Android: no in-process handler. `record_android_exits` takes the OS exit history the Kotlin shell reads at launch (`getHistoricalProcessExitReasons`: crash, native crash tombstone, ANR), keeps header and backtrace text only, and records each death once through the normal redacted report path. Not yet run on a device (docs/design/android-minimum.md).
 - Other platforms: structured reports only.
 

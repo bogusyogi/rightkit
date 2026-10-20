@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — unpublished staging
+
+- BREAKING: public `rightkit-daemon` types change identity. `DispatcherHandler` implements `rightkit_daemon::Handler` (`src/service.rs:33`, exported at `src/lib.rs:80-81` under feature `service`), and `HostFactory::connect_service` returns `rightkit_daemon::Client` and `rightkit_daemon::ServiceError` (`src/ffi.rs:153-156`, feature `ffi`). The daemon dependency is 0.4.0 (`Cargo.toml:52`); published 0.4.0 pins `rightkit-daemon ^0.3.0`. The 0.4.1 entries below were never published and ship under this number.
+
 ## 0.4.1 — 2026-10-20
 
 - Added: `SupervisorConfig::with_handshake` — a per-generation handshake evaluated after snapshot replay and before Ready, sending pre-serialized, zeroized params that the supervisor never retains; Required or BestEffort (BestEffort tolerates only an engine error response; transport failure always fails the boot) (HeardRight #796.1).

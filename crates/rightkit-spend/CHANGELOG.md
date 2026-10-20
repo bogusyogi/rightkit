@@ -14,6 +14,7 @@ GenRight's ledger port (bogusyogi/rightkit#473, duplicate of #462): the semantic
 - **Optional overrun gate.** `Ledger::with_overrun_gate(false)` / `set_overrun_gate`: overruns are still flagged, counted and acknowledgeable, but never block `reserve`. On by default.
 - **Variants.** Every new write has `_in` (caller's `Transaction`) and `_on` (caller's `&Connection` with an open transaction, `NoActiveTransaction` otherwise) forms and runs in a savepoint: `reserve_multi`, `mark_in_flight_group`, `commit_group`, `release_group`, `set_device_allowance`, `record_provider_reported`, `adjust_actual`, `reconcile_invoice`.
 - Semantics that differ from GenRight's `ledger.rs` are listed in the README ("Differences from GenRight's ledger").
+- **`Scope` (Orthic-Labs/rightkit#328, PostRight gap 9).** New `Scope` (venture, channel, account) and `ScopeError`. `Scope::new` and `Scope::parse` validate (non-empty parts with no `/`, `:`, whitespace or control character); `key()` gives the opaque `venture/channel/account` string for the ledger's `scope` argument, and `namespaced("tokens" | "cache" | "spend" | "proof")` gives `namespace:venture/channel/account` so token, cache, spend and proof lookups of one scope share one identity. Additive; the ledger API is unchanged.
 - Not compiled or run when written; verification is the lead's build and test run.
 
 ## 0.1.1 (2026-10-17)
@@ -28,11 +29,6 @@ PostRight's spend-ledger port needed five app shims; each is now native (bogusyo
 - **Strict mode.** `Ledger::with_strict(bool)`, `set_strict`, `is_strict`. In strict mode a repeated `release`, `commit` with the same actual, `commit_unknown` or `mark_in_flight` returns `InvalidTransition { from, to }` instead of the stored state. `reserve` by request id stays idempotent. Off by default.
 - **Currency per reservation.** `ReserveOptions::currency` is stored on the reservation at reserve time and never rewritten (`Reservation::currency`). The account and currency are part of the request-id idempotency check (`RequestMismatch`). An allowance still holds no currency.
 - Not compiled or run when written; verification is the lead's build and test run.
-
-## 0.1.1 - unreleased
-
-- **`Scope` (Orthic-Labs/rightkit#328, PostRight gap 9).** New `Scope` (venture, channel, account) and `ScopeError`. `Scope::new` and `Scope::parse` validate (non-empty parts with no `/`, `:`, whitespace or control character); `key()` gives the opaque `venture/channel/account` string for the ledger's `scope` argument, and `namespaced("tokens" | "cache" | "spend" | "proof")` gives `namespace:venture/channel/account` so token, cache, spend and proof lookups of one scope share one identity. Additive; the ledger API is unchanged.
-- Not compiled or run when written; verification is the CI run.
 
 ## 0.1.0 - unreleased
 

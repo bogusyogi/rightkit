@@ -1,0 +1,3 @@
+# Golden caption fixtures are compared byte for byte with LF output. Windows runners check out with
+# core.autocrlf=true, which would write CRLF and fail srt_vtt_golden (tests/caption_parity.rs): keep LF.
+tests/golden/** text eol=lf

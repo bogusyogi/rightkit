@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qa-driver"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Deprecated shim: use rightkit-qa (`control` feature) for the in-app QA control server and rightkit-automation for background input. Keeps the old rightkit-qa-driver paths, the WebDriver bridge and the macOS CLI."
@@ -36,8 +36,8 @@ wv2-0_38 = ["dep:windows_061", "dep:webview2_com_038", "rightkit-qa?/wv2-0_38"]
 wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039", "rightkit-qa?/wv2-0_39"]
 
 [dependencies]
-rightkit-automation = { version = "0.5.0", path = "../rightkit-automation" }
-rightkit-qa = { version = "0.7.0", path = "../rightkit-qa", optional = true, default-features = false }
+rightkit-automation = { version = "0.6.0", path = "../rightkit-automation" }
+rightkit-qa = { version = "0.8.0", path = "../rightkit-qa", optional = true, default-features = false }
 tauri = { version = "2", optional = true }
 
 # tests/offscreen_macos.rs talks to the embedded server's service directly.

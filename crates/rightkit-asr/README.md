@@ -1,6 +1,6 @@
 # rightkit-asr
 
-Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is published to crates.io; the registry-recorded version is 0.1.0, and this source is 0.2.0 (see [INDEX.md](../../INDEX.md)).
+Parakeet ONNX and Whisper decoding runtime for Right Suite applications. It reconciles the generic Parakeet ONNX runtime used by Right Suite products into one crate. It is published to crates.io; the latest registry version is 0.2.4, and this source is 0.3.0, unpublished (see [INDEX.md](../../INDEX.md)).
 
 Catalog capability: `speech-recognition`.
 

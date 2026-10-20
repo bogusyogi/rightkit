@@ -2,7 +2,7 @@
 
 ## 0.3.3 — unpublished staging
 
-- Raises rightkit-sidecar to 0.3.0 and rightkit-credentials to 0.2.2 for dependency compatibility.
+- Raises rightkit-sidecar to 0.3.0 and rightkit-credentials to 0.4.0 for dependency compatibility. rightkit-credentials 0.4.0 is not yet on crates.io (latest 0.3.0), so this crate cannot publish until it is.
 
 ## 0.3.2 (2026-10-17)
 

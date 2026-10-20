@@ -1,8 +1,13 @@
 # Changelog
 
-## 0.3.0 (2026-10-18)
+## 0.3.0 — unpublished staging (2026-10-18)
 
 - New: `set_asset_scope` lets the host narrow the asset protocol's file scope (issue bogusyogi/rightkit#359, from CutRight). Tests: `tests/asset_scope.rs`.
+- Added an opt-in host authorisation hook for media sources. `SourceRegistry::set_authoriser(Fn(&Path) -> bool + Send + Sync)`, `clear_authoriser`, and `resolve_or_register(path)` register any file the hook allows. `allowed_roots(roots)` builds a hook for "regular files under these directories, recursively".
+- The path is canonicalised first (symlinks resolved, `..` removed) and the hook and registry see only the canonical form; a symlink inside an allowed root that points outside is refused, as are missing paths, directories and non-regular files. Roots and candidates are canonicalised the same way, so Windows verbatim prefixes and on-disk case compare consistently.
+- Hook-registered ids are re-authorised every time they are resolved, so a hook that starts returning `false`, a cleared hook, or a path that now resolves elsewhere refuses the id with `PLAYBACK_NOT_ALLOWED`. Explicitly registered ids do not depend on the hook.
+- New `PlaybackError::NotAllowed` (`PLAYBACK_NOT_ALLOWED`). The enum is not `#[non_exhaustive]`, so hosts that match it exhaustively must add the arm; this is a breaking change for 0.x semver, hence the minor bump.
+- Feature `tauri`: `PlaybackState::set_authoriser`, `allow_roots`, `clear_authoriser`, `authorised_media_source_id`, and the command `authorised_media_source_id(path)`. The existing `media_source_id` command is unchanged and still never registers a path. Default behaviour without a hook is unchanged.
 
 ## 0.2.2 (2026-10-17)
 
@@ -11,13 +16,6 @@
 ## 0.2.1
 
 - Republished on the renamed dependencies: `rightkit-ffmpeg` (was `rightkit-media`), `rightkit-child-process` (was `rightkit-process`). The 0.2.0 on crates.io was packaged before the renames and still named the old crates.
-## Unreleased (0.2.0 work)
-
-- Added an opt-in host authorisation hook for media sources. `SourceRegistry::set_authoriser(Fn(&Path) -> bool + Send + Sync)`, `clear_authoriser`, and `resolve_or_register(path)` register any file the hook allows. `allowed_roots(roots)` builds a hook for "regular files under these directories, recursively".
-- The path is canonicalised first (symlinks resolved, `..` removed) and the hook and registry see only the canonical form; a symlink inside an allowed root that points outside is refused, as are missing paths, directories and non-regular files. Roots and candidates are canonicalised the same way, so Windows verbatim prefixes and on-disk case compare consistently.
-- Hook-registered ids are re-authorised every time they are resolved, so a hook that starts returning `false`, a cleared hook, or a path that now resolves elsewhere refuses the id with `PLAYBACK_NOT_ALLOWED`. Explicitly registered ids do not depend on the hook.
-- New `PlaybackError::NotAllowed` (`PLAYBACK_NOT_ALLOWED`). The enum is not `#[non_exhaustive]`, so hosts that match it exhaustively must add the arm; acceptable because 0.2.0 is unpublished.
-- Feature `tauri`: `PlaybackState::set_authoriser`, `allow_roots`, `clear_authoriser`, `authorised_media_source_id`, and the command `authorised_media_source_id(path)`. The existing `media_source_id` command is unchanged and still never registers a path. Default behaviour without a hook is unchanged.
 
 ## 0.2.0 - 2026-10-11
 

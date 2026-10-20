@@ -2,9 +2,9 @@
 
 ## 0.2.7 — unpublished staging
 
-- Raises rightkit-models dependency floor to 0.5.0.
+- Raises rightkit-models dependency floor to 0.5.0. rightkit-models 0.5.0 is not yet on crates.io (latest 0.4.4), so this crate cannot publish until it is.
 
-All notable changes to `rightkit-ort`. Versions follow Cargo semver; while the version is `0.x`, a
+All notable changes to `rightkit-onnx`. Versions follow Cargo semver; while the version is `0.x`, a
 minor bump may carry breaking changes. Earlier releases are described in `README.md`.
 
 ## 0.2.6 (2026-10-17)

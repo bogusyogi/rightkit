@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0 — unpublished staging
+
+- BREAKING: `SecretTokenStore` (`src/credentials.rs:25-26`) and `SecretTokenStore::new(store: rightkit_credentials::Store)` (`src/credentials.rs:30`) take the `rightkit-credentials` 0.4 `Store`, which changes its identity from 0.3. The dependency is 0.4.0 (`Cargo.toml:44`); published 0.9.0 pins `rightkit-credentials ^0.3.0`. Gated behind feature `secrets` (`src/lib.rs:24-25`, `Cargo.toml:17`).
+
 ## 0.9.0 — unpublished staging
 
 - BREAKING (D23): public signatures take `rightkit-credentials` 0.3 types (`Store`, `Secret` or the Android keystore bridge), which changes their type identity from 0.2. Requires rightkit-credentials 0.3.0.

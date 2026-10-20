@@ -23,7 +23,7 @@ BREAKING: the licence section and hooks move from `StoredLicense` to the `Licens
 - Additive: `SettingsSnapshot` has optional `schemaVersion` and `warning`. `errText` shows the `message` of a host error envelope instead of `[object Object]`.
 - Tests: the adapter test and the e2e host use the registered command names; the e2e harness supplies its own models backend over the test host.
 
-## 0.6.1 — unpublished staging
+## 0.6.1 (2026-10-19)
 
 - Makes theme peer optional for React-only core consumers.
 - `useSettings`: each effect run now cancels its own load, load failure and subscription callback, and a load that is no longer the newest (or that predates a completed write) is discarded, so a StrictMode replay, an out-of-order reply, or a load that settles after a completed write can no longer overwrite newer values, roll back the revision or show a stale error.

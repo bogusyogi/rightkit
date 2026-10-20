@@ -609,10 +609,12 @@ impl<R: Runtime> Control<R> {
 }
 
 /// Env flag the QA launcher sets for a hidden launch (`rightkit-qa` `Mode::Hidden`).
+#[cfg(any(target_os = "macos", test))]
 const ENV_HIDDEN: &str = "RIGHTKIT_QA_HIDDEN";
 
 /// Pure decision: a hidden QA launch (`RIGHTKIT_QA_HIDDEN=1`) must run non-activating. Visible and
 /// background launches are left to the app.
+#[cfg(any(target_os = "macos", test))]
 fn hidden_requested(value: Option<&std::ffi::OsStr>) -> bool {
     value == Some(std::ffi::OsStr::new("1"))
 }

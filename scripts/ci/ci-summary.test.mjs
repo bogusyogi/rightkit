@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -31,8 +32,8 @@ function fixture() {
 }
 
 function runSummary(f) {
-  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? (process.env.GITHUB_ACTIONS === "true" ? process.env.RUNNER_TEMP : undefined) ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
-  const scratch = fs.mkdtempSync(path.join(parent, "rk-compile-summary-"));
+  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? (process.env.GITHUB_ACTIONS === "true" ? process.env.RUNNER_TEMP : undefined) ?? os.tmpdir();
+  const scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(parent, "rk-compile-summary-")));
   try {
     for (const [artifact, report] of Object.entries(f.reports)) {
       const dir = path.join(scratch, artifact);

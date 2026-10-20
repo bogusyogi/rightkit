@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 — unpublished staging
+
+- BREAKING: public `rightkit-daemon` types change identity. `control_toolbox` and `add_app` take `&rightkit_daemon::Suite` (`src/lib.rs:39`, `:48`, `:57`), and `CallContextExt` extends `rightkit_daemon::CallContext` (`src/peer.rs:9`, `:18`, `:35`). The daemon dependency is 0.4.0 (`Cargo.toml:23`); published 0.2.0 pins `rightkit-daemon ^0.3.0`. The automation floor moves to 0.6.0 (`Cargo.toml:24`). The 0.2.1 entries below were never published and ship under this number.
+
 ## 0.2.1 — unpublished staging
 
 - rightkit-speech-client floor 0.4.0 (feature `speech`, on by default), following its transcript 0.4 bump. The speech backend is private (only `Suite`/`Tool` are exported), so no public API change.

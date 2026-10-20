@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
@@ -22,8 +23,8 @@ function fixtureArchive() {
   return gzipSync(Buffer.concat([header, content, Buffer.alloc(512 - content.length), Buffer.alloc(1024)]));
 }
 function fixture(t) {
-  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
-  const temp = fs.mkdtempSync(path.join(parent, "supplement-fixture-"));
+  const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
+  const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(parent, "supplement-fixture-")));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const archive = fixtureArchive();
   const metadata = Buffer.from('{"name":"rightkit-a","vers":"0.1.0","deps":[]}');

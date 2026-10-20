@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 — unpublished staging
+
+- BREAKING: `credentials::CredentialStore::new(store: rightkit_credentials::Store, ..)` (`src/credentials.rs:25`, `Store` imported at `:4`) takes the `rightkit-credentials` 0.4 `Store`, which changes its identity from 0.3. The credentials dependency is 0.4.0 (`Cargo.toml:18`); published 0.3.1 pins `rightkit-credentials ^0.3.0`. Gated behind feature `credentials` (`src/lib.rs:10-11`).
+
 ## 0.3.1 — unpublished staging
 
 - Fix: the `rightkit-license` floor is now `0.2.2`. 0.3.0 declared `0.2.0`, but `src/lib.rs` imports `RevokedIds` and `verify_token_any_device`, which first shipped in 0.2.2. A lock that holds 0.2.0 or 0.2.1 failed with E0432. Cause: the workspace path dependency and a newer lock satisfied the import, and `cargo package --locked` proves only the selected resolution, not the lowest version the manifest permits. No public API change.
