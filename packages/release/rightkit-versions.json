@@ -28,7 +28,7 @@
     "@rightkit/outdated": "0.2.0",
     "@rightkit/pdf-ui": "0.2.0",
     "@rightkit/platform-ui": "0.4.0",
-    "@rightkit/qa": "0.5.1",
+    "@rightkit/qa": "0.5.2",
     "@rightkit/qa-chrome": "0.1.10",
     "@rightkit/react-shell": "0.7.2",
     "@rightkit/release": "0.4.1",
@@ -242,7 +242,8 @@
       "0.4.7",
       "0.4.8",
       "0.4.9",
-      "0.5.0"
+      "0.5.0",
+      "0.5.1"
     ],
     "@rightkit/app-shell": [
       "0.1.0",
@@ -605,7 +606,7 @@
       "@rightkit/outdated": "0.2.0",
       "@rightkit/pdf-ui": "0.2.0",
       "@rightkit/platform-ui": "0.4.0",
-      "@rightkit/qa": "0.5.1",
+      "@rightkit/qa": "0.5.2",
       "@rightkit/qa-chrome": "0.1.10",
       "@rightkit/react-shell": "0.7.2",
       "@rightkit/release": "0.4.0",

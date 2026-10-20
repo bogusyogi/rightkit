@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 16.
+Flagged mismatches: 15.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -105,7 +105,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/outdated` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
 | `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | pdf-ui | Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. |
 | `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 0.4.0 | ok |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
-| `@rightkit/qa` | npm | 0.5.2 | 0.5.1 | 0.5.1 | **MISMATCH staged 0.5.1 != source 0.5.2** |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
+| `@rightkit/qa` | npm | 0.5.2 | 0.5.2 | 0.5.2 | ok |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.10 | 0.1.10 | 0.1.10 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 0.7.2 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/release` | npm | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
