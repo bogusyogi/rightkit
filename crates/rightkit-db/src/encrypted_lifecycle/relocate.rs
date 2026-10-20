@@ -136,13 +136,15 @@ fn checked_plan(
     let root = plan.transaction_root.as_ref().ok_or_else(|| {
         LifecycleError::InvalidConfig("phased relocation requires explicit transaction_root".into())
     })?;
-    let root = rightkit_fs::canonicalize_plain(root)?;
+    let root = rightkit_fs::canonicalize_plain(root)
+        .map_err(|error| rightkit_fs::FsError::io(root, error))?;
     let parent = plan
         .new_path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let parent = rightkit_fs::canonicalize_plain(parent)?;
+    let parent = rightkit_fs::canonicalize_plain(parent)
+        .map_err(|error| rightkit_fs::FsError::io(parent, error))?;
     let leaf = plan
         .new_path
         .file_name()
@@ -427,9 +429,9 @@ impl RelocationCore {
         self.journal.as_mut().expect("journal").phase = "publishing".into();
         self.persist()?;
         let root = self.plan.transaction_root.as_ref().expect("root");
-        let destination_parent = rightkit_fs::canonicalize_plain(
-            self.plan.new_path.parent().expect("checked destination"),
-        )?;
+        let destination_parent_path = self.plan.new_path.parent().expect("checked destination");
+        let destination_parent = rightkit_fs::canonicalize_plain(destination_parent_path)
+            .map_err(|error| rightkit_fs::FsError::io(destination_parent_path, error))?;
         let normalized_destination =
             destination_parent.join(self.plan.new_path.file_name().expect("checked file name"));
         let relative = normalized_destination
