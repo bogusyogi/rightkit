@@ -24,6 +24,8 @@ Do not use it to drive Safari or Firefox, or desktop apps (see `rightkit-automat
 
 `install` (off by default): `install::ensure_chrome_for_testing`; pulls `rightkit-models`, `rightkit-fs` and `zip`. Dependencies include `chromiumoxide` 0.9, `tokio`, `url`, and `rightkit-child-process` for owned child processes.
 
+`cookie-export` (off by default): `CookieExport`, which keeps the cookies of declared domains and publishes them as a private Netscape `cookies.txt` through `rightkit-fs`; an empty or invalid export never replaces the previous file, and `CookieExport::clear_with` removes the file and then runs a callback so the caller can invalidate an engine authentication snapshot. Build cookies with `NetscapeCookie::new`.
+
 ## Usage
 
 Taken from the crate README and from `LaunchOptions` in `src/config.rs`. Illustrative: it is a `no_run` example.

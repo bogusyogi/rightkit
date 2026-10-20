@@ -506,6 +506,7 @@ fn safe_member_path(name: &str, top: &str) -> Option<PathBuf> {
 
 /// True when `target`, a symlink target placed at `link` (both relative to the staging root),
 /// is relative and stays under the first component of `link`.
+#[cfg(any(unix, test))]
 fn symlink_target_stays_inside(link: &Path, target: &str) -> bool {
     if target.is_empty() || target.contains('\\') || target.contains('\0') {
         return false;

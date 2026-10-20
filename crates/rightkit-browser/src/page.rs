@@ -3,6 +3,7 @@ use crate::cdp_ext::{
     AxNode, AxSummary, DownloadBehavior, InterceptDecision, InterceptFailure, InterceptedRequest,
     PageException, PausedCommand, RequestInterceptor, INTERCEPTOR_TIMEOUT, MAX_EXCEPTIONS,
 };
+use crate::cookies::{self, NetscapeCookie};
 use crate::design_mode::{self, DesignModeBridge, DesignModeSession, NativeGestureLatch};
 use crate::error::{cdp, BrowserError, Result};
 use crate::keys::{self, KeyDef};
@@ -19,7 +20,7 @@ use chromiumoxide::cdp::browser_protocol::input::{
 use chromiumoxide::cdp::browser_protocol::inspector::{
     EnableParams as InspectorEnableParams, EventTargetCrashed,
 };
-use chromiumoxide::cdp::browser_protocol::network::ErrorReason;
+use chromiumoxide::cdp::browser_protocol::network::{ErrorReason, SetCookiesParams};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::cdp::browser_protocol::page::CreateIsolatedWorldParams;
 use chromiumoxide::cdp::js_protocol::runtime::{
@@ -517,6 +518,45 @@ impl BrowserPage {
         .await?;
         self.inner.execute(params).await.map_err(cdp)?;
         Ok(())
+    }
+
+    /// Set `cookies` in the browser profile this page belongs to (`Network.setCookies`) and
+    /// return how many were set. The cookies apply to the whole profile, not to this page, and
+    /// persist with a named or directory profile. A subdomain-matching cookie gets a leading dot
+    /// on its domain; a host-only cookie does not. Chrome rejects the whole batch if one cookie
+    /// is invalid (for example a `__Secure-` name without `secure`); the error then sets none
+    /// and its text never contains a cookie value.
+    ///
+    /// Domain filtering, user consent and file selection belong to the caller: this sets exactly
+    /// what it is given. Admitted as an `Eval`-kind effect (detail `import_cookies`, the count
+    /// and the distinct domains; never names or values). An empty slice returns `Ok(0)` without
+    /// contacting the browser; more than [`MAX_COOKIES`](crate::cookies::MAX_COOKIES) is refused.
+    pub async fn import_cookies(&self, cookies: &[NetscapeCookie]) -> Result<usize> {
+        if cookies.is_empty() {
+            return Ok(0);
+        }
+        if cookies.len() > cookies::MAX_COOKIES {
+            return Err(BrowserError::Invalid(format!(
+                "import_cookies takes at most {} cookies",
+                cookies::MAX_COOKIES
+            )));
+        }
+        self.admit(
+            ActionKind::Eval,
+            None,
+            None,
+            Some(cookies::admission_detail(cookies)),
+        )
+        .await?;
+        let _l = self.lane.lock().await;
+        let params = SetCookiesParams::new(cookies::to_cdp_params(cookies));
+        self.inner.execute(params).await.map_err(|e| {
+            BrowserError::Cdp(format!(
+                "Network.setCookies: {}",
+                cookies::scrub(&e.to_string(), cookies)
+            ))
+        })?;
+        Ok(cookies.len())
     }
 
     /// Requests the network policy refused on this page (redirect hops and subresources included).

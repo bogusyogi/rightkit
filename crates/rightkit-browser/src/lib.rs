@@ -20,11 +20,19 @@
 //! * Real-session mode (consent-gated): [`default_browser`], [`UserConsentReceipt`],
 //!   [`ProfileSpec::ImportedFrom`] and [`BrowserSession::attach_user_browser`] reuse the user's
 //!   own sign-ins in a private copy, confined to the consented domains. See [`ImportSpec`].
+//! * [`cookies::parse_netscape`] reads a Netscape `cookies.txt` (bounded; values redacted in
+//!   `Debug` and errors) and [`BrowserPage::import_cookies`] sets the result in the profile.
+//!   With feature `cookie-export`, `CookieExport` goes the other way: it keeps the cookies of
+//!   declared domains and publishes them as a private Netscape file through rightkit-fs; an
+//!   empty or invalid export never replaces the previous file.
 //! * [`BrowserPage::observe`] returns refs that are checked for staleness before use.
 //! * [`design_mode`] holds the element-picker primitives: an isolated-world binding bridge,
 //!   a one-shot native-gesture submit gate, device-pixel capture geometry and the picker script builder.
 mod cdp_ext;
 mod config;
+#[cfg(feature = "cookie-export")]
+pub mod cookie_export;
+pub mod cookies;
 pub mod design_mode;
 mod error;
 mod fixture;
@@ -50,8 +58,14 @@ pub use cdp_ext::{
 };
 pub use config::{
     chrome_for_testing_candidates, chrome_for_testing_path, find_chrome, LaunchOptions,
-    ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
+    ManagedRoot, ProfileSpec, CHROME_FOR_TESTING_ENV, CHROME_FOR_TESTING_INSTALL_HINT,
     CHROME_FOR_TESTING_ROOT_ENV,
+};
+#[cfg(feature = "cookie-export")]
+pub use cookie_export::{ClearOutcome, CookieExport, CookieExportError, ExportReport};
+pub use cookies::{
+    parse_netscape, CookieFieldError, CookieParseError, NetscapeCookie, MAX_COOKIES,
+    MAX_COOKIES_FILE_BYTES,
 };
 pub use error::{BrowserError, Result};
 pub use fixture::{

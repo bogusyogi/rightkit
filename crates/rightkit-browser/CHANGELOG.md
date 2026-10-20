@@ -1,8 +1,13 @@
 # Changelog
 
-## 0.3.5 — unpublished staging
+## 0.3.5 — 2026-10-20
 
+- **Fixed: `install::ensure_chrome_for_testing` was uncallable** — `ManagedRoot` is now re-exported, so callers can construct the root it takes (ScrapeRight G8).
+- Added: `cookies::parse_netscape` and `BrowserPage::import_cookies` — bounded Netscape cookies.txt parsing (values redacted in Debug and errors) and CDP import into the current profile; domain filtering and consent stay with the caller (ScrapeRight G7).
 - Raises rightkit-models dependency floor to 0.5.0.
+- Added (feature `cookie-export`, PK12-4): `CookieExport`, the cookie artifact owner for ScrapeRight's in-app sign-in. It keeps the cookies of declared domains (the domain and its subdomains; case and leading dot ignored), serialises them as Netscape `cookies.txt` and publishes the file privately through rightkit-fs `AtomicWriter` (owner-only from creation, durable, bounded Windows sharing retry). An export with nothing in the declared domains, a cookie the format cannot carry (unless `skip_invalid(true)`), too many cookies or too large a file writes nothing; the text is parsed back and compared before writing and the staged temp file is read back before it replaces the artifact, so a failed export leaves the old file byte for byte. `CookieExport::clear` / `clear_with(path, callback)` remove the artifact and run the callback only once it is gone (`ClearOutcome::{Removed, Absent}`), which is where the caller invalidates its engine authentication snapshot. Errors and `Debug` carry counts and field names, never a cookie name or value. The `#HttpOnly_` prefix is off by default (`mark_http_only(true)` writes it): ScrapeRight's `cookie_pairs_from_netscape` skips every `#` line, so the prefix would hide the HttpOnly session cookie from it.
+- Added: `NetscapeCookie::new(domain, name, value)` with `with_include_subdomains`, `with_path`, `with_secure`, `with_http_only`, `with_expires` and `CookieFieldError`, so a caller can build cookies from its own store; the checks are the ones `parse_netscape` applies. A host starting with `#` is now refused by the parser as well (it could only be read as a comment).
+- Raises the optional rightkit-fs dependency floor to 0.4.3 (`try_sync_dir`).
 
 ## 0.3.4 (2026-10-17)
 

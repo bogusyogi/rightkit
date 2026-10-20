@@ -24,7 +24,7 @@ rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0"
 sha2 = "0.11"
 # Installer (feature `install`): vetted download via rightkit-models, SHA-256 + lock via rightkit-fs, zip extraction.
 rightkit-models = { path = "../rightkit-models", version = "0.5.0", default-features = false, optional = true }
-rightkit-fs = { path = "../rightkit-fs", version = "0.4.0", default-features = false, features = ["digest", "lock"], optional = true }
+rightkit-fs = { path = "../rightkit-fs", version = "0.4.3", default-features = false, features = ["digest", "lock"], optional = true }
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
@@ -39,6 +39,9 @@ default = []
 # `ensure_chrome_for_testing`: installer-time and updater-time delivery of a pinned, digest-checked
 # Chrome for Testing to `<managed root>/current`. Off by default (pulls rightkit-models and zip).
 install = ["dep:rightkit-models", "dep:rightkit-fs", "dep:zip"]
+# `CookieExport`: declared-domain cookie filter, Netscape serialisation and private atomic
+# publication of the cookie artifact through rightkit-fs. Off by default (pulls rightkit-fs only).
+cookie-export = ["dep:rightkit-fs"]
 
 [dev-dependencies]
 # `#[tokio::test(flavor = "multi_thread")]` in the e2e tests; production code needs no multi-thread runtime.

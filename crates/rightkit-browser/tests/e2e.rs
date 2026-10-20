@@ -4,7 +4,9 @@
 //! The browser is the installed Chrome for Testing (a tool installation, not user data). Each
 //! session runs on a temporary profile directory that is removed when the session closes; no
 //! test opens a real browser profile.
-use rightkit_browser::{BrowserError, BrowserSession, LaunchOptions, NetworkPolicy, Target};
+use rightkit_browser::{
+    parse_netscape, BrowserError, BrowserSession, LaunchOptions, NetworkPolicy, Target,
+};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
@@ -222,6 +224,40 @@ async fn named_profile_persists_and_is_exclusive() {
         "persisted"
     );
     s2.shutdown().await;
+}
+
+/// Netscape cookies imported over CDP reach the page (`document.cookie`) and the profile, the
+/// HttpOnly one stays out of script reach, and no assertion message prints a cookie value.
+#[tokio::test(flavor = "multi_thread")]
+async fn import_cookies_sets_cookies_in_the_profile() {
+    need_chrome!("import_cookies_sets_cookies_in_the_profile");
+    let base = serve();
+    let session = BrowserSession::launch(fixture_opts())
+        .await
+        .expect("launch");
+    let p = session.new_page("about:blank").await.unwrap();
+    assert_eq!(p.import_cookies(&[]).await.unwrap(), 0);
+
+    let text = "# Netscape HTTP Cookie File\r\n\
+127.0.0.1\tFALSE\t/\tFALSE\t0\timported\tvalue-one\r\n\
+#HttpOnly_127.0.0.1\tFALSE\t/\tFALSE\t0\thidden\tvalue-two\r\n";
+    let cookies = parse_netscape(text).unwrap();
+    assert_eq!(p.import_cookies(&cookies).await.unwrap(), 2);
+
+    p.goto(&format!("{base}/")).await.unwrap();
+    let seen = p.eval("document.cookie").await.unwrap();
+    let seen = seen.as_str().unwrap_or_default();
+    assert!(
+        seen.contains("imported=value-one"),
+        "script-visible cookie missing"
+    );
+    assert!(!seen.contains("hidden"), "HttpOnly cookie leaked to script");
+    let stored = p.raw().get_cookies().await.unwrap();
+    assert!(
+        stored.iter().any(|c| c.name == "hidden" && c.http_only),
+        "HttpOnly cookie not stored"
+    );
+    session.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
