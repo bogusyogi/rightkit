@@ -18,8 +18,8 @@
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
         "Cargo.toml": "3c2733aa910dda3ec27dd02db91cc2ed1d89ec6117c430bf89db104bc3e92998",
-        "README.md": "6602afb7254944970c2888fd2970a1732d78f008468aea699cc9ae2a52276cba",
-        "src/main.rs": "d25b220e2ecb722872c5409593efec3f8f578fa108c61dc21c1fadf2c0b7ee77"
+        "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
+        "src/main.rs": "e5a789145b36520860cc98d934f6c8d84d95c97411f1595518f1887bd1905bd3"
       }
     },
     "rightkit-logs": {
