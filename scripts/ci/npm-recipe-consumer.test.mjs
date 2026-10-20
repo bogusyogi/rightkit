@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { consumeNpm } from './consume.mjs';
 import { sha } from './upload.mjs';
-import { RUNNER_FILE, recipeDirectory, sourceFiles, hasReviewedNpmEntry, missingRequiredHosts, allowedHosts, hostForPlatform, RUNNABLE_HOSTS, runtimeEnvironment, consumerChildEnv, runNpmRecipeConsumer, validateRecipeEntry, validatePackedClosure, validateConsumerManifest, validateLockClosure, validateMountResult, scratchManifest, npmRecipeQualificationProblems } from './npm-recipe-consumer.mjs';
+import { RUNNER_FILE, recipeDirectory, sourceFiles, hasReviewedNpmEntry, missingRequiredHosts, allowedHosts, hostForPlatform, RUNNABLE_HOSTS, runtimeEnvironment, consumerChildEnv, runNpmRecipeConsumer, validateRecipeEntry, validatePackedClosure, validateConsumerManifest, validateLockClosure, validateMountResult, scratchManifest, scratchWorkspace, validateWorkspaceBinding, consumerInstallArgs, closureAgeExceptions, validateClosureApproval, validateClosureProvenance, CLOSURE_APPROVAL, CLOSURE_PROVENANCE_SCRIPT, npmRecipeQualificationProblems } from './npm-recipe-consumer.mjs';
 
 const read = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url));
 const inventory = JSON.parse(read('ci/consumer-recipes.json'));
@@ -117,7 +117,7 @@ function qualificationFixture() {
   commands.push(command('archive-read', 'tar', ['-xOzf', 'settings-ui.tgz', 'package/package.json'], JSON.stringify(packed), packs));
   commands.push(command('archive-read', 'tar', ['-xOzf', 'settings-ui.tgz', 'package/README.md'], 'readme', packs));
   commands.push(command('toolchain', 'pnpm', ['--version'], `${pin.slice(5)}\n`));
-  commands.push(command('install', 'pnpm', ['install', '--ignore-scripts', '--no-frozen-lockfile', '--ignore-workspace', '--store-dir', `${scratch}/store`], 'installed'));
+  commands.push(command('install', 'pnpm', consumerInstallArgs(`${scratch}/store`), 'installed'));
   const mount = { schemaVersion: 1, recipeId: entry.recipeId, ok: true, nativeHostQualified: false, errors: [], scenarios: Array.from({ length: entry.scenarios }, (_, i) => ({ name: `s${i}`, ok: true, evidence: {}, error: null })), artifact: { path: archive, sha256: 'c'.repeat(64), version, resolution: 'packed', installationBinding: 'all-archive-files-sha256', archiveFileCount: 3 } };
   commands.push(command('runtime', '/usr/bin/node', ['consumer.mjs'], `${JSON.stringify(mount)}\n`));
   const lock = ['lockfileVersion: \'9.0\'', 'packages:', `  '${NAME}@file:${archive}':`, `    resolution: {integrity: ${integrityValue}, tarball: file:${archive}}`, ...Object.entries(entry.closure.install).filter(([dep]) => dep.startsWith('@rightkit/')).map(([dep, v]) => `  '${dep}@${v}':`)].join('\n');
@@ -126,6 +126,8 @@ function qualificationFixture() {
   const recipeFiles = Object.fromEntries(Object.keys(entry.files).map(file => [file, sourceBindings[file]]));
   const report = { ...expected, archivePath: undefined, schema: 1, kind: 'npm-consumer', qualification: 'R2a', recipeId: entry.recipeId, pkId: entry.pkId, verified: true, commands, sourceBindings: clone(sourceBindings), recipe: { sourceCommit: commit, files: recipeFiles, sha256: sha('sha256', JSON.stringify(recipeFiles)) }, toolchain: { node: 'v26.8.1', pnpm: pin.slice(5), packageManager: pin }, lock, lockSha256: sha('sha256', lock), mount, counts: { scenarios: entry.scenarios, archiveFileCount: 3 },
     isolation: { checkout, scratch, originalArchive: archive, home: `${scratch}/home`, userconfig: `${scratch}/home/.npmrc`, globalconfig: `${scratch}/home/global.npmrc`, store: `${scratch}/store`, systemRoot: 'C:\\Windows', ignoreScripts: true, inheritWorkspace: false, scriptLifecycle: 'disabled', manifest, consumerManifestSha256: sha('sha256', `${JSON.stringify(manifest, null, 2)}\n`) } };
+  const config = scratchWorkspace(entry, NAME);
+  report.workspace = { file: `${scratch}/pnpm-workspace.yaml`, before: config, beforeSha256: sha('sha256', config), after: config, afterSha256: sha('sha256', config) };
   delete report.archivePath;
   return { report, expected, recipe: entry, sourceBindings };
 }
@@ -152,6 +154,14 @@ test('hash mismatch, unreviewed entry and substituted evidence fail closed', () 
     'scenario count': f => { const row = f.report.commands.find(c => c.stage === 'runtime'); const m = JSON.parse(row.stdout); m.scenarios.pop(); row.stdout = JSON.stringify(m); },
     'runtime output vs report': f => { f.report.mount.ok = false; },
     'scratch manifest dependency added': f => { f.report.isolation.manifest.dependencies.sneaky = '1.0.0'; },
+    'isolated workspace missing': f => { delete f.report.workspace; },
+    'foreign workspace path': f => { f.report.workspace.file = '/checkout/pnpm-workspace.yaml'; },
+    'workspace config digest': f => { f.report.workspace.afterSha256 = 'f'.repeat(64); },
+    'ambient workspace ignored': f => { f.report.commands.find(c => c.stage === 'install').args.splice(3, 0, '--ignore-workspace'); },
+    'age policy bypass argument': f => { f.report.commands.find(c => c.stage === 'install').args.push('--minimum-release-age=0'); },
+    'trust policy bypass argument': f => { f.report.commands.find(c => c.stage === 'install').args.push('--trust-policy=off'); },
+    'pnpm auto-generated age exception': f => { f.report.workspace.after += "minimumReleaseAgeExclude:\n  - '@rightkit/logs@0.1.6'\n"; f.report.workspace.afterSha256 = sha('sha256', f.report.workspace.after); },
+    'forged matching workspace digests': f => { f.report.workspace.before += 'trustPolicy: off\n'; f.report.workspace.after = f.report.workspace.before; f.report.workspace.beforeSha256 = f.report.workspace.afterSha256 = sha('sha256', f.report.workspace.before); },
     'lifecycle scripts enabled': f => { f.report.isolation.ignoreScripts = false; },
     'scratch inside checkout': f => { f.report.isolation.scratch = '/checkout/scratch'; },
     'missing stage': f => { f.report.commands.pop(); },
@@ -256,4 +266,54 @@ test('consume forwards only the reviewed runtime variable to the unit that decla
     assert.equal(Object.hasOwn(seen[NAME], 'RIGHTKIT_CHROME_FOR_TESTING_ROOT'), false);
     for (const env of Object.values(seen)) for (const key of ['NPM_TOKEN', 'RIGHTKIT_OTHER']) assert.equal(Object.hasOwn(env, key), false);
   } finally { fs.rmSync(scratchRoot, { recursive: true, force: true }); }
+});
+
+
+test('isolated workspace overrides are deterministic exact reviewed RightKit pins only', () => {
+  const name = NAME; const entry = clone(inventory.npm[name]);
+  delete entry.importClosures; entry.closure.declaredOnly = [];
+  entry.closure.install = { react: '19.1.0', '@rightkit/logs': '0.1.6', '@rightkit/app-update': '0.4.0' };
+  const config = 'packages: []\noverrides:\n  "@rightkit/app-update": "0.4.0"\n  "@rightkit/logs": "0.1.6"\n';
+  assert.equal(scratchWorkspace(entry, name), config);
+  entry.closure.install = Object.fromEntries(Object.entries(entry.closure.install).reverse());
+  assert.equal(scratchWorkspace(entry, name), config, 'inventory object insertion order does not alter config bytes');
+  entry.closure.install['@rightkit/logs'] = '^0.1.6';
+  assert.throws(() => scratchWorkspace(entry, name), /exact registry version/);
+  entry.closure.install = { react: '19.1.0' };
+  assert.equal(scratchWorkspace(entry, name), 'packages: []\noverrides: {}\n');
+});
+
+test('workspace binding rejects age/trust policy changes even with recomputed digests', () => {
+  const entry = inventory.npm[NAME]; const scratch = '/scratch/consumer';
+  const config = scratchWorkspace(entry, NAME); const digest = sha('sha256', config);
+  const good = { file: `${scratch}/pnpm-workspace.yaml`, before: config, beforeSha256: digest, after: config, afterSha256: digest };
+  assert.equal(validateWorkspaceBinding(good, entry, NAME, scratch, path.posix), true);
+  for (const addition of ["minimumReleaseAgeExclude:\n  - '@rightkit/logs@0.1.6'\n", 'minimumReleaseAge: 0\n', 'trustPolicy: off\n', 'trustPolicyExclude: ["@rightkit/logs"]\n', 'packages: ["../*"]\n']) {
+    const bad = clone(good); bad.after += addition; bad.afterSha256 = sha('sha256', bad.after);
+    assert.throws(() => validateWorkspaceBinding(bad, entry, NAME, scratch, path.posix), /pnpm changed policy\/config/);
+    bad.before = bad.after; bad.beforeSha256 = bad.afterSha256;
+    assert.throws(() => validateWorkspaceBinding(bad, entry, NAME, scratch, path.posix), /exact reviewed overrides/);
+  }
+  assert.throws(() => validateWorkspaceBinding({ ...good, unreviewed: true }, entry, NAME, scratch, path.posix));
+  assert.deepEqual(consumerInstallArgs('/scratch/store'), ['install', '--ignore-scripts', '--no-frozen-lockfile', '--store-dir', '/scratch/store']);
+});
+
+
+test('tauri age exception is singleton reviewed dependency bytes, never another closure or unit', () => {
+  const name = '@rightkit/tauri'; const entry = clone(inventory.npm[name]);
+  assert.deepEqual(closureAgeExceptions(entry, name), ['@rightkit/logs@0.1.6']);
+  const config = scratchWorkspace(entry, name); const digest = sha('sha256', config);
+  assert.equal(validateWorkspaceBinding({ file: '/scratch/pnpm-workspace.yaml', before: config, after: config, beforeSha256: digest, afterSha256: digest }, entry, name, '/scratch', path.posix), true);
+  assert.match(scratchWorkspace(entry, name), /^packages: \[\]\nminimumReleaseAgeExclude:\n  - "@rightkit\/logs@0\.1\.6"\noverrides:/);
+  assert.deepEqual(closureAgeExceptions(inventory.npm[NAME], NAME), []);
+  const approvals = [{ registry: 'npm', ...CLOSURE_APPROVAL, reviewer: 'reviewed', reviewRef: 'reviewed-source' }];
+  assert.doesNotThrow(() => validateClosureApproval(approvals, entry, name));
+  for (const bad of [[], [...approvals, ...approvals], [{ ...approvals[0], sha256: 'f'.repeat(64) }], [{ ...approvals[0], reviewer: '' }]]) assert.throws(() => validateClosureApproval(bad, entry, name), /approval/);
+  entry.closure.install['@rightkit/logs'] = '0.1.5';
+  assert.throws(() => closureAgeExceptions(entry, name), /exact selected reviewed closure/);
+  entry.closure.install['@rightkit/logs'] = '0.1.6'; entry.closure.install.react = '19.1.0';
+  assert.throws(() => closureAgeExceptions(entry, name), /exact selected reviewed closure/);
+  assert.throws(() => validateClosureProvenance({ archiveBase64: Buffer.from('substituted archive').toString('base64'), artifact: {} }, '', inventory.npm[name], name, '/scratch', path.posix), /approved bytes/);
+  assert.throws(() => validateClosureProvenance({}, '', inventory.npm[NAME], NAME, '/scratch', path.posix), /unexpected dependency/);
+  assert.ok(CLOSURE_PROVENANCE_SCRIPT.includes("import { validateInstalledArtifact } from './provenance.mjs'"));
 });

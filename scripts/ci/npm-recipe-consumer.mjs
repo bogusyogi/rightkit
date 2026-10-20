@@ -7,7 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { childEnv, loadSealed, sha, tarEntry, integrity } from './upload.mjs';
+import { childEnv, loadSealed, sha, tarEntry, integrity, loadApprovedArtifacts } from './upload.mjs';
 import { isWithin } from './registry-consumer.mjs';
 import { validateContext, validateManifestPins, pnpmInvocation, spawnPnpm } from './npm-consumer.mjs';
 
@@ -59,7 +59,7 @@ export function consumerChildEnv(env, home) {
 
 export const shortName = name => { need(NAME.test(name ?? ''), 'unsafe npm recipe name'); return name.slice('@rightkit/'.length); };
 export const recipeDirectory = name => `ci/consumers/npm/${shortName(name)}`;
-export const sourceFiles = name => ['ci/consumer-recipes.json', 'package.json', `packages/${shortName(name)}/package.json`];
+export const sourceFiles = name => ['ci/consumer-recipes.json', 'package.json', `packages/${shortName(name)}/package.json`, ...(name === '@rightkit/tauri' ? ['ci/approved-artifacts.json'] : [])];
 export const hasReviewedNpmEntry = (inventory, name) => inventory?.schema === 1 && Object.hasOwn(inventory.npm ?? {}, name) && name !== '@rightkit/logs';
 
 /** Missing, malformed or foreign entries are refused; nothing falls back to a default recipe. */
@@ -124,6 +124,66 @@ export function scratchManifest(manifest, name, archive, pin) {
   return { ...rest, dependencies: { ...manifest.dependencies, [name]: `file:${archive.replaceAll('\\', '/')}` } };
 }
 
+// This is one reviewed dependency-byte exception, never a general release-age bypass.
+export const CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/logs', version: '0.1.6', sha256: '72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c' });
+export function closureAgeExceptions(entry, name) {
+  if (name !== '@rightkit/tauri') return [];
+  need(same(entry.closure.install, { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6' }), 'tauri release-age exception requires exact selected reviewed closure');
+  return [`${CLOSURE_APPROVAL.name}@${CLOSURE_APPROVAL.version}`];
+}
+export function validateClosureApproval(artifacts, entry, name) {
+  if (!closureAgeExceptions(entry, name).length) return;
+  need(Array.isArray(artifacts), 'dependency byte approval list missing');
+  const rows = artifacts.filter(row => row?.registry === 'npm' && row.name === CLOSURE_APPROVAL.name && row.version === CLOSURE_APPROVAL.version);
+  need(rows.length === 1 && rows[0].sha256 === CLOSURE_APPROVAL.sha256 && typeof rows[0].reviewer === 'string' && rows[0].reviewer.trim() && typeof rows[0].reviewRef === 'string' && rows[0].reviewRef.trim(), 'exact selected dependency bytes lack reviewer approval');
+}
+// Fixed child source is command-bound by admission. Existing reviewed helper checks every installed archive file.
+export const CLOSURE_PROVENANCE_SCRIPT = `
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+import { validateInstalledArtifact } from './provenance.mjs';
+const expected = ${JSON.stringify(CLOSURE_APPROVAL)};
+const response = await fetch('https://registry.npmjs.org/@rightkit/logs/-/logs-0.1.6.tgz', { redirect: 'error', signal: AbortSignal.timeout(60000) });
+if (!response.ok) throw new Error('approved dependency registry fetch failed');
+const bytes = Buffer.from(await response.arrayBuffer());
+if (!bytes.length || bytes.length > 32 * 1024 * 1024 || createHash('sha256').update(bytes).digest('hex') !== expected.sha256) throw new Error('registry dependency differs from approved bytes');
+const archive = path.resolve('closure-logs.tgz');
+fs.writeFileSync(archive, bytes);
+const resolved = import.meta.resolve(expected.name);
+const evidence = validateInstalledArtifact({ fixtureUrl: pathToFileURL(path.resolve('consumer.mjs')).href, archive, sha256: expected.sha256, version: expected.version, resolution: 'fetched', packageName: expected.name, rootResolvedUrl: resolved, entries: { [expected.name]: resolved } });
+console.log(JSON.stringify({ archiveBase64: bytes.toString('base64'), artifact: evidence.artifact }));
+`;
+export function validateClosureProvenance(evidence, lock, entry, name, scratch, api = path) {
+  if (!closureAgeExceptions(entry, name).length) { need(evidence === undefined, 'unexpected dependency provenance exception'); return; }
+  need(evidence && same(Object.keys(evidence).sort(), ['archiveBase64', 'artifact']) && typeof evidence.archiveBase64 === 'string' && evidence.archiveBase64.length <= 45 * 1024 * 1024, 'dependency provenance evidence malformed');
+  const bytes = Buffer.from(evidence.archiveBase64, 'base64');
+  need(bytes.length > 0 && bytes.toString('base64') === evidence.archiveBase64 && sha('sha256', bytes) === CLOSURE_APPROVAL.sha256, 'registry dependency differs from approved bytes');
+  const rows = [...lock.matchAll(/^  '@rightkit\/logs@0\.1\.6':\r?\n    resolution: \{integrity: (sha512-[A-Za-z0-9+/]{86}==)\}\r?$/gm)];
+  need(rows.length === 1 && rows[0][1] === integrity(bytes), 'dependency lock integrity differs from approved registry tarball');
+  const artifact = evidence.artifact;
+  need(artifact?.path === api.join(scratch, 'closure-logs.tgz') && artifact.sha256 === CLOSURE_APPROVAL.sha256 && artifact.version === CLOSURE_APPROVAL.version && artifact.resolution === 'fetched' && artifact.installationBinding === 'all-archive-files-sha256' && Number.isSafeInteger(artifact.archiveFileCount) && artifact.archiveFileCount > 0, 'installed dependency provenance differs from approved registry tarball');
+}
+
+/** An owned, isolated workspace applies only exact reviewed RightKit closure pins, with only its explicit reviewed dependency-byte exception. */
+export function scratchWorkspace(entry, name) {
+  validateRecipeEntry(entry, name);
+  const pins = Object.entries(entry.closure.install).filter(([dep]) => NAME.test(dep)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const exceptions = closureAgeExceptions(entry, name);
+  return `packages: []\n${exceptions.length ? `minimumReleaseAgeExclude:\n${exceptions.map(spec => `  - ${JSON.stringify(spec)}\n`).join('')}` : ''}${pins.length ? `overrides:\n${pins.map(([dep, version]) => `  ${JSON.stringify(dep)}: ${JSON.stringify(version)}\n`).join('')}` : 'overrides: {}\n'}`;
+}
+
+/** No config or policy mutation is admitted, including pnpm-generated minimumReleaseAgeExclude entries. */
+export function validateWorkspaceBinding(workspace, entry, name, scratch, api = path) {
+  const config = scratchWorkspace(entry, name); const digest = sha('sha256', config);
+  need(same(workspace, { file: api.join(scratch, 'pnpm-workspace.yaml'), before: config, beforeSha256: digest, after: config, afterSha256: digest }), 'isolated workspace differs from exact reviewed overrides or pnpm changed policy/config during install');
+  return true;
+}
+
+// --ignore-workspace would disable the owned config; this command is valid only with its bound isolated workspace.
+export const consumerInstallArgs = store => ['install', '--ignore-scripts', '--no-frozen-lockfile', '--store-dir', store];
+
 /** Every @rightkit resolution in the fresh lock is the supplied archive or an exact reviewed pin. */
 export function validateLockClosure(lock, entry, name, archiveName) {
   need(typeof lock === 'string' && !/workspace:|link:|git\+|github:/.test(lock), 'lock contains foreign dependency source');
@@ -177,7 +237,7 @@ function qualification({ report, expected, recipe, sourceBindings } = {}) {
   if (report.recipe?.sourceCommit !== report.commit || !same(report.recipe?.files, expectedRecipe) || report.recipe?.sha256 !== sha('sha256', JSON.stringify(expectedRecipe))) fail('recipe digest/source mismatch');
   const commands = report.commands;
   if (!Array.isArray(commands)) return [...problems, 'npm recipe: missing actual command transcript'];
-  const counts = { source: bound.length, 'archive-read': 2, toolchain: 1, install: 1, runtime: 1 };
+  const counts = { source: bound.length, 'archive-read': 2, toolchain: 1, install: 1, runtime: 1, 'closure-provenance': closureAgeExceptions(entry, name).length ? 1 : 0 };
   for (const command of commands) if (!Object.hasOwn(counts, command.stage) || command.status !== 0 || command.error || typeof command.stdout !== 'string' || typeof command.stderr !== 'string' || !Array.isArray(command.args) || command.args.some(a => typeof a !== 'string')) fail('unknown/failed/malformed actual command');
   for (const [stage, count] of Object.entries(counts)) if (commands.filter(c => c.stage === stage).length !== count) fail(`missing/duplicate ${stage} stage`);
   const sources = commands.filter(c => c.stage === 'source');
@@ -204,14 +264,23 @@ function qualification({ report, expected, recipe, sourceBindings } = {}) {
     const inventory = JSON.parse(sourceOut('ci/consumer-recipes.json'));
     if (!same(inventory.npm?.[name], entry)) throw new Error('candidate inventory entry differs from verifier-revision entry');
     if (!same(iso.manifest, scratchManifest(consumer, name, iso.originalArchive, pin)) || sha('sha256', `${JSON.stringify(iso.manifest, null, 2)}\n`) !== iso.consumerManifestSha256) throw new Error('scratch manifest differs from reviewed closure plus archive');
+    validateWorkspaceBinding(report.workspace, entry, name, iso.scratch, api);
+    if (closureAgeExceptions(entry, name).length) validateClosureApproval(JSON.parse(sourceOut('ci/approved-artifacts.json')).artifacts, entry, name);
     if (report.lockSha256 !== sha('sha256', report.lock ?? '') || !report.lock.includes(report.archiveIntegrity)) throw new Error('lock digest/integrity mismatch');
     validateLockClosure(report.lock, entry, name, api.basename(iso.originalArchive));
+    const provenance = commands.find(c => c.stage === 'closure-provenance');
+    if (closureAgeExceptions(entry, name).length) {
+      if (!provenance || !api.isAbsolute(provenance.command ?? '') || provenance.cwd !== iso.scratch || !same(provenance.args, ['--input-type=module', '-e', CLOSURE_PROVENANCE_SCRIPT])) throw new Error('dependency provenance command differs');
+      const evidence = JSON.parse(provenance.stdout.trim());
+      if (!same(report.closureProvenance, evidence)) throw new Error('dependency provenance output/report mismatch');
+      validateClosureProvenance(evidence, report.lock, entry, name, iso.scratch, api);
+    } else validateClosureProvenance(report.closureProvenance, report.lock, entry, name, iso.scratch, api);
   } catch (error) { fail(`actual packed/consumer/lock output invalid: ${error.message}`); }
   const runtimeKeys = runtimeEnvNames(name);
   if (!same(Object.keys(report.runtimeEnv ?? {}).sort(), [...runtimeKeys].sort()) || Object.values(report.runtimeEnv ?? {}).some(v => typeof v !== 'string' || !api.isAbsolute(v))) fail('runtime environment differs from reviewed list');
   const install = commands.find(c => c.stage === 'install'); const version = commands.find(c => c.stage === 'toolchain'); const runtime = commands.find(c => c.stage === 'runtime');
   const expectedCall = args => report.host === 'windows' ? { command: api.join(iso.systemRoot, 'System32', 'cmd.exe'), args: ['/d', '/s', '/c', `pnpm ${args.map(a => `"${a}"`).join(' ')}`] } : { command: 'pnpm', args };
-  for (const [row, args] of [[install, ['install', '--ignore-scripts', '--no-frozen-lockfile', '--ignore-workspace', '--store-dir', iso.store]], [version, ['--version']]]) {
+  for (const [row, args] of [[install, consumerInstallArgs(iso.store)], [version, ['--version']]]) {
     const call = expectedCall(args);
     if (!row || row.command !== call.command || !same(row.args, call.args) || row.cwd !== iso.scratch) fail('actual pnpm command mismatch');
   }
@@ -323,7 +392,19 @@ ${value}`).join('');
     }
     report.toolchain = { node: process.version, pnpm: pnpm(['--version']).trim(), packageManager: pin };
     if (report.toolchain.pnpm !== pin.slice(5)) throw new Error('pnpm executable differs from manifest pin');
-    pnpm(['install', '--ignore-scripts', '--no-frozen-lockfile', '--ignore-workspace', '--store-dir', path.join(scratch, 'store')]);
+    const workspaceFile = path.join(scratch, 'pnpm-workspace.yaml');
+    if (closureAgeExceptions(entry, name).length) {
+      const approval = loadApprovedArtifacts(path.join(root, 'ci/approved-artifacts.json'));
+      need(approval.problems.length === 0, approval.problems.join('\n'));
+      validateClosureApproval(approval.entries, entry, name);
+    }
+    const workspaceBefore = scratchWorkspace(entry, name);
+    fs.writeFileSync(workspaceFile, workspaceBefore);
+    report.workspace = { file: workspaceFile, before: workspaceBefore, beforeSha256: sha('sha256', workspaceBefore) };
+    pnpm(consumerInstallArgs(path.join(scratch, 'store')));
+    const workspaceAfter = fs.readFileSync(workspaceFile, 'utf8');
+    Object.assign(report.workspace, { after: workspaceAfter, afterSha256: sha('sha256', workspaceAfter) });
+    validateWorkspaceBinding(report.workspace, entry, name, scratch);
     const installed = JSON.parse(fs.readFileSync(path.join(scratch, 'node_modules', ...name.split('/'), 'package.json')));
     if (installed.version !== unit.version || JSON.stringify(installed) !== JSON.stringify(packed)) throw new Error('installed package differs from sealed manifest');
     report.archiveIntegrity = integrity(fs.readFileSync(archive));
@@ -331,6 +412,10 @@ ${value}`).join('');
     report.lock = fs.readFileSync(path.join(scratch, 'pnpm-lock.yaml'), 'utf8');
     report.lockSha256 = sha('sha256', report.lock);
     validateLockClosure(report.lock, entry, name, path.basename(archive));
+    if (closureAgeExceptions(entry, name).length) {
+      report.closureProvenance = JSON.parse(run(process.execPath, ['--input-type=module', '-e', CLOSURE_PROVENANCE_SCRIPT], scratch, 'closure-provenance').trim());
+      validateClosureProvenance(report.closureProvenance, report.lock, entry, name, scratch);
+    }
     const runtimeExtras = runtimeEnvironment(name, env, { checkout: root, scratch });
     report.runtimeEnv = runtimeExtras;
     const output = run(process.execPath, ['consumer.mjs'], scratch, 'runtime', { env: { ...child, ...runtimeExtras, RIGHTKIT_CONSUMER_ARTIFACT: archive, RIGHTKIT_CONSUMER_ARTIFACT_SHA256: unit.sha256, RIGHTKIT_CONSUMER_EXPECTED_VERSION: unit.version, RIGHTKIT_CONSUMER_RESOLUTION: 'packed' } });
@@ -339,6 +424,7 @@ ${value}`).join('');
     report.isolation = { checkout: root, scratch, originalArchive: archive, home, userconfig: child.npm_config_userconfig, globalconfig: child.npm_config_globalconfig, store: path.join(scratch, 'store'), systemRoot: env.SystemRoot || 'C:\\Windows', ignoreScripts: true, inheritWorkspace: false, scriptLifecycle: 'disabled', manifest, consumerManifestSha256: sha('sha256', fs.readFileSync(path.join(scratch, 'package.json'))) };
     if (sha('sha256', fs.readFileSync(archive)) !== unit.sha256 || fs.statSync(archive).size !== unit.size || sha('sha256', fs.readFileSync(path.join(packDir, 'manifest.json'))) !== sealed.manifestSha256) throw new Error('sealed bytes changed during consumer');
     for (const [file, binding] of Object.entries(bindings)) if (sha('sha256', fs.readFileSync(path.join(root, file))) !== binding.executionSha256) throw new Error('source/recipe changed during consumer');
+    if (fs.readFileSync(workspaceFile, 'utf8') !== workspaceBefore) throw new Error('isolated workspace changed during consumer runtime');
     report.verified = true;
     const problems = npmRecipeQualificationProblems({ report, expected: { name, version: unit.version, commit: sealed.manifest.commit, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, archiveIntegrity: unit.integrity, host: report.host, runnerOS: env.RUNNER_OS, arch: process.arch, packageManager: pin, archivePath: archive }, recipe: entry, sourceBindings: report.sourceBindings });
     if (problems.length) { report.verified = false; throw new Error(problems.join('\n')); }
