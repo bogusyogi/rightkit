@@ -78,6 +78,26 @@ async function diagnostic(entry, out) {
       } catch (error) { report.windowsProbes.push({ kind, ...extra, durationMs: performance.now() - started, error: errorRecord(error) }); }
     }
     run('powershell-entry', `${marker('ENTRY')}[ordered]@{ PSVersion = $PSVersionTable.PSVersion.ToString(); LanguageMode = [string]$ExecutionContext.SessionState.LanguageMode; PSHOME = $PSHOME } | ConvertTo-Json -Compress; ${marker('ENTRY_COMPLETE')}`);
+    run('powershell-raw-console', `${marker('ENTRY')}
+[Console]::Error.WriteLine('PSVersion=' + $PSVersionTable.PSVersion.ToString()); [Console]::Error.Flush();
+[Console]::Error.WriteLine('LanguageMode=' + [string]$ExecutionContext.SessionState.LanguageMode); [Console]::Error.Flush();
+[Console]::Error.WriteLine('PSHOME=' + $PSHOME); [Console]::Error.Flush();
+[Console]::Error.WriteLine('PSModulePath=' + $env:PSModulePath); [Console]::Error.Flush();
+${marker('EXIT')}`);
+    run('powershell-explicit-cim', `function RkDiagnosticMark([string]$text) { [Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ' + $text); [Console]::Error.Flush() }
+$ErrorActionPreference = 'Stop'; $PSModuleAutoLoadingPreference = 'None';
+try {
+  RkDiagnosticMark 'IMPORT_BEGIN';
+  Import-Module ($PSHOME + '\\Modules\\CimCmdlets\\CimCmdlets.psd1') -ErrorAction Stop;
+  RkDiagnosticMark 'IMPORT_END';
+  RkDiagnosticMark 'QUERY_BEGIN';
+  $rows = @(CimCmdlets\\Get-CimInstance Win32_Process -ErrorAction Stop);
+  RkDiagnosticMark ('QUERY_END count=' + [string]$rows.Count);
+} catch {
+  RkDiagnosticMark ('ERROR_TYPE=' + $_.Exception.GetType().FullName);
+  RkDiagnosticMark ('ERROR_ID=' + [string]$_.FullyQualifiedErrorId);
+  exit 1;
+}`);
     try {
       let instrumented = marker('SCRIPT_ENTRY') + script;
       instrumented = once(instrumented, '$assembly = [AppDomain]', `${marker('REFLECTION_EMIT_BEGIN')}$assembly = [AppDomain]`);

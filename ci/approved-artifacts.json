@@ -274,6 +274,40 @@
           "receiptSha256": "f27be6b716d79cc8ec44525d3145505ceef5e7669662ee25c47be08b7ecc5c6f"
         }
       }
+    },
+    {
+      "id": "npm-tauri-030-93d4",
+      "sourceSha": "93d445404ad631572fb6c91f6cd443f8cf08266a",
+      "runId": "39502600992",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "04912bffc93a4a018a9729a0724a1c3fb07cb05544a4a0251a9caab0668f5bd2",
+      "registry": "npm",
+      "units": [
+        "@rightkit/tauri"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12301955966",
+          "digest": "sha256:7000fc7911313fba5c0e2671f50944be0c93a4e6ab0eac53843c001a04245bf9"
+        },
+        "macos": {
+          "id": "12301727562",
+          "digest": "sha256:a7091dc1b6f57ab07f84276d2854daebb9a1deac4d3ef5c65a2380e5942d8841",
+          "receiptSha256": "5cebb16d822de09d104b1e7994824222dbb46927f901f3d5b8933a86e78b3ee5"
+        },
+        "windows": {
+          "id": "12301292596",
+          "digest": "sha256:cd74cb6596257c9b5499a5e68ad3b32e677c33d84a07dc8279dfd55e3d74431a",
+          "receiptSha256": "731aed007a4ca78a566d63e31c4beabbe83f89adafd9e896038c0d12953cde90"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -356,6 +390,14 @@
       "sha256": "c37d3ed6ae2d2c3199767cd07c152706a3bc8242647f3f30c3290257535f2855",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/root/hb_post_foundation/39495922938/logs-0.3.4-runtime-39500183977"
+    },
+    {
+      "registry": "npm",
+      "name": "@rightkit/tauri",
+      "version": "0.3.0",
+      "sha256": "4441a7191e5da878dcd6029206cc0fafcc746de755282f6553183668eeb7a0b2",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/hb_post_foundation/39502600992/tauri-0.3.0"
     }
   ]
 }
