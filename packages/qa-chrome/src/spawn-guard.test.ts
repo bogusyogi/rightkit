@@ -4,15 +4,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-// Every spawnSync is recorded and answered with an empty, successful scan. Nothing real is started.
-const spawned = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+// Every spawnSync is recorded; the default answer is an empty, successful scan. Nothing real is started.
+const spawned = vi.hoisted(() => ({
+  calls: [] as unknown[][],
+  response: undefined as { status: number | null; stdout: unknown } | undefined,
+}));
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
     spawnSync: (...args: unknown[]) => {
       spawned.calls.push(args);
-      return { status: 0, stdout: 'RK_QA_SCAN_COMPLETE\n', stderr: '', pid: 0, output: [], signal: null };
+      return { status: 0, stdout: 'RK_QA_SCAN_COMPLETE\n', stderr: '', pid: 0, output: [], signal: null, ...spawned.response };
     },
   };
 });
@@ -52,6 +55,49 @@ describe('no spawn without a positive whole-millisecond timeout (spawnSync reads
       expect(script).not.toContain('Add-Type');
       expect(script).not.toContain('RK_QA_CS');
       expect(options).toMatchObject({ windowsHide: true, timeout: 1_000 });
+    }
+  });
+
+  if (process.platform === 'win32') it('bootstraps system modules in order only for profile scans', () => {
+    spawned.calls.length = 0;
+    expect(probeProfileProcesses(path.join(scratch, 'p'), 30_000)).toEqual([]);
+    probeProcessIdentities([{ pid: 5, cimFileTime: '123' }], 1_000);
+    killVerifiedProcesses([{ pid: 5, creation: '123' }], 1_000);
+    expect(spawned.calls).toHaveLength(3);
+    const scripts = spawned.calls.map(([, args]) => (args as string[]).at(-1)!);
+    const utility = 'Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1"';
+    const cim = 'Import-Module "$PSHOME\\Modules\\CimCmdlets\\CimCmdlets.psd1"';
+    const disableAutoload = "$PSModuleAutoLoadingPreference = 'None'";
+    const scan = scripts[0];
+    expect(scan).toContain(`${disableAutoload}; ${utility}; ${cim}; $p = $env:RK_QA_PROFILE;`);
+    expect(scan.indexOf("$ErrorActionPreference = 'Stop'")).toBeLessThan(scan.indexOf(disableAutoload));
+    expect(scan.indexOf(disableAutoload)).toBeLessThan(scan.indexOf('Get-CimInstance Win32_Process |'));
+    expect(scan).toContain("}; 'RK_QA_SCAN_COMPLETE'");
+    expect(spawned.calls[0][2]).toMatchObject({ timeout: 15_000, windowsHide: true });
+    for (const script of scripts.slice(1)) {
+      expect(script).not.toContain('Import-Module');
+      expect(script).not.toContain('$PSModuleAutoLoadingPreference');
+    }
+  });
+
+  if (process.platform === 'win32') it('keeps failed, timed-out, incomplete & unknown profile scans distinct from clean scans', () => {
+    try {
+      for (const response of [
+        { status: 1, stdout: 'RK_QA_SCAN_COMPLETE\n' },
+        { status: null, stdout: 'RK_QA_SCAN_COMPLETE\n' },
+        { status: 0, stdout: undefined },
+        { status: 0, stdout: '123|638000000000000001\n' },
+      ]) {
+        spawned.response = response;
+        expect(probeProfileProcesses(path.join(scratch, 'p'), 1_000)).toBeNull();
+      }
+      spawned.response = { status: 0, stdout: '123|638000000000000001\nUNKNOWN|456\nRK_QA_SCAN_COMPLETE\n' };
+      expect(probeProfileProcesses(path.join(scratch, 'p'), 1_000)).toEqual([
+        { pid: 123, creation: '638000000000000001' },
+        { pid: 456, unknown: true },
+      ]);
+    } finally {
+      spawned.response = undefined;
     }
   });
 

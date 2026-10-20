@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.10 (unreleased)
+
+- #811: Windows profile scanner disables module autoload, then explicitly imports system PowerShell Utility & CimCmdlets modules in order from `$PSHOME`, avoiding autoload discovery stalls. Shared PowerShell runner, process identity checks, termination, timeout caps & failed-scan behavior remain unchanged.
+
 ## 0.1.9 (unreleased)
 
 - #811: `close()` uses one monotonic `budgetMs` (default 60 s). Scans, kills, waits & removal attempts receive remaining time; sub-millisecond external calls are skipped. Defaults remain 5 s grace, 15 s force, 4 s settle & 10 s profile removal, each capped by remaining budget. Final observation has a reserve of one quarter of budget, at most 5 s.

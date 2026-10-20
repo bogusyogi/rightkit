@@ -663,7 +663,8 @@ export function probeProfileProcesses(profileDir: string, timeoutMs: number = SC
   const timeout = spawnTimeout(timeoutMs, SCAN_CAP_MS);
   if (timeout <= 0) return null;
   if (process.platform !== 'win32') return posixProcessesForProfile(profileDir, timeout);
-  const body = `$p = $env:RK_QA_PROFILE; $q = [string][char]34; $rx = [regex]::new([regex]::Escape($p) + '(?![^' + $q + '\\s\\\\/])', 'IgnoreCase'); Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $rx.IsMatch($_.CommandLine) } | ForEach-Object { try { $r = RkProfile ([uint32]$_.ProcessId) $rx } catch { $r = 'U' }; if ($r.StartsWith('L')) { [string]$_.ProcessId + '|' + $r.Substring(1) } elseif ($r -ne 'G') { 'UNKNOWN|' + [string]$_.ProcessId } }; '${SCAN_COMPLETE}'`;
+  // Avoid unbounded module autoload discovery; bootstrap only this scanner's system dependencies.
+  const body = `$PSModuleAutoLoadingPreference = 'None'; Import-Module "$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1"; Import-Module "$PSHOME\\Modules\\CimCmdlets\\CimCmdlets.psd1"; $p = $env:RK_QA_PROFILE; $q = [string][char]34; $rx = [regex]::new([regex]::Escape($p) + '(?![^' + $q + '\\s\\\\/])', 'IgnoreCase'); Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.ProcessId -ne $PID -and $rx.IsMatch($_.CommandLine) } | ForEach-Object { try { $r = RkProfile ([uint32]$_.ProcessId) $rx } catch { $r = 'U' }; if ($r.StartsWith('L')) { [string]$_.ProcessId + '|' + $r.Substring(1) } elseif ($r -ne 'G') { 'UNKNOWN|' + [string]$_.ProcessId } }; '${SCAN_COMPLETE}'`;
   const out = runWindowsPowerShell(body, { RK_QA_PROFILE: profileDir }, timeout);
   return out === null ? null : parseProfileScan(out);
 }
