@@ -150,9 +150,9 @@ export function planHost({ host, label, universe, selection, config = {}, shards
   return { shards: out.sort(byId), closure: closure.sort(byId) };
 }
 
-/** Hygiene (one job, every selected crate on any OS): the union of both hosts' tested crates and npm packages. */
+/** Hygiene covers tested & closure crates on every host, including their standalone consumer locks. */
 export function planHygiene(selections) {
-  const crates = [...new Set(selections.flatMap((s) => s.rust?.test ?? []))].sort();
+  const crates = [...new Set(selections.flatMap((s) => [...(s.rust?.test ?? []), ...(s.rust?.check ?? [])]))].sort();
   const packages = [...new Set(selections.flatMap((s) => s.npm?.test ?? []))].sort();
   return { crates, packages, tokens: crates.map((n) => `rust:${n}`).join(" ") };
 }
@@ -211,6 +211,14 @@ export function summaryVerdict(needs, { required = ["plan"], counts = {} } = {})
   return { ok: failures.length === 0, failures };
 }
 
+/** One hygiene metadata command per standalone manifest, shared by execution & publication proof. */
+export function requiredConsumerLockCommands(rows = []) {
+  return [...new Set(rows.map((row) => row.manifestPath))].map((manifestPath) => ({
+    unit: "lock", command: `cargo metadata --manifest-path ${manifestPath} --locked --format-version 1`,
+    args: ["metadata", "--manifest-path", manifestPath, "--locked", "--format-version", "1"],
+  }));
+}
+
 /** Freeze every gate command at planning time, including serial, feature & dependency-build rows. */
 export function requiredShardCommands(tokens, { config = {}, packages = [], swiftTests = [] } = {}) {
   const commands = [];
@@ -234,10 +242,6 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
       }
       for (const features of sets) add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"]);
       for (const features of sets.some((features) => features.includes("--all-features")) ? [] : entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
-      // gate.mjs validates these rows before exposing a plan. Freeze the same per-target command, including host-only rows.
-      for (const row of entry.consumerRows ?? []) {
-        for (const target of row.targets?.length ? row.targets : [null]) add(unit, "cargo", [row.kind ?? "check", "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...(row.args ?? [])]);
-      }
     } else if (kind === "rust-check") {
       add(unit, "cargo", ["check", "-p", name, "--all-targets"]);
       for (const features of entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
@@ -250,6 +254,13 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
       if (name === SWIFT_ROOT_MANIFEST) add(unit, "swift", ["package", "describe", "--type", "json"]);
       else { add(unit, "swift", ["build"]); if (swiftTests.includes(name)) add(unit, "swift", ["test"]); }
     } else throw new Error(`unknown shard token kind ${kind}`);
+    // Both tested crates & closure-only dependents must compile every standalone consumer row.
+    // gate.mjs validates rows before exposing a plan; freeze precisely the same locked invocation.
+    if (kind === "rust" || kind === "rust-check") {
+      for (const row of entry.consumerRows ?? []) {
+        for (const target of row.targets?.length ? row.targets : [null]) add(unit, "cargo", [row.kind ?? "check", "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...(row.args ?? [])]);
+      }
+    }
   }
   if (!commands.length) throw new Error("nonempty shard has no required commands");
   return commands;

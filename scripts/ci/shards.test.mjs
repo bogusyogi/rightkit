@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredShardCommands, SWIFT_ROOT_MANIFEST } from "./shards.mjs";
+import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, SWIFT_ROOT_MANIFEST } from "./shards.mjs";
 import { scanTargets } from "./secret-scan.mjs";
 
 const crates = ["rightkit-a", "rightkit-b", "rightkit-c", "rightkit-d", "rightkit-e", "rightkit-heavy", "rightkit-win"];
@@ -108,7 +108,7 @@ test("planner rejects selected units absent from universe rather than silently d
 
 test("hygiene covers the union of both OSes' crates and packages", () => {
   const a = { rust: { test: ["rightkit-b", "rightkit-a"] }, npm: { test: ["packages/p2"] } };
-  const b = { rust: { test: ["rightkit-a", "rightkit-c"] }, npm: { test: [] } };
+  const b = { rust: { test: ["rightkit-a"], check: ["rightkit-c"] }, npm: { test: [] } };
   assert.deepEqual(planHygiene([a, b]), { crates: ["rightkit-a", "rightkit-b", "rightkit-c"], packages: ["packages/p2"], tokens: "rust:rightkit-a rust:rightkit-b rust:rightkit-c" });
   assert.deepEqual(planHygiene([empty]), { crates: [], packages: [], tokens: "" });
 });
@@ -199,7 +199,9 @@ test("consumer rows freeze each target after per-set lint & feature checks; miss
   assert.equal(commands.at(-4).command, "cargo check -p rightkit-a --all-targets --all-features");
   assert.ok(commands.every((row) => row.unit === "rust:rightkit-a"));
   assert.equal(commands.length, rustWeight(entry));
-  assert.ok(requiredShardCommands("rust-check:rightkit-a", options).every((row) => !row.command.includes("--manifest-path")), "closure jobs retain their own compile-only contract");
+  const closure = requiredShardCommands("rust-check:rightkit-a", options);
+  assert.deepEqual(closure.slice(-3), commands.slice(-3), "closure jobs require identical consumer checks");
+  assert.ok(closure.every((row) => row.command.startsWith("cargo check ")));
   const job = { artifact: "qa-evidence-consumers", host: "windows", tokens: "rust:rightkit-a", steps: "test", commands };
   const reportFor = (actual) => ({
     sha: "abc", host: job.host, selection: job.tokens, steps: job.steps,
@@ -262,4 +264,61 @@ test("secret scan targets are repository-relative and refuse anything that could
   assert.throws(() => scanTargets(["../etc"], []), /refusing crate name/);
   assert.throws(() => scanTargets([], ["packages/../x"]), /refusing package directory/);
   assert.throws(() => scanTargets([], ["/abs"]), /refusing package directory/);
+});
+
+
+test("consumer lock hygiene checks each manifest once across feature rows & owners", () => {
+  const manifestPath = "ci/consumers/native/Cargo.toml";
+  assert.deepEqual(requiredConsumerLockCommands([{ manifestPath }, { manifestPath, args: ["--features", "engine"] }]), [{
+    unit: "lock", command: `cargo metadata --manifest-path ${manifestPath} --locked --format-version 1`,
+    args: ["metadata", "--manifest-path", manifestPath, "--locked", "--format-version", "1"],
+  }]);
+  assert.deepEqual(requiredConsumerLockCommands(), []);
+});
+
+test("closure-only consumers require tracked manifest & lock before any gate effect", () => {
+  const source = readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("const CONSUMER_ROW_KEYS =");
+  const end = source.indexOf("async function rustGate", start);
+  const manifestPath = "ci/consumers/native/Cargo.toml";
+  const selection = { config: { rust: { dependent: { paths: ["ci/consumers/native"], consumerRows: [{ manifestPath }] } } }, rust: { test: [], check: ["dependent"] } };
+  const files = [];
+  let missing;
+  let untracked;
+  const refusal = [];
+  const validate = vm.runInNewContext(`${source.slice(start, end)}\nvalidatedConsumerRows;`, {
+    path, ROOT: path.resolve("fixture"), HOST: "windows",
+    fs: { realpathSync: (file) => file, existsSync: (file) => !file.endsWith(missing ?? "NEVER") },
+    git: (...args) => { files.push(args.at(-1)); return { status: args.at(-1) === untracked ? 1 : 0 }; },
+    console: { error: (message) => refusal.push(message) },
+    process: { exit: (code) => { throw new Error(`exit ${code}`); } },
+  });
+  assert.equal(validate(selection).get("dependent").length, 1);
+  assert.deepEqual(files, [manifestPath, manifestPath.replace("Cargo.toml", "Cargo.lock")]);
+  missing = "Cargo.lock";
+  assert.throws(() => validate(selection), /exit 2/);
+  assert.match(refusal.at(-1), /consumer row needs .*Cargo.lock/);
+  missing = undefined;
+  untracked = manifestPath;
+  assert.throws(() => validate(selection), /exit 2/);
+  assert.match(refusal.at(-1), /is not tracked by git/);
+});
+
+test("consumer lock repair emits patch while retaining failed locked proof", async () => {
+  const source = readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("async function rustGate");
+  const end = source.indexOf("async function npmGate", start);
+  const manifestPath = "ci/consumers/native/Cargo.toml";
+  const actual = [];
+  const patches = [];
+  const gate = vm.runInNewContext(`${source.slice(start, end)}\nrustGate;`, {
+    path, HOST: "windows", STEPS: new Set(["lock"]), requiredConsumerLockCommands,
+    run: async (unit, command, args) => { const ok = !args.includes("--manifest-path") || !args.includes("--locked"); actual.push({ unit, command, args: [...args], ok }); return ok; },
+    savePatch: (name, files) => patches.push({ name, files: [...files] }),
+  });
+  await gate({ rust: { test: [], check: ["dependent"] } }, {}, new Map([["dependent", [{ manifestPath }, { manifestPath, args: ["--features", "engine"] }]]]));
+  assert.equal(actual.filter((step) => step.args[0] === "metadata" && step.args.includes(manifestPath)).length, 1);
+  assert.equal(actual.find((step) => step.args.includes(manifestPath) && step.args.includes("--locked")).ok, false);
+  assert.deepEqual(actual.at(-1).args, ["update", "--manifest-path", manifestPath, "--workspace"]);
+  assert.deepEqual(patches, [{ name: "ci-consumers-native-Cargo.lock.patch", files: ["ci/consumers/native/Cargo.lock"] }]);
 });

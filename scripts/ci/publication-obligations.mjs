@@ -1,6 +1,6 @@
 // Trusted verifier policy over authenticated candidate source DATA. Never import candidate code.
 import { parseLock, selectUnits } from "./select.mjs";
-import { requiredShardCommands } from "./shards.mjs";
+import { requiredConsumerLockCommands, requiredShardCommands } from "./shards.mjs";
 import { judgeUnit, TEST_COMMAND } from "./test-results.mjs";
 
 const signature = (row) => JSON.stringify([row?.unit, row?.command]);
@@ -43,6 +43,7 @@ export function derivePublicationObligations({ registry, units, host, config = {
   const tokens = [...selection.rust.test.map((name) => `rust:${name}`), ...selection.rust.check.map((name) => `rust-check:${name}`), ...selection.npm.test.map((dir) => `npm:${dir}`)].join(" ");
   const commands = [];
   if (selection.rust.test.length || selection.rust.check.length) commands.push({ unit: "lock", command: "cargo metadata --locked --format-version 1" });
+  commands.push(...requiredConsumerLockCommands([...selection.rust.test, ...selection.rust.check].flatMap((name) => config.rust?.[name]?.consumerRows ?? [])).map(({ unit, command }) => ({ unit, command })));
   for (let index = 0; index < selection.rust.test.length; index += 15) commands.push({ unit: "fmt", command: `cargo fmt ${selection.rust.test.slice(index, index + 15).map((name) => `-p ${name}`).join(" ")}` });
   if (tokens) commands.push(...requiredShardCommands(tokens, { config, packages }));
   if (new Set(commands.map(signature)).size !== commands.length) throw new Error("duplicate required publication command");

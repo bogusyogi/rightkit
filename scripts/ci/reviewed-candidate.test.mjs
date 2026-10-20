@@ -598,3 +598,50 @@ test("actual workflow identify command fails without output on malformed or unau
     assert.notEqual(result.status, 0); assert.equal(emitted, "");
   }
 });
+
+test("CLI dispatch settles a fresh dynamic admission backedge & fails closed on unfinished work", (t) => {
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
+  const temp = fs.mkdtempSync(path.join(scratch, "rk-reviewed-entry-"));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const source = fs.readFileSync(new URL("./reviewed-candidate.mjs", import.meta.url), "utf8");
+  const marker = "if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {";
+  assert.equal(source.split(marker).length, 2, "actual CLI dispatch must exist exactly once");
+  // Use the actual dispatch unchanged, with a pure minimal version of its module
+  // graph. Imported-function tests cannot expose a pending entry-module backedge.
+  const entry = path.join(temp, "reviewed-candidate.mjs");
+  fs.writeFileSync(entry, `import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { retained } from "./supplemental-proof.mjs";
+export const entryBinding = "authenticated";
+const requireThat = (condition, message) => { if (!condition) throw new Error(message); };
+async function identifyCandidate() { throw new Error("unexpected identify route"); }
+async function runReviewed({ env, dryRun, verifyAdmission }) {
+  requireThat(env === process.env && dryRun === true && verifyAdmission === false, "wrong CLI arguments");
+  const { admit } = await import("./semantic-admission.mjs");
+  await admit();
+  process.stdout.write("entry-admitted\\n");
+}
+${source.slice(source.indexOf(marker))}`);
+  fs.writeFileSync(path.join(temp, "supplemental-proof.mjs"), `import { entryBinding } from "./reviewed-candidate.mjs";
+export function retained() { return entryBinding; }
+`);
+  fs.writeFileSync(path.join(temp, "runtime-supplement.mjs"), `import { retained } from "./supplemental-proof.mjs";
+export function authenticatedRuntimeProof() { return retained(); }
+`);
+  fs.writeFileSync(path.join(temp, "semantic-admission.mjs"), `import { authenticatedRuntimeProof } from "./runtime-supplement.mjs";
+export async function admit() {
+  if (authenticatedRuntimeProof() !== "authenticated") throw new Error("backedge binding lost");
+  if (process.env.RK_ENTRY_OUTCOME === "unfinished") await new Promise(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  if (process.env.RK_ENTRY_OUTCOME === "failure") throw new Error("admission fixture refused");
+}
+`);
+  const env = Object.fromEntries(["PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "windir", "HOME", "USERPROFILE", "TEMP", "TMP", "TMPDIR"].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  for (const outcome of ["success", "failure", "unfinished"]) {
+    const result = spawnSync(process.execPath, ["--unhandled-rejections=strict", entry, "run", "--dry-run"], { cwd: temp, env: { ...env, RK_ENTRY_OUTCOME: outcome }, encoding: "utf8", timeout: 10_000, maxBuffer: 1024 * 1024, windowsHide: true, shell: false });
+    assert.ifError(result.error); assert.equal(result.signal, null);
+    assert.equal(result.status, outcome === "success" ? 0 : 1, result.stderr);
+    assert.equal(result.stdout, outcome === "success" ? "entry-admitted\n" : "");
+    assert.equal(result.stderr, outcome === "success" ? "" : outcome === "failure" ? "admission fixture refused\n" : "reviewed candidate refused: CLI execution did not settle\n");
+  }
+});

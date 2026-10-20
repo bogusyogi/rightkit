@@ -363,10 +363,22 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
-  const [command, ...flags] = process.argv.slice(2);
-  try {
-    requireThat((command === "identify" && flags.length === 0) || (command === "run" && flags.length <= 1 && flags.every((flag) => ["--dry-run", "--verify-admission"].includes(flag))), "usage: reviewed-candidate.mjs identify | run [--dry-run|--verify-admission]");
-    if (command === "identify") await identifyCandidate({ env: process.env, candidateId: process.env.PUBLISH_CANDIDATE_ID });
-    else await runReviewed({ env: process.env, dryRun: flags.includes("--dry-run"), verifyAdmission: flags.includes("--verify-admission") });
-  } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
+  // Finish module evaluation before lazy admission imports reach this module
+  // again through runtime-supplement -> supplemental-proof. Top-level await here
+  // makes that backedge wait on its own pending entry evaluation.
+  setImmediate(async () => {
+    const unfinished = () => {
+      process.stderr.write("reviewed candidate refused: CLI execution did not settle\n");
+      process.exitCode = 1;
+    };
+    // An orphaned pending promise must never turn into a successful CLI exit.
+    process.once("beforeExit", unfinished);
+    const [command, ...flags] = process.argv.slice(2);
+    try {
+      requireThat((command === "identify" && flags.length === 0) || (command === "run" && flags.length <= 1 && flags.every((flag) => ["--dry-run", "--verify-admission"].includes(flag))), "usage: reviewed-candidate.mjs identify | run [--dry-run|--verify-admission]");
+      if (command === "identify") await identifyCandidate({ env: process.env, candidateId: process.env.PUBLISH_CANDIDATE_ID });
+      else await runReviewed({ env: process.env, dryRun: flags.includes("--dry-run"), verifyAdmission: flags.includes("--verify-admission") });
+    } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
+    finally { process.removeListener("beforeExit", unfinished); }
+  });
 }

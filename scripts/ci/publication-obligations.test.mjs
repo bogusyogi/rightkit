@@ -101,3 +101,28 @@ test("producer expected commands & green flags cannot replace command data", () 
   data.summary.results = data.summary.results.filter((row) => row.unit !== "rust:consumer");
   assert.equal(publicationObligationsVerdict(plan, data, sha).ok, false);
 });
+
+
+test("publication proof requires closure consumers & one shared locked metadata check", () => {
+  const input = crateInput();
+  const manifestPath = "ci/consumers/native/Cargo.toml";
+  const rows = [{ manifestPath }, { manifestPath, args: ["--features", "engine"] }];
+  input.config.rust.consumer.consumerRows = rows;
+  input.config.rust.leaf.consumerRows = rows;
+  const plan = derivePublicationObligations(input);
+  const metadata = `cargo metadata --manifest-path ${manifestPath} --locked --format-version 1`;
+  assert.equal(plan.commands.filter((row) => row.command === metadata).length, 1);
+  assert.equal(plan.commands.filter((row) => row.unit === "rust:consumer" && row.command.includes("--manifest-path")).length, 2);
+  assert.equal(publicationObligationsVerdict(plan, proof(plan), sha).ok, true);
+  for (const omitted of plan.commands.filter((row) => row.command === metadata || (row.unit === "rust:consumer" && row.command.includes("--manifest-path")))) {
+    const data = proof(plan);
+    data.summary.results = data.summary.results.filter((row) => row.unit !== omitted.unit || row.command !== omitted.command);
+    assert.equal(publicationObligationsVerdict(plan, data, sha).ok, false);
+  }
+  const repaired = proof(plan);
+  const stale = repaired.summary.results.find((row) => row.command === metadata);
+  stale.ok = false;
+  stale.code = 1;
+  repaired.summary.results.push({ ...stale, command: `cargo update --manifest-path ${manifestPath} --workspace`, ok: true, code: 0 });
+  assert.equal(publicationObligationsVerdict(plan, repaired, sha).ok, false);
+});

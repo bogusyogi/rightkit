@@ -133,10 +133,6 @@
         [
           "--features",
           "engine"
-        ],
-        [
-          "--features",
-          "logs"
         ]
       ],
       "checkFeatureSets": [
@@ -150,18 +146,26 @@
         ],
         [
           "--features",
-          "engine,logs"
-        ],
-        [
-          "--no-default-features",
-          "--features",
-          "wv2-0_39"
-        ],
-        [
-          "--no-default-features",
-          "--features",
-          "wv2-0_39,engine,logs"
+          "engine"
         ]
+      ],
+      "paths": [
+        "ci/consumers/wv2-0_39"
+      ],
+      "consumerRows": [
+        {
+          "manifestPath": "ci/consumers/wv2-0_39/Cargo.toml",
+          "args": [],
+          "locked": true
+        },
+        {
+          "manifestPath": "ci/consumers/wv2-0_39/Cargo.toml",
+          "args": [
+            "--features",
+            "engine"
+          ],
+          "locked": true
+        }
       ]
     },
     "rightkit-file-watch": {

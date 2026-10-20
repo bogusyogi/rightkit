@@ -1,0 +1,29 @@
+[package]
+name = "wv2-0_39-consumer"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.98.0"
+publish = false
+description = "Gate consumer: builds rightkit-tauri-shell the way a Tauri 2.12 app (ViewRight, ScrapeRight) does, with the wv2-0_39 generation and no wv2-0_38."
+
+# Standalone (own workspace and own lock file) so it never enters the RightKit workspace, whose lock is
+# the Tauri 2.11 graph (tauri 2.11.5, wry 0.55.1, webview2-com 0.38.2) that every wv2-0_38 row checks.
+# Place at <repo>/ci/consumers/wv2-0_39/ (the paths below are relative to that directory).
+[workspace]
+
+[features]
+# Each feature set mirrors one `wv2-0_39` row of ci/gate.config.json.
+engine = ["rightkit-tauri-shell/engine"]
+
+[dependencies]
+# The Tauri 2.12 graph the apps lock (ViewRight src-tauri lock: tauri 2.12.4, tauri-runtime 2.12.2,
+# tauri-runtime-wry 2.12.2, tauri-utils 2.10.2, wry 0.57.0, tao 0.37.1, webview2-com 0.39.1, windows 0.62.2).
+tauri = "=2.12.4"
+# default-features = false is what drops wv2-0_38; wv2-0_39 is the only generation selected.
+rightkit-tauri-shell = { path = "../../../crates/rightkit-tauri-shell", default-features = false, features = ["wv2-0_39"] }
+
+[target.'cfg(windows)'.dependencies]
+# Own uses of the generation, to prove the Tauri boundary matches (see src/lib.rs). The versions equal
+# the shell's `webview2_com_039` / `windows_062` requirements, so they unify with them.
+webview2-com = "0.39"
+windows = "0.62"

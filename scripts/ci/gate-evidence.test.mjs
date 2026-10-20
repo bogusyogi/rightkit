@@ -57,3 +57,19 @@ test("dependent closure proof rejects producer-substituted results and duplicate
   assert.equal(unexpectedUnit.ok, false);
   assert.match(unexpectedUnit.problems.join("\n"), /unexpected dependent-check unit/);
 });
+
+
+test("dependent closure proof refuses missing, substituted or failed standalone consumer checks", () => {
+  const manifestPath = "ci/consumers/native/Cargo.toml";
+  const config = { rust: { dependent: { checkFeatureSets: [], consumerRows: [{ manifestPath }, { manifestPath, args: ["--features", "engine"] }] } } };
+  const plan = dependentClosureEvidence({ selected: ["dependent"], config });
+  assert.deepEqual(plan.expected.slice(-2).map((row) => row.command), [
+    `cargo check --manifest-path ${manifestPath} --locked`,
+    `cargo check --manifest-path ${manifestPath} --locked --features engine`,
+  ]);
+  const results = plan.expected.map((row) => ({ ...row, ok: true, code: 0, timedOut: false, seconds: 1 }));
+  assert.equal(dependentClosureEvidence({ selected: ["dependent"], config, results }).ok, true);
+  for (const damaged of [results.slice(0, -1), results.map((row, index) => index === 1 ? { ...row, command: row.command.replace("--locked", "--help") } : row), results.map((row, index) => index === 1 ? { ...row, ok: false, code: 1 } : row)]) {
+    assert.equal(dependentClosureEvidence({ selected: ["dependent"], config, results: damaged }).ok, false);
+  }
+});

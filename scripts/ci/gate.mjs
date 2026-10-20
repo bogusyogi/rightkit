@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
-import { parseSelectTokens, parseSteps } from "./shards.mjs";
+import { parseSelectTokens, parseSteps, requiredConsumerLockCommands } from "./shards.mjs";
 import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -358,7 +358,7 @@ function validatedConsumerRows(selection) {
     const realRoot = fs.realpathSync(ROOT);
     // Validate path coverage even when no crate was selected: an omitted `paths` entry must not hide the owning row.
     for (const [name, entry] of Object.entries(config.rust ?? {})) consumerRows(name, entry);
-    for (const name of selection.rust.test) {
+    for (const name of new Set([...selection.rust.test, ...selection.rust.check])) {
       if (!applies(name)) continue;
       const rows = consumerRows(name, config.rust?.[name] ?? {});
       for (const row of rows) {
@@ -389,6 +389,19 @@ async function rustGate(selection, config, consumers = new Map()) {
   if (!locked) {
     await run("lock", "cargo", ["update", "--workspace"], { timeoutMinutes: 15 });
     savePatch("Cargo.lock.patch", ["Cargo.lock"]);
+  }
+
+  // Standalone consumers own locks too. Check each manifest once, even when several rows or crates share it.
+  // A repair only produces a candidate patch: the failed locked metadata result stays red for this run.
+  if (STEPS.has("lock")) {
+    for (const { args } of requiredConsumerLockCommands([...consumers.values()].flat())) {
+      const manifestPath = args[2];
+      const consumerLocked = await run("lock", "cargo", args, { timeoutMinutes: 15, discardStdout: true });
+      if (!consumerLocked) {
+        await run("lock", "cargo", ["update", "--manifest-path", manifestPath, "--workspace"], { timeoutMinutes: 15 });
+        savePatch(`${path.posix.dirname(manifestPath).replaceAll("/", "-")}-Cargo.lock.patch`, [manifestPath.replace(/Cargo\.toml$/, "Cargo.lock")]);
+      }
+    }
   }
 
   // rustfmt does not depend on the OS, so every selected crate is formatted wherever the step runs (CI runs it once, on Linux).
@@ -422,7 +435,7 @@ async function rustGate(selection, config, consumers = new Map()) {
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
     for (const features of checkSets) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes });
-    // Consumer rows belong to this crate's test shard; closure-only & hygiene jobs do not execute them.
+    // Consumer compile checks belong to either the test shard or the closure shard of their owner.
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes, env });
     }
@@ -432,6 +445,9 @@ async function rustGate(selection, config, consumers = new Map()) {
     await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });
     // R1: a dependent must also compile with the feature rows its own gate config names (all features unless it says otherwise).
     for (const features of config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes: 30 });
+    for (const row of consumers.get(name) ?? []) {
+      for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes: config.rust?.[name]?.timeoutMinutes ?? 30, env: assetEnv(selection, name) });
+    }
   }
 }
 
