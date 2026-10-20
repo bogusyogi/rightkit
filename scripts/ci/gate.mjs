@@ -273,7 +273,109 @@ async function ortEnvFor(name) {
   return ortEnv;
 }
 
-async function rustGate(selection, config) {
+// ---- consumer rows (mirrored from packages/release/local-publish.mjs: consumerRows, consumerRowInvocations, assertConsumerFiles) ----
+// A crate's ci/gate.config.json entry may carry `consumerRows`: each checks the crate through a SEPARATE Cargo
+// workspace (its own Cargo.lock) as `cargo check --manifest-path <manifestPath> --locked [--target <t>] <args>`.
+// Keep the validation identical to local-publish.mjs so the CI gate and the local gate refuse the same rows. The one
+// CI-only rule is the `paths` requirement below (0.4.1 review B1): CI selects crates by changed paths, local publish does not.
+const CONSUMER_ROW_KEYS = new Set(["manifestPath", "args", "kind", "targets", "locked"]);
+const CONSUMER_KINDS = new Set(["check"]);
+const CONSUMER_MANIFEST = /^ci\/consumers\/(?:[A-Za-z0-9._-]+\/)+Cargo\.toml$/;
+const CONSUMER_TARGET = /^[A-Za-z0-9_]+(?:-[A-Za-z0-9_.]+){2,3}$/;
+// An ALLOWLIST (0.4.1 review A1), identical to local-publish.mjs: every other token is refused.
+const CONSUMER_ARG_FLAGS = new Set(["--no-default-features", "--all-features", "--lib", "--bins", "--tests", "--examples", "--benches", "--all-targets"]);
+const CONSUMER_FEATURE_FLAGS = new Set(["--features", "-F"]);
+const CONSUMER_FEATURE_LIST = /^[A-Za-z0-9_][A-Za-z0-9_.+/?:,-]*$/;
+const CONSUMER_ARGS_ALLOWED = `--features <list> (or --features=<list>, -F <list>), ${[...CONSUMER_ARG_FLAGS].join(", ")}`;
+
+function consumerRows(unit, entry = {}) {
+  const rows = entry.consumerRows;
+  if (rows === undefined) return [];
+  const refuse = (message) => { throw new Error(message); };
+  const where = (index) => `${unit} consumerRows[${index}]`;
+  if (!Array.isArray(rows)) refuse(`${unit}: consumerRows must be an array`);
+  const seen = new Set();
+  return rows.map((row, index) => {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) refuse(`${where(index)} must be an object`);
+    for (const key of Object.keys(row)) if (!CONSUMER_ROW_KEYS.has(key)) refuse(`${where(index)}: unknown field ${JSON.stringify(key)} (allowed: ${[...CONSUMER_ROW_KEYS].join(", ")})`);
+    const manifestPath = row.manifestPath;
+    if (typeof manifestPath !== "string" || !CONSUMER_MANIFEST.test(manifestPath) || manifestPath.split("/").some((part) => part === "." || part === "..")) {
+      refuse(`${where(index)}: manifestPath must be a relative ci/consumers/<name>/Cargo.toml path with forward slashes, got ${JSON.stringify(manifestPath)}`);
+    }
+    // CI runs a crate only when a changed path falls under its own directory or one of its `paths` (scripts/ci/select.mjs);
+    // a consumer directory outside both would change without running its row, so it must be listed (0.4.1 review B1).
+    const consumerDir = path.posix.dirname(manifestPath);
+    const listed = (Array.isArray(entry.paths) ? entry.paths : []).filter((entryPath) => typeof entryPath === "string").map((entryPath) => entryPath.replace(/\/$/, ""));
+    if (!listed.some((entryPath) => consumerDir === entryPath || consumerDir.startsWith(`${entryPath}/`))) {
+      refuse(`${where(index)}: consumer directory ${consumerDir} must be listed (or sit under a listed directory) in rust.${unit}.paths of ci/gate.config.json, or a change to it selects no crate and its row never runs in CI`);
+    }
+    const kind = row.kind ?? "check";
+    if (!CONSUMER_KINDS.has(kind)) refuse(`${where(index)}: kind must be one of ${[...CONSUMER_KINDS].join(", ")}, got ${JSON.stringify(kind)}`);
+    if (row.locked !== undefined && row.locked !== true) refuse(`${where(index)}: locked must be true; a consumer row never runs without its lock file`);
+    const args = row.args ?? [];
+    if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string" || arg === "")) refuse(`${where(index)}: args must be an array of non-empty strings`);
+    for (let position = 0; position < args.length; position += 1) {
+      const arg = args[position];
+      if (CONSUMER_ARG_FLAGS.has(arg)) continue;
+      if (CONSUMER_FEATURE_FLAGS.has(arg)) {
+        const list = args[position + 1];
+        if (typeof list !== "string" || !CONSUMER_FEATURE_LIST.test(list)) refuse(`${where(index)}: ${arg} needs a feature list (names separated by commas, not starting with "-"), got ${JSON.stringify(list)}`);
+        position += 1;
+        continue;
+      }
+      if (arg.startsWith("--features=") && CONSUMER_FEATURE_LIST.test(arg.slice("--features=".length))) continue;
+      refuse(`${where(index)}: args may not contain ${JSON.stringify(arg)}; the row sets manifest path, lock, target and output itself, and allows only ${CONSUMER_ARGS_ALLOWED}`);
+    }
+    const targets = row.targets ?? [];
+    if (!Array.isArray(targets) || targets.some((target) => typeof target !== "string" || !CONSUMER_TARGET.test(target))) refuse(`${where(index)}: targets must be an array of target triples`);
+    if (new Set(targets).size !== targets.length) refuse(`${where(index)}: targets lists a triple twice`);
+    const key = JSON.stringify([manifestPath, args, targets]);
+    if (seen.has(key)) refuse(`${where(index)} repeats an earlier row`);
+    seen.add(key);
+    return { manifestPath, kind, args: [...args], targets: [...targets], locked: true };
+  });
+}
+
+/** One Cargo step per target (or one host step when no target is named) for one consumer row. */
+function consumerRowInvocations(row) {
+  const targets = row.targets.length ? row.targets : [null];
+  return targets.map((target) => ({ command: "cargo", args: [row.kind, "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...row.args] }));
+}
+
+/**
+ * Fail closed before any command: every selected crate that applies on this host must have valid consumer rows
+ * whose manifest and lock are tracked at their own real paths in the checkout. Returns validated rows by crate; exits 2 on a refusal (never
+ * a red unit, so ci/known-red.json cannot waive a malformed row). Also runs under --plan.
+ */
+function validatedConsumerRows(selection) {
+  const config = selection.config;
+  const applies = (name) => !(config.rust?.[name]?.os) || config.rust[name].os.includes(HOST);
+  const rowsByCrate = new Map();
+  try {
+    const realRoot = fs.realpathSync(ROOT);
+    // Validate path coverage even when no crate was selected: an omitted `paths` entry must not hide the owning row.
+    for (const [name, entry] of Object.entries(config.rust ?? {})) consumerRows(name, entry);
+    for (const name of selection.rust.test) {
+      if (!applies(name)) continue;
+      const rows = consumerRows(name, config.rust?.[name] ?? {});
+      for (const row of rows) {
+        for (const file of [row.manifestPath, row.manifestPath.replace(/Cargo\.toml$/, "Cargo.lock")]) {
+          const absolute = path.join(ROOT, file);
+          if (!fs.existsSync(absolute)) throw new Error(`${name}: consumer row needs ${file}, which is not in the workspace`);
+          if (path.relative(realRoot, fs.realpathSync(absolute)) !== path.normalize(file)) throw new Error(`${name}: consumer row file ${file} resolves outside its own path in the workspace; a symlink is not allowed`);
+          if (git("ls-files", "--error-unmatch", "--", file).status !== 0) throw new Error(`${name}: consumer row file ${file} is not tracked by git; commit it first`);
+        }
+      }
+      if (rows.length) rowsByCrate.set(name, rows);
+    }
+  } catch (error) {
+    console.error(`gate: ${error.message}`);
+    process.exit(2);
+  }
+  return rowsByCrate;
+}
+
+async function rustGate(selection, config, consumers = new Map()) {
   const { rust } = selection;
   if (!rust.test.length && !rust.check.length) return;
   const applies = (name) => !(config.rust?.[name]?.os) || config.rust[name].os.includes(HOST);
@@ -312,10 +414,15 @@ async function rustGate(selection, config) {
       await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });
       if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
     }
-    await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...featureSets[0], "--", "-D", "warnings"], { timeoutMinutes });
+    // Keep every tested feature set linted, matching local publication & the frozen shard command plan.
+    for (const features of featureSets) await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"], { timeoutMinutes });
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
     for (const features of checkSets) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes });
+    // Consumer rows belong to this crate's test shard; closure-only & hygiene jobs do not execute them.
+    for (const row of consumers.get(name) ?? []) {
+      for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes, env });
+    }
   }
   for (const name of STEPS.has("closure") ? rust.check : []) {
     if (!applies(name)) continue;
@@ -474,6 +581,7 @@ async function chromeGate(selection) {
 }
 
 const selection = plan();
+const consumers = validatedConsumerRows(selection);
 if (PLAN) {
   const { config, packages, ...printable } = selection;
   console.log(JSON.stringify(printable, null, 2));
@@ -485,6 +593,6 @@ if (process.env.GITHUB_ACTIONS !== "true") {
 }
 console.log(`Selection: ${JSON.stringify({ base: selection.base, all: selection.all, rust: selection.rust, npm: selection.npm.test, root: selection.root, swift: selection.swift })}`);
 if (STEPS.has("test")) await chromeGate(selection);
-await rustGate(selection, selection.config);
+await rustGate(selection, selection.config, consumers);
 if (STEPS.has("test")) { await npmGate(selection); await swiftGate(selection); }
 process.exit(report(selection) ? 0 : 1);

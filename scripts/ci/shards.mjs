@@ -42,13 +42,14 @@ export function sanitizeId(text) {
 
 /**
  * How many cargo commands the gate runs for a crate on a host that applies to it: every test feature set
- * (doubled when the crate also reruns serially), clippy, and the feature-check rows. Mirrors rustGate in gate.mjs.
+ * (doubled when the crate also reruns serially), clippy for each set, feature checks & consumer rows. Mirrors rustGate in gate.mjs.
  */
 export function rustWeight(entry = {}) {
   const featureSets = entry.featureSets ?? [[]];
   const tests = featureSets.length * (entry.alsoSerial ? 2 : 1);
   const checks = featureSets.some((features) => features.includes("--all-features")) ? 0 : (entry.checkFeatureSets ?? [["--all-features"]]).length;
-  return tests + 1 + checks;
+  const consumers = (entry.consumerRows ?? []).reduce((count, row) => count + (row.targets?.length || 1), 0);
+  return tests + featureSets.length + checks + consumers;
 }
 
 /**
@@ -231,8 +232,12 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
         add(unit, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"]);
         if (entry.alsoSerial) add(unit, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"]);
       }
-      add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...sets[0], "--", "-D", "warnings"]);
+      for (const features of sets) add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"]);
       for (const features of sets.some((features) => features.includes("--all-features")) ? [] : entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
+      // gate.mjs validates these rows before exposing a plan. Freeze the same per-target command, including host-only rows.
+      for (const row of entry.consumerRows ?? []) {
+        for (const target of row.targets?.length ? row.targets : [null]) add(unit, "cargo", [row.kind ?? "check", "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...(row.args ?? [])]);
+      }
     } else if (kind === "rust-check") {
       add(unit, "cargo", ["check", "-p", name, "--all-targets"]);
       for (const features of entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);

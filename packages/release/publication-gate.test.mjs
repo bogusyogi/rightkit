@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { checkPublicationGate, enforcePublicationGate, provenGateSteps } from './publication-gate.mjs';
+import { batchClippyMissingFeatureSets, checkPublicationGate, enforcePublicationGate, provenGateSteps } from './publication-gate.mjs';
 
 const SHA = 'a'.repeat(40);
 const run = (os, over = {}) => ({ host: { os, arch: 'arm64' }, commit: SHA, artifactSha256: 'b'.repeat(64), command: 'rightkit cargo test -p x --all-targets', passed: 12, failed: 0, features: ['default'], operator: 'adrdsouza', timestamp: '2026-10-06T00:00:00Z', ...over });
@@ -227,4 +227,27 @@ test('provenGateSteps proves steps on the Windows host under win32-only, and nev
   // Two-host evidence is still proved on darwin alone.
   assert.equal(provenGateSteps(evidence({ runs: [run('win32', { steps: [testStep] })] })).tests, false);
   assert.equal(provenGateSteps(evidence({ runs: [run('darwin', { steps: [testStep] }), run('win32')] })).tests, true);
+});
+
+test('batchClippyMissingFeatureSets: one passing clippy row per feature set of THIS crate, bound to the commit and tree (0.4.1 review A2)', () => {
+  const ev = { name: 'rightkit-sync', commit: SHA };
+  const row = (command, over = {}) => ({ name: 'clippy', command, ok: true, commit: SHA, tree: TREE, crates: ['rightkit-sync'], ...over });
+  const lint = (crates, features = []) => `cargo clippy ${crates.map((c) => `-p ${c}`).join(' ')} --message-format=json-render-diagnostics --no-deps --all-targets${features.length ? ` ${features.join(' ')}` : ''} -- -D warnings`;
+  const missing = (rows, sets) => batchClippyMissingFeatureSets({ tree: TREE, checks: rows }, ev, sets);
+  const sets = [[], ['--features', 'async']];
+  // A 0.4.0 receipt (first feature set only) leaves the second set unlinted.
+  assert.deepEqual(missing([row(lint(['rightkit-sync', 'rightkit-other']))], sets), [['--features', 'async']]);
+  assert.deepEqual(missing([row(lint(['rightkit-sync', 'rightkit-other'])), row(lint(['rightkit-sync'], ['--features', 'async']))], sets), []);
+  // Unset or empty feature sets mean one default set.
+  assert.deepEqual(missing([row(lint(['rightkit-sync']))], undefined), []);
+  assert.deepEqual(missing([], []), [[]]);
+  // A different feature set does not stand in for another, in either direction.
+  assert.deepEqual(missing([row(lint(['rightkit-sync'], ['--all-features']))], [[]]), [[]]);
+  assert.deepEqual(missing([row(lint(['rightkit-sync']))], [['--all-features']]), [['--all-features']]);
+  // A row that is failing, unbound, not covering the crate, or not naming it with -p does not count.
+  for (const bad of [{ ok: false }, { commit: 'c'.repeat(40) }, { tree: 'f'.repeat(40) }, { crates: ['rightkit-other'] }, { crates: undefined }]) assert.deepEqual(missing([row(lint(['rightkit-sync']), bad)], [[]]), [[]]);
+  assert.deepEqual(missing([row(lint(['rightkit-other']))], [[]]), [[]]);
+  assert.deepEqual(missing([row(lint(['rightkit-sync-extra']))], [[]]), [[]]);
+  assert.deepEqual(missing([row('cargo clippy -p rightkit-sync --no-deps --all-targets -- -D warnings --extra')], [[]]), [[]]);
+  assert.deepEqual(batchClippyMissingFeatureSets(undefined, ev, [[]]), [[]]);
 });

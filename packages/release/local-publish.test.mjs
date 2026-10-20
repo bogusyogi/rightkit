@@ -166,6 +166,14 @@ test('consumerRows: refuses unknown fields and malformed values', () => {
   bad({ ...WV2_ROW, args: '--features x' }, /args must be an array/);
   bad({ ...WV2_ROW, args: ['--features', 3] }, /args must be an array/);
   for (const arg of ['--manifest-path', '--manifest-path=x', '--target=x86_64-pc-windows-msvc', '--locked', '--offline', '-p', '-pfoo', '--package', '--workspace', '--message-format=json', '--jobs=2', '-j2', '-Zunstable-options', '--release', '--']) bad({ ...WV2_ROW, args: [arg] }, /args may not contain/);
+  // 0.4.1 review A1: an ALLOWLIST. A "passing" no-op (-h/--help/--version) and every other Cargo option are refused.
+  for (const arg of ['-h', '--help', '-V', '--version', '--target-dir', '--target-dir=out', '-C', '-Cfoo', '--directory=x', '--color', '--color=never', '--timings', '--ignore-rust-version', '-q', '-v', '--bin', '--features=--help', '--features=', '--unknown', 'extra']) bad({ ...WV2_ROW, args: [arg] }, /args may not contain/);
+  bad({ ...WV2_ROW, args: ['--features'] }, /--features needs a feature list/);
+  bad({ ...WV2_ROW, args: ['--features', '--help'] }, /--features needs a feature list/);
+  bad({ ...WV2_ROW, args: ['-F', '-h'] }, /-F needs a feature list/);
+  bad({ ...WV2_ROW, args: ['--features', 'a b'] }, /--features needs a feature list/);
+  bad({ ...WV2_ROW, args: ['--features', 'a', 'b'] }, /args may not contain "b"/);
+  bad({ ...WV2_ROW, args: ['--all-features', '-h'] }, /args may not contain "-h"/);
   bad({ ...WV2_ROW, targets: 'x86_64-pc-windows-msvc' }, /targets must be an array/);
   bad({ ...WV2_ROW, targets: ['not a triple'] }, /target triples/);
   bad({ ...WV2_ROW, targets: ['x86_64-pc-windows-msvc', 'x86_64-pc-windows-msvc'] }, /twice/);
@@ -173,6 +181,18 @@ test('consumerRows: refuses unknown fields and malformed values', () => {
   assert.throws(() => consumerRows('rightkit-demo', { consumerRows: 'x' }), /consumerRows must be an array/);
   assert.throws(() => consumerRows('rightkit-demo', { consumerRows: [null] }), /must be an object/);
   assert.throws(() => consumerRows('rightkit-demo', { consumerRows: [[]] }), /must be an object/);
+});
+
+test('consumerRows: the allowlisted args are accepted unchanged and in order', () => {
+  const ok = (args) => assert.deepEqual(consumerRows('rightkit-demo', { consumerRows: [{ manifestPath: 'ci/consumers/x/Cargo.toml', args }] })[0].args, args);
+  ok([]);
+  ok(['--features', 'a,b']);
+  ok(['--features=a,dep/feat,dep?/x']);
+  ok(['-F', 'wv2-0_39']);
+  ok(['--no-default-features', '--features', 'wv2-0_39']);
+  ok(['--all-features']);
+  for (const kind of ['--lib', '--bins', '--tests', '--examples', '--benches', '--all-targets']) ok([kind]);
+  ok(['--no-default-features', '--lib', '--tests', '--features=x']);
 });
 
 test('consumerRows: the plan runs each row as a locked --manifest-path check after the crate checks, one per target, for the owning crate only', () => {
@@ -227,6 +247,43 @@ test('consumerRows: a cargo publish runs the row with the same evidence recordin
   const dirty = harness(withConsumer(), 'cargo', { git: (args) => (args[0] === 'rev-parse' ? HEAD : args.includes('ci/consumers/wv2-0_39') ? ' M ci/consumers/wv2-0_39/Cargo.lock' : '') });
   await refused(dirty.run(), /not clean for the consumer rows/);
   assert.deepEqual(dirty.calls, []);
+});
+
+test('gate config: an uncommitted ci/gate.config.json or ci/asset-gated.json refuses a single cargo publish before any command (0.4.1 review A3)', async () => {
+  for (const file of ['ci/gate.config.json', 'ci/asset-gated.json']) {
+    const h = harness(workspace({ kind: 'cargo' }), 'cargo', { git: (args) => (args[0] === 'rev-parse' ? HEAD : args[0] === 'status' && args.includes(file) ? ` M ${file}` : '') });
+    await refused(h.run(), /not clean for crates\/rightkit-demo or the gate config/);
+    assert.deepEqual(h.calls, []);
+    assert.equal(fs.existsSync(path.join(h.root, 'release-evidence')), false);
+  }
+});
+
+test('consumerRows: the manifest and lock must be tracked by git and resolve inside the workspace at their own path (0.4.1 review A5)', async (t) => {
+  const gateConfig = { rust: { 'rightkit-demo': { consumerRows: [{ manifestPath: 'ci/consumers/wv2-0_39/Cargo.toml' }] } } };
+  const withConsumer = () => {
+    const root = workspace({ kind: 'cargo', gateConfig });
+    fs.mkdirSync(path.join(root, 'ci', 'consumers', 'wv2-0_39'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'ci', 'consumers', 'wv2-0_39', 'Cargo.toml'), '[package]\n');
+    fs.writeFileSync(path.join(root, 'ci', 'consumers', 'wv2-0_39', 'Cargo.lock'), '');
+    return root;
+  };
+  // An untracked (or ignored) manifest or lock: git ls-files --error-unmatch fails.
+  for (const file of ['ci/consumers/wv2-0_39/Cargo.toml', 'ci/consumers/wv2-0_39/Cargo.lock']) {
+    const h = harness(withConsumer(), 'cargo', { git: (args) => (args[0] === 'ls-files' && args.includes(file) ? null : args[0] === 'rev-parse' ? HEAD : '') });
+    await refused(h.run(), new RegExp(`consumer row file ${file.replace(/[.]/g, '\\.')} is not tracked by git`));
+    assert.deepEqual(h.calls, []);
+  }
+  const ok = harness(withConsumer(), 'cargo');
+  await ok.run();
+  // A symlink at the lock path aims the check at a file git status of the consumer directory does not describe.
+  const root = withConsumer();
+  const lock = path.join(root, 'ci', 'consumers', 'wv2-0_39', 'Cargo.lock');
+  fs.writeFileSync(path.join(root, 'elsewhere.lock'), '');
+  fs.rmSync(lock);
+  try { fs.symlinkSync(path.join(root, 'elsewhere.lock'), lock, 'file'); } catch { t.skip('symlinks are not available on this host'); return; }
+  const linked = harness(root, 'cargo');
+  await refused(linked.run(), /Cargo\.lock resolves outside its own path in the workspace/);
+  assert.deepEqual(linked.calls, []);
 });
 
 test('npm: writes schema-valid darwin-only evidence the gate accepts and publishes the packed tarball', async () => {
@@ -489,6 +546,7 @@ test('batch: any failing batch check or precondition publishes nothing', async (
     ['secret scan', { scanSecrets: (dir) => (dir.endsWith('rightkit-b') ? ['.env'] : []) }, /batch secret scan rejected: rightkit-b: \.env/],
     ['registry', { registryHas: async ({ name }) => name === 'rightkit-b' }, /already on the crates\.io registry: rightkit-b@1\.0\.0/],
     ['dirty', { git: (args) => (args[0] === 'status' ? ' M crates/rightkit-a/src/lib.rs' : gitForBatch(args)) }, /tree is not clean/],
+    ['dirty gate config', { git: (args) => (args[0] === 'status' && args.includes('ci/gate.config.json') ? ' M ci/gate.config.json' : gitForBatch(args)) }, /tree is not clean.*gate config/],
     ['moved HEAD', { git: (() => { let heads = 0; return (args) => (args[0] === 'rev-parse' && args[1] === 'HEAD' && heads++ >= 1 ? 'c'.repeat(40) : gitForBatch(args)); })() }, /HEAD moved/],
     ['moved tree', { git: (() => { let trees = 0; return (args) => (args[0] === 'rev-parse' && args[1] !== 'HEAD' && trees++ >= 1 ? 'd'.repeat(40) : gitForBatch(args)); })() }, /differs from the batch tree/],
   ];
@@ -498,6 +556,31 @@ test('batch: any failing batch check or precondition publishes nothing', async (
     assert.deepEqual(h.events, [], `${label}: nothing may be published`);
     assert.equal(fs.existsSync(path.join(h.root, 'release-evidence')), false, `${label}: no evidence`);
   }
+});
+
+test('batch: a dirty or untracked consumer directory of a LATER layer refuses before anything runs or publishes (0.4.1 review A4, A5)', async () => {
+  const gateConfig = { rust: { 'rightkit-c': { consumerRows: [{ manifestPath: 'ci/consumers/c-check/Cargo.toml' }] } } };
+  const stage = (over) => {
+    const h = batchHarness(NAMES, { gateConfig, over });
+    fs.mkdirSync(path.join(h.root, 'ci', 'consumers', 'c-check'), { recursive: true });
+    fs.writeFileSync(path.join(h.root, 'ci', 'consumers', 'c-check', 'Cargo.toml'), '[package]\n');
+    fs.writeFileSync(path.join(h.root, 'ci', 'consumers', 'c-check', 'Cargo.lock'), '');
+    return h;
+  };
+  // rightkit-c depends on rightkit-a, so it is in layer 2: the refusal must come before layer 1 publishes.
+  const dirty = stage({ git: (args) => (args[0] === 'status' && args.includes('ci/consumers/c-check') ? ' M ci/consumers/c-check/Cargo.lock' : gitForBatch(args)) });
+  await refused(dirty.run(), /tree is not clean.*consumer directory/);
+  assert.deepEqual(dirty.calls, []);
+  assert.deepEqual(dirty.events, []);
+  assert.equal(fs.existsSync(path.join(dirty.root, 'release-evidence')), false);
+  const untracked = stage({ git: (args) => (args[0] === 'ls-files' ? null : gitForBatch(args)) });
+  await refused(untracked.run(), /consumer row file ci\/consumers\/c-check\/Cargo\.toml is not tracked by git/);
+  assert.deepEqual(untracked.calls, []);
+  assert.deepEqual(untracked.events, []);
+  // Clean and tracked: the batch runs and the row is checked for the layer-2 crate only.
+  const clean = stage({});
+  await clean.run();
+  assert.equal(clean.calls.filter((c) => c.includes('--manifest-path ci/consumers/c-check/Cargo.toml')).length, 1);
 });
 
 test('batch: a crate failure stops the next layer, lets the running sibling finish and reports what published', async () => {

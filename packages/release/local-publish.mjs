@@ -241,8 +241,13 @@ const CONSUMER_KINDS = new Set(["check"]);
 const CONSUMER_MANIFEST = /^ci\/consumers\/(?:[A-Za-z0-9._-]+\/)+Cargo\.toml$/;
 const CONSUMER_TARGET = /^[A-Za-z0-9_]+(?:-[A-Za-z0-9_.]+){2,3}$/;
 // The row owns manifest, lock, target and output format; arguments may only choose features and target kinds.
-const CONSUMER_RESERVED_ARGS = ["--manifest-path", "--target", "--locked", "--frozen", "--offline", "--package", "--workspace", "--all", "--exclude", "--config", "--message-format", "--jobs", "--release", "--profile", "--lockfile-path", "--"];
-const CONSUMER_RESERVED_SHORT = ["-p", "-j", "-Z", "-r"];
+// An ALLOWLIST (0.4.1 review A1): any token not listed is refused, so --help/-h/--version (a "passing" no-op),
+// --target-dir, -C/--directory, --color, --timings, -Z and every other Cargo option stay out of a row.
+// Keep in step with scripts/ci/gate.mjs.
+const CONSUMER_ARG_FLAGS = new Set(["--no-default-features", "--all-features", "--lib", "--bins", "--tests", "--examples", "--benches", "--all-targets"]);
+const CONSUMER_FEATURE_FLAGS = new Set(["--features", "-F"]);
+const CONSUMER_FEATURE_LIST = /^[A-Za-z0-9_][A-Za-z0-9_.+/?:,-]*$/;
+const CONSUMER_ARGS_ALLOWED = `--features <list> (or --features=<list>, -F <list>), ${[...CONSUMER_ARG_FLAGS].join(", ")}`;
 
 /**
  * Validate the `consumerRows` of one crate's ci/gate.config.json entry and return them normalised. A consumer row
@@ -267,10 +272,17 @@ export function consumerRows(unit, entry = {}) {
     if (row.locked !== undefined && row.locked !== true) refuse(`${where(index)}: locked must be true; a consumer row never runs without its lock file`);
     const args = row.args ?? [];
     if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string" || arg === "")) refuse(`${where(index)}: args must be an array of non-empty strings`);
-    for (const arg of args) {
-      if (CONSUMER_RESERVED_ARGS.some((flag) => arg === flag || arg.startsWith(`${flag}=`)) || CONSUMER_RESERVED_SHORT.some((flag) => arg.startsWith(flag))) {
-        refuse(`${where(index)}: args may not contain ${JSON.stringify(arg)}; the row sets manifest path, lock, target and output itself`);
+    for (let position = 0; position < args.length; position += 1) {
+      const arg = args[position];
+      if (CONSUMER_ARG_FLAGS.has(arg)) continue;
+      if (CONSUMER_FEATURE_FLAGS.has(arg)) {
+        const list = args[position + 1];
+        if (typeof list !== "string" || !CONSUMER_FEATURE_LIST.test(list)) refuse(`${where(index)}: ${arg} needs a feature list (names separated by commas, not starting with "-"), got ${JSON.stringify(list)}`);
+        position += 1;
+        continue;
       }
+      if (arg.startsWith("--features=") && CONSUMER_FEATURE_LIST.test(arg.slice("--features=".length))) continue;
+      refuse(`${where(index)}: args may not contain ${JSON.stringify(arg)}; the row sets manifest path, lock, target and output itself, and allows only ${CONSUMER_ARGS_ALLOWED}`);
     }
     const targets = row.targets ?? [];
     if (!Array.isArray(targets) || targets.some((target) => typeof target !== "string" || !CONSUMER_TARGET.test(target))) refuse(`${where(index)}: targets must be an array of target triples`);
@@ -288,14 +300,34 @@ export function consumerRowInvocations(row) {
   return targets.map((target) => ({ command: "cargo", args: [row.kind, "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...row.args], test: false }));
 }
 
-/** Refuse a consumer row whose manifest or lock is missing from the workspace (fail closed before any command). */
-function assertConsumerFiles(workspaceRoot, unit, rows) {
+/**
+ * Refuse a consumer row whose manifest or lock is missing from the workspace, is not tracked by git, or resolves
+ * (through a symlink) to anywhere but its own path inside the workspace (fail closed before any command;
+ * 0.4.1 review A5). The clean-tree check covers only the files git sees under the consumer directory, so a
+ * symlinked or ignored file would otherwise be a checked file nobody reviewed.
+ */
+function assertConsumerFiles(workspaceRoot, unit, rows, git = defaultGit) {
+  let realRoot;
+  try { realRoot = fs.realpathSync(workspaceRoot); } catch { refuse(`${unit}: cannot resolve the workspace ${workspaceRoot}`); }
   for (const row of rows) {
     for (const file of [row.manifestPath, row.manifestPath.replace(/Cargo\.toml$/, "Cargo.lock")]) {
-      if (!fs.existsSync(path.join(workspaceRoot, file))) refuse(`${unit}: consumer row needs ${file}, which is not in the workspace`);
+      const absolute = path.join(workspaceRoot, file);
+      if (!fs.existsSync(absolute)) refuse(`${unit}: consumer row needs ${file}, which is not in the workspace`);
+      let real;
+      try { real = fs.realpathSync(absolute); } catch { refuse(`${unit}: consumer row file ${file} cannot be resolved`); }
+      if (path.relative(realRoot, real) !== path.normalize(file)) refuse(`${unit}: consumer row file ${file} resolves outside its own path in the workspace (${real}); a symlink is not allowed`);
+      if (git(["ls-files", "--error-unmatch", "--", file], workspaceRoot) === null) refuse(`${unit}: consumer row file ${file} is not tracked by git; commit it first`);
     }
   }
 }
+
+/** The directories whose cleanliness a set of consumer rows depends on. */
+const consumerDirs = (rows) => [...new Set(rows.map((row) => path.posix.dirname(row.manifestPath)))];
+
+// The files that decide WHICH steps a publish runs: an uncommitted edit would change the plan the evidence is bound to
+// (0.4.1 review A3). Chosen over reading the HEAD blob so the publisher, the replay and the batch apply one rule:
+// the file on disk must be the committed file, or the publish is refused.
+export const GATE_CONFIG_FILES = Object.freeze(["ci/gate.config.json", "ci/asset-gated.json"]);
 
 /** The CI gate's commands for one unit (scripts/ci/gate.mjs npmGate/rustGate), mirrored exactly. */
 export function localTestPlan({ kind, unit, dir, config, manifest, batch = false, platform = "darwin" }) {
@@ -424,9 +456,9 @@ async function publishUnit(parsed, deps, batch) {
     const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
     if (tree !== batch.tree) refuse(`${unit}: HEAD tree ${tree} differs from the batch tree ${batch.tree}`);
   }
-  const dirty = git(["status", "--porcelain", "--", dir, ...(parsed.qualifyOnly ? ["Cargo.toml", "Cargo.lock"] : [])], workspaceRoot);
+  const dirty = git(["status", "--porcelain", "--", dir, ...GATE_CONFIG_FILES, ...(parsed.qualifyOnly ? ["Cargo.toml", "Cargo.lock"] : [])], workspaceRoot);
   if (dirty === null) refuse(`cannot read git status for ${dir}`);
-  if (dirty !== "") refuse(`tree is not clean for ${dir}; commit first:\n${dirty}`);
+  if (dirty !== "") refuse(`tree is not clean for ${dir} or the gate config (${GATE_CONFIG_FILES.join(", ")}); commit first:\n${dirty}`);
   if (await (deps.registryHas ?? defaultRegistryHas)({ kind, name: unit, version })) refuse(`${unit}@${version} is already on the ${kind === "npm" ? "npm" : "crates.io"} registry; bump the version`);
   log(`[right-release] local publish ${kind}:${unit}@${version} at ${head.slice(0, 12)} (local-build grant, ${LOCAL_HOST_POLICIES[platform]} policy)`);
 
@@ -438,8 +470,8 @@ async function publishUnit(parsed, deps, batch) {
   const plan = localTestPlan({ kind, unit, dir, config: gateConfig, manifest, batch: Boolean(batch), platform });
   if (plan.consumerRows?.length) {
     // The consumer workspaces are part of the qualified commit: present, and unmodified like the unit itself.
-    assertConsumerFiles(workspaceRoot, unit, plan.consumerRows);
-    const consumerDirty = git(["status", "--porcelain", "--", ...new Set(plan.consumerRows.map((row) => path.posix.dirname(row.manifestPath)))], workspaceRoot);
+    assertConsumerFiles(workspaceRoot, unit, plan.consumerRows, git);
+    const consumerDirty = git(["status", "--porcelain", "--", ...consumerDirs(plan.consumerRows)], workspaceRoot);
     if (consumerDirty === null) refuse(`cannot read git status for the consumer rows of ${unit}`);
     if (consumerDirty !== "") refuse(`tree is not clean for the consumer rows of ${unit}; commit first:\n${consumerDirty}`);
   }
@@ -608,6 +640,7 @@ async function runLocalPublishBatch(parsed, deps) {
   const assetGated = readJson(path.join(workspaceRoot, "ci", "asset-gated.json")) ?? {};
   const isAssetGated = (unit) => Object.hasOwn(assetGated.crates ?? {}, unit);
   const versions = new Map();
+  const batchConsumerDirs = new Set();
   for (const unit of crates) {
     const dir = `crates/${unit}`;
     if (!fs.existsSync(path.join(workspaceRoot, dir))) refuse(`unit directory not found: ${path.join(workspaceRoot, dir)}`);
@@ -615,17 +648,20 @@ async function runLocalPublishBatch(parsed, deps) {
     if (pkg.name !== unit) refuse(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crates entry ${unit}`);
     if (typeof pkg.version !== "string" || !pkg.version.trim()) refuse(`${unit} has no literal version`);
     versions.set(unit, pkg.version);
-    // Refuses an OS-restricted crate or a malformed consumer row now, not mid-batch.
-    assertConsumerFiles(workspaceRoot, unit, localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true, platform }).consumerRows ?? []);
+    // Refuses an OS-restricted crate, a malformed consumer row, or an untracked or symlinked consumer file now, not mid-batch.
+    const rows = localTestPlan({ kind: "cargo", unit, dir, config: gateConfig, batch: true, platform }).consumerRows ?? [];
+    assertConsumerFiles(workspaceRoot, unit, rows, git);
+    for (const consumerDir of consumerDirs(rows)) batchConsumerDirs.add(consumerDir);
   }
   const head = git(["rev-parse", "HEAD"], workspaceRoot);
   if (!head || !/^[0-9a-f]{40}$/.test(head)) refuse("cannot resolve HEAD");
   const tree = git(["rev-parse", "HEAD^{tree}"], workspaceRoot);
   if (!tree || !/^[0-9a-f]{40}$/.test(tree)) refuse("cannot resolve the HEAD tree");
-  // Every batch crate and the workspace manifest and lock must match the commit the batch checks are bound to.
-  const dirty = git(["status", "--porcelain", "--", ...crates.map((unit) => `crates/${unit}`), "Cargo.toml", "Cargo.lock"], workspaceRoot);
+  // Every batch crate, the workspace manifest and lock, the gate config and EVERY crate's consumer directories must
+  // match the commit the batch checks are bound to, before the first layer publishes (0.4.1 review A3, A4).
+  const dirty = git(["status", "--porcelain", "--", ...crates.map((unit) => `crates/${unit}`), "Cargo.toml", "Cargo.lock", ...GATE_CONFIG_FILES, ...batchConsumerDirs], workspaceRoot);
   if (dirty === null) refuse("cannot read git status for the batch");
-  if (dirty !== "") refuse(`tree is not clean for the batch crates or the workspace manifest; commit first:\n${dirty}`);
+  if (dirty !== "") refuse(`tree is not clean for the batch crates, the workspace manifest, the gate config or a consumer directory; commit first:\n${dirty}`);
   const registryHas = deps.registryHas ?? defaultRegistryHas;
   const published = (await Promise.all(crates.map(async (unit) => ((await registryHas({ kind: "cargo", name: unit, version: versions.get(unit) })) ? `${unit}@${versions.get(unit)}` : null)))).filter(Boolean);
   if (published.length) refuse(`already on the crates.io registry: ${published.join(", ")}; bump the version or remove them from the batch`);

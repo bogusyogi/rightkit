@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy } from "./publication-gate.mjs";
+import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingFeatureSets } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
@@ -176,8 +176,9 @@ export async function runCargoPublish(options, execute = (_command, args, settin
   const proven = (reuseEvidence || options.trustEvidenceSteps === true) && !options.dryRun ? provenGateSteps(gate.evidence) : {};
   if (reuseEvidence && (proven.tests !== true || proven.clippy !== true)) throw new Error("--from-evidence requires gate-proven tests and clippy for this crate and commit");
   if (reuseEvidence) {
-    const status = (deps.workspaceStatus ?? ((workspaceRoot) => spawnSync("git", ["status", "--porcelain", "--", "Cargo.toml", "Cargo.lock"], { cwd: workspaceRoot, encoding: "utf8", windowsHide: true })))(options.workspaceRoot);
-    if (status.error || status.status !== 0 || String(status.stdout ?? "").trim()) throw new Error("--from-evidence requires clean workspace Cargo.toml and Cargo.lock");
+    const status = (deps.workspaceStatus ?? ((workspaceRoot) => spawnSync("git", ["status", "--porcelain", "--", "Cargo.toml", "Cargo.lock", "ci/gate.config.json", "ci/asset-gated.json"], { cwd: workspaceRoot, encoding: "utf8", windowsHide: true })))(options.workspaceRoot);
+    // The gate config decides the steps replayed below, so an uncommitted edit would change what is demanded (0.4.1 review A3).
+    if (status.error || status.status !== 0 || String(status.stdout ?? "").trim()) throw new Error("--from-evidence requires clean workspace Cargo.toml, Cargo.lock and ci gate config (ci/gate.config.json, ci/asset-gated.json)");
     const proofHost = singleHostOfPolicy(gate.evidence) ?? "darwin";
     const runs = gate.evidence.runs.filter((run) => run?.host?.os === proofHost);
     const command = `cargo package --locked -p ${options.crate}`;
@@ -200,6 +201,11 @@ export async function runCargoPublish(options, execute = (_command, args, settin
         if (!run.steps.some((row) => row.command === text && row.ok === true && (!step.test || (row.executed > 0 && row.failed === 0)))) {
           throw new Error(`--from-evidence missing configured qualification step: ${text}`);
         }
+      }
+      // A batch run's clippy lives in its batch receipt, which `expected` leaves out: demand one row per feature set (0.4.1 review A2).
+      if (run.batch) {
+        const missing = batchClippyMissingFeatureSets(run.batch, gate.evidence, config?.rust?.[options.crate]?.featureSets ?? [[]]);
+        if (missing.length) throw new Error(`--from-evidence missing batch clippy for feature set${missing.length === 1 ? "" : "s"}: ${missing.map((features) => features.join(" ") || "default").join("; ")}`);
       }
     }
   }

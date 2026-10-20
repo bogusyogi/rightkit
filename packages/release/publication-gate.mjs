@@ -94,6 +94,27 @@ export function batchReceiptProblems(batch, evidence, tree) {
 }
 
 /**
+ * Feature sets of this crate that a batch receipt did NOT lint (0.4.1 review A2). Batch mode lints each crate's tested
+ * feature sets in shared `-p a -p b` runs, so a receipt from before every set was linted (0.4.0: first set only)
+ * still satisfies `batchReceiptProblems`, which accepts any ONE clippy row covering the crate. Replay therefore
+ * needs one passing row per feature set: bound to the evidence commit and the batch tree, naming the crate (`-p <crate>`
+ * and `crates`), and ending `--no-deps --all-targets <features> -- -D warnings`. `featureSets` is the crate's
+ * `ci/gate.config.json` list (`[[]]` when unset). Returns the missing sets as argument arrays.
+ */
+export function batchClippyMissingFeatureSets(batch, evidence, featureSets) {
+  const rows = (Array.isArray(batch?.checks) ? batch.checks : []).filter((row) => row?.name === "clippy" && row.ok === true
+    && row.commit === evidence.commit && row.tree === batch.tree && Array.isArray(row.crates) && row.crates.includes(evidence.name) && text(row.command));
+  const sets = (Array.isArray(featureSets) && featureSets.length ? featureSets : [[]]).map((set) => (Array.isArray(set) ? set : []));
+  return sets.filter((features) => {
+    const tail = ` --no-deps --all-targets${features.length ? ` ${features.join(" ")}` : ""} -- -D warnings`;
+    return !rows.some((row) => {
+      const words = row.command.split(" ");
+      return row.command.endsWith(tail) && words.some((word, index) => word === "-p" && words[index + 1] === evidence.name);
+    });
+  });
+}
+
+/**
  * Which per-crate publication steps the evidence ALREADY proves for this exact commit, so the publisher may
  * skip repeating them: `tests` (a passing `cargo test -p <name>` step that executed tests), `clippy` (a passing
  * `cargo clippy -p <name> ... -D warnings` step, or a valid batch receipt covering the crate), and `fmt` and

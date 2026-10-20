@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
 import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredShardCommands, SWIFT_ROOT_MANIFEST } from "./shards.mjs";
 import { scanTargets } from "./secret-scan.mjs";
 
 const crates = ["rightkit-a", "rightkit-b", "rightkit-c", "rightkit-d", "rightkit-e", "rightkit-heavy", "rightkit-win"];
 const config = {
   rust: {
-    // 3 feature sets, rerun serially: 6 test commands + clippy; one of the sets has --all-features, so no extra check row.
+    // 3 feature sets, rerun serially: 6 test commands + 3 clippy; --all-features removes extra checks.
     "rightkit-heavy": { featureSets: [["--all-features"], [], ["--features", "x"]], alsoSerial: true },
     "rightkit-win": { os: ["windows"] },
   },
@@ -18,8 +21,9 @@ const plan = (selection, host = "windows", shards = {}) => planHost({ host, labe
 test("rustWeight counts the cargo commands a crate runs", () => {
   assert.equal(rustWeight(), 3); // one test run, clippy, the default all-features check
   assert.equal(rustWeight({ checkFeatureSets: [] }), 2);
-  assert.equal(rustWeight({ featureSets: [["--all-features"], []], alsoSerial: true }), 5); // 4 tests + clippy, no extra check
-  assert.equal(rustWeight({ featureSets: [[], ["--features", "x"]], checkFeatureSets: [["--features", "a"], ["--features", "b"]] }), 5);
+  assert.equal(rustWeight({ featureSets: [["--all-features"], []], alsoSerial: true }), 6); // 4 tests + 2 clippy, no extra check
+  assert.equal(rustWeight({ featureSets: [[], ["--features", "x"]], checkFeatureSets: [["--features", "a"], ["--features", "b"]] }), 6);
+  assert.equal(rustWeight({ consumerRows: [{ manifestPath: "ci/consumers/host/Cargo.toml" }, { manifestPath: "ci/consumers/cross/Cargo.toml", targets: ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"] }] }), 6);
 });
 
 test("groupUnits is deterministic, keeps heavy and solo units alone and never exceeds the target", () => {
@@ -38,7 +42,7 @@ test("a crate's feature rows stay together: each selected crate is in exactly on
   const seen = every.shards.flatMap((s) => s.tokens.split(" "));
   assert.equal(new Set(seen).size, seen.length);
   assert.deepEqual([...seen].sort(), crates.filter((c) => c !== "rightkit-win").map((c) => `rust:${c}`).sort());
-  // The heavy crate weighs 7 (six test commands, clippy): below the default target of 12 it shares a group with a 3-point crate. With
+  // The heavy crate weighs 9 (six test commands, three clippy): at target 12 it shares a group with a 3-point crate. With
   // a target of 8 nothing fits beside it. Either way a crate's group does not change with the selection.
   const solo = plan({ rust: { all: false, test: ["rightkit-heavy"], check: [] } }, "windows", { rustTargetWeight: 8 });
   assert.deepEqual(solo.shards.map((s) => [s.id, s.tokens]), [["rust-heavy", "rust:rightkit-heavy"]]);
@@ -160,6 +164,7 @@ test("required evidence freezes every Rust feature, serial, clippy & check comma
     "cargo test -p rightkit-a --features native --no-fail-fast -- --show-output",
     "cargo test -p rightkit-a --features native --no-fail-fast -- --test-threads=1 --show-output",
     "cargo clippy -p rightkit-a --no-deps --all-targets -- -D warnings",
+    "cargo clippy -p rightkit-a --no-deps --all-targets --features native -- -D warnings",
     "cargo check -p rightkit-a --all-targets --all-features",
     "cargo check -p rightkit-a --all-targets --no-default-features",
   ]);
@@ -174,6 +179,55 @@ test("required evidence includes npm build prerequisites, root & Swift command c
     { unit: "npm:packages/p1", command: "pnpm --dir packages/p1 run test" },
   ]);
   assert.deepEqual(requiredShardCommands("root:scripts root:test:characterization swift:swift/root-manifest swift:swift/RightKitSwift", { swiftTests: ["swift/RightKitSwift"] }).map((row) => row.command), ["node --test scripts/**/*.test.mjs", "pnpm run test:characterization", "swift package describe --type json", "swift build", "swift test"]);
+});
+
+test("consumer rows freeze each target after per-set lint & feature checks; missing or substituted commands fail evidence", () => {
+  const entry = {
+    featureSets: [[], ["--features", "native"]],
+    consumerRows: [
+      { manifestPath: "ci/consumers/host/Cargo.toml", args: ["--no-default-features", "--features", "native"] },
+      { manifestPath: "ci/consumers/cross/Cargo.toml", kind: "check", targets: ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"], args: ["--all-features"], locked: true },
+    ],
+  };
+  const options = { config: { rust: { "rightkit-a": entry } } };
+  const commands = requiredShardCommands("rust:rightkit-a", options);
+  assert.deepEqual(commands.slice(-3).map((row) => row.command), [
+    "cargo check --manifest-path ci/consumers/host/Cargo.toml --locked --no-default-features --features native",
+    "cargo check --manifest-path ci/consumers/cross/Cargo.toml --locked --target x86_64-pc-windows-msvc --all-features",
+    "cargo check --manifest-path ci/consumers/cross/Cargo.toml --locked --target aarch64-apple-darwin --all-features",
+  ]);
+  assert.equal(commands.at(-4).command, "cargo check -p rightkit-a --all-targets --all-features");
+  assert.ok(commands.every((row) => row.unit === "rust:rightkit-a"));
+  assert.equal(commands.length, rustWeight(entry));
+  assert.ok(requiredShardCommands("rust-check:rightkit-a", options).every((row) => !row.command.includes("--manifest-path")), "closure jobs retain their own compile-only contract");
+  const job = { artifact: "qa-evidence-consumers", host: "windows", tokens: "rust:rightkit-a", steps: "test", commands };
+  const reportFor = (actual) => ({
+    sha: "abc", host: job.host, selection: job.tokens, steps: job.steps,
+    results: actual.map(({ unit, command }) => ({ unit, command, ok: true, code: 0, timedOut: false, seconds: 1, isTest: command.startsWith("cargo test "), executed: command.startsWith("cargo test ") ? 1 : 0, failed: 0, ignored: 0, skipped: 0, binaries: command.startsWith("cargo test ") ? 1 : 0 })),
+    rows: [{ id: "rust:rightkit-a", ok: true, seconds: actual.length, skipped: 0, failed: [], known: false }],
+  });
+  const verdict = (actual) => evidenceVerdict([job], { [job.artifact]: reportFor(actual) }, "abc");
+  assert.equal(verdict(commands).ok, true);
+  for (const omitted of commands.filter((row) => row.command.includes("--manifest-path") || row.command.includes("clippy"))) {
+    const failed = verdict(commands.filter((row) => row !== omitted));
+    assert.equal(failed.ok, false, omitted.command);
+    assert.ok(failed.failures.some((failure) => failure.includes("command coverage differs from plan")));
+  }
+  assert.equal(verdict(commands.map((row) => row.command.includes("--manifest-path") ? { ...row, command: row.command.replace("--locked", "--help") } : row)).ok, false);
+});
+
+test("gate consumer validation refuses no-op flags & unselected consumer paths without executing gate effects", () => {
+  const source = readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("const CONSUMER_ROW_KEYS =");
+  const end = source.indexOf("/** One Cargo step per target", start);
+  assert.ok(start >= 0 && end > start);
+  const validate = vm.runInNewContext(`${source.slice(start, end)}\nconsumerRows;`, { path }, { timeout: 1000 });
+  const row = { manifestPath: "ci/consumers/native/Cargo.toml", args: ["--features", "native"] };
+  const entry = { paths: ["ci/consumers/native"], consumerRows: [row] };
+  assert.equal(validate("rightkit-a", entry).length, 1);
+  assert.equal(validate("rightkit-a", { ...entry, paths: ["ci/consumers"] }).length, 1);
+  for (const paths of [undefined, [], ["ci/consumers/other"], ["ci/consumers/native-suffix"]]) assert.throws(() => validate("rightkit-a", { ...entry, paths }), /consumer directory .* must be listed/);
+  for (const args of [["--help"], ["-h"], ["--target-dir=other"], ["--features", "--help"], ["--features=--help"]]) assert.throws(() => validate("rightkit-a", { ...entry, consumerRows: [{ ...row, args }] }), /args may not contain|needs a feature list/);
 });
 
 test("realistic crate evidence requires exact successful commands & consistent aggregate rows", () => {

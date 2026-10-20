@@ -463,6 +463,45 @@ test('from-evidence refuses missing configured feature, serial or all-feature ch
   assert.equal(fx.commands.length, 0);
 });
 
+test("from-evidence refuses uncommitted gate config edits, which decide the replayed steps (0.4.1 review A3)", async (t) => {
+  const fx = qualifiedFixture(t);
+  const seen = [];
+  fx.deps.workspaceStatus = (workspaceRoot) => { seen.push(workspaceRoot); return { status: 0, stdout: " M ci/gate.config.json\n" }; };
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /requires clean workspace Cargo\.toml, Cargo\.lock and ci gate config/);
+  assert.equal(fx.commands.length, 0);
+  // The default status command names the gate config files beside the workspace manifest and lock.
+  const source = readFileSync(new URL("./publish-cargo.mjs", import.meta.url), "utf8");
+  assert.match(source, /"status", "--porcelain", "--", "Cargo\.toml", "Cargo\.lock", "ci\/gate\.config\.json", "ci\/asset-gated\.json"/);
+});
+
+test("from-evidence refuses a batch receipt that lints only some feature sets of the crate, and accepts one row per set (0.4.1 review A2)", async (t) => {
+  const fx = qualifiedFixture(t);
+  const commit = "a".repeat(40);
+  const entry = { featureSets: [[], ["--features", "async"]] };
+  const config = { rust: { [fx.name]: entry } };
+  writeFileSync(path.join(fx.root, "ci", "gate.config.json"), JSON.stringify(config));
+  const planned = localTestPlan({ kind: "cargo", unit: fx.name, dir: `crates/${fx.name}`, config, batch: true, platform: "win32" });
+  const check = (name, command, extra = {}) => ({ name, command, ok: true, commit, tree: commit, ...extra });
+  const lint = (features = []) => check("clippy", `cargo clippy -p ${fx.name} --message-format=json-render-diagnostics --no-deps --all-targets${features.length ? ` ${features.join(" ")}` : ""} -- -D warnings`, { crates: [fx.name] });
+  const run = fx.evidence.runs[0];
+  run.steps = [
+    ...planned.steps.map((step) => ({ command: `${step.command} ${step.args.join(" ")}`, ok: true, ...(step.test ? { executed: 3, failed: 0 } : {}) })),
+    { command: `cargo package --locked -p ${fx.name}`, ok: true },
+  ];
+  assert.equal(run.steps.some((row) => / clippy /.test(row.command)), false, "a batch run records no per-crate clippy step");
+  run.batch = { id: "batch-1", commit, tree: commit, crates: [fx.name], checks: [
+    check("fmt", "cargo fmt --all --check"), check("secret-scan", `scanCrateForSecrets crates/${fx.name}`, { crates: [fx.name] }), lint(),
+  ] };
+  fx.save();
+  // A 0.4.0 batch receipt: clippy ran on the first feature set only. The gate still accepts it; replay must not.
+  await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), /missing batch clippy for feature set: --features async/);
+  assert.equal(fx.commands.length, 0);
+  run.batch.checks.push(lint(["--features", "async"])); fx.save();
+  await runCargoPublish(fx.options, fx.execute, fx.deps);
+  assert.ok(fx.commands.some((args) => args[0] === "publish"));
+  assert.equal(fx.commands.some((args) => ["test", "clippy", "check", "build"].includes(args[0])), false);
+});
+
 test('from-evidence refuses any failed recorded step even beside complete passing evidence', async (t) => {
   const fx = qualifiedFixture(t);
   fx.evidence.runs[0].steps.push({ command: 'cargo check --features broken', ok: false }); fx.save();
