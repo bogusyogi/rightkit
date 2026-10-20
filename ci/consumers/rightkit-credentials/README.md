@@ -77,19 +77,22 @@ Windows system-provider row requires approved OPENSSL_DIR/native toolchain confi
 
 ## Signed nested helper fixture, each phase
 
-After default-feature `core` run built executable, package that exact executable under scratch `.app` with existing correctly signed helper `.app` inside `Contents/Library/LoginItems`. `RK_SOURCE_HELPER_APP` points at approved signed helper bundle; `RK_CONSUMER_HELPER_NAME` equals its bundle/executable stem; `RK_CONSUMER_HELPER_TEAM_ID` equals approved signing team. Consumer invokes only helper `status`. Preserve helper signature; no signing/enrollment setup belongs here.
-
-macOS commands with current phase's default-feature `CARGO_TARGET_DIR`:
+Stage immediately after default-feature build, before `native-db` can overwrite target executable. Use fresh phase-specific scratch paths & supplied signed `HeardRightAppleCredentials.app`; preserve its signature. Consumer uses helper status only.
 
 ```sh
-export RK_CONSUMER_BUNDLE=/Volumes/D/scratch/credentials-r2/Consumer.app
-mkdir -p "$RK_CONSUMER_BUNDLE/Contents/MacOS" "$RK_CONSUMER_BUNDLE/Contents/Library/LoginItems"
-cp "$CARGO_TARGET_DIR/debug/rightkit-credentials-r2-consumer" "$RK_CONSUMER_BUNDLE/Contents/MacOS/consumer"
-ditto "$RK_SOURCE_HELPER_APP" "$RK_CONSUMER_BUNDLE/Contents/Library/LoginItems/$RK_CONSUMER_HELPER_NAME.app"
+export RK_CONSUMER_HELPER_NAME=HeardRightAppleCredentials
+export RK_CONSUMER_HELPER_TEAM_ID=6KLGD3LLKF
+python3 prepare_signed_helper.py \
+  --scratch-root "$RK_APPROVED_SCRATCH_ROOT" \
+  --consumer-executable "$CARGO_TARGET_DIR/debug/rightkit-credentials-r2-consumer" \
+  --bundle "$RK_CONSUMER_BUNDLE" \
+  --receipt "$RK_HELPER_INPUT_RECEIPT"
 "$RK_CONSUMER_BUNDLE/Contents/MacOS/consumer" native-helper
 ```
 
-Use distinct bundle destinations for packed & registry phases. Missing bundle/helper/signature/readiness exits nonzero. Running `cargo run -- native-helper` from ordinary target directory also exits nonzero because current executable is outside `.app`.
+Fable supplies `RK_SOURCE_HELPER_APP` from approved signed artifact. Script pins helper name & team, verifies source/copy signatures & tree identity, preserves executable bits, rejects path escapes, symlink components, output reuse & overlaps with source/helper app ancestors. Approved scratch root & output parents must exist; bundle & receipt must be fresh strict descendants. Script never signs or authenticates.
+
+Repeat staging & staged launch for packed & fetched registry phases with separate bundles/receipts. Input receipt records actual helper hashes & default consumer hash; `nativeConsumerVerified: false` remains input-only evidence. Runner records subsequent native exit/output separately. Missing artifact, invalid signature, wrong team or failed readiness refuses qualification. Ordinary `cargo run -- native-helper` cannot resolve nested helper.
 
 ## R2(b): published registry
 

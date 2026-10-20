@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { childEnv, loadSealed, sha } from "./upload.mjs";
-import { cargoRecipe, nativeFixture, planRuns, executeRuns } from "./consumer-recipes.mjs";
+import { cargoRecipe, nativeFixture, planRuns, executeRuns, planNativeHelper, stageNativeHelper, nativeHelperExecute } from "./consumer-recipes.mjs";
 export { assertRegistryManifest } from "./consumer-recipes.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -100,6 +100,7 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
     // Resolve every run's harness-owned env before any Cargo work: a missing prerequisite refuses early.
     const plan = planRuns({ runs: recipe.runs, env, scratchRoot, platform });
     report.runs = plan.map(({ values, implicit, ...entry }) => entry);
+    const helper = planNativeHelper({ unit, plan, env, platform });
     fs.mkdirSync(vendor);
     fs.mkdirSync(path.join(bootstrap, "src"), { recursive: true });
     report.toolchain = { rustc: String(run("rustc", ["--version"])).trim(), cargo: String(run("cargo", ["--version"])).trim() };
@@ -158,7 +159,10 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
     if (resolved?.length !== 1 || !Array.isArray(resolved[0].features)) throw new Error("missing selected crate feature resolution");
     if (recipe.evidence.dependency.features.some(feature => !resolved[0].features.includes(feature))) throw new Error("selected PK feature prescription absent from resolved crate");
     run("cargo", ["build", "--locked", "--offline"], consumer);
-    const outputs = executeRuns({ plan, evidence: report.runs, execute: (cargoArgs, values) => run("cargo", cargoArgs, consumer, values) });
+    // The default-feature binary exists only until the SQLCipher variant overwrites target: stage the signed helper bundle now.
+    const staged = helper && stageNativeHelper({ recipeDirectory: template, reviewedFiles: recipe.evidence.files, scratch, targetDir: cargoEnv.CARGO_TARGET_DIR, sourceApp: helper.sourceApp, run: (command, args, extraEnv) => run(command, args, consumer, extraEnv) });
+    if (staged) { report.helperInput = staged.input; report.helperInputSha256 = staged.inputSha256; }
+    const outputs = executeRuns({ plan, evidence: report.runs, execute: nativeHelperExecute({ helper, staged, cargo: (cargoArgs, values) => run("cargo", cargoArgs, consumer, values), launch: (executable, args, values) => run(executable, args, consumer, values) }) });
     const runtimeOutput = recipe.runs ? plan.map((entry, i) => `[run ${entry.id}] ${report.runs[i].status}`).join("\n") + "\n" + outputs.join("") : outputs[0];
     if (fs.readFileSync(lockFile, "utf8") !== lock) throw new Error("lock changed during qualification");
     for (const [file, digest] of Object.entries(recipe.evidence.files)) if (sha("sha256", fs.readFileSync(path.join(consumer, file))) !== digest) throw new Error(`PK example changed during qualification: ${file}`);

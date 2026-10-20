@@ -144,3 +144,48 @@ export function nativeFixture({ unit, env, platform = process.platform }) {
   for (const mount of [plan.other, plan.fat].filter(Boolean)) if (!fs.existsSync(mount) || fs.statSync(mount).dev === fs.statSync(temp).dev) fail("distinct mounted volume missing");
   return { stateSha256: hash(bytes), volumeInfoSha256: hash(infoBytes), platform, scratch: plan.scratch, other: plan.other, fat: plan.fat };
 }
+
+// ---- signed nested helper (rightkit-credentials native-helper row, macOS only) ----
+// The reviewed preparer copies the default-feature consumer binary & the harness-supplied, already signed helper
+// into a fresh bundle; this table pins every name, argv & output so a changed recipe row refuses instead of
+// silently falling back to a bare Cargo run that cannot resolve the bundled helper. No signing, no download.
+export const NATIVE_HELPER = Object.freeze({
+  unit: "rightkit-credentials", platform: "darwin", runId: "native-helper", name: "HeardRightAppleCredentials", teamId: "6KLGD3LLKF",
+  argv: Object.freeze(["run", "--locked", "--offline", "--", "native-helper"]), launchArgs: Object.freeze(["native-helper"]),
+  script: "prepare_signed_helper.py", consumerBinary: "rightkit-credentials-r2-consumer", bundleName: "CredentialsConsumer.app",
+  receiptName: "credentials-helper-input.json", launch: "Contents/MacOS/consumer", inputKind: "credentials-native-helper-input",
+  success: "native bundled helper consumer assertions passed",
+});
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+/** Before any Cargo/fetch work: null for other units/hosts, else the validated helper input. A missing input refuses; it never skips. */
+export function planNativeHelper({ unit, plan, env, platform = process.platform }) {
+  if (unit.name !== NATIVE_HELPER.unit || platform !== NATIVE_HELPER.platform) return null;
+  const rows = plan.filter(row => row.id === NATIVE_HELPER.runId);
+  need(rows.length === 1 && rows[0].status !== "not-applicable" && sameJson(cargoRunArgs(rows[0]), NATIVE_HELPER.argv), "rightkit-credentials requires the reviewed native-helper run with exact argv on macOS");
+  need(rows[0].values.RK_CONSUMER_HELPER_NAME === NATIVE_HELPER.name && rows[0].values.RK_CONSUMER_HELPER_TEAM_ID === NATIVE_HELPER.teamId, "native-helper run must carry the pinned signed helper name & team id");
+  const source = env.RK_SOURCE_HELPER_APP;
+  if (typeof source !== "string" || !path.isAbsolute(source) || source.split(/[\\/]/).includes("..") || path.basename(source) !== `${NATIVE_HELPER.name}.app`) prerequisite("signedHelperSource", `workflow must provision RK_SOURCE_HELPER_APP as an absolute path to ${NATIVE_HELPER.name}.app`);
+  return { sourceApp: source };
+}
+/** Stage the unchanged signed helper + default consumer binary through the reviewed preparer; `run(command, args, extraEnv)` is the runner's own wrapper. */
+export function stageNativeHelper({ recipeDirectory, reviewedFiles, scratch, targetDir, sourceApp, run }) {
+  const script = path.join(recipeDirectory, NATIVE_HELPER.script);
+  need(hash(fs.readFileSync(script)) === reviewedFiles?.[NATIVE_HELPER.script], "native helper preparer differs from its reviewed hash");
+  const real = fs.realpathSync(scratch);
+  const consumer = fs.realpathSync(path.join(targetDir, "debug", NATIVE_HELPER.consumerBinary));
+  const bundle = path.join(real, NATIVE_HELPER.bundleName); const receipt = path.join(real, NATIVE_HELPER.receiptName);
+  const consumerSha256 = hash(fs.readFileSync(consumer));
+  run("python3", [script, "--scratch-root", real, "--consumer-executable", consumer, "--bundle", bundle, "--receipt", receipt], { RK_SOURCE_HELPER_APP: sourceApp });
+  const bytes = fs.readFileSync(receipt); const input = JSON.parse(bytes); const launch = path.join(bundle, NATIVE_HELPER.launch);
+  need(input.schema === 1 && input.kind === NATIVE_HELPER.inputKind && input.name === NATIVE_HELPER.name && input.teamId === NATIVE_HELPER.teamId && input.signatureVerified === true && input.nativeConsumerVerified === false, "native helper input receipt is not the reviewed signed-helper identity");
+  need(input.consumerSha256 === consumerSha256 && /^[0-9a-f]{64}$/.test(input.helperTree?.sha256 ?? "") && fs.statSync(launch).isFile() && hash(fs.readFileSync(launch)) === consumerSha256, "native helper input receipt does not bind the staged default consumer & helper tree");
+  return { bundle, receipt, launch, input, inputSha256: hash(bytes) };
+}
+/** Wrap a runner's Cargo executor: the planned native-helper row launches the staged bundle (never Cargo) & must print its assertion line. */
+export const nativeHelperExecute = ({ helper, staged, cargo, launch }) => (cargoArgs, values) => {
+  if (!helper || !sameJson(cargoArgs, NATIVE_HELPER.argv)) return cargo(cargoArgs, values);
+  need(staged, "native-helper row requires a staged signed helper bundle");
+  const output = String(launch(staged.launch, [...NATIVE_HELPER.launchArgs], values));
+  need(output.includes(NATIVE_HELPER.success), "staged native-helper launch did not report its consumer assertions");
+  return output;
+};

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { REPOSITORY, APPROVED_ARTIFACTS_FILE, sha, integrity, loadSealed } from "./upload.mjs";
 import { selectCandidate, prepareCandidate, unpackArtifact } from "./reviewed-candidate.mjs";
 import { assertRegistryManifest, registryLockEvidence } from "./registry-consumer.mjs";
-import { cargoRecipe, planRuns, executeRuns } from "./consumer-recipes.mjs";
+import { cargoRecipe, planRuns, executeRuns, planNativeHelper, stageNativeHelper, nativeHelperExecute } from "./consumer-recipes.mjs";
 import { lockEvidence, registryUrl } from "./registry-readback.mjs";
 
 const need = (ok, why) => { if (!ok) throw new Error(`reviewed registry readback refused: ${why}`); };
@@ -213,6 +213,7 @@ export async function consumeReadback({ env, bundle, output, expectedHash, root 
       const template = recipeDirectory(root, unit, candidate.registry);
       // Same reviewed runs & harness-owned env providers as R2a; a missing prerequisite refuses before any fetch.
       const plan = candidate.registry === "crates" ? planRuns({ runs: cargoRecipe({ root, unit }).runs, env, scratchRoot: fs.realpathSync(env.RUNNER_TEMP), platform: process.platform }) : null;
+      const helper = plan ? planNativeHelper({ unit, plan, env, platform: process.platform }) : null;
       const archive = await registryArchive(unit, candidate.registry, fetchImpl);
       const scratch = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "rk-r2b-")); const consumer = path.join(scratch, "consumer");
       fs.cpSync(template, consumer, { recursive: true });
@@ -241,7 +242,10 @@ export async function consumeReadback({ env, bundle, output, expectedHash, root 
         need(archives.length === 1 && hash(fs.readFileSync(archives[0])) === unit.sha256, "Cargo fetched archive differs from original sealed archive");
         run("cargo", ["build", "--locked", "--offline"]);
         result.runs = plan.map(({ values, implicit, ...entry }) => entry);
-        executeRuns({ plan, evidence: result.runs, execute: (cargoArgs, values) => run("cargo", cargoArgs, false, values) });
+        // The default-feature binary exists only until the SQLCipher variant overwrites target: stage the signed helper bundle now.
+        const staged = helper && stageNativeHelper({ recipeDirectory: template, reviewedFiles: cargoRecipe({ root, unit }).evidence.files, scratch, targetDir: child.CARGO_TARGET_DIR, sourceApp: helper.sourceApp, run: (command, args, extraEnv) => run(command, args, false, extraEnv) });
+        if (staged) { result.helperInput = staged.input; result.helperInputSha256 = staged.inputSha256; write(path.join(output, `${unit.name}-helper-input.json`), staged.input); }
+        executeRuns({ plan, evidence: result.runs, execute: nativeHelperExecute({ helper, staged, cargo: (cargoArgs, values) => run("cargo", cargoArgs, false, values), launch: (executable, args, values) => run(executable, args, false, values) }) });
         need(fs.readFileSync(lockFile, "utf8") === lock, "Cargo lock changed during consumer run");
         write(path.join(output, `${unit.name}-lock.json`), { sha256: hash(lock), lock });
       } else {

@@ -282,8 +282,9 @@
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
         "Cargo.toml": "83b15f41068d16723f2963f5ecf628e6ce0bc575c6de0c2fc1c3ca4b2610e9c9",
-        "README.md": "9749872ad0a8c438d5fb867437425588195bd2b58d1d996432144b6083cca1ce",
-        "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a"
+        "README.md": "6e5c151a531c31294acd7a08727042f2eec809aef5ecec7bf3021c1550690b2d",
+        "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a",
+        "prepare_signed_helper.py": "538f1f71137bc84c947c2b358946926ea96055fc48e0f77c12f120caa9e1d56c"
       },
       "runs": [
         {

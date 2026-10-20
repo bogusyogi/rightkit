@@ -107,6 +107,14 @@ test("R2b readback executes the same reviewed runs through the shared planner, n
   assert.equal(implementation.includes('run("cargo", ["run", "--locked", "--offline"])'), false);
   assert.ok(implementation.indexOf("planRuns(") < implementation.indexOf("await registryArchive(unit"), "prerequisites must refuse before any registry fetch");
 });
+test("R2b readback stages the signed credentials helper from the default build before SQLCipher & launches the staged bundle, never Cargo", () => {
+  const implementation = fs.readFileSync(new URL("./reviewed-registry-readback.mjs", import.meta.url), "utf8");
+  for (const needle of ["planNativeHelper({ unit, plan, env, platform: process.platform })", "stageNativeHelper({ recipeDirectory: template, reviewedFiles: cargoRecipe({ root, unit }).evidence.files", "targetDir: child.CARGO_TARGET_DIR", "run(command, args, false, extraEnv)", "nativeHelperExecute({ helper, staged", "launch: (executable, args, values) => run(executable, args, false, values)", "result.helperInput = staged.input; result.helperInputSha256 = staged.inputSha256", "-helper-input.json"]) assert.ok(implementation.includes(needle), needle);
+  const at = needle => implementation.indexOf(needle);
+  assert.ok(at("planNativeHelper(") < at("await registryArchive(unit"), "helper input must refuse before any registry fetch");
+  assert.ok(at('run("cargo", ["build", "--locked", "--offline"])') < at("stageNativeHelper({") && at("stageNativeHelper({") < at("executeRuns({ plan, evidence: result.runs"), "stage after the default build, before any row can overwrite target");
+  assert.equal(implementation.includes("RK_SOURCE_HELPER_APP: env."), false, "source path comes only from the planner's validated input");
+});
 test("R2b readback child env carries GITHUB_ACTIONS & RUNNER_TEMP like R2a, no token, and a planned run sees them", t => {
   const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-r2b-env-"))); t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const scratch = path.join(temp, "scratch"); fs.mkdirSync(scratch);

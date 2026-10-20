@@ -130,35 +130,36 @@ test("R2a runs exact committed PK example with registry lock, feature resolution
   for (mode of ["path", "runtime", "recipe"]) assert.throws(invoke);
 });
 
-function runsHarness(t, runs, platform = "win32") {
+function runsHarness(t, runs, platform = "win32", { name = "rightkit-logs", version = "0.3.4", features = [], env: extraEnv = {}, hook } = {}) {
   const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-r2a-runs-"))); t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
-  const root = path.join(scratch, "checkout"); const packs = path.join(scratch, "packed"); const template = path.join(root, "ci/consumers/rightkit-logs");
+  const root = path.join(scratch, "checkout"); const packs = path.join(scratch, "packed"); const template = path.join(root, "ci/consumers", name);
   fs.mkdirSync(path.dirname(template), { recursive: true }); fs.mkdirSync(packs);
   const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
-  fs.cpSync(path.join(committedRoot, "ci/consumers/rightkit-logs"), template, { recursive: true });
-  const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8")); if (runs) inventory.cargo["rightkit-logs"].runs = runs;
+  fs.cpSync(path.join(committedRoot, "ci/consumers", name), template, { recursive: true });
+  const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8")); if (runs) inventory.cargo[name].runs = runs;
   fs.writeFileSync(path.join(root, "ci/consumer-recipes.json"), JSON.stringify(inventory));
-  const bytes = Buffer.from("mock archive bytes"); const selected = { ...unit, file: "rightkit-logs-0.3.4.crate", size: bytes.length, sha256: sha("sha256", bytes) };
+  const bytes = Buffer.from("mock archive bytes"); const selected = { name, version, file: `${name}-${version}.crate`, size: bytes.length, sha256: sha("sha256", bytes) };
   fs.writeFileSync(path.join(packs, selected.file), bytes);
   const sealed = { schema: 1, registry: "crates", commit: "b".repeat(40), runId: "42", runAttempt: "1", units: [selected] };
   fs.writeFileSync(path.join(packs, "manifest.json"), JSON.stringify(sealed));
-  const env = { GITHUB_ACTIONS: "true", GITHUB_SHA: sealed.commit, GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", RUNNER_TEMP: scratch, PATH: process.env.PATH, NODE_AUTH_TOKEN: "secret", RIGHTKIT_TEST_REAL_USER_STORES: "0", RK_CONSUMER_RUN_ROOT: "/candidate-chosen" };
+  const env = { GITHUB_ACTIONS: "true", GITHUB_SHA: sealed.commit, GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", RUNNER_TEMP: scratch, PATH: process.env.PATH, NODE_AUTH_TOKEN: "secret", RIGHTKIT_TEST_REAL_USER_STORES: "0", RK_CONSUMER_RUN_ROOT: "/candidate-chosen", ...extraEnv };
   const calls = [];
   const spawn = (command, args, options) => {
-    calls.push({ command, args, env: options.env });
+    calls.push({ command, args, cwd: options.cwd, env: options.env });
+    const hooked = hook?.(command, args, options); if (hooked) return hooked;
     if (command === "rustc" || args[0] === "--version") return { status: 0, stdout: `${command} mocked-version\n` };
-    if (args[0] === "-tzf") return { status: 0, stdout: "rightkit-logs-0.3.4/Cargo.toml\nrightkit-logs-0.3.4/src/lib.rs\n" };
+    if (args[0] === "-tzf") return { status: 0, stdout: `${name}-${version}/Cargo.toml\n${name}-${version}/src/lib.rs\n` };
     if (args[0] === "-tvzf") return { status: 0, stdout: "-rw-r--r-- archive files\n" };
-    if (args[0] === "-xzf") { const dest = path.join(args[args.indexOf("-C") + 1], "rightkit-logs-0.3.4"); fs.mkdirSync(dest); fs.writeFileSync(path.join(dest, "Cargo.toml"), "sealed manifest"); return { status: 0, stdout: "" }; }
+    if (args[0] === "-xzf") { const dest = path.join(args[args.indexOf("-C") + 1], `${name}-${version}`); fs.mkdirSync(dest); fs.writeFileSync(path.join(dest, "Cargo.toml"), "sealed manifest"); return { status: 0, stdout: "" }; }
     if (args[0] === "generate-lockfile") { fs.writeFileSync(path.join(options.cwd, "Cargo.lock"), lock(selected)); return { status: 0, stdout: "" }; }
     if (args[0] === "metadata") {
-      const vendor = path.join(path.dirname(options.cwd), "registry", "rightkit-logs-0.3.4", "Cargo.toml");
-      return { status: 0, stdout: JSON.stringify({ packages: [{ name: "consumer", manifest_path: path.join(options.cwd, "Cargo.toml"), source: null }, { id: "selected", name: selected.name, version: selected.version, source: "registry+https://github.com/rust-lang/crates.io-index", manifest_path: vendor }], resolve: { nodes: [{ id: "selected", features: [] }] } }) };
+      const vendor = path.join(path.dirname(options.cwd), "registry", `${name}-${version}`, "Cargo.toml");
+      return { status: 0, stdout: JSON.stringify({ packages: [{ name: "consumer", manifest_path: path.join(options.cwd, "Cargo.toml"), source: null }, { id: "selected", name: selected.name, version: selected.version, source: "registry+https://github.com/rust-lang/crates.io-index", manifest_path: vendor }], resolve: { nodes: [{ id: "selected", features }] } }) };
     }
     if (args[0] === "run" && args.includes("beta")) return { status: 101, stderr: "beta assertion failed" };
     return { status: 0, stdout: `ok ${args.join(" ")}\n` };
   };
-  return { scratch, env, calls, invoke: (extra = {}) => runRegistryConsumer({ packDir: packs, root, scratchRoot: scratch, env, spawn, platform, ...extra }) };
+  return { scratch, env, calls, invoke: (extra = {}) => runRegistryConsumer({ packDir: packs, name, root, scratchRoot: scratch, env, spawn, platform, ...extra }) };
 }
 test("declared crate runs execute with exactly their declared harness-owned env & are recorded", t => {
   const h = runsHarness(t, [{ id: "alpha", features: ["sqlcipher"], args: ["native-db"], env: { RIGHTKIT_TEST_REAL_USER_STORES: "literal1", RK_CONSUMER_RUN_ROOT: "freshRunRoot" } }, { id: "mac-only", args: ["native-helper"], hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }, { id: "plain", args: ["core"] }]);
@@ -187,4 +188,74 @@ test("a failing run is recorded failed; a missing prerequisite refuses before an
   assert.deepEqual(missing.calls, []);
   const reportFile = path.join(missing.scratch, "out", "report.json"); assert.throws(() => missing.invoke({ reportFile }));
   assert.match(JSON.parse(fs.readFileSync(reportFile, "utf8")).error, /prerequisite missing/);
+});
+
+// ---- rightkit-credentials signed nested helper: stage default consumer + unchanged signed helper, launch staged bundle ----
+const HELPER_APP = "/Users/runner/approved/HeardRightAppleCredentials.app";
+const helperEnv = { RK_CONSUMER_HELPER_NAME: "HeardRightAppleCredentials", RK_CONSUMER_HELPER_TEAM_ID: "6KLGD3LLKF", RK_SOURCE_HELPER_APP: HELPER_APP };
+const STAGED_LAUNCH = path.join("Contents", "MacOS", "consumer");
+function credentialsHarness(t, platform, { env = helperEnv, mutateReceipt = receipt => receipt, helperOutput = "native bundled helper consumer assertions passed\n" } = {}) {
+  const hook = (command, args, options) => {
+    if (args[0] === "build") {
+      const exe = path.join(options.env.CARGO_TARGET_DIR, "debug", "rightkit-credentials-r2-consumer"); fs.mkdirSync(path.dirname(exe), { recursive: true });
+      fs.writeFileSync(exe, "default consumer bytes"); return { status: 0, stdout: "" };
+    }
+    if (command === "python3") { // stands in for the reviewed preparer: same flags, same bundle layout & receipt shape
+      const flag = name => args[args.indexOf(name) + 1];
+      const launch = path.join(flag("--bundle"), STAGED_LAUNCH); fs.mkdirSync(path.dirname(launch), { recursive: true }); fs.copyFileSync(flag("--consumer-executable"), launch);
+      const receipt = { schema: 1, kind: "credentials-native-helper-input", name: "HeardRightAppleCredentials", teamId: "6KLGD3LLKF", helperTree: { sha256: "d".repeat(64) }, consumerSha256: sha("sha256", fs.readFileSync(launch)), signatureVerified: true, nativeConsumerVerified: false };
+      fs.writeFileSync(flag("--receipt"), `${JSON.stringify(mutateReceipt(receipt))}\n`); return { status: 0, stdout: `${flag("--receipt")}\n` };
+    }
+    if (command.endsWith(STAGED_LAUNCH)) return { status: 0, stdout: helperOutput };
+    return undefined;
+  };
+  return runsHarness(t, null, platform, { name: "rightkit-credentials", version: "0.4.0", features: ["db-adapter"], env, hook });
+}
+test("credentials macOS stages the default consumer + signed helper before SQLCipher, then launches the staged bundle instead of Cargo", t => {
+  const h = credentialsHarness(t, "darwin"); const report = h.invoke(); assert.equal(report.verified, true);
+  const index = predicate => h.calls.findIndex(predicate);
+  const prepare = index(c => c.command === "python3"); const build = index(c => c.args[0] === "build"); const nativeDb = index(c => c.args[0] === "run" && c.args.includes("native-db")); const staged = index(c => c.command.endsWith(STAGED_LAUNCH));
+  assert.ok(build >= 0 && build < prepare && prepare < nativeDb && nativeDb < staged, "default build, then staging, then SQLCipher run, then staged launch");
+  assert.equal(h.calls.some(c => c.command === "cargo" && c.args[0] === "run" && c.args.includes("native-helper")), false);
+  const call = h.calls[prepare]; const flag = name => call.args[call.args.indexOf(name) + 1];
+  assert.equal(path.basename(call.args[0]), "prepare_signed_helper.py"); assert.ok(call.args[0].startsWith(path.join(h.scratch, "checkout", "ci/consumers/rightkit-credentials")), "reviewed preparer comes from the committed checkout");
+  assert.deepEqual(call.args.filter(a => a.startsWith("--")), ["--scratch-root", "--consumer-executable", "--bundle", "--receipt"]);
+  assert.equal(path.basename(flag("--consumer-executable")), "rightkit-credentials-r2-consumer"); assert.equal(path.basename(flag("--bundle")), "CredentialsConsumer.app"); assert.equal(path.basename(flag("--receipt")), "credentials-helper-input.json");
+  for (const name of ["--bundle", "--receipt", "--consumer-executable"]) assert.equal(path.dirname(flag(name)).startsWith(flag("--scratch-root")), true);
+  assert.equal(call.env.RK_SOURCE_HELPER_APP, HELPER_APP);
+  for (const other of h.calls.filter((c, i) => i !== prepare)) assert.equal(other.env.RK_SOURCE_HELPER_APP, undefined, `source path must reach only the preparer: ${other.command} ${other.args[0]}`);
+  const launch = h.calls[staged]; assert.deepEqual(launch.args, ["native-helper"]); assert.equal(launch.env.RK_CONSUMER_HELPER_NAME, "HeardRightAppleCredentials"); assert.equal(launch.env.RK_CONSUMER_HELPER_TEAM_ID, "6KLGD3LLKF");
+  assert.equal(report.helperInput.nativeConsumerVerified, false); assert.equal(report.helperInput.signatureVerified, true);
+  assert.equal(report.helperInputSha256, sha("sha256", Buffer.from(`${JSON.stringify(report.helperInput)}\n`)));
+  assert.equal(report.helperInput.consumerSha256, sha("sha256", Buffer.from("default consumer bytes")));
+  assert.deepEqual(report.runs.map(r => [r.id, r.status]), [["core", "passed"], ["native-db", "passed"], ["native-helper", "passed"]]);
+  assert.match(report.runtimeOutput, /native bundled helper consumer assertions passed/);
+});
+test("credentials macOS refuses before any Cargo work without the supplied signed helper, with a misnamed one, or without the exact pinned identity", t => {
+  const bad = { ...helperEnv };
+  for (const [change, why] of [[{ RK_SOURCE_HELPER_APP: undefined }, /prerequisite missing: signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "relative/HeardRightAppleCredentials.app" }, /signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "/x/../HeardRightAppleCredentials.app" }, /signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "/x/OtherHelper.app" }, /signedHelperSource/], [{ RK_CONSUMER_HELPER_TEAM_ID: "ABCDE12345" }, /pinned signed helper name & team id/], [{ RK_CONSUMER_HELPER_NAME: "OtherHelper" }, /pinned signed helper name & team id/], [{ RK_CONSUMER_HELPER_NAME: undefined }, /prerequisite missing: signedHelper/]]) {
+    const h = credentialsHarness(t, "darwin", { env: { ...bad, ...change } });
+    assert.throws(() => h.invoke(), error => { assert.match(error.message, why); assert.equal(error.report.verified, false); return true; });
+    assert.deepEqual(h.calls, []);
+  }
+});
+test("credentials macOS refuses when the recipe row is not the exact reviewed native-helper argv, instead of falling back to Cargo", t => {
+  for (const runs of [[{ id: "core", args: ["core"] }], [{ id: "native-helper", args: ["native-helper"], hosts: ["win32"] }, { id: "core", args: ["core"] }], [{ id: "native-helper", args: ["native-helper"], features: ["sqlcipher"], hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }]]) {
+    const h = runsHarness(t, runs, "darwin", { name: "rightkit-credentials", version: "0.4.0", features: ["db-adapter"], env: helperEnv });
+    assert.throws(() => h.invoke(), /requires the reviewed native-helper run/); assert.deepEqual(h.calls, []);
+  }
+});
+test("credentials staging refuses an input receipt that is not the reviewed signed identity bound to the default consumer, and a launch that lacks its assertion line", t => {
+  for (const [mutate, why] of [[r => ({ ...r, nativeConsumerVerified: true }), /not the reviewed signed-helper identity/], [r => ({ ...r, signatureVerified: false }), /not the reviewed signed-helper identity/], [r => ({ ...r, teamId: "ABCDE12345" }), /not the reviewed signed-helper identity/], [r => ({ ...r, consumerSha256: "e".repeat(64) }), /does not bind the staged default consumer/], [r => ({ ...r, helperTree: {} }), /does not bind the staged default consumer/]]) {
+    const h = credentialsHarness(t, "darwin", { mutateReceipt: mutate });
+    assert.throws(() => h.invoke(), error => { assert.match(error.message, why); return true; });
+    assert.equal(h.calls.some(c => c.args[0] === "run"), false, "no consumer run after a refused staging");
+  }
+  const silent = credentialsHarness(t, "darwin", { helperOutput: "ok\n" });
+  assert.throws(() => silent.invoke(), error => { assert.match(error.message, /did not report its consumer assertions/); assert.equal(error.report.runs[2].status, "failed"); return true; });
+});
+test("credentials on Windows never stages: native-helper is not-applicable & the helper input is not required", t => {
+  const h = credentialsHarness(t, "win32", { env: {} }); const report = h.invoke(); assert.equal(report.verified, true);
+  assert.equal(h.calls.some(c => c.command === "python3"), false); assert.equal(report.helperInput, undefined);
+  assert.deepEqual(report.runs.map(r => [r.id, r.status]), [["core", "passed"], ["native-db", "passed"], ["native-helper", "not-applicable"]]);
 });
