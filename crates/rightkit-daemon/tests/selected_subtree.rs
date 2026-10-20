@@ -335,7 +335,9 @@ fn failed_resolver_cannot_replace_locked_destination() {
         .tree_roots(move |_| {
             let error = fs::rename(&destination, destination.with_extension("saved")).unwrap_err();
             assert!(matches!(error.raw_os_error(), Some(5 | 32)), "{error}");
-            Err(ParticipantError::new("resolver failed after denied replacement"))
+            Err(ParticipantError::new(
+                "resolver failed after denied replacement",
+            ))
         })
         .run();
     assert!(matches!(

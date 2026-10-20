@@ -1838,10 +1838,7 @@ mod tests {
             CutoverError::Io(error) if error.to_string() == "resolver failed after replacement"
         ));
         assert!(!plan.new.join(CUTOVER_RECORD).exists());
-        assert_eq!(
-            fs::read(plan.new.join("sentinel")).unwrap(),
-            b"replacement"
-        );
+        assert_eq!(fs::read(plan.new.join("sentinel")).unwrap(), b"replacement");
         assert_eq!(fs::read_dir(&plan.new).unwrap().count(), 1);
         assert_eq!(fs::read(saved.join(CUTOVER_RECORD)).unwrap(), original);
         assert_eq!(fs::read(plan.old.join("startup.log")).unwrap(), b"source");
