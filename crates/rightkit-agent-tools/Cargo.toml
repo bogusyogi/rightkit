@@ -1,9 +1,9 @@
 [package]
 name = "rightkit-agent-tools"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.98.0"
-description = "One typed tool interface for agents over rightkit-automation, rightkit-qa-driver, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
+description = "One typed tool interface for agents over rightkit-automation, rightkit-browser and each app's engine commands (via rightkit-daemon), plus the `right-ctl <app> <command>` CLI."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bogusyogi/rightkit"
 readme = "README.md"
@@ -23,7 +23,7 @@ demo = []
 rightkit-daemon = { version = "0.3.0", path = "../rightkit-daemon" }
 rightkit-automation = { version = "0.5.0", path = "../rightkit-automation", optional = true }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
-rightkit-speech-client = { version = "0.3.0", path = "../rightkit-speech-client", optional = true }
+rightkit-speech-client = { version = "0.4.0", path = "../rightkit-speech-client", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1", features = ["rt-multi-thread", "time"], optional = true }

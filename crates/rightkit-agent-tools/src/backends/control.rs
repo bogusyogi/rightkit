@@ -1,5 +1,5 @@
 //! Tools for one Right Suite app, reached through its in-app control service
-//! (`rightkit-qa-driver`'s `embedded` server, a `rightkit-daemon` host named
+//! (`rightkit-qa`'s embedded `control` server, a `rightkit-daemon` host named
 //! `control-<app>`). Real webview input, DOM/AX query, screenshot, and the app's
 //! own typed commands (`command{name,args}`), all over the user-only socket/pipe
 //! with the service's per-app request allowlist on the far side.
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The control methods of the in-app server, in the server's own order
-/// (`rightkit_qa_driver::embedded::METHODS`). A conformance test asserts this list
+/// (`rightkit_qa::embedded::METHODS`). A conformance test asserts this list
 /// against the QA crate's dispatch table so the two cannot drift.
 pub const CONTROL_METHODS: &[&str] = &[
     "health",
@@ -40,6 +40,12 @@ pub const CONTROL_METHODS: &[&str] = &[
 
 /// The `app` label this crate's clients present to services (their allowlist key).
 pub const CLIENT_APP: &str = "right-ctl";
+
+/// The app whose locks no profile can switch off: whatever profile is registered under this
+/// name loses every generic read channel and gets the dictation exposure layer, exactly like
+/// [`AppProfile::for_app`]. A hand-built `AppProfile::standard("heardright")` is therefore as
+/// closed as the built-in one.
+const LOCKED_APP: &str = "heardright";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandPolicy {
@@ -110,7 +116,13 @@ impl AppProfile {
 
     /// Whether the hard exposure rules refuse command `name` for this app.
     pub fn command_forbidden(&self, name: &str) -> bool {
-        exposure::forbidden_with(name, self.dictation).is_some()
+        exposure::forbidden_with(name, self.dictation_enforced()).is_some()
+    }
+
+    /// Whether the dictation exposure layer applies: the profile asks for it, or the app is the
+    /// locked app (HeardRight), whatever the profile says.
+    pub(crate) fn dictation_enforced(&self) -> bool {
+        self.dictation || self.app == LOCKED_APP
     }
 
     /// The built-in profile for `app`: HeardRight is sensitive, everything else standard.
@@ -138,7 +150,7 @@ impl AppProfile {
     /// Allowlist patterns (see `Toolbox::allow`) that grant exactly this profile.
     pub fn allow_patterns(&self) -> Vec<String> {
         let mut out = vec![];
-        for m in &self.methods {
+        for m in self.methods.iter().filter(|m| self.method_enabled(m)) {
             if m == "command" {
                 match &self.commands {
                     CommandPolicy::Any => out.push(format!("{}.command:*", self.app)),
@@ -155,7 +167,7 @@ impl AppProfile {
 
     fn method_enabled(&self, m: &str) -> bool {
         self.methods.iter().any(|x| x == m)
-            && !(self.sensitive && GENERIC_READ_METHODS.contains(&m))
+            && !((self.sensitive || self.app == LOCKED_APP) && GENERIC_READ_METHODS.contains(&m))
     }
 }
 
@@ -484,5 +496,29 @@ mod tests {
         assert!(check_batch(&p, &ok).is_ok());
         let bad = json!({"steps": [{"method": "command", "params": {"name": "transcribe_all"}}]});
         assert!(check_batch(&p, &bad).is_err());
+    }
+
+    #[test]
+    fn camel_case_names_are_refused_like_snake_case_in_profiles_and_batches() {
+        let heard = AppProfile::for_app("heardright");
+        for name in [
+            "startDictation",
+            "chatHistory",
+            "deliveryStatus",
+            "pasteText",
+        ] {
+            assert!(heard.command_forbidden(name), "{name}");
+        }
+        let gen = AppProfile::standard("genright");
+        assert!(gen.command_forbidden("pasteText"));
+        assert!(gen.command_forbidden("readPasteboard"));
+        assert!(!gen.command_forbidden("chatHistory"));
+        let bad = json!({"steps": [{"method": "command", "params": {"name": "pasteText"}}]});
+        assert!(check_batch(&gen, &bad).is_err());
+        let listed = AppProfile::sensitive("x", &["deliveryStatus", "health", "getClipboard"])
+            .with_dictation_rules();
+        assert!(
+            matches!(&listed.commands, CommandPolicy::Only(l) if l == &vec!["health".to_string()])
+        );
     }
 }

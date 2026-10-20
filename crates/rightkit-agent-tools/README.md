@@ -8,19 +8,29 @@ Catalog capability: `agent-tools`.
 
 | Tool family | Backend | Feature |
 |---|---|---|
-| `<app>.*` | Each app's in-app control service, over `rightkit-daemon` (always compiled) | none |
+| `<app>.*` | Each app's in-app control service, over `rightkit-daemon`. It exists only in development and QA builds (`rightkit-qa` feature `control`, compiled only with debug assertions); release builds ship no in-app control surface. `right-ctl` is a developer and agent tool that drives it. | none |
 | `desktop.*` | `rightkit-automation` (macOS accessibility tree, Windows UI Automation) | `automation` |
 | `browser.*` | `rightkit-browser` (Chrome DevTools Protocol) | `browser` |
 | `speech.*` | `rightkit-speech-client` (shared speech service) | `speech` |
 
-Exposure rules are built in and cannot be loosened (`exposure` module). No pasteboard or paste tool can be registered or called, for any app. A dictation app (`AppProfile::with_dictation_rules`, set by the built-in HeardRight profile; `Toolbox::protect_dictation` for a hand-built toolbox) also refuses dictation, text-delivery and history names. Other apps keep their own `history` or `delivery` commands.
+Exposure rules are built in and cannot be loosened (`exposure` module). No pasteboard or paste tool can be registered or called, for any app, in snake_case, kebab-case, camelCase or PascalCase (`pasteText`, `getClipboard`). A dictation app (`AppProfile::with_dictation_rules`, set by the built-in HeardRight profile; `Toolbox::protect_dictation` for a hand-built toolbox) also refuses dictation, text-delivery and history names. Other apps keep their own `history` or `delivery` commands. A profile registered under the app name `heardright` is always sensitive and dictation-protected, whatever its flags say: it has no `eval`, `dom`, `ax`, `screenshot`, `wait` or `batch` tool (`tests/negative_gate.rs`).
 
 ## When to use it
 
-- Use it when an agent must drive an installed, signed Right Suite app in the background, by process id, through `right-ctl`.
+- For an installed (release) Right Suite app, agents use the `desktop.*` family through `right-ctl`: OS accessibility (macOS Accessibility, Windows UI Automation), in the background, by process id, with no app code. The `<app>.*` family is for development and QA builds only.
 - Use it when a caller needs one allowlisted, journaled tool surface across apps.
 
 Do not use it to take foreground input or to click the screen with computer-use tools on Right Suite apps. Do not use it for dictation or text delivery; the exposure rules block those.
+
+## Applicability record (M22)
+
+Every app declares its role for the agent surface in `rightkit-mandatory.json`, tied to the real entrypoints that prove it:
+
+```json
+{ "M22": { "role": "client", "entrypoints": ["src-tauri/src/agent.rs#register_tools"] } }
+```
+
+`role` is `client` (the app calls a toolbox), `host` (the app serves agent calls), `both`, or `absent` (no agent surface, no entrypoints, and the row declared not applicable with a reason). An entrypoint is a relative file, optionally followed by `#symbol` or `::symbol`; a bare token with no path separator or extension is a symbol and is recorded unverified. `right-release ownership-mandatory` reads and reports the record. `ApplicabilityRecord::from_manifest` parses the same record in Rust with the same rules, and `missing_entrypoint_files(app_root)` checks the file entrypoints on disk, so an app test can verify its own record. The record is report-only: it never grants an agent capability and the toolbox gate does not read it.
 
 ## Cargo features
 
@@ -74,7 +84,7 @@ Other CLI modes from the usage text: `right-ctl --list` (live services), `right-
 - `desktop.launch`, `desktop.terminate`: launch or quit an allowlisted app.
 - `desktop.lease_acquire`, `desktop.lease_status`, `desktop.lease_release`: exclusive input lease.
 
-Actions touch only apps named in `RIGHT_CTL_DESKTOP_ALLOW` (comma-separated bundle ids, read per call). Input escalates through tiers: semantic accessibility action, in-app, then per-pid events. `desktop.act` accepts `semantic`, `in_app` or `targeted` as `max_tier` (default `targeted`). `foreground` is refused with `ERR_NOT_ALLOWED` (`src/backends/desktop.rs:38-48`), so agents cannot reach foreground input through this interface.
+Actions touch only apps named in `RIGHT_CTL_DESKTOP_ALLOW` (comma-separated bundle ids, read per call). Input escalates through tiers: semantic accessibility action, in-app, then per-pid events. `desktop.act` accepts `semantic`, `in_app` or `targeted` as `max_tier` (default `targeted`). `foreground` is not in the tool's schema, so the toolbox gate refuses it as `invalid_arguments` before the tool runs; the tool itself also refuses it with `ERR_NOT_ALLOWED` (`src/backends/desktop.rs:38-48`) when called without the gate. Agents cannot reach foreground input through this interface either way (`tests/desktop_tools.rs`).
 
 ## Exit codes
 
@@ -93,7 +103,7 @@ Results go to stdout as JSON. Errors go to stderr as `{"error":{code,message,ret
 
 ## Platform support
 
-Desktop tools need macOS Accessibility. No test in this crate calls a `desktop.*` tool (`tests/e2e.rs` has none); the desktop backend's tests live in `rightkit-automation`. The Windows backend comes through `rightkit-automation`; see that crate's README for its status.
+Desktop tools need macOS Accessibility or Windows UI Automation. `tests/desktop_tools.rs` drives the `desktop.*` tools through the toolbox gate over the simulated desktop in `rightkit-automation` (`mock::MockPlatform`), so it runs on every host and never touches a real desktop. The real OS backends are tested in `rightkit-automation`; see that crate's README for its status.
 
 ## Version and changes
 

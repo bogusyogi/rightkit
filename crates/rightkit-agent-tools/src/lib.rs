@@ -5,15 +5,18 @@
 //!   rules, per-caller allowlist, argument schema, the caller's admission hook,
 //!   journal).
 //! * Backends: `<app>.*` over each app's in-app control service
-//!   (`rightkit-qa-driver` on `rightkit-daemon`, including the app's own typed
+//!   (`rightkit-qa`'s `control` server on `rightkit-daemon`, including the app's own typed
 //!   commands), `desktop.*` over `rightkit-automation`, `browser.*` over
 //!   `rightkit-browser`, `speech.*` over the shared speech service
 //!   (`rightkit-speech-client`, the first client).
 //! * `right-ctl <app> <command>`: the CLI over the same toolbox.
+//! * [`applicability`]: the M22 applicability record (`client | host | both | absent` plus real
+//!   entrypoints) an app declares in `rightkit-mandatory.json`.
 //!
 //! HeardRight's rules are built in and not configurable: no dictation, text
 //! delivery, pasteboard or history tool can be registered or called ([`exposure`]).
 
+pub mod applicability;
 pub mod backends;
 pub mod exposure;
 mod journal;
@@ -21,6 +24,7 @@ mod peer;
 mod spec;
 mod toolbox;
 
+pub use applicability::{AgentRole, ApplicabilityError, ApplicabilityRecord, APPLICABILITY_KEY};
 pub use backends::control::{
     control_tools, AppProfile, CommandPolicy, CLIENT_APP, CONTROL_METHODS,
 };
@@ -51,7 +55,7 @@ pub fn control_toolbox(suite: &Suite, apps: &[&str]) -> Result<Toolbox, ToolErro
 
 /// Register one app profile and grant [`CTL_CALLER`] its patterns.
 pub fn add_app(tb: &mut Toolbox, suite: &Suite, profile: AppProfile) -> Result<(), ToolError> {
-    if profile.dictation {
+    if profile.dictation_enforced() {
         tb.protect_dictation(profile.app.clone());
     }
     tb.register_all(control_tools(suite, &profile))?;
