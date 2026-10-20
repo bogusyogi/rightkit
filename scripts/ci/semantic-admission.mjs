@@ -126,6 +126,19 @@ function reviewedRecipe(source, unit) {
   return { ...recipe, sourceCommit: source.source.sha };
 }
 
+/** Match unchanged generic portability to authenticated manifest declarations, without waivers. */
+export function npmPortabilityQualificationProblems({ packageManifest, portability } = {}) {
+  const declared = declaredEntries(packageManifest);
+  const runtime = declared.subpaths.filter(entry => entry.runtime.length > 0);
+  // consume.mjs CHECK_SCRIPT imports JavaScript & resolves other declared assets only.
+  // Any JavaScript alternative still requires import evidence; mixed branches fail closed.
+  const isJavaScript = file => /\.[cm]?js$/.test(new URL(file, "file:///rightkit-consumer/").pathname);
+  const imported = runtime.filter(entry => entry.runtime.some(isJavaScript)).map(entry => entry.spec);
+  const resolvedOnly = runtime.filter(entry => entry.runtime.every(file => !isJavaScript(file))).map(entry => entry.spec);
+  if (!portability || portability.entries !== runtime.length || portability.filesChecked !== declared.files.length || portability.noJsEntry !== (runtime.length === 0) || !setEqual(portability.imported, imported) || !setEqual(portability.resolvedOnly, resolvedOnly) || !setEqual(portability.patterns, declared.patterns) || !setEqual(portability.bins, declared.bins) || ["productionRejected", "conditionalImports", "skippedImport", "binSmoke"].some(field => !setEqual(portability[field], [])) || runtime.some(entry => entry.testConditions != null) || declared.patterns.length || declared.bins.length) return ["named npm R2a lacks complete unchanged generic portability proof"];
+  return [];
+}
+
 /** Named npm seam: authenticated candidate DATA & trusted verifier recipe inventory only. */
 export function namedNpmQualificationProblems({ source, candidate, manifest, unit, host, report, publicationEvidence } = {}) {
   const problems = [];
@@ -154,10 +167,7 @@ export function namedNpmQualificationProblems({ source, candidate, manifest, uni
     const expected = { name: unit.name, version: unit.version, commit: candidate.sourceSha, runId: String(candidate.runId), runAttempt: String(candidate.runAttempt), manifestRunId: String(manifest.runId), manifestRunAttempt: String(manifest.runAttempt), manifestSha256: candidate.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, archiveIntegrity: unit.integrity, host, runnerOS: host === "windows" ? "Windows" : "macOS", arch: native[0].host.arch, packageManager: rootManifest.packageManager };
     problems.push(...(logs ? npmConsumerQualificationProblems : npmRecipeQualificationProblems)({ report, expected, recipe, sourceBindings }));
     // Preserve generic portability's complete installed-entry proof, even alongside named runtime.
-    const declared = declaredEntries(packageManifest);
-    const portability = report?.portability;
-    const runtime = declared.subpaths.filter(entry => entry.runtime.length > 0).map(entry => entry.spec);
-    if (!portability || portability.entries !== runtime.length || portability.filesChecked !== declared.files.length || portability.noJsEntry !== (runtime.length === 0) || !setEqual(portability.imported, runtime) || !setEqual(portability.patterns, declared.patterns) || !setEqual(portability.bins, declared.bins) || ["resolvedOnly", "productionRejected", "conditionalImports", "skippedImport", "binSmoke"].some(field => !setEqual(portability[field], [])) || declared.patterns.length || declared.bins.length) problems.push("named npm R2a lacks complete unchanged generic portability proof");
+    problems.push(...npmPortabilityQualificationProblems({ packageManifest, portability: report?.portability }));
   } catch (error) { problems.push(`named npm R2a: ${error.message}`); }
   return problems;
 }

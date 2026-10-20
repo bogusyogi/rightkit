@@ -4,13 +4,60 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { canonicalRunProblems, consumerQualificationProblems, runtimeFeatureProofPolicy, semanticAdmission, namedNpmQualificationProblems } from "./semantic-admission.mjs";
+import { canonicalRunProblems, consumerQualificationProblems, runtimeFeatureProofPolicy, semanticAdmission, namedNpmQualificationProblems, npmPortabilityQualificationProblems } from "./semantic-admission.mjs";
 import { derivePublicationObligations } from "./publication-obligations.mjs";
 import { RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
 
 const SHA = "a".repeat(40); const TREE = "b".repeat(40); const HEX = "c".repeat(64);
 const hash = (data) => crypto.createHash("sha256").update(data).digest("hex");
+
+function cssPortabilityFixture() {
+  return {
+    packageManifest: { name: "@rightkit/doc-render", main: "dist/index.js", types: "dist/index.d.ts", exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" }, "./styles.css": "./styles.css", "./shiki.css": "./shiki.css" } },
+    portability: { entries: 3, imported: ["@rightkit/doc-render"], resolvedOnly: ["@rightkit/doc-render/styles.css", "@rightkit/doc-render/shiki.css"], productionRejected: [], conditionalImports: [], skippedImport: [], patterns: [], bins: [], binSmoke: [], filesChecked: 4, noJsEntry: false },
+  };
+}
+
+test("named npm portability accepts declared CSS resolutions beside JavaScript import", () => {
+  assert.deepEqual(npmPortabilityQualificationProblems(cssPortabilityFixture()), []);
+});
+
+test("named npm portability rejects omitted, substituted, duplicated & exceptional proof", () => {
+  const mutations = [
+    input => { input.portability.imported = []; },
+    input => { input.portability.resolvedOnly.push(input.portability.imported.pop()); },
+    input => { input.portability.resolvedOnly.pop(); },
+    input => { input.portability.resolvedOnly[0] = "@rightkit/doc-render/unknown.css"; },
+    input => { input.portability.resolvedOnly.push(input.portability.resolvedOnly[0]); },
+    input => { input.portability.imported.push(input.portability.resolvedOnly.shift()); },
+    input => { input.portability.imported.push(input.portability.imported[0]); },
+    input => { input.portability.entries = 2; },
+    input => { input.portability.filesChecked = 3; },
+    input => { input.portability.noJsEntry = true; },
+    input => { delete input.portability.resolvedOnly; },
+    ...["productionRejected", "conditionalImports", "skippedImport", "patterns", "bins", "binSmoke"].map(field => input => { input.portability[field] = ["unexpected"]; }),
+    input => { input.packageManifest.exports["./styles.css"] = "./dist/styles.js"; },
+    input => { input.packageManifest.exports["./styles.css"] = "./dist/styles.mjs?asset"; },
+    input => { input.packageManifest.exports["./styles.css"] = { import: "./styles.css", require: "./styles.cjs" }; },
+    input => { input.packageManifest.exports["./styles.css"] = { development: "./styles.css" }; },
+    input => { input.packageManifest.exports["./testing/styles.css"] = input.packageManifest.exports["./styles.css"]; delete input.packageManifest.exports["./styles.css"]; input.portability.resolvedOnly[0] = "@rightkit/doc-render/testing/styles.css"; },
+  ];
+  for (const mutate of mutations) {
+    const input = cssPortabilityFixture(); mutate(input);
+    assert.deepEqual(npmPortabilityQualificationProblems(input), ["named npm R2a lacks complete unchanged generic portability proof"]);
+  }
+});
+
+test("named npm portability retains generic entry counting for asset-only & type-only packages", () => {
+  const input = cssPortabilityFixture();
+  delete input.packageManifest.main; delete input.packageManifest.types; delete input.packageManifest.exports["."];
+  input.portability.entries = 2; input.portability.filesChecked = 2; input.portability.imported = [];
+  assert.deepEqual(npmPortabilityQualificationProblems(input), []);
+  input.packageManifest.exports = { ".": { types: "./dist/index.d.ts" } };
+  input.portability.entries = 0; input.portability.filesChecked = 1; input.portability.resolvedOnly = []; input.portability.noJsEntry = true;
+  assert.deepEqual(npmPortabilityQualificationProblems(input), []);
+});
 
 test("runtime classification reuses owner & always-on stays capability HOLD", () => {
   for (const input of [
