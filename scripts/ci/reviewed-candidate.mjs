@@ -12,6 +12,13 @@ const POS = /^[1-9][0-9]*$/;
 const contexts = new WeakMap();
 export const SUPPLEMENTAL_PROOFS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "supplemental-proofs.json");
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// Workload ids of each crate that has trusted runtime coverage. This file runs under credentials and must not load the
+// qualification harness, so the table is repeated here; a test asserts it equals scripts/ci/runtime-qualify.mjs exactly.
+export const RUNTIME_PROOF_WORKLOADS = Object.freeze({
+  "rightkit-logs": Object.freeze(["tracing", "detached"]),
+  "rightkit-daemon": Object.freeze(["local", "remote", "remote-loopback"]),
+  "rightkit-tauri-shell": Object.freeze(["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"]),
+});
 const requireThat = (condition, message) => { if (!condition) throw new Error(`reviewed candidate refused: ${message}`); };
 function exact(value, keys, label) {
   requireThat(value && typeof value === "object" && !Array.isArray(value) && same(Object.keys(value).sort(), [...keys].sort()), `${label} has unexpected or missing keys`);
@@ -53,21 +60,35 @@ export function selectCandidate(file, id) {
 }
 
 /** Separate committed pins never alter original candidate or receipt schemas. */
-export function selectSupplement(file, candidate, kind, approvedFile = APPROVED_ARTIFACTS_FILE) {
+export function selectSupplements(file, candidate, kind, approvedFile = APPROVED_ARTIFACTS_FILE) {
   const doc = JSON.parse(fs.readFileSync(file, "utf8"));
   exact(doc, ["schema", "supplements"], "supplement collection");
   requireThat(doc.schema === 1 && Array.isArray(doc.supplements), "unknown supplement collection schema");
   const seen = new Set();
   for (const pin of doc.supplements) {
     const id = pin?.original?.candidateId;
-    const identity = `${id}:${pin?.kind}`;
+    // One pin per candidate and kind, except runtime proofs: a candidate may carry one per crate, told apart by proof hash.
+    const identity = `${id}:${pin?.kind}${pin?.kind === "runtime-workload-pin" ? `:${pin?.artifact?.proofSha256}` : ""}`;
     requireThat(typeof id === "string" && !seen.has(identity), "invalid or duplicate supplemental candidate/kind");
     seen.add(identity);
     validateSupplementPin(pin, selectCandidate(approvedFile, id));
   }
-  const pin = doc.supplements.find((row) => row.original.candidateId === candidate.id && row.kind === kind) ?? null;
-  if (pin) validateSupplementPin(pin, candidate);
-  return pin;
+  const pins = doc.supplements.filter((row) => row.original.candidateId === candidate.id && row.kind === kind);
+  for (const pin of pins) validateSupplementPin(pin, candidate);
+  return pins;
+}
+export function selectSupplement(file, candidate, kind, approvedFile = APPROVED_ARTIFACTS_FILE) {
+  const pins = selectSupplements(file, candidate, kind, approvedFile);
+  requireThat(pins.length <= 1, "more than one supplement pin of this kind; select them all");
+  return pins[0] ?? null;
+}
+/** A qualified runtime row must name a trusted-coverage crate, its trusted workloads, and one pin of this candidate. */
+export function validateRuntimeTransfer(row, pins, candidateId) {
+  const proof = row.runtimeFeatureProof;
+  exact(proof.proof, ["candidateId", "proofSha256", "workloads"], "runtime supplement transfer");
+  const workloads = Object.hasOwn(RUNTIME_PROOF_WORKLOADS, row.name) ? RUNTIME_PROOF_WORKLOADS[row.name] : null;
+  const pin = pins.find((item) => item.artifact.proofSha256 === proof.proof.proofSha256);
+  requireThat(workloads && proof.classification === "always-on" && proof.listedOwner === true && proof.required === true && pin && proof.proof.candidateId === candidateId && same(proof.proof.workloads, workloads), "runtime supplement transfer mismatch");
 }
 export const selectArchiveSupplement = (file, candidate, approvedFile = APPROVED_ARTIFACTS_FILE) => selectSupplement(file, candidate, "archive-scan-supplement-pin", approvedFile);
 
@@ -274,6 +295,7 @@ function validateAdmission(admission, prepared, env) {
   }
   requireThat(Array.isArray(admission.units) && admission.units.length === bound.manifest.units.length, "incomplete semantic unit verdicts");
   const names = new Set();
+  const runtimePins = candidate.registry === "crates" ? selectSupplements(bound.supplementalFile, candidate, "runtime-workload-pin", bound.approvedFile) : [];
   for (const row of admission.units) {
     exact(row, ["name", "version", "archiveSha256", "ok", "policies", "failures", "adoptionPending", "runtime", "runtimeFeatureProof", "runtimeInputHashes", "evidenceSha256"], "semantic unit verdict");
     exact(row.policies, ["macos", "windows"], "semantic unit host policies");
@@ -281,16 +303,16 @@ function validateAdmission(admission, prepared, env) {
       const proof = row.runtimeFeatureProof;
       exact(proof, ["classification", "listedOwner", "required", "status", "failures", ...(proof?.status === "qualified" ? ["proof"] : [])], "semantic runtime feature proof");
       requireThat(Array.isArray(proof.failures) && proof.failures.length === 0, "runtime feature proof failed");
-      if (proof.status === "qualified") {
-        const pin = selectSupplement(bound.supplementalFile, candidate, "runtime-workload-pin", bound.approvedFile);
-        exact(proof.proof, ["candidateId", "proofSha256", "workloads"], "runtime supplement transfer");
-        requireThat(row.name === "rightkit-logs" && proof.classification === "always-on" && proof.listedOwner === true && proof.required === true && pin && proof.proof.candidateId === candidate.id && proof.proof.proofSha256 === pin.artifact.proofSha256 && same(proof.proof.workloads, ["tracing", "detached"]), "runtime supplement transfer mismatch");
-      } else requireThat(["false", "held-resource"].includes(proof.classification) && proof.listedOwner === false && proof.required === false && proof.status === "not-applicable", "runtime feature proof remains required, held or incoherent");
+      if (proof.status === "qualified") validateRuntimeTransfer(row, runtimePins, candidate.id);
+      else requireThat(["false", "held-resource"].includes(proof.classification) && proof.listedOwner === false && proof.required === false && proof.status === "not-applicable", "runtime feature proof remains required, held or incoherent");
     } else requireThat(row.runtimeFeatureProof === null, "npm runtime feature proof must be null");
     requireThat(Object.values(row.policies).every((policy) => policy === "required-positive-tests") && Array.isArray(row.adoptionPending) && row.adoptionPending.every((reason) => typeof reason === "string" && reason.length > 0) && row.runtimeInputHashes && typeof row.runtimeInputHashes === "object" && !Array.isArray(row.runtimeInputHashes) && Object.entries(row.runtimeInputHashes).every(([name, hash]) => name && !/[\\\x00-\x1f:]/.test(name) && name.split("/").every((part) => part && part !== "." && part !== "..") && HEX.test(hash)) && (candidate.registry === "crates" ? row.runtime?.status === "ok" : row.runtime === null), "incomplete semantic native/runtime verdict");
     const unit = bound.manifest.units.find((item) => item.name === row?.name);
     requireThat(unit && !names.has(row.name) && row.version === unit.version && row.archiveSha256 === unit.sha256 && row.ok === true && Array.isArray(row.failures) && row.failures.length === 0 && HEX.test(row.evidenceSha256 ?? ""), "failed/duplicate/mismatched semantic unit verdict"); names.add(row.name);
   }
+  // Every committed runtime pin of this candidate is transferred by exactly one qualified unit, and the reverse.
+  const transferred = admission.units.filter((row) => row.runtimeFeatureProof?.status === "qualified").map((row) => row.runtimeFeatureProof.proof.proofSha256).sort();
+  requireThat(same(transferred, runtimePins.map((pin) => pin.artifact.proofSha256).sort()), "runtime supplement pins differ from qualified units");
   return admission;
 }
 
@@ -333,13 +355,12 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
     const source = loadCandidateSource({ directory: env.PUBLISH_SOURCE_DIR, sourceSha: candidate.sourceSha, promotionSha: env.GITHUB_SHA, registry: candidate.registry, units: candidate.units, allow: candidate.allow, spawn });
     const { semanticAdmission } = await import("./semantic-admission.mjs");
     const receipts = Object.fromEntries(["macos", "windows"].map((host) => { const directory = path.join(prepared.receiptsDir, host); return [host, JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), "utf8"))]; }));
-    const runtimePin = selectSupplement(supplementalFile, candidate, "runtime-workload-pin", approvedFile);
-    let runtimeProof = null;
-    if (runtimePin) {
+    const runtimeProofs = [];
+    for (const runtimePin of selectSupplements(supplementalFile, candidate, "runtime-workload-pin", approvedFile)) {
       const { verifyRuntimeSupplement } = await import("./runtime-supplement.mjs");
-      runtimeProof = await verifyRuntimeSupplement({ candidate, pin: runtimePin, manifest: bound.manifest, manifestSha256: candidate.manifestSha256, source, packDir: prepared.packDir, env, fetchImpl, spawn });
+      runtimeProofs.push(await verifyRuntimeSupplement({ candidate, pin: runtimePin, manifest: bound.manifest, manifestSha256: candidate.manifestSha256, source, packDir: prepared.packDir, env, fetchImpl, spawn }));
     }
-    const result = await semanticAdmission({ candidate, manifest: bound.manifest, source, receipts, qa, packDir: prepared.packDir, env, spawn, runtimeProof });
+    const result = await semanticAdmission({ candidate, manifest: bound.manifest, source, receipts, qa, packDir: prepared.packDir, env, spawn, runtimeProofs });
     requireThat(result.ok === true, `semantic admission failed: ${JSON.stringify({ failures: result.failures ?? [], hosts: result.hostVerdicts ?? {}, units: (result.units ?? []).filter((unit) => unit.ok !== true) })}`);
     const admission = { schema: 1, kind: "semantic-admission", original: originalBinding(candidate, bound.manifest), sourceTree: source.source.tree, sourceHashes: source.sourceHashes, verifierSha: env.GITHUB_SHA, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, qa: bindings, units: result.units };
     validateAdmission(admission, prepared, env);

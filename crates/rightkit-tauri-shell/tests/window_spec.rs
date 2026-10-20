@@ -1,7 +1,9 @@
 //! `WindowSpec` per-window options (M1-G1): the pure parts, without a window.
 
 use rightkit_tauri_shell::window_state::MonitorSnapshot;
-use rightkit_tauri_shell::windows::{correct_offscreen, spec_min_size, WindowSpec};
+use rightkit_tauri_shell::windows::{
+    correct_offscreen, opens_visible, safe_label, spec_min_size, WindowSpec,
+};
 
 fn mon(x: f64, y: f64, w: f64, h: f64) -> MonitorSnapshot {
     MonitorSnapshot {
@@ -105,4 +107,42 @@ fn no_monitors_or_non_finite_input_is_safe() {
         correct_offscreen(f64::NAN, 5.0, 800.0, 600.0, &m),
         (0.0, 0.0)
     );
+}
+
+#[test]
+fn parent_resizable_shadow_and_visible_round_trip_and_default_to_none() {
+    let s: WindowSpec = serde_json::from_str(
+        r#"{"label":"preview","parent":"main","resizable":false,"shadow":false,"visible":false}"#,
+    )
+    .unwrap();
+    assert_eq!(s.parent.as_deref(), Some("main"));
+    assert_eq!(
+        (s.resizable, s.shadow, s.visible),
+        (Some(false), Some(false), Some(false))
+    );
+    let d: WindowSpec = serde_json::from_str(r#"{"label":"a"}"#).unwrap();
+    assert!(
+        d.parent.is_none() && d.resizable.is_none() && d.shadow.is_none() && d.visible.is_none()
+    );
+}
+
+#[test]
+fn only_visible_false_keeps_an_opened_window_hidden() {
+    assert!(opens_visible(&WindowSpec::default()));
+    assert!(opens_visible(&WindowSpec {
+        visible: Some(true),
+        ..Default::default()
+    }));
+    assert!(!opens_visible(&WindowSpec {
+        visible: Some(false),
+        ..Default::default()
+    }));
+}
+
+#[test]
+fn parent_label_must_be_a_safe_label() {
+    assert_eq!(safe_label("main").as_deref(), Some("main"));
+    assert!(safe_label("../main").is_none());
+    assert!(safe_label("").is_none());
+    assert!(safe_label("a b").is_none());
 }

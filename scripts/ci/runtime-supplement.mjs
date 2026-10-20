@@ -6,6 +6,7 @@ import { sha } from "./upload.mjs";
 import { validateSupplementPin, candidateHash, retainedSupplementOriginal, authenticateSupplement } from "./supplemental-proof.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { fileURLToPath } from "node:url";
+import { assertFrozenBudget } from "./runtime-qualify.mjs";
 import { BUDGET_FIGURES, parseBudgetResult, evaluateRuntimeBudget, syncRuntimeBudgetReadme } from "../../packages/release/runtime-budgets.mjs";
 export const RUNTIME_WORKFLOW = ".github/workflows/qualify-runtime.yml";
 const authenticated = new WeakMap();
@@ -32,10 +33,19 @@ export function trustedRuntimeHelperPaths() {
   return [...seen, "pnpm-lock.yaml", "package.json", "packages/release/package.json"].sort();
 }
 export function validateFrozenRuntimeBudget(budget, trusted) {
-  for (const key of ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings"]) need(same(budget[key], trusted[key]), `candidate changes trusted frozen ${key}`);
+  // Top-level ceilings & scale, and each declared profile's features, ceilings & scale (runtime-qualify.mjs frozenBudgetView).
+  try { assertFrozenBudget(budget, trusted); } catch (error) { need(false, error.message.replace("candidate changes", "candidate changes trusted")); }
 }
 /** Reparse raw output, then run full current owner gate against an immutable source overlay. */
-export function validateRuntimeRecords({ source, sourceSha, unit, budget, records, rawByEvidence }) {
+export function validateRuntimeRecords({ source, sourceSha, unit, budget, records, rawByEvidence, profiles = new Map() }) {
+  // `profiles` maps a record's evidence file to the budget profile that governs it (trusted workload table).
+  // Those records are held to their profile by the receipt check; the top-level owner gate sees only the rest.
+  const topRecords = records.filter((record) => !profiles.has(record.evidence?.file));
+  const profileBudgets = budget.profiles ? structuredClone(budget.profiles) : undefined;
+  for (const record of records) {
+    const name = profiles.get(record.evidence?.file);
+    if (name !== undefined) { need(profileBudgets?.[name], "record names an undeclared budget profile"); profileBudgets[name].measurements = [...(profileBudgets[name].measurements ?? []), record]; }
+  }
   for (const record of records) {
     const raw = rawByEvidence.get(record.evidence?.file);
     need(Buffer.isBuffer(raw) && hash(raw) === record.evidence.sha256, "missing raw record evidence");
@@ -46,9 +56,9 @@ export function validateRuntimeRecords({ source, sourceSha, unit, budget, record
     need(BUDGET_FIGURES.every((key) => value[key] === record.observed?.[key]) && value.scale_unit === record.dataScale?.unit && value.scaleCount === record.dataScale?.count && value.bareWakeupsPerSecond === record.baseline?.wakeupsPerSecond && value.wakeupsDeltaPerSecond === record.delta?.wakeupsPerSecond, "raw RESULT differs from receipt record");
   }
   const crateDir = path.join(source.root, "crates", unit.name);
-  const overlay = new Map([[path.join(crateDir, "runtime-budget.json"), Buffer.from(JSON.stringify({ ...budget, measurements: records }))]]);
+  const overlay = new Map([[path.join(crateDir, "runtime-budget.json"), Buffer.from(JSON.stringify({ ...budget, ...(profileBudgets ? { profiles: profileBudgets } : {}), measurements: topRecords }))]]);
   const readSource = (name) => Buffer.from(source.readData(name));
-  overlay.set(path.join(crateDir, "README.md"), Buffer.from(syncRuntimeBudgetReadme(readSource(`crates/${unit.name}/README.md`).toString("utf8"), { ...budget, measurements: records })));
+  overlay.set(path.join(crateDir, "README.md"), Buffer.from(syncRuntimeBudgetReadme(readSource(`crates/${unit.name}/README.md`).toString("utf8"), { ...budget, measurements: topRecords })));
   for (const [name, bytes] of rawByEvidence) {
     need(/^runtime-budget\.evidence\/[\w.-]+\.txt$/.test(name), "unsafe record evidence path");
     overlay.set(path.join(crateDir, name), bytes);
@@ -163,6 +173,8 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
     let bindings;
     const reports = [];
     const rawByEvidence = new Map();
+    const profileByEvidence = new Map();
+    const trustedWorkloads = owner.workloadsFor(crate);
     for (const host of owner.REQUIRED_HOSTS) {
       const envelope = JSON.parse(fs.readFileSync(path.join(destination, host, "qualification.json")));
       need(envelope.schema === 2 && Array.isArray(envelope.workloads), "missing raw host envelope");
@@ -190,12 +202,14 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
           }
         }
         reports.push(structuredClone(receipt.record));
+        const profile = trustedWorkloads.find((w) => w.id === receipt.workload)?.profile;
+        if (profile) profileByEvidence.set(receipt.record.evidence.file, profile.name);
       }
       const relative = `${host}/qualification.json`;
       const bytes = fs.readFileSync(path.join(destination, relative));
       need(proof.proofFiles?.[relative]?.sha256 === hash(bytes) && proof.proofFiles[relative].size === bytes.length, "raw host envelope hash mismatch");
     }
-    validateRuntimeRecords({ source, sourceSha: candidate.sourceSha, unit, budget, records: reports, rawByEvidence });
+    validateRuntimeRecords({ source, sourceSha: candidate.sourceSha, unit, budget, records: reports, rawByEvidence, profiles: profileByEvidence });
     const handle = Object.freeze({ candidateId: candidate.id, proofSha256: pin.artifact.proofSha256 });
     authenticated.set(handle, { candidate: candidateHash(candidate), unit: { name: unit.name, version: unit.version, sha256: unit.sha256 }, reports });
     return handle;

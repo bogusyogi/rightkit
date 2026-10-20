@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { workloadsFor, supportedPrescription, validateSourcePrescription, harnessMetadataPaths, bindHarnessMetadata, readSourcePrescription, workloadPrescriptionPath, trustedRequiredSources, preserveWorkloadRecord, validateWorkloadReceipts, assertCrateName, isCrateName, validateRun, selectArtifact, validateManifest, safeArchiveMembers, measurementProblems, cleanMeasurementEnvironment, assertMeasuredSource } from "./runtime-qualify.mjs";
+import { provisionWorkloadEnv, workloadEnvironment, assertEnvNames, ENV_PROVIDERS, generateTlsFixture, cleanupTlsFixture, findOpenssl, ownerOnlyDirectory, OPENSSL_CANDIDATES } from "./runtime-workload-env.mjs";
+import { frozenBudgetView, assertFrozenBudget, budgetForWorkload, workloadsFor, supportedPrescription, validateSourcePrescription, harnessMetadataPaths, bindHarnessMetadata, readSourcePrescription, workloadPrescriptionPath, trustedRequiredSources, preserveWorkloadRecord, validateWorkloadReceipts, assertCrateName, isCrateName, validateRun, selectArtifact, validateManifest, safeArchiveMembers, measurementProblems, cleanMeasurementEnvironment, assertMeasuredSource } from "./runtime-qualify.mjs";
 
 // Every helper below receives the crate explicitly; this lane qualifies rightkit-logs.
 const CRATE = "rightkit-logs";
@@ -139,7 +140,7 @@ test("both workload records retain distinct immutable evidence paths", () => {
   assert.equal(new Set(rows.map((r) => r.evidence.file)).size, 2);
   assert.equal(original.evidence.file, "runtime-budget.evidence/win32-x64-0.3.4-synthetic.txt");
   assert.throws(() => preserveWorkloadRecord(original, "unknown", CRATE));
-  assert.throws(() => preserveWorkloadRecord(original, "tracing", "rightkit-daemon"), /no trusted supported coverage/);
+  assert.throws(() => preserveWorkloadRecord(original, "tracing", "rightkit-job-queue"), /no trusted supported coverage/);
 });
 test("receipt set rejects legacy, missing, duplicate, unknown & every failed identity", () => {
   const { receipts, context, validate } = fixture();
@@ -148,7 +149,7 @@ test("receipt set rejects legacy, missing, duplicate, unknown & every failed ide
   for (const patch of [{ schema: 1 }, { exitCode: 1 }, { signal: "SIGTERM" }, { problems: ["failed"] }, { sourceSha: "f".repeat(40) }, { runAttempt: "2" }, { runId: "456" }, { artifactId: 43 }, { artifactDigest: "different" }, { repository: "fork/repo" }, { harnessSha: "f".repeat(40) }, { manifestSha256: "f".repeat(64) }, { command: "cargo other" }, { intervalMs: 10 }, { bindings: {} }, { rawSha256: "0".repeat(64) }, { toolchain: {} }, { crate: "rightkit-daemon" }]) assert.throws(() => validate([receipts[0], { ...receipts[1], ...patch }]));
   // Mixed crate: a context or sealed unit naming another crate refuses even when every other field agrees.
   assert.throws(() => validate(receipts, { ...context, crate: "rightkit-daemon" }), /mixed candidate crate/);
-  assert.throws(() => validate(receipts, context, { name: "rightkit-daemon", version: "0.3.4" }), /no trusted supported coverage/);
+  assert.throws(() => validate(receipts, context, { name: "rightkit-job-queue", version: "0.3.4" }), /no trusted supported coverage/ );
   for (const patch of [{ observed: { ...receipts[1].record.observed, residentMemoryBytes: 0 } }, { observed: { ...receipts[1].record.observed, wakeupsPerSecond: 2 } }, { dataScale: { unit: "lines", count: 0 } }, { commit: "f".repeat(40) }, { command: "cargo wrong" }, { evidence: receipts[0].record.evidence }]) assert.throws(() => validate([receipts[0], { ...receipts[1], record: { ...receipts[1].record, ...patch } }]));
 });
 test("delta basis uses unchanged declared delta ceiling & requires consistent baseline", () => {
@@ -217,4 +218,326 @@ test("measurement workflow takes the crate only as a validated input through env
   assert.equal(resolve.env.RUNTIME_CRATE, "${{ inputs.crate }}");
   // No run line may interpolate any workflow input; inputs reach the harness only through env.
   for (const job of Object.values(workflow.jobs)) for (const step of job.steps ?? []) if (step.run) assert.doesNotMatch(step.run, /\$\{\{/);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// rightkit-daemon: trusted coverage, harness-provided environment, remote profile
+// ---------------------------------------------------------------------------------------------------------------
+const DAEMON = "rightkit-daemon";
+const daemonBudget = () => JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-daemon/runtime-budget.json", import.meta.url), "utf8"));
+const daemonSource = () => JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-daemon/benches/workloads.json", import.meta.url), "utf8"));
+const ARGS = (...tail) => ["test", "--locked", "--profile", "release-iterate", "-p", DAEMON, ...tail];
+test("daemon trusted inventory pins args, trailing bench arguments, env names, interval & profile", () => {
+  const w = Object.fromEntries(workloadsFor(DAEMON).map((x) => [x.id, x]));
+  assert.deepEqual(Object.keys(w), ["local", "remote", "remote-loopback"]);
+  assert.deepEqual(w.local.args, ARGS("--bench", "budget", "--", "64", "20000", "30"));
+  assert.deepEqual(w.remote.args, ARGS("--features", "remote", "--bench", "remote_budget", "--", "10000", "30"));
+  assert.deepEqual(w["remote-loopback"].args, ARGS("--features", "remote-loopback", "--bench", "budget", "--", "--loopback", "64", "20000", "30"));
+  assert.deepEqual(w.local.env, ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]);
+  assert.deepEqual(w.remote.env, ["RIGHTKIT_RUNTIME_SCRATCH_ROOT", "RIGHTKIT_DAEMON_BUDGET_TLS_CERT", "RIGHTKIT_DAEMON_BUDGET_TLS_KEY"]);
+  assert.deepEqual(w["remote-loopback"].env, []);
+  assert.deepEqual([w.local.intervalMs, w.remote.intervalMs, w["remote-loopback"].intervalMs], [1000, null, null]);
+  assert.deepEqual([w.local.profile, w["remote-loopback"].profile], [null, null]);
+  assert.deepEqual(w.remote.profile, { name: "remote", features: ["remote"], requiredScale: { unit: "submissions", minCount: 10000 } });
+  assert.deepEqual(trustedRequiredSources(DAEMON), ["crates/rightkit-daemon/src/server.rs", "crates/rightkit-daemon/src/remote/http.rs", "crates/rightkit-daemon/src/loopback/mod.rs"]);
+});
+test("daemon candidate workloads.json equals trusted coverage and nothing else is accepted", () => {
+  const source = daemonSource();
+  assert.deepEqual(source, supportedPrescription(DAEMON));
+  assert.deepEqual(validateSourcePrescription(DAEMON, source).map((w) => w.id), ["local", "remote", "remote-loopback"]);
+  const withWorkload = (index, change) => ({ ...source, workloads: source.workloads.map((w, i) => (i === index ? change(w) : w)) });
+  for (const mutated of [
+    withWorkload(0, (w) => ({ ...w, args: [...w.args, "1"] })),                                    // extra trailing argument
+    withWorkload(0, (w) => ({ ...w, args: w.args.map((a) => (a === "20000" ? "1" : a)) })),         // smaller request count
+    withWorkload(1, (w) => ({ ...w, args: w.args.filter((a) => a !== "--locked") })),
+    withWorkload(1, (w) => ({ ...w, args: w.args.map((a) => (a === "remote" ? "link" : a)) })),     // different feature
+    withWorkload(2, (w) => ({ ...w, args: w.args.filter((a) => a !== "--loopback") })),             // loopback mode dropped
+    withWorkload(1, (w) => ({ ...w, bench: "budget" })),
+    withWorkload(0, (w) => ({ ...w, intervalMs: 50 })),
+    withWorkload(1, (w) => ({ ...w, unit: "connections" })),                                        // a field the trusted table does not declare
+    withWorkload(1, (w) => ({ ...w, env: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"] })),
+    withWorkload(1, (w) => ({ ...w, profile: null })),
+    { ...source, workloads: source.workloads.slice(0, 2) },
+    { ...source, workloads: [...source.workloads, source.workloads[0]] },
+    { ...source, defaultFeatures: false },
+    { ...source, coverage: { ...source.coverage, link: "NOT COVERED" } },
+    { ...source, coverage: { ...source.coverage, remote: "weaker" } },
+    { ...source, crate: "rightkit-logs" },
+  ]) assert.throws(() => validateSourcePrescription(DAEMON, mutated), /differs from trusted supported coverage/);
+  // The logs prescription cannot stand in for daemon coverage, nor the reverse.
+  assert.throws(() => validateSourcePrescription(DAEMON, supportedPrescription(CRATE)), /differs from trusted/);
+  assert.throws(() => validateSourcePrescription(CRATE, source), /differs from trusted/);
+});
+test("daemon harness metadata binds the shared bench blob once", () => {
+  assert.deepEqual(harnessMetadataPaths(DAEMON, daemonSource()), ["crates/rightkit-daemon/benches/workloads.json", "crates/rightkit-daemon/benches/budget.rs", "crates/rightkit-daemon/benches/remote_budget.rs"]);
+});
+test("logs coverage, args and receipts stay exactly as before the daemon entry", () => {
+  const [tracing, detached] = workloadsFor(CRATE);
+  assert.deepEqual(tracing.args, ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-logs", "--features", "tracing", "--bench", "budget"]);
+  assert.deepEqual(detached.args, ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-logs", "--features", "tracing,log-bridge", "--bench", "budget_detached"]);
+  for (const w of [tracing, detached]) { assert.deepEqual(w.env, []); assert.equal(w.profile, null); }
+  const { receipts, validate } = fixture();
+  assert.equal(validate(receipts).length, 2);
+  // A logs receipt that claims any harness environment is refused.
+  assert.throws(() => validate([receipts[0], { ...receipts[1], envNames: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"] }]), /identity.status mismatch/);
+  assert.equal(budgetForWorkload({ ceilings: { x: 1 } }, tracing).ceilings.x, 1);
+});
+
+test("launcher environment never carries RIGHTKIT_* variables; only declared names get harness values", () => {
+  const ambient = { PATH: "p", RIGHTKIT_RUNTIME_SCRATCH_ROOT: "candidate", RIGHTKIT_DAEMON_BUDGET_TLS_CERT: "candidate", RIGHTKIT_DAEMON_BUDGET_TLS_KEY: "candidate", rightkit_other: "candidate" };
+  assert.deepEqual(cleanMeasurementEnvironment(ambient), { PATH: "p" });
+  const remote = workloadsFor(DAEMON)[1];
+  const values = { RIGHTKIT_RUNTIME_SCRATCH_ROOT: "/h/scratch", RIGHTKIT_DAEMON_BUDGET_TLS_CERT: "/h/c.pem", RIGHTKIT_DAEMON_BUDGET_TLS_KEY: "/h/k.pem" };
+  // Ambient values never survive, even for a declared name; an undeclared harness value is refused.
+  assert.deepEqual(workloadEnvironment(ambient, remote.env, values), { PATH: "p", ...values });
+  assert.deepEqual(workloadEnvironment(ambient, [], {}), { PATH: "p" });
+  assert.throws(() => workloadEnvironment(ambient, ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"], values), /differ from the declared/);
+  assert.throws(() => workloadEnvironment(ambient, remote.env, { RIGHTKIT_RUNTIME_SCRATCH_ROOT: "/h/scratch" }), /differ from the declared/);
+  for (const bad of [["RIGHTKIT_UNKNOWN"], ["PATH"], ["RIGHTKIT_RUNTIME_SCRATCH_ROOT", "RIGHTKIT_RUNTIME_SCRATCH_ROOT"], ["RIGHTKIT_DAEMON_BUDGET_TLS_CERT"], ["RIGHTKIT_DAEMON_BUDGET_TLS_KEY", "RIGHTKIT_RUNTIME_SCRATCH_ROOT"], "RIGHTKIT_RUNTIME_SCRATCH_ROOT"]) assert.throws(() => assertEnvNames(bad));
+  assert.deepEqual(Object.keys(ENV_PROVIDERS), ["RIGHTKIT_RUNTIME_SCRATCH_ROOT", "RIGHTKIT_DAEMON_BUDGET_TLS_CERT", "RIGHTKIT_DAEMON_BUDGET_TLS_KEY"]);
+});
+
+// Fake native utilities: no real OpenSSL, whoami or icacls runs in tests.
+const fakeNative = () => {
+  const calls = [];
+  const run = (argv) => {
+    calls.push(argv);
+    const name = path.basename(argv[0]).toLowerCase();
+    if (name.startsWith("whoami")) return '"HOST\\runner","S-1-5-21-1-2-3-1001"\r\n';
+    if (name.startsWith("icacls")) return "";
+    if (argv[1] === "req") { fs.writeFileSync(argv[argv.indexOf("-keyout") + 1], "KEY"); fs.writeFileSync(argv[argv.indexOf("-out") + 1], "CERT"); return ""; }
+    if (argv[1] === "x509") return "Hostname localhost does match certificate\n";
+    return "OpenSSL fixture 1.0\n";
+  };
+  return { calls, run };
+};
+test("provisioned workload environment is fresh per run, owner-only, key-bearing only for TLS & fully removed", () => {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-env-test-"));
+  try {
+    const { calls, run } = fakeNative();
+    const openssl = path.resolve("fake-openssl");
+    const names = workloadsFor(DAEMON)[1].env;
+    const deps = { tmpRoot, platform: "win32", env: { SystemRoot: path.resolve("fake-root") }, run, discover: () => openssl };
+    const first = provisionWorkloadEnv(names, deps);
+    assert.deepEqual(Object.keys(first.values), names);
+    const { RIGHTKIT_RUNTIME_SCRATCH_ROOT: scratch, RIGHTKIT_DAEMON_BUDGET_TLS_CERT: cert, RIGHTKIT_DAEMON_BUDGET_TLS_KEY: key } = first.values;
+    for (const file of [scratch, cert, key]) assert.ok(path.isAbsolute(file) && file.startsWith(tmpRoot) && fs.existsSync(file));
+    assert.equal(path.dirname(cert), path.dirname(key));
+    assert.notEqual(path.dirname(cert), scratch);
+    // Exact OpenSSL argv: ephemeral RSA-2048, one day, localhost + 127.0.0.1, serverAuth, explicit minimal config; no -subj, no ambient config.
+    const req = calls.find((argv) => argv[1] === "req");
+    assert.deepEqual(req.slice(1, 8), ["req", "-x509", "-newkey", "rsa:2048", "-sha256", "-nodes", "-config"]);
+    assert.ok(req[req.indexOf("-days") + 1] === "1" && !req.includes("-subj"));
+    assert.deepEqual(req.filter((_, i) => req[i - 1] === "-addext"), ["subjectAltName=DNS:localhost,IP:127.0.0.1", "basicConstraints=critical,CA:FALSE", "keyUsage=critical,digitalSignature,keyEncipherment", "extendedKeyUsage=serverAuth"]);
+    assert.ok(calls.some((argv) => path.basename(argv[0]).startsWith("icacls") && argv.includes("/inheritance:r") && argv.includes("*S-1-5-21-1-2-3-1001:(OI)(CI)F")), "private directory loses inherited grants");
+    const second = provisionWorkloadEnv(names, deps);
+    assert.notEqual(second.values.RIGHTKIT_RUNTIME_SCRATCH_ROOT, scratch);
+    first.dispose(); second.dispose();
+    assert.deepEqual(fs.readdirSync(tmpRoot), [], "key, certificate and scratch are gone");
+    // No TLS names: no certificate material is created and OpenSSL is never looked up.
+    const plain = provisionWorkloadEnv(["RIGHTKIT_RUNTIME_SCRATCH_ROOT"], { ...deps, discover: () => { throw new Error("must not look for OpenSSL"); } });
+    assert.deepEqual(Object.keys(plain.values), ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]);
+    plain.dispose();
+    assert.deepEqual(provisionWorkloadEnv([]).values, {});
+    assert.deepEqual(fs.readdirSync(tmpRoot), []);
+    // A failed provisioning leaves nothing behind.
+    assert.throws(() => provisionWorkloadEnv(names, { ...deps, discover: () => { throw new Error("no provisioned native OpenSSL"); } }), /no provisioned/);
+    assert.deepEqual(fs.readdirSync(tmpRoot), []);
+  } finally { fs.rmSync(tmpRoot, { recursive: true, force: true }); }
+});
+test("TLS fixture fails closed and leaves nothing behind", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-tls-test-"));
+  try {
+    const openssl = path.resolve("fake-openssl");
+    const base = { parent, openssl, platform: "win32", env: { SystemRoot: path.resolve("fake-root") } };
+    const { run: ok } = fakeNative();
+    const fail = (run, pattern) => assert.throws(() => generateTlsFixture({ ...base, run }), pattern);
+    fail((argv) => { if (argv[1] === "req") throw new Error("provisioned utility failed: openssl (exit 1)"); return ok(argv); }, /utility failed/);
+    fail((argv) => (argv[1] === "x509" ? "Hostname localhost does NOT match certificate\n" : ok(argv)), /does not name localhost/);
+    fail((argv) => { if (argv[1] === "req") { fs.writeFileSync(argv[argv.indexOf("-keyout") + 1], ""); fs.writeFileSync(argv[argv.indexOf("-out") + 1], ""); return ""; } return ok(argv); }, /complete TLS fixture/);
+    assert.throws(() => generateTlsFixture({ ...base, openssl: "relative/openssl", run: ok }), /absolute/);
+    assert.deepEqual(fs.readdirSync(parent), []);
+    // Fixed-name cleanup refuses a directory it did not create.
+    const foreign = path.join(parent, "daemon-tls-foreign"); fs.mkdirSync(foreign); fs.writeFileSync(path.join(foreign, "keep.txt"), "x");
+    assert.throws(() => cleanupTlsFixture(foreign), /marker/);
+    assert.ok(fs.existsSync(path.join(foreign, "keep.txt")));
+    fs.mkdirSync(path.join(parent, "plain"));
+    assert.throws(() => cleanupTlsFixture(path.join(parent, "plain")), /not a generated/);
+    assert.doesNotThrow(() => cleanupTlsFixture(path.join(parent, "absent")));
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
+});
+test("OpenSSL comes only from fixed provisioned locations, never PATH", () => {
+  const listed = (files) => (file) => files.includes(file);
+  const run = (argv) => { if (argv[1] !== "version") throw new Error("unexpected"); return "ok"; };
+  for (const platform of ["win32", "darwin"]) {
+    const [first, second] = OPENSSL_CANDIDATES[platform];
+    assert.equal(findOpenssl({ platform, exists: listed([first, second]), run }), first);
+    assert.equal(findOpenssl({ platform, exists: listed([second]), run }), second);
+    assert.equal(findOpenssl({ platform, exists: listed([first, second]), run: (argv) => { if (argv[0] === first) throw new Error("broken"); return "ok"; } }), second);
+    assert.throws(() => findOpenssl({ platform, exists: listed([]), run }), /no provisioned native OpenSSL/);
+  }
+  assert.throws(() => findOpenssl({ platform: "linux", exists: () => true, run }), /no provisioned native OpenSSL/);
+});
+test("owner-only directory rules per platform", () => {
+  const modes = [];
+  ownerOnlyDirectory("/p", { platform: "darwin", chmod: (d, m) => modes.push([d, m]), stat: () => ({ mode: 0o40700, uid: 501 }), uid: 501 });
+  assert.deepEqual(modes, [["/p", 0o700]]);
+  assert.throws(() => ownerOnlyDirectory("/p", { platform: "darwin", chmod() {}, stat: () => ({ mode: 0o40755, uid: 501 }), uid: 501 }), /owner-only/);
+  assert.throws(() => ownerOnlyDirectory("/p", { platform: "darwin", chmod() {}, stat: () => ({ mode: 0o40700, uid: 0 }), uid: 501 }), /owner-only/);
+  assert.throws(() => ownerOnlyDirectory("C:\\p", { platform: "win32", env: {}, run: () => "" }), /SystemRoot/);
+  assert.throws(() => ownerOnlyDirectory("C:\\p", { platform: "win32", env: { SystemRoot: "C:\\Windows" }, run: () => "garbage" }), /SID/);
+});
+
+const daemonFixture = () => {
+  const crate = DAEMON, version = "0.4.0";
+  const context = { repository: "org/rightkit", runId: "123", runAttempt: "1", sourceSha, crate, artifactId: 42, artifactDigest: `sha256:${"b".repeat(64)}` };
+  const budget = daemonBudget();
+  const bindings = { "crates/rightkit-daemon/src/server.rs": "c".repeat(64) };
+  const scale = (w) => (w.id === "remote" ? { unit: "submissions", count: 10000 } : { unit: "connections", count: 64 });
+  const receipts = workloadsFor(crate).map((w) => {
+    const command = `cargo ${w.args.join(" ")}`;
+    return { schema: 2, ...context, workload: w.id, intervalMs: w.intervalMs ?? null, envNames: [...w.env], version, host: { os: "win32", arch: "x64" }, exitCode: 0, signal: null, problems: [], command, toolchain: { cargo: "cargo pinned", rustc: "rustc pinned" }, bindings, harnessSha: sourceSha, manifestSha256: "d".repeat(64), rawFile: `${w.id}-bench.txt`, rawSha256: "e".repeat(64), record: { commit: sourceSha, crateVersion: version, host: { os: "win32", arch: "x64" }, scope: "synthetic", command, observed: { residentMemoryBytes: 10_000_000, idleCpuPercent: 0.1, wakeupsPerSecond: 0.5, diskOpsPerSecond: 0 }, dataScale: scale(w), evidence: { file: `runtime-budget.evidence/win32-x64-${version}-synthetic-${w.id}.txt`, sha256: "e".repeat(64) } } };
+  });
+  const validate = (rows, ctx = context, unit = { name: crate, version }, b = budget) => validateWorkloadReceipts(rows, ctx, unit, "d".repeat(64), bindings, "win32", sourceSha, b);
+  return { receipts, validate, budget };
+};
+test("daemon receipts accept the real prescription and hold remote to the pinned remote profile", () => {
+  const { receipts, validate, budget } = daemonFixture();
+  assert.equal(validate(receipts).length, 3);
+  // Remote RSS between the top-level and the remote-profile ceiling is valid only for the remote workload.
+  assert.ok(budget.ceilings.residentMemoryBytes < 50_000_000 && budget.profiles.remote.ceilings.residentMemoryBytes > 50_000_000);
+  const heavy = (id) => receipts.map((r) => (r.workload === id ? { ...r, record: { ...r.record, observed: { ...r.record.observed, residentMemoryBytes: 50_000_000 } } } : r));
+  assert.equal(validate(heavy("remote")).length, 3);
+  assert.throws(() => validate(heavy("local")), /residentMemoryBytes/);
+  assert.throws(() => validate(heavy("remote-loopback")), /residentMemoryBytes/);
+  const over = receipts.map((r) => (r.workload === "remote" ? { ...r, record: { ...r.record, observed: { ...r.record.observed, residentMemoryBytes: budget.profiles.remote.ceilings.residentMemoryBytes + 1 } } } : r));
+  assert.throws(() => validate(over), /residentMemoryBytes/);
+});
+test("daemon receipts refuse altered env, args, unit, scale, interval & mixed profile", () => {
+  const { receipts, validate } = daemonFixture();
+  const change = (id, patch) => receipts.map((r) => (r.workload === id ? { ...r, ...patch } : r));
+  const record = (id, patch) => receipts.map((r) => (r.workload === id ? { ...r, record: { ...r.record, ...patch } } : r));
+  for (const rows of [
+    change("remote", { envNames: [] }), change("remote", { envNames: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"] }), change("local", { envNames: [] }),
+    change("remote-loopback", { envNames: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"] }), change("local", { envNames: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT", "RIGHTKIT_EXTRA"] }),
+    change("remote", { envNames: [...receipts[1].envNames, "RIGHTKIT_EXTRA"] }), change("remote", { envNames: [...receipts[1].envNames].reverse() }),
+    change("local", { command: `${receipts[0].command} 1` }), change("remote-loopback", { command: receipts[2].command.replace(" --loopback", "") }),
+    change("local", { intervalMs: 500 }), change("remote", { intervalMs: 1000 }),
+    record("remote", { dataScale: { unit: "connections", count: 10000 } }),   // unit the profile does not accept
+    record("remote", { dataScale: { unit: "submissions", count: 9999 } }),
+    record("local", { dataScale: { unit: "submissions", count: 10000 } }),   // remote scale cannot stand in for a connection scale
+    record("local", { dataScale: { unit: "connections", count: 63 } }),
+    record("remote-loopback", { dataScale: { unit: "connections", count: 1 } }),
+    record("remote", { commit: "f".repeat(40) }),
+  ]) assert.throws(() => validate(rows));
+});
+test("daemon profile budget cannot be loosened, renamed or re-scaled by the candidate", () => {
+  const { receipts, validate, budget } = daemonFixture();
+  const edit = (change) => { const b = structuredClone(budget); change(b); return b; };
+  const remote = workloadsFor(DAEMON)[1];
+  assert.deepEqual(budgetForWorkload(budget, remote), { ceilings: budget.profiles.remote.ceilings, requiredScale: { unit: "submissions", minCount: 10000 } });
+  for (const b of [
+    edit((x) => { delete x.profiles; }), edit((x) => { delete x.profiles.remote; }), edit((x) => { x.profiles.remote.features = ["remote", "link"]; }),
+    edit((x) => { x.profiles.remote.requiredScale.minCount = 1; }), edit((x) => { x.profiles.remote.requiredScale.unit = "connections"; }),
+    edit((x) => { x.profiles.remote.ceilingBasis = { wakeupsPerSecond: "delta-over-bare" }; }), edit((x) => { x.profiles.remote.deltaCeilings = { wakeupsPerSecond: 100 }; }),
+    edit((x) => { delete x.profiles.remote.ceilings; }),
+  ]) { assert.throws(() => budgetForWorkload(b, remote), /profile remote/); assert.throws(() => validate(receipts, undefined, undefined, b), /profile remote/); }
+  // Local and loopback workloads ignore profiles entirely.
+  assert.equal(budgetForWorkload(budget, workloadsFor(DAEMON)[0]), budget);
+  // Frozen: ceilings, scale and each profile's ceilings, scale & features; measurements and notes stay writable.
+  assertFrozenBudget(edit((x) => { x.profiles.remote.measurements = [{ history: true }]; x.profiles.remote.measurementsPending = "n"; x.measurements = []; }), budget);
+  for (const change of [(x) => { x.profiles.remote.ceilings.idleCpuPercent = 50; }, (x) => { x.profiles.remote.requiredScale.minCount = 1; }, (x) => { x.profiles.remote.features = []; }, (x) => { x.ceilings.wakeupsPerSecond = 99; }, (x) => { x.requiredScale.minCount = 1; }, (x) => { x.profiles.extra = { features: ["x"] }; }, (x) => { delete x.profiles; }]) assert.throws(() => assertFrozenBudget(edit(change), budget), /candidate changes frozen/);
+  assert.deepEqual(Object.keys(frozenBudgetView({ ceilings: {} })), ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings", "profiles"]);
+});
+test("the producer launches each workload with provisioned env and never the candidate's", () => {
+  const producer = fs.readFileSync(new URL("./runtime-qualify.mjs", import.meta.url), "utf8");
+  assert.match(producer, /provisioned = provisionWorkloadEnv\(workload\.env\)/);
+  assert.match(producer, /env: \{ \.\.\.workloadEnvironment\(env, workload\.env, provisioned\.values\), CARGO_INCREMENTAL: "1" \}/);
+  assert.doesNotMatch(producer, /env: \{ \.\.\.env, CARGO_INCREMENTAL/);
+  assert.match(producer, /finally \{ try \{ provisioned\?\.dispose\(\)/);
+  assert.match(producer, /envNames: \[\.\.\.workload\.env\]/);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// rightkit-tauri-shell: four native rows, no default features, delta-over-bare wake-ups
+// ---------------------------------------------------------------------------------------------------------------
+const SHELL = "rightkit-tauri-shell";
+const shellSource = () => JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-tauri-shell/benches/workloads.json", import.meta.url), "utf8"));
+const shellBudget = () => JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-tauri-shell/runtime-budget.json", import.meta.url), "utf8"));
+const SHELL_ARGS = (features) => ["test", "--locked", "--profile", "release-iterate", "-p", SHELL, "--no-default-features", "--features", features, "--bench", "budget_native"];
+test("shell trusted inventory pins four native rows with exact feature sets, no default features & 1000 ms", () => {
+  const rows = workloadsFor(SHELL);
+  assert.deepEqual(rows.map((w) => w.id), ["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"]);
+  assert.deepEqual(rows.map((w) => w.args), ["wv2-0_38", "wv2-0_39", "wv2-0_38,host-services,logs,crash", "wv2-0_39,host-services,logs,crash"].map(SHELL_ARGS));
+  for (const w of rows) { assert.equal(w.bench, "budget_native"); assert.equal(w.intervalMs, 1000); assert.deepEqual(w.env, []); assert.equal(w.profile, null); }
+  assert.deepEqual(trustedRequiredSources(SHELL), ["crates/rightkit-tauri-shell/src/watchdog.rs", "crates/rightkit-tauri-shell/src/lib.rs", "crates/rightkit-tauri-shell/src/host/mod.rs", "crates/rightkit-tauri-shell/src/host/policy.rs", "crates/rightkit-tauri-shell/src/logs_commands.rs"]);
+  // --no-default-features is a per-workload option: logs and daemon rows never carry it.
+  for (const crate of [CRATE, DAEMON]) for (const w of workloadsFor(crate)) assert.ok(!w.args.includes("--no-default-features"));
+});
+test("shell candidate workloads.json equals trusted coverage, verbatim, and nothing else is accepted", () => {
+  const source = shellSource();
+  assert.deepEqual(source, supportedPrescription(SHELL));
+  assert.equal(Object.keys(source.coverage).length, 9);
+  assert.deepEqual(validateSourcePrescription(SHELL, source).map((w) => w.id), workloadsFor(SHELL).map((w) => w.id));
+  const withWorkload = (index, change) => ({ ...source, workloads: source.workloads.map((w, i) => (i === index ? change(w) : w)) });
+  const { engine, ...withoutEngine } = source.coverage;
+  for (const mutated of [
+    withWorkload(0, (w) => ({ ...w, args: w.args.filter((a) => a !== "--no-default-features") })),     // default features sneak back in
+    withWorkload(1, (w) => ({ ...w, args: w.args.map((a) => (a === "wv2-0_39" ? "wv2-0_38" : a)) })),  // wrong native binding
+    withWorkload(2, (w) => ({ ...w, args: w.args.map((a) => a.replace(",crash", "")) })),               // crash adapter dropped
+    withWorkload(3, (w) => ({ ...w, args: w.args.map((a) => a.replace("host-services,", "")) })),
+    withWorkload(0, (w) => ({ ...w, args: [...w.args.slice(0, -1), "budget"] })),                         // historical bench
+    withWorkload(0, (w) => ({ ...w, bench: "budget" })),
+    withWorkload(1, (w) => ({ ...w, intervalMs: 2000 })), withWorkload(1, (w) => ({ ...w, intervalMs: null })),
+    withWorkload(2, (w) => ({ ...w, env: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"] })),
+    { ...source, workloads: source.workloads.slice(0, 3) }, { ...source, workloads: [...source.workloads].reverse() },
+    { ...source, workloads: [...source.workloads, source.workloads[0]] },
+    { ...source, defaultFeatures: false },
+    { ...source, coverage: withoutEngine },
+    { ...source, coverage: { ...source.coverage, crash: "weaker" } },
+    { ...source, coverage: { ...source.coverage, "content-devtools": "qualified" } },
+    { ...source, coverage: { ...source.coverage, extra: "new key" } },
+    { ...source, crate: "rightkit-daemon" },
+  ]) assert.throws(() => validateSourcePrescription(SHELL, mutated), /differs from trusted supported coverage/);
+  assert.throws(() => validateSourcePrescription(SHELL, supportedPrescription(DAEMON)), /differs from trusted/);
+  assert.throws(() => validateSourcePrescription(DAEMON, source), /differs from trusted/);
+  assert.deepEqual(harnessMetadataPaths(SHELL, source), ["crates/rightkit-tauri-shell/benches/workloads.json", "crates/rightkit-tauri-shell/benches/budget_native.rs"]);
+});
+const shellFixture = () => {
+  const crate = SHELL, version = "0.5.0";
+  const context = { repository: "org/rightkit", runId: "123", runAttempt: "1", sourceSha, crate, artifactId: 42, artifactDigest: `sha256:${"b".repeat(64)}` };
+  const budget = shellBudget();
+  const bindings = { "crates/rightkit-tauri-shell/src/watchdog.rs": "c".repeat(64) };
+  const receipts = workloadsFor(crate).map((w) => {
+    const command = `cargo ${w.args.join(" ")}`;
+    return { schema: 2, ...context, workload: w.id, intervalMs: w.intervalMs, envNames: [...w.env], version, host: { os: "win32", arch: "x64" }, exitCode: 0, signal: null, problems: [], command, toolchain: { cargo: "cargo pinned", rustc: "rustc pinned" }, bindings, harnessSha: sourceSha, manifestSha256: "d".repeat(64), rawFile: `${w.id}-bench.txt`, rawSha256: "e".repeat(64), record: { commit: sourceSha, crateVersion: version, host: { os: "win32", arch: "x64" }, scope: "synthetic", command, observed: { residentMemoryBytes: 60_000_000, idleCpuPercent: 0.2, wakeupsPerSecond: 5, diskOpsPerSecond: 0 }, baseline: { wakeupsPerSecond: 3 }, delta: { wakeupsPerSecond: 2 }, dataScale: { unit: "watchdogs", count: 1 }, evidence: { file: `runtime-budget.evidence/win32-x64-${version}-synthetic-${w.id}.txt`, sha256: "e".repeat(64) } } };
+  });
+  const validate = (rows, b = budget) => validateWorkloadReceipts(rows, context, { name: crate, version }, "d".repeat(64), bindings, "win32", sourceSha, b);
+  return { receipts, validate, budget };
+};
+test("shell receipts gate wake-ups as an unchanged delta over a consistent bare baseline", () => {
+  const { receipts, validate, budget } = shellFixture();
+  assert.deepEqual([budget.ceilingBasis, budget.deltaCeilings.wakeupsPerSecond, budget.requiredScale.unit], [{ wakeupsPerSecond: "delta-over-bare" }, 4, "watchdogs"]);
+  assert.equal(validate(receipts).length, 4);
+  const record = (index, change) => receipts.map((r, i) => (i === index ? { ...r, record: { ...r.record, ...change(r.record) } } : r));
+  // Whole-process 12/s exceeds the 10.2 ceiling, but the gate looks only at the delta.
+  assert.equal(validate(record(0, (r) => ({ observed: { ...r.observed, wakeupsPerSecond: 12 }, baseline: { wakeupsPerSecond: 10 }, delta: { wakeupsPerSecond: 2 } }))).length, 4);
+  for (const rows of [
+    record(0, (r) => ({ observed: { ...r.observed, wakeupsPerSecond: 12 }, baseline: { wakeupsPerSecond: 7 }, delta: { wakeupsPerSecond: 5 } })),   // delta 5 over the ceiling of 4
+    record(1, (r) => ({ delta: { wakeupsPerSecond: 1 } })),                                                                                   // reported delta disagrees with raw minus bare
+    record(2, () => ({ baseline: undefined })), record(2, () => ({ delta: undefined })), record(3, () => ({ baseline: undefined, delta: undefined })),
+    record(3, (r) => ({ baseline: { wakeupsPerSecond: -1 }, delta: { wakeupsPerSecond: 6 } })),
+    record(0, (r) => ({ observed: { ...r.observed, wakeupsPerSecond: null } })),
+    record(0, (r) => ({ observed: { ...r.observed, residentMemoryBytes: 124_780_545 } })),             // whole-process ceilings still apply to the other figures
+    record(1, () => ({ dataScale: { unit: "connections", count: 1 } })), record(1, () => ({ dataScale: { unit: "watchdogs", count: 0 } })),
+    receipts.map((r, i) => (i === 0 ? { ...r, envNames: ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"] } : r)),
+    receipts.map((r, i) => (i === 0 ? { ...r, command: r.command.replace(" --no-default-features", "") } : r)),
+    receipts.map((r, i) => (i === 1 ? { ...r, intervalMs: 2000 } : r)),
+    receipts.slice(0, 3), [...receipts, receipts[0]],
+  ]) assert.throws(() => validate(rows));
+  // A candidate that drops the delta basis from its budget cannot be validated against an inconsistent frozen view.
+  const loosened = structuredClone(budget); delete loosened.ceilingBasis;
+  assert.throws(() => assertFrozenBudget(loosened, budget), /candidate changes frozen ceilingBasis/);
+  const raised = structuredClone(budget); raised.deltaCeilings.wakeupsPerSecond = 40;
+  assert.throws(() => assertFrozenBudget(raised, budget), /candidate changes frozen deltaCeilings/);
 });

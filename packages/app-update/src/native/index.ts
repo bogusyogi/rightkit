@@ -67,7 +67,7 @@ export class NativeUpdateClientError extends Error {
 const kinds = ['patch', 'update'] as const;
 const refusals = ['notLicensed', 'expired', 'revoked', 'tierIneligible', 'busy', 'unresolved', 'disabledNoPublicPatch', 'offline', 'none'] as const;
 const states = ['idle', 'checking', 'available', 'downloading', 'downloaded', 'installing', 'failed'] as const;
-const errorCodes = ['unconfigured', 'busy', 'unresolved', 'network', 'store', 'verify', 'forbidden', 'unsupported'] as const;
+const errorCodes = ['unconfigured', 'busy', 'unresolved', 'network', 'store', 'verify', 'forbidden', 'unsupported', 'unknown'] as const;
 type Data = Record<string, unknown>;
 function invalid(): never { throw new NativeUpdateClientError(); }
 function record(value: unknown): Data {
@@ -151,6 +151,7 @@ function safeError(value: unknown): NativeUpdateClientError {
     const defaults: Record<typeof code, UpdateMessageCode> = {
       unconfigured: 'unconfigured', busy: 'busy', unresolved: 'unresolved', network: 'networkUnavailable',
       store: 'storeFailed', verify: 'verifyFailed', forbidden: 'forbidden', unsupported: 'unsupported',
+      unknown: 'unknown',
     };
     return new NativeUpdateClientError(code, source.message === undefined ? defaults[code] : message(source.message));
   } catch { return new NativeUpdateClientError(); }

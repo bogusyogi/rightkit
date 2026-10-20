@@ -1,6 +1,78 @@
 # Changelog
 
-## 0.4.0 — unpublished staging
+## 0.5.0 (unpublished)
+
+Status: nothing in this section has been compiled, tested or run, and CI has not run on it. The entries are read from source (`crates/rightkit-tauri-shell/src/**`, `tests/**`, `Cargo.toml`); none is verified by a build. Qualification still owed: `rustfmt --check` on the changed Rust files, `cargo test` and `cargo check` with the `wv2-0_38` and `wv2-0_39` feature sets, and a signed-fixture updater test on macOS (cancel, signature, install).
+
+**Feature flags.** All new flags are off in `default` (`default` stays `wv2-0_38`), and each new dependency is optional (`Cargo.toml`).
+
+- `host-services`: adds `rightkit-app-settings` 0.3.0 (default features off) and the `host` module (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the caller policy `HostCallerPolicy`.
+- `logs`: adds `rightkit-logs` 0.3.4 and `src/logs_commands.rs`.
+- `crash`: adds `rightkit-crash` 0.3.4 with its `window-errors` feature (renderer error capture, enabled by the shell's dependency line in `Cargo.toml`), and `watchdog::crash_capture` with `CrashCaptureOptions` (`src/watchdog.rs:1085-1104`). With `host-services` it also registers `rightkit_crash_window_error`, the renderer error sink (`src/host/crash.rs:35`; `HostServicesBuilder::crash`, `src/host/mod.rs:314-316`).
+- `models`: implies `host-services`; adds `rightkit-models` 0.5.0 (default features off) and the native model store commands in `src/host/models.rs` (`HostServicesBuilder::models`, `src/host/mod.rs:302-304`).
+- `license`: implies `host-services`; adds `rightkit-license` 0.2.4 with feature `update-auth`.
+- `update`: implies `host-services`; adds `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5 (`rustls-no-provider`), `sha2` 0.10 and `tokio` 1 (`macros`, `time`).
+- `update-license`: implies `update` and `license`; adds `url` 2 and the licence authority `LicenseAuthority` (`src/update.rs:1317`).
+- `overlay`: adds `rightkit-overlay` 0.1.2 and `src/overlay_host.rs`.
+- `pdf-host`: implies `host-services`; adds `rightkit-pdf` 0.3.3 with its `host` feature (`Cargo.toml`) and `src/pdf_host.rs` (`src/lib.rs:51`). PDFKit drives the view on macOS; every other platform answers `unsupported` (`src/pdf_host.rs:41`).
+
+**New modules.** Compiled on every feature set: `associations`, `caller_gate`, `open_paths`, `os_settings`, `preview`, `print`, `surface`, `webview2_env`, `webview2_menu` (`src/lib.rs`). Behind features: `host` (`host-services`), `logs_commands` (`logs`), `overlay_host` (`overlay`), `update` (`update`), `pdf_host` (`pdf-host`).
+
+**Commands.** Registered by `handler!` in `src/lib.rs` (`__rk_handler_*` macros for the feature-gated families):
+
+- `rightkit_settings_describe|get|patch|reset|subscribe|unsubscribe`, `rightkit_secrets_presence|set|clear`, `rightkit_legal_receipt_read|create|reset`, `rightkit_preview_register|revoke|revoke_all` (`host-services`). `patch` takes `expectedRevision` (compare-and-set; `src/host/settings.rs`). No secrets command returns a secret (`src/host/secrets.rs`). The legal service records what the renderer declares it showed (`src/host/legal.rs`).
+- `rightkit_license_status|activate|refresh|deactivate|request_trial` (`license`). The views `LicenseView`, `RefreshView` and `TrialView` carry no token, key or device id (`src/host/license.rs:16-18`).
+- `rightkit_update_check|status|download|install|cancel` (`update`; `src/update.rs:1425-1471`).
+- `rightkit_logs_write|collect|clear` (`logs`).
+- `rk_shell_associations_status|set`, `rk_shell_open_default_apps` (`src/associations.rs`); `rk_shell_open_paths_ready` (`src/open_paths.rs`); `rk_shell_set_surface` (`src/surface.rs`); `rk_shell_print` (`src/print.rs`); `rk_shell_set_menu_item_checked`, `rk_shell_set_menu_state` (`src/commands.rs`).
+- `rightkit_pdf_open|update|state|find|print|suspend|close` (`pdf-host`): registered in `src/lib.rs:1564-1581`. Each command authorizes the caller through the installed `PdfHostService` under `PDF_SERVICE`, registered by `PdfServiceExt::pdf` (`src/pdf_host.rs:521-528`).
+- `rightkit_models_list|install|cancel|remove` (`models`): registered in `src/lib.rs:1523-1531`. `install`, `cancel` and `remove` take a declared model id only (`src/host/models.rs:296-329`).
+- `rightkit_crash_window_error` (`host-services` + `crash`): registered in `src/lib.rs:1545-1553`.
+- Caller guard: every `rk_shell_*` command takes the invoking `Webview` and calls `guard_command` first (`src/commands.rs:30-41`). With `host-services` the call is checked against the host caller policy, but only once the app enables `HostServicesBuilder::guard_shell_commands`. Without `host-services` nothing is checked and the call is allowed. This is not a default deny.
+
+**Native updater (`update`).**
+
+- Signature: the plugin's minisign verification runs before the bytes are returned (`src/update/tauri_transport.rs:208-209`).
+- HTTPS only: the transport client sets `https_only(true)` (`tauri_transport.rs:74`). `UpdateHostPolicy` allows only https, no userinfo and exact hosts, and checks that before the authority is asked (`src/update.rs:524-527`).
+- No redirects: `redirect::Policy::none()` (`tauri_transport.rs:81-82`); every redirect hop fails closed.
+- Downgrade refusal: the plugin's `version_comparator` accepts only `release.version > current` (`tauri_transport.rs:143`).
+- Authorization: the licence authority supplies headers for each request, redirect hops included (`src/update.rs:541-554`). Headers are removed from the cached native update object (`tauri_transport.rs:4-5`).
+- Licence-bound install: the binding is captured once at check (`src/update.rs:35-38`), rechecked when the download completes (`:1127`), and rechecked at install admission (`:1194`). A licence change since the check refuses the update.
+- Staging: the SHA-256 and length of the staged bytes are recorded (`tauri_transport.rs:87`) and checked again at install (`src/update.rs:42`).
+- Progress and cancel: event `rightkit://update-progress` (`src/update.rs:74`); `rightkit_update_cancel` returns `{ cancelled }` (`:368-371`); at most 4 handles, each with a 1-hour TTL (`:78-80`).
+
+**Associations, open paths, OS settings.**
+
+- `associations`: `AssociationSpec` carries the app's bundle id and type list. `rk_shell_associations_set` asks macOS, which may show a consent sheet; on Windows it opens Default apps and reports `userActionRequired`. The timeout is clamped to 1 to 120 s (`src/associations.rs`).
+- `open_paths`: paths from launch arguments, a second launch and macOS `RunEvent::Opened` are queued until the renderer calls `rk_shell_open_paths_ready`. Only existing regular files survive (`src/open_paths.rs:87-89`), each is granted through `PathBroker`, and the renderer never receives a raw path. They are delivered as `rightkit-shell://open-paths` to the main webview (`:39`).
+- `os_settings`: `SettingsPane` is a closed enum mapped to fixed URIs per OS (`src/os_settings.rs`). It is a Rust API only; there is no command.
+
+**Watchdog and engine.**
+
+- `WatchdogConfig` gains `observer_gap` (default 1 s: a late wake suppresses the stall test until a fresh beat), `capture`, `on_event` and `shutdown_bound` (default 2 s) (`src/watchdog.rs:182-232`). One heartbeat ping is outstanding at a time (`:185`). New public items: `status()`, `shutdown()` returning `StopReport`, `WatchdogStatus`, `ShellRuntimeStatus`, `CaptureOutcome`, `WatchdogEvent`, and `DEFAULT_CAPTURE_COOLDOWN` (60 s, `:78`).
+- `engine` (feature): `EnginePolicy` gains `presence` (`PresencePolicy`, with `idle_exit`), `snapshots` (`SnapshotSlot`: `key`, `method`, `required`) and `shutdown_drain` (`src/engine.rs:133-153`). `EngineHost` holds presence through `EngineHold` with a refcount, and latches the engine generation: a reply from an earlier generation is not delivered (`src/engine.rs:22-24`). `EngineHost::shutdown_ordered()` returns `EngineShutdownReport` (`first`, `drained`, `abandoned_calls`, `holders_left`, `engine`; `:481`).
+
+**Menu, hardening, WebView2, print, preview, surface.**
+
+- Menu: `MenuEntry` gains `Check` and `Submenu` (nested up to `MAX_SUBMENU_DEPTH` = 4), built with `MenuEntry::check` and `MenuEntry::submenu` (`src/menu.rs:34-47`). `MenuOverride`, `OverrideRole` and `MenuItemState` let an app override built-in roles and set item state (`src/menu.rs`).
+- Hardening: `Hardening::disable_browser_accelerators` turns WebView2's accelerator keys off for that webview, all or nothing (`src/harden.rs:55-63`).
+- `webview2_env`: the WebView2 user-data folder and browser arguments; applied at startup, before the first window (`src/webview2_env.rs`). `webview2_menu`: one native context-menu handler that composes the DevTools, hardening and app stages in a fixed order (`src/webview2_menu.rs`).
+- `print`: WebView2's in-app print preview on Windows, the system print operation on macOS, `Unsupported` elsewhere (`src/print.rs`).
+- `preview`: in-memory documents served from their own custom scheme with their own CSP; `ShellBuilder::preview_protocol` (`src/preview.rs`, `src/lib.rs`).
+- `surface`: named window shapes through `SurfaceSpec`, `ShellBuilder::surface` and `surface_fallback` (`src/surface.rs`, `src/lib.rs`).
+- `overlay_host`: the native host for an always-on-top, no-activate panel, around `rightkit-overlay` (`src/overlay_host.rs`).
+
+**BREAKING.**
+
+- `MenuEntry` is `#[non_exhaustive]` (`src/menu.rs:22`). Matches outside the crate need a `_` arm. Build rows with the constructors `MenuEntry::item`, `check` or `submenu`.
+- `Hardening` gains `disable_browser_accelerators` (`src/harden.rs:63`, default `false`). Struct literals must end with `..Hardening::default()`.
+- `WatchdogConfig` gains `observer_gap`, `capture`, `on_event` and `shutdown_bound` (`src/watchdog.rs:204-215`). Struct literals must end with `..WatchdogConfig::default()`.
+- `EnginePolicy` gains `presence`, `snapshots` and `shutdown_drain` (`src/engine.rs:133`). Struct literals must end with `..EnginePolicy::default()`.
+- Rust callers of these `rk_shell_*` functions must pass the invoking `Webview<Wry>` as the first argument: `rk_shell_open_external`, `rk_shell_open_window`, `rk_shell_open_login_items_settings`, `rk_shell_finish_quit`, `rk_shell_presence`, `rk_shell_capabilities` (`src/commands.rs`). `rk_shell_finish_quit`, `rk_shell_presence` and `rk_shell_capabilities` now return `Result<_, ShellError>`. JavaScript `invoke` arguments are unchanged, because Tauri injects `Webview`.
+
+**Not in 0.5.0.** The app-lock coordinator: absent from this source (no `app_lock` symbol in `src/`); excluded from this version.
+
+## 0.4.0 (published 2026-10-19)
 
 - Runtime budget: the wake-up gate is the watchdog's cost over a bare Wry loop measured in the same bench run (`ceilingBasis` delta-over-bare, 4/s), not the whole-process rate, which host and WindowServer activity move by 2x within a day (#789). The bench runs bare and watchdog in separate, interleaved child processes and reports the median pair; the whole-process figure stays as recorded evidence.
 - Engine errors are structured, window-state saves preserve generation order, and QA controls stay excluded from release builds.

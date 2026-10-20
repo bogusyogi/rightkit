@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
@@ -78,22 +78,76 @@ fn s<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
+/// Native rows for `entries` (items, checks and nested submenus). Each id passes through `native`
+/// to become the id Tauri sees, and `ids` collects every `(native, logical)` pair in menu order.
+fn native_rows(
+    app: &AppHandle<Wry>,
+    entries: &[MenuEntry],
+    native: &dyn Fn(&str) -> String,
+    ids: &mut Vec<(String, String)>,
+) -> Result<Vec<Box<dyn IsMenuItem<Wry>>>, String> {
+    let mut rows: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
+    for e in entries {
+        match e {
+            MenuEntry::Separator => {
+                rows.push(Box::new(PredefinedMenuItem::separator(app).map_err(s)?))
+            }
+            MenuEntry::Item {
+                id,
+                label,
+                accelerator,
+                enabled,
+            } => {
+                let nid = native(id);
+                rows.push(Box::new(
+                    MenuItem::with_id(app, nid.clone(), label, *enabled, accelerator.as_deref())
+                        .map_err(s)?,
+                ));
+                ids.push((nid, id.clone()));
+            }
+            MenuEntry::Check {
+                id,
+                label,
+                accelerator,
+                enabled,
+                checked,
+            } => {
+                let nid = native(id);
+                rows.push(Box::new(
+                    CheckMenuItem::with_id(
+                        app,
+                        nid.clone(),
+                        label,
+                        *enabled,
+                        *checked,
+                        accelerator.as_deref(),
+                    )
+                    .map_err(s)?,
+                ));
+                ids.push((nid, id.clone()));
+            }
+            MenuEntry::Submenu { label, entries } => {
+                let sub = SubmenuBuilder::new(app, label).build().map_err(s)?;
+                for row in native_rows(app, entries, native, ids)? {
+                    sub.append(row.as_ref()).map_err(s)?;
+                }
+                rows.push(Box::new(sub));
+            }
+        }
+    }
+    Ok(rows)
+}
+
 fn build_menu(
     app: &AppHandle<Wry>,
     spec_items: &[MenuEntry],
     show: &str,
     quit: &str,
 ) -> Result<(Menu<Wry>, HashSet<String>), String> {
-    let ids: HashSet<String> = spec_items
-        .iter()
-        .filter_map(|e| {
-            if let MenuEntry::Item { id, .. } = e {
-                Some(id.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    crate::menu::validate_entries(spec_items)?;
+    let mut pairs = Vec::new();
+    let rows = native_rows(app, spec_items, &|id| id.to_owned(), &mut pairs)?;
+    let ids: HashSet<String> = pairs.into_iter().map(|(native, _)| native).collect();
     let menu = Menu::new(app).map_err(s)?;
     menu.append(&MenuItem::with_id(app, ID_SHOW, show, true, None::<&str>).map_err(s)?)
         .map_err(s)?;
@@ -101,24 +155,8 @@ fn build_menu(
         menu.append(&PredefinedMenuItem::separator(app).map_err(s)?)
             .map_err(s)?;
     }
-    for e in spec_items {
-        match e {
-            MenuEntry::Separator => menu
-                .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-                .map_err(s)?,
-            MenuEntry::Item {
-                id,
-                label,
-                accelerator,
-                enabled,
-            } => {
-                menu.append(
-                    &MenuItem::with_id(app, id, label, *enabled, accelerator.as_deref())
-                        .map_err(s)?,
-                )
-                .map_err(s)?;
-            }
-        }
+    for row in rows {
+        menu.append(row.as_ref()).map_err(s)?;
     }
     menu.append(&PredefinedMenuItem::separator(app).map_err(s)?)
         .map_err(s)?;
@@ -256,15 +294,14 @@ impl TrayOptions {
         if self.id.is_empty() {
             return Err("tray id must not be empty".into());
         }
+        crate::menu::validate_entries(&spec.items)?;
         let mut ids = HashSet::new();
-        for entry in &spec.items {
-            if let MenuEntry::Item { id, .. } = entry {
-                if id.is_empty() || !ids.insert(id.clone()) {
-                    return Err(format!("empty or duplicate tray item id: {id:?}"));
-                }
-                if self.standard_items && matches!(id.as_str(), ID_SHOW | ID_QUIT) {
-                    return Err(format!("reserved tray item id: {id}"));
-                }
+        for id in crate::menu::entry_ids(&spec.items) {
+            if id.is_empty() || !ids.insert(id.clone()) {
+                return Err(format!("empty or duplicate tray item id: {id:?}"));
+            }
+            if self.standard_items && matches!(id.as_str(), ID_SHOW | ID_QUIT) {
+                return Err(format!("reserved tray item id: {id}"));
             }
         }
         if !self.standard_items {
@@ -309,30 +346,13 @@ fn independent_menu(
     options: &TrayOptions,
 ) -> Result<(Menu<Wry>, std::collections::HashMap<String, String>), String> {
     let rows = options.menu_items(spec)?;
+    let mut pairs = Vec::new();
+    let native = native_rows(app, &rows, &|id| options.native_id(id), &mut pairs)?;
     let menu = Menu::new(app).map_err(s)?;
-    let mut ids = std::collections::HashMap::new();
-    for row in rows {
-        match row {
-            MenuEntry::Separator => menu
-                .append(&PredefinedMenuItem::separator(app).map_err(s)?)
-                .map_err(s)?,
-            MenuEntry::Item {
-                id,
-                label,
-                accelerator,
-                enabled,
-            } => {
-                let native = options.native_id(&id);
-                menu.append(
-                    &MenuItem::with_id(app, native.clone(), label, enabled, accelerator.as_deref())
-                        .map_err(s)?,
-                )
-                .map_err(s)?;
-                ids.insert(native, id);
-            }
-        }
+    for row in native {
+        menu.append(row.as_ref()).map_err(s)?;
     }
-    Ok((menu, ids))
+    Ok((menu, pairs.into_iter().collect()))
 }
 
 impl TrayHandle {

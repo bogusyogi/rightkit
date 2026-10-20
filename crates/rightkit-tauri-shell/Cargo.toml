@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-tauri-shell"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared Tauri desktop shell for Right Suite apps: webview hardening, window state, native menu, tray, single instance, deep links, autostart, rich clipboard, watchdog and engine wiring."
@@ -36,14 +36,35 @@ dev-overrides = []
 # feature; an app selects it from its own QA/dev feature. Compiled only with debug_assertions: a release build that
 # enables it fails with compile_error!.
 qa-probes = []
+logs = ["dep:rightkit-logs"]
+host-services = ["dep:rightkit-app-settings"]
+crash = ["dep:rightkit-crash"]
+license = ["host-services", "dep:rightkit-license"]
+update = ["host-services", "dep:tauri-plugin-updater", "dep:reqwest", "dep:sha2", "dep:tokio"]
+update-license = ["update", "dep:rightkit-license", "dep:url"]
+overlay = ["dep:rightkit-overlay"]
+pdf-host = ["host-services", "dep:rightkit-pdf"]
+models = ["host-services", "dep:rightkit-models"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
 rightkit-job-queue = { version = "0.5.0", path = "../rightkit-job-queue", default-features = false, features = ["supervisor"], optional = true }
 rightkit-child-process = { version = "0.5.0", path = "../rightkit-child-process" }
+rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings", default-features = false, optional = true }
+rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", default-features = false, optional = true }
+rightkit-crash = { version = "0.3.4", path = "../rightkit-crash", default-features = false, features = ["window-errors"], optional = true }
+rightkit-license = { version = "0.2.4", path = "../rightkit-license", default-features = false, features = ["update-auth"], optional = true }
+rightkit-overlay = { version = "0.1.2", path = "../rightkit-overlay", optional = true }
+rightkit-pdf = { version = "0.3.3", path = "../rightkit-pdf", default-features = false, features = ["host"], optional = true }
+rightkit-models = { version = "0.5.0", path = "../rightkit-models", default-features = false, optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+tauri-plugin-updater = { version = "=2.10.1", optional = true, default-features = true }
+reqwest = { version = "0.13.5", optional = true, default-features = false, features = ["rustls-no-provider"] }
+sha2 = { version = "0.10", optional = true }
+tokio = { version = "1", optional = true, features = ["macros", "time"] }
+url = { version = "2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
@@ -57,6 +78,7 @@ objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSButton", "NSContro
 tauri-winrt-notification = "0.8"
 windows_061 = { package = "windows", version = "0.61", optional = true, features = [
   "Win32_Foundation",
+  "Win32_Graphics_Dwm",
   "Win32_System_Com",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
@@ -67,6 +89,7 @@ windows_061 = { package = "windows", version = "0.61", optional = true, features
 webview2_com_038 = { package = "webview2-com", version = "0.38", optional = true }
 windows_062 = { package = "windows", version = "0.62", optional = true, features = [
   "Win32_Foundation",
+  "Win32_Graphics_Dwm",
   "Win32_System_Com",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
@@ -78,6 +101,10 @@ webview2_com_039 = { package = "webview2-com", version = "0.39", optional = true
 
 [[bench]]
 name = "budget"
+harness = false
+
+[[bench]]
+name = "budget_native"
 harness = false
 
 [dev-dependencies]

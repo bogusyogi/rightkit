@@ -76,6 +76,16 @@ pub struct WindowSpec {
     /// visible monitor when it would leave the window off-screen.
     pub x: Option<f64>,
     pub y: Option<f64>,
+    /// Label of an open window to make this window's native parent (a print preview over the main
+    /// window). An unknown or malformed label fails the open rather than being ignored.
+    pub parent: Option<String>,
+    /// Whether the user may resize the window. Default: resizable, as before.
+    pub resizable: Option<bool>,
+    /// Native window shadow where the platform has one. Default: on, as before.
+    pub shadow: Option<bool>,
+    /// `Some(false)` creates the window and leaves it hidden (no reveal, no focus); the app shows it
+    /// later with its own call. Default: revealed on open, as before.
+    pub visible: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,6 +230,11 @@ pub fn builder<'a>(
 }
 
 /// Create (or reveal) a secondary window described by `spec`.
+/// Whether [`open`] reveals the window it creates. Only `visible: Some(false)` keeps it hidden.
+pub fn opens_visible(spec: &WindowSpec) -> bool {
+    spec.visible != Some(false)
+}
+
 pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
     let label = safe_label(&spec.label).ok_or("invalid window label")?;
     if let Some(w) = app.get_webview_window(&label) {
@@ -259,6 +274,21 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
     if let Some(s) = spec.skip_taskbar {
         b = b.skip_taskbar(s);
     }
+    if let Some(r) = spec.resizable {
+        b = b.resizable(r);
+    }
+    if let Some(s) = spec.shadow {
+        b = b.shadow(s);
+    }
+    if let Some(raw) = spec.parent.as_deref() {
+        let parent_label = safe_label(raw).ok_or("invalid parent window label")?;
+        let parent = app
+            .get_webview_window(&parent_label)
+            .ok_or_else(|| format!("unknown parent window {parent_label}"))?;
+        b = b
+            .parent(&parent)
+            .map_err(|e| format!("parent window {parent_label}: {e}"))?;
+    }
     if spec.center == Some(true) {
         b = b.center();
     } else if let (Some(x), Some(y)) = (spec.x, spec.y) {
@@ -278,12 +308,14 @@ pub fn open(app: &AppHandle<Wry>, spec: &WindowSpec) -> Result<String, String> {
         EVENT_WINDOW,
         serde_json::json!({"label": label, "kind": "created"}),
     );
-    show_window(
-        app,
-        &window,
-        RevealSource::OpenWindow,
-        RevealStyle::ShowOnly,
-    )?;
+    if opens_visible(spec) {
+        show_window(
+            app,
+            &window,
+            RevealSource::OpenWindow,
+            RevealStyle::ShowOnly,
+        )?;
+    }
     Ok(label)
 }
 

@@ -80,9 +80,83 @@ fn resolved_parent_name(path: &Path) -> Result<PathBuf, String> {
     Ok(parent.join(name))
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn same_download_name(left: &Path, right: &Path) -> Result<bool, String> {
     Ok(left == right)
+}
+
+#[cfg(target_os = "macos")]
+fn same_download_name(left: &Path, right: &Path) -> Result<bool, String> {
+    use std::os::unix::fs::DirBuilderExt;
+    if left == right {
+        return Ok(true);
+    }
+    let left_parent = left.parent().expect("resolved download name has a parent");
+    let right_parent = right.parent().expect("resolved download name has a parent");
+    if rightkit_fs::FileKey::of_path(left_parent)
+        .map_err(|e| io_msg("identify download parent", e))?
+        != rightkit_fs::FileKey::of_path(right_parent)
+            .map_err(|e| io_msg("identify download parent", e))?
+    {
+        return Ok(false);
+    }
+    // Ask this filesystem rather than guessing its case or Unicode normalization
+    // rules. Both names are tested inside a new private directory on the same
+    // volume; neither actual checkpoint nor destination is created or written.
+    let mut probe = None;
+    for _ in 0..16 {
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).map_err(|e| io_msg("name probe randomness", e))?;
+        let candidate = left_parent.join(format!(
+            ".rightkit-model-name-probe-{}",
+            rightkit_fs::digest::hex(&random),
+        ));
+        match fs::DirBuilder::new().mode(0o700).create(&candidate) {
+            Ok(()) => {
+                probe = Some(candidate);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(io_msg("create private name probe", error)),
+        }
+    }
+    let probe = probe.ok_or_else(|| io_msg("create private name probe", "name collisions"))?;
+    let left_probe = probe.join(left.file_name().expect("resolved download name has a leaf"));
+    let right_probe = probe.join(
+        right
+            .file_name()
+            .expect("resolved download name has a leaf"),
+    );
+    let mut created_leaf = false;
+    let result = (|| {
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&left_probe)
+            .map_err(|e| io_msg("create name probe leaf", e))?;
+        created_leaf = true;
+        let key = rightkit_fs::FileKey::of_file(&file, &left_probe)
+            .map_err(|e| io_msg("identify name probe leaf", e))?;
+        match fs::metadata(&right_probe) {
+            Ok(_) => Ok(rightkit_fs::FileKey::of_path(&right_probe)
+                .map_err(|e| io_msg("identify alternate name probe leaf", e))?
+                == key),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(io_msg("read alternate name probe leaf", error)),
+        }
+    })();
+    // A failed create_new does not confer ownership of that leaf. Always attempt
+    // both cleanups, even when probing failed, & never recursively remove unknown
+    // entries. Ordinary concurrent creators cannot enter this private directory.
+    let leaf_cleanup = if created_leaf {
+        fs::remove_file(&left_probe)
+    } else {
+        Ok(())
+    };
+    let dir_cleanup = fs::remove_dir(&probe);
+    leaf_cleanup.map_err(|e| io_msg("remove name probe leaf", e))?;
+    dir_cleanup.map_err(|e| io_msg("remove private name probe", e))?;
+    result
 }
 
 #[cfg(windows)]
@@ -559,6 +633,24 @@ fn download_inner(
     }
     if let Some(parent) = request.dest_path.parent() {
         fs::create_dir_all(parent).map_err(|error| io_msg("create dest dir", error))?;
+    }
+    // Inspect the endpoints without following links: a dangling link looks absent
+    // to metadata(), but a later checkpoint write could create its destination.
+    // Parent symlinks remain supported through resolved_parent_name below.
+    for endpoint in [
+        request.dest_path,
+        request.part_path,
+        metadata_path.as_path(),
+        staged_metadata_path.as_path(),
+    ] {
+        match fs::symlink_metadata(endpoint) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io_msg("invalid download path", "symlink endpoint refused"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io_msg("inspect download endpoint", error)),
+        }
     }
     let destination_name = resolved_parent_name(request.dest_path)?;
     // A checkpoint must never alias the existing destination: creating/appending it

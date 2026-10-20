@@ -646,3 +646,77 @@ export async function admit() {
     assert.equal(result.stderr, outcome === "success" ? "" : outcome === "failure" ? "admission fixture refused\n" : "reviewed candidate refused: CLI execution did not settle\n");
   }
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// Runtime proof transfer: any crate with trusted coverage, several pins per candidate
+// ---------------------------------------------------------------------------------------------------------------
+import { selectSupplement, selectSupplements, validateRuntimeTransfer, RUNTIME_PROOF_WORKLOADS } from "./reviewed-candidate.mjs";
+import { workloadsFor as trustedWorkloadsFor } from "./runtime-qualify.mjs";
+import { RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
+const runtimePin = (f, n, proofSha256 = String(n).repeat(64).slice(0, 64)) => ({ schema: 1, kind: "runtime-workload-pin", original: clone(f.supplements.supplements[0].original), producer: { workflowId: "6", runId: "88", runAttempt: "2", jobId: "104", sourceSha: PROMOTION, jobs: { candidate: "101", win32: "102", darwin: "103", qualify: "104" } }, artifact: { id: String(500 + n), digest: `sha256:${String(n).repeat(64).slice(0, 64)}`, proofSha256 }, policy: { id: "runtime-workloads/v1", sourceSha: PROMOTION, validatorSourceSha: PROMOTION } });
+const transferRow = (name, pin, candidateId) => ({ name, runtimeFeatureProof: { classification: "always-on", listedOwner: true, required: true, status: "qualified", failures: [], proof: { candidateId, proofSha256: pin.artifact.proofSha256, workloads: [...RUNTIME_PROOF_WORKLOADS[name]] } } });
+test("credential-side runtime workload table equals the trusted coverage table exactly", () => {
+  const trusted = {};
+  for (const crate of RUNTIME_BUDGET_CRATES) { try { trusted[crate] = trustedWorkloadsFor(crate).map((w) => w.id); } catch (error) { assert.match(error.message, /no trusted supported coverage/); } }
+  assert.deepEqual(Object.fromEntries(Object.entries(RUNTIME_PROOF_WORKLOADS).map(([name, ids]) => [name, [...ids]])), trusted);
+  assert.deepEqual(Object.keys(trusted).sort(), ["rightkit-daemon", "rightkit-logs", "rightkit-tauri-shell"]);
+});
+test("a candidate may carry one runtime pin per crate; every other kind stays unique", (t) => {
+  const f = fixture(t, historicalReceipts, true);
+  const write = (...pins) => fs.writeFileSync(f.supplementalFile, JSON.stringify({ schema: 1, supplements: [...f.supplements.supplements, ...pins] }));
+  const [a, b, c] = [runtimePin(f, 1), runtimePin(f, 2), runtimePin(f, 3)];
+  write(a);
+  assert.deepEqual(selectSupplement(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), a);
+  write(a, b, c);
+  assert.deepEqual(selectSupplements(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), [a, b, c]);
+  assert.throws(() => selectSupplement(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), /more than one supplement pin/);
+  assert.deepEqual(selectArchiveSupplement(f.supplementalFile, f.candidate, f.approvedFile), f.supplements.supplements[0]);
+  assert.deepEqual(selectSupplements(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile).length, 3);
+  write();
+  assert.deepEqual(selectSupplements(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), []);
+  assert.equal(selectSupplement(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), null);
+  // Same proof twice, a malformed runtime pin, or a duplicate archive-scan pin is still refused.
+  write(a, clone(a)); assert.throws(() => selectSupplements(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), /duplicate/);
+  write(a, { ...b, extra: true }); assert.throws(() => selectSupplements(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), /refused/);
+  write(a, { ...b, artifact: { ...b.artifact, proofSha256: "not-a-hash" } }); assert.throws(() => selectSupplements(f.supplementalFile, f.candidate, "runtime-workload-pin", f.approvedFile), /refused|invalid/);
+  fs.writeFileSync(f.supplementalFile, JSON.stringify({ schema: 1, supplements: [f.supplements.supplements[0], clone(f.supplements.supplements[0])] }));
+  assert.throws(() => selectArchiveSupplement(f.supplementalFile, f.candidate, f.approvedFile), /duplicate/);
+});
+test("runtime transfer admits each trusted crate with its trusted workloads and refuses everything else", (t) => {
+  const f = fixture(t, historicalReceipts, true), id = f.candidate.id;
+  const pins = [runtimePin(f, 1), runtimePin(f, 2), runtimePin(f, 3)];
+  const names = Object.keys(RUNTIME_PROOF_WORKLOADS);
+  names.forEach((name, i) => validateRuntimeTransfer(transferRow(name, pins[i], id), pins, id));
+  const [logs, daemon] = [transferRow("rightkit-logs", pins[0], id), transferRow("rightkit-daemon", pins[1], id)];
+  const bad = [
+    { ...logs, name: "rightkit-daemon" },                                     // logs workloads claimed for the daemon
+    { ...daemon, name: "rightkit-logs" },
+    { ...logs, name: "rightkit-a" }, { ...logs, name: "rightkit-job-queue" }, { ...logs, name: "__proto__" }, { ...logs, name: "constructor" },
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.proof.workloads = ["local"]; return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.proof.workloads = [...r.runtimeFeatureProof.proof.workloads].reverse(); return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.proof.workloads.push("tracing"); return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.proof.proofSha256 = "f".repeat(64); return r; })(),   // no committed pin has this proof
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.proof.candidateId = "other"; return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.proof.extra = 1; return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.classification = "held-resource"; return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.listedOwner = false; return r; })(),
+    (() => { const r = clone(daemon); r.runtimeFeatureProof.required = false; return r; })(),
+  ];
+  for (const row of bad) assert.throws(() => validateRuntimeTransfer(row, pins, id), /refused/);
+  assert.throws(() => validateRuntimeTransfer(daemon, [], id), /refused/);
+  assert.throws(() => validateRuntimeTransfer(daemon, [pins[0]], id), /refused/);
+});
+test("admission refuses a committed runtime pin that no qualified unit transfers, and a qualified row for an untrusted crate", async (t) => {
+  const pinned = (mutate) => {
+    const f = fixture(t, historicalReceipts, true);
+    const pin = runtimePin(f, 1);
+    fs.writeFileSync(f.supplementalFile, JSON.stringify({ schema: 1, supplements: [...f.supplements.supplements, pin] }));
+    mutate(f, pin); f.resealAdmission();
+    return f;
+  };
+  await assert.rejects(pinned(() => {}).prepare(), /runtime supplement pins differ from qualified units/);
+  await assert.rejects(pinned((f, pin) => { f.admission.units[0].runtimeFeatureProof = transferRow("rightkit-logs", pin, f.candidate.id).runtimeFeatureProof; }).prepare(), /runtime supplement transfer mismatch/);
+  // No pin and no qualified row is the unchanged baseline.
+  const f = fixture(t, historicalReceipts, true);
+  assert.ok(await f.prepare());
+});

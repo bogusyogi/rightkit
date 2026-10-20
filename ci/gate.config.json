@@ -68,6 +68,10 @@
         [
           "--features",
           "extract"
+        ],
+        [
+          "--features",
+          "host"
         ]
       ]
     },
@@ -146,6 +150,14 @@
         [
           "--features",
           "engine"
+        ],
+        [
+          "--features",
+          "host-services,license,update,update-license"
+        ],
+        [
+          "--features",
+          "logs,crash,overlay,models,pdf-host"
         ]
       ],
       "checkFeatureSets": [

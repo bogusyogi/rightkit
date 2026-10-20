@@ -18,6 +18,7 @@ Product-neutral PDF engine for Right Suite apps. It owns PDF inspection, composi
 | `redact` | off | none | Remove text, images, vector paths and annotations under marked areas, fail closed, whole-file rewrite (`src/redact.rs`). |
 | `forms` | off | none | AcroForm: list fields, set values, regenerate appearances, `/NeedAppearances` handling, typed refusals (`src/forms.rs`). |
 | `optimize` | off | none | Size reduction: unused objects, stream compression, image downsampling by measured effective resolution, progress and cancel (`src/optimize.rs`). |
+| `host` | off | `objc2`, `objc2-app-kit`, `objc2-foundation`, `objc2-pdf-kit`, `block2` (macOS only) | Native PDF view host (`src/host`): one view per window, owner isolation, suspended-view cache, find, print. PDFKit on macOS; every other platform builds no native code and answers `HostError::Unsupported`. The caller (rightkit-tauri-shell's `pdf-host`) supplies the native parent view. |
 
 Inspection (`src/inspect.rs`, `src/model.rs`) is always compiled. `--no-default-features` gives inspection only.
 
@@ -27,7 +28,7 @@ Inspection (`src/inspect.rs`, `src/model.rs`) is always compiled. `--no-default-
 
 ## Platform support
 
-Pure Rust. The only platform-specific code is in `src/commit.rs`: the file identity a commit compares (`dev`/`ino` on Unix, `FILE_ID_INFO` from an opened handle on Windows through `windows-sys`) and the comparison of a replacement with the file it replaces (see "Saving"). The file replacement itself is `rightkit-fs`'s `AtomicWriter`; this crate makes no platform call to write a file. It is expected to build wherever its dependencies build. The bundled font is `assets/SourceSerif4-Variable.woff2`. The crate ships no licence file for it, so the SIL OFL 1.1 licence stated for the font is not verified in this repository.
+Pure Rust, except the opt-in `host` feature (macOS PDFKit; see "Native view host"). The only other platform-specific code is in `src/commit.rs`: the file identity a commit compares (`dev`/`ino` on Unix, `FILE_ID_INFO` from an opened handle on Windows through `windows-sys`) and the comparison of a replacement with the file it replaces (see "Saving"). The file replacement itself is `rightkit-fs`'s `AtomicWriter`; this crate makes no platform call to write a file. It is expected to build wherever its dependencies build. The bundled font is `assets/SourceSerif4-Variable.woff2`. The crate ships no licence file for it, so the SIL OFL 1.1 licence stated for the font is not verified in this repository.
 
 Published version: see `INDEX.md` at the repository root. Changes: `CHANGELOG.md`.
 
@@ -39,6 +40,16 @@ Illustrative. For compiled round trips on real files, see `tests/e2e.rs` and `te
 // Run with the default feature set. The public functions are in src/inspect.rs,
 // src/compose.rs, src/merge.rs, src/extract.rs, and src/save.rs.
 ```
+
+## Native view host
+
+Feature `host` (off by default). `host::PdfHost` shows a PDF in a native view beside a window's webview and owns that view's life: one view per window label, an owner token that guards stale calls, `open`, `update`, `state`, `find`, `print`, `suspend`, `close`, and teardown (`release_window`, `reap`, `dispose_all`). The crate knows no window system and no IPC: the caller reads the window label from the platform (never from a request), passes a `NativeParent` built inside the platform callback (on macOS `NativeParent::from_wkwebview`), and hands the file as an `AuthorizedPdfPath` its file broker granted. `rightkit-tauri-shell` (feature `pdf-host`) is that caller; this crate never depends on it.
+
+- **Isolation.** Every call is keyed by the window label first. A window with no view of its own, or asking with another window's owner token, finds nothing (`NotOpen`) or is refused (`StaleOwner`) before any native object is touched. A suspended view belongs to its window and path.
+- **Suspended views** are a bounded cache (default 8 views, 30 seconds). A view is reused only by the same window and path while the SHA-256 taken at open still matches the file, and never for an encrypted document. The crate runs no timer: expiry happens on every call and in `sweep()`; `next_sweep_in()` says when a caller that wants views released while idle should call it.
+- **Read only.** The document is never written. Widgets are read-only; file-launch, script and remote-document actions are removed from the in-memory annotations; link clicks go to `HostHooks::open_link` (default: refuse).
+- **macOS** builds the PDFKit backend and requires every call on the AppKit main thread (`HostError::NotMainThread` otherwise); one PDFKit host per process. **Other platforms** build no native code: every call answers `HostError::Unsupported`.
+- **Events.** Lifecycle changes (`active`, `parked`, `released`, with a reason and counts) are recorded in a bounded outbox; `drain_events()` after each call.
 
 ## Editability and replacement contract
 

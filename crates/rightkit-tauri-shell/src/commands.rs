@@ -6,9 +6,11 @@ use std::sync::atomic::Ordering;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager, State, WebviewWindow, Wry};
+use tauri::{AppHandle, Manager, State, Webview, WebviewWindow, Wry};
 
+use crate::caller_gate::CallerError;
 use crate::clipboard::{Board, ClipboardContent, ClipboardItem};
+use crate::menu::MenuItemState;
 use crate::tray::TrayUpdate;
 use crate::windows::WindowSpec;
 use crate::{b64, Module, ShellState};
@@ -25,26 +27,79 @@ pub(crate) fn require(state: &ShellState, module: Module) -> Result<(), ShellErr
     }
 }
 
+/// The first call of every `rk_shell_*` command: ask the host caller policy whether the invoking
+/// webview may run `command` ([`crate::host::guard_shell_command`], feature `host-services`).
+///
+/// The caller is the `Webview` Tauri injects into the command (its label and current URL), never an
+/// argument. The guard is off until the app enables it with
+/// `HostServicesBuilder::guard_shell_commands`; then a content webview, a foreign page, an untrusted
+/// window or a disabled command is refused here, before the command reads state or has any effect.
+/// Without the `host-services` feature there is nothing to ask and the call is allowed.
+pub(crate) fn guard_command(webview: &Webview<Wry>, command: &str) -> Result<(), CallerError> {
+    #[cfg(feature = "host-services")]
+    {
+        crate::host::guard_shell_command(webview, command)
+    }
+    #[cfg(not(feature = "host-services"))]
+    {
+        let _ = (webview, command);
+        Ok(())
+    }
+}
+
+/// The longest URL `rk_shell_open_external` hands to the OS.
+pub const MAX_EXTERNAL_URL_BYTES: usize = 4096;
+
+/// The URL policy of `rk_shell_open_external` beyond the scheme check in `opener::open_checked`:
+/// bounded, and free of control characters (no embedded newline or NUL reaches the OS handler).
+pub fn external_url_shape_allowed(url: &str) -> bool {
+    url.len() <= MAX_EXTERNAL_URL_BYTES && !url.chars().any(char::is_control)
+}
+
+/// Open an `http`, `https` or `mailto` link in the OS handler. This is the one `rk_shell_*` command
+/// the host guard never refuses (`host::SHELL_GUARD_EXEMPT`, feature `host-services`):
+/// the hardening script calls it from every webview, content webviews included. Its own policy
+/// is the scheme allowlist plus [`external_url_shape_allowed`], applied to every caller.
 #[tauri::command]
-pub fn rk_shell_open_external(url: String, state: State<'_, ShellState>) -> Result<(), String> {
+pub fn rk_shell_open_external(
+    webview: Webview<Wry>,
+    url: String,
+    state: State<'_, ShellState>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_open_external").map_err(|e| e.to_string())?;
+    if !external_url_shape_allowed(&url) {
+        return Err("blocked: the link is too long or holds a control character".into());
+    }
     crate::opener::open_checked(state.opener.as_ref(), &url)
 }
 
 /// The frontend is listening: deliver queued deep links. Returns launch facts.
 #[tauri::command]
-pub fn rk_shell_ready(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Value {
+pub fn rk_shell_ready(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<Value, ShellError> {
+    guard_command(&webview, "rk_shell_ready")?;
     state.frontend_ready.store(true, Ordering::SeqCst);
     crate::lifecycle::flush_links(&app);
     #[cfg(feature = "engine")]
     let engine = state.engine.as_ref().map(|e| e.lifecycle());
     #[cfg(not(feature = "engine"))]
     let engine: Option<Value> = None;
-    json!({"background": crate::lifecycle::launched_in_background(), "appId": state.app_id, "appName": state.app_name, "engine": engine})
+    Ok(
+        json!({"background": crate::lifecycle::launched_in_background(), "appId": state.app_id, "appName": state.app_name, "engine": engine}),
+    )
 }
 
 /// Diagnostics for tests and support: menu rows, tray, instance role, nav policy.
 #[tauri::command]
-pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Value {
+pub fn rk_shell_status(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<Value, ShellError> {
+    guard_command(&webview, "rk_shell_status")?;
     let tray = app.tray_by_id(crate::tray::TRAY_ID).is_some();
     // Where the OS placed the status item (screen points). Present only once AppKit/the shell
     // gave the item real geometry, which makes this an OS-derived fact, not a registry entry.
@@ -84,7 +139,7 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
         .iter()
         .map(|(id, i)| (id.clone(), i.is_enabled().unwrap_or(false)))
         .collect();
-    json!({
+    Ok(json!({
         "appId": state.app_id,
         "instance": *state.single_instance.lock().unwrap_or_else(|e| e.into_inner()),
         "tray": tray,
@@ -100,11 +155,16 @@ pub fn rk_shell_status(app: AppHandle<Wry>, state: State<'_, ShellState>) -> Val
         "modules": state.modules.names(),
         "clipboardDir": state.clipboard_dir,
         "cacheRepair": state.cache_repair.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|(p, o)| json!({"dir": p, "outcome": o})),
-    })
+    }))
 }
 
 #[tauri::command]
-pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(), String> {
+pub fn rk_shell_window(
+    webview: Webview<Wry>,
+    action: String,
+    window: WebviewWindow<Wry>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_window").map_err(|e| e.to_string())?;
     let r: Result<(), String> = match action.as_str() {
         "minimize" => window.minimize().map_err(|e| e.to_string()),
         "maximize" => window.maximize().map_err(|e| e.to_string()),
@@ -154,35 +214,76 @@ pub fn rk_shell_window(action: String, window: WebviewWindow<Wry>) -> Result<(),
 }
 
 #[tauri::command]
-pub fn rk_shell_open_window(spec: WindowSpec, app: AppHandle<Wry>) -> Result<String, String> {
+pub fn rk_shell_open_window(
+    webview: Webview<Wry>,
+    spec: WindowSpec,
+    app: AppHandle<Wry>,
+) -> Result<String, String> {
+    guard_command(&webview, "rk_shell_open_window").map_err(|e| e.to_string())?;
     crate::windows::open(&app, &spec)
 }
 
 #[tauri::command]
-pub fn rk_shell_set_tray(update: TrayUpdate, app: AppHandle<Wry>) -> Result<(), String> {
+pub fn rk_shell_set_tray(
+    webview: Webview<Wry>,
+    update: TrayUpdate,
+    app: AppHandle<Wry>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_set_tray").map_err(|e| e.to_string())?;
     crate::tray::update(&app, &update)
 }
 
 #[tauri::command]
 pub fn rk_shell_set_menu_item_enabled(
+    webview: Webview<Wry>,
     id: String,
     enabled: bool,
     state: State<'_, ShellState>,
 ) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_set_menu_item_enabled").map_err(|e| e.to_string())?;
+    apply_menu_updates(vec![MenuItemState::new(&id).with_enabled(enabled)], &state)
+}
+
+/// Tick or untick a check menu item by id.
+#[tauri::command]
+pub fn rk_shell_set_menu_item_checked(
+    webview: Webview<Wry>,
+    id: String,
+    checked: bool,
+    state: State<'_, ShellState>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_set_menu_item_checked").map_err(|e| e.to_string())?;
+    apply_menu_updates(vec![MenuItemState::new(&id).with_checked(checked)], &state)
+}
+
+/// Change enabled and/or checked state for several menu items in one call (a document switch
+/// updates many at once). Valid updates are applied even if others name an unknown id or a
+/// non-check item; the refusals come back in one error.
+#[tauri::command]
+pub fn rk_shell_set_menu_state(
+    webview: Webview<Wry>,
+    updates: Vec<MenuItemState>,
+    state: State<'_, ShellState>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_set_menu_state").map_err(|e| e.to_string())?;
+    apply_menu_updates(updates, &state)
+}
+
+/// The effect shared by the three menu-state commands, run only after each one's caller guard.
+fn apply_menu_updates(updates: Vec<MenuItemState>, state: &ShellState) -> Result<(), String> {
     let items = state.menu_items.lock().unwrap_or_else(|e| e.into_inner());
-    items
-        .get(&id)
-        .ok_or_else(|| format!("no menu item {id}"))?
-        .set_enabled(enabled)
-        .map_err(|e| e.to_string())
+    let checks = state.menu_checks.lock().unwrap_or_else(|e| e.into_inner());
+    crate::menu::apply_state(&items, &checks, &updates)
 }
 
 /// `enabled = None` reads; `Some(b)` sets and returns the new status.
 #[tauri::command]
 pub fn rk_shell_autostart(
+    webview: Webview<Wry>,
     enabled: Option<bool>,
     state: State<'_, ShellState>,
 ) -> Result<crate::autostart::AutostartStatus, String> {
+    guard_command(&webview, "rk_shell_autostart").map_err(|e| e.to_string())?;
     match enabled {
         Some(on) => crate::autostart::set_enabled(&state.autostart, on),
         None => Ok(crate::autostart::status(&state.autostart)),
@@ -193,7 +294,8 @@ pub fn rk_shell_autostart(
 /// where the user approves a login item whose autostart status is `requiresApproval`. Rejects off macOS
 /// and before macOS 13.
 #[tauri::command]
-pub fn rk_shell_open_login_items_settings() -> Result<(), String> {
+pub fn rk_shell_open_login_items_settings(webview: Webview<Wry>) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_open_login_items_settings").map_err(|e| e.to_string())?;
     crate::login_item::open_login_items_settings()
 }
 
@@ -219,9 +321,11 @@ fn board_of(p: &Option<String>) -> Board {
 
 #[tauri::command]
 pub fn rk_shell_clipboard_read(
+    webview: Webview<Wry>,
     board: Option<String>,
     state: State<'_, ShellState>,
 ) -> Result<ClipboardPayload, String> {
+    guard_command(&webview, "rk_shell_clipboard_read").map_err(|e| e.to_string())?;
     require(&state, Module::Clipboard).map_err(|e| e.to_string())?;
     let c = crate::clipboard::read_with(&board_of(&board), &state.clipboard_options)?;
     Ok(ClipboardPayload {
@@ -240,9 +344,11 @@ pub fn rk_shell_clipboard_read(
 
 #[tauri::command]
 pub fn rk_shell_clipboard_write(
+    webview: Webview<Wry>,
     payload: ClipboardPayload,
     state: State<'_, ShellState>,
 ) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_clipboard_write").map_err(|e| e.to_string())?;
     require(&state, Module::Clipboard).map_err(|e| e.to_string())?;
     let mut custom = BTreeMap::new();
     for (k, v) in &payload.custom {
@@ -270,7 +376,11 @@ pub fn rk_shell_clipboard_write(
 /// The typed "open from clipboard" / paste result: files, then a bitmap (written to a granted temp
 /// file), then text, then `{"kind":"none"}`. Blocking clipboard work runs off the UI thread.
 #[tauri::command]
-pub async fn rk_shell_clipboard_item(app: AppHandle<Wry>) -> Result<ClipboardItem, ShellError> {
+pub async fn rk_shell_clipboard_item(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+) -> Result<ClipboardItem, ShellError> {
+    guard_command(&webview, "rk_shell_clipboard_item")?;
     blocking(move || {
         let state = app.state::<ShellState>();
         require(&state, Module::Clipboard)?;
@@ -287,10 +397,12 @@ pub async fn rk_shell_clipboard_item(app: AppHandle<Wry>) -> Result<ClipboardIte
 
 #[tauri::command]
 pub async fn rk_shell_engine_call(
+    webview: Webview<Wry>,
     method: String,
     params: Option<Value>,
     app: AppHandle<Wry>,
 ) -> Result<Value, String> {
+    guard_command(&webview, "rk_shell_engine_call").map_err(|e| e.to_string())?;
     #[cfg(feature = "engine")]
     {
         // Engine calls block on the sidecar: keep them off the async executor threads.
@@ -316,29 +428,38 @@ pub async fn rk_shell_engine_call(
 
 /// Engine lifecycle snapshot without marking the renderer ready.
 #[tauri::command]
-pub fn rk_shell_engine_status(app: AppHandle<Wry>) -> Option<Value> {
+pub fn rk_shell_engine_status(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+) -> Result<Option<Value>, ShellError> {
+    guard_command(&webview, "rk_shell_engine_status")?;
     #[cfg(feature = "engine")]
     {
-        app.state::<ShellState>()
+        Ok(app
+            .state::<ShellState>()
             .engine
             .as_ref()
-            .map(|e| e.lifecycle())
+            .map(|e| e.lifecycle()))
     }
     #[cfg(not(feature = "engine"))]
     {
         let _ = app;
-        None
+        Ok(None)
     }
 }
 
 /// Tagged engine call with structured errors. Registered even without `engine`.
 #[tauri::command]
 pub async fn rk_shell_engine_call_tagged(
+    webview: Webview<Wry>,
     method: String,
     params: Option<Value>,
     tag: Option<String>,
     app: AppHandle<Wry>,
 ) -> Result<Value, Value> {
+    guard_command(&webview, "rk_shell_engine_call_tagged").map_err(
+        |e| json!({"code": "permission_denied", "message": e.to_string(), "origin": "supervisor"}),
+    )?;
     #[cfg(feature = "engine")]
     {
         tauri::async_runtime::spawn_blocking(move || {
@@ -375,24 +496,31 @@ pub async fn rk_shell_engine_call_tagged(
 
 #[tauri::command]
 pub fn rk_shell_traffic_lights(
+    webview: Webview<Wry>,
     dx: f64,
     dy: f64,
     window: WebviewWindow<Wry>,
     state: State<'_, ShellState>,
-) {
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_traffic_lights")?;
     state.traffic.set_offset(&window, dx, dy);
+    Ok(())
 }
 
 #[tauri::command]
-pub fn rk_shell_quit(app: AppHandle<Wry>) {
+pub fn rk_shell_quit(webview: Webview<Wry>, app: AppHandle<Wry>) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_quit")?;
     crate::lifecycle::quit(&app);
+    Ok(())
 }
 
 /// The renderer finished draining after `rightkit-shell://quit-requested`: mark the app exiting,
 /// then exit. The `ExitRequested` this raises sees `exiting` and does not prompt again.
 #[tauri::command]
-pub fn rk_shell_finish_quit(app: AppHandle<Wry>) {
+pub fn rk_shell_finish_quit(webview: Webview<Wry>, app: AppHandle<Wry>) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_finish_quit")?;
     crate::lifecycle::finish_quit(&app);
+    Ok(())
 }
 
 /// What the host supports, for the renderer to probe once. Read-only.
@@ -414,13 +542,22 @@ pub fn capabilities_for(quit_drain: bool) -> ShellCapabilities {
 }
 
 #[tauri::command]
-pub fn rk_shell_capabilities(state: State<'_, ShellState>) -> ShellCapabilities {
-    capabilities_for(state.quit.enabled())
+pub fn rk_shell_capabilities(
+    webview: Webview<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<ShellCapabilities, ShellError> {
+    guard_command(&webview, "rk_shell_capabilities")?;
+    Ok(capabilities_for(state.quit.enabled()))
 }
 
 /// Mirror the app theme into native chrome (window appearance; tray template icons follow it).
 #[tauri::command]
-pub fn rk_shell_set_theme(theme: String, window: WebviewWindow<Wry>) -> Result<(), String> {
+pub fn rk_shell_set_theme(
+    webview: Webview<Wry>,
+    theme: String,
+    window: WebviewWindow<Wry>,
+) -> Result<(), String> {
+    guard_command(&webview, "rk_shell_set_theme").map_err(|e| e.to_string())?;
     let t = match theme.as_str() {
         "light" => Some(tauri::Theme::Light),
         "dark" => Some(tauri::Theme::Dark),
@@ -452,9 +589,11 @@ async fn blocking<T: Send + 'static>(
 /// the OS permission prompt.
 #[tauri::command]
 pub async fn rk_shell_notify(
+    webview: Webview<Wry>,
     request: NotificationRequest,
     app: AppHandle<Wry>,
 ) -> Result<NotifyOutcome, ShellError> {
+    guard_command(&webview, "rk_shell_notify")?;
     let handle = app.clone();
     let outcome = blocking(move || {
         let state = handle.state::<ShellState>();
@@ -479,7 +618,11 @@ pub async fn rk_shell_notify(
 
 /// Authorization plus what the OS reports as delivered to this app (the QA read-back).
 #[tauri::command]
-pub async fn rk_shell_notify_status(app: AppHandle<Wry>) -> Result<NotifyStatus, ShellError> {
+pub async fn rk_shell_notify_status(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+) -> Result<NotifyStatus, ShellError> {
+    guard_command(&webview, "rk_shell_notify_status")?;
     blocking(move || {
         Ok(crate::notify::status(
             &app.state::<ShellState>().notifications,
@@ -490,16 +633,22 @@ pub async fn rk_shell_notify_status(app: AppHandle<Wry>) -> Result<NotifyStatus,
 
 /// Remove delivered notifications by id; `None` or an empty list removes all of this app's.
 #[tauri::command]
-pub async fn rk_shell_notify_clear(ids: Option<Vec<String>>) -> Result<(), ShellError> {
+pub async fn rk_shell_notify_clear(
+    webview: Webview<Wry>,
+    ids: Option<Vec<String>>,
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_notify_clear")?;
     blocking(move || crate::notify::clear_delivered(&ids.unwrap_or_default())).await
 }
 
 #[tauri::command]
 pub fn rk_shell_badge(
+    webview: Webview<Wry>,
     count: i64,
     app: AppHandle<Wry>,
     state: State<'_, ShellState>,
 ) -> Result<u32, ShellError> {
+    guard_command(&webview, "rk_shell_badge")?;
     let n = state.notifications.set_badge(count);
     if let Some(w) = app.get_webview_window(&state.main_label) {
         w.set_badge_count((n > 0).then_some(i64::from(n)))
@@ -510,24 +659,35 @@ pub fn rk_shell_badge(
 
 #[tauri::command]
 pub fn rk_shell_set_dnd(
+    webview: Webview<Wry>,
     enabled: bool,
     app: AppHandle<Wry>,
     state: State<'_, ShellState>,
-) -> PresenceState {
+) -> Result<PresenceState, ShellError> {
+    guard_command(&webview, "rk_shell_set_dnd")?;
     state.presence.set_manual_dnd(enabled);
     let s = state.presence.snapshot();
     let _ = tauri::Emitter::emit(&app, crate::EVENT_PRESENCE, s);
-    s
+    Ok(s)
 }
 
 #[tauri::command]
-pub fn rk_shell_presence(state: State<'_, ShellState>) -> PresenceState {
-    state.presence.snapshot()
+pub fn rk_shell_presence(
+    webview: Webview<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<PresenceState, ShellError> {
+    guard_command(&webview, "rk_shell_presence")?;
+    Ok(state.presence.snapshot())
 }
 
 /// Opt in or out of the automatic controls. Turning one off clears its stale automatic state.
 #[tauri::command]
-pub fn rk_shell_presence_prefs(prefs: AutoPrefs, state: State<'_, ShellState>) -> PresenceState {
+pub fn rk_shell_presence_prefs(
+    webview: Webview<Wry>,
+    prefs: AutoPrefs,
+    state: State<'_, ShellState>,
+) -> Result<PresenceState, ShellError> {
+    guard_command(&webview, "rk_shell_presence_prefs")?;
     state.presence.set_prefs(prefs);
     if !prefs.auto_hide_fullscreen || !prefs.auto_dnd_meetings {
         let cur = state.presence.snapshot();
@@ -536,12 +696,16 @@ pub fn rk_shell_presence_prefs(prefs: AutoPrefs, state: State<'_, ShellState>) -
             dnd_for_meeting: cur.auto_dnd && prefs.auto_dnd_meetings,
         });
     }
-    state.presence.snapshot()
+    Ok(state.presence.snapshot())
 }
 
 /// Sample the real OS now: `{environment, windows}` (count of visible windows seen).
 #[tauri::command]
-pub async fn rk_shell_presence_probe(app: AppHandle<Wry>) -> Result<Value, ShellError> {
+pub async fn rk_shell_presence_probe(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+) -> Result<Value, ShellError> {
+    guard_command(&webview, "rk_shell_presence_probe")?;
     blocking(move || {
         let name = app.state::<ShellState>().app_name.clone();
         let (env, windows) = crate::presence::detect_live(&name).map_err(ShellError::Unsupported)?;
@@ -555,28 +719,40 @@ pub async fn rk_shell_presence_probe(app: AppHandle<Wry>) -> Result<Value, Shell
 /// meeting can be simulated without a real conferencing app.
 #[tauri::command]
 pub fn rk_shell_presence_evaluate(
+    webview: Webview<Wry>,
     monitor: Rect,
     windows: Vec<WindowObservation>,
     apply: Option<bool>,
     state: State<'_, ShellState>,
-) -> Value {
+) -> Result<Value, ShellError> {
+    guard_command(&webview, "rk_shell_presence_evaluate")?;
     let env: Environment = crate::presence::detect(monitor, &windows, &state.app_name);
     if apply.unwrap_or(false) {
         state
             .presence
             .apply_observation(crate::presence::reconcile(state.presence.prefs(), env));
     }
-    json!({"environment": env, "state": state.presence.snapshot()})
+    Ok(json!({"environment": env, "state": state.presence.snapshot()}))
 }
 
 #[tauri::command]
-pub fn rk_shell_idle_status(app: AppHandle<Wry>) -> crate::idle::IdleStatus {
-    crate::idle::status(&app)
+pub fn rk_shell_idle_status(
+    webview: Webview<Wry>,
+    app: AppHandle<Wry>,
+) -> Result<crate::idle::IdleStatus, ShellError> {
+    guard_command(&webview, "rk_shell_idle_status")?;
+    Ok(crate::idle::status(&app))
 }
 
 /// App-driven hide/show of the main window for the idle machine.
 #[tauri::command]
-pub fn rk_shell_idle_note(hidden: bool, suspend_after_ms: Option<u64>, app: AppHandle<Wry>) {
+pub fn rk_shell_idle_note(
+    webview: Webview<Wry>,
+    hidden: bool,
+    suspend_after_ms: Option<u64>,
+    app: AppHandle<Wry>,
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_idle_note")?;
     if hidden {
         crate::idle::note_hidden_after(
             &app,
@@ -586,15 +762,18 @@ pub fn rk_shell_idle_note(hidden: bool, suspend_after_ms: Option<u64>, app: AppH
     } else {
         crate::idle::note_visible(&app);
     }
+    Ok(())
 }
 
 /// Canonicalise `path` and require a broker grant (`write: true` checks a save target).
 #[tauri::command]
 pub fn rk_shell_path_require(
+    webview: Webview<Wry>,
     path: String,
     write: Option<bool>,
     state: State<'_, ShellState>,
 ) -> Result<String, ShellError> {
+    guard_command(&webview, "rk_shell_path_require")?;
     require(&state, Module::Broker)?;
     if write.unwrap_or(false) {
         state.broker.require_write_target(&path)
@@ -604,7 +783,12 @@ pub fn rk_shell_path_require(
 }
 
 #[tauri::command]
-pub fn rk_shell_path_revoke(path: String, state: State<'_, ShellState>) -> Result<(), ShellError> {
+pub fn rk_shell_path_revoke(
+    webview: Webview<Wry>,
+    path: String,
+    state: State<'_, ShellState>,
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_path_revoke")?;
     require(&state, Module::Broker)?;
     state.broker.revoke_path(&path)
 }
@@ -612,9 +796,11 @@ pub fn rk_shell_path_revoke(path: String, state: State<'_, ShellState>) -> Resul
 /// Trade a one-shot recent-file id (minted in Rust) for a grant.
 #[tauri::command]
 pub fn rk_shell_path_grant_recent(
+    webview: Webview<Wry>,
     id: String,
     state: State<'_, ShellState>,
 ) -> Result<String, ShellError> {
+    guard_command(&webview, "rk_shell_path_grant_recent")?;
     require(&state, Module::Broker)?;
     state.broker.grant_known(&id)
 }
@@ -622,9 +808,11 @@ pub fn rk_shell_path_grant_recent(
 /// Re-grant a save-as target the app just wrote.
 #[tauri::command]
 pub fn rk_shell_path_regrant_saved(
+    webview: Webview<Wry>,
     path: String,
     state: State<'_, ShellState>,
 ) -> Result<String, ShellError> {
+    guard_command(&webview, "rk_shell_path_regrant_saved")?;
     require(&state, Module::Broker)?;
     state.broker.regrant_saved_target(&path)
 }
@@ -633,10 +821,12 @@ pub fn rk_shell_path_regrant_saved(
 /// (default: the first). Rejects `broker_denied` for anything not granted.
 #[tauri::command]
 pub fn rk_shell_stream_grant(
+    webview: Webview<Wry>,
     path: String,
     scheme: Option<String>,
     state: State<'_, ShellState>,
 ) -> Result<Value, ShellError> {
+    guard_command(&webview, "rk_shell_stream_grant")?;
     require(&state, Module::Broker)?;
     require(&state, Module::Stream)?;
     let scheme = match scheme {
@@ -668,9 +858,11 @@ pub fn rk_shell_stream_grant(
 /// document's `<base href>` uses: `{token, root, baseUrl}`.
 #[tauri::command]
 pub fn rk_shell_site_grant(
+    webview: Webview<Wry>,
     document: String,
     state: State<'_, ShellState>,
 ) -> Result<Value, ShellError> {
+    guard_command(&webview, "rk_shell_site_grant")?;
     require(&state, Module::Broker)?;
     require(&state, Module::Stream)?;
     let scheme = state
@@ -687,7 +879,12 @@ pub fn rk_shell_site_grant(
 
 /// Revoke a site-root token when its tab closes. Its URLs stop serving at once and never revive.
 #[tauri::command]
-pub fn rk_shell_site_revoke(token: String, state: State<'_, ShellState>) -> Result<(), ShellError> {
+pub fn rk_shell_site_revoke(
+    webview: Webview<Wry>,
+    token: String,
+    state: State<'_, ShellState>,
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_site_revoke")?;
     require(&state, Module::Broker)?;
     state.broker.revoke_site_root(&token)
 }
@@ -703,18 +900,28 @@ fn recovery_of(state: &ShellState) -> Result<&crate::recovery::RecoveryStore, Sh
 
 #[tauri::command]
 pub fn rk_shell_recovery_save(
+    webview: Webview<Wry>,
     snapshot: String,
     state: State<'_, ShellState>,
 ) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_recovery_save")?;
     recovery_of(&state)?.save(&snapshot, &state.broker)
 }
 
 #[tauri::command]
-pub fn rk_shell_recovery_load(state: State<'_, ShellState>) -> Result<Option<String>, ShellError> {
+pub fn rk_shell_recovery_load(
+    webview: Webview<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<Option<String>, ShellError> {
+    guard_command(&webview, "rk_shell_recovery_load")?;
     recovery_of(&state)?.load(&state.broker)
 }
 
 #[tauri::command]
-pub fn rk_shell_recovery_clear(state: State<'_, ShellState>) -> Result<(), ShellError> {
+pub fn rk_shell_recovery_clear(
+    webview: Webview<Wry>,
+    state: State<'_, ShellState>,
+) -> Result<(), ShellError> {
+    guard_command(&webview, "rk_shell_recovery_clear")?;
     recovery_of(&state)?.clear()
 }

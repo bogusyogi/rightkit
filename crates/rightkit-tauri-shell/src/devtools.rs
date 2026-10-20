@@ -1231,23 +1231,16 @@ pub(crate) use windows_impl::set_hardening_keys;
 #[cfg(windows)]
 mod windows_impl {
     use super::*;
+    use crate::webview2_menu::{self, InspectRule};
+    use crate::winapi::webview2_com::AcceleratorKeyPressedEventHandler;
     use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2ContextMenuItem, ICoreWebView2ContextMenuItemCollection,
-        ICoreWebView2Settings, ICoreWebView2_11, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
+        ICoreWebView2Settings, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
         COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
     };
-    use crate::winapi::webview2_com::{
-        AcceleratorKeyPressedEventHandler, ContextMenuRequestedEventHandler,
-    };
-    use crate::winapi::windows::core::{Interface, PWSTR};
     use std::collections::HashMap;
     use std::sync::Mutex;
     use tauri::webview::PlatformWebview;
 
-    #[link(name = "ole32")]
-    unsafe extern "system" {
-        fn CoTaskMemFree(block: *const core::ffi::c_void);
-    }
     #[link(name = "user32")]
     unsafe extern "system" {
         fn GetKeyState(virtual_key: i32) -> i16;
@@ -1297,49 +1290,11 @@ mod windows_impl {
         unsafe { GetKeyState(virtual_key) < 0 }
     }
 
-    /// Event registrations this module made, by webview label: (context menu, accelerator keys).
-    /// A webview that becomes ready again gets its old handlers removed before the new ones are
-    /// added, so each webview has one of each.
-    static HANDLERS: Mutex<Option<HashMap<String, Registered>>> = Mutex::new(None);
-
-    /// The event tokens of one webview: (context menu, accelerator keys).
-    type Registered = (Option<i64>, Option<i64>);
-
-    fn is_inspect_item(item: &ICoreWebView2ContextMenuItem) -> bool {
-        let mut name = PWSTR::null();
-        // SAFETY: Name writes a CoTaskMem string, which is copied and then freed here.
-        unsafe {
-            if item.Name(&mut name).is_err() || name.is_null() {
-                return false;
-            }
-            let text = name.to_string().unwrap_or_default();
-            CoTaskMemFree(name.0 as *const core::ffi::c_void);
-            text.to_ascii_lowercase().contains("inspect")
-        }
-    }
-
-    /// Remove the items for which `remove` is true.
-    unsafe fn retain_items(
-        items: &ICoreWebView2ContextMenuItemCollection,
-        remove: impl Fn(&ICoreWebView2ContextMenuItem) -> bool,
-    ) -> usize {
-        let mut count: u32 = 0;
-        if items.Count(&mut count).is_err() {
-            return 0;
-        }
-        let mut i = count;
-        while i > 0 {
-            i -= 1;
-            if let Ok(item) = items.GetValueAtIndex(i) {
-                if remove(&item) {
-                    let _ = items.RemoveValueAtIndex(i);
-                }
-            }
-        }
-        let mut left: u32 = 0;
-        let _ = items.Count(&mut left);
-        left as usize
-    }
+    /// The accelerator-key registration this module made, by webview label. A webview that becomes
+    /// ready again gets its old handler removed before the new one is added, so each webview has
+    /// one. The context menu has no entry here: its one handler belongs to `webview2_menu`, which
+    /// composes the DevTools policy, hardening and the app's items in a fixed order.
+    static HANDLERS: Mutex<Option<HashMap<String, Option<i64>>>> = Mutex::new(None);
 
     struct LiveSwitch<'a>(&'a ICoreWebView2Settings);
 
@@ -1418,16 +1373,16 @@ mod windows_impl {
             let Some(core) = core else {
                 return Ok(());
             };
-            let wv11 = core.cast::<ICoreWebView2_11>().ok();
 
             let mut handlers = HANDLERS.lock().unwrap_or_else(|poison| poison.into_inner());
-            let (old_menu, old_keys) = handlers
+            let old_keys = handlers
                 .get_or_insert_with(HashMap::new)
                 .remove(label)
-                .unwrap_or((None, None));
-            if let (Some(wv11), Some(token)) = (&wv11, old_menu) {
-                let _ = wv11.remove_ContextMenuRequested(token);
-            }
+                .flatten();
+            // A webview of this label is (re)applied: the context menu forgets its shell stages and
+            // any handler it registered for this very webview. Hardening and the app set theirs
+            // after this, in whatever order they run.
+            webview2_menu::reset(label, &core);
             if let Some(token) = old_keys {
                 let _ = controller.remove_AcceleratorKeyPressed(token);
             }
@@ -1471,30 +1426,21 @@ mod windows_impl {
             }
 
             // The default context menu carries "Inspect". Denied: remove it from every menu.
-            // Content: keep only it, and show no menu when it is absent.
-            let mut menu = None;
-            if let (false, Some(wv11)) = (dev, &wv11) {
-                let handler =
-                    ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
-                        let Some(args) = args else { return Ok(()) };
-                        let items = args.MenuItems()?;
-                        if allow {
-                            let left = retain_items(&items, |it| !is_inspect_item(it));
-                            if left == 0 {
-                                args.SetHandled(true)?;
-                            }
-                        } else {
-                            retain_items(&items, is_inspect_item);
-                        }
-                        Ok(())
-                    }));
-                let mut token: i64 = 0;
-                if wv11.add_ContextMenuRequested(&handler, &mut token).is_ok() {
-                    menu = Some(token);
-                }
-            }
+            // Content: keep only it, and show no menu when it is absent. Developer inspection
+            // leaves the menu alone. This filter is stage 1 of the one handler `webview2_menu`
+            // registers for this webview; hardening's hiding rule and the app's items join that
+            // same handler, so no second handler competes with it.
+            let rule = if dev {
+                None
+            } else if allow {
+                Some(InspectRule::OnlyInspect)
+            } else {
+                Some(InspectRule::Strip)
+            };
+            webview2_menu::set_inspect(label, rule);
+            webview2_menu::sync(label, &core);
             if let Some(map) = handlers.as_mut() {
-                map.insert(label.to_owned(), (menu, keys));
+                map.insert(label.to_owned(), keys);
             }
             Ok(())
         }

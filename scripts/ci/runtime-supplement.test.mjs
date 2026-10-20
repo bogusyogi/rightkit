@@ -7,6 +7,7 @@ import { candidateHash } from "./supplemental-proof.mjs";
 import { workloadsFor, supportedPrescription } from "./runtime-qualify.mjs";
 import test from "node:test";
 import { validateRuntimeWorkflow, authenticatedRuntimeProof, verifyRuntimeSupplement, validateFrozenRuntimeBudget, validateRuntimeRecords, trustedRuntimeHelperPaths } from "./runtime-supplement.mjs";
+import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
 // The proof names its crate; this lane's fixture is rightkit-logs, passed explicitly to every helper.
 const CRATE = "rightkit-logs";
 test("runtime evidence rejects caller JSON before interpreting candidate", () => {
@@ -26,19 +27,42 @@ test("runtime measure workflow requires credential-free pinned producer & retain
 
 const SOURCE = "a".repeat(40), PRODUCER = "b".repeat(40), VALIDATOR = "c".repeat(40);
 const hash = (bytes) => sha("sha256", bytes);
-function runtimeFixture(t) {
+function runtimeFixture(t, crate = CRATE) {
+  // The fixture serves rightkit-logs (default) or rightkit-daemon; every crate-specific fact comes from this table.
+  const daemon = crate === "rightkit-daemon", shell = crate === "rightkit-tauri-shell", version = shell ? "0.5.0" : daemon ? "0.4.0" : "0.3.4";
+  const scaleOf = (w) => (shell ? { unit: "watchdogs", count: 1 } : daemon ? (w.id === "remote" ? { unit: "submissions", count: 10000 } : { unit: "connections", count: 64 }) : { unit: "lines", count: 200000 });
   const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
   const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(scratch, "runtime-admission-fixture-")));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
-  const archive = Buffer.from("original sealed crate fixture"), metadata = Buffer.from('{"name":"rightkit-logs","vers":"0.3.4","deps":[]}');
-  const unit = { name: "rightkit-logs", version: "0.3.4", file: "rightkit-logs-0.3.4.crate", size: archive.length, sha256: hash(archive), metaFile: "rightkit-logs-0.3.4.upload.json", metaSha256: hash(metadata) };
+  const archive = Buffer.from("original sealed crate fixture"), metadata = Buffer.from(`{"name":"${crate}","vers":"${version}","deps":[]}`);
+  const unit = { name: crate, version, file: `${crate}-${version}.crate`, size: archive.length, sha256: hash(archive), metaFile: `${crate}-${version}.upload.json`, metaSha256: hash(metadata) };
   const manifest = { schema: 1, registry: "crates", commit: SOURCE, runId: "77", runAttempt: "1", units: [unit] }, rawManifest = Buffer.from(JSON.stringify(manifest));
   const zip = { packed: Buffer.from("packed ZIP"), supplement: Buffer.from("runtime ZIP") };
   const candidate = { id: "candidate-77", sourceSha: SOURCE, runId: "77", runAttempt: "1", workflowId: "5", manifestSha256: hash(rawManifest), registry: "crates", units: [unit.name], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, artifacts: { packed: { id: "10", digest: `sha256:${hash(zip.packed)}` }, macos: { id: "11", digest: `sha256:${"d".repeat(64)}`, receiptSha256: "e".repeat(64) }, windows: { id: "12", digest: `sha256:${"f".repeat(64)}`, receiptSha256: "0".repeat(64) } } };
   const pin = { schema: 1, kind: "runtime-workload-pin", original: { candidateId: candidate.id, candidateSha256: candidateHash(candidate), sourceSha: SOURCE, manifestSha256: candidate.manifestSha256, packedArtifact: candidate.artifacts.packed }, producer: { workflowId: "6", runId: "88", runAttempt: "2", jobId: "104", sourceSha: PRODUCER, jobs: { candidate: "101", win32: "102", darwin: "103", qualify: "104" } }, artifact: { id: "20", digest: `sha256:${hash(zip.supplement)}`, proofSha256: "0".repeat(64) }, policy: { id: "runtime-workloads/v1", sourceSha: PRODUCER, validatorSourceSha: PRODUCER } };
-  const budget = JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-logs/runtime-budget.json", import.meta.url), "utf8"));
+  const budget = JSON.parse(fs.readFileSync(new URL(`../../crates/${crate}/runtime-budget.json`, import.meta.url), "utf8"));
   budget.status = { api: "status()", file: "src/lib.rs", exposes: ["residentMemoryBytes"] }; budget.measurements = [];
-  const data = {
+  if (budget.profiles) for (const profile of Object.values(budget.profiles)) profile.measurements = [];
+  const data = shell ? {
+    "Cargo.toml": '[workspace]\nmembers = ["crates/rightkit-tauri-shell"]\n',
+    "crates/rightkit-tauri-shell/Cargo.toml": '[package]\nname = "rightkit-tauri-shell"\nversion = "0.5.0"\nedition = "2021"\n',
+    "crates/rightkit-tauri-shell/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-tauri-shell/src/watchdog.rs": '// watchdog fixture\n',
+    "crates/rightkit-tauri-shell/src/host/mod.rs": '// host fixture\n', "crates/rightkit-tauri-shell/src/host/policy.rs": '// policy fixture\n',
+    "crates/rightkit-tauri-shell/src/logs_commands.rs": '// logs fixture\n',
+    "crates/rightkit-tauri-shell/README.md": '## Runtime budget\n\nfixture\n',
+    "crates/rightkit-tauri-shell/runtime-budget.json": JSON.stringify(budget),
+    "crates/rightkit-tauri-shell/benches/workloads.json": JSON.stringify(supportedPrescription(crate)),
+    "crates/rightkit-tauri-shell/benches/budget_native.rs": '// native fixture\n',
+  } : daemon ? {
+    "Cargo.toml": '[workspace]\nmembers = ["crates/rightkit-daemon"]\n',
+    "crates/rightkit-daemon/Cargo.toml": '[package]\nname = "rightkit-daemon"\nversion = "0.4.0"\nedition = "2021"\n',
+    "crates/rightkit-daemon/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-daemon/src/server.rs": '// server fixture\n',
+    "crates/rightkit-daemon/src/remote/http.rs": '// remote fixture\n', "crates/rightkit-daemon/src/loopback/mod.rs": '// loopback fixture\n',
+    "crates/rightkit-daemon/README.md": '## Runtime budget\n\nfixture\n',
+    "crates/rightkit-daemon/runtime-budget.json": JSON.stringify(budget),
+    "crates/rightkit-daemon/benches/workloads.json": JSON.stringify(supportedPrescription(crate)),
+    "crates/rightkit-daemon/benches/budget.rs": '// local fixture\n', "crates/rightkit-daemon/benches/remote_budget.rs": '// remote fixture\n',
+  } : {
     "Cargo.toml": '[workspace]\nmembers = ["crates/rightkit-logs"]\n',
     "crates/rightkit-logs/Cargo.toml": '[package]\nname = "rightkit-logs"\nversion = "0.3.4"\nedition = "2021"\n',
     "crates/rightkit-logs/src/lib.rs": 'pub fn status() {}\n', "crates/rightkit-logs/src/detached.rs": 'pub struct DetachedLog;\n',
@@ -49,18 +73,19 @@ function runtimeFixture(t) {
   };
   const readData = (name) => { assert.ok(Object.hasOwn(data, name), `missing source ${name}`); return Buffer.from(data[name]); };
   const source = { source: { sha: SOURCE }, root: path.join(temp, "candidate"), readData };
-  const bindings = Object.fromEntries(Object.keys(data).filter((name) => name !== "crates/rightkit-logs/runtime-budget.json" && name !== "crates/rightkit-logs/README.md").map((name) => [name, hash(readData(name))]));
-  const context = { repository: REPOSITORY, runId: "77", runAttempt: "1", sourceSha: SOURCE, artifactId: 10, artifactDigest: candidate.artifacts.packed.digest, harnessSha: PRODUCER, crate: CRATE };
+  const bindings = Object.fromEntries(Object.keys(data).filter((name) => name !== `crates/${crate}/runtime-budget.json` && name !== `crates/${crate}/README.md`).map((name) => [name, hash(readData(name))]));
+  const context = { repository: REPOSITORY, runId: "77", runAttempt: "1", sourceSha: SOURCE, artifactId: 10, artifactDigest: candidate.artifacts.packed.digest, harnessSha: PRODUCER, crate };
   const files = { packed: { "manifest.json": rawManifest, [unit.file]: archive, [unit.metaFile]: metadata }, supplement: {} };
-  const proof = { schema: 2, ...context, manifestSha256: candidate.manifestSha256, workloads: ["tracing", "detached"], proofFiles: {}, records: [], verdict: { ok: true } };
+  const proof = { schema: 2, ...context, manifestSha256: candidate.manifestSha256, workloads: workloadsFor(crate).map((w) => w.id), proofFiles: {}, records: [], verdict: { ok: true } };
   const envelopes = {};
   for (const host of ["win32", "darwin"]) {
-    const envelope = { schema: 2, workloads: workloadsFor(CRATE).map((w) => {
-      const raw = Buffer.from(`RESULT budget crate=rightkit-logs version=0.3.4 resident_bytes=100 idle_cpu_percent=0 wakeups_per_s=0 disk_ops_per_s=${host === "darwin" ? "unavailable" : "0"} scale_count=200000 scale_unit=lines\n`);
+    const envelope = { schema: 2, workloads: workloadsFor(crate).map((w) => {
+      const scale = scaleOf(w);
+      const raw = Buffer.from(`RESULT budget crate=${crate} version=${version} resident_bytes=100 idle_cpu_percent=0 wakeups_per_s=0 disk_ops_per_s=${host === "darwin" ? "unavailable" : "0"} scale_count=${scale.count} scale_unit=${scale.unit}${shell ? " bare_wakeups_per_s=0 wakeups_delta_per_s=0" : ""}\n`);
       const command = `cargo ${w.args.join(" ")}`;
-      const record = { host: { os: host, arch: host === "darwin" ? "arm64" : "x64" }, crateVersion: unit.version, commit: SOURCE, date: "2026-10-20", scope: "synthetic", dataScale: { description: w.description, unit: "lines", count: 200000 }, command, observed: { residentMemoryBytes: 100, idleCpuPercent: 0, wakeupsPerSecond: 0, diskOpsPerSecond: host === "darwin" ? null : 0 }, evidence: { file: `runtime-budget.evidence/${host}-${w.id}.txt`, sha256: hash(raw) } };
+      const record = { host: { os: host, arch: host === "darwin" ? "arm64" : "x64" }, crateVersion: unit.version, commit: SOURCE, date: "2026-10-20", scope: "synthetic", dataScale: { description: w.description, unit: scale.unit, count: scale.count }, command, observed: { residentMemoryBytes: 100, idleCpuPercent: 0, wakeupsPerSecond: 0, diskOpsPerSecond: host === "darwin" ? null : 0 }, ...(shell ? { baseline: { wakeupsPerSecond: 0 }, delta: { wakeupsPerSecond: 0 } } : {}), evidence: { file: `runtime-budget.evidence/${host}-${w.id}.txt`, sha256: hash(raw) } };
       for (const suffix of ["bench", "evidence"]) files.supplement[`${host}/${w.id}-${suffix}.txt`] = raw;
-      return { schema: 2, workload: w.id, intervalMs: w.intervalMs ?? null, crate: unit.name, version: unit.version, ...context, qualificationRunId: "88", qualificationRunAttempt: "2", manifestSha256: candidate.manifestSha256, bindings, toolchain: { rustc: "rustc fixture", cargo: "cargo fixture" }, host: record.host, command, rawFile: `${w.id}-bench.txt`, rawSha256: hash(raw), exitCode: 0, signal: null, problems: [], record };
+      return { schema: 2, workload: w.id, intervalMs: w.intervalMs ?? null, crate: unit.name, version: unit.version, ...context, qualificationRunId: "88", qualificationRunAttempt: "2", manifestSha256: candidate.manifestSha256, bindings, toolchain: { rustc: "rustc fixture", cargo: "cargo fixture" }, host: record.host, command, envNames: [...w.env], rawFile: `${w.id}-bench.txt`, rawSha256: hash(raw), exitCode: 0, signal: null, problems: [], record };
     }) };
     envelopes[host] = envelope;
   }
@@ -100,8 +125,8 @@ function runtimeFixture(t) {
   };
   const spawn = (exe, args) => {
     if (exe === "tar") {
-      const member = args[2].replace("rightkit-logs-0.3.4/", "").replace("Cargo.toml.orig", "Cargo.toml");
-      return { status: 0, stdout: readData(`crates/rightkit-logs/${member}`) };
+      const member = args[2].replace(`${crate}-${version}/`, "").replace("Cargo.toml.orig", "Cargo.toml");
+      return { status: 0, stdout: readData(`crates/${crate}/${member}`) };
     }
     assert.equal(exe, "unzip", "admission never executes candidate code");
     const kind = path.basename(args[1], ".zip");
@@ -159,4 +184,123 @@ test("frozen budget & trusted helper closure include consumed parsing/graph sema
   for (const key of ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings"]) assert.throws(() => validateFrozenRuntimeBudget({ ...budget, [key]: {} }, budget), /frozen/);
   const paths = trustedRuntimeHelperPaths();
   for (const name of ["packages/release/runtime-budgets.mjs", "packages/release/crate-graph.mjs", "packages/release/publication-gate.mjs", "scripts/ci/runtime-qualify.mjs", "scripts/ci/registry-consumer.mjs", "scripts/ci/consumer-recipes.mjs", "scripts/ci/upload.mjs", "pnpm-lock.yaml"]) assert.ok(paths.includes(name), `missing trusted helper ${name}`);
+});
+
+// rightkit-daemon: three workloads per host; the remote workload is held to the remote profile, not the top-level ceilings.
+const DAEMON = "rightkit-daemon";
+function rewriteRaw(f, host, id, { resident, count }) {
+  const row = f.envelopes[host].workloads.find((w) => w.workload === id);
+  let text = f.files.supplement[`${host}/${id}-bench.txt`].toString("utf8");
+  if (resident !== undefined) text = text.replace("resident_bytes=100", `resident_bytes=${resident}`);
+  if (count !== undefined) text = text.replace(/scale_count=\d+/, `scale_count=${count}`);
+  const raw = Buffer.from(text);
+  for (const suffix of ["bench", "evidence"]) f.files.supplement[`${host}/${id}-${suffix}.txt`] = raw;
+  row.rawSha256 = row.record.evidence.sha256 = hash(raw);
+  if (resident !== undefined) row.record.observed.residentMemoryBytes = resident;
+  if (count !== undefined) row.record.dataScale.count = count;
+}
+test("daemon runtime supplement admits six raw records and holds remote to its pinned profile", async (t) => {
+  const f = runtimeFixture(t, DAEMON), handle = await f.verify();
+  const records = authenticatedRuntimeProof(handle, f.candidate, f.unit);
+  assert.equal(records.length, 6);
+  assert.deepEqual(records.slice(0, 3).map((r) => r.dataScale.unit), ["connections", "submissions", "connections"]);
+  // 50 MB exceeds the 23 MB top-level ceiling but is inside the 95 MiB remote profile ceiling.
+  const remote = runtimeFixture(t, DAEMON);
+  rewriteRaw(remote, "win32", "remote", { resident: 50_000_000 }); remote.refresh();
+  await remote.verify();
+  const local = runtimeFixture(t, DAEMON);
+  rewriteRaw(local, "win32", "local", { resident: 50_000_000 }); local.refresh();
+  await assert.rejects(local.verify(), /refused|exceeds/);
+  const loopback = runtimeFixture(t, DAEMON);
+  rewriteRaw(loopback, "darwin", "remote-loopback", { resident: 50_000_000 }); loopback.refresh();
+  await assert.rejects(loopback.verify(), /refused|exceeds/);
+});
+test("daemon runtime supplement refuses loosened profile, short scale, altered identity & altered prescription", async (t) => {
+  const edit = (f, change) => { const b = JSON.parse(f.data["crates/rightkit-daemon/runtime-budget.json"]); change(b); f.data["crates/rightkit-daemon/runtime-budget.json"] = JSON.stringify(b); };
+  const prescribe = (f, change) => { const p = JSON.parse(f.data["crates/rightkit-daemon/benches/workloads.json"]); change(p); f.data["crates/rightkit-daemon/benches/workloads.json"] = JSON.stringify(p); };
+  for (const [mutation, expected] of [
+    [(f) => rewriteRaw(f, "win32", "remote", { resident: 100_000_000 }), /exceeds or cannot prove residentMemoryBytes/],  // above the profile ceiling
+    [(f) => rewriteRaw(f, "darwin", "remote", { count: 9999 }), /below required scale/],                                    // below the profile scale
+    [(f) => rewriteRaw(f, "darwin", "local", { count: 63 }), /below required scale/],                                       // below the top-level scale
+    [(f) => edit(f, (b) => { b.profiles.remote.ceilings.residentMemoryBytes = 900_000_000; }), /frozen profiles/],
+    [(f) => edit(f, (b) => { b.profiles.remote.requiredScale.minCount = 1; }), /frozen profiles/],
+    [(f) => edit(f, (b) => { b.profiles.remote.features = ["link"]; }), /frozen profiles/],
+    [(f) => edit(f, (b) => { b.ceilings.residentMemoryBytes = 900_000_000; }), /frozen ceilings/],
+    [(f) => { f.envelopes.win32.workloads[1].envNames = []; }, /identity.status mismatch/],                                // env names differ from the trusted table
+    [(f) => { f.envelopes.win32.workloads[1].envNames.push("RIGHTKIT_EXTRA"); }, /identity.status mismatch/],
+    [(f) => prescribe(f, (p) => p.workloads[2].args.push("1")), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { p.workloads[1].args = p.workloads[1].args.filter((a) => a !== "--locked"); }), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { p.workloads[0].env = ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]; }), /runtime supplement refused/],
+    [(f) => f.helperMutations.set("scripts/ci/runtime-workload-env.mjs", Buffer.from("// changed environment provider")), /runtime supplement refused/],
+  ]) { const f = runtimeFixture(t, DAEMON); mutation(f); f.refresh(); await assert.rejects(f.verify(), expected); }
+});
+test("frozen view covers each profile's ceilings, scale & features but not its measurements", () => {
+  const budget = { ceilings: { wakeupsPerSecond: 1 }, requiredScale: { unit: "connections", minCount: 64 }, profiles: { remote: { features: ["remote"], ceilings: { residentMemoryBytes: 10 }, requiredScale: { unit: "submissions", minCount: 10000 }, measurements: [] } } };
+  validateFrozenRuntimeBudget({ ...budget, profiles: { remote: { ...budget.profiles.remote, measurements: [{ any: "history" }], measurementsPending: "note" } } }, budget);
+  for (const change of [{ ceilings: { residentMemoryBytes: 11 } }, { requiredScale: { unit: "submissions", minCount: 1 } }, { features: [] }, { ceilingBasis: { wakeupsPerSecond: "delta-over-bare" } }]) assert.throws(() => validateFrozenRuntimeBudget({ ...budget, profiles: { remote: { ...budget.profiles.remote, ...change } } }, budget), /frozen/);
+  assert.throws(() => validateFrozenRuntimeBudget({ ...budget, profiles: undefined }, budget), /frozen/);
+  assert.throws(() => validateFrozenRuntimeBudget({ ...budget, profiles: { ...budget.profiles, extra: { features: ["x"] } } }, budget), /frozen/);
+});
+
+// rightkit-tauri-shell: four native rows per host, wake-ups gated as a delta over the bare baseline.
+const SHELL = "rightkit-tauri-shell";
+function rewriteDelta(f, host, id, { observed, bare, delta, drop = false }) {
+  const row = f.envelopes[host].workloads.find((w) => w.workload === id);
+  let text = f.files.supplement[`${host}/${id}-bench.txt`].toString("utf8");
+  text = text.replace("wakeups_per_s=0", `wakeups_per_s=${observed}`).replace("bare_wakeups_per_s=0", `bare_wakeups_per_s=${bare}`).replace("wakeups_delta_per_s=0", `wakeups_delta_per_s=${delta}`);
+  const raw = Buffer.from(text);
+  for (const suffix of ["bench", "evidence"]) f.files.supplement[`${host}/${id}-${suffix}.txt`] = raw;
+  row.rawSha256 = row.record.evidence.sha256 = hash(raw);
+  row.record.observed.wakeupsPerSecond = observed;
+  row.record.baseline = { wakeupsPerSecond: bare }; row.record.delta = { wakeupsPerSecond: delta };
+  if (drop) { delete row.record.baseline; delete row.record.delta; }
+}
+test("tauri-shell runtime supplement admits eight delta-gated native records", async (t) => {
+  const f = runtimeFixture(t, SHELL), handle = await f.verify();
+  const records = authenticatedRuntimeProof(handle, f.candidate, f.unit);
+  assert.equal(records.length, 8);
+  assert.ok(records.every((r) => r.command.includes("--no-default-features") && r.command.endsWith("--bench budget_native") && r.dataScale.unit === "watchdogs" && r.baseline && r.delta));
+  assert.deepEqual(records.slice(0, 4).map((r) => r.command.split(" --features ")[1].split(" ")[0]), ["wv2-0_38", "wv2-0_39", "wv2-0_38,host-services,logs,crash", "wv2-0_39,host-services,logs,crash"]);
+  // A whole-process wake-up rate that would fail the 10.2/s ceiling passes only as a delta of at most 4 over the bare baseline.
+  const within = runtimeFixture(t, SHELL);
+  rewriteDelta(within, "darwin", "native-host-wv2-0_39", { observed: 9, bare: 6, delta: 3 }); within.refresh();
+  await within.verify();
+});
+test("tauri-shell runtime supplement refuses bad delta, scale, env & altered prescription", async (t) => {
+  const prescribe = (f, change) => { const p = JSON.parse(f.data["crates/rightkit-tauri-shell/benches/workloads.json"]); change(p); f.data["crates/rightkit-tauri-shell/benches/workloads.json"] = JSON.stringify(p); };
+  for (const [mutation, expected] of [
+    [(f) => rewriteDelta(f, "win32", "native-shell-wv2-0_38", { observed: 6, bare: 1, delta: 5 }), /wakeupsPerSecond/],           // delta above 4
+    [(f) => rewriteDelta(f, "darwin", "native-host-wv2-0_38", { observed: 3, bare: 1, delta: 0.5 }), /baseline.delta/],             // reported delta disagrees
+    [(f) => rewriteDelta(f, "darwin", "native-shell-wv2-0_39", { observed: 0, bare: 0, delta: 0, drop: true }), /baseline.delta/],  // no baseline
+    [(f) => { f.envelopes.win32.workloads[0].record.dataScale.unit = "connections"; }, /below required scale|differs/],
+    [(f) => { f.envelopes.win32.workloads[2].envNames = ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]; }, /identity.status mismatch/],
+    [(f) => prescribe(f, (p) => { p.workloads[0].args = p.workloads[0].args.filter((a) => a !== "--no-default-features"); }), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { p.workloads[2].args = p.workloads[2].args.map((a) => a.replace(",crash", "")); }), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { p.workloads[3].intervalMs = 2000; }), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { p.workloads = p.workloads.slice(0, 3); }), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { delete p.coverage.engine; }), /runtime supplement refused/],
+    [(f) => prescribe(f, (p) => { p.coverage.crash = "weaker"; }), /runtime supplement refused/],
+  ]) { const f = runtimeFixture(t, SHELL); mutation(f); f.refresh(); await assert.rejects(f.verify(), expected); }
+});
+
+// Admission policy: one authenticated handle per crate; workloads always come from the trusted coverage table.
+test("runtime admission qualifies each trusted crate by its own handle and trusted workload ids", async (t) => {
+  const crates = { [CRATE]: ["tracing", "detached"], [DAEMON]: ["local", "remote", "remote-loopback"], [SHELL]: ["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"] };
+  const made = {};
+  for (const crate of Object.keys(crates)) { const f = runtimeFixture(t, crate); made[crate] = { f, handle: await f.verify() }; }
+  for (const [crate, ids] of Object.entries(crates)) {
+    const { f, handle } = made[crate], others = Object.entries(made).filter(([name]) => name !== crate).map(([, value]) => value.handle);
+    const policy = (extra) => runtimeFeatureProofPolicy({ crate, meta: {}, hasFile: true, candidate: f.candidate, unit: f.unit, ...extra });
+    for (const extra of [{ runtimeProof: handle }, { runtimeProofs: [handle] }, { runtimeProofs: [...others, handle] }, { runtimeProof: others[0], runtimeProofs: [handle, others[1]] }]) {
+      const result = policy(extra);
+      assert.equal(result.status, "qualified");
+      assert.deepEqual(result.proof, { candidateId: f.candidate.id, proofSha256: handle.proofSha256, workloads: ids });
+      assert.deepEqual(result.proof.workloads, workloadsFor(crate).map((w) => w.id));
+    }
+    // Another crate's handle, no handle, or a claimed handle never qualifies.
+    for (const extra of [{ runtimeProofs: others }, {}, { runtimeProof: { candidateId: f.candidate.id, proofSha256: handle.proofSha256 } }]) assert.equal(policy(extra).status, "HOLD");
+  }
+  // A crate without trusted coverage cannot be qualified even with an authenticated handle for another crate.
+  const { f, handle } = made[CRATE];
+  assert.equal(runtimeFeatureProofPolicy({ crate: "rightkit-job-queue", meta: {}, hasFile: true, runtimeProofs: [handle], candidate: f.candidate, unit: { ...f.unit, name: "rightkit-job-queue" } }).status, "HOLD");
 });

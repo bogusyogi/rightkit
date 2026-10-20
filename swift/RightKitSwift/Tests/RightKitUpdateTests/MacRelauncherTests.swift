@@ -4,7 +4,8 @@ import Testing
 @testable import RightKitUpdate
 
 // PK16-2 (Pulse updater): the detached relaunch helper, moved from Pulse's `PulseRelauncher`. The
-// opener is injected (`/usr/bin/touch` creates a marker file) so no test opens an application.
+// Internal helper tests inject `/usr/bin/touch`. The public spawn regression below uses a
+// deliberately nonexistent app with the actual `/usr/bin/open`, so no application is opened.
 
 private func scratch() -> URL {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rk-relaunch-\(UUID().uuidString)", isDirectory: true)
@@ -103,5 +104,54 @@ private func runHelper(pid: Int32, limit: Int, app: URL, work: URL?, selfDirecto
     }
     #expect(FileManager.default.fileExists(atPath: app.path))
     #expect(!FileManager.default.fileExists(atPath: work.path))
+}
+@Test func publicSpawnAcceptsAnExitedPIDAndRemovesOnlyItsPrivateWorkDirectory() async throws {
+    let root = scratch()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = root.appendingPathComponent("nonexistent.app", isDirectory: true)
+    let work = root.appendingPathComponent("private-work", isDirectory: true)
+    let bystander = root.appendingPathComponent("bystander", isDirectory: true)
+    try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: bystander, withIntermediateDirectories: true)
+    try #require(!FileManager.default.fileExists(atPath: app.path))
+    // Returning normally proves public spawn succeeded. The opener is deliberately allowed to
+    // fail later: that asynchronous exit has never been a synchronous spawn failure.
+    try MacAppRelauncher.spawn(reopening: app, workDirectory: work, after: try exitedPID(), waitSeconds: 1)
+    let deadline = Date().addingTimeInterval(10)
+    while FileManager.default.fileExists(atPath: work.path), Date() < deadline {
+        try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    #expect(!FileManager.default.fileExists(atPath: work.path))
+    #expect(FileManager.default.fileExists(atPath: bystander.path))
+    #expect(!FileManager.default.fileExists(atPath: app.path))
+}
+
+private struct RequiredMetadataVerifier: UpdateVerifier {
+    func verify(app: URL, expectedVersion: String) throws {
+        // Real filesystem failure from the public verification seam, rather than a constructed
+        // UpdateError: install must classify it & remove the just-copied incoming bundle.
+        _ = try Data(contentsOf: app.appendingPathComponent("Contents/required-metadata"))
+    }
+}
+
+@Test func publicInstallClassifiesNativeVerificationIOFailureAndPreservesInstalledCopy() async throws {
+    let root = scratch()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let apps = root.appendingPathComponent("Applications", isDirectory: true)
+    let installed = apps.appendingPathComponent("Probe.app", isDirectory: true)
+    let source = root.appendingPathComponent("staged/Probe.app", isDirectory: true)
+    try FileManager.default.createDirectory(at: installed.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: source.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+    let marker = installed.appendingPathComponent("Contents/installed-marker")
+    try Data("original".utf8).write(to: marker)
+    try Data("candidate".utf8).write(to: source.appendingPathComponent("Contents/candidate-marker"))
+    let staged = StagedBundle(appURL: source, version: "2.0.0", workDirectory: root.appendingPathComponent("staged"))
+    let installer = MacAppInstaller(installURL: installed, verifier: RequiredMetadataVerifier())
+    await #expect(throws: UpdateError.installFailed("the new copy could not be put in place")) {
+        try await installer.install(staged)
+    }
+    #expect(try Data(contentsOf: marker) == Data("original".utf8))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: apps.path) == ["Probe.app"])
+    #expect(FileManager.default.fileExists(atPath: source.path))
 }
 #endif

@@ -34,6 +34,8 @@ pub mod extract;
 pub mod font;
 #[cfg(feature = "forms")]
 pub mod forms;
+#[cfg(feature = "host")]
+pub mod host;
 pub mod inspect;
 #[cfg(feature = "merge")]
 pub mod merge;

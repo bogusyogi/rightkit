@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "crate": "rightkit-daemon",
+  "defaultFeatures": true,
+  "coverage": {
+    "default": "local native socket/named-pipe echo: 64 held connections, 20000 verified requests, 30 seconds idle",
+    "remote": "real loopback TLS listener, production-default durable daemon, ephemeral signed device enrollment, 10000 signed job writes, listener held idle; requires producer-provisioned per-run localhost TLS material",
+    "remote-loopback": "real loopback HTTP listener and bearer authorization: 64 held TCP connections, 20000 verified echo requests, 30 seconds idle; token bucket retained with finite-load burst, no presence reaper configured",
+    "testing": "test-only; excluded",
+    "test-mode": "test-only; excluded"
+  },
+  "workloads": [
+    {
+      "id": "local",
+      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-daemon", "--bench", "budget", "--", "64", "20000", "30"],
+      "bench": "budget",
+      "intervalMs": 1000
+    },
+    {
+      "id": "remote",
+      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-daemon", "--features", "remote", "--bench", "remote_budget", "--", "10000", "30"],
+      "bench": "remote_budget",
+      "intervalMs": null
+    },
+    {
+      "id": "remote-loopback",
+      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-daemon", "--features", "remote-loopback", "--bench", "budget", "--", "--loopback", "64", "20000", "30"],
+      "bench": "budget",
+      "intervalMs": null
+    }
+  ]
+}

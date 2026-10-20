@@ -14,9 +14,11 @@
 //!
 //! See `API.md` for per-app migration.
 
+pub mod associations;
 pub mod autostart;
 pub mod b64;
 pub mod broker;
+pub mod caller_gate;
 pub mod clipboard;
 pub mod commands;
 pub mod deep_link;
@@ -26,27 +28,44 @@ pub mod engine;
 pub mod error;
 pub mod frameless;
 pub mod harden;
+#[cfg(feature = "host-services")]
+pub mod host;
 pub mod idle;
 pub mod instance;
 mod legacy_hold;
 mod legacy_instance;
 pub mod lifecycle;
 pub mod login_item;
+#[cfg(feature = "logs")]
+pub mod logs_commands;
 pub mod menu;
 pub mod modules;
 pub mod nav;
 pub mod notify;
+pub mod open_paths;
 pub mod open_url;
 pub mod opener;
+pub mod os_settings;
+#[cfg(feature = "overlay")]
+pub mod overlay_host;
+#[cfg(feature = "pdf-host")]
+pub mod pdf_host;
 pub mod presence;
+pub mod preview;
+pub mod print;
 pub mod quit;
 pub mod recovery;
 pub mod single_instance;
 pub mod site;
 pub mod startup_cache;
 pub mod stream;
+pub mod surface;
 pub mod tray;
+#[cfg(feature = "update")]
+pub mod update;
 pub mod watchdog;
+pub mod webview2_env;
+pub mod webview2_menu;
 pub mod window_state;
 #[cfg(all(feature = "qa-probes", not(debug_assertions)))]
 compile_error!("rightkit-tauri-shell: the `qa-probes` feature is for development and QA builds only; a build without debug assertions (release) must not enable it");
@@ -67,10 +86,11 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use tauri::menu::MenuItem;
+use tauri::menu::{CheckMenuItem, MenuItem};
 use tauri::plugin::{Builder as PluginBuilder, TauriPlugin};
 use tauri::{AppHandle, Manager, Wry};
 
+pub use associations::{AssociationGroup, AssociationSpec};
 pub use autostart::{AutostartMigration, AutostartOptions, LegacyAutostartNames, MacosBackend};
 pub use broker::PathBroker;
 pub use clipboard::{ClipboardItem, ClipboardOptions, ClipboardPolicy, ImagePreference};
@@ -82,11 +102,14 @@ pub use idle::{
     IdleTransitionKind, IdleTrigger,
 };
 pub use login_item::LoginItemStatus;
-pub use menu::{MenuEntry, MenuGroup, MenuSpec};
+pub use menu::{MenuEntry, MenuGroup, MenuItemState, MenuOverride, MenuSpec, OverrideRole};
 pub use modules::{Module, ModuleSet, ShellPlugin, ShellPluginBuilder};
 pub use nav::{NavDecision, NavPolicy};
+pub use open_paths::EVENT_OPEN_PATHS;
 pub use opener::{ExternalOpener, SystemOpener};
+pub use os_settings::SettingsPane;
 pub use presence::{AutoPrefs, PresenceState};
+pub use preview::{PreviewLimits, PreviewStore};
 pub use recovery::{MigrationOutcome, RecoverySpec};
 pub use single_instance::{
     ClaimFailure, ClaimOptions, ClaimOutcome, InstanceMessage, LegacySingleInstanceNames,
@@ -94,8 +117,14 @@ pub use single_instance::{
 };
 pub use site::SitePolicy;
 pub use stream::{StreamEvent, StreamEventKind, StreamObserver, StreamPolicy};
+pub use surface::{
+    SurfaceActivation, SurfaceClose, SurfacePlacement, SurfaceRegistry, SurfaceReport, SurfaceSpec,
+};
 pub use tray::{LeftClick, TraySpec};
-pub use watchdog::{ShellRuntimeStatus, StallReport, WatchdogConfig, WatchdogStatus};
+pub use watchdog::{
+    CaptureConfig, CaptureOutcome, CaptureRequest, ShellRuntimeStatus, StallReport, StopReport,
+    WatchdogConfig, WatchdogEvent, WatchdogHandle, WatchdogStatus,
+};
 
 pub const EVENT_MENU: &str = "rightkit-shell://menu";
 pub const EVENT_TRAY: &str = "rightkit-shell://tray";
@@ -155,6 +184,7 @@ pub struct ShellState {
     pub traffic: frameless::TrafficLights,
     pub autostart: autostart::AutostartSpec,
     pub menu_items: Mutex<HashMap<String, MenuItem<Wry>>>,
+    pub menu_checks: Mutex<HashMap<String, CheckMenuItem<Wry>>>,
     pub menu_rows: Mutex<Vec<(String, String)>>,
     pub tray: Option<tray::TrayRuntime>,
     pub on_menu: Option<MenuCallback>,
@@ -239,6 +269,9 @@ pub struct ShellBuilder {
     engine: Option<engine::EngineSpec>,
     #[cfg(feature = "engine")]
     engine_policy: engine::EnginePolicy,
+    previews: Vec<(String, Arc<preview::PreviewStore>)>,
+    surfaces: Vec<SurfaceSpec>,
+    surface_fallback: Option<(std::time::Duration, Option<String>)>,
 }
 
 pub struct Shell {
@@ -295,6 +328,9 @@ impl Shell {
             cache_dir: None,
             repair_cache: None,
             on_presence: None,
+            previews: Vec::new(),
+            surfaces: Vec::new(),
+            surface_fallback: None,
             #[cfg(feature = "engine")]
             engine: None,
             #[cfg(feature = "engine")]
@@ -490,6 +526,34 @@ impl ShellBuilder {
         self.state_dir = Some(dir);
         self
     }
+    /// Serve in-memory preview documents over `<scheme>://localhost/<token>` (see [`preview`]).
+    /// # Panics
+    /// Panics on a malformed scheme (a programmer error at startup).
+    pub fn preview_protocol(mut self, scheme: &str, store: Arc<preview::PreviewStore>) -> Self {
+        let scheme =
+            nav::validate_internal_scheme(scheme).expect("rightkit-tauri-shell: preview_protocol");
+        self.previews.retain(|(s, _)| *s != scheme);
+        self.previews.push((scheme, store));
+        self
+    }
+
+    /// Declare a window surface (a named shape of the main window: size, minimum, placement,
+    /// activation, close behaviour) the renderer selects with `rk_shell_set_surface` (see
+    /// [`surface`]). Declare each id once; an invalid or repeated spec fails plugin setup.
+    pub fn surface(mut self, spec: SurfaceSpec) -> Self {
+        self.surfaces.push(spec);
+        self
+    }
+
+    /// Bounded first-ready fallback for surfaces: when the main window has not been shaped by
+    /// `rk_shell_set_surface` within `wait` (at most 60 s), shape it as `default_surface` and show
+    /// it as that surface's activation says. Cancelled by any `set_surface` and by app exit; a
+    /// `never_show` host or a background launch is still obeyed.
+    pub fn surface_fallback(mut self, wait: std::time::Duration, default_surface: &str) -> Self {
+        self.surface_fallback = Some((wait, Some(default_surface.to_owned())));
+        self
+    }
+
     /// URL schemes this app accepts as deep links (`myapp` for `myapp://...`).
     pub fn deep_link_scheme(mut self, scheme: &str) -> Self {
         self.schemes.push(scheme.to_ascii_lowercase());
@@ -752,6 +816,7 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     let ready_policy = show_policy_of(&cfg);
     let restore_windows = modules.contains(Module::WindowState);
     let main_label = cfg.main_label.clone();
+    let previews = cfg.previews.clone();
     let (streams, site) = if modules.contains(Module::Stream) {
         (cfg.streams.clone(), cfg.site.clone())
     } else {
@@ -883,6 +948,14 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             },
         );
     }
+    for (scheme, store) in previews {
+        plugin = plugin.register_asynchronous_uri_scheme_protocol(
+            scheme,
+            move |_ctx, request, responder| {
+                responder.respond(preview::serve_preview_request(&store, &request));
+            },
+        );
+    }
     plugin.build()
 }
 
@@ -940,14 +1013,12 @@ fn setup(
             &version,
             Some(identifier.as_str()),
             Arc::new(move |s| {
-                lifecycle::route_second_instance(
+                lifecycle::on_second_launch(
                     &for_cb,
                     custom.as_ref(),
                     &s.argv,
                     &s.cwd,
-                    |app, argv, cwd| {
-                        lifecycle::on_second_instance(app, argv, cwd, decider.as_ref())
-                    },
+                    decider.as_ref(),
                 )
             }),
         ) {
@@ -1050,6 +1121,26 @@ fn setup(
             eprintln!("rightkit-tauri-shell: could not move the LaunchAgent login item to SMAppService: {e}");
         }
     }
+    // Window surfaces (see `surface`): declared once, selected by the renderer.
+    let surface_registry = surface::SurfaceRegistry::new();
+    for spec in &cfg.surfaces {
+        surface_registry
+            .register(spec.clone())
+            .map_err(|e| -> Box<dyn std::error::Error> { Box::new(e) })?;
+    }
+    if let Some((_, Some(default))) = &cfg.surface_fallback {
+        if surface_registry.get(default).is_none() {
+            return Err(format!(
+                "rightkit-tauri-shell: surface_fallback names the undeclared surface {default:?}"
+            )
+            .into());
+        }
+    }
+    app.manage(surface_registry);
+    // The preview schemes: a webview showing one of them is untrusted content (see `caller_gate`).
+    app.manage(preview::PreviewOrigins::new(
+        cfg.previews.iter().map(|(scheme, _)| scheme.clone()),
+    ));
     app.manage(ShellState {
         main_thread_id: std::thread::current().id(),
         app_id: cfg.app_id.clone(),
@@ -1072,6 +1163,7 @@ fn setup(
         traffic: Default::default(),
         autostart: autostart_spec,
         menu_items: Mutex::new(HashMap::new()),
+        menu_checks: Mutex::new(HashMap::new()),
         menu_rows: Mutex::new(Vec::new()),
         tray: tray_runtime,
         on_menu: cfg.on_menu.clone(),
@@ -1119,6 +1211,7 @@ fn setup(
         let state = app.state::<ShellState>();
         *state.menu_rows.lock().unwrap_or_else(|e| e.into_inner()) = menu::describe(&built.menu);
         *state.menu_items.lock().unwrap_or_else(|e| e.into_inner()) = built.items;
+        *state.menu_checks.lock().unwrap_or_else(|e| e.into_inner()) = built.checks;
         app.set_menu(built.menu)?;
         app.on_menu_event(|app, event| lifecycle::on_menu_event(app, event.id().as_ref()));
     }
@@ -1190,6 +1283,9 @@ fn setup(
                     }
                 })?;
         }
+        // With a `PresencePolicy` this is the thread that stops an engine nobody uses; otherwise it
+        // does nothing. Windows and sessions hold the engine through `EngineHost::hold`.
+        engine.start_idle_monitor();
         std::thread::Builder::new()
             .name("rk-shell-engine".into())
             .spawn(move || {
@@ -1217,7 +1313,13 @@ fn setup(
         }
     }
 
-    // 8 (queue only). Links on the launch argv wait for the frontend.
+    // 7. First-ready surface fallback (bounded, cancellable, guarded).
+    if let Some((wait, default)) = cfg.surface_fallback.clone() {
+        surface::arm_fallback(app, cfg.main_label.clone(), wait, default);
+    }
+
+    // 8 (queue only). Links and file paths on the launch argv wait for the frontend.
+    open_paths::install(app);
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let state = app.state::<ShellState>();
     state
@@ -1230,10 +1332,17 @@ fn setup(
 
 /// Build the `invoke_handler` with the shell commands plus the app's own.
 /// `rightkit_tauri_shell::handler![my_command, other]`.
+///
+/// Feature `host-services` adds the `rightkit_settings_*` and `rightkit_secrets_*` commands, feature
+/// `license` the five `rightkit_license_*` commands, and feature `logs` the `rightkit_logs_*`
+/// commands, so an app lists none of them. Every one of them
+/// refuses a caller the installed `host::HostCallerPolicy` does not trust (the shell-wide app
+/// caller gate when no host services are installed, for the log commands), and answers
+/// `permission_denied` or `unsupported` until the app installs the service it needs.
 #[macro_export]
 macro_rules! handler {
     ($($app_cmd:path),* $(,)?) => {
-        ::tauri::generate_handler![
+        $crate::__rk_handler_host![
             $crate::commands::rk_shell_open_external,
             $crate::commands::rk_shell_ready,
             $crate::commands::rk_shell_status,
@@ -1274,8 +1383,202 @@ macro_rules! handler {
             $crate::commands::rk_shell_recovery_clear,
             $crate::commands::rk_shell_clipboard_item,
             $crate::commands::rk_shell_site_grant,
-            $crate::commands::rk_shell_site_revoke
+            $crate::commands::rk_shell_site_revoke,
+            $crate::commands::rk_shell_set_menu_item_checked,
+            $crate::commands::rk_shell_set_menu_state,
+            $crate::surface::rk_shell_set_surface,
+            $crate::print::rk_shell_print,
+            $crate::open_paths::rk_shell_open_paths_ready,
+            $crate::associations::rk_shell_associations_status,
+            $crate::associations::rk_shell_associations_set,
+            $crate::associations::rk_shell_open_default_apps
             $(, $app_cmd)*
         ]
     };
+}
+
+// These macros let `handler!` add a feature's commands without the app enabling that
+// feature: a `cfg` inside `handler!` itself would be evaluated in the APP crate, so each feature
+// gets a pair of macros whose `cfg` is evaluated here.
+
+/// Prepends the settings and secrets commands (feature `host-services`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "host-services")]
+macro_rules! __rk_handler_host {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_license![
+            $crate::host::settings::rightkit_settings_describe,
+            $crate::host::settings::rightkit_settings_get,
+            $crate::host::settings::rightkit_settings_patch,
+            $crate::host::settings::rightkit_settings_reset,
+            $crate::host::settings::rightkit_settings_subscribe,
+            $crate::host::settings::rightkit_settings_unsubscribe,
+            $crate::host::secrets::rightkit_secrets_presence,
+            $crate::host::secrets::rightkit_secrets_set,
+            $crate::host::secrets::rightkit_secrets_clear,
+            $crate::host::legal::rightkit_legal_receipt_read,
+            $crate::host::legal::rightkit_legal_receipt_create,
+            $crate::host::legal::rightkit_legal_receipt_reset,
+            $crate::preview::rightkit_preview_register,
+            $crate::preview::rightkit_preview_revoke,
+            $crate::preview::rightkit_preview_revoke_all,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Passes the list on unchanged (feature `host-services` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "host-services"))]
+macro_rules! __rk_handler_host {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_update![$($cmd)*]
+    };
+}
+
+/// Prepends the licence commands (feature `license`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "license")]
+macro_rules! __rk_handler_license {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_update![
+            $crate::host::license::rightkit_license_status,
+            $crate::host::license::rightkit_license_activate,
+            $crate::host::license::rightkit_license_refresh,
+            $crate::host::license::rightkit_license_deactivate,
+            $crate::host::license::rightkit_license_request_trial,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Passes the list on unchanged (feature `license` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "license"))]
+macro_rules! __rk_handler_license {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_update![$($cmd)*]
+    };
+}
+
+/// Prepends the update commands (feature `update`).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "update")]
+macro_rules! __rk_handler_update {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_models![
+            $crate::update::rightkit_update_check,
+            $crate::update::rightkit_update_status,
+            $crate::update::rightkit_update_download,
+            $crate::update::rightkit_update_install,
+            $crate::update::rightkit_update_cancel,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Passes the list on unchanged (feature `update` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "update"))]
+macro_rules! __rk_handler_update {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_models![$($cmd)*]
+    };
+}
+
+/// Prepends the renderer log commands (feature `logs`) and builds the handler.
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "logs")]
+macro_rules! __rk_handler_logs {
+    ($($cmd:tt)*) => {
+        ::tauri::generate_handler![
+            $crate::logs_commands::rightkit_logs_write,
+            $crate::logs_commands::rightkit_logs_collect,
+            $crate::logs_commands::rightkit_logs_clear,
+            $($cmd)*
+        ]
+    };
+}
+
+/// Builds the handler (feature `logs` off).
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "logs"))]
+macro_rules! __rk_handler_logs {
+    ($($cmd:tt)*) => {
+        ::tauri::generate_handler![$($cmd)*]
+    };
+}
+
+/// Prepends model commands when the native models owner is enabled.
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "models")]
+macro_rules! __rk_handler_models {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_crash![
+            $crate::host::models::rightkit_models_list,
+            $crate::host::models::rightkit_models_install,
+            $crate::host::models::rightkit_models_cancel,
+            $crate::host::models::rightkit_models_remove,
+            $($cmd)*
+        ]
+    };
+}
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "models"))]
+macro_rules! __rk_handler_models {
+    ($($cmd:tt)*) => { $crate::__rk_handler_crash![$($cmd)*] };
+}
+
+/// Prepends the renderer crash sink, not the watchdog's independent crash adapter.
+#[doc(hidden)]
+#[macro_export]
+#[cfg(all(feature = "host-services", feature = "crash"))]
+macro_rules! __rk_handler_crash {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_pdf![
+            $crate::host::crash::rightkit_crash_window_error,
+            $($cmd)*
+        ]
+    };
+}
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(all(feature = "host-services", feature = "crash")))]
+macro_rules! __rk_handler_crash {
+    ($($cmd:tt)*) => { $crate::__rk_handler_pdf![$($cmd)*] };
+}
+
+/// Prepends native PDF owner commands behind the shell's caller/path authorization.
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "pdf-host")]
+macro_rules! __rk_handler_pdf {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_logs![
+            $crate::pdf_host::rightkit_pdf_open,
+            $crate::pdf_host::rightkit_pdf_update,
+            $crate::pdf_host::rightkit_pdf_state,
+            $crate::pdf_host::rightkit_pdf_find,
+            $crate::pdf_host::rightkit_pdf_print,
+            $crate::pdf_host::rightkit_pdf_suspend,
+            $crate::pdf_host::rightkit_pdf_close,
+            $($cmd)*
+        ]
+    };
+}
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "pdf-host"))]
+macro_rules! __rk_handler_pdf {
+    ($($cmd:tt)*) => { $crate::__rk_handler_logs![$($cmd)*] };
 }

@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-pdf"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -39,6 +39,11 @@ redact = []
 forms = []
 # Size reduction: unused-object clean-up, stream compression, measured image downsampling (`src/optimize.rs`).
 optimize = []
+# Native PDF view host (`src/host`): one PDFKit view per window with owner isolation, a bounded cache
+# of suspended views, find, print and typed events. macOS builds the PDFKit backend (the objc2 crates
+# below); every other platform builds no native code and answers `HostError::Unsupported`. Needs no
+# window system: the caller (rightkit-tauri-shell's `pdf-host` feature) hands in the native parent view.
+host = ["dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-pdf-kit", "dep:block2"]
 
 [dependencies]
 lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
@@ -56,6 +61,15 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 # feature set that has `AtomicWriter`; `json`, `lock` and `digest` are not needed.
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"], optional = true }
 
+# The PDFKit backend of the `host` feature (macOS only; the target table keeps them out of every other
+# platform's build even with the feature on). Versions match rightkit-tauri-shell's objc2 family.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6.4", optional = true }
+objc2-app-kit = { version = "0.3.2", optional = true }
+objc2-foundation = { version = "0.3.2", optional = true }
+objc2-pdf-kit = { version = "0.3.2", optional = true }
+block2 = { version = "0.6.2", optional = true }
+
 # Windows file identity (volume serial + file id) read from an opened handle; see `commit.rs`. Only
 # that: the file replacement itself is rightkit-fs's.
 [target.'cfg(windows)'.dependencies]
@@ -70,4 +84,4 @@ rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = f
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "PDF render and font listing per call; resident-static is FontCatalog::shared, one OnceLock font catalog built once per process (fontdb system-font metadata, sized by the installed fonts, never grown afterwards), and the crate spawns no thread, timer or other continuous work"
+continuous_reason = "PDF render and font listing per call; resident-static is FontCatalog::shared, one OnceLock font catalog built once per process (fontdb system-font metadata, sized by the installed fonts, never grown afterwards), and the crate spawns no thread, timer or other continuous work. Feature host adds held native views: at most one active PDFKit view per window plus at most HostConfig::parked_limit (default 8) suspended views kept for at most parked_max_age (default 30 s, expired by calls and by an explicit PdfHost::sweep, never by a timer in this crate), one local key monitor per active view removed on suspend and close, and a bounded 256-entry event outbox"

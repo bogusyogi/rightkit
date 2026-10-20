@@ -4,7 +4,7 @@
 
 - Raises rightkit-daemon to 0.3.0 and rightkit-qa to 0.7.0 for current dependency APIs.
 - HTTP bodies stream directly through destination-local `rightkit-fs::AtomicWriter` while computing SHA-256; separate `.part` checkpoints retain resume & cancellation behavior. A checked commit syncs & rehashes staging before publication. Rebuildable model payloads use `durable: false` with default `Rename`, so every reported failure preserves previous destination contents & success atomically exposes verified, synced file contents. Parent-directory crash durability is not promised.
-- Checkpoints & resume metadata cannot alias destination through existing file identity, resolved parent paths, or Windows native case equivalence. Windows plain-name rules refuse trailing-dot/space aliases before checkpoint writes; Unix distinct names & Unicode filenames remain supported. Complete-checkpoint recovery also honors cancellation before publication.
+- Checkpoints & resume metadata cannot alias destination through existing file identity, resolved parent paths, Windows native case equivalence, or macOS native case/Unicode equivalence. Windows plain-name rules refuse trailing-dot/space aliases before checkpoint writes; Unix distinct names & Unicode filenames remain supported. Dangling or existing endpoint symlinks are refused before checkpoint writes; parent symlinks remain supported. Complete-checkpoint recovery also honors cancellation before publication.
 
 - Tests: suite-touching tests run in a child process with an isolated RIGHTKIT_SUITE_ROOT (the real-root guard is unchanged).
 

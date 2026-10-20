@@ -1,128 +1,107 @@
-//! Runtime budget for rightkit-daemon (remote profile) (macOS and Windows).
-//!
-//! Scenario: one in-process `Daemon` driven through `Daemon::handle` (no transport). One
-//! device is enrolled through the real enrolment route, then N device-signed
-//! `PATCH /v1/publish-jobs/{id}` submissions run with `If-Match: 0`, a distinct
-//! `Idempotency-Key` and a distinct job id each (default N = 10,000). The harness is the
-//! one the integration tests use (`tests/common`), so signing and the authorisation path
-//! are the production ones. The clock is fixed inside the replay and idempotency windows,
-//! so every nonce and idempotency record is retained: the worst case inside the TTL.
-//!
-//! After the submissions the daemon is held idle (state resident, no request in flight) for the idle
-//! window. Reports resident memory, CPU, wake-ups and disk operations through
-//! `rightkit_child_process::process_usage` (the one shared source), submission latency, the size of each
-//! `state.json` write (`Daemon::metrics`), and the retained-state counts. The transport (HTTPS
-//! listener) is not exercised: the idle figures are the daemon state and runtime without a listener.
-//!
-//! Run: `rightkit cargo bench -p rightkit-daemon --features remote --bench remote_budget`
-//! Optional: `-- <submissions> <idle_seconds>` (defaults 10000 and 30).
+//! Native remote budget: real TLS listener, ephemeral enrolled device, signed job writes.
+//! Run `rustright cargo test --locked --profile release-iterate -p rightkit-daemon
+//! --features remote --bench remote_budget -- 10000 30`.
+//! Producer supplies RIGHTKIT_RUNTIME_SCRATCH_ROOT plus per-run localhost certificate/key
+//! paths in RIGHTKIT_DAEMON_BUDGET_TLS_CERT / RIGHTKIT_DAEMON_BUDGET_TLS_KEY. Missing or
+//! invalid TLS material fails; no `testing` feature, committed key, trust bypass or remote host.
 
-#[path = "../tests/common/mod.rs"]
-mod common;
-
-use common::Harness;
-use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};
+use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};
+use rightkit_daemon::remote::client::{Client, ClientConfig, DeviceKey};
+use rightkit_daemon::remote::{load_tls, serve_blocking, Daemon, DaemonConfig, StopHandle, SystemClock};
 use serde_json::json;
+use std::net::TcpListener;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-fn mb(b: u64) -> f64 {
-    b as f64 / (1024.0 * 1024.0)
+struct Server {
+    stop: StopHandle,
+    thread: Option<std::thread::JoinHandle<std::io::Result<()>>>,
 }
 
-fn usage() -> ProcessUsage {
-    process_usage().expect("process usage")
-}
-
-fn report(label: &str, p: ProcessUsage) {
-    println!(
-        "{label}: resident {:7.1} MB  footprint {:7.1} MB",
-        mb(p.resident_bytes),
-        mb(p.footprint_bytes)
-    );
+impl Drop for Server {
+    fn drop(&mut self) {
+        self.stop.stop();
+        if let Some(thread) = self.thread.take() {
+            let outcome = thread.join();
+            if !std::thread::panicking() {
+                outcome.expect("server thread").expect("graceful server shutdown");
+            }
+        }
+    }
 }
 
 fn main() {
-    let nums: Vec<u64> = std::env::args()
-        .skip(1)
-        .filter_map(|a| a.parse().ok())
-        .collect();
-    let n: u64 = nums.first().copied().unwrap_or(10_000);
-    let idle_s: u64 = nums.get(1).copied().unwrap_or(30);
-
-    let h = Harness::new();
-    let dev = h.enrol();
-    let before = h.daemon.metrics();
-    let p_before = usage();
-    report("before submissions", p_before);
-
-    let cpu0 = usage().cpu_seconds;
+    let nums: Vec<u64> = std::env::args().skip(1).filter_map(|arg| arg.parse().ok()).collect();
+    let n = nums.first().copied().unwrap_or(10_000);
+    let idle_s = nums.get(1).copied().unwrap_or(30);
+    assert!(n > 0 && idle_s > 0);
+    let dir = tempfile::tempdir_in(std::env::var_os("RIGHTKIT_RUNTIME_SCRATCH_ROOT")
+        .expect("RIGHTKIT_RUNTIME_SCRATCH_ROOT must name isolated scratch storage"))
+        .expect("isolated daemon state");
+    let cert = std::fs::read(std::env::var_os("RIGHTKIT_DAEMON_BUDGET_TLS_CERT")
+        .expect("producer must supply per-run localhost certificate"))
+        .expect("read per-run certificate");
+    let key = std::fs::read(std::env::var_os("RIGHTKIT_DAEMON_BUDGET_TLS_KEY")
+        .expect("producer must supply per-run TLS private-key path"))
+        .expect("read per-run private key");
+    let tls = load_tls(&cert, &key).expect("matching per-run TLS certificate/key");
+    drop(key);
+    let daemon = Arc::new(Daemon::open(DaemonConfig::new(dir.path()), Arc::new(SystemClock), None)
+        .expect("open production-default daemon"));
+    let listener = TcpListener::bind("127.0.0.1:0").expect("isolated ephemeral loopback listener");
+    let addr = listener.local_addr().unwrap();
+    assert!(addr.ip().is_loopback());
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let stop = StopHandle::new();
+    let server = Server {
+        stop: stop.clone(),
+        thread: Some({
+            let daemon = daemon.clone();
+            std::thread::spawn(move || serve_blocking(daemon, listener, tls, ready_tx, stop))
+        }),
+    };
+    assert_eq!(ready_rx.recv_timeout(Duration::from_secs(20)).expect("TLS listener ready"), addr);
+    let client = Client::new(ClientConfig::new(addr).server_name("localhost")
+        .root_pem(&cert).expect("pin per-run root")
+        .timeout(Duration::from_secs(30))).expect("production signed client");
+    let device_key = DeviceKey::from_pkcs8(&DeviceKey::generate_pkcs8().expect("ephemeral key"))
+        .expect("ephemeral device key");
+    let code = daemon.issue_enrolment_code(&["venture", "channel", "account"], 600)
+        .expect("single-use enrolment code");
+    let device = client.enrol(&code, Arc::new(device_key), Some("runtime-budget"))
+        .expect("real signed TLS enrolment");
+    let warmup = json!({"caption": "warmup", "status": "queued"});
+    assert_eq!(device.update_job("budget-warmup", warmup.as_object().unwrap(), 0, "budget-warmup")
+        .expect("warmup over TLS").revision, 1);
+    let before = daemon.metrics();
     let start = Instant::now();
-    let mut max_ms = 0.0f64;
-    let mut window_ms = 0.0f64;
     for i in 0..n {
-        let t = Instant::now();
-        let r = dev.patch_job(
-            &h,
-            &format!("job-{i:05}"),
-            0,
-            &format!("idem-{i:05}"),
-            &json!({ "caption": format!("caption {i}"), "slot": i % 40, "status": "queued" }),
-        );
-        let ms = t.elapsed().as_secs_f64() * 1e3;
-        assert_eq!(r.status, 200, "submission {i}: {:?}", r.body);
-        max_ms = max_ms.max(ms);
-        window_ms += ms;
-        if (i + 1) % 1_000 == 0 {
-            let m = h.daemon.metrics();
-            println!(
-                "progress {:>6} submissions  {:7.1} s  last-1000 mean {:6.2} ms  state.json {:7.1} KB  resident {:7.1} MB",
-                i + 1,
-                start.elapsed().as_secs_f64(),
-                window_ms / 1_000.0,
-                m.last_state_bytes as f64 / 1024.0,
-                mb(usage().resident_bytes),
-            );
-            window_ms = 0.0;
-        }
+        let patch = json!({"caption": format!("caption {i}"), "slot": i % 40, "status": "queued"});
+        let reply = device.update_job(&format!("budget-job-{i:05}"), patch.as_object().unwrap(),
+            0, &format!("budget-idem-{i:05}"))
+            .expect("signed TLS job submission");
+        assert_eq!(reply.revision, 1);
+        assert!(!reply.replayed);
     }
-    let wall = start.elapsed().as_secs_f64();
-    let cpu = usage().cpu_seconds - cpu0;
-    assert_eq!(h.daemon.job_revision("job-00000"), 1);
-
-    let m = h.daemon.metrics();
-    let p_after = usage();
-    report("after submissions", p_after);
-    let saves = m.state_saves - before.state_saves;
-    println!(
-        "submissions: n={n} wall_s={wall:.2} submissions_per_s={:.1} mean_ms={:.2} max_ms={max_ms:.1} cpu_s={cpu:.2} cpu_percent={:.1} resident_growth_mb={:.1} state_saves_per_submission={:.2} state_last_kb={:.1} state_max_kb={:.1} jobs={} idempotency_records={} nonce_records={} events_retained={} requests={}",
-        n as f64 / wall,
-        wall * 1e3 / n as f64,
-        cpu / wall * 100.0,
-        mb(p_after.resident_bytes) - mb(p_before.resident_bytes),
-        saves as f64 / n as f64,
-        m.last_state_bytes as f64 / 1024.0,
-        m.max_state_bytes as f64 / 1024.0,
-        m.jobs,
-        m.idempotency_records,
-        m.nonce_records,
-        m.events_retained,
-        m.requests - before.requests,
-    );
-    let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle window");
-    let status = h.daemon.status();
-    println!("RESULT jobs_retained={} jobs", status.metrics.jobs);
-    print!(
-        "{}",
-        idle.result_lines(
-            &p_after,
-            &BudgetLabels {
-                krate: "rightkit-daemon",
-                version: env!("CARGO_PKG_VERSION"),
-                scale_unit: "submissions",
-                scale: n,
-                what: "signed job submissions retained in daemon state, daemon idle (no listener)",
-                scope: "synthetic"
-            }
-        )
-    );
+    assert_eq!(daemon.job_revision("budget-job-00000"), 1);
+    let after = daemon.metrics();
+    assert_eq!(after.jobs - before.jobs, n);
+    println!("submissions: n={n} wall_s={:.3} jobs={} requests={} state_saves={}",
+        start.elapsed().as_secs_f64(), after.jobs, after.requests - before.requests,
+        after.state_saves - before.state_saves);
+    let warm = process_usage().expect("process usage");
+    // Server, TLS runtime, device state & durable records remain alive throughout idle sampling.
+    let idle = observe_idle(Duration::from_secs(idle_s)).expect("idle listener window");
+    assert_eq!(daemon.metrics().jobs, after.jobs);
+    println!("RESULT jobs_retained={} jobs", daemon.metrics().jobs);
+    print!("{}", idle.result_lines(&warm, &BudgetLabels {
+        krate: "rightkit-daemon", version: env!("CARGO_PKG_VERSION"),
+        scale_unit: "submissions", scale: n,
+        what: "signed TLS job submissions retained with production listener idle", scope: "synthetic",
+    }));
+    drop(device);
+    drop(client);
+    drop(server);
+    drop(daemon);
+    drop(dir);
 }

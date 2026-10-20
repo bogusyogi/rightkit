@@ -11,6 +11,7 @@ import { cargoRecipe } from "./consumer-recipes.mjs";
 import { validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
 import { runtimeBudgetCheck, runtimeBudgetStructureCheck, crateClass, RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
 import { authenticatedRuntimeProof } from "./runtime-supplement.mjs";
+import { workloadsFor } from "./runtime-qualify.mjs";
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { npmConsumerQualificationProblems, RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
 import { declaredEntries } from "./consume.mjs";
@@ -27,7 +28,10 @@ const text = (s) => typeof s === "string" && s.trim().length > 0;
 const safe = (s) => typeof s === "string" && s.length > 0 && !/[\\:\x00-\x1f]/.test(s) && s.split("/").every((p) => p && p !== "." && p !== "..");
 
 /** Source structure & authenticated exact-archive workloads are separate conjunctive proofs. */
-export function runtimeFeatureProofPolicy({ crate, meta = {}, hasFile = false, runtimeProof = null, candidate, unit }) {
+// `runtimeProof` is one authenticated handle; `runtimeProofs` may carry one per crate of a multi-crate candidate.
+// A handle qualifies only the unit it was authenticated for, and the proven workloads come from the trusted
+// per-crate coverage table (runtime-qualify.mjs), never from the candidate or the handle.
+export function runtimeFeatureProofPolicy({ crate, meta = {}, hasFile = false, runtimeProof = null, runtimeProofs = [], candidate, unit }) {
   const listedOwner = RUNTIME_BUDGET_CRATES.includes(crate);
   const classification = crateClass(meta, { hasFile: hasFile || listedOwner });
   const required = listedOwner || classification.kind === "always-on";
@@ -36,11 +40,14 @@ export function runtimeFeatureProofPolicy({ crate, meta = {}, hasFile = false, r
     status: required ? "HOLD" : "not-applicable",
     failures: required ? ["authenticated isolated runtime feature/workload proof missing"] : [],
   };
-  if (required && runtimeProof && classification.kind === "always-on") {
-    try {
-      authenticatedRuntimeProof(runtimeProof, candidate, unit);
-      return { ...result, status: "qualified", failures: [], proof: { candidateId: runtimeProof.candidateId, proofSha256: runtimeProof.proofSha256, workloads: ["tracing", "detached"] } };
-    } catch { /* Caller JSON cannot grant runtime qualification. */ }
+  if (required && classification.kind === "always-on") {
+    for (const handle of [runtimeProof, ...runtimeProofs].filter(Boolean)) {
+      try {
+        authenticatedRuntimeProof(handle, candidate, unit);
+        const workloads = workloadsFor(unit.name).map((w) => w.id);
+        return { ...result, status: "qualified", failures: [], proof: { candidateId: handle.candidateId, proofSha256: handle.proofSha256, workloads } };
+      } catch { /* Caller JSON cannot grant runtime qualification; try the next authenticated handle. */ }
+    }
   }
   return result;
 }
@@ -151,7 +158,7 @@ export function namedNpmQualificationProblems({ source, candidate, manifest, uni
 }
 
 /** Caller authenticates provenance first; this function validates contents & never publishes. */
-export function semanticAdmission({ candidate, manifest, source, receipts = {}, qa = {}, packDir, env = {}, spawn = spawnSync, runtimeProof = null } = {}) {
+export function semanticAdmission({ candidate, manifest, source, receipts = {}, qa = {}, packDir, env = {}, spawn = spawnSync, runtimeProof = null, runtimeProofs = [] } = {}) {
   const failures = []; const evidenceHashes = {}; const hostVerdicts = {}; const archives = {};
   const fail = (s) => failures.push(s);
   const attempt = (fn, label) => { try { return fn(); } catch (error) { fail(`${label}: ${error.message}`); return null; } };
@@ -226,7 +233,7 @@ export function semanticAdmission({ candidate, manifest, source, receipts = {}, 
         const meta = packageInfo?.manifest?.package?.metadata?.rightkit ?? {};
         const budgetFile = `${unit.dir}/runtime-budget.json`;
         const hasBudgetFile = fs.existsSync(path.join(source.root, budgetFile));
-        runtimeFeatureProof = runtimeFeatureProofPolicy({ crate: unit.name, meta, hasFile: hasBudgetFile, runtimeProof, candidate, unit });
+        runtimeFeatureProof = runtimeFeatureProofPolicy({ crate: unit.name, meta, hasFile: hasBudgetFile, runtimeProof, runtimeProofs, candidate, unit });
         runtimeFeatureProof.failures.forEach(bad);
         const gitEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !/^GIT_/i.test(key)));
         Object.assign(gitEnv, { GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_NO_REPLACE_OBJECTS: "1", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" });

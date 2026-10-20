@@ -7,7 +7,9 @@
 //! 5. engine started off the UI thread (never blocks first paint), 6. watchdog
 //! 7. each webview becomes ready: native hardening, saved geometry restored, window shown
 //!    (unless launched with `--background`)
-//! 8. deep links queued from argv are delivered when the frontend calls `rk_shell_ready`
+//! 8. deep links queued from argv are delivered when the frontend calls `rk_shell_ready`; file paths
+//!    from argv (and later from second launches and macOS open-file events) wait for
+//!    `rk_shell_open_paths_ready` and reach the renderer broker-granted (see [`crate::open_paths`])
 //!
 //! Shutdown (`quit` -> `ExitRequested` -> `Exit`): mark exiting (new engine calls refused), save
 //! window geometry, stop the engine (bounded), remove the tray, release the single-instance
@@ -457,6 +459,22 @@ pub(crate) fn second_instance_reveals<A>(
     decider.is_none_or(|f| f(app, argv, cwd))
 }
 
+/// A second launch reached the primary: its existing files go to the open-paths queue (granted by
+/// the broker once the renderer is ready), then the usual routing runs. The paths are delivered
+/// whether the host replaces the default behaviour with `on_second_instance` or not.
+pub(crate) fn on_second_launch(
+    app: &AppHandle<Wry>,
+    custom: Option<&SecondInstanceFn<AppHandle<Wry>>>,
+    argv: &[String],
+    cwd: &str,
+    decider: Option<&RevealDecider<AppHandle<Wry>>>,
+) {
+    crate::open_paths::deliver_argv(app, argv, cwd);
+    route_second_instance(app, custom, argv, cwd, |app, argv, cwd| {
+        on_second_instance(app, argv, cwd, decider)
+    });
+}
+
 pub(crate) fn on_second_instance(
     app: &AppHandle<Wry>,
     argv: &[String],
@@ -534,8 +552,8 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
                 if state.modules.contains(crate::Module::WindowState) {
                     let _ = state.windows.save_now(app, label);
                 }
-                if state.close_to_tray
-                    && *label == state.main_label
+                if *label == state.main_label
+                    && crate::surface::close_hides(app, state.close_to_tray, label)
                     && !state.exiting.load(Ordering::SeqCst)
                 {
                     api.prevent_close();
@@ -546,11 +564,26 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
                     note_visibility(app, Visibility::Hidden);
                 }
             }
+            // A display was rescaled or moved: shown overlays are brought back where they belong.
+            #[cfg(feature = "overlay")]
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if let Some(overlays) = app.try_state::<crate::overlay_host::OverlayService>() {
+                    let _ = overlays.monitors_changed(app);
+                }
+            }
+            WindowEvent::Destroyed => {
+                if let Some(surfaces) = app.try_state::<crate::surface::SurfaceRegistry>() {
+                    surfaces.forget(label);
+                }
+            }
             _ => {}
         },
         RunEvent::ExitRequested { api, code, .. } => {
             // `code == None`: the last window closed. A tray-resident app keeps running.
-            if code.is_none() && state.close_to_tray && !state.exiting.load(Ordering::SeqCst) {
+            if code.is_none()
+                && crate::surface::close_hides(app, state.close_to_tray, &state.main_label)
+                && !state.exiting.load(Ordering::SeqCst)
+            {
                 api.prevent_exit();
                 return;
             }
@@ -574,6 +607,9 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
                 QuitStep::ExitNow => {}
             }
             state.exiting.store(true, Ordering::SeqCst);
+            if let Some(surfaces) = app.try_state::<crate::surface::SurfaceRegistry>() {
+                surfaces.cancel_fallbacks();
+            }
             for w in app.webview_windows().keys() {
                 if state.modules.contains(crate::Module::WindowState) {
                     let _ = state.windows.save_now(app, w);
@@ -592,8 +628,13 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         RunEvent::Opened { urls } => {
-            let raw: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
-            deliver_links(app, raw.iter().map(String::as_str));
+            // `file://` URLs are documents to open, not links: they wait for the renderer in the
+            // open-paths queue and arrive broker-granted. Everything else is a link.
+            let opened = crate::open_paths::split_opened_urls(urls);
+            if !opened.links.is_empty() {
+                deliver_links(app, opened.links.iter().map(String::as_str));
+            }
+            crate::open_paths::deliver_candidates(app, opened.files);
             crate::windows::reveal_with(app, None, RevealSource::Opened);
         }
         _ => {}
@@ -603,9 +644,16 @@ pub(crate) fn run_event(app: &AppHandle<Wry>, event: &RunEvent) {
 fn shutdown(app: &AppHandle<Wry>) {
     let state = app.state::<ShellState>();
     state.exiting.store(true, Ordering::SeqCst);
+    // The watchdog first: a slow ordered exit is not a UI stall, and its threads must not outlive
+    // the app. Bounded by `WatchdogConfig::shutdown_bound`.
+    let _ = crate::watchdog::shutdown();
+    #[cfg(feature = "overlay")]
+    if let Some(overlays) = app.try_state::<crate::overlay_host::OverlayService>() {
+        overlays.dispose_all();
+    }
     #[cfg(feature = "engine")]
     if let Some(engine) = &state.engine {
-        engine.shutdown();
+        let _ = engine.shutdown_ordered();
     }
     if state.tray.is_some() {
         let _ = app.remove_tray_by_id(crate::tray::TRAY_ID);

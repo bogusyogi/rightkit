@@ -52,6 +52,15 @@ pub struct Hardening {
     pub block_drop_navigation: bool,
     /// Route http(s)/mailto link clicks and `window.open` to the system browser.
     pub intercept_external_links: bool,
+    /// Windows (WebView2): turn the engine's built-in browser accelerator keys off
+    /// (`SetAreBrowserAcceleratorKeysEnabled(false)`), so Ctrl+F (find) and Ctrl+P (print) do
+    /// nothing natively and the app handles them. The page still receives the key events; pair it
+    /// with `block_print: false` so the shell's own script does not cancel Ctrl+P. WebView2 treats
+    /// this as all-or-nothing for the webview: the same switch also covers its reload, zoom,
+    /// inspector and back/forward keys, in a webview whose DevTools the policy allows too. The
+    /// per-key rules (`block_reload`, the DevTools key policy) keep running and stay the shell's
+    /// authority. No effect on macOS. Default `false`.
+    pub disable_browser_accelerators: bool,
 }
 
 impl Default for Hardening {
@@ -69,6 +78,7 @@ impl Default for Hardening {
             block_history_nav: true,
             block_drop_navigation: true,
             intercept_external_links: true,
+            disable_browser_accelerators: false,
         }
     }
 }
@@ -159,12 +169,11 @@ mod macos {
 #[cfg(windows)]
 mod windows_impl {
     use super::*;
-    use crate::winapi::webview2_com::ContextMenuRequestedEventHandler;
+    use crate::webview2_menu::{self, SuppressRule};
     use crate::winapi::webview2_com::Microsoft::Web::WebView2::Win32::{
-        ICoreWebView2Settings5, ICoreWebView2Settings6, ICoreWebView2_11,
+        ICoreWebView2Settings3, ICoreWebView2Settings5, ICoreWebView2Settings6,
     };
     use crate::winapi::windows::core::Interface;
-    use crate::winapi::windows::core::BOOL;
 
     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
     /// the Windows agent with `rightkit cargo check -p rightkit-tauri-shell` (see API.md).
@@ -180,6 +189,7 @@ mod windows_impl {
             h.block_history_nav,
             h.block_zoom,
         );
+        let label = webview.label().to_owned();
         let _ = webview.with_webview(move |platform| unsafe {
             let Ok(core) = platform.controller().CoreWebView2() else {
                 return;
@@ -188,6 +198,14 @@ mod windows_impl {
                 return;
             };
             let _ = settings.SetIsStatusBarEnabled(false);
+            if h.disable_browser_accelerators {
+                let off = settings
+                    .cast::<ICoreWebView2Settings3>()
+                    .and_then(|s3| s3.SetAreBrowserAcceleratorKeysEnabled(false));
+                if let Err(e) = off {
+                    eprintln!("rightkit-tauri-shell: browser accelerator keys stay on: {e}");
+                }
+            }
             if h.block_zoom {
                 let _ = settings.SetIsZoomControlEnabled(false);
                 if let Ok(s5) = settings.cast::<ICoreWebView2Settings5>() {
@@ -199,26 +217,15 @@ mod windows_impl {
                     let _ = s6.SetIsSwipeNavigationEnabled(false);
                 }
             }
-            if h.block_context_menu && !content {
-                // Content webviews: the DevTools layer owns their menu. Keep default menus only so the editable-field menu can survive; every other
-                // target is marked handled (no menu shown).
-                let allow_editable = h.allow_editable_menu;
-                if let Ok(wv11) = core.cast::<ICoreWebView2_11>() {
-                    let handler =
-                        ContextMenuRequestedEventHandler::create(Box::new(move |_sender, args| {
-                            let Some(args) = args else { return Ok(()) };
-                            let target = args.ContextMenuTarget()?;
-                            let mut editable = BOOL(0);
-                            let _ = target.IsEditable(&mut editable);
-                            if !(allow_editable && editable.as_bool()) {
-                                args.SetHandled(true)?;
-                            }
-                            Ok(())
-                        }));
-                    let mut token: i64 = 0;
-                    let _ = wv11.add_ContextMenuRequested(&handler, &mut token);
-                }
-            }
+            // Content webviews: the DevTools layer owns their menu filter. Everywhere else the
+            // engine menu stays hidden, except an editable field when allowed. This is only the
+            // hiding rule: `webview2_menu` runs it in the one handler of the webview, after the
+            // DevTools filter and the app's items, which it lets show.
+            let hide = (h.block_context_menu && !content).then_some(SuppressRule {
+                allow_editable: h.allow_editable_menu,
+            });
+            webview2_menu::set_suppress(&label, hide);
+            webview2_menu::sync(&label, &core);
         });
     }
 }

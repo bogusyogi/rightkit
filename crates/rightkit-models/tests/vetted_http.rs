@@ -472,6 +472,125 @@ fn absent_destination_windows_equivalent_leaf_names_never_expose_partial_bytes()
     assert!(server.paths().is_empty());
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn dangling_endpoint_symlinks_cannot_expose_absent_destination() {
+    let server = serve(|_, _| {
+        b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort".to_vec()
+    });
+    for destination_is_link in [false, true] {
+        for checkpoint_name in ["model.part", "model.part.meta", "model.part.meta.meta"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let dest = tmp.path().join("model.bin");
+            let part = tmp.path().join("model.part");
+            let checkpoint = tmp.path().join(checkpoint_name);
+            let (link, target) = if destination_is_link {
+                (&dest, checkpoint.file_name().unwrap())
+            } else {
+                (&checkpoint, dest.file_name().unwrap())
+            };
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(target, link).unwrap();
+            #[cfg(windows)]
+            std::os::windows::fs::symlink_file(target, link)
+                .expect("native dangling-endpoint regression requires file symlink privilege");
+            let error = download_resumable(
+                &loopback_client(),
+                DownloadRequest {
+                    url: &format!("{}/interrupted", server.base),
+                    part_path: &part,
+                    dest_path: &dest,
+                    expected_sha256: None,
+                    authorization: None,
+                    cancelled: &|| false,
+                },
+                |_, _| {},
+            )
+            .unwrap_err();
+            assert_eq!(error.code, ErrorCode::Io);
+            assert!(error.message.contains("symlink endpoint refused"));
+            assert!(
+                !dest.exists(),
+                "dangling endpoint exposed partial destination"
+            );
+            assert_eq!(fs::read_link(link).unwrap(), std::path::Path::new(target));
+            assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 1);
+        }
+    }
+    assert!(server.paths().is_empty());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn absent_destination_macos_native_case_and_unicode_aliases_never_expose_partial_bytes() {
+    let server = serve(|_, _| {
+        b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort".to_vec()
+    });
+    let client = http_client_with_options(ModelHttpOptions {
+        proxy: ProxyMode::None,
+        address_policy: loopback_policy(),
+        retries: 0,
+        ..Default::default()
+    });
+    for (destination, checkpoint, probe_checkpoint) in [
+        ("model.bin", "MODEL.BIN", "MODEL.BIN"),
+        ("mÖdel.bin", "MöDEL.BIN", "MöDEL.BIN"),
+        ("café.bin", "cafe\u{301}.bin", "cafe\u{301}.bin"),
+        ("MODEL.PART.META", "model.part", "model.part.meta"),
+        ("MODEL.PART.META.META", "model.part", "model.part.meta.meta"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        // Derive expected equivalence from real native identity, so this same
+        // regression works on both case-sensitive & case-insensitive volumes.
+        let native = tmp.path().join("native-oracle");
+        fs::create_dir(&native).unwrap();
+        let native_dest = native.join(destination);
+        let native_checkpoint = native.join(probe_checkpoint);
+        fs::write(&native_dest, b"native identity probe").unwrap();
+        let aliases = native_checkpoint.exists()
+            && rightkit_fs::FileKey::of_path(&native_dest).unwrap()
+                == rightkit_fs::FileKey::of_path(&native_checkpoint).unwrap();
+        fs::remove_file(&native_dest).unwrap();
+        fs::remove_dir(&native).unwrap();
+
+        let dest = tmp.path().join(destination);
+        let part = tmp.path().join(checkpoint);
+        let before = server.paths().len();
+        let error = download_resumable(
+            &client,
+            DownloadRequest {
+                url: &format!("{}/interrupted", server.base),
+                part_path: &part,
+                dest_path: &dest,
+                expected_sha256: None,
+                authorization: None,
+                cancelled: &|| false,
+            },
+            |_, _| {},
+        )
+        .unwrap_err();
+        assert!(!dest.exists(), "native alias exposed final destination");
+        if aliases {
+            assert_eq!(
+                error.code,
+                ErrorCode::Io,
+                "{destination:?}, {checkpoint:?}: {error}"
+            );
+            assert!(error.message.contains("checkpoint aliases destination"));
+            assert_eq!(server.paths().len(), before);
+            assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 0);
+        } else {
+            assert_eq!(error.code, ErrorCode::Download, "{error}");
+            assert_eq!(server.paths().len(), before + 1);
+        }
+        assert!(!fs::read_dir(tmp.path()).unwrap().any(|entry| entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".rightkit-model-name-probe-")));
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn unix_distinct_case_trailing_dot_space_and_unicode_checkpoint_names_still_work() {

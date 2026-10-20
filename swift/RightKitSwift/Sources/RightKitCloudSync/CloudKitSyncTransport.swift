@@ -14,22 +14,34 @@ public actor CloudKitSyncTransport: SyncTransport {
     public let zoneName: String
     public let subscriptionID: String
 
-    private let container: CKContainer
+    private let container: CKContainer?
     private var cache: [String: CKRecord] = [:]
 
     public init(containerIdentifier: String, zoneName: String, subscriptionID: String, container: CKContainer? = nil) {
         self.containerIdentifier = containerIdentifier
         self.zoneName = zoneName
         self.subscriptionID = subscriptionID
-        self.container = container ?? CKContainer(identifier: containerIdentifier)
+        // macOS CloudKit may trap before an operation can throw when the process lacks its
+        // container entitlement. Preserve the initializer, but defer the typed failure to I/O.
+        // iOS/watchOS cannot inspect their own provisioning; those hosts still need native evidence.
+        self.container = CloudKitEntitlement.current(containerIdentifier: containerIdentifier).allowsCloudKit
+            ? (container ?? CKContainer(identifier: containerIdentifier)) : nil
     }
 
-    private var database: CKDatabase { container.privateCloudDatabase }
+    private var availableContainer: CKContainer {
+        get throws {
+            guard let container else { throw SyncTransportError.permissionDenied }
+            return container
+        }
+    }
+    private var database: CKDatabase {
+        get throws { try availableContainer.privateCloudDatabase }
+    }
     private var zoneID: CKRecordZone.ID { CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName) }
 
     public func accountState() async throws -> SyncAccountState {
         do {
-            switch try await container.accountStatus() {
+            switch try await availableContainer.accountStatus() {
             case .available: return .available
             case .noAccount: return .noAccount
             case .restricted: return .restricted
@@ -44,7 +56,7 @@ public actor CloudKitSyncTransport: SyncTransport {
     /// aliases, tombstones, deletion queue) belongs to exactly this triple.
     public func accountIdentity() async throws -> String? {
         do {
-            let user = try await container.userRecordID().recordName
+            let user = try await availableContainer.userRecordID().recordName
             return CloudKitRecordCoding.syncScope(container: containerIdentifier, zone: zoneName, userRecordName: user)
         } catch { throw SyncTransportError(error) }
     }

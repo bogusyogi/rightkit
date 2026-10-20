@@ -15,9 +15,24 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
 | `dev-overrides` | off | none | Development and QA builds only: `NavPolicy::default()` treats loopback (localhost, 127.0.0.1, [::1]) http(s) URLs as internal. Not implied by a build profile (installed dev builds with debug assertions get the release default, `allow_loopback: false`); an app sets it from an optional QA/dev feature. Never a default feature. |
+| `host-services` | off | `rightkit-app-settings` 0.3.0 | Shared host services (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the `HostCallerPolicy` that gates them. Adds the `rightkit_settings_*`, `rightkit_secrets_*`, `rightkit_legal_receipt_*` and `rightkit_preview_*` commands. |
+| `logs` | off | `rightkit-logs` 0.3.4 | Renderer log commands `rightkit_logs_write`, `rightkit_logs_collect`, `rightkit_logs_clear` (`src/logs_commands.rs`). |
+| `crash` | off | `rightkit-crash` 0.3.4 (`window-errors`) | `watchdog::crash_capture` and `CrashCaptureOptions`: a stall capture that writes a crash report through `rightkit-crash`. With `host-services`, also `rightkit_crash_window_error`, the renderer error sink (`src/host/crash.rs`). |
+| `models` | off | implies `host-services`; `rightkit-models` 0.5.0 | Native model store commands `rightkit_models_list`, `_install`, `_cancel`, `_remove` (`src/host/models.rs`). IPC accepts only a declared model id. |
+| `pdf-host` | off | implies `host-services`; `rightkit-pdf` 0.3.3 (`host`) | Native PDF view: seven `rightkit_pdf_*` commands (`src/pdf_host.rs`). PDFKit on macOS; `unsupported` on other platforms. |
+| `license` | off | implies `host-services`; `rightkit-license` 0.2.4 (`update-auth`) | Five `rightkit_license_*` commands. The views they return carry no token, key or device id. |
+| `update` | off | implies `host-services`; `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5, `sha2`, `tokio` | Native updater: five `rightkit_update_*` commands (`src/update.rs`). |
+| `update-license` | off | implies `update` and `license`; `url` | Binds each update to the licence captured at check (`LicenseAuthority`). |
+| `overlay` | off | `rightkit-overlay` 0.1.2 | Always-on-top, no-activate overlay host (`src/overlay_host.rs`). |
 | `dev-inspect` | off | `tauri/devtools` | Development builds only: every webview is inspectable and the DevTools guards stand down; see "DevTools policy / Development builds". A build with it can never be released. Never a default feature, and not needed by ContentOnly. |
 
 Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.
+
+## Host services, updater and licence (0.5.0)
+
+With `host-services` (and `license`, `update`, `logs`, `models`, `pdf-host`, `crash` as needed), the shell registers settings, API-key, legal-receipt, licence, update, log, model, PDF and renderer-error commands. An app lists them through `rightkit_tauri_shell::handler![...]`, and the installed host caller policy decides which windows may call them. Until the app installs the service it needs, its commands answer `permission_denied` or `unsupported`.
+
+The native updater verifies minisign signatures, accepts only https URLs with no redirects, refuses downgrades, and ties each update to the licence binding captured at check. Licence views never carry a token. The shell's own `rk_shell_*` commands are checked against the caller policy only after the app enables `HostServicesBuilder::guard_shell_commands`. Full list and file references: `CHANGELOG.md`, 0.5.0.
 
 ## Platform support
 

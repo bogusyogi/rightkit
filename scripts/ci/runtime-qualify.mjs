@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { archiveTool } from "./registry-consumer.mjs";
+import { assertEnvNames, provisionWorkloadEnv, workloadEnvironment } from "./runtime-workload-env.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 // The crate is one validated run input. Its name is a single path segment: no separators, dots or case.
@@ -15,7 +16,19 @@ export function assertCrateName(value) { if (!isCrateName(value)) throw new Erro
 // Trusted coverage, pinned in dispatched main per crate. A candidate's crates/<crate>/benches/workloads.json
 // must equal this exactly, so a candidate cannot shrink its own required coverage. A crate without an
 // entry here is refused until its coverage is pinned.
-const cargoBench = (crate, features, bench) => Object.freeze(["test", "--locked", "--profile", "release-iterate", "-p", crate, "--features", features, "--bench", bench]);
+// `features` is a Cargo feature list, or null to build the crate's default feature set with no --features flag.
+// `trailing` are the bench's own arguments after `--`; each is a number or a fixed long flag, pinned here.
+const FEATURES = /^[a-z0-9_-]+(?:,[a-z0-9_-]+)*$/;
+const TRAILING = /^(?:[0-9]+|--[a-z][a-z-]*)$/;
+// `noDefaultFeatures` adds --no-default-features before --features (the shell rows select exactly one native binding).
+const cargoBench = (crate, features, bench, trailing = [], noDefaultFeatures = false) => {
+  if (features !== null && !FEATURES.test(features)) throw new Error("trusted workload features are malformed");
+  if (!trailing.every((arg) => TRAILING.test(arg))) throw new Error("trusted workload trailing arguments are malformed");
+  return Object.freeze(["test", "--locked", "--profile", "release-iterate", "-p", crate, ...(noDefaultFeatures ? ["--no-default-features"] : []), ...(features === null ? [] : ["--features", features]), "--bench", bench, ...(trailing.length ? ["--", ...trailing] : [])]);
+};
+// A workload may take a measurement profile: the ceilings and required scale of that named profile in the crate's
+// runtime-budget.json govern it instead of the top-level ones. The profile's features and scale are pinned here.
+const profileOf = (name, features, unit, minCount) => Object.freeze({ name, features: Object.freeze([...features]), requiredScale: Object.freeze({ unit, minCount }) });
 const TRUSTED_COVERAGE = Object.freeze({
   "rightkit-logs": Object.freeze({
     defaultFeatures: true,
@@ -27,14 +40,55 @@ const TRUSTED_COVERAGE = Object.freeze({
     // Source the candidate must keep bound beyond the generic crate and bench inventory.
     requiredSources: Object.freeze(["crates/rightkit-logs/src/detached.rs"]),
   }),
+  "rightkit-daemon": Object.freeze({
+    defaultFeatures: true,
+    coverage: Object.freeze({
+      default: "local native socket/named-pipe echo: 64 held connections, 20000 verified requests, 30 seconds idle",
+      remote: "real loopback TLS listener, production-default durable daemon, ephemeral signed device enrollment, 10000 signed job writes, listener held idle; requires producer-provisioned per-run localhost TLS material",
+      "remote-loopback": "real loopback HTTP listener and bearer authorization: 64 held TCP connections, 20000 verified echo requests, 30 seconds idle; token bucket retained with finite-load burst, no presence reaper configured",
+      testing: "test-only; excluded",
+      "test-mode": "test-only; excluded",
+    }),
+    workloads: Object.freeze([
+      Object.freeze({ id: "local", features: null, bench: "budget", trailing: Object.freeze(["64", "20000", "30"]), env: Object.freeze(["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]), intervalMs: 1000, description: "CI isolated native daemon echo: 64 held connections, 20000 verified requests, then 30 s idle" }),
+      Object.freeze({ id: "remote", features: "remote", bench: "remote_budget", trailing: Object.freeze(["10000", "30"]), env: Object.freeze(["RIGHTKIT_RUNTIME_SCRATCH_ROOT", "RIGHTKIT_DAEMON_BUDGET_TLS_CERT", "RIGHTKIT_DAEMON_BUDGET_TLS_KEY"]), profile: profileOf("remote", ["remote"], "submissions", 10000), intervalMs: null, description: "CI isolated TLS daemon: 10000 signed job submissions over a harness-provisioned ephemeral localhost certificate, then 30 s idle" }),
+      Object.freeze({ id: "remote-loopback", features: "remote-loopback", bench: "budget", trailing: Object.freeze(["--loopback", "64", "20000", "30"]), env: Object.freeze([]), intervalMs: null, description: "CI isolated loopback HTTP daemon: 64 held connections, 20000 verified echo requests, then 30 s idle" }),
+    ]),
+    requiredSources: Object.freeze(["crates/rightkit-daemon/src/server.rs", "crates/rightkit-daemon/src/remote/http.rs", "crates/rightkit-daemon/src/loopback/mod.rs"]),
+  }),
+  // Wake-ups are gated as a delta over a bare Wry loop (runtime-budget.json ceilingBasis); each native bench child pairs
+  // bare and measured processes itself, so the RESULT line carries bare_wakeups_per_s and wakeups_delta_per_s.
+  "rightkit-tauri-shell": Object.freeze({
+    defaultFeatures: true,
+    coverage: Object.freeze({
+      "wv2-0_38": "native Wry hidden webview, Shell plugin, production presence loop, hidden-webview idle timer, singleton default watchdog; 0.38 native binding on Windows",
+      "wv2-0_39": "same activated services with 0.39 native binding on Windows; explicit no-default-features",
+      "host-services": "concrete SettingsHostService over isolated file-backed Document; CAS read/write then emitter remains installed throughout paired observation",
+      "logs": "concrete LogsRuntime with actual accepted/flush-acknowledged renderer record; writer remains installed throughout paired observation",
+      "crash": "real report-only watchdog crash adapter configured with default cooldown; separate native capture/recovery/cancellation functional probes outside measured pairs",
+      "engine": "not activated or qualified by these rows; EngineHost sidecar/presence/supervisor requires separate held-resource workload",
+      "license,update,update-license,overlay,pdf-host": "not activated or qualified by these rows; final adapter owners must classify extra held-resource work versus focused stateless command qualification",
+      "content-devtools": "not enabled or qualified; content inspection needs its own allowed-app native qualification",
+      "dev-overrides,qa-probes": "development-only; excluded from published runtime workload",
+    }),
+    workloads: Object.freeze([
+      Object.freeze({ id: "native-shell-wv2-0_38", features: "wv2-0_38", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell, 0.38 binding: paired bare/watchdog children, 5 s settling, then 30 s observation" }),
+      Object.freeze({ id: "native-shell-wv2-0_39", features: "wv2-0_39", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell, 0.39 binding: paired bare/watchdog children, 5 s settling, then 30 s observation" }),
+      Object.freeze({ id: "native-host-wv2-0_38", features: "wv2-0_38,host-services,logs,crash", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell with settings host service, logs runtime and report-only crash adapter, 0.38 binding: paired children, then 30 s observation" }),
+      Object.freeze({ id: "native-host-wv2-0_39", features: "wv2-0_39,host-services,logs,crash", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell with settings host service, logs runtime and report-only crash adapter, 0.39 binding: paired children, then 30 s observation" }),
+    ]),
+    requiredSources: Object.freeze(["crates/rightkit-tauri-shell/src/watchdog.rs", "crates/rightkit-tauri-shell/src/lib.rs", "crates/rightkit-tauri-shell/src/host/mod.rs", "crates/rightkit-tauri-shell/src/host/policy.rs", "crates/rightkit-tauri-shell/src/logs_commands.rs"]),
+  }),
 });
+// Every declared env name must have a harness provider; refuse a malformed table at load, never at measurement.
+for (const entry of Object.values(TRUSTED_COVERAGE)) for (const w of entry.workloads) { assertEnvNames([...(w.env ?? [])]); cargoBench("rightkit-x", w.features, w.bench, w.trailing ?? [], w.noDefaultFeatures ?? false); }
 function trustedFor(crate) {
   assertCrateName(crate);
   if (!Object.hasOwn(TRUSTED_COVERAGE, crate)) throw new Error(`no trusted supported coverage for ${crate}`);
   return TRUSTED_COVERAGE[crate];
 }
 export function workloadsFor(crate) {
-  return trustedFor(crate).workloads.map((w) => Object.freeze({ id: w.id, args: cargoBench(crate, w.features, w.bench), bench: w.bench, intervalMs: w.intervalMs, description: w.description }));
+  return trustedFor(crate).workloads.map((w) => Object.freeze({ id: w.id, args: cargoBench(crate, w.features, w.bench, w.trailing ?? [], w.noDefaultFeatures ?? false), bench: w.bench, intervalMs: w.intervalMs, description: w.description, env: w.env ?? Object.freeze([]), profile: w.profile ?? null }));
 }
 export function trustedRequiredSources(crate) { return [...(trustedFor(crate).requiredSources ?? [])]; }
 export function supportedPrescription(crate) {
@@ -57,7 +111,8 @@ export function readSourcePrescription(crate, readBlob) {
   return { prescription, workloads: validateSourcePrescription(crate, prescription) };
 }
 export function harnessMetadataPaths(crate, prescription) {
-  return [workloadPrescriptionPath(crate), ...validateSourcePrescription(crate, prescription).map((w) => `crates/${crate}/benches/${w.bench}.rs`)];
+  // Two workloads may share one bench source (daemon local and loopback); each blob is bound once.
+  return [...new Set([workloadPrescriptionPath(crate), ...validateSourcePrescription(crate, prescription).map((w) => `crates/${crate}/benches/${w.bench}.rs`)])];
 }
 // Binds the prescription and every declared bench blob at the candidate SHA; any missing blob refuses.
 export function bindHarnessMetadata(crate, prescription, readBlob) {
@@ -79,6 +134,30 @@ const MEASURE_ENVIRONMENT = Object.freeze([
 ]);
 export function cleanMeasurementEnvironment(env) {
   return Object.fromEntries(MEASURE_ENVIRONMENT.filter((name) => env[name] !== undefined).map((name) => [name, env[name]]));
+}
+// The parts of runtime-budget.json a candidate may never change: top-level ceilings & scale, and each declared
+// profile's features, ceilings & scale. Measurements, notes and evidence pointers stay candidate-writable.
+export function frozenBudgetView(budget) {
+  const profiles = budget.profiles && typeof budget.profiles === "object" ? Object.fromEntries(Object.keys(budget.profiles).sort().map((name) => {
+    const p = budget.profiles[name] ?? {};
+    return [name, { features: p.features, ceilings: p.ceilings, requiredScale: p.requiredScale, ceilingBasis: p.ceilingBasis, deltaCeilings: p.deltaCeilings }];
+  })) : budget.profiles;
+  return { ceilings: budget.ceilings, requiredScale: budget.requiredScale, ceilingBasis: budget.ceilingBasis, deltaCeilings: budget.deltaCeilings, profiles };
+}
+export function assertFrozenBudget(budget, trusted) {
+  const now = frozenBudgetView(budget), then = frozenBudgetView(trusted);
+  for (const key of Object.keys(then)) if (JSON.stringify(now[key]) !== JSON.stringify(then[key])) throw new Error(`candidate changes frozen ${key}`);
+}
+// The budget that governs one workload: the top-level budget, or the named profile checked against the pinned
+// profile (features and required scale) in trusted code. A candidate cannot pick a looser profile or scale.
+export function budgetForWorkload(budget, workload) {
+  if (!workload.profile) return budget;
+  const pinned = workload.profile, declared = budget.profiles?.[pinned.name];
+  const featureArg = workload.args.includes("--features") ? [workload.args[workload.args.indexOf("--features") + 1]] : [];
+  if (!declared || JSON.stringify(declared.features) !== JSON.stringify(pinned.features) || JSON.stringify(featureArg) !== JSON.stringify(pinned.features)) throw new Error(`runtime budget profile ${pinned.name} differs from trusted profile`);
+  if (declared.requiredScale?.unit !== pinned.requiredScale.unit || declared.requiredScale?.minCount !== pinned.requiredScale.minCount) throw new Error(`runtime budget profile ${pinned.name} required scale differs from trusted scale`);
+  if (!declared.ceilings || declared.ceilingBasis !== undefined || declared.deltaCeilings !== undefined) throw new Error(`runtime budget profile ${pinned.name} must declare whole-process ceilings only`);
+  return { ceilings: declared.ceilings, requiredScale: { unit: pinned.requiredScale.unit, minCount: pinned.requiredScale.minCount } };
 }
 function command(exe, args, cwd, options = {}) {
   const result = spawnSync(exe, args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, ...options });
@@ -207,7 +286,7 @@ async function measure(env) {
   const budget = read(path.join(crateDir, "runtime-budget.json"));
   const crate = context.crate;
   const original = read(path.join(ROOT, unit.dir, "runtime-budget.json"));
-  for (const key of ["ceilings", "requiredScale", "ceilingBasis", "deltaCeilings"]) if (JSON.stringify(budget[key]) !== JSON.stringify(original[key])) throw new Error(`candidate changes frozen ${key}`);
+  assertFrozenBudget(budget, original);
   const output = env.RUNTIME_OUT;
   fs.mkdirSync(output, { recursive: true });
   const { recordMeasurement, measuredPathspecs } = await import("../../packages/release/runtime-budgets.mjs");
@@ -219,11 +298,18 @@ async function measure(env) {
   const receipts = [];
   // Separate processes, sequential per host; Cargo reuses this checkout's compiled cache.
   for (const workload of workloads) {
-    const result = spawnSync("cargo", workload.args, { cwd: env.RUNTIME_SOURCE, env: { ...env, CARGO_INCREMENTAL: "1" }, windowsHide: true, encoding: "utf8", timeout: 40 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 });
+    // Declared variables get harness-created values for this run only; the key and scratch are removed after it.
+    let result, provisioned, cleanupProblem = null;
+    try {
+      provisioned = provisionWorkloadEnv(workload.env);
+      result = spawnSync("cargo", workload.args, { cwd: env.RUNTIME_SOURCE, env: { ...workloadEnvironment(env, workload.env, provisioned.values), CARGO_INCREMENTAL: "1" }, windowsHide: true, encoding: "utf8", timeout: 40 * 60 * 1000, maxBuffer: 64 * 1024 * 1024 });
+    } catch (error) { result = { error, status: null, signal: null, stdout: "", stderr: `workload environment failed: ${error.message}` }; }
+    finally { try { provisioned?.dispose(); } catch (error) { cleanupProblem = error.message; } }
     const raw = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
     const rawFile = `${workload.id}-bench.txt`;
     fs.writeFileSync(path.join(output, rawFile), raw);
-    const receipt = { schema: 2, workload: workload.id, intervalMs: workload.intervalMs ?? null, crate, version: unit.version, ...context, qualificationRunId: env.GITHUB_RUN_ID, qualificationRunAttempt: env.GITHUB_RUN_ATTEMPT, manifestSha256, bindings, toolchain, host: { os: process.platform, arch: process.arch, release: os.release(), runner: env.RUNNER_NAME, image: env.ImageVersion }, command: `cargo ${workload.args.join(" ")}`, rawFile, rawSha256: hash(Buffer.from(raw)), exitCode: result.status, signal: result.signal, problems: [] };
+    const receipt = { schema: 2, workload: workload.id, intervalMs: workload.intervalMs ?? null, crate, version: unit.version, ...context, qualificationRunId: env.GITHUB_RUN_ID, qualificationRunAttempt: env.GITHUB_RUN_ATTEMPT, manifestSha256, bindings, toolchain, host: { os: process.platform, arch: process.arch, release: os.release(), runner: env.RUNNER_NAME, image: env.ImageVersion }, command: `cargo ${workload.args.join(" ")}`, envNames: [...workload.env], rawFile, rawSha256: hash(Buffer.from(raw)), exitCode: result.status, signal: result.signal, problems: [] };
+    if (cleanupProblem) receipt.problems.push(cleanupProblem);
     if (result.error || result.status !== 0) receipt.problems.push(`bench failed: ${result.error?.message ?? result.status}`);
     else {
       try {
@@ -243,7 +329,7 @@ async function measure(env) {
           if (priorEvidence !== null) fs.writeFileSync(alias, priorEvidence);
           else if (fs.existsSync(alias)) fs.unlinkSync(alias);
         }
-        receipt.problems.push(...measurementProblems(receipt.record, budget, context.sourceSha, process.platform));
+        receipt.problems.push(...measurementProblems(receipt.record, budgetForWorkload(budget, workload), context.sourceSha, process.platform));
       } catch (error) { receipt.problems.push(`record rejected: ${error.message}`); }
     }
     receipts.push(receipt);
@@ -267,11 +353,11 @@ export function validateWorkloadReceipts(receipts, context, unit, manifestSha256
     if (!workload || seen.has(receipt.workload)) throw new Error("unknown/duplicate workload");
     seen.add(receipt.workload);
     if (qualificationRun && (receipt.qualificationRunId !== qualificationRun.id || receipt.qualificationRunAttempt !== qualificationRun.attempt)) throw new Error("mixed qualification run");
-    if (receipt.schema !== 2 || receipt.crate !== crate || receipt.version !== unit.version || receipt.host?.os !== host || receipt.exitCode !== 0 || receipt.signal || !Array.isArray(receipt.problems) || receipt.problems.length || receipt.command !== `cargo ${workload.args.join(" ")}` || receipt.intervalMs !== (workload.intervalMs ?? null) || receipt.record?.command !== receipt.command || receipt.record?.crateVersion !== unit.version || receipt.record?.host?.arch !== receipt.host.arch || !receipt.toolchain?.rustc || !receipt.toolchain?.cargo) throw new Error(`${host}: workload identity/status mismatch`);
+    if (receipt.schema !== 2 || receipt.crate !== crate || receipt.version !== unit.version || receipt.host?.os !== host || receipt.exitCode !== 0 || receipt.signal || !Array.isArray(receipt.problems) || receipt.problems.length || receipt.command !== `cargo ${workload.args.join(" ")}` || receipt.intervalMs !== (workload.intervalMs ?? null) || JSON.stringify(receipt.envNames ?? []) !== JSON.stringify(workload.env) || receipt.record?.command !== receipt.command || receipt.record?.crateVersion !== unit.version || receipt.record?.host?.arch !== receipt.host.arch || !receipt.toolchain?.rustc || !receipt.toolchain?.cargo) throw new Error(`${host}: workload identity/status mismatch`);
     for (const key of ["crate", "repository", "runId", "runAttempt", "sourceSha", "artifactId", "artifactDigest"]) if (receipt[key] !== context[key]) throw new Error(`${host}: mixed candidate ${key}`);
     if (receipt.manifestSha256 !== manifestSha256 || receipt.harnessSha !== harnessSha || JSON.stringify(Object.entries(receipt.bindings ?? {}).sort()) !== JSON.stringify(Object.entries(bindings).sort())) throw new Error(`${host}: source/manifest/harness binding mismatch`);
     if (receipt.rawFile !== `${workload.id}-bench.txt` || !/^[a-f0-9]{64}$/.test(receipt.rawSha256 ?? "") || receipt.record.evidence.sha256 !== receipt.rawSha256 || !receipt.record.evidence.file.endsWith(`-${workload.id}.txt`)) throw new Error("workload evidence mismatch");
-    const problems = measurementProblems(receipt.record, budget, context.sourceSha, host);
+    const problems = measurementProblems(receipt.record, budgetForWorkload(budget, workload), context.sourceSha, host);
     if (problems.length) throw new Error(problems.join("; "));
   }
   if (new Set(receipts.map((r) => r.record.evidence.file)).size !== receipts.length) throw new Error("workload evidence overwrite");
@@ -289,7 +375,9 @@ async function combine(env) {
   const crateDir = path.join(env.RUNTIME_SOURCE, unit.dir);
   const budget = read(path.join(crateDir, "runtime-budget.json"));
   const crate = context.crate;
+  assertFrozenBudget(budget, read(path.join(ROOT, unit.dir, "runtime-budget.json")));
   const records = [];
+  const profileRecords = {};
   const proofFiles = {};
   fs.mkdirSync(env.RUNTIME_OUT, { recursive: true });
   // Match dependency binding inventory used by each producer.
@@ -307,6 +395,9 @@ async function combine(env) {
       fs.mkdirSync(path.join(crateDir, "runtime-budget.evidence"), { recursive: true });
       fs.writeFileSync(path.join(crateDir, receipt.record.evidence.file), bytes);
       records.push(receipt.record);
+      // A workload with a pinned profile is held to that profile's ceilings; its record belongs to the profile.
+      const profile = workloadsFor(crate).find((w) => w.id === receipt.workload).profile;
+      if (profile) (profileRecords[profile.name] ??= []).push(receipt.record);
     }
     // Preserve complete producer envelopes & raw outputs for downstream authentication.
     for (const name of ["qualification.json", ...workloads.flatMap((w) => [`${w.id}-bench.txt`, `${w.id}-evidence.txt`])]) {
@@ -318,7 +409,10 @@ async function combine(env) {
     }
   }
   // Replace only this version's synthetic runs on qualified hosts; retain other history.
-  budget.measurements = [...budget.measurements.filter((m) => !(m.crateVersion === unit.version && m.scope === "synthetic" && ["win32", "darwin"].includes(m.host.os))), ...records];
+  const replaceable = (m) => m.crateVersion === unit.version && m.scope === "synthetic" && ["win32", "darwin"].includes(m.host.os);
+  const profiled = new Set(Object.values(profileRecords).flat());
+  budget.measurements = [...budget.measurements.filter((m) => !replaceable(m)), ...records.filter((record) => !profiled.has(record))];
+  for (const [name, rows] of Object.entries(profileRecords)) budget.profiles[name].measurements = [...(budget.profiles[name].measurements ?? []).filter((m) => !replaceable(m)), ...rows];
   write(path.join(crateDir, "runtime-budget.json"), budget);
   const { syncRuntimeBudgetReadme, evaluateRuntimeBudget } = await import("../../packages/release/runtime-budgets.mjs");
   const readme = path.join(crateDir, "README.md");
