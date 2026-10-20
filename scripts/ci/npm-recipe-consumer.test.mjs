@@ -302,6 +302,7 @@ test('workspace binding rejects age/trust policy changes even with recomputed di
 test('tauri age exception is singleton reviewed dependency bytes, never another closure or unit', () => {
   const name = '@rightkit/tauri'; const entry = clone(inventory.npm[name]);
   assert.deepEqual(closureAgeExceptions(entry, name), ['@rightkit/logs@0.1.6']);
+  assert.equal(entry.closure.install['@tauri-apps/plugin-dialog'], '2.8.3');
   const config = scratchWorkspace(entry, name); const digest = sha('sha256', config);
   assert.equal(validateWorkspaceBinding({ file: '/scratch/pnpm-workspace.yaml', before: config, after: config, beforeSha256: digest, afterSha256: digest }, entry, name, '/scratch', path.posix), true);
   assert.match(scratchWorkspace(entry, name), /^packages: \[\]\nminimumReleaseAgeExclude:\n  - "@rightkit\/logs@0\.1\.6"\noverrides:/);
@@ -311,7 +312,12 @@ test('tauri age exception is singleton reviewed dependency bytes, never another 
   for (const bad of [[], [...approvals, ...approvals], [{ ...approvals[0], sha256: 'f'.repeat(64) }], [{ ...approvals[0], reviewer: '' }]]) assert.throws(() => validateClosureApproval(bad, entry, name), /approval/);
   entry.closure.install['@rightkit/logs'] = '0.1.5';
   assert.throws(() => closureAgeExceptions(entry, name), /exact selected reviewed closure/);
-  entry.closure.install['@rightkit/logs'] = '0.1.6'; entry.closure.install.react = '19.1.0';
+  entry.closure.install['@rightkit/logs'] = '0.1.6';
+  entry.closure.install['@tauri-apps/plugin-dialog'] = '2.8.2';
+  assert.throws(() => closureAgeExceptions(entry, name), /exact selected reviewed closure/);
+  delete entry.closure.install['@tauri-apps/plugin-dialog'];
+  assert.throws(() => closureAgeExceptions(entry, name), /exact selected reviewed closure/);
+  entry.closure.install['@tauri-apps/plugin-dialog'] = '2.8.3'; entry.closure.install.react = '19.1.0';
   assert.throws(() => closureAgeExceptions(entry, name), /exact selected reviewed closure/);
   assert.throws(() => validateClosureProvenance({ archiveBase64: Buffer.from('substituted archive').toString('base64'), artifact: {} }, '', inventory.npm[name], name, '/scratch', path.posix), /approved bytes/);
   assert.throws(() => validateClosureProvenance({}, '', inventory.npm[NAME], NAME, '/scratch', path.posix), /unexpected dependency/);

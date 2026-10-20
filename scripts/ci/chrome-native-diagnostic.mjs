@@ -84,8 +84,9 @@ async function diagnostic(entry, out) {
 [Console]::Error.WriteLine('PSHOME=' + $PSHOME); [Console]::Error.Flush();
 [Console]::Error.WriteLine('PSModulePath=' + $env:PSModulePath); [Console]::Error.Flush();
 ${marker('EXIT')}`);
-    run('powershell-explicit-cim', `function RkDiagnosticMark([string]$text) { [Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ' + $text); [Console]::Error.Flush() }
-$ErrorActionPreference = 'Stop'; $PSModuleAutoLoadingPreference = 'None';
+    for (const autoLoading of ['None', null]) {
+      run(autoLoading ? 'powershell-explicit-cim' : 'powershell-explicit-cim-default-autoload', `function RkDiagnosticMark([string]$text) { [Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ' + $text); [Console]::Error.Flush() }
+$ErrorActionPreference = 'Stop'; ${autoLoading ? "$PSModuleAutoLoadingPreference = 'None';" : ''}
 try {
   RkDiagnosticMark 'IMPORT_BEGIN';
   Import-Module ($PSHOME + '\\Modules\\CimCmdlets\\CimCmdlets.psd1') -ErrorAction Stop;
@@ -96,8 +97,15 @@ try {
 } catch {
   RkDiagnosticMark ('ERROR_TYPE=' + $_.Exception.GetType().FullName);
   RkDiagnosticMark ('ERROR_ID=' + [string]$_.FullyQualifiedErrorId);
+  RkDiagnosticMark ('ERROR_MESSAGE=' + $_.Exception.Message);
+  if ($null -ne $_.Exception.InnerException) {
+    RkDiagnosticMark ('INNER_ERROR_TYPE=' + $_.Exception.InnerException.GetType().FullName);
+    RkDiagnosticMark ('INNER_ERROR_MESSAGE=' + $_.Exception.InnerException.Message);
+  }
+  RkDiagnosticMark ('ERROR_POSITION=' + [string]$_.InvocationInfo.PositionMessage);
   exit 1;
-}`);
+}`, { moduleAutoLoading: autoLoading ?? 'default' });
+    }
     try {
       let instrumented = marker('SCRIPT_ENTRY') + script;
       instrumented = once(instrumented, '$assembly = [AppDomain]', `${marker('REFLECTION_EMIT_BEGIN')}$assembly = [AppDomain]`);

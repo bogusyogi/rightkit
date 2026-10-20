@@ -99,3 +99,62 @@ test('installed closure rejects ambient omitted peers & exact-pin drift', () => 
     assert.equal(result.evidence.archive.sha256, 'a'.repeat(64));
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 });
+
+test('reviewed closures import legacy-skipped JS exports & retain import and metadata failures', () => {
+  const name = '@rightkit/tauri';
+  const packed = JSON.parse(fs.readFileSync(new URL('../../packages/tauri/package.json', import.meta.url), 'utf8'));
+  const entry = recipeInventory().npm[name];
+  assert.deepEqual(entry.importClosures['.'], { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6' });
+  assert.deepEqual(entry.importClosures['./dialog'], { ...entry.importClosures['.'], '@tauri-apps/plugin-dialog': '2.8.3' });
+  const run = ({ reviewed = true, failDialog = false, malformedSkip = false } = {}) => {
+    const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-all-imports-test-'));
+    const pkg = structuredClone(packed);
+    if (malformedSkip) pkg.rightkit.publishCheck.skipImport = './dialog';
+    const reviewedEntry = structuredClone(entry);
+    if (!reviewed) delete reviewedEntry.importClosures;
+    const plans = [];
+    try {
+      fs.mkdirSync(path.join(scratchRoot, 'ci'));
+      fs.writeFileSync(path.join(scratchRoot, 'ci', 'consumer-recipes.json'), JSON.stringify({ npm: { [name]: reviewedEntry } }));
+      const spawn = (command, args, options) => {
+        if (command === 'tar') return { status: 0, stdout: Buffer.from(JSON.stringify(pkg)) };
+        if (command === 'fixture-npm') {
+          const dir = path.join(options.cwd, 'node_modules', '@rightkit', 'tauri');
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+          for (const file of declaredEntries(pkg).files) {
+            fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+            fs.writeFileSync(path.join(dir, file), '');
+          }
+          for (const arg of args.filter(arg => /@\d/.test(arg))) {
+            const split = arg.lastIndexOf('@'); const depName = arg.slice(0, split); const version = arg.slice(split + 1);
+            const dep = path.join(options.cwd, 'node_modules', ...depName.split('/'));
+            fs.mkdirSync(dep, { recursive: true });
+            fs.writeFileSync(path.join(dep, 'package.json'), JSON.stringify({ name: depName, version }));
+          }
+          return { status: 0 };
+        }
+        const plan = JSON.parse(fs.readFileSync(args.at(-1), 'utf8'));
+        plans.push(...plan.items);
+        return { status: 0, stdout: 'RK_CONSUME ' + JSON.stringify(plan.items.map(item => failDialog && item.subpath === './dialog' && item.import
+          ? { spec: item.spec, ok: false, imported: false, error: 'dialog fixture import failed' }
+          : { spec: item.spec, ok: true, imported: item.import })) + '\n' };
+      };
+      const result = consumeNpmPortability({ units: [{ name, version: pkg.version, file: 'tauri.tgz' }], packDir: scratchRoot, scratchRoot, root: scratchRoot, spawn, npm: { command: 'fixture-npm', prefix: [], shell: false } }).get(name);
+      return { result, plans };
+    } finally { fs.rmSync(scratchRoot, { recursive: true, force: true }); }
+  };
+  const reviewed = run();
+  assert.deepEqual(reviewed.result.problems, []);
+  assert.ok(reviewed.plans.every(item => item.import));
+  assert.deepEqual(reviewed.result.report.imported, [name, `${name}/dialog`]);
+  assert.deepEqual(reviewed.result.report.resolvedOnly, []);
+  assert.deepEqual(reviewed.result.report.skippedImport, []);
+  assert.ok(run({ failDialog: true }).result.problems.some(problem => problem.includes('dialog fixture import failed')));
+  assert.ok(run({ malformedSkip: true }).result.problems.some(problem => problem.includes('skipImport must be an array')));
+  const legacy = run({ reviewed: false });
+  assert.equal(legacy.plans.find(item => item.subpath === './dialog').import, false);
+  assert.deepEqual(legacy.result.report.resolvedOnly, [`${name}/dialog`]);
+  assert.deepEqual(legacy.result.report.skippedImport, ['./dialog']);
+  assert.deepEqual(packed.rightkit.publishCheck.skipImport, ['./dialog']);
+});

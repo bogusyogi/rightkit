@@ -182,7 +182,7 @@ export function installedImportClosure({ unit, pkg, dir, scratch, installPins })
  * Install the sealed tarballs together into a scratch project and check each from its installed copy.
  * Returns Map(unit name -> { problems: [], report }). Never throws for a package defect.
  */
-function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath, installPins, onlySubpaths }) {
+function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spawn = spawnSync, env = process.env, npm = npmCliCommand(), node = process.execPath, installPins, onlySubpaths, requireAllImports = false }) {
   const results = new Map(units.map((u) => [u.name, { problems: [], report: {} }]));
   const scratch = fs.mkdtempSync(path.join(scratchRoot, "rk-consume-npm-"));
   try {
@@ -206,6 +206,7 @@ function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spa
       const declared = declaredEntries(pkg);
       const skip = skipImportList(pkg, declared);
       out.problems.push(...skip.problems);
+      const skippedImport = requireAllImports ? [] : skip.list;
       for (const file of declared.files) if (!fs.existsSync(path.join(dir, file))) out.problems.push(`${unit.name}: installed package.json points at ${file}, which the installed package does not contain`);
       const smokePlan = binSmokePlan(pkg, declared);
       out.problems.push(...smokePlan.problems);
@@ -213,8 +214,8 @@ function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spa
       out.problems.push(...smoke.problems);
       const items = declared.subpaths
         .filter((s) => s.runtime.length > 0 && (!onlySubpaths || onlySubpaths.includes(s.subpath)))
-        .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skip.list.includes(s.subpath), ...(s.testConditions !== null && s.testConditions !== undefined ? { expectBlocked: true, testConditions: s.testConditions } : {}) }));
-      const report = { entries: items.length, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport: skip.list, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
+        .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skippedImport.includes(s.subpath), ...(s.testConditions !== null && s.testConditions !== undefined ? { expectBlocked: true, testConditions: s.testConditions } : {}) }));
+      const report = { entries: items.length, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
       out.report = report;
       if (closure) report.installClosure = closure.evidence;
       if (items.length === 0) continue;
@@ -295,7 +296,8 @@ export function consumeNpmPortability(options) {
       for (const group of groups) {
         // Only this sealed unit & this exact map enter a fresh install. npm must not auto-install
         // other optional/required peers, which would mask a minimal export's dependency contract.
-        const result = consumeNpmInstallation({ ...options, units: [unit], installPins: group.install, onlySubpaths: group.subpaths }).get(unit.name);
+        // Reviewed closures prove actual imports even when sealed legacy metadata requests a skip.
+        const result = consumeNpmInstallation({ ...options, units: [unit], installPins: group.install, onlySubpaths: group.subpaths, requireAllImports: true }).get(unit.name);
         out.problems.push(...result.problems);
         const row = result.report;
         report.entries += row.entries ?? 0;

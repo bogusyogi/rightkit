@@ -128,7 +128,7 @@ export function scratchManifest(manifest, name, archive, pin) {
 export const CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/logs', version: '0.1.6', sha256: '72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c' });
 export function closureAgeExceptions(entry, name) {
   if (name !== '@rightkit/tauri') return [];
-  need(same(entry.closure.install, { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6' }), 'tauri release-age exception requires exact selected reviewed closure');
+  need(same(entry.closure.install, { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6', '@tauri-apps/plugin-dialog': '2.8.3' }), 'tauri release-age exception requires exact selected reviewed closure');
   return [`${CLOSURE_APPROVAL.name}@${CLOSURE_APPROVAL.version}`];
 }
 export function validateClosureApproval(artifacts, entry, name) {
