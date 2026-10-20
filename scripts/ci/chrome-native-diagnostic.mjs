@@ -12,9 +12,6 @@ import { consumerChildEnv } from './npm-recipe-consumer.mjs';
 const FILE = fileURLToPath(import.meta.url);
 const FROZEN = Object.freeze({ runId: '39496214838', runAttempt: '1', repository: 'bogusyogi/rightkit', commit: 'd37da6469cc4bf8a6819bc19778113c62d74f1f1', name: '@rightkit/qa-chrome', version: '0.1.9', file: 'rightkit-qa-chrome-0.1.9.tgz', size: 40513, sha256: 'bab8ff5fdbabfdc7bbdddcec0842fdc3aba398763960f0bf396ff0fd36608ba3' });
 const MAX_BYTES = 2 * 1024 * 1024;
-const WINDOWS_SYSTEM_ENV = ['ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432', 'CommonProgramFiles', 'CommonProgramFiles(x86)', 'CommonProgramW6432', 'SystemDrive', 'ProgramData', 'ALLUSERSPROFILE'];
-const WINDOWS_HOME_ENV = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA'];
-const WINDOWS_ENV_BRIDGE = 'RIGHTKIT_DIAGNOSTIC_WINDOWS_ENV';
 const errorRecord = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error), code: error?.code ?? null });
 const requiredPath = name => { assert(process.env[name] && path.isAbsolute(process.env[name]), `${name} must be absolute`); return path.resolve(process.env[name]); };
 
@@ -91,10 +88,6 @@ function prepare(artifact, out) {
 }
 
 async function diagnostic(entry, out) {
-  // Only named standard Windows locations cross this diagnostic bridge; archive never inherits it.
-  const windowsParentEnv = JSON.parse(process.env[WINDOWS_ENV_BRIDGE] ?? '{}');
-  delete process.env[WINDOWS_ENV_BRIDGE];
-  assert(Object.entries(windowsParentEnv).every(([key, value]) => [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV].includes(key) && typeof value === 'string'), 'unexpected diagnostic Windows environment field');
   const report = { diagnosticOnly: true, nativeHostQualified: false, frozen: FROZEN, host: { platform: process.platform, arch: process.arch, node: process.version }, nativeCalls: [], chrome: [], scenarios: [], errors: [], linuxPolicy: {}, windowsProbes: [] };
   const originalSpawn = childProcess.spawn;
   const originalSpawnSync = childProcess.spawnSync;
@@ -111,111 +104,41 @@ async function diagnostic(entry, out) {
     return { text: bytes.subarray(0, take).toString('utf8'), bytes: bytes.length, truncated: take < bytes.length };
   };
   function windowsPhaseProbes(command, args, options) {
-    // Capture only the real frozen scanner invocation; no copied script or fallback discovery.
+    const packet = { schema: 1, diagnosticOnly: true, nativeHostQualified: false, frozen: FROZEN, probes: [] };
+    const save = () => fs.writeFileSync(path.join(out, 'windows-scanner-bootstrap.json'), `${JSON.stringify(packet, null, 2)}\n`);
+    // Obtain the complete body only from an actual frozen scanner invocation.
     const commandIndex = args?.indexOf('-Command');
     const script = args?.[commandIndex + 1];
     if (commandIndex !== 2 || args.length !== 4 || args[0] !== '-NoProfile' || args[1] !== '-NonInteractive' || typeof script !== 'string' || !options?.env?.RK_QA_PROFILE || !script.includes('RK_QA_SCAN_COMPLETE')) {
-      report.windowsProbes.push({ kind: 'scanner-capture-refused', reason: 'actual invocation did not match frozen scanner shape' });
+      packet.error = 'actual invocation did not match frozen scanner shape';
+      report.windowsProbes.push({ kind: 'scanner-capture-refused', reason: packet.error });
+      save();
       return;
     }
     scannerCaptured = true;
-    const marker = phase => `[Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ${phase}'); [Console]::Error.Flush(); `;
-    const once = (source, anchor, replacement) => {
-      assert.equal(source.split(anchor).length, 2, `diagnostic scanner anchor must occur exactly once: ${anchor}`);
-      return source.replace(anchor, replacement);
-    };
-    function run(kind, body, extra = {}) {
+    const prefix = `$PSModuleAutoLoadingPreference = 'None'; $ErrorActionPreference = 'Stop';
+$null = Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop;
+$null = Import-Module ($PSHOME + '\\Modules\\CimCmdlets\\CimCmdlets.psd1') -ErrorAction Stop;
+`;
+    const prefixed = prefix + script;
+    packet.originalScriptSha256 = createHash('sha256').update(script).digest('hex');
+    packet.prefixedScriptSha256 = createHash('sha256').update(prefixed).digest('hex');
+    for (const [kind, body] of [['sealed-scanner-baseline', script], ['sealed-scanner-explicit-module-bootstrap', prefixed]]) {
       const invocation = [...args]; invocation[commandIndex + 1] = body;
       const started = performance.now();
+      let observation;
       try {
-        // Only diagnostic timeout differs; executable, arguments & isolated environment remain captured.
+        // Keep executable, flags, environment & original scanner body. Only replay timeout is capped.
         const result = originalSpawnSync(command, invocation, { ...options, timeout: 15_000, maxBuffer: MAX_BYTES });
-        report.windowsProbes.push({ kind, ...extra, timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
-      } catch (error) { report.windowsProbes.push({ kind, ...extra, durationMs: performance.now() - started, error: errorRecord(error) }); }
-    }
-    run('powershell-entry', `${marker('ENTRY')}[ordered]@{ PSVersion = $PSVersionTable.PSVersion.ToString(); LanguageMode = [string]$ExecutionContext.SessionState.LanguageMode; PSHOME = $PSHOME } | ConvertTo-Json -Compress; ${marker('ENTRY_COMPLETE')}`);
-    run('powershell-raw-console', `${marker('ENTRY')}
-[Console]::Error.WriteLine('PSVersion=' + $PSVersionTable.PSVersion.ToString()); [Console]::Error.Flush();
-[Console]::Error.WriteLine('LanguageMode=' + [string]$ExecutionContext.SessionState.LanguageMode); [Console]::Error.Flush();
-[Console]::Error.WriteLine('PSHOME=' + $PSHOME); [Console]::Error.Flush();
-[Console]::Error.WriteLine('PSModulePath=' + $env:PSModulePath); [Console]::Error.Flush();
-${marker('EXIT')}`);
-    try {
-      const rawProbe = report.windowsProbes.findLast(probe => probe.kind === 'powershell-raw-console');
-      assert.equal(rawProbe?.status, 0, 'trusted module probe requires successful captured PowerShell host observation');
-      const observedHome = /^PSHOME=(.+)$/m.exec(rawProbe.stderr.text)?.[1].trim();
-      assert(observedHome && path.isAbsolute(observedHome), 'captured PowerShell host directory unavailable');
-      const systemRoot = options.env.SystemRoot ?? options.env.SYSTEMROOT;
-      assert(systemRoot && path.isAbsolute(systemRoot), 'captured Windows system root unavailable');
-      const knownExecutable = fs.realpathSync(path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
-      const observedExecutable = fs.realpathSync(path.join(observedHome, 'powershell.exe'));
-      assert.equal(observedExecutable.toLowerCase(), knownExecutable.toLowerCase(), 'captured PowerShell host must match known Windows executable');
-      const modulePath = fs.realpathSync(path.join(path.dirname(observedExecutable), 'Modules'));
-      const started = performance.now();
-      // Exact captured scanner body & flags; restrict only this diagnostic child's module search.
-      const result = originalSpawnSync(observedExecutable, [...args], { ...options, env: { ...options.env, PSModulePath: modulePath }, timeout: 15_000, maxBuffer: MAX_BYTES });
-      report.windowsProbes.push({ kind: 'sealed-scanner-trusted-module-path', executablePath: observedExecutable, modulePath, originalScriptSha256: createHash('sha256').update(script).digest('hex'), timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) });
-    } catch (error) { report.windowsProbes.push({ kind: 'trusted-module-path-probe-refused', error: errorRecord(error) }); }
-    for (const restoreHome of [false, true]) {
-      const names = restoreHome ? [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV] : WINDOWS_SYSTEM_ENV;
-      const restored = Object.fromEntries(names.filter(name => Object.hasOwn(windowsParentEnv, name)).map(name => [name, windowsParentEnv[name]]));
-      const kind = restoreHome ? 'sealed-scanner-restored-system-and-home-env' : 'sealed-scanner-restored-system-env';
-      if (!Object.keys(restored).length) {
-        report.windowsProbes.push({ kind, refused: 'parent standard Windows locations unavailable' });
-        continue;
+        observation = { kind, diagnosticOnly: true, nativeHostQualified: false, timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? errorRecord(result.error) : null, stdout: bound(result.stdout), stderr: bound(result.stderr) };
+      } catch (error) {
+        observation = { kind, diagnosticOnly: true, nativeHostQualified: false, timeoutMs: 15_000, durationMs: performance.now() - started, error: errorRecord(error) };
       }
-      const env = { ...options.env };
-      for (const [name, value] of Object.entries(restored)) {
-        for (const present of Object.keys(env)) if (present.toLowerCase() === name.toLowerCase()) delete env[present];
-        env[name] = value;
-      }
-      const redact = value => {
-        let text = Buffer.from(value ?? '').toString('utf8');
-        for (const [name, location] of Object.entries(restored).sort((a, b) => b[1].length - a[1].length)) {
-          if (location) text = text.split(location).join(`[restored:${name}]`);
-        }
-        return text;
-      };
-      const started = performance.now();
-      try {
-        const result = originalSpawnSync(command, [...args], { ...options, env, timeout: 15_000, maxBuffer: MAX_BYTES });
-        report.windowsProbes.push({ kind, restoredKeys: Object.keys(restored), originalScriptSha256: createHash('sha256').update(script).digest('hex'), timeoutMs: 15_000, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? { ...errorRecord(result.error), message: redact(result.error.message) } : null, stdout: bound(redact(result.stdout)), stderr: bound(redact(result.stderr)) });
-      } catch (error) { report.windowsProbes.push({ kind, restoredKeys: Object.keys(restored), durationMs: performance.now() - started, error: { ...errorRecord(error), message: redact(error?.message ?? error) } }); }
+      packet.probes.push(observation);
+      report.windowsProbes.push(observation);
     }
-    for (const autoLoading of ['None', null]) {
-      run(autoLoading ? 'powershell-explicit-cim' : 'powershell-explicit-cim-default-autoload', `function RkDiagnosticMark([string]$text) { [Console]::Error.WriteLine('RK_DIAGNOSTIC_PHASE ' + $text); [Console]::Error.Flush() }
-$ErrorActionPreference = 'Stop'; ${autoLoading ? "$PSModuleAutoLoadingPreference = 'None';" : ''}
-try {
-  RkDiagnosticMark 'IMPORT_BEGIN';
-  Import-Module ($PSHOME + '\\Modules\\CimCmdlets\\CimCmdlets.psd1') -ErrorAction Stop;
-  RkDiagnosticMark 'IMPORT_END';
-  RkDiagnosticMark 'QUERY_BEGIN';
-  $rows = @(CimCmdlets\\Get-CimInstance Win32_Process -ErrorAction Stop);
-  RkDiagnosticMark ('QUERY_END count=' + [string]$rows.Count);
-} catch {
-  RkDiagnosticMark ('ERROR_TYPE=' + $_.Exception.GetType().FullName);
-  RkDiagnosticMark ('ERROR_ID=' + [string]$_.FullyQualifiedErrorId);
-  RkDiagnosticMark ('ERROR_MESSAGE=' + $_.Exception.Message);
-  if ($null -ne $_.Exception.InnerException) {
-    RkDiagnosticMark ('INNER_ERROR_TYPE=' + $_.Exception.InnerException.GetType().FullName);
-    RkDiagnosticMark ('INNER_ERROR_MESSAGE=' + $_.Exception.InnerException.Message);
-  }
-  RkDiagnosticMark ('ERROR_POSITION=' + [string]$_.InvocationInfo.PositionMessage);
-  exit 1;
-}`, { moduleAutoLoading: autoLoading ?? 'default' });
-    }
-    try {
-      let instrumented = marker('SCRIPT_ENTRY') + script;
-      instrumented = once(instrumented, '$assembly = [AppDomain]', `${marker('REFLECTION_EMIT_BEGIN')}$assembly = [AppDomain]`);
-      instrumented = once(instrumented, '$native = $builder.CreateType();', `$native = $builder.CreateType(); ${marker('REFLECTION_EMIT_END')}`);
-      instrumented = once(instrumented, '$rx = [regex]::new(', `${marker('REGEX_BEGIN')}$rx = [regex]::new(`);
-      instrumented = once(instrumented, '; Get-CimInstance Win32_Process |', `; ${marker('REGEX_END')}& { ${marker('CIM_BEGIN')}Get-CimInstance Win32_Process; ${marker('CIM_END')} } |`);
-      instrumented = once(instrumented, 'function RkProfile([uint32]$id, $rx) {', `function RkProfile([uint32]$id, $rx) { ${marker('PER_PID_NATIVE_BEGIN')}`);
-      const rowQuery = "$row = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [string]$id);";
-      instrumented = once(instrumented, rowQuery, `${marker('PER_PID_NATIVE_END')}${marker('PER_PID_CIM_BEGIN')}${rowQuery} ${marker('PER_PID_CIM_END')}`);
-      instrumented += `; ${marker('SCRIPT_END')}`;
-      run('sealed-scanner-phases', instrumented, { originalScriptSha256: createHash('sha256').update(script).digest('hex'), instrumentedScriptSha256: createHash('sha256').update(instrumented).digest('hex') });
-    } catch (error) { report.windowsProbes.push({ kind: 'scanner-instrumentation-refused', error: errorRecord(error) }); }
+    // Persist before wrapper executes the untouched original call or starts any Chrome scenario.
+    save();
   }
   childProcess.spawnSync = function (command, args, options) {
     if (process.platform === 'win32' && captureScanner && !scannerCaptured && command === 'powershell.exe') windowsPhaseProbes(command, args, options);
@@ -359,12 +282,6 @@ async function main() {
     env.RIGHTKIT_CHROME_FOR_TESTING_ROOT = managed;
     if (process.platform === 'win32') {
       powerShellModuleControl(out, env);
-      const locations = {};
-      for (const name of [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV]) {
-        const entry = Object.entries(process.env).find(([key]) => key.toLowerCase() === name.toLowerCase());
-        if (entry) locations[name] = entry[1];
-      }
-      env[WINDOWS_ENV_BRIDGE] = JSON.stringify(locations);
     }
     const child = childProcess.spawnSync(process.execPath, [FILE, '--child', entry, out], { env, windowsHide: true, encoding: 'utf8', timeout: 240_000, maxBuffer: MAX_BYTES });
     fs.writeFileSync(path.join(out, 'child-status.json'), `${JSON.stringify({ diagnosticOnly: true, nativeHostQualified: false, status: child.status, signal: child.signal, error: child.error ? errorRecord(child.error) : null, stdout: child.stdout, stderr: child.stderr }, null, 2)}\n`);
