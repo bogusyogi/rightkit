@@ -422,3 +422,18 @@ fn restrict_owner_only_succeeds_while_another_handle_holds_the_file_without_dele
     assert!(rightkit_fs::private::is_owner_only(&path).unwrap());
     drop(held);
 }
+
+#[test]
+fn private_native_import_has_owner_dacl_before_bytes_and_after_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let reference = reference_sddl(dir.path());
+    let target = dir.path().join(".record.rktmp-123-1-0");
+    let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
+    assert!(!target.exists());
+    assert_eq!(dacl_sddl(writer.temp_path()), reference);
+    writer.write_all(b"private imported bytes").unwrap();
+    let report = writer.commit_reporting().unwrap();
+    assert!(report.is_fully_durable());
+    assert_eq!(dacl_sddl(&target), reference);
+    assert_eq!(std::fs::read(&target).unwrap(), b"private imported bytes");
+}

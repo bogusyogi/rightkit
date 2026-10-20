@@ -1,6 +1,6 @@
-//! Windows-only identity-pinned cleanup for generated temporary files.
+//! Windows-only pinned enumeration of ambiguous temporary-looking names; never deletes them.
 
-use crate::atomic::{confirmed_dead_writer, generated_temp_pid};
+use crate::atomic::{SweepReport, generated_temp_pid};
 use crate::error::{FsError, Result};
 use std::ffi::c_void;
 use std::fs::File;
@@ -15,44 +15,20 @@ type Handle = *mut c_void;
 
 const FILE_LIST_DIRECTORY: u32 = 0x0001;
 const READ_ATTRIBUTES: u32 = 0x0080;
-const DELETE: u32 = 0x0001_0000;
 const SYNCHRONIZE: u32 = 0x0010_0000;
-const SHARE_READ_WRITE: u32 = 3;
 const SHARE_READ_WRITE_DELETE: u32 = 7;
 const OPEN_EXISTING: u32 = 3;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
-const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-const FILE_OPEN: u32 = 1;
-const NON_DIRECTORY_FILE: u32 = 0x40;
-const SYNCHRONOUS_IO_NONALERT: u32 = 0x20;
 const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
-const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 const FILE_ATTRIBUTE_TAG_INFO: i32 = 9;
-const FILE_ID_INFO: i32 = 18;
 const FILE_ID_EXTD_DIRECTORY_INFO: i32 = 19;
 const FILE_ID_EXTD_DIRECTORY_RESTART_INFO: i32 = 20;
-const FILE_DISPOSITION_INFO: i32 = 4;
 const ERROR_NO_MORE_FILES: i32 = 18;
 
 #[repr(C)]
 struct AttributeTagInfo {
     attributes: u32,
     reparse_tag: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct FileIdentity {
-    volume: u64,
-    file_id: [u8; 16],
-}
-
-impl FileIdentity {
-    fn supported(&self) -> bool {
-        // Windows uses all-ones when a unique file ID is unavailable.
-        self.file_id.iter().any(|byte| *byte != 0)
-            && self.file_id.iter().any(|byte| *byte != u8::MAX)
-    }
 }
 
 #[repr(C)]
@@ -74,29 +50,6 @@ struct ExtendedDirectoryInfo {
     file_name: [u16; 1],
 }
 
-#[repr(C)]
-struct UnicodeString {
-    length: u16,
-    maximum_length: u16,
-    buffer: *mut u16,
-}
-
-#[repr(C)]
-struct ObjectAttributes {
-    length: u32,
-    root_directory: Handle,
-    object_name: *mut UnicodeString,
-    attributes: u32,
-    security_descriptor: *mut c_void,
-    security_quality_of_service: *mut c_void,
-}
-
-#[repr(C)]
-struct IoStatusBlock {
-    status: usize,
-    information: usize,
-}
-
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn CreateFileW(
@@ -109,30 +62,10 @@ unsafe extern "system" {
         template: Handle,
     ) -> Handle;
     fn GetFileInformationByHandleEx(file: Handle, class: i32, info: *mut c_void, size: u32) -> i32;
-    fn SetFileInformationByHandle(file: Handle, class: i32, info: *const c_void, size: u32) -> i32;
-}
-
-#[link(name = "ntdll")]
-unsafe extern "system" {
-    fn NtCreateFile(
-        file: *mut Handle,
-        access: u32,
-        attributes: *mut ObjectAttributes,
-        status: *mut IoStatusBlock,
-        allocation: *const i64,
-        file_attributes: u32,
-        share: u32,
-        disposition: u32,
-        options: u32,
-        ea: *const c_void,
-        ea_length: u32,
-    ) -> i32;
-    fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
 pub(crate) struct Candidate {
     pub(crate) name: String,
-    identity: FileIdentity,
 }
 
 fn open_directory(path: &Path) -> Result<File> {
@@ -186,35 +119,12 @@ fn attributes(file: &File) -> io::Result<u32> {
     Ok(info.attributes)
 }
 
-fn identity(file: &File) -> io::Result<FileIdentity> {
-    let mut result = FileIdentity {
-        volume: 0,
-        file_id: [0; 16],
-    };
-    // SAFETY: live handle and correctly sized FILE_ID_INFO output structure.
-    if unsafe {
-        GetFileInformationByHandleEx(
-            file.as_raw_handle(),
-            FILE_ID_INFO,
-            (&mut result as *mut FileIdentity).cast(),
-            size_of::<FileIdentity>() as u32,
-        )
-    } == 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(result)
-}
-
 fn for_each_candidate(directory: &File, mut visit: impl FnMut(Candidate)) -> Result<()> {
-    // FILE_ID_EXTD_DIR_INFO is available on the NTFS/ReFS targets supported here. If a
-    // filesystem cannot supply full identities, fail closed rather than truncating to 64 bits.
+    // Read names through the pinned directory handle. Candidate identity never authorizes
+    // deletion: every temporary-looking name remains ambiguous.
     let mut buffer = vec![0u64; 8192];
     let capacity = buffer.len() * size_of::<u64>();
     let mut class = FILE_ID_EXTD_DIRECTORY_RESTART_INFO;
-    let volume = identity(directory)
-        .map_err(|error| FsError::io(".", error))?
-        .volume;
     loop {
         buffer.fill(0);
         // SAFETY: live directory handle and aligned writable buffer of `capacity` bytes.
@@ -269,10 +179,6 @@ fn for_each_candidate(directory: &File, mut visit: impl FnMut(Candidate)) -> Res
             if name != "." && name != ".." {
                 visit(Candidate {
                     name,
-                    identity: FileIdentity {
-                        volume,
-                        file_id: info.file_id,
-                    },
                 });
             }
             let next = info.next_entry_offset as usize;
@@ -292,139 +198,43 @@ fn for_each_candidate(directory: &File, mut visit: impl FnMut(Candidate)) -> Res
     }
 }
 
-#[cfg(test)]
-fn enumerate(directory: &File) -> Result<Vec<Candidate>> {
-    let mut out = Vec::new();
-    for_each_candidate(directory, |candidate| out.push(candidate))?;
-    Ok(out)
-}
-
-fn open_candidate(directory: &File, name: &str) -> io::Result<Option<File>> {
-    let mut wide: Vec<u16> = name.encode_utf16().collect();
-    if wide.is_empty()
-        || wide.len() > 255
-        || wide.iter().any(|unit| matches!(*unit, 0 | 0x2f | 0x5c))
-    {
-        return Ok(None);
-    }
-    let length =
-        u16::try_from(wide.len() * 2).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-    let mut unicode = UnicodeString {
-        length,
-        maximum_length: length,
-        buffer: wide.as_mut_ptr(),
-    };
-    let mut object = ObjectAttributes {
-        length: size_of::<ObjectAttributes>() as u32,
-        root_directory: directory.as_raw_handle(),
-        object_name: &mut unicode,
-        attributes: 0x40, // OBJ_CASE_INSENSITIVE; never OBJ_INHERIT.
-        security_descriptor: null_mut(),
-        security_quality_of_service: null_mut(),
-    };
-    let mut status = IoStatusBlock {
-        status: 0,
-        information: 0,
-    };
-    let mut raw = null_mut();
-    // SAFETY: pinned directory handle, bounded single component, live object and status buffers.
-    let result = unsafe {
-        NtCreateFile(
-            &mut raw,
-            DELETE | READ_ATTRIBUTES | SYNCHRONIZE,
-            &mut object,
-            &mut status,
-            null(),
-            0,
-            SHARE_READ_WRITE,
-            FILE_OPEN,
-            NON_DIRECTORY_FILE | OPEN_REPARSE_POINT | SYNCHRONOUS_IO_NONALERT,
-            null(),
-            0,
-        )
-    };
-    if result < 0 {
-        return Err(io::Error::from_raw_os_error(
-            unsafe { RtlNtStatusToDosError(result) } as i32,
-        ));
-    }
-    if raw.is_null() || raw as isize == -1 {
-        return Err(io::Error::other(
-            "NtCreateFile returned no candidate handle",
-        ));
-    }
-    // SAFETY: successful NtCreateFile transfers ownership of this handle.
-    Ok(Some(unsafe { File::from_raw_handle(raw) }))
-}
-
-fn open_if_same(directory: &File, candidate: &Candidate) -> io::Result<Option<File>> {
-    if !candidate.identity.supported() {
-        return Ok(None);
-    }
-    let Some(file) = open_candidate(directory, &candidate.name)? else {
-        return Ok(None);
-    };
-    let attrs = attributes(&file)?;
-    if attrs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-        return Ok(None);
-    }
-    let observed = identity(&file)?;
-    if !observed.supported()
-        || observed.volume != candidate.identity.volume
-        || observed.file_id != candidate.identity.file_id
-    {
-        return Ok(None);
-    }
-    Ok(Some(file))
-}
-
-fn dispose(file: &File) -> io::Result<bool> {
-    // The no-delete-share handle prevents a later rename/replacement between identity validation
-    // and disposition. Callers perform the final dead-writer check immediately before this.
-    let delete: u8 = 1;
-    // SAFETY: same live handle whose full volume + 128-bit ID matched enumeration.
-    if unsafe {
-        SetFileInformationByHandle(
-            file.as_raw_handle(),
-            FILE_DISPOSITION_INFO,
-            (&delete as *const u8).cast(),
-            1,
-        )
-    } == 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(true)
-}
-
 pub(crate) fn sweep(directory: &File) -> Result<usize> {
-    let mut removed = 0;
+    sweep_report(directory).map(|report| report.removed)
+}
+
+fn sweep_report(directory: &File) -> Result<SweepReport> {
+    let mut report = SweepReport {
+        retained_counted: true,
+        ..SweepReport::default()
+    };
     for_each_candidate(directory, |candidate| {
         let Some(pid) = generated_temp_pid(&candidate.name) else {
             return;
         };
-        if !confirmed_dead_writer(pid) {
+        if pid == std::process::id() {
+            report.retained_live += 1;
             return;
         }
-        let file = match open_if_same(directory, &candidate) {
-            Ok(Some(file)) => file,
-            Ok(None) | Err(_) => return,
-        };
-        // Recheck after opening and identity comparison; disposition uses that retained handle.
-        if confirmed_dead_writer(pid) && dispose(&file).unwrap_or(false) {
-            removed += 1;
+        match crate::process_liveness(pid) {
+            crate::ProcessLiveness::Alive => report.retained_live += 1,
+            crate::ProcessLiveness::Unknown => report.retained_unknown += 1,
+            // Even a proven-dead PID supplies no ownership proof for this name.
+            crate::ProcessLiveness::Dead => report.retained_other += 1,
         }
     })?;
-    Ok(removed)
+    Ok(report)
 }
 
-pub(crate) fn sweep_path(path: &Path) -> Result<usize> {
+pub(crate) fn sweep_path_report(path: &Path) -> Result<SweepReport> {
     let directory = match open_directory(path) {
         Ok(directory) => directory,
-        Err(error) if error.is_not_found() => return Ok(0),
+        Err(error) if error.is_not_found() => return Ok(SweepReport {
+            retained_counted: true,
+            ..SweepReport::default()
+        }),
         Err(error) => return Err(error),
     };
-    sweep(&directory)
+    sweep_report(&directory)
 }
 
 #[cfg(test)]
@@ -432,37 +242,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replacement_after_enumeration_is_preserved_and_original_candidate_is_removable() {
+    fn pinned_sweep_preserves_dead_pid_names_and_foreign_replacements() {
         let dir = tempfile::tempdir().unwrap();
-        let old = dir.path().join(".x.rktmp-4294967294-1-0");
-        let replacement = dir.path().join("replacement");
-        std::fs::write(&old, b"old temp").unwrap();
+        let name = dir.path().join(".x.rktmp-4294967294-1-0");
+        let old = dir.path().join("old");
+        std::fs::write(&name, b"imported record").unwrap();
         let directory = open_directory(dir.path()).unwrap();
-        let candidate = enumerate(&directory)
-            .unwrap()
-            .into_iter()
-            .find(|candidate| candidate.name == ".x.rktmp-4294967294-1-0")
-            .unwrap();
-        assert!(candidate.identity.supported());
-
-        std::fs::rename(&old, &replacement).unwrap();
-        std::fs::write(&old, b"unrelated replacement").unwrap();
-        assert!(open_if_same(&directory, &candidate).unwrap().is_none());
-        assert_eq!(std::fs::read(&old).unwrap(), b"unrelated replacement");
-
-        let replacement_candidate = enumerate(&directory)
-            .unwrap()
-            .into_iter()
-            .find(|candidate| candidate.name == ".x.rktmp-4294967294-1-0")
-            .unwrap();
-        let file = open_if_same(&directory, &replacement_candidate)
-            .unwrap()
-            .unwrap();
-        assert!(dispose(&file).unwrap());
-        // Disposition completes when the last handle closes; until then the entry is
-        // delete-pending and may still be reported.
-        drop(file);
-        assert!(!old.exists());
-        assert_eq!(std::fs::read(replacement).unwrap(), b"old temp");
+        assert_eq!(sweep(&directory).unwrap(), 0);
+        std::fs::rename(&name, &old).unwrap();
+        std::fs::write(&name, b"replacement record").unwrap();
+        let report = sweep_report(&directory).unwrap();
+        assert!(report.retained_counted);
+        assert_eq!(report.removed, 0);
+        assert_eq!(report.retained_live + report.retained_unknown + report.retained_other, 1);
+        assert_eq!(std::fs::read(name).unwrap(), b"replacement record");
+        assert_eq!(std::fs::read(old).unwrap(), b"imported record");
     }
 }

@@ -7,6 +7,12 @@
 //!   [`FileLock::acquire_shared`] takes a shared (reader) lock. [`LockKind`] picks POSIX record
 //!   locks (`Fcntl`, the default) or `flock(2)` (`Flock`) on Unix; [`probe_owner`] reads the
 //!   owner record without locking.
+//! - [`write_locks`] (feature `lock`): [`KeyedWriteLocks`], in-process write locks keyed by destination
+//!   (directory identity plus name, nonexistent leaf allowed, no permanent map) with an optional
+//!   cross-process lock file, to be used with [`AtomicWriter`].
+//! - [`transaction`] (feature `transaction`): [`FileTransaction`] / [`PreparedTransaction`] /
+//!   [`recover_transactions`], a crash-recoverable multi-file publication with a journal under the
+//!   root (recoverability and serialized writers, not all-file atomic visibility).
 //! - [`lease`] (feature `fs`): [`Lease`], a pid + heartbeat-TTL lease file with stale-holder takeover
 //!   (not an OS lock): `try_acquire`, `renew`, `release`, `peek`.
 //! - [`migrate`] (feature `fs`): [`migrate_dir`] (also `AppDirs::migrate_dir`), a directory move that
@@ -86,6 +92,8 @@ pub mod state;
 pub mod swap;
 #[cfg(feature = "test-mode")]
 pub mod test_mode;
+#[cfg(feature = "transaction")]
+pub mod transaction;
 #[cfg(feature = "fs")]
 pub mod trash;
 #[cfg(feature = "fs")]
@@ -94,6 +102,8 @@ pub mod tree;
 pub mod verified;
 #[cfg(all(feature = "fs", windows))]
 mod windows_temp_sweep;
+#[cfg(feature = "lock")]
+pub mod write_locks;
 pub mod zip;
 
 #[cfg(feature = "app-dirs")]
@@ -159,6 +169,13 @@ pub use space::free_bytes;
 pub use state::{DirEntry, EntryKind, EntryStat, StateDir, StateOptions};
 #[cfg(feature = "fs")]
 pub use swap::{is_swap_unsupported, swap_paths};
+#[cfg(feature = "transaction")]
+pub use transaction::{
+    recover_transactions, recover_transactions_with, CommittedReport, ExpectedPrior,
+    FileTransaction, PreparedTransaction, Publication, RecoveredTransaction, RecoveryOutcome,
+    RecoveryReport, RecoveryRequiredReport, RetainedItem, RolledBackReport, TransactionEntry,
+    TransactionOptions, TransactionReport,
+};
 #[cfg(feature = "fs")]
 pub use trash::{move_to_trash, TrashEntry, TrashIdentity};
 #[cfg(feature = "fs")]
@@ -167,6 +184,8 @@ pub use tree::{copy_tree, CopyOptions};
 pub use verified::{copy_verified, copy_verified_with_progress, VerifiedCopy};
 #[cfg(all(feature = "fs", any(feature = "digest", feature = "blake3")))]
 pub use verified::{copy_verified_with_digest, DigestAlgorithm, VerifiedDigestCopy};
+#[cfg(feature = "lock")]
+pub use write_locks::{KeyedWriteLocks, LockedAtomicWriter, LockedDestination, WriteLockOptions};
 pub use zip::{crc32, stored_zip_bytes, StoredZipWriter};
 
 /// Conservative liveness result used by crash recovery.

@@ -147,3 +147,17 @@ fn the_link_fallback_still_reports_link_then_unlink() {
     );
     assert_eq!(std::fs::read(&to).unwrap(), b"x");
 }
+
+#[test]
+fn private_native_import_refuses_placeholder_fallback_without_exposing_an_empty_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(".record.rktmp-123-1-0");
+    let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
+    let temp = writer.temp_path().to_path_buf();
+    writer.write_all(b"finished import").unwrap();
+    let _no_links = force_no_hard_links();
+    let error = writer.commit().unwrap_err();
+    assert!(!error.target_replaced());
+    assert!(!target.exists(), "no empty placeholder may escape");
+    assert!(!temp.exists(), "owned staging file is cleaned");
+}

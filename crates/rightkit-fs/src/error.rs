@@ -10,7 +10,7 @@ pub type Result<T> = std::result::Result<T, FsError>;
 pub enum PostPublishStep {
     /// Removing the temp name that is left behind when publication is a hard link followed by an
     /// unlink (the fallback where the kernel has no exclusive rename). The content is published and
-    /// complete; a leftover temp name remains, which [`crate::sweep_stale_temps`] reclaims.
+    /// complete; a leftover temp name remains. Generic sweeps retain ambiguous names.
     TempCleanup,
     /// Removing the old tree a directory publication displaced ([`crate::publish_dir::publish_dir`]). The new
     /// directory is in place and complete; the displaced one remains under a sibling name that
@@ -85,6 +85,14 @@ pub enum FsError {
     TooManyEntries(usize),
     #[error("corrupt record {path}: {reason}")]
     Corrupt { path: PathBuf, reason: String },
+    /// A file this operation had verified (its identity, size and modification time, or the
+    /// content hash the caller expected) was found different from what was recorded, so someone
+    /// else wrote or replaced it. The operation stopped without overwriting it. Reported by
+    /// [`crate::transaction`] (feature `transaction`) when a destination, a candidate or the
+    /// retained material of an earlier step no longer matches; nothing is deleted or replaced on
+    /// the strength of material that does not match. Added in 0.4.6.
+    #[error("{path} changed outside this operation: {reason}")]
+    Conflict { path: PathBuf, reason: String },
     /// A copy's digest did not match: the source did not hash to the expected value, or the
     /// written copy did not hash to what was read (see [`crate::copy_verified`]). Nothing was
     /// published.
@@ -185,6 +193,7 @@ impl FsError {
             Self::LockTimeout { .. } => K::TimedOut,
             Self::TooManyEntries(_) => K::Other,
             Self::Corrupt { .. } | Self::DigestMismatch { .. } => K::InvalidData,
+            Self::Conflict { .. } => K::Other,
             Self::UnknownId(_) => K::NotFound,
             Self::Unavailable(_) => K::Unsupported,
         }
@@ -290,6 +299,13 @@ mod tests {
                 io::ErrorKind::TimedOut,
             ),
             (FsError::TooManyEntries(3), io::ErrorKind::Other),
+            (
+                FsError::Conflict {
+                    path: p.clone(),
+                    reason: "changed".into(),
+                },
+                io::ErrorKind::Other,
+            ),
             (
                 FsError::Corrupt {
                     path: p.clone(),

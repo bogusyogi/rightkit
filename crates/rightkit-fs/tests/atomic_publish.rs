@@ -783,3 +783,60 @@ mod windows {
         );
     }
 }
+
+#[test]
+fn private_native_import_flushes_before_strict_exclusive_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(".record.rktmp-123-1-0");
+    let observed = Rc::new(RefCell::new(false));
+    let saw = observed.clone();
+    let _hook = on_replace(move |call| {
+        assert!(!call.target.exists());
+        assert_eq!(std::fs::read(&call.temp).unwrap(), b"complete");
+        #[cfg(windows)]
+        {
+            assert_eq!(call.api, rightkit_fs::atomic::ReplaceApi::MoveFileEx);
+            assert_eq!(call.flags, rightkit_fs::atomic::MOVEFILE_WRITE_THROUGH);
+        }
+        #[cfg(unix)]
+        assert_eq!(call.api, rightkit_fs::atomic::ReplaceApi::RenameExclusive);
+        *saw.borrow_mut() = true;
+        None
+    });
+    take_steps();
+    let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
+    writer.write_all(b"complete").unwrap();
+    assert!(writer.commit_reporting().unwrap().is_fully_durable());
+    assert!(*observed.borrow());
+    let steps = take_steps();
+    assert_eq!(steps[0], Step::TempFlushed);
+    assert_eq!(steps[1], Step::Replace);
+    assert_eq!(std::fs::read(target).unwrap(), b"complete");
+}
+
+#[cfg(unix)]
+#[test]
+fn private_native_import_reports_directory_flush_failure_after_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(".record.rktmp-123-1-0");
+    let mut writer = rightkit_fs::AtomicWriter::create_new_private(&target).unwrap();
+    writer.write_all(b"complete").unwrap();
+    let _failure = rightkit_fs::atomic::testing::fail_dir_sync(std::io::ErrorKind::PermissionDenied);
+    let error = writer.commit().unwrap_err();
+    assert!(matches!(error, FsError::ReplacedButDirSyncFailed { .. }));
+    assert!(error.target_replaced());
+    assert_eq!(std::fs::read(target).unwrap(), b"complete");
+}
+
+#[cfg(windows)]
+#[test]
+fn private_native_import_fails_closed_when_owner_descriptor_creation_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join(".record.rktmp-123-1-0");
+    let _failure = rightkit_fs::atomic::testing::on_harden(|_| {
+        Some(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+    });
+    assert!(rightkit_fs::AtomicWriter::create_new_private(&target).is_err());
+    assert!(!target.exists());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}

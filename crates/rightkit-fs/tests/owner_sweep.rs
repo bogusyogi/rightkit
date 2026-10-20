@@ -28,14 +28,14 @@ fn separates_dead_live_unknown_and_other() {
 
     let report = sweep_stale_temps_report(dir.path()).unwrap();
     assert!(report.retained_counted);
-    assert_eq!(report.removed, 1);
+    assert_eq!(report.removed, 0);
     assert_eq!(report.retained_live, 1, "this process is live");
     assert_eq!(report.retained_unknown, 1, "pid 0 cannot be probed");
     assert_eq!(
-        report.retained_other, 1,
-        "the symlink is not a regular file"
+        report.retained_other, 2,
+        "dead-PID syntax proves no ownership for either entry"
     );
-    assert!(!dir.path().join(format!(".dead.rktmp-{dead}-1-0")).exists());
+    assert!(dir.path().join(format!(".dead.rktmp-{dead}-1-0")).exists());
     assert!(dir.path().join(".unknown.rktmp-0-3-0").exists());
     assert!(dir.path().join("invoice.rktmp-1-final").exists());
     assert_eq!(std::fs::read(&outside).unwrap(), b"keep");

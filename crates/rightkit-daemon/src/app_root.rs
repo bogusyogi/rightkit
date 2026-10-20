@@ -33,8 +33,10 @@
 
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
+
+use rightkit_fs::{AtomicWriteOptions, AtomicWriter, FsError, ReplaceMode};
 
 use crate::discovery::try_lock_exclusive;
 use crate::suite::{make_private_dir, Suite, SuiteError};
@@ -882,22 +884,23 @@ impl AppRoot {
                     if let Some(parent) = to.parent() {
                         make_private_dir(parent)?;
                     }
-                    if to.exists() {
-                        if same_content(&from, &to)? {
+                    match fs::symlink_metadata(&to) {
+                        Ok(m) if regular_entry(&m) && same_content(&from, &to)? => {
                             continue;
                         }
-                        return Err(AppRootError::Collision(to));
+                        Ok(_) => return Err(AppRootError::Collision(to)),
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                        Err(e) => return Err(e.into()),
                     }
-                    let mut tmp = to.clone().into_os_string();
-                    tmp.push(TMP_SUFFIX);
-                    let tmp = PathBuf::from(tmp);
-                    {
-                        let mut r = File::open(&from)?;
-                        let mut w = File::create(&tmp)?;
-                        io::copy(&mut r, &mut w)?;
-                        w.sync_all()?;
-                    }
-                    fs::rename(&tmp, &to)?;
+                    let mut writer =
+                        AtomicWriter::create_new_private(&to).map_err(io::Error::other)?;
+                    let mut source = rightkit_fs::open_read_nofollow(
+                        &from,
+                        &rightkit_fs::ReadOptions::new(),
+                    )
+                    .map_err(io::Error::other)?;
+                    io::copy(&mut source, writer.file_mut())?;
+                    commit_migration_file(writer, &from, &to)?;
                 }
                 Entry::Link { rel, target, dir } => {
                     let (written, rewritten) = plan_link(csrc, rel, target);
@@ -1764,17 +1767,70 @@ fn state_json(
     body
 }
 
-/// Write `body` to `path` atomically: a temporary name, synced, then renamed over `path`.
-fn write_json_atomic(path: &Path, body: &serde_json::Value) -> io::Result<()> {
-    let mut tmp = path.to_path_buf().into_os_string();
-    tmp.push(TMP_SUFFIX);
-    let tmp = PathBuf::from(tmp);
-    {
-        let mut w = File::create(&tmp)?;
-        w.write_all(body.to_string().as_bytes())?;
-        w.sync_all()?;
+/// Publish a copy without replacing a contender. An equal regular file permits a retry.
+fn commit_migration_file(
+    writer: AtomicWriter,
+    source: &Path,
+    target: &Path,
+) -> Result<(), AppRootError> {
+    match writer.commit() {
+        Ok(()) => Ok(()),
+        Err(FsError::AlreadyExists(_)) => {
+            if regular_entry(&fs::symlink_metadata(target)?)
+                && same_content(source, target)?
+            {
+                Ok(())
+            } else {
+                Err(AppRootError::Collision(target.to_path_buf()))
+            }
+        }
+        Err(e) => Err(io::Error::other(e).into()),
     }
-    fs::rename(&tmp, path)
+}
+
+fn regular_entry(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return false;
+        }
+    }
+    metadata.file_type().is_file()
+}
+
+/// The migration owns these regular metadata leaves, never a link or special file.
+/// Returns whether a validated target already exists.
+fn validate_metadata_target(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if regular_entry(&m) => Ok(true),
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("migration metadata is not a regular file: {}", path.display()),
+        )),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Write owned metadata through exclusive staging; never open a fixed temporary name.
+fn write_json_atomic(path: &Path, body: &serde_json::Value) -> io::Result<()> {
+    let replacing = validate_metadata_target(path)?;
+    let mut writer = AtomicWriter::create_with(
+        path,
+        AtomicWriteOptions {
+            private: true,
+            replace: if replacing { ReplaceMode::Rename } else { ReplaceMode::NoReplace },
+            ..Default::default()
+        },
+    )
+    .map_err(io::Error::other)?;
+    writer
+        .write_all(body.to_string().as_bytes())
+        .map_err(io::Error::other)?;
+    writer
+        .commit_checked(|_| validate_metadata_target(path).map(|_| ()))
+        .map_err(io::Error::other)
 }
 
 /// Whether `to` is a link (never followed) with the written target text and, on Windows, the
@@ -1792,11 +1848,13 @@ fn link_ok(to: &Path, written: &Path, dir: bool) -> bool {
 
 /// Byte-for-byte equality (stronger than a digest compare).
 fn same_content(a: &Path, b: &Path) -> Result<bool, AppRootError> {
-    let (ma, mb) = (fs::metadata(a)?, fs::metadata(b)?);
-    if !mb.is_file() || ma.len() != mb.len() {
+    let mut fa = rightkit_fs::open_read_nofollow(a, &rightkit_fs::ReadOptions::new())
+        .map_err(io::Error::other)?;
+    let mut fb = rightkit_fs::open_read_nofollow(b, &rightkit_fs::ReadOptions::new())
+        .map_err(io::Error::other)?;
+    if fa.metadata()?.len() != fb.metadata()?.len() {
         return Ok(false);
     }
-    let (mut fa, mut fb) = (File::open(a)?, File::open(b)?);
     let (mut ba, mut bb) = (vec![0u8; 64 * 1024], vec![0u8; 64 * 1024]);
     loop {
         let na = read_full(&mut fa, &mut ba)?;
@@ -2008,6 +2066,118 @@ mod tests {
             MigrationOutcome::Migrated { files: 2, .. }
         ));
         assert_eq!(fs::read(a.root().join("sub/b.bin")).unwrap().len(), 200_000);
+    }
+
+    #[test]
+    fn migration_never_opens_legacy_temps_hardlinked_to_source() {
+        let (d, s) = suite();
+        let a = s.app_root("App").unwrap();
+        let old = old_tree(d.path());
+        for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
+            fs::hard_link(old.join("a.txt"), a.root().join(format!("{name}{TMP_SUFFIX}")))
+                .unwrap();
+        }
+        settled(|| a.migrate_from(&old)).unwrap();
+        assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
+        assert_eq!(fs::read(a.root().join("a.txt")).unwrap(), b"alpha");
+        for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
+            assert_eq!(
+                fs::read(a.root().join(format!("{name}{TMP_SUFFIX}"))).unwrap(),
+                b"alpha"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn migration_never_follows_legacy_temp_symlinks_into_source() {
+        let (d, s) = suite();
+        let a = s.app_root("App").unwrap();
+        let old = old_tree(d.path());
+        for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
+            std::os::unix::fs::symlink(
+                old.join("a.txt"),
+                a.root().join(format!("{name}{TMP_SUFFIX}")),
+            )
+            .unwrap();
+        }
+        settled(|| a.migrate_from(&old)).unwrap();
+        assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
+        assert_eq!(fs::read(a.root().join("a.txt")).unwrap(), b"alpha");
+        for name in ["a.txt", MIGRATION_STATE, MIGRATION_MARKER] {
+            assert!(fs::symlink_metadata(a.root().join(format!("{name}{TMP_SUFFIX}")))
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+    }
+
+    #[test]
+    fn migration_publication_preserves_a_destination_contender() {
+        let (d, s) = suite();
+        let a = s.app_root("App").unwrap();
+        let old = old_tree(d.path());
+        let source = old.join("a.txt");
+        let target = a.root().join("a.txt");
+        for contender in [b"other".as_slice(), b"alpha".as_slice()] {
+            let mut writer = AtomicWriter::create_new_private(&target).unwrap();
+            writer.write_all(b"alpha").unwrap();
+            let temp = writer.temp_path().to_path_buf();
+            // A contender arrives after staging, before the real production commit helper.
+            fs::write(&target, contender).unwrap();
+            let result = commit_migration_file(writer, &source, &target);
+            if contender == b"alpha" {
+                result.unwrap();
+            } else {
+                assert!(matches!(result, Err(AppRootError::Collision(p)) if p == target));
+            }
+            assert_eq!(fs::read(&target).unwrap(), contender);
+            assert_eq!(fs::read(&source).unwrap(), b"alpha");
+            assert!(!temp.exists());
+            fs::remove_file(&target).unwrap();
+        }
+    }
+
+    #[test]
+    fn migration_preserves_native_filenames_that_resemble_fs_temps() {
+        let (d, s) = suite();
+        let a = s.app_root("App").unwrap();
+        let old = old_tree(d.path());
+        let rel = Path::new("sub/.record.rktmp-123-1-0");
+        fs::write(old.join(rel), b"user data, not a migration temp").unwrap();
+        assert!(matches!(
+            settled(|| a.migrate_from(&old)).unwrap(),
+            MigrationOutcome::Migrated { files: 3, .. }
+        ));
+        assert_eq!(
+            fs::read(a.root().join(rel)).unwrap(),
+            b"user data, not a migration temp"
+        );
+        assert_eq!(
+            fs::read(old.join(rel)).unwrap(),
+            b"user data, not a migration temp"
+        );
+        assert_eq!(
+            settled(|| a.migrate_from(&old)).unwrap(),
+            MigrationOutcome::AlreadyMigrated
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_publication_refuses_symlink_leaves_without_touching_source() {
+        let (d, s) = suite();
+        let a = s.app_root("App").unwrap();
+        let old = old_tree(d.path());
+        for name in [MIGRATION_STATE, MIGRATION_MARKER] {
+            let target = a.root().join(name);
+            std::os::unix::fs::symlink(old.join("a.txt"), &target).unwrap();
+            let error = write_json_atomic(&target, &serde_json::json!({"source": "old"}))
+                .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(fs::symlink_metadata(&target).unwrap().file_type().is_symlink());
+            assert_eq!(fs::read(old.join("a.txt")).unwrap(), b"alpha");
+        }
     }
 
     #[test]

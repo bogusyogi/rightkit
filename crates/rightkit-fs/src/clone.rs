@@ -110,7 +110,7 @@ pub fn clone_file_nofollow(src: &Path, dst: &Path) -> Result<(), CloneError> {
         .file_name()
         .is_some_and(|n| crate::atomic::reject_reserved_name(&n.to_string_lossy()).is_err())
     {
-        // A name a temp-file sweep would delete as an orphan.
+        // A name reserved by the legacy temporary-name convention.
         return Err(CloneError::InvalidPath(dst.to_path_buf()));
     }
     let meta = std::fs::symlink_metadata(src).map_err(|source| CloneError::io(src, source))?;
@@ -245,7 +245,7 @@ pub fn clone_or_link_or_copy_nofollow(src: &Path, dst: &Path) -> FsResult<CloneO
 ///   module docs) falls through to the next; a destination that
 ///   already exists or an error after the destination was published does not.
 /// - `dst`'s file name must not be shaped like a temp name this crate generates
-///   ([`FsError::BadName`]): a sweep would delete it.
+///   ([`FsError::BadName`]) under the legacy reserved-name convention.
 /// - The copy is made through [`crate::atomic_write_with_options`] with
 ///   [`ReplaceMode::NoReplace`]: a temp file, flushed, then published exclusively. Nothing is
 ///   visible at `dst` until the content is complete, and a failure leaves no partial `dst`.

@@ -192,7 +192,7 @@ fn check_name(name: &str, limit: usize) -> Result<()> {
 
 /// Entry names are single path components: no separators, no NUL, not `.`/`..`, within the
 /// default write cap ([`DEFAULT_WRITE_NAME_LEN`]), and not shaped like a temp name this crate
-/// generates (`.<name>.rktmp-<pid>-<n>-<attempt>`), which a sweep would delete.
+/// generates (`.<name>.rktmp-<pid>-<n>-<attempt>`), under the legacy reserved-name convention.
 pub fn validate_name(name: &str) -> Result<()> {
     check_name(name, DEFAULT_WRITE_NAME_LEN)?;
     crate::atomic::reject_reserved_name(name)
@@ -582,14 +582,9 @@ impl StateDir {
         self.dir.entries(limit)
     }
 
-    /// Remove generated regular temp files left by writers confirmed dead. `max_age` remains for
-    /// source compatibility but cannot override liveness: current, live, and unqueryable PIDs
-    /// survive regardless of age. Only complete generated temp names
-    /// (`.<name>.rktmp-<pid>-<n>-<attempt>`, or the longer `atomic_write` form) are considered,
-    /// and `write`/`write_new` refuse those names as targets, so a committed record is never
-    /// swept. The pinned directory rechecks the observed regular-file identity before removal;
-    /// Unix cannot make that comparison and `unlinkat` one operation against arbitrary concurrent
-    /// path replacement. Returns how many were removed.
+    /// Inspect the pinned directory without deleting ambiguous temporary-looking entries.
+    /// Generated-name syntax, PID death, and age prove no ownership: imported records may have
+    /// exactly these names. `max_age` is ignored for compatibility. Returns zero.
     pub fn sweep_temps(&self, max_age: std::time::Duration) -> Result<usize> {
         let _ = max_age;
         #[cfg(windows)]
@@ -604,25 +599,9 @@ impl StateDir {
 
     #[cfg(not(windows))]
     fn sweep_temps_path(&self) -> Result<usize> {
-        let mut removed = 0;
-        for DirEntry { name, .. } in self.dir.entries(usize::MAX)? {
-            // Only a complete generated temp name is ever reclaimed; a committed record that
-            // merely contains the marker (`invoice.rktmp-1-final`) is left alone.
-            let Some(pid) = crate::atomic::generated_temp_pid(&name) else {
-                continue;
-            };
-            if !crate::atomic::confirmed_dead_writer(pid) {
-                continue;
-            }
-            // Check again directly before descriptor-relative deletion. A failed query is not
-            // proof of death, even if the generated name is old.
-            if crate::atomic::confirmed_dead_writer(pid)
-                && self.dir.unlink_regular(&name).unwrap_or(false)
-            {
-                removed += 1;
-            }
-        }
-        Ok(removed)
+        // Enumeration validates the pinned directory; names and PID death prove no ownership.
+        self.dir.entries(usize::MAX)?;
+        Ok(0)
     }
 }
 
@@ -1151,70 +1130,6 @@ mod sys {
             self.unlink(name)
         }
 
-        /// Remove `name` only after comparing the descriptor opened without following links to
-        /// the name immediately before `unlinkat`. POSIX has no unlink-if-same-inode primitive,
-        /// so an arbitrary mutator can still exchange the name after this comparison.
-        pub fn unlink_regular(&self, name: &str) -> Result<bool> {
-            let c = cname(name)?;
-            // SAFETY: valid directory fd and NUL-terminated child name. O_NONBLOCK prevents a
-            // planted FIFO from stalling cleanup before its type is rejected.
-            let fd = unsafe {
-                libc::openat(
-                    self.fd(),
-                    c.as_ptr(),
-                    libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                )
-            };
-            if fd < 0 {
-                let error = io::Error::last_os_error();
-                return if errno_is(&error, libc::ENOENT) || errno_is(&error, libc::ELOOP) {
-                    Ok(false)
-                } else {
-                    Err(FsError::io(name, error))
-                };
-            }
-            // SAFETY: `fd` was just returned by openat and is owned by this File.
-            let file = unsafe { File::from_raw_fd(fd) };
-            let opened = fstat(&file).map_err(|error| FsError::io(name, error))?;
-            if kind_of(opened.st_mode as u32) != EntryKind::File {
-                return Ok(false);
-            }
-            // SAFETY: valid directory fd, child name, and stat out-parameter.
-            let mut current: libc::stat = unsafe { std::mem::zeroed() };
-            if unsafe {
-                libc::fstatat(
-                    self.fd(),
-                    c.as_ptr(),
-                    &mut current,
-                    libc::AT_SYMLINK_NOFOLLOW,
-                )
-            } != 0
-            {
-                let error = io::Error::last_os_error();
-                return if errno_is(&error, libc::ENOENT) {
-                    Ok(false)
-                } else {
-                    Err(FsError::io(name, error))
-                };
-            }
-            if kind_of(current.st_mode as u32) != EntryKind::File
-                || opened.st_dev != current.st_dev
-                || opened.st_ino != current.st_ino
-            {
-                return Ok(false);
-            }
-            // SAFETY: valid directory fd and child name. The comparison above narrows, but does
-            // not eliminate, an unlink race with an arbitrary external path mutator.
-            if unsafe { libc::unlinkat(self.fd(), c.as_ptr(), 0) } != 0 {
-                let error = io::Error::last_os_error();
-                return if errno_is(&error, libc::ENOENT) {
-                    Ok(false)
-                } else {
-                    Err(FsError::io(name, error))
-                };
-            }
-            Ok(true)
-        }
 
         /// Flush this directory's entries. Unlike a file `fsync`, a failure is returned.
         pub fn sync(&self, policy: SyncPolicy) -> io::Result<Option<SyncLevel>> {
@@ -1450,17 +1365,6 @@ mod sys {
                     std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a link"),
                 )),
                 Err(e) => Err(FsError::io(p, e)),
-            }
-        }
-        pub fn unlink_regular(&self, name: &str) -> Result<bool> {
-            let path = self.0.join(name);
-            match fs::symlink_metadata(&path) {
-                Ok(meta) if meta.is_file() => match fs::remove_file(&path) {
-                    Ok(()) => Ok(true),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-                    Err(error) => Err(FsError::io(path, error)),
-                },
-                Ok(_) | Err(_) => Ok(false),
             }
         }
         pub fn sync(&self, _policy: SyncPolicy) -> std::io::Result<Option<SyncLevel>> {

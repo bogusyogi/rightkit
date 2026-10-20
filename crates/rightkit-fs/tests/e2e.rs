@@ -141,6 +141,41 @@ fn helper_entry() {
             ready();
             std::thread::sleep(HELPER_CAP);
         }
+        "crash_private_new" => {
+            let mut writer = AtomicWriter::create_new_private(Path::new(&args[0])).unwrap();
+            writer.write_all(&vec![b'P'; 512 * 1024]).unwrap();
+            writer.file_mut().sync_all().unwrap();
+            ready();
+            std::thread::sleep(HELPER_CAP);
+        }
+        #[cfg(feature = "testing")]
+        "crash_private_publish" => {
+            let mut writer = AtomicWriter::create_new_private(Path::new(&args[0])).unwrap();
+            writer.write_all(&vec![b'P'; 512 * 1024]).unwrap();
+            let _hook = rightkit_fs::atomic::testing::on_replace(|call| {
+                assert!(!call.target.exists());
+                ready();
+                std::thread::sleep(HELPER_CAP);
+                None
+            });
+            writer.commit().unwrap();
+        }
+        "private_contender" => {
+            let target = Path::new(&args[0]);
+            let mut writer = AtomicWriter::create_new_private(target).unwrap();
+            writer.write_all(&vec![args[2].as_bytes()[0]; 256 * 1024]).unwrap();
+            ready();
+            let start = Instant::now();
+            while !Path::new(&args[1]).exists() {
+                assert!(start.elapsed() < HELPER_CAP);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            match writer.commit() {
+                Ok(()) => std::fs::write(Path::new(&args[1]).with_extension(&args[2]), b"won").unwrap(),
+                Err(FsError::AlreadyExists(_)) => {}
+                Err(error) => panic!("private contender failed: {error:?}"),
+            }
+        }
         "writer_loop" => {
             let tag = args[1].as_bytes()[0];
             // At least 150 writes, then keep going until the reader has seen enough overlap.
@@ -287,7 +322,7 @@ fn failed_fill_keeps_the_old_file_and_removes_the_temp() {
 }
 
 #[test]
-fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
+fn killed_mid_write_leaves_the_old_file_and_a_retained_ambiguous_orphan() {
     let (_g, dir) = canonical_tmp();
     let p = dir.join("state.json");
     atomic_write(&p, b"old contents").unwrap();
@@ -318,11 +353,11 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
     };
     assert_eq!(
         sweep_stale_temps(&dir, Duration::ZERO).unwrap(),
-        1,
-        "dead pid => reclaimed"
+        0,
+        "dead PID proves no ownership"
     );
     #[cfg(not(unix))]
-    assert!(temps_in(&dir).is_empty());
+    assert_eq!(temps_in(&dir).len(), 1);
     #[cfg(unix)]
     assert!(std::fs::symlink_metadata(trap)
         .unwrap()
@@ -331,8 +366,8 @@ fn killed_mid_write_leaves_the_old_file_and_a_sweepable_orphan() {
     #[cfg(unix)]
     assert_eq!(std::fs::read(outside).unwrap(), b"do not unlink");
     assert!(
-        !dir.join(orphan).exists(),
-        "the confirmed-dead orphan was removed"
+        dir.join(orphan).exists(),
+        "the ambiguous dead-PID orphan was retained"
     );
     assert_eq!(std::fs::read(&p).unwrap(), b"old contents");
 }
@@ -651,7 +686,7 @@ fn group_or_world_writable_state_dirs_are_refused() {
 }
 
 #[test]
-fn state_dir_sweeps_orphans_from_killed_writers() {
+fn state_dir_retains_ambiguous_orphans_from_killed_writers() {
     let (_g, dir) = canonical_tmp();
     let p = dir.join("state");
     let state = StateDir::create(&p).unwrap();
@@ -672,9 +707,9 @@ fn state_dir_sweeps_orphans_from_killed_writers() {
         std::os::unix::fs::symlink(&outside, &trap).unwrap();
         (outside, trap)
     };
-    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 1);
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
     #[cfg(not(unix))]
-    assert_eq!(state.list(10).unwrap(), vec!["keep"]);
+    assert_eq!(state.list(10).unwrap().len(), 2);
     #[cfg(unix)]
     assert!(std::fs::symlink_metadata(trap)
         .unwrap()
@@ -684,8 +719,8 @@ fn state_dir_sweeps_orphans_from_killed_writers() {
     #[cfg(unix)]
     assert_eq!(std::fs::read(outside).unwrap(), b"do not unlink");
     assert!(
-        !p.join(orphan).exists(),
-        "the confirmed-dead orphan was removed"
+        p.join(orphan).exists(),
+        "the ambiguous dead-PID orphan was retained"
     );
 }
 
@@ -878,4 +913,68 @@ fn private_writes_are_owner_only_on_windows() {
     for broad in ["Everyone", "Users:", "(I)"] {
         assert!(!acl.contains(broad), "{broad} in cookie DACL:\n{acl}");
     }
+}
+
+#[test]
+fn private_native_import_killed_before_commit_never_exposes_a_destination() {
+    let (_guard, root) = canonical_tmp();
+    let state = StateDir::create(&root.join("imports")).unwrap();
+    let dir = root.join("imports");
+    let target = dir.join(".record.rktmp-123-1-0");
+    let mut child = spawn_role("crash_private_new", &[target.to_str().unwrap()]);
+    wait_ready(&mut child);
+    assert!(!target.exists(), "incomplete import is never visible");
+    let temps = temps_in(&dir);
+    assert_eq!(temps.len(), 1);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(dir.join(&temps[0])).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+    kill_for_sweep(&mut child);
+    assert!(!target.exists());
+    assert_eq!(sweep_stale_temps(&dir, Duration::ZERO).unwrap(), 0);
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
+    assert_eq!(std::fs::metadata(dir.join(&temps[0])).unwrap().len(), 512 * 1024);
+}
+
+#[cfg(feature = "testing")]
+#[test]
+fn private_native_import_killed_at_publish_boundary_leaves_no_empty_final() {
+    let (_guard, root) = canonical_tmp();
+    let dir = root.join("imports");
+    let state = StateDir::create(&dir).unwrap();
+    let target = dir.join(".record.rktmp-123-1-0");
+    let mut child = spawn_role("crash_private_publish", &[target.to_str().unwrap()]);
+    wait_ready(&mut child);
+    assert!(!target.exists());
+    kill_for_sweep(&mut child);
+    assert!(!target.exists());
+    assert_eq!(sweep_stale_temps(&dir, Duration::ZERO).unwrap(), 0);
+    assert_eq!(state.sweep_temps(Duration::ZERO).unwrap(), 0);
+    let temps = temps_in(&dir);
+    assert_eq!(temps.len(), 1);
+    assert_eq!(std::fs::read(dir.join(&temps[0])).unwrap(), vec![b'P'; 512 * 1024]);
+}
+
+#[test]
+fn private_native_import_contends_across_processes_without_replacement() {
+    let (_guard, dir) = canonical_tmp();
+    let target = dir.join(".record.rktmp-123-1-0");
+    let start = dir.join("start");
+    let mut children = LoopingHelpers { kids: Vec::new(), stop: start.clone() };
+    for tag in ["A", "B", "C", "D"] {
+        let mut child = spawn_role("private_contender", &[target.to_str().unwrap(), start.to_str().unwrap(), tag]);
+        wait_ready(&mut child);
+        children.kids.push(child);
+    }
+    assert!(!target.exists(), "only private staging exists before release");
+    children.tell_to_stop();
+    assert!(children.all_succeeded());
+    assert_eq!(["A", "B", "C", "D"].into_iter().filter(|tag| start.with_extension(tag).exists()).count(), 1);
+    let payload = std::fs::read(&target).unwrap();
+    assert_eq!(payload.len(), 256 * 1024);
+    assert!(matches!(payload[0], b'A' | b'B' | b'C' | b'D'));
+    assert!(payload.iter().all(|byte| *byte == payload[0]));
+    assert_eq!(temps_in(&dir), vec![".record.rktmp-123-1-0"]);
 }

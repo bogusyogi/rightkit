@@ -1,7 +1,7 @@
 //! Atomic file replacement: temp file in the destination directory, `fsync`, rename over the
 //! target, `fsync` the directory. Readers see the old content or the new content, never a mix,
 //! and a crash at any point leaves the old file intact plus (at worst) an orphan temp file
-//! that [`sweep_stale_temps`] reclaims.
+//! that generic sweeps retain because its name proves no ownership.
 //!
 //! A write has two phases. Until the replace call succeeds nothing is published: any failure
 //! leaves the destination as it was and removes the temp file. After it succeeds the new content
@@ -19,7 +19,7 @@
 //! publish with one OS call, (6) dir sync (`durable`, Unix), (7) report. Before step 5 nothing is
 //! published: a failure leaves the destination as it was and removes the temp. A crash before step
 //! 5 leaves the destination as it was plus an orphan `.<name>.rktmp-<pid>-...` that
-//! [`sweep_stale_temps`] reclaims. "Test" names a test in `tests/` (or a unit test in this file);
+//! generic sweeps retain. "Test" names a test in `tests/` (or a unit test in this file);
 //! "seam" means the row cannot be produced without fault injection and is covered by the named
 //! `atomic::testing` hook, which stands in for the OS call or state.
 //!
@@ -47,7 +47,7 @@
 //! | U2 | Unix | same | no | exists or not | nothing (with `commit_checked`: the temp only, never the dir) | `rename(2)` | old or new name, but the new file's *data* may be lost or short after power loss: that is what `durable: false` means | as U1, no dir sync | `atomic_publish.rs::a_non_durable_write_flushes_and_syncs_nothing`, `atomic_options.rs::directory_sync_is_skipped_when_not_durable`, `atomic_checked_sync.rs::a_non_durable_checked_write_syncs_the_file_before_the_check_and_never_the_directory` |
 //! | U3 | Unix | `NoReplace` | yes | absent | temp before; dir after | `renameat2(RENAME_NOREPLACE)` (Linux), `renamex_np(RENAME_EXCL)` (Apple) | as U1 | as U1 | `atomic_publish.rs::no_replace_flushes_publishes_exclusively_then_syncs_the_directory`, `atomic_exclusive.rs::publishes_when_absent_and_refuses_when_present_without_touching_the_old_file` |
 //! | U4 | Unix | `NoReplace` | any | exists, or appears first | temp (durable) | the same call, which fails `EEXIST` | destination untouched, temp removed, no dir sync | `AlreadyExists` | `atomic_publish.rs::a_no_replace_loser_syncs_no_directory_and_leaves_the_winner`, `atomic_exclusive.rs::racing_publishers_have_exactly_one_winner_and_the_losers_leave_no_temp` |
-//! | U5 | Unix | `NoReplace`, kernel/filesystem without the exclusive rename | any | absent | as U3 | `link(2)` then `unlink(2)` of the temp name | between the two calls both names are one inode with the full content (published); a crash leaves the temp name for the sweep | `link` fails `EEXIST`: `AlreadyExists`. `unlink` fails: dir sync still runs, then `ReplacedButPostStepFailed(TempCleanup)` | `atomic_publish.rs::post_publication::the_link_fallback_publishes_cleanly_when_the_unlink_works`, `a_failed_unlink_after_the_link_is_a_typed_error_and_the_directory_is_still_synced`; the real ENOSYS/EINVAL fallback needs an old kernel: seam `force_link_fallback` |
+//! | U5 | Unix | `NoReplace`, kernel/filesystem without the exclusive rename | any | absent | as U3 | `link(2)` then `unlink(2)` of the temp name | between the two calls both names are one inode with the full content (published); a crash leaves an ambiguous temp name retained by generic sweeps | `link` fails `EEXIST`: `AlreadyExists`. `unlink` fails: dir sync still runs, then `ReplacedButPostStepFailed(TempCleanup)` | `atomic_publish.rs::post_publication::the_link_fallback_publishes_cleanly_when_the_unlink_works`, `a_failed_unlink_after_the_link_is_a_typed_error_and_the_directory_is_still_synced`; the real ENOSYS/EINVAL fallback needs an old kernel: seam `force_link_fallback` |
 //! | U5b | Unix | `NoReplace`, no exclusive rename and `link(2)` fails (`EPERM`, `ENOTSUP`, `EMLINK`, `EINVAL`, `ENOSYS`: FAT, exFAT, some shares) | any | absent | as U3 | `open(O_CREAT\|O_EXCL)` of the destination name (an empty placeholder), then `rename(2)` of the temp over it | between the two calls the destination name holds an empty file; a crash there leaves that empty file at the destination | placeholder exists (or appears first): `AlreadyExists`, temp removed. The rename fails: the placeholder is removed, nothing published | `atomic_exclusive_nolink.rs::*`; seam `force_no_hard_links`; no FAT volume has been used |
 //! | U6 | Android | all | any | any | as U1 to U5 | `rename(2)` and `fsync(2)` as on Linux (`sync_all`, reported `SyncLevel::Full`; there is no `F_FULLFSYNC` and none is tried); `NoReplace` always takes the U5 `link` then `unlink` path (no raw `renameat2`) | as the row it follows | as the row it follows | host: `app_dirs` injected-root tests; device behaviour is unverified (needs an emulator run) |
 //! | W1 | Windows | `Rename` | yes | exists or not | temp (`FlushFileBuffers`) before the call; no dir sync exists | `std::fs::rename` (POSIX-semantics rename; not write-through) | before: destination as it was, orphan temp. After: old or new, never a mix, but the *swap itself* may be lost in a power failure (`FileFlushedOnly`) | `Io`, temp removed | `atomic_publish.rs::a_durable_write_on_windows_flushes_the_temp_and_claims_no_directory_sync`; plan: unit `plan_tests::publication_durability_states_what_each_windows_mode_gives` |
@@ -204,7 +204,7 @@ pub enum ReplaceMode {
     /// `renamex_np(RENAME_EXCL)` on Apple; where the primitive is missing (old kernel, other Unix, a
     /// filesystem without support) it falls back to `link(2)` then `unlink(2)`, which is still
     /// exclusive (`link` fails if the name exists) but leaves both names for an instant, so a crash
-    /// between the two leaves a temp file for [`sweep_stale_temps`]. If the `unlink` fails after the
+    /// between the two leaves a temp file retained by [`sweep_stale_temps`]. If the `unlink` fails after the
     /// `link` the content is published and complete: the write still syncs the directory, then
     /// returns [`FsError::ReplacedButPostStepFailed`] ([`crate::PostPublishStep::TempCleanup`]).
     /// Windows: `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` (write-through when `durable`).
@@ -661,18 +661,27 @@ fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
 
 #[cfg(unix)]
 fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
+    rename_exclusive_io_captured(from, to, None)
+}
+
+#[cfg(unix)]
+fn rename_exclusive_io_captured(
+    from: &Path,
+    to: &Path,
+    captured: Option<(&File, bool)>,
+) -> std::io::Result<Exclusive> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
 
     #[cfg(feature = "testing")]
     if let Some(unlink_fails) = testing::link_fallback() {
-        return link_then_unlink(from, to, unlink_fails);
+        return link_then_unlink_captured(from, to, unlink_fails, captured);
     }
     #[cfg(feature = "testing")]
     if testing::no_hard_links() {
         // A volume with neither an exclusive rename nor hard links: skip the exclusive rename; the
         // `link` below then fails as it does there.
-        return link_then_unlink(from, to, false);
+        return link_then_unlink_captured(from, to, false, captured);
     }
     let cfrom = CString::new(from.as_os_str().as_bytes())
         .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
@@ -721,7 +730,7 @@ fn rename_exclusive_io(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
         }
     }
     let _ = (&cfrom, &cto);
-    link_then_unlink(from, to, false)
+    link_then_unlink_captured(from, to, false, captured)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -751,12 +760,22 @@ fn hard_links_unsupported(error: &std::io::Error) -> bool {
 /// cannot make hard links at all falls through to [`placeholder_then_rename`]. With
 /// `inject_unlink_failure` (the `testing` seam) the unlink is not attempted and an error stands in
 /// for its failure.
-#[cfg_attr(not(feature = "testing"), allow(unused_variables))]
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg(not(any(unix, windows)))]
 fn link_then_unlink(
     from: &Path,
     to: &Path,
     inject_unlink_failure: bool,
+) -> std::io::Result<Exclusive> {
+    link_then_unlink_captured(from, to, inject_unlink_failure, None)
+}
+
+#[cfg_attr(not(feature = "testing"), allow(unused_variables))]
+#[cfg_attr(windows, allow(dead_code))]
+fn link_then_unlink_captured(
+    from: &Path,
+    to: &Path,
+    inject_unlink_failure: bool,
+    captured: Option<(&File, bool)>,
 ) -> std::io::Result<Exclusive> {
     #[cfg(all(feature = "testing", unix))]
     let linked = if testing::no_hard_links() {
@@ -768,7 +787,9 @@ fn link_then_unlink(
     let linked = fs::hard_link(from, to);
     match linked {
         Ok(()) => {}
-        Err(e) if hard_links_unsupported(&e) => return placeholder_then_rename(from, to),
+        Err(e) if hard_links_unsupported(&e) && !captured.is_some_and(|(_, strict)| strict) => {
+            return placeholder_then_rename(from, to);
+        }
         Err(e) => return Err(e),
     }
     #[cfg(feature = "testing")]
@@ -780,7 +801,10 @@ fn link_then_unlink(
     }
     Ok(Exclusive {
         method: ExclusiveMethod::LinkThenUnlink,
-        cleanup: fs::remove_file(from).err(),
+        cleanup: match captured {
+            Some((file, _)) => remove_captured_temp(from, file).err(),
+            None => fs::remove_file(from).err(),
+        },
     })
 }
 
@@ -794,11 +818,10 @@ fn link_then_unlink(
 #[cfg_attr(windows, allow(dead_code))]
 fn placeholder_then_rename(from: &Path, to: &Path) -> std::io::Result<Exclusive> {
     let claim = OpenOptions::new().write(true).create_new(true).open(to)?;
-    drop(claim);
     match fs::rename(from, to) {
         Ok(()) => Ok(Exclusive::clean(ExclusiveMethod::PlaceholderThenRename)),
         Err(e) => {
-            let _ = fs::remove_file(to);
+            let _ = remove_captured_temp(to, &claim);
             Err(e)
         }
     }
@@ -823,7 +846,8 @@ impl Write for TempWriter<'_> {
 }
 
 /// A streaming atomic write. Nothing is visible at the destination until [`commit`]; dropping
-/// an uncommitted writer removes its temp file. A process killed mid-write leaves only the
+/// an uncommitted writer removes its temp file only while the name matches its captured live
+/// identity. A foreign replacement is retained. A process killed mid-write leaves only the
 /// temp file behind.
 ///
 /// [`commit`]: AtomicWriter::commit
@@ -835,6 +859,9 @@ pub struct AtomicWriter {
     options: AtomicWriteOptions,
     /// The opt-in to retry error 5 in the publish step; `None` is the 32/33-only default.
     access_denied: Option<AccessDeniedRetry>,
+    // Retain a live handle so an unlinked inode cannot be recycled before cleanup.
+    temp_identity: File,
+    strict_new: bool,
 }
 
 impl AtomicWriter {
@@ -845,10 +872,10 @@ impl AtomicWriter {
     /// Like [`AtomicWriter::create`], with the full [`AtomicWriteOptions`].
     ///
     /// A target whose file name is shaped like a temp name this crate generates
-    /// (`.<name>.rktmp-<pid>-<n>-<attempt>`) is refused with [`FsError::BadName`]: a sweep would
-    /// delete it as an orphan.
+    /// (`.<name>.rktmp-<pid>-<n>-<attempt>`) is refused with [`FsError::BadName`] by the legacy
+    /// reserved-name convention. Use [`AtomicWriter::create_new_private`] for native-name imports.
     pub fn create_with(target: &Path, options: AtomicWriteOptions) -> Result<Self> {
-        Self::create_inner(target, options, None)
+        Self::create_inner(target, options, None, false)
     }
 
     /// [`AtomicWriter::create_with`] with an explicit [`AccessDeniedRetry`] opt-in: every commit
@@ -860,19 +887,47 @@ impl AtomicWriter {
         options: AtomicWriteOptions,
         retry: AccessDeniedRetry,
     ) -> Result<Self> {
-        Self::create_inner(target, options, Some(retry))
+        Self::create_inner(target, options, Some(retry), false)
+    }
+
+    /// Stage an owner-only file for durable, exclusive publication at any native destination
+    /// leaf, including a name that resembles a generated temp. Missing parents are refused.
+    /// Commit never replaces an existing destination or exposes an empty placeholder: a volume
+    /// without exclusive rename or hard links fails before publication. File flush failures
+    /// also fail before publication (including unavailable Apple `F_FULLFSYNC`);
+    /// post-publication errors retain `target_replaced()` semantics.
+    /// `commit_as` may change the leaf in the same directory but must use `NoReplace`.
+    pub fn create_new_private(target: &Path) -> Result<Self> {
+        Self::create_inner(
+            target,
+            AtomicWriteOptions {
+                private: true,
+                create_parents: false,
+                durable: true,
+                replace: ReplaceMode::NoReplace,
+                ..AtomicWriteOptions::default()
+            },
+            None,
+            true,
+        )
     }
 
     fn create_inner(
         target: &Path,
         options: AtomicWriteOptions,
         access_denied: Option<AccessDeniedRetry>,
+        strict_new: bool,
     ) -> Result<Self> {
         let name = target
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .ok_or_else(|| FsError::BadName(target.display().to_string()))?;
-        reject_reserved_name(&name)?;
+        if name.contains('\0') {
+            return Err(FsError::BadName(target.display().to_string()));
+        }
+        if !strict_new {
+            reject_reserved_name(&name)?;
+        }
         let parent = parent_of(target);
         if options.create_parents {
             let private_dirs = if cfg!(windows) {
@@ -912,6 +967,7 @@ impl AtomicWriter {
             let temp = parent.join(temp_name(&name, attempt));
             match open_temp(&temp, &options, existing_mode) {
                 Ok(file) => {
+                    let temp_identity = file.try_clone().map_err(|e| FsError::io(&temp, e))?;
                     // A temp that carries an `allow` entry anyway is still empty (nothing is written
                     // before this check): remove it and refuse. No ACL is ever removed from an
                     // inode that may already be open elsewhere.
@@ -919,7 +975,7 @@ impl AtomicWriter {
                     if options.unix_owner_only() {
                         if let Err(error) = crate::acl::refuse_acl(&file, &temp) {
                             drop(file);
-                            let _ = fs::remove_file(&temp);
+                            let _ = remove_captured_temp(&temp, &temp_identity);
                             return Err(error);
                         }
                     }
@@ -929,6 +985,8 @@ impl AtomicWriter {
                         target: target.to_path_buf(),
                         options,
                         access_denied,
+                        temp_identity,
+                        strict_new,
                     });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
@@ -982,7 +1040,9 @@ impl AtomicWriter {
     /// name is known only once its bytes are written (a content hash computed at the end).
     ///
     /// `new_target` must be in the writer's directory ([`FsError::BadName`] otherwise) and must not
-    /// be shaped like a temp name this crate generates. `replace` is used for this publish in place
+    /// be shaped like a temp name this crate generates, except for a writer created by
+    /// [`AtomicWriter::create_new_private`], which accepts native leaves but requires `NoReplace`.
+    /// `replace` is used for this publish in place
     /// of the writer's [`AtomicWriteOptions::replace`]; pass [`ReplaceMode::NoReplace`] for an
     /// exclusive publish that refuses an existing name. Everything else is as `commit`: the temp
     /// file is flushed, published to `new_target`, and on a failure before the replace the temp
@@ -992,7 +1052,16 @@ impl AtomicWriter {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .ok_or_else(|| FsError::BadName(new_target.display().to_string()))?;
-        reject_reserved_name(&name)?;
+        if name.contains('\0') {
+            return Err(FsError::BadName(new_target.display().to_string()));
+        }
+        if self.strict_new {
+            if replace != ReplaceMode::NoReplace {
+                return Err(FsError::BadName(new_target.display().to_string()));
+            }
+        } else {
+            reject_reserved_name(&name)?;
+        }
         if parent_of(new_target) != parent_of(&self.target) {
             return Err(FsError::BadName(new_target.display().to_string()));
         }
@@ -1065,9 +1134,9 @@ impl AtomicWriter {
         let result = self.finish(file, want_digest, checked, check);
         // Unpublished: the temp is all there is to clean. Published with a later error: the
         // temp name is already gone (rename), or it is a leftover second name for the
-        // published inode (link fallback), and removing it again is correct and harmless.
+        // published inode (link fallback). Cleanup is allowed only for the captured live identity.
         if result.is_err() {
-            let _ = fs::remove_file(&self.temp);
+            let _ = remove_captured_temp(&self.temp, &self.temp_identity);
         }
         // Either published or cleaned up: nothing left for Drop.
         self.temp = PathBuf::new();
@@ -1085,7 +1154,10 @@ impl AtomicWriter {
         let mut sync_level = None;
         if self.options.durable {
             sync_level = Some(
-                durable_sync_with(&file, SyncPolicy::Fallback)
+                durable_sync_with(
+                    &file,
+                    if self.strict_new { SyncPolicy::Strict } else { SyncPolicy::Fallback },
+                )
                     .map_err(|e| FsError::io(&self.temp, e))?,
             );
             #[cfg(feature = "testing")]
@@ -1117,7 +1189,10 @@ impl AtomicWriter {
         check(&self.temp).map_err(|e| FsError::io(&self.temp, e))?;
 
         // The one step that publishes. An error here means nothing was published.
-        let published = publish(&self.temp, &self.target, self.options, self.access_denied)?;
+        let published = publish_captured(
+            &self.temp, &self.target, self.options, self.access_denied,
+            Some((&self.temp_identity, self.strict_new)),
+        )?;
 
         // Published from here on. The required directory sync runs whatever else failed, so a
         // later error is never reported before the durability work is done.
@@ -1182,11 +1257,36 @@ pub fn atomic_write_reporting(
     writer.commit_reporting()
 }
 
+fn require_captured_temp(path: &Path, file: &File) -> std::io::Result<()> {
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(std::io::Error::other("staging name no longer identifies the owned file"));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if meta.file_attributes() & 0x400 != 0 {
+            return Err(std::io::Error::other("staging name became a reparse point"));
+        }
+    }
+    let expected = crate::FileKey::of_file(file, path).map_err(std::io::Error::other)?;
+    let observed = crate::FileKey::of_path(path).map_err(std::io::Error::other)?;
+    if expected != observed {
+        return Err(std::io::Error::other("staging file identity changed"));
+    }
+    Ok(())
+}
+
+fn remove_captured_temp(path: &Path, file: &File) -> std::io::Result<()> {
+    require_captured_temp(path, file)?;
+    fs::remove_file(path)
+}
+
 impl Drop for AtomicWriter {
     fn drop(&mut self) {
         if !self.temp.as_os_str().is_empty() {
             self.file.take();
-            let _ = fs::remove_file(&self.temp);
+            let _ = remove_captured_temp(&self.temp, &self.temp_identity);
         }
     }
 }
@@ -1322,7 +1422,7 @@ pub(crate) fn generated_temp_pid(name: &str) -> Option<u32> {
 }
 
 /// Refuses a public write target whose name is a complete generated temp name: such a file would
-/// be indistinguishable from an orphan and a sweep would delete it.
+/// be indistinguishable from an orphan. Generic sweeps retain both; legacy writers reserve it.
 ///
 /// On Windows the check also runs on the name the filesystem will store: Win32 drops leading
 /// spaces, trailing spaces and trailing periods from the last path component (and `name:stream`
@@ -1545,7 +1645,7 @@ fn create_dirs_durable(dir: &Path, owner_only: bool) -> Result<()> {
 /// `FILE_FLAG_BACKUP_SEMANTICS`, which is what opens a directory at all, and shares read, write
 /// and delete so it neither blocks nor is blocked by another holder.
 #[cfg(windows)]
-fn flush_dir_windows(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn flush_dir_windows(dir: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::io::{AsRawHandle, FromRawHandle};
     #[link(name = "kernel32")]
@@ -1626,6 +1726,16 @@ fn publish(
     options: AtomicWriteOptions,
     access_denied: Option<AccessDeniedRetry>,
 ) -> Result<Published> {
+    publish_captured(temp, target, options, access_denied, None)
+}
+
+fn publish_captured(
+    temp: &Path,
+    target: &Path,
+    options: AtomicWriteOptions,
+    access_denied: Option<AccessDeniedRetry>,
+    captured: Option<(&File, bool)>,
+) -> Result<Published> {
     // Opted in: 5, 32 and 33 share the one bound the caller gave. Default: 32/33 only.
     let (policy, classify): (Option<RetryPolicy>, fn(&std::io::Error) -> bool) = match access_denied
     {
@@ -1633,7 +1743,10 @@ fn publish(
         None => (options.retry_sharing_violation, is_sharing_violation),
     };
     let cleanup =
-        retry_with(policy, classify, || replace_step(temp, target, options)).map_err(|e| {
+        retry_with(policy, classify, || match captured {
+            Some(_) => replace_step_captured(temp, target, options, captured),
+            None => replace_step(temp, target, options),
+        }).map_err(|e| {
             if options.replace == ReplaceMode::NoReplace
                 && e.kind() == std::io::ErrorKind::AlreadyExists
             {
@@ -1817,6 +1930,15 @@ fn replace_step(
     target: &Path,
     options: AtomicWriteOptions,
 ) -> std::io::Result<Option<std::io::Error>> {
+    replace_step_captured(temp, target, options, None)
+}
+
+fn replace_step_captured(
+    temp: &Path,
+    target: &Path,
+    options: AtomicWriteOptions,
+    captured: Option<(&File, bool)>,
+) -> std::io::Result<Option<std::io::Error>> {
     let (api, flags) = plan_replace(options);
     #[cfg(feature = "testing")]
     {
@@ -1830,9 +1952,18 @@ fn replace_step(
             return Err(error);
         }
     }
+    if let Some((file, _)) = captured {
+        require_captured_temp(temp, file)?;
+    }
     match api {
         ReplaceApi::Rename => fs::rename(temp, target).map(|()| None),
-        ReplaceApi::RenameExclusive => rename_exclusive_io(temp, target).map(|done| done.cleanup),
+        ReplaceApi::RenameExclusive => {
+            #[cfg(unix)]
+            let done = rename_exclusive_io_captured(temp, target, captured);
+            #[cfg(not(unix))]
+            let done = rename_exclusive_io(temp, target);
+            done.map(|done| done.cleanup)
+        },
         ReplaceApi::MoveFileEx => move_file_ex(temp, target, flags).map(|()| None),
     }
 }
@@ -2278,15 +2409,10 @@ mod sync_ladder_tests {
     }
 }
 
-/// Remove generated regular temp files in `dir` left by writers confirmed dead. `max_age` remains
-/// for source compatibility but cannot override liveness: a current, live, or unqueryable PID
-/// always survives, however old its metadata is. Only complete generated temp names are ever
-/// considered (`.<name>.rktmp-<pid>-<n>-<nanos in hex>-<attempt>`, or the `StateDir` form
-/// `.<name>.rktmp-<pid>-<n>-<attempt>`): a committed file that merely contains [`TEMP_MARKER`]
-/// (`invoice.rktmp-1-final`) is left alone, and public writes refuse targets with a generated temp
-/// name. Metadata, identity, and liveness are rechecked before removal; a concurrent arbitrary
-/// path mutator can still replace the name after that check, so this is not an unlink-if-same-inode
-/// guarantee on Unix. Returns the number removed.
+/// Inspect temporary-looking names without removing them. Neither generated-name syntax nor a
+/// dead PID proves that an entry belongs to this crate: it may be an imported committed record.
+/// All ambiguous entries are retained. `max_age` is accepted for compatibility and ignored.
+/// Returns zero; use [`sweep_stale_temps_report`] to observe retained candidates.
 pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
     let _ = max_age;
     sweep_stale_temps_report(dir).map(|report| report.removed)
@@ -2298,30 +2424,25 @@ pub fn sweep_stale_temps(dir: &Path, max_age: Duration) -> Result<usize> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SweepReport {
-    /// Generated temp files removed: their writer was confirmed dead.
+    /// Files removed. Currently zero: generic discovery proves no ownership.
     pub removed: usize,
     /// Kept because the writer is this process or confirmed alive.
     pub retained_live: usize,
     /// Kept because the writer's liveness could not be established (query failed, or the
     /// platform has no probe). Never treated as dead.
     pub retained_unknown: usize,
-    /// Kept although the writer is dead: the entry is not a regular file, vanished, or changed
-    /// identity between checks.
+    /// Kept although the PID is dead: name syntax and death prove no ownership.
     pub retained_other: usize,
-    /// False where the platform sweep reports only `removed` (Windows): the retained counts are
-    /// then zero because they were not measured, not because nothing was kept.
+    /// Whether retained counts were measured. True on Unix and Windows, including empty reports.
     pub retained_counted: bool,
 }
 
-/// [`sweep_stale_temps`] with a [`SweepReport`]. The same rules: no age, only complete generated
-/// names, only regular files, only a confirmed-dead writer.
+/// [`sweep_stale_temps`] with retained counts classified by PID liveness. Every matching name
+/// is retained, including regular files whose PID is confirmed dead.
 pub fn sweep_stale_temps_report(dir: &Path) -> Result<SweepReport> {
     #[cfg(windows)]
     {
-        crate::windows_temp_sweep::sweep_path(dir).map(|removed| SweepReport {
-            removed,
-            ..SweepReport::default()
-        })
+        crate::windows_temp_sweep::sweep_path_report(dir)
     }
     #[cfg(not(windows))]
     {
@@ -2360,45 +2481,10 @@ fn sweep_stale_temps_path(dir: &Path) -> Result<SweepReport> {
             }
             crate::ProcessLiveness::Dead => {}
         }
-        let path = entry.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else {
-            report.retained_other += 1;
-            continue;
-        };
-        if !meta.is_file() || !confirmed_dead_writer(pid) {
-            report.retained_other += 1;
-            continue;
-        }
-        if remove_same_regular_temp(&path, &meta) {
-            report.removed += 1;
-        } else {
-            report.retained_other += 1;
-        }
+        // Syntax and PID death cannot distinguish a crash orphan from an imported record.
+        report.retained_other += 1;
     }
     Ok(report)
-}
-
-pub(crate) fn confirmed_dead_writer(pid: u32) -> bool {
-    pid != std::process::id()
-        && matches!(crate::process_liveness(pid), crate::ProcessLiveness::Dead)
-}
-
-#[cfg(unix)]
-fn remove_same_regular_temp(path: &Path, before: &fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-
-    let Ok(after) = fs::symlink_metadata(path) else {
-        return false;
-    };
-    after.is_file()
-        && before.dev() == after.dev()
-        && before.ino() == after.ino()
-        && fs::remove_file(path).is_ok()
-}
-
-#[cfg(not(any(unix, windows)))]
-fn remove_same_regular_temp(path: &Path, _before: &fs::Metadata) -> bool {
-    fs::remove_file(path).is_ok()
 }
 
 #[cfg(test)]
