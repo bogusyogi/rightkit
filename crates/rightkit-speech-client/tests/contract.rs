@@ -119,3 +119,38 @@ fn verbatim_round_trips_through_the_request_and_capabilities() {
         .unwrap();
     assert!(!caps.supports_verbatim());
 }
+
+#[test]
+fn timed_word_source_ms_is_optional_on_the_wire() {
+    // A 0.3 payload (no `source_ms`) still parses, and `source_ms` defaults to None.
+    let legacy: FileTranscript = serde_json::from_value(json!({
+        "text": "hi",
+        "srt": "",
+        "vtt": "",
+        "words": [{"text": "hi", "start_ms": 0, "end_ms": 400}]
+    }))
+    .unwrap();
+    assert_eq!(legacy.words, vec![TimedWord::new("hi", 0, 400)]);
+    assert_eq!(legacy.words[0].source_ms, None);
+
+    // A word without a source span serialises exactly as the 0.3 wire did.
+    let wire = serde_json::to_value(&legacy).unwrap();
+    assert_eq!(
+        wire["words"][0],
+        json!({"text": "hi", "start_ms": 0, "end_ms": 400})
+    );
+
+    // A word with a source span round-trips it.
+    let mut mapped = TimedWord::new("hi", 100, 300);
+    mapped.source_ms = Some((1000, 1200));
+    let transcript = FileTranscript {
+        text: "hi".into(),
+        srt: String::new(),
+        vtt: String::new(),
+        words: vec![mapped.clone()],
+    };
+    let value = serde_json::to_value(&transcript).unwrap();
+    assert_eq!(value["words"][0]["source_ms"], json!([1000, 1200]));
+    let back: FileTranscript = serde_json::from_value(value).unwrap();
+    assert_eq!(back.words, vec![mapped]);
+}

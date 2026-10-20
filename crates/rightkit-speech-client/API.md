@@ -176,7 +176,7 @@ Behaviour, all covered by `tests/capture.rs`:
 | `Cue` | One subtitle cue: `start_ms: u64`, `end_ms: u64`, `text: String` (lines joined with `\n`, literal). | — |
 | `parse_srt_cues(srt)` | Parses SubRip text into cues. Blocks without a `-->` line, with an unreadable stamp, or with no text are skipped. Accepts LF or CRLF, a BOM, and `,` or `.` before milliseconds. | — (never fails; unreadable input yields fewer cues) |
 | `FileTranscriptResult` | Fields: `transcript: FileTranscript`, `engine: Option<String>`, `language: Option<String>`. | — |
-| `TimedWord` | Re-export of `rightkit_transcript::TimedWord`: `text`, `start_ms`, `end_ms` (integer milliseconds, `u64`). | — |
+| `TimedWord` | Re-export of `rightkit_transcript::TimedWord`: `text`, `start_ms`, `end_ms` (integer milliseconds, `u64`), and `source_ms: Option<(u64, u64)>` (original source span, exclusive end; omitted on the wire when `None`, defaults to `None` when absent). Build values with `TimedWord::new` so a later field does not break the call site. | — |
 
 ## Pre-flight
 

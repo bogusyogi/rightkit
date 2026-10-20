@@ -238,7 +238,9 @@ fn suite_root_tag(root: &Path) -> String {
 }
 
 /// One word with its timing in milliseconds: the suite-wide type owned by
-/// `rightkit-transcript` (wire fields `text`, `start_ms`, `end_ms`, unchanged).
+/// `rightkit-transcript` (wire fields `text`, `start_ms`, `end_ms`, unchanged; an
+/// optional `source_ms: [start, end]` is present only when the host sets it, is
+/// omitted when absent, and a payload without it still parses).
 pub use rightkit_transcript::TimedWord;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

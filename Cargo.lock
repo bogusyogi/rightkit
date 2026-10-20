@@ -7433,19 +7433,6 @@ dependencies = [
 
 [[package]]
 name = "rightkit-speech-client"
-version = "0.3.7"
-dependencies = [
- "rightkit-daemon",
- "rightkit-sidecar",
- "rightkit-transcript",
- "serde",
- "serde_json",
- "tempfile",
- "windows 0.62.2",
-]
-
-[[package]]
-name = "rightkit-speech-client"
 version = "0.4.0"
 dependencies = [
  "rightkit-daemon",

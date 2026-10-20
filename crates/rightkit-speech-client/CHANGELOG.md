@@ -1,7 +1,12 @@
 # Changelog
 
+All notable changes to `rightkit-speech-client`. Versions follow Cargo semver; while the
+version is `0.x`, a minor bump may carry breaking changes.
 
-## 0.3.7 — unpublished staging
+## 0.4.0 — unpublished staging
+
+- BREAKING (D23): rightkit-transcript 0.3 -> 0.4. `TimedWord` (re-exported from `protocol` and the crate root, and carried in `words: Vec<TimedWord>`) gains a public `source_ms` field, so struct literals and cross-version type identity break. Supersedes the unpublished 0.3.7 staging number.
+- Wire: `words[].source_ms` is optional and skipped when `None`; a 0.3 host or client payload without it still parses, and a `None` word serialises exactly as before. Tests: `tests/contract.rs` (`timed_word_source_ms_is_optional_on_the_wire`).
 
 - Raises rightkit-daemon and rightkit-sidecar dependency floors to 0.3.0.
 
@@ -15,9 +20,6 @@
 ## 0.3.5
 
 - Republished on the renamed dependencies: `rightkit-sidecar` (was `rightkit-framed-sidecar`). The 0.3.4 on crates.io was packaged before the renames and still named the old crates.
-All notable changes to `rightkit-speech-client`. Versions follow Cargo semver; while the
-version is `0.x`, a minor bump may carry breaking changes.
-
 ## 0.3.4
 
 - Input staging: `StageInput` (`Auto`, the default; `Always`; `Never`) on
