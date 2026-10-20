@@ -150,10 +150,11 @@ export function nativeFixture({ unit, env, platform = process.platform }) {
 // into a fresh bundle; this table pins every name, argv & output so a changed recipe row refuses instead of
 // silently falling back to a bare Cargo run that cannot resolve the bundled helper. No signing, no download.
 export const NATIVE_HELPER = Object.freeze({
-  unit: "rightkit-credentials", platform: "darwin", runId: "native-helper", name: "HeardRightAppleCredentials", teamId: "6KLGD3LLKF",
+  unit: "rightkit-credentials", platform: "darwin", runId: "native-helper", name: "RightKitCredentialsQualification", teamId: "6KLGD3LLKF",
+  bundleIdentifier: "org.rightkit.qualification.credentials", accessGroup: "6KLGD3LLKF.org.rightkit.qualification.credentials",
   argv: Object.freeze(["run", "--locked", "--offline", "--", "native-helper"]), launchArgs: Object.freeze(["native-helper"]),
   script: "prepare_signed_helper.py", consumerBinary: "rightkit-credentials-r2-consumer", bundleName: "CredentialsConsumer.app",
-  receiptName: "credentials-helper-input.json", launch: "Contents/MacOS/consumer", inputKind: "credentials-native-helper-input",
+  receiptName: "credentials-qualification-helper-input.json", launch: "Contents/MacOS/consumer", inputKind: "credentials-native-helper-input",
   success: "native bundled helper consumer assertions passed",
 });
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -177,7 +178,7 @@ export function stageNativeHelper({ recipeDirectory, reviewedFiles, scratch, tar
   const consumerSha256 = hash(fs.readFileSync(consumer));
   run("python3", [script, "--scratch-root", real, "--consumer-executable", consumer, "--bundle", bundle, "--receipt", receipt], { RK_SOURCE_HELPER_APP: sourceApp });
   const bytes = fs.readFileSync(receipt); const input = JSON.parse(bytes); const launch = path.join(bundle, NATIVE_HELPER.launch);
-  need(input.schema === 1 && input.kind === NATIVE_HELPER.inputKind && input.name === NATIVE_HELPER.name && input.teamId === NATIVE_HELPER.teamId && input.signatureVerified === true && input.nativeConsumerVerified === false, "native helper input receipt is not the reviewed signed-helper identity");
+  need(input.schema === 1 && input.kind === NATIVE_HELPER.inputKind && input.name === NATIVE_HELPER.name && input.teamId === NATIVE_HELPER.teamId && input.bundleIdentifier === NATIVE_HELPER.bundleIdentifier && input.accessGroup === NATIVE_HELPER.accessGroup && input.signatureVerified === true && input.nativeConsumerVerified === false, "native helper input receipt is not the reviewed signed-helper identity");
   need(input.consumerSha256 === consumerSha256 && /^[0-9a-f]{64}$/.test(input.helperTree?.sha256 ?? "") && fs.statSync(launch).isFile() && hash(fs.readFileSync(launch)) === consumerSha256, "native helper input receipt does not bind the staged default consumer & helper tree");
   return { bundle, receipt, launch, input, inputSha256: hash(bytes) };
 }

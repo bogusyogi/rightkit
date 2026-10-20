@@ -4,15 +4,19 @@ import argparse
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
 
-NAME = "HeardRightAppleCredentials"
+NAME = "RightKitCredentialsQualification"
 TEAM = "6KLGD3LLKF"
-REQUIREMENT = 'anchor apple generic and certificate leaf[subject.OU] = "' + TEAM + '"'
+IDENTIFIER = "org.rightkit.qualification.credentials"
+ACCESS_GROUP = TEAM + "." + IDENTIFIER
+REQUIREMENT = ('anchor apple generic and identifier "' + IDENTIFIER
+    + '" and certificate leaf[subject.OU] = "' + TEAM + '"')
 
 
 def digest_bundle(bundle):
@@ -46,6 +50,16 @@ def verify(bundle):
     subprocess.run(["/usr/bin/codesign", "--verify", "--strict", "-R", "=" + REQUIREMENT,
         str(bundle)], check=True, timeout=30, stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL)
+    with (bundle / "Contents" / "Info.plist").open("rb") as stream:
+        info = plistlib.load(stream)
+    if (info.get("CFBundleIdentifier") != IDENTIFIER
+            or info.get("CFBundleExecutable") != NAME):
+        raise RuntimeError("qualification helper identity mismatch")
+    result = subprocess.run(["/usr/bin/codesign", "-d", "--entitlements", ":-", str(bundle)],
+        check=True, timeout=30, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    entitlements = plistlib.loads(result.stdout)
+    if entitlements != {"keychain-access-groups": [ACCESS_GROUP]}:
+        raise RuntimeError("qualification helper must carry only its isolated access group")
 
 
 
@@ -100,7 +114,7 @@ def main():
         raise RuntimeError("native macOS required")
     source = Path(os.environ["RK_SOURCE_HELPER_APP"]).resolve(strict=True)
     if source.name != NAME + ".app" or not source.is_dir():
-        raise RuntimeError("expected existing HeardRightAppleCredentials.app")
+        raise RuntimeError("expected existing RightKitCredentialsQualification.app")
     binary = source / "Contents" / "MacOS" / NAME
     if not binary.is_file():
         raise RuntimeError("signed helper executable missing")
@@ -127,6 +141,7 @@ def main():
         "approvedScratchRoot": str(scratch),
         "sourceHelperApp": str(source), "copiedHelperApp": str(helper),
         "name": NAME, "teamId": TEAM, "requirement": REQUIREMENT,
+        "bundleIdentifier": IDENTIFIER, "accessGroup": ACCESS_GROUP,
         "helperTree": before, "consumerExecutable": str(executable),
         "consumerSha256": consumer_hash, "signatureVerified": True,
         "nativeConsumerVerified": False}

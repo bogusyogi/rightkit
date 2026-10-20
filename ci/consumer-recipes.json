@@ -61,7 +61,7 @@
       },
       "files": {
         "ci/consumers/npm/onboarding/README.md": "3e36a2f34055fb9c4a5d9f6ac74e2d36fd0cf842fe48d75562551f382eceec4e",
-        "ci/consumers/npm/onboarding/consumer.mjs": "f48fdd4e830fc2e38c723c7a2ddcb6946dfc93cf1ffbdda8452da61f6bc167e4",
+        "ci/consumers/npm/onboarding/consumer.mjs": "45bc8ac88c8188dbc67b3caab556577473618da28d3b403aa3518d0999122094",
         "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -317,9 +317,13 @@
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
         "Cargo.toml": "83b15f41068d16723f2963f5ecf628e6ce0bc575c6de0c2fc1c3ca4b2610e9c9",
-        "README.md": "6e5c151a531c31294acd7a08727042f2eec809aef5ecec7bf3021c1550690b2d",
+        "README.md": "a3e99bfe14dd20d2ff52e1bf061f1efb8dc3afed8baaf8e4b0f0867bef3d3845",
         "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a",
-        "prepare_signed_helper.py": "538f1f71137bc84c947c2b358946926ea96055fc48e0f77c12f120caa9e1d56c"
+        "prepare_signed_helper.py": "40d6c35ddb41a2d5a87263ebd1775583044218129538d819c8ca05d6e4949ca7",
+        "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
+        "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
+        "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
+        "qualification-helper/README.md": "a61d6a6aad65432879b6cc44ca403e891b959abb2f4329811d7e015105e9a962"
       },
       "runs": [
         {

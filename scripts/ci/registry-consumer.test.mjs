@@ -191,8 +191,8 @@ test("a failing run is recorded failed; a missing prerequisite refuses before an
 });
 
 // ---- rightkit-credentials signed nested helper: stage default consumer + unchanged signed helper, launch staged bundle ----
-const HELPER_APP = "/Users/runner/approved/HeardRightAppleCredentials.app";
-const helperEnv = { RK_CONSUMER_HELPER_NAME: "HeardRightAppleCredentials", RK_CONSUMER_HELPER_TEAM_ID: "6KLGD3LLKF", RK_SOURCE_HELPER_APP: HELPER_APP };
+const HELPER_APP = "/Users/runner/approved/RightKitCredentialsQualification.app";
+const helperEnv = { RK_CONSUMER_HELPER_NAME: "RightKitCredentialsQualification", RK_CONSUMER_HELPER_TEAM_ID: "6KLGD3LLKF", RK_SOURCE_HELPER_APP: HELPER_APP };
 const STAGED_LAUNCH = path.join("Contents", "MacOS", "consumer");
 function credentialsHarness(t, platform, { env = helperEnv, mutateReceipt = receipt => receipt, helperOutput = "native bundled helper consumer assertions passed\n" } = {}) {
   const hook = (command, args, options) => {
@@ -203,7 +203,7 @@ function credentialsHarness(t, platform, { env = helperEnv, mutateReceipt = rece
     if (command === "python3") { // stands in for the reviewed preparer: same flags, same bundle layout & receipt shape
       const flag = name => args[args.indexOf(name) + 1];
       const launch = path.join(flag("--bundle"), STAGED_LAUNCH); fs.mkdirSync(path.dirname(launch), { recursive: true }); fs.copyFileSync(flag("--consumer-executable"), launch);
-      const receipt = { schema: 1, kind: "credentials-native-helper-input", name: "HeardRightAppleCredentials", teamId: "6KLGD3LLKF", helperTree: { sha256: "d".repeat(64) }, consumerSha256: sha("sha256", fs.readFileSync(launch)), signatureVerified: true, nativeConsumerVerified: false };
+      const receipt = { schema: 1, kind: "credentials-native-helper-input", name: "RightKitCredentialsQualification", teamId: "6KLGD3LLKF", bundleIdentifier: "org.rightkit.qualification.credentials", accessGroup: "6KLGD3LLKF.org.rightkit.qualification.credentials", helperTree: { sha256: "d".repeat(64) }, consumerSha256: sha("sha256", fs.readFileSync(launch)), signatureVerified: true, nativeConsumerVerified: false };
       fs.writeFileSync(flag("--receipt"), `${JSON.stringify(mutateReceipt(receipt))}\n`); return { status: 0, stdout: `${flag("--receipt")}\n` };
     }
     if (command.endsWith(STAGED_LAUNCH)) return { status: 0, stdout: helperOutput };
@@ -220,11 +220,11 @@ test("credentials macOS stages the default consumer + signed helper before SQLCi
   const call = h.calls[prepare]; const flag = name => call.args[call.args.indexOf(name) + 1];
   assert.equal(path.basename(call.args[0]), "prepare_signed_helper.py"); assert.ok(call.args[0].startsWith(path.join(h.scratch, "checkout", "ci/consumers/rightkit-credentials")), "reviewed preparer comes from the committed checkout");
   assert.deepEqual(call.args.filter(a => a.startsWith("--")), ["--scratch-root", "--consumer-executable", "--bundle", "--receipt"]);
-  assert.equal(path.basename(flag("--consumer-executable")), "rightkit-credentials-r2-consumer"); assert.equal(path.basename(flag("--bundle")), "CredentialsConsumer.app"); assert.equal(path.basename(flag("--receipt")), "credentials-helper-input.json");
+  assert.equal(path.basename(flag("--consumer-executable")), "rightkit-credentials-r2-consumer"); assert.equal(path.basename(flag("--bundle")), "CredentialsConsumer.app"); assert.equal(path.basename(flag("--receipt")), "credentials-qualification-helper-input.json");
   for (const name of ["--bundle", "--receipt", "--consumer-executable"]) assert.equal(path.dirname(flag(name)).startsWith(flag("--scratch-root")), true);
   assert.equal(call.env.RK_SOURCE_HELPER_APP, HELPER_APP);
   for (const other of h.calls.filter((c, i) => i !== prepare)) assert.equal(other.env.RK_SOURCE_HELPER_APP, undefined, `source path must reach only the preparer: ${other.command} ${other.args[0]}`);
-  const launch = h.calls[staged]; assert.deepEqual(launch.args, ["native-helper"]); assert.equal(launch.env.RK_CONSUMER_HELPER_NAME, "HeardRightAppleCredentials"); assert.equal(launch.env.RK_CONSUMER_HELPER_TEAM_ID, "6KLGD3LLKF");
+  const launch = h.calls[staged]; assert.deepEqual(launch.args, ["native-helper"]); assert.equal(launch.env.RK_CONSUMER_HELPER_NAME, "RightKitCredentialsQualification"); assert.equal(launch.env.RK_CONSUMER_HELPER_TEAM_ID, "6KLGD3LLKF");
   assert.equal(report.helperInput.nativeConsumerVerified, false); assert.equal(report.helperInput.signatureVerified, true);
   assert.equal(report.helperInputSha256, sha("sha256", Buffer.from(`${JSON.stringify(report.helperInput)}\n`)));
   assert.equal(report.helperInput.consumerSha256, sha("sha256", Buffer.from("default consumer bytes")));
@@ -233,7 +233,7 @@ test("credentials macOS stages the default consumer + signed helper before SQLCi
 });
 test("credentials macOS refuses before any Cargo work without the supplied signed helper, with a misnamed one, or without the exact pinned identity", t => {
   const bad = { ...helperEnv };
-  for (const [change, why] of [[{ RK_SOURCE_HELPER_APP: undefined }, /prerequisite missing: signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "relative/HeardRightAppleCredentials.app" }, /signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "/x/../HeardRightAppleCredentials.app" }, /signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "/x/OtherHelper.app" }, /signedHelperSource/], [{ RK_CONSUMER_HELPER_TEAM_ID: "ABCDE12345" }, /pinned signed helper name & team id/], [{ RK_CONSUMER_HELPER_NAME: "OtherHelper" }, /pinned signed helper name & team id/], [{ RK_CONSUMER_HELPER_NAME: undefined }, /prerequisite missing: signedHelper/]]) {
+  for (const [change, why] of [[{ RK_SOURCE_HELPER_APP: undefined }, /prerequisite missing: signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "relative/RightKitCredentialsQualification.app" }, /signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "/x/../RightKitCredentialsQualification.app" }, /signedHelperSource/], [{ RK_SOURCE_HELPER_APP: "/x/OtherHelper.app" }, /signedHelperSource/], [{ RK_CONSUMER_HELPER_TEAM_ID: "ABCDE12345" }, /pinned signed helper name & team id/], [{ RK_CONSUMER_HELPER_NAME: "OtherHelper" }, /pinned signed helper name & team id/], [{ RK_CONSUMER_HELPER_NAME: undefined }, /prerequisite missing: signedHelper/]]) {
     const h = credentialsHarness(t, "darwin", { env: { ...bad, ...change } });
     assert.throws(() => h.invoke(), error => { assert.match(error.message, why); assert.equal(error.report.verified, false); return true; });
     assert.deepEqual(h.calls, []);
@@ -246,7 +246,7 @@ test("credentials macOS refuses when the recipe row is not the exact reviewed na
   }
 });
 test("credentials staging refuses an input receipt that is not the reviewed signed identity bound to the default consumer, and a launch that lacks its assertion line", t => {
-  for (const [mutate, why] of [[r => ({ ...r, nativeConsumerVerified: true }), /not the reviewed signed-helper identity/], [r => ({ ...r, signatureVerified: false }), /not the reviewed signed-helper identity/], [r => ({ ...r, teamId: "ABCDE12345" }), /not the reviewed signed-helper identity/], [r => ({ ...r, consumerSha256: "e".repeat(64) }), /does not bind the staged default consumer/], [r => ({ ...r, helperTree: {} }), /does not bind the staged default consumer/]]) {
+  for (const [mutate, why] of [[r => ({ ...r, nativeConsumerVerified: true }), /not the reviewed signed-helper identity/], [r => ({ ...r, signatureVerified: false }), /not the reviewed signed-helper identity/], [r => ({ ...r, teamId: "ABCDE12345" }), /not the reviewed signed-helper identity/], [r => ({ ...r, bundleIdentifier: "org.rightkit.credentials" }), /not the reviewed signed-helper identity/], [r => ({ ...r, accessGroup: "6KLGD3LLKF.org.rightkit.credentials" }), /not the reviewed signed-helper identity/], [r => ({ ...r, consumerSha256: "e".repeat(64) }), /does not bind the staged default consumer/], [r => ({ ...r, helperTree: {} }), /does not bind the staged default consumer/]]) {
     const h = credentialsHarness(t, "darwin", { mutateReceipt: mutate });
     assert.throws(() => h.invoke(), error => { assert.match(error.message, why); return true; });
     assert.equal(h.calls.some(c => c.args[0] === "run"), false, "no consumer run after a refused staging");

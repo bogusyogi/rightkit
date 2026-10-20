@@ -5,7 +5,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CANDIDATE = { version: '0.6.3', sha256: '5513d5059564f18857b469745cc960ae84f786d06110509bd76788d9a150a4fb' };
+const CANDIDATE = { version: '0.6.3', sha256: '9db84e3f619ab01cc932e5a9323ee77022287c82e752604a339fc3ddff8047a3' };
 const result = { recipeId: 'onboarding-react-memory-mount', schemaVersion: 1, ok: false, host: { platform: process.platform, arch: process.arch, node: process.version }, artifact: null, scenarios: [], errors: [], nativeHostQualified: false };
 const failure = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error), stack: error?.stack ?? null });
 const required = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };

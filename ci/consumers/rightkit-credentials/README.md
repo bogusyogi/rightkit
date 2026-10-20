@@ -77,10 +77,10 @@ Windows system-provider row requires approved OPENSSL_DIR/native toolchain confi
 
 ## Signed nested helper fixture, each phase
 
-Stage immediately after default-feature build, before `native-db` can overwrite target executable. Use fresh phase-specific scratch paths & supplied signed `HeardRightAppleCredentials.app`; preserve its signature. Consumer uses helper status only.
+Stage immediately after default-feature build, before `native-db` can overwrite target executable. Use fresh phase-specific scratch paths & supplied signed `RightKitCredentialsQualification.app`; preserve its signature. Consumer uses helper status only. Root builds isolated fixture from exact committed Swift sources using [native fixture instructions](qualification-helper/README.md).
 
 ```sh
-export RK_CONSUMER_HELPER_NAME=HeardRightAppleCredentials
+export RK_CONSUMER_HELPER_NAME=RightKitCredentialsQualification
 export RK_CONSUMER_HELPER_TEAM_ID=6KLGD3LLKF
 python3 prepare_signed_helper.py \
   --scratch-root "$RK_APPROVED_SCRATCH_ROOT" \
@@ -90,7 +90,7 @@ python3 prepare_signed_helper.py \
 "$RK_CONSUMER_BUNDLE/Contents/MacOS/consumer" native-helper
 ```
 
-Fable supplies `RK_SOURCE_HELPER_APP` from approved signed artifact. Script pins helper name & team, verifies source/copy signatures & tree identity, preserves executable bits, rejects path escapes, symlink components, output reuse & overlaps with source/helper app ancestors. Approved scratch root & output parents must exist; bundle & receipt must be fresh strict descendants. Script never signs or authenticates.
+Fable supplies `RK_SOURCE_HELPER_APP` from approved signed qualification artifact. Fixture uses dedicated identifier/service `org.rightkit.qualification.credentials`, access group `6KLGD3LLKF.org.rightkit.qualification.credentials` & synthetic account `qualification.synthetic`; wrapper accepts status only. Script pins helper name, identifier, team & exact sole access-group entitlement, verifies source/copy signatures & tree identity, preserves executable bits, rejects path escapes, symlink components, output reuse & overlaps with source/helper app ancestors. Approved scratch root & output parents must exist; bundle & receipt must be fresh strict descendants. Script never signs or authenticates.
 
 Repeat staging & staged launch for packed & fetched registry phases with separate bundles/receipts. Input receipt records actual helper hashes & default consumer hash; `nativeConsumerVerified: false` remains input-only evidence. Runner records subsequent native exit/output separately. Missing artifact, invalid signature, wrong team or failed readiness refuses qualification. Ordinary `cargo run -- native-helper` cannot resolve nested helper.
 

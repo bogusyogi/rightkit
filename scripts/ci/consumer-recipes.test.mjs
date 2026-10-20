@@ -121,8 +121,8 @@ test("committed credentials & browser inventory declare their reviewed runs", ()
   assert.deepEqual(cred.runs.map(r => [r.id, r.args, r.features, r.hosts]), [["core", ["core"], [], null], ["native-db", ["native-db"], ["sqlcipher"], ["win32", "darwin"]], ["native-helper", ["native-helper"], [], ["darwin"]]]);
   assert.ok(cred.evidence.dependency.features.includes("db-adapter"));
   assert.deepEqual(cred.runs[2].env, { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" });
-  assert.equal(cred.evidence.files["prepare_signed_helper.py"], "538f1f71137bc84c947c2b358946926ea96055fc48e0f77c12f120caa9e1d56c");
-  assert.deepEqual(Object.keys(cred.evidence.files).sort(), ["Cargo.toml", "README.md", "prepare_signed_helper.py", "src/main.rs"]);
+  assert.equal(cred.evidence.files["prepare_signed_helper.py"], "40d6c35ddb41a2d5a87263ebd1775583044218129538d819c8ca05d6e4949ca7");
+  assert.deepEqual(Object.keys(cred.evidence.files).sort(), ["Cargo.toml", "README.md", "prepare_signed_helper.py", "qualification-helper/Info.plist", "qualification-helper/README.md", "qualification-helper/entitlements.plist", "qualification-helper/main.swift", "src/main.rs"]);
   const browser = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-browser", version: "0.3.5" } });
   assert.deepEqual(Object.keys(browser.runs[0].env).sort(), ["RK_R2_CFT_ROOT", "RK_R2_CFT_SHA256", "RK_R2_HEADLESS_SHELL_SHA256", "RK_R2_SCRATCH"]);
 });
@@ -136,7 +136,7 @@ test("shared run executor builds Cargo args, records each status and stops at th
 });
 test("native helper planning applies only to credentials on macOS and otherwise refuses instead of skipping", () => {
   const row = { id: "native-helper", args: ["native-helper"], features: [], status: "pending", values: { RK_CONSUMER_HELPER_NAME: NATIVE_HELPER.name, RK_CONSUMER_HELPER_TEAM_ID: NATIVE_HELPER.teamId } };
-  const credentials = { name: "rightkit-credentials" }; const source = "/Users/runner/approved/HeardRightAppleCredentials.app";
+  const credentials = { name: "rightkit-credentials" }; const source = "/Users/runner/approved/RightKitCredentialsQualification.app";
   assert.equal(planNativeHelper({ unit: { name: "rightkit-logs" }, plan: [row], env: {}, platform: "darwin" }), null);
   assert.equal(planNativeHelper({ unit: credentials, plan: [{ ...row, status: "not-applicable", values: {} }], env: {}, platform: "win32" }), null);
   assert.deepEqual(planNativeHelper({ unit: credentials, plan: [row], env: { RK_SOURCE_HELPER_APP: source }, platform: "darwin" }), { sourceApp: source });
@@ -151,7 +151,7 @@ test("native helper staging requires the reviewed preparer bytes; execution rout
   const recipe = path.join(dir, "recipe"); fs.mkdirSync(recipe); fs.writeFileSync(path.join(recipe, NATIVE_HELPER.script), "reviewed preparer");
   const target = path.join(dir, "target"); fs.mkdirSync(path.join(target, "debug"), { recursive: true }); fs.writeFileSync(path.join(target, "debug", NATIVE_HELPER.consumerBinary), "default consumer");
   const calls = []; const run = (command, args, extraEnv) => { calls.push({ command, args, extraEnv }); return ""; };
-  assert.throws(() => stageNativeHelper({ recipeDirectory: recipe, reviewedFiles: { [NATIVE_HELPER.script]: "0".repeat(64) }, scratch: dir, targetDir: target, sourceApp: "/x/HeardRightAppleCredentials.app", run }), /preparer differs from its reviewed hash/);
+  assert.throws(() => stageNativeHelper({ recipeDirectory: recipe, reviewedFiles: { [NATIVE_HELPER.script]: "0".repeat(64) }, scratch: dir, targetDir: target, sourceApp: "/x/RightKitCredentialsQualification.app", run }), /preparer differs from its reviewed hash/);
   assert.deepEqual(calls, [], "an unreviewed preparer is never executed");
   const staged = { launch: path.join(dir, "bundle", "consumer") }; const log = [];
   const execute = nativeHelperExecute({ helper: {}, staged, cargo: (args, values) => { log.push(["cargo", args]); return "cargo-out"; }, launch: (exe, args, values) => { log.push(["launch", exe, args, values]); return `${NATIVE_HELPER.success}\n`; } });
