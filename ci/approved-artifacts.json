@@ -34,6 +34,40 @@
           "receiptSha256": "3cb320f951d4afbe1b42cbf5f4025934acbaf5e6caa37597498f719ddf8c2957"
         }
       }
+    },
+    {
+      "id": "npm-doc-render-3946",
+      "sourceSha": "6f340fe3b7ec972ad393de9d0f9ccc8a0a8a5c45",
+      "runId": "39466345466",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "5cd52252b233888c526af90a474a8a19b79823207970e6387edac9bceb24f942",
+      "registry": "npm",
+      "units": [
+        "@rightkit/doc-render"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12284174052",
+          "digest": "sha256:d7de1ec63bb85a5dae7e8835e050ed1188334f2968df71b4637951b025f146e3"
+        },
+        "macos": {
+          "id": "12284379150",
+          "digest": "sha256:f874b5cdeb23e963a898ae84ad47a25c4b096f417a4e35219b7f7097d6546762",
+          "receiptSha256": "ae654fc31b24259fbd686c44ec48a72deb3edf7f9eb98f0f85a1908ee96b3eb1"
+        },
+        "windows": {
+          "id": "12285377017",
+          "digest": "sha256:77953be7498305ccfff1fca7dc6dbd17017f5ffc175adb61be9f81c038f97946",
+          "receiptSha256": "c489a23c7f8c523566b3bf8cdedbf881b96b498d6a8d754246156d7e42654d4a"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -60,6 +94,14 @@
       "sha256": "b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
       "reviewer": "Oracle (agent source-byte review)",
       "reviewRef": "agent-review:/root/npm_foundation_review/39398432518/source-bytes"
+    },
+    {
+      "registry": "npm",
+      "name": "@rightkit/doc-render",
+      "version": "0.2.1",
+      "sha256": "05d226219b9f7d783d6a106dd1cf0fd6a50b238715c348ebc6c3b4bebbe18e43",
+      "reviewer": "RK2 Astra (R8 exact-archive SIGN)",
+      "reviewRef": "agent-review:/root/swift_native_evidence/39466345466/doc-render"
     }
   ]
 }
