@@ -1504,4 +1504,853 @@ mod tests {
         let (_output, chunks, _lines) = stream(command, &options, false);
         assert_eq!(sorted(&chunks), "a\nb\n");
     }
+
+    // ---- Windows: the runners end to end (large stdin, surviving descendants, output caps). ----
+    //
+    // The Unix tests above drive `sh`. Windows has no shell fixture that holds a pipe open without
+    // reading it, so the helper is this test binary run again: a test that does nothing unless it
+    // is armed (`HELPER_ENV`, or `HELPER_ARG` for `run` and `run_with_stdin`, which take no
+    // environment), the pattern of `rightkit-fs`' lease kill helper. The child under test is the
+    // "leader". It starts a "holder", another run of the helper that inherits the leader's three
+    // stdio handles, never reads stdin and sleeps: inside the job (an ordinary descendant, which
+    // the runners must take down) or, when the job allows it, outside the job with
+    // `CREATE_BREAKAWAY_FROM_JOB` (the Windows counterpart of the Unix setsid holder: it survives
+    // the tree kill and keeps both pipe ends open). `run` and `run_with_stdin` build their command
+    // with `OwnedCommand::new`, whose job refuses breakaway, so nothing can outlive them: the
+    // surviving-holder cases use `run_command` and `run_streaming`, which take an `OwnedCommand`
+    // and can call `windows_allow_breakaway(true)`.
+    //
+    // libtest writes its own lines to the stdout it inherits, so echoed bytes are framed by
+    // markers, and the leader waits until the holder is ready (its libtest header is written
+    // before it signals) before it writes anything of its own. Every wait is bounded and every
+    // survivor is killed (by an identity-pinned pid) when its fixture drops.
+
+    /// Arms `windows_runner_helper_child`: the value is the spec of the role to play.
+    #[cfg(windows)]
+    const HELPER_ENV: &str = "RK_RUN_HELPER";
+    /// The other way to arm it, for the runners that cannot set an environment variable: an
+    /// extra libtest filter (it matches no test) that carries the spec.
+    #[cfg(windows)]
+    const HELPER_ARG: &str = "rk-run-helper=";
+    #[cfg(windows)]
+    const BEGIN: &[u8] = b"<<RK-BEGIN>>";
+    #[cfg(windows)]
+    const END: &[u8] = b"<<RK-END>>";
+    /// Written by a leader to say the holder exists and it is about to block.
+    #[cfg(windows)]
+    const GO: &[u8] = b"<<RK-GO>>";
+    /// Written to stdout by the flood roles when they have written everything: a child that
+    /// blocked on a full stderr pipe never gets here.
+    #[cfg(windows)]
+    const DONE: &[u8] = b"<<RK-DONE>>";
+    /// Longest a holder or a blocked leader lives if nothing kills it, so a leak ends by itself.
+    #[cfg(windows)]
+    const HOLD_SECONDS: u64 = 120;
+
+    /// Printable bytes that do not repeat over a short period, so a dropped, duplicated or
+    /// reordered stretch shows up.
+    #[cfg(windows)]
+    fn pattern(offset: usize, len: usize) -> Vec<u8> {
+        (offset..offset + len)
+            .map(|index| b'!' + ((index + index / 95) % 90) as u8)
+            .collect()
+    }
+
+    #[cfg(windows)]
+    fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
+    /// What lies between the first `BEGIN` and the `END` after it.
+    #[cfg(windows)]
+    fn framed(output: &[u8]) -> &[u8] {
+        let begin = find(output, BEGIN).expect("the begin marker is missing") + BEGIN.len();
+        let end = begin + find(&output[begin..], END).expect("the end marker is missing");
+        &output[begin..end]
+    }
+
+    #[cfg(windows)]
+    fn helper_spec() -> Option<String> {
+        if let Ok(spec) = std::env::var(HELPER_ENV) {
+            return Some(spec);
+        }
+        std::env::args().find_map(|arg| arg.strip_prefix(HELPER_ARG).map(str::to_owned))
+    }
+
+    /// The libtest name of the helper, for `--exact`.
+    #[cfg(windows)]
+    fn helper_test_name() -> String {
+        let module = module_path!();
+        let path = module.split_once("::").map_or(module, |(_, rest)| rest);
+        format!("{path}::windows_runner_helper_child")
+    }
+
+    /// The helper armed through the environment, for `run_command` and `run_streaming`.
+    #[cfg(windows)]
+    fn helper_command(spec: &str) -> OwnedCommand {
+        let mut command = OwnedCommand::new(std::env::current_exe().unwrap());
+        command
+            .command_mut()
+            .args([
+                "--exact",
+                helper_test_name().as_str(),
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(HELPER_ENV, spec);
+        command
+    }
+
+    /// The helper armed through an argument: the arguments for `run` and `run_with_stdin` (the
+    /// program is `std::env::current_exe()`).
+    #[cfg(windows)]
+    fn helper_argv(spec: &str) -> Vec<String> {
+        vec![
+            "--exact".to_owned(),
+            helper_test_name(),
+            "--nocapture".to_owned(),
+            "--test-threads=1".to_owned(),
+            format!("{HELPER_ARG}{spec}"),
+        ]
+    }
+
+    #[cfg(windows)]
+    fn wait_for_file(path: &std::path::Path, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        while !path.exists() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        true
+    }
+
+    /// Writes through a temporary name and renames, so a reader never sees half a file.
+    #[cfg(windows)]
+    fn write_atomic(path: &std::path::Path, text: &str) {
+        let mut temporary = path.as_os_str().to_owned();
+        temporary.push(".tmp");
+        std::fs::write(&temporary, text).unwrap();
+        std::fs::rename(&temporary, path).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn hold_for_a_while() {
+        for _ in 0..HOLD_SECONDS {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    }
+
+    /// Role `echo`: copies stdin to stdout between the markers, then ends.
+    #[cfg(windows)]
+    fn echo_stdin_framed() {
+        use std::io::{Read, Write};
+        let mut stdin = std::io::stdin();
+        let mut stdout = std::io::stdout();
+        stdout.write_all(BEGIN).unwrap();
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            let read = stdin.read(&mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            stdout.write_all(&buffer[..read]).unwrap();
+        }
+        stdout.write_all(END).unwrap();
+        stdout.flush().unwrap();
+    }
+
+    /// Role `flood`: `total` pattern bytes on stderr after the begin marker, then `DONE` on
+    /// stdout.
+    #[cfg(windows)]
+    fn flood_stderr(total: usize) {
+        use std::io::Write;
+        let mut stderr = std::io::stderr();
+        stderr.write_all(BEGIN).unwrap();
+        let mut written = 0;
+        while written < total {
+            let chunk = (total - written).min(8 * 1024);
+            stderr.write_all(&pattern(written, chunk)).unwrap();
+            written += chunk;
+        }
+        let mut stdout = std::io::stdout();
+        stdout.write_all(DONE).unwrap();
+        stdout.flush().unwrap();
+    }
+
+    /// Role `flood-lines`: `count` stderr lines `L0000000`, `L0000001`, ..., then `DONE` on
+    /// stdout.
+    #[cfg(windows)]
+    fn flood_stderr_lines(count: usize) {
+        use std::io::Write;
+        let mut stderr = std::io::stderr();
+        let mut next = 0;
+        while next < count {
+            let upto = (next + 1000).min(count);
+            let mut block = String::new();
+            for index in next..upto {
+                block.push_str(&format!("L{index:07}\n"));
+            }
+            stderr.write_all(block.as_bytes()).unwrap();
+            next = upto;
+        }
+        let mut stdout = std::io::stdout();
+        stdout.write_all(DONE).unwrap();
+        stdout.flush().unwrap();
+    }
+
+    /// Role `hold-read`: signals ready, waits for the gate file, then reads stdin to its end and
+    /// records how many bytes it got. With the write end closed by the parent that is only what
+    /// was already in the pipe; a write end left open would deliver everything.
+    #[cfg(windows)]
+    fn hold_then_count_stdin(
+        ready: &std::path::Path,
+        gate: &std::path::Path,
+        count_file: &std::path::Path,
+    ) {
+        use std::io::Read;
+        write_atomic(ready, "ready");
+        assert!(
+            wait_for_file(gate, Duration::from_secs(HOLD_SECONDS)),
+            "the gate never opened"
+        );
+        let mut stdin = std::io::stdin();
+        let mut buffer = vec![0u8; 64 * 1024];
+        let mut total = 0usize;
+        loop {
+            match stdin.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => total += read,
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => break,
+                Err(error) => panic!("reading stdin failed: {error}"),
+            }
+        }
+        write_atomic(count_file, &total.to_string());
+        hold_for_a_while();
+    }
+
+    /// Role `leader`: records its pid, starts the holder (outside the job when `breakaway`),
+    /// waits for it to be ready, records its pid, then does `then`: `echo` the input, `exit`
+    /// without reading it, `block` until killed, or say `GO` and block. A holder that cannot be
+    /// started is reported in `holder.err` (the raw OS error, 5 when the job refused breakaway)
+    /// and the leader ends.
+    #[cfg(windows)]
+    #[allow(clippy::zombie_processes)] // The holder is meant to outlive the leader.
+    fn run_leader(dir: &std::path::Path, holder: &str, breakaway: bool, then: &str) {
+        use std::io::Write;
+        use std::os::windows::process::CommandExt;
+        write_atomic(&dir.join("leader.pid"), &std::process::id().to_string());
+        let ready = dir.join("holder.ready");
+        let holder_spec = match holder {
+            "hold" => format!("hold|{}", ready.display()),
+            "hold-read" => format!(
+                "hold-read|{}|{}|{}",
+                ready.display(),
+                dir.join("gate").display(),
+                dir.join("count").display()
+            ),
+            other => panic!("unknown holder {other}"),
+        };
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                helper_test_name().as_str(),
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(HELPER_ENV, holder_spec)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit());
+        if breakaway {
+            command.creation_flags(crate::CREATE_BREAKAWAY_FROM_JOB);
+        }
+        let child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let report = error
+                    .raw_os_error()
+                    .map_or_else(|| error.to_string(), |code| code.to_string());
+                write_atomic(&dir.join("holder.err"), &report);
+                return;
+            }
+        };
+        if !wait_for_file(&ready, Duration::from_secs(30)) {
+            write_atomic(&dir.join("holder.err"), "the holder never became ready");
+            return;
+        }
+        write_atomic(&dir.join("holder.pid"), &child.id().to_string());
+        drop(child);
+        match then {
+            "echo" => echo_stdin_framed(),
+            "exit" => {}
+            "block" => hold_for_a_while(),
+            "go" => {
+                let mut stdout = std::io::stdout();
+                stdout.write_all(GO).unwrap();
+                stdout.flush().unwrap();
+                hold_for_a_while();
+            }
+            other => panic!("unknown leader action {other}"),
+        }
+    }
+
+    /// Not a test by itself: it returns at once unless `HELPER_ENV` or `HELPER_ARG` arms it, which
+    /// only the Windows runner tests below do. Specs: `echo`, `exit-now`, `flood|<bytes>`,
+    /// `flood-lines|<count>`, `hold|<ready file>`, `hold-read|<ready>|<gate>|<count file>` and
+    /// `leader|<dir>|<hold or hold-read>|<1 to break away, else 0>|<echo, exit, block or go>`.
+    #[cfg(windows)]
+    #[test]
+    fn windows_runner_helper_child() {
+        let Some(spec) = helper_spec() else {
+            return;
+        };
+        let parts: Vec<&str> = spec.split('|').collect();
+        match parts.as_slice() {
+            ["echo"] => echo_stdin_framed(),
+            ["exit-now"] => std::process::exit(7),
+            ["flood", total] => flood_stderr(total.parse().unwrap()),
+            ["flood-lines", count] => flood_stderr_lines(count.parse().unwrap()),
+            ["hold", ready] => {
+                write_atomic(std::path::Path::new(ready), "ready");
+                hold_for_a_while();
+            }
+            ["hold-read", ready, gate, count] => hold_then_count_stdin(
+                std::path::Path::new(ready),
+                std::path::Path::new(gate),
+                std::path::Path::new(count),
+            ),
+            ["leader", dir, holder, breakaway, then] => {
+                run_leader(std::path::Path::new(dir), holder, *breakaway == "1", then)
+            }
+            other => panic!("unknown helper spec {other:?}"),
+        }
+    }
+
+    /// A scratch directory for one test's pid, ready and gate files, and the identity of the
+    /// holder once it is known to be alive. Dropping it kills that holder (pinned by its start
+    /// time, so a recycled pid is never signalled) and removes the directory.
+    #[cfg(windows)]
+    struct HelperFixture {
+        dir: std::path::PathBuf,
+        holder: Option<crate::AdoptedIdentity>,
+    }
+
+    #[cfg(windows)]
+    impl HelperFixture {
+        fn new(label: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos());
+            let dir = std::env::temp_dir()
+                .join(format!("rk-run-win-{label}-{}-{nanos}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self { dir, holder: None }
+        }
+
+        fn read(&self, name: &str) -> Option<String> {
+            std::fs::read_to_string(self.dir.join(name)).ok()
+        }
+
+        fn pid(&self, name: &str) -> Option<u32> {
+            self.read(name)?.trim().parse().ok()
+        }
+
+        fn leader_spec(&self, holder: &str, breakaway: bool, then: &str) -> String {
+            format!(
+                "leader|{}|{holder}|{}|{then}",
+                self.dir.display(),
+                u8::from(breakaway)
+            )
+        }
+
+        /// The leader as an `OwnedCommand` whose job allows breakaway exactly when the leader
+        /// asks for it.
+        fn command(&self, holder: &str, breakaway: bool, then: &str) -> OwnedCommand {
+            let mut command = helper_command(&self.leader_spec(holder, breakaway, then));
+            command.windows_allow_breakaway(breakaway);
+            command
+        }
+
+        /// The leader's arguments for `run` / `run_with_stdin`.
+        fn argv(&self, holder: &str, breakaway: bool, then: &str) -> Vec<String> {
+            helper_argv(&self.leader_spec(holder, breakaway, then))
+        }
+
+        /// The pid the leader reported for its holder, or a failure that says why there is none.
+        fn holder_pid(&self) -> u32 {
+            if let Some(error) = self.read("holder.err") {
+                panic!(
+                    "the leader could not start its holder: {error} (5 means the job refused \
+                     CREATE_BREAKAWAY_FROM_JOB)"
+                );
+            }
+            self.pid("holder.pid").expect(
+                "the leader never reported its holder before the call ended (a very slow host?)",
+            )
+        }
+
+        /// Asserts the holder is still alive and remembers its identity so `Drop` can kill it.
+        fn track_holder(&mut self) -> u32 {
+            let pid = self.holder_pid();
+            let identity = crate::AdoptedIdentity::capture(std::num::NonZeroU32::new(pid).unwrap())
+                .unwrap()
+                .unwrap_or_else(|| {
+                    panic!("the holder (pid {pid}) is gone: it did not outlive the call")
+                });
+            assert!(
+                identity.is_running().unwrap(),
+                "the holder (pid {pid}) must still hold the pipes"
+            );
+            self.holder = Some(identity);
+            pid
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for HelperFixture {
+        fn drop(&mut self) {
+            if let Some(identity) = self.holder.take() {
+                let _ = identity.signal(crate::AdoptedSignal::Force);
+                let _ = identity.wait_confirmed_gone(Duration::from_secs(5));
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// Waits (bounded) until no process has `pid`; fails if one still does.
+    #[cfg(windows)]
+    fn assert_gone(pid: u32, what: &str) {
+        let process = crate::AdoptedProcess::new(std::num::NonZeroU32::new(pid).unwrap());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while process.is_running().unwrap() {
+            assert!(
+                Instant::now() < deadline,
+                "{what} (pid {pid}) is still running"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// 1 MiB through stdin of a leader that echoes it back while an in-job holder keeps all
+    /// three pipes open: both entry points that take input return the whole echo (neither
+    /// direction deadlocks), the leader's own status, and no holder is left behind.
+    #[cfg(windows)]
+    #[test]
+    fn run_with_stdin_and_run_command_round_trip_one_mib_and_reap_an_in_job_holder_windows() {
+        let _serial = serial();
+        let input = pattern(0, 1 << 20);
+        let options = RunOptions::new(Duration::from_secs(60)).stdout_cap(4 << 20);
+        for entry in ["run_with_stdin", "run_command"] {
+            let fixture = HelperFixture::new(entry);
+            let started = Instant::now();
+            let result = if entry == "run_with_stdin" {
+                run_with_stdin(
+                    std::env::current_exe().unwrap(),
+                    fixture.argv("hold", false, "echo"),
+                    &input,
+                    &options,
+                )
+            } else {
+                run_command(
+                    fixture.command("hold", false, "echo"),
+                    Some(&input),
+                    &options,
+                )
+            };
+            let output = result.unwrap();
+            let elapsed = started.elapsed();
+            assert!(output.status.success(), "{entry}: {:?}", output.status);
+            assert!(!output.timed_out, "{entry}: the call ran to its deadline");
+            assert!(!output.stdout.truncated, "{entry}: stdout hit its cap");
+            let echoed = framed(&output.stdout.bytes);
+            assert!(
+                echoed == input.as_slice(),
+                "{entry}: echoed {} bytes, expected {}",
+                echoed.len(),
+                input.len()
+            );
+            assert!(
+                elapsed < Duration::from_secs(30),
+                "{entry} took {elapsed:?}"
+            );
+            assert_eq!(
+                LIVE_WRITERS.load(SeqCst),
+                0,
+                "{entry}: the writer thread must be gone"
+            );
+            assert_gone(fixture.holder_pid(), "the in-job holder");
+        }
+    }
+
+    /// The same through `run_streaming`: the callbacks see the whole echo, the stdout tail is
+    /// full, and the in-job holder is gone when the call returns.
+    #[cfg(windows)]
+    #[test]
+    fn run_streaming_with_input_round_trips_one_mib_and_reaps_an_in_job_holder_windows() {
+        let _serial = serial();
+        let input = pattern(0, 1 << 20);
+        let fixture = HelperFixture::new("stream-round-trip");
+        let options = StreamOptions::new()
+            .timeout(Duration::from_secs(60))
+            .input(input.clone());
+        let started = Instant::now();
+        let command = fixture.command("hold", false, "echo");
+        let (output, chunks, _lines) = stream(command, &options, false);
+        let elapsed = started.elapsed();
+        assert!(output.status.success(), "{:?}", output.status);
+        assert!(!output.timed_out && !output.cancelled);
+        let echoed = framed(&chunks);
+        assert!(
+            echoed == input.as_slice(),
+            "echoed {} bytes, expected {}",
+            echoed.len(),
+            input.len()
+        );
+        assert_eq!(output.stdout_tail.len(), 64 * 1024);
+        assert!(
+            elapsed < Duration::from_secs(30),
+            "run_streaming took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+        assert_gone(fixture.holder_pid(), "the in-job holder");
+    }
+
+    /// Windows counterpart of the Unix early-exit cases: a child that exits at once without
+    /// reading 1 MiB of input is a normal early exit (the broken pipe is not an error) through
+    /// every runner that takes input, with the child's own status.
+    #[cfg(windows)]
+    #[test]
+    fn a_child_that_exits_without_reading_its_input_is_a_normal_early_exit_through_every_runner_windows(
+    ) {
+        let _serial = serial();
+        let big = pattern(0, 1 << 20);
+        let options = RunOptions::new(Duration::from_secs(60));
+        let output = run_with_stdin(
+            std::env::current_exe().unwrap(),
+            helper_argv("exit-now"),
+            &big,
+            &options,
+        )
+        .unwrap();
+        assert_eq!(output.status.code(), Some(7));
+        assert!(!output.timed_out);
+        let output = run_command(helper_command("exit-now"), Some(&big), &options).unwrap();
+        assert_eq!(output.status.code(), Some(7));
+        assert!(!output.timed_out);
+        let options = StreamOptions::new()
+            .timeout(Duration::from_secs(60))
+            .input(big.clone());
+        let (output, _chunks, _lines) = stream(helper_command("exit-now"), &options, false);
+        assert_eq!(output.status.code(), Some(7));
+        assert!(!output.timed_out && !output.cancelled);
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+    }
+
+    /// Windows counterpart of `a_session_escaped_stdin_holder_does_not_hold_run_past_its_exit`:
+    /// the leader exits at once without reading 2 MiB of input while a holder that broke away
+    /// from the job keeps stdin, stdout and stderr open and never reads. `run_command` returns
+    /// well inside its deadline with the leader's status and no writer thread; the holder is
+    /// still alive; and the write end really is closed: once the test opens the gate the holder
+    /// reads stdin to its end and got only what was already in the pipe.
+    #[cfg(windows)]
+    #[test]
+    fn a_breakaway_stdin_holder_does_not_hold_run_command_past_its_exit_windows() {
+        let _serial = serial();
+        let mut fixture = HelperFixture::new("command-exit");
+        let big = pattern(0, 2 << 20);
+        let options = RunOptions::new(Duration::from_secs(60));
+        let started = Instant::now();
+        let output = run_command(
+            fixture.command("hold-read", true, "exit"),
+            Some(&big),
+            &options,
+        )
+        .unwrap();
+        let elapsed = started.elapsed();
+        fixture.track_holder();
+        assert!(!output.timed_out);
+        assert!(output.status.success(), "{:?}", output.status);
+        // The leader's exit is immediate; the drains get 2 s each and the writer 0.5 s + 2 s.
+        assert!(
+            elapsed < Duration::from_secs(20),
+            "run_command took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+        std::fs::write(fixture.dir.join("gate"), "open").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let received = loop {
+            let count = fixture.read("count");
+            if let Some(count) = count.and_then(|text| text.trim().parse::<usize>().ok()) {
+                break count;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the holder never reached the end of stdin: the write end is still open"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert!(
+            received < big.len() / 2,
+            "{received} bytes reached the holder after run_command returned"
+        );
+    }
+
+    /// Windows counterpart of `a_session_escaped_stdin_holder_does_not_hold_run_command_past_its_timeout`:
+    /// the leader blocks past the deadline, so the tree kill (not an exit) ends it, while a
+    /// holder outside the job keeps all three pipes. The call still returns after the drain and
+    /// writer bounds, reports `timed_out`, leaves no writer thread, and the holder survives.
+    #[cfg(windows)]
+    #[test]
+    fn a_breakaway_stdin_holder_does_not_hold_run_command_past_its_timeout_windows() {
+        let _serial = serial();
+        let mut fixture = HelperFixture::new("command-timeout");
+        let big = pattern(0, 2 << 20);
+        let timeout = Duration::from_secs(8);
+        let options = RunOptions::new(timeout);
+        let started = Instant::now();
+        let output =
+            run_command(fixture.command("hold", true, "block"), Some(&big), &options).unwrap();
+        let elapsed = started.elapsed();
+        fixture.track_holder();
+        assert!(output.timed_out);
+        assert!(
+            elapsed < timeout + Duration::from_secs(15),
+            "run_command took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+    }
+
+    /// Windows counterpart of `a_session_escaped_stdin_holder_does_not_hold_run_streaming_past_its_timeout`.
+    #[cfg(windows)]
+    #[test]
+    fn a_breakaway_stdin_holder_does_not_hold_run_streaming_past_its_timeout_windows() {
+        let _serial = serial();
+        let mut fixture = HelperFixture::new("stream-timeout");
+        let timeout = Duration::from_secs(8);
+        let options = StreamOptions::new()
+            .timeout(timeout)
+            .input(pattern(0, 2 << 20));
+        let started = Instant::now();
+        let (output, _chunks, _lines) =
+            stream(fixture.command("hold", true, "block"), &options, false);
+        let elapsed = started.elapsed();
+        fixture.track_holder();
+        assert!(output.timed_out && !output.cancelled);
+        assert!(
+            elapsed < timeout + Duration::from_secs(15),
+            "run_streaming took {elapsed:?}"
+        );
+        assert_eq!(
+            LIVE_WRITERS.load(SeqCst),
+            0,
+            "the writer thread must be gone"
+        );
+    }
+
+    /// The premise of the two tests above, and of why `run` and `run_with_stdin` have no
+    /// surviving-holder case: their job refuses breakaway, so a descendant that asks for it is
+    /// refused (`ERROR_ACCESS_DENIED`, 5) and nothing can outlive the call.
+    #[cfg(windows)]
+    #[test]
+    fn run_with_stdin_contains_a_descendant_that_asks_to_break_away_windows() {
+        let _serial = serial();
+        let fixture = HelperFixture::new("no-breakaway");
+        let output = run_with_stdin(
+            std::env::current_exe().unwrap(),
+            fixture.argv("hold", true, "exit"),
+            b"",
+            &RunOptions::new(Duration::from_secs(60)),
+        )
+        .unwrap();
+        assert!(output.status.success(), "{:?}", output.status);
+        assert!(!output.timed_out);
+        assert_eq!(
+            fixture.read("holder.err").as_deref(),
+            Some("5"),
+            "the job must refuse CREATE_BREAKAWAY_FROM_JOB"
+        );
+        assert!(fixture.pid("holder.pid").is_none());
+        assert_eq!(LIVE_WRITERS.load(SeqCst), 0);
+    }
+
+    /// Windows counterpart of
+    /// `run_streaming_cancel_after_the_first_chunk_kills_the_tree_and_a_grandchild`: the cancel
+    /// predicate turns true when the leader's `GO` marker arrives (after its in-job holder is
+    /// ready and both pids are recorded). The call ends promptly as cancelled, not as a timeout,
+    /// and by pid the leader and the holder are both gone.
+    #[cfg(windows)]
+    #[test]
+    fn run_streaming_cancel_after_the_first_chunk_kills_the_tree_and_a_grandchild_windows() {
+        let fixture = HelperFixture::new("stream-cancel");
+        let options = StreamOptions::new()
+            .poll(Duration::from_millis(50))
+            .timeout(Duration::from_secs(60));
+        let cancel = std::cell::Cell::new(false);
+        let seen_at = std::cell::Cell::new(None::<Instant>);
+        let mut chunks = Vec::new();
+        let output = run_streaming(
+            fixture.command("hold", false, "go"),
+            &options,
+            &|| cancel.get(),
+            &mut |chunk: &[u8]| {
+                chunks.extend_from_slice(chunk);
+                if !cancel.get() && find(&chunks, GO).is_some() {
+                    seen_at.set(Some(Instant::now()));
+                    cancel.set(true);
+                }
+            },
+            &mut |_line: &str| {},
+        )
+        .unwrap();
+        let seen = seen_at.get().expect("the leader's GO marker never arrived");
+        assert!(output.cancelled);
+        assert!(!output.timed_out);
+        assert!(!output.status.success(), "{:?}", output.status);
+        assert!(
+            seen.elapsed() < Duration::from_secs(8),
+            "cancel took {:?} to take effect",
+            seen.elapsed()
+        );
+        let leader = fixture
+            .pid("leader.pid")
+            .expect("the leader recorded no pid");
+        let holder = fixture.holder_pid();
+        assert_ne!(leader, holder);
+        assert_gone(leader, "the leader");
+        assert_gone(holder, "the in-job holder");
+    }
+
+    /// What every flood case asserts about a call whose child wrote `flood` bytes to stderr
+    /// with a `cap`-byte capture: the child finished (it never blocked on a full pipe), the
+    /// kept bytes are exactly the first `cap`, `truncated` says so, and `total_bytes` counts
+    /// everything the child wrote.
+    #[cfg(windows)]
+    fn assert_flood_capped(output: &RunOutput, cap: usize, flood: usize) {
+        assert!(
+            !output.timed_out,
+            "the flood held the child until the deadline"
+        );
+        assert!(output.status.success(), "{:?}", output.status);
+        assert_eq!(output.stderr.bytes.len(), cap);
+        assert!(output.stderr.truncated);
+        assert!(
+            output.stderr.total_bytes >= (flood + BEGIN.len()) as u64,
+            "stderr counted {} bytes, the child wrote {}",
+            output.stderr.total_bytes,
+            flood + BEGIN.len()
+        );
+        let kept = &output.stderr.bytes;
+        let at = find(kept, BEGIN).expect("the begin marker is not in the kept bytes");
+        let body = &output.stderr.bytes[at + BEGIN.len()..];
+        assert!(
+            body == pattern(0, body.len()).as_slice(),
+            "the kept bytes are not the first ones the child wrote"
+        );
+        assert!(
+            !output.stdout.truncated,
+            "the stderr cap must not touch stdout"
+        );
+        assert!(
+            find(&output.stdout.bytes, DONE).is_some(),
+            "the child never finished writing"
+        );
+    }
+
+    /// A stderr flood far past the capture cap, through `run` (explicit cap) and `run_command`
+    /// (the 1 MiB default): the cap is enforced exactly, the call completes instead of
+    /// stalling on a full pipe, and the truncation is reported.
+    #[cfg(windows)]
+    #[test]
+    fn a_stderr_flood_past_the_cap_is_truncated_not_blocking_through_run_and_run_command_windows() {
+        let cap = 64 * 1024;
+        let flood = 4 << 20;
+        let started = Instant::now();
+        let output = run(
+            std::env::current_exe().unwrap(),
+            helper_argv(&format!("flood|{flood}")),
+            &RunOptions::new(Duration::from_secs(60)).stderr_cap(cap),
+        )
+        .unwrap();
+        assert_flood_capped(&output, cap, flood);
+        let flood = 3 << 20;
+        let output = run_command(
+            helper_command(&format!("flood|{flood}")),
+            None,
+            &RunOptions::new(Duration::from_secs(60)),
+        )
+        .unwrap();
+        assert_flood_capped(&output, 1024 * 1024, flood);
+        assert!(
+            started.elapsed() < Duration::from_secs(90),
+            "the floods took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// A stderr flood through `run_streaming`: every line reaches the callback in order, only
+    /// the tail is kept (within its cap, ending with the last line), and the call completes.
+    #[cfg(windows)]
+    #[test]
+    fn a_stderr_flood_does_not_block_run_streaming_and_keeps_only_the_tail_windows() {
+        const LINES: usize = 400_000;
+        let options = StreamOptions::new()
+            .timeout(Duration::from_secs(60))
+            .stderr_tail_cap(1024);
+        let started = Instant::now();
+        let (output, _chunks, lines) = stream(
+            helper_command(&format!("flood-lines|{LINES}")),
+            &options,
+            false,
+        );
+        assert!(!output.timed_out && !output.cancelled);
+        assert!(output.status.success(), "{:?}", output.status);
+        let ours: Vec<&str> = lines
+            .iter()
+            .map(String::as_str)
+            .filter(|line| line.len() == 8 && line.starts_with('L'))
+            .collect();
+        assert_eq!(ours.len(), LINES, "lines were lost or never delivered");
+        for (index, line) in ours.iter().enumerate() {
+            assert_eq!(*line, format!("L{index:07}"));
+        }
+        assert!(
+            output.stderr_tail.len() <= 1024,
+            "{}",
+            output.stderr_tail.len()
+        );
+        assert!(
+            output.stderr_tail.ends_with(&format!("L{:07}", LINES - 1)),
+            "the tail does not end with the last line"
+        );
+        assert!(
+            find(&output.stdout_tail, DONE).is_some(),
+            "the child never finished writing"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(60),
+            "run_streaming took {:?}",
+            started.elapsed()
+        );
+    }
 }

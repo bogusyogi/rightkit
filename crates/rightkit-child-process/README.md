@@ -378,7 +378,10 @@ rightkit cargo package -p rightkit-child-process --allow-dirty --no-verify --lis
 `tests/windows_process_tree.rs` covers parent and grandchild termination, sibling
 survival, bounded grace, kill-on-drop, and partial-spawn cleanup on Windows.
 `tests/unix_process_group.rs` covers Unix process-group behavior. Run both suites on
-their own host platforms.
+their own host platforms. The bounded runners (`run`, `run_with_stdin`, `run_command`,
+`run_streaming`) have unit tests in `src/run.rs` on both families: on Unix they drive `sh`, on
+Windows they re-run the test binary as a helper (the `*_windows` tests) because Windows has no
+shell fixture that holds a pipe open without reading it.
 
 ## Windows
 
@@ -390,5 +393,6 @@ their own host platforms.
 - Errors: a `HRESULT_FROM_WIN32` value (0x8007xxxx) is returned as the raw OS error. Other failures are `io::Error::other`.
 - Dependency: `windows` 0.62 under `cfg(windows)` (`Cargo.toml:18`), with features `Win32_Foundation`, `Win32_Security`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_JobObjects`, `Win32_System_ProcessStatus` (resource usage) and `Win32_System_Threading`. Consumers enable no Windows features.
 - The code has no session or desktop check. The Windows suites (`native_capture`, `output_capture`, `windows_process_tree`, `handle_inheritance`, `drop_bounded`, `parent_death`) passed on Windows 11 (the Dell, build 26300) on 2026-10-20, parallel and serial: 185 passed, 0 failed, 1 ignored helper.
+- Windows runner cases in `src/run.rs` (the `*_windows` unit tests; added after that run, so not in the 185 and to be verified on the Dell with the next gate): `run_with_stdin` / `run_command` / `run_streaming` round-trip 1 MiB of stdin while an in-job descendant holds the pipes (the descendant is gone on return); a child that exits without reading its input is a normal early exit through all three; a descendant that broke away from the job and holds stdin, stdout and stderr does not hold `run_command` past the leader's exit or `run_command` / `run_streaming` past their timeouts, leaves no writer thread, and sees end of input once the call has returned (the write end is closed); `run_with_stdin` refuses a descendant's `CREATE_BREAKAWAY_FROM_JOB` (`ERROR_ACCESS_DENIED`), so nothing can outlive it; `run_streaming` cancelled after the first marker chunk ends the leader and its in-job grandchild (checked by pid); a stderr flood past the capture cap through `run` and `run_command` keeps exactly the first `cap` bytes, reports `truncated` and the full `total_bytes` and lets the child finish; a stderr line flood through `run_streaming` delivers every line and keeps only the tail. They need `CREATE_BREAKAWAY_FROM_JOB` to be allowed for a job the crate creates; a host whose outer job forbids it fails the surviving-holder cases with a message naming error 5, as `tests/windows_process_tree.rs` does for its breakaway cases.
 
 Licensed under either MIT or Apache-2.0, at your option.
