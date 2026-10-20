@@ -993,7 +993,7 @@ impl EncryptedStore {
         match probe(
             &cfg.db,
             replacement,
-            &key,
+            key,
             IntegrityCheck::Off,
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         ) {

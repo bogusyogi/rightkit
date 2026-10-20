@@ -42,7 +42,7 @@ function git(cwd, ...args) {
 }
 
 function iosApp({ srcTauri = false, packageJson = false, lock = false, projectSpec = true, nativeAssembly, iosExtra, commit = true } = {}) {
-  const root = tempRoot("right-ios-cargoless-");
+  const root = nodeFs.realpathSync.native(tempRoot("right-ios-cargoless-"));
   const pkg = iosPackage({ ...(projectSpec ? {} : { projectSpec: undefined }), ...(iosExtra ?? {}) });
   const config = {
     schema: 1, app: "coderight", version: "1.0.0",

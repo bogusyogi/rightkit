@@ -161,7 +161,7 @@ test("the managed root is canonicalised once, so a root moved to another volume 
   const fsMod = await import("node:fs");
   const osMod = await import("node:os");
   const pathMod = await import("node:path");
-  const base = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rk-root-"));
+  const base = fsMod.mkdtempSync(pathMod.join(fsMod.realpathSync.native(osMod.tmpdir()), "rk-root-"));
   const real = pathMod.join(base, "E-managed");
   fsMod.mkdirSync(real);
   const link = pathMod.join(base, "D-managed");
@@ -182,7 +182,7 @@ test("only a configured managed root itself may be a symlink; symlinks below it 
   const fsMod = await import("node:fs");
   const osMod = await import("node:os");
   const pathMod = await import("node:path");
-  const base = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rk-safe-"));
+  const base = fsMod.mkdtempSync(pathMod.join(fsMod.realpathSync.native(osMod.tmpdir()), "rk-safe-"));
   const real = pathMod.join(base, "E-managed");
   fsMod.mkdirSync(pathMod.join(real, "artifacts"), { recursive: true });
   const link = pathMod.join(base, "D-managed");

@@ -1146,7 +1146,9 @@ function assertReviewedWorkflow(text, name) {
 function assertEvidenceWorkflow(text, name) {
   assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be manually dispatched`);
   assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
-  const doc = parseYaml(text);
+  // This strict repository parser intentionally omits flow mappings. Empty permissions are
+  // equivalent to an empty sequence for this read-only check: both grant no permission.
+  const doc = parseYaml(text.replace(/^(\s*permissions): \{\}$/gm, "$1: []"));
   assert.ok(doc.permissions && typeof doc.permissions === "object", `${name} must declare top-level permissions`);
   const permissionsAreReadOnly = (value) => {
     if (!value || typeof value !== "object") return true;
