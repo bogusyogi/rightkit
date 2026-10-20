@@ -100,8 +100,10 @@ export const REQUIRED_HOSTS = Object.freeze(["win32", "darwin"]);
 export function validateSourcePrescription(crate, value) {
   const canonical = (item) => Array.isArray(item) ? item.map(canonical) : item && typeof item === "object" ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, canonical(item[key])])) : item;
   if (JSON.stringify(canonical(value)) !== JSON.stringify(canonical(supportedPrescription(crate)))) throw new Error("candidate workload prescription differs from trusted supported coverage");
-  // Required inventory comes from authenticated candidate bytes, never receipt claims.
-  return value.workloads.map((w) => ({ ...w, description: workloadsFor(crate).find((supported) => supported.id === w.id).description }));
+  // Rehydrate harness-only settings from dispatched-main trust after exact source equality.
+  // The candidate prescription authenticates args/bench/interval; env and profile are intentionally
+  // omitted from that public file and must come from the trusted inventory.
+  return workloadsFor(crate);
 }
 // Reads the prescription from the authenticated source tree; a missing or non-JSON blob refuses.
 export function readSourcePrescription(crate, readBlob) {

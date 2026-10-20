@@ -164,7 +164,10 @@ test("delta basis uses unchanged declared delta ceiling & requires consistent ba
 test("candidate source prescription cannot omit, add or alter supported workload coverage", () => {
   const source = JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-logs/benches/workloads.json", import.meta.url), "utf8"));
   assert.deepEqual(source, supportedPrescription(CRATE));
-  assert.deepEqual(validateSourcePrescription(CRATE, source).map((w) => w.id), ["tracing", "detached"]);
+  const validated = validateSourcePrescription(CRATE, source);
+  assert.deepEqual(validated.map((w) => w.id), ["tracing", "detached"]);
+  assert.deepEqual(validated.map((w) => w.env), [[], []]);
+  assert.ok(validated.every((w) => w.profile === null));
   for (const patch of [{ workloads: [source.workloads[0]] }, { workloads: [...source.workloads, source.workloads[0]] }, { defaultFeatures: false }, { coverage: {} }, { workloads: [source.workloads[0], { ...source.workloads[1], intervalMs: 50 }] }, { crate: "rightkit-daemon" }]) assert.throws(() => validateSourcePrescription(CRATE, { ...source, ...patch }));
   // Crate binding: the file's crate must equal the crate it is read for, and the crate must have pinned coverage.
   assert.throws(() => validateSourcePrescription("rightkit-daemon", source));
@@ -244,7 +247,10 @@ test("daemon trusted inventory pins args, trailing bench arguments, env names, i
 test("daemon candidate workloads.json equals trusted coverage and nothing else is accepted", () => {
   const source = daemonSource();
   assert.deepEqual(source, supportedPrescription(DAEMON));
-  assert.deepEqual(validateSourcePrescription(DAEMON, source).map((w) => w.id), ["local", "remote", "remote-loopback"]);
+  const validated = validateSourcePrescription(DAEMON, source);
+  assert.deepEqual(validated.map((w) => w.id), ["local", "remote", "remote-loopback"]);
+  assert.deepEqual(validated[1].profile, { name: "remote", features: ["remote"], requiredScale: { unit: "submissions", minCount: 10000 } });
+  assert.deepEqual(validated[2].env, []);
   const withWorkload = (index, change) => ({ ...source, workloads: source.workloads.map((w, i) => (i === index ? change(w) : w)) });
   for (const mutated of [
     withWorkload(0, (w) => ({ ...w, args: [...w.args, "1"] })),                                    // extra trailing argument
