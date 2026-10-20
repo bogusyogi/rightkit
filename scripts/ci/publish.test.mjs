@@ -742,17 +742,25 @@ test("upload (crates) refuses an unapproved or re-hashed crate before any PUT", 
   assert.deepEqual(requests, [], "nothing was fetched or PUT");
 });
 
-test("ci/approved-artifacts.json is well formed and holds exactly the three reviewer-signed npm artifacts", () => {
+test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-signed artifacts", () => {
   const { entries, problems } = loadApprovedArtifacts(APPROVED_ARTIFACTS_FILE);
   assert.deepEqual(problems, []);
   assert.deepEqual(entries.map((e) => `${e.registry} ${e.name}@${e.version} ${e.sha256}`).sort(), [
+    "npm @rightkit/doc-render@0.2.1 05d226219b9f7d783d6a106dd1cf0fd6a50b238715c348ebc6c3b4bebbe18e43",
     "npm @rightkit/license@0.3.0 9cccfca32a85198f6bb1f863c8e16fe16260e2c5e6ee99d9d5ee169b87302082",
     "npm @rightkit/logs@0.1.6 72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
     "npm @rightkit/react-shell@0.7.2 b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
   ]);
-  // Independent review compared exact CI archives with previously signed Mac tar streams.
-  assert.ok(entries.every((e) => e.reviewer === "Oracle (agent source-byte review)" &&
-    e.reviewRef === "agent-review:/root/npm_foundation_review/39398432518/source-bytes"));
+  // Each approval names its exact reviewer: the first three compared exact CI archives with previously signed
+  // Mac tar streams; later ones are R8 exact-archive SIGNs on a single-unit qualification run.
+  const foundation = { reviewer: "Oracle (agent source-byte review)", reviewRef: "agent-review:/root/npm_foundation_review/39398432518/source-bytes" };
+  const reviews = {
+    "@rightkit/license@0.3.0": foundation,
+    "@rightkit/logs@0.1.6": foundation,
+    "@rightkit/react-shell@0.7.2": foundation,
+    "@rightkit/doc-render@0.2.1": { reviewer: "RK2 Astra (R8 exact-archive SIGN)", reviewRef: "agent-review:/root/swift_native_evidence/39466345466/doc-render" },
+  };
+  assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
 
 test("the uploader keeps its reviewer-approval gate, and every weakening of it is rejected by the contract", () => {
