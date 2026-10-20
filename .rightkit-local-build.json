@@ -1,7 +1,0 @@
-{
-  "repository": "bogusyogi/rightkit",
-  "allow": "build-test-publish",
-  "approvedBy": "Adrian D'souza",
-  "approved": "2026-10-14",
-  "reason": "Local Mac and Windows builds are faster than GitHub Actions for this repository; agents may compile, test and publish locally. Repository moved to bogusyogi/rightkit (private, CI being removed) on 2026-10-17 (#342)."
-}
