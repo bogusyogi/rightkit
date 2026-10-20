@@ -9,7 +9,8 @@ permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
+  # Qualification/publication has its own immutable runs. Shared push validation follows current HEAD.
+  cancel-in-progress: true
 env:
   NODE_VERSION: "26.8.1"
 jobs:
@@ -81,7 +82,7 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 12
       matrix: ${{ fromJSON(needs.plan.outputs.windows_shards) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +113,7 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
-  # macOS matrix caps are 3 shard jobs + 2 closure jobs; GitHub controls actual admission.
+  # Offer all five standard macOS slots; GitHub controls account-wide admission, including closure jobs.
   shards-macos:
     needs: [plan]
     if: ${{ needs.plan.outputs.macos_shard_count != '0' }}
@@ -121,7 +122,7 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 5
       matrix: ${{ fromJSON(needs.plan.outputs.macos_shards) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
