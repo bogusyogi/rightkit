@@ -68,6 +68,40 @@
           "receiptSha256": "fd3e0472f1e1e4e78c0b0bcb7ac63dd3a2a5335678a716d2c80b73d65e56ef27"
         }
       }
+    },
+    {
+      "id": "cargo-fs-046-8162",
+      "sourceSha": "8162626e860f07201476b6be658d2c99a40600d7",
+      "runId": "39482266477",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "e57f2077997324a0b3a6ebddafe0196f6328cd9af8711f8935fb340096786b25",
+      "registry": "crates",
+      "units": [
+        "rightkit-fs"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12292760195",
+          "digest": "sha256:dae7f8cad9e065a639a37c4200c53d1bcaf0692cf44014dfa1b388e4fd2d6ee0"
+        },
+        "macos": {
+          "id": "12293007508",
+          "digest": "sha256:9d224134a3c8b40f2f858f57144549b535a3d0c65a9071d427892928fd7f39c8",
+          "receiptSha256": "410339c42d8f99e83d6a8a746fec2c6433d74414af0d545849ac0201abe473d4"
+        },
+        "windows": {
+          "id": "12293712652",
+          "digest": "sha256:156ac08737ad81da867a0412c162e60ea41e96e6fb601a4ff92189a0f2661b44",
+          "receiptSha256": "f680919fe01b607d65921c30c774c7b99c57e7a37ba7aa0420b7f8db5e3cdf8d"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -102,6 +136,14 @@
       "sha256": "05d226219b9f7d783d6a106dd1cf0fd6a50b238715c348ebc6c3b4bebbe18e43",
       "reviewer": "RK2 Astra (R8 exact-archive SIGN)",
       "reviewRef": "agent-review:/root/swift_native_evidence/39468856523/doc-render"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-fs",
+      "version": "0.4.6",
+      "sha256": "8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/hb_post_foundation/39482266477/fs-0.4.6"
     }
   ]
 }
