@@ -878,6 +878,7 @@ pub struct PooledReadConnection {
 }
 
 impl PooledReadConnection {
+    #[cfg(feature = "encrypted-lifecycle")]
     pub(crate) fn with_lifecycle_lease(mut self, lease: Arc<dyn Send + Sync>) -> Self {
         self._lifecycle_lease = Some(lease);
         self

@@ -293,7 +293,7 @@ fn kill_after(root: &Path, phase: &str) {
     child.0.kill().unwrap();
     let status = child.0.wait().unwrap();
     reader.join().unwrap();
-    assert_eq!(ready.unwrap(), true, "child never reached {phase}");
+    assert!(ready.unwrap(), "child never reached {phase}");
     assert!(!status.success(), "child must really die before recovery");
 }
 
@@ -791,8 +791,10 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
     );
     assert_eq!(fs::read(fixture.old()).unwrap(), source_bytes);
     assert!(store.with_writer(|_| ()).is_err());
-    assert!(journal(&fixture.old()).exists());
-    assert!(journal(&fixture.new_db()).exists());
+    let old_journal_path = journal(&fixture.old());
+    let new_journal_path = journal(&fixture.new_db());
+    let old_journal = fs::read(&old_journal_path).unwrap();
+    let new_journal = fs::read(&new_journal_path).unwrap();
     let report = session.settle(RelocationSettlement::Aborted).unwrap();
     assert_eq!(
         report.copy_retained.as_deref(),
@@ -802,7 +804,12 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
         report.key_store_residue,
         "promoted key must be reported as retained residue"
     );
-    assert!(report.cleanup_retained.is_empty(), "{report:?}");
+    assert_eq!(
+        report.cleanup_retained,
+        vec![old_journal_path.clone(), new_journal_path.clone()]
+    );
+    assert_eq!(fs::read(&old_journal_path).unwrap(), old_journal);
+    assert_eq!(fs::read(&new_journal_path).unwrap(), new_journal);
     assert!(store.with_writer(|_| ()).is_ok());
     assert_eq!(value(&fixture.new_db()), 41);
     assert_eq!(

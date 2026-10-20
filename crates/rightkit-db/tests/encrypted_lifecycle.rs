@@ -86,10 +86,6 @@ impl FakeKeys {
         self.0.lock().unwrap().legacy.get(alias).cloned()
     }
 
-    fn set_primary(&self, key: Option<&str>) {
-        self.0.lock().unwrap().primary = key.map(str::to_string);
-    }
-
     fn set_pending(&self, key: &str) {
         self.0.lock().unwrap().pending = Some((key.to_string(), "rev-test".to_string()));
     }
@@ -249,7 +245,7 @@ impl ProtectedKeySession for FakeSession {
         if inner
             .pending
             .as_ref()
-            .map_or(false, |(_, staged)| *staged == revision.0)
+            .is_some_and(|(_, staged)| *staged == revision.0)
         {
             inner.pending = None;
         }
