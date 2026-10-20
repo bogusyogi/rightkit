@@ -23,6 +23,13 @@
     "LICENSE"
   ],
   "sideEffects": false,
+  "rightkit": {
+    "publishCheck": {
+      "skipImport": [
+        "./dialog"
+      ]
+    }
+  },
   "dependencies": {
     "@rightkit/logs": "^0.1.4"
   },

@@ -6,7 +6,7 @@ version recorded in `pnpm-lock.yaml` (importer `packages/doc-render`). No `@righ
 
 Surface (exact `exports` keys): `.`, `./shiki.css`, `./styles.css`.
 
-Scenarios (6): root export surface; raw HTML never emitted as a script; link policy allows only reviewed schemes;
+Scenarios (5): root export surface; raw HTML never emitted as a script; link policy allows only reviewed schemes;
 parse tree deterministic with a clearable cache; stylesheet subpaths bound to the archive.
 
 No network, no user data. Markdown inputs are inline fixtures. Writes nothing outside the scratch install.

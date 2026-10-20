@@ -176,7 +176,7 @@
       "pkId": "PK21",
       "id": "ci/consumers/npm/doc-render/consumer.mjs",
       "recipeId": "doc-render-markdown-sanitize-consumer",
-      "scenarios": 6,
+      "scenarios": 5,
       "surface": [
         ".",
         "./shiki.css",
@@ -200,7 +200,7 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/doc-render/README.md": "b2c282e5f0570edad53a7b9311066f2ff02d625ba201d46927a5cf1688c1d15e",
+        "ci/consumers/npm/doc-render/README.md": "99f230c0c24ce02d209a1c9df9de0c7390dab78ac5494ddf0e34766de25d68d9",
         "ci/consumers/npm/doc-render/consumer.mjs": "03ec48728c00e08bb8d0637bccf50703971955ab4616b71b9e092eba6bca9fcd",
         "ci/consumers/npm/doc-render/package.json": "9bfd7a0c02b3a7123319aaefdaf3ab449109dca74fa0e6f152263561a2da5e44",
         "ci/consumers/npm/doc-render/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",

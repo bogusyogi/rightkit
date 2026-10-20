@@ -26,6 +26,8 @@ vendor/tauri-runtime-wry/** -text
 /ci/consumers/npm/** text eol=lf
 /packages/onboarding/package.json text eol=lf
 /packages/settings-ui/package.json text eol=lf
+/packages/doc-render/package.json text eol=lf
+/packages/tauri/package.json text eol=lf
 /packages/app-update/package.json text eol=lf
 /packages/qa-chrome/package.json text eol=lf
 /packages/tauri-shell/package.json text eol=lf
