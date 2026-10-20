@@ -747,6 +747,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   assert.deepEqual(problems, []);
   assert.deepEqual(entries.map((e) => `${e.registry} ${e.name}@${e.version} ${e.sha256}`).sort(), [
     "crates rightkit-child-process@0.5.4 b0e29813abd52bdba7629f4a82fa506338c21163d7d8675ce37fd63ea79a5105",
+    "crates rightkit-db@0.5.1 5faf1c33643ce547f0ed1b73a2bf975390095cbd99476f737a2e35417afca4fc",
     "crates rightkit-fs@0.4.6 8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
     "crates rightkit-http@0.3.8 7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
     "crates rightkit-logs@0.3.4 c37d3ed6ae2d2c3199767cd07c152706a3bc8242647f3f30c3290257535f2855",
@@ -756,11 +757,14 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "npm @rightkit/onboarding@0.6.3 9db84e3f619ab01cc932e5a9323ee77022287c82e752604a339fc3ddff8047a3",
     "npm @rightkit/react-shell@0.7.2 b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
     "npm @rightkit/tauri-shell@0.1.2 dd71d57ac0250c75a27871d5d6ae5231c05ec8033934ddf027be032ee5089952",
+    "npm @rightkit/tauri@0.3.0 4441a7191e5da878dcd6029206cc0fafcc746de755282f6553183668eeb7a0b2",
   ]);
   // Each approval names its exact reviewer: the first three compared exact CI archives with previously signed
   // Mac tar streams; later ones are R8 exact-archive SIGNs on a single-unit qualification run.
   const foundation = { reviewer: "Oracle (agent source-byte review)", reviewRef: "agent-review:/root/npm_foundation_review/39398432518/source-bytes" };
   const reviews = {
+    "rightkit-db@0.5.1": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/db_candidate_review/39498324762/db-0.5.1" },
+    "@rightkit/tauri@0.3.0": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39502600992/tauri-0.3.0" },
     "rightkit-logs@0.3.4": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39495922938/logs-0.3.4-runtime-39500183977" },
     "@rightkit/tauri-shell@0.1.2": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_view_foundation/39500169311/tauri-shell-0.1.2" },
     "@rightkit/license@0.3.0": foundation,
