@@ -50,3 +50,27 @@ fn longform_exports_match_pre_transcript_output() {
 fn longform_exports_empty_input_is_none() {
     assert_eq!(timed_exports(&[]), TimedExports::default());
 }
+
+#[test]
+fn longform_timed_word_is_the_transcript_type_and_adapters_leave_source_unset() {
+    // The re-export is the rightkit-transcript 0.4 type, not a copy, so a
+    // value built through either path is interchangeable.
+    let word: rightkit_transcript::TimedWord = TimedWord::new("hi", 10, 20);
+    assert_eq!(word.source_ms, None);
+
+    // ASR-side adapters know no source remap, so they never invent a span;
+    // cue grouping likewise yields cues with no per-word source span.
+    let toks = fixture();
+    let words = timed_pieces_to_words(&toks);
+    assert!(words.iter().all(|w| w.source_ms.is_none()));
+    assert!(group_cues(&words).iter().all(|c| c.source_ms.is_none()));
+
+    // A span set by a caller (a mapped transcript) survives the shared type's
+    // JSON, and a word without one serialises without the key.
+    let mut mapped = TimedWord::new("hi", 10, 20);
+    mapped.source_ms = Some((110, 120));
+    let value = serde_json::to_value(&mapped).unwrap();
+    assert_eq!(value["source_ms"], serde_json::json!([110, 120]));
+    let plain = serde_json::to_value(&words[0]).unwrap();
+    assert!(plain.get("source_ms").is_none());
+}

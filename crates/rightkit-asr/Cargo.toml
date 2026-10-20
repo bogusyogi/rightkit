@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-asr"
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.98.0"
 publish = true
@@ -14,7 +14,7 @@ keywords = ["speech-recognition", "asr", "parakeet", "whisper", "onnx"]
 categories = ["multimedia::audio"]
 include = [
   "src/**",
-  "tests/*.rs",
+  "tests/**",
   "Cargo.toml",
   "README.md",
   "LICENSE",
@@ -55,7 +55,7 @@ objc2-foundation = "0.3"
 # The e2e_whisper test drives the Silero scorer, which rightkit-vad now gates behind `silero`.
 rightkit-vad = { version = "0.1.0", path = "../rightkit-vad", features = ["silero"] }
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
-rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.3.3" }
+rightkit-speech-client = { path = "../rightkit-speech-client", version = "0.4.0" }
 
 [features]
 default = ["cpu", "ort-defaults", "whisper-tokenizers"]

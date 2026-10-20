@@ -3,6 +3,11 @@
 All notable changes to `rightkit-asr`. Versions follow Cargo semver; while the
 version is `0.x`, a minor bump may carry breaking changes.
 
+## 0.3.0 — unpublished staging
+
+- BREAKING (D23): the rightkit-transcript dependency moves from 0.3 to 0.4. `rightkit_asr::longform::TimedWord` re-exports `rightkit_transcript::TimedWord`, which gains a public `source_ms: Option<(u64, u64)>` field in 0.4, and `assemble_words`, `timed_pieces_to_words*`, `group_cues` and `render_subtitles` take or return it, so struct literals and cross-version type identity break. No decoder or algorithm change: the 57 production source files and 9 packaged tests are byte-identical to 0.2.4 (G13 review).
+- Packaging: `include` now ships `tests/**` (`tests/common/mod.rs`, `tests/coreml_cache/mod.rs` and `tests/fixtures/*`), which the packaged tests already reference (`e2e_whisper.rs` `mod common`, `e2e_parakeet.rs` detok fixture). Dev-dependency rightkit-speech-client floor 0.4.0.
+
 ## 0.2.4
 
 Patch for Orthic-Labs/rightkit#207 (Parakeet ONNX for Android). NOT COMPILED OR RUN when written, and never built for an Android target.
