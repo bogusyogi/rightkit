@@ -1,0 +1,228 @@
+{
+  "schema": 1,
+  "description": "Shared (input, expected) pairs for free-text scrubbing. Run by packages/logs/src/index.test.ts against scrubLogText and, for entries with windowCrash, by src/crash.test.ts against scrubWindowCrashText; the Rust suite (crates/rightkit-logs/tests/scrub_parity.rs) runs every entry against rightkit_logs::scrub::scrub_text. An entry gives `input` or `inputParts` (joined with no separator; used where a literal would look like a real credential to a secret scanner). Inputs must not contain the running user's home directory (the Rust scrubber rewrites it to `~`) and must not depend on behaviour where the two scrubbers are known to differ (IPv4 octets above 255, the `Shared` user directory, values the text scrubber leaves to quoted-value redaction).",
+  "vectors": [
+    {
+      "name": "bearer token is dropped",
+      "input": "Authorization: Bearer abcdefghijklmnop failed",
+      "expected": "Authorization: Bearer [redacted:credential] failed",
+      "windowCrash": true
+    },
+    {
+      "name": "bearer marker is case-insensitive",
+      "input": "authorization: bearer lowerTOKEN99 end",
+      "expected": "authorization: bearer [redacted:credential] end"
+    },
+    {
+      "name": "bearer marker with colon",
+      "input": "Bearer: tokenvalue1 end",
+      "expected": "Bearer: [redacted:credential] end"
+    },
+    {
+      "name": "bearer prose and a marker without a token are kept",
+      "input": "bearers and overbearing tones; the bearer",
+      "expected": "bearers and overbearing tones; the bearer"
+    },
+    {
+      "name": "email",
+      "input": "contact person@example.com now",
+      "expected": "contact [redacted:email] now",
+      "windowCrash": true
+    },
+    {
+      "name": "email with plus tag, subdomains and trailing dot",
+      "input": "mail ada.lovelace+tag@sub.example.co.uk.",
+      "expected": "mail [redacted:email]"
+    },
+    {
+      "name": "emails in parentheses and after a comma",
+      "input": "send to (ada@example.com), cc bob@example.org",
+      "expected": "send to ([redacted:email]), cc [redacted:email]"
+    },
+    {
+      "name": "email shapes without a dotted domain are kept",
+      "input": "npm i @scope/pkg and git@host",
+      "expected": "npm i @scope/pkg and git@host"
+    },
+    {
+      "name": "url userinfo, query and fragment",
+      "input": "GET https://user:pw@example.com/v1/items?key=abc&x=1#frag failed",
+      "expected": "GET https://example.com/v1/items?[redacted] failed",
+      "windowCrash": true
+    },
+    {
+      "name": "url query with oauth token",
+      "input": "open https://api.example.com/cb?access_token=abc123&next=/home#section now",
+      "expected": "open https://api.example.com/cb?[redacted] now"
+    },
+    {
+      "name": "url userinfo only",
+      "input": "git clone https://token:x-oauth@github.com/org/repo.git done",
+      "expected": "git clone https://github.com/org/repo.git done"
+    },
+    {
+      "name": "url fragment only",
+      "input": "see https://example.com/docs#section-2 for details",
+      "expected": "see https://example.com/docs for details"
+    },
+    {
+      "name": "url without query or userinfo is unchanged",
+      "input": "GET https://example.com/v1/items failed",
+      "expected": "GET https://example.com/v1/items failed"
+    },
+    {
+      "name": "oauth callback parameters",
+      "input": "callback code=4/abc&state=xyz failed",
+      "expected": "callback code=[redacted]&state=[redacted] failed"
+    },
+    {
+      "name": "oauth parameter before a comma",
+      "input": "refresh_token=rt-value-9, scope=mail",
+      "expected": "refresh_token=[redacted], scope=mail"
+    },
+    {
+      "name": "secret parameter names are case-insensitive",
+      "input": "retry with API_KEY=abcd1234 and Password=hunter2x",
+      "expected": "retry with API_KEY=[redacted] and Password=[redacted]"
+    },
+    {
+      "name": "other parameters are kept",
+      "input": "retry=3 attempt=2 timeout=30s",
+      "expected": "retry=3 attempt=2 timeout=30s"
+    },
+    {
+      "name": "jwt",
+      "inputParts": [
+        "token eyJ",
+        "hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlLXBhcnQ",
+        " done"
+      ],
+      "expected": "token [redacted:credential] done",
+      "windowCrash": true
+    },
+    {
+      "name": "sk- api key",
+      "inputParts": [
+        "key sk-",
+        "a1b2",
+        "c3d4e5f6g7h8 used"
+      ],
+      "expected": "key [redacted:credential] used",
+      "windowCrash": true
+    },
+    {
+      "name": "ghp_ token",
+      "inputParts": [
+        "token ghp_",
+        "abcdefghij1234567890",
+        " end"
+      ],
+      "expected": "token [redacted:credential] end"
+    },
+    {
+      "name": "csk- api key",
+      "inputParts": [
+        "key csk-",
+        "abcdef1234567890",
+        " used"
+      ],
+      "expected": "key [redacted:credential] used"
+    },
+    {
+      "name": "aws access key id",
+      "inputParts": [
+        "id AKIA",
+        "IOSFODNN7EXAMPLE",
+        " x"
+      ],
+      "expected": "id [redacted:credential] x"
+    },
+    {
+      "name": "or- api key",
+      "inputParts": [
+        "token or-",
+        "7f3a9c2e1b4d5a6f7e8d9c0b1a2f3e4d",
+        " done"
+      ],
+      "expected": "token [redacted:credential] done"
+    },
+    {
+      "name": "telegram bot token",
+      "inputParts": [
+        "bot 12345",
+        "6789:AAFabcdefGHIJKLMNOPQRSTUV123",
+        " failed"
+      ],
+      "expected": "bot [redacted:credential] failed"
+    },
+    {
+      "name": "telegram shapes without a long id or secret are kept",
+      "inputParts": [
+        "step 12:AAFabcdefGHIJKLMNOPQRSTUV123 and 12345",
+        "6789:short"
+      ],
+      "expected": "step 12:AAFabcdefGHIJKLMNOPQRSTUV123 and 123456789:short"
+    },
+    {
+      "name": "credential prefixes below the length floor are kept, also at the end of the input",
+      "input": "the csk-short flag; key sk-short",
+      "expected": "the csk-short flag; key sk-short"
+    },
+    {
+      "name": "or- hyphenated words without digits are kept",
+      "input": "or-ordinary-words-without-digits",
+      "expected": "or-ordinary-words-without-digits"
+    },
+    {
+      "name": "opaque 32 character run with digits and letters",
+      "input": "hash 0123456789abcdef0123456789abcdef done",
+      "expected": "hash [redacted:credential] done"
+    },
+    {
+      "name": "opaque 32 character run of letters only is kept",
+      "input": "name abcdefghijklmnopqrstuvwxyzabcdef done",
+      "expected": "name abcdefghijklmnopqrstuvwxyzabcdef done"
+    },
+    {
+      "name": "ipv4",
+      "input": "from 10.0.0.1 now",
+      "expected": "from [redacted:ip] now"
+    },
+    {
+      "name": "ipv4 with port",
+      "input": "peer 192.168.1.20:8080 refused",
+      "expected": "peer [redacted:ip] refused"
+    },
+    {
+      "name": "version numbers are kept",
+      "input": "using 1.2.3 and build 4.5.6.7.8",
+      "expected": "using 1.2.3 and build 4.5.6.7.8"
+    },
+    {
+      "name": "macos home directory user segment",
+      "input": "crash at /Users/ada/app/src/main.rs:4",
+      "expected": "crash at /Users/<user>/app/src/main.rs:4",
+      "windowCrash": true
+    },
+    {
+      "name": "linux home directory user segment",
+      "input": "open /home/ada/projects/x.rs now",
+      "expected": "open /home/<user>/projects/x.rs now"
+    },
+    {
+      "name": "windows home directory user segment",
+      "input": "open C:\\Users\\ada\\app\\x.txt now",
+      "expected": "open C:\\Users\\<user>\\app\\x.txt now"
+    },
+    {
+      "name": "several kinds in one line",
+      "input": "user ada@example.com from 10.0.0.1 opened /Users/ada/notes.txt",
+      "expected": "user [redacted:email] from [redacted:ip] opened /Users/<user>/notes.txt"
+    },
+    {
+      "name": "plain text is unchanged",
+      "input": "plain message with nothing sensitive: 42 items in 3.5s at 12:30",
+      "expected": "plain message with nothing sensitive: 42 items in 3.5s at 12:30"
+    }
+  ]
+}

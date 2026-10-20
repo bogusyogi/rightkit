@@ -142,6 +142,41 @@ fn urls_ratios_and_comment_markers_are_kept_with_path_redaction() {
 // `packages/logs/src/index.test.ts` against `scrubLogText`, and a subset in
 // `crash.test.ts` against `scrubWindowCrashText`.
 
+/// The shared vector file `tests/scrub-parity.v1.json` (shipped with the crate) is the single source the
+/// JS suites (`packages/logs/src/index.test.ts`, `crash.test.ts`) also run, so both scrubbers are held
+/// to the same expectations (PK11-3).
+#[test]
+fn shared_vector_file_matches_scrub_text() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/scrub-parity.v1.json");
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("read the shared vectors"))
+            .expect("vectors are JSON");
+    assert_eq!(doc["schema"], 1);
+    let vectors = doc["vectors"].as_array().expect("a vectors array");
+    assert!(
+        vectors.len() >= 30,
+        "the shared file lost entries: {}",
+        vectors.len()
+    );
+    for v in vectors {
+        let name = v["name"].as_str().expect("every vector has a name");
+        let input: String = match v["input"].as_str() {
+            Some(s) => s.to_string(),
+            None => v["inputParts"]
+                .as_array()
+                .expect("input or inputParts")
+                .iter()
+                .map(|p| p.as_str().expect("inputParts are strings"))
+                .collect(),
+        };
+        assert_eq!(
+            scrub_text(&input),
+            v["expected"].as_str().expect("expected"),
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn js_rust_parity_vectors() {
     let vectors: &[(&str, &str)] = &[
