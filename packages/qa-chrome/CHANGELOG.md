@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9 (unreleased)
+
+- #811: `close()` uses one monotonic `budgetMs` (default 60 s). Scans, kills, waits & removal attempts receive remaining time; sub-millisecond external calls are skipped. Defaults remain 5 s grace, 15 s force, 4 s settle & 10 s profile removal, each capped by remaining budget. Final observation has a reserve of one quarter of budget, at most 5 s.
+- Windows profile discovery retains a `PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE` handle while refreshing CIM command-line ownership, then records full native creation FILETIME. PID cannot be reused while this handle stays open. Kill opens `PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE`, compares full FILETIME exactly & terminates through that same handle. Unknown ownership or identity fails closed. Native declarations use in-memory Reflection.Emit; scans & kills need no compiler child or temporary DLL.
+- Launcher termination uses its owned ChildProcess handle on Windows. POSIX stops signalling its saved process group once launcher exit is observed. Fresh profile scans identify remaining processes; failed final scans retain last known leftovers & set `livenessUnknown`. Successful final observations decide `exited`.
+- Profile removal starts after shutdown phases & retries EBUSY-class errors within its bound. Each attempt runs in an owned Node child; timeout aborts removal & reserves up to 1 s within its phase for confirmed exit. An unconfirmed remover releases event-loop handles after 1 s. `profileRemoval` distinguishes `removed`, `not-attempted`, `failed`, `timed-out-terminated` & `timed-out-running`; `profileRemoved` records verified directory absence.
+- `ChromeCloseStep` adds `not-attempted` for an unconfirmed launcher when no shutdown phase runs; `already-exited` requires an observed gone launcher. `durationMs` remains whole milliseconds.
+- `CloseSeams` adds bounded scan/kill/CDP/removal seams. New exports: `ProfileProcess`, `ProfileRemoval`, `killVerifiedProcesses`, `parseProfileScan`, `probeProfileProcesses`, `probeProcessIdentities`, `signalTree`, `removeDirInChild` & `REMOVE_ABORTED_CODE`. `scanProfile` may return identity objects or bare pids; production Windows termination requires identity objects. `removeDir` receives timeout & AbortSignal; `removeTimeout` supplies injected timers.
+
 ## 0.1.8
 
 - Chrome for Testing lives at ONE fixed path, the layout `rightkit-browser` 0.3.3 installs: `<shared>/chrome-for-testing/current/`, one `current.previous` kept for rollback, `current.staging` while installing (no per-version folder, no new id; #267). The resolver lists `current`, then `current.previous`, then any legacy per-version folders (still honoured), before app installs and the Puppeteer and Playwright caches.

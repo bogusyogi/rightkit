@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.5.1 — unpublished staging
+## 0.5.2 — unpublished staging
+
+- PK14-2: exact dependency `@rightkit/qa-chrome` 0.1.8 -> 0.1.9 (bounded cleanup & native Windows process identity checks).
+
+## 0.5.1 (published)
 
 - Repairs QA workspace guard and lifecycle behavior.
 
