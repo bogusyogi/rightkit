@@ -3,7 +3,8 @@
 //   npm     install the sealed tarballs of the request TOGETHER (plus their already-published
 //           dependencies, from the registry) into a scratch project with `npm install --ignore-scripts`,
 //           then prove from the INSTALLED copy that every declared main/module/types/bin/exports target
-//           exists, every exports subpath resolves, every JS entry imports without throwing, and every
+//           exists, runtime exports resolve & import under their declared conditions, test-only exports
+//           reject production resolution, and every
 //           declared bin runs its declared safe command (rightkit.publishCheck.binSmoke) with the
 //           expected exit code.
 //   crates  extract the sealed .crate, check that the packaged Cargo.toml still yields the sealed upload
@@ -37,7 +38,7 @@ export function npmCliCommand({ execPath = process.execPath, platform = process.
 // ---- npm --------------------------------------------------------------------------------------
 
 /**
- * What a package.json promises. Returns { subpaths: [{ subpath, spec, runtime: [files], types: [files] }],
+ * What a package.json promises. Returns { subpaths: [{ subpath, spec, runtime: [files], types: [files], testConditions }],
  * patterns: [subpath], files: [every non-pattern file the manifest points at], bins, binMap: { binName: file }, hasEntry }.
  */
 export function declaredEntries(pkg) {
@@ -48,10 +49,16 @@ export function declaredEntries(pkg) {
   if (typeof pkg.bin === "string") { addFile(pkg.bin); bins.push(rel(pkg.bin)); binMap[String(pkg.name ?? "").replace(/^@[^/]+\//, "")] = rel(pkg.bin); }
   else if (pkg.bin && typeof pkg.bin === "object") for (const [name, v] of Object.entries(pkg.bin)) { addFile(v); bins.push(rel(v)); binMap[name] = rel(v); }
 
-  const collect = (node, underTypes, out) => {
-    if (typeof node === "string") { const r = rel(node); if (r) (underTypes ? out.types : out.runtime).push(r); }
-    else if (Array.isArray(node)) node.forEach((n) => collect(n, underTypes, out));
-    else if (node && typeof node === "object") for (const [k, v] of Object.entries(node)) collect(v, underTypes || k === "types", out);
+  const collect = (node, underTypes, out, conditions = []) => {
+    if (typeof node === "string") {
+      const r = rel(node);
+      if (r) {
+        (underTypes ? out.types : out.runtime).push(r);
+        if (!underTypes) out.runtimeConditions.push(conditions);
+      }
+    }
+    else if (Array.isArray(node)) node.forEach((n) => collect(n, underTypes, out, conditions));
+    else if (node && typeof node === "object") for (const [k, v] of Object.entries(node)) collect(v, underTypes || k === "types", out, [...conditions, k]);
   };
   const subpaths = []; const patterns = [];
   const exp = pkg.exports;
@@ -59,10 +66,13 @@ export function declaredEntries(pkg) {
     const map = typeof exp === "object" && !Array.isArray(exp) && Object.keys(exp).some((k) => k.startsWith(".")) ? exp : { ".": exp };
     for (const [subpath, target] of Object.entries(map)) {
       if (subpath.includes("*")) { patterns.push(subpath); continue; }
-      const out = { runtime: [], types: [] };
+      const out = { runtime: [], types: [], runtimeConditions: [] };
       collect(target, false, out);
       for (const f of [...out.runtime, ...out.types]) if (!f.includes("*")) files.add(f);
-      subpaths.push({ subpath, spec: subpath === "." ? pkg.name : `${pkg.name}/${subpath.slice(2)}`, runtime: out.runtime, types: out.types });
+      const testConditions = [...new Set(out.runtimeConditions.flat().filter((c) => c === "development" || c === "test"))];
+      // Test-only subpaths retain their production-denial requirement even if a default branch leaks.
+      const testOnly = /^\.\/testing(?:\/|$)/.test(subpath) || (out.runtimeConditions.length > 0 && out.runtimeConditions.every((cs) => cs.some((c) => c === "development" || c === "test")));
+      subpaths.push({ subpath, spec: subpath === "." ? pkg.name : `${pkg.name}/${subpath.slice(2)}`, runtime: out.runtime, types: out.types, testConditions: testOnly ? testConditions : null });
     }
   } else if (pkg.main) subpaths.push({ subpath: ".", spec: pkg.name, runtime: [rel(pkg.main)], types: [] });
   return { subpaths, patterns, files: [...files], bins, binMap, hasEntry: subpaths.length > 0 || files.size > 0 };
@@ -123,6 +133,19 @@ const plan = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const out = [];
 for (const item of plan.items) {
   const row = { spec: item.spec, ok: false, imported: false };
+  if (item.expectBlocked) {
+    try {
+      row.resolved = import.meta.resolve(item.spec);
+      await import(item.spec);
+      row.error = "test-only export imported under production conditions";
+    }
+    catch (error) {
+      if (!row.resolved && error.code === "ERR_PACKAGE_PATH_NOT_EXPORTED") { row.ok = true; row.rejected = true; }
+      else row.error = row.resolved ? "test-only export resolves under production conditions" : String(error && error.stack ? error.stack : error).slice(0, 500);
+    }
+    out.push(row);
+    continue;
+  }
   try {
     const url = import.meta.resolve(item.spec);
     row.resolved = url;
@@ -167,25 +190,42 @@ export function consumeNpm({ units, packDir, scratchRoot = os.tmpdir(), spawn = 
       out.problems.push(...smoke.problems);
       const items = declared.subpaths
         .filter((s) => s.runtime.length > 0)
-        .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skip.list.includes(s.subpath) }));
-      const report = { entries: items.length, imported: [], resolvedOnly: [], skippedImport: skip.list, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
+        .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skip.list.includes(s.subpath), ...(s.testConditions !== null && s.testConditions !== undefined ? { expectBlocked: true, testConditions: s.testConditions } : {}) }));
+      const report = { entries: items.length, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport: skip.list, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
       out.report = report;
       if (items.length === 0) continue;
       const scriptFile = path.join(scratch, `check-${unit.name.replace(/[^A-Za-z0-9]+/g, "_")}.mjs`);
       const planFile = `${scriptFile}.json`;
       fs.writeFileSync(scriptFile, CHECK_SCRIPT);
-      fs.writeFileSync(planFile, JSON.stringify({ items }));
-      const ran = spawn(node, [scriptFile, planFile], { cwd: scratch, encoding: "utf8", env: childEnv, maxBuffer: 64 * 1024 * 1024, timeout: 5 * 60_000 });
-      const line = String(ran.stdout ?? "").split(/\r?\n/).find((l) => l.startsWith("RK_CONSUME "));
-      if (!line) { out.problems.push(`${unit.name}: the import check produced no result (status ${ran.status}): ${tail(ran.stderr || ran.error?.message)}`); continue; }
-      let rows;
-      try { rows = JSON.parse(line.slice("RK_CONSUME ".length)); } catch { out.problems.push(`${unit.name}: unreadable import check result`); continue; }
-      for (const row of rows) {
-        if (!row.ok) out.problems.push(`${unit.name}: ${row.spec} ${row.imported ? "imported" : "did not resolve or import"}: ${row.error ?? "unknown error"}`);
-        else if (row.imported) report.imported.push(row.spec);
-        else report.resolvedOnly.push(row.spec);
+      const checks = [{ conditions: [], items }];
+      for (const item of items.filter((i) => i.expectBlocked)) {
+        if (item.testConditions.length === 0) out.problems.push(`${unit.name}: ${item.spec} test-only export has no development or test runtime condition`);
+        for (const condition of item.testConditions) {
+          let check = checks.find((c) => c.conditions[0] === condition);
+          if (!check) { check = { conditions: [condition], items: [] }; checks.push(check); }
+          check.items.push({ spec: item.spec, subpath: item.subpath, import: true });
+        }
       }
-      if (rows.length !== items.length) out.problems.push(`${unit.name}: import check covered ${rows.length} of ${items.length} entries`);
+      for (const check of checks) {
+        fs.writeFileSync(planFile, JSON.stringify({ items: check.items }));
+        // Never let inherited --conditions/preloads turn the production-denial probe into a dev probe.
+        const checkEnv = { ...childEnv, NODE_OPTIONS: "", NODE_ENV: check.conditions.length ? "test" : "production" };
+        const ran = spawn(node, [...check.conditions.map((c) => `--conditions=${c}`), scriptFile, planFile], { cwd: scratch, encoding: "utf8", env: checkEnv, windowsHide: true, maxBuffer: 64 * 1024 * 1024, timeout: 5 * 60_000 });
+        const line = String(ran.stdout ?? "").split(/\r?\n/).find((l) => l.startsWith("RK_CONSUME "));
+        if (ran.error || ran.status !== 0) { out.problems.push(`${unit.name}: import check failed (status ${ran.status}): ${tail(ran.stderr || ran.error?.message)}`); continue; }
+        if (!line) { out.problems.push(`${unit.name}: the import check produced no result (status ${ran.status}): ${tail(ran.stderr || ran.error?.message)}`); continue; }
+        let rows;
+        try { rows = JSON.parse(line.slice("RK_CONSUME ".length)); } catch { out.problems.push(`${unit.name}: unreadable import check result`); continue; }
+        for (const row of rows) {
+          if (!row.ok) out.problems.push(`${unit.name}: ${row.spec} ${row.imported ? "imported" : "did not resolve or import"}: ${row.error ?? "unknown error"}`);
+          else if (check.conditions.length && !row.imported) out.problems.push(`${unit.name}: ${row.spec} did not import under ${check.conditions.join(",")} conditions`);
+          else if (row.rejected) report.productionRejected.push(row.spec);
+          else if (row.imported && check.conditions.length) report.conditionalImports.push({ spec: row.spec, conditions: check.conditions });
+          else if (row.imported) report.imported.push(row.spec);
+          else report.resolvedOnly.push(row.spec);
+        }
+        if (rows.length !== check.items.length) out.problems.push(`${unit.name}: import check covered ${rows.length} of ${check.items.length} entries`);
+      }
     }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
   return results;

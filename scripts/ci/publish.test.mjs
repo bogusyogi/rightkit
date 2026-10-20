@@ -1223,7 +1223,7 @@ test("npm CLI is run through node when it ships beside it, else through the shim
 });
 
 /** A fake npm + node: `install` unpacks each tarball into node_modules/<name>; the check script answers from `answer`. */
-function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i) => ({ spec: i.spec, ok: true, imported: i.import })), bin = () => ({ status: 0, stdout: "1.0.0\n", stderr: "" }) } = {}) {
+function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i) => ({ spec: i.spec, ok: true, imported: !i.expectBlocked && i.import, ...(i.expectBlocked ? { rejected: true } : {}) })), realChecks = false, bin = () => ({ status: 0, stdout: "1.0.0\n", stderr: "" }) } = {}) {
   const calls = [];
   const spawn = (command, args, options = {}) => {
     calls.push({ command, args: [...args], options });
@@ -1237,14 +1237,16 @@ function consumerSpawn({ installStatus = 0, answer = (plan) => plan.items.map((i
       }
       return { status: 0, stdout: "", stderr: "" };
     }
-    if (command === "fake-node" && !path.basename(args[0]).startsWith("check-")) {
+    const scriptIndex = args.findIndex((a) => !a.startsWith("--conditions="));
+    if (command === "fake-node" && !path.basename(args[scriptIndex]).startsWith("check-")) {
       // an installed bin run for its smoke command
       calls.at(-1).bin = true;
       return bin(path.basename(args[0]), args.slice(1));
     }
     if (command === "fake-node") {
-      const plan = JSON.parse(fs.readFileSync(args[1], "utf8"));
+      const plan = JSON.parse(fs.readFileSync(args[scriptIndex + 1], "utf8"));
       calls.at(-1).plan = plan;
+      if (realChecks) return spawnSync(process.execPath, args, options);
       return { status: 0, stdout: `noise\nRK_CONSUME ${JSON.stringify(answer(plan))}\n`, stderr: "" };
     }
     throw new Error(`unexpected child process: ${command}`);
@@ -1284,6 +1286,42 @@ test("a package declares skipImport for subpaths that need a DOM host; the entry
   assert.deepEqual(result.get("@rightkit/a").problems, []);
   assert.deepEqual(result.get("@rightkit/a").report.resolvedOnly, ["@rightkit/a"]);
   assert.equal(calls.find((c) => c.command === "fake-node").plan.items[0].import, false);
+});
+
+test("sealed test-only exports reject production imports & execute only with declared test conditions", () => {
+  const fixture = (testing = { development: { types: "./dist/testing.d.ts", import: "./dist/testing.js" }, default: null }, extraFiles = {}, extra = {}) => sealNpm({
+    packageJson: (name, dir) => npmPackageJson(name, dir, { type: "module", exports: { ".": { import: "./dist/index.js" }, "./testing": testing }, ...extra }),
+    extraFiles: { "dist/testing.js": "export const mock = true;\n", "dist/testing.d.ts": "export declare const mock: true;\n", ...extraFiles },
+  });
+  const run = (sealed) => {
+    const fake = consumerSpawn({ realChecks: true });
+    const result = consumeNpm({ units: sealed.manifest.units, packDir: sealed.dir, scratchRoot: tmp("scratch"), spawn: fake.spawn, env: { ...process.env, NODE_OPTIONS: "--conditions=development", NODE_ENV: "development" }, npm: { command: "fake-npm", prefix: [], shell: false }, node: "fake-node" }).get("@rightkit/a");
+    return { ...result, calls: fake.calls };
+  };
+  const good = run(fixture());
+  assert.deepEqual(good.problems, []);
+  assert.deepEqual(good.report.imported, ["@rightkit/a"]);
+  assert.deepEqual(good.report.productionRejected, ["@rightkit/a/testing"]);
+  assert.deepEqual(good.report.conditionalImports, [{ spec: "@rightkit/a/testing", conditions: ["development"] }]);
+  assert.equal(good.report.filesChecked, 3, "runtime & declaration files remain in closure");
+  const checks = good.calls.filter((c) => c.command === "fake-node");
+  assert.equal(checks.length, 2);
+  assert.equal(checks[0].options.env.NODE_OPTIONS, "");
+  assert.equal(checks[0].options.env.NODE_ENV, "production");
+  assert.equal(checks[1].args[0], "--conditions=development");
+  assert.equal(checks[1].plan.items[0].import, true);
+  // A public default is a release leak, never a reason to treat testing as an ordinary entry.
+  assert.match(run(fixture({ development: { import: "./dist/testing.js" }, default: "./dist/testing.js" })).problems.join(), /test-only export imported under production conditions/);
+  assert.match(run(fixture("./dist/testing.js")).problems.join(), /test-only export has no development or test runtime condition/);
+  // Only export-map rejection counts: missing files, throws, & missing transitive dependencies fail.
+  assert.match(run(fixture({ development: { import: "./dist/missing.js" }, default: null })).problems.join(), /installed package.json points at dist\/missing.js/);
+  assert.match(run(fixture({ development: { types: "./dist/missing.d.ts", import: "./dist/testing.js" }, default: null })).problems.join(), /installed package.json points at dist\/missing.d.ts/);
+  assert.match(run(fixture(undefined, { "dist/testing.js": "throw new Error('broken test helper');\n" })).problems.join(), /broken test helper/);
+  assert.match(run(fixture(undefined, { "dist/testing.js": "import 'rightkit-missing-fixture-dependency';\n" })).problems.join(), /rightkit-missing-fixture-dependency/);
+  assert.match(run(fixture(undefined, { "dist/index.js": "throw new Error('ordinary entry failed');\n" })).problems.join(), /ordinary entry failed/);
+  assert.match(run(fixture(undefined, { "dist/testing.js": "throw new Error('skipImport cannot hide this');\n" }, { rightkit: { publishCheck: { skipImport: ["./testing"] } } })).problems.join(), /skipImport cannot hide this/);
+  assert.match(run(fixture({ development: { import: "./dist/testing.js" }, default: "./dist/testing.js" }, { "dist/testing.js": "throw Object.assign(new Error('dependency not exported'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });\n" })).problems.join(), /test-only export resolves under production conditions/);
+  assert.deepEqual(run(fixture({ test: { import: "./dist/testing.js" }, default: null })).problems, []);
 });
 
 test("consumeCrates checks the packaged crate, patches request siblings, and compares the sealed upload metadata", () => {
