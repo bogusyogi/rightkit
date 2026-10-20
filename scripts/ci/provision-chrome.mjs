@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-// Provision a PINNED Chrome for Testing for the publish verify job (@rightkit/qa and @rightkit/qa-chrome
-// run real Chrome and have no skip). The workspace installer (`rightkit-qa-chrome install`) is not used here:
-// it downloads Google's moving "last known good Stable" and records, but does not check, a digest. This
-// script installs only what ci/chrome-for-testing.json pins (version, sha256 per platform; the URL is derived
-// from the version), refuses a digest mismatch, and holds no secret. An EMPTY sha256 is a record request: in a
-// dry run (PUBLISH_DRY_RUN=true) the download is hashed, printed as one CHROME_PIN line and deleted, and the step
-// fails; it is never installed or run, and a real publish refuses it. Run: RIGHTKIT_CHROME_FOR_TESTING_ROOT=<dir> node provision-chrome.mjs
+// Provision only ci/chrome-for-testing.json's verified archives at <root>/current, using
+// @rightkit/qa-chrome's fixed-path install.json contract. An empty pin may be recorded
+// during an explicit dry run, but is never installed or run.
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -103,83 +99,58 @@ export function shellPinFor(pins, key) {
   return { url: shellDownloadUrl(pins.version, key), sha256: entry.sha256 };
 }
 
-/**
- * Install the pinned chrome-headless-shell next to Chrome, as <root>/<version>/chrome-headless-shell-<key>/, with its own
- * install-headless-shell.json marker (the chrome install replaces the whole version directory, so call this after
- * provision). Returns { exe, downloaded }, or null when nothing is pinned for this platform.
- */
-export async function provisionHeadlessShell({ root, pins, key = platformKey(), fetchImpl = fetch, log = console.log }) {
-  const entry = shellPinFor(pins, key);
-  if (!entry) return null;
-  const versionDir = path.join(root, pins.version);
-  const exe = shellExecutable(versionDir, key);
-  const marker = path.join(versionDir, "install-headless-shell.json");
-  let recorded = null;
-  try { recorded = JSON.parse(fs.readFileSync(marker, "utf8")).sha256; } catch { /* not installed */ }
-  if (fs.existsSync(exe) && recorded === entry.sha256) {
-    grantSandboxRead(versionDir);
-    log(`chrome-headless-shell ${pins.version} (${key}) already provisioned: ${exe}`);
-    return { exe, downloaded: false };
-  }
-  fs.mkdirSync(versionDir, { recursive: true });
-  const staging = fs.mkdtempSync(path.join(root, ".staging-"));
-  try {
-    const response = await fetchImpl(entry.url, { redirect: "error", signal: AbortSignal.timeout(600_000) });
-    if (!response.ok) throw new Error(`download failed: HTTP ${response.status}`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const digest = crypto.createHash("sha256").update(bytes).digest("hex");
-    if (digest !== entry.sha256) throw new Error(`sha256 of the headless shell download ${digest} is not the pinned ${entry.sha256}`);
-    const zip = path.join(staging, "shell.zip");
-    fs.writeFileSync(zip, bytes);
-    const out = path.join(staging, "out"); fs.mkdirSync(out);
-    if (extractZip(zip, out).status !== 0) throw new Error("extracting chrome-headless-shell failed");
-    if (!fs.existsSync(shellExecutable(out, key))) throw new Error("the archive has no chrome-headless-shell executable");
-    fs.rmSync(path.join(versionDir, `chrome-headless-shell-${key}`), { recursive: true, force: true });
-    fs.renameSync(path.join(out, `chrome-headless-shell-${key}`), path.join(versionDir, `chrome-headless-shell-${key}`));
-    fs.writeFileSync(marker, `${JSON.stringify({ version: pins.version, platform: key, url: entry.url, sha256: digest })}\n`);
-    grantSandboxRead(versionDir);
-    log(`provisioned chrome-headless-shell ${pins.version} (${key}), sha256 ${digest}: ${exe}`);
-    return { exe, downloaded: true };
-  } finally { fs.rmSync(staging, { recursive: true, force: true }); }
+/** Compatibility entry point: provision the complete managed install, including the optional shell. */
+export async function provisionHeadlessShell(options) {
+  const key = options.key ?? platformKey();
+  if (!shellPinFor(options.pins, key)) return null;
+  const { downloaded } = await provision({ ...options, key });
+  return { exe: shellExecutable(path.join(options.root, "current"), key), downloaded };
 }
 
-/**
- * Install the pinned build under <root>/<version> unless that directory already holds this exact pin (install.json
- * carries the verified sha256), so a second call in the same job, or a persistent runner, downloads nothing.
- * Returns { exe, downloaded }. An empty sha256 is a record request and is refused here (see main).
- */
-export async function provision({ root, pins, key = platformKey(), fetchImpl = fetch, log = console.log }) {
+/** Install Chrome plus every pinned companion atomically, matching the frozen consumer marker. */
+export async function provision({ root, pins, key = platformKey(), fetchImpl = fetch, log = console.log, extract = extractZip }) {
   const entry = pinFor(pins, key);
   if (entry.sha256 === "") throw new Error(`${key} has no pinned sha256; record it with a publish dry run`);
-  const versionDir = path.join(root, pins.version);
-  const exe = executable(versionDir, key);
-  const marker = path.join(versionDir, "install.json");
-  let recorded = null;
-  try { recorded = JSON.parse(fs.readFileSync(marker, "utf8")).sha256; } catch { /* not installed */ }
-  if (fs.existsSync(exe) && recorded === entry.sha256) {
-    grantSandboxRead(versionDir);
+  const shell = shellPinFor(pins, key);
+  const files = [{ kind: "chrome", ...entry }, ...(shell ? [{ kind: "headless_shell", ...shell }] : [])];
+  const expected = { version: pins.version, platform: key, files };
+  const current = path.join(root, "current");
+  const previous = path.join(root, "current.previous");
+  const exe = executable(current, key);
+  const complete = (dir) => fs.existsSync(executable(dir, key)) && (!shell || fs.existsSync(shellExecutable(dir, key)));
+  let recorded;
+  try { recorded = JSON.parse(fs.readFileSync(path.join(current, "install.json"), "utf8")); } catch { /* not installed */ }
+  if (JSON.stringify(recorded) === JSON.stringify(expected) && complete(current)) {
+    grantSandboxRead(current);
     log(`Chrome for Testing ${pins.version} (${key}) already provisioned: ${exe}`);
     return { exe, downloaded: false };
   }
   fs.mkdirSync(root, { recursive: true });
   const staging = fs.mkdtempSync(path.join(root, ".staging-"));
   try {
-    const response = await fetchImpl(entry.url, { redirect: "error", signal: AbortSignal.timeout(600_000) });
-    if (!response.ok) throw new Error(`download failed: HTTP ${response.status}`);
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const digest = crypto.createHash("sha256").update(bytes).digest("hex");
-    if (digest !== entry.sha256) throw new Error(`sha256 of the download ${digest} is not the pinned ${entry.sha256}`);
-    const zip = path.join(staging, "chrome.zip");
-    fs.writeFileSync(zip, bytes);
     const out = path.join(staging, "out"); fs.mkdirSync(out);
-    const unzip = extractZip(zip, out);
-    if (unzip.status !== 0) throw new Error("extracting Chrome for Testing failed");
-    if (!fs.existsSync(executable(out, key))) throw new Error("the archive has no Chrome for Testing executable");
-    fs.writeFileSync(path.join(out, "install.json"), `${JSON.stringify({ version: pins.version, platform: key, url: entry.url, sha256: digest })}\n`);
-    fs.rmSync(versionDir, { recursive: true, force: true });
-    fs.renameSync(out, versionDir);
-    grantSandboxRead(versionDir);
-    log(`provisioned Chrome for Testing ${pins.version} (${key}), sha256 ${digest}: ${exe}`);
+    for (const item of files) {
+      const response = await fetchImpl(item.url, { redirect: "error", signal: AbortSignal.timeout(600_000) });
+      if (!response.ok) throw new Error(`download failed: HTTP ${response.status}`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+      if (digest !== item.sha256) throw new Error(`sha256 of the ${item.kind} download ${digest} is not the pinned ${item.sha256}`);
+      const zip = path.join(staging, `${item.kind}.zip`);
+      fs.writeFileSync(zip, bytes);
+      if (extract(zip, out).status !== 0) throw new Error(`extracting ${item.kind} failed`);
+    }
+    if (!complete(out)) throw new Error("the archives have no required Chrome for Testing executable or headless shell");
+    fs.writeFileSync(path.join(out, "install.json"), `${JSON.stringify(expected)}\n`);
+    grantSandboxRead(out);
+    fs.rmSync(previous, { recursive: true, force: true });
+    const hadCurrent = fs.existsSync(current);
+    if (hadCurrent) fs.renameSync(current, previous);
+    try { fs.renameSync(out, current); }
+    catch (error) {
+      if (hadCurrent) fs.renameSync(previous, current);
+      throw error;
+    }
+    log(`provisioned Chrome for Testing ${pins.version} (${key}): ${exe}`);
     return { exe, downloaded: true };
   } finally { fs.rmSync(staging, { recursive: true, force: true }); }
 }
@@ -187,7 +158,6 @@ export async function provision({ root, pins, key = platformKey(), fetchImpl = f
 /** Provision the repository pin and return the environment tests read: the managed root and the executable. */
 export async function provisionForTests({ root, pins = JSON.parse(fs.readFileSync(path.join(ROOT, "ci", "chrome-for-testing.json"), "utf8")), key, fetchImpl, log } = {}) {
   const { exe, downloaded } = await provision({ root, pins, key, fetchImpl, log });
-  await provisionHeadlessShell({ root, pins, key, fetchImpl, log });
   return { downloaded, env: { RIGHTKIT_CHROME_FOR_TESTING_ROOT: root, RIGHTKIT_CHROME_FOR_TESTING: exe } };
 }
 
@@ -205,7 +175,6 @@ async function main() {
     throw new Error("pin recorded above; add it to ci/chrome-for-testing.json");
   }
   await provision({ root, pins, key });
-  await provisionHeadlessShell({ root, pins, key });
 }
 
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {

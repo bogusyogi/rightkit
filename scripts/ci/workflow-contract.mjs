@@ -179,6 +179,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
+  check(stepsOf(verify)[receiptAt]?.env?.RIGHTKIT_CHROME_FOR_TESTING_ROOT === `${RT}/chrome-for-testing`, "verify receipt must use the provisioned managed Chrome root");
   const winAt = WIN_OPENSSL_STEPS.map(([name]) => stepsOf(verify).findIndex((s) => s.name === name));
   WIN_OPENSSL_STEPS.forEach(([name, run], i) => {
     const step = stepsOf(verify)[winAt[i]];
@@ -213,7 +214,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const linuxVerifyAt = linuxSteps.findIndex((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? ""));
   check(linuxSteps.filter((s) => /node scripts\/ci\/gate\.mjs /.test(s.run ?? "")).length === 1 && linuxSteps[linuxGateAt]?.run?.trim() === 'node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"', "verify-linux must gate exactly the Linux-required units, with no allowance flag");
   check(linuxGateAt >= 0 && linuxSteps[linuxGateAt].env?.PUBLISH_LINUX_UNITS === PLAN_OUT("linux_units") && linuxSteps[linuxGateAt].env?.PUBLISH_REGISTRY === PLAN_OUT("registry") && linuxSteps[linuxGateAt].if === undefined, "the Linux gate must read the plan's registry and linux_units unconditionally");
-  check(linuxSteps.filter((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? "")).length === 1 && linuxVerifyAt > linuxGateAt && linuxGateAt >= 0 && linuxSteps[linuxVerifyAt].run?.trim() === "node scripts/ci/publish.mjs verify" && linuxSteps[linuxVerifyAt].if === undefined && same(linuxSteps[linuxVerifyAt].env, { ...PUBLISH_ENV, PUBLISH_LINUX_UNITS: PLAN_OUT("linux_units") }), "verify-linux must gate, then write the Linux receipt with the plan's exact request");
+  check(linuxSteps.filter((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? "")).length === 1 && linuxVerifyAt > linuxGateAt && linuxGateAt >= 0 && linuxSteps[linuxVerifyAt].run?.trim() === "node scripts/ci/publish.mjs verify" && linuxSteps[linuxVerifyAt].if === undefined && same(linuxSteps[linuxVerifyAt].env, { RIGHTKIT_CHROME_FOR_TESTING_ROOT: `${RT}/chrome-for-testing`, ...PUBLISH_ENV, PUBLISH_LINUX_UNITS: PLAN_OUT("linux_units") }), "verify-linux must gate, then write the Linux receipt with the plan's exact request");
   const linuxChromeCache = linuxSteps.find((s) => s.name === "Cache the pinned Chrome for Testing");
   const linuxChrome = linuxSteps.find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
   check(linuxChromeCache?.if?.trim() === LINUX_CHROME_IF && linuxChromeCache?.uses?.startsWith("actions/cache@") && linuxChrome?.if?.trim() === LINUX_CHROME_IF && linuxChrome?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && linuxChrome?.env?.PUBLISH_DRY_RUN === "false", "verify-linux must provision the pinned Chrome for Testing for the Linux units (pinned download, never a dry run)");
@@ -355,6 +356,9 @@ const LINUX_MUTATIONS = [
   ["verify-linux receipt is written before the gate", edit((j) => { const steps = j["verify-linux"].steps; const i = steps.findIndex((s) => /publish\.mjs verify/.test(s.run ?? "")); const [x] = steps.splice(i, 1); steps.splice(steps.findIndex((s) => /gate\.mjs/.test(s.run ?? "")), 0, x); })],
   ["verify-linux receipt is conditional", edit((j) => { j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).if = "${{ needs.plan.outputs.registry == 'npm' }}"; })],
   ["verify-linux receipt loses the Linux unit list", edit((j) => { delete j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.PUBLISH_LINUX_UNITS; })],
+  ["verify-linux receipt loses its managed Chrome root", edit((j) => { delete j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RIGHTKIT_CHROME_FOR_TESTING_ROOT; })],
+  ["verify-linux receipt uses another Chrome root", edit((j) => { j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RIGHTKIT_CHROME_FOR_TESTING_ROOT = `${RT}/other-chrome`; })],
+  ["verify-linux receipt gains arbitrary env", edit((j) => { j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.EXTRA = "arbitrary"; })],
   ["verify-linux receipt loses an allowance record", edit((j) => { delete j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.PUBLISH_ALLOW_NO_TEST; })],
   ["verify-linux receipt artifact is lost", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => s.with?.name !== `publish-receipt-verify-${LINUX_HOST_LABEL}`); })],
   ["verify-linux receipt artifact is optional", edit((j) => { j["verify-linux"].steps.find((s) => s.with?.name === `publish-receipt-verify-${LINUX_HOST_LABEL}`).with["if-no-files-found"] = "ignore"; })],
@@ -467,6 +471,8 @@ export const MUTATIONS = [
   ["an input is interpolated into a script", edit((j) => { j.verify.steps.at(-3).run = 'echo "${{ inputs.units }}"'; })],
   ["plan stops running the contract", edit((j) => { j.plan.steps = j.plan.steps.filter((s) => !/workflow-contract/.test(s.run ?? "")); })],
   ["verify skips the unit gate", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => !/gate\.mjs/.test(s.run ?? "")); })],
+  ["verify receipt loses its managed Chrome root", edit((j) => { delete j.verify.steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RIGHTKIT_CHROME_FOR_TESTING_ROOT; })],
+  ["verify receipt uses another Chrome root", edit((j) => { j.verify.steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RIGHTKIT_CHROME_FOR_TESTING_ROOT = `${RT}/other-chrome`; })],
   ["verify skips the receipt", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => !/publish\.mjs verify/.test(s.run ?? "")); })],
   ["verify may be skipped by a condition", edit((j) => { j.verify.if = "${{ always() }}"; })],
   ["a job has no timeout", edit((j) => { delete j.pack["timeout-minutes"]; })],

@@ -1815,6 +1815,6 @@ test("the plan exposes the Linux-required units to the workflow and refuses an u
   for (const required of ["verify-linux is removed", "qualified stops needing verify-linux", "qualified always expects Linux skipped", "verify-linux gates every unit, not the Linux-required ones", "verify-linux skips the receipt", "verify-linux receipt artifact is optional", "verify-linux runs on Windows"]) assert.ok(names.includes(required), required);
   assert.deepEqual(proveMutations(doc), []);
   const pins = JSON.parse(fs.readFileSync(new URL("../../ci/chrome-for-testing.json", import.meta.url), "utf8"));
-  assert.equal(pins.platforms.linux64.sha256, "", "linux64 is unrecorded: a real publish refuses it until a dry run records the pin");
-  assert.equal(pinFor(pins, "linux64").sha256, "");
+  assert.equal(pins.platforms.linux64.sha256, "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea", "linux64 uses the exact reviewed qa-chrome installer pin");
+  assert.equal(pinFor(pins, "linux64").sha256, pins.platforms.linux64.sha256);
 });

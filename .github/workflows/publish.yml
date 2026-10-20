@@ -388,6 +388,7 @@ jobs:
       - name: Verify the sealed bytes and write this host's receipt
         shell: bash
         env:
+          RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
           PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
@@ -480,6 +481,7 @@ jobs:
       - name: Verify the sealed bytes and write this host's receipt
         shell: bash
         env:
+          RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
           PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
           PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
