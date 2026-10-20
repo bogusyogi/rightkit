@@ -433,9 +433,129 @@ fn last_literal(s: &str) -> Option<&str> {
     Some(&s[start..end])
 }
 
-/// Every string literal passed as the code of `Response::err(status, "code")`,
-/// as the last argument of `reject(.., status, "code")`, or as an inline
-/// `"error": "code"` body field.
+/// Return a balanced expression, skipping Rust strings & nested comments.
+fn balanced_expression(src: &str, open: usize) -> Option<&str> {
+    let bytes = src.as_bytes();
+    let closing = match *bytes.get(open)? {
+        b'(' => b')',
+        b'{' => b'}',
+        _ => return None,
+    };
+    let mut depth = 0usize;
+    let mut i = open;
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"//") {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if bytes[i..].starts_with(b"/*") {
+            let mut comments = 1usize;
+            i += 2;
+            while i < bytes.len() && comments != 0 {
+                if bytes[i..].starts_with(b"/*") {
+                    comments += 1;
+                    i += 2;
+                } else if bytes[i..].starts_with(b"*/") {
+                    comments -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            if comments != 0 {
+                return None;
+            }
+            continue;
+        }
+        // Raw strings may contain quotes, backslashes & delimiter characters.
+        // Byte raw strings reach their r on the next iteration.
+        if bytes[i] == b'r' {
+            let mut quote = i + 1;
+            while bytes.get(quote) == Some(&b'#') {
+                quote += 1;
+            }
+            if bytes.get(quote) == Some(&b'"') {
+                let hashes = quote - i - 1;
+                i = quote + 1;
+                loop {
+                    if i >= bytes.len() {
+                        return None;
+                    }
+                    if bytes[i] == b'"'
+                        && bytes
+                            .get(i + 1..i + 1 + hashes)
+                            .map_or(false, |tail| tail.iter().all(|b| *b == b'#'))
+                    {
+                        i += 1 + hashes;
+                        break;
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        if bytes[i] == b'"' {
+            i += 1;
+            loop {
+                match bytes.get(i)? {
+                    b'\\' => i += 2,
+                    b'"' => {
+                        i += 1;
+                        break;
+                    }
+                    _ => i += 1,
+                }
+            }
+            continue;
+        }
+        match bytes[i] {
+            b'(' if closing == b')' => depth += 1,
+            b'{' if closing == b'}' => depth += 1,
+            byte if byte == closing => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&src[open..i + 1]);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Inline error fields count only when nested in a constructed HTTP response.
+fn response_body_error_codes(src: &str) -> std::collections::BTreeSet<String> {
+    let mut codes = std::collections::BTreeSet::new();
+    for (i, _) in src.match_indices("Response::new(") {
+        let start = i + "Response::new".len();
+        if let Some(call) = balanced_expression(src, start) {
+            collect_inline_error_codes(call, &mut codes);
+        }
+    }
+    for (i, _) in src.match_indices("Response {") {
+        let open = i + "Response ".len();
+        if let Some(value) = balanced_expression(src, open) {
+            collect_inline_error_codes(value, &mut codes);
+        }
+    }
+    codes
+}
+
+fn collect_inline_error_codes(response: &str, codes: &mut std::collections::BTreeSet<String>) {
+    for (i, _) in response.match_indices("\"error\": \"") {
+        let tail = &response[i + "\"error\": ".len()..];
+        if let Some(code) = first_literal(tail) {
+            codes.insert(code.to_string());
+        }
+    }
+}
+
+/// Every response code found through `Response::err`, `reject`, or inline
+/// response bodies constructed by `Response::new`/`Response { ... }`.
 fn source_error_codes() -> std::collections::BTreeSet<String> {
     let mut codes = std::collections::BTreeSet::new();
     for (_, src) in DAEMON_SRC {
@@ -453,12 +573,52 @@ fn source_error_codes() -> std::collections::BTreeSet<String> {
                 codes.insert(lit.to_string());
             }
         }
-        for (i, _) in src.match_indices("\"error\": \"") {
-            let tail = &src[i + "\"error\": ".len()..];
-            codes.insert(first_literal(tail).unwrap().to_string());
-        }
+        codes.extend(response_body_error_codes(src));
     }
     codes
+}
+
+#[test]
+fn inline_error_scanner_only_counts_http_response_bodies() {
+    let task_only = r#"
+        task.outcome = Some(json!({ "ok": false, "error": "device_forgotten" }));
+    "#;
+    assert!(response_body_error_codes(task_only).is_empty());
+
+    let response = r#"
+        Response::new(410, json!({ "error": "device_forgotten" }));
+    "#;
+    let codes = response_body_error_codes(response);
+    assert!(codes.contains("device_forgotten"));
+    assert_eq!(codes.len(), 1);
+}
+
+#[test]
+fn inline_error_scanner_skips_comments_and_raw_string_delimiters() {
+    let fixture = r###"
+        Response::new(400, /* ) /* nested ) */ */ json!({ "error": "block_comment" }));
+        Response::new(400, // )
+            json!({ "error": "line_comment" }));
+        Response::new(400, json!({
+            "detail": r##"embedded ") \\" and #"# )"##,
+            "error": "raw_string"
+        }));
+        Response {
+            status: 400,
+            body: json!({
+                "detail": r#"} " )"#,
+                "error": "struct_body"
+            })
+        };
+    "###;
+    let codes = response_body_error_codes(fixture);
+    for expected in ["block_comment", "line_comment", "raw_string", "struct_body"] {
+        assert!(
+            codes.contains(expected),
+            "scanner missed {expected}: {codes:?}"
+        );
+    }
+    assert_eq!(codes.len(), 4);
 }
 
 /// The schema's `errors` enum is exactly the set of codes the daemon returns,
@@ -540,8 +700,11 @@ fn emitted_event_literals() -> std::collections::BTreeSet<String> {
 /// only; every other AUTH_REJECTED stays internal.
 const INTERNAL_EVENTS: &[&str] = &[
     "AUTH_REJECTED",
+    "DEVICE_FORGOTTEN",
     "OAUTH_COMPLETED",
     "STORAGE_ERROR",
+    "TASK_FAILED",
+    "TASK_LEASE_LOST",
     "UPLOAD_RECORD_SKIPPED",
     "UPLOAD_REJECTED",
     "WEBHOOK_ACCEPTED",

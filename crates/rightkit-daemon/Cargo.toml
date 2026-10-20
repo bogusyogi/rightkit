@@ -75,6 +75,13 @@ remote = [
   "dep:tokio",
   "dep:tokio-rustls",
 ]
+# Loopback-only HTTP host with a bearer token, CodeRight's current wire (PK06-5, ruling D5): bounded
+# parser, 127.0.0.1 bind, Host/Origin/CSRF policy, bearer and capability verification inside the
+# owner, discovery record and client-presence routes. std threads only: no tokio, axum, hyper or
+# rustls, no device state. A separate feature from `remote`: it neither enables `remote` nor is
+# enabled by it (tests/loopback_features.rs pins that). `releaseSwitches.remoteHost` stays false for
+# desktop apps and `@rightkit/release` keeps refusing a desktop build with `remote`.
+remote-loopback = []
 # Run-time test certificate and an in-process daemon for client tests. Implies `remote` (the test
 # host is the server), and so `link`.
 testing = ["remote", "dep:rcgen", "dep:tempfile"]
@@ -134,6 +141,12 @@ required-features = ["testing"]
 name = "dual_transport"
 path = "tests/dual_transport.rs"
 required-features = ["testing"]
+
+# The loopback host (`remote-loopback`): real TCP clients against an in-process host.
+[[test]]
+name = "loopback"
+path = "tests/loopback.rs"
+required-features = ["remote-loopback"]
 
 # Outbound link and durable tasks (M7 lane D): host logic driven in process, and a real
 # client over TLS. `link_features` has no gate: it reads this manifest and sources.

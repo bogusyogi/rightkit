@@ -52,8 +52,12 @@ mod discovery;
 mod error;
 mod fail_limit;
 mod host_identity;
+pub mod lifecycle;
 #[cfg(feature = "link")]
 pub mod link;
+/// Loopback-only HTTP host with a bearer token (`remote-loopback` feature, not `remote`).
+#[cfg(feature = "remote-loopback")]
+pub mod loopback;
 pub mod mode;
 mod peer;
 pub mod private;
@@ -89,19 +93,24 @@ pub use private::{
 // caller's own use site, not on this re-export.
 pub use app_root::{
     valid_app_name, AppRoot, AppRootError, LinkNotCreated, MigrateOptions, MigratedLink,
-    MigrationOutcome, MigrationReport, OmittedLink, SkippedSpecial, SpecialKind, WriterLock,
-    MAX_APP_NAME_LEN, MIGRATION_MARKER,
+    MigrationOutcome, MigrationReport, MigrationState, OmittedLink, ReparseKind,
+    SkippedReparsePoint, SkippedSpecial, SpecialKind, WriterLock, MAX_APP_NAME_LEN,
+    MIGRATION_MARKER, MIGRATION_STATE,
 };
 #[allow(deprecated)]
 pub use discovery::{discover_apps, KNOWN_APPS};
 pub use error::{
     ConnectError, ServiceError, ERROR_BAD_CHUNK, ERROR_CONNECTION_CLOSED, ERROR_FORBIDDEN,
-    ERROR_HOST_HANDOFF, ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_REQUEST_TOO_LARGE,
-    ERROR_RESPONSE_TOO_LARGE, ERROR_REVISION_CONFLICT, ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT,
-    ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
+    ERROR_HOST_HANDOFF, ERROR_HOST_IDENTITY, ERROR_NOT_ALLOWED, ERROR_RATE_LIMITED,
+    ERROR_REQUEST_TOO_LARGE, ERROR_RESPONSE_TOO_LARGE, ERROR_REVISION_CONFLICT,
+    ERROR_SUITE_UNRESOLVED, ERROR_TIMEOUT, ERROR_UNAUTHENTICATED, ERROR_UNAVAILABLE,
 };
 pub use fail_limit::FailLimiter;
 pub use host_identity::{HostExpectation, HostIdentityError, HostIdentityReason, HostProcess};
+pub use lifecycle::{
+    DaemonLifecycle, LifecycleError, Provenance, ERROR_NOT_OWNED, ERROR_RESTART_EXHAUSTED,
+    ERROR_SESSION_RELEASED, ERROR_STALE_GENERATION,
+};
 #[cfg(unix)]
 pub use peer::verify_peer_is_current_user;
 #[cfg(windows)]
