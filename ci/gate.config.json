@@ -72,6 +72,13 @@
       ]
     },
     "rightkit-license": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "client,update-auth,subject-entitlement,engine-gate"
+        ]
+      ],
       "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)"
     },
     "rightkit-child-process": {
@@ -99,6 +106,16 @@
         [
           "--features",
           "control,wv2-0_38"
+        ],
+        [
+          "--features",
+          "control,wv2-0_39"
+        ]
+      ],
+      "featureSets": [
+        [
+          "--features",
+          "control,wv2-0_38"
         ]
       ]
     },
@@ -116,6 +133,10 @@
         [
           "--features",
           "engine"
+        ],
+        [
+          "--features",
+          "logs"
         ]
       ],
       "checkFeatureSets": [
@@ -126,6 +147,20 @@
         [
           "--features",
           "engine,dev-overrides,qa-probes"
+        ],
+        [
+          "--features",
+          "engine,logs"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "wv2-0_39"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "wv2-0_39,engine,logs"
         ]
       ]
     },
@@ -159,12 +194,20 @@
         [
           "--features",
           "bundled,statement-cache"
+        ],
+        [
+          "--features",
+          "sqlcipher,statement-cache,encrypted-lifecycle"
         ]
       ],
       "checkFeatureSets": [
         [
           "--features",
           "bundled,statement-cache,hooks"
+        ],
+        [
+          "--features",
+          "sqlcipher-system,encrypted-lifecycle"
         ]
       ]
     },
@@ -174,6 +217,86 @@
         [
           "--features",
           "test-mode"
+        ],
+        [
+          "--features",
+          "remote"
+        ],
+        [
+          "--features",
+          "remote-loopback"
+        ]
+      ]
+    },
+    "rightkit-pdfium": {
+      "featureSets": [
+        []
+      ]
+    },
+    "rightkit-logs": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "tracing"
+        ],
+        [
+          "--features",
+          "log-bridge"
+        ],
+        [
+          "--features",
+          "testing"
+        ]
+      ]
+    },
+    "rightkit-crash": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "window-errors"
+        ]
+      ]
+    },
+    "rightkit-browser": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "cookie-export"
+        ]
+      ]
+    },
+    "rightkit-models": {
+      "featureSets": [
+        [
+          "--features",
+          "test-mode"
+        ]
+      ],
+      "checkFeatureSets": [
+        [],
+        [
+          "--features",
+          "rightapps"
+        ],
+        [
+          "--all-features"
+        ]
+      ]
+    },
+    "rightkit-agent-tools": {
+      "featureSets": [
+        [],
+        [
+          "--features",
+          "demo"
+        ]
+      ],
+      "checkFeatureSets": [
+        [
+          "--no-default-features"
         ]
       ]
     }
