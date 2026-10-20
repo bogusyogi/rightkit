@@ -1,0 +1,71 @@
+# Shared job setup for .github/workflows/ci.yml: Node, pnpm, the frozen install, and (when asked) the Rust
+# toolchain with a cache of its own. Every pinned action here is the one the rendered ci.yml pinned before the
+# gate was sharded. The caller checks the repository out first (a local action is read from the checkout).
+name: rk-setup
+description: Node, pnpm install and optional Rust toolchain with a per-shard cache
+inputs:
+  node-version:
+    description: Node version
+    required: true
+  rust:
+    description: "true installs the Rust toolchain and restores the Rust build cache"
+    default: "false"
+  cache-key:
+    description: Rust cache key of this job (one per shard, stable across pushes)
+    default: ""
+  save-cache:
+    description: "true saves the Rust cache at the end of the job (pushes only)"
+    default: "false"
+  derived-data:
+    description: "Runner label to cache Xcode DerivedData under (Swift package jobs); empty disables it"
+    default: ""
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        package-manager-cache: false
+    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      with:
+        version: 11.24.0
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+    - name: Print pnpm-lock.yaml patch when the lockfile is stale
+      if: failure()
+      shell: bash
+      run: |
+        if pnpm install --lockfile-only; then
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "::notice::pnpm-lock.yaml already matches package.json; the frozen install failed for another reason."
+          else
+            echo "::group::pnpm-lock.yaml patch (apply and commit)"
+            git diff -- pnpm-lock.yaml
+            echo "::endgroup::"
+            echo "::error file=pnpm-lock.yaml::pnpm-lock.yaml is stale; commit the patch above."
+          fi
+        else
+          echo "::error::pnpm install --lockfile-only failed; no lockfile patch was produced."
+        fi
+    - name: Cache Xcode DerivedData
+      if: ${{ inputs.derived-data != '' && runner.os == 'macOS' }}
+      uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData
+        key: ${{ runner.os }}-${{ inputs.derived-data }}-deriveddata-${{ hashFiles('**/Cargo.lock', '**/Package.resolved', '**/*.xcodeproj/project.pbxproj') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.derived-data }}-deriveddata-
+    - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      if: ${{ inputs.rust == 'true' }}
+      with:
+        components: rustfmt, clippy
+    - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      if: ${{ inputs.rust == 'true' }}
+      with:
+        workspaces: |
+          . -> target
+        shared-key: ${{ inputs.cache-key }}
+        add-job-id-key: false
+        cache-workspace-crates: true
+        cache-on-failure: true
+        save-if: ${{ inputs.save-cache == 'true' }}

@@ -5,12 +5,12 @@
 /** Paths that change what every Rust unit means. */
 export const RUST_GLOBAL = [
   /^Cargo\.toml$/, /^rust-toolchain(\.toml)?$/, /^\.cargo\//, /^\.rightgit\.json$/,
-  /^\.github\/workflows\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select)\.mjs$/,
+  /^\.github\/(workflows|actions)\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan)\.mjs$/, /^ci\/shards\.json$/,
 ];
 /** Paths that change what every npm unit means. */
 export const NPM_GLOBAL = [
   /^package\.json$/, /^pnpm-lock\.yaml$/, /^pnpm-workspace\.yaml$/, /^\.rightgit\.json$/,
-  /^\.github\/workflows\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select)\.mjs$/,
+  /^\.github\/(workflows|actions)\//, /^scripts\/gate\.sh$/, /^scripts\/ci\/(gate|select|ci-plan|ci-summary|shards|secret-scan)\.mjs$/, /^ci\/shards\.json$/,
 ];
 /** Files inside a unit that cannot change its behaviour. */
 const INERT = [/(^|\/)CHANGELOG\.md$/, /(^|\/)runtime-budget\.evidence\//];

@@ -1,0 +1,8 @@
+{
+  "_comment": "Sizing of the sharded CI jobs (scripts/ci/shards.mjs). rustTargetWeight: about one build command per point (a crate's test rows, doubled when it also reruns serially, plus clippy and its feature-check rows); a crate at or above it runs alone. npmTargetWeight: npm packages per job. closureChunkSize / closureMaxJobs: dependents compiled per closure job and the most closure jobs per runner OS. solo: crate names and npm directories that always get a job of their own (give a unit a job of its own when its job runs longest in the run summary). Changing a value moves crates between jobs, so the Rust caches of the moved crates start cold once.",
+  "rustTargetWeight": 12,
+  "npmTargetWeight": 6,
+  "closureChunkSize": 10,
+  "closureMaxJobs": 4,
+  "solo": []
+}

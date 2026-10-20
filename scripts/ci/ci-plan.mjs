@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+// Plans the jobs of .github/workflows/ci.yml (job `plan`). It compiles and tests nothing: it asks
+// `gate.mjs --plan` what each runner OS has to verify, then cuts that into the shard jobs of
+// scripts/ci/shards.mjs and writes them as GitHub Actions job outputs (JSON matrices).
+//
+//   node scripts/ci/ci-plan.mjs [--markers <dir>] [--out <file>]
+//
+// The last-green marker of an OS is <dir>/<runner label>/sha (the workflow restores one cache per OS
+// there). A push is compared with that commit; no marker, or a marker that is not an ancestor of HEAD,
+// means a full run for that OS. A pull request is compared with its merge base (gate.mjs resolves it).
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { planHost, planHygiene, requiredShardCommands, shardsConfig } from "./shards.mjs";
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const RUNNERS = [
+  { key: "windows", host: "windows", label: "windows-2025" },
+  { key: "macos", host: "macos", label: "xcode-27" },
+];
+const argOf = (flag) => { const i = process.argv.indexOf(flag); return i > 0 ? process.argv[i + 1] : undefined; };
+const isSha = (value) => /^[0-9a-f]{40}$/i.test(value ?? "");
+const git = (...args) => spawnSync("git", args, { cwd: ROOT, encoding: "utf8" });
+
+/** The commit a push to this OS is compared with, or null (full run). A marker that is not an ancestor of HEAD is ignored. */
+function markerBase(dir, label) {
+  let marker = "";
+  try { marker = fs.readFileSync(path.join(dir, label, "sha"), "utf8").trim(); } catch { return null; }
+  if (!isSha(marker) || git("cat-file", "-e", `${marker}^{commit}`).status !== 0) return null;
+  return git("merge-base", "--is-ancestor", marker, "HEAD").status === 0 ? marker : null;
+}
+
+/** One `gate.mjs --plan` for a host. The gate must echo the host back: an old gate silently ignoring --host would plan the wrong OS. */
+function gatePlan(host, extra) {
+  const run = spawnSync(process.execPath, [path.join(ROOT, "scripts", "ci", "gate.mjs"), "--plan", "--host", host, ...extra], { cwd: ROOT, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
+  if (run.status !== 0) throw new Error(`gate --plan --host ${host} failed: ${run.stderr || run.stdout}`);
+  const plan = JSON.parse(run.stdout);
+  if (plan.host !== host) throw new Error(`gate --plan answered for host ${plan.host}, not ${host}: apply the --host change to scripts/ci/gate.mjs`);
+  return plan;
+}
+
+function main() {
+  const event = process.env.GITHUB_EVENT_NAME ?? "push";
+  const markers = argOf("--markers") ?? path.join(os.homedir(), ".right-git-last-green");
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, "ci/gate.config.json"), "utf8"));
+  const shards = shardsConfig(JSON.parse(fs.readFileSync(path.join(ROOT, "ci/shards.json"), "utf8")));
+
+  const everything = gatePlan("linux", ["--all"]);
+  const universe = { rust: everything.rust.test, npm: everything.npm.test };
+  const packages = universe.npm.map((dir) => ({ ...JSON.parse(fs.readFileSync(path.join(ROOT, dir, "package.json"), "utf8")), dir }));
+  const swiftTests = ["swift/RightKitSwift", "swift/RightKitCloudKitHelper"].filter((dir) => fs.existsSync(path.join(ROOT, dir, "Tests")));
+
+  const output = {};
+  const selections = [];
+  const evidence = [];
+  const summary = ["## RightKit CI plan", "", "| Runner | Base | Rust crates | Dependents | npm | Root | Swift | Shard jobs | Closure jobs |", "|---|---|---|---|---|---|---|---|---|"];
+  for (const runner of RUNNERS) {
+    const base = event === "pull_request" ? null : markerBase(markers, runner.label);
+    // A pull request leaves --base off: the gate compares it with its merge base. No base and no PR means a full run.
+    const extra = event === "pull_request" ? [] : base ? ["--base", base] : ["--all"];
+    const selection = gatePlan(runner.host, extra);
+    selections.push(selection);
+    const plan = planHost({ host: runner.host, label: runner.label, universe, selection, config, shards });
+    for (const [step, jobs] of [["test", plan.shards], ["closure", plan.closure]]) {
+      for (const job of jobs) evidence.push({ artifact: `qa-evidence-${runner.label}-${job.id}`, host: runner.host, tokens: job.tokens, steps: step, commands: requiredShardCommands(job.tokens, { config, packages, swiftTests }) });
+    }
+    output[`${runner.key}_shards`] = JSON.stringify({ include: plan.shards });
+    output[`${runner.key}_shard_count`] = String(plan.shards.length);
+    output[`${runner.key}_closure`] = JSON.stringify({ include: plan.closure });
+    output[`${runner.key}_closure_count`] = String(plan.closure.length);
+    output[`${runner.key}_base`] = selection.base ?? "";
+    summary.push(`| ${runner.label} | ${selection.base ? selection.base.slice(0, 10) : selection.all ? "full run" : "merge base"} | ${selection.rust.test.length} | ${selection.rust.check.length} | ${selection.npm.test.length} | ${selection.root.length} | ${selection.swift.length} | ${plan.shards.length} | ${plan.closure.length} |`);
+  }
+  const hygiene = planHygiene(selections);
+  output.evidence = JSON.stringify(evidence);
+  output.hygiene_tokens = hygiene.tokens;
+  output.scan_crates = hygiene.crates.join(" ");
+
+  summary.push("", `Hygiene: ${hygiene.crates.length} crate(s) and ${hygiene.packages.length} package(s) for lock, fmt and the secret scan.`);
+
+  const text = `${summary.join("\n")}\n`;
+  console.log(text);
+  console.log(JSON.stringify(output, null, 1));
+  const out = argOf("--out");
+  if (out) fs.writeFileSync(out, JSON.stringify(output, null, 2));
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
+  if (process.env.GITHUB_OUTPUT) {
+    // One line per output; none of these values contains a newline.
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `${Object.entries(output).map(([k, v]) => `${k}=${v}`).join("\n")}\n`);
+  }
+}
+
+try { main(); } catch (error) { console.error(`ci-plan: ${error.message}`); process.exit(1); }

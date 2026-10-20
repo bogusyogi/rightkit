@@ -9,6 +9,14 @@
 // ci/known-red.json still run and still show red, but do not fail the gate; an entry is a
 // recorded defect with an owner, never a waiver for publishing.
 //
+// Sharded CI (.github/workflows/ci.yml): scripts/ci/ci-plan.mjs plans the run (`--plan --host <windows|macos|linux>` answers for
+// another runner OS) and every job names its own units, so independent crates and packages run in parallel jobs:
+//   gate.mjs --select "<tokens>" [--steps lock,fmt,test,closure] [--base <sha>]
+// Tokens: rust:<crate> (tests, clippy and every feature row of a crate), rust-check:<crate> (a dependent that must still compile),
+// npm:<dir>, root:<suite id>, swift:<package id>. The diff and the last-green marker are not read: the plan already applied them.
+// `--steps` picks what runs (default: all): lock = Cargo.lock check, fmt = rustfmt, test = tests/clippy/feature rows/npm/root/Swift,
+// closure = compile the rust-check dependents. Known-red and the pass/fail report work exactly as in a diff run.
+//
 // Publish verification (.github/workflows/publish.yml) names its units explicitly:
 //   gate.mjs --registry npm|crates --units "<names>" [--allow-host-exclusion "<names>"] [--allow-no-test "<names>"]
 //            [--allow-ignored "<names>"] [--allow-missing-assets "<names>"]
@@ -28,15 +36,24 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
+import { parseSelectTokens, parseSteps } from "./shards.mjs";
 import { changedConfigCrates, changedLockNames, parseLock, pnpmBuildClosureArgs, selectByPaths, selectNpm, selectRust, selectUnits } from "./select.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const WIN = process.platform === "win32";
-const HOST = WIN ? "windows" : process.platform === "darwin" ? "macos" : "linux";
 const PLAN = process.argv.includes("--plan");
 const argOf = (flag) => { const i = process.argv.indexOf(flag); return i > 0 ? process.argv[i + 1] : undefined; };
+// Only `--plan` may name another host (ci-plan.mjs plans both runner OSes on one Linux job); a run always uses its own.
+const PLAN_HOST = PLAN ? argOf("--host") : undefined;
+if (PLAN_HOST !== undefined && !["windows", "macos", "linux"].includes(PLAN_HOST)) { console.error(`gate: --host must be windows, macos or linux, got ${JSON.stringify(PLAN_HOST)}`); process.exit(2); }
+const HOST = PLAN_HOST ?? (WIN ? "windows" : process.platform === "darwin" ? "macos" : "linux");
 const MINUTE = 60_000;
 const UNIT_MODE = process.argv.includes("--units") || process.argv.includes("--registry");
+const SELECT = argOf("--select");
+if (SELECT !== undefined && UNIT_MODE) { console.error("gate: --select cannot be combined with --units or --registry"); process.exit(2); }
+const SELECT_MODE = SELECT !== undefined;
+let STEPS;
+try { STEPS = parseSteps(argOf("--steps")); } catch (error) { console.error(`gate: ${error.message}`); process.exit(2); }
 
 const ROOT_SUITES = [
   { id: "test:ownership-approval", paths: ["ownership-approval"] },
@@ -116,8 +133,22 @@ function unitPlan() {
   return { host: HOST, base: null, all: false, changedPaths: 0, config, packages, rust: picked.rust, npm: picked.npm, root: [], swift: [], unitRequest: { registry: argOf("--registry"), units, excluded: picked.excluded, noTest: picked.noTest, allowIgnored, allowMissingAssets } };
 }
 
+/** Sharded CI: the units are named by the workflow's plan job, so neither the diff nor the last-green marker is read here. */
+function selectPlan() {
+  const config = readJson("ci/gate.config.json", {});
+  const packages = npmPackages();
+  const known = { rust: rustMembers(config).map((m) => m.name), npm: packages.map((p) => p.dir), root: [...ROOT_SUITES, SCRIPT_TESTS].map((s) => s.id), swift: SWIFT_PACKAGES.map((s) => s.id) };
+  let picked;
+  try { picked = parseSelectTokens(SELECT, known); } catch (error) {
+    console.error(`gate: ${error.message}. Usage: --select "rust:<crate> rust-check:<crate> npm:<dir> root:<id> swift:<id>"`);
+    process.exit(2);
+  }
+  return { host: HOST, base: argOf("--base") ?? null, all: false, changedPaths: 0, config, packages, ...picked };
+}
+
 function plan() {
   if (UNIT_MODE) return unitPlan();
+  if (SELECT_MODE) return selectPlan();
   const config = readJson("ci/gate.config.json", {});
   const base = resolveBase();
   const all = !base || process.argv.includes("--all");
@@ -249,13 +280,14 @@ async function rustGate(selection, config) {
   // Check the lock first: a manifest edited without a build leaves it stale. The repair is
   // `cargo update --workspace`, and the patch it produces is evidence, not a reason to skip the
   // other units.
-  const locked = await run("lock", "cargo", ["metadata", "--locked", "--format-version", "1"], { timeoutMinutes: 15, discardStdout: true });
+  const locked = !STEPS.has("lock") || await run("lock", "cargo", ["metadata", "--locked", "--format-version", "1"], { timeoutMinutes: 15, discardStdout: true });
   if (!locked) {
     await run("lock", "cargo", ["update", "--workspace"], { timeoutMinutes: 15 });
     savePatch("Cargo.lock.patch", ["Cargo.lock"]);
   }
 
-  const formatted = rust.test.filter(applies);
+  // rustfmt does not depend on the OS, so every selected crate is formatted wherever the step runs (CI runs it once, on Linux).
+  const formatted = STEPS.has("fmt") ? rust.test : [];
   if (formatted.length) {
     // Batch the -p flags: one command line holding every crate overflows Windows' 32,767-char
     // limit (os error 206). Every batch runs even if one fails; each failure is recorded by run().
@@ -270,7 +302,7 @@ async function rustGate(selection, config) {
     }
   }
 
-  for (const name of rust.test) {
+  for (const name of STEPS.has("test") ? rust.test : []) {
     if (!applies(name)) continue;
     const entry = config.rust?.[name] ?? {};
     const featureSets = entry.featureSets ?? [[]];
@@ -285,8 +317,11 @@ async function rustGate(selection, config) {
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
     for (const features of checkSets) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes });
   }
-  for (const name of rust.check) {
-    if (applies(name)) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });
+  for (const name of STEPS.has("closure") ? rust.check : []) {
+    if (!applies(name)) continue;
+    await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });
+    // R1: a dependent must also compile with the feature rows its own gate config names (all features unless it says otherwise).
+    for (const features of config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes: 30 });
   }
 }
 
@@ -297,7 +332,7 @@ async function npmGate(selection) {
     // selected package is tested. A publish verification builds only the requested packages and their workspace
     // dependency closure, so an unrelated package that does not build cannot block them.
     let buildArgs = ["-r", "--workspace-concurrency=1", "run", "build"];
-    if (UNIT_MODE) {
+    if (UNIT_MODE || SELECT_MODE) {
       try { buildArgs = pnpmBuildClosureArgs(npm.test.map((dir) => packages.find((p) => p.dir === dir)?.name)); } catch (error) { results.push({ unit: "npm:build", command: `pnpm build closure: ${error.message}`, ok: false, code: 1, seconds: 0 }); buildArgs = null; }
     }
     const built = buildArgs ? await run("npm:build", "pnpm", buildArgs, { timeoutMinutes: 30 }) : false;
@@ -404,7 +439,7 @@ function report(selection) {
   ].join("\n");
   fs.mkdirSync(EVIDENCE, { recursive: true });
   fs.writeFileSync(path.join(EVIDENCE, "summary.md"), lines);
-  fs.writeFileSync(path.join(EVIDENCE, "summary.json"), JSON.stringify({ host: HOST, sha: process.env.GITHUB_SHA ?? null, base: selection.base, rows, results }, null, 2));
+  fs.writeFileSync(path.join(EVIDENCE, "summary.json"), JSON.stringify({ host: HOST, sha: process.env.GITHUB_SHA ?? null, base: selection.base, selection: SELECT_MODE ? SELECT : null, steps: [...STEPS].join(","), rows, results }, null, 2));
   if (UNIT_MODE) writeUnitEvidence(selection, rows, unexpected.length === 0, verdicts);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines}\n`);
   console.log(lines);
@@ -449,8 +484,7 @@ if (process.env.GITHUB_ACTIONS !== "true") {
   process.exit(2);
 }
 console.log(`Selection: ${JSON.stringify({ base: selection.base, all: selection.all, rust: selection.rust, npm: selection.npm.test, root: selection.root, swift: selection.swift })}`);
-await chromeGate(selection);
+if (STEPS.has("test")) await chromeGate(selection);
 await rustGate(selection, selection.config);
-await npmGate(selection);
-await swiftGate(selection);
+if (STEPS.has("test")) { await npmGate(selection); await swiftGate(selection); }
 process.exit(report(selection) ? 0 : 1);

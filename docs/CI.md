@@ -1,18 +1,22 @@
 # RightKit CI
 
-RightKit is a private repository (`bogusyogi/rightkit`) and has no CI. Builds, tests and publishing run
-locally through RustRight on the Mac and the Dell (second priority after RustRight). The npm and crates.io
-packages stay public. The workflow files and lane descriptions below are retired and pending removal.
+RightKit CI runs in GitHub Actions on Windows & macOS. Pushes to `main` & pull requests run
+selected package qualification in independent jobs; publication uses separate `publish.yml` jobs.
+The public-repository guard rejects private forks.
 
 ## Layout
 
 | File | Role |
 |---|---|
 | `.rightgit.json` | right-git manifest: `rust-hybrid` profile, `ci` lane, runners `xcode-27` and `windows-2025` |
-| `.github/workflows/ci.yml` | Rendered by `right-git sync .`; never edited by hand |
-| `scripts/gate.sh` | Thin caller for the gate |
-| `scripts/ci/gate.mjs` | Selects the units a push touched, runs them, writes the summary |
+| `.github/workflows/ci.yml` | Hand-owned sharded workflow (see "Sharded CI"); no longer rendered by `right-git sync` |
+| `.github/actions/rk-setup/action.yml` | Shared job setup: Node, pnpm install, Rust toolchain and per-shard Rust cache |
+| `scripts/gate.sh` | Thin caller for the gate (runs the best-effort dependency graphs first) |
+| `scripts/ci/gate.mjs` | Selects the units a push touched (or runs the units a shard job names), runs them, writes the summary |
 | `scripts/ci/select.mjs` | Pure selection logic, covered by `scripts/ci/select.test.mjs` |
+| `scripts/ci/ci-plan.mjs`, `scripts/ci/shards.mjs` | The `plan` job: per-OS selection cut into jobs; pure logic covered by `scripts/ci/shards.test.mjs` |
+| `scripts/ci/ci-summary.mjs`, `scripts/ci/secret-scan.mjs` | The final `summary` verdict and the secret crate scan of the `hygiene` job |
+| `ci/shards.json` | Shard sizes & units that always get a job of their own |
 | `ci/gate.config.json` | Per-crate feature sets, extra paths, serial runs, host limits |
 | `ci/known-red.json` | Units that are red today, per host, each with a reason |
 | `.github/workflows/publish.yml` | Manual-dispatch publication of npm packages and crates; see "Publishing" |
@@ -27,8 +31,8 @@ everything runs.
   its gate config changed. Crates that depend on it are compiled with `cargo check --all-targets`.
   `Cargo.lock` is refreshed first and `cargo fmt` is applied; a difference fails the `lock` or
   `fmt` unit and the patch is printed in the log and uploaded as evidence.
-- **npm.** A changed package and every package that depends on it are tested after the whole
-  workspace is built in dependency order.
+- **npm.** A changed package & its dependents are tested after selected packages’ workspace
+  dependency closure builds in dependency order.
 - **Swift.** `swift/RightKitSwift` and `swift/RightKitCloudKitHelper` build and test on the macOS
   runner when their directory changed. The repository-root `Package.swift` (the manifest apps resolve by
   URL and tag) is checked with `swift package describe --type json`, which validates every target path
@@ -39,9 +43,48 @@ everything runs.
 
 Not covered yet: `desktop-app-template`, `swift/ios-app-template`, `spikes`.
 
+## Sharded CI
+
+`ci.yml` runs independent jobs instead of one serial gate per OS:
+
+| Job | Runs on | What it does |
+|---|---|---|
+| `private-repo-guard` | Linux | Refuses a private repository |
+| `plan` | Linux | `scripts/ci/ci-plan.mjs`: asks `gate.mjs --plan --host <os>` what Windows and macOS each have to verify (each OS against its own last-green marker; a pull request against its merge base), then cuts that into the jobs below |
+| `shards-windows`, `shards-macos` | one job per shard | `gate.mjs --select "<tokens>" --steps test`: tests, clippy and every feature row of the selected crates; npm package tests; root suites; each Swift package. `fail-fast: false`, so one red shard never hides another |
+| `closure-windows`, `closure-macos` | up to 4 jobs per OS | `--steps closure`: every dependent of a changed crate is compiled with default features and with its `checkFeatureSets` rows (all features unless the config says otherwise) |
+| `hygiene` | Linux | RightKit ownership; `--steps lock,fmt` (Cargo.lock check, rustfmt) for every selected crate; the secret scan (`scripts/ci/secret-scan.mjs`, the publication gate's scan) of every selected crate; the owner dependency graphs |
+| `mark-green-windows`, `mark-green-macos` | Linux | Advance that OS's last-green marker to this commit when everything that OS had to verify, and hygiene, passed |
+| `summary` | Linux | The one required check: fails unless the guard, the plan and hygiene passed and every other job passed or was skipped because the plan needed none of it |
+
+How units are cut: a crate is never split, so all of its feature rows share one job and one target directory. Crates are packed
+into groups of about 12 build commands (`rustWeight` in `shards.mjs`: test rows, doubled for a serial rerun, plus clippy and the
+feature-check rows); a crate that weighs that much alone runs alone. Groups are computed from every crate that applies on the OS,
+never from the selection, so a crate always lands in the same job and the same Rust cache key (`rk-<runner>-rust-<anchor crate>`).
+npm packages are grouped six to a job; each job builds only its packages' workspace dependency closure. The root suites and the
+Swift root-manifest check share the `root` job. `ci/shards.json` can change the sizes (`rustTargetWeight`, `npmTargetWeight`,
+`closureChunkSize`, `closureMaxJobs`) or pin units to their own job (`solo`).
+
+Concurrency: Windows matrices cap shard jobs at 8 & closure jobs at 4; macOS caps them at 3 & 2.
+GitHub admits jobs under account-wide runner limits; these caps do not reserve capacity for other workflows.
+
+Each OS has its own last-green marker (restored by `plan`, advanced by `mark-green-<os>`).
+A red run repeats required units until they pass. Known-red labels remain visible in gate reports;
+aggregate command proof still requires successful results. The marker cache path changed with the sharding, so the first run after the change is a full run.
+The aggregate check is `summary`; branch protection must select it when replacing former per-OS `ci` checks.
+Summary requires every prerequisite, accepts matrix skips only for an explicit zero plan count, & checks every planned
+shard report against commit, host, selection & steps. Plan freezes every required command; reports must contain
+exact successful command coverage, complete result fields & consistent aggregate rows. Empty, failed or incomplete
+proof fails. Shard artifacts overwrite their own prior attempt, so retrying failed jobs preserves exact coverage. Each host marker advances only from its
+proved aggregate output, even when opposite host fails.
+
+Preview what a shard would run: `node scripts/ci/gate.mjs --plan --select "rust:rightkit-fs"`. Compiling and testing still
+happen only in Actions. Tokens: `rust:<crate>`, `rust-check:<crate>`, `npm:<dir>`, `root:<suite id>`, `swift:<package id>`; steps:
+`lock`, `fmt`, `test`, `closure`.
+
 ## Reading a run
 
-Each runner writes a table to the job summary and uploads `qa-evidence-<runner>-<attempt>`:
+Each job writes a table to its job summary and uploads `qa-evidence-<runner>-<job id>` (`qa-evidence-hygiene-<attempt>` for the hygiene job):
 `summary.md`, `summary.json`, one log per unit, and `fmt.patch` or `Cargo.lock.patch` when produced.
 
 ```bash
@@ -54,31 +97,28 @@ gh run download <run-id> --dir /tmp/rightkit-ci
 
 ## Known red
 
-A unit in `ci/known-red.json` still runs and still shows red, but does not fail the gate, so the
-last-green commit can advance and later pushes stay incremental. An entry is a recorded defect:
-a crate or package with an entry on either host is not published. When such a unit passes, the
-summary names it under "Now green" and the entry is removed in the next commit.
+A unit in `ci/known-red.json` still runs & retains its label in gate output. Aggregate shard proof
+rejects failed commands, including labelled failures, before advancing last-green markers. An entry
+records a defect; a crate or package with an entry on either host cannot publish. When it passes,
+gate report names it under "Now green" for removal in next commit.
 
 ## Working method
 
 1. Edit locally. Run nothing that compiles or tests.
 2. Preview the selection with `node scripts/ci/gate.mjs --plan --base <sha>`.
 3. Push to `main` in batches. A push that arrives while a run is in progress waits; of several
-   waiting pushes only the newest runs, and it covers everything since the last green commit.
+   waiting pushes GitHub may supersede older pending runs; each admitted run covers changes since its last green commit.
 4. Apply `fmt.patch` and `Cargo.lock.patch` from the evidence with `git apply`, then commit.
 
 ## Two hosts, one owner
 
-- One integration owner (the Mac lead) commits to `main` and merges pull requests. Nobody else pushes to `main`.
-- The Windows side works on `win/<topic>` branches, one small pull request per change, and reports "PR N green, merge it" with the order when pull requests depend on each other. The owner squash-merges.
-- A pull request run builds the branch merged with `main`'s tip on both runners, so a red `main` fails every pull request. Whoever breaks `main` fixes `main` first.
-- The owner states `main`'s condition in plain words after each run: "main is green at <sha>" or "main is red at <sha>, cause, fix pushed". Branches merge `main` in only after "green".
-- Docs-only commits carry `[skip ci]`.
-- Green CI is not "seen working": a report of behaviour on an installed build is separate and names the commit.
+- One integration owner owns HEAD, index, commits & pushes to `main`; workers edit disjoint paths in primary checkout.
+- Each CI run qualifies its exact commit on both native runners. Owner reports commit & observed result.
+- Green CI proves hosted qualification. Installed-build verification separately names installed commit.
 
 ## Publishing
 
-RightKit cannot publish from a local machine. `publish.yml` is the only route: manual dispatch, from
+`publish.yml` is the hosted publication route: manual dispatch, from
 `main` of the public repository, one registry per run. Bytes are built once, then only moved.
 
 ```bash
@@ -91,8 +131,8 @@ run is the same dispatch with `dry_run=false`. **Nothing waits for approval**: t
 environment has no required reviewers, so a real run uploads as soon as its checks pass (see "What
 protects a publication" below).
 
-**Local publish (Mac, under the local-build grant).** Adrian's 2026-10-14 decision lets agents publish one
-`@rightkit/*` package or one crate from the Mac, without `publish.yml`:
+**Conditional local publish.** Local publication requires an explicit committed local-build grant;
+this checkout has no `.rightkit-local-build.json`. With an applicable grant, supported commands are:
 `right-release publish npm --package @rightkit/<name> --local` or
 `right-release publish cargo --crate <name> --local`. `--local` refuses unless the committed
 `.rightkit-local-build.json` (repository `bogusyogi/rightkit`, `allow: "build-test-publish"`) is present, the host is
