@@ -72,10 +72,13 @@ impl<T: serde::Serialize> Probe<T> {
 
 #[test]
 fn updater_headers_are_never_serialisable_and_never_print() {
-    assert!(!Probe::<AuthorizedHeaders>::SERIALIZE);
-    assert!(!Probe::<UpdateBinding>::SERIALIZE);
-    assert!(!Probe::<LicenseRevision>::SERIALIZE);
-    assert!(!Probe::<UpdateAuthProvider>::SERIALIZE);
+    const {
+        assert!(Probe::<String>::SERIALIZE);
+        assert!(!Probe::<AuthorizedHeaders>::SERIALIZE);
+        assert!(!Probe::<UpdateBinding>::SERIALIZE);
+        assert!(!Probe::<LicenseRevision>::SERIALIZE);
+        assert!(!Probe::<UpdateAuthProvider>::SERIALIZE);
+    }
 
     let f = fixture();
     let client = f.client();
