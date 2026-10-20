@@ -59,7 +59,7 @@ export function consumerChildEnv(env, home) {
 
 export const shortName = name => { need(NAME.test(name ?? ''), 'unsafe npm recipe name'); return name.slice('@rightkit/'.length); };
 export const recipeDirectory = name => `ci/consumers/npm/${shortName(name)}`;
-export const sourceFiles = name => ['ci/consumer-recipes.json', 'package.json', `packages/${shortName(name)}/package.json`, ...(name === '@rightkit/tauri' ? ['ci/approved-artifacts.json'] : [])];
+export const sourceFiles = name => ['ci/consumer-recipes.json', 'package.json', `packages/${shortName(name)}/package.json`, ...(['@rightkit/tauri', '@rightkit/qa'].includes(name) ? ['ci/approved-artifacts.json'] : [])];
 export const hasReviewedNpmEntry = (inventory, name) => inventory?.schema === 1 && Object.hasOwn(inventory.npm ?? {}, name) && name !== '@rightkit/logs';
 
 /** Missing, malformed or foreign entries are refused; nothing falls back to a default recipe. */
@@ -124,9 +124,15 @@ export function scratchManifest(manifest, name, archive, pin) {
   return { ...rest, dependencies: { ...manifest.dependencies, [name]: `file:${archive.replaceAll('\\', '/')}` } };
 }
 
-// This is one reviewed dependency-byte exception, never a general release-age bypass.
+// These are exact reviewed dependency-byte exceptions, never a general release-age bypass.
 export const CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/logs', version: '0.1.6', sha256: '72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c' });
+export const QA_CLOSURE_APPROVAL = Object.freeze({ name: '@rightkit/qa-chrome', version: '0.1.10', sha256: '60e7bee4a1b92d409bf67decac5e60de208eede8c16f846e8e3272f11f964797' });
+const closureApproval = name => name === '@rightkit/qa' ? QA_CLOSURE_APPROVAL : CLOSURE_APPROVAL;
 export function closureAgeExceptions(entry, name) {
+  if (name === '@rightkit/qa') {
+    need(same(entry.closure.install, { '@rightkit/qa-chrome': '0.1.10' }), 'qa release-age exception requires exact selected reviewed closure');
+    return [`${QA_CLOSURE_APPROVAL.name}@${QA_CLOSURE_APPROVAL.version}`];
+  }
   if (name !== '@rightkit/tauri') return [];
   need(same(entry.closure.install, { '@rightkit/app-update': '0.4.0', '@rightkit/logs': '0.1.6', '@tauri-apps/plugin-dialog': '2.8.3' }), 'tauri release-age exception requires exact selected reviewed closure');
   return [`${CLOSURE_APPROVAL.name}@${CLOSURE_APPROVAL.version}`];
@@ -134,8 +140,9 @@ export function closureAgeExceptions(entry, name) {
 export function validateClosureApproval(artifacts, entry, name) {
   if (!closureAgeExceptions(entry, name).length) return;
   need(Array.isArray(artifacts), 'dependency byte approval list missing');
-  const rows = artifacts.filter(row => row?.registry === 'npm' && row.name === CLOSURE_APPROVAL.name && row.version === CLOSURE_APPROVAL.version);
-  need(rows.length === 1 && rows[0].sha256 === CLOSURE_APPROVAL.sha256 && typeof rows[0].reviewer === 'string' && rows[0].reviewer.trim() && typeof rows[0].reviewRef === 'string' && rows[0].reviewRef.trim(), 'exact selected dependency bytes lack reviewer approval');
+  const approved = closureApproval(name);
+  const rows = artifacts.filter(row => row?.registry === 'npm' && row.name === approved.name && row.version === approved.version);
+  need(rows.length === 1 && rows[0].sha256 === approved.sha256 && typeof rows[0].reviewer === 'string' && rows[0].reviewer.trim() && typeof rows[0].reviewRef === 'string' && rows[0].reviewRef.trim(), 'exact selected dependency bytes lack reviewer approval');
 }
 // Fixed child source is command-bound by admission. Existing reviewed helper checks every installed archive file.
 export const CLOSURE_PROVENANCE_SCRIPT = `
@@ -155,15 +162,23 @@ const resolved = import.meta.resolve(expected.name);
 const evidence = validateInstalledArtifact({ fixtureUrl: pathToFileURL(path.resolve('consumer.mjs')).href, archive, sha256: expected.sha256, version: expected.version, resolution: 'fetched', packageName: expected.name, rootResolvedUrl: resolved, entries: { [expected.name]: resolved } });
 console.log(JSON.stringify({ archiveBase64: bytes.toString('base64'), artifact: evidence.artifact }));
 `;
+// Keep the Tauri command byte-for-byte stable for existing authenticated receipts.
+export const QA_CLOSURE_PROVENANCE_SCRIPT = CLOSURE_PROVENANCE_SCRIPT
+  .replace(JSON.stringify(CLOSURE_APPROVAL), JSON.stringify(QA_CLOSURE_APPROVAL))
+  .replace('https://registry.npmjs.org/@rightkit/logs/-/logs-0.1.6.tgz', 'https://registry.npmjs.org/@rightkit/qa-chrome/-/qa-chrome-0.1.10.tgz')
+  .replace('closure-logs.tgz', 'closure-qa-chrome.tgz');
+export const closureProvenanceScript = name => name === '@rightkit/qa' ? QA_CLOSURE_PROVENANCE_SCRIPT : CLOSURE_PROVENANCE_SCRIPT;
 export function validateClosureProvenance(evidence, lock, entry, name, scratch, api = path) {
   if (!closureAgeExceptions(entry, name).length) { need(evidence === undefined, 'unexpected dependency provenance exception'); return; }
   need(evidence && same(Object.keys(evidence).sort(), ['archiveBase64', 'artifact']) && typeof evidence.archiveBase64 === 'string' && evidence.archiveBase64.length <= 45 * 1024 * 1024, 'dependency provenance evidence malformed');
+  const approved = closureApproval(name);
   const bytes = Buffer.from(evidence.archiveBase64, 'base64');
-  need(bytes.length > 0 && bytes.toString('base64') === evidence.archiveBase64 && sha('sha256', bytes) === CLOSURE_APPROVAL.sha256, 'registry dependency differs from approved bytes');
-  const rows = [...lock.matchAll(/^  '@rightkit\/logs@0\.1\.6':\r?\n    resolution: \{integrity: (sha512-[A-Za-z0-9+/]{86}==)\}\r?$/gm)];
+  need(bytes.length > 0 && bytes.toString('base64') === evidence.archiveBase64 && sha('sha256', bytes) === approved.sha256, 'registry dependency differs from approved bytes');
+  const lockIdentity = `${approved.name}@${approved.version}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rows = [...lock.matchAll(new RegExp(`^  '${lockIdentity}':\\r?\\n    resolution: \\{integrity: (sha512-[A-Za-z0-9+/]{86}==)\\}\\r?$`, 'gm'))];
   need(rows.length === 1 && rows[0][1] === integrity(bytes), 'dependency lock integrity differs from approved registry tarball');
   const artifact = evidence.artifact;
-  need(artifact?.path === api.join(scratch, 'closure-logs.tgz') && artifact.sha256 === CLOSURE_APPROVAL.sha256 && artifact.version === CLOSURE_APPROVAL.version && artifact.resolution === 'fetched' && artifact.installationBinding === 'all-archive-files-sha256' && Number.isSafeInteger(artifact.archiveFileCount) && artifact.archiveFileCount > 0, 'installed dependency provenance differs from approved registry tarball');
+  need(artifact?.path === api.join(scratch, name === '@rightkit/qa' ? 'closure-qa-chrome.tgz' : 'closure-logs.tgz') && artifact.sha256 === approved.sha256 && artifact.version === approved.version && artifact.resolution === 'fetched' && artifact.installationBinding === 'all-archive-files-sha256' && Number.isSafeInteger(artifact.archiveFileCount) && artifact.archiveFileCount > 0, 'installed dependency provenance differs from approved registry tarball');
 }
 
 /** An owned, isolated workspace applies only exact reviewed RightKit closure pins, with only its explicit reviewed dependency-byte exception. */
@@ -270,7 +285,7 @@ function qualification({ report, expected, recipe, sourceBindings } = {}) {
     validateLockClosure(report.lock, entry, name, api.basename(iso.originalArchive));
     const provenance = commands.find(c => c.stage === 'closure-provenance');
     if (closureAgeExceptions(entry, name).length) {
-      if (!provenance || !api.isAbsolute(provenance.command ?? '') || provenance.cwd !== iso.scratch || !same(provenance.args, ['--input-type=module', '-e', CLOSURE_PROVENANCE_SCRIPT])) throw new Error('dependency provenance command differs');
+      if (!provenance || !api.isAbsolute(provenance.command ?? '') || provenance.cwd !== iso.scratch || !same(provenance.args, ['--input-type=module', '-e', closureProvenanceScript(name)])) throw new Error('dependency provenance command differs');
       const evidence = JSON.parse(provenance.stdout.trim());
       if (!same(report.closureProvenance, evidence)) throw new Error('dependency provenance output/report mismatch');
       validateClosureProvenance(evidence, report.lock, entry, name, iso.scratch, api);
@@ -413,7 +428,7 @@ ${value}`).join('');
     report.lockSha256 = sha('sha256', report.lock);
     validateLockClosure(report.lock, entry, name, path.basename(archive));
     if (closureAgeExceptions(entry, name).length) {
-      report.closureProvenance = JSON.parse(run(process.execPath, ['--input-type=module', '-e', CLOSURE_PROVENANCE_SCRIPT], scratch, 'closure-provenance').trim());
+      report.closureProvenance = JSON.parse(run(process.execPath, ['--input-type=module', '-e', closureProvenanceScript(name)], scratch, 'closure-provenance').trim());
       validateClosureProvenance(report.closureProvenance, report.lock, entry, name, scratch);
     }
     const runtimeExtras = runtimeEnvironment(name, env, { checkout: root, scratch });

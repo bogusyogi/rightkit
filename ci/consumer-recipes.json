@@ -308,7 +308,7 @@
         "ci/consumers/npm/qa/consumer.mjs": "8568000b993001f60b17e804343115162b06138baf78fefbfe02d09b6167bbe3",
         "ci/consumers/npm/qa/package.json": "d3e10d2d2250a367ef04c4c8ab7dfb2407668c9ae9e5724229818c432ea5e0da",
         "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "4f152aacbd23803c82063fc053d1ef06300b610e6f5a896d3c4297566afa1f28"
       }
     }
   },

@@ -282,36 +282,48 @@ describe('dev server refuses installed apps', () => {
 });
 
 describe('dev server installed-app check follows the spawn cwd and PATH', () => {
-  // installedRoots covers <home>/Applications on macOS, so a temporary HOME gives a writable installed-app location.
+  // Match each host's per-user installed-app root so the guard is exercised before spawn.
   const darwin = process.platform === 'darwin';
+  const windows = process.platform === 'win32';
   let home: string;
+  let localAppData: string;
   let appDir: string;
   beforeAll(async () => {
-    home = await mkdtemp(path.join(tmpdir(), 'rk-qa-home-'));
-    appDir = path.join(home, 'Applications', 'Foo.app', 'Contents', 'MacOS');
+    const temp = await mkdtemp(path.join(tmpdir(), 'rk-qa-home-'));
+    home = temp;
+    localAppData = temp;
+    appDir = darwin
+      ? path.join(home, 'Applications', 'Foo.app', 'Contents', 'MacOS')
+      : path.join(localAppData, 'Programs', 'Foo');
     await mkdir(appDir, { recursive: true });
-    await writeFile(path.join(appDir, 'Foo'), '#!/bin/sh\nexit 0\n');
-    await chmod(path.join(appDir, 'Foo'), 0o755);
+    const executable = path.join(appDir, windows ? 'Foo.exe' : 'Foo');
+    await writeFile(executable, windows ? 'fixture executable' : '#!/bin/sh\nexit 0\n');
+    if (!windows) await chmod(executable, 0o755);
   });
   afterAll(async () => {
     await rm(home, { recursive: true, force: true });
   });
 
-  it.runIf(darwin)('a ./Foo command with cwd inside an installed app is refused, not checked against the process directory', async () => {
+  it.runIf(darwin || windows)('a ./Foo command with cwd inside an installed app is refused, not checked against the process directory', async () => {
     vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
-    vi.stubEnv('HOME', home);
+    if (darwin) vi.stubEnv('HOME', home);
+    if (windows) vi.stubEnv('LOCALAPPDATA', localAppData);
     try {
-      const error = await startDevServer({ command: './Foo', cwd: appDir, readiness: readiness() }).catch((caught: unknown) => caught);
+      const error = await startDevServer({ command: windows ? './Foo.exe' : './Foo', cwd: appDir, readiness: readiness() }).catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(InstalledAppRefused);
-      expect((error as InstalledAppRefused).path).toBe(path.join(await realpath(appDir), 'Foo'));
+      expect((error as InstalledAppRefused).path).toBe(path.join(await realpath(appDir), windows ? 'Foo.exe' : 'Foo'));
     } finally {
       vi.unstubAllEnvs();
     }
   });
 
-  it.runIf(darwin)('a bare command found on the effective PATH inside an installed app is refused', async () => {
+  it.runIf(darwin || windows)('a bare command found on the effective PATH inside an installed app is refused', async () => {
     vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
-    vi.stubEnv('HOME', home);
+    if (darwin) vi.stubEnv('HOME', home);
+    if (windows) {
+      vi.stubEnv('LOCALAPPDATA', localAppData);
+      vi.stubEnv('PATHEXT', '.EXE');
+    }
     vi.stubEnv('PATH', `${appDir}${path.delimiter}${process.env.PATH ?? ''}`);
     try {
       const error = await startDevServer({ command: 'Foo', readiness: readiness() }).catch((caught: unknown) => caught);
@@ -321,15 +333,21 @@ describe('dev server installed-app check follows the spawn cwd and PATH', () => 
     }
   });
 
-  it.runIf(darwin)('a PATH passed in options.env is the one searched, and a relative executable in shell mode is checked too', async () => {
+  it.runIf(darwin || windows)('a PATH passed in options.env is the one searched, and a relative executable in shell mode is checked too', async () => {
     vi.stubEnv('RIGHT_RELEASE_QA_STAGE', '');
-    vi.stubEnv('HOME', home);
+    if (darwin) vi.stubEnv('HOME', home);
+    if (windows) {
+      vi.stubEnv('LOCALAPPDATA', localAppData);
+      vi.stubEnv('PATHEXT', '.EXE');
+    }
     try {
-      const viaEnv = await startDevServer({ command: 'Foo', env: { PATH: appDir }, readiness: readiness() }).catch((caught: unknown) => caught);
+      const executable = path.join(appDir, windows ? 'Foo.exe' : 'Foo');
+      const env = { PATH: appDir, ...(windows ? { PATHEXT: '.EXE' } : {}) };
+      const viaEnv = await startDevServer({ command: 'Foo', env, readiness: readiness() }).catch((caught: unknown) => caught);
       expect(viaEnv).toBeInstanceOf(InstalledAppRefused);
       const relativeShell = await startDevServer({ command: './Foo', cwd: appDir, shell: true, readiness: readiness() }).catch((caught: unknown) => caught);
       expect(relativeShell).toBeInstanceOf(InstalledAppRefused);
-      const hidden = await startDevServer({ command: `true && ${path.join(appDir, 'Foo')}`, shell: true, readiness: readiness() }).catch((caught: unknown) => caught);
+      const hidden = await startDevServer({ command: `true && ${executable}`, shell: true, readiness: readiness() }).catch((caught: unknown) => caught);
       expect(hidden).toBeInstanceOf(Error);
       expect(hidden).not.toBeInstanceOf(InstalledAppRefused);
       expect((hidden as Error).message).toContain('shell syntax');

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { consumeNpm } from './consume.mjs';
 import { sha } from './upload.mjs';
-import { RUNNER_FILE, recipeDirectory, sourceFiles, hasReviewedNpmEntry, missingRequiredHosts, allowedHosts, hostForPlatform, RUNNABLE_HOSTS, runtimeEnvironment, consumerChildEnv, runNpmRecipeConsumer, validateRecipeEntry, validatePackedClosure, validateConsumerManifest, validateLockClosure, validateMountResult, scratchManifest, scratchWorkspace, validateWorkspaceBinding, consumerInstallArgs, closureAgeExceptions, validateClosureApproval, validateClosureProvenance, CLOSURE_APPROVAL, CLOSURE_PROVENANCE_SCRIPT, npmRecipeQualificationProblems } from './npm-recipe-consumer.mjs';
+import { RUNNER_FILE, recipeDirectory, sourceFiles, hasReviewedNpmEntry, missingRequiredHosts, allowedHosts, hostForPlatform, RUNNABLE_HOSTS, runtimeEnvironment, consumerChildEnv, runNpmRecipeConsumer, validateRecipeEntry, validatePackedClosure, validateConsumerManifest, validateLockClosure, validateMountResult, scratchManifest, scratchWorkspace, validateWorkspaceBinding, consumerInstallArgs, closureAgeExceptions, validateClosureApproval, validateClosureProvenance, CLOSURE_APPROVAL, CLOSURE_PROVENANCE_SCRIPT, QA_CLOSURE_APPROVAL, QA_CLOSURE_PROVENANCE_SCRIPT, closureProvenanceScript, npmRecipeQualificationProblems } from './npm-recipe-consumer.mjs';
 
 const read = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url));
 const inventory = JSON.parse(read('ci/consumer-recipes.json'));
@@ -14,6 +14,10 @@ const pin = rootPackage.packageManager;
 const reviewedNames = Object.keys(inventory.npm).filter(name => name !== '@rightkit/logs');
 const clone = value => structuredClone(value);
 const NAME = '@rightkit/settings-ui';
+// Closed entries retain their authenticated historical runner; this never admits fresh execution.
+const CLOSED_RUNNER_HASH = 'b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd';
+const CLOSED_NAMES = new Set(['@rightkit/app-update', '@rightkit/onboarding', '@rightkit/qa-chrome', '@rightkit/settings-ui', '@rightkit/tauri-shell', '@rightkit/legal', '@rightkit/doc-render', '@rightkit/tauri']);
+const inventoryHashMatches = (name, file, hash) => sha('sha256', read(file)) === hash || (file === RUNNER_FILE && CLOSED_NAMES.has(name) && hash === CLOSED_RUNNER_HASH);
 
 test('every committed reviewed npm recipe matches its inventory entry, package manifest & closure', () => {
   assert.ok(reviewedNames.length >= 2);
@@ -22,7 +26,7 @@ test('every committed reviewed npm recipe matches its inventory entry, package m
     const dir = recipeDirectory(name);
     const onDisk = fs.readdirSync(new URL(`../../${dir}`, import.meta.url)).map(file => `${dir}/${file}`);
     assert.deepEqual(onDisk.sort(), Object.keys(entry.files).filter(file => file !== RUNNER_FILE).sort(), `${name} directory is exactly the reviewed file set`);
-    for (const [file, hash] of Object.entries(entry.files)) assert.equal(sha('sha256', read(file)), hash, `${name} ${file} full-file hash`);
+    for (const [file, hash] of Object.entries(entry.files)) assert.ok(inventoryHashMatches(name, file, hash), `${name} ${file} full-file hash or exact closed runner`);
     const source = JSON.parse(read(`packages/${name.slice(10)}/package.json`));
     assert.doesNotThrow(() => validatePackedClosure(source, entry, name, source.version));
     assert.doesNotThrow(() => validateConsumerManifest(JSON.parse(read(`${dir}/package.json`)), entry, pin));
@@ -99,10 +103,14 @@ test('mount result must echo the reviewed recipe & bind the exact archive', () =
   }
 });
 
-function qualificationFixture() {
+function qualificationFixture(name = NAME) {
+  const NAME = name;
   const entry = clone(inventory.npm[NAME]); const dir = recipeDirectory(NAME);
-  const commit = 'a'.repeat(40), scratch = '/scratch/consumer', checkout = '/checkout', packs = '/packs', archive = `${packs}/settings-ui.tgz`;
-  const source = JSON.parse(read('packages/settings-ui/package.json')); const version = source.version;
+  // Model a fresh current-runner qualification without rewriting any closed inventory entry.
+  entry.files[RUNNER_FILE] = sha('sha256', read(RUNNER_FILE));
+  const candidateInventory = clone(inventory); candidateInventory.npm[NAME] = clone(entry);
+  const commit = 'a'.repeat(40), scratch = '/scratch/consumer', checkout = '/checkout', packs = '/packs', archive = `${packs}/${name.slice(10)}.tgz`;
+  const source = JSON.parse(read(`packages/${name.slice(10)}/package.json`)); const version = source.version;
   const packed = { ...source }; delete packed.packageManager;
   const consumer = JSON.parse(read(`${dir}/package.json`));
   const integrityValue = `sha512-${'A'.repeat(86)}==`;
@@ -110,12 +118,12 @@ function qualificationFixture() {
   const bound = [...Object.keys(entry.files), ...sourceFiles(NAME)];
   const commands = [], sourceBindings = {};
   for (const file of bound) {
-    const bytes = read(file);
+    const bytes = file === 'ci/consumer-recipes.json' ? Buffer.from(JSON.stringify(candidateInventory)) : read(file);
     sourceBindings[file] = { sha256: sha('sha256', bytes), gitBlob: sha('sha1', Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])) };
     commands.push(command('source', 'git', ['show', `${commit}:${file}`], bytes.toString('utf8'), checkout));
   }
-  commands.push(command('archive-read', 'tar', ['-xOzf', 'settings-ui.tgz', 'package/package.json'], JSON.stringify(packed), packs));
-  commands.push(command('archive-read', 'tar', ['-xOzf', 'settings-ui.tgz', 'package/README.md'], 'readme', packs));
+  commands.push(command('archive-read', 'tar', ['-xOzf', `${name.slice(10)}.tgz`, 'package/package.json'], JSON.stringify(packed), packs));
+  commands.push(command('archive-read', 'tar', ['-xOzf', `${name.slice(10)}.tgz`, 'package/README.md'], 'readme', packs));
   commands.push(command('toolchain', 'pnpm', ['--version'], `${pin.slice(5)}\n`));
   commands.push(command('install', 'pnpm', consumerInstallArgs(`${scratch}/store`), 'installed'));
   const mount = { schemaVersion: 1, recipeId: entry.recipeId, ok: true, nativeHostQualified: false, errors: [], scenarios: Array.from({ length: entry.scenarios }, (_, i) => ({ name: `s${i}`, ok: true, evidence: {}, error: null })), artifact: { path: archive, sha256: 'c'.repeat(64), version, resolution: 'packed', installationBinding: 'all-archive-files-sha256', archiveFileCount: 3 } };
@@ -129,6 +137,10 @@ function qualificationFixture() {
   const config = scratchWorkspace(entry, NAME);
   report.workspace = { file: `${scratch}/pnpm-workspace.yaml`, before: config, beforeSha256: sha('sha256', config), after: config, afterSha256: sha('sha256', config) };
   delete report.archivePath;
+  if (closureAgeExceptions(entry, name).length) {
+    report.closureProvenance = { archiveBase64: Buffer.from('unapproved fixture dependency').toString('base64'), artifact: {} };
+    commands.push(command('closure-provenance', '/usr/bin/node', ['--input-type=module', '-e', closureProvenanceScript(name)], JSON.stringify(report.closureProvenance)));
+  }
   return { report, expected, recipe: entry, sourceBindings };
 }
 
@@ -322,4 +334,85 @@ test('tauri age exception is singleton reviewed dependency bytes, never another 
   assert.throws(() => validateClosureProvenance({ archiveBase64: Buffer.from('substituted archive').toString('base64'), artifact: {} }, '', inventory.npm[name], name, '/scratch', path.posix), /approved bytes/);
   assert.throws(() => validateClosureProvenance({}, '', inventory.npm[NAME], NAME, '/scratch', path.posix), /unexpected dependency/);
   assert.ok(CLOSURE_PROVENANCE_SCRIPT.includes("import { validateInstalledArtifact } from './provenance.mjs'"));
+});
+
+
+test('historical runner inventory allowance is exact & never applies to QA, future units or other files', () => {
+  for (const name of CLOSED_NAMES) assert.equal(inventory.npm[name].files[RUNNER_FILE], CLOSED_RUNNER_HASH, name);
+  assert.equal(inventoryHashMatches('@rightkit/settings-ui', RUNNER_FILE, CLOSED_RUNNER_HASH), true);
+  for (const name of ['@rightkit/qa', '@rightkit/future']) assert.equal(inventoryHashMatches(name, RUNNER_FILE, CLOSED_RUNNER_HASH), false);
+  assert.equal(inventoryHashMatches(NAME, RUNNER_FILE, 'f'.repeat(64)), false);
+  assert.equal(inventoryHashMatches(NAME, `${recipeDirectory(NAME)}/consumer.mjs`, CLOSED_RUNNER_HASH), false);
+  const fixture = qualificationFixture(); fixture.recipe.files[RUNNER_FILE] = CLOSED_RUNNER_HASH;
+  assert.ok(npmRecipeQualificationProblems(fixture).some(problem => problem.includes(`reviewed recipe differs from candidate blob ${RUNNER_FILE}`)), 'fresh qualification still refuses stale runner inventory');
+});
+
+test('QA age exception requires exact approved Chrome package, version, archive & reviewed closure', () => {
+  const name = '@rightkit/qa'; const entry = clone(inventory.npm[name]);
+  assert.deepEqual(closureAgeExceptions(entry, name), ['@rightkit/qa-chrome@0.1.10']);
+  assert.deepEqual(sourceFiles(name), ['ci/consumer-recipes.json', 'package.json', 'packages/qa/package.json', 'ci/approved-artifacts.json']);
+  const approved = [{ registry: 'npm', ...QA_CLOSURE_APPROVAL, reviewer: 'reviewed', reviewRef: 'reviewed-source' }];
+  assert.doesNotThrow(() => validateClosureApproval(approved, entry, name));
+  assert.doesNotThrow(() => validateClosureApproval(JSON.parse(read('ci/approved-artifacts.json')).artifacts, entry, name));
+  for (const rows of [[], [...approved, ...approved], [{ ...approved[0], name: '@rightkit/logs' }], [{ ...approved[0], version: '0.1.9' }], [{ ...approved[0], sha256: 'f'.repeat(64) }], [{ ...approved[0], registry: 'crates' }], [{ ...approved[0], reviewer: ' ' }], [{ ...approved[0], reviewRef: '' }]]) assert.throws(() => validateClosureApproval(rows, entry, name), /approval/);
+  for (const install of [{ '@rightkit/qa-chrome': '0.1.9' }, { '@rightkit/qa-chrome': '0.1.11' }, { '@rightkit/logs': '0.1.10' }, {}, { '@rightkit/qa-chrome': '0.1.10', react: '19.3.1' }]) {
+    const bad = clone(entry); bad.closure.install = install;
+    assert.throws(() => closureAgeExceptions(bad, name), /exact selected reviewed closure/);
+  }
+  for (const other of reviewedNames.filter(unit => !['@rightkit/qa', '@rightkit/tauri'].includes(unit))) assert.deepEqual(closureAgeExceptions(inventory.npm[other], other), [], other);
+});
+
+test('QA workspace permits only exact selected Chrome age exception & rejects config substitution', () => {
+  const name = '@rightkit/qa'; const entry = inventory.npm[name]; const scratch = '/scratch/consumer';
+  const config = 'packages: []\nminimumReleaseAgeExclude:\n  - "@rightkit/qa-chrome@0.1.10"\noverrides:\n  "@rightkit/qa-chrome": "0.1.10"\n';
+  assert.equal(scratchWorkspace(entry, name), config);
+  const digest = sha('sha256', config);
+  const good = { file: `${scratch}/pnpm-workspace.yaml`, before: config, after: config, beforeSha256: digest, afterSha256: digest };
+  assert.equal(validateWorkspaceBinding(good, entry, name, scratch, path.posix), true);
+  for (const changed of [config.replace('@0.1.10', '@0.1.9'), config.replace('@0.1.10', ''), config.replace('  - "@rightkit/qa-chrome@0.1.10"\n', ''), `${config}minimumReleaseAge: 0\n`, `${config}trustPolicy: off\n`, `${config}  - "@rightkit/logs@0.1.6"\n`]) {
+    const bad = { ...good, after: changed, afterSha256: sha('sha256', changed) };
+    assert.throws(() => validateWorkspaceBinding(bad, entry, name, scratch, path.posix), /exact reviewed overrides/);
+    bad.before = changed; bad.beforeSha256 = bad.afterSha256;
+    assert.throws(() => validateWorkspaceBinding(bad, entry, name, scratch, path.posix), /exact reviewed overrides/);
+  }
+});
+
+test('QA provenance command selects exact Chrome registry bytes & keeps Tauri command unchanged', () => {
+  assert.equal(closureProvenanceScript('@rightkit/qa'), QA_CLOSURE_PROVENANCE_SCRIPT);
+  assert.equal(closureProvenanceScript('@rightkit/tauri'), CLOSURE_PROVENANCE_SCRIPT);
+  assert.equal(sha('sha256', CLOSURE_PROVENANCE_SCRIPT), '9f9ce9a2ef8fa8882d4c06950476b7dff407a0c537e6f9330e4c2252c81c6599', 'existing Tauri provenance command remains byte-for-byte stable');
+  assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes(JSON.stringify(QA_CLOSURE_APPROVAL)));
+  assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("fetch('https://registry.npmjs.org/@rightkit/qa-chrome/-/qa-chrome-0.1.10.tgz', { redirect: 'error', signal: AbortSignal.timeout(60000) })"));
+  assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("path.resolve('closure-qa-chrome.tgz')"));
+  assert.ok(QA_CLOSURE_PROVENANCE_SCRIPT.includes("import { validateInstalledArtifact } from './provenance.mjs'"));
+  assert.ok(!QA_CLOSURE_PROVENANCE_SCRIPT.includes('closure-logs.tgz'));
+  assert.ok(!QA_CLOSURE_PROVENANCE_SCRIPT.includes('https://registry.npmjs.org/@rightkit/logs/'));
+  const name = '@rightkit/qa'; const entry = inventory.npm[name];
+  assert.throws(() => validateClosureProvenance(undefined, '', entry, name, '/scratch', path.posix), /malformed/);
+  assert.throws(() => validateClosureProvenance({ archiveBase64: Buffer.from('substituted Chrome archive').toString('base64'), artifact: { ...QA_CLOSURE_APPROVAL, installationBinding: 'all-archive-files-sha256' } }, '', entry, name, '/scratch', path.posix), /approved bytes/);
+});
+
+
+test('QA admission binds approval source, exact provenance command, output & config before accepting dependency bytes', () => {
+  // Exact approved tarball is intentionally not duplicated in unit fixtures; root integration checks it.
+  const fixture = qualificationFixture('@rightkit/qa');
+  assert.deepEqual(npmRecipeQualificationProblems(fixture), ['npm recipe: actual packed/consumer/lock output invalid: registry dependency differs from approved bytes']);
+  const mutations = [
+    ['dependency provenance command differs', f => { f.report.commands.find(c => c.stage === 'closure-provenance').args[2] = CLOSURE_PROVENANCE_SCRIPT; }],
+    ['dependency provenance command differs', f => { f.report.commands.find(c => c.stage === 'closure-provenance').cwd = '/elsewhere'; }],
+    ['dependency provenance output/report mismatch', f => { f.report.closureProvenance.artifact = { sha256: QA_CLOSURE_APPROVAL.sha256 }; }],
+    ['missing/duplicate closure-provenance stage', f => { f.report.commands = f.report.commands.filter(c => c.stage !== 'closure-provenance'); }],
+    ['unknown/missing source binding', f => { delete f.report.sourceBindings['ci/approved-artifacts.json']; }],
+    ['exact selected dependency bytes lack reviewer approval', f => {
+      const file = 'ci/approved-artifacts.json'; const row = f.report.commands.find(c => c.stage === 'source' && c.args[1].endsWith(`:${file}`));
+      const approval = JSON.parse(row.stdout); approval.artifacts = approval.artifacts.filter(a => a.name !== '@rightkit/qa-chrome'); row.stdout = JSON.stringify(approval);
+      const bytes = Buffer.from(row.stdout); const binding = { sha256: sha('sha256', bytes), gitBlob: sha('sha1', Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])) };
+      f.sourceBindings[file] = binding; f.report.sourceBindings[file] = clone(binding);
+    }],
+    ['exact reviewed overrides', f => { f.report.workspace.after += 'minimumReleaseAge: 0\n'; f.report.workspace.afterSha256 = sha('sha256', f.report.workspace.after); }],
+  ];
+  for (const [reason, mutate] of mutations) {
+    const changed = qualificationFixture('@rightkit/qa'); mutate(changed);
+    assert.ok(npmRecipeQualificationProblems(changed).some(problem => problem.includes(reason)), reason);
+  }
 });
