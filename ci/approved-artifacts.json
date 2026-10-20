@@ -376,6 +376,45 @@
           "receiptSha256": "8eeee30bd6819441ab6feb748bfbcacdc0513b7970da180c7d278e132a08fc25"
         }
       }
+    },
+    {
+      "id": "npm-qa-chrome-0110-99d5",
+      "sourceSha": "99d56fed34a3e9dd531e8124d5b99eb4c84d3678",
+      "runId": "39510808790",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "77b824aee938cbdd77869a1f84e1e5c1cee38c151721f32d224b68379b323125",
+      "registry": "npm",
+      "units": [
+        "@rightkit/qa-chrome"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12304554930",
+          "digest": "sha256:b509d2e1dd943cdd031c5c2bf1255db4bb08c107c66445058840b32fa5d69687"
+        },
+        "macos": {
+          "id": "12305282713",
+          "digest": "sha256:0d141f9a42c49e3721357cec97291c6d5b08d6d5ee5f4a77299cf34b7ac63474",
+          "receiptSha256": "ffb3851076b1e7cf3ec7f20f7c9433515c6df44d6479d724621a684975489b32"
+        },
+        "windows": {
+          "id": "12306275377",
+          "digest": "sha256:785e92d313f5d99714af033b7abe450d57142e881c2c2a47c848508e836d5a0a",
+          "receiptSha256": "1cc5008f2b2eb4db841910e24ab7d01dce8e1158c21c01a84522d82768c1a33f"
+        },
+        "linux": {
+          "id": "12305791803",
+          "digest": "sha256:ce2f869eeb46a70b7140719f5922e5c6a096c61ba22e65c6ebb326f124222e6e",
+          "receiptSha256": "a8b763dcd0a63a174a84cc0150f9d79ad35ebab95a2fb52c5c8278e92a5d2bc5"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -474,6 +513,14 @@
       "sha256": "5faf1c33643ce547f0ed1b73a2bf975390095cbd99476f737a2e35417afca4fc",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/root/db_candidate_review/39498324762/db-0.5.1"
+    },
+    {
+      "registry": "npm",
+      "name": "@rightkit/qa-chrome",
+      "version": "0.1.10",
+      "sha256": "60e7bee4a1b92d409bf67decac5e60de208eede8c16f846e8e3272f11f964797",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/review_chrome_diagnostic/39510808790/qa-chrome-0.1.10"
     }
   ]
 }
