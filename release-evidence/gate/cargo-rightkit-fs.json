@@ -2,9 +2,9 @@
   "schema": 1,
   "kind": "cargo",
   "name": "rightkit-fs",
-  "version": "0.4.4",
-  "commit": "7787a38f5fed9eacdc7a995657e5799141bd0763",
-  "artifactSha256": "32e10ada6eb1323be113c4a7ee181a877cf3a1698bf66e1d278362e439f0501a",
+  "version": "0.4.5",
+  "commit": "01e12e01e174d63c3f4f0cf8c2639f54de6c9ba3",
+  "artifactSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
   "hostPolicy": "darwin-only",
   "hostPolicyReason": "Adrian 2026-10-14 local-build grant (.rightkit-local-build.json); Windows covered by the next CI run",
   "runs": [
@@ -13,15 +13,15 @@
         "os": "darwin",
         "arch": "arm64"
       },
-      "commit": "7787a38f5fed9eacdc7a995657e5799141bd0763",
+      "commit": "01e12e01e174d63c3f4f0cf8c2639f54de6c9ba3",
       "features": [
         "--all-features"
       ],
-      "artifactSha256": "32e10ada6eb1323be113c4a7ee181a877cf3a1698bf66e1d278362e439f0501a",
+      "artifactSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
       "command": "cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output && cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output && cargo clippy -p rightkit-fs --message-format=json-render-diagnostics --no-deps --all-targets --all-features -- -D warnings && cargo package --locked --no-verify -p rightkit-fs && cargo metadata --offline --format-version 1 --no-deps",
       "operator": "agent (local-build grant)",
-      "timestamp": "2026-10-18T21:08:56.507Z",
-      "passed": 1052,
+      "timestamp": "2026-10-20T03:55:22.288Z",
+      "passed": 1090,
       "failed": 0,
       "skipped": 0,
       "ignored": 0,
@@ -32,7 +32,7 @@
         {
           "command": "cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --show-output",
           "ok": true,
-          "executed": 526,
+          "executed": 545,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
@@ -41,7 +41,7 @@
         {
           "command": "cargo test -p rightkit-fs --message-format=json-render-diagnostics --all-features --no-fail-fast -- --test-threads=1 --show-output",
           "ok": true,
-          "executed": 526,
+          "executed": 545,
           "failed": 0,
           "ignored": 0,
           "skipped": 0,
