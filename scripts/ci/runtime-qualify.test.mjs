@@ -468,7 +468,7 @@ const SHELL_ARGS = (features) => ["test", "--locked", "--profile", "release-iter
 test("shell trusted inventory pins four native rows with exact feature sets, no default features & 1000 ms", () => {
   const rows = workloadsFor(SHELL);
   assert.deepEqual(rows.map((w) => w.id), ["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"]);
-  assert.deepEqual(rows.map((w) => w.args), ["wv2-0_38", "wv2-0_39", "wv2-0_38,host-services,logs,crash", "wv2-0_39,host-services,logs,crash"].map(SHELL_ARGS));
+  assert.deepEqual(rows.map((w) => w.args), ["wv2-0_38", "wv2-0_39", "wv2-0_38,host-services,logs,crash,content-devtools", "wv2-0_39,host-services,logs,crash,content-devtools"].map(SHELL_ARGS));
   for (const w of rows) { assert.equal(w.bench, "budget_native"); assert.equal(w.intervalMs, 1000); assert.deepEqual(w.env, []); assert.equal(w.profile, null); }
   assert.deepEqual(trustedRequiredSources(SHELL), ["crates/rightkit-tauri-shell/src/watchdog.rs", "crates/rightkit-tauri-shell/src/lib.rs", "crates/rightkit-tauri-shell/src/host/mod.rs", "crates/rightkit-tauri-shell/src/host/policy.rs", "crates/rightkit-tauri-shell/src/logs_commands.rs"]);
   // --no-default-features is a per-workload option: logs and daemon rows never carry it.

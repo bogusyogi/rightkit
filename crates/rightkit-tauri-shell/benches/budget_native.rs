@@ -32,6 +32,13 @@ fn native_fixture_report(webview: tauri::Webview<Wry>, report: serde_json::Value
         .insert(webview.label().to_owned(), report);
 }
 
+#[cfg(feature = "host-services")]
+#[derive(Default)]
+struct ContentWitness {
+    ready: AtomicBool,
+    result: Mutex<Option<bool>>,
+}
+
 struct NativeAssets;
 
 impl tauri::Assets<Wry> for NativeAssets {
@@ -165,6 +172,71 @@ fn wait_for(name: &str, condition: impl Fn() -> bool) {
     }
 }
 
+// Fixture-only store: no credential store or user secret is touched.
+#[cfg(feature = "host-services")]
+#[derive(Clone, Default)]
+struct FixtureSecrets(Arc<Mutex<FixtureSecretsState>>);
+
+#[cfg(feature = "host-services")]
+#[derive(Default)]
+struct FixtureSecretsState {
+    value: Option<String>,
+    calls: usize,
+    writes: Vec<String>,
+    failure: Option<rightkit_tauri_shell::host::SecretStoreError>,
+}
+
+#[cfg(feature = "host-services")]
+impl rightkit_tauri_shell::host::SecretStore for FixtureSecrets {
+    fn exists(
+        &self,
+        _: &rightkit_app_settings::SecretRef,
+    ) -> Result<bool, rightkit_tauri_shell::host::SecretStoreError> {
+        let mut state = self.0.lock().expect("fixture secrets");
+        state.calls += 1;
+        if let Some(error) = &state.failure {
+            return Err(error.clone());
+        }
+        Ok(state.value.is_some())
+    }
+
+    fn delete(
+        &self,
+        _: &rightkit_app_settings::SecretRef,
+    ) -> Result<(), rightkit_tauri_shell::host::SecretStoreError> {
+        let mut state = self.0.lock().expect("fixture secrets");
+        state.calls += 1;
+        if let Some(error) = &state.failure {
+            return Err(error.clone());
+        }
+        state.value = None;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "host-services")]
+impl rightkit_tauri_shell::host::SecretWriter for FixtureSecrets {
+    fn store(
+        &self,
+        _: &rightkit_app_settings::SecretRef,
+        value: &rightkit_tauri_shell::host::SecretValue,
+        overwrite: bool,
+    ) -> Result<(), rightkit_tauri_shell::host::SecretStoreError> {
+        use rightkit_tauri_shell::host::SecretStoreError;
+        let mut state = self.0.lock().expect("fixture secrets");
+        state.calls += 1;
+        if let Some(error) = &state.failure {
+            return Err(error.clone());
+        }
+        if !overwrite && state.value.is_some() {
+            return Err(SecretStoreError::AlreadyExists);
+        }
+        state.value = Some(value.expose().to_owned());
+        state.writes.push(value.expose().to_owned());
+        Ok(())
+    }
+}
+
 #[cfg(feature = "host-services")]
 fn host_services(app: &tauri::AppHandle<Wry>, root: &Path) {
     use rightkit_tauri_shell::host::{
@@ -174,7 +246,20 @@ fn host_services(app: &tauri::AppHandle<Wry>, root: &Path) {
         rightkit_app_settings::Document::open_path(root.join("settings.json"), "native-budget")
             .expect("isolated settings document");
     let bridge = SettingsBridge::new(document, StaticSchema::new(1).keys(["probe"]));
+    let secrets = FixtureSecrets::default();
+    app.manage(secrets.clone());
     let mut services = HostServices::builder()
+        .secrets(
+            rightkit_tauri_shell::host::SecretsService::new(
+                secrets.clone(),
+                [rightkit_tauri_shell::host::ApiKeySlot::new(
+                    rightkit_app_settings::SecretRef::new("native-budget", "fixture"),
+                )
+                .max_bytes(32)],
+            )
+            .with_writer(secrets),
+            ServiceTrust::for_labels(["main", "content"]),
+        )
         .settings(
             SettingsHostService::new(bridge),
             ServiceTrust::for_labels(["main"]),
@@ -222,6 +307,61 @@ fn logs(app: &tauri::AppHandle<Wry>, root: &Path) {
 
 #[cfg(not(feature = "logs"))]
 fn logs(_: &tauri::AppHandle<Wry>, _: &Path) {}
+
+// Only this native fixture constructs ACL data at runtime; production manifests stay unchanged.
+#[cfg(feature = "host-services")]
+fn fixture_acl(context: &mut tauri::Context<Wry>) -> String {
+    use std::collections::BTreeMap;
+    use tauri_utils::acl::{
+        capability::Capability, manifest::Manifest, resolved::Resolved, APP_ACL_KEY,
+    };
+    let commands = [
+        "native_fixture_report",
+        "rightkit_settings_describe",
+        "rightkit_settings_get",
+        "rightkit_settings_patch",
+        "rightkit_settings_reset",
+        "rightkit_settings_subscribe",
+        "rightkit_settings_unsubscribe",
+        "rightkit_secrets_presence",
+        "rightkit_secrets_clear",
+        "rightkit_secrets_set",
+    ];
+    let manifest: Manifest = serde_json::from_value(serde_json::json!({
+        "permissions": {"fixture-host": {"identifier": "fixture-host", "commands": {"allow": commands}}},
+        "permission_sets": {}
+    })).expect("fixture application manifest");
+    // Exact webview grants: registered-content has neither a window nor a webview grant.
+    let capability = serde_json::json!({
+        "identifier": "fixture-host", "webviews": ["main", "content"],
+        "permissions": ["fixture-host"]
+    })
+    .to_string();
+    let capabilities: BTreeMap<String, Capability> = BTreeMap::from([(
+        "fixture-host".into(),
+        serde_json::from_str(&capability).expect("fixture capability"),
+    )]);
+    let acl = BTreeMap::from([(APP_ACL_KEY.into(), manifest)]);
+    let resolved = Resolved::resolve(&acl, capabilities, tauri_utils::platform::Target::current())
+        .expect("resolve real fixture ACL");
+    assert!(resolved.has_app_acl, "fixture must enforce application ACL");
+    let authority = tauri::ipc::RuntimeAuthority::new(acl, resolved);
+    for command in commands {
+        assert!(authority
+            .resolve_access(command, "main", "main", &tauri::ipc::Origin::Local)
+            .is_some());
+        assert!(authority
+            .resolve_access(
+                command,
+                "registered-content",
+                "registered-content",
+                &tauri::ipc::Origin::Local
+            )
+            .is_none());
+    }
+    *context.runtime_authority_mut() = authority;
+    capability
+}
 
 fn native(mode: String, idle_seconds: u64) {
     // Native desktop/webview creation itself is the prerequisite check. Any error fails closed.
@@ -281,8 +421,35 @@ fn native(mode: String, idle_seconds: u64) {
             ..Default::default()
         })
         .webview_idle(rightkit_tauri_shell::idle::DEFAULT_SUSPEND_AFTER)
-        .watchdog((mode != "bare").then_some(config))
-        .build();
+        .watchdog((mode != "bare").then_some(config));
+    #[cfg(feature = "host-services")]
+    let (shell, fixture_capability) = {
+        use rightkit_tauri_shell::{ContentWebview, DevToolsPolicy};
+        assert!(
+            cfg!(feature = "content-devtools"),
+            "registered content fixture requires content-devtools"
+        );
+        let mut context = tauri::test::mock_context(NativeAssets);
+        let capability = fixture_acl(&mut context);
+        let registration =
+            ContentWebview::new("registered-content", "registered-content").capability(&capability);
+        assert!(matches!(
+            rightkit_tauri_shell::devtools::build_gate(
+                DevToolsPolicy::ContentOnly,
+                "main",
+                &[registration.clone()],
+                true
+            ),
+            Err(rightkit_tauri_shell::DevToolsError::AppAclManifestMissing { .. })
+        ));
+        (
+            shell
+                .devtools_policy(DevToolsPolicy::ContentOnly)
+                .content_webview(registration.app_acl_manifest(true)),
+            capability,
+        )
+    };
+    let shell = shell.build();
     let fixture_root = root.path().to_path_buf();
     let page_ready = Arc::clone(&ready);
     #[cfg(feature = "host-services")]
@@ -290,10 +457,14 @@ fn native(mode: String, idle_seconds: u64) {
     let mut context = tauri::test::mock_context(NativeAssets);
     context.config_mut().identifier = format!("app.rightkit.nativebudget.p{}", std::process::id());
     context.config_mut().app.windows.clear();
+    #[cfg(feature = "host-services")]
+    assert_eq!(fixture_acl(&mut context), fixture_capability);
     let builder = tauri::Builder::<Wry>::new()
         .manage(RendererReports::default())
         .invoke_handler(rightkit_tauri_shell::handler![native_fixture_report])
         .plugin(shell.plugin());
+    #[cfg(feature = "host-services")]
+    let builder = builder.manage(ContentWitness::default());
     let mut app = builder
         .setup(move |app| {
             host_services(app.handle(), &fixture_root);
@@ -327,6 +498,39 @@ fn native(mode: String, idle_seconds: u64) {
                 }
             })
             .build()?;
+            #[cfg(feature = "host-services")]
+            {
+                let witness = app.handle().clone();
+                let loaded = app.handle().clone();
+                tauri::WebviewWindowBuilder::new(
+                    app,
+                    "registered-content",
+                    tauri::WebviewUrl::App("index.html".into()),
+                )
+                .visible(false)
+                .focused(false)
+                .data_directory(fixture_root.join("registered-content-webview"))
+                .on_navigation(move |url| {
+                    if url.host_str() == Some("native-fixture.invalid") {
+                        *witness
+                            .state::<ContentWitness>()
+                            .result
+                            .lock()
+                            .expect("content witness") = Some(url.path() == "/denied");
+                        return false;
+                    }
+                    true
+                })
+                .on_page_load(move |_, event| {
+                    if event.event() == tauri::webview::PageLoadEvent::Finished {
+                        loaded
+                            .state::<ContentWitness>()
+                            .ready
+                            .store(true, Ordering::Release);
+                    }
+                })
+                .build()?;
+            }
             Ok(())
         })
         .build(context)
@@ -346,7 +550,9 @@ fn native(mode: String, idle_seconds: u64) {
             wait_for("content webview page load", || {
                 content_ready.load(Ordering::Acquire)
             });
+            secrets_probe(&observer_handle);
             settings_probe(&observer_handle);
+            registered_content_probe(&observer_handle, &observer_root);
             main_probe(&observer_handle, &observer_root);
             if mode == "capture" || mode == "cancel" {
                 capture_probe(&observer_handle, &mode, &capture_started, &crash_dir);
@@ -406,6 +612,165 @@ fn native(mode: String, idle_seconds: u64) {
     drop(root);
     assert_eq!(exit_code, 0, "native event-loop exit status");
 }
+
+#[cfg(feature = "host-services")]
+fn secrets_renderer_probe(app: &tauri::AppHandle<Wry>, label: &str, body: &str) {
+    app.state::<RendererReports>()
+        .0
+        .lock()
+        .expect("renderer reports")
+        .remove(label);
+    let script = format!(
+        r#"(async () => {{
+            const invoke = window.__TAURI_INTERNALS__.invoke;
+            const secret = {{service: 'native-budget', account: 'fixture'}};
+            const check = (ok, message) => {{ if (!ok) throw new Error(message); }};
+            const reject = async (command, args, code, message) => {{
+                let error;
+                try {{ await invoke(command, args); }} catch (e) {{ error = e; }}
+                check(error && error.code === code, 'typed ' + code);
+                if (message) check(error.message === message, 'fixed error message');
+                check(Object.keys(error).sort().join(',') === 'code,message', 'fixed error envelope');
+                const wire = JSON.stringify(error);
+                check(!wire.includes('CANARY') && !wire.includes('backend-private'), 'error isolation');
+            }};
+            try {{
+                {body}
+                await invoke('native_fixture_report', {{report: {{ok: true}}}});
+            }} catch (error) {{
+                await invoke('native_fixture_report', {{report: {{ok: false, error: String(error)}}}});
+            }}
+        }})();"#
+    );
+    app.get_webview_window(label)
+        .expect("secrets fixture window")
+        .eval(&script)
+        .expect("dispatch secrets renderer IPC");
+    wait_for("secrets renderer IPC", || {
+        app.state::<RendererReports>()
+            .0
+            .lock()
+            .expect("renderer reports")
+            .contains_key(label)
+    });
+    let report = app
+        .state::<RendererReports>()
+        .0
+        .lock()
+        .expect("renderer reports")
+        .remove(label)
+        .expect("secrets renderer report");
+    assert_eq!(report["ok"], true, "registered secrets IPC: {report}");
+}
+
+#[cfg(feature = "host-services")]
+fn secrets_probe(app: &tauri::AppHandle<Wry>) {
+    use rightkit_tauri_shell::host::SecretStoreError;
+    let fixture = app.state::<FixtureSecrets>();
+    secrets_renderer_probe(
+        app,
+        "main",
+        r#"
+        const presence = async expected => {
+            const result = await invoke('rightkit_secrets_presence', {refs: [secret]});
+            check(JSON.stringify(result) === JSON.stringify([expected]), 'presence enum only');
+        };
+        await presence('absent');
+        check(await invoke('rightkit_secrets_set', {
+            secret, value: 'CANARY-first', intent: 'create'
+        }) === null, 'create null');
+        await presence('present');
+        await reject('rightkit_secrets_set', {
+            secret, value: 'CANARY-duplicate', intent: 'create'
+        }, 'secret_exists', 'a key is already stored; replace it explicitly');
+        await presence('present');
+        check(await invoke('rightkit_secrets_set', {
+            secret, value: 'CANARY-replacement', intent: 'replace'
+        }) === null, 'replace null');
+        check(await invoke('rightkit_secrets_clear', {secret}) === null, 'clear null');
+        await presence('absent');
+        check(await invoke('rightkit_secrets_clear', {secret}) === null, 'idempotent clear null');
+    "#,
+    );
+    {
+        let state = fixture.0.lock().expect("fixture secrets");
+        assert_eq!(state.writes, ["CANARY-first", "CANARY-replacement"]);
+        assert!(state.value.is_none());
+    }
+    let before = fixture.0.lock().expect("fixture secrets").calls;
+    secrets_renderer_probe(
+        app,
+        "main",
+        r#"
+        const other = {service: 'native-budget', account: 'undeclared'};
+        for (const [command, args] of [
+            ['rightkit_secrets_presence', {refs: [secret, other]}],
+            ['rightkit_secrets_clear', {secret: other}],
+            ['rightkit_secrets_set', {secret: other, value: 'CANARY-other', intent: 'replace'}]
+        ]) await reject(command, args, 'slot_not_declared',
+            'that credential slot is not declared by this app');
+        for (const [value, message] of [
+            ['', 'the key is empty'],
+            ['x'.repeat(33), 'the key is too long'],
+            ['line\nbreak', 'the key holds a control character'],
+            ['tab\tbed', 'the key holds a control character'],
+            ['nul\0byte', 'the key holds a control character']
+        ]) await reject('rightkit_secrets_set', {secret, value, intent: 'replace'},
+            'invalid_secret', message);
+    "#,
+    );
+    assert_eq!(fixture.0.lock().expect("fixture secrets").calls, before);
+    // This caller has secrets trust but lacks settings trust: set must stop before the writer.
+    secrets_renderer_probe(
+        app,
+        "content",
+        r#"
+        check(JSON.stringify(await invoke('rightkit_secrets_presence', {refs: [secret]}))
+            === '["absent"]', 'secrets-only caller presence');
+        await reject('rightkit_secrets_set', {
+            secret, value: 'CANARY-untrusted', intent: 'replace'
+        }, 'permission_denied');
+    "#,
+    );
+    assert_eq!(fixture.0.lock().expect("fixture secrets").calls, before + 1);
+    for (failure, code, message) in [
+        (
+            SecretStoreError::Failed("backend-private CANARY-failed".into()),
+            "secret_store_failed",
+            "the credential store refused the operation",
+        ),
+        (
+            SecretStoreError::Unavailable("backend-private CANARY-unavailable".into()),
+            "secret_store_unavailable",
+            "the credential store is not available",
+        ),
+    ] {
+        fixture.0.lock().expect("fixture secrets").failure = Some(failure);
+        secrets_renderer_probe(
+            app,
+            "main",
+            &format!(
+                r#"
+            await reject('rightkit_secrets_set', {{
+                secret, value: 'CANARY-failure', intent: 'replace'
+            }}, '{code}', '{message}');
+            await reject('rightkit_secrets_clear', {{secret}}, '{code}', '{message}');
+            check(JSON.stringify(await invoke('rightkit_secrets_presence', {{refs: [secret]}}))
+                === '["unknown"]', 'unavailable presence enum only');
+        "#
+            ),
+        );
+    }
+    fixture.0.lock().expect("fixture secrets").failure = None;
+    assert_eq!(
+        fixture.0.lock().expect("fixture secrets").writes,
+        ["CANARY-first", "CANARY-replacement"]
+    );
+    println!("FUNCTIONAL mode=host-registration secrets_ipc=true declared_slots=true write_only=true create_replace_clear=true invalid_values_refused=true backend_errors_redacted=true settings_trust_required=true");
+}
+
+#[cfg(not(feature = "host-services"))]
+fn secrets_probe(_: &tauri::AppHandle<Wry>) {}
 
 #[cfg(feature = "host-services")]
 fn settings_probe(app: &tauri::AppHandle<Wry>) {
@@ -536,6 +901,87 @@ fn settings_probe(app: &tauri::AppHandle<Wry>) {
 
 #[cfg(not(feature = "host-services"))]
 fn settings_probe(_: &tauri::AppHandle<Wry>) {}
+
+#[cfg(feature = "host-services")]
+fn registered_content_probe(app: &tauri::AppHandle<Wry>, root: &Path) {
+    let fixture = app.state::<FixtureSecrets>();
+    let before = {
+        let state = fixture.0.lock().expect("fixture secrets");
+        (state.calls, state.value.clone(), state.writes.clone())
+    };
+    let settings_before = fs::read(root.join("settings.json")).expect("committed fixture settings");
+    let content = app
+        .get_webview_window("registered-content")
+        .expect("registered content webview");
+    wait_for("registered content page load", || {
+        app.state::<ContentWitness>().ready.load(Ordering::Acquire)
+    });
+    let native_webview = app
+        .get_webview("registered-content")
+        .expect("native content identity");
+    assert!(
+        matches!(
+            rightkit_tauri_shell::caller_gate::require_app_caller(&native_webview),
+            Err(rightkit_tauri_shell::caller_gate::CallerError::Forbidden(
+                rightkit_tauri_shell::caller_gate::Denial::ContentWebview
+            ))
+        ),
+        "native caller must resolve to registered content"
+    );
+    content.eval(r#"
+        (async () => {
+            const invoke = window.__TAURI_INTERNALS__.invoke;
+            const secret = {service: 'native-budget', account: 'fixture'};
+            let denied = true;
+            for (const [command, args] of [
+                ['rightkit_settings_get', {}],
+                ['rightkit_settings_patch', {patch: {probe: 'CANARY-content'}, expectedRevision: 0}],
+                ['rightkit_secrets_presence', {refs: [secret]}],
+                ['rightkit_secrets_clear', {secret}],
+                ['rightkit_secrets_set', {secret, value: 'CANARY-content', intent: 'replace'}],
+                ['native_fixture_report', {report: {ok: true}}]
+            ]) {
+                let refused = false;
+                try { await invoke(command, args); } catch (error) {
+                    refused = typeof error === 'string' && error.includes('not allowed');
+                }
+                denied = denied && refused;
+            }
+            location.href = 'https://native-fixture.invalid/' + (denied ? 'denied' : 'failed');
+        })();
+    "#).expect("dispatch registered content IPC");
+    wait_for("registered content native navigation witness", || {
+        app.state::<ContentWitness>()
+            .result
+            .lock()
+            .expect("content witness")
+            .is_some()
+    });
+    assert_eq!(
+        *app.state::<ContentWitness>()
+            .result
+            .lock()
+            .expect("content witness"),
+        Some(true),
+        "registered content must receive ACL refusal for every command"
+    );
+    let state = fixture.0.lock().expect("fixture secrets");
+    assert_eq!(
+        (state.calls, state.value.clone(), state.writes.clone()),
+        before
+    );
+    assert_eq!(
+        fs::read(root.join("settings.json")).expect("fixture settings"),
+        settings_before
+    );
+    content
+        .destroy()
+        .expect("destroy registered content before idle measurement");
+    println!("FUNCTIONAL mode=host-registration registered_content_acl_denied=true settings_unchanged=true secrets_backend_unchanged=true report_command_denied=true");
+}
+
+#[cfg(not(feature = "host-services"))]
+fn registered_content_probe(_: &tauri::AppHandle<Wry>, _: &Path) {}
 
 fn main_probe(app: &tauri::AppHandle<Wry>, root: &Path) {
     let (tx, rx) = mpsc::sync_channel(1);

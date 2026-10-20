@@ -5,12 +5,12 @@
   "coverage": {
     "wv2-0_38": "native Wry hidden webview, Shell plugin, production presence loop, hidden-webview idle timer, singleton default watchdog; 0.38 native binding on Windows",
     "wv2-0_39": "same activated services with 0.39 native binding on Windows; explicit no-default-features",
-    "host-services": "concrete SettingsHostService over isolated file-backed Document; CAS read/write then emitter remains installed throughout paired observation",
+    "host-services": "concrete settings/secrets services over isolated backends; CAS, write-only secrets and registered ContentWebview ACL refusal probes before paired observation; settings emitter remains installed throughout paired observation",
     "logs": "concrete LogsRuntime with actual accepted/flush-acknowledged renderer record; writer remains installed throughout paired observation",
     "crash": "real report-only watchdog crash adapter configured with default cooldown; separate native capture/recovery/cancellation functional probes outside measured pairs",
     "engine": "not activated or qualified by these rows; EngineHost sidecar/presence/supervisor requires separate held-resource workload",
     "license,update,update-license,overlay,pdf-host": "not activated or qualified by these rows; final adapter owners must classify extra held-resource work versus focused stateless command qualification",
-    "content-devtools": "not enabled or qualified; content inspection needs its own allowed-app native qualification",
+    "content-devtools": "enabled only in native-host rows to register ContentWebview and exercise settings/secrets ACL refusal; DevTools inspection is not qualified and needs its own allowed-app native qualification",
     "dev-overrides,qa-probes": "development-only; excluded from published runtime workload"
   },
   "workloads": [
@@ -28,13 +28,13 @@
     },
     {
       "id": "native-host-wv2-0_38",
-      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-tauri-shell", "--no-default-features", "--features", "wv2-0_38,host-services,logs,crash", "--bench", "budget_native"],
+      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-tauri-shell", "--no-default-features", "--features", "wv2-0_38,host-services,logs,crash,content-devtools", "--bench", "budget_native"],
       "bench": "budget_native",
       "intervalMs": 1000
     },
     {
       "id": "native-host-wv2-0_39",
-      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-tauri-shell", "--no-default-features", "--features", "wv2-0_39,host-services,logs,crash", "--bench", "budget_native"],
+      "args": ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-tauri-shell", "--no-default-features", "--features", "wv2-0_39,host-services,logs,crash,content-devtools", "--bench", "budget_native"],
       "bench": "budget_native",
       "intervalMs": 1000
     }
