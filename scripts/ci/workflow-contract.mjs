@@ -470,7 +470,13 @@ export const UPLOAD_SCRIPT_MUTATIONS = [
   ["an unapproved unit is allowed", textEdit("if (matches.length === 0) problems.push(", "if (false) problems.push(")],
   ["no sealed unit is checked", textEdit(UNIT_LOOP, "const names = new Set();\n  for (const unit of []) {")],
   ["the version is not matched", textEdit("e.name === unit.name && e.version === unit.version", "e.name === unit.name")],
-  ["an empty manifest is accepted", textEdit("manifest.units.length === 0", "false")],
+  ["an empty manifest is accepted", (text) => {
+    // Target approval's guard, not another helper's identical length check.
+    const start = text.indexOf("export function checkApprovedArtifacts(");
+    const end = text.indexOf("\n}\n", start);
+    if (start < 0 || end < 0) throw new Error("approval function mutation anchor not found");
+    return text.slice(0, start) + textEdit("manifest.units.length === 0", "false")(text.slice(start, end)) + text.slice(end);
+  }],
 ];
 
 /** Returns the names of upload-script mutations assertUploadScript failed to reject. */

@@ -1,8 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { fixturePlan, selectPinnedArtifact, validateSource } from "./fs-native-fixtures.mjs";
+import { parseYaml } from "./workflow-yaml.mjs";
 
 const repository = "bogusyogi/rightkit";
+test("native fixture paths use runner context only in step environments", () => {
+  const workflow = parseYaml(fs.readFileSync(new URL("../../.github/workflows/qualify-fs.yml", import.meta.url), "utf8"));
+  const job = workflow.jobs.native;
+  assert.equal(job.env, undefined);
+  for (const mode of ["setup", "qualify", "cleanup"]) {
+    const step = job.steps.find(row => row.run === `node scripts/ci/fs-native-fixtures.mjs ${mode}`);
+    assert.deepEqual(step.env, {
+      FS_NATIVE_BUNDLE: "${{ runner.temp }}/fs-native-bundle",
+      FS_NATIVE_OUT: "${{ runner.temp }}/fs-native-results",
+    });
+  }
+  assert.equal(job.steps.find(row => row.run?.endsWith(" cleanup")).if, "${{ always() }}");
+});
 const source = () => ({ id: 123, repository: { full_name: repository }, head_repository: { full_name: repository }, path: ".github/workflows/publish.yml", head_branch: "main", event: "workflow_dispatch", status: "completed", conclusion: "failure", head_sha: "a".repeat(40), run_attempt: 1 });
 const jobs = () => ({ total_count: 5, jobs: ["guard", "plan", "pack", "verify (xcode-27, macos)", "verify (windows-2025, windows)"].map(name => ({ name, conclusion: "success", run_id: 123, head_sha: "a".repeat(40) })) });
 test("seal-only failure permits qualification after both successful native jobs", () => {

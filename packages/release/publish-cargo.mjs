@@ -147,7 +147,6 @@ export function scanCrateForSecrets(crateDir) {
       continue;
     }
     const bytes = fs.readFileSync(file);
-    if (bytes.includes(0)) continue;
     const text = bytes.toString("utf8");
     if (SECRET_PATTERNS.some((pattern) => pattern.test(text))) violations.push(relative);
   }

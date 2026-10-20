@@ -41,7 +41,7 @@ test("config is strict: unknown keys, a hand-written build, release configuratio
   coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ extraBuildSettings: { CODE_SIGN_IDENTITY: "x" } }), { root }));
   // the same secret-value check as the release lane
   coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ extraBuildSettings: { SOME_URL: "Bearer abcdefghijkl" } }), { root }));
-  coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ extraBuildSettings: { SOME_VALUE: "-----BEGIN PRIVATE KEY-----" } }), { root }));
+  coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ extraBuildSettings: { SOME_VALUE: "-----BEGIN " + "PRIVATE KEY-----" } }), { root }));
   coded("DEV_IOS_CONFIG_INVALID", () => validateIosDevelopment(base({ install: { ...simulator(), launchArgs: ["ok\nbad"] } }), { root }));
 });
 

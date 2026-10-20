@@ -46,9 +46,6 @@ jobs:
         runner: [windows-2025, xcode-27]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    env:
-      FS_NATIVE_BUNDLE: ${{ runner.temp }}/fs-native-bundle
-      FS_NATIVE_OUT: ${{ runner.temp }}/fs-native-results
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -63,11 +60,20 @@ jobs:
           name: fs-native-candidate
           path: ${{ runner.temp }}/fs-native-bundle
       - name: Mount mandatory isolated native volumes
+        env:
+          FS_NATIVE_BUNDLE: ${{ runner.temp }}/fs-native-bundle
+          FS_NATIVE_OUT: ${{ runner.temp }}/fs-native-results
         run: node scripts/ci/fs-native-fixtures.mjs setup
       - name: Qualify exact archive through standalone consumer & cross-volume test
+        env:
+          FS_NATIVE_BUNDLE: ${{ runner.temp }}/fs-native-bundle
+          FS_NATIVE_OUT: ${{ runner.temp }}/fs-native-results
         run: node scripts/ci/fs-native-fixtures.mjs qualify
       - name: Detach volumes & remove bounded fixture state
         if: ${{ always() }}
+        env:
+          FS_NATIVE_BUNDLE: ${{ runner.temp }}/fs-native-bundle
+          FS_NATIVE_OUT: ${{ runner.temp }}/fs-native-results
         run: node scripts/ci/fs-native-fixtures.mjs cleanup
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ always() }}

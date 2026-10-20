@@ -230,7 +230,7 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
-  # Cheap required compile admission; ownership remains required separately by summary & both green jobs.
+  # Cheap required compile admission; ownership remains required separately by summary.
   hygiene:
     needs: [plan]
     runs-on: ubuntu-24.04
@@ -293,27 +293,27 @@ jobs:
         run: |
           bash scripts/ci/owner-dep-graphs.sh || echo "owner-dep-graphs: warning: skipped"
 
-  # Actions job history proves this OS passed only when everything it had to verify passed
-  # (hygiene covers both OSes). Known-red units do not fail a job, so they do not hold the marker back.
+  # Compile baselines prove this OS's exact shard/closure reports plus shared admission.
+  # Known-red failures & missing reports block markers. Ownership still blocks overall summary.
   mark-green-windows:
-    needs: [plan, hygiene, ownership, shards-windows, closure-windows, summary]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.ownership.result == 'success' && needs.summary.outputs.windows_green == 'true' }}
+    needs: [private-repo-guard, plan, hygiene, shards-windows, closure-windows, summary]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.windows_green == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Record successful Windows qualification in Actions job history
-        run: echo Windows required evidence passed
+      - name: Record successful Windows compile baseline in Actions job history
+        run: echo Windows compile evidence passed
 
   mark-green-macos:
-    needs: [plan, hygiene, ownership, shards-macos, closure-macos, summary]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.ownership.result == 'success' && needs.summary.outputs.macos_green == 'true' }}
+    needs: [private-repo-guard, plan, hygiene, shards-macos, closure-macos, summary]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.macos_green == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Record successful macOS qualification in Actions job history
-        run: echo macOS required evidence passed
+      - name: Record successful macOS compile baseline in Actions job history
+        run: echo macOS compile evidence passed
 
-  # The one required check: it fails unless the guard, the plan and hygiene passed and every shard and closure
+  # The one required check: it fails unless guard, plan, hygiene & ownership passed and every shard and closure
   # job passed or was legitimately not needed (skipped). A cancelled or failed matrix leg fails its job.
   summary:
     outputs:

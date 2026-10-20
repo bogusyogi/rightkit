@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { compatibilityFingerprints, selectLastGreenCandidate, createGitHubActionsClient, resolveLastGreen, EVIDENCE_CONTRACT, WORKFLOW_PATH, COMPATIBILITY_GROUPS } from "./last-green.mjs";
 
 const repo = "Orthic-Labs/rightkit";
@@ -87,6 +90,47 @@ test("compatibility fingerprints cover declared runner, toolchain, and evidence 
   assert.deepEqual(compatibilityFingerprints({ ...evidence, ".github/workflows/publish.yml": { mode: "100644", oid: "e".repeat(40) } }), original);
   assert.equal(compatibilityFingerprints(Object.fromEntries(Object.entries(evidence).filter(([file]) => file !== "scripts/ci/provision-ort.mjs"))), null);
   assert.notEqual(compatibilityFingerprints({ ...evidence, "scripts/ci/provision-chrome.mjs": { mode: "100644", oid: "d".repeat(40) } }).evidence, original.evidence);
+});
+
+test("rust toolchain files are optional, but their presence and contents affect runner fingerprint", () => {
+  const required = Object.values(COMPATIBILITY_GROUPS).flat().filter((file) => !["rust-toolchain.toml", "rust-toolchain"].includes(file));
+  const base = Object.fromEntries(required.map((file, index) => [file, { mode: "100644", oid: String(index + 1).padStart(40, "0") }]));
+  const absent = compatibilityFingerprints(base);
+  assert.ok(absent);
+  for (const optional of ["rust-toolchain.toml", "rust-toolchain"]) {
+    const added = { ...base, [optional]: { mode: "100644", oid: "f".repeat(40) } };
+    assert.notEqual(compatibilityFingerprints(added).runner, absent.runner);
+    assert.notEqual(compatibilityFingerprints({ ...base, [optional]: { mode: "100644", oid: "e".repeat(40) } }).runner, compatibilityFingerprints(added).runner);
+    assert.equal(compatibilityFingerprints(Object.fromEntries(Object.entries(added).filter(([file]) => file !== optional))).runner, absent.runner);
+  }
+  assert.equal(compatibilityFingerprints(Object.fromEntries(Object.entries(base).filter(([file]) => file !== "scripts/ci/provision-ort.mjs")),), null);
+});
+
+test("lockfile changes do not affect compatibility fingerprints", () => {
+  const files = Object.values(COMPATIBILITY_GROUPS).flat();
+  const evidence = Object.fromEntries(files.map((file, index) => [file, { mode: "100644", oid: String(index + 1).padStart(40, "0") }]));
+  const original = compatibilityFingerprints(evidence);
+  for (const file of ["Cargo.lock", "pnpm-lock.yaml"]) {
+    assert.equal(compatibilityFingerprints({ ...evidence, [file]: { mode: "100644", oid: "f".repeat(40) } }).toolchain, original.toolchain);
+  }
+});
+
+test("committed-tree inventory fingerprints with actual optional toolchain-file state", () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  const paths = [...new Set([...Object.values(COMPATIBILITY_GROUPS).flat(), "rust-toolchain.toml", "rust-toolchain"] )];
+  const result = spawnSync("git", ["ls-tree", "-r", "-z", "--full-tree", "HEAD", "--", ...paths], { cwd: root, encoding: "buffer", windowsHide: true });
+  assert.equal(result.status, 0, String(result.stderr ?? ""));
+  const inventory = {};
+  for (const record of Buffer.from(result.stdout).toString("utf8").split("\0").filter(Boolean)) {
+    const match = /^([0-7]{6}) blob ([a-f0-9]{40,64})\t(.+)$/i.exec(record);
+    assert.ok(match, `unexpected git tree record: ${record}`);
+    inventory[match[3]] = { mode: match[1], oid: match[2] };
+  }
+  const fingerprints = compatibilityFingerprints(inventory);
+  assert.ok(fingerprints, "actual committed tree must fingerprint despite absent optional rust toolchain files");
+  for (const optional of ["rust-toolchain.toml", "rust-toolchain"]) {
+    assert.equal(optional in inventory, result.stdout.includes(Buffer.from(`\t${optional}\0`)));
+  }
 });
 
 test("Actions client uses fixed read-only endpoints and exact run attempt pagination", async () => {

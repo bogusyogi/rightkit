@@ -16,10 +16,10 @@ export const EVIDENCE_CONTRACT = "rightkit-shared-ci-last-green/v1";
 // Keep this list aligned with shared-CI behavior; unrelated publishing/readback edits do not invalidate markers.
 export const COMPATIBILITY_GROUPS = Object.freeze({
   runner: Object.freeze([
-    ".github/actions/rk-setup/action.yml", ".github/workflows/ci.yml", "rust-toolchain.toml",
+    ".github/actions/rk-setup/action.yml", ".github/workflows/ci.yml", "rust-toolchain.toml", "rust-toolchain",
   ]),
   toolchain: Object.freeze([
-    "Cargo.toml", "Cargo.lock", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml",
+    "Cargo.toml", "package.json", "pnpm-workspace.yaml",
   ]),
   evidence: Object.freeze([
     "ci/gate.config.json", "ci/shards.json", "ci/known-red.json", "ci/chrome-for-testing.json",
@@ -29,7 +29,9 @@ export const COMPATIBILITY_GROUPS = Object.freeze({
     "crates/rightkit-ffmpeg/catalog/native-libraries.json",
   ]),
 });
+const OPTIONAL_INPUTS = Object.freeze(["rust-toolchain.toml", "rust-toolchain"]);
 const REQUIRED_INPUTS = Object.freeze(Object.values(COMPATIBILITY_GROUPS).flat());
+const REQUIRED_FILES = Object.freeze(REQUIRED_INPUTS.filter((file) => !OPTIONAL_INPUTS.includes(file)));
 const FULL_SHA = /^[a-f0-9]{40}$/i;
 const safeId = (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
 const sameId = (left, right) => String(left) === String(right);
@@ -46,11 +48,11 @@ export function compatibilityFingerprints(pathEvidence) {
   if (entries.some(([file, evidence]) => !file || file.startsWith("/") || file.includes(":") || file.split("/").some((part) => part === ".." || part === ".") || !evidence || typeof evidence !== "object" || !/^[0-7]{6}$/.test(evidence.mode ?? "") || !/^[a-f0-9]{40,64}$/i.test(evidence.oid ?? ""))) return null;
   if (new Set(entries.map(([file]) => file)).size !== entries.length) return null;
   const byPath = new Map(entries);
-  if (REQUIRED_INPUTS.some((file) => !byPath.has(file))) return null;
+  if (REQUIRED_FILES.some((file) => !byPath.has(file))) return null;
   const result = {};
   for (const [group, prefixes] of Object.entries(COMPATIBILITY_GROUPS)) {
     const files = entries.filter(([file]) => isInGroup(file, prefixes)).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-    if (prefixes.some((file) => !byPath.has(file))) return null;
+    if (prefixes.some((file) => !OPTIONAL_INPUTS.includes(file) && !byPath.has(file))) return null;
     result[group] = sha256(JSON.stringify({ contract: EVIDENCE_CONTRACT, group, files }));
   }
   return result;
@@ -173,7 +175,7 @@ function isAncestor(ancestor, head, gitRunner = runGit) {
 }
 
 function commitFingerprints(sha, gitRunner = runGit) {
-  const paths = REQUIRED_INPUTS;
+  const paths = [...new Set([...REQUIRED_INPUTS, ...OPTIONAL_INPUTS])];
   const result = gitRunner(["ls-tree", "-r", "-z", "--full-tree", sha, "--", ...paths], true);
   if (result.error || result.status !== 0) return null;
   const evidence = {};

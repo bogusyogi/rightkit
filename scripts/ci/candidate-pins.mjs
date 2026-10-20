@@ -25,9 +25,14 @@ export function checkQualification({ repository, workflow, run, jobs, runId }) {
     const rows = jobs.jobs.filter((j) => j.name === name);
     need(rows.length === 1 && rows[0].status === "completed" && rows[0].conclusion === "success", `${name} must succeed exactly once`);
   };
-  for (const name of ["guard", "plan", "pack", "qualified"]) successful(name);
+  for (const name of ["guard", "plan", "pack"]) successful(name);
+  const qualified = jobs.jobs.filter((j) => j.name === "qualified");
+  // Historical qualification lacked this aggregate. Absence is reportable for
+  // unsigned collection only; an existing failed/duplicate aggregate is not.
+  if (qualified.length > 0) successful("qualified");
   const verify = jobs.jobs.filter((j) => /^verify \(/.test(j.name));
   need(verify.length === 2 && verify.every((j) => j.status === "completed" && j.conclusion === "success") && verify.some((j) => /^verify \(xcode-27, /.test(j.name)) && verify.some((j) => /^verify \(windows-2025, /.test(j.name)), "both native verification jobs must succeed");
+  return qualified.length === 0 ? [{ kind: "qualified-job", status: "missing" }] : [];
 }
 
 export function proposalOutput(outputDir, env) {
@@ -71,7 +76,7 @@ export async function collectCandidatePins({ runId, candidateId, outputDir, env 
   const exactRun = await api(attemptRoute);
   need(same(run.head_sha, exactRun.head_sha) && Number(run.run_attempt) === Number(exactRun.run_attempt), "run changed during collection");
   const jobs = await api(`${attemptRoute}/jobs?per_page=100`);
-  checkQualification({ repository, workflow, run: exactRun, jobs, runId });
+  const missingProof = checkQualification({ repository, workflow, run: exactRun, jobs, runId });
   const listed = await api(`actions/runs/${runId}/artifacts?per_page=100`);
   need(Array.isArray(listed?.artifacts) && listed.artifacts.length === listed.total_count, "incomplete artifact listing");
   const selected = {};
@@ -113,7 +118,21 @@ export async function collectCandidatePins({ runId, candidateId, outputDir, env 
   const sealed = loadSealed({ packDir, registry: manifest.registry, unitsText: units.join(" "), run: { runId: String(runId), runAttempt: String(exactRun.run_attempt) } });
   const candidate = validateCandidate({ id: candidateId, sourceSha: exactRun.head_sha, runId: String(runId), runAttempt: String(exactRun.run_attempt), workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry: manifest.registry, units, allow, artifacts: pins });
   need(manifest.commit === candidate.sourceSha && String(manifest.runAttempt) === candidate.runAttempt, "sealed source/attempt mismatch");
-  const problems = [...sealed.problems, ...checkReceipts({ manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow, run: { runId: candidate.runId, runAttempt: candidate.runAttempt } })];
+  const missingScanDiagnostics = new Set();
+  for (const host of ["macos", "windows"]) {
+    for (const unit of manifest.units) {
+      const rows = Array.isArray(receipts[host].units) ? receipts[host].units.filter((row) => row?.name === unit.name) : [];
+      if (rows.length === 1 && !Object.hasOwn(rows[0], "archiveScan")) {
+        missingProof.push({ kind: "archive-scan", status: "missing", host, unit: unit.name, sha256: unit.sha256 });
+        missingScanDiagnostics.add(`${host} receipt: ${unit.name}: archiveScan proof is missing or malformed`);
+      }
+    }
+  }
+  // Run original validator against untouched raw receipts. Only its exact
+  // diagnostic for an absent field may become an explicit proposal deficit.
+  // Null/malformed/failed reports & every other receipt failure still refuse.
+  const receiptProblems = checkReceipts({ manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow, run: { runId: candidate.runId, runAttempt: candidate.runAttempt } });
+  const problems = [...sealed.problems, ...receiptProblems.filter((problem) => !missingScanDiagnostics.has(problem))];
   need(problems.length === 0, problems.join("; "));
   const artifacts = manifest.units.map((u) => {
     need(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(u.version ?? "") && /^[0-9a-f]{64}$/.test(u.sha256 ?? ""), "invalid per-unit version/hash");
@@ -122,16 +141,19 @@ export async function collectCandidatePins({ runId, candidateId, outputDir, env 
   const current = await api(`actions/runs/${runId}`);
   need(current.run_attempt === exactRun.run_attempt && current.head_sha === exactRun.head_sha && current.status === "completed" && current.conclusion === "success", "run changed during collection");
   const proposal = { schema: 2, candidates: [candidate], artifacts };
+  const report = { candidateId: candidate.id, sourceSha: candidate.sourceSha, runId: candidate.runId, runAttempt: candidate.runAttempt, manifestSha256: candidate.manifestSha256, publicationAuthorized: false, missingProof };
   const proposalFile = path.join(root, "candidate-pin-proposal.json");
+  const reportFile = path.join(root, "pin-collection-report.json");
+  fs.writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   fs.writeFileSync(proposalFile, `${JSON.stringify(proposal, null, 2)}\n`, { flag: "wx" });
-  return { proposal, proposalFile };
+  return { proposal, proposalFile, report, reportFile };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [runId, candidateId, outputDir, ...extra] = process.argv.slice(2);
     need(extra.length === 0, "usage: candidate-pins.mjs <run-id> <candidate-id> <absolute-new-output-dir>");
-    const { proposalFile } = await collectCandidatePins({ runId, candidateId, outputDir });
-    process.stdout.write(`Unapproved pin proposal: ${proposalFile}\n`);
+    const { proposalFile, reportFile, report } = await collectCandidatePins({ runId, candidateId, outputDir });
+    process.stdout.write(`Unapproved pin proposal: ${proposalFile}\nMissing proof: ${report.missingProof.length}; report: ${reportFile}\n`);
   } catch { process.stderr.write("Candidate pin collection refused; no approval granted.\n"); process.exitCode = 1; }
 }

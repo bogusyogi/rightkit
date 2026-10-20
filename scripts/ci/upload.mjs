@@ -189,7 +189,19 @@ export function archiveScanProblems(scan, archiveSha256) {
   return [];
 }
 
-export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {}, run = {} }) {
+const archiveScanResolvers = new WeakSet();
+/** Only an opaque verifier-issued handle can create a resolver trusted by receipt checks. */
+export async function authenticatedArchiveScanResolver(evidence, candidate, manifest) {
+  if (!Array.isArray(manifest?.units) || manifest.units.length === 0) throw new Error("supplement resolver requires original manifest units");
+  const { supplementalArchiveScan } = await import("./supplemental-proof.mjs");
+  const boundCandidate = structuredClone(candidate);
+  for (const unit of manifest.units) supplementalArchiveScan(evidence, boundCandidate, unit);
+  const resolver = (unit) => supplementalArchiveScan(evidence, boundCandidate, unit);
+  archiveScanResolvers.add(resolver);
+  return resolver;
+}
+
+export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {}, run = {}, archiveScanResolver }) {
   const problems = [];
   const docs = [];
   for (const file of listFiles(receiptsDir)) {
@@ -232,7 +244,14 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
       if (!row) { bad(`no evidence for ${unit.name}`); continue; }
       if (row.version !== unit.version || row.file !== unit.file || row.sha256 !== unit.sha256) bad(`${unit.name}: it verified different bytes (${row.file} ${String(row.sha256).slice(0, 12)}) than the sealed ${unit.file} ${unit.sha256.slice(0, 12)}`);
       if (row.bytesVerified !== true) bad(`${unit.name}: the sealed bytes were not verified`);
-      for (const problem of archiveScanProblems(row.archiveScan, unit.sha256)) bad(`${unit.name}: ${problem}`);
+      let archiveScan = row.archiveScan;
+      if (!Object.hasOwn(row, "archiveScan") && archiveScanResolver !== undefined) {
+        try {
+          if (!archiveScanResolvers.has(archiveScanResolver)) throw new Error("unauthenticated archive scan resolver");
+          archiveScan = archiveScanResolver(unit);
+        } catch (error) { bad(`${unit.name}: ${error.message}`); }
+      }
+      for (const problem of archiveScanProblems(archiveScan, unit.sha256)) bad(`${unit.name}: ${problem}`);
       if (!PASS_STATUSES.includes(row.status)) bad(`${unit.name}: status ${JSON.stringify(row.status)} is not a pass`);
       if (row.status === "allowed-exclusion" && !allowExcl.has(unit.name)) bad(`${unit.name}: excluded from this host without allow_host_exclusion`);
       if (row.status === "allowed-no-test" && !allowNoTest.has(unit.name)) bad(`${unit.name}: has no test script and is not named in allow_no_test`);
@@ -469,9 +488,10 @@ export async function reconcileUnit({ registry, unit, fetchImpl }) {
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
  */
 export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, candidateContext = null, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
+  let archiveScanResolver;
   if (candidateContext) {
     const { assertAuthenticatedContext } = await import("./reviewed-candidate.mjs");
-    assertAuthenticatedContext(candidateContext, { env, packDir, receiptsDir, approvedFile });
+    archiveScanResolver = assertAuthenticatedContext(candidateContext, { env, packDir, receiptsDir, approvedFile });
   }
   const registry = env.PUBLISH_REGISTRY;
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
@@ -497,7 +517,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
     const sourceSha = candidateContext?.candidate.sourceSha ?? env.GITHUB_SHA;
     if (manifest.commit !== sourceSha) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${sourceSha}`);
     problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));
-    problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run }));
+    problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run, archiveScanResolver }));
     if (registry === "npm") {
       for (const unit of manifest.units) {
         try { problems.push(...checkNpmTarball({ file: path.join(packDir, unit.file), name: unit.name, version: unit.version, dir: unit.dir, spawn }).problems); } catch (error) { problems.push(`${unit.name}: ${error.message}`); }

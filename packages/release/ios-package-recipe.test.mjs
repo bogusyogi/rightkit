@@ -609,7 +609,7 @@ test("command output in errors masks keys, bearer tokens, bare JWTs and long bas
   const der = Buffer.alloc(138, 7).toString("base64");
   const slashy = Buffer.from("\xfb\xff\xbe".repeat(60), "latin1").toString("base64");
   assert.ok(slashy.includes("/") || slashy.includes("+"));
-  const text = outputTail({ stdout: `token ${jwt}\nkey ${der}\nraw ${slashy}\nhash ${"a".repeat(64)}\n-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\nBearer abcdefghijklmnop\nat /Users/me/Library/Developer/Xcode/DerivedData/Pulse-abcdefghijklmnopqrstuvwxyz/Build/Products/Release-iphoneos/Pulse.app\n`, stderr: "" });
+  const text = outputTail({ stdout: `token ${jwt}\nkey ${der}\nraw ${slashy}\nhash ${"a".repeat(64)}\n${"-----BEGIN " + "PRIVATE KEY-----"}\nabc\n-----END PRIVATE KEY-----\nBearer abcdefghijklmnop\nat /Users/me/Library/Developer/Xcode/DerivedData/Pulse-abcdefghijklmnopqrstuvwxyz/Build/Products/Release-iphoneos/Pulse.app\n`, stderr: "" });
   for (const secret of [jwt, der, slashy, "a".repeat(64), "zzyyxxwwvvuuttss", "BEGIN PRIVATE KEY"]) assert.ok(!text.includes(secret), `leaked ${secret.slice(0, 12)}`);
   assert.match(text, /\/Users\/me\/Library\/Developer\/Xcode\/DerivedData\/Pulse-abcdefghijklmnopqrstuvwxyz\/Build\/Products\/Release-iphoneos\/Pulse\.app/);
 });

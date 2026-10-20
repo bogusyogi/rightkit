@@ -15,7 +15,7 @@ credentials = ["dep:rightkit-credentials"]
 
 [dependencies]
 getrandom = "0.4"
-rightkit-credentials = { version = "0.3.0", path = "../rightkit-credentials", optional = true }
+rightkit-credentials = { version = "0.4.0", path = "../rightkit-credentials", optional = true }
 rightkit-license = { version = "0.2.2", path = "../rightkit-license" }
 
 [package.metadata.rightkit]

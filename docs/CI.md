@@ -58,7 +58,7 @@ Not covered yet: `desktop-app-template`, `swift/ios-app-template`, `spikes`.
 | `closure-windows`, `closure-macos` | up to 4 jobs per OS | `--steps closure`: every dependent of a changed crate is compiled with default features and with its `checkFeatureSets` rows (all features unless the config says otherwise) |
 | `hygiene` | Linux | Required `--steps lock,fmt` for selected crates & shared secret scan of selected crate/package sources; installs frozen release dependency closure with lifecycle scripts disabled |
 | `ownership` | Linux | Independent required ownership validation; advisory dependency graphs follow without delaying native qualification |
-| `mark-green-windows`, `mark-green-macos` | Linux | Advance that OS's last-green marker to this commit when required host proof, hygiene & ownership pass |
+| `mark-green-windows`, `mark-green-macos` | Linux | Advance that OS's compilation baseline when guard, plan, hygiene & exact host command proof pass; overall ownership remains required independently |
 | `summary` | Linux | The one required check: fails unless guard, plan, hygiene & ownership pass and every other job passed or was skipped because the plan needed none of it |
 
 How units are cut: a crate is never split, so all of its feature rows share one job and one target directory. Crates are packed
@@ -77,6 +77,9 @@ Resolver checks repository, workflow, main push, exact attempt, full commit ance
 shared harness/toolchain inputs. Missing or uncertain history selects full coverage; cache entries
 never prove green. A red run repeats required units until they pass. Known-red labels remain visible;
 aggregate command proof still requires successful results.
+Optional toolchain-file absence is fingerprinted; adding, removing or changing either supported file invalidates reuse.
+Lockfile changes use dependency selection instead of invalidating every host's compilation baseline.
+An ownership refusal keeps overall CI red while valid compilation baselines can advance, so unrelated ownership work does not repeat successful native commands.
 The aggregate check is `summary`; branch protection must select it when replacing former per-OS `ci` checks.
 Summary requires every prerequisite, accepts matrix skips only for an explicit zero plan count, & checks every planned
 shard report against commit, host, selection & steps. Plan freezes every required command; reports must contain
@@ -236,6 +239,17 @@ workflow identity, successful required jobs & exact artifact IDs/digests through
 raw native receipt hashes, sealed manifest hash & every per-unit archive approval before promotion.
 Both admission & upload use trusted scripts/approval file from promotion commit; source package code
 is never checked out or built in privileged job.
+
+Historical native receipts remain immutable. If an original receipt lacks its own archive-scan field,
+`supplement-archive-scan.yml` can scan retained original archives without rebuilding them. Separate
+committed pins in `ci/supplemental-proofs.json` bind successful producer provenance, policy revision,
+original candidate/manifest/archive & supplemental proof hashes. Admission authenticates those pins;
+failed, null or malformed existing scans remain failures. Runtime, closure & consumer requirements
+still need their own evidence. Missing or expired original artifacts refuse reuse.
+
+Npm provenance names promotion workflow & promotion commit; candidate records separately retain
+original producing commit & archive identity. Rerunning only failed qualification jobs cannot supply
+complete same-attempt native pins; preserve original valid evidence or run complete qualification.
 
 `workflow-contract.mjs` enforces qualification structure, one pack & both native hosts with no registry
 privilege. `reviewed-workflow-contract.mjs` pins promotion's candidate-only input, global queue,

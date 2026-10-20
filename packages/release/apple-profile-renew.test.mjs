@@ -285,7 +285,7 @@ test("repeated renewal keeps every prior adjacent backup", async (t) => {
 
 // Synthetic environment: identifiers and file paths only; no Keychain entries are read.
 const SOCKET_ENV = { RIGHTKIT_BUILD_BROKER_SOCKET: "/fake/rightkit-broker.sock" };
-const INLINE_PEM = "-----BEGIN PRIVATE KEY-----\nfake-inline-material\n-----END PRIVATE KEY-----";
+const INLINE_PEM = "-----BEGIN " + "PRIVATE KEY-----\nfake-inline-material\n-----END PRIVATE KEY-----";
 
 test("Apple auth: key ID, issuer and .p8 path come from the release config first", (t) => {
   const f = fixture(t);

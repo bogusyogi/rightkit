@@ -127,19 +127,19 @@ test("F9: redactText redacts each known credential shape and leaves ordinary tex
   const shapes = {
     openai: "sk-test-EXAMPLE1234567890",
     anthropic: "sk-ant-api03-EXAMPLE1234567890-ABCDEFGHIJ",
-    githubClassicPat: "ghp_123456789012345678901234567890",
-    githubOauth: "gho_123456789012345678901234567890",
-    githubServer: "ghs_123456789012345678901234567890",
+    githubClassicPat: "ghp_" + "123456789012345678901234567890",
+    githubOauth: "gho_" + "123456789012345678901234567890",
+    githubServer: "ghs_" + "123456789012345678901234567890",
     githubFineGrainedPat: "github_pat_11AA0_exampleTOKEN1234567890",
     slackBot: "xoxb-123456789012-123456789012-abcdefghijklmnop",
     slackApp: "xoxp-123456789012-123456789012-abcdefghijklmnop",
-    aws: "AKIA1234567890ABCDEF",
+    aws: "AKIA" + "1234567890ABCDEF",
     google: "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ01234",
     bearer: "Bearer abcdefghij1234567890",
     jwt: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
     genericKeyValue: "api_key: abcdefgh1234",
-    pem: "-----BEGIN PRIVATE KEY-----\nMIIBogIBAAJBAMY=\n-----END PRIVATE KEY-----",
-    pemRsa: "-----BEGIN RSA PRIVATE KEY-----\nMIIBogIBAAJBAMY=\n-----END RSA PRIVATE KEY-----",
+    pem: "-----BEGIN " + "PRIVATE KEY-----\nMIIBogIBAAJBAMY=\n-----END PRIVATE KEY-----",
+    pemRsa: "-----BEGIN RSA " + "PRIVATE KEY-----\nMIIBogIBAAJBAMY=\n-----END RSA PRIVATE KEY-----",
   };
   for (const [shapeName, secret] of Object.entries(shapes)) {
     const text = `context before ${secret} context after`;

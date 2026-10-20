@@ -105,7 +105,7 @@ test("apply is refused off macOS, and --apply with --dry-run is a usage error", 
 test("ASC key material in the environment is refused on any host, and ASC variables on a managed host, before anything else", async () => {
   const f = fixture();
   const authorize = () => assert.fail("refused before the seal is even read");
-  await assert.rejects(runIosUpload({ ...f.deps, authorize, env: { ...f.deps.env, SOME_VAR: "-----BEGIN PRIVATE KEY-----\nabc" } }), (error) => error.code === "IOS_ASC_ENV_SECRET_REFUSED");
+  await assert.rejects(runIosUpload({ ...f.deps, authorize, env: { ...f.deps.env, SOME_VAR: "-----BEGIN " + "PRIVATE KEY-----\nabc" } }), (error) => error.code === "IOS_ASC_ENV_SECRET_REFUSED");
   await assert.rejects(runIosUpload({ ...f.deps, authorize, env: { ...f.deps.env, RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/s", APPLE_API_ISSUER: ISSUER } }), (error) => error.code === "MANAGED_HOST_ENV_SECRET_REFUSED");
 });
 

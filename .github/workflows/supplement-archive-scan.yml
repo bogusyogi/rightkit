@@ -1,0 +1,42 @@
+name: supplement-archive-scan
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_id:
+        description: Existing committed schema 2 candidate ID
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  archive-scan:
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/rk-setup
+        with:
+          node-version: "26.8.1"
+          install-dependencies: "true"
+          install-filter: "--filter @rightkit/release..."
+          ignore-install-scripts: "true"
+          rust: "false"
+      - name: Authenticate original archives & scan exact retained bytes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
+        run: node scripts/ci/supplemental-proof.mjs produce
+      - name: Preserve supplemental scan proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: archive-scan-supplement-${{ inputs.candidate_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/archive-scan-supplement/archive-scan-supplement.json
+          retention-days: 90
+          if-no-files-found: error

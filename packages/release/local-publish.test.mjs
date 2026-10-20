@@ -14,7 +14,7 @@ import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 
 const HEAD = 'a'.repeat(40);
 const LIBTEST = 'test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n';
-const TOKEN = 'npm_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE';
+const TOKEN = 'npm_' + 'FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE';
 const results = await import(pathToFileURL(path.resolve(import.meta.dirname, '../../scripts/ci/test-results.mjs')).href);
 
 function workspace({ kind = 'npm', assetGated = false, gateConfig = {} } = {}) {

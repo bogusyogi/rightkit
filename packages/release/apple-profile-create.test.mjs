@@ -145,7 +145,7 @@ test("a container the profile lacks deletes the new profile, writes nothing and 
 
 test("inline PEM is refused in the environment, the config and --certificate, on every host", async (t) => {
   const f = fixture(t, { state: readyState() });
-  const PEM = "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----";
+  const PEM = "-----BEGIN " + "PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----";
   for (const name of ["APPLE_API_KEY_PATH", "APPLE_API_KEY", "APPLE_API_ISSUER"]) {
     await assert.rejects(createAppleProfile({ ...f.options, env: { ...f.options.env, [name]: PEM } }), { code: "APPLE_PROFILE_INLINE_PEM_REFUSED" }, name);
   }

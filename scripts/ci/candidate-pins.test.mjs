@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha, loadApprovedArtifacts } from "./upload.mjs";
+import { sha, loadApprovedArtifacts, checkReceipts } from "./upload.mjs";
 import { validateCandidate } from "./reviewed-candidate.mjs";
 import { collectCandidatePins, proposalOutput } from "./candidate-pins.mjs";
 
@@ -61,7 +61,7 @@ function fixture(t, mutate = () => {}) {
 }
 
 test("one-command collection binds exact bytes & emits unsigned schema 2 proposal", async (t) => {
-  const f = fixture(t); const { proposal, proposalFile } = await f.collect();
+  const f = fixture(t); const { proposal, proposalFile, report, reportFile } = await f.collect();
   assert.deepEqual(JSON.parse(fs.readFileSync(proposalFile)), proposal);
   const candidate = validateCandidate(proposal.candidates[0]);
   assert.equal(candidate.manifestSha256, sha("sha256", f.files.packed["manifest.json"]));
@@ -72,6 +72,60 @@ test("one-command collection binds exact bytes & emits unsigned schema 2 proposa
   assert.ok(!JSON.stringify(proposal).includes("reviewer") && !JSON.stringify(proposal).includes("reviewRef"));
   assert.ok(f.requests.every((r) => r.options.method === "GET" && r.options.redirect === "manual"));
   assert.ok(!fs.readFileSync(proposalFile, "utf8").includes(f.env.GITHUB_TOKEN));
+  assert.equal(report.publicationAuthorized, false); assert.deepEqual(report.missingProof, []);
+  assert.deepEqual(JSON.parse(fs.readFileSync(reportFile)), report);
+});
+
+test("historical rows yield unchanged unsigned pins & separate explicit proof deficits", async (t) => {
+  const f = fixture(t, (s) => {
+    s.jobs.jobs = s.jobs.jobs.filter((job) => job.name !== "qualified"); s.jobs.total_count--;
+    for (const host of ["macos", "windows"]) {
+      const file = `verify-${host}.json`; const receipt = JSON.parse(s.files[host][file]);
+      delete receipt.units[0].archiveScan; s.files[host][file] = Buffer.from(JSON.stringify(receipt));
+    }
+  });
+  const { proposal, proposalFile, report } = await f.collect();
+  const candidate = proposal.candidates[0];
+  validateCandidate(candidate);
+  assert.deepEqual(report.missingProof, [
+    { kind: "qualified-job", status: "missing" },
+    ...["macos", "windows"].map((host) => ({ kind: "archive-scan", status: "missing", host, unit: f.unit.name, sha256: f.unit.sha256 })),
+  ]);
+  assert.equal(report.publicationAuthorized, false);
+  assert.equal(report.manifestSha256, candidate.manifestSha256);
+  assert.equal(report.runAttempt, candidate.runAttempt);
+  assert.ok(loadApprovedArtifacts(proposalFile).problems.length > 0);
+  for (const host of ["macos", "windows"]) {
+    const raw = fs.readFileSync(path.join(f.outputDir, "receipts", host, `verify-${host}.json`));
+    assert.deepEqual(raw, f.files[host][`verify-${host}.json`]);
+    assert.equal(candidate.artifacts[host].receiptSha256, sha("sha256", raw));
+    assert.ok(!Object.hasOwn(JSON.parse(raw).units[0], "archiveScan"));
+  }
+  const manifest = JSON.parse(f.files.packed["manifest.json"]);
+  const strict = checkReceipts({ manifest, manifestSha256: candidate.manifestSha256, receiptsDir: path.join(f.outputDir, "receipts"), allow: candidate.allow, run: { runId: candidate.runId, runAttempt: candidate.runAttempt } });
+  assert.equal(strict.filter((problem) => problem.includes("archiveScan proof is missing")).length, 2, "publication validation still refuses missing scans");
+});
+
+test("historical collection never hides failed jobs, malformed scans or other receipt defects", async (t) => {
+  for (const mutate of [
+    (s) => { s.jobs.jobs.find((job) => job.name === "qualified").conclusion = "failure"; },
+    (s) => { s.jobs.jobs.push({ ...s.jobs.jobs.find((job) => job.name === "qualified"), id: 100 }); s.jobs.total_count++; },
+    (s, r) => { r.units[0].archiveScan = null; },
+    (s, r) => { r.units[0].archiveScan = { ...archiveScanFixture(s.unit), status: "fail" }; },
+    (s, r) => { delete r.units[0].archiveScan; r.units[0].consumer.verified = false; },
+    (s, r) => { delete r.units[0].archiveScan; r.manifestSha256 = "c".repeat(64); },
+    (s, r) => { delete r.units[0].archiveScan; r.runAttempt = "2"; },
+    (s, r) => { delete r.units[0].archiveScan; r.units.push(structuredClone(r.units[0])); },
+  ]) {
+    const f = fixture(t, (s) => {
+      const mac = JSON.parse(s.files.macos["verify-macos.json"]); delete mac.units[0].archiveScan;
+      s.files.macos["verify-macos.json"] = Buffer.from(JSON.stringify(mac));
+      const win = JSON.parse(s.files.windows["verify-windows.json"]); mutate(s, win);
+      s.files.windows["verify-windows.json"] = Buffer.from(JSON.stringify(win));
+    });
+    await assert.rejects(f.collect(), /refused/);
+    assert.ok(!fs.existsSync(path.join(f.outputDir, "candidate-pin-proposal.json")));
+  }
 });
 
 test("provenance failures never emit proposals", async (t) => {

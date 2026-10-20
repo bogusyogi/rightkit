@@ -81,6 +81,25 @@ test("test-result parsers, CI provisioners and their pinned inputs invalidate bo
   }
 });
 
+test("only shared CI workflow and setup action changes fan out globally", () => {
+  const packages = [{ name: "@rightkit/example", dir: "packages/example", deps: [] }];
+  for (const path of [
+    ".github/workflows/publish.yml",
+    ".github/workflows/publish-reviewed.yml",
+    ".github/workflows/reviewed-registry-readback.yml",
+    ".github/workflows/qualify-fs.yml",
+  ]) {
+    assert.equal(selectRust({ changedPaths: [path], members, lock }).all, false, `Rust selection for ${path}`);
+    assert.equal(selectNpm({ changedPaths: [path], packages }).all, false, `npm selection for ${path}`);
+  }
+  for (const path of [".github/workflows/ci.yml", ".github/actions/rk-setup/action.yml"]) {
+    assert.equal(selectRust({ changedPaths: [path], members, lock }).all, true, `Rust selection for ${path}`);
+    assert.equal(selectNpm({ changedPaths: [path], packages }).all, true, `npm selection for ${path}`);
+  }
+  assert.deepEqual(selectRust({ changedPaths: ["crates/rightkit-a/src/lib.rs"], members, lock }), { all: false, test: ["rightkit-a"], check: ["rightkit-b"] });
+  assert.deepEqual(selectNpm({ changedPaths: ["packages/example/src/index.ts"], packages }), { all: false, test: ["packages/example"] });
+});
+
 test("npm selection follows dependents; path suites match by directory", () => {
   const packages = [
     { name: "@rightkit/ui", dir: "packages/ui", deps: [] },

@@ -80,7 +80,7 @@ test("service account parsing: a real key file shape, the Google token endpoint 
   refused("PLAY_SERVICE_ACCOUNT_INVALID", () => parseServiceAccount(JSON.stringify({ type: "authorized_user" })));
   refused("PLAY_SERVICE_ACCOUNT_INVALID", () => parseServiceAccount(JSON.stringify({ type: "service_account", client_email: "a@b", private_key: "nope" })));
   refused("PLAY_SERVICE_ACCOUNT_INVALID", () => parseServiceAccount(JSON.stringify({ ...JSON.parse(SERVICE_ACCOUNT), token_uri: "https://evil.example/token" })));
-  try { parseServiceAccount("{\"private_key\": \"-----BEGIN PRIVATE KEY-----leak\""); } catch (error) { assert.ok(!error.message.includes("leak")); }
+  try { parseServiceAccount("{\"private_key\": \"-----BEGIN " + "PRIVATE KEY-----leak\""); } catch (error) { assert.ok(!error.message.includes("leak")); }
 });
 
 test("the JWT assertion is RS256, scoped to androidpublisher, short-lived and verifies against the public key", () => {

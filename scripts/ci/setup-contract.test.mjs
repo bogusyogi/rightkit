@@ -76,8 +76,12 @@ test("main can finish while PRs coalesce; ownership stays required outside compi
   assert.ok(jobs.ownership.steps.some((step) => step.run?.includes("right-release ownership --app .")));
   assert.ok(jobs.summary.needs.includes("ownership"));
   for (const host of ["windows", "macos"]) {
-    assert.ok(jobs[`mark-green-${host}`].needs.includes("ownership"));
-    assert.match(jobs[`mark-green-${host}`].if, /needs\.ownership\.result == 'success'/);
+    const marker = jobs[`mark-green-${host}`];
+    assert.ok(!marker.needs.includes("ownership"));
+    assert.doesNotMatch(marker.if, /needs\.ownership/);
+    for (const prerequisite of ["private-repo-guard", "plan", "hygiene", "summary", `shards-${host}`, `closure-${host}`]) assert.ok(marker.needs.includes(prerequisite));
+    assert.ok(marker.if.includes(`needs.summary.outputs.${host}_green == 'true'`));
+    for (const prerequisite of ["private-repo-guard", "plan", "hygiene"]) assert.ok(marker.if.includes(`needs.${prerequisite}.result == 'success'`));
   }
   const scan = jobs.hygiene.steps.find((step) => step.name === "Secret scan (selected crates & packages)");
   assert.match(scan.if, /scan_packages != ''/);
@@ -86,7 +90,7 @@ test("main can finish while PRs coalesce; ownership stays required outside compi
   assert.equal(jobs.plan.outputs.scan_packages, "${{ steps.plan.outputs.scan_packages }}");
 });
 
-test("ownership failure or omission prevents both green verdicts even with zero native work", () => {
+test("ownership failure or omission blocks aggregate while empty compile baselines remain valid", () => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "rk-summary-"));
   try {
     const outputs = {
@@ -104,8 +108,7 @@ test("ownership failure or omission prevents both green verdicts even with zero 
         encoding: "utf8", env: { ...process.env, NEEDS: JSON.stringify(needs), GITHUB_SHA: "a".repeat(40), GITHUB_OUTPUT: out, EVIDENCE_DIR: scratch },
       });
       assert.equal(run.status, result === "success" ? 0 : 1, run.stderr);
-      const green = result === "success" ? "true" : "false";
-      assert.match(fs.readFileSync(out, "utf8"), new RegExp(`windows_green=${green}\\nmacos_green=${green}`));
+      assert.equal(fs.readFileSync(out, "utf8"), "windows_green=true\nmacos_green=true\n");
     }
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 });

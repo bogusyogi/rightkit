@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha, executeUpload, CRATES_PUBLISH_URL, buildCratePublishBody } from "./upload.mjs";
-import { validateCandidate, selectCandidate, checkProvenance, prepareCandidate, assertAuthenticatedContext } from "./reviewed-candidate.mjs";
+import { sha, executeUpload, checkReceipts, authenticatedArchiveScanResolver, CRATES_PUBLISH_URL, buildCratePublishBody } from "./upload.mjs";
+import { validateCandidate, selectCandidate, selectArchiveSupplement, checkProvenance, prepareCandidate, assertAuthenticatedContext } from "./reviewed-candidate.mjs";
+import { SUPPLEMENT_WORKFLOW, SUPPLEMENT_POLICY } from "./supplemental-proof.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 
 const SOURCE = "a".repeat(40); const PROMOTION = "b".repeat(40);
 const clone = (x) => structuredClone(x);
 const archiveScanFixture = (unit) => ({ schema: 1, scanner: "publish-cargo/scanCrateForSecrets", archiveSha256: unit.sha256, status: "pass", files: 1, violations: [], problems: [] });
-function fixture(t, mutate = () => {}) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "rk-reviewed-"));
+function fixture(t, mutate = () => {}, supplemental = false) {
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? (process.platform === "win32" ? "D:/scratch" : "/Volumes/D/scratch");
+  const temp = fs.mkdtempSync(path.join(scratch, "rk-reviewed-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const crate = Buffer.from("original sealed archive including source Git SHA");
   const metadata = Buffer.from(JSON.stringify({ name: "rightkit-a", vers: "0.1.0", deps: [] }));
@@ -32,7 +33,22 @@ function fixture(t, mutate = () => {}) {
   const provenance = { candidate, repository: { id: 99, full_name: "bogusyogi/rightkit", default_branch: "main" }, workflow: { id: 5, path: ".github/workflows/publish.yml", state: "active" }, run: { id: 77, run_attempt: 1, repository: { id: 99, full_name: "bogusyogi/rightkit" }, head_repository: { id: 99, full_name: "bogusyogi/rightkit" }, workflow_id: 5, path: ".github/workflows/publish.yml", event: "workflow_dispatch", head_branch: "main", head_sha: SOURCE, status: "completed", conclusion: "failure" }, jobs: { total_count: 5, jobs: ["guard", "plan", "pack", "verify (xcode-27, 26.8.1)", "verify (windows-2025, 26.8.1)"].map((name) => ({ name, conclusion: "success", run_id: 77, head_sha: SOURCE })) }, promotionSha: PROMOTION, comparison: { status: "ahead", merge_base_commit: { sha: SOURCE } } };
   const approval = { schema: 2, candidates: [candidate], artifacts: [{ registry: "crates", name: unit.name, version: unit.version, sha256: unit.sha256, reviewer: "Oracle fixture", reviewRef: "agent-review:fixture" }] };
   const state = { candidate, provenance, files, archives, artifacts, approval }; mutate(state);
+  const supplements = { schema: 1, supplements: [] };
+  if (supplemental) {
+    const policy = { id: SUPPLEMENT_POLICY, sourceSha: PROMOTION, validatorSourceSha: PROMOTION };
+    const original = { candidateId: candidate.id, candidateSha256: sha("sha256", JSON.stringify(candidate)), sourceSha: SOURCE, manifestSha256: candidate.manifestSha256, packedArtifact: candidate.artifacts.packed };
+    const proof = { schema: 1, kind: "archive-scan-supplement", original, producer: { workflow: SUPPLEMENT_WORKFLOW, runId: "99", runAttempt: "1", sourceSha: PROMOTION }, policy, units: [{ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, archiveScan: archiveScanFixture(unit) }] };
+    files.supplement = { "archive-scan-supplement.json": Buffer.from(JSON.stringify(proof)) };
+    archives.supplement = Buffer.from("ZIP fixture supplement");
+    const pin = { schema: 1, kind: "archive-scan-supplement-pin", original, producer: { workflowId: "6", runId: "99", runAttempt: "1", jobId: "9", sourceSha: PROMOTION }, artifact: { id: "200", digest: `sha256:${sha("sha256", archives.supplement)}`, proofSha256: sha("sha256", files.supplement["archive-scan-supplement.json"]) }, policy };
+    supplements.supplements.push(pin);
+    artifacts[200] = { id: 200, name: `archive-scan-supplement-${candidate.id}-1`, expired: false, digest: pin.artifact.digest, workflow_run: { id: 99, head_sha: PROMOTION, head_branch: "main", repository_id: 99, head_repository_id: 99 } };
+    state.supplementRun = { ...clone(provenance.run), id: 99, workflow_id: 6, path: SUPPLEMENT_WORKFLOW, head_sha: PROMOTION, conclusion: "success" };
+    state.supplementJobs = { total_count: 1, jobs: [{ id: 9, name: "archive-scan", run_id: 99, run_attempt: 1, head_sha: PROMOTION, status: "completed", conclusion: "success" }] };
+    provenance.jobs.jobs.forEach((job, i) => Object.assign(job, { id: i + 1, run_attempt: 1, status: "completed" }));
+  }
   const approvedFile = path.join(temp, "approved-artifacts.json"); fs.writeFileSync(approvedFile, JSON.stringify(approval));
+  const supplementalFile = path.join(temp, "supplemental-proofs.json"); fs.writeFileSync(supplementalFile, JSON.stringify(supplements));
   const requests = []; let published = false; const puts = [];
   const fetchImpl = async (url, options = {}) => {
     const text = String(url); requests.push({ url: text, options });
@@ -41,11 +57,15 @@ function fixture(t, mutate = () => {}) {
       let doc;
       if (route === "") doc = provenance.repository;
       else if (route === "actions/workflows/publish.yml") doc = provenance.workflow;
+      else if (route === "actions/workflows/supplement-archive-scan.yml") doc = { id: 6, path: SUPPLEMENT_WORKFLOW, state: "active" };
+      else if (route === "actions/runs/99/attempts/1") doc = state.supplementRun;
+      else if (route === "actions/runs/99/attempts/1/jobs?per_page=100") doc = state.supplementJobs;
       else if (route === "actions/runs/77/attempts/1") doc = provenance.run;
       else if (route === "actions/runs/77/attempts/1/jobs?per_page=100") doc = provenance.jobs;
+      else if (route === `compare/${PROMOTION}...${PROMOTION}`) doc = { status: "identical", merge_base_commit: { sha: PROMOTION } };
       else if (route.startsWith("compare/")) doc = provenance.comparison;
       else if (/^actions\/artifacts\/\d+$/.test(route)) doc = artifacts[route.split("/")[2]];
-      else if (/^actions\/artifacts\/\d+\/zip$/.test(route)) { const host = Object.keys(candidate.artifacts).find((h) => candidate.artifacts[h].id === route.split("/")[2]); return { ok: true, status: 200, arrayBuffer: async () => archives[host] }; }
+      else if (/^actions\/artifacts\/\d+\/zip$/.test(route)) { const host = route.includes("/200/") ? "supplement" : Object.keys(candidate.artifacts).find((h) => candidate.artifacts[h].id === route.split("/")[2]); return { ok: true, status: 200, arrayBuffer: async () => archives[host] }; }
       else throw new Error(`unexpected API route ${route}`);
       return { ok: true, status: 200, json: async () => doc };
     }
@@ -59,9 +79,9 @@ function fixture(t, mutate = () => {}) {
     return { status: 0, stdout: args[0] === "-Z1" ? Object.keys(files[host]).join("\n") : files[host][args[2]] };
   };
   const env = { GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_REF: "refs/heads/main", GITHUB_SHA: PROMOTION, GITHUB_RUN_ID: "88", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKFLOW_REF: "bogusyogi/rightkit/.github/workflows/publish-reviewed.yml@refs/heads/main", GITHUB_TOKEN: "github-read-fixture", RUNNER_TEMP: temp };
-  const prepare = () => prepareCandidate({ env, candidateId: candidate.id, approvedFile, fetchImpl, spawn });
+  const prepare = () => prepareCandidate({ env, candidateId: candidate.id, approvedFile, supplementalFile, fetchImpl, spawn });
   const upload = async (prepared, dryRun) => executeUpload({ env: { ...env, PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: candidate.units.join(" "), ...(dryRun ? {} : { CARGO_REGISTRY_TOKEN: "registry-fixture" }) }, packDir: prepared.packDir, receiptsDir: prepared.receiptsDir, candidateContext: prepared.context, approvedFile, outDir: path.join(temp, `out-${dryRun}`), dryRun, fetchImpl, spawn, pause: 0, log: () => {} });
-  return { ...state, temp, approvedFile, env, requests, puts, prepare, upload, crate, metadata };
+  return { ...state, temp, approvedFile, supplementalFile, supplements, manifest, env, requests, puts, prepare, upload, crate, metadata };
 }
 
 test("promotion publishes original source archive after approval commit without rebuilding or spoofing identity", async (t) => {
@@ -142,4 +162,83 @@ test("reviewed workflow trust boundary & every declared mutation are checked str
   const doc = parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url), "utf8"));
   assert.equal(assertReviewedDoc(doc), true);
   for (const [name, mutate] of REVIEWED_MUTATIONS) { const changed = clone(doc); mutate(changed); assert.throws(() => assertReviewedDoc(changed), undefined, name); }
+});
+
+function historicalReceipts(state, value = undefined) {
+  for (const host of ["macos", "windows"]) {
+    const file = `verify-${host}.json`;
+    const doc = JSON.parse(state.files[host][file]);
+    if (value === undefined) delete doc.units[0].archiveScan;
+    else doc.units[0].archiveScan = value;
+    state.files[host][file] = Buffer.from(JSON.stringify(doc));
+    state.candidate.artifacts[host].receiptSha256 = sha("sha256", state.files[host][file]);
+  }
+}
+
+test("historical missing scan accepts only authenticated committed supplement & preserves receipts", async (t) => {
+  const f = fixture(t, historicalReceipts, true);
+  const p = await f.prepare();
+  for (const dryRun of [true, false]) await f.upload(p, dryRun);
+  for (const host of ["macos", "windows"]) assert.deepEqual(fs.readFileSync(path.join(p.receiptsDir, host, `verify-${host}.json`)), f.files[host][`verify-${host}.json`]);
+  assert.deepEqual(f.puts[0].body, buildCratePublishBody(f.metadata.toString(), f.crate));
+  const native = path.join(p.receiptsDir, "windows", "verify-windows.json");
+  fs.appendFileSync(native, " ");
+  await assert.rejects(f.upload(p, false), /original native receipt changed/);
+});
+
+test("absent scan without supplement & present null, malformed or failed scan always refuse", async (t) => {
+  const missing = fixture(t, historicalReceipts);
+  await assert.rejects(missing.prepare(), /archiveScan/);
+  for (const value of [null, {}, { status: "fail" }, { ...archiveScanFixture({ sha256: "a".repeat(64) }), status: "fail" }]) {
+    const f = fixture(t, (s) => historicalReceipts(s, value), true);
+    await assert.rejects(f.prepare(), /archiveScan/);
+    assert.equal(f.puts.length, 0);
+  }
+});
+
+test("supplement pins reject duplicate, unknown, malformed & unbound collection rows", (t) => {
+  const f = fixture(t, historicalReceipts, true);
+  assert.deepEqual(selectArchiveSupplement(f.supplementalFile, f.candidate, f.approvedFile), f.supplements.supplements[0]);
+  for (const mutate of [
+    (d) => { d.extra = true; }, (d) => { d.schema = 2; }, (d) => { d.supplements = null; },
+    (d) => { d.supplements.push(clone(d.supplements[0])); },
+    (d) => { d.supplements[0].extra = true; },
+    (d) => { d.supplements[0].original.candidateId = "unknown"; },
+    (d) => { d.supplements[0].original.manifestSha256 = "c".repeat(64); },
+  ]) {
+    const doc = clone(f.supplements); mutate(doc); fs.writeFileSync(f.supplementalFile, JSON.stringify(doc));
+    assert.throws(() => selectArchiveSupplement(f.supplementalFile, f.candidate, f.approvedFile), /refused/);
+  }
+});
+
+test("unauthenticated scan JSON, booleans & callbacks cannot bypass receipt or upload checks", async (t) => {
+  const f = fixture(t, historicalReceipts, true);
+  for (const evidence of [true, {}, f.supplements.supplements[0]]) await assert.rejects(authenticatedArchiveScanResolver(evidence, f.candidate, f.manifest), /unauthenticated/);
+  const p = await f.prepare();
+  const options = { manifest: f.manifest, manifestSha256: f.candidate.manifestSha256, receiptsDir: p.receiptsDir, run: { runId: "77", runAttempt: "1" } };
+  for (const archiveScanResolver of [true, {}, () => archiveScanFixture(f.manifest.units[0])]) assert.ok(checkReceipts({ ...options, archiveScanResolver }).some((problem) => /unauthenticated/.test(problem)));
+  await assert.rejects(f.upload({ ...p, context: clone(p.context) }, true), /unauthenticated candidate context/);
+  for (const archiveScanResolver of [true, {}, () => archiveScanFixture(f.manifest.units[0])]) {
+    await assert.rejects(executeUpload({ env: { ...f.env, GITHUB_SHA: SOURCE, GITHUB_RUN_ID: "77", PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: f.candidate.units.join(" ") }, packDir: p.packDir, receiptsDir: p.receiptsDir, approvedFile: f.approvedFile, archiveScanResolver, outDir: path.join(f.temp, "forged"), dryRun: true, log: () => {} }), /archiveScan/);
+  }
+  f.supplementRun.conclusion = "failure";
+  await assert.rejects(f.prepare(), /producer run provenance\/success/);
+});
+
+test("supplement preserves native runtime, consumer & closure blockers", async (t) => {
+  for (const mutate of [
+    (row) => { row.consumer.verified = false; },
+    (row) => { row.executed = 0; },
+    (row) => { row.status = "fail"; },
+    (row) => { row.bytesVerified = false; },
+  ]) {
+    const f = fixture(t, (s) => {
+      historicalReceipts(s);
+      const doc = JSON.parse(s.files.windows["verify-windows.json"]); mutate(doc.units[0]);
+      s.files.windows["verify-windows.json"] = Buffer.from(JSON.stringify(doc));
+      s.candidate.artifacts.windows.receiptSha256 = sha("sha256", s.files.windows["verify-windows.json"]);
+    }, true);
+    await assert.rejects(f.prepare(), /refused/);
+    assert.equal(f.puts.length, 0);
+  }
 });

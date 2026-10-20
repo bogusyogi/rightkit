@@ -10,6 +10,7 @@ import {
   parseCargoPublishArgs,
   runCargoPublish,
   runCargoReadOnly,
+  scanCrateForSecrets,
 } from "./publish-cargo.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
 import { checkPublicationGate } from "./publication-gate.mjs";
@@ -111,6 +112,16 @@ test("package inspection rejects secret and build-output paths", () => {
     "keys/signing.p8",
     "target/release/app",
   ]), [".env", "keys/signing.p8", "target/release/app"]);
+});
+
+test("secret scan detects credentials beside NUL bytes while accepting benign binary assets", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-secrets-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const credential = Buffer.from("gh" + "p_" + "A".repeat(24));
+  writeFileSync(path.join(root, "prefix.bin"), Buffer.concat([Buffer.from([0]), credential]));
+  writeFileSync(path.join(root, "suffix.bin"), Buffer.concat([credential, Buffer.from([0])]));
+  writeFileSync(path.join(root, "benign.bin"), Buffer.from([0, 255, 128, 1, 0, 254]));
+  assert.deepEqual(scanCrateForSecrets(root), ["prefix.bin", "suffix.bin"]);
 });
 
 function fixture(t, { verifyOnPublish = false } = {}) {

@@ -4,11 +4,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, loadSealed, checkReceipts, checkApprovedArtifacts, executeUpload, childEnv } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, loadSealed, checkReceipts, checkApprovedArtifacts, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
+import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
 const POS = /^[1-9][0-9]*$/;
 const contexts = new WeakMap();
+export const SUPPLEMENTAL_PROOFS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "supplemental-proofs.json");
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const requireThat = (condition, message) => { if (!condition) throw new Error(`reviewed candidate refused: ${message}`); };
 function exact(value, keys, label) {
@@ -48,6 +50,23 @@ export function selectCandidate(file, id) {
   const found = doc.candidates.filter((candidate) => candidate.id === id);
   requireThat(found.length === 1, "candidate is not committed exactly once");
   return found[0];
+}
+
+/** Separate committed pins never alter original candidate or receipt schemas. */
+export function selectArchiveSupplement(file, candidate, approvedFile = APPROVED_ARTIFACTS_FILE) {
+  const doc = JSON.parse(fs.readFileSync(file, "utf8"));
+  exact(doc, ["schema", "supplements"], "supplement collection");
+  requireThat(doc.schema === 1 && Array.isArray(doc.supplements), "unknown supplement collection schema");
+  const seen = new Set();
+  for (const pin of doc.supplements) {
+    const id = pin?.original?.candidateId;
+    requireThat(typeof id === "string" && !seen.has(id), "invalid or duplicate supplemental candidate ID");
+    seen.add(id);
+    validateSupplementPin(pin, selectCandidate(approvedFile, id));
+  }
+  const pin = doc.supplements.find((row) => row.original.candidateId === candidate.id) ?? null;
+  if (pin) validateSupplementPin(pin, candidate);
+  return pin;
 }
 
 export function checkProvenance({ candidate, repository, workflow, run, jobs, promotionSha, comparison }) {
@@ -95,11 +114,12 @@ export function unpackArtifact({ bytes, zipFile, destination, spawn = spawnSync 
   return names;
 }
 
-export async function prepareCandidate({ env, candidateId, approvedFile = APPROVED_ARTIFACTS_FILE, fetchImpl = fetch, spawn = spawnSync }) {
+export async function prepareCandidate({ env, candidateId, approvedFile = APPROVED_ARTIFACTS_FILE, supplementalFile = SUPPLEMENTAL_PROOFS_FILE, fetchImpl = fetch, spawn = spawnSync }) {
   requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main" && /^[0-9a-f]{40}$/.test(env.GITHUB_SHA ?? ""), "promotion requires trusted main Actions context");
   requireThat(env.GITHUB_TOKEN && env.RUNNER_TEMP, "GitHub read token & runner temp are required");
   requireThat(env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/publish-reviewed.yml@refs/heads/main`, "wrong promotion workflow");
   const candidate = selectCandidate(approvedFile, candidateId);
+  const supplementPin = selectArchiveSupplement(supplementalFile, candidate, approvedFile);
   // All API routes derive from committed identifiers, never dispatch URLs or paths.
   const repository = await api("", env, fetchImpl);
   const workflow = await api("actions/workflows/publish.yml", env, fetchImpl);
@@ -124,12 +144,17 @@ export async function prepareCandidate({ env, candidateId, approvedFile = APPROV
   }
   const sealed = loadSealed({ packDir, registry: candidate.registry, unitsText: candidate.units.join(" "), run: { runId: candidate.runId, runAttempt: candidate.runAttempt } });
   requireThat(sealed.manifest && sealed.manifest.commit === candidate.sourceSha && String(sealed.manifest.runAttempt) === String(candidate.runAttempt) && sealed.manifestSha256 === candidate.manifestSha256, "source/attempt/raw manifest binding mismatch");
-  const problems = [...sealed.problems, ...checkApprovedArtifacts({ manifest: sealed.manifest, registry: candidate.registry, approvedFile }), ...checkReceipts({ manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow: candidate.allow, run: { runId: candidate.runId, runAttempt: candidate.runAttempt } })];
+  let archiveScanResolver;
+  if (supplementPin) {
+    const evidence = await verifyArchiveSupplement({ candidate, pin: supplementPin, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, env, fetchImpl, spawn });
+    archiveScanResolver = await authenticatedArchiveScanResolver(evidence, candidate, sealed.manifest);
+  }
+  const problems = [...sealed.problems, ...checkApprovedArtifacts({ manifest: sealed.manifest, registry: candidate.registry, approvedFile }), ...checkReceipts({ manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow: candidate.allow, run: { runId: candidate.runId, runAttempt: candidate.runAttempt }, archiveScanResolver })];
   requireThat(problems.length === 0, problems.join("; "));
   // Freeze the authenticated record; caller cannot widen its allowsets after admission.
   const context = JSON.parse(JSON.stringify({ candidate }));
   const freeze = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } }; freeze(context);
-  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile });
+  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, archiveScanResolver });
   return { context, packDir, receiptsDir };
 }
 
@@ -138,8 +163,14 @@ export function assertAuthenticatedContext(context, actual) {
   requireThat(bound && ["packDir", "receiptsDir", "approvedFile"].every((key) => bound[key] === actual[key]), "unauthenticated candidate context");
   for (const [key, value] of Object.entries(bound.env)) if (key.startsWith("GITHUB_")) requireThat(actual.env[key] === value, "promotion GitHub identity changed");
   const candidate = context.candidate;
+  for (const host of ["macos", "windows"]) {
+    const directory = path.join(bound.receiptsDir, host);
+    const files = fs.readdirSync(directory);
+    requireThat(files.length === 1 && sha("sha256", fs.readFileSync(path.join(directory, files[0]))) === candidate.artifacts[host].receiptSha256, "original native receipt changed after admission");
+  }
   requireThat(actual.env.PUBLISH_REGISTRY === candidate.registry && actual.env.PUBLISH_UNITS === candidate.units.join(" "), "candidate plan changed");
   for (const [key, envKey] of Object.entries({ hostExclusion: "HOST_EXCLUSION", noTest: "NO_TEST", ignored: "IGNORED", missingAssets: "MISSING_ASSETS" })) requireThat((actual.env[`PUBLISH_ALLOW_${envKey}`] ?? "") === candidate.allow[key].join(" "), "candidate allowsets changed");
+  return bound.archiveScanResolver;
 }
 
 export async function runReviewed({ env, dryRun, fetchImpl = fetch, spawn = spawnSync }) {
