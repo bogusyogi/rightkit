@@ -84,7 +84,7 @@ fn empty_selection_does_not_satisfy_later_whole_tree_migration() {
         .app
         .migrate_from_with(
             &fixture.old,
-            &MigrateOptions::strict().include_roots(Vec::new()).unwrap(),
+            MigrateOptions::strict().include_roots(Vec::new()).unwrap(),
         )
         .unwrap();
     assert!(!fixture.app.root().join("MailRight.exe").exists());
@@ -104,7 +104,7 @@ fn empty_selection_does_not_satisfy_later_whole_tree_migration() {
     assert_eq!(status.scope(), &MigrationScope::Roots(Vec::new()));
     fixture
         .app
-        .migrate_from_with(&fixture.old, &MigrateOptions::strict())
+        .migrate_from_with(&fixture.old, MigrateOptions::strict())
         .unwrap();
     assert!(fixture.app.root().join("MailRight.exe").is_file());
     assert_eq!(
@@ -234,7 +234,7 @@ fn invalid_scope_and_case_aliases_refuse_before_copy() {
         .unwrap();
     assert!(fixture
         .app
-        .migrate_from_with(&fixture.old, &selected)
+        .migrate_from_with(&fixture.old, selected)
         .is_err());
     assert!(!fixture.app.root().join("webview2").exists());
 }
@@ -546,12 +546,12 @@ fn selected_link_refused_while_unlisted_link_is_not_traversed() {
         .unwrap();
     fixture
         .app
-        .migrate_from_with(&fixture.old, &selected)
+        .migrate_from_with(&fixture.old, selected.clone())
         .unwrap();
     symlink("../../MailRight.exe", fixture.old.join("webview2/link")).unwrap();
     assert!(fixture
         .app
-        .migrate_from_with(&fixture.old, &selected)
+        .migrate_from_with(&fixture.old, selected)
         .is_err());
 }
 

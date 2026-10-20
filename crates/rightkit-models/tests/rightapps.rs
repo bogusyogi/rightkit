@@ -270,7 +270,9 @@ fn resolve_pause_refresh_resume_and_atomic_install() {
         .collect();
     assert_eq!(downloads.len(), 2);
     assert!(downloads[1].header("range").unwrap().starts_with("bytes="));
-    assert_eq!(downloads[1].query_param("token"), Some("grant1"));
+    assert!(downloads[1]
+        .query_pairs()
+        .contains(&("token".into(), "grant1".into())));
     let again = client
         .install(
             &refreshed,
