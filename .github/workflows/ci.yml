@@ -268,7 +268,8 @@ jobs:
       - name: Owner dependency graphs (best effort)
         if: ${{ !cancelled() }}
         shell: bash
-        run: bash scripts/ci/owner-dep-graphs.sh || echo "owner-dep-graphs: warning: skipped"
+        run: |
+          bash scripts/ci/owner-dep-graphs.sh || echo "owner-dep-graphs: warning: skipped"
       - name: Upload QA evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
