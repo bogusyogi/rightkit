@@ -6,6 +6,7 @@
     "rightkit-automation": "desktop session for the end-to-end tests (e2e_mac, e2e_win)",
     "rightkit-browser": "Chrome for Testing for the end-to-end tests",
     "rightkit-ffmpeg": "FFmpeg and ffprobe development builds",
+    "rightkit-motion": "ffmpeg binary and encoders for the #[ignore]d tests/encode_e2e.rs (a missing ffmpeg prints SKIP; RIGHTKIT_REQUIRE_ASSETS=1 makes it fail)",
     "rightkit-ocr": "OCR models and the OS recognizer",
     "rightkit-onnx": "ONNX Runtime and model files",
     "rightkit-playback": "FFmpeg binary for the remux end-to-end test (tests/remux_e2e.rs)",

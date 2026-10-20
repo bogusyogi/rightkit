@@ -183,7 +183,8 @@ const BUILD_NAME = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0,63}$
 export function pnpmBuildClosureArgs(names) {
   const unique = [...new Set(names ?? [])];
   if (unique.length === 0) throw new Error("no packages to build");
-  const bad = unique.filter((name) => typeof name !== "string" || !BUILD_NAME.test(name));
+  // ".." is refused as well: pnpm reads a trailing or leading "..." as a dependency/dependent selector.
+  const bad = unique.filter((name) => typeof name !== "string" || !BUILD_NAME.test(name) || name.includes(".."));
   if (bad.length) throw new Error(`refusing to build unsafe package name(s): ${bad.map(String).join(", ")}`);
   return ["--workspace-concurrency=1", ...unique.flatMap((name) => ["--filter", `${name}...`]), "run", "build"];
 }
