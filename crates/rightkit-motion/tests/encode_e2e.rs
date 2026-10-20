@@ -20,7 +20,10 @@ use rightkit_motion::{
 const T: Duration = Duration::from_secs(120);
 
 fn skip_missing(what: &str, looked_at: &str) {
-    let test = std::thread::current().name().unwrap_or("unnamed").to_owned();
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("unnamed")
+        .to_owned();
     let message = format!("SKIP {test}: {what} (looked at {looked_at})");
     if std::env::var("RIGHTKIT_REQUIRE_ASSETS").is_ok_and(|value| value == "1") {
         panic!("{message}");
@@ -35,7 +38,10 @@ fn ffmpeg() -> Option<DevResolved> {
             .iter()
             .map(|p| p.display().to_string())
             .collect();
-        skip_missing("FFmpeg", &format!("RIGHTKIT_FFMPEG or {}", looked.join(", ")));
+        skip_missing(
+            "FFmpeg",
+            &format!("RIGHTKIT_FFMPEG or {}", looked.join(", ")),
+        );
     }
     found
 }
@@ -108,7 +114,10 @@ fn the_inventory_probe_lists_encoders() {
         inventory.has("mpeg4"),
         "every ffmpeg build lists the native MPEG-4 encoder"
     );
-    eprintln!("alpha support: {:?}", AlphaSupport::from_inventory(&inventory));
+    eprintln!(
+        "alpha support: {:?}",
+        AlphaSupport::from_inventory(&inventory)
+    );
 }
 
 #[test]

@@ -40,7 +40,8 @@ pub fn png_to_ppm(png: &[u8]) -> Result<Vec<u8>, RenderError> {
 pub fn png_to_pam(png: &[u8]) -> Result<Vec<u8>, RenderError> {
     let rgba = decode(png)?.to_rgba8();
     let (w, h) = rgba.dimensions();
-    let header = format!("P7\nWIDTH {w}\nHEIGHT {h}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n");
+    let header =
+        format!("P7\nWIDTH {w}\nHEIGHT {h}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n");
     let mut out = Vec::with_capacity(header.len() + rgba.len());
     out.extend_from_slice(header.as_bytes());
     out.extend_from_slice(&rgba);
@@ -78,7 +79,11 @@ mod tests {
         assert_eq!(pam.len(), header.len() + 2 * 2 * 4);
         let px = &pam[header.len()..];
         assert_eq!(&px[0..4], &[200, 100, 50, 255]);
-        assert_eq!(&px[4..8], &[1, 2, 3, 0], "a transparent pixel keeps its straight RGB");
+        assert_eq!(
+            &px[4..8],
+            &[1, 2, 3, 0],
+            "a transparent pixel keeps its straight RGB"
+        );
     }
 
     #[test]

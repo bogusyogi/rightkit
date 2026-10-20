@@ -412,14 +412,7 @@ pub fn build_command(spec: &EncodeSpec) -> Result<FfmpegCommand, RenderError> {
         // ProRes 4444 has no rate control here: the profile fixes the quality, so `Quality` is
         // ignored. `apl0` is the vendor tag Apple's decoders expect.
         EncoderKind::ProRes4444 => {
-            c.texts([
-                "-profile:v",
-                "4444",
-                "-pix_fmt",
-                pix_fmt,
-                "-vendor",
-                "apl0",
-            ]);
+            c.texts(["-profile:v", "4444", "-pix_fmt", pix_fmt, "-vendor", "apl0"]);
         }
         // Constant-quality VP9 (`-b:v 0 -crf N`); `-auto-alt-ref 0` is required for the alpha
         // plane to survive.
@@ -521,7 +514,10 @@ mod tests {
     #[test]
     fn h264_prefers_the_platform_hardware_encoder() {
         let mac = pick_encoder(&inv(LISTING), "macos", false, &mut |_| true).unwrap();
-        assert_eq!((mac.name, mac.kind, mac.fallback), ("h264_videotoolbox", EncoderKind::H264, false));
+        assert_eq!(
+            (mac.name, mac.kind, mac.fallback),
+            ("h264_videotoolbox", EncoderKind::H264, false)
+        );
         let win = pick_encoder(&inv(LISTING), "windows", false, &mut |_| true).unwrap();
         assert_eq!(win.name, "h264_mf");
     }
@@ -530,17 +526,33 @@ mod tests {
     fn a_refused_hardware_encoder_is_skipped_then_software_then_mpeg4_only_if_allowed() {
         let only_mac = inv(" V....D h264_videotoolbox x\n V....D mpeg4 y\n");
         // The hardware encoder refused to start: not usable, MPEG-4 not allowed -> unavailable.
-        let refused = pick_encoder(&only_mac, "macos", false, &mut |name| name != "h264_videotoolbox");
+        let refused = pick_encoder(&only_mac, "macos", false, &mut |name| {
+            name != "h264_videotoolbox"
+        });
         assert!(matches!(
             refused,
-            Err(RenderError::EncoderUnavailable { kind: EncoderKind::H264, .. })
+            Err(RenderError::EncoderUnavailable {
+                kind: EncoderKind::H264,
+                ..
+            })
         ));
         // Allowed: the fallback is MPEG-4 and says so.
-        let fallback = pick_encoder(&only_mac, "macos", true, &mut |name| name != "h264_videotoolbox").unwrap();
-        assert_eq!((fallback.name, fallback.fallback, fallback.kind), ("mpeg4", true, EncoderKind::Mpeg4));
+        let fallback = pick_encoder(&only_mac, "macos", true, &mut |name| {
+            name != "h264_videotoolbox"
+        })
+        .unwrap();
+        assert_eq!(
+            (fallback.name, fallback.fallback, fallback.kind),
+            ("mpeg4", true, EncoderKind::Mpeg4)
+        );
         // A listed software encoder beats MPEG-4.
         let soft = inv(" V....D libopenh264 s\n V....D mpeg4 y\n");
-        assert_eq!(pick_encoder(&soft, "macos", true, &mut |_| true).unwrap().name, "libopenh264");
+        assert_eq!(
+            pick_encoder(&soft, "macos", true, &mut |_| true)
+                .unwrap()
+                .name,
+            "libopenh264"
+        );
     }
 
     #[test]
@@ -549,7 +561,9 @@ mod tests {
         let error = pick_encoder(&gpl, "linux", false, &mut |_| true).unwrap_err();
         assert_eq!(error.code(), "h264_encoder_unavailable");
         assert_eq!(
-            pick_encoder(&inv(" V....D h264_vaapi x\n"), "linux", true, &mut |_| true).unwrap().name,
+            pick_encoder(&inv(" V....D h264_vaapi x\n"), "linux", true, &mut |_| true)
+                .unwrap()
+                .name,
             "h264_vaapi"
         );
         // MPEG-4 allowed but not listed -> still unavailable.
@@ -570,7 +584,10 @@ mod tests {
     #[test]
     fn alpha_picks_follow_the_inventory_and_never_fall_back_to_opaque() {
         let prores = pick_alpha_encoder(&inv(LISTING), EncoderKind::ProRes4444).unwrap();
-        assert_eq!((prores.name, prores.kind), ("prores_ks", EncoderKind::ProRes4444));
+        assert_eq!(
+            (prores.name, prores.kind),
+            ("prores_ks", EncoderKind::ProRes4444)
+        );
         let vp9 = pick_alpha_encoder(&inv(LISTING), EncoderKind::Vp9Alpha).unwrap();
         assert_eq!(vp9.name, "libvpx-vp9");
         let none = inv(" V....D mpeg4 y\n V....D h264_videotoolbox x\n");
@@ -579,7 +596,9 @@ mod tests {
             assert_eq!(error.code(), "alpha_encoder_unavailable");
         }
         assert_eq!(
-            pick_alpha_encoder(&inv(LISTING), EncoderKind::H264).unwrap_err().code(),
+            pick_alpha_encoder(&inv(LISTING), EncoderKind::H264)
+                .unwrap_err()
+                .code(),
             "invalid_input"
         );
     }
@@ -588,18 +607,29 @@ mod tests {
     fn the_alpha_probe_reads_both_encoders() {
         assert_eq!(
             AlphaSupport::from_inventory(&inv(LISTING)),
-            AlphaSupport { prores_4444: true, vp9_alpha: true }
+            AlphaSupport {
+                prores_4444: true,
+                vp9_alpha: true
+            }
         );
         assert_eq!(
             AlphaSupport::from_inventory(&inv(" V....D prores_ks x\n")),
-            AlphaSupport { prores_4444: true, vp9_alpha: false }
+            AlphaSupport {
+                prores_4444: true,
+                vp9_alpha: false
+            }
         );
-        assert_eq!(AlphaSupport::from_inventory(&inv("")), AlphaSupport::default());
+        assert_eq!(
+            AlphaSupport::from_inventory(&inv("")),
+            AlphaSupport::default()
+        );
     }
 
     #[test]
     fn init_failures_are_recognised_from_ffmpegs_own_output() {
-        assert!(is_init_failure("[h264_mf @ 0x1] Error while opening encoder for output stream"));
+        assert!(is_init_failure(
+            "[h264_mf @ 0x1] Error while opening encoder for output stream"
+        ));
         assert!(is_init_failure("Unknown encoder 'libvpx-vp9'"));
         assert!(!is_init_failure("Conversion failed: disk full"));
     }
@@ -608,15 +638,27 @@ mod tests {
     fn h264_args_even_the_size_and_set_the_bitrate() {
         let s = spec(Encoder::h264("h264_videotoolbox"), vec![], "out.mp4");
         let a = joined(&s);
-        assert!(a.contains("-f image2pipe -framerate 30 -c:v ppm -i -"), "{a}");
-        assert!(a.contains("scale=1280:720:flags=lanczos,format=yuv420p[v]"), "{a}");
-        assert!(a.contains("-c:v h264_videotoolbox -b:v 1658880 -pix_fmt yuv420p -allow_sw 1"), "{a}");
+        assert!(
+            a.contains("-f image2pipe -framerate 30 -c:v ppm -i -"),
+            "{a}"
+        );
+        assert!(
+            a.contains("scale=1280:720:flags=lanczos,format=yuv420p[v]"),
+            "{a}"
+        );
+        assert!(
+            a.contains("-c:v h264_videotoolbox -b:v 1658880 -pix_fmt yuv420p -allow_sw 1"),
+            "{a}"
+        );
         assert!(a.contains("-r 30 -movflags +faststart out.mp4"), "{a}");
         assert!(!a.contains("-c:a") && !a.contains("-nostdin"), "{a}");
         assert!(build_command(&s).unwrap().stdin_is_piped());
         // Not VideoToolbox: no -allow_sw.
         let mf = joined(&spec(Encoder::h264("h264_mf"), vec![], "out.mp4"));
-        assert!(mf.contains("-c:v h264_mf -b:v 1658880") && !mf.contains("allow_sw"), "{mf}");
+        assert!(
+            mf.contains("-c:v h264_mf -b:v 1658880") && !mf.contains("allow_sw"),
+            "{mf}"
+        );
     }
 
     #[test]
@@ -635,8 +677,14 @@ mod tests {
         let a = joined(&s);
         assert!(a.contains("-c:v pam -i -"), "{a}");
         // ProRes keeps the exact size.
-        assert!(a.contains("scale=1281:721:flags=lanczos,format=yuva444p10le[v]"), "{a}");
-        assert!(a.contains("-c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le -vendor apl0"), "{a}");
+        assert!(
+            a.contains("scale=1281:721:flags=lanczos,format=yuva444p10le[v]"),
+            "{a}"
+        );
+        assert!(
+            a.contains("-c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le -vendor apl0"),
+            "{a}"
+        );
         assert!(a.contains("-c:a pcm_s16le"), "{a}");
         assert!(!a.contains("faststart") && !a.contains("-b:v"), "{a}");
         assert!(a.ends_with("out.mov"), "{a}");
@@ -648,8 +696,16 @@ mod tests {
         s.quality = Quality::High;
         let a = joined(&s);
         assert!(a.contains("-c:v pam -i -"), "{a}");
-        assert!(a.contains("scale=1280:720:flags=lanczos,format=yuva420p[v]"), "{a}");
-        assert!(a.contains("-c:v libvpx-vp9 -b:v 0 -crf 24 -pix_fmt yuva420p -auto-alt-ref 0 -row-mt 1"), "{a}");
+        assert!(
+            a.contains("scale=1280:720:flags=lanczos,format=yuva420p[v]"),
+            "{a}"
+        );
+        assert!(
+            a.contains(
+                "-c:v libvpx-vp9 -b:v 0 -crf 24 -pix_fmt yuva420p -auto-alt-ref 0 -row-mt 1"
+            ),
+            "{a}"
+        );
         assert!(!a.contains("faststart"), "{a}");
         assert!(a.ends_with("out.webm"), "{a}");
     }
@@ -657,7 +713,10 @@ mod tests {
     #[test]
     fn vp9_alpha_refuses_audio_and_zero_fps_is_invalid() {
         let with_audio = spec(Encoder::vp9_alpha(), vec![clip()], "out.webm");
-        assert_eq!(build_command(&with_audio).unwrap_err().code(), "invalid_input");
+        assert_eq!(
+            build_command(&with_audio).unwrap_err().code(),
+            "invalid_input"
+        );
         let mut zero = spec(Encoder::mpeg4_fallback(), vec![], "o.mp4");
         zero.fps = 0;
         assert_eq!(build_command(&zero).unwrap_err().code(), "invalid_input");
@@ -665,7 +724,12 @@ mod tests {
 
     #[test]
     fn the_output_path_stays_a_path_argument() {
-        let c = build_command(&spec(Encoder::mpeg4_fallback(), vec![], "dir with space/out.mp4")).unwrap();
+        let c = build_command(&spec(
+            Encoder::mpeg4_fallback(),
+            vec![],
+            "dir with space/out.mp4",
+        ))
+        .unwrap();
         let last = c.to_os_args().pop().unwrap();
         assert_eq!(Path::new(&last), Path::new("dir with space/out.mp4"));
     }
@@ -673,8 +737,13 @@ mod tests {
     #[test]
     fn extensions_follow_the_kind() {
         assert_eq!(
-            [EncoderKind::H264, EncoderKind::Mpeg4, EncoderKind::ProRes4444, EncoderKind::Vp9Alpha]
-                .map(EncoderKind::extension),
+            [
+                EncoderKind::H264,
+                EncoderKind::Mpeg4,
+                EncoderKind::ProRes4444,
+                EncoderKind::Vp9Alpha
+            ]
+            .map(EncoderKind::extension),
             ["mp4", "mp4", "mov", "webm"]
         );
     }

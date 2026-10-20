@@ -147,7 +147,10 @@ impl fmt::Display for RenderError {
                 listed,
                 ffmpeg_message,
             } => {
-                write!(f, "{code}: no usable {kind:?} encoder in the resolved ffmpeg")?;
+                write!(
+                    f,
+                    "{code}: no usable {kind:?} encoder in the resolved ffmpeg"
+                )?;
                 if *kind == EncoderKind::H264 {
                     f.write_str("; allow the MPEG-4 fallback to accept MPEG-4 video")?;
                 }
@@ -561,7 +564,8 @@ mod tests {
                 }
             }
             let img: image::DynamicImage = if self.alpha {
-                image::RgbaImage::from_pixel(self.size.0, self.size.1, image::Rgba([1, 2, 3, 0])).into()
+                image::RgbaImage::from_pixel(self.size.0, self.size.1, image::Rgba([1, 2, 3, 0]))
+                    .into()
             } else {
                 image::RgbImage::from_pixel(self.size.0, self.size.1, image::Rgb([9, 9, 9])).into()
             };
@@ -622,10 +626,20 @@ mod tests {
             listed: vec!["mpeg4".into()],
             ffmpeg_message: Some("init failed".into()),
         };
-        assert!(e.to_string().starts_with("h264_encoder_unavailable: "), "{e}");
+        assert!(
+            e.to_string().starts_with("h264_encoder_unavailable: "),
+            "{e}"
+        );
         assert!(e.to_string().contains("init failed") && e.to_string().contains("mpeg4"));
-        let size = RenderError::CaptureSize { frame: 3, got: (1, 2), expected: (3, 4) };
-        assert_eq!(size.to_string(), "capture_size_mismatch: frame 3 is 1x2, expected 3x4");
+        let size = RenderError::CaptureSize {
+            frame: 3,
+            got: (1, 2),
+            expected: (3, 4),
+        };
+        assert_eq!(
+            size.to_string(),
+            "capture_size_mismatch: frame 3 is 1x2, expected 3x4"
+        );
         assert_eq!(RenderError::Cancelled.to_string(), "cancelled");
     }
 
@@ -637,8 +651,16 @@ mod tests {
         assert_eq!(source.seeks, [1.25]);
         let wrong = capture_still(&mut source, 0.0, Some((32, 16))).unwrap_err();
         assert_eq!(wrong.code(), "capture_size_mismatch");
-        assert_eq!(capture_still(&mut source, -1.0, None).unwrap_err().code(), "invalid_input");
-        assert_eq!(capture_still(&mut source, f64::NAN, None).unwrap_err().code(), "invalid_input");
+        assert_eq!(
+            capture_still(&mut source, -1.0, None).unwrap_err().code(),
+            "invalid_input"
+        );
+        assert_eq!(
+            capture_still(&mut source, f64::NAN, None)
+                .unwrap_err()
+                .code(),
+            "invalid_input"
+        );
     }
 
     #[test]
@@ -647,7 +669,10 @@ mod tests {
         let mut source = Solid::new(16, 16);
         let still = dir.path().join("nested/still.png");
         export_still(&mut source, 0.5, None, &still).unwrap();
-        assert_eq!(png_dimensions(&std::fs::read(&still).unwrap()), Some((16, 16)));
+        assert_eq!(
+            png_dimensions(&std::fs::read(&still).unwrap()),
+            Some((16, 16))
+        );
         let poster = dir.path().join("poster.png");
         let mut source = Solid::new(16, 16);
         // 2 s at 10 fps = 20 frames; the poster is frame 8, at 0.8 s.
@@ -655,7 +680,9 @@ mod tests {
         assert_eq!(source.seeks, [0.8]);
         assert!(poster.is_file());
         assert_eq!(
-            export_poster(&mut source, 0.0, 10, None, &poster).unwrap_err().code(),
+            export_poster(&mut source, 0.0, 10, None, &poster)
+                .unwrap_err()
+                .code(),
             "invalid_input"
         );
     }
@@ -684,7 +711,8 @@ mod tests {
         }
 
         /// Writes the number of stdin bytes it received to the output file (the last argument).
-        const COUNT_BYTES: &str = r#"out=""; for a in "$@"; do out="$a"; done; cat | wc -c | tr -d ' ' > "$out""#;
+        const COUNT_BYTES: &str =
+            r#"out=""; for a in "$@"; do out="$a"; done; cat | wc -c | tr -d ' ' > "$out""#;
 
         fn noop() -> impl FnMut(RenderProgress) + Send {
             |_| {}
@@ -698,18 +726,45 @@ mod tests {
             let mut source = Solid::new(16, 16);
             let mut seen = Vec::new();
             let mut progress = |p: RenderProgress| seen.push(p);
-            let outcome = render(&ffmpeg, &mut source, &j, &CancellationToken::new(), &mut progress).unwrap();
+            let outcome = render(
+                &ffmpeg,
+                &mut source,
+                &j,
+                &CancellationToken::new(),
+                &mut progress,
+            )
+            .unwrap();
             assert_eq!(outcome.frames, 5);
             assert_eq!(source.seeks, [0.0, 0.1, 0.2, 0.3, 0.4]);
             // Five P6 frames: "P6\n16 16\n255\n" is 13 bytes, plus 16*16*3 pixel bytes.
-            let bytes: u64 = std::fs::read_to_string(&j.output).unwrap().trim().parse().unwrap();
+            let bytes: u64 = std::fs::read_to_string(&j.output)
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
             assert_eq!(bytes, 5 * (13 + 16 * 16 * 3));
             assert!(outcome.poster.as_deref() == Some(j.poster.as_deref().unwrap()));
             assert!(j.poster.unwrap().is_file());
             let phases: Vec<_> = seen.iter().map(|p| p.phase).collect();
-            assert_eq!(phases.iter().filter(|p| **p == RenderPhase::Capturing).count(), 5);
-            assert_eq!(phases[phases.len() - 2..], [RenderPhase::Encoding, RenderPhase::Done]);
-            assert_eq!(seen[0], RenderProgress { phase: RenderPhase::Capturing, frame: 1, total: 5 });
+            assert_eq!(
+                phases
+                    .iter()
+                    .filter(|p| **p == RenderPhase::Capturing)
+                    .count(),
+                5
+            );
+            assert_eq!(
+                phases[phases.len() - 2..],
+                [RenderPhase::Encoding, RenderPhase::Done]
+            );
+            assert_eq!(
+                seen[0],
+                RenderProgress {
+                    phase: RenderPhase::Capturing,
+                    frame: 1,
+                    total: 5
+                }
+            );
         }
 
         #[test]
@@ -725,9 +780,22 @@ mod tests {
             j.output = dir.path().join("out.mov");
             let mut source = Solid::new(16, 16);
             source.alpha = true;
-            render(&ffmpeg, &mut source, &j, &CancellationToken::new(), &mut noop()).unwrap();
-            let header = "P7\nWIDTH 16\nHEIGHT 16\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n".len() as u64;
-            let bytes: u64 = std::fs::read_to_string(&j.output).unwrap().trim().parse().unwrap();
+            render(
+                &ffmpeg,
+                &mut source,
+                &j,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap();
+            let header =
+                "P7\nWIDTH 16\nHEIGHT 16\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n".len()
+                    as u64;
+            let bytes: u64 = std::fs::read_to_string(&j.output)
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
             assert_eq!(bytes, 5 * (header + 16 * 16 * 4));
         }
 
@@ -738,7 +806,14 @@ mod tests {
             let j = job(dir.path(), Encoder::mpeg4_fallback());
             let mut source = Solid::new(16, 16);
             source.fail_capture_at = Some(3);
-            let e = render(&ffmpeg, &mut source, &j, &CancellationToken::new(), &mut noop()).unwrap_err();
+            let e = render(
+                &ffmpeg,
+                &mut source,
+                &j,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap_err();
             assert_eq!(e.code(), "capture_failed");
             assert!(e.to_string().contains("frame 2"), "{e}");
             assert!(!j.output.exists(), "partial output must not survive");
@@ -750,7 +825,14 @@ mod tests {
             let ffmpeg = fake(dir.path(), COUNT_BYTES);
             let j = job(dir.path(), Encoder::mpeg4_fallback());
             let mut source = Solid::new(32, 16);
-            let e = render(&ffmpeg, &mut source, &j, &CancellationToken::new(), &mut noop()).unwrap_err();
+            let e = render(
+                &ffmpeg,
+                &mut source,
+                &j,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap_err();
             assert_eq!(e.code(), "capture_size_mismatch");
         }
 
@@ -767,14 +849,16 @@ mod tests {
             assert!(!j.output.exists());
         }
 
-        const REFUSE: &str =
-            r#"cat > /dev/null; echo "[h264_videotoolbox] Error while opening encoder for output stream" >&2; exit 1"#;
+        const REFUSE: &str = r#"cat > /dev/null; echo "[h264_videotoolbox] Error while opening encoder for output stream" >&2; exit 1"#;
 
         #[test]
         fn an_encoder_that_refuses_to_start_is_classified_before_the_pipe_error() {
             let dir = tempfile::tempdir().unwrap();
             // Exit without reading stdin so the writer sees a broken pipe too.
-            let ffmpeg = fake(dir.path(), r#"echo "Error while opening encoder" >&2; exit 1"#);
+            let ffmpeg = fake(
+                dir.path(),
+                r#"echo "Error while opening encoder" >&2; exit 1"#,
+            );
             let j = job(dir.path(), Encoder::mpeg4_fallback());
             let mut h264 = j.clone();
             h264.encoder = crate::encoder::pick_encoder(
@@ -785,7 +869,14 @@ mod tests {
             )
             .unwrap();
             let mut source = Solid::new(16, 16);
-            let e = render(&ffmpeg, &mut source, &h264, &CancellationToken::new(), &mut noop()).unwrap_err();
+            let e = render(
+                &ffmpeg,
+                &mut source,
+                &h264,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap_err();
             assert_eq!(e.code(), "encoder_init_failed", "{e}");
         }
 
@@ -802,8 +893,15 @@ mod tests {
             )
             .unwrap();
             let mut source = Solid::new(16, 16);
-            let e = render_with_fallback(&ffmpeg, &mut source, &j, false, &CancellationToken::new(), &mut noop())
-                .unwrap_err();
+            let e = render_with_fallback(
+                &ffmpeg,
+                &mut source,
+                &j,
+                false,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap_err();
             assert_eq!(e.code(), "h264_encoder_unavailable");
             assert!(e.to_string().contains("Error while opening encoder"), "{e}");
         }
@@ -814,9 +912,7 @@ mod tests {
             // Refuses any run that is not mpeg4; counts bytes for mpeg4.
             let ffmpeg = fake(
                 dir.path(),
-                &format!(
-                    r#"case " $* " in *" -c:v mpeg4 "*) {COUNT_BYTES};; *) {REFUSE};; esac"#
-                ),
+                &format!(r#"case " $* " in *" -c:v mpeg4 "*) {COUNT_BYTES};; *) {REFUSE};; esac"#),
             );
             let mut j = job(dir.path(), Encoder::mpeg4_fallback());
             j.encoder = crate::encoder::pick_encoder(
@@ -827,22 +923,42 @@ mod tests {
             )
             .unwrap();
             let mut source = Solid::new(16, 16);
-            let outcome =
-                render_with_fallback(&ffmpeg, &mut source, &j, true, &CancellationToken::new(), &mut noop())
-                    .unwrap();
+            let outcome = render_with_fallback(
+                &ffmpeg,
+                &mut source,
+                &j,
+                true,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap();
             assert!(outcome.encoder.fallback && outcome.encoder.name == "mpeg4");
             assert_eq!(outcome.frames, 5);
-            assert_eq!(source.seeks.len(), 10, "the failed attempt streamed 5 frames, the retry 5");
+            assert_eq!(
+                source.seeks.len(),
+                10,
+                "the failed attempt streamed 5 frames, the retry 5"
+            );
         }
 
         #[test]
         fn an_unrelated_ffmpeg_failure_passes_through_unchanged() {
             let dir = tempfile::tempdir().unwrap();
-            let ffmpeg = fake(dir.path(), r#"cat > /dev/null; echo "disk full" >&2; exit 1"#);
+            let ffmpeg = fake(
+                dir.path(),
+                r#"cat > /dev/null; echo "disk full" >&2; exit 1"#,
+            );
             let j = job(dir.path(), Encoder::mpeg4_fallback());
             let mut source = Solid::new(16, 16);
-            let e = render_with_fallback(&ffmpeg, &mut source, &j, true, &CancellationToken::new(), &mut noop())
-                .unwrap_err();
+            let e = render_with_fallback(
+                &ffmpeg,
+                &mut source,
+                &j,
+                true,
+                &CancellationToken::new(),
+                &mut noop(),
+            )
+            .unwrap_err();
             assert_eq!(e.code(), "ffmpeg_failed");
             assert!(e.to_string().contains("disk full"), "{e}");
         }
