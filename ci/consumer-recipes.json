@@ -425,15 +425,17 @@
       "pkId": "PK18",
       "id": "ci/consumers/rightkit-playback/src/main.rs",
       "dependency": "rightkit-playback = { version = \"=0.3.0\", features = [\"tauri\"] }",
-      "extraDependencies": [],
-      "gateEvidence": "no ffmpeg run; temp files only. Existing ci/asset-gated.json entry for rightkit-playback covers remux_e2e, which this recipe does not use",
-      "consumes": "cutright src-tauri/src/lib.rs:89-90 (allowed_roots + set_authoriser), :214 (authorised_media_source_id command, exercised via PlaybackState method); CutRight pin is still =0.2.2 at src-tauri/Cargo.toml:43",
+      "extraDependencies": [
+        "tauri = { version = \"2\", default-features = false, features = [\"test\"] }"
+      ],
+      "gateEvidence": "no ffmpeg run; temp files only; set_asset_scope runs against a tauri::test mock app on both hosts. Existing ci/asset-gated.json entry for rightkit-playback covers remux_e2e, which this recipe does not use",
+      "consumes": "cutright src-tauri/src/lib.rs:89-90 (allowed_roots + set_authoriser), :214 (authorised_media_source_id command, exercised via PlaybackState method); set_asset_scope is the supported live tauri scope hook (crate tests/asset_scope.rs, exercised here through tauri::test); CutRight pin is still =0.2.2 at src-tauri/Cargo.toml:43",
       "files": {
-        "Cargo.toml": "0cb2254ee47ff1180c246684ae92f7087e1c0d4270fbbc72ba1533a26b86b025",
-        "README.md": "4195ec07b11fe66f7c6ecaa74add28124d182c882046fb21dd06af3badb1487c",
-        "src/main.rs": "1d3b169f09edbf9983c38870d6b5df9b19986b5aad82dfd32ed6c8fe664752ad"
+        "Cargo.toml": "6774407d00e978382d00a27906e62d0c83ff133e40534c3f4a0ee1c0bcfbe6e6",
+        "README.md": "89882aaf797120f3d96f0e952647ac065477071f7ef5f75fef938749ff6912c1",
+        "src/main.rs": "230df0498b06af5a0ac8907dbb9272c3a7ea65b1d36db5b4f1768955deaaf18b"
       },
-      "aggregateSha256": "fda9f9df5818bc546625f3f2bbdbfd7b24bbef7da966e95b3f0405fae80a81af"
+      "aggregateSha256": "7d3626d6ecc45d0cd23f9173e6fed71c15f752d82364a369aed0f064a09fcb04"
     },
     "rightkit-pdf": {
       "pkId": "PK08",

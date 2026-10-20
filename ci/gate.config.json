@@ -373,6 +373,14 @@
         ]
       ]
     },
+    "rightkit-playback": {
+      "featureSets": [
+        [
+          "--all-features"
+        ],
+        []
+      ]
+    },
     "rightkit-ffmpeg": {
       "allowIgnored": "tests/native_catalog_e2e.rs::real_local_artifacts_and_locks_match_their_catalog_records is #[ignore] on purpose: it is an opt-in workstation audit that hashes ignored native binaries in sibling app checkouts (heardright, genright, cutright), not validation of this crate, and it runs only with an explicit --ignored run on a host that has those artifacts; the other 7 tests in the file run and assert on every default run (1 ignored per default run)"
     }
