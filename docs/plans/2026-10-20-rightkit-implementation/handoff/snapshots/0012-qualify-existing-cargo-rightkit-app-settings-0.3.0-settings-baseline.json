@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "qualify-existing",
+  "generatedAt": "2026-10-20T07:01:19.394Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:e977a87d20db976cfc72b5147fb4605e9cf0a1e41a0b2246d33d10afc6821f71",
+    "host": "win32"
+  },
+  "package": {
+    "event": "qualify-existing",
+    "id": "cargo:rightkit-app-settings",
+    "ecosystem": "cargo",
+    "name": "rightkit-app-settings",
+    "version": "0.3.0",
+    "sourceCommit": "acf7f303c1a7c1c7ac2a4333f14232a1fb35e0f8",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-app-settings/rightkit-app-settings-0.3.0.crate",
+    "integrity": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+    "archiveSha256": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+    "publishedAt": "2026-10-20",
+    "publisherTool": "right-release 0.4.0 publish cargo --from-evidence /Volumes/D/scratch/qual/rightkit-app-settings-0.3.0-acf7f303c1a7/gate.json (Mac); log /Volumes/D/scratch/publish-app-settings-0.3.0.log",
+    "qualifier": {
+      "tool": "right-release 0.4.0 --qualify-only (M) + D:/scratch/rk-exec-20261020/tools/{r1-rows.sh,registry-consumer.sh,r2b.sh} (W per gate row)",
+      "host": "darwin"
+    },
+    "registryReadback": {
+      "archiveSha256": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+      "evidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-app-settings-0.3.0-r2b/readback.txt"
+    },
+    "features": [],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "default",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/app-settings-0.3.0-r1rows-win-acf7f303",
+        "result": "pass 140/0/0; fmt, clippy, secret scan clean"
+      },
+      {
+        "host": "darwin",
+        "features": "right-release gate rows",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/gate-final/rightkit-app-settings-0.3.0.mac-qualify.log",
+        "result": "pass 143/0/0/0"
+      },
+      {
+        "host": "android",
+        "features": "lib default, lib all-features (aarch64-linux-android)",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/app-settings-0.3.0-android-acf7f303",
+        "result": "check exit 0 both"
+      },
+      {
+        "host": "win32+darwin",
+        "features": "R1 closure (credentials settings-probe)",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/closure-http-settings-acf7f303",
+        "result": "exit 0 each host"
+      },
+      {
+        "host": "win32",
+        "features": "R10 push gate",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/push-gate-dell-acf7f303c1a7/summary.txt",
+        "result": "all rows exit 0"
+      }
+    ],
+    "runtimeBudget": "not-required (continuous=false)",
+    "packedConsumer": {
+      "ok": true,
+      "example": "settings-packed",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-app-settings-0.3.0-registry-consumer"
+      ]
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "settings-packed",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-app-settings-0.3.0-r2b"
+      ]
+    },
+    "reviewer": {
+      "name": "RK Astra",
+      "verdict": "SIGN",
+      "artifactSha256": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+      "message": "Pulse ca86172a-ead8-4cc7-b1a1-efecda4b19d1",
+      "request": "D:/scratch/rk-exec-20261020/review/rightkit-app-settings-0.3.0-R8.md"
+    },
+    "qualificationBasis": {
+      "carriedFrom": "snapshots/0011-publish-cargo-rightkit-app-settings-0.3.0.json",
+      "reason": "0.3.0 is a superset of 0.2.4 (PK04-5 adds WriteSecurity; WriteSecurity::Default is 0.2.4 behaviour); W 140/0, M 143/0 incl. the 0.2.4 suite"
+    }
+  },
+  "satisfies": [
+    "PK04.settings-baseline"
+  ],
+  "supersedes": [
+    {
+      "snapshot": "snapshots/0003-qualify-existing-cargo-rightkit-app-settings-0.2.4.json",
+      "sha256": "fcc00023b31da9fc2ff40498f89c8173fb711b7c80b2e50fc72f6d2724a0a0cd",
+      "capability": "PK04.settings-baseline"
+    }
+  ]
+}

@@ -606,8 +606,7 @@ impl Policy {
                 .map(|h| h.trim().to_ascii_lowercase())
                 .filter(|h| !h.is_empty())
                 .all(|h| {
-                    self.origin.request_headers.contains(&h)
-                        || self.legacy_headers.iter().any(|legacy| *legacy == h)
+                    self.origin.request_headers.contains(&h) || self.legacy_headers.contains(&h)
                 });
             if !all_allowed {
                 return Response::empty(204);
@@ -636,7 +635,7 @@ impl Policy {
 
     fn match_route(&self, request: &Request) -> Option<&Compiled> {
         self.routes.iter().find(|route| {
-            route.spec.method.map_or(true, |m| m == request.method)
+            route.spec.method.is_none_or(|m| m == request.method)
                 && route.pattern.matches(&request.path)
         })
     }

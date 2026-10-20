@@ -1166,10 +1166,10 @@ pub(super) fn recover_locked(
 
         // The recovery slot protected a rotation that is now proven consistent (or holds the key
         // that was just restored as primary), so it is redundant.
-        let rotation_settled = journal.as_ref().map_or(false, |journal| {
+        let rotation_settled = journal.as_ref().is_some_and(|journal| {
             journal.kind == TransitionKind::Rotate
                 && !journal.retain_previous
-                && Phase::parse(&journal.phase).map_or(false, |phase| phase >= Phase::OldRetained)
+                && Phase::parse(&journal.phase).is_some_and(|phase| phase >= Phase::OldRetained)
         });
         let from_recovery = matches!(source, KeySource::Recovery);
         if (rotation_settled || from_recovery) && matches!(slots.recovery, SlotRead::Key(_)) {

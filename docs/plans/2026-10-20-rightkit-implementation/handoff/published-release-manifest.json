@@ -4,15 +4,15 @@
     "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
     "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
   },
-  "generatedAt": "2026-10-20T05:16:14.717Z",
+  "generatedAt": "2026-10-20T07:09:03.719Z",
   "snapshotProducer": {
     "kind": "manual",
-    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:e977a87d20db976cfc72b5147fb4605e9cf0a1e41a0b2246d33d10afc6821f71",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:a8690b4fc2b738e4284b202d9be70b0b9491a8bd76e42cd7fa0933671f5e5acc",
     "host": "win32"
   },
   "selectedSnapshot": {
-    "path": "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json",
-    "sha256": "e6ff1c805267b02ae31908d1665ae8f5f0913169868ef142b720424c33f4597b"
+    "path": "snapshots/0018-qualify-existing-cargo-rightkit-app-settings-0.3.0-settings-baseline.json",
+    "sha256": "065a3e6e18e6423dcc374d6ab0dd092b40f677958a1ac2649603a4c6054c1e7e"
   },
   "packages": [
     {
@@ -26,14 +26,17 @@
       "integrity": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
       "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
       "publishedAt": "2026-10-20",
-      "publisherTool": "right-release 0.4.0 publish cargo --local (Mac, local-build grant); log D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
-      "qualifier": {
-        "tool": "right-release 0.4.0 gate (W and M) + D:/scratch/rk-exec-20261020/tools/{r1-win.sh,pack-qualify.sh,registry-consumer.sh,r2b.sh}",
+      "publisherTool": {
+        "version": "0.4.0",
+        "source": "installed-published",
         "host": "darwin"
       },
+      "originalPublication": null,
+      "qualifier": null,
       "registryReadback": {
-        "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
-        "evidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b/readback.txt"
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b/readback.txt",
+        "versionsJsonSection": null,
+        "archiveSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42"
       },
       "features": [
         "fs",
@@ -62,6 +65,18 @@
           "features": "right-release publish gate",
           "gateEvidence": "D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
           "result": "pass 1090/0/0"
+        },
+        {
+          "host": "darwin",
+          "features": "publisher run",
+          "gateEvidence": "right-release 0.4.0 publish cargo --local (Mac, local-build grant); log D:/scratch/rk-exec-20261020/publish/fs-0.4.5-mac.log",
+          "result": "pass"
+        },
+        {
+          "host": "win32",
+          "features": "qualifier tools",
+          "gateEvidence": "right-release 0.4.0 gate (W and M) + D:/scratch/rk-exec-20261020/tools/{r1-win.sh,pack-qualify.sh,registry-consumer.sh,r2b.sh}",
+          "result": "pass"
         }
       ],
       "runtimeBudget": "not-required (continuous=false)",
@@ -79,7 +94,8 @@
           "D:/scratch/rk-exec-20261020/evidence/rightkit-fs-0.4.5-r2b"
         ]
       },
-      "reviewer": {
+      "reviewer": "astra",
+      "reviewSign": {
         "name": "RK Astra",
         "verdict": "SIGN",
         "artifactSha256": "fb0a20d5a14fb44c79f7f6cb79430d10fecda6357454543221dd706f6bec7c42",
@@ -103,6 +119,18 @@
           "version": "0.4.5",
           "event": "qualify-existing",
           "snapshot": "snapshots/0008-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json",
+          "effective": true
+        },
+        {
+          "version": "0.4.5",
+          "event": "publish",
+          "snapshot": "snapshots/0013-publish-cargo-rightkit-fs-0.4.5.json",
+          "effective": true
+        },
+        {
+          "version": "0.4.5",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0017-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json",
           "effective": true
         }
       ]
@@ -178,33 +206,29 @@
       ]
     },
     {
-      "event": "qualify-existing",
+      "event": "publish",
       "id": "cargo:rightkit-app-settings",
       "ecosystem": "cargo",
       "name": "rightkit-app-settings",
-      "version": "0.2.4",
-      "sourceCommit": null,
-      "sourceCommitNullReason": "published bytes qualified as fetched; no verified release tag for this historical version",
-      "archiveUrl": "https://static.crates.io/crates/rightkit-app-settings/rightkit-app-settings-0.2.4.crate",
-      "integrity": "dd689f3afbf7868b341eb26087361fec8a8384f4907806572ef35a022a5cfb6e",
-      "archiveSha256": "dd689f3afbf7868b341eb26087361fec8a8384f4907806572ef35a022a5cfb6e",
-      "publishedAt": null,
-      "publisherTool": null,
-      "originalPublication": {
-        "publishedAt": null,
-        "publisher": "unrecorded"
+      "version": "0.3.0",
+      "sourceCommit": "acf7f303c1a7c1c7ac2a4333f14232a1fb35e0f8",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-app-settings/rightkit-app-settings-0.3.0.crate",
+      "integrity": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+      "archiveSha256": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+      "publishedAt": "2026-10-20",
+      "publisherTool": {
+        "version": "0.4.0",
+        "source": "installed-published",
+        "host": "darwin"
       },
-      "qualifier": {
-        "tool": "right-release 0.4.0 (npm @rightkit/release@0.4.0, shasum 8f2fcd7397ec680272b4739f604d5058b6ef4201) installed on W and M; scratch consumer built by the rightkit cargo broker",
-        "host": "win32"
-      },
+      "originalPublication": null,
+      "qualifier": null,
       "registryReadback": {
-        "lookup": "D:/scratch/rk-exec-20261020/evidence/index-rightkit-app-settings.txt",
-        "versionsJsonSection": null
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/rightkit-app-settings-0.3.0-r2b/readback.txt",
+        "versionsJsonSection": null,
+        "archiveSha256": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce"
       },
-      "features": [
-        "sql"
-      ],
+      "features": [],
       "targets": [
         "win32-x64",
         "darwin-arm64"
@@ -212,36 +236,99 @@
       "qualification": [
         {
           "host": "win32",
-          "features": "sql",
-          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-settings-win.log",
-          "result": "pass"
+          "features": "default",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/app-settings-0.3.0-r1rows-win-acf7f303",
+          "result": "pass 140/0/0; fmt, clippy, secret scan clean"
         },
         {
           "host": "darwin",
-          "features": "sql",
-          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/consumer-settings-mac.log",
+          "features": "right-release gate rows",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/gate-final/rightkit-app-settings-0.3.0.mac-qualify.log",
+          "result": "pass 143/0/0/0"
+        },
+        {
+          "host": "android",
+          "features": "lib default, lib all-features (aarch64-linux-android)",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/app-settings-0.3.0-android-acf7f303",
+          "result": "check exit 0 both"
+        },
+        {
+          "host": "win32+darwin",
+          "features": "R1 closure (credentials settings-probe)",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/closure-http-settings-acf7f303",
+          "result": "exit 0 each host"
+        },
+        {
+          "host": "win32",
+          "features": "R10 push gate",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/push-gate-dell-acf7f303c1a7/summary.txt",
+          "result": "all rows exit 0"
+        },
+        {
+          "host": "darwin",
+          "features": "publisher run",
+          "gateEvidence": "right-release 0.4.0 publish cargo --from-evidence /Volumes/D/scratch/qual/rightkit-app-settings-0.3.0-acf7f303c1a7/gate.json (Mac); log /Volumes/D/scratch/publish-app-settings-0.3.0.log",
+          "result": "pass"
+        },
+        {
+          "host": "win32",
+          "features": "qualifier tools",
+          "gateEvidence": "right-release 0.4.0 --qualify-only (M) + D:/scratch/rk-exec-20261020/tools/{r1-rows.sh,registry-consumer.sh,r2b.sh} (W per gate row)",
           "result": "pass"
         }
       ],
-      "runtimeBudget": "not-required",
+      "runtimeBudget": "not-required (continuous=false)",
       "packedConsumer": {
-        "ok": null,
-        "notApplicable": "unchanged published bytes"
+        "ok": true,
+        "example": "settings-packed",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/rightkit-app-settings-0.3.0-registry-consumer"
+        ]
       },
       "fetchedConsumer": {
         "ok": true,
-        "example": "settings-baseline",
+        "example": "settings-packed",
         "evidence": [
-          "D:/scratch/rk-exec-20261020/evidence/consumer-settings-win.log",
-          "D:/scratch/rk-exec-20261020/evidence/consumer-settings-mac.log"
+          "D:/scratch/rk-exec-20261020/evidence/rightkit-app-settings-0.3.0-r2b"
         ]
       },
-      "reviewer": null,
+      "reviewer": "astra",
+      "reviewSign": {
+        "name": "RK Astra",
+        "verdict": "SIGN",
+        "artifactSha256": "15ad1401a796f00d3f026b1eee3725545d8f800fc3f291ed36c8fa33061c13ce",
+        "message": "Pulse ca86172a-ead8-4cc7-b1a1-efecda4b19d1",
+        "request": "D:/scratch/rk-exec-20261020/review/rightkit-app-settings-0.3.0-R8.md"
+      },
       "history": [
         {
           "version": "0.2.4",
           "event": "qualify-existing",
           "snapshot": "snapshots/0003-qualify-existing-cargo-rightkit-app-settings-0.2.4.json",
+          "effective": false
+        },
+        {
+          "version": "0.3.0",
+          "event": "publish",
+          "snapshot": "snapshots/0011-publish-cargo-rightkit-app-settings-0.3.0.json",
+          "effective": true
+        },
+        {
+          "version": "0.3.0",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0012-qualify-existing-cargo-rightkit-app-settings-0.3.0-settings-baseline.json",
+          "effective": true
+        },
+        {
+          "version": "0.3.0",
+          "event": "publish",
+          "snapshot": "snapshots/0016-publish-cargo-rightkit-app-settings-0.3.0.json",
+          "effective": true
+        },
+        {
+          "version": "0.3.0",
+          "event": "qualify-existing",
+          "snapshot": "snapshots/0018-qualify-existing-cargo-rightkit-app-settings-0.3.0-settings-baseline.json",
           "effective": true
         }
       ]
@@ -460,14 +547,17 @@
       "integrity": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd",
       "archiveSha256": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd",
       "publishedAt": "2026-10-20",
-      "publisherTool": "right-release 0.4.0 publish cargo --local (Mac, local-build grant); log D:/scratch/rk-exec-20261020/publish/cp-0.5.3-mac.log",
-      "qualifier": {
-        "tool": "right-release 0.4.0 gate (W and M) + D:/scratch/rk-exec-20261020/tools/{r1-win.sh,pack-qualify.sh,registry-consumer.sh,r2b.sh}",
+      "publisherTool": {
+        "version": "0.4.0",
+        "source": "installed-published",
         "host": "darwin"
       },
+      "originalPublication": null,
+      "qualifier": null,
       "registryReadback": {
-        "archiveSha256": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd",
-        "evidence": "D:/scratch/rk-exec-20261020/evidence/rightkit-child-process-0.5.3-r2b/readback.txt"
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/rightkit-child-process-0.5.3-r2b/readback.txt",
+        "versionsJsonSection": null,
+        "archiveSha256": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd"
       },
       "features": [],
       "targets": [
@@ -492,6 +582,18 @@
           "features": "right-release publish gate",
           "gateEvidence": "D:/scratch/rk-exec-20261020/publish/cp-0.5.3-mac.log",
           "result": "pass 484/0/2"
+        },
+        {
+          "host": "darwin",
+          "features": "publisher run",
+          "gateEvidence": "right-release 0.4.0 publish cargo --local (Mac, local-build grant); log D:/scratch/rk-exec-20261020/publish/cp-0.5.3-mac.log",
+          "result": "pass"
+        },
+        {
+          "host": "win32",
+          "features": "qualifier tools",
+          "gateEvidence": "right-release 0.4.0 gate (W and M) + D:/scratch/rk-exec-20261020/tools/{r1-win.sh,pack-qualify.sh,registry-consumer.sh,r2b.sh}",
+          "result": "pass"
         }
       ],
       "runtimeBudget": "not-required (continuous=false)",
@@ -509,7 +611,8 @@
           "D:/scratch/rk-exec-20261020/evidence/rightkit-child-process-0.5.3-r2b"
         ]
       },
-      "reviewer": {
+      "reviewer": "astra",
+      "reviewSign": {
         "name": "RK Astra",
         "verdict": "SIGN",
         "artifactSha256": "1d82335f34618df39435b720c63d59045ab2580d29eb143d200532232ca9d2cd",
@@ -521,6 +624,116 @@
           "version": "0.5.3",
           "event": "publish",
           "snapshot": "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json",
+          "effective": true
+        },
+        {
+          "version": "0.5.3",
+          "event": "publish",
+          "snapshot": "snapshots/0014-publish-cargo-rightkit-child-process-0.5.3.json",
+          "effective": true
+        }
+      ]
+    },
+    {
+      "event": "publish",
+      "id": "cargo:rightkit-http",
+      "ecosystem": "cargo",
+      "name": "rightkit-http",
+      "version": "0.3.7",
+      "sourceCommit": "acf7f303c1a7c1c7ac2a4333f14232a1fb35e0f8",
+      "archiveUrl": "https://static.crates.io/crates/rightkit-http/rightkit-http-0.3.7.crate",
+      "integrity": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d",
+      "archiveSha256": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d",
+      "publishedAt": "2026-10-20",
+      "publisherTool": {
+        "version": "0.4.0",
+        "source": "installed-published",
+        "host": "darwin"
+      },
+      "originalPublication": null,
+      "qualifier": null,
+      "registryReadback": {
+        "lookup": "D:/scratch/rk-exec-20261020/evidence/rightkit-http-0.3.7-r2b/readback.txt",
+        "versionsJsonSection": null,
+        "archiveSha256": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d"
+      },
+      "features": [],
+      "targets": [
+        "win32-x64",
+        "darwin-arm64"
+      ],
+      "qualification": [
+        {
+          "host": "win32",
+          "features": "[--all-features],[--features async],[--features gzip,untrusted]",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/http-0.3.7-r1rows-win-acf7f303",
+          "result": "pass 347/0/0, 340/0/0, 273/0/0; fmt, clippy, secret scan clean"
+        },
+        {
+          "host": "darwin",
+          "features": "right-release gate rows",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/gate-final/rightkit-http-0.3.7.mac-qualify.log",
+          "result": "pass 960/0/0/0"
+        },
+        {
+          "host": "win32+darwin",
+          "features": "R1 closure (all-features dependents)",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/closure-http-settings-acf7f303",
+          "result": "9/9 exit 0 each host"
+        },
+        {
+          "host": "win32",
+          "features": "R10 push gate",
+          "gateEvidence": "D:/scratch/rk-exec-20261020/push-gate-dell-acf7f303c1a7/summary.txt",
+          "result": "all rows exit 0"
+        },
+        {
+          "host": "darwin",
+          "features": "publisher run",
+          "gateEvidence": "right-release 0.4.0 publish cargo --from-evidence /Volumes/D/scratch/qual/rightkit-http-0.3.7-acf7f303c1a7/gate.json (Mac); log /Volumes/D/scratch/publish-http-0.3.7.log",
+          "result": "pass"
+        },
+        {
+          "host": "win32",
+          "features": "qualifier tools",
+          "gateEvidence": "right-release 0.4.0 --qualify-only (M) + D:/scratch/rk-exec-20261020/tools/{r1-rows.sh,registry-consumer.sh,r2b.sh} (W per gate row)",
+          "result": "pass"
+        }
+      ],
+      "runtimeBudget": "not-required (continuous=false)",
+      "packedConsumer": {
+        "ok": true,
+        "example": "http-packed",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/rightkit-http-0.3.7-registry-consumer"
+        ]
+      },
+      "fetchedConsumer": {
+        "ok": true,
+        "example": "http-packed",
+        "evidence": [
+          "D:/scratch/rk-exec-20261020/evidence/rightkit-http-0.3.7-r2b"
+        ]
+      },
+      "reviewer": "astra",
+      "reviewSign": {
+        "name": "RK Astra",
+        "verdict": "SIGN",
+        "artifactSha256": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d",
+        "message": "Pulse ca86172a-ead8-4cc7-b1a1-efecda4b19d1",
+        "request": "D:/scratch/rk-exec-20261020/review/rightkit-http-0.3.7-R8.md"
+      },
+      "history": [
+        {
+          "version": "0.3.7",
+          "event": "publish",
+          "snapshot": "snapshots/0010-publish-cargo-rightkit-http-0.3.7.json",
+          "effective": true
+        },
+        {
+          "version": "0.3.7",
+          "event": "publish",
+          "snapshot": "snapshots/0015-publish-cargo-rightkit-http-0.3.7.json",
           "effective": true
         }
       ]
@@ -534,7 +747,8 @@
       ],
       "evidence": [
         "snapshots/0001-qualify-existing-cargo-rightkit-fs-0.4.4.json",
-        "snapshots/0008-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json"
+        "snapshots/0008-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json",
+        "snapshots/0017-qualify-existing-cargo-rightkit-fs-0.4.5-atomic-baseline.json"
       ]
     },
     "PK01.atomic-publication": {
@@ -543,7 +757,8 @@
         "cargo:rightkit-fs@0.4.5"
       ],
       "evidence": [
-        "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json"
+        "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json",
+        "snapshots/0013-publish-cargo-rightkit-fs-0.4.5.json"
       ]
     },
     "PK01.lease": {
@@ -552,7 +767,8 @@
         "cargo:rightkit-fs@0.4.5"
       ],
       "evidence": [
-        "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json"
+        "snapshots/0007-publish-cargo-rightkit-fs-0.4.5.json",
+        "snapshots/0013-publish-cargo-rightkit-fs-0.4.5.json"
       ]
     },
     "PK01.write-locks": {
@@ -571,7 +787,8 @@
         "cargo:rightkit-child-process@0.5.3"
       ],
       "evidence": [
-        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json"
+        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json",
+        "snapshots/0014-publish-cargo-rightkit-child-process-0.5.3.json"
       ]
     },
     "PK02.configured-runner": {
@@ -580,7 +797,8 @@
         "cargo:rightkit-child-process@0.5.3"
       ],
       "evidence": [
-        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json"
+        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json",
+        "snapshots/0014-publish-cargo-rightkit-child-process-0.5.3.json"
       ]
     },
     "PK02.streaming": {
@@ -589,7 +807,8 @@
         "cargo:rightkit-child-process@0.5.3"
       ],
       "evidence": [
-        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json"
+        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json",
+        "snapshots/0014-publish-cargo-rightkit-child-process-0.5.3.json"
       ]
     },
     "PK02.breakaway": {
@@ -598,7 +817,8 @@
         "cargo:rightkit-child-process@0.5.3"
       ],
       "evidence": [
-        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json"
+        "snapshots/0009-publish-cargo-rightkit-child-process-0.5.3.json",
+        "snapshots/0014-publish-cargo-rightkit-child-process-0.5.3.json"
       ]
     },
     "PK03.sqlite-baseline": {
@@ -628,10 +848,12 @@
     "PK04.settings-baseline": {
       "status": "satisfied",
       "packageIds": [
-        "cargo:rightkit-app-settings@0.2.4"
+        "cargo:rightkit-app-settings@0.3.0"
       ],
       "evidence": [
-        "snapshots/0003-qualify-existing-cargo-rightkit-app-settings-0.2.4.json"
+        "snapshots/0003-qualify-existing-cargo-rightkit-app-settings-0.2.4.json",
+        "snapshots/0012-qualify-existing-cargo-rightkit-app-settings-0.3.0-settings-baseline.json",
+        "snapshots/0018-qualify-existing-cargo-rightkit-app-settings-0.3.0-settings-baseline.json"
       ]
     },
     "PK04.host-services": {
@@ -640,9 +862,14 @@
       "evidence": []
     },
     "PK04.write-security": {
-      "status": "pending",
-      "packageIds": [],
-      "evidence": []
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-app-settings@0.3.0"
+      ],
+      "evidence": [
+        "snapshots/0011-publish-cargo-rightkit-app-settings-0.3.0.json",
+        "snapshots/0016-publish-cargo-rightkit-app-settings-0.3.0.json"
+      ]
     },
     "PK05.entitlements-baseline": {
       "status": "satisfied",
@@ -778,9 +1005,14 @@
       "evidence": []
     },
     "PK12.redirect": {
-      "status": "pending",
-      "packageIds": [],
-      "evidence": []
+      "status": "satisfied",
+      "packageIds": [
+        "cargo:rightkit-http@0.3.7"
+      ],
+      "evidence": [
+        "snapshots/0010-publish-cargo-rightkit-http-0.3.7.json",
+        "snapshots/0015-publish-cargo-rightkit-http-0.3.7.json"
+      ]
     },
     "PK12.cookie-export": {
       "status": "pending",
@@ -1001,7 +1233,7 @@
       ]
     },
     "PK12": {
-      "status": "pending",
+      "status": "partial",
       "capabilities": [
         "PK12.redirect",
         "PK12.cookie-export",

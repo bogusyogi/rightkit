@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "spec": {
+    "commit": "5ce6e2c32843edd28b003162f31f50f6cce0d9b5",
+    "sha256": "f01330aed8e63a74ee290e31ad1c4c728dd8b3f8414bea4bea17dd4855701a49"
+  },
+  "event": "publish",
+  "generatedAt": "2026-10-20T07:08:42.305Z",
+  "snapshotProducer": {
+    "kind": "manual",
+    "tool": "D:/scratch/rk-exec-20261020/tools/handoff.mjs sha256:a8690b4fc2b738e4284b202d9be70b0b9491a8bd76e42cd7fa0933671f5e5acc",
+    "host": "darwin"
+  },
+  "package": {
+    "event": "publish",
+    "id": "cargo:rightkit-http",
+    "ecosystem": "cargo",
+    "name": "rightkit-http",
+    "version": "0.3.7",
+    "sourceCommit": "acf7f303c1a7c1c7ac2a4333f14232a1fb35e0f8",
+    "archiveUrl": "https://static.crates.io/crates/rightkit-http/rightkit-http-0.3.7.crate",
+    "integrity": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d",
+    "archiveSha256": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d",
+    "publishedAt": "2026-10-20",
+    "publisherTool": {
+      "version": "0.4.0",
+      "source": "installed-published",
+      "host": "darwin"
+    },
+    "originalPublication": null,
+    "qualifier": null,
+    "registryReadback": {
+      "lookup": "D:/scratch/rk-exec-20261020/evidence/rightkit-http-0.3.7-r2b/readback.txt",
+      "versionsJsonSection": null,
+      "archiveSha256": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d"
+    },
+    "features": [],
+    "targets": [
+      "win32-x64",
+      "darwin-arm64"
+    ],
+    "qualification": [
+      {
+        "host": "win32",
+        "features": "[--all-features],[--features async],[--features gzip,untrusted]",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/evidence/http-0.3.7-r1rows-win-acf7f303",
+        "result": "pass 347/0/0, 340/0/0, 273/0/0; fmt, clippy, secret scan clean"
+      },
+      {
+        "host": "darwin",
+        "features": "right-release gate rows",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/gate-final/rightkit-http-0.3.7.mac-qualify.log",
+        "result": "pass 960/0/0/0"
+      },
+      {
+        "host": "win32+darwin",
+        "features": "R1 closure (all-features dependents)",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/closure-http-settings-acf7f303",
+        "result": "9/9 exit 0 each host"
+      },
+      {
+        "host": "win32",
+        "features": "R10 push gate",
+        "gateEvidence": "D:/scratch/rk-exec-20261020/push-gate-dell-acf7f303c1a7/summary.txt",
+        "result": "all rows exit 0"
+      },
+      {
+        "host": "darwin",
+        "features": "publisher run",
+        "gateEvidence": "right-release 0.4.0 publish cargo --from-evidence /Volumes/D/scratch/qual/rightkit-http-0.3.7-acf7f303c1a7/gate.json (Mac); log /Volumes/D/scratch/publish-http-0.3.7.log",
+        "result": "pass"
+      },
+      {
+        "host": "win32",
+        "features": "qualifier tools",
+        "gateEvidence": "right-release 0.4.0 --qualify-only (M) + D:/scratch/rk-exec-20261020/tools/{r1-rows.sh,registry-consumer.sh,r2b.sh} (W per gate row)",
+        "result": "pass"
+      }
+    ],
+    "runtimeBudget": "not-required (continuous=false)",
+    "packedConsumer": {
+      "ok": true,
+      "example": "http-packed",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-http-0.3.7-registry-consumer"
+      ]
+    },
+    "fetchedConsumer": {
+      "ok": true,
+      "example": "http-packed",
+      "evidence": [
+        "D:/scratch/rk-exec-20261020/evidence/rightkit-http-0.3.7-r2b"
+      ]
+    },
+    "reviewer": "astra",
+    "reviewSign": {
+      "name": "RK Astra",
+      "verdict": "SIGN",
+      "artifactSha256": "c48823d645e991e485a92c93df677ada8acaaa3f2d7e8c73e7e20804a380084d",
+      "message": "Pulse ca86172a-ead8-4cc7-b1a1-efecda4b19d1",
+      "request": "D:/scratch/rk-exec-20261020/review/rightkit-http-0.3.7-R8.md"
+    }
+  },
+  "satisfies": [
+    "PK12.redirect"
+  ],
+  "supersedes": [
+    {
+      "snapshot": "snapshots/0010-publish-cargo-rightkit-http-0.3.7.json",
+      "sha256": "35f3b37eb43687f4df448c7376963b616299b5fe944265ebfa0ab192bcd67309",
+      "reason": "schema correction (§6 publish field rules: publisherTool object, qualifier/originalPublication null)"
+    }
+  ]
+}

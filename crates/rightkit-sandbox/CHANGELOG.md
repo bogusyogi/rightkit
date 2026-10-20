@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 (unpublished staging)
+
+- **Windows: pipe-pair launches take ancestor traverse leases best effort.** `Sandbox::spawn_with_pipe_pair` and `spawn_with_pipe_pair_stdio_file` (the browser fixture) failed for a standard user with `AncestorAccess` Win32 error 5 on `C:\Users`, which the user cannot re-ACL. They now use `AncestorLeasePolicy::BestEffort`, as `AppContainerProfile` does: an ancestor whose DACL write is denied and that does not already allow the container is skipped (the token reaches the grants through bypass-traverse). The skip happens only when the write is denied (permission denied) AND the readable DACL still lacks the access; an unreadable DACL or any other error still fails the launch. The grants, deny carve-outs and image lease stay strict, and `Sandbox::spawn` stays `Strict`. Tests added; not compiled or run.
+
 ## 0.5.0 (2026-10-17)
 
 CodeRight port (issues #558, #559, #560, #561, #562, #564, #566). New API and opt-in policy knobs, except the Linux

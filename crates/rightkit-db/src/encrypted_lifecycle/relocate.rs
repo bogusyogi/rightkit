@@ -186,7 +186,7 @@ impl EncryptedStore {
         cfg: &EncryptedStoreConfig,
         key: &Key,
         plan: &RelocationPlan,
-    ) -> Result<RelocationReport, Failure> {
+    ) -> Result<RelocationReport, Box<Failure>> {
         let old_path = cfg.db.path.clone();
         let new_path = plan.new_path.clone();
         let transition = StoreTransition::begin(
@@ -225,7 +225,7 @@ impl EncryptedStore {
 
         // A failure after the copy was published removes the copy only while it still has the
         // identity it was published with; a failure before publication removes nothing.
-        let fail = |error: LifecycleError, copy: rightkit_fs::FileKey| -> Failure {
+        let fail = |error: LifecycleError, copy: rightkit_fs::FileKey| -> Box<Failure> {
             let removed = remove_owned_copy(&new_path, Some(copy));
             let mut failure = Failure::plain(error);
             if !removed && std::fs::symlink_metadata(&new_path).is_ok() {
@@ -307,9 +307,8 @@ impl EncryptedStore {
                         },
                         copy_key,
                     );
-                    failure.key_store_residue = destination
-                        .read_primary()
-                        .map_or(false, |slot| slot.is_some());
+                    failure.key_store_residue =
+                        destination.read_primary().is_ok_and(|slot| slot.is_some());
                     return Err(failure);
                 }
             }
@@ -344,7 +343,7 @@ impl EncryptedStore {
             }
             Err(error) => {
                 let removed = remove_owned_copy(&new_path, Some(copy_key));
-                Err(Failure {
+                Err(Box::new(Failure {
                     error,
                     copy_retained: if removed || !new_path.exists() {
                         None
@@ -352,7 +351,7 @@ impl EncryptedStore {
                         Some(new_path)
                     },
                     key_store_residue,
-                })
+                }))
             }
         }
     }
@@ -365,11 +364,11 @@ struct Failure {
 }
 
 impl Failure {
-    fn plain(error: LifecycleError) -> Self {
-        Self {
+    fn plain(error: LifecycleError) -> Box<Self> {
+        Box::new(Self {
             error,
             copy_retained: None,
             key_store_residue: false,
-        }
+        })
     }
 }

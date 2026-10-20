@@ -95,6 +95,12 @@ when required ancestor access cannot be established. Admin-owned roots need a
 one-time `S-1-15-2-1` `(RD,RA,S)` **this-folder-only** grant. The build broker
 bootstrap, which provides this grant for its managed root, is outside this repository (RustRight, see INDEX.md) and is not verified here.
 
+`spawn_with_pipe_pair` and `AppContainerProfile` lease ancestors best effort: an ancestor whose DACL write is
+refused (a standard user on `C:\Users`) is skipped only when the readable DACL confirms the container lacks the
+access, and the token's bypass-traverse privilege reaches the grants below it. The deepest skipped ancestor is
+exported as `GIT_CEILING_DIRECTORIES` unless the caller sets it. Grants, deny carve-outs and the image lease
+still fail the launch; one-shot `spawn` stays strict.
+
 Windows-only `sweep_stale_appcontainer_ancestor_aces(path: &std::path::Path) ->
 Result<usize, SandboxError>` removes stale explicit allow ACEs on physical
 ancestors, preserving live in-process leases. Acquisition runs this sweep too.

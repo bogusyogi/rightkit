@@ -145,8 +145,7 @@ fn two_shells_attach_and_neither_may_stop_the_shared_host() {
     // Attaching never implies the right to stop: nothing is sent, nothing is signalled.
     let refused = a
         .shutdown_owned()
-        .err()
-        .expect("an attached host is not stoppable");
+        .expect_err("an attached host is not stoppable");
     assert!(matches!(refused, LifecycleError::NotOwned), "{refused}");
 
     // One client detaching leaves the shared service running for the other.
@@ -232,7 +231,7 @@ fn when_the_owner_exits_sessions_go_stale_and_a_replacement_is_a_new_generation(
 
     // The owner exits.
     drop(first);
-    let stale = old.call("echo", json!({})).err().expect("the host is gone");
+    let stale = old.call("echo", json!({})).expect_err("the host is gone");
     assert!(
         matches!(stale, LifecycleError::StaleGeneration { .. }),
         "{stale}"
@@ -294,8 +293,7 @@ fn an_owned_host_stops_gracefully_and_an_attached_shell_cannot_stop_it() {
 
     let refused = guest
         .shutdown_owned()
-        .err()
-        .expect("a guest may not stop the host");
+        .expect_err("a guest may not stop the host");
     assert!(matches!(refused, LifecycleError::NotOwned), "{refused}");
     assert!(
         guest_session.call("echo", json!({})).is_ok(),
@@ -374,8 +372,7 @@ fn an_owned_host_that_dies_is_replaced_by_the_owner_and_stays_owned() {
 
     let stale = old
         .call("echo", json!({}))
-        .err()
-        .expect("the generation is gone");
+        .expect_err("the generation is gone");
     assert!(
         matches!(stale, LifecycleError::StaleGeneration { .. }),
         "{stale}"

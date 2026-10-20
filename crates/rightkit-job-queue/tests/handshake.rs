@@ -82,27 +82,56 @@ fn params(json: &str) -> Zeroizing<Vec<u8>> {
     Zeroizing::new(json.as_bytes().to_vec())
 }
 
+/// Failure diagnostics only: one line each time the generation, attempt or lifecycle changes,
+/// sampled about every 100 ms, so a failed wait shows whether the supervisor was still making
+/// progress (slow boots) or had stopped (a stuck state).
+fn note_progress(s: &EngineSupervisor, began: Instant, last: &mut String, trace: &mut Vec<String>) {
+    let st = s.status();
+    let key = format!(
+        "gen {} attempt {} {:?} restarts {}",
+        st.generation, st.attempt, st.lifecycle, st.restarts
+    );
+    if key != *last {
+        trace.push(format!("{}ms {key}", began.elapsed().as_millis()));
+        *last = key;
+    }
+}
+
 fn wait_until(s: &EngineSupervisor, state: Lifecycle) {
-    let until = Instant::now() + Duration::from_secs(4);
+    let began = Instant::now();
+    let until = began + Duration::from_secs(4);
+    let (mut trace, mut last, mut next_sample) = (Vec::new(), String::new(), began);
     while s.lifecycle() != state && Instant::now() < until {
+        if Instant::now() >= next_sample {
+            note_progress(s, began, &mut last, &mut trace);
+            next_sample = Instant::now() + Duration::from_millis(100);
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(
         s.lifecycle(),
         state,
-        "status: {:?}",
-        s.status().last_exit_reason
+        "waited {:?} of a 4 s ceiling for {state:?}; progression: {trace:?}; status: {:?}",
+        began.elapsed(),
+        s.status()
     );
 }
 
 fn wait_generation(s: &EngineSupervisor, generation: u64) {
-    let until = Instant::now() + Duration::from_secs(4);
+    let began = Instant::now();
+    let until = began + Duration::from_secs(4);
+    let (mut trace, mut last, mut next_sample) = (Vec::new(), String::new(), began);
     while s.status().generation < generation && Instant::now() < until {
+        if Instant::now() >= next_sample {
+            note_progress(s, began, &mut last, &mut trace);
+            next_sample = Instant::now() + Duration::from_millis(100);
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(
         s.status().generation >= generation,
-        "status: {:?}",
+        "waited {:?} of a 4 s ceiling for generation {generation}; progression: {trace:?}; status: {:?}",
+        began.elapsed(),
         s.status()
     );
 }

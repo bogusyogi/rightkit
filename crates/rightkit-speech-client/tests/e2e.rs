@@ -96,6 +96,26 @@ fn wait_for(p: &Path, secs: u64) -> bool {
     p.exists()
 }
 
+/// Waits (bounded) until `p` holds at least `n` newline-terminated lines and
+/// returns them. The fake host appends with `writeln!` through an unbuffered
+/// file, which issues several writes, so a reader can observe a partial final
+/// line; only lines already terminated by a newline are complete frames.
+fn wait_for_lines(p: &Path, n: usize, secs: u64) -> Vec<String> {
+    let until = Instant::now() + Duration::from_secs(secs);
+    loop {
+        let text = std::fs::read_to_string(p).unwrap_or_default();
+        let complete: Vec<String> = text
+            .split_inclusive('\n')
+            .filter(|l| l.ends_with('\n'))
+            .map(|l| l.trim_end_matches(['\n', '\r']).to_string())
+            .collect();
+        if complete.len() >= n || Instant::now() > until {
+            return complete;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 fn last_request(e: &Env) -> Value {
     serde_json::from_slice(&std::fs::read(e.state.join("last_request.json")).unwrap()).unwrap()
 }
@@ -1070,10 +1090,10 @@ fn local_stop_sends_the_cancel_frame_to_a_minor_4_host_without_waiting_for_an_ac
     assert_eq!(cancel_hanging_job(&mut c), ClientError::Cancelled);
     assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
     let frames = e.state.join("cancel_frames");
-    assert!(wait_for(&frames, 5), "the host received the cancel frame");
     assert_eq!(
-        std::fs::read_to_string(&frames).unwrap().trim(),
-        "job-cancel"
+        wait_for_lines(&frames, 1, 5),
+        ["job-cancel"],
+        "the host received the cancel frame"
     );
 }
 
@@ -1138,16 +1158,9 @@ fn capture_commands_round_trip_and_stop_closes_without_waiting_for_a_reply() {
     c.stop_capture("pulse-1");
     assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
     let frames = e.state.join("capture_frames");
-    let wait_lines = Instant::now() + Duration::from_secs(5);
-    let lines = loop {
-        let text = std::fs::read_to_string(&frames).unwrap_or_default();
-        if text.lines().count() >= 3 || Instant::now() > wait_lines {
-            break text;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    };
+    let lines = wait_for_lines(&frames, 3, 5);
     let kinds: Vec<String> = lines
-        .lines()
+        .iter()
         .map(|l| serde_json::from_str::<Value>(l).unwrap()["kind"].to_string())
         .collect();
     assert_eq!(

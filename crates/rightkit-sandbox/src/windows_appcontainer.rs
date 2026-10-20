@@ -2794,6 +2794,12 @@ pub(crate) fn pin_revoke(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Ancestor traverse policy of the one-shot `spawn`: an ancestor that cannot be leased fails it.
+const ONE_SHOT_ANCESTOR_POLICY: AncestorLeasePolicy = AncestorLeasePolicy::Strict;
+/// Ancestor traverse policy of `spawn_with_pipe_pair`: a denied ancestor write is skipped only
+/// under the conditions `AncestorLease::record_unleasable` checks.
+const PIPE_PAIR_ANCESTOR_POLICY: AncestorLeasePolicy = AncestorLeasePolicy::BestEffort;
+
 /// Spawn `command` confined to `policy`: suspended, assigned to a kill-on-close job, resumed.
 /// With `piped_stdin` the child's stdin is a pipe whose write end comes back in the result.
 pub(crate) fn spawn(
@@ -2806,7 +2812,14 @@ pub(crate) fn spawn(
     } else {
         StdinMode::Null
     };
-    let launched = spawn_inner(policy, command, None, None, stdin_mode)?;
+    let launched = spawn_inner(
+        policy,
+        command,
+        None,
+        None,
+        stdin_mode,
+        ONE_SHOT_ANCESTOR_POLICY,
+    )?;
     confined_spawn(launched)
 }
 
@@ -2838,12 +2851,21 @@ pub(crate) fn spawn_with_pipe_pair(
             "pipe-pair sandbox requires NetworkPolicy::Deny".into(),
         ));
     }
+    // Best effort: a standard user cannot re-ACL admin-owned ancestors such as C:\Users, and the
+    // token's bypass-traverse privilege reaches the grants below them without an ACE. An ancestor
+    // is skipped only when its write is denied and its readable DACL still lacks the access (see
+    // `AncestorLease::record_unleasable`); every grant, deny and image lease stays strict. This
+    // entry point accepts any `SandboxCommand` (network Deny), not only the browser fixture, so
+    // directory listing above a skipped ancestor can fail for it; as for `AppContainerProfile`,
+    // `launch_container` exports the deepest skipped ancestor as `GIT_CEILING_DIRECTORIES` unless
+    // the caller sets that variable, so upward Git discovery stops there.
     let launched = spawn_inner(
         policy,
         command,
         Some(handle_flag),
         stdio_file,
         StdinMode::Null,
+        PIPE_PAIR_ANCESTOR_POLICY,
     )?;
     let (to_child, from_child) = launched.auxiliary.ok_or_else(|| {
         SandboxError::InvalidPolicy("pipe-pair launch did not create auxiliary handles".into())
@@ -3175,9 +3197,10 @@ fn spawn_inner(
     handle_flag: Option<&str>,
     stdio_file: Option<&Path>,
     stdin_mode: StdinMode,
+    ancestor_policy: AncestorLeasePolicy,
 ) -> Result<ConfinedLaunch, SandboxError> {
     let program = resolve_image(&command.program)?;
-    let prepared = prepare_container(policy, AncestorLeasePolicy::Strict)?;
+    let prepared = prepare_container(policy, ancestor_policy)?;
     launch_container(
         &prepared,
         program,
@@ -4121,6 +4144,241 @@ mod tests {
             &root
         )));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- Ancestor policy of the pipe-pair launch: what BestEffort relaxes and what stays fatal ----
+
+    #[test]
+    fn only_the_pipe_pair_launch_takes_ancestors_best_effort() {
+        assert_eq!(ONE_SHOT_ANCESTOR_POLICY, AncestorLeasePolicy::Strict);
+        assert_eq!(PIPE_PAIR_ANCESTOR_POLICY, AncestorLeasePolicy::BestEffort);
+    }
+
+    #[test]
+    fn pipe_pair_launch_still_refuses_network_before_any_lease() {
+        // The relaxed ancestor policy does not touch the network capability: Allow is refused
+        // before a profile is created. The child-side proof is the pipe-pair test in
+        // tests/windows_outbound_denial.rs, which runs this same path.
+        let policy = SandboxPolicy::new().network(NetworkPolicy::Allow);
+        let command = SandboxCommand::new("rightkit-never-launched.exe");
+        let refused = spawn_with_pipe_pair(&policy, &command, "--remote-debugging-io-pipes", None);
+        assert!(matches!(
+            refused.err(),
+            Some(SandboxError::InvalidPolicy(_))
+        ));
+    }
+
+    #[test]
+    fn a_filesystem_root_grant_is_refused_under_best_effort_too() {
+        let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        let root = PathBuf::from(format!("{drive}\\"));
+        let policy = SandboxPolicy::new().allow_write(&root);
+        for ancestors in [AncestorLeasePolicy::Strict, AncestorLeasePolicy::BestEffort] {
+            let refused = prepare_container(&policy, ancestors);
+            assert!(
+                matches!(refused.err(), Some(SandboxError::InvalidPolicy(_))),
+                "a root grant must fail before any profile or lease exists"
+            );
+        }
+    }
+
+    /// Gate for the tests that use the real user's AppContainer store. When the body is allowed
+    /// to run it prints a marker, so a log proves the test did not early-return.
+    fn real_store_body(test: &str) -> bool {
+        if !real_user_stores_allowed(test) {
+            return false;
+        }
+        println!("[sandbox] REAL-USER-STORE body ran: {test}");
+        true
+    }
+
+    /// Read the DACL of `path` the way a lease does before it writes (GetNamedSecurityInfoW).
+    fn dacl_is_readable(path: &Path) -> io::Result<()> {
+        let mut wide_path = wide(path);
+        let mut dacl = std::ptr::null_mut();
+        let mut descriptor = std::ptr::null_mut();
+        // SAFETY: NUL-terminated path, valid out-pointers, descriptor freed once.
+        let got = unsafe {
+            GetNamedSecurityInfoW(
+                wide_path.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut descriptor,
+            )
+        };
+        if got != 0 {
+            return Err(io::Error::from_raw_os_error(got as i32));
+        }
+        // SAFETY: allocated by the call above.
+        unsafe { LocalFree(descriptor) };
+        Ok(())
+    }
+
+    /// A scratch directory (under this test's own temp tree) that its owner cannot re-ACL,
+    /// standard user or administrator alike. An explicit WRITE_DAC deny is not enough: the
+    /// owner holds implicit READ_CONTROL | WRITE_DAC unless an OWNER RIGHTS (S-1-3-4) ACE is
+    /// present. So the DACL is: the user may modify (no WRITE_DAC, no WRITE_OWNER) and
+    /// OWNER RIGHTS may read, traverse and delete (enough for cleanup), nothing else.
+    /// Inheritance is cut so no ALL APPLICATION PACKAGES grant leaks in and makes the directory
+    /// look readable to a container. Only this scratch directory's ACL changes.
+    struct Unleasable(PathBuf);
+    impl Unleasable {
+        fn new(tag: &str) -> Self {
+            let dir = scratch_dir(tag);
+            let user = format!("*{}", current_user_sid().unwrap());
+            let icacls = format!("{}\\System32\\icacls.exe", system_root());
+            let run = |args: &[&str]| {
+                let status = std::process::Command::new(&icacls)
+                    .arg(&dir)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(status.status.success(), "icacls {args:?} failed");
+            };
+            // Order matters: the OWNER RIGHTS ACE goes last, because once it is there the owner
+            // can no longer change the DACL.
+            run(&["/inheritance:r", "/grant", &format!("{user}:(OI)(CI)(M)")]);
+            run(&["/grant", "*S-1-3-4:(OI)(CI)(RX,D,DC)"]);
+            let locked = Self(dir);
+            locked.assert_precondition();
+            locked
+        }
+
+        /// The DACL reads, and a real DACL write with this process's token is refused with
+        /// ERROR_ACCESS_DENIED: the tests exercise write refusal, not an unreadable DACL.
+        fn assert_precondition(&self) {
+            dacl_is_readable(&self.0)
+                .unwrap_or_else(|e| panic!("DACL of {} must be readable: {e}", self.0.display()));
+            let probe = LocalSid::parse("S-1-15-2-1-2-3-4-5-6-9").unwrap();
+            let write = apply_sid_path_entry(
+                &self.0,
+                probe.0,
+                GRANT_ACCESS,
+                permissions_for(false),
+                inheritance_for(&self.0),
+            );
+            match write {
+                Err(e) if e.raw_os_error() == Some(5) => {}
+                other => panic!(
+                    "a DACL write on {} must fail with ERROR_ACCESS_DENIED (5), got {other:?}",
+                    self.0.display()
+                ),
+            }
+            dacl_is_readable(&self.0).expect("the DACL stays readable after the refused write");
+        }
+    }
+    impl Drop for Unleasable {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn profile_of(grants: &[(PathBuf, bool)], denies: &[PathBuf]) -> Profiles {
+        Profiles(vec![profile_name(&profile_key(grants, denies, false))])
+    }
+
+    fn prepare(
+        grants: Vec<(PathBuf, bool)>,
+        denies: Vec<PathBuf>,
+        ancestors: AncestorLeasePolicy,
+    ) -> Result<PreparedContainer, SandboxError> {
+        prepare_container_from(grants, denies, false, false, Vec::new(), ancestors)
+    }
+
+    #[test]
+    fn best_effort_prepares_a_user_owned_grant_and_leases_it_strictly() {
+        if !real_store_body("best_effort_prepares_a_user_owned_grant_and_leases_it_strictly") {
+            return;
+        }
+        // Standard user: the ancestors above the temp tree (C:\Users) refuse the ACE and are
+        // skipped; administrator: they take it. Either way the grant itself is leased.
+        let dir = scratch_dir("be-ok");
+        let grants = vec![(dir.clone(), true)];
+        let _cleanup = profile_of(&grants, &[]);
+        let prepared = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort)
+            .unwrap_or_else(|e| panic!("best effort preparation failed: {e}"));
+        let key = lease_key(LeaseKind::Allow, &prepared.profile.sid_text, &dir);
+        assert!(lease_registry().lock().unwrap().contains_key(&key));
+        drop(prepared);
+        assert!(!lease_registry().lock().unwrap().contains_key(&key));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn best_effort_still_fails_when_the_grant_itself_cannot_be_leased() {
+        if !real_store_body("best_effort_still_fails_when_the_grant_itself_cannot_be_leased") {
+            return;
+        }
+        let locked = Unleasable::new("be-grant");
+        let grants = vec![(locked.0.clone(), true)];
+        let _cleanup = profile_of(&grants, &[]);
+        let failed = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort);
+        match failed.err() {
+            Some(SandboxError::Io(e)) => {
+                assert!(e.to_string().contains("lease "), "{e}");
+                assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+            }
+            other => panic!("a grant that cannot be leased must fail the launch: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn best_effort_still_fails_when_a_deny_carve_out_cannot_be_leased() {
+        if !real_store_body("best_effort_still_fails_when_a_deny_carve_out_cannot_be_leased") {
+            return;
+        }
+        let ok = scratch_dir("be-deny-ok");
+        let locked = Unleasable::new("be-deny");
+        let grants = vec![(ok.clone(), true)];
+        let denies = vec![locked.0.clone()];
+        let _cleanup = profile_of(&grants, &denies);
+        let failed = prepare(grants, denies, AncestorLeasePolicy::BestEffort);
+        match failed.err() {
+            Some(SandboxError::Io(e)) => {
+                assert!(e.to_string().contains("deny "), "{e}");
+                assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+            }
+            other => panic!("a deny that cannot be leased must fail the launch: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&ok);
+    }
+
+    #[test]
+    fn best_effort_still_fails_when_the_image_directory_cannot_be_leased() {
+        if !real_store_body("best_effort_still_fails_when_the_image_directory_cannot_be_leased") {
+            return;
+        }
+        let ok = scratch_dir("be-image-ok");
+        let locked = Unleasable::new("be-image");
+        let grants = vec![(ok.clone(), true)];
+        let _cleanup = profile_of(&grants, &[]);
+        let prepared = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort)
+            .unwrap_or_else(|e| panic!("best effort preparation failed: {e}"));
+        // The image lives in a directory no container can be granted; the launch must stop
+        // before CreateProcess instead of starting a child that cannot execute its image.
+        let command = SandboxCommand::new(locked.0.join("image.exe"));
+        let failed = launch_container(
+            &prepared,
+            locked.0.join("image.exe"),
+            &command,
+            &EnvPolicy::default(),
+            Some("--remote-debugging-io-pipes"),
+            None,
+            StdinMode::Null,
+        );
+        match failed.err() {
+            Some(SandboxError::Io(e)) => {
+                assert!(e.to_string().contains("lease image"), "{e}");
+                assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
+            }
+            other => panic!("an unleasable image directory must fail the launch: {other:?}"),
+        }
+        drop(prepared);
+        let _ = std::fs::remove_dir_all(&ok);
     }
 
     #[test]

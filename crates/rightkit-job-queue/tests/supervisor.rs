@@ -41,12 +41,21 @@ fn fixture() -> PathBuf {
 }
 
 fn rig(plan: &str) -> (tempfile::TempDir, SupervisorConfig) {
+    rig_with(plan, false)
+}
+
+/// As [`rig`]; with `log_methods` the fixture appends `<generation> <method>` to
+/// `<dir>/methods` for every request it reads, before it answers (diagnostics only).
+fn rig_with(plan: &str, log_methods: bool) -> (tempfile::TempDir, SupervisorConfig) {
     let dir = tempfile::tempdir().unwrap();
     let state = dir.path().to_path_buf();
     let plan = plan.to_string();
     let cfg = SupervisorConfig::new("fixture", move || {
         let mut c = OwnedCommand::new(fixture());
         c.command_mut().env("FX_DIR", &state).env("FX_PLAN", &plan);
+        if log_methods {
+            c.command_mut().env("FX_LOG_METHODS", "1");
+        }
         Ok(c)
     })
     .with_hello_timeout(Duration::from_secs(10))
@@ -55,29 +64,72 @@ fn rig(plan: &str) -> (tempfile::TempDir, SupervisorConfig) {
     (dir, cfg)
 }
 
+/// Failure diagnostics only: one line each time the generation, attempt or lifecycle changes,
+/// sampled about every 100 ms, so a failed wait shows whether the supervisor was still making
+/// progress (slow boots) or had stopped (a stuck state).
+fn note_progress(s: &EngineSupervisor, began: Instant, last: &mut String, trace: &mut Vec<String>) {
+    let st = s.status();
+    let key = format!(
+        "gen {} attempt {} {:?} restarts {}",
+        st.generation, st.attempt, st.lifecycle, st.restarts
+    );
+    if key != *last {
+        trace.push(format!("{}ms {key}", began.elapsed().as_millis()));
+        *last = key;
+    }
+}
+
 fn wait_until(s: &EngineSupervisor, state: Lifecycle) {
-    let until = Instant::now() + Duration::from_secs(4);
+    let began = Instant::now();
+    let until = began + Duration::from_secs(4);
+    let (mut trace, mut last, mut next_sample) = (Vec::new(), String::new(), began);
     while s.lifecycle() != state && Instant::now() < until {
+        if Instant::now() >= next_sample {
+            note_progress(s, began, &mut last, &mut trace);
+            next_sample = Instant::now() + Duration::from_millis(100);
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(
         s.lifecycle(),
         state,
-        "status: {:?}",
-        s.status().last_exit_reason
+        "waited {:?} of a 4 s ceiling for {state:?}; progression: {trace:?}; status: {:?}",
+        began.elapsed(),
+        s.status()
     );
 }
 
 fn wait_generation(s: &EngineSupervisor, generation: u64) {
-    let until = Instant::now() + Duration::from_secs(4);
+    let began = Instant::now();
+    let until = began + Duration::from_secs(4);
+    let (mut trace, mut last, mut next_sample) = (Vec::new(), String::new(), began);
     while s.status().generation < generation && Instant::now() < until {
+        if Instant::now() >= next_sample {
+            note_progress(s, began, &mut last, &mut trace);
+            next_sample = Instant::now() + Duration::from_millis(100);
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(
         s.status().generation >= generation,
-        "status: {:?}",
+        "waited {:?} of a 4 s ceiling for generation {generation}; progression: {trace:?}; status: {:?}",
+        began.elapsed(),
         s.status()
     );
+}
+
+/// `s.call(method, {})` that, on an error, reports the error, how long the call took and the
+/// supervisor status (diagnostics only; the call and its bounds are unchanged).
+fn call_diag(s: &EngineSupervisor, method: &str) -> serde_json::Value {
+    let began = Instant::now();
+    match s.call(method, json!({})) {
+        Ok(value) => value,
+        Err(e) => panic!(
+            "call {method} failed after {:?}: {e:?}; status: {:?}",
+            began.elapsed(),
+            s.status()
+        ),
+    }
 }
 
 #[test]
@@ -253,7 +305,7 @@ fn on_demand_crash_restarts_on_next_call() {
     );
     s.start().unwrap();
     wait_until(&s, Lifecycle::Down);
-    assert_eq!(s.call("ping", json!({})).unwrap()["pong"], true);
+    assert_eq!(call_diag(&s, "ping")["pong"], true);
     s.shutdown();
 }
 
@@ -434,7 +486,7 @@ fn on_demand_down_is_recoverable_not_terminal() {
     s.start().unwrap();
     wait_until(&s, Lifecycle::Down);
     assert_eq!(s.status().terminal, None);
-    assert_eq!(s.call("ping", json!({})).unwrap()["pong"], true);
+    assert_eq!(call_diag(&s, "ping")["pong"], true);
     assert_eq!(s.status().restarts, 1);
     s.shutdown();
 }
@@ -571,13 +623,26 @@ fn assert_gone(pid: u32) {
 
 #[test]
 fn shutdown_returns_only_after_the_engine_is_reaped_graceful() {
+    // Diagnostics: the failure message of the outcome assertion carries the shutdown report
+    // (outcome, pid, exit status, elapsed), the supervisor status and the fixture's receipt of
+    // the requests it read (written before it answers). Reading it: no `shutdown` receipt means
+    // the request never reached the child; a receipt with `elapsed` near 2 x the grace means the
+    // exit came late; `Killed` with a short `elapsed` and no exit status means the termination
+    // call itself failed after the child left.
     for _ in 0..5 {
-        let (_d, cfg) = rig("ok");
+        let (d, cfg) = rig_with("ok", true);
         let s = EngineSupervisor::new(cfg);
         s.start().unwrap();
         let report = s.shutdown_detailed();
+        let receipt = std::fs::read_to_string(d.path().join("methods")).unwrap_or_default();
         assert_eq!(s.lifecycle(), Lifecycle::Down);
-        assert_eq!(report.outcome, ShutdownOutcome::Exited);
+        assert_eq!(
+            report.outcome,
+            ShutdownOutcome::Exited,
+            "report: {report:?}; elapsed: {:?}; fixture received: {receipt:?}; status: {:?}",
+            report.elapsed,
+            s.status()
+        );
         assert!(report.is_reaped() && report.is_clean(), "{report:?}");
         assert!(report.exit_status().is_some(), "{report:?}");
         assert_eq!(s.unreaped_children(), 0);

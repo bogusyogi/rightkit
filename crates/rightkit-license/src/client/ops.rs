@@ -1234,7 +1234,7 @@ pub(crate) fn lease_wire_from(top: &Map<String, Value>) -> Result<LeaseWire, Lic
     let activation_too_long = activation_token
         .as_ref()
         .is_some_and(|token| too_long(token.as_str()));
-    let entitlement_too_long = entitlement.as_deref().is_some_and(|token| too_long(token));
+    let entitlement_too_long = entitlement.as_deref().is_some_and(too_long);
     if activation_too_long || entitlement_too_long {
         return Err(LicenseError::Verify);
     }

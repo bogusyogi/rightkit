@@ -28,7 +28,7 @@ rightkit-fs = { path = "../rightkit-fs", version = "0.4.3", default-features = f
 zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
-rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.5.0", default-features = false }
+rightkit-sandbox = { path = "../rightkit-sandbox", version = "0.5.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 async-tungstenite = { version = "=0.32.1", default-features = false, features = ["tokio-runtime"] }

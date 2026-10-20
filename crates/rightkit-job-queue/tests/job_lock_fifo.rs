@@ -55,10 +55,19 @@ fn waiter_entry_point() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(40);
     let locks = cross(Path::new(&dir));
+    // Diagnostics: stage markers on stderr, read back by the parent when this child fails.
+    let began = Instant::now();
+    eprintln!("waiter {index} pid {} waiting", std::process::id());
     let held = locks
         .acquire(JOB, Duration::from_secs(60))
-        .unwrap()
+        .unwrap_or_else(|e| {
+            panic!(
+                "waiter {index}: acquire failed after {:?}: {e:?}",
+                began.elapsed()
+            )
+        })
         .expect("acquired within the wait");
+    eprintln!("waiter {index} acquired after {:?}", began.elapsed());
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -68,10 +77,46 @@ fn waiter_entry_point() {
     file.flush().unwrap();
     std::thread::sleep(Duration::from_millis(hold));
     drop(held);
+    eprintln!("waiter {index} released after {:?}", began.elapsed());
 }
 
-fn spawn_waiter(dir: &Path, index: usize, out: &Path) -> Child {
-    Command::new(std::env::current_exe().unwrap())
+/// A spawned waiter child with its stdout and stderr redirected to files beside `order.txt`, so a
+/// failing child can say why (diagnostics only).
+struct Waiter {
+    child: Child,
+    index: usize,
+    spawned: Instant,
+    stdout: PathBuf,
+    stderr: PathBuf,
+}
+
+impl Waiter {
+    /// Waits for the child and asserts it succeeded. On failure the message carries the exit
+    /// status (and code), the time since spawn, the child's stdout and stderr, the order file
+    /// so far and the ticket files still on disk.
+    fn assert_success(&mut self, locks_dir: &Path, out: &Path) {
+        let status = self.child.wait().unwrap();
+        let took = self.spawned.elapsed();
+        let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_else(|e| format!("<{e}>"));
+        assert!(
+            status.success(),
+            "waiter {} (pid {}) exited {status:?} (code {:?}) {took:?} after spawn; \
+             stdout: {:?}; stderr: {:?}; order so far: {:?}; tickets left: {:?}",
+            self.index,
+            self.child.id(),
+            status.code(),
+            read(&self.stdout),
+            read(&self.stderr),
+            read_order(out),
+            tickets(locks_dir),
+        );
+    }
+}
+
+fn spawn_waiter(dir: &Path, index: usize, out: &Path) -> Waiter {
+    let log = |ext: &str| out.with_file_name(format!("waiter-{index}.{ext}"));
+    let (stdout, stderr) = (log("stdout"), log("stderr"));
+    let child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
             "waiter_entry_point",
@@ -82,10 +127,17 @@ fn spawn_waiter(dir: &Path, index: usize, out: &Path) -> Child {
         .env(INDEX_ENV, index.to_string())
         .env(OUT_ENV, out)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(std::fs::File::create(&stdout).unwrap())
+        .stderr(std::fs::File::create(&stderr).unwrap())
         .spawn()
-        .unwrap()
+        .unwrap();
+    Waiter {
+        child,
+        index,
+        spawned: Instant::now(),
+        stdout,
+        stderr,
+    }
 }
 
 fn read_order(out: &Path) -> Vec<usize> {
@@ -248,7 +300,7 @@ fn processes_are_served_in_arrival_order() {
     }
     drop(held);
     for mut child in children {
-        assert!(child.wait().unwrap().success());
+        child.assert_success(&locks_dir, &out);
     }
     assert_eq!(read_order(&out), vec![0, 1, 2, 3]);
 }
@@ -266,11 +318,11 @@ fn a_waiter_process_that_dies_leaves_the_line() {
         survivors.push(spawn_waiter(&locks_dir, n, &out));
         wait_until("the next ticket", || tickets(&locks_dir).len() == n + 1);
     }
-    doomed.kill().unwrap();
-    doomed.wait().unwrap();
+    doomed.child.kill().unwrap();
+    doomed.child.wait().unwrap();
     drop(held);
     for mut child in survivors {
-        assert!(child.wait().unwrap().success());
+        child.assert_success(&locks_dir, &out);
     }
     assert_eq!(
         read_order(&out),

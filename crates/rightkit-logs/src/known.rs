@@ -89,6 +89,24 @@ impl KnownSecrets {
         self.raw.is_empty()
     }
 
+    /// The set a line-oriented sink needs. A line never holds a raw line break, so a secret that
+    /// contains one cannot match whole. This set holds everything in `self` plus every non-empty
+    /// fragment of each secret split on CR and LF, so each fragment is removed wherever it
+    /// appears, with its own encoded forms. The encoded forms of the whole value (`%0A`, `\n`)
+    /// stay and still remove it whole. The size is bounded by the size of the secrets.
+    pub(crate) fn for_lines(&self) -> KnownSecrets {
+        let fragments: Vec<String> = self
+            .raw
+            .iter()
+            .flat_map(|value| value.split(['\r', '\n']))
+            .filter(|fragment| !fragment.is_empty())
+            .map(str::to_string)
+            .collect();
+        let mut set = self.clone();
+        set.extend(fragments);
+        set
+    }
+
     /// Whether `text` holds a secret or an encoded form of one.
     pub fn is_exposed(&self, text: &str) -> bool {
         self.needles.iter().any(|n| text.contains(n.as_str()))
@@ -346,5 +364,22 @@ mod tests {
         set.extend(["two", "one", ""]);
         assert_eq!(set.len(), 2);
         assert_eq!(set.redact("one two"), "[redacted] [redacted]");
+    }
+
+    #[test]
+    fn for_lines_removes_each_line_fragment_of_a_multiline_secret() {
+        let values = ["TOPPART\nBOTTOMPART", "ONE\r\n\r\nTWO"];
+        let set = KnownSecrets::from_values(values).for_lines();
+        assert_eq!(set.redact("a TOPPART b"), "a [redacted] b");
+        assert_eq!(set.redact("a BOTTOMPART b"), "a [redacted] b");
+        assert_eq!(set.redact("ONE|TWO"), "[redacted]|[redacted]");
+        // The encoded forms of the whole value still match whole.
+        assert_eq!(set.redact("q=TOPPART%0ABOTTOMPART"), "q=[redacted]");
+        assert_eq!(set.redact(r"j=TOPPART\nBOTTOMPART"), "j=[redacted]");
+        // A secret without a line break is unchanged by the derivation.
+        let plain = KnownSecrets::from_values(["hunter2"]);
+        assert_eq!(plain.for_lines().len(), 1);
+        assert_eq!(plain.for_lines().redact("x hunter2"), "x [redacted]");
+        assert!(KnownSecrets::new().for_lines().is_empty());
     }
 }

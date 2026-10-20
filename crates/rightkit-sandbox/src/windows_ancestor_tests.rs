@@ -417,6 +417,112 @@ fn best_effort_non_access_failure_still_rolls_back() {
     }
 }
 
+/// The standard-user shape: no ancestor of the grant can be re-ACLed (WRITE_DAC refused, DACL
+/// readable and lacking the container). Every one is skipped and recorded, nothing is added.
+#[test]
+fn best_effort_skips_every_unwritable_ancestor_and_adds_nothing() {
+    let tree = TempChain::new();
+    let chain = tree.chain();
+    let (_, sid) = tree.profile();
+    let before: Vec<_> = chain.iter().map(|path| aces(path)).collect();
+    let editor =
+        |_: &Path, _: &[Vec<u8>], _: u8| -> io::Result<()> { Err(io::Error::from_raw_os_error(5)) };
+    let lease = AppContainerAncestorLease {
+        _lease: AncestorLease::acquire_chain_with(
+            &chain,
+            &sid,
+            &[],
+            &editor,
+            AncestorLeasePolicy::BestEffort,
+        )
+        .unwrap(),
+    };
+    assert_eq!(lease.unleasable().len(), chain.len());
+    assert!(lease._lease.keys.is_empty());
+    for (path, original) in chain.iter().zip(&before) {
+        assert_eq!(&aces(path), original);
+        assert!(!ancestor_mutex_exists(path, &sid).unwrap());
+    }
+    drop(lease);
+    for (path, original) in chain.iter().zip(before) {
+        assert_eq!(aces(path), original);
+    }
+}
+
+/// A denied write is skipped only while the readable DACL confirms the access is missing. Here
+/// the write lands and then reports access denied, so the DACL allows the container: fatal.
+#[test]
+fn best_effort_denied_write_is_fatal_when_the_dacl_already_allows_the_container() {
+    let tree = TempChain::new();
+    let chain = tree.chain();
+    let (_, sid) = tree.profile();
+    let before0 = aces(&chain[0]);
+    let editor = |path: &Path, entries: &[Vec<u8>], revision: u8| {
+        if path == chain[1].as_path() {
+            write_dacl(path, entries, revision)?;
+            Err(io::Error::from_raw_os_error(5))
+        } else {
+            write_dacl(path, entries, revision)
+        }
+    };
+    assert!(matches!(
+        AncestorLease::acquire_chain_with(
+            &chain,
+            &sid,
+            &[],
+            &editor,
+            AncestorLeasePolicy::BestEffort,
+        ),
+        Err(SandboxError::AncestorAccess {
+            win32_error: 5,
+            ref path,
+        }) if *path == chain[1]
+    ));
+    assert_eq!(aces(&chain[0]), before0, "earlier additions roll back");
+    assert!(!ancestor_mutex_exists(&chain[0], &sid).unwrap());
+    assert!(!ancestor_mutex_exists(&chain[1], &sid).unwrap());
+}
+
+/// An unreadable DACL after a denied write cannot confirm the access is missing: fatal, with the
+/// read error (not the skipped write error) reported.
+#[test]
+fn best_effort_unreadable_dacl_after_denied_write_is_fatal() {
+    let tree = TempChain::new();
+    let chain = tree.chain();
+    let (_, sid) = tree.profile();
+    let before0 = aces(&chain[0]);
+    let moved = chain[0].join("moved-away");
+    let editor = |path: &Path, entries: &[Vec<u8>], revision: u8| {
+        if path == chain[1].as_path() {
+            // The directory vanishes under the lease: its DACL can no longer be read.
+            std::fs::rename(path, &moved)?;
+            Err(io::Error::from_raw_os_error(5))
+        } else {
+            write_dacl(path, entries, revision)
+        }
+    };
+    let failed = AncestorLease::acquire_chain_with(
+        &chain,
+        &sid,
+        &[],
+        &editor,
+        AncestorLeasePolicy::BestEffort,
+    );
+    match failed {
+        Err(SandboxError::AncestorAccess { path, win32_error }) => {
+            assert_eq!(path, chain[1]);
+            assert!(
+                matches!(win32_error, 2 | 3),
+                "expected a not-found read error, got {win32_error}"
+            );
+        }
+        Err(other) => panic!("unexpected error: {other}"),
+        Ok(_) => panic!("an unreadable DACL must not be treated as a skippable ancestor"),
+    }
+    assert_eq!(aces(&chain[0]), before0, "earlier additions roll back");
+    assert!(!ancestor_mutex_exists(&chain[0], &sid).unwrap());
+}
+
 #[test]
 fn public_ancestor_lease_rejects_invalid_sid_before_path_access() {
     for sid in [
