@@ -254,7 +254,14 @@ export function runNpmRecipeConsumer({ packDir, name, reportFile, root = ROOT, s
   const run = (command, args, cwd = scratch, stage = 'source', spawnOptions = {}, invoke = spawn) => {
     const result = invoke(command, args, { cwd, env: child, encoding: 'utf8', timeout: 300_000, maxBuffer: 8 * 1024 * 1024, ...spawnOptions });
     commands.push({ stage, command, args, cwd, status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), ...(result.error ? { error: result.error.message } : {}) });
-    if (result.error || result.status !== 0) throw new Error(`consumer command failed: ${command} (${result.status})`);
+    if (result.error || result.status !== 0) {
+      // The failing command's own output is the only diagnosis; keep its tail in the host log (never in the sealed command rows).
+      const tail = text => String(text ?? '').trim().slice(-4000);
+      const detail = [['args', args.join(' ')], ['error', result.error?.message], ['stdout tail', tail(result.stdout)], ['stderr tail', tail(result.stderr)]].filter(([, value]) => value).map(([label, value]) => `
+--- ${label} ---
+${value}`).join('');
+      throw new Error(`consumer command failed: ${command} (${result.status})${detail}`);
+    }
     return String(result.stdout);
   };
   const pnpm = args => {

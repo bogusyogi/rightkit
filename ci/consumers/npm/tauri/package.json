@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "pnpm@11.24.0",
   "dependencies": {
-    "@rightkit/app-update": "0.4.1",
+    "@rightkit/app-update": "0.4.0",
     "@rightkit/logs": "0.1.6"
   },
   "scripts": { "consumer": "node consumer.mjs" }
