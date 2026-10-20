@@ -26,6 +26,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const JOURNAL_MAGIC: &str = "rightkit-db-transition.v1";
+// Older readers must refuse relocation metadata rather than apply legacy abandon semantics.
+const RELOCATION_JOURNAL_MAGIC: &str = "rightkit-db-transition.v2";
 
 /// What a transition is doing, for the journal and for a host's stop notification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,6 +163,18 @@ pub(crate) struct Journal {
     pub id: u64,
     pub old_root: RootIdentity,
     pub new_root: Option<RootIdentity>,
+    pub relocation: Option<RelocationJournal>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RelocationJournal {
+    pub candidate: RootIdentity,
+    pub transaction_root: RootIdentity,
+    pub transaction_id: Option<String>,
+    pub published: Option<RootIdentity>,
+    pub fs_committed: bool,
+    pub switched: bool,
+    pub key_store_residue: bool,
 }
 
 pub(crate) fn next_id() -> u64 {
@@ -233,7 +247,11 @@ fn push_root(out: &mut String, prefix: &str, root: &RootIdentity) -> Result<(), 
 
 fn encode(journal: &Journal) -> Result<String, LifecycleError> {
     let mut out = String::new();
-    out.push_str(JOURNAL_MAGIC);
+    out.push_str(if journal.relocation.is_some() {
+        RELOCATION_JOURNAL_MAGIC
+    } else {
+        JOURNAL_MAGIC
+    });
     out.push('\n');
     push_line(&mut out, "kind", journal.kind.as_str());
     push_line(&mut out, "state", journal.state.as_str());
@@ -253,6 +271,37 @@ fn encode(journal: &Journal) -> Result<String, LifecycleError> {
     if let Some(new_root) = &journal.new_root {
         push_root(&mut out, "new", new_root)?;
     }
+    if let Some(relocation) = &journal.relocation {
+        push_root(&mut out, "candidate", &relocation.candidate)?;
+        push_root(&mut out, "transaction_root", &relocation.transaction_root)?;
+        if let Some(published) = &relocation.published {
+            push_root(&mut out, "published", published)?;
+        }
+        push_line(
+            &mut out,
+            "transaction_id",
+            relocation.transaction_id.as_deref().unwrap_or("-"),
+        );
+        push_line(
+            &mut out,
+            "fs_committed",
+            if relocation.fs_committed { "1" } else { "0" },
+        );
+        push_line(
+            &mut out,
+            "switched",
+            if relocation.switched { "1" } else { "0" },
+        );
+        push_line(
+            &mut out,
+            "key_store_residue",
+            if relocation.key_store_residue {
+                "1"
+            } else {
+                "0"
+            },
+        );
+    }
     Ok(out)
 }
 
@@ -269,20 +318,64 @@ fn parse_root(fields: &HashMap<String, String>, prefix: &str) -> Option<RootIden
 
 fn decode(text: &str) -> Option<Journal> {
     let mut lines = text.lines();
-    if lines.next()? != JOURNAL_MAGIC {
+    let version = lines.next()?;
+    let relocation_v2 = version == RELOCATION_JOURNAL_MAGIC;
+    if version != JOURNAL_MAGIC && !relocation_v2 {
         return None;
     }
     let mut fields = HashMap::new();
     for line in lines {
         let (key, value) = line.split_once('=')?;
-        fields.insert(key.to_string(), unescape(value));
+        if relocation_v2
+            && !matches!(
+                key,
+                "kind"
+                    | "state"
+                    | "phase"
+                    | "retain_previous"
+                    | "pending"
+                    | "id"
+                    | "old_path"
+                    | "old_file"
+                    | "old_dir"
+                    | "new_path"
+                    | "new_file"
+                    | "new_dir"
+                    | "candidate_path"
+                    | "candidate_file"
+                    | "candidate_dir"
+                    | "transaction_root_path"
+                    | "transaction_root_file"
+                    | "transaction_root_dir"
+                    | "published_path"
+                    | "published_file"
+                    | "published_dir"
+                    | "transaction_id"
+                    | "fs_committed"
+                    | "switched"
+                    | "key_store_residue"
+            )
+        {
+            return None;
+        }
+        if fields.insert(key.to_string(), unescape(value)).is_some() && relocation_v2 {
+            return None;
+        }
     }
     let pending = fields.get("pending")?;
-    Some(Journal {
+    let boolean = |name: &str| -> Option<bool> {
+        match fields.get(name)?.as_str() {
+            "0" => Some(false),
+            "1" => Some(true),
+            _ if !relocation_v2 => Some(false),
+            _ => None,
+        }
+    };
+    let journal = Journal {
         kind: TransitionKind::parse(fields.get("kind")?)?,
         state: JournalState::parse(fields.get("state")?)?,
         phase: fields.get("phase")?.clone(),
-        retain_previous: fields.get("retain_previous")? == "1",
+        retain_previous: boolean("retain_previous")?,
         pending: if pending == "-" {
             None
         } else {
@@ -291,7 +384,60 @@ fn decode(text: &str) -> Option<Journal> {
         id: fields.get("id")?.parse().ok()?,
         old_root: parse_root(&fields, "old")?,
         new_root: parse_root(&fields, "new"),
-    })
+        relocation: if fields.contains_key("candidate_path") {
+            Some(RelocationJournal {
+                candidate: parse_root(&fields, "candidate")?,
+                transaction_root: parse_root(&fields, "transaction_root")?,
+                transaction_id: match fields.get("transaction_id") {
+                    Some(id) if id == "-" => None,
+                    Some(id) if !id.is_empty() => Some(id.clone()),
+                    _ if relocation_v2 => return None,
+                    _ => None,
+                },
+                published: if fields.contains_key("published_path") {
+                    Some(parse_root(&fields, "published")?)
+                } else {
+                    None
+                },
+                fs_committed: boolean("fs_committed")?,
+                switched: boolean("switched")?,
+                key_store_residue: boolean("key_store_residue")?,
+            })
+        } else {
+            None
+        },
+    };
+    if relocation_v2 {
+        let metadata = journal.relocation.as_ref()?;
+        if journal.kind != TransitionKind::Relocate
+            || journal.new_root.is_none()
+            || metadata.transaction_root.file.is_none()
+            || [
+                &journal.old_root,
+                journal.new_root.as_ref()?,
+                &metadata.candidate,
+                &metadata.transaction_root,
+            ]
+            .iter()
+            .any(|root| root.path.as_os_str().is_empty())
+            || (fields.keys().any(|key| key.starts_with("published_"))
+                && metadata.published.is_none())
+            || metadata
+                .published
+                .as_ref()
+                .is_some_and(|root| root.path.as_os_str().is_empty() || root.file.is_none())
+            || ((metadata.switched || metadata.key_store_residue) && !metadata.fs_committed)
+            || (metadata.fs_committed
+                && metadata
+                    .published
+                    .as_ref()
+                    .and_then(|root| root.file)
+                    .is_none())
+        {
+            return None;
+        }
+    }
+    Some(journal)
 }
 
 /// Read the journal beside `db`. A missing journal is `Ok(None)`. An unreadable or malformed one is
@@ -312,6 +458,90 @@ pub(crate) fn read_journal(db: &Path) -> Result<Option<Journal>, LifecycleError>
         None => Err(LifecycleError::RecoveryRequired {
             detail: format!("{} is not a valid transition journal", path.display()),
         }),
+    }
+}
+
+#[cfg(test)]
+mod relocation_journal_tests {
+    use super::*;
+
+    fn journal() -> Journal {
+        let root = |path: &str| RootIdentity {
+            path: PathBuf::from(path),
+            file: Some(FileKey {
+                volume: 1,
+                index: 2,
+            }),
+            dir: None,
+        };
+        Journal {
+            kind: TransitionKind::Relocate,
+            state: JournalState::Active,
+            phase: "quiesced".into(),
+            retain_previous: false,
+            pending: None,
+            id: 9,
+            old_root: root("old.db"),
+            new_root: Some(RootIdentity {
+                file: None,
+                ..root("new.db")
+            }),
+            relocation: Some(RelocationJournal {
+                candidate: RootIdentity {
+                    file: None,
+                    ..root("candidate.db")
+                },
+                transaction_root: root("transaction-root"),
+                transaction_id: None,
+                published: None,
+                fs_committed: false,
+                switched: false,
+                key_store_residue: false,
+            }),
+        }
+    }
+
+    #[test]
+    fn relocation_metadata_requires_v2_while_legacy_transitions_stay_v1() {
+        let mut value = journal();
+        let encoded = encode(&value).unwrap();
+        assert_eq!(encoded.lines().next(), Some(RELOCATION_JOURNAL_MAGIC));
+        assert!(decode(&encoded).unwrap().relocation.is_some());
+        let metadata = value.relocation.as_mut().unwrap();
+        metadata.fs_committed = true;
+        metadata.switched = true;
+        metadata.key_store_residue = true;
+        metadata.published = Some(value.old_root.clone());
+        let committed = decode(&encode(&value).unwrap()).unwrap();
+        assert!(committed.relocation.unwrap().switched);
+        value.relocation = None;
+        value.kind = TransitionKind::Rotate;
+        let legacy = encode(&value).unwrap();
+        assert_eq!(legacy.lines().next(), Some(JOURNAL_MAGIC));
+        assert_eq!(decode(&legacy).unwrap().kind, TransitionKind::Rotate);
+        assert!(decode(&legacy.replacen(JOURNAL_MAGIC, RELOCATION_JOURNAL_MAGIC, 1)).is_none());
+    }
+
+    #[test]
+    fn malformed_relocation_v2_never_decodes_as_recoverable_authority() {
+        let encoded = encode(&journal()).unwrap();
+        for malformed in [
+            encoded.replace("fs_committed=0", "fs_committed=true"),
+            encoded.replace("switched=0", "switched=1"),
+            encoded.replace("fs_committed=0", "fs_committed=1"),
+            encoded.replace("key_store_residue=0", "key_store_residue=1"),
+            encoded.replace("candidate_file=-\n", ""),
+            encoded.replace("new_dir=-\n", ""),
+            encoded.replace("transaction_id=-\n", ""),
+            format!("{encoded}switched=0\n"),
+            format!("{encoded}unknown=1\n"),
+            format!("{encoded}published_file=1:2\n"),
+        ] {
+            assert!(
+                decode(&malformed).is_none(),
+                "accepted malformed journal: {malformed}"
+            );
+        }
     }
 }
 

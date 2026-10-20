@@ -40,7 +40,11 @@ pub use keystore::{
     Key, KeySource, KeyStoreError, KeyStoreErrorKind, PendingKey, PendingRevision,
     ProtectedKeySession, ProtectedKeyStore,
 };
-pub use relocate::{RelocationPlan, RelocationReport};
+pub use relocate::{
+    recover_completed_relocation, recover_relocation, recover_relocation_session, RelocationPlan,
+    RelocationRecovery, RelocationReport, RelocationSession, RelocationSettlement,
+    RelocationSettlementReport,
+};
 pub use rotate::{
     recover_rotation, BlockedReason, Phase, RecoveryOutcome, RecoveryReport, RecoveryStep,
     RotationReport, RotationRequest,

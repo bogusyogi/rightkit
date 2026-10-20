@@ -232,6 +232,31 @@
         "ci/consumers/npm/tauri/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
       }
+    },
+    "@rightkit/qa": {
+      "pkId": "PK14",
+      "id": "ci/consumers/npm/qa/consumer.mjs",
+      "recipeId": "qa-public-exports-pure",
+      "scenarios": 8,
+      "surface": [
+        ".",
+        "./chrome",
+        "./ts-hooks",
+        "./ts-register"
+      ],
+      "closure": {
+        "install": {
+          "@rightkit/qa-chrome": "0.1.9"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/qa/README.md": "13ec7e56efa233b3ac1e1e84a2468367e76e0df9ed6be29c453187192c507d4b",
+        "ci/consumers/npm/qa/consumer.mjs": "8568000b993001f60b17e804343115162b06138baf78fefbfe02d09b6167bbe3",
+        "ci/consumers/npm/qa/package.json": "dfdc3f1965ac5abe4a28bbd1b693cc8909967ec5ceca7fc4b6e3c7b0ac1c95d5",
+        "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "0a058f93a7302f704e7f96e5da345360db5628f12de060d84736d609792c1ebe"
+      }
     }
   },
   "cargo": {
@@ -487,6 +512,36 @@
         "README.md": "07b657f97347265433987d882766a7f778d6cc15ba7ee2059ba185b7d5c606b5",
         "src/main.rs": "b62f82ab32be14780f678b7064487ef12e89942e4573ecd202aae8f65dee15d6"
       }
+    },
+    "rightkit-oauth": {
+      "pkId": "PK06",
+      "id": "ci/consumers/rightkit-oauth/src/main.rs",
+      "dependency": "rightkit-oauth = { version = \"=0.10.0\", default-features = false, features = [\"secrets\", \"server\"] }",
+      "extraDependencies": [
+        "rightkit-credentials = { version = \"=0.4.0\", default-features = false }",
+        "rightkit-http = { version = \"0.3\", default-features = false }"
+      ],
+      "consumes": "rightkit-daemon/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
+      "files": {
+        "Cargo.toml": "6d0da2e08ef92f90eccca7e8e009b12393a0e92d0d8e6f3edd43ba45f913114f",
+        "src/main.rs": "af25d66aab5f44c0f39f72977928be9e757558aba61fa5f75ab618a65cad3823"
+      },
+      "runs": [
+        {
+          "id": "credential-contract",
+          "args": [
+            "credential-contract"
+          ],
+          "hosts": [
+            "win32",
+            "darwin"
+          ],
+          "env": {
+            "RK_CONSUMER_RUN_ROOT": "freshRunRoot"
+          }
+        }
+      ],
+      "aggregateSha256": "94806930e65c8a8437d044142118b9fca018acdcee69ea62136ec17d12fd598e"
     }
   }
 }

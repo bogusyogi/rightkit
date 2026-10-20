@@ -8,8 +8,9 @@
 //!   ([`FsMove::Tree`]) or a bounded list of companion files published through one
 //!   `rightkit-fs` `FileTransaction` rooted at the new root ([`FsMove::Companions`]);
 //! * **lifecycle participants** the app registers ([`CutoverParticipant`]): opaque objects with
-//!   five hooks (prepare, quiesce, relocate, reopen, settle). The encrypted-database relocation of
-//!   `rightkit-db` is one of them: the app wraps `EncryptedStore::relocate` in a participant. This
+//!   lifecycle hooks (prepare, quiesce, relocate, reopen, settle & completed recovery).
+//!   The encrypted-database relocation of
+//!   `rightkit-db` is one of them: the app wraps its phased `RelocationSession` in a participant. This
 //!   crate depends on neither `rightkit-db` nor any credential crate, and `rightkit-db` takes no
 //!   daemon dependency;
 //! * a **persisted selection**, the record [`CUTOVER_RECORD`] at the new root, which says which
@@ -26,7 +27,7 @@
 //! | 5 | re-check both directory identities (path substitution) | old | as 4 |
 //! | 6 | record `switched`: **the single decision** | **new** | roll forward: [`RootCutover::recover`] |
 //! | 7 | every participant `reopen` at the new root and verify | new | `switched`: reopen again (hooks are idempotent) |
-//! | 8 | record `completed`; every participant `settle(Committed)` | new | `completed` |
+//! | 8 | record `completed` with settlement pending; every participant `settle(Committed)`; record settlement complete | new | `completed`: retry cleanup only |
 //!
 //! Before step 6 any failure aborts: every participant that was prepared gets
 //! `settle(Aborted)` (in reverse order) and resumes at the old root, the record becomes `aborted`
@@ -34,11 +35,15 @@
 //! companion step are restart-safe and never overwrite a differing file. After step 6 there is no
 //! rollback in this version: the new root is the authority and a failed reopen is reported as
 //! [`CutoverError::ReopenPending`]; [`RootCutover::recover`] (run it at startup, before opening
-//! any root) finishes it. A participant whose files must not travel with the tree names them in
+//! any root) finishes it. A completed cutover whose cleanup failed returns
+//! [`CutoverError::SettlementPending`]; fresh recovery calls only
+//! [`CutoverParticipant::recover_completed`] until all cleanup is durably acknowledged.
+//! A participant whose files must not travel with the tree names them in
 //! [`CutoverParticipant::owned_paths`]; the tree move leaves those paths out.
 //!
 //! The old root is never modified or deleted by the cutover. Cleanup is a separate step,
-//! [`RootCutover::retire_old_root`], that refuses unless the cutover is `completed` and the old
+//! [`RootCutover::retire_old_root`], that refuses unless the cutover is `completed`, settlement
+//! is durably complete and the old
 //! directory is still the directory (by file identity, not by path) that was cut over, and then
 //! only renames it aside or sends it to the trash.
 //!
@@ -206,6 +211,23 @@ impl CutoverContext {
 /// called for every participant whose `prepare` returned `Ok`, whichever later hook failed, so it
 /// must be safe in any state (a participant that quiesced and one that did not alike). A
 /// participant whose own `prepare` failed is not settled: it cleans up after itself.
+///
+/// A phased database adapter maps `prepare` to `prepare_relocation`, `quiesce` to the session's
+/// `quiesce`, and `relocate` to `copy`. A committed copy does not activate the new database:
+/// only this coordinator's durable `Switched` record authorizes the session's `reopen`.
+/// `settle(Committed)` maps to `RelocationSettlement::Committed` cleanup; `settle(Aborted)` maps
+/// to `RelocationSettlement::Aborted`, resumes the old database, and retains a committed copy.
+/// A failed reopen never authorizes old-root resumption, even when no new connection was opened.
+///
+/// Recovery constructs fresh participants from durable root, file and transaction identities.
+/// A `Switched` recovery calls `reopen` directly, without `prepare`, `quiesce` or `relocate`:
+/// database adapters reconstruct a session with `recover_relocation_session` and retain it in
+/// participant state. They must not use terminal `recover_relocation`, which clears replay
+/// journals before this coordinator records `Completed`. Only `settle(Committed)`, called after
+/// that durable record, settles the retained session. Dropping it after a failed reopen or failed
+/// completion-record write preserves recovery authority for another process.
+/// An unknown copy/transaction outcome must preserve its journal
+/// and both byte identities, return an error, and keep writers stopped until recovery resolves it.
 pub trait CutoverParticipant: Send {
     /// A short stable name: ASCII letters, digits, `.`, `_` or `-`, unique within the cutover.
     fn name(&self) -> &str;
@@ -237,6 +259,14 @@ pub trait CutoverParticipant: Send {
         _cx: &CutoverContext,
         _settlement: Settlement,
     ) -> Result<(), ParticipantError> {
+        Ok(())
+    }
+
+    /// Retry selected-new cleanup after durable Completed, including in a fresh process.
+    /// Idempotent: absent already-clean state succeeds; retained unknown/mismatched authority
+    /// fails. Never resumes old root. DB adapters use DB-owned completed recovery, rather
+    /// than blindly reopening or treating a missing in-memory session as already settled.
+    fn recover_completed(&mut self, _cx: &CutoverContext) -> Result<(), ParticipantError> {
         Ok(())
     }
 }
@@ -330,6 +360,9 @@ pub struct RootStatus {
     pub error: Option<String>,
     /// Where [`RootCutover::retire_old_root`] put the old root, once it did.
     pub retired: Option<PathBuf>,
+    /// Every participant's committed cleanup was durably acknowledged. Missing legacy markers
+    /// are false: a completed cutover still needs cleanup recovery before old-root retirement.
+    pub settlement_complete: bool,
 }
 
 impl RootStatus {
@@ -341,10 +374,11 @@ impl RootStatus {
         }
     }
 
-    /// True when the switch is durable but participants have not all reopened: run
+    /// True when the switch is durable but reopen or committed cleanup remains pending: run
     /// [`RootCutover::recover`] before opening anything.
     pub fn needs_recovery(&self) -> bool {
         self.phase == CutoverPhase::Switched
+            || (self.phase == CutoverPhase::Completed && !self.settlement_complete)
     }
 }
 
@@ -361,6 +395,7 @@ struct Record {
     fs_move: String,
     error: Option<String>,
     retired: Option<PathBuf>,
+    settlement_complete: bool,
 }
 
 fn key_json(key: FileKey) -> Value {
@@ -389,6 +424,7 @@ impl Record {
             "fs_move": self.fs_move,
             "error": self.error,
             "retired": self.retired.as_ref().and_then(|p| p.to_str()),
+            "settlement_complete": self.settlement_complete,
         })
     }
 
@@ -438,6 +474,12 @@ impl Record {
             fs_move: text_of("fs_move").ok_or_else(|| bad("no fs_move"))?,
             error: text_of("error"),
             retired: text_of("retired").map(PathBuf::from),
+            settlement_complete: match v.get("settlement_complete") {
+                None => false,
+                Some(value) => value
+                    .as_bool()
+                    .ok_or_else(|| bad("invalid settlement_complete"))?,
+            },
         };
         let mut names = BTreeSet::new();
         if record.id.len() != 16
@@ -478,6 +520,7 @@ impl Record {
             participants: self.participants.clone(),
             error: self.error.clone(),
             retired: self.retired.clone(),
+            settlement_complete: self.settlement_complete,
         }
     }
 }
@@ -569,6 +612,11 @@ pub enum CutoverError {
         error: ParticipantError,
         generation: u64,
     },
+    /// New root remains authoritative; durable participant cleanup must be retried.
+    SettlementPending {
+        generation: u64,
+        failures: Vec<(String, ParticipantError)>,
+    },
     /// The tree migration failed or ended unusable.
     Migrate(AppRootError),
     /// A file-system operation failed.
@@ -578,7 +626,7 @@ pub enum CutoverError {
     /// The record write at the switch failed and what is on disk could not be read back. The
     /// decision is unknown; participants stay quiesced. Run [`RootCutover::recover`].
     Undecided(io::Error),
-    /// The cutover has not completed (`retire_old_root` needs `completed`).
+    /// The cutover has not reached `completed`; old-root retirement remains forbidden.
     NotCompleted(CutoverPhase),
     Io(io::Error),
 }
@@ -639,6 +687,8 @@ impl fmt::Display for CutoverError {
                 "root cutover: generation {generation} is switched but participant {name} could not reopen: {error}; run recover"
             ),
             CutoverError::Migrate(e) => write!(f, "root cutover: tree migration: {e}"),
+            CutoverError::SettlementPending { generation, failures } => write!(f,
+                "root cutover: generation {generation} selected new root; {} participant cleanup failures; run recover", failures.len()),
             CutoverError::Fs(e) => write!(f, "root cutover: {e}"),
             CutoverError::FsRecoveryRequired(why) => {
                 write!(f, "root cutover: file transaction needs recovery: {why}")
@@ -684,10 +734,10 @@ pub struct CutoverReport {
     pub companions: Vec<PathBuf>,
     /// This call finished a switched cutover begun earlier (a restart, or a reopen that failed).
     pub resumed: bool,
-    /// The cutover was already completed; nothing ran.
+    /// The cutover was already completed; only pending cleanup recovery may have run.
     pub already_completed: bool,
-    /// `settle(Committed)` failures. The cutover is complete regardless: settle releases
-    /// resources, it does not decide anything.
+    /// Reserved compatibility field, empty on successful reports. Committed cleanup failures
+    /// return [`CutoverError::SettlementPending`] while preserving new-root authority.
     pub settle_warnings: Vec<(String, ParticipantError)>,
 }
 
@@ -715,7 +765,7 @@ pub enum RecoverOutcome {
     Nothing,
     /// A switched cutover was finished.
     Resumed(Box<CutoverReport>),
-    /// The cutover was already completed.
+    /// The cutover was already completed; any pending committed cleanup has been acknowledged.
     Completed,
 }
 
@@ -1004,6 +1054,7 @@ impl RootCutover {
     /// On `Err` before the switch the old root is the authority and every prepared participant
     /// was settled as aborted. [`CutoverError::ReopenPending`] and [`CutoverError::Undecided`]
     /// mean the opposite or unknown: call [`recover`](Self::recover).
+    /// [`CutoverError::SettlementPending`] preserves new-root authority & retries cleanup only.
     pub fn run(&mut self) -> Result<CutoverReport, CutoverError> {
         let (new, new_key) = self.plan_new()?;
         let _lock = take_lock(&new)?;
@@ -1023,6 +1074,7 @@ impl RootCutover {
                     check_directory(&new, record.new_key)?;
                     let mut report = CutoverReport::new(&record);
                     report.already_completed = true;
+                    self.complete_settlement(&new, record, true)?;
                     return Ok(report);
                 }
                 CutoverPhase::Switched => {
@@ -1056,6 +1108,7 @@ impl RootCutover {
             fs_move: self.fs_move.label().to_string(),
             error: None,
             retired: None,
+            settlement_complete: false,
         };
         write_record(&plan.new, &record)?;
         let cx = CutoverContext {
@@ -1094,7 +1147,9 @@ impl RootCutover {
     /// Finish a switched cutover after a restart or a failed reopen, without starting a new one.
     /// Run it at startup, before opening any root: it takes the cutover lock, resolves pending
     /// file transactions, and, when the record says `switched`, reopens every participant at the
-    /// new root and completes. A cutover that never reached the switch is left alone
+    /// new root and completes. `completed` with pending settlement invokes only
+    /// [`CutoverParticipant::recover_completed`], never reopen or old-root resumption.
+    /// A cutover that never reached the switch is left alone
     /// ([`RecoverOutcome::Nothing`]: the old root is still the authority).
     pub fn recover(&mut self) -> Result<RecoverOutcome, CutoverError> {
         let (new, _) = self.plan_new()?;
@@ -1118,7 +1173,11 @@ impl RootCutover {
                 self.finish(&new, record, true, report)
                     .map(|done| RecoverOutcome::Resumed(Box::new(done)))
             }
-            CutoverPhase::Completed => Ok(RecoverOutcome::Completed),
+            CutoverPhase::Completed => {
+                check_directory(&new, record.new_key)?;
+                self.complete_settlement(&new, record, true)?;
+                Ok(RecoverOutcome::Completed)
+            }
             CutoverPhase::Copying | CutoverPhase::Aborted => Ok(RecoverOutcome::Nothing),
         }
     }
@@ -1214,16 +1273,60 @@ impl RootCutover {
         }
         record.phase = CutoverPhase::Completed;
         record.error = None;
+        record.settlement_complete = false;
         write_record(new, &record)?;
-        for i in 0..self.participants.len() {
-            if let Err(CutoverError::Participant { name, error, .. }) =
-                self.settle_hook(i, &cx, Settlement::Committed)
-            {
-                report.settle_warnings.push((name, error));
-            }
-        }
+        self.complete_settlement(new, record, false)?;
         report.resumed = report.resumed || resumed;
         Ok(report)
+    }
+
+    fn complete_settlement(
+        &mut self,
+        new: &Path,
+        mut record: Record,
+        replay: bool,
+    ) -> Result<(), CutoverError> {
+        if record.settlement_complete {
+            return Ok(());
+        }
+        let cx = CutoverContext {
+            id: record.id.clone(),
+            generation: record.generation,
+            old_root: record.old_root.clone(),
+            new_root: record.new_root.clone(),
+            resumed: replay,
+        };
+        let mut failures = Vec::new();
+        for i in 0..self.participants.len() {
+            let result = if replay {
+                let participant = &mut self.participants[i];
+                let name = participant.name().to_string();
+                let result = catch_unwind(AssertUnwindSafe(|| participant.recover_completed(&cx)));
+                Self::hook_result(name, CutoverStep::Settle, result)
+            } else {
+                self.settle_hook(i, &cx, Settlement::Committed)
+            };
+            if let Err(CutoverError::Participant { name, error, .. }) = result {
+                failures.push((name, error));
+            }
+        }
+        if !failures.is_empty() {
+            return Err(CutoverError::SettlementPending {
+                generation: record.generation,
+                failures,
+            });
+        }
+        record.settlement_complete = true;
+        write_record(new, &record).map_err(|error| CutoverError::SettlementPending {
+            generation: record.generation,
+            failures: vec![(
+                "settlement-record".into(),
+                ParticipantError::new(format!(
+                "participant cleanup finished but durable acknowledgement write failed: {error}"
+            )),
+            )],
+        })?;
+        Ok(())
     }
 
     fn hook(
@@ -1392,6 +1495,15 @@ impl RootCutover {
         };
         if record.phase != CutoverPhase::Completed {
             return Err(CutoverError::NotCompleted(record.phase));
+        }
+        if !record.settlement_complete {
+            return Err(CutoverError::SettlementPending {
+                generation: record.generation,
+                failures: vec![(
+                    "settlement".into(),
+                    ParticipantError::new("participant cleanup is not durably complete"),
+                )],
+            });
         }
         if record.new_root != new {
             return Err(CutoverError::RecordMismatch(format!(

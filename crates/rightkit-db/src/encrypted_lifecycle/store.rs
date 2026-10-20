@@ -16,7 +16,7 @@ use crate::{
 };
 use rusqlite::{Connection, OpenFlags};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, TryLockError, Weak};
+use std::sync::{Arc, Mutex, TryLockError};
 use std::time::{Duration, Instant};
 
 /// Checks the caller's own schema or domain rules on a store opened with the key under test.
@@ -544,6 +544,46 @@ pub(super) fn establish(
     ))
 }
 
+/// Explicit relocation settlement has already selected this root. Ordinary open must not
+/// bypass its journal; this path verifies identity & canonical storage under fresh authority.
+pub(super) fn establish_relocation(
+    cfg: &EncryptedStoreConfig,
+    expected: &RootIdentity,
+    key: &Key,
+) -> Result<Established, LifecycleError> {
+    let guard = acquire_shared(&cfg.db.path, &cfg.transition)?;
+    let mut session = cfg
+        .key_store
+        .lock_rotation(cfg.transition.acquire_timeout)
+        .map_err(|error| key_store_error("rotation lock", error))?;
+    let primary = session
+        .read_primary()
+        .map_err(|error| key_store_error("primary", error))?
+        .ok_or(LifecycleError::KeyMissing)?;
+    if expected.file.is_none()
+        || primary.as_str() != key.as_str()
+        || RootIdentity::capture(&cfg.db.path) != *expected
+    {
+        return Err(LifecycleError::RecoveryRequired {
+            detail: "selected relocation root or canonical key changed".into(),
+        });
+    }
+    let writer = cfg.keyed(&primary).open_existing_writer()?;
+    if RootIdentity::capture(&cfg.db.path) != *expected {
+        return Err(LifecycleError::RecoveryRequired {
+            detail: "selected relocation root changed while reopening".into(),
+        });
+    }
+    drop(session);
+    Ok(Established {
+        key: primary,
+        source: KeySource::Primary,
+        writer,
+        guard,
+        degraded: None,
+    })
+}
+
 // ----- the store ---------------------------------------------------------------------------
 
 pub(super) enum Mode {
@@ -579,25 +619,76 @@ impl Live {
 pub(super) struct PoolSlot {
     capacity: usize,
     options: ReadPoolOptions,
-    pool: Mutex<Option<ReadPool>>,
+    pool: Mutex<PoolState>,
+}
+
+struct PoolGeneration {
+    pool: ReadPool,
+    _guard: StoreLock,
+}
+struct PoolState {
+    pool: Option<Arc<PoolGeneration>>,
+    retired: Vec<Arc<PoolGeneration>>,
+    revoked: bool,
+}
+
+struct PoolLease {
+    slot: Arc<PoolSlot>,
+    _generation: Arc<PoolGeneration>,
+}
+
+impl Drop for PoolLease {
+    fn drop(&mut self) {
+        // PooledReadConnection returns/closes its backend before releasing this lease.
+        lock_recover(&self.slot.pool)
+            .retired
+            .retain(|old| old.pool.total_len() != 0);
+    }
 }
 
 impl PoolSlot {
     fn close(&self, timeout: Duration) -> Result<(), LifecycleError> {
-        let pool = lock_recover(&self.pool).take();
-        if let Some(pool) = pool {
-            pool.close_and_wait(timeout).map_err(|error| {
-                LifecycleError::busy(format!(
-                    "a read pool still has readers checked out: {error}"
-                ))
-            })?;
+        let started = Instant::now();
+        let generations = {
+            let mut state = lock_recover(&self.pool);
+            if let Some(pool) = state.pool.take() {
+                state.retired.push(pool);
+            }
+            state.retired.clone()
+        };
+        for generation in generations {
+            generation
+                .pool
+                .close_and_wait(timeout.saturating_sub(started.elapsed()))
+                .map_err(|error| {
+                    LifecycleError::busy(format!(
+                        "a read pool still has readers checked out: {error}"
+                    ))
+                })?;
+            lock_recover(&self.pool)
+                .retired
+                .retain(|old| !Arc::ptr_eq(old, &generation));
         }
         Ok(())
     }
 
-    fn reopen(&self, db: &DbOptions) -> Result<(), LifecycleError> {
+    fn reopen(&self, cfg: &EncryptedStoreConfig, db: &DbOptions) -> Result<(), LifecycleError> {
+        let mut state = lock_recover(&self.pool);
+        if state.revoked {
+            return Ok(());
+        }
+        let guard = acquire_shared(&db.path, &cfg.transition)?;
         let pool = db.open_read_pool_with(self.capacity, self.options)?;
-        *lock_recover(&self.pool) = Some(pool);
+        if let Some(previous) = state.pool.take() {
+            previous.pool.close();
+            if previous.pool.total_len() != 0 {
+                state.retired.push(previous);
+            }
+        }
+        state.pool = Some(Arc::new(PoolGeneration {
+            pool,
+            _guard: guard,
+        }));
         Ok(())
     }
 }
@@ -609,26 +700,76 @@ pub struct ManagedPool {
     slot: Arc<PoolSlot>,
 }
 
+impl Drop for EncryptedStore {
+    fn drop(&mut self) {
+        for slot in self.live_pools() {
+            ManagedPool { slot }.close();
+        }
+    }
+}
+
 impl ManagedPool {
-    fn current(&self) -> Result<ReadPool, LifecycleError> {
-        lock_recover(&self.slot.pool).clone().ok_or_else(|| {
+    fn current(&self) -> Result<Arc<PoolGeneration>, LifecycleError> {
+        let state = lock_recover(&self.slot.pool);
+        if state.revoked {
+            return Err(LifecycleError::busy(
+                "the managed pool was permanently closed",
+            ));
+        }
+        state.pool.clone().ok_or_else(|| {
             LifecycleError::busy("the store is in a transition; no reader is available")
         })
     }
 
     pub fn get(&self) -> Result<PooledReadConnection, LifecycleError> {
-        self.current()?.get().map_err(closed_to_busy)
+        let generation = self.current()?;
+        let reader = generation.pool.get().map_err(closed_to_busy)?;
+        Ok(reader.with_lifecycle_lease(Arc::new(PoolLease {
+            slot: self.slot.clone(),
+            _generation: generation,
+        })))
     }
 
     pub fn get_timeout(
         &self,
         timeout: Duration,
     ) -> Result<Option<PooledReadConnection>, LifecycleError> {
-        self.current()?.get_timeout(timeout).map_err(closed_to_busy)
+        let generation = self.current()?;
+        let reader = generation
+            .pool
+            .get_timeout(timeout)
+            .map_err(closed_to_busy)?;
+        Ok(reader.map(|reader| {
+            reader.with_lifecycle_lease(Arc::new(PoolLease {
+                slot: self.slot.clone(),
+                _generation: generation,
+            }))
+        }))
     }
 
     pub fn capacity(&self) -> usize {
         self.slot.capacity
+    }
+
+    /// Permanently revoke this pool & every clone. Idle readers close now; checked-out
+    /// readers close on return. Lifecycle resume never reopens a revoked pool.
+    pub fn close(&self) {
+        let mut state = lock_recover(&self.slot.pool);
+        state.revoked = true;
+        if let Some(pool) = state.pool.take() {
+            state.retired.push(pool);
+        }
+        for generation in &state.retired {
+            generation.pool.close();
+        }
+        state.retired.retain(|old| old.pool.total_len() != 0);
+    }
+
+    /// Permanently revoke every clone & wait up to `timeout` for checked-out readers.
+    /// Timeout retains outstanding generations; retry after reader return to finish draining.
+    pub fn close_and_wait(&self, timeout: Duration) -> Result<(), LifecycleError> {
+        self.close();
+        self.slot.close(timeout)
     }
 }
 
@@ -650,10 +791,31 @@ fn closed_to_busy(error: DbError) -> LifecycleError {
 pub struct EncryptedStore {
     pub(super) cfg: Mutex<EncryptedStoreConfig>,
     pub(super) live: Mutex<Live>,
-    pub(super) pools: Mutex<Vec<Weak<PoolSlot>>>,
+    pub(super) pools: Mutex<Vec<Arc<PoolSlot>>>,
 }
 
 impl EncryptedStore {
+    pub(super) fn from_relocation(cfg: EncryptedStoreConfig, established: Established) -> Self {
+        let Established {
+            key,
+            source,
+            writer,
+            guard,
+            degraded,
+        } = established;
+        Self {
+            cfg: Mutex::new(cfg),
+            live: Mutex::new(Live {
+                key,
+                source,
+                writer: Some(writer),
+                guard: Some(guard),
+                mode: Mode::Ready,
+                degraded,
+            }),
+            pools: Mutex::new(Vec::new()),
+        }
+    }
     /// Open the existing encrypted database.
     ///
     /// Under the shared guard: if a transition journal remains, a pending key is staged, or the
@@ -750,22 +912,31 @@ impl EncryptedStore {
         let live = lock_recover(&self.live);
         live.ready()?;
         let db = cfg.keyed(&live.key);
+        let guard = acquire_shared(&db.path, &cfg.transition)?;
         let pool = db.open_read_pool_with(capacity, options)?;
         faults.before_pool_registration();
         let slot = Arc::new(PoolSlot {
             capacity,
             options,
-            pool: Mutex::new(Some(pool)),
+            pool: Mutex::new(PoolState {
+                pool: Some(Arc::new(PoolGeneration {
+                    pool,
+                    _guard: guard,
+                })),
+                retired: Vec::new(),
+                revoked: false,
+            }),
         });
-        lock_recover(&self.pools).push(Arc::downgrade(&slot));
+        lock_recover(&self.pools).push(slot.clone());
         drop(live);
         Ok(ManagedPool { slot })
     }
 
     fn live_pools(&self) -> Vec<Arc<PoolSlot>> {
         let mut pools = lock_recover(&self.pools);
-        pools.retain(|weak| weak.strong_count() > 0);
-        pools.iter().filter_map(Weak::upgrade).collect()
+        // Checked-out readers lease the slot, so dropping public handles cannot hide them.
+        pools.retain(|slot| Arc::strong_count(slot) > 1);
+        pools.clone()
     }
 
     /// `(key, source, degraded)` of a ready store.
@@ -892,7 +1063,7 @@ impl EncryptedStore {
         }
         let mut pool_error = None;
         for slot in self.live_pools() {
-            if let Err(error) = slot.reopen(&db) {
+            if let Err(error) = slot.reopen(cfg, &db) {
                 pool_error.get_or_insert(error);
             }
         }
@@ -977,6 +1148,14 @@ impl EncryptedStore {
             &[cfg.db.path.as_path()],
             &cfg.transition,
         )?;
+        // A selected relocation remains replay authority until its coordinator settles.
+        // Check under exclusive ownership; restore must never replace another transition's
+        // journal, even after relocation released its guard to reopen ordinary writers.
+        if super::transition::read_journal(&cfg.db.path)?.is_some() {
+            return Err(LifecycleError::RecoveryRequired {
+                detail: "an unfinished transition must settle before restore".into(),
+            });
+        }
         let mut session = cfg
             .key_store
             .lock_rotation(cfg.transition.acquire_timeout)
@@ -1015,6 +1194,7 @@ impl EncryptedStore {
             id: next_id(),
             old_root: RootIdentity::capture(&cfg.db.path),
             new_root: Some(RootIdentity::capture(replacement)),
+            relocation: None,
         };
         transition.write_journal(&journal)?;
         let db = cfg.keyed(key);
@@ -1056,16 +1236,4 @@ impl EncryptedStore {
         transition.settle();
         result.map_err(LifecycleError::from)
     }
-}
-
-/// Remove a database file and its sidecars only while the main file still has the identity it had
-/// when this operation published it (or is already gone).
-pub(super) fn remove_owned_copy(path: &Path, published: Option<rightkit_fs::FileKey>) -> bool {
-    if let Some(want) = published {
-        match rightkit_fs::FileKey::of_path(path) {
-            Ok(now) if now != want => return false,
-            _ => {}
-        }
-    }
-    crate::remove_database_files(path).is_ok()
 }

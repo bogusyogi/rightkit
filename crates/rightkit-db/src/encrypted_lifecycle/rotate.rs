@@ -45,10 +45,10 @@ use super::store::{
     EncryptedStore, EncryptedStoreConfig, PendingRead, Probe, Scan, SlotRead,
 };
 use super::transition::{
-    map_lock_error, next_id, read_journal, remove_journal, Journal, JournalState, RootIdentity,
-    StoreTransition, TransitionKind,
+    next_id, read_journal, remove_journal, Journal, JournalState, RootIdentity, StoreTransition,
+    TransitionKind,
 };
-use crate::{DbError, IntegrityCheck, InterruptedRestore, StoreLock};
+use crate::{DbError, IntegrityCheck, InterruptedRestore};
 use rusqlite::OpenFlags;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -385,7 +385,8 @@ impl EncryptedStore {
     }
 
     /// Reconcile key storage with the database after an interrupted or partial rotation, an
-    /// interrupted restore or relocation, or a legacy staging key. Safe to call any time; with
+    /// interrupted restore, or a legacy staging key. Relocation requires `recover_relocation`
+    /// with explicit root selection. Safe to call any time; with
     /// nothing to do it reports `Consistent`. The store is drained for the call and reopened after.
     pub fn recover_rotation(&self) -> RecoveryReport {
         let cfg = self.config();
@@ -433,6 +434,15 @@ fn rotate_inner(
         return Ok(not_committed(LifecycleError::Db(error)));
     }
     let cfg = store.config();
+    match read_journal(&cfg.db.path) {
+        Ok(Some(journal)) if journal.kind == TransitionKind::Relocate => {
+            return Ok(not_committed(LifecycleError::RecoveryRequired {
+                detail: "relocation requires explicit authoritative settlement".into(),
+            }));
+        }
+        Err(error) => return Ok(not_committed(error)),
+        _ => {}
+    }
     let (old, source, degraded) = match store.snapshot() {
         Ok(snapshot) => snapshot,
         Err(error) => return Ok(not_committed(error)),
@@ -467,6 +477,21 @@ fn rotate_inner(
             return Ok(not_committed(error));
         }
     };
+    match read_journal(&cfg.db.path) {
+        Ok(Some(journal)) if journal.kind == TransitionKind::Relocate => {
+            drop(transition);
+            store.block("relocation requires explicit authoritative settlement".into());
+            return Ok(not_committed(LifecycleError::RecoveryRequired {
+                detail: "relocation remains pending".into(),
+            }));
+        }
+        Err(error) => {
+            drop(transition);
+            store.block(error.to_string());
+            return Ok(not_committed(error));
+        }
+        _ => {}
+    }
     let rotation = match cfg.key_store.lock_rotation(cfg.transition.acquire_timeout) {
         Ok(lock) => lock,
         Err(error) => {
@@ -484,6 +509,7 @@ fn rotate_inner(
         id: next_id(),
         old_root: RootIdentity::capture(&cfg.db.path),
         new_root: None,
+        relocation: None,
     };
     let mut run = Run {
         cfg: &cfg,
@@ -942,39 +968,6 @@ fn clear_journals(roots: &[&Path]) -> Result<(), LifecycleError> {
     first.map_or(Ok(()), Err)
 }
 
-fn abandon_relocation(
-    cfg: &EncryptedStoreConfig,
-    journal: &Journal,
-) -> Result<RecoveryStep, LifecycleError> {
-    let mut roots = vec![journal.old_root.path.clone()];
-    if let Some(new_root) = &journal.new_root {
-        roots.push(new_root.path.clone());
-    }
-    roots.sort();
-    roots.dedup();
-    let lock_options = cfg.transition.lock_options(TransitionKind::Recover);
-    let mut guards = Vec::new();
-    for root in roots.iter().filter(|root| **root != cfg.db.path) {
-        match StoreLock::exclusive(root, &lock_options) {
-            Ok(guard) => guards.push(guard),
-            Err(error) => {
-                let mapped = map_lock_error(error, "the other relocation root is in use");
-                if mapped.is_busy() {
-                    return Err(mapped);
-                }
-                // A root that cannot hold a lock file (its directory is gone) holds no opener.
-            }
-        }
-    }
-    let paths: Vec<&Path> = roots.iter().map(PathBuf::as_path).collect();
-    clear_journals(&paths)?;
-    drop(guards);
-    Ok(RecoveryStep::RelocationAbandoned {
-        old_root: journal.old_root.path.clone(),
-        new_root: journal.new_root.as_ref().map(|root| root.path.clone()),
-    })
-}
-
 /// Stage `key` (unless `staged` already names it) and promote it to primary; the primary slot's
 /// readback is the only success.
 pub(super) fn make_primary(
@@ -1028,6 +1021,23 @@ pub(super) fn recover_locked(
     let ks = &mut *session;
     let mut report = RecoveryReport::new();
 
+    let journal = match read_journal(&cfg.db.path) {
+        Ok(journal) => journal,
+        Err(error) => {
+            report.outcome = RecoveryOutcome::Blocked(BlockedReason::Journal(error.to_string()));
+            return Ok(report);
+        }
+    };
+    if journal
+        .as_ref()
+        .is_some_and(|journal| journal.kind == TransitionKind::Relocate)
+    {
+        report.outcome = RecoveryOutcome::Blocked(BlockedReason::Journal(
+            "relocation requires explicit authoritative settlement through recover_relocation"
+                .into(),
+        ));
+        return Ok(report);
+    }
     // An interrupted restore decides which file the keys must open, so it goes first.
     match crate::recover_interrupted_restore_locked(&cfg.db) {
         Ok(Some(restored)) => report.steps.push(RecoveryStep::RestoreRecovered(restored)),
@@ -1036,28 +1046,6 @@ pub(super) fn recover_locked(
             report.outcome = RecoveryOutcome::Blocked(BlockedReason::Restore(error.to_string()));
             return Ok(report);
         }
-    }
-
-    let mut journal = match read_journal(&cfg.db.path) {
-        Ok(journal) => journal,
-        Err(error) => {
-            report.outcome = RecoveryOutcome::Blocked(BlockedReason::Journal(error.to_string()));
-            return Ok(report);
-        }
-    };
-    let relocation = journal
-        .as_ref()
-        .filter(|journal| journal.kind == TransitionKind::Relocate)
-        .cloned();
-    if let Some(relocation) = relocation {
-        match abandon_relocation(cfg, &relocation) {
-            Ok(step) => report.steps.push(step),
-            Err(error) => {
-                report.outcome = RecoveryOutcome::Blocked(BlockedReason::Busy(error.to_string()));
-                return Ok(report);
-            }
-        }
-        journal = None;
     }
 
     let path = cfg.db.effective_path();

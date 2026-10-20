@@ -1,0 +1,11 @@
+{
+  "name": "rightkit-qa-consumer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "@rightkit/qa-chrome": "0.1.9"
+  }
+}

@@ -112,6 +112,11 @@ harness = false
 [dev-dependencies]
 tempfile = "3"
 tauri = { version = "2", features = ["test"] }
+# Workspace-lock constraint only (dev-dependencies are not published to consumers): keeps the shared Cargo.lock
+# on the tauri-utils that Tauri 2.11 (the workspace line, wv2-0_38) ships with. tauri-plugin 2.7+ (a build
+# dependency of tauri-plugin-updater) needs tauri-utils ~2.10.2, which adds AppConfig::app_directories_override
+# that tauri 2.11 `test` code does not set (E0063 in tauri 2.11.5 src/test/mod.rs). Lift with the tauri 2.12 move.
+tauri-utils = { version = ">=2.9.3, <2.10" }
 
 [[example]]
 name = "shell_engine_fixture"

@@ -12,6 +12,7 @@ Status: nothing in this section has been compiled, tested or run, and CI has not
 - `models`: implies `host-services`; adds `rightkit-models` 0.5.0 (default features off) and the native model store commands in `src/host/models.rs` (`HostServicesBuilder::models`, `src/host/mod.rs:302-304`).
 - `license`: implies `host-services`; adds `rightkit-license` 0.2.4 with feature `update-auth`.
 - `update`: implies `host-services`; adds `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5 (`rustls-no-provider`), `sha2` 0.10 and `tokio` 1 (`macros`, `time`).
+- Workspace lock: dev-dependency `tauri-utils >=2.9.3, <2.10` keeps the shared `Cargo.lock` on tauri-utils 2.9.x so tauri 2.11 `test` builds (tauri-plugin 2.7+ pulled tauri-utils 2.10.2 into the lock, E0063 `app_directories_override`). Dev-only: published requirements are unchanged and apps on Tauri 2.12 are unaffected.
 - `update-license`: implies `update` and `license`; adds `url` 2 and the licence authority `LicenseAuthority` (`src/update.rs:1317`).
 - `overlay`: adds `rightkit-overlay` 0.1.2 and `src/overlay_host.rs`.
 - `pdf-host`: implies `host-services`; adds `rightkit-pdf` 0.3.3 with its `host` feature (`Cargo.toml`) and `src/pdf_host.rs` (`src/lib.rs:51`). PDFKit drives the view on macOS; every other platform answers `unsupported` (`src/pdf_host.rs:41`).

@@ -873,6 +873,15 @@ impl ReadPoolInner {
 pub struct PooledReadConnection {
     conn: Option<Connection>,
     pool: Weak<ReadPoolInner>,
+    // Managed lifecycle checkout retains its exact generation/guard until connection return.
+    _lifecycle_lease: Option<Arc<dyn Send + Sync>>,
+}
+
+impl PooledReadConnection {
+    pub(crate) fn with_lifecycle_lease(mut self, lease: Arc<dyn Send + Sync>) -> Self {
+        self._lifecycle_lease = Some(lease);
+        self
+    }
 }
 
 impl Deref for PooledReadConnection {
@@ -988,6 +997,7 @@ impl ReadPool {
                 return Ok(Some(PooledReadConnection {
                     conn: Some(conn),
                     pool: Arc::downgrade(&self.inner),
+                    _lifecycle_lease: None,
                 }));
             }
             if state.total < self.inner.cap {
@@ -1039,6 +1049,7 @@ impl ReadPool {
                 Ok(PooledReadConnection {
                     conn: Some(conn),
                     pool: Arc::downgrade(&self.inner),
+                    _lifecycle_lease: None,
                 })
             }
             Err(error) => {

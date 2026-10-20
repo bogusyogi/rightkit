@@ -34,7 +34,7 @@ hooks = ["rusqlite/hooks"]
 [dependencies]
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup"] }
 # Opts out of rightkit-fs `json` (serde) and `digest` (sha2): db needs atomic writes, sweeps, owner-only files, netfs and the store-wide advisory lock.
-rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs", "lock"] }
+rightkit-fs = { version = "0.4.6", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "transaction"] }
 thiserror = "2"
 zeroize = "1.9"
 

@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-oauth-r2-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-oauth = { version = "=0.10.0", default-features = false, features = ["secrets", "server"] }
+rightkit-credentials = { version = "=0.4.0", default-features = false }
+rightkit-http = { version = "0.3", default-features = false }

@@ -248,12 +248,14 @@ pub struct HostKey {
     pub shift_key: bool,
 }
 
+type DeliverKey = dyn Fn(&str, HostKey) + Send + Sync;
+
 /// Callbacks the host cannot decide itself. Cheap to clone.
 #[derive(Clone)]
 pub struct HostHooks {
     open_link: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     claim_key: Arc<dyn Fn(&HostKey) -> bool + Send + Sync>,
-    deliver_key: Arc<dyn Fn(&str, HostKey) + Send + Sync>,
+    deliver_key: Arc<DeliverKey>,
 }
 
 impl Default for HostHooks {
@@ -452,7 +454,9 @@ pub struct FindRequest {
 pub struct NativeParent {
     pub(crate) webview: usize,
     pub(crate) superview: usize,
+    #[cfg(target_os = "macos")]
     pub(crate) window_number: isize,
+    #[cfg(target_os = "macos")]
     pub(crate) frame: HostFrame,
     _not_send: PhantomData<*const ()>,
 }
@@ -464,7 +468,9 @@ impl NativeParent {
         Self {
             webview: 0,
             superview: 0,
+            #[cfg(target_os = "macos")]
             window_number: 0,
+            #[cfg(target_os = "macos")]
             frame: HostFrame {
                 x: 0.0,
                 y: 0.0,
@@ -485,7 +491,9 @@ impl NativeParent {
         Self {
             webview: 1,
             superview: 2,
+            #[cfg(target_os = "macos")]
             window_number: 1,
+            #[cfg(target_os = "macos")]
             frame: HostFrame {
                 x: 0.0,
                 y: 0.0,
