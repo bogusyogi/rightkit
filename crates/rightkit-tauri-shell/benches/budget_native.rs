@@ -1,5 +1,5 @@
 //! Native Shell/HostServices adapter for the existing watchdog budget policy.
-//! One real hidden Wry webview; no mock runtime, renderer timer, QA server or user store.
+//! One real hidden Wry webview during measurement; no mock runtime, QA server or user store.
 //! Three interleaved bare/watchdog pairs, default watchdog timing, 5 s settling & >=30 s idle.
 //! Capture/cancellation probes run in separate unmeasured native processes.
 
@@ -10,12 +10,27 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{Manager, Wry};
 
 const IDLE_SECONDS: u64 = 30;
 const PAIRS: usize = 3;
+
+// Fixture-only completion channel: results originate in the invoking native webview.
+#[derive(Default)]
+struct RendererReports(Mutex<std::collections::BTreeMap<String, serde_json::Value>>);
+
+#[tauri::command]
+fn native_fixture_report(webview: tauri::Webview<Wry>, report: serde_json::Value) {
+    webview
+        .app_handle()
+        .state::<RendererReports>()
+        .0
+        .lock()
+        .expect("renderer reports")
+        .insert(webview.label().to_owned(), report);
+}
 
 struct NativeAssets;
 
@@ -159,11 +174,6 @@ fn host_services(app: &tauri::AppHandle<Wry>, root: &Path) {
         rightkit_app_settings::Document::open_path(root.join("settings.json"), "native-budget")
             .expect("isolated settings document");
     let bridge = SettingsBridge::new(document, StaticSchema::new(1).keys(["probe"]));
-    let snapshot = bridge.get().expect("settings initial read");
-    let saved = bridge
-        .patch(&serde_json::json!({"probe": true}), Some(snapshot.revision))
-        .expect("settings CAS warm-up");
-    assert_eq!(saved.values["probe"], true);
     let mut services = HostServices::builder()
         .settings(
             SettingsHostService::new(bridge),
@@ -221,6 +231,8 @@ fn native(mode: String, idle_seconds: u64) {
     let namespace = format!("rk-native-budget-{}", std::process::id());
     let ready = Arc::new(AtomicBool::new(false));
     let capture_started = Arc::new(AtomicBool::new(false));
+    #[cfg(feature = "host-services")]
+    let content_ready = Arc::new(AtomicBool::new(false));
     let mut config = WatchdogConfig::default();
     #[cfg(feature = "crash")]
     {
@@ -273,10 +285,15 @@ fn native(mode: String, idle_seconds: u64) {
         .build();
     let fixture_root = root.path().to_path_buf();
     let page_ready = Arc::clone(&ready);
+    #[cfg(feature = "host-services")]
+    let content_page_ready = Arc::clone(&content_ready);
     let mut context = tauri::test::mock_context(NativeAssets);
     context.config_mut().identifier = format!("app.rightkit.nativebudget.p{}", std::process::id());
     context.config_mut().app.windows.clear();
-    let builder = tauri::Builder::<Wry>::new().plugin(shell.plugin());
+    let builder = tauri::Builder::<Wry>::new()
+        .manage(RendererReports::default())
+        .invoke_handler(rightkit_tauri_shell::handler![native_fixture_report])
+        .plugin(shell.plugin());
     let mut app = builder
         .setup(move |app| {
             host_services(app.handle(), &fixture_root);
@@ -295,6 +312,21 @@ fn native(mode: String, idle_seconds: u64) {
                 }
             })
             .build()?;
+            #[cfg(feature = "host-services")]
+            tauri::WebviewWindowBuilder::new(
+                app,
+                "content",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .visible(false)
+            .focused(false)
+            .data_directory(fixture_root.join("content-webview"))
+            .on_page_load(move |_, event| {
+                if event.event() == tauri::webview::PageLoadEvent::Finished {
+                    content_page_ready.store(true, Ordering::Release);
+                }
+            })
+            .build()?;
             Ok(())
         })
         .build(context)
@@ -310,6 +342,10 @@ fn native(mode: String, idle_seconds: u64) {
     let observer = std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             wait_for("real webview page load", || ready.load(Ordering::Acquire));
+            #[cfg(feature = "host-services")]
+            wait_for("content webview page load", || {
+                content_ready.load(Ordering::Acquire)
+            });
             settings_probe(&observer_handle);
             main_probe(&observer_handle, &observer_root);
             if mode == "capture" || mode == "cancel" {
@@ -373,38 +409,129 @@ fn native(mode: String, idle_seconds: u64) {
 
 #[cfg(feature = "host-services")]
 fn settings_probe(app: &tauri::AppHandle<Wry>) {
-    use rightkit_tauri_shell::host::{settings, HostServices, ServiceId, SettingsHostService};
+    use rightkit_tauri_shell::host::settings;
     use tauri::Listener;
     let window = app
         .get_webview_window("main")
         .expect("settings controller window");
-    let (tx, rx) = mpsc::sync_channel(1);
+    let (tx, rx) = mpsc::sync_channel(4);
     let listener = window.listen(settings::EVENT_SETTINGS_CHANGED, move |event| {
         let _ = tx.try_send(event.payload().to_owned());
     });
-    let webview: &tauri::Webview<Wry> = window.as_ref();
-    let revision =
-        tauri::async_runtime::block_on(settings::rightkit_settings_subscribe(webview.clone()))
-            .expect("native controller settings subscription");
-    let host = app.state::<HostServices>();
-    let service = host
-        .service::<SettingsHostService>(ServiceId::SETTINGS)
-        .expect("concrete settings service");
-    let saved = service
-        .bridge()
-        .patch(&serde_json::json!({"probe": false}), Some(revision))
-        .expect("subscribed settings CAS");
-    let payload: serde_json::Value = serde_json::from_str(
-        &rx.recv_timeout(Duration::from_secs(15))
-            .expect("real settings changed emission"),
-    )
-    .expect("settings event JSON");
-    assert_eq!(
-        payload,
-        serde_json::json!({"keys": ["probe"], "revision": saved.revision})
+    // Every settings operation travels from Wry's renderer through handler! registration.
+    window
+        .eval(
+            r#"
+        (async () => {
+            const invoke = window.__TAURI_INTERNALS__.invoke;
+            const check = (ok, message) => { if (!ok) throw new Error(message); };
+            try {
+                const description = await invoke('rightkit_settings_describe');
+                const initial = await invoke('rightkit_settings_get');
+                check(description.writable && description.revision === initial.revision,
+                    'registered settings description');
+                const revision = await invoke('rightkit_settings_subscribe');
+                check(revision === initial.revision, 'subscription revision');
+                const saved = await invoke('rightkit_settings_patch', {
+                    patch: {probe: true}, expectedRevision: revision
+                });
+                check(saved.values.probe === true && saved.revision > revision, 'CAS commit');
+                let conflict;
+                try {
+                    await invoke('rightkit_settings_patch', {
+                        patch: {probe: false}, expectedRevision: revision
+                    });
+                } catch (error) { conflict = error; }
+                check(conflict && conflict.code === 'revision_conflict', 'typed stale conflict');
+                const current = await invoke('rightkit_settings_get');
+                check(current.revision === saved.revision && current.values.probe === true,
+                    'stale write changed committed settings');
+                const reset = await invoke('rightkit_settings_reset', {
+                    keys: ['probe'], expectedRevision: saved.revision
+                });
+                check(!Object.hasOwn(reset.values, 'probe') && reset.revision > saved.revision,
+                    'reset commit');
+                await invoke('rightkit_settings_unsubscribe');
+                await invoke('native_fixture_report', {report: {
+                    ok: true, savedRevision: saved.revision, resetRevision: reset.revision
+                }});
+            } catch (error) {
+                await invoke('native_fixture_report', {report: {ok: false, error: String(error)}});
+            }
+        })();
+    "#,
+        )
+        .expect("dispatch trusted renderer IPC");
+    wait_for("trusted renderer settings IPC", || {
+        app.state::<RendererReports>()
+            .0
+            .lock()
+            .expect("renderer reports")
+            .contains_key("main")
+    });
+    let report = app
+        .state::<RendererReports>()
+        .0
+        .lock()
+        .expect("renderer reports")
+        .get("main")
+        .cloned()
+        .expect("trusted renderer report");
+    assert_eq!(report["ok"], true, "registered settings IPC: {report}");
+    // Delivery follows each committed mutation; stale CAS must emit nothing.
+    for revision in [&report["savedRevision"], &report["resetRevision"]] {
+        let payload: serde_json::Value = serde_json::from_str(
+            &rx.recv_timeout(Duration::from_secs(15))
+                .expect("postcommit settings event"),
+        )
+        .expect("settings event JSON");
+        assert_eq!(
+            payload,
+            serde_json::json!({"keys": ["probe"], "revision": revision})
+        );
+    }
+    assert!(
+        rx.try_recv().is_err(),
+        "stale CAS emitted a settings change"
     );
-    assert_eq!(service.emit_failures(), 0);
     window.unlisten(listener);
+    let content = app
+        .get_webview_window("content")
+        .expect("untrusted content window");
+    content.eval(r#"
+        (async () => {
+            const invoke = window.__TAURI_INTERNALS__.invoke;
+            let error;
+            try { await invoke('rightkit_settings_get'); } catch (e) { error = e; }
+            await invoke('native_fixture_report', {report: {
+                ok: !!error && error.code === 'permission_denied' &&
+                    error.message === 'forbidden: the caller\'s window is not trusted by the service', error
+            }});
+        })();
+    "#).expect("dispatch content renderer IPC");
+    wait_for("content renderer refusal", || {
+        app.state::<RendererReports>()
+            .0
+            .lock()
+            .expect("renderer reports")
+            .contains_key("content")
+    });
+    let report = app
+        .state::<RendererReports>()
+        .0
+        .lock()
+        .expect("renderer reports")
+        .get("content")
+        .cloned()
+        .expect("content renderer report");
+    assert_eq!(
+        report["ok"], true,
+        "content caller must be refused: {report}"
+    );
+    content
+        .destroy()
+        .expect("destroy content fixture before idle measurement");
+    println!("FUNCTIONAL mode=host-registration settings_ipc=true cas=true stale_conflict=true postcommit_events=true reset=true untrusted_window_refused=true");
 }
 
 #[cfg(not(feature = "host-services"))]

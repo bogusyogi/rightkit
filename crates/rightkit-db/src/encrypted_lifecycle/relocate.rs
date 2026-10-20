@@ -1005,15 +1005,41 @@ pub fn recover_relocation(
     plan: RelocationPlan,
     settlement: RelocationSettlement,
 ) -> Result<RelocationRecovery, LifecycleError> {
-    let (store, mut core) = recover_relocation_core(cfg, plan, settlement)?;
+    let (store, core) = recover_relocation_core(cfg, plan, settlement)?;
+    Ok(finish_relocation_recovery(store, core))
+}
+
+/// Recover an interrupted relocation under the caller's explicit old-root decision.
+///
+/// Returns `None` only when both relocation journals are absent under transition locks.
+/// Otherwise this performs the same terminal settlement as `recover_relocation(..., Aborted)`:
+/// the returned store serves the verified old database; any published copy remains retained
+/// and must never be treated as retry authority. A selected destination or mismatched journal
+/// is refused. The caller must honor `cleanup_retained`, using the returned store or reporting
+/// pending recovery instead of dropping it and attempting an ordinary open through a journal.
+/// This does not resume copying or authorize deletion of a retained destination.
+pub fn recover_aborted_relocation(
+    cfg: EncryptedStoreConfig,
+    plan: RelocationPlan,
+) -> Result<Option<RelocationRecovery>, LifecycleError> {
+    Ok(
+        recover_relocation_core_optional(cfg, plan, RelocationSettlement::Aborted, true)?
+            .map(|(store, core)| finish_relocation_recovery(store, core)),
+    )
+}
+
+fn finish_relocation_recovery(
+    store: EncryptedStore,
+    mut core: RelocationCore,
+) -> RelocationRecovery {
     core.cleanup_candidate();
     if core.cleanup.is_empty() {
         core.clear_own_journals();
     }
-    Ok(RelocationRecovery {
+    RelocationRecovery {
         store: Some(store),
         report: core.report(),
-    })
+    }
 }
 
 /// Retry cleanup after a coordinator's durable Completed decision. Both journals are checked
@@ -1023,18 +1049,14 @@ pub fn recover_completed_relocation(
     cfg: EncryptedStoreConfig,
     plan: RelocationPlan,
 ) -> Result<Option<RelocationSettlementReport>, LifecycleError> {
-    let Some((store, mut core)) =
+    let Some((store, core)) =
         recover_relocation_core_optional(cfg, plan, RelocationSettlement::Committed, true)?
     else {
         return Ok(None);
     };
-    core.cleanup_candidate();
-    if core.cleanup.is_empty() {
-        core.clear_own_journals();
-    }
-    let report = core.report();
-    drop(store);
-    Ok(Some(report))
+    let recovered = finish_relocation_recovery(store, core);
+    drop(recovered.store);
+    Ok(Some(recovered.report))
 }
 
 fn recover_relocation_core(

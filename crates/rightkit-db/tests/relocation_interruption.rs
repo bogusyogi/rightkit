@@ -3,10 +3,11 @@
 #![cfg(all(feature = "encrypted-lifecycle", feature = "cipher"))]
 
 use rightkit_db::encrypted_lifecycle::{
-    recover_completed_relocation, recover_relocation, recover_relocation_session, recover_rotation,
-    BlockedReason, EncryptedStore, EncryptedStoreConfig, Key, KeyStoreError, LifecycleError,
-    PendingKey, PendingRevision, ProtectedKeySession, ProtectedKeyStore, RecoveryOutcome,
-    RelocationPlan, RelocationSettlement, RotationRequest,
+    recover_aborted_relocation, recover_completed_relocation, recover_relocation,
+    recover_relocation_session, recover_rotation, BlockedReason, EncryptedStore,
+    EncryptedStoreConfig, Key, KeyStoreError, LifecycleError, PendingKey, PendingRevision,
+    ProtectedKeySession, ProtectedKeyStore, RecoveryOutcome, RelocationPlan, RelocationSettlement,
+    RotationRequest,
 };
 use rightkit_db::{DbOptions, Zeroizing};
 use rightkit_fs::{AtomicWriteOptions, AtomicWriter, FileLock, LockOptions};
@@ -923,4 +924,102 @@ fn failed_activation_blocks_old_writer_and_rotation_cannot_clear_relocation_jour
     assert!(active.with_writer(|_| ()).is_ok());
     assert!(!journal(&fixture.old()).exists());
     assert!(!journal(&fixture.new_db()).exists());
+}
+
+#[test]
+fn optional_old_root_recovery_is_terminal_and_never_adopts_retained_copy() {
+    let fixture = Fixture::new();
+    assert!(recover_aborted_relocation(fixture.config(), fixture.plan())
+        .unwrap()
+        .is_none());
+    kill_after(&fixture.root, "copied");
+    let original = fs::read(fixture.old()).unwrap();
+    let published = fs::read(fixture.new_db()).unwrap();
+    let recovered = recover_aborted_relocation(fixture.config(), fixture.plan())
+        .unwrap()
+        .unwrap();
+    assert!(
+        recovered.report.cleanup_retained.is_empty(),
+        "{:?}",
+        recovered.report
+    );
+    assert_eq!(
+        recovered.report.copy_retained.as_deref(),
+        Some(fixture.new_db().as_path())
+    );
+    let store = Arc::new(recovered.store.expect("verified old-root store"));
+    assert_eq!(store.db_path(), fixture.old());
+    assert_eq!(fs::read(fixture.old()).unwrap(), original);
+    assert_eq!(fs::read(fixture.new_db()).unwrap(), published);
+    assert!(!journal(&fixture.old()).exists());
+    assert!(!journal(&fixture.new_db()).exists());
+    store
+        .with_writer(|conn| conn.execute_batch("UPDATE relocation_value SET x=42"))
+        .unwrap()
+        .unwrap();
+    drop(store);
+    assert!(recover_aborted_relocation(fixture.config(), fixture.plan())
+        .unwrap()
+        .is_none());
+    let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+    assert_eq!(store.db_path(), fixture.old());
+    assert!(matches!(
+        store.prepare_relocation(fixture.plan()),
+        Err(LifecycleError::DestinationExists { .. })
+    ));
+    assert_eq!(value(&fixture.old()), 42);
+    assert_eq!(value(&fixture.new_db()), 41);
+}
+
+#[test]
+fn optional_old_root_recovery_handles_prepublication_and_refuses_selected_destination() {
+    let fixture = Fixture::new();
+    kill_after(&fixture.root, "quiesced");
+    let recovered = recover_aborted_relocation(fixture.config(), fixture.plan())
+        .unwrap()
+        .unwrap();
+    assert!(recovered.report.cleanup_retained.is_empty());
+    assert!(recovered.report.copy_retained.is_none());
+    let store = recovered.store.expect("old root remains selected");
+    assert_eq!(store.db_path(), fixture.old());
+    assert!(!fixture.new_db().exists());
+    drop(store);
+    assert!(recover_aborted_relocation(fixture.config(), fixture.plan())
+        .unwrap()
+        .is_none());
+
+    let selected = Fixture::new();
+    kill_after(&selected.root, "activated");
+    let old_journal = fs::read(journal(&selected.old())).unwrap();
+    let new_journal = fs::read(journal(&selected.new_db())).unwrap();
+    assert!(recover_aborted_relocation(selected.config(), selected.plan()).is_err());
+    assert_eq!(fs::read(journal(&selected.old())).unwrap(), old_journal);
+    assert_eq!(fs::read(journal(&selected.new_db())).unwrap(), new_journal);
+}
+
+#[test]
+fn optional_old_root_recovery_refuses_replaced_publication_without_changing_authority() {
+    let fixture = Fixture::new();
+    kill_after(&fixture.root, "copied");
+    let saved = fixture.root.join("verified-copy.db");
+    fs::rename(fixture.new_db(), &saved).unwrap();
+    private_write(&fixture.new_db(), b"foreign");
+    let old_journal = fs::read(journal(&fixture.old())).unwrap();
+    let new_journal = fs::read(journal(&fixture.new_db())).unwrap();
+    assert!(recover_aborted_relocation(fixture.config(), fixture.plan()).is_err());
+    assert_eq!(fs::read(journal(&fixture.old())).unwrap(), old_journal);
+    assert_eq!(fs::read(journal(&fixture.new_db())).unwrap(), new_journal);
+    assert_eq!(fs::read(fixture.new_db()).unwrap(), b"foreign");
+    assert_eq!(value(&fixture.old()), 41);
+}
+
+#[test]
+fn optional_old_root_recovery_does_not_treat_unreadable_journal_as_absence() {
+    let fixture = Fixture::new();
+    private_write(&journal(&fixture.old()), b"invalid relocation authority");
+    let authority = fs::read(journal(&fixture.old())).unwrap();
+    assert!(recover_aborted_relocation(fixture.config(), fixture.plan()).is_err());
+    assert_eq!(fs::read(journal(&fixture.old())).unwrap(), authority);
+    assert!(!fixture.new_db().exists());
+    assert_eq!(value(&fixture.old()), 41);
 }

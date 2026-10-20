@@ -661,11 +661,14 @@ impl Core {
         let Some(record) = record else {
             return Ok(self.no_credential(&snap));
         };
-        if record.status != RecordStatus::Active || record.activation_token().is_none() {
+        if record.status != RecordStatus::Active {
             return Ok(self.no_credential(&snap));
         }
-        if record.lease.is_some() {
+        if selected_lease_id(&record).is_some() {
             return self.renew_locked(guard, &snap, record);
+        }
+        if record.activation_token().is_none() {
+            return Ok(self.no_credential(&snap));
         }
         let wall = wall_now()?;
         let activation = Zeroizing::new(record.activation_token().unwrap_or_default().to_owned());
@@ -965,7 +968,10 @@ impl Core {
             _ => None,
         };
         match record {
-            Some(record) if record.lease.is_some() && record.status == RecordStatus::Active => {
+            Some(record)
+                if selected_lease_id(&record).is_some()
+                    && record.status == RecordStatus::Active =>
+            {
                 self.renew_locked(guard, &snap, record)
             }
             _ => Ok(self.no_credential(&snap)),
@@ -978,7 +984,7 @@ impl Core {
         snap: &Snapshot,
         record: StoredRecord,
     ) -> Result<RefreshView, LicenseError> {
-        let Some(lease) = record.lease.clone() else {
+        let Some(lease_id) = selected_lease_id(&record) else {
             return Ok(self.no_credential(snap));
         };
         let hash = self
@@ -986,7 +992,7 @@ impl Core {
             .device_id_hash()
             .map_err(|_| LicenseError::Verify)?;
         let wall = wall_now()?;
-        let reply = self.transport.lease_renew(&hash, &lease.lease_id);
+        let reply = self.transport.lease_renew(&hash, lease_id);
         let (next, outcome) = match reply {
             Ok(reply) if reply.status == 410 || reply.status == 404 => {
                 // The server says this device's lease is gone: access ends now.
@@ -1343,6 +1349,15 @@ pub(crate) fn lease_wire_from(top: &Map<String, Value>) -> Result<LeaseWire, Lic
         lease: record,
         entitlement,
     })
+}
+
+/// Full lease metadata takes precedence; an incomplete legacy import preserves its exact ID.
+fn selected_lease_id(record: &StoredRecord) -> Option<&str> {
+    record
+        .lease
+        .as_ref()
+        .map(|lease| lease.lease_id.as_str())
+        .or(record.binding_lease_id.as_deref())
 }
 
 /// The record after the server said the licence is no longer active: no token of any kind.

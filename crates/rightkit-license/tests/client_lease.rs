@@ -177,3 +177,140 @@ fn lease_operations_on_a_record_with_no_lease_do_nothing() {
     );
     assert_eq!(f.state.renew_calls.load(SeqCst), 0);
 }
+
+fn import_binding_only(f: &Fixture, activation: bool) {
+    let mut claims = common::Claims::term(now() - 100, now() + 3600);
+    claims.device = DEVICE_HASH;
+    let mut raw = serde_json::json!({
+        "status": "active", "signedToken": claims.token(), "leaseId": "legacy-incomplete-lease",
+    });
+    if activation {
+        raw["activationToken"] = serde_json::json!(ACTIVATION);
+    }
+    f.client()
+        .import_legacy_json(SecretString::new(raw.to_string()))
+        .unwrap();
+    assert!(f.backend.envelope().unwrap()["record"]
+        .get("lease")
+        .is_none());
+}
+
+#[test]
+fn incomplete_imported_lease_dispatches_with_or_without_activation_credential() {
+    for activation in [false, true] {
+        let f = fixture();
+        import_binding_only(&f, activation);
+        let before = f.backend.text(ACCOUNT).unwrap();
+        let result = f.client().refresh();
+        if activation {
+            assert_eq!(result.unwrap().outcome, RefreshViewOutcome::Refreshed);
+            assert_eq!(
+                f.backend.envelope().unwrap()["record"]["lease"]["generation"],
+                2
+            );
+        } else {
+            // Renewal dispatch needs only the binding; persistence still requires a credential.
+            assert_eq!(result.unwrap_err(), LicenseError::Verify);
+            assert_eq!(f.backend.text(ACCOUNT).unwrap(), before);
+        }
+        let requests = f.requests(&format!("/v1/pro/{APP}/devices/lease/renew"));
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["leaseId"], "legacy-incomplete-lease");
+        assert_eq!(requests[0]["deviceIdHash"], DEVICE_HASH);
+        assert!(requests[0].get("activationToken").is_none());
+        assert_eq!(f.state.refresh_calls.load(SeqCst), 0);
+    }
+}
+
+#[test]
+fn incomplete_imported_lease_uses_the_same_direct_renew_path() {
+    let f = fixture();
+    import_binding_only(&f, false);
+    let before = f.backend.text(ACCOUNT).unwrap();
+    assert_eq!(f.client().lease_renew().unwrap_err(), LicenseError::Verify);
+    assert_eq!(f.backend.text(ACCOUNT).unwrap(), before);
+    assert_eq!(
+        f.requests(&format!("/v1/pro/{APP}/devices/lease/renew"))[0]["leaseId"],
+        "legacy-incomplete-lease"
+    );
+    assert_eq!(f.state.refresh_calls.load(SeqCst), 0);
+}
+
+#[test]
+fn inactive_or_invalid_imported_lease_never_dispatches_refresh_or_renew() {
+    for status in ["revoked", "invalid"] {
+        let f = fixture();
+        import_binding_only(&f, true);
+        let mut stored = f.backend.envelope().unwrap();
+        stored["record"]["status"] = serde_json::json!(status);
+        f.backend.put_text(ACCOUNT, &stored.to_string());
+        let before = f.backend.text(ACCOUNT).unwrap();
+        let client = f.client();
+        assert_eq!(
+            client.refresh().unwrap().outcome,
+            RefreshViewOutcome::NoCredential
+        );
+        assert_eq!(
+            client.lease_renew().unwrap().outcome,
+            RefreshViewOutcome::NoCredential
+        );
+        assert_eq!(f.state.renew_calls.load(SeqCst), 0);
+        assert_eq!(f.state.refresh_calls.load(SeqCst), 0);
+        assert_eq!(f.backend.text(ACCOUNT).unwrap(), before);
+    }
+}
+
+#[test]
+fn activation_only_refresh_still_uses_legacy_endpoint() {
+    let f = fixture();
+    let client = f.client();
+    client.activate(key()).unwrap();
+    assert_eq!(
+        client.refresh().unwrap().outcome,
+        RefreshViewOutcome::Refreshed
+    );
+    assert_eq!(f.state.refresh_calls.load(SeqCst), 1);
+    assert_eq!(f.state.renew_calls.load(SeqCst), 0);
+}
+
+#[test]
+fn incomplete_import_renewal_still_refuses_unverified_server_metadata() {
+    let f = fixture();
+    import_binding_only(&f, true);
+    let before = f.backend.text(ACCOUNT).unwrap();
+    f.state.bad_signature.store(true, SeqCst);
+    assert_eq!(f.client().refresh().unwrap_err(), LicenseError::Verify);
+    assert_eq!(f.backend.text(ACCOUNT).unwrap(), before);
+    assert_eq!(f.state.refresh_calls.load(SeqCst), 0);
+}
+
+#[test]
+fn refused_credential_store_never_dispatches_imported_lease() {
+    let f = fixture();
+    import_binding_only(&f, false);
+    f.backend.deny_get.store(true, SeqCst);
+    let client = f.client();
+    assert!(client.refresh().is_err());
+    assert!(client.lease_renew().is_err());
+    assert_eq!(f.state.renew_calls.load(SeqCst), 0);
+    assert_eq!(f.state.refresh_calls.load(SeqCst), 0);
+}
+
+#[test]
+fn complete_lease_id_takes_precedence_over_preserved_import_binding() {
+    let f = fixture();
+    let client = f.client();
+    client.lease_activate(key(), None).unwrap();
+    let mut stored = f.backend.envelope().unwrap();
+    stored["record"]["leaseId"] = serde_json::json!("obsolete-import-binding");
+    f.backend.put_text(ACCOUNT, &stored.to_string());
+    assert_eq!(
+        client.refresh().unwrap().outcome,
+        RefreshViewOutcome::Refreshed
+    );
+    assert_eq!(
+        f.requests(&format!("/v1/pro/{APP}/devices/lease/renew"))[0]["leaseId"],
+        "lease-1"
+    );
+    assert_eq!(f.state.refresh_calls.load(SeqCst), 0);
+}

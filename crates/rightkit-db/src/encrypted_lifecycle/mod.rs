@@ -41,9 +41,9 @@ pub use keystore::{
     ProtectedKeySession, ProtectedKeyStore,
 };
 pub use relocate::{
-    recover_completed_relocation, recover_relocation, recover_relocation_session, RelocationPlan,
-    RelocationRecovery, RelocationReport, RelocationSession, RelocationSettlement,
-    RelocationSettlementReport,
+    recover_aborted_relocation, recover_completed_relocation, recover_relocation,
+    recover_relocation_session, RelocationPlan, RelocationRecovery, RelocationReport,
+    RelocationSession, RelocationSettlement, RelocationSettlementReport,
 };
 pub use rotate::{
     recover_rotation, BlockedReason, Phase, RecoveryOutcome, RecoveryReport, RecoveryStep,
