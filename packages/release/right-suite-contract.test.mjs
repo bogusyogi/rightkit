@@ -1104,7 +1104,7 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 // Windows build exception, sealed-archive qualification, and reviewed-candidate promotion. Product repositories host none.
 const RIGHTKIT_VERIFICATION_WORKFLOWS = ["android.yml", "chrome-pins.yml", "ci.yml"];
 const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
-const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml"];
+const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml", "chrome-native-diagnostic.yml", "repair-hygiene.yml"];
 const RIGHTKIT_QUALIFICATION_WORKFLOWS = ["publish.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
 const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
@@ -1240,7 +1240,7 @@ const reviewedWorkflowText = () => readFileSync(new URL("../../.github/workflows
 test("publish-reviewed.yml: promotion alone owns release environment and sparse credentialed uploader", { skip: !reviewedWorkflowPresent && "no publish-reviewed.yml" }, () => {
   const doc = parseYaml(reviewedWorkflowText());
   assertReviewedDoc(doc);
-  assert.deepEqual(doc.jobs.upload.steps[0].with["sparse-checkout"].split("\n").filter(Boolean), ["scripts/ci/upload.mjs", "scripts/ci/registry-spec.mjs", "scripts/ci/reviewed-candidate.mjs", "scripts/ci/supplemental-proof.mjs", "ci/approved-artifacts.json", "ci/supplemental-proofs.json"]);
+  assert.deepEqual(doc.jobs.upload.steps[0].with["sparse-checkout"].split("\n").filter(Boolean), ["scripts/ci/upload.mjs", "scripts/ci/registry-spec.mjs", "scripts/ci/reviewed-candidate.mjs", "scripts/ci/supplemental-proof.mjs", "ci/approved-artifacts.json", "ci/supplemental-proofs.json", "ci/linux-required.json"]);
   assert.equal(doc.jobs.upload.environment, "release");
   assert.equal(doc.jobs["seal-check"].environment, undefined);
   assert.ok(REVIEWED_MUTATIONS.length >= 25, "promotion mutation set must stay broad");

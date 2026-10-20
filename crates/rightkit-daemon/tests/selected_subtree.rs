@@ -302,6 +302,7 @@ fn reserved_and_participant_owned_roots_refuse_selected_copy() {
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn failed_resolver_does_not_write_abort_into_substituted_destination() {
     let fixture = Fixture::new();
@@ -320,6 +321,51 @@ fn failed_resolver_does_not_write_abort_into_substituted_destination() {
     assert!(!new.join(CUTOVER_RECORD).exists());
     assert_eq!(fs::read(new.join("sentinel")).unwrap(), b"replacement");
     assert!(new.with_extension("saved").join(CUTOVER_RECORD).exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_resolver_cannot_replace_locked_destination() {
+    let fixture = Fixture::new();
+    let new = fixture.app.root().to_path_buf();
+    fs::write(new.join("sentinel"), b"original").unwrap();
+    let destination = new.clone();
+    let result = RootCutover::new(fixture.app.clone(), &fixture.old)
+        .fs_move(FsMove::Tree(MigrateOptions::strict()))
+        .tree_roots(move |_| {
+            let error = fs::rename(&destination, destination.with_extension("saved")).unwrap_err();
+            assert!(matches!(error.raw_os_error(), Some(5 | 32)), "{error}");
+            Err(ParticipantError::new("resolver failed after denied replacement"))
+        })
+        .run();
+    assert!(matches!(
+        result,
+        Err(rightkit_daemon::CutoverError::Participant { name, error, .. })
+            if name == "tree-roots"
+                && error.message() == "resolver failed after denied replacement"
+    ));
+    assert!(!new.with_extension("saved").exists());
+    assert_eq!(fs::read(new.join("sentinel")).unwrap(), b"original");
+    let status = RootCutover::status(&fixture.app).unwrap().unwrap();
+    assert_eq!(status.phase, rightkit_daemon::CutoverPhase::Aborted);
+    assert_eq!(status.new_root, fs::canonicalize(&new).unwrap());
+    assert_eq!(status.generation, 1);
+    assert_eq!(
+        RootCutover::selected_root(&fixture.app, &fixture.old).unwrap(),
+        fixture.old
+    );
+    let mut names: Vec<_> = fs::read_dir(&new)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    names.sort();
+    let mut expected: Vec<_> = [CUTOVER_RECORD, ".rightkit-cutover.lock", "sentinel"]
+        .into_iter()
+        .map(std::ffi::OsString::from)
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected);
+    assert!(fixture.old.join("startup.log").is_file());
 }
 
 #[test]
@@ -560,6 +606,7 @@ impl Fixture {
         let temporary = tempfile::tempdir().unwrap();
         let old = temporary.path().join("installation");
         fs::create_dir_all(&old).unwrap();
+        let old = fs::canonicalize(old).unwrap();
         for directory in DIRECTORIES {
             fs::create_dir_all(old.join(directory).join("empty")).unwrap();
             fs::write(old.join(directory).join("data.bin"), directory.as_bytes()).unwrap();

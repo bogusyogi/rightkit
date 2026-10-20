@@ -1,0 +1,46 @@
+name: rightkit-repair-hygiene
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+env:
+  NODE_VERSION: "26.8.1"
+jobs:
+  private-repo-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require public RightKit repository
+        if: ${{ github.repository != 'bogusyogi/rightkit' || github.event.repository.private || github.ref != 'refs/heads/main' }}
+        run: exit 1
+
+  hygiene:
+    needs: [private-repo-guard]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/rk-setup
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          rust: "true"
+          install-filter: --filter @rightkit/release...
+          ignore-install-scripts: "true"
+          cache-key: rk-ubuntu-hygiene
+          save-cache: "false"
+      - name: Generate lockfile and rustfmt repair patches
+        shell: bash
+        run: node scripts/ci/gate.mjs --select "rust:rightkit-logs rust:rightkit-daemon" --steps lock,fmt
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: qa-evidence-hygiene-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rightkit-ci
+          retention-days: 7
+          if-no-files-found: ignore

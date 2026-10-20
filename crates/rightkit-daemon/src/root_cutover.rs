@@ -865,14 +865,15 @@ struct Plan {
     new_key: FileKey,
 }
 
+type TreeRootsResolver = dyn Fn(&CutoverContext) -> Result<Vec<PathBuf>, ParticipantError> + Send;
+
 /// The cutover of one app root. Build it with [`RootCutover::new`], register participants, run it.
 pub struct RootCutover {
     app: AppRoot,
     old_root: PathBuf,
     fs_move: FsMove,
     participants: Vec<Box<dyn CutoverParticipant>>,
-    tree_roots:
-        Option<Box<dyn Fn(&CutoverContext) -> Result<Vec<PathBuf>, ParticipantError> + Send>>,
+    tree_roots: Option<Box<TreeRootsResolver>>,
 }
 
 fn valid_participant_name(name: &str) -> bool {
@@ -1774,5 +1775,76 @@ impl RootCutover {
             path: landed,
             already: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Suite;
+
+    #[test]
+    fn abort_does_not_write_into_substituted_destination() {
+        let temporary = tempfile::tempdir().unwrap();
+        let old = temporary.path().join("old");
+        fs::create_dir(&old).unwrap();
+        fs::write(old.join("startup.log"), b"source").unwrap();
+        let app = Suite::at(temporary.path().join("suite"))
+            .unwrap()
+            .app_root("AbortIdentity")
+            .unwrap();
+        let mut cutover = RootCutover::new(app.clone(), &old)
+            .fs_move(FsMove::Tree(MigrateOptions::strict()))
+            .tree_roots(|_| Err(ParticipantError::new("stop before copy")));
+        assert!(matches!(
+            cutover.run(),
+            Err(CutoverError::Participant { name, error, .. })
+                if name == "tree-roots" && error.message() == "stop before copy"
+        ));
+        // Capture a pending attempt after run released its lock, so replacement is possible
+        // on Windows too. Exercise abort's identity guard without weakening that lock.
+        let (new, new_key) = cutover.plan_new().unwrap();
+        let plan = cutover.plan_old(new, new_key).unwrap();
+        let mut record = read_record(&plan.new).unwrap().unwrap();
+        assert_eq!(record.phase, CutoverPhase::Aborted);
+        record.phase = CutoverPhase::Copying;
+        record.error = None;
+        write_record(&plan.new, &record).unwrap();
+        let original = fs::read(plan.new.join(CUTOVER_RECORD)).unwrap();
+        let cx = CutoverContext {
+            id: record.id.clone(),
+            generation: record.generation,
+            old_root: plan.old.clone(),
+            new_root: plan.new.clone(),
+            resumed: false,
+        };
+        let saved = plan.new.with_extension("saved");
+        fs::rename(&plan.new, &saved).unwrap();
+        fs::create_dir(&plan.new).unwrap();
+        fs::write(plan.new.join("sentinel"), b"replacement").unwrap();
+        assert!(matches!(
+            check_directory(&plan.new, plan.new_key),
+            Err(CutoverError::PathSubstituted(_))
+        ));
+        let cause = cutover.abort(
+            &plan,
+            record,
+            &cx,
+            0,
+            CutoverError::Io(io::Error::other("resolver failed after replacement")),
+        );
+        assert!(matches!(
+            cause,
+            CutoverError::Io(error) if error.to_string() == "resolver failed after replacement"
+        ));
+        assert!(!plan.new.join(CUTOVER_RECORD).exists());
+        assert_eq!(
+            fs::read(plan.new.join("sentinel")).unwrap(),
+            b"replacement"
+        );
+        assert_eq!(fs::read_dir(&plan.new).unwrap().count(), 1);
+        assert_eq!(fs::read(saved.join(CUTOVER_RECORD)).unwrap(), original);
+        assert_eq!(fs::read(plan.old.join("startup.log")).unwrap(), b"source");
+        assert_eq!(RootCutover::selected_root(&app, &old).unwrap(), old);
     }
 }

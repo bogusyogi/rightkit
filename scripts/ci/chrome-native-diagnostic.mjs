@@ -18,6 +18,55 @@ const WINDOWS_ENV_BRIDGE = 'RIGHTKIT_DIAGNOSTIC_WINDOWS_ENV';
 const errorRecord = error => ({ name: error?.name ?? 'Error', message: String(error?.message ?? error), code: error?.code ?? null });
 const requiredPath = name => { assert(process.env[name] && path.isAbsolute(process.env[name]), `${name} must be absolute`); return path.resolve(process.env[name]); };
 
+// This literal control is the only diagnostic code allowed to receive original runner environment.
+const POWERSHELL_MODULE_CONTROL = `function RkModuleControl([string]$text) { [Console]::Error.WriteLine('RK_MODULE_CONTROL ' + $text); [Console]::Error.Flush() }
+$ErrorActionPreference = 'Stop';
+try {
+  RkModuleControl 'AUTOLOAD_NONE_BEGIN';
+  $PSModuleAutoLoadingPreference = 'None';
+  RkModuleControl 'AUTOLOAD_NONE_END';
+  RkModuleControl 'UTILITY_IMPORT_BEGIN';
+  $null = Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop;
+  RkModuleControl 'UTILITY_IMPORT_END';
+  RkModuleControl 'CIM_IMPORT_BEGIN';
+  $null = Import-Module ($PSHOME + '\\Modules\\CimCmdlets\\CimCmdlets.psd1') -ErrorAction Stop;
+  RkModuleControl 'CIM_IMPORT_END';
+  RkModuleControl 'CIM_QUERY_BEGIN';
+  $rows = @(CimCmdlets\\Get-CimInstance Win32_Process -ErrorAction Stop);
+  RkModuleControl ('CIM_QUERY_COUNT=' + [string]$rows.Count);
+  RkModuleControl 'CIM_QUERY_END';
+} catch {
+  RkModuleControl ('ERROR_TYPE=' + $_.Exception.GetType().FullName);
+  exit 1;
+}`;
+
+function powerShellModuleControl(out, isolatedEnv) {
+  const report = { diagnosticOnly: true, budgetMs: 30_000, controls: [] };
+  try {
+    const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+    assert(systemRoot && path.isAbsolute(systemRoot));
+    const root = fs.realpathSync(systemRoot);
+    const executable = fs.realpathSync(path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+    assert.equal(path.relative(root, executable).toLowerCase(), path.join('System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe').toLowerCase());
+    const args = ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_MODULE_CONTROL];
+    const cwd = process.cwd();
+    const deadline = performance.now() + report.budgetMs;
+    const fixedOutput = value => {
+      const lines = String(value ?? '').split(/\r?\n/).filter(Boolean);
+      const retained = lines.filter(line => /^RK_MODULE_CONTROL (?:[A-Z_]+|CIM_QUERY_COUNT=\d+|ERROR_TYPE=[A-Za-z0-9_.+`]+)$/.test(line));
+      return { text: retained.join('\n'), omittedLines: lines.length - retained.length };
+    };
+    for (const [environment, env] of [['runner', process.env], ['consumer-isolated', isolatedEnv]]) {
+      const timeoutMs = Math.floor(Math.min(15_000, deadline - performance.now()));
+      if (timeoutMs <= 0) { report.controls.push({ environment, notStarted: 'paired control budget exhausted' }); continue; }
+      const started = performance.now();
+      const result = childProcess.spawnSync(executable, args, { cwd, env, windowsHide: true, encoding: 'utf8', timeout: timeoutMs, maxBuffer: MAX_BYTES });
+      report.controls.push({ environment, timeoutMs, durationMs: performance.now() - started, status: result.status, signal: result.signal, error: result.error ? { type: result.error.name, code: result.error.code ?? null } : null, stdout: fixedOutput(result.stdout), stderr: fixedOutput(result.stderr) });
+    }
+  } catch (error) { report.error = { type: error?.name ?? 'Error', code: error?.code ?? null }; }
+  fs.writeFileSync(path.join(out, 'powershell-module-control.json'), `${JSON.stringify(report, null, 2)}\n`);
+}
+
 function prepare(artifact, out) {
   const manifest = JSON.parse(fs.readFileSync(path.join(artifact, 'manifest.json'), 'utf8'));
   for (const key of ['runId', 'runAttempt', 'repository', 'commit']) assert.equal(manifest[key], FROZEN[key], `frozen manifest ${key}`);
@@ -309,6 +358,7 @@ async function main() {
     const env = consumerChildEnv(process.env, home);
     env.RIGHTKIT_CHROME_FOR_TESTING_ROOT = managed;
     if (process.platform === 'win32') {
+      powerShellModuleControl(out, env);
       const locations = {};
       for (const name of [...WINDOWS_SYSTEM_ENV, ...WINDOWS_HOME_ENV]) {
         const entry = Object.entries(process.env).find(([key]) => key.toLowerCase() === name.toLowerCase());
