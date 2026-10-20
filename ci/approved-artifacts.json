@@ -136,6 +136,42 @@
           "receiptSha256": "f2c5f2871036c493258f3bae906d97b0bd9adf889aa00592dc69098b6b81f801"
         }
       }
+    },
+    {
+      "id": "cargo-child-054-95fb",
+      "sourceSha": "95fb0bfe1350d312420f59e47bff74192f700d12",
+      "runId": "39486639316",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "d2bc6e72b18d9e7c1e060c24ab1008e184ae15de34c2254a497f3054b975b7b0",
+      "registry": "crates",
+      "units": [
+        "rightkit-child-process"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-child-process"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12294196782",
+          "digest": "sha256:2fed2b5ae1bd290546dfd80914f141326685fd4c8529fb7b966d7defa51cc760"
+        },
+        "macos": {
+          "id": "12295280732",
+          "digest": "sha256:b976d1ffde358d4c82b07bb07a59741c962efc730b17e68dd94ce3e06496073b",
+          "receiptSha256": "2553ac47959d67236160088bb2913758156efccafd583ac0dc18bd4f261cd337"
+        },
+        "windows": {
+          "id": "12295187360",
+          "digest": "sha256:2c4b389330543cde984775810ad98908007b73578b233cde8dcfb052f27ecf61",
+          "receiptSha256": "274e0cca388579a711412b3057583e745f5c4e08122647c94f56674f5a566e94"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -186,6 +222,14 @@
       "sha256": "7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/root/hb_post_foundation/39485850149/http-0.3.8"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-child-process",
+      "version": "0.5.4",
+      "sha256": "b0e29813abd52bdba7629f4a82fa506338c21163d7d8675ce37fd63ea79a5105",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/hb_post_foundation/39486639316/child-process-0.5.4"
     }
   ]
 }
