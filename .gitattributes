@@ -32,6 +32,7 @@ vendor/tauri-runtime-wry/** -text
 /packages/tauri/package.json text eol=lf
 /packages/app-update/package.json text eol=lf
 /packages/qa-chrome/package.json text eol=lf
+/packages/qa/package.json text eol=lf
 /packages/tauri-shell/package.json text eol=lf
 /package.json text eol=lf
 /packages/logs/package.json text eol=lf
