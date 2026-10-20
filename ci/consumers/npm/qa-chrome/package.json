@@ -1,0 +1,6 @@
+{
+  "name": "rightkit-qa-chrome-standalone-consumer",
+  "private": true,
+  "type": "module",
+  "scripts": { "qualify": "node consumer.mjs" }
+}

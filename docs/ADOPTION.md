@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 89 (64 crates, 25 npm packages).
+- Packages in RightKit: 93 (68 crates, 25 npm packages).
 - Packages with at least one app pin: 0.
 - App pins: 0. Stale: 0. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
@@ -25,95 +25,99 @@ Status values compare each pin with the latest published version (registry-recor
 
 | Package | Registry | Source | Latest published | Apps | App names | Notes |
 |---|---|---|---|---|---|---|
-| `rightkit-agent-tools` | crates.io | 0.1.5 | 0.1.4 | 0 | none | - |
-| `rightkit-agents` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
+| `rightkit-agent-tools` | crates.io | 0.3.0 | 0.2.0 | 0 | none | - |
+| `rightkit-agents` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-align` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-android` | crates.io | 0.2.0 | none recorded | 0 | none | - |
-| `rightkit-app-settings` | crates.io | 0.2.3 | 0.2.0 | 0 | none | - |
-| `rightkit-asr` | crates.io | 0.2.4 | 0.2.1 | 0 | none | - |
-| `rightkit-audio` | crates.io | 0.3.1 | 0.2.3 | 0 | none | - |
-| `rightkit-automation` | crates.io | 0.4.4 | 0.4.1 | 0 | none | - |
-| `rightkit-browser` | crates.io | 0.3.4 | 0.3.1 | 0 | none | - |
-| `rightkit-cache` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
-| `rightkit-channel-memory` | crates.io | 0.2.1 | 0.1.0 | 0 | none | - |
-| `rightkit-child-process` | crates.io | 0.4.3 | 0.4.1 | 0 | none | - |
-| `rightkit-compose` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
-| `rightkit-contracts` | crates.io | 0.1.7 | 0.1.5 | 0 | none | - |
-| `rightkit-crash` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
-| `rightkit-credentials` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
-| `rightkit-daemon` | crates.io | 0.2.7 | 0.2.3 | 0 | none | - |
-| `rightkit-db` | crates.io | 0.4.3 | 0.4.0 | 0 | none | - |
-| `rightkit-device` | crates.io | 0.1.3 | 0.1.3 | 0 | none | - |
-| `rightkit-docs` | crates.io | 0.1.1 | 0.1.0 | 0 | none | - |
-| `rightkit-embed` | crates.io | 0.6.0 | 0.5.0 | 0 | none | - |
-| `rightkit-ffmpeg` | crates.io | 0.2.9 | 0.2.6 | 0 | none | - |
-| `rightkit-file-watch` | crates.io | 0.4.1 | 0.4.0 | 0 | none | - |
-| `rightkit-fs` | crates.io | 0.4.3 | 0.4.1 | 0 | none | - |
-| `rightkit-fsindex` | crates.io | 0.4.0 | 0.3.0 | 0 | none | - |
-| `rightkit-hooks` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
-| `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
-| `rightkit-http` | crates.io | 0.3.5 | 0.3.0 | 0 | none | - |
-| `rightkit-job-queue` | crates.io | 0.3.2 | 0.3.1 | 0 | none | - |
-| `rightkit-license` | crates.io | 0.2.2 | 0.2.0 | 0 | none | - |
-| `rightkit-llm` | crates.io | 0.3.0 | 0.2.1 | 0 | none | - |
-| `rightkit-logs` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
-| `rightkit-mcp` | crates.io | 0.7.0 | 0.6.0 | 0 | none | - |
-| `rightkit-models` | crates.io | 0.4.4 | 0.3.2 | 0 | none | - |
-| `rightkit-motion` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-oauth` | crates.io | 0.8.0 | 0.5.0 | 0 | none | - |
-| `rightkit-ocr` | crates.io | 0.2.3 | 0.2.2 | 0 | none | - |
-| `rightkit-onnx` | crates.io | 0.2.6 | 0.2.3 | 0 | none | - |
-| `rightkit-overlay` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
-| `rightkit-ownership` | crates.io | 0.3.1 | 0.2.1 | 0 | none | - |
-| `rightkit-pdf` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
-| `rightkit-platform-rules` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-playback` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
-| `rightkit-qa` | crates.io | 0.6.4 | 0.6.1 | 0 | none | - |
-| `rightkit-qa-driver` | crates.io | 0.5.0 | 0.5.0 | 0 | none | - |
-| `rightkit-record` | crates.io | 0.3.1 | 0.3.0 | 0 | none | - |
-| `rightkit-review` | crates.io | 0.4.0 | 0.2.0 | 0 | none | - |
-| `rightkit-sandbox` | crates.io | 0.4.0 | 0.4.0 | 0 | none | - |
-| `rightkit-search` | crates.io | 0.4.0 | 0.2.1 | 0 | none | - |
-| `rightkit-send` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
-| `rightkit-sidecar` | crates.io | 0.2.1 | 0.2.0 | 0 | none | - |
-| `rightkit-speech-client` | crates.io | 0.3.6 | 0.3.5 | 0 | none | - |
-| `rightkit-spend` | crates.io | 0.1.1 | none recorded | 0 | none | - |
-| `rightkit-sync` | crates.io | 0.2.1 | 0.1.1 | 0 | none | - |
+| `rightkit-android` | crates.io | 0.3.0 | 0.2.0 | 0 | none | - |
+| `rightkit-app-settings` | crates.io | 0.3.0 | 0.2.4 | 0 | none | - |
+| `rightkit-asr` | crates.io | 0.3.0 | 0.2.4 | 0 | none | - |
+| `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 0 | none | - |
+| `rightkit-automation` | crates.io | 0.6.0 | 0.5.0 | 0 | none | - |
+| `rightkit-browser` | crates.io | 0.3.5 | 0.3.4 | 0 | none | - |
+| `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 0 | none | - |
+| `rightkit-channel-memory` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
+| `rightkit-child-process` | crates.io | 0.5.4 | 0.5.3 | 0 | none | - |
+| `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
+| `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 0 | none | - |
+| `rightkit-crash` | crates.io | 0.3.4 | 0.3.3 | 0 | none | - |
+| `rightkit-credentials` | crates.io | 0.4.0 | 0.3.0 | 0 | none | - |
+| `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-daemon` | crates.io | 0.4.0 | 0.3.0 | 0 | none | - |
+| `rightkit-db` | crates.io | 0.5.1 | 0.5.0 | 0 | none | - |
+| `rightkit-device` | crates.io | 0.4.0 | 0.3.1 | 0 | none | - |
+| `rightkit-docs` | crates.io | 0.1.1 | 0.1.1 | 0 | none | - |
+| `rightkit-embed` | crates.io | 0.6.0 | 0.6.0 | 0 | none | - |
+| `rightkit-ffmpeg` | crates.io | 0.2.10 | 0.2.9 | 0 | none | - |
+| `rightkit-file-watch` | crates.io | 0.4.1 | 0.4.1 | 0 | none | - |
+| `rightkit-fs` | crates.io | 0.4.6 | 0.4.5 | 0 | none | - |
+| `rightkit-fsindex` | crates.io | 0.4.1 | 0.4.1 | 0 | none | - |
+| `rightkit-google-identity` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
+| `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
+| `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
+| `rightkit-http` | crates.io | 0.3.7 | 0.3.6 | 0 | none | - |
+| `rightkit-identity` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-job-queue` | crates.io | 0.5.0 | 0.4.0 | 0 | none | - |
+| `rightkit-license` | crates.io | 0.2.4 | 0.2.3 | 0 | none | - |
+| `rightkit-llm` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
+| `rightkit-logs` | crates.io | 0.3.4 | 0.3.3 | 0 | none | - |
+| `rightkit-mcp` | crates.io | 0.7.0 | 0.7.0 | 0 | none | - |
+| `rightkit-models` | crates.io | 0.5.0 | 0.4.4 | 0 | none | - |
+| `rightkit-motion` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
+| `rightkit-oauth` | crates.io | 0.10.0 | 0.9.0 | 0 | none | - |
+| `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 0 | none | - |
+| `rightkit-onnx` | crates.io | 0.2.7 | 0.2.6 | 0 | none | - |
+| `rightkit-overlay` | crates.io | 0.2.0 | 0.1.2 | 0 | none | - |
+| `rightkit-ownership` | crates.io | 0.3.1 | 0.3.1 | 0 | none | - |
+| `rightkit-pdf` | crates.io | 0.3.3 | 0.3.2 | 0 | none | - |
+| `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-playback` | crates.io | 0.3.0 | 0.2.2 | 0 | none | - |
+| `rightkit-qa` | crates.io | 0.8.0 | 0.7.1 | 0 | none | - |
+| `rightkit-qa-driver` | crates.io | 0.7.0 | 0.6.0 | 0 | none | - |
+| `rightkit-record` | crates.io | 0.3.3 | 0.3.2 | 0 | none | - |
+| `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 0 | none | - |
+| `rightkit-sandbox` | crates.io | 0.5.1 | 0.5.0 | 0 | none | - |
+| `rightkit-search` | crates.io | 0.4.0 | 0.4.0 | 0 | none | - |
+| `rightkit-send` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
+| `rightkit-sidecar` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
+| `rightkit-speech-client` | crates.io | 0.4.0 | 0.3.6 | 0 | none | - |
+| `rightkit-spend` | crates.io | 0.2.0 | 0.1.1 | 0 | none | - |
+| `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 0 | none | - |
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tauri-shell` | crates.io | 0.3.2 | 0.3.0 | 0 | none | - |
-| `rightkit-transcript` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
-| `rightkit-tts` | crates.io | 0.2.2 | 0.2.1 | 0 | none | - |
-| `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.6 | 0 | none | - |
+| `rightkit-tauri-shell` | crates.io | 0.5.0 | 0.4.0 | 0 | none | - |
+| `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-transcript` | crates.io | 0.4.0 | 0.3.0 | 0 | none | - |
+| `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 0 | none | - |
+| `rightkit-tts-qwen` | crates.io | 0.2.7 | 0.2.7 | 0 | none | - |
 | `rightkit-tts-qwen-sys` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
-| `rightkit-typeset` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-vad` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
-| `rightkit-vault` | crates.io | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-workflow` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
-| `@rightkit/app-update` | npm | 0.2.5 | 0.2.5 | 0 | none | - |
+| `rightkit-typeset` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
+| `rightkit-vad` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
+| `rightkit-vault` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
+| `rightkit-workflow` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
+| `@rightkit/app-update` | npm | 0.4.1 | 0.4.0 | 0 | none | - |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0 | none | - |
-| `@rightkit/build-control-policy` | private | 0.1.3-phase1 | none recorded | 0 | none | - |
-| `@rightkit/ci` | npm | 0.2.49 | 0.2.45 | 0 | none | - |
-| `@rightkit/doc-render` | npm | 0.1.6 | 0.1.6 | 0 | none | - |
+| `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded | 0 | none | - |
+| `@rightkit/ci` | npm | 0.3.0 | 0.3.0 | 0 | none | - |
+| `@rightkit/doc-render` | npm | 0.2.1 | 0.2.0 | 0 | none | - |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0 | none | - |
-| `@rightkit/i18n` | npm | 0.1.1 | 0.1.0 | 0 | none | - |
-| `@rightkit/legal` | npm | 0.5.0 | 0.3.1 | 0 | none | - |
-| `@rightkit/legal-ui` | npm | 0.3.0 | 0.2.2 | 0 | none | - |
-| `@rightkit/license` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
-| `@rightkit/logs` | npm | 0.1.4 | 0.1.4 | 0 | none | - |
+| `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
+| `@rightkit/legal` | npm | 0.6.2 | 0.6.1 | 0 | none | - |
+| `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 0 | none | - |
+| `@rightkit/license` | npm | 0.3.0 | 0.2.1 | 0 | none | - |
+| `@rightkit/logs` | npm | 0.1.6 | 0.1.5 | 0 | none | - |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0 | none | - |
-| `@rightkit/onboarding` | npm | 0.5.0 | 0.3.3 | 0 | none | - |
+| `@rightkit/onboarding` | npm | 0.6.3 | 0.6.2 | 0 | none | - |
 | `@rightkit/outdated` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
-| `@rightkit/pdf-ui` | npm | 0.1.8 | 0.1.6 | 0 | none | - |
-| `@rightkit/platform-ui` | npm | 0.2.8 | 0.2.8 | 0 | none | - |
-| `@rightkit/qa` | npm | 0.4.9 | 0.4.8 | 0 | none | - |
-| `@rightkit/qa-chrome` | npm | 0.1.8 | 0.1.6 | 0 | none | - |
-| `@rightkit/react-shell` | npm | 0.6.8 | 0.6.6 | 0 | none | - |
-| `@rightkit/release` | npm | 0.2.172 | 0.2.165 | 0 | none | - |
-| `@rightkit/settings-ui` | npm | 0.5.0 | 0.4.4 | 0 | none | - |
+| `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
+| `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 0 | none | - |
+| `@rightkit/qa` | npm | 0.5.2 | 0.5.1 | 0 | none | - |
+| `@rightkit/qa-chrome` | npm | 0.1.9 | 0.1.8 | 0 | none | - |
+| `@rightkit/react-shell` | npm | 0.7.2 | 0.7.1 | 0 | none | - |
+| `@rightkit/release` | npm | 0.4.1 | 0.4.0 | 0 | none | - |
+| `@rightkit/settings-ui` | npm | 0.7.0 | 0.6.1 | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
-| `@rightkit/tauri` | npm | 0.2.1 | 0.2.1 | 0 | none | - |
-| `@rightkit/tauri-shell` | npm | 0.1.1 | 0.1.1 | 0 | none | - |
-| `@rightkit/theme` | npm | 0.2.4 | 0.2.3 | 0 | none | - |
+| `@rightkit/tauri` | npm | 0.3.0 | 0.2.3 | 0 | none | - |
+| `@rightkit/tauri-shell` | npm | 0.1.2 | 0.1.1 | 0 | none | - |
+| `@rightkit/theme` | npm | 0.3.1 | 0.3.1 | 0 | none | - |
 
 ## Pins
 

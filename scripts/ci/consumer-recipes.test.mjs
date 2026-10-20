@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cargoRecipe, nativeFixture } from "./consumer-recipes.mjs";
+import { cargoRecipe, nativeFixture, planRuns, parseRuns, executeRuns, cargoRunArgs } from "./consumer-recipes.mjs";
 const unit = { name: "rightkit-logs", version: "0.3.4" };
 const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
 const manifest = fs.readFileSync(path.join(committedRoot, "ci/consumers/rightkit-logs/Cargo.toml"), "utf8");
@@ -24,9 +24,9 @@ test("PK identity binds executable source, every file, exact dependency & select
   fs.appendFileSync(path.join(dir, "src/main.rs"), "// changed API prescription\n"); assert.throws(() => cargoRecipe({ root, unit }), /differs from reviewed PK11 inventory/);
 });
 
-test("reviewed inventory admits only existing locked PK01 & PK11 examples", () => {
+test("reviewed inventory admits only existing locked PK examples", () => {
   const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8"));
-  assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-fs", "rightkit-logs"]);
+  assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-browser", "rightkit-credentials", "rightkit-fs", "rightkit-job-queue", "rightkit-logs", "rightkit-motion", "rightkit-playback", "rightkit-spend"]);
   for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.4", "PK11"]]) {
     const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version } });
     assert.equal(evidence.pkId, pkId); assert.deepEqual(evidence.files, inventory.cargo[name].files);
@@ -52,4 +52,83 @@ test("FS PK example requires real existing native fixtures; ordinary scratch dir
   fs.writeFileSync(path.join(root, "rk-fs-native-state.json"), JSON.stringify({ schema: 1, platform: "darwin", scratch, other: path.join(scratch, "other"), fat: null }));
   fs.writeFileSync(path.join(scratch, "native-volume-info.txt"), JSON.stringify({ other: "APFS", fat: null }));
   assert.throws(() => nativeFixture({ unit: fsUnit, env: { RUNNER_TEMP: root }, platform: "darwin" }), /distinct mounted volume missing/);
+});
+
+// ---- recipe runs: reviewed declaration, harness-owned env, prerequisite refusal ----
+function withRuns(t, runs) {
+  const { root } = fixture(t); const file = path.join(root, "ci/consumer-recipes.json");
+  const inventory = JSON.parse(fs.readFileSync(file, "utf8")); inventory.cargo["rightkit-logs"].runs = runs;
+  fs.writeFileSync(file, JSON.stringify(inventory)); return root;
+}
+test("absent runs keep today's single default run with no env", t => {
+  const { root } = fixture(t); const recipe = cargoRecipe({ root, unit });
+  assert.equal(recipe.runs, null); assert.equal(recipe.evidence.runs, null);
+  const plan = planRuns({ runs: recipe.runs, env: {}, scratchRoot: root, platform: "win32" });
+  assert.deepEqual(plan.map(r => [r.id, r.args, r.features, r.envNames, r.status, r.values]), [["default", [], [], [], "pending", {}]]);
+});
+test("declared runs resolve exactly their declared env from the provider table", t => {
+  const root = withRuns(t, [{ id: "db", features: ["sqlcipher"], args: ["native-db"], hosts: ["win32", "darwin"], env: { RIGHTKIT_TEST_REAL_USER_STORES: "literal1", RK_CONSUMER_RUN_ROOT: "freshRunRoot" } }, { id: "helper", args: ["native-helper"], hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }]);
+  const recipe = cargoRecipe({ root, unit });
+  const hostile = { RIGHTKIT_TEST_REAL_USER_STORES: "0", RK_CONSUMER_RUN_ROOT: "/attacker", GITHUB_TOKEN: "secret", RK_R2_SCRATCH: "/attacker" };
+  const plan = planRuns({ runs: recipe.runs, env: hostile, scratchRoot: root, platform: "win32" });
+  assert.deepEqual(plan.map(r => [r.id, r.status]), [["db", "pending"], ["helper", "not-applicable"]]);
+  assert.deepEqual(Object.keys(plan[0].values).sort(), ["RIGHTKIT_TEST_REAL_USER_STORES", "RK_CONSUMER_RUN_ROOT"]);
+  assert.equal(plan[0].values.RIGHTKIT_TEST_REAL_USER_STORES, "1");
+  assert.ok(isWithinDir(root, plan[0].values.RK_CONSUMER_RUN_ROOT) && plan[0].values.RK_CONSUMER_RUN_ROOT !== "/attacker");
+  assert.deepEqual(plan[0].envNames, ["RIGHTKIT_TEST_REAL_USER_STORES", "RK_CONSUMER_RUN_ROOT"]); assert.deepEqual(plan[1].values, {});
+  const second = planRuns({ runs: recipe.runs, env: {}, scratchRoot: root, platform: "win32" });
+  assert.notEqual(second[0].values.RK_CONSUMER_RUN_ROOT, plan[0].values.RK_CONSUMER_RUN_ROOT);
+});
+function isWithinDir(parent, child) { const rel = path.relative(parent, child); return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel); }
+test("unknown providers, raw inventory values, foreign names & unknown fields are refused", t => {
+  const refuse = (run, pattern) => assert.throws(() => cargoRecipe({ root: withRuns(t, [run]), unit }), pattern);
+  refuse({ id: "x", env: { RK_X: "attackerProvider" } }, /unknown provider/);
+  refuse({ id: "x", env: { RK_CONSUMER_RUN_ROOT: "/tmp/chosen" } }, /unknown provider.*raw values are never accepted/);
+  refuse({ id: "x", env: { RIGHTKIT_TEST_REAL_USER_STORES: "1" } }, /unknown provider/);
+  refuse({ id: "x", env: { GITHUB_TOKEN: "literal1" } }, /not allowlisted/);
+  refuse({ id: "x", env: { RK_CONSUMER_RUN_ROOT: "toString" } }, /unknown provider/);
+  refuse({ id: "x", env: {}, cwd: "/" }, /unknown fields/);
+  refuse({ id: "x", args: ["--manifest-path=/etc"] }, /args invalid/);
+  refuse({ id: "x", features: ["a,b"] }, /features invalid/);
+  refuse({ id: "x", features: ["-Zunstable"] }, /features invalid/);
+  refuse({ id: "x", features: ["--config"] }, /features invalid/);
+  refuse({ id: "x", hosts: ["linux"] }, /hosts invalid/);
+  assert.throws(() => parseRuns([{ id: "a" }, { id: "a" }]), /unique/);
+  assert.throws(() => parseRuns([]), /non-empty/);
+});
+test("a missing provider prerequisite refuses; an other-OS run is only not-applicable", () => {
+  const runs = parseRuns([{ id: "browser", env: { RK_R2_CFT_ROOT: "cftRoot", RK_R2_CFT_SHA256: "cftSha256", RK_R2_HEADLESS_SHELL_SHA256: "headlessShellSha256", RK_R2_SCRATCH: "freshRunRoot" } }, { id: "mac", hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }]);
+  const scratchRoot = fs.realpathSync(os.tmpdir());
+  assert.throws(() => planRuns({ runs, env: {}, scratchRoot, platform: "win32" }), /prerequisite missing: cftRoot/);
+  const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-cft-"))); const cft = path.join(temp, "cft"); fs.mkdirSync(cft);
+  const good = { RUNNER_TEMP: temp, RK_R2_CFT_ROOT: cft, RK_R2_CFT_SHA256: "a".repeat(64), RK_R2_HEADLESS_SHELL_SHA256: "b".repeat(64) };
+  try {
+    assert.throws(() => planRuns({ runs, env: { ...good, RK_R2_CFT_SHA256: "xyz" }, scratchRoot: temp, platform: "win32" }), /prerequisite missing: cftSha256/);
+    assert.throws(() => planRuns({ runs, env: { ...good, RK_R2_HEADLESS_SHELL_SHA256: undefined }, scratchRoot: temp, platform: "win32" }), /prerequisite missing: headlessShellSha256/);
+    assert.throws(() => planRuns({ runs, env: { ...good, RK_R2_CFT_ROOT: path.join(os.homedir(), "elsewhere") }, scratchRoot: temp, platform: "win32" }), /prerequisite missing: cftRoot/);
+    assert.throws(() => planRuns({ runs, env: good, scratchRoot: path.join(temp, "absent"), platform: "win32" }), /prerequisite missing: freshRunRoot/);
+    const plan = planRuns({ runs, env: good, scratchRoot: temp, platform: "win32" });
+    assert.deepEqual(plan.map(r => r.status), ["pending", "not-applicable"]); assert.equal(plan[0].values.RK_R2_HEADLESS_SHELL_SHA256, "b".repeat(64));
+    // macOS never forwards the Windows-only headless-shell name, and the helper run then needs its provider.
+    const mac = planRuns({ runs: runs.slice(0, 1), env: good, scratchRoot: temp, platform: "darwin" }); assert.equal(Object.hasOwn(mac[0].values, "RK_R2_HEADLESS_SHELL_SHA256"), false);
+    assert.throws(() => planRuns({ runs, env: good, scratchRoot: temp, platform: "darwin" }), /prerequisite missing: signedHelper/);
+    assert.equal(planRuns({ runs, env: { ...good, RK_CONSUMER_HELPER_NAME: "RightKitHelper", RK_CONSUMER_HELPER_TEAM_ID: "ABCDE12345" }, scratchRoot: temp, platform: "darwin" })[1].status, "pending");
+    assert.throws(() => planRuns({ runs: parseRuns([{ id: "mac", hosts: ["darwin"] }]), env: {}, scratchRoot: temp, platform: "win32" }), /no declared run applies/);
+  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+});
+test("committed credentials & browser inventory declare their reviewed runs", () => {
+  const cred = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-credentials", version: "0.4.0" } });
+  assert.deepEqual(cred.runs.map(r => [r.id, r.args, r.features, r.hosts]), [["core", ["core"], [], null], ["native-db", ["native-db"], ["sqlcipher"], ["win32", "darwin"]], ["native-helper", ["native-helper"], [], ["darwin"]]]);
+  assert.ok(cred.evidence.dependency.features.includes("db-adapter"));
+  assert.deepEqual(cred.runs[2].env, { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" });
+  const browser = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-browser", version: "0.3.5" } });
+  assert.deepEqual(Object.keys(browser.runs[0].env).sort(), ["RK_R2_CFT_ROOT", "RK_R2_CFT_SHA256", "RK_R2_HEADLESS_SHELL_SHA256", "RK_R2_SCRATCH"]);
+});
+test("shared run executor builds Cargo args, records each status and stops at the first failure", () => {
+  const plan = [{ id: "a", args: ["core"], features: [], status: "pending", values: {} }, { id: "b", args: [], features: ["f1", "f2"], status: "not-applicable", values: {} }, { id: "c", args: ["x"], features: ["f1"], status: "pending", values: { K: "v" } }, { id: "d", args: [], features: [], status: "pending", values: {} }];
+  const evidence = plan.map(({ values, ...e }) => ({ ...e })); const calls = [];
+  assert.throws(() => executeRuns({ plan, evidence, execute: (args, env) => { calls.push([args, env]); if (args.includes("x")) throw new Error("boom"); return "out"; } }), /boom/);
+  assert.deepEqual(calls, [[["run", "--locked", "--offline", "--", "core"], {}], [["run", "--locked", "--offline", "--features", "f1", "--", "x"], { K: "v" }]]);
+  assert.deepEqual(evidence.map(e => e.status), ["passed", "not-applicable", "failed", "pending"]);
+  assert.deepEqual(cargoRunArgs({ features: [], args: [] }), ["run", "--locked", "--offline"]);
 });

@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { childEnv, loadSealed, sha } from "./upload.mjs";
-import { cargoRecipe, nativeFixture } from "./consumer-recipes.mjs";
+import { cargoRecipe, nativeFixture, planRuns, executeRuns } from "./consumer-recipes.mjs";
 export { assertRegistryManifest } from "./consumer-recipes.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -61,7 +61,7 @@ function checksumDirectory(dir, packageSha256) {
  * packDir holds publish.mjs manifest.json + sealed files. root owns source templates only.
  * reportFile must be outside root. scratchRoot defaults RUNNER_TEMP, never checkout.
  */
-export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = ROOT, scratchRoot = process.env.RUNNER_TEMP ?? os.tmpdir(), reportFile, env = process.env, spawn = spawnSync, uploadMetadata } = {}) {
+export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = ROOT, scratchRoot = process.env.RUNNER_TEMP ?? os.tmpdir(), reportFile, env = process.env, spawn = spawnSync, uploadMetadata, platform = process.platform } = {}) {
   if (env.GITHUB_ACTIONS !== "true") throw new Error("registry consumer execution requires GitHub CI");
   root = fs.realpathSync(root);
   scratchRoot = fs.realpathSync(scratchRoot);
@@ -89,14 +89,17 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
   if (env.RUSTUP_TOOLCHAIN) cargoEnv.RUSTUP_TOOLCHAIN = env.RUSTUP_TOOLCHAIN;
   fs.mkdirSync(cargoEnv.HOME); fs.mkdirSync(cargoEnv.CARGO_HOME);
   const tar = archiveTool(process.platform, env);
-  const run = (command, args, cwd = scratch) => {
-    const result = spawn(command, args, { cwd, env: cargoEnv, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, timeout: 60 * 60_000 });
+  const run = (command, args, cwd = scratch, extraEnv = {}) => {
+    const result = spawn(command, args, { cwd, env: { ...cargoEnv, ...extraEnv }, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, timeout: 60 * 60_000 });
     commandLog.push({ command, args, cwd, status: result.status, stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") });
     if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(" ")} failed: ${String(result.stderr || result.error?.message).slice(-3000)}`);
     return result.stdout;
   };
-  let report = { schema: 1, kind: "registry-consumer", qualification: "R2a", name, version: unit.version, commit: sealed.manifest.commit, manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, runId: String(env.GITHUB_RUN_ID), runAttempt: String(env.GITHUB_RUN_ATTEMPT), manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), host: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : process.platform, runnerOS: env.RUNNER_OS ?? null, arch: process.arch, recipe: { ...recipe.evidence, sourceCommit: env.GITHUB_WORKFLOW_SHA || env.GITHUB_SHA }, fixture, verified: false, bootstrap: "path seed only acquires upstream vendor closure; never qualification", commands: commandLog };
+  let report = { schema: 1, kind: "registry-consumer", qualification: "R2a", name, version: unit.version, commit: sealed.manifest.commit, manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, runId: String(env.GITHUB_RUN_ID), runAttempt: String(env.GITHUB_RUN_ATTEMPT), manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), host: platform === "win32" ? "windows" : platform === "darwin" ? "macos" : platform, runnerOS: env.RUNNER_OS ?? null, arch: process.arch, recipe: { ...recipe.evidence, sourceCommit: env.GITHUB_WORKFLOW_SHA || env.GITHUB_SHA }, fixture, verified: false, bootstrap: "path seed only acquires upstream vendor closure; never qualification", commands: commandLog };
   try {
+    // Resolve every run's harness-owned env before any Cargo work: a missing prerequisite refuses early.
+    const plan = planRuns({ runs: recipe.runs, env, scratchRoot, platform });
+    report.runs = plan.map(({ values, implicit, ...entry }) => entry);
     fs.mkdirSync(vendor);
     fs.mkdirSync(path.join(bootstrap, "src"), { recursive: true });
     report.toolchain = { rustc: String(run("rustc", ["--version"])).trim(), cargo: String(run("cargo", ["--version"])).trim() };
@@ -155,7 +158,8 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
     if (resolved?.length !== 1 || !Array.isArray(resolved[0].features)) throw new Error("missing selected crate feature resolution");
     if (recipe.evidence.dependency.features.some(feature => !resolved[0].features.includes(feature))) throw new Error("selected PK feature prescription absent from resolved crate");
     run("cargo", ["build", "--locked", "--offline"], consumer);
-    const runtimeOutput = run("cargo", ["run", "--locked", "--offline"], consumer);
+    const outputs = executeRuns({ plan, evidence: report.runs, execute: (cargoArgs, values) => run("cargo", cargoArgs, consumer, values) });
+    const runtimeOutput = recipe.runs ? plan.map((entry, i) => `[run ${entry.id}] ${report.runs[i].status}`).join("\n") + "\n" + outputs.join("") : outputs[0];
     if (fs.readFileSync(lockFile, "utf8") !== lock) throw new Error("lock changed during qualification");
     for (const [file, digest] of Object.entries(recipe.evidence.files)) if (sha("sha256", fs.readFileSync(path.join(consumer, file))) !== digest) throw new Error(`PK example changed during qualification: ${file}`);
     if (cargoRecipe({ root, unit }).evidence.sha256 !== recipe.evidence.sha256) throw new Error("committed PK example changed during qualification");

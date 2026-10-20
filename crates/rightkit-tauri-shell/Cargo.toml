@@ -45,6 +45,7 @@ update-license = ["update", "dep:rightkit-license", "dep:url"]
 overlay = ["dep:rightkit-overlay"]
 pdf-host = ["host-services", "dep:rightkit-pdf"]
 models = ["host-services", "dep:rightkit-models"]
+app-lock = ["host-services", "dep:rightkit-credentials", "rightkit-credentials/os-auth"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
@@ -55,9 +56,10 @@ rightkit-app-settings = { version = "0.3.0", path = "../rightkit-app-settings", 
 rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", default-features = false, optional = true }
 rightkit-crash = { version = "0.3.4", path = "../rightkit-crash", default-features = false, features = ["window-errors"], optional = true }
 rightkit-license = { version = "0.2.4", path = "../rightkit-license", default-features = false, features = ["update-auth"], optional = true }
-rightkit-overlay = { version = "0.1.2", path = "../rightkit-overlay", optional = true }
+rightkit-overlay = { version = "0.2.0", path = "../rightkit-overlay", optional = true }
 rightkit-pdf = { version = "0.3.3", path = "../rightkit-pdf", default-features = false, features = ["host"], optional = true }
 rightkit-models = { version = "0.5.0", path = "../rightkit-models", default-features = false, optional = true }
+rightkit-credentials = { version = "0.4.0", path = "../rightkit-credentials", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri-plugin-updater = { version = "=2.10.1", optional = true, default-features = true }

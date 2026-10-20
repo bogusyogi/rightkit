@@ -15,6 +15,7 @@ import { workloadsFor } from "./runtime-qualify.mjs";
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { npmConsumerQualificationProblems, RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
 import { declaredEntries } from "./consume.mjs";
+import { npmRecipeQualificationProblems, validateRecipeEntry, shortName, sourceFiles as npmRecipeSourceFiles, hasReviewedNpmEntry } from "./npm-recipe-consumer.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const HOSTS = { macos: "darwin", windows: "win32" };
@@ -128,26 +129,30 @@ function reviewedRecipe(source, unit) {
 /** Named npm seam: authenticated candidate DATA & trusted verifier recipe inventory only. */
 export function namedNpmQualificationProblems({ source, candidate, manifest, unit, host, report, publicationEvidence } = {}) {
   const problems = [];
-  if (unit?.name !== "@rightkit/logs") return ["missing reviewed named npm R2a recipe; generic import is not PK qualification"];
+  const logs = unit?.name === "@rightkit/logs";
+  // Trust inventory from verifier revision; a candidate cannot grant itself a reviewed npm entry.
+  if (!logs && !hasReviewedNpmEntry(JSON.parse(file(ROOT, "ci/consumer-recipes.json")), unit?.name)) return ["missing reviewed named npm R2a recipe; generic import is not PK qualification"];
   try {
     if (typeof source?.readData !== "function" || source.source?.sha !== candidate?.sourceSha || manifest?.commit !== candidate?.sourceSha || candidate.registry !== "npm") throw new Error("authenticated npm source reader/identity missing");
     const config = JSON.parse(file(ROOT, "ci/consumer-recipes.json"));
     const recipe = config.schema === 1 ? config.npm?.[unit.name] : undefined;
     if (!recipe) throw new Error("missing trusted reviewed npm recipe inventory");
     const sourceBindings = {}, data = {};
-    for (const relative of [...NPM_RECIPE_FILES, ...NPM_SOURCE_FILES]) {
+    const dir = logs ? "packages/logs" : `packages/${shortName(unit.name)}`;
+    const bound = logs ? [...NPM_RECIPE_FILES, ...NPM_SOURCE_FILES] : [...Object.keys(validateRecipeEntry(recipe, unit.name).files), ...npmRecipeSourceFiles(unit.name)];
+    for (const relative of bound) {
       const raw = source.readData(relative);
       if (!Buffer.isBuffer(raw)) throw new Error(`authenticated source did not return exact blob bytes: ${relative}`);
       data[relative] = raw;
       sourceBindings[relative] = { sha256: hash(raw), gitBlob: crypto.createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${raw.length}\0`), raw])).digest("hex") };
     }
     const rootManifest = JSON.parse(data["package.json"]);
-    const packageManifest = JSON.parse(data["packages/logs/package.json"]);
-    if (unit.dir !== "packages/logs" || packageManifest.name !== unit.name || packageManifest.version !== unit.version || rootManifest.packageManager !== packageManifest.packageManager) throw new Error("authenticated npm manifest/version/pnpm pin mismatch");
+    const packageManifest = JSON.parse(data[`${dir}/package.json`]);
+    if (unit.dir !== dir || packageManifest.name !== unit.name || packageManifest.version !== unit.version || rootManifest.packageManager !== packageManifest.packageManager) throw new Error("authenticated npm manifest/version/pnpm pin mismatch");
     const native = publicationEvidence?.runs;
     if (!Array.isArray(native) || native.length !== 1 || native[0]?.host?.os !== HOSTS[host] || !text(native[0]?.host?.arch)) throw new Error("actual native publication run missing");
     const expected = { name: unit.name, version: unit.version, commit: candidate.sourceSha, runId: String(candidate.runId), runAttempt: String(candidate.runAttempt), manifestRunId: String(manifest.runId), manifestRunAttempt: String(manifest.runAttempt), manifestSha256: candidate.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, archiveIntegrity: unit.integrity, host, runnerOS: host === "windows" ? "Windows" : "macOS", arch: native[0].host.arch, packageManager: rootManifest.packageManager };
-    problems.push(...npmConsumerQualificationProblems({ report, expected, recipe, sourceBindings }));
+    problems.push(...(logs ? npmConsumerQualificationProblems : npmRecipeQualificationProblems)({ report, expected, recipe, sourceBindings }));
     // Preserve generic portability's complete installed-entry proof, even alongside named runtime.
     const declared = declaredEntries(packageManifest);
     const portability = report?.portability;

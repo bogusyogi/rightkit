@@ -70,7 +70,7 @@ Status: nothing in this section has been compiled, tested or run, and CI has not
 - `EnginePolicy` gains `presence`, `snapshots` and `shutdown_drain` (`src/engine.rs:133`). Struct literals must end with `..EnginePolicy::default()`.
 - Rust callers of these `rk_shell_*` functions must pass the invoking `Webview<Wry>` as the first argument: `rk_shell_open_external`, `rk_shell_open_window`, `rk_shell_open_login_items_settings`, `rk_shell_finish_quit`, `rk_shell_presence`, `rk_shell_capabilities` (`src/commands.rs`). `rk_shell_finish_quit`, `rk_shell_presence` and `rk_shell_capabilities` now return `Result<_, ShellError>`. JavaScript `invoke` arguments are unchanged, because Tauri injects `Webview`.
 
-**Not in 0.5.0.** The app-lock coordinator: absent from this source (no `app_lock` symbol in `src/`); excluded from this version.
+- `app-lock` feature (off by default; `host-services` + `rightkit-credentials` 0.4.0 `os-auth`): `NativeAppLock` (`src/app_lock.rs`) takes an `Arc<dyn EngineLock>` and an explicit lifecycle policy chosen natively (`InvalidateOnly` or `Lock`; the webview cannot change it). The `rightkit_app_lock_*` commands (`src/host/app_lock.rs`) take no arguments beyond the caller webview and go through the caller gate; unlock runs the OS prompt (Windows Hello / macOS LocalAuthentication) outside every lock, and a document generation check refuses a stale authorization after navigation or invalidation. Fails closed: any auth, credential or state error leaves the app locked. Navigation, window destruction and resume invalidate; there is no background or idle-timeout relock in this version. Local unlock never grants remote approval, PIN or signing authority.
 
 ## 0.4.0 (published 2026-10-19)
 

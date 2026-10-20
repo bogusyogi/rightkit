@@ -10,6 +10,143 @@
         "ci/consumers/npm-logs/consumer.mjs": "8a398ad2f031d18dd8d927f1d6679cd16e713c0144e35ab06cffa620cbae2b7f",
         "scripts/ci/npm-consumer.mjs": "f2d1e39d59ed46132a15b88dd5e1f3075edeb32be14658958e4fe00b6e99eb67"
       }
+    },
+    "@rightkit/app-update": {
+      "pkId": "PK13",
+      "id": "ci/consumers/npm/app-update/consumer.mjs",
+      "recipeId": "app-update-controller-native-dto-consumer",
+      "scenarios": 6,
+      "surface": [
+        ".",
+        "./contract-vectors",
+        "./native",
+        "./react"
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": [
+          "react"
+        ]
+      },
+      "files": {
+        "ci/consumers/npm/app-update/README.md": "32b35507eb427dc5a5f516e18c89b7ce4eecfca865baaeb9a263b9a903d5324d",
+        "ci/consumers/npm/app-update/consumer.mjs": "c1d29b8ead2f4574388beeacd74c84ca6c78c9181854dc2373c7a48bcc8f56b7",
+        "ci/consumers/npm/app-update/package.json": "2672646d884960b763ff24207d148ba20888678d8a0615d36c5f309ca10f476e",
+        "ci/consumers/npm/app-update/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "6605e891bbe2cf28036d49b4e9401ef4988df86c2a22aaed9c3508b7575361f4"
+      }
+    },
+    "@rightkit/onboarding": {
+      "pkId": "PK10",
+      "id": "ci/consumers/npm/onboarding/consumer.mjs",
+      "recipeId": "onboarding-react-memory-mount",
+      "scenarios": 8,
+      "surface": [
+        ".",
+        "./onboarding.css"
+      ],
+      "closure": {
+        "install": {
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/legal-ui": "0.4.1",
+          "react": "19.3.1",
+          "react-dom": "19.3.1",
+          "@testing-library/react": "16.3.3",
+          "@testing-library/dom": "10.4.2",
+          "@testing-library/user-event": "14.6.8",
+          "jsdom": "30.1.3",
+          "@rightkit/platform-ui": "0.4.0"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/onboarding/README.md": "3e36a2f34055fb9c4a5d9f6ac74e2d36fd0cf842fe48d75562551f382eceec4e",
+        "ci/consumers/npm/onboarding/consumer.mjs": "f48fdd4e830fc2e38c723c7a2ddcb6946dfc93cf1ffbdda8452da61f6bc167e4",
+        "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
+        "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
+        "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "6605e891bbe2cf28036d49b4e9401ef4988df86c2a22aaed9c3508b7575361f4"
+      }
+    },
+    "@rightkit/qa-chrome": {
+      "pkId": "PK14",
+      "id": "ci/consumers/npm/qa-chrome/consumer.mjs",
+      "recipeId": "qa-chrome-launch-close",
+      "scenarios": 2,
+      "surface": [
+        "."
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/qa-chrome/README.md": "e1cd694a24d68323b562a226247d22d1df8ee04c240bb8f262d8cd6d8a40e6e6",
+        "ci/consumers/npm/qa-chrome/consumer.mjs": "7bad71cec2e6d1f95c93705e8317b9774a38c2e04a8b0fdc13a6d109056f7b09",
+        "ci/consumers/npm/qa-chrome/package.json": "6eacf53c660287434f0a95ef8c7cb159196af8b6567f74278654655c0cbf5c30",
+        "ci/consumers/npm/qa-chrome/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "6605e891bbe2cf28036d49b4e9401ef4988df86c2a22aaed9c3508b7575361f4"
+      }
+    },
+    "@rightkit/settings-ui": {
+      "pkId": "PK04",
+      "id": "ci/consumers/npm/settings-ui/consumer.mjs",
+      "recipeId": "settings-ui-react-memory-mount",
+      "scenarios": 4,
+      "surface": [
+        ".",
+        "./appearance",
+        "./core",
+        "./headless",
+        "./settings.css",
+        "./shell-adapter",
+        "./standard"
+      ],
+      "closure": {
+        "install": {
+          "@rightkit/react-shell": "0.7.2",
+          "@rightkit/license": "0.3.0",
+          "@rightkit/theme": "0.3.1",
+          "react": "19.3.1",
+          "react-dom": "19.3.1",
+          "@testing-library/react": "16.3.3",
+          "@testing-library/dom": "10.4.2",
+          "@testing-library/user-event": "14.6.8",
+          "jsdom": "30.1.3",
+          "@rightkit/platform-ui": "0.4.0"
+        },
+        "declaredOnly": [
+          "@rightkit/app-update",
+          "@rightkit/logs"
+        ]
+      },
+      "files": {
+        "ci/consumers/npm/settings-ui/README.md": "332e8fea99765925ebfaadf22c440b0c3a9767b65a7384224dc3fad9cbfc0179",
+        "ci/consumers/npm/settings-ui/consumer.mjs": "6bb455d420a91094e84ea4d417cb352781aff42412a2716a4a25be5e842476ca",
+        "ci/consumers/npm/settings-ui/package.json": "2461ab4540bfd71c284cd962ac8b1d69f9892076ca2bb208a84504f9674fb8d9",
+        "ci/consumers/npm/settings-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "6605e891bbe2cf28036d49b4e9401ef4988df86c2a22aaed9c3508b7575361f4"
+      }
+    },
+    "@rightkit/tauri-shell": {
+      "pkId": "PK08",
+      "id": "ci/consumers/npm/tauri-shell/consumer.mjs",
+      "recipeId": "tauri-shell-installed-transport-consumer",
+      "scenarios": 5,
+      "surface": [
+        "."
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/tauri-shell/README.md": "92b88055bf256e6554de4a5330ef0fcab7ff696a65d9303f7a26d073dc08b3a2",
+        "ci/consumers/npm/tauri-shell/consumer.mjs": "3c3207fe0254581feb8e6f2626f0c89a32ebaaec1b15beed85a683d589d8feb0",
+        "ci/consumers/npm/tauri-shell/package.json": "f4797fc0336d4b4f8cc23b6060757bf9ad193d03b35ddd8287023c10338a1b13",
+        "ci/consumers/npm/tauri-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "6605e891bbe2cf28036d49b4e9401ef4988df86c2a22aaed9c3508b7575361f4"
+      }
     }
   },
   "cargo": {
@@ -29,6 +166,128 @@
         "Cargo.toml": "a1b73c8d4accfcbe834a6960891c93062b574b125e0f6ee0a447b837499ac5f2",
         "src/main.rs": "38eb4ea0ab7a2a02ffaf829de8f49b2b05eb2ceef380b9a72fffa54626aa88d4"
       }
+    },
+    "rightkit-credentials": {
+      "pkId": "PK03",
+      "id": "ci/consumers/rightkit-credentials/src/main.rs",
+      "files": {
+        "Cargo.toml": "83b15f41068d16723f2963f5ecf628e6ce0bc575c6de0c2fc1c3ca4b2610e9c9",
+        "README.md": "9749872ad0a8c438d5fb867437425588195bd2b58d1d996432144b6083cca1ce",
+        "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a"
+      },
+      "runs": [
+        {
+          "id": "core",
+          "args": [
+            "core"
+          ]
+        },
+        {
+          "id": "native-db",
+          "features": [
+            "sqlcipher"
+          ],
+          "args": [
+            "native-db"
+          ],
+          "hosts": [
+            "win32",
+            "darwin"
+          ],
+          "env": {
+            "RIGHTKIT_TEST_REAL_USER_STORES": "literal1",
+            "RK_CONSUMER_RUN_ROOT": "freshRunRoot"
+          }
+        },
+        {
+          "id": "native-helper",
+          "args": [
+            "native-helper"
+          ],
+          "hosts": [
+            "darwin"
+          ],
+          "env": {
+            "RK_CONSUMER_HELPER_NAME": "signedHelper",
+            "RK_CONSUMER_HELPER_TEAM_ID": "signedHelper"
+          }
+        }
+      ]
+    },
+    "rightkit-job-queue": {
+      "pkId": "PK06",
+      "id": "ci/consumers/rightkit-job-queue/src/main.rs",
+      "files": {
+        "Cargo.toml": "cae9c1f704c687cf4224c130a526d89e66508506697a92e1a8ff59ca1f9c0b79",
+        "src/main.rs": "78ef1b2c0dcf8a9ddc102fb7796175c7cc3dfd5a38a00b1223315aa00f885820"
+      }
+    },
+    "rightkit-browser": {
+      "pkId": "PK12",
+      "id": "ci/consumers/rightkit-browser/src/main.rs",
+      "files": {
+        "Cargo.toml": "df01b363ccea5746f65322c7c21f3f6b189758cc7c0d382324226a8924a633f1",
+        "README.md": "9f8d7e1a070336ffed82b72683b3d3773e09566fd81e82e4e69eb53b8a5a1733",
+        "src/main.rs": "34683521bd5e58ac1bbad2251731492b415600fe6b6c9f67a8eb8290a57b9b8c"
+      },
+      "runs": [
+        {
+          "id": "browser-r2",
+          "env": {
+            "RK_R2_CFT_ROOT": "cftRoot",
+            "RK_R2_CFT_SHA256": "cftSha256",
+            "RK_R2_HEADLESS_SHELL_SHA256": "headlessShellSha256",
+            "RK_R2_SCRATCH": "freshRunRoot"
+          }
+        }
+      ]
+    },
+    "rightkit-spend": {
+      "pkId": "PK20",
+      "id": "ci/consumers/rightkit-spend/src/main.rs",
+      "dependency": "rightkit-spend = { version = \"=0.2.0\" }",
+      "extraDependencies": [
+        "rightkit-db = { version = \"0.5\", features = [\"bundled\"] }"
+      ],
+      "gateEvidence": "no assets needed; in-memory SQLite; no ci/asset-gated.json entry needed",
+      "consumes": "genright-gen ledger.rs:61 (imports), :385-393 and :911-913 (reserve_on), :1541 (record_provider_reported), :1665 (reconcile_invoice), :1842-1844 and :1920-1926 (caller budget); PostRight crates/engine/Cargo.toml:43 is a comment only (RIGHTKIT-PENDING), so PostRight has no current call site",
+      "files": {
+        "Cargo.toml": "295d7b0c23995a5f882eee2561b869f01b8fb125c20647108c7cfe26b4a64d5d",
+        "README.md": "90cb5179447ec026176499498d2eea51b7b7424dd0d14d8ae48a14f570443066",
+        "src/main.rs": "01118c48fe2c97e388ddf929b285836a879f5874812f81c1231277695ad0ee13"
+      },
+      "aggregateSha256": "40d390635dccc7c1e5ce4b5bed08dfe6d8977721641f3673461b8a1f339b88d2"
+    },
+    "rightkit-motion": {
+      "pkId": "PK19",
+      "id": "ci/consumers/rightkit-motion/src/main.rs",
+      "dependency": "rightkit-motion = { version = \"=0.2.0\", features = [\"encode\"] }",
+      "extraDependencies": [
+        "rightkit-ffmpeg = { version = \"=0.2.9\" }",
+        "rightkit-transcript = { version = \"=0.4.0\" }"
+      ],
+      "gateEvidence": "ffmpeg is never run; encode-feature build only. Existing ci/asset-gated.json entry for rightkit-motion covers the ffmpeg-using encode_e2e test, which this recipe does not use",
+      "consumes": "genright-engine motion_service.rs:219 (pending-adoption comment: not a live call site); motion_encode.rs:157 pick_encoder and :231 build_command (the local copies this crate would replace)",
+      "files": {
+        "Cargo.toml": "717832cd9f4612343e3c0c656cfe6863b2d465d4a2d84fe2ff8b44517ee348da",
+        "README.md": "054dacf0238c44e970258197967e59567ee498832d870d046e714fc051b111fd",
+        "src/main.rs": "afbceb6ac4bdd25c96c434821cbedaaa78c289ad6b39daebc1ce9a5f41e62680"
+      },
+      "aggregateSha256": "3ce5c56ede5078d1c53266d8b67e1152ddc9fa1f93b272df90eff1771d119189"
+    },
+    "rightkit-playback": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-playback/src/main.rs",
+      "dependency": "rightkit-playback = { version = \"=0.3.0\", features = [\"tauri\"] }",
+      "extraDependencies": [],
+      "gateEvidence": "no ffmpeg run; temp files only. Existing ci/asset-gated.json entry for rightkit-playback covers remux_e2e, which this recipe does not use",
+      "consumes": "cutright src-tauri/src/lib.rs:89-90 (allowed_roots + set_authoriser), :214 (authorised_media_source_id command, exercised via PlaybackState method); CutRight pin is still =0.2.2 at src-tauri/Cargo.toml:43",
+      "files": {
+        "Cargo.toml": "0cb2254ee47ff1180c246684ae92f7087e1c0d4270fbbc72ba1533a26b86b025",
+        "README.md": "4195ec07b11fe66f7c6ecaa74add28124d182c882046fb21dd06af3badb1487c",
+        "src/main.rs": "1d3b169f09edbf9983c38870d6b5df9b19986b5aad82dfd32ed6c8fe664752ad"
+      },
+      "aggregateSha256": "fda9f9df5818bc546625f3f2bbdbfd7b24bbef7da966e95b3f0405fae80a81af"
     }
   }
 }

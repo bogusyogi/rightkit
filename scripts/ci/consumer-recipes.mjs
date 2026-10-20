@@ -13,6 +13,86 @@ export function assertRegistryManifest(text, unit) {
   need(pin.test(text), `consumer must pin ${unit.name} =${unit.version}`);
 }
 
+// ---- recipe runs: reviewed inventory declares WHAT runs; this table alone decides env VALUES ----
+// Values never come from the candidate or the inventory. Each provider owns a fixed set of env names, reads
+// only trusted harness-side inputs (workflow env set before the candidate runs, RUNNER_TEMP) and verifies
+// them. No secret or token is ever a provider input. A missing prerequisite refuses; it never skips.
+const REAL = p => { try { return fs.realpathSync(p); } catch { return null; } };
+const prerequisite = (provider, why) => need(false, `prerequisite missing: ${provider} (${why})`);
+const hexEnv = (provider, name) => ({ env }) => { const value = env[name]; if (!/^[0-9a-f]{64}$/.test(value ?? "")) prerequisite(provider, `${name} must be a 64-hex SHA-256 provisioned by the workflow`); return { [name]: value }; };
+export const RUN_ENV_PROVIDERS = Object.freeze({
+  freshRunRoot: { names: ["RK_CONSUMER_RUN_ROOT", "RK_R2_SCRATCH"], resolve: ({ scratchRoot, names }) => {
+    need(scratchRoot && fs.existsSync(scratchRoot), "prerequisite missing: freshRunRoot (RUNNER_TEMP scratch root absent)");
+    const dir = fs.mkdtempSync(path.join(scratchRoot, "rk-run-root-")); return Object.fromEntries(names.map(n => [n, dir]));
+  } },
+  literal1: { names: ["RIGHTKIT_TEST_REAL_USER_STORES"], resolve: ({ names }) => Object.fromEntries(names.map(n => [n, "1"])) },
+  cftRoot: { names: ["RK_R2_CFT_ROOT"], resolve: ({ env }) => {
+    const raw = env.RK_R2_CFT_ROOT; const temp = env.RUNNER_TEMP && REAL(env.RUNNER_TEMP);
+    if (!raw || !path.isAbsolute(raw) || !temp) prerequisite("cftRoot", "workflow must provision RK_R2_CFT_ROOT (absolute) under RUNNER_TEMP");
+    const real = REAL(raw);
+    if (!real || fs.lstatSync(raw).isSymbolicLink() || !fs.statSync(real).isDirectory() || !within(temp, real)) prerequisite("cftRoot", "RK_R2_CFT_ROOT must be an existing real directory inside RUNNER_TEMP");
+    return { RK_R2_CFT_ROOT: real };
+  } },
+  cftSha256: { names: ["RK_R2_CFT_SHA256"], resolve: hexEnv("cftSha256", "RK_R2_CFT_SHA256") },
+  // Only the Windows managed-CFT binding reads this name; elsewhere it is intentionally not set.
+  headlessShellSha256: { names: ["RK_R2_HEADLESS_SHELL_SHA256"], platforms: ["win32"], resolve: hexEnv("headlessShellSha256", "RK_R2_HEADLESS_SHELL_SHA256") },
+  signedHelper: { names: ["RK_CONSUMER_HELPER_NAME", "RK_CONSUMER_HELPER_TEAM_ID"], platforms: ["darwin"], resolve: ({ env }) => {
+    const name = env.RK_CONSUMER_HELPER_NAME; const team = env.RK_CONSUMER_HELPER_TEAM_ID;
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(name ?? "") || !/^[A-Z0-9]{10}$/.test(team ?? "")) prerequisite("signedHelper", "workflow must provision the signed nested helper name & team id");
+    return { RK_CONSUMER_HELPER_NAME: name, RK_CONSUMER_HELPER_TEAM_ID: team };
+  } },
+});
+const RUN_HOSTS = ["win32", "darwin"];
+export function parseRuns(declared) {
+  if (declared === undefined) return null;
+  need(Array.isArray(declared) && declared.length > 0, "runs must be a non-empty array");
+  const ids = new Set();
+  return declared.map(run => {
+    need(run && typeof run === "object" && !Array.isArray(run) && Object.keys(run).every(k => ["id", "features", "args", "hosts", "env"].includes(k)), "run declares unknown fields");
+    need(typeof run.id === "string" && /^[a-z][a-z0-9-]{0,39}$/.test(run.id) && !ids.has(run.id), "run id must be unique lowercase slug"); ids.add(run.id);
+    const list = (key, pattern) => { const v = run[key] ?? []; need(Array.isArray(v) && v.every(x => typeof x === "string" && pattern.test(x)), `run ${run.id} ${key} invalid`); return [...v]; };
+    const features = list("features", /^[A-Za-z0-9_][A-Za-z0-9_-]*$/); const args = list("args", /^[A-Za-z0-9][A-Za-z0-9_.-]*$/);
+    const hosts = run.hosts === undefined ? null : list("hosts", /^(?:win32|darwin)$/); need(hosts === null || (hosts.length > 0 && hosts.every(h => RUN_HOSTS.includes(h))), `run ${run.id} hosts invalid`);
+    const env = run.env ?? {}; need(env && typeof env === "object" && !Array.isArray(env), `run ${run.id} env must map NAME to provider id`);
+    for (const [name, provider] of Object.entries(env)) {
+      need(typeof provider === "string" && Object.hasOwn(RUN_ENV_PROVIDERS, provider), `run ${run.id} env ${name}: unknown provider (raw values are never accepted)`);
+      need(RUN_ENV_PROVIDERS[provider].names.includes(name), `run ${run.id} env name ${name} is not allowlisted for provider ${provider}`);
+    }
+    return { id: run.id, features, args, hosts, env: { ...env } };
+  });
+}
+
+/** Resolve every run on this host before any Cargo work. Other-OS runs are not-applicable; an absent prerequisite refuses. */
+export function planRuns({ runs, env, scratchRoot, platform = process.platform }) {
+  const plan = (runs ?? [{ id: "default", features: [], args: [], hosts: null, env: {}, implicit: true }]).map(run => {
+    const base = { id: run.id, args: run.args, features: run.features, envNames: [], status: "pending" };
+    if (run.hosts && !run.hosts.includes(platform)) return { ...base, status: "not-applicable", hosts: run.hosts, values: {} };
+    const values = {}; const resolved = new Map();
+    for (const [name, provider] of Object.entries(run.env)) {
+      const spec = RUN_ENV_PROVIDERS[provider];
+      if (spec.platforms && !spec.platforms.includes(platform)) continue;
+      if (!resolved.has(provider)) resolved.set(provider, spec.resolve({ env, scratchRoot, platform, names: spec.names.filter(n => Object.hasOwn(run.env, n) && run.env[n] === provider) }));
+      values[name] = resolved.get(provider)[name];
+    }
+    return { ...base, envNames: Object.keys(values).sort(), values, implicit: Boolean(run.implicit) };
+  });
+  need(plan.some(r => r.status !== "not-applicable"), "no declared run applies to this host");
+  return plan;
+}
+
+export const cargoRunArgs = entry => ["run", "--locked", "--offline", ...(entry.features.length ? ["--features", entry.features.join(",")] : []), ...(entry.args.length ? ["--", ...entry.args] : [])];
+/** Execute a plan from planRuns through `execute(cargoArgs, env) => stdout`; fills `evidence[i].status`. Shared by R2a and R2b. */
+export function executeRuns({ plan, execute, evidence }) {
+  const outputs = [];
+  for (const [index, entry] of plan.entries()) {
+    if (entry.status === "not-applicable") { evidence[index].status = "not-applicable"; continue; }
+    evidence[index].status = "running";
+    try { outputs.push(String(execute(cargoRunArgs(entry), entry.values))); } catch (error) { evidence[index].status = "failed"; throw error; }
+    evidence[index].status = "passed";
+  }
+  return outputs;
+}
+
 export function cargoRecipe({ root, unit }) {
   need(/^rightkit-[a-z0-9][a-z0-9-]*$/.test(unit.name), "unsafe recipe name");
   const base = path.resolve(root, "ci/consumers"); const directory = path.join(base, unit.name);
@@ -37,6 +117,7 @@ export function cargoRecipe({ root, unit }) {
   const reviewed = inventory.schema === 1 && inventory.cargo?.[unit.name];
   const id = `ci/consumers/${unit.name}/src/main.rs`;
   need(reviewed && /^PK\d{2}$/.test(reviewed.pkId) && reviewed.id === id, `missing reviewed PK inventory entry for ${unit.name}; review recipe & inventory before qualification`);
+  const runs = parseRuns(reviewed.runs);
   const sortedFiles = Object.fromEntries(Object.entries(files).sort(([a], [b]) => a.localeCompare(b)));
   const reviewedFiles = Object.fromEntries(Object.entries(reviewed.files ?? {}).sort(([a], [b]) => a.localeCompare(b)));
   need(JSON.stringify(sortedFiles) === JSON.stringify(reviewedFiles), `recipe differs from reviewed ${reviewed.pkId} inventory; review exact full file hashes before qualification`);
@@ -44,7 +125,7 @@ export function cargoRecipe({ root, unit }) {
   need(dependency, "PK dependency must use reviewed single-line exact-version declaration");
   const selectedFeatures = dependency.match(/\bfeatures\s*=\s*\[([^\]]*)\]/)?.[1] ?? "";
   const features = [...selectedFeatures.matchAll(/"([A-Za-z0-9_+/-]+)"/g)].map(match => match[1]);
-  return { directory, manifest, dependency, evidence: { id, pkId: reviewed.pkId, sourceCommit: null, files: sortedFiles, sha256: hash(JSON.stringify(sortedFiles)), manifestSha256: files["Cargo.toml"], exampleSha256: files["src/main.rs"], dependency: { name: unit.name, version: `=${unit.version}`, defaultFeatures: !/default-features\s*=\s*false/.test(dependency), features } } };
+  return { directory, manifest, dependency, runs, evidence: { id, pkId: reviewed.pkId, sourceCommit: null, files: sortedFiles, sha256: hash(JSON.stringify(sortedFiles)), manifestSha256: files["Cargo.toml"], exampleSha256: files["src/main.rs"], dependency: { name: unit.name, version: `=${unit.version}`, defaultFeatures: !/default-features\s*=\s*false/.test(dependency), features }, runs: runs ?? null } };
 }
 
 export function nativeFixture({ unit, env, platform = process.platform }) {

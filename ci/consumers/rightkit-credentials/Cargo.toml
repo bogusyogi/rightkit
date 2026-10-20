@@ -1,0 +1,17 @@
+[package]
+name = "rightkit-credentials-r2-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-credentials = { version = "=0.4.0", default-features = false, features = ["db-adapter"] }
+rightkit-db = { version = "=0.5.1", default-features = false, optional = true }
+
+[features]
+default = []
+db-session = ["rightkit-credentials/db-adapter", "dep:rightkit-db", "rightkit-db/encrypted-lifecycle"]
+sqlcipher = ["db-session", "rightkit-db/sqlcipher"]
+sqlcipher-system = ["db-session", "rightkit-db/sqlcipher-system"]

@@ -2,24 +2,17 @@
 //!
 //! Native hosts are responsible for creating windows. This crate keeps the policy identical for
 //! the web-rendered pill, the native pill, and the docked notch: finite geometry, work-area
-//! clamping, delayed hover collapse, and the TOPMOST/status level contract.
+//! clamping, delayed hover collapse, and the explicit native style contract. Callers own overlay
+//! kinds and platform window levels.
 
 use serde::{Deserialize, Serialize};
 
 pub mod stack;
 
-pub const HR_STATUS_WINDOW_LEVEL: i32 = 25;
 /// Windows native hosts must keep both the extended style and actual z-order in this band.
 pub const WINDOWS_TOPMOST_REQUIRED: bool = true;
 pub const HOVER_ENTER_TICKS: u32 = 1;
 pub const HOVER_LEAVE_TICKS: u32 = 3;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OverlayKind {
-    HeardRightPill,
-    CockpitNotch,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -915,16 +908,17 @@ impl HoverGate {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct OverlayModel {
-    pub kind: OverlayKind,
+pub struct OverlayModel<Kind> {
+    /// Caller-owned identity. Serialization follows the caller's type; it selects no native policy.
+    pub kind: Kind,
     pub visible: bool,
     pub mode: Option<PillMode>,
     pub frame: Rect,
     pub hitbox: Option<Rect>,
 }
 
-impl OverlayModel {
-    pub fn new(kind: OverlayKind, frame: Rect) -> Self {
+impl<Kind> OverlayModel<Kind> {
+    pub fn new(kind: Kind, frame: Rect) -> Self {
         Self {
             kind,
             visible: false,
@@ -952,6 +946,46 @@ impl OverlayModel {
 mod tests {
     use super::ex_style::*;
     use super::*;
+
+    #[test]
+    fn caller_kinds_share_geometry_and_visibility_without_product_policy() {
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        enum AppKind {
+            Compact,
+            Expanded,
+        }
+        let frame = Rect {
+            x: -20.0,
+            y: 10.0,
+            width: 80.0,
+            height: 40.0,
+        };
+        let work = WorkArea {
+            left: 0.0,
+            top: 0.0,
+            right: 100.0,
+            bottom: 100.0,
+        };
+        let mut compact = OverlayModel::new(AppKind::Compact, frame);
+        let mut expanded = OverlayModel::new(AppKind::Expanded, frame);
+        let mut custom = OverlayModel::new("caller-defined", frame);
+        for model in [&mut compact, &mut expanded] {
+            model.place(work);
+            model.apply(OverlayEvent::Idle);
+            assert_eq!(model.frame.x, 0.0);
+            assert!(model.hit_test(10.0, 20.0));
+            model.apply(OverlayEvent::Hide);
+            assert!(!model.hit_test(10.0, 20.0));
+        }
+        custom.apply(OverlayEvent::Status {
+            label: "ready".into(),
+        });
+        assert_eq!(custom.kind, "caller-defined");
+        assert_eq!(compact.kind, AppKind::Compact);
+        assert_eq!(expanded.kind, AppKind::Expanded);
+        assert_eq!(custom.mode, Some(PillMode::Status));
+    }
 
     fn area(left: f64, top: f64, right: f64, bottom: f64) -> WorkArea {
         WorkArea {

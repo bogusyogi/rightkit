@@ -15,8 +15,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runRegistryConsumer } from "./registry-consumer.mjs";
+import { fileURLToPath } from "node:url";
 import { runNpmConsumer } from "./npm-consumer.mjs";
+import { runNpmRecipeConsumer, hasReviewedNpmEntry, runtimeEnvNames } from "./npm-recipe-consumer.mjs";
 import { childEnv } from "./upload.mjs";
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const tail = (text, n = 600) => String(text ?? "").trim().slice(-n);
 
 /** How to run npm without a shell: node + npm-cli.js beside the running node, else the npm shim. */
@@ -226,12 +229,38 @@ export function consumeNpmPortability({ units, packDir, scratchRoot = os.tmpdir(
   return results;
 }
 
-/** Preserve every existing portability gate; only named PK11 receives R2a evidence. */
+/**
+ * Any other npm unit needs a reviewed `npm.<name>` entry in ci/consumer-recipes.json (same full-file-hash
+ * inventory model as cargoRecipe). No entry is a refusal, never a silent skip; generic portability is not PK.
+ */
+function consumeReviewedNpm({ unit, out, options }) {
+  const root = options.root ?? REPO_ROOT;
+  let reviewed = false;
+  try { reviewed = hasReviewedNpmEntry(JSON.parse(fs.readFileSync(path.join(root, "ci/consumer-recipes.json"), "utf8")), unit.name); } catch { reviewed = false; }
+  if (!reviewed) { out.problems.push(`${unit.name}: missing reviewed PK example (ci/consumer-recipes.json npm.${unit.name}); generic portability is not PK qualification`); return; }
+  const portability = out.report;
+  const scratchRoot = options.scratchRoot ?? os.tmpdir();
+  const reportDirectory = fs.mkdtempSync(path.join(scratchRoot, "rk-npm-recipe-report-"));
+  try {
+    // Only the reviewed runtime variables for this unit survive the allow-list; nothing else is forwarded.
+    const source = options.env ?? process.env;
+    const extra = Object.fromEntries(runtimeEnvNames(unit.name).filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
+    const report = (options.npmRecipeConsumer ?? runNpmRecipeConsumer)({ packDir: options.packDir, name: unit.name, reportFile: path.join(reportDirectory, "report.json"), scratchRoot, spawn: options.spawn ?? spawnSync, env: childEnv(source, extra), ...(options.root ? { root: options.root } : {}) });
+    out.report = { ...report, portability };
+    if (out.problems.length || report?.verified !== true || report.qualification !== "R2a" || report.name !== unit.name || report.version !== unit.version || report.archiveSha256 !== unit.sha256 || report.archiveSize !== unit.size) {
+      out.report.verified = false;
+      out.problems.push(`${unit.name}: reviewed npm PK consumer or existing portability gates failed`);
+    }
+  } catch (error) { out.report = { ...(error.report ?? {}), qualification: "R2a", verified: false, portability }; out.problems.push(`${unit.name}: reviewed npm PK consumer failed: ${error.message}`); }
+  finally { fs.rmSync(reportDirectory, { recursive: true, force: true }); }
+}
+
+/** Preserve every existing portability gate; named PK11 and reviewed npm entries receive R2a evidence. */
 export function consumeNpm(options) {
   const results = consumeNpmPortability(options);
   for (const unit of options.units) {
     const out = results.get(unit.name);
-    if (unit.name !== "@rightkit/logs") continue;
+    if (unit.name !== "@rightkit/logs") { consumeReviewedNpm({ unit, out, options }); continue; }
     const portability = out.report;
     const scratchRoot = options.scratchRoot ?? os.tmpdir();
     // A unique external report path is required by named runner & removed after readback.

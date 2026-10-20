@@ -2305,6 +2305,27 @@ fn apply_entry(ctx: &Ctx<'_>, index: usize, entry: &JournalEntry) -> Result<()> 
             // recorded.
             verify_backup(&paths, prior, &kind)?;
             if let BackupKind::Link = kind {
+                // The link must preserve both the prior bytes and its directory entry before
+                // publication can destroy the destination's original name. Windows needs write
+                // access for FlushFileBuffers, matching atomic publication's source flush.
+                let mut open = fs::OpenOptions::new();
+                open.read(true);
+                #[cfg(windows)]
+                open.write(true);
+                let backup = open
+                    .open(&paths.backup)
+                    .map_err(|e| FsError::io(&paths.backup, e))?;
+                if Ident::of_file(&backup, &paths.backup)? != *prior {
+                    return Err(conflict(
+                        &paths.backup,
+                        "the opened backup changed before its flush",
+                    ));
+                }
+                crate::atomic::durable_sync_with(&backup, crate::atomic::SyncPolicy::Fallback)
+                    .map_err(|e| FsError::io(&paths.backup, e))?;
+                sync_parent_strict(&paths.backup)?;
+                // Recheck the name and identity after the barriers, before authorizing overwrite.
+                verify_backup(&paths, prior, &kind)?;
                 // The destination still has its name: replace it atomically, readers never see it
                 // absent.
                 replace = ReplaceMode::MoveWriteThrough;

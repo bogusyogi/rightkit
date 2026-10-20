@@ -10,7 +10,7 @@
 //!   with the invoking `webview`, with the refusal propagated: the call must end in `?`, or in
 //!   `.map_err(..)?`; a bare `check(..);`, `.ok();`, `let _ =` or `if let` form does not pass,
 //! * a `rk_shell_*` check names a command other than the function it opens, or
-//! * the scanned `rk_shell_*` and `rightkit_license_*` sets differ from what `handler!` registers.
+//! * any guarded family's scanned command set differs from what `handler!` registers.
 //!
 //! The decisions themselves are tested in `shell_guard.rs` and `host_license.rs`; no webview is
 //! needed. What this cannot prove is the behaviour of a live webview (an app e2e covers that).
@@ -26,7 +26,7 @@ struct Family {
     call: &'static str,
 }
 
-const FAMILIES: [Family; 11] = [
+const FAMILIES: [Family; 12] = [
     Family {
         prefix: "rk_shell_",
         call: "guard_command(&webview, \"",
@@ -64,6 +64,10 @@ const FAMILIES: [Family; 11] = [
         call: "caller(&webview, \"",
     },
     Family {
+        prefix: "rightkit_app_lock_",
+        call: "native(&webview, \"",
+    },
+    Family {
         prefix: "rightkit_models_",
         call: "models_service(&webview, \"",
     },
@@ -79,6 +83,13 @@ const LICENSE_COMMANDS: [&str; 5] = [
     "rightkit_license_refresh",
     "rightkit_license_deactivate",
     "rightkit_license_request_trial",
+];
+const APP_LOCK_COMMANDS: [&str; 5] = [
+    "rightkit_app_lock_status",
+    "rightkit_app_lock_lock",
+    "rightkit_app_lock_begin_unlock",
+    "rightkit_app_lock_complete_unlock",
+    "rightkit_app_lock_cancel_unlock",
 ];
 
 struct Command {
@@ -370,10 +381,10 @@ fn a_licence_command_names_its_own_action() {
 }
 
 #[test]
-fn the_scan_and_the_handler_list_agree_on_the_shell_and_licence_commands() {
+fn the_scan_and_the_handler_list_agree_on_every_protected_family() {
     let commands = all_commands();
-    let licence: BTreeSet<String> = LICENSE_COMMANDS.iter().map(|n| (*n).to_owned()).collect();
-    for (prefix, expected) in [("rk_shell_", None), ("rightkit_license_", Some(licence))] {
+    for family in &FAMILIES {
+        let prefix = family.prefix;
         let scanned: BTreeSet<String> = commands
             .iter()
             .filter(|c| c.name.starts_with(prefix))
@@ -387,14 +398,47 @@ fn the_scan_and_the_handler_list_agree_on_the_shell_and_licence_commands() {
             scanned.difference(&listed).collect::<Vec<_>>(),
             listed.difference(&scanned).collect::<Vec<_>>()
         );
+        let expected = match prefix {
+            "rightkit_license_" => Some(LICENSE_COMMANDS.as_slice()),
+            "rightkit_app_lock_" => Some(APP_LOCK_COMMANDS.as_slice()),
+            _ => None,
+        };
         if let Some(expected) = expected {
-            assert_eq!(
-                listed, expected,
-                "{prefix}: exactly the five licence commands"
-            );
-        } else {
+            let expected: BTreeSet<String> = expected.iter().map(|n| (*n).to_owned()).collect();
+            assert_eq!(listed, expected, "{prefix}: fixed protected command set");
+        } else if prefix == "rk_shell_" {
             assert!(listed.len() >= 49, "only {} shell commands", listed.len());
+        } else {
+            assert!(
+                !listed.is_empty(),
+                "{prefix}: no protected commands registered"
+            );
         }
+    }
+}
+
+#[test]
+fn every_app_lock_command_names_its_own_closed_action() {
+    for command in all_commands()
+        .iter()
+        .filter(|c| c.name.starts_with("rightkit_app_lock_"))
+    {
+        let action = command.name.trim_start_matches("rightkit_app_lock_");
+        let statement = first_statement(&command.body);
+        assert!(
+            statement.contains(&format!("native(&webview, \"{action}\")")),
+            "{}: {statement}",
+            command.name
+        );
+    }
+    let call = "native(&webview, \"";
+    assert!(first_statement_problem("let native = native(&webview, \"status\")?", call).is_none());
+    for bad in [
+        "let _ = native(&webview, \"status\")",
+        "native(&webview, \"status\").ok()",
+        "native(&webview, \"status\")?.service.status().map_err(error)",
+    ] {
+        assert!(first_statement_problem(bad, call).is_some(), "{bad}");
     }
 }
 

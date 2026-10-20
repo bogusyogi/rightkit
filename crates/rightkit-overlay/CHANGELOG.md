@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+- Breaking: replace product-specific OverlayKind with caller-owned OverlayModel<Kind>; serialization follows caller kind, preserving existing wire values when caller retains its enum mapping.
+- Breaking: remove product status-window-level constant; native host supplies level explicitly (25 retains previous behavior). Native Windows style/creation behavior is unchanged.
+- Add caller-kind behavior coverage & Windows native create/show/hide/destroy smoke source. Native execution evidence is recorded separately by integration owner.
+
 ## 0.1.2 (2026-10-17)
 
 Additive. Code-only: nothing in this section was compiled or run when written.

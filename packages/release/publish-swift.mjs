@@ -1,5 +1,5 @@
 // Publish RightKitSwift by the ONE Swift distribution contract: a plain semver git tag on this
-// repository (github.com/Orthic-Labs/rightkit), resolved by apps through the root Package.swift
+// repository (the checkout's own origin, github.com/bogusyogi/rightkit), resolved by apps through the root Package.swift
 // (docs/RIGHTKIT-SHARED-PACKAGES.md, Swift section). There is no mirror and no second repository.
 //
 // `right-release publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]` verifies, in order:
@@ -19,7 +19,14 @@ import { spawnSync } from "./background-process.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
 import { enforcePublicationGate, defaultEvidencePath } from "./publication-gate.mjs";
 
-export const SWIFT_DISTRIBUTION_URL = "https://github.com/Orthic-Labs/rightkit";
+// The distribution URL is whatever repository this checkout's origin names (GITHUB_REPOSITORY when origin does not
+// parse); it is never a constant, so a repository move cannot leave a stale name in the success message.
+export function swiftDistributionUrl(origin, environment = process.env) {
+  const fromOrigin = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(String(origin ?? "").trim())?.[1];
+  const fromEnvironment = /^[\w.-]+\/[\w.-]+$/.test(environment?.GITHUB_REPOSITORY ?? "") ? environment.GITHUB_REPOSITORY : null;
+  const repository = fromOrigin ?? fromEnvironment;
+  return repository ? `https://github.com/${repository}` : String(origin ?? "").trim();
+}
 const DRIFT_TEST = path.join("scripts", "swift-root-manifest.test.mjs");
 
 export function parseSwiftPublishArgs(argv) {
@@ -125,7 +132,9 @@ export function runSwiftPublish(options, execute = spawnSync) {
   catch (error) { git(["tag", "-d", version], toplevel, execute); throw error; }
   const remote = git(["ls-remote", "--tags", "origin", `refs/tags/${version}`], toplevel, execute);
   if (!remote.startsWith(sha)) throw new Error(`origin does not show tag ${version} at ${sha}`);
-  out(`tagged ${version} at ${sha} on ${SWIFT_DISTRIBUTION_URL}`);
+  let origin = "";
+  try { origin = git(["config", "--get", "remote.origin.url"], toplevel, execute); } catch { /* the tag is already verified on origin; the name is cosmetic */ }
+  out(`tagged ${version} at ${sha} on ${swiftDistributionUrl(origin, options.environment)}`);
   return { name, version, commit: sha, published: true };
 }
 

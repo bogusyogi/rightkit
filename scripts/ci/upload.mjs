@@ -287,6 +287,7 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
  */
 export const APPROVED_ARTIFACTS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "approved-artifacts.json");
 export const APPROVED_ENTRY_KEYS = ["name", "registry", "reviewRef", "reviewer", "sha256", "version"];
+export const APPROVED_REGISTRIES = ["npm", "crates", "swift"];
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SEMVER_PLAIN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
@@ -310,7 +311,7 @@ export function loadApprovedArtifacts(file) {
     const keys = Object.keys(entry).sort();
     if (JSON.stringify(keys) !== JSON.stringify(APPROVED_ENTRY_KEYS)) { problems.push(`${at} must hold exactly the keys ${APPROVED_ENTRY_KEYS.join(", ")}`); return; }
     const text = (v) => typeof v === "string" && v.trim() !== "" && v === v.trim();
-    if (entry.registry !== "npm" && entry.registry !== "crates") problems.push(`${at}: registry must be npm or crates`);
+    if (!APPROVED_REGISTRIES.includes(entry.registry)) problems.push(`${at}: registry must be npm, crates or swift`);
     if (!text(entry.name)) problems.push(`${at}: name must be a non-empty string`);
     if (!SEMVER_PLAIN.test(entry.version ?? "")) problems.push(`${at}: version must be a plain MAJOR.MINOR.PATCH`);
     if (!SHA256_HEX.test(entry.sha256 ?? "")) problems.push(`${at}: sha256 must be 64 lowercase hex characters`);

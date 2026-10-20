@@ -14,6 +14,8 @@
 //!
 //! See `API.md` for per-app migration.
 
+#[cfg(feature = "app-lock")]
+pub mod app_lock;
 pub mod associations;
 pub mod autostart;
 pub mod b64;
@@ -827,6 +829,16 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     // The browser process may write its port file after the webview is ready: look once more
     // when the first page has loaded.
     plugin = plugin.on_page_load(|webview, payload| {
+        #[cfg(feature = "app-lock")]
+        if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+            if !host::app_lock::invalidate(
+                webview.app_handle(),
+                Some(webview.label()),
+                host::app_lock::LifecycleEvent::Navigation,
+            ) {
+                return;
+            }
+        }
         if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
             if let Err(e) = devtools::verify_after_first_navigation(webview.app_handle()) {
                 eprintln!("{e}");
@@ -891,6 +903,32 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
             }
         })
         .on_event(|app, event| {
+            #[cfg(feature = "app-lock")]
+            match event {
+                tauri::RunEvent::Resumed => {
+                    if !host::app_lock::invalidate(
+                        app,
+                        None,
+                        host::app_lock::LifecycleEvent::Resume,
+                    ) {
+                        return;
+                    }
+                }
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                } => {
+                    if !host::app_lock::invalidate(
+                        app,
+                        Some(label),
+                        host::app_lock::LifecycleEvent::Destruction,
+                    ) {
+                        return;
+                    }
+                }
+                _ => {}
+            }
             if app.try_state::<ShellState>().is_some() {
                 lifecycle::run_event(app, event);
             }
@@ -1407,7 +1445,7 @@ macro_rules! handler {
 #[cfg(feature = "host-services")]
 macro_rules! __rk_handler_host {
     ($($cmd:tt)*) => {
-        $crate::__rk_handler_license![
+        $crate::__rk_handler_app_lock![
             $crate::host::settings::rightkit_settings_describe,
             $crate::host::settings::rightkit_settings_get,
             $crate::host::settings::rightkit_settings_patch,
@@ -1436,6 +1474,28 @@ macro_rules! __rk_handler_host {
     ($($cmd:tt)*) => {
         $crate::__rk_handler_update![$($cmd)*]
     };
+}
+
+#[doc(hidden)]
+#[macro_export]
+#[cfg(feature = "app-lock")]
+macro_rules! __rk_handler_app_lock {
+    ($($cmd:tt)*) => {
+        $crate::__rk_handler_license![
+            $crate::host::app_lock::rightkit_app_lock_status,
+            $crate::host::app_lock::rightkit_app_lock_lock,
+            $crate::host::app_lock::rightkit_app_lock_begin_unlock,
+            $crate::host::app_lock::rightkit_app_lock_complete_unlock,
+            $crate::host::app_lock::rightkit_app_lock_cancel_unlock,
+            $($cmd)*
+        ]
+    };
+}
+#[doc(hidden)]
+#[macro_export]
+#[cfg(not(feature = "app-lock"))]
+macro_rules! __rk_handler_app_lock {
+    ($($cmd:tt)*) => { $crate::__rk_handler_license![$($cmd)*] };
 }
 
 /// Prepends the licence commands (feature `license`).

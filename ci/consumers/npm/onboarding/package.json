@@ -1,0 +1,19 @@
+{
+  "name": "rightkit-onboarding-mount-consumer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "@rightkit/react-shell": "0.7.2",
+    "@rightkit/legal-ui": "0.4.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/user-event": "14.6.8",
+    "jsdom": "30.1.3",
+    "@rightkit/platform-ui": "0.4.0"
+  }
+}

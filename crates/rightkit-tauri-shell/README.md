@@ -23,7 +23,7 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `license` | off | implies `host-services`; `rightkit-license` 0.2.4 (`update-auth`) | Five `rightkit_license_*` commands. The views they return carry no token, key or device id. |
 | `update` | off | implies `host-services`; `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5, `sha2`, `tokio` | Native updater: five `rightkit_update_*` commands (`src/update.rs`). |
 | `update-license` | off | implies `update` and `license`; `url` | Binds each update to the licence captured at check (`LicenseAuthority`). |
-| `overlay` | off | `rightkit-overlay` 0.1.2 | Always-on-top, no-activate overlay host (`src/overlay_host.rs`). |
+| `overlay` | off | `rightkit-overlay` 0.2.0 | Always-on-top, no-activate overlay host (`src/overlay_host.rs`). |
 | `dev-inspect` | off | `tauri/devtools` | Development builds only: every webview is inspectable and the DevTools guards stand down; see "DevTools policy / Development builds". A build with it can never be released. Never a default feature, and not needed by ContentOnly. |
 
 Mismatched `wv2` features put two copies of `windows` or `webview2-com` beside Tauri's, and `cast()` then fails. With `default-features = false`, enable exactly the feature that matches the app's Tauri version.

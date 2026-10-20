@@ -129,3 +129,62 @@ test("R2a runs exact committed PK example with registry lock, feature resolution
   assert.deepEqual(report.toolchain, { rustc: "rustc mocked-version", cargo: "cargo mocked-version" });
   for (mode of ["path", "runtime", "recipe"]) assert.throws(invoke);
 });
+
+function runsHarness(t, runs, platform = "win32") {
+  const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-r2a-runs-"))); t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  const root = path.join(scratch, "checkout"); const packs = path.join(scratch, "packed"); const template = path.join(root, "ci/consumers/rightkit-logs");
+  fs.mkdirSync(path.dirname(template), { recursive: true }); fs.mkdirSync(packs);
+  const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
+  fs.cpSync(path.join(committedRoot, "ci/consumers/rightkit-logs"), template, { recursive: true });
+  const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8")); if (runs) inventory.cargo["rightkit-logs"].runs = runs;
+  fs.writeFileSync(path.join(root, "ci/consumer-recipes.json"), JSON.stringify(inventory));
+  const bytes = Buffer.from("mock archive bytes"); const selected = { ...unit, file: "rightkit-logs-0.3.4.crate", size: bytes.length, sha256: sha("sha256", bytes) };
+  fs.writeFileSync(path.join(packs, selected.file), bytes);
+  const sealed = { schema: 1, registry: "crates", commit: "b".repeat(40), runId: "42", runAttempt: "1", units: [selected] };
+  fs.writeFileSync(path.join(packs, "manifest.json"), JSON.stringify(sealed));
+  const env = { GITHUB_ACTIONS: "true", GITHUB_SHA: sealed.commit, GITHUB_RUN_ID: "42", GITHUB_RUN_ATTEMPT: "1", RUNNER_TEMP: scratch, PATH: process.env.PATH, NODE_AUTH_TOKEN: "secret", RIGHTKIT_TEST_REAL_USER_STORES: "0", RK_CONSUMER_RUN_ROOT: "/candidate-chosen" };
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, env: options.env });
+    if (command === "rustc" || args[0] === "--version") return { status: 0, stdout: `${command} mocked-version\n` };
+    if (args[0] === "-tzf") return { status: 0, stdout: "rightkit-logs-0.3.4/Cargo.toml\nrightkit-logs-0.3.4/src/lib.rs\n" };
+    if (args[0] === "-tvzf") return { status: 0, stdout: "-rw-r--r-- archive files\n" };
+    if (args[0] === "-xzf") { const dest = path.join(args[args.indexOf("-C") + 1], "rightkit-logs-0.3.4"); fs.mkdirSync(dest); fs.writeFileSync(path.join(dest, "Cargo.toml"), "sealed manifest"); return { status: 0, stdout: "" }; }
+    if (args[0] === "generate-lockfile") { fs.writeFileSync(path.join(options.cwd, "Cargo.lock"), lock(selected)); return { status: 0, stdout: "" }; }
+    if (args[0] === "metadata") {
+      const vendor = path.join(path.dirname(options.cwd), "registry", "rightkit-logs-0.3.4", "Cargo.toml");
+      return { status: 0, stdout: JSON.stringify({ packages: [{ name: "consumer", manifest_path: path.join(options.cwd, "Cargo.toml"), source: null }, { id: "selected", name: selected.name, version: selected.version, source: "registry+https://github.com/rust-lang/crates.io-index", manifest_path: vendor }], resolve: { nodes: [{ id: "selected", features: [] }] } }) };
+    }
+    if (args[0] === "run" && args.includes("beta")) return { status: 101, stderr: "beta assertion failed" };
+    return { status: 0, stdout: `ok ${args.join(" ")}\n` };
+  };
+  return { scratch, env, calls, invoke: (extra = {}) => runRegistryConsumer({ packDir: packs, root, scratchRoot: scratch, env, spawn, platform, ...extra }) };
+}
+test("declared crate runs execute with exactly their declared harness-owned env & are recorded", t => {
+  const h = runsHarness(t, [{ id: "alpha", features: ["sqlcipher"], args: ["native-db"], env: { RIGHTKIT_TEST_REAL_USER_STORES: "literal1", RK_CONSUMER_RUN_ROOT: "freshRunRoot" } }, { id: "mac-only", args: ["native-helper"], hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }, { id: "plain", args: ["core"] }]);
+  const report = h.invoke(); assert.equal(report.verified, true);
+  const runs = h.calls.filter(c => c.args[0] === "run");
+  assert.deepEqual(runs.map(c => c.args.slice(1)), [["--locked", "--offline", "--features", "sqlcipher", "--", "native-db"], ["--locked", "--offline", "--", "core"]]);
+  const base = h.calls.find(c => c.args[0] === "build").env;
+  assert.deepEqual(Object.keys(runs[0].env).filter(k => !Object.hasOwn(base, k)).sort(), ["RIGHTKIT_TEST_REAL_USER_STORES", "RK_CONSUMER_RUN_ROOT"]);
+  assert.equal(runs[0].env.RIGHTKIT_TEST_REAL_USER_STORES, "1"); assert.notEqual(runs[0].env.RK_CONSUMER_RUN_ROOT, "/candidate-chosen");
+  assert.equal(path.relative(h.scratch, runs[0].env.RK_CONSUMER_RUN_ROOT).startsWith(".."), false);
+  assert.equal(runs[1].env.RIGHTKIT_TEST_REAL_USER_STORES, undefined); // neither the workflow's value nor the candidate's value leaks into an undeclared run
+  assert.equal(runs[1].env.RK_CONSUMER_RUN_ROOT, undefined); assert.equal(runs[0].env.NODE_AUTH_TOKEN, undefined);
+  assert.deepEqual(report.runs, [{ id: "alpha", args: ["native-db"], features: ["sqlcipher"], envNames: ["RIGHTKIT_TEST_REAL_USER_STORES", "RK_CONSUMER_RUN_ROOT"], status: "passed" }, { id: "mac-only", args: ["native-helper"], features: [], envNames: [], status: "not-applicable", hosts: ["darwin"] }, { id: "plain", args: ["core"], features: [], envNames: [], status: "passed" }]);
+  assert.match(report.runtimeOutput, /\[run mac-only\] not-applicable/);
+});
+test("default consumer without declared runs still records one default run", t => {
+  const h = runsHarness(t, null); const report = h.invoke();
+  assert.deepEqual(h.calls.filter(c => c.args[0] === "run").map(c => c.args.slice(1)), [["--locked", "--offline"]]);
+  assert.deepEqual(report.runs, [{ id: "default", args: [], features: [], envNames: [], status: "passed" }]);
+});
+test("a failing run is recorded failed; a missing prerequisite refuses before any Cargo work", t => {
+  const failing = runsHarness(t, [{ id: "alpha", args: ["alpha"] }, { id: "beta", args: ["beta"] }]);
+  assert.throws(() => failing.invoke(), error => { assert.deepEqual(error.report.runs.map(r => r.status), ["passed", "failed"]); return /beta assertion failed/.test(error.message); });
+  const missing = runsHarness(t, [{ id: "browser", env: { RK_R2_CFT_ROOT: "cftRoot" } }]);
+  assert.throws(() => missing.invoke(), error => { assert.match(error.message, /prerequisite missing: cftRoot/); assert.equal(error.report.verified, false); return true; });
+  assert.deepEqual(missing.calls, []);
+  const reportFile = path.join(missing.scratch, "out", "report.json"); assert.throws(() => missing.invoke({ reportFile }));
+  assert.match(JSON.parse(fs.readFileSync(reportFile, "utf8")).error, /prerequisite missing/);
+});

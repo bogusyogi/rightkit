@@ -2,6 +2,10 @@
 
 ## 0.4.6 — unpublished staging
 
+- Transaction backup durability: the hard-link backup of a file about to be overwritten is now
+  flushed (file and parent directory) before the live overwrite, so a crash cannot leave the live
+  file replaced with no durable backup (`src/transaction.rs`). Regressions cover the order and a
+  flush failure (`tests/transaction.rs`).
 - Issue #830: `AtomicWriter::create_new_private(path)` imports arbitrary native leaves through
   owner-only staging, strict durable flush & complete-file exclusive publication. No empty
   placeholder fallback; `commit_as` cannot weaken exclusivity.

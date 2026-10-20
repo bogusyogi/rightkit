@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { REPOSITORY, APPROVED_ARTIFACTS_FILE, sha, integrity, loadSealed } from "./upload.mjs";
 import { selectCandidate, prepareCandidate, unpackArtifact } from "./reviewed-candidate.mjs";
 import { assertRegistryManifest, registryLockEvidence } from "./registry-consumer.mjs";
+import { cargoRecipe, planRuns, executeRuns } from "./consumer-recipes.mjs";
 import { lockEvidence, registryUrl } from "./registry-readback.mjs";
 
 const need = (ok, why) => { if (!ok) throw new Error(`reviewed registry readback refused: ${why}`); };
@@ -187,6 +188,15 @@ export function cargoLockEvidence(lock, units, selected) {
   return rows;
 }
 
+/** Child env for one readback consumer: runner basics only, never a token. R2b matches R2a's GITHUB_ACTIONS/RUNNER_TEMP for crates (neither is a credential). */
+export function readbackChildEnv(env, scratch, registry) {
+  const child = Object.fromEntries(Object.entries(env).filter(([key]) => /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|USERPROFILE|APPDATA|LOCALAPPDATA|SYSTEMDRIVE|PROCESSOR_ARCHITECTURE|LANG|LC_ALL)$/i.test(key)));
+  // Fresh home, config, cache & targets; neither checkout nor runner Cargo/npm state participates.
+  Object.assign(child, { HOME: path.join(scratch, "home"), RUSTUP_HOME: env.RUSTUP_HOME || path.join(env.HOME || env.USERPROFILE, ".rustup"), CARGO_HOME: path.join(scratch, "cargo-home"), CARGO_TARGET_DIR: path.join(scratch, "target"), CARGO_TERM_COLOR: "never", CARGO_REGISTRIES_CRATES_IO_PROTOCOL: "sparse", NODE_OPTIONS: "" });
+  if (registry === "crates") Object.assign(child, { GITHUB_ACTIONS: "true", RUNNER_TEMP: env.RUNNER_TEMP });
+  return child;
+}
+
 export async function consumeReadback({ env, bundle, output, expectedHash, root = ROOT, approvedFile = APPROVED_ARTIFACTS_FILE, fetchImpl = fetch, spawn = spawnSync }) {
   need(env.GITHUB_ACTIONS === "true" && env.GITHUB_REF === "refs/heads/main" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/${READBACK}@refs/heads/main` && env.RUNNER_ENVIRONMENT === "github-hosted" && ((env.RUNNER_OS === "Windows" && process.platform === "win32") || (env.RUNNER_OS === "macOS" && process.platform === "darwin")), "native main hosted Actions required");
   for (const [key, value] of Object.entries(env)) need(!value || !/^(?:NODE_AUTH_TOKEN|NPM_TOKEN|CARGO_REGISTRY_TOKEN|GITHUB_TOKEN|GH_TOKEN|ACTIONS_ID_TOKEN_REQUEST_(?:TOKEN|URL))$/i.test(key), "consumer must be credential/OIDC free");
@@ -201,17 +211,17 @@ export async function consumeReadback({ env, bundle, output, expectedHash, root 
   try {
     for (const unit of units) {
       const template = recipeDirectory(root, unit, candidate.registry);
+      // Same reviewed runs & harness-owned env providers as R2a; a missing prerequisite refuses before any fetch.
+      const plan = candidate.registry === "crates" ? planRuns({ runs: cargoRecipe({ root, unit }).runs, env, scratchRoot: fs.realpathSync(env.RUNNER_TEMP), platform: process.platform }) : null;
       const archive = await registryArchive(unit, candidate.registry, fetchImpl);
       const scratch = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "rk-r2b-")); const consumer = path.join(scratch, "consumer");
       fs.cpSync(template, consumer, { recursive: true });
-      const child = Object.fromEntries(Object.entries(env).filter(([key]) => /^(?:PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|TEMP|TMP|TMPDIR|USERPROFILE|APPDATA|LOCALAPPDATA|SYSTEMDRIVE|PROCESSOR_ARCHITECTURE|LANG|LC_ALL)$/i.test(key)));
-      // Fresh home, config, cache & targets; neither checkout nor runner Cargo/npm state participates.
-      Object.assign(child, { HOME: path.join(scratch, "home"), RUSTUP_HOME: env.RUSTUP_HOME || path.join(env.HOME || env.USERPROFILE, ".rustup"), CARGO_HOME: path.join(scratch, "cargo-home"), CARGO_TARGET_DIR: path.join(scratch, "target"), CARGO_TERM_COLOR: "never", CARGO_REGISTRIES_CRATES_IO_PROTOCOL: "sparse", NODE_OPTIONS: "" });
+      const child = readbackChildEnv(env, scratch, candidate.registry);
       for (const dir of [child.HOME, child.CARGO_HOME]) fs.mkdirSync(dir);
       const result = { name: unit.name, version: unit.version, archiveSha256: archive.sha256, commands: [], verified: false };
       report.units.push(result); write(path.join(output, `${unit.name.replaceAll("/", "-").replace("@", "")}-registry.json`), archive.metadata);
-      const run = (command, args, shell = false) => {
-        const r = spawn(command, args, { cwd: consumer, env: child, encoding: "utf8", timeout: 30 * 60_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true, shell });
+      const run = (command, args, shell = false, extraEnv = {}) => {
+        const r = spawn(command, args, { cwd: consumer, env: { ...child, ...extraEnv }, encoding: "utf8", timeout: 30 * 60_000, maxBuffer: 32 * 1024 * 1024, windowsHide: true, shell });
         result.commands.push({ command, args, status: r.status, stdout: String(r.stdout ?? ""), stderr: String(r.stderr ?? "") });
         need(!r.error && r.status === 0, `${unit.name} consumer command failed`);
         return String(r.stdout ?? "").trim();
@@ -229,7 +239,9 @@ export async function consumeReadback({ env, bundle, output, expectedHash, root 
         const caches = path.join(child.CARGO_HOME, "registry/cache");
         const archives = fs.readdirSync(caches).map(dir => path.join(caches, dir, `${unit.name}-${unit.version}.crate`)).filter(file => fs.existsSync(file));
         need(archives.length === 1 && hash(fs.readFileSync(archives[0])) === unit.sha256, "Cargo fetched archive differs from original sealed archive");
-        run("cargo", ["build", "--locked", "--offline"]); run("cargo", ["run", "--locked", "--offline"]);
+        run("cargo", ["build", "--locked", "--offline"]);
+        result.runs = plan.map(({ values, implicit, ...entry }) => entry);
+        executeRuns({ plan, evidence: result.runs, execute: (cargoArgs, values) => run("cargo", cargoArgs, false, values) });
         need(fs.readFileSync(lockFile, "utf8") === lock, "Cargo lock changed during consumer run");
         write(path.join(output, `${unit.name}-lock.json`), { sha256: hash(lock), lock });
       } else {

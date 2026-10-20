@@ -2421,3 +2421,86 @@ fn generated_record_temp_syntax_does_not_authorize_cleanup() {
     assert!(dir.join("journal").exists());
     assert_old(&f);
 }
+
+// These observe barriers and injected errors; they do not simulate power loss.
+#[test]
+fn linked_backup_is_flushed_before_the_live_destination_can_be_overwritten() {
+    let f = fixture();
+    // Establish that this fixture volume actually supports the hard-link branch.
+    let trial = f.root.join("hard-link-probe");
+    fs::hard_link(f.root.join("a.txt"), &trial).unwrap();
+    fs::remove_file(trial).unwrap();
+    let baseline = Rc::new(RefCell::new(None));
+    let visited = Rc::new(RefCell::new(false));
+    let (counts, observed, root) = (Rc::clone(&baseline), Rc::clone(&visited), f.root.clone());
+    let hook = seams::on_step(move |step| {
+        if *step == Step::BeforeLink(0) {
+            *counts.borrow_mut() = Some(atomic_seams::sync_counts());
+        }
+        if *step == Step::AfterBackup(0) {
+            let before = counts.borrow();
+            let before = before.as_ref().expect("BeforeLink precedes AfterBackup");
+            let after = atomic_seams::sync_counts();
+            assert!(
+                after.file_syncs > before.file_syncs,
+                "prior bytes were not flushed"
+            );
+            assert!(
+                after.dir_syncs > before.dir_syncs,
+                "backup name was not flushed"
+            );
+            assert_eq!(read(&root.join("a.txt")), "old-a");
+            *observed.borrow_mut() = true;
+        }
+        None
+    });
+    let report = prepared(&f).commit().unwrap();
+    drop(hook);
+    assert!(report.is_committed(), "{report:?}");
+    assert!(*visited.borrow());
+    assert_new(&f);
+    assert_no_residue(&f.root);
+}
+
+#[cfg(feature = "testing")]
+#[test]
+fn linked_backup_flush_failure_refuses_live_publication_and_remains_recoverable() {
+    let f = fixture();
+    let trial = f.root.join("hard-link-probe");
+    fs::hard_link(f.root.join("a.txt"), &trial).unwrap();
+    fs::remove_file(trial).unwrap();
+    let failure = Rc::new(RefCell::new(None));
+    let published = Rc::new(RefCell::new(false));
+    let (slot, observed) = (Rc::clone(&failure), Rc::clone(&published));
+    let hook = seams::on_step(move |step| {
+        if *step == Step::BeforeLink(0) {
+            *slot.borrow_mut() = Some(rightkit_fs::atomic::testing::fail_dir_sync(
+                std::io::ErrorKind::PermissionDenied,
+            ));
+        }
+        if matches!(
+            step,
+            Step::AfterBackup(0) | Step::BeforePublish(0) | Step::AfterPublish(0)
+        ) {
+            *observed.borrow_mut() = true;
+        }
+        None
+    });
+    let report = prepared(&f).commit().unwrap();
+    drop(hook);
+    drop(failure.borrow_mut().take());
+    assert!(
+        !*published.borrow(),
+        "backup failure authorized publication"
+    );
+    assert_old(&f);
+    assert!(
+        matches!(report, TransactionReport::RecoveryRequired(_)),
+        "{report:?}"
+    );
+    assert!(only_txn_dir(&f.root).join("journal").exists());
+    let recovery = recover_transactions(&f.root).unwrap();
+    assert!(recovery.is_clean(), "{recovery:?}");
+    assert_old(&f);
+    assert_no_residue(&f.root);
+}

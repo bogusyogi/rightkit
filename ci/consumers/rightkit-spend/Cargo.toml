@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-spend-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-spend = { version = "=0.2.0" }
+rightkit-db = { version = "0.5", features = ["bundled"] }

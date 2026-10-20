@@ -57,6 +57,8 @@
 //! * No thread or timer: external settings edits are noticed when the app calls
 //!   [`settings::SettingsBridge::poll_external`] (or on the next `get`).
 
+#[cfg(feature = "app-lock")]
+pub mod app_lock;
 #[cfg(all(feature = "host-services", feature = "crash"))]
 pub mod crash;
 pub mod legal;
@@ -166,6 +168,8 @@ type Slot = Arc<dyn Any + Send + Sync>;
 /// The registered host services and their caller policy. Managed Tauri state, installed once with
 /// [`HostServices::install`].
 pub struct HostServices {
+    #[cfg(feature = "app-lock")]
+    app_lock: Option<Arc<app_lock::NativeAppLock>>,
     policy: HostCallerPolicy,
     slots: BTreeMap<ServiceId, Slot>,
 }
@@ -230,12 +234,28 @@ impl HostServices {
 /// [`HostServicesBuilder::build`] runs.
 #[derive(Default)]
 pub struct HostServicesBuilder {
+    #[cfg(feature = "app-lock")]
+    app_lock: Option<Arc<app_lock::NativeAppLock>>,
     policy: HostCallerPolicy,
     slots: BTreeMap<ServiceId, Slot>,
     duplicates: Vec<ServiceId>,
 }
 
 impl HostServicesBuilder {
+    /// Register native OS-auth app-lock with explicit trusted-window action policy.
+    #[cfg(feature = "app-lock")]
+    pub fn app_lock(mut self, service: app_lock::NativeAppLock, trust: ServiceTrust) -> Self {
+        let id = crate::app_lock::SERVICE;
+        if self.slots.contains_key(&id) || self.policy.trust_of(id).is_some() {
+            self.duplicates.push(id);
+            return self;
+        }
+        self.policy = self.policy.with_service(id, trust);
+        self.slots.insert(id, service.service.clone());
+        self.app_lock = Some(Arc::new(service));
+        self
+    }
+
     /// Register any service as a typed slot with its trust: the generic registration point.
     pub fn service<T: Any + Send + Sync>(
         mut self,
@@ -334,6 +354,8 @@ impl HostServicesBuilder {
         }
         self.policy.validate().map_err(HostError::invalid)?;
         Ok(HostServices {
+            #[cfg(feature = "app-lock")]
+            app_lock: self.app_lock,
             policy: self.policy,
             slots: self.slots,
         })

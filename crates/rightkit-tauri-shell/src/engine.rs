@@ -296,6 +296,8 @@ enum RunPhase {
 
 #[derive(Debug)]
 struct GateState {
+    /// Shared app-lock fence, checked under this same mutex as admission counts.
+    app_locked: bool,
     holders: usize,
     busy: usize,
     /// Something has held or called the engine at least once.
@@ -329,6 +331,7 @@ impl Gate {
     fn new(presence: bool) -> Self {
         Self {
             state: Mutex::new(GateState {
+                app_locked: false,
                 holders: 0,
                 busy: 0,
                 ever_used: false,
@@ -711,6 +714,42 @@ impl EngineHost {
             .ok_or_else(|| JobError::supervisor("engine_not_running", "engine has not started"))
     }
 
+    /// Close admission before native session revocation. Existing calls must drain before
+    /// Locked may be announced; timeout leaves admission closed & coordinator Faulted.
+    #[cfg(feature = "app-lock")]
+    pub(crate) fn app_lock_revoke(&self) -> Result<(), crate::app_lock::EngineLockError> {
+        let deadline =
+            Instant::now() + self.policy.shutdown_drain.unwrap_or(DEFAULT_SHUTDOWN_DRAIN);
+        let mut g = self.gate.state();
+        g.app_locked = true;
+        self.gate.cv.notify_all();
+        while g.busy > 0 {
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(crate::app_lock::EngineLockError);
+            }
+            g = self
+                .gate
+                .cv
+                .wait_timeout(g, deadline - now)
+                .map_err(|_| crate::app_lock::EngineLockError)?
+                .0;
+        }
+        Ok(())
+    }
+
+    /// Only native coordinator's verified path calls this after daemon/session resume succeeds.
+    #[cfg(feature = "app-lock")]
+    pub(crate) fn app_lock_resume(&self) -> Result<(), crate::app_lock::EngineLockError> {
+        let mut g = self.gate.state();
+        if g.closed || self.closing.load(Ordering::SeqCst) {
+            return Err(crate::app_lock::EngineLockError);
+        }
+        g.app_locked = false;
+        self.gate.cv.notify_all();
+        Ok(())
+    }
+
     // ---- presence ----
 
     /// Count `label` as a user of the engine until the returned guard drops; starts an idle-stopped
@@ -730,6 +769,9 @@ impl EngineHost {
         loop {
             if g.closed || self.closing.load(Ordering::SeqCst) {
                 return Err(shutting_down());
+            }
+            if g.app_locked {
+                return Err(JobError::supervisor("app_locked", "app is locked"));
             }
             if call && self.revoking.load(Ordering::SeqCst) > 0 {
                 return Err(JobError::supervisor(
@@ -1242,6 +1284,7 @@ mod policy_tests {
 
     fn state(holders: usize, busy: usize, ever: bool, phase: RunPhase) -> GateState {
         GateState {
+            app_locked: false,
             holders,
             busy,
             ever_used: ever,

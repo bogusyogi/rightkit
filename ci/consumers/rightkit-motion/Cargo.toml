@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-motion-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-motion = { version = "=0.2.0", features = ["encode"] }
+rightkit-ffmpeg = { version = "=0.2.9" }
+rightkit-transcript = { version = "=0.4.0" }

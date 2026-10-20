@@ -1,0 +1,90 @@
+# Hand-written security boundary: the only route that tags a RightKitSwift release. It compiles nothing; it
+# proves that one reviewed, CI-green commit on main is what the tag names, then pushes that one tag.
+# Contract: scripts/ci/swift-workflow-contract.mjs. Guard logic: scripts/ci/publish-swift.mjs.
+name: publish-swift
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Plain semver X.Y.Z; must equal swift/RightKitSwift/VERSION at the commit
+        type: string
+        required: true
+      commit:
+        description: Full 40-character SHA of the reviewed commit; must be the tip of main you dispatch from
+        type: string
+        required: true
+      dry_run:
+        description: Run every guard and print the tag commands without tagging
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: publish
+  queue: max
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Check this workflow's own contract
+        run: node scripts/ci/swift-workflow-contract.mjs
+      - name: Verify the commit, its approval and its green CI run (no write permission)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_SWIFT_VERSION: ${{ inputs.version }}
+          PUBLISH_SWIFT_COMMIT: ${{ inputs.commit }}
+          PUBLISH_DRY_RUN: ${{ inputs.dry_run }}
+        run: node scripts/ci/publish-swift.mjs verify
+      - name: Confirm the root package that apps resolve describes at this commit
+        run: swift package describe --type json > "$RUNNER_TEMP/describe.json"
+  tag:
+    needs: [verify]
+    if: ${{ needs.verify.result == 'success' && !inputs.dry_run && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Reverify in this fresh job, then tag and push exactly that one tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_SWIFT_VERSION: ${{ inputs.version }}
+          PUBLISH_SWIFT_COMMIT: ${{ inputs.commit }}
+          PUBLISH_DRY_RUN: ${{ inputs.dry_run }}
+        run: node scripts/ci/publish-swift.mjs tag
+      - name: Keep the publication receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: swift-publication-receipt
+          path: ${{ runner.temp }}/swift-publication
+          retention-days: 90
+          if-no-files-found: ignore

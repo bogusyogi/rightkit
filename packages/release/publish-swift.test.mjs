@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
-import { parseSwiftPublishArgs, readPackageIdentity, runSwiftPublish, swiftTagCommands, verifySwiftSourceArchive, SWIFT_DISTRIBUTION_URL } from "./publish-swift.mjs";
+import { parseSwiftPublishArgs, readPackageIdentity, runSwiftPublish, swiftDistributionUrl, swiftTagCommands, verifySwiftSourceArchive } from "./publish-swift.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const realPackageDir = path.resolve(here, "../../swift/RightKitSwift");
@@ -20,8 +20,17 @@ test("the only flags are --dry-run, --evidence and --workspace; there is no repo
   assert.throws(() => parseSwiftPublishArgs(["--evidence"]), /needs a value/);
 });
 
-test("the distribution URL is this repository and the tag commands are plain-semver tag + push", () => {
-  assert.equal(SWIFT_DISTRIBUTION_URL, "https://github.com/Orthic-Labs/rightkit");
+test("the distribution URL derives from origin (then GITHUB_REPOSITORY), never a constant", () => {
+  for (const origin of ["https://github.com/bogusyogi/rightkit", "https://github.com/bogusyogi/rightkit.git", "git@github.com:bogusyogi/rightkit.git", "https://x-access-token:t0k3n@github.com/bogusyogi/rightkit.git/"]) {
+    assert.equal(swiftDistributionUrl(origin, {}), "https://github.com/bogusyogi/rightkit", origin);
+  }
+  assert.equal(swiftDistributionUrl("https://github.com/Other-Org/moved.git", { GITHUB_REPOSITORY: "bogusyogi/rightkit" }), "https://github.com/Other-Org/moved");
+  assert.equal(swiftDistributionUrl("/local/origin.git", { GITHUB_REPOSITORY: "bogusyogi/rightkit" }), "https://github.com/bogusyogi/rightkit");
+  assert.equal(swiftDistributionUrl("/local/origin.git", {}), "/local/origin.git");
+  assert.equal(swiftDistributionUrl("", { GITHUB_REPOSITORY: "not a repo" }), "");
+});
+
+test("the tag commands are plain-semver tag + push", () => {
   assert.deepEqual(swiftTagCommands("0.7.0", "a".repeat(40)), [
     ["git", ["tag", "0.7.0", "a".repeat(40)]],
     ["git", ["push", "origin", "refs/tags/0.7.0:refs/tags/0.7.0"]],

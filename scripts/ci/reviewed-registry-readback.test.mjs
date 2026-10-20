@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { authenticatePromotion, publicationArtifact, validatePublication, registryArchive, cargoLockEvidence, recipeDirectory, verifyBundle, prepareReadback } from "./reviewed-registry-readback.mjs";
+import { authenticatePromotion, publicationArtifact, validatePublication, registryArchive, cargoLockEvidence, recipeDirectory, verifyBundle, prepareReadback, readbackChildEnv } from "./reviewed-registry-readback.mjs";
+import { parseRuns, planRuns, executeRuns } from "./consumer-recipes.mjs";
 
 const digest = b => createHash("sha256").update(b).digest("hex");
 const source = "a".repeat(40); const promotion = "b".repeat(40); const archive = Buffer.from("sealed crate"); const archiveHash = digest(archive);
@@ -99,4 +100,29 @@ test("readback native workflow matches qualification setup & records actual comp
   const implementation = fs.readFileSync(new URL("./reviewed-registry-readback.mjs", import.meta.url), "utf8");
   assert.match(implementation, /if \(env\.RUSTUP_TOOLCHAIN\) child\.RUSTUP_TOOLCHAIN = env\.RUSTUP_TOOLCHAIN/);
   assert.match(implementation, /result\.toolchain = \{ rustc: run\("rustc", \["--version"\]\), cargo: run\("cargo", \["--version"\]\) \}/);
+});
+test("R2b readback executes the same reviewed runs through the shared planner, never a bare cargo run", () => {
+  const implementation = fs.readFileSync(new URL("./reviewed-registry-readback.mjs", import.meta.url), "utf8");
+  for (const needle of ["planRuns({ runs: cargoRecipe({ root, unit }).runs", "executeRuns({ plan, evidence: result.runs", "platform: process.platform", "{ ...child, ...extraEnv }"]) assert.ok(implementation.includes(needle), needle);
+  assert.equal(implementation.includes('run("cargo", ["run", "--locked", "--offline"])'), false);
+  assert.ok(implementation.indexOf("planRuns(") < implementation.indexOf("await registryArchive(unit"), "prerequisites must refuse before any registry fetch");
+});
+test("R2b readback child env carries GITHUB_ACTIONS & RUNNER_TEMP like R2a, no token, and a planned run sees them", t => {
+  const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-r2b-env-"))); t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const scratch = path.join(temp, "scratch"); fs.mkdirSync(scratch);
+  const env = { PATH: process.env.PATH, USERPROFILE: os.homedir(), RUNNER_TEMP: temp, GITHUB_ACTIONS: "true", GITHUB_TOKEN: "t1", NODE_AUTH_TOKEN: "t2", CARGO_REGISTRY_TOKEN: "t3", GH_TOKEN: "t4", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "t5", ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.test", RIGHTKIT_TEST_REAL_USER_STORES: "0", RK_CONSUMER_RUN_ROOT: "/candidate" };
+  const child = readbackChildEnv(env, scratch, "crates");
+  assert.equal(child.GITHUB_ACTIONS, "true"); assert.equal(child.RUNNER_TEMP, temp);
+  for (const name of Object.keys(child)) assert.doesNotMatch(name, /TOKEN|^GH_|^ACTIONS_ID/, name);
+  assert.deepEqual(Object.values(child).filter(v => ["t1", "t2", "t3", "t4", "t5"].includes(v)), []);
+  assert.equal(child.RK_CONSUMER_RUN_ROOT, undefined); assert.equal(child.RIGHTKIT_TEST_REAL_USER_STORES, undefined);
+  const runs = parseRuns([{ id: "native-db", args: ["native-db"], env: { RIGHTKIT_TEST_REAL_USER_STORES: "literal1", RK_CONSUMER_RUN_ROOT: "freshRunRoot" } }]);
+  const plan = planRuns({ runs, env, scratchRoot: temp, platform: process.platform }); const seen = [];
+  const evidence = plan.map(({ values, ...e }) => e);
+  executeRuns({ plan, evidence, execute: (args, values) => { seen.push({ args, env: { ...child, ...values } }); return ""; } });
+  const runEnv = seen[0].env;
+  assert.equal(runEnv.GITHUB_ACTIONS, "true"); assert.equal(runEnv.RUNNER_TEMP, temp); assert.equal(runEnv.RIGHTKIT_TEST_REAL_USER_STORES, "1");
+  assert.ok(path.relative(temp, runEnv.RK_CONSUMER_RUN_ROOT).startsWith("rk-run-root-")); assert.equal(evidence[0].status, "passed");
+  assert.equal(Object.keys(runEnv).some(name => /TOKEN/.test(name)), false);
+  assert.equal(readbackChildEnv(env, scratch, "npm").GITHUB_ACTIONS, undefined);
 });

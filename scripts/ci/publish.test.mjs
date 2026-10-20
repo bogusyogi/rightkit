@@ -8,7 +8,10 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
 import { APPROVED_ARTIFACTS_FILE, checkReceipts, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
-import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
+import { consumeCrates, consumeNpm as consumeNpmChecked, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
+// These portability tests use synthetic units without a reviewed PK recipe. Refusal of unreviewed npm units is
+// covered in npm-recipe-consumer.test.mjs, so only that one problem is dropped here.
+const consumeNpm = (options) => { const rows = consumeNpmChecked(options); for (const row of rows.values()) row.problems = row.problems.filter((problem) => !problem.includes("missing reviewed PK example")); return rows; };
 import { scanArchiveForSecrets } from "./archive-secret-scan.mjs";
 import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
