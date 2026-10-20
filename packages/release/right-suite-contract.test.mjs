@@ -1102,11 +1102,11 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 // reviewed, manual-dispatch Windows FFmpeg build (ffmpeg-windows.yml), named here as an exception and held to its safety
 // properties, and the manual-dispatch registry publication workflow (publish.yml), the only workflow that may read
 // secrets, held to its own properties below. Any other workflow file fails. Product repositories host none.
-// RightKit is private with no CI since 2026-10-17 (#342): it hosts no workflow at all. The publish.yml
-// contract checks below stay for the file's return and skip while it is absent.
-const RIGHTKIT_VERIFICATION_WORKFLOWS = [];
-const RIGHTKIT_EXCEPTION_WORKFLOWS = [];
-const RIGHTKIT_PUBLISHING_WORKFLOWS = [];
+// android.yml (#203) and chrome-pins.yml (#267) only verify; neither publishes nor reads secrets. RightKit is public
+// again (2026-10-20, Adrian): CI is the compiler. The publish.yml checks below skip only if the file is absent.
+const RIGHTKIT_VERIFICATION_WORKFLOWS = ["android.yml", "chrome-pins.yml", "ci.yml"];
+const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
+const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish.yml"];
 const publishWorkflowPresent = existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url));
 const PUBLISHING_WORKFLOW = /secrets\.|right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release/;
 function pinnedActionLines(text, name) {
