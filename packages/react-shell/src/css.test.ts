@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error plain ESM script without types
 import { combined } from "../scripts/build-shell-css.mjs";
 
-const read = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+const read = (name: string) => readFileSync(new URL(`../${name}`, import.meta.url), "utf8").replace(/\r\n?/g, "\n");
 const pkg = JSON.parse(read("package.json")) as { version: string; exports: Record<string, unknown>; files: string[] };
 
 /** Every declaration as "context | selector | property: value", comments and whitespace ignored. */
@@ -52,7 +52,7 @@ const INK_ELEMENTS =
 
 describe("shell.css split", () => {
   it("shell.css is generated from shell.structure.css + shell.visual.css and is not stale", () => {
-    expect(read("shell.css")).toBe(combined());
+    expect(read("shell.css")).toBe(combined().replace(/\r\n?/g, "\n"));
   });
 
   it("is unlayered and self-contained, so existing adopters resolve nothing new", () => {

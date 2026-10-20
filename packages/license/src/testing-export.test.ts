@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -12,7 +12,7 @@ const vitestRequire = createRequire(vitestManifest);
 const viteEntry = pathToFileURL(vitestRequire.resolve('vite')).href;
 const vitestCli = join(dirname(vitestManifest), 'vitest.mjs');
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const scratch = resolve(process.platform === 'win32' ? 'D:/scratch' : '/Volumes/D/scratch');
+const scratch = resolve(process.env.RUNNER_TEMP || (process.platform === 'win32' ? 'D:/scratch' : '/Volumes/D/scratch'));
 const fixtures: string[] = [];
 
 function fixture(main: string, extra: Record<string, string> = {}) {
@@ -70,7 +70,10 @@ function expectBlocked(result: ReturnType<typeof run>) {
 
 afterAll(() => {
   for (const root of fixtures) {
-    if (!resolve(root).startsWith(scratch + sep)) throw new Error('Fixture escaped scratch');
+    const fromScratch = relative(scratch, resolve(root));
+    if (!fromScratch || fromScratch === '..' || fromScratch.startsWith(`..${sep}`) || isAbsolute(fromScratch)) {
+      throw new Error('Fixture escaped scratch');
+    }
     rmSync(root, { recursive: true, force: true });
   }
 });

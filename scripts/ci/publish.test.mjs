@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
 import { APPROVED_ARTIFACTS_FILE, buildCratePublishBody, checkNpmTarball, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
-import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, PACK_IF, SEAL_CHECK_IF, SPARSE_UPLOAD, UPLOAD_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
+import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, SEAL_CHECK_IF, SPARSE_UPLOAD, UPLOAD_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
@@ -569,13 +569,13 @@ test("ci/approved-artifacts.json is well formed and holds exactly the three revi
   const { entries, problems } = loadApprovedArtifacts(APPROVED_ARTIFACTS_FILE);
   assert.deepEqual(problems, []);
   assert.deepEqual(entries.map((e) => `${e.registry} ${e.name}@${e.version} ${e.sha256}`).sort(), [
-    "npm @rightkit/license@0.3.0 758764c8779234bb862cb3fbba53069a5d94a1b8195fbc0bc89f238231e99e79",
-    "npm @rightkit/logs@0.1.6 87688669e0d1c1ac5bbcc8a2d4b10f64085ebdbb672b1454e0909ea7b27b6faf",
-    "npm @rightkit/react-shell@0.7.2 4e36c1cf2d48f1089f145c9323f331a28804c513ae5cb8c7f77c6e266de9c291",
+    "npm @rightkit/license@0.3.0 9cccfca32a85198f6bb1f863c8e16fe16260e2c5e6ee99d9d5ee169b87302082",
+    "npm @rightkit/logs@0.1.6 72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
+    "npm @rightkit/react-shell@0.7.2 b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
   ]);
-  // Each artifact cites the full Pulse id of the reviewer message that signed it.
-  const signedBy = { "@rightkit/logs": "pulse:64ffc522-48f7-43c5-a31b-454fdd02dc44", "@rightkit/license": "pulse:64ffc522-48f7-43c5-a31b-454fdd02dc44", "@rightkit/react-shell": "pulse:0248b28c-95a9-4c8b-9e79-b4b9f642f3c2" };
-  assert.ok(entries.every((e) => /RK Astra/.test(e.reviewer) && e.reviewRef === signedBy[e.name]));
+  // Independent review compared exact CI archives with previously signed Mac tar streams.
+  assert.ok(entries.every((e) => e.reviewer === "Oracle (agent source-byte review)" &&
+    e.reviewRef === "agent-review:/root/npm_foundation_review/39398432518/source-bytes"));
 });
 
 test("the uploader keeps its reviewer-approval gate, and every weakening of it is rejected by the contract", () => {
@@ -1046,6 +1046,12 @@ test("the real publish workflow holds the contract and every mutation is rejecte
   assert.equal(assertPublishDoc(doc), true);
   assert.deepEqual(proveMutations(doc), []);
   const names = MUTATIONS.map(([name]) => name);
+  assert.equal(doc.concurrency.group, PUBLISH_CONCURRENCY_GROUP);
+  assert.equal(doc.concurrency["cancel-in-progress"], "false");
+  for (const required of ["dry runs share publish concurrency group", "real publishes do not share concurrency group"]) assert.ok(names.includes(required), required);
+  assert.equal(doc.jobs.verify.steps.find((s) => s.name === "Cache the pinned Chrome for Testing").if.trim(), CHROME_IF);
+  assert.equal(doc.jobs.verify.steps.find((s) => /provision-chrome\.mjs/.test(s.run ?? "")).if.trim(), CHROME_IF);
+  for (const required of ["Chrome cache drops React-shell coverage", "Chrome provision drops React-shell coverage"]) assert.ok(names.includes(required), required);
   for (const required of ["upload condition gains || true after the expression", "upload condition gains || true inside the expression", "pack reads a bracket-form secret", "verify reads a double-quoted bracket-form secret", "verify reads toJSON(secrets)", "pack reads the bare secrets context", "plan calls secrets: inherit", "workflow-level env holds a secret"]) assert.ok(names.includes(required), required);
 });
 

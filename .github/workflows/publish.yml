@@ -57,7 +57,7 @@ permissions:
 
 # A publish is never cancelled half-way; a second dispatch waits.
 concurrency:
-  group: publish
+  group: ${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish' }}
   cancel-in-progress: false
 
 jobs:
@@ -297,13 +297,13 @@ jobs:
           name: publish-packed
           path: ${{ runner.temp }}/rk-pack
       - name: Cache the pinned Chrome for Testing
-        if: ${{ (needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/qa')) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ runner.temp }}/chrome-for-testing
           key: chrome-for-testing-${{ runner.os }}-${{ matrix.os }}-${{ hashFiles('ci/chrome-for-testing.json') }}
       - name: Provision the pinned Chrome for Testing
-        if: ${{ (needs.plan.outputs.registry == 'npm' && contains(needs.plan.outputs.units, '@rightkit/qa')) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}
         shell: bash
         env:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing

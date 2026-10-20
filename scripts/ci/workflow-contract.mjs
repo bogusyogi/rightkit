@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 
 export const VERIFY_HOSTS = ["windows-2025", "xcode-27"];
+export const PUBLISH_CONCURRENCY_GROUP = "${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish' }}";
 const ALLOWED_UPLOAD_ACTIONS = ["actions/checkout@", "actions/setup-node@", "actions/download-artifact@"];
 const ALLOWED_UPLOAD_RUN = ["node scripts/ci/upload.mjs run"];
 // Conditions are compared as exact strings (after trimming), never matched by pattern: an appended
@@ -22,6 +23,7 @@ const COUNT_TERM = "needs.plan.outputs.count != '0'";
 const SWAP_OK_OR_SKIPPED = "(needs.sign-swap.result == 'success' || needs.sign-swap.result == 'skipped')";
 export const PACK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${COUNT_TERM} && ${SWAP_OK_OR_SKIPPED} }}`;
 export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} }}`;
+export const CHROME_IF = "${{ (needs.plan.outputs.registry == 'npm' && (contains(needs.plan.outputs.units, '@rightkit/qa') || contains(needs.plan.outputs.units, '@rightkit/react-shell'))) || (needs.plan.outputs.registry == 'crates' && contains(needs.plan.outputs.units, 'rightkit-browser')) }}";
 export const SEAL_CHECK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} && ${RESULT_OK("verify")} }}`;
 export const UPLOAD_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${RESULT_OK("verify")} && ${RESULT_OK("seal-check")} && ${COUNT_TERM} && needs.plan.outputs.dry_run == 'false' && github.ref == 'refs/heads/main' }}`;
 export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
@@ -121,6 +123,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   // Triggers and ambient authority.
   check(doc?.on && typeof doc.on === "object" && same(Object.keys(doc.on), ["workflow_dispatch"]), "must be triggered by workflow_dispatch only");
   check(same(doc?.permissions, { contents: "read" }), "top-level permissions must be exactly contents: read");
+  check(doc?.concurrency?.group === PUBLISH_CONCURRENCY_GROUP, "dry runs must use a unique workflow-run concurrency group while actual publishes share publish");
   check(doc?.concurrency?.["cancel-in-progress"] === "false", "a publish must never be cancelled half-way");
   check(same(sorted(Object.keys(jobs)), sorted(ALL_JOBS)), `jobs must be exactly ${ALL_JOBS.join(", ")}`);
   const { guard, plan, pack, verify, upload } = jobs;
@@ -164,6 +167,9 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
   const chromeStep = stepsOf(verify).find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
   check(chromeStep?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && chromeStep?.env?.PUBLISH_DRY_RUN === "${{ needs.plan.outputs.dry_run }}", "the Chrome pin step must run the provision script with PUBLISH_DRY_RUN taken from the plan's dry_run output (an unpinned download may be recorded only in a dry run)");
+  const chromeCache = stepsOf(verify).find((s) => s.name === "Cache the pinned Chrome for Testing");
+  check(chromeCache?.if?.trim() === CHROME_IF && chromeCache?.uses?.startsWith("actions/cache@"), "the pinned Chrome cache must cover npm @rightkit/qa and @rightkit/react-shell plus crates rightkit-browser");
+  check(chromeStep?.if?.trim() === CHROME_IF, "the pinned Chrome provision step must cover npm @rightkit/qa and @rightkit/react-shell plus crates rightkit-browser");
   check(stepsOf(verify).some((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "verify must download the sealed publish-packed artifact");
   check(stepsOf(pack).some((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? "")) && stepsOf(pack).some((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "pack must seal and upload publish-packed");
   check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
@@ -348,6 +354,10 @@ const CONDITION_MUTATIONS = [
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
 export const MUTATIONS = [
+  ["dry runs share publish concurrency group", edit((_, d) => { d.concurrency.group = "publish"; })],
+  ["real publishes do not share concurrency group", edit((_, d) => { d.concurrency.group = "${{ inputs.dry_run && format('publish-dry-run-{0}', github.run_id) || 'publish-' }}"; })],
+  ["Chrome cache drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/react-shell')", ""); })],
+  ["Chrome provision drops React-shell coverage", edit((j) => { const s = j.verify.steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(needs.plan.outputs.units, '@rightkit/react-shell')", ""); })],
   ["drop the Windows verify host", edit((j) => { j.verify.strategy.matrix.os = ["xcode-27"]; })],
   ["drop the macOS verify host", edit((j) => { j.verify.strategy.matrix.os = ["windows-2025"]; })],
   ["exclude a verify leg", edit((j) => { j.verify.strategy.matrix.exclude = [{ os: "windows-2025" }]; })],

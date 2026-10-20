@@ -5,25 +5,25 @@
       "registry": "npm",
       "name": "@rightkit/logs",
       "version": "0.1.6",
-      "sha256": "87688669e0d1c1ac5bbcc8a2d4b10f64085ebdbb672b1454e0909ea7b27b6faf",
-      "reviewer": "RK Astra (R8 SIGN)",
-      "reviewRef": "pulse:64ffc522-48f7-43c5-a31b-454fdd02dc44"
+      "sha256": "72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
+      "reviewer": "Oracle (agent source-byte review)",
+      "reviewRef": "agent-review:/root/npm_foundation_review/39398432518/source-bytes"
     },
     {
       "registry": "npm",
       "name": "@rightkit/license",
       "version": "0.3.0",
-      "sha256": "758764c8779234bb862cb3fbba53069a5d94a1b8195fbc0bc89f238231e99e79",
-      "reviewer": "RK Astra (R8 SIGN)",
-      "reviewRef": "pulse:64ffc522-48f7-43c5-a31b-454fdd02dc44"
+      "sha256": "9cccfca32a85198f6bb1f863c8e16fe16260e2c5e6ee99d9d5ee169b87302082",
+      "reviewer": "Oracle (agent source-byte review)",
+      "reviewRef": "agent-review:/root/npm_foundation_review/39398432518/source-bytes"
     },
     {
       "registry": "npm",
       "name": "@rightkit/react-shell",
       "version": "0.7.2",
-      "sha256": "4e36c1cf2d48f1089f145c9323f331a28804c513ae5cb8c7f77c6e266de9c291",
-      "reviewer": "RK Astra (R8 SIGN)",
-      "reviewRef": "pulse:0248b28c-95a9-4c8b-9e79-b4b9f642f3c2"
+      "sha256": "b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
+      "reviewer": "Oracle (agent source-byte review)",
+      "reviewRef": "agent-review:/root/npm_foundation_review/39398432518/source-bytes"
     }
   ]
 }
