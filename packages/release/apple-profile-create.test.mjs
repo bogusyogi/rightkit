@@ -22,7 +22,7 @@ const issued = (overrides = {}) => ({
 });
 
 // In-memory fake of the ASC endpoints this command uses.
-function fixture(t, { state: patch = {}, decoded = issued() } = {}) {
+function fixture(t, { state: patch = {}, decoded = issued(), localCertificate = developmentCertificate } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-apple-create-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const keyPath = path.join(root, "AuthKey_SYNTHETIC.p8");
@@ -54,8 +54,8 @@ function fixture(t, { state: patch = {}, decoded = issued() } = {}) {
     local.push([command, ...args]);
     if (command === "security" && args[0] === "cms") return { status: 0, stdout: "mock plist" };
     if (command === "python3") return { status: 0, stdout: JSON.stringify(decoded) };
-    if (command === "security" && args[0] === "find-identity") return { status: 0, stdout: `1) ${certSha1} "Apple Development: Adrian D'souza (8757KL989R)"` };
-    if (command === "security" && args[0] === "find-certificate") return { status: 0, stdout: leaf.toString() };
+    if (command === "security" && args[0] === "find-identity") return { status: 0, stdout: `1) ${createHash("sha1").update(Buffer.from(localCertificate, "base64")).digest("hex").toUpperCase()} "Fixture signing identity"` };
+    if (command === "security" && args[0] === "find-certificate") return { status: 0, stdout: new X509Certificate(Buffer.from(localCertificate, "base64")).toString() };
     throw new Error(`Unexpected local command ${command}`);
   };
   const out = path.join(root, "provisioning-dev", "Dev.provisionprofile");
@@ -208,4 +208,116 @@ test("main --help describes the dry-run default without touching ASC", async () 
   const lines = [];
   await main(["--help"], { log: (v) => lines.push(v) });
   assert.match(lines.join("\n"), /Default is --dry-run/);
+});
+
+const releaseCertificate = "MIIDizCCAnOgAwIBAgIUOVtNhnSONprpVGyOy5KS4rF7WawwDQYJKoZIhvcNAQELBQAwVTE+MDwGA1UEAww1RGV2ZWxvcGVyIElEIEFwcGxpY2F0aW9uOiBBZHJpYW4gRCdzb3V6YSAoNktMR0QzTExLRikxEzARBgNVBAsMCjZLTEdEM0xMS0YwHhcNMjYxMDA4MDY0NzExWhcNMzYxMDA1MDY0NzExWjBVMT4wPAYDVQQDDDVEZXZlbG9wZXIgSUQgQXBwbGljYXRpb246IEFkcmlhbiBEJ3NvdXphICg2S0xHRDNMTEtGKTETMBEGA1UECwwKNktMR0QzTExLRjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAJhlP4N8VQKkkHb7DA6vupCpMfdcN7cSXxo58PxZs0aVx+wGm+UIcTWoVzOtc+A2j1Jt+XCu2kum+fzeem9N0qWbxbLpMZD/2nh2EixN7cKtHIi+BM+1K1RGLWNQ7SHov36k6xUFueeWAkgs/h415yB/Wvl3m9htBjy2VnNpykEN1xoZ67WofhC39gxgP016xxFHHGHuieefPCkZ32xlc8dIfeWKlaiIzmJ1QSTIVQob94NKnehn+17S6uuSNxxt3sr+5Pp9vmHAqE3rzbVeLmwo1HP3jaduXpZxE1WgAlS0i9P4ZIrwvqU+zyQ8o1Ry9Sukq7KhFJPEivZIyfQLO7sCAwEAAaNTMFEwHQYDVR0OBBYEFD+GLnlvn6meULbXJax7aj4cQXUcMB8GA1UdIwQYMBaAFD+GLnlvn6meULbXJax7aj4cQXUcMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAEvWu0nBG5Y3GGqSBp3JAjfcDsZ6xtaDbidWHuBWjrCMOGBSu4uGf0ytWGRJo3G0BGBi8vnr1TwTOQ6Pe0deEoMyqycMqGYxBNF8xhblBJ2aWLRyJPe64NNlwbvKZTBrnJuqOVVKLAwxixgbFE6LYj+QODBxIy2z7dAPBcpLuIiBHcVxncKIteoZRyxOqvq47z8QdEFUqo4XruqkkZ97BajLwkpfoMnM57gXQglvNWPOFsmXS26PV1K0LEsCu90VXyRs9SVaSrWkBvuTo1n55+/OLyLNYPTLJhkF8a9XyXQWTBcL+qpWDDv+4Js+PoNTyv2IDu8oiDQ/JvXTAv6lhHc=";
+const TEAM = "6KLGD3LLKF", DIRECT_BUNDLE = "org.rightkit.qualification.credentials", DIRECT_NAME = "RightKit Qualification Credentials Direct";
+const GROUP = `${TEAM}.${DIRECT_BUNDLE}`;
+const directIssued = () => ({ Name: DIRECT_NAME, TeamIdentifier: [TEAM], Platform: ["OSX"], ProvisionsAllDevices: true, ExpirationDate: "2030-01-01T00:00:00Z", DeveloperCertificates: [releaseCertificate],
+  Entitlements: { "com.apple.application-identifier": `${TEAM}.${DIRECT_BUNDLE}`, "com.apple.developer.team-identifier": TEAM, "get-task-allow": false, "keychain-access-groups": [`${TEAM}.*`] } });
+const directState = () => ({ bundles: [{ id: "BUNDLE-1", attributes: { identifier: DIRECT_BUNDLE, platform: "MAC_OS" } }], certificates: [{ id: "CERTDIRECT1", attributes: { certificateType: "DEVELOPER_ID_APPLICATION", serialNumber: new X509Certificate(Buffer.from(releaseCertificate, "base64")).serialNumber, expirationDate: "2030-01-01T00:00:00Z", certificateContent: releaseCertificate } }] });
+function directFixture(t, options = {}) {
+  const f = fixture(t, { state: directState(), decoded: directIssued(), localCertificate: releaseCertificate, ...options });
+  f.options = { ...f.options, bundleId: DIRECT_BUNDLE, name: DIRECT_NAME, containers: [], type: "MAC_APP_DIRECT", certificate: "CERTDIRECT1", expectedTeam: TEAM, expectedKeychainGroup: GROUP };
+  return f;
+}
+const directArgs = () => ["--bundle-id", DIRECT_BUNDLE, "--name", DIRECT_NAME, "--type", "MAC_APP_DIRECT", "--certificate", "CERTDIRECT1", "--expected-team", TEAM, "--expected-keychain-group", GROUP, "--out", "Direct.provisionprofile"];
+
+test("direct args require explicit team, exact group & existing certificate; refuse development-only effects", async (t) => {
+  assert.equal(parseCreateArgs(directArgs()).type, "MAC_APP_DIRECT");
+  assert.equal(parseCreateArgs(directArgs()).dryRun, true);
+  for (const extra of [["--certificate", "create"], ["--expected-team", "OTHER"], ["--expected-keychain-group", `${TEAM}.*`], ["--expected-keychain-group", "OTHERTEAMX.group"], ["--icloud-container", CONTAINER], ["--register-device", UDID], ["--key-out", "key.pem"]]) {
+    assert.throws(() => parseCreateArgs([...directArgs(), ...extra]), { code: "APPLE_PROFILE_USAGE" });
+  }
+  for (const missing of ["--expected-team", "--expected-keychain-group", "--certificate"]) {
+    const args = directArgs(), i = args.indexOf(missing); args.splice(i, 2);
+    assert.throws(() => parseCreateArgs(args), { code: "APPLE_PROFILE_USAGE" });
+  }
+  const f = directFixture(t);
+  for (const patch of [{ certificate: "create" }, { containers: [CONTAINER] }, { registerDevices: [UDID] }, { keyOut: "key.pem" }, { expectedTeam: undefined }, { expectedKeychainGroup: `${TEAM}.*` }]) {
+    await assert.rejects(createAppleProfile({ ...f.options, ...patch }), { code: "APPLE_PROFILE_USAGE" });
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test("direct dry run discovers with GET only & plans only explicit bundle plus profile", async (t) => {
+  const f = directFixture(t, { state: { ...directState(), bundles: [] } });
+  const result = await createAppleProfile(f.options);
+  assert.equal(mutations(f.calls).length, 0);
+  assert.deepEqual(result.planned.map((entry) => entry.path), ["/v1/bundleIds", "/v1/profiles"]);
+  assert.deepEqual(Object.keys(result.planned[1].body.data.relationships).sort(), ["bundleId", "certificates"]);
+  assert.ok(!f.calls.some((entry) => /devices|Capabilities/.test(entry.path)));
+  assert.deepEqual(readdirSync(f.root), ["AuthKey_SYNTHETIC.p8"]);
+});
+
+test("direct apply creates only profile, verifies issuer wildcard authorization & writes CMS", async (t) => {
+  const f = directFixture(t);
+  const result = await createAppleProfile({ ...f.options, dryRun: false });
+  assert.deepEqual(mutations(f.calls).map((entry) => `${entry.method} ${entry.path}`), ["POST /v1/profiles"]);
+  assert.deepEqual(mutations(f.calls)[0].body, { data: { type: "profiles", attributes: { name: DIRECT_NAME, profileType: "MAC_APP_DIRECT" }, relationships: { bundleId: { data: { type: "bundleIds", id: "BUNDLE-1" } }, certificates: { data: [{ type: "certificates", id: "CERTDIRECT1" }] } } } });
+  assert.equal(result.expectedKeychainGroup, GROUP);
+  assert.equal(readFileSync(f.out, "utf8"), "issued CMS bytes");
+  assert.deepEqual(f.local.filter(([command]) => command === "security").map(([, verb]) => verb), ["find-identity", "find-certificate", "cms"]);
+  if (process.platform !== "win32") assert.equal(statSync(f.out).mode & 0o777, 0o600);
+});
+
+test("direct apply may register only explicit missing bundle & dedicated profile", async (t) => {
+  const f = directFixture(t, { state: { ...directState(), bundles: [] } });
+  await createAppleProfile({ ...f.options, dryRun: false });
+  assert.deepEqual(mutations(f.calls).map((entry) => `${entry.method} ${entry.path}`), ["POST /v1/bundleIds", "POST /v1/profiles"]);
+  assert.equal(mutations(f.calls)[0].body.data.attributes.identifier, DIRECT_BUNDLE);
+});
+
+const existingDirectProfile = () => ({ id: "PROFILE-1", attributes: { name: DIRECT_NAME, profileType: "MAC_APP_DIRECT", profileState: "ACTIVE", expirationDate: "2030-01-01T00:00:00Z", profileContent: Buffer.from("issued CMS bytes").toString("base64") }, rels: { bundleId: { id: "BUNDLE-1" }, certificates: [{ id: "CERTDIRECT1" }] } });
+test("direct active named profile reuses matching bundle & sole certificate without device lookup", async (t) => {
+  const f = directFixture(t, { state: { ...directState(), profiles: [existingDirectProfile()] } });
+  const result = await createAppleProfile({ ...f.options, dryRun: false });
+  assert.equal(result.profile.action, "reuse");
+  assert.equal(mutations(f.calls).length, 0);
+  assert.ok(!f.calls.some((entry) => /devices|Capabilities/.test(entry.path)));
+});
+
+test("direct conflicting names fail before mutations", async (t) => {
+  for (const patch of [{ attributes: { profileType: "MAC_APP_DEVELOPMENT" } }, { attributes: { profileState: "INVALID" } }, { attributes: { expirationDate: "2000-01-01" } }, { rels: { bundleId: { id: "OTHER" } } }, { rels: { certificates: [{ id: "OTHER" }] } }, { rels: { certificates: [{ id: "CERTDIRECT1" }, { id: "OTHER" }] } }]) {
+    const p = existingDirectProfile(); p.attributes = { ...p.attributes, ...patch.attributes }; p.rels = { ...p.rels, ...patch.rels };
+    const f = directFixture(t, { state: { ...directState(), profiles: [p] } });
+    await assert.rejects(createAppleProfile({ ...f.options, dryRun: false }), { code: "APPLE_PROFILE_NAME_CONFLICT" });
+    assert.equal(mutations(f.calls).length, 0);
+  }
+  const f = directFixture(t, { state: { ...directState(), profiles: [existingDirectProfile(), { ...existingDirectProfile(), id: "PROFILE-2" }] } });
+  await assert.rejects(createAppleProfile(f.options), { code: "APPLE_PROFILE_NAME_CONFLICT" });
+  assert.equal(mutations(f.calls).length, 0);
+});
+
+test("direct certificate selection fails closed before any write", async (t) => {
+  for (const attributes of [{ certificateType: "DEVELOPMENT" }, { expirationDate: "2000-01-01" }, { certificateContent: "bad" }, { serialNumber: "00DEAD" }]) {
+    const state = directState(); state.certificates[0].attributes = { ...state.certificates[0].attributes, ...attributes };
+    const f = directFixture(t, { state });
+    await assert.rejects(createAppleProfile({ ...f.options, dryRun: false }));
+    assert.equal(mutations(f.calls).length, 0);
+  }
+  for (const options of [{ expectedTeam: "OTHERTEAMX", expectedKeychainGroup: "OTHERTEAMX.org.rightkit.qualification.credentials" }, { run: fixture(t).options.run }]) {
+    const f = directFixture(t);
+    await assert.rejects(createAppleProfile({ ...f.options, ...options, dryRun: false }), { code: "APPLE_PROFILE_SIGNING_CERT_MISSING" });
+    assert.equal(mutations(f.calls).length, 0);
+  }
+});
+
+test("direct decoded profile rejects wrong team, app, platform, expiry, debug, certificate & group", async (t) => {
+  const base = directIssued();
+  const patches = [{ Name: "Other" }, { TeamIdentifier: ["OTHERTEAMX"] }, { TeamIdentifier: [TEAM, "OTHERTEAMX"] }, { Platform: ["iOS"] }, { ExpirationDate: "2000-01-01" }, { ProvisionsAllDevices: false }, { DeveloperCertificates: [developmentCertificate] },
+    ...[{ "com.apple.application-identifier": `${TEAM}.other` }, { "com.apple.application-identifier": `${TEAM}.*` }, { "application-identifier": "OTHER.app" }, { "com.apple.developer.team-identifier": "OTHERTEAMX" }, { "get-task-allow": true }, { "get-task-allow": undefined }, { "com.apple.security.get-task-allow": true }, { "keychain-access-groups": ["OTHERTEAMX.*"] }, { "keychain-access-groups": [`${TEAM}.other.*`] }, { "keychain-access-groups": ["*"] }].map((ent) => ({ Entitlements: { ...base.Entitlements, ...ent } }))];
+  for (const patch of patches) {
+    const f = directFixture(t, { decoded: { ...base, ...patch } });
+    await assert.rejects(createAppleProfile({ ...f.options, dryRun: false }), { code: "APPLE_PROFILE_VERIFY_FAILED" });
+    assert.deepEqual(readdirSync(path.dirname(f.out)), []);
+    assert.ok(!f.calls.some((entry) => entry.method === "DELETE"));
+  }
+});
+
+test("direct accepts exact keychain authorization without broadening app entitlement input", async (t) => {
+  const decoded = directIssued(); decoded.Entitlements["keychain-access-groups"] = [GROUP];
+  const f = directFixture(t, { decoded });
+  await createAppleProfile({ ...f.options, dryRun: false });
+  assert.equal(readFileSync(f.out, "utf8"), "issued CMS bytes");
 });

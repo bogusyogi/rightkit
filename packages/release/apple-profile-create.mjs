@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
-import { appleProfileAuth, decodeAppleProfile, signAppleApiJwt } from "./apple-profile-renew.mjs";
+import { appleProfileAuth, decodeAppleProfile, findAppleSigningCertificate, signAppleApiJwt } from "./apple-profile-renew.mjs";
 
 // right-release apple-profile-create: issue a Mac Development provisioning profile
 // (MAC_APP_DEVELOPMENT) for one explicit bundle id with the ICLOUD/CloudKit capability,
@@ -14,6 +14,7 @@ import { appleProfileAuth, decodeAppleProfile, signAppleApiJwt } from "./apple-p
 
 const ASC = "https://api.appstoreconnect.apple.com";
 const PROFILE_TYPE = "MAC_APP_DEVELOPMENT";
+const DIRECT_TYPE = "MAC_APP_DIRECT";
 export class AppleProfileCreateError extends Error {
   constructor(code, message) { super(message); this.name = "AppleProfileCreateError"; this.code = code; }
 }
@@ -56,7 +57,7 @@ const UDID_PATTERN = /^[A-Fa-f0-9-]{8,64}$/;
 
 export function parseCreateArgs(args) {
   const out = { configPath: undefined, bundleId: "", name: "", containers: [], type: PROFILE_TYPE, certificate: "create", out: "", dryRun: true, apply: false, registerDevices: [], keyOut: "" };
-  const values = { "--config": "configPath", "--bundle-id": "bundleId", "--name": "name", "--type": "type", "--certificate": "certificate", "--out": "out", "--key-out": "keyOut" };
+  const values = { "--config": "configPath", "--bundle-id": "bundleId", "--name": "name", "--type": "type", "--certificate": "certificate", "--out": "out", "--key-out": "keyOut", "--expected-team": "expectedTeam", "--expected-keychain-group": "expectedKeychainGroup" };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--dry-run") out.dryRun = true;
@@ -71,15 +72,24 @@ export function parseCreateArgs(args) {
   }
   if (out.apply && args.includes("--dry-run")) fail("APPLE_PROFILE_USAGE", "--dry-run and --apply are mutually exclusive.");
   out.dryRun = !out.apply;
-  if (out.type !== PROFILE_TYPE) fail("APPLE_PROFILE_USAGE", `--type must be ${PROFILE_TYPE} (the only supported value).`);
+  validateProfileMode(out);
   if (!BUNDLE_PATTERN.test(out.bundleId)) fail("APPLE_PROFILE_USAGE", "--bundle-id must be an explicit bundle identifier (no wildcard).");
   if (!out.name.trim()) fail("APPLE_PROFILE_USAGE", "--name is required.");
-  if (!out.containers.length) fail("APPLE_PROFILE_USAGE", "At least one --icloud-container is required.");
+  if (out.type === PROFILE_TYPE && !out.containers.length) fail("APPLE_PROFILE_USAGE", "At least one --icloud-container is required.");
   for (const container of out.containers) if (!CONTAINER_PATTERN.test(container)) fail("APPLE_PROFILE_USAGE", `Invalid iCloud container identifier: ${container}`);
   for (const udid of out.registerDevices) if (!UDID_PATTERN.test(udid)) fail("APPLE_PROFILE_USAGE", `Invalid device UDID: ${udid}`);
   if (!out.out) fail("APPLE_PROFILE_USAGE", "--out <profile path> is required.");
   if (out.certificate !== "create" && !/^[A-Za-z0-9]{4,40}$/.test(out.certificate)) fail("APPLE_PROFILE_USAGE", '--certificate must be an App Store Connect certificate id or "create".');
   return out;
+}
+
+function validateProfileMode({ type, certificate, containers = [], registerDevices = [], keyOut, expectedTeam, expectedKeychainGroup }) {
+  if (![PROFILE_TYPE, DIRECT_TYPE].includes(type)) fail("APPLE_PROFILE_USAGE", `--type must be ${PROFILE_TYPE} or ${DIRECT_TYPE}.`);
+  if (type !== DIRECT_TYPE) return;
+  if (!/^[A-Z0-9]{10}$/.test(expectedTeam ?? "")) fail("APPLE_PROFILE_USAGE", "Direct profiles require --expected-team <10-character team id>.");
+  if (typeof expectedKeychainGroup !== "string" || !expectedKeychainGroup.startsWith(`${expectedTeam}.`) || !BUNDLE_PATTERN.test(expectedKeychainGroup.slice(expectedTeam.length + 1))) fail("APPLE_PROFILE_USAGE", "Direct profiles require one exact --expected-keychain-group prefixed by expected team (no wildcard).");
+  if (!/^[A-Za-z0-9]{4,40}$/.test(certificate ?? "") || certificate === "create") fail("APPLE_PROFILE_USAGE", "Direct profiles require --certificate <existing ASC certificate id>.");
+  if (containers.length || registerDevices.length || keyOut) fail("APPLE_PROFILE_USAGE", "Direct profiles refuse iCloud containers, device registration & key output.");
 }
 
 // Key material must never ride in config, the environment or arguments. Unlike the
@@ -113,10 +123,11 @@ function localDevelopmentIdentities(run, now, { tolerant }) {
 
 // ---- main flow ---------------------------------------------------------------------
 
-export async function createAppleProfile({ root, config = {}, bundleId, name, containers, type = PROFILE_TYPE, certificate = "create", out, dryRun = true, registerDevices = [], keyOut = "", env = process.env, run = spawnSync, fetch: fetchApi = globalThis.fetch, jwtSigner = signAppleApiJwt, now = new Date(), log = console.log, platform = process.platform, home = os.homedir() }) {
-  if (type !== PROFILE_TYPE) fail("APPLE_PROFILE_USAGE", `--type must be ${PROFILE_TYPE}.`);
+export async function createAppleProfile({ root, config = {}, bundleId, name, containers = [], type = PROFILE_TYPE, certificate = "create", out, dryRun = true, registerDevices = [], keyOut = "", expectedTeam, expectedKeychainGroup, env = process.env, run = spawnSync, fetch: fetchApi = globalThis.fetch, jwtSigner = signAppleApiJwt, now = new Date(), log = console.log, platform = process.platform, home = os.homedir() }) {
+  validateProfileMode({ type, certificate, containers, registerDevices, keyOut, expectedTeam, expectedKeychainGroup });
   if (!BUNDLE_PATTERN.test(bundleId ?? "")) fail("APPLE_PROFILE_USAGE", "bundleId must be an explicit bundle identifier.");
-  if (!containers?.length) fail("APPLE_PROFILE_USAGE", "At least one iCloud container is required.");
+  if (!name?.trim() || !out) fail("APPLE_PROFILE_USAGE", "Profile name & output path are required.");
+  if (type === PROFILE_TYPE && !containers?.length) fail("APPLE_PROFILE_USAGE", "At least one iCloud container is required.");
   assertNoInlinePem(env, config, [["--certificate", certificate], ["--name", name]]);
   if (!dryRun && platform !== "darwin") fail("APPLE_PROFILE_PLATFORM", "A real run decodes the issued profile and uses the Keychain; run it on the macOS host.");
   const outFile = path.resolve(root, out);
@@ -155,11 +166,13 @@ export async function createAppleProfile({ root, config = {}, bundleId, name, co
     }
     return items;
   };
-  const plan = { dryRun, command: "apple-profile-create", profileType: PROFILE_TYPE, out: outFile, name, calls, planned };
+  const plan = { dryRun, command: "apple-profile-create", profileType: type, out: outFile, name, calls, planned };
   const mutate = async (method, endpoint, body) => {
     if (dryRun) { planned.push({ method, path: endpoint, ...(body ? { body } : {}) }); log(`PLANNED ${method} ${endpoint}${body ? ` ${JSON.stringify(body)}` : ""}`); return null; }
     return request(method, endpoint, body);
   };
+
+  if (type === DIRECT_TYPE) return createDirectProfile({ bundleId, name, certificate, expectedTeam, expectedKeychainGroup, outFile, dryRun, env, run, now, log, request, list, mutate, plan });
 
   // (1) bundle id
   const bundles = await list(query("/v1/bundleIds", { "filter[identifier]": bundleId, limit: "200" }));
@@ -290,6 +303,94 @@ export async function createAppleProfile({ root, config = {}, bundleId, name, co
   return { ...plan, profileId: profile.id, identitySha1: certificateSha1 };
 }
 
+// Direct profiles authorize one selected existing Developer ID identity. No device,
+// capability, certificate or key creation is reachable from this branch.
+async function createDirectProfile({ bundleId, name, certificate, expectedTeam, expectedKeychainGroup, outFile, dryRun, env, run, now, log, request, list, mutate, plan }) {
+  const ascCert = (await request("GET", `/v1/certificates/${enc(certificate)}`)).data;
+  if (!ascCert?.id || ascCert.id !== certificate) fail("APPLE_PROFILE_CERT_NOT_IN_ASC", "Selected certificate is absent from ASC.");
+  if (ascCert.attributes?.certificateType !== "DEVELOPER_ID_APPLICATION") fail("APPLE_PROFILE_CERT_TYPE", "Direct profiles require an existing DEVELOPER_ID_APPLICATION certificate.");
+  if (!(Date.parse(ascCert.attributes?.expirationDate) > now.getTime())) fail("APPLE_PROFILE_CERT_EXPIRED", "Selected ASC certificate is expired.");
+  let leaf;
+  try { leaf = new X509Certificate(Buffer.from(ascCert.attributes?.certificateContent ?? "", "base64")); }
+  catch { fail("APPLE_PROFILE_API_INVALID", "Selected ASC certificate has no valid public DER certificate."); }
+  const certificateSha1 = sha1(leaf.raw);
+  const identity = findAppleSigningCertificate({ type: DIRECT_TYPE, team: expectedTeam }, { env: { ...env, APPLE_SIGNING_IDENTITY: certificateSha1 }, run, now });
+  if (identity.sha1 !== certificateSha1 || serial(identity.serialNumber) !== serial(ascCert.attributes?.serialNumber)) fail("APPLE_PROFILE_CERT_MISMATCH", "Selected ASC certificate does not match local Developer ID identity.");
+  plan.teamIdentifier = expectedTeam;
+  plan.expectedKeychainGroup = expectedKeychainGroup;
+  plan.certificate = { ...identity, id: ascCert.id, mode: "explicit", privateKeyInKeychain: true };
+
+  const bundles = await list(query("/v1/bundleIds", { "filter[identifier]": bundleId, limit: "200" }));
+  const matching = bundles.filter((item) => item.attributes?.identifier === bundleId);
+  if (matching.length > 1 || (matching.length && !["MAC_OS", "UNIVERSAL"].includes(matching[0].attributes?.platform))) fail("APPLE_PROFILE_BUNDLE_CONFLICT", "Existing bundle identifier has conflicting platform or duplicate resources.");
+  let bundle = matching[0];
+  // Look across types so a dedicated name is never silently duplicated.
+  const profiles = (await list(query("/v1/profiles", { "filter[name]": name, limit: "200" }))).filter((item) => item.attributes?.name === name);
+  if (profiles.length > 1) fail("APPLE_PROFILE_NAME_CONFLICT", "More than one profile already uses this dedicated name.");
+  let profile = profiles[0];
+  if (profile) {
+    const [bundleRel, certRel] = await Promise.all([request("GET", `/v1/profiles/${enc(profile.id)}/bundleId`), list(`/v1/profiles/${enc(profile.id)}/certificates`)]);
+    if (!bundle?.id || profile.attributes?.profileType !== DIRECT_TYPE || profile.attributes?.profileState !== "ACTIVE" || !(Date.parse(profile.attributes?.expirationDate) > now.getTime())
+      || bundleRel.data?.id !== bundle.id || certRel.length !== 1 || certRel[0].id !== ascCert.id) fail("APPLE_PROFILE_NAME_CONFLICT", "Existing named profile does not match direct type, bundle & selected certificate.");
+  }
+  plan.bundleId = { identifier: bundleId, id: bundle?.id ?? null, action: bundle ? "reuse" : "create" };
+  if (!bundle) {
+    const result = await mutate("POST", "/v1/bundleIds", { data: { type: "bundleIds", attributes: { identifier: bundleId, name: name.replace(/[^A-Za-z0-9 ]/g, " ").trim() || bundleId, platform: "MAC_OS" } } });
+    if (result) {
+      bundle = result.data;
+      if (!bundle?.id || bundle.attributes?.identifier !== bundleId || !["MAC_OS", "UNIVERSAL"].includes(bundle.attributes?.platform)) fail("APPLE_PROFILE_API_INVALID", "ASC returned an unexpected created bundle identifier.");
+      plan.bundleId.id = bundle.id;
+    }
+  }
+  plan.profile = { id: profile?.id ?? null, action: profile ? "reuse" : "create" };
+  if (!profile) {
+    const body = { data: { type: "profiles", attributes: { name, profileType: DIRECT_TYPE }, relationships: {
+      bundleId: { data: { type: "bundleIds", id: bundle?.id ?? "<new bundleId>" } }, certificates: { data: [{ type: "certificates", id: ascCert.id }] } } } };
+    const result = await mutate("POST", "/v1/profiles", body);
+    if (result) {
+      profile = result.data;
+      if (!profile?.id) fail("APPLE_PROFILE_API_INVALID", "ASC did not return a created profile id.");
+      plan.profile.id = profile.id;
+    }
+  }
+  plan.verification = "Exact team, application identifier, OSX, expiry, all devices, debugging disabled, selected DER fingerprint & exact keychain group authorization; app must request only its exact group.";
+  log(JSON.stringify({ ...plan, calls: undefined }, null, 2));
+  if (dryRun) { plan.writes = `would write ${outFile} (0600)`; return plan; }
+  const content = profile.attributes?.profileContent ?? (await request("GET", `/v1/profiles/${enc(profile.id)}`)).data?.attributes?.profileContent;
+  if (typeof content !== "string" || !content || !/^[A-Za-z0-9+/]+={0,2}$/.test(content)) fail("APPLE_PROFILE_API_INVALID", "ASC profileContent is missing or invalid.");
+  mkdirSync(path.dirname(outFile), { recursive: true });
+  const temporary = `${outFile}.create-${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, Buffer.from(content, "base64"), { flag: "wx", mode: 0o600 });
+    verifyDirectProfile(decodeAppleProfile(temporary, { run }), { bundleId, name, expectedTeam, expectedKeychainGroup, certificateSha1, now });
+    if (existsSync(outFile)) copyFileSync(outFile, `${outFile}.backup-${now.toISOString().replace(/[:.]/g, "-")}-${randomUUID()}`, constants.COPYFILE_EXCL);
+    renameSync(temporary, outFile);
+    chmodSync(outFile, 0o600);
+  } finally { rmSync(temporary, { force: true }); }
+  log(`Wrote ${outFile}; Developer ID identity SHA-1 ${certificateSha1}`);
+  return { ...plan, profileId: profile.id, identitySha1: certificateSha1 };
+}
+
+export function verifyDirectProfile(decoded, { bundleId, name, expectedTeam, expectedKeychainGroup, certificateSha1, now }) {
+  const problems = [], entitlements = decoded.Entitlements ?? {};
+  if (decoded.Name !== name) problems.push("profile name mismatch");
+  if (!Array.isArray(decoded.TeamIdentifier) || decoded.TeamIdentifier.length !== 1 || decoded.TeamIdentifier[0] !== expectedTeam) problems.push("team mismatch");
+  if (entitlements["com.apple.developer.team-identifier"] !== expectedTeam) problems.push("entitlement team mismatch");
+  const appKeys = ["com.apple.application-identifier", "application-identifier"].filter((key) => Object.hasOwn(entitlements, key));
+  if (!appKeys.length || appKeys.some((key) => entitlements[key] !== `${expectedTeam}.${bundleId}`)) problems.push("application identifier mismatch");
+  if (!Array.isArray(decoded.Platform) || !decoded.Platform.includes("OSX")) problems.push("not a macOS profile");
+  if (!(Date.parse(decoded.ExpirationDate) > now.getTime())) problems.push("expired or missing expiration");
+  if (decoded.ProvisionsAllDevices !== true) problems.push("not an all-devices direct profile");
+  const debugKeys = ["get-task-allow", "com.apple.security.get-task-allow"].filter((key) => Object.hasOwn(entitlements, key));
+  if (!debugKeys.length || debugKeys.some((key) => entitlements[key] !== false)) problems.push("debugging is not disabled");
+  if (!certificateSha1 || !(decoded.DeveloperCertificates ?? []).some((data) => sha1(Buffer.from(data, "base64")) === certificateSha1)) problems.push("selected certificate not authorized");
+  const groups = entitlements["keychain-access-groups"];
+  // Apple-issued terminal wildcards may authorize an exact app group. This never
+  // changes the app's requested entitlements or permits wildcard CLI input.
+  if (!Array.isArray(groups) || !groups.some((group) => group === expectedKeychainGroup || (typeof group === "string" && group.startsWith(`${expectedTeam}.`) && /^[^*]+\*$/u.test(group) && expectedKeychainGroup.startsWith(group.slice(0, -1))))) problems.push("keychain group not authorized");
+  if (problems.length) fail("APPLE_PROFILE_VERIFY_FAILED", `Direct profile failed verification: ${problems.join("; ")}.`);
+}
+
 export function verifyIssuedProfile(decoded, { bundleId, containers, certificateSha1, deviceUdids, now }) {
   const other = [], missing = [];
   const entitlements = decoded.Entitlements ?? {};
@@ -345,7 +446,7 @@ async function createCertificate({ commonName, request, run, keyOut, home, log }
 
 export async function main(args = process.argv.slice(2), options = {}) {
   if (args.includes("--help") || args.includes("-h")) {
-    (options.log ?? console.log)("right-release apple-profile-create --bundle-id <id> --name <profile name> --icloud-container <iCloud.x> [--icloud-container ...] --out <profile path>\n  [--config <file>] [--type MAC_APP_DEVELOPMENT] [--certificate <asc cert id>|create] [--register-device <UDID>]... [--key-out <file>] [--dry-run | --apply]\nDefault is --dry-run (GET discovery only). Uses APPLE_API_ISSUER, APPLE_API_KEY & APPLE_API_KEY_PATH or appStoreConnect.* in the config; inline PEM is refused.\nThe ASC API cannot create or assign iCloud containers; the issued profile is verified and the command prints manual steps if the container is missing.");
+    (options.log ?? console.log)("right-release apple-profile-create --bundle-id <id> --name <profile name> --out <profile path>\n  [--config <file>] [--type MAC_APP_DEVELOPMENT|MAC_APP_DIRECT] [--certificate <asc cert id>|create] [--dry-run | --apply]\nDevelopment: --icloud-container <iCloud.x>... [--register-device <UDID>]... [--key-out <file>]\nDirect: --certificate <existing ASC Developer ID cert id> --expected-team <team id> --expected-keychain-group <exact group>; refuses iCloud, devices & key output.\nDefault is --dry-run (GET discovery only). Uses APPLE_API_ISSUER, APPLE_API_KEY & APPLE_API_KEY_PATH or appStoreConnect.* in the config; inline PEM is refused.\nThe ASC API cannot create or assign iCloud containers; the issued profile is verified and the command prints manual steps if the container is missing.");
     return;
   }
   const parsed = parseCreateArgs(args);
@@ -354,7 +455,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
   let config = {};
   if (existsSync(absolute)) { const loaded = await import(pathToFileURL(absolute)); config = loaded.default ?? loaded.config ?? loaded; }
   else if (parsed.configPath) fail("APPLE_PROFILE_USAGE", `Config file not found: ${parsed.configPath}`);
-  return createAppleProfile({ ...options, root: path.dirname(absolute), config, bundleId: parsed.bundleId, name: parsed.name, containers: parsed.containers, type: parsed.type, certificate: parsed.certificate, out: parsed.out, dryRun: parsed.dryRun, registerDevices: parsed.registerDevices, keyOut: parsed.keyOut });
+  return createAppleProfile({ ...options, root: path.dirname(absolute), config, ...parsed });
 }
 
 const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };
