@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cargoRecipe, nativeFixture, planRuns, parseRuns, executeRuns, cargoRunArgs, NATIVE_HELPER, planNativeHelper, stageNativeHelper, nativeHelperExecute } from "./consumer-recipes.mjs";
-const unit = { name: "rightkit-logs", version: "0.3.4" };
+const unit = { name: "rightkit-logs", version: "0.3.5" };
 const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
 const manifest = fs.readFileSync(path.join(committedRoot, "ci/consumers/rightkit-logs/Cargo.toml"), "utf8");
 function fixture(t) {
@@ -19,7 +19,7 @@ test("PK identity binds executable source, every file, exact dependency & select
   const { root, dir } = fixture(t); const recipe = cargoRecipe({ root, unit });
   assert.equal(recipe.evidence.id, "ci/consumers/rightkit-logs/src/main.rs");
   assert.equal(recipe.evidence.pkId, "PK11");
-  assert.deepEqual(recipe.evidence.dependency, { name: unit.name, version: "=0.3.4", defaultFeatures: false, features: [] });
+  assert.deepEqual(recipe.evidence.dependency, { name: unit.name, version: "=0.3.5", defaultFeatures: false, features: [] });
   assert.equal(Object.keys(recipe.evidence.files).length, 2);
   fs.appendFileSync(path.join(dir, "src/main.rs"), "// changed API prescription\n"); assert.throws(() => cargoRecipe({ root, unit }), /differs from reviewed PK11 inventory/);
 });
@@ -27,7 +27,7 @@ test("PK identity binds executable source, every file, exact dependency & select
 test("reviewed inventory admits only existing locked PK examples", () => {
   const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8"));
   assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-agent-tools", "rightkit-app-settings", "rightkit-browser", "rightkit-child-process", "rightkit-crash", "rightkit-credentials", "rightkit-daemon", "rightkit-db", "rightkit-device", "rightkit-ffmpeg", "rightkit-fs", "rightkit-http", "rightkit-job-queue", "rightkit-license", "rightkit-logs", "rightkit-models", "rightkit-motion", "rightkit-oauth", "rightkit-overlay", "rightkit-pdf", "rightkit-playback", "rightkit-qa", "rightkit-sidecar", "rightkit-spend", "rightkit-tauri-shell"]);
-  for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.4", "PK11"]]) {
+  for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.5", "PK11"]]) {
     const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version } });
     assert.equal(evidence.pkId, pkId); assert.deepEqual(evidence.files, inventory.cargo[name].files);
   }
