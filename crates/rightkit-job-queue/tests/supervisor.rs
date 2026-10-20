@@ -162,14 +162,20 @@ fn restart_budget_exhausts_until_explicit_start_resets_it() {
 #[test]
 fn rpc_timeout_kills_wedged_child_and_recovers() {
     let (_d, cfg) = rig("ok");
-    let s = EngineSupervisor::new(cfg.with_rpc_timeout(Duration::from_millis(80)));
+    // The call deadline also covers the hand-off of the request to the writer thread. A budget
+    // of a few tens of milliseconds can expire there on a loaded host and report
+    // `delivery_unknown` (the write-stall path) instead of the reply `timeout` this test is
+    // about, so the budget leaves wide margin over scheduling latency. The hung child never
+    // answers, so a longer budget only delays the expected timeout.
+    let budget = Duration::from_millis(600);
+    let s = EngineSupervisor::new(cfg.with_rpc_timeout(budget));
     s.start().unwrap();
     let e = s
         .call_with(
             "hang",
             json!({}),
             CallOptions {
-                timeout: Some(Duration::from_millis(80)),
+                timeout: Some(budget),
                 ..Default::default()
             },
         )

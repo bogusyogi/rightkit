@@ -30,11 +30,20 @@ fn code<T>(r: JobResult<T>) -> String {
 
 type Report = mpsc::Receiver<(i64, Vec<String>)>;
 
+/// Stall limit of the watchdog. Only the first attempt is meant to exceed it (it blocks on the
+/// gate below, without a sign of life), so it costs one limit of wall time. Later attempts must
+/// beat it under host load: their first store write can take well over the 100 ms this once was,
+/// which fenced the second attempt too and paused it with a stale-generation error.
+const STALL: Duration = Duration::from_millis(500);
+
 /// First attempt stalls past the watchdog, then keeps writing through its
 /// control (as a zombie worker would). Later attempts complete at once.
 struct Zombie {
     calls: AtomicUsize,
     report: Mutex<mpsc::Sender<(i64, Vec<String>)>>,
+    /// The zombie waits here until the test releases it (or drops the sender), so the order
+    /// "new attempt finished, then the zombie writes" does not depend on a sleep.
+    gate: Mutex<mpsc::Receiver<()>>,
 }
 
 impl JobHandler for Zombie {
@@ -42,7 +51,11 @@ impl JobHandler for Zombie {
         let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         if n == 1 {
             let gen = ctl.generation();
-            std::thread::sleep(Duration::from_millis(400));
+            let _ = self
+                .gate
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(30));
             ctl.progress("late", None, Some("zombie progress"));
             let codes = vec![
                 code(ctl.transition(&Transition::to(COMPLETE).result(json!({"late": true})))),
@@ -56,22 +69,25 @@ impl JobHandler for Zombie {
     }
 }
 
-fn rig(dir: &Path) -> (Arc<JobStore>, Runner, Report) {
+/// The extra sender releases the zombie; dropping it releases it too.
+fn rig(dir: &Path) -> (Arc<JobStore>, Runner, Report, mpsc::Sender<()>) {
     let store = Arc::new(JobStore::open(dir.join("jobs.db")).unwrap());
     let (tx, rx) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
     let handler = Arc::new(Zombie {
         calls: AtomicUsize::new(0),
         report: Mutex::new(tx),
+        gate: Mutex::new(gate),
     });
     let runner = Runner::new(store.clone(), JobLocks::new(dir.join("locks")), handler)
-        .with_stall_timeout(Duration::from_millis(100));
-    (store, runner, rx)
+        .with_stall_timeout(STALL);
+    (store, runner, rx, release)
 }
 
 #[test]
 fn abandoned_worker_writes_are_rejected_and_new_attempt_proceeds() {
     let dir = tempfile::tempdir().unwrap();
-    let (store, runner, rx) = rig(dir.path());
+    let (store, runner, rx, release) = rig(dir.path());
     let (job, _) = store.submit(&new_job()).unwrap();
     let id = job.job_id.clone();
 
@@ -94,6 +110,7 @@ fn abandoned_worker_writes_are_rejected_and_new_attempt_proceeds() {
     assert_eq!(store.get(&id).unwrap().result, Some(json!({"attempt": 2})));
 
     // The zombie wakes after the new attempt finished: every write is fenced.
+    release.send(()).unwrap();
     let (gen, codes) = rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(gen, 1);
     assert_eq!(codes, vec![STALE_ATTEMPT, STALE_ATTEMPT]);
@@ -223,7 +240,7 @@ fn generation_survives_restart_and_keeps_fencing_old_attempts() {
 #[test]
 fn second_attempt_completes_under_the_current_generation() {
     let dir = tempfile::tempdir().unwrap();
-    let (store, runner, _rx) = rig(dir.path());
+    let (store, runner, _rx, _release) = rig(dir.path());
     // The first attempt stalls and is fenced; the second completes normally.
     let (job, _) = store.submit(&new_job()).unwrap();
     let id = job.job_id.clone();
