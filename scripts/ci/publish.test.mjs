@@ -7,13 +7,13 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
-import { APPROVED_ARTIFACTS_FILE, checkReceipts, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, checkReceipts, linuxRequiredFor, requiredHostsFor, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm as consumeNpmChecked, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
 // These portability tests use synthetic units without a reviewed PK recipe. Refusal of unreviewed npm units is
 // covered in npm-recipe-consumer.test.mjs, so only that one problem is dropped here.
 const consumeNpm = (options) => { const rows = consumeNpmChecked(options); for (const row of rows.values()) row.problems = row.problems.filter((problem) => !problem.includes("missing reviewed PK example")); return rows; };
 import { scanArchiveForSecrets } from "./archive-secret-scan.mjs";
-import { assertPublishDoc, assertUploadScript, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
+import { assertPublishDoc, assertUploadScript, LINUX_CHROME_IF, LINUX_IF, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
@@ -1138,7 +1138,8 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   assert.deepEqual(receipt.units.map((u) => [u.name, u.status, u.bytesVerified]), [["@rightkit/a", "pass", true]]);
   assert.ok(fs.existsSync(path.join(runTemp, "verify-receipt", "verify-windows.json")));
   await assert.rejects(() => run({ NODE_AUTH_TOKEN: "npm-secret-token" }), /must not receive secrets/);
-  await assert.rejects(() => run({}, "linux"), /macOS or Windows/);
+  await assert.rejects(() => run({}, "linux"), /no sealed unit requires Linux verification/);
+  await assert.rejects(() => run({}, "freebsd"), /macOS, Windows or Linux, not freebsd/);
   writeEvidence({ host: "macos" });
   await assert.rejects(() => run(), /gate evidence is for npm on macos/);
   writeEvidence({ units: [] });
@@ -1230,7 +1231,7 @@ const realDoc = () => parseYaml(fs.readFileSync(new URL("../../.github/workflows
 test("qualification packs once, retains both native receipts & has no publication privilege or dispatch dry-run", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   assert.equal(assertPublishDoc(doc), true);
-  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "qualified"]);
+  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "verify-linux", "qualified"]);
   assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
   assert.equal(doc.on.workflow_dispatch.inputs.dry_run, undefined);
   assert.equal(doc.jobs.plan.outputs.dry_run, undefined);
@@ -1303,19 +1304,30 @@ test("qualification aggregate always runs & refuses every missing prerequisite o
   const doc = realDoc();
   const gate = doc.jobs.qualified;
   assert.equal(gate.if, "${{ always() }}");
-  assert.deepEqual(gate.needs, ["guard", "plan", "pack", "verify"]);
+  assert.deepEqual(gate.needs, ["guard", "plan", "pack", "verify", "verify-linux"]);
   assert.deepEqual(gate.steps[0].env, QUALIFIED_ENV);
   assert.equal(gate.steps[0].run, QUALIFIED_RUN);
   // Interpret only these shell test commands; this regression remains pure & host-independent.
   const accepts = (env) => gate.steps[0].run.trim().split("\n").every((line) => {
-    const match = /^test "\$([A-Z_]+)" (= success|-gt 0)$/.exec(line);
-    assert.ok(match, line);
-    return match[2] === "= success" ? env[match[1]] === "success" : /^\d+$/.test(env[match[1]] ?? "") && Number(env[match[1]]) > 0;
+    const literal = /^test "\$([A-Z_]+)" (= success|-gt 0|-ge 0)$/.exec(line);
+    if (literal) return literal[2] === "= success" ? env[literal[1]] === "success" : /^\d+$/.test(env[literal[1]] ?? "") && Number(env[literal[1]]) >= (literal[2] === "-gt 0" ? 1 : 0);
+    const pair = /^test "\$([A-Z_]+)" = "\$([A-Z_]+)"$/.exec(line);
+    assert.ok(pair, line);
+    return env[pair[1]] !== undefined && env[pair[1]] === env[pair[2]];
   });
-  const success = { GUARD_RESULT: "success", PLAN_RESULT: "success", PACK_RESULT: "success", VERIFY_RESULT: "success", UNIT_COUNT: "2" };
-  assert.equal(accepts(success), true);
+  // The workflow computes LINUX_EXPECTED_RESULT as `linux_count != '0' && 'success' || 'skipped'`.
+  assert.equal(gate.steps[0].env.LINUX_EXPECTED_RESULT, "${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}");
+  const env = ({ linux = "0", linuxResult = "skipped", ...over } = {}) => ({ GUARD_RESULT: "success", PLAN_RESULT: "success", PACK_RESULT: "success", VERIFY_RESULT: "success", UNIT_COUNT: "2", LINUX_COUNT: linux, VERIFY_LINUX_RESULT: linuxResult, LINUX_EXPECTED_RESULT: linux !== "0" ? "success" : "skipped", ...over });
+  const success = env();
+  assert.equal(accepts(success), true, "no Linux unit: verify-linux is skipped");
   for (const key of ["GUARD_RESULT", "PLAN_RESULT", "PACK_RESULT", "VERIFY_RESULT"]) for (const bad of ["failure", "skipped", "cancelled", ""]) assert.equal(accepts({ ...success, [key]: bad }), false, `${key}: ${bad}`);
   for (const count of ["0", "", "invalid"]) assert.equal(accepts({ ...success, UNIT_COUNT: count }), false);
+  // A Linux-required publication needs a successful Linux verify; a skipped, failed or cancelled one never counts as a pass.
+  assert.equal(accepts(env({ linux: "1", linuxResult: "success" })), true);
+  for (const bad of ["skipped", "failure", "cancelled", ""]) assert.equal(accepts(env({ linux: "1", linuxResult: bad })), false, `required Linux ${bad}`);
+  // No Linux unit: anything but a skipped verify-linux, or an unreadable count, is refused.
+  for (const bad of ["success", "failure", "cancelled", ""]) assert.equal(accepts(env({ linuxResult: bad })), false, `unneeded Linux ${bad}`);
+  for (const count of ["", "invalid", "-1"]) assert.equal(accepts(env({ linux: "1", linuxResult: "success", LINUX_COUNT: count })), false, `count ${count}`);
 });
 
 test("qualification contract finds every secret expression & exact-condition bypass", { skip: realWorkflowSkip }, () => {
@@ -1595,5 +1607,200 @@ test("the Chrome for Testing pin: URL derives from the version; an empty sha256 
   assert.equal(fs.existsSync(tmpDir), false, "the downloaded file is deleted");
   await assert.rejects(recordPin({ version: pins.version, key: "mac-arm64", url: "u", dryRun: false, fetchImpl: async () => { throw new Error("must not download"); }, tmpDir: tmp("pin") }), /not a dry run/);
   const real = JSON.parse(fs.readFileSync(new URL("../../ci/chrome-for-testing.json", import.meta.url), "utf8"));
-  assert.deepEqual(Object.keys(real.platforms).sort(), ["mac-arm64", "win64"]);
+  assert.deepEqual(Object.keys(real.platforms).sort(), ["linux64", "mac-arm64", "win64"]);
+});
+
+// ---- Linux verification (ci/linux-required.json): a required Linux row is never optional -------------------------------
+
+const LINUX_UNIT = "@rightkit/qa-chrome"; // listed in the real ci/linux-required.json
+const sealLinux = () => sealNpm({ units: [["@rightkit/a", "packages/a"], [LINUX_UNIT, "packages/qa-chrome"]] });
+
+/** Receipts for chosen hosts; the linux receipt covers only `linuxUnits`, the native ones every sealed unit. */
+function hostReceipts(packDir, manifest, { hosts = ["macos", "windows", "linux"], linuxUnits = [LINUX_UNIT], rowOver = {}, docOver = {} } = {}) {
+  const dir = tmp("linux-receipts");
+  const manifestSha256 = sha256(fs.readFileSync(path.join(packDir, "manifest.json")));
+  for (const host of hosts) {
+    const scope = host === "linux" ? manifest.units.filter((u) => linuxUnits.includes(u.name)) : manifest.units;
+    fs.mkdirSync(path.join(dir, `publish-receipt-verify-${host}`), { recursive: true });
+    const doc = {
+      schema: 1, kind: "verify", host, registry: manifest.registry, commit: manifest.commit, manifestSha256, runId: "77", runAttempt: "1", manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt,
+      allowHostExclusion: [], allowNoTest: [], allowIgnored: [], allowMissingAssets: [],
+      units: scope.map((u) => ({ name: u.name, version: u.version, file: u.file, sha256: u.sha256, archiveScan: archiveScanFixture(u), bytesVerified: true, status: "pass", executed: 3, ignored: 0, skipped: 0, consumer: { verified: true }, ...(host === "linux" ? rowOver : {}) })),
+      ...(host === "linux" ? docOver : {}),
+    };
+    fs.writeFileSync(path.join(dir, `publish-receipt-verify-${host}`, `verify-${host}.json`), JSON.stringify(doc));
+  }
+  return dir;
+}
+const receiptProblems = (sealed, receiptsDir, extra = {}) => checkReceipts({ manifest: sealed.manifest, manifestSha256: sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))), receiptsDir, run: { runId: "77", runAttempt: "1" }, ...extra });
+
+test("Linux required: a missing, partial, wrong-host or non-pass Linux receipt is refused; the exact set passes", () => {
+  const sealed = sealLinux();
+  assert.deepEqual(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest)), [], "native + Linux receipts for exactly the required set pass");
+  // missing: both native hosts passing never stands in for the Linux row
+  const missing = receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { hosts: ["macos", "windows"] }));
+  assert.ok(missing.some((p) => /expected exactly one verify receipt from linux, found 0/.test(p)), JSON.stringify(missing));
+  // duplicate
+  const dup = hostReceipts(sealed.dir, sealed.manifest);
+  fs.mkdirSync(path.join(dup, "again"), { recursive: true });
+  fs.copyFileSync(path.join(dup, "publish-receipt-verify-linux", "verify-linux.json"), path.join(dup, "again", "verify-linux.json"));
+  assert.ok(receiptProblems(sealed, dup).some((p) => /from linux, found 2/.test(p)));
+  // a Linux receipt that covers no required unit, or an extra one
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { linuxUnits: [] })).some((p) => /linux receipt: covers 0 units/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { linuxUnits: [LINUX_UNIT, "@rightkit/a"] })).some((p) => /linux receipt: covers 2 units/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { linuxUnits: ["@rightkit/a"] })).some((p) => /linux receipt: covers 1 units/.test(p) || /linux receipt: no evidence for @rightkit\/qa-chrome/.test(p)));
+  // non-pass rows: Linux allows none of the native allowances
+  for (const status of ["allowed-exclusion", "allowed-no-test", "allowed-skips", "fail", "missing"]) {
+    const problems = receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { rowOver: { status } }));
+    assert.ok(problems.some((p) => p.startsWith("linux receipt:")), `${status}: ${JSON.stringify(problems)}`);
+  }
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { rowOver: { executed: 0 } })).some((p) => /linux receipt: .*status pass without a positive executed count/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { rowOver: { consumer: { verified: false } } })).some((p) => /linux receipt: .*not consumer-verified/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { rowOver: { sha256: "b".repeat(64) } })).some((p) => /linux receipt: .*different bytes/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { docOver: { commit: "c".repeat(40) } })).some((p) => /linux receipt: commit/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { docOver: { manifestSha256: "d".repeat(64) } })).some((p) => /linux receipt: it verified a different manifest/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { docOver: { allowNoTest: [LINUX_UNIT] } })).some((p) => /linux receipt: it ran with different allow_no_test/.test(p)));
+});
+
+test("Linux not required: verification is unchanged and a stray Linux receipt is refused", () => {
+  const sealed = sealNpm();
+  assert.deepEqual(receiptProblems(sealed, receipts(sealed.dir, sealed.manifest)), [], "macos + windows only, as before");
+  assert.ok(receiptProblems(sealed, receipts(sealed.dir, sealed.manifest, { skip: ["windows"] })).some((p) => /from windows, found 0/.test(p)), "native hosts still required");
+  const stray = hostReceipts(sealed.dir, sealed.manifest, { linuxUnits: ["@rightkit/a"] });
+  const problems = receiptProblems(sealed, stray);
+  assert.ok(problems.some((p) => /unexpected verify receipt from "linux"; the required hosts are macos, windows/.test(p)), JSON.stringify(problems));
+  // a crates run lists no Linux unit
+  const crates = sealCrates(["rightkit-a"]);
+  assert.deepEqual(receiptProblems(crates, receipts(crates.dir, crates.manifest)), []);
+});
+
+test("the receipt host set equals the required host set", () => {
+  const sealed = sealLinux();
+  const hostsOf = (dir) => fs.readdirSync(dir).map((d) => d.replace("publish-receipt-verify-", "")).sort();
+  const required = (linuxRequired) => requiredHostsFor(linuxRequired ?? linuxRequiredFor({ registry: "npm", units: sealed.manifest.units.map((u) => u.name) }).units).sort();
+  assert.deepEqual(required(), ["linux", "macos", "windows"]);
+  const exact = hostReceipts(sealed.dir, sealed.manifest);
+  assert.deepEqual(hostsOf(exact), required());
+  assert.deepEqual(receiptProblems(sealed, exact), []);
+  // caller-pinned requirement: none -> exactly two hosts; the Linux receipt is then surplus and refused
+  assert.deepEqual(requiredHostsFor([]).sort(), ["macos", "windows"]);
+  assert.ok(receiptProblems(sealed, exact, { linuxRequired: [] }).some((p) => /unexpected verify receipt from "linux"/.test(p)));
+  assert.ok(receiptProblems(sealed, hostReceipts(sealed.dir, sealed.manifest, { hosts: ["macos", "windows"] }), { linuxRequired: [LINUX_UNIT] }).some((p) => /from linux, found 0/.test(p)));
+  // any other host is refused outright
+  const odd = hostReceipts(sealed.dir, sealed.manifest, { hosts: ["macos", "windows", "linux", "freebsd"] });
+  assert.ok(receiptProblems(sealed, odd).some((p) => /unexpected verify receipt from "freebsd"/.test(p)));
+});
+
+test("the Linux requirement list fails closed when unreadable and derives from the reviewed file", () => {
+  assert.deepEqual(linuxRequiredFor({ registry: "npm", units: ["@rightkit/a", LINUX_UNIT, "@rightkit/qa"] }), { units: [LINUX_UNIT], problems: [] });
+  assert.deepEqual(linuxRequiredFor({ registry: "crates", units: ["rightkit-qa", "rightkit-fs"] }), { units: [], problems: [] });
+  const write = (text) => { const file = path.join(tmp("linux-list"), "linux-required.json"); fs.writeFileSync(file, text); return file; };
+  assert.equal(linuxRequiredFor({ registry: "npm", units: [LINUX_UNIT], file: path.join(tmp("none"), "absent.json") }).problems.length, 1);
+  for (const bad of ["not json", "[]", "{}", JSON.stringify({ schema: 2, npm: [], crates: [] }), JSON.stringify({ schema: 1, npm: [LINUX_UNIT, LINUX_UNIT], crates: [] }), JSON.stringify({ schema: 1, npm: "x", crates: [] }), JSON.stringify({ schema: 1, npm: [] })]) {
+    const result = linuxRequiredFor({ registry: "npm", units: [LINUX_UNIT], file: write(bad) });
+    assert.equal(result.problems.length, 1, bad);
+    assert.deepEqual(result.units, []);
+  }
+  // an unreadable list makes checkReceipts refuse rather than treat Linux as not required
+  const sealed = sealLinux();
+  const problems = checkReceipts({ manifest: sealed.manifest, manifestSha256: sha256(fs.readFileSync(path.join(sealed.dir, "manifest.json"))), receiptsDir: hostReceipts(sealed.dir, sealed.manifest, { hosts: ["macos", "windows"] }), run: { runId: "77", runAttempt: "1" }, linuxRequired: undefined });
+  assert.ok(problems.some((p) => /from linux, found 0/.test(p)));
+  // the committed list names a real, publishable npm package
+  const real = JSON.parse(fs.readFileSync(new URL("../../ci/linux-required.json", import.meta.url), "utf8"));
+  assert.deepEqual(Object.keys(real).sort(), ["_comment", "crates", "npm", "schema"]);
+  assert.deepEqual(real.npm, [LINUX_UNIT]);
+  const manifest = JSON.parse(fs.readFileSync(new URL("../../packages/qa-chrome/package.json", import.meta.url), "utf8"));
+  assert.equal(manifest.name, LINUX_UNIT);
+});
+
+test("verify on Linux covers exactly the Linux-required units and refuses every other shape", async () => {
+  const sealed = sealLinux();
+  const runTemp = tmp("verify-linux");
+  const evidenceDir = path.join(runTemp, "rightkit-ci");
+  fs.mkdirSync(evidenceDir, { recursive: true });
+  const evidence = (names, patch = {}) => {
+    const rows = names.map((name) => { const unit = sealed.manifest.units.find((u) => u.name === name); const result = { unit: `npm:${unit.dir}`, command: `pnpm --filter ${name} run test`, isTest: true, code: 0, timedOut: false, seconds: 1, executed: 3, failed: 0, ignored: 0, skipped: 0, ok: true }; return { row: { name, status: "pass", executed: 3, steps: [result] }, result }; });
+    fs.writeFileSync(path.join(evidenceDir, "unit-evidence.json"), JSON.stringify({ schema: 2, ok: true, host: "linux", registry: "npm", sha: SHA, dependentClosure: { selection: [], expected: [], results: [], ok: true, problems: [] }, units: rows.map((r) => r.row), ...patch }));
+    fs.writeFileSync(path.join(evidenceDir, "summary.json"), JSON.stringify({ host: "linux", sha: SHA, results: rows.map((r) => r.result) }));
+  };
+  const env = actionsEnv({ RUNNER_TEMP: runTemp, PUBLISH_PACK_DIR: sealed.dir, GITHUB_ACTOR: "fixture-actor", GITHUB_JOB: "verify-linux", PUBLISH_UNITS: "@rightkit/a @rightkit/qa-chrome", PUBLISH_LINUX_UNITS: LINUX_UNIT });
+  const consumed = [];
+  const scanArchive = (options) => scanArchiveForSecrets({ ...options, scannerOwner: { packageFileViolations: () => [], scanCrateForSecrets: () => [] } });
+  const consume = { npm: ({ units }) => { consumed.push(units.map((u) => u.name)); return new Map(units.map((u) => [u.name, { problems: [], report: { entries: 1 } }])); }, crates: () => { throw new Error("not used"); } };
+  const run = (over = {}, host = "linux") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host, consume, scanArchive });
+  evidence([LINUX_UNIT]);
+  const receipt = await run();
+  assert.equal(receipt.host, "linux");
+  assert.deepEqual(receipt.units.map((u) => [u.name, u.status, u.bytesVerified, u.consumer.verified]), [[LINUX_UNIT, "pass", true, true]], "only the Linux-required unit has a row");
+  assert.deepEqual(consumed, [[LINUX_UNIT]], "only the Linux-required unit is consumed");
+  assert.ok(fs.existsSync(path.join(runTemp, "verify-receipt", "verify-linux.json")));
+  // the receipt it writes is exactly what checkReceipts requires from Linux
+  const receiptsDir = tmp("linux-roundtrip");
+  fs.mkdirSync(path.join(receiptsDir, "publish-receipt-verify-linux"), { recursive: true });
+  fs.copyFileSync(path.join(runTemp, "verify-receipt", "verify-linux.json"), path.join(receiptsDir, "publish-receipt-verify-linux", "verify-linux.json"));
+  for (const host of ["macos", "windows"]) {
+    fs.mkdirSync(path.join(receiptsDir, `publish-receipt-verify-${host}`), { recursive: true });
+    const native = JSON.parse(fs.readFileSync(path.join(hostReceipts(sealed.dir, sealed.manifest, { hosts: [host] }), `publish-receipt-verify-${host}`, `verify-${host}.json`), "utf8"));
+    fs.writeFileSync(path.join(receiptsDir, `publish-receipt-verify-${host}`, `verify-${host}.json`), JSON.stringify(native));
+  }
+  const roundtrip = receiptProblems(sealed, receiptsDir).filter((p) => !/^linux receipt: .*archiveScan/.test(p));
+  assert.deepEqual(roundtrip.filter((p) => p.startsWith("linux receipt:")), [], JSON.stringify(roundtrip));
+  // every wrong shape refuses
+  evidence([LINUX_UNIT, "@rightkit/a"]);
+  await assert.rejects(() => run(), /the gate ran \[@rightkit\/a @rightkit\/qa-chrome\] on Linux, not exactly the Linux-required units/);
+  evidence([]);
+  await assert.rejects(() => run(), /the gate ran \[\] on Linux/);
+  evidence(["@rightkit/a"]);
+  await assert.rejects(() => run(), /the gate ran \[@rightkit\/a\] on Linux/);
+  evidence([LINUX_UNIT]);
+  await assert.rejects(() => run({ PUBLISH_LINUX_UNITS: "" }), /the Linux units the plan named \[\] differ from the Linux-required sealed units \[@rightkit\/qa-chrome\]/);
+  await assert.rejects(() => run({ PUBLISH_LINUX_UNITS: "@rightkit/a" }), /the Linux units the plan named \[@rightkit\/a\] differ/);
+  evidence([LINUX_UNIT], { host: "windows" });
+  await assert.rejects(() => run(), /unavailable or inconsistent/);
+  evidence([LINUX_UNIT]);
+  const evidenceFile = path.join(evidenceDir, "unit-evidence.json");
+  const failing = JSON.parse(fs.readFileSync(evidenceFile, "utf8")); failing.units[0].status = "allowed-exclusion"; fs.writeFileSync(evidenceFile, JSON.stringify(failing));
+  const summary = path.join(evidenceDir, "summary.json");
+  await assert.doesNotReject(() => run(), "exclusion evidence is carried to checkReceipts, which refuses it on Linux");
+  const excluded = JSON.parse(fs.readFileSync(path.join(runTemp, "verify-receipt", "verify-linux.json"), "utf8"));
+  assert.equal(excluded.units[0].status, "allowed-exclusion");
+  const exclusionDir = tmp("linux-exclusion");
+  fs.mkdirSync(path.join(exclusionDir, "publish-receipt-verify-linux"), { recursive: true });
+  fs.writeFileSync(path.join(exclusionDir, "publish-receipt-verify-linux", "verify-linux.json"), JSON.stringify(excluded));
+  assert.ok(receiptProblems(sealed, exclusionDir).some((p) => /linux receipt: .*needs a real pass on Linux/.test(p)));
+  // a Linux run with no Linux-required unit sealed refuses rather than writing an empty pass
+  const plain = sealNpm();
+  const plainEvidence = path.join(runTemp, "rightkit-ci");
+  const plainRun = { ...env, PUBLISH_PACK_DIR: plain.dir, PUBLISH_UNITS: "@rightkit/a", PUBLISH_LINUX_UNITS: "" };
+  fs.writeFileSync(path.join(plainEvidence, "unit-evidence.json"), JSON.stringify({ schema: 2, ok: true, host: "linux", registry: "npm", sha: SHA, units: [] }));
+  fs.writeFileSync(path.join(plainEvidence, "summary.json"), JSON.stringify({ host: "linux", sha: SHA, results: [] }));
+  await assert.rejects(() => commandVerify({ env: plainRun, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host: "linux", consume, scanArchive }), /no sealed unit requires Linux verification/);
+  // macOS and Windows still verify every sealed unit (unchanged)
+  evidence([LINUX_UNIT, "@rightkit/a"], { host: "windows" });
+  fs.writeFileSync(path.join(evidenceDir, "summary.json"), JSON.stringify({ host: "windows", sha: SHA, results: JSON.parse(fs.readFileSync(summary, "utf8")).results }));
+  const windows = await run({ PUBLISH_LINUX_UNITS: LINUX_UNIT }, "windows");
+  assert.deepEqual(windows.units.map((u) => u.name), ["@rightkit/a", LINUX_UNIT]);
+});
+
+test("the plan exposes the Linux-required units to the workflow and refuses an unreadable list", { skip: realWorkflowSkip }, () => {
+  const doc = realDoc();
+  assert.equal(doc.jobs.plan.outputs.linux_count, "${{ steps.plan.outputs.linux_count }}");
+  assert.equal(doc.jobs.plan.outputs.linux_units, "${{ steps.plan.outputs.linux_units }}");
+  const linux = doc.jobs["verify-linux"];
+  assert.equal(linux["runs-on"], "ubuntu-24.04");
+  assert.equal(linux.strategy, undefined);
+  assert.equal(linux.if.trim(), LINUX_IF);
+  assert.deepEqual(linux.needs, ["guard", "plan", "pack"]);
+  assert.equal(linux.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).run.trim(), 'node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"');
+  for (const name of ["Cache the pinned Chrome for Testing", "Provision the pinned Chrome for Testing"]) assert.equal(linux.steps.find((s) => s.name === name).if.trim(), LINUX_CHROME_IF);
+  assert.match(LINUX_CHROME_IF, /needs\.plan\.outputs\.linux_units\), ' @rightkit\/qa-chrome '/);
+  assert.doesNotMatch(LINUX_CHROME_IF, /needs\.plan\.outputs\.units/);
+  // the aggregate reads the same receipt the job uploads, and the contract rejects every Linux mutation
+  assert.equal(linux.steps.find((s) => s.with?.name === "publish-receipt-verify-ubuntu-24.04").with["if-no-files-found"], "error");
+  const names = MUTATIONS.map(([name]) => name);
+  for (const required of ["verify-linux is removed", "qualified stops needing verify-linux", "qualified always expects Linux skipped", "verify-linux gates every unit, not the Linux-required ones", "verify-linux skips the receipt", "verify-linux receipt artifact is optional", "verify-linux runs on Windows"]) assert.ok(names.includes(required), required);
+  assert.deepEqual(proveMutations(doc), []);
+  const pins = JSON.parse(fs.readFileSync(new URL("../../ci/chrome-for-testing.json", import.meta.url), "utf8"));
+  assert.equal(pins.platforms.linux64.sha256, "", "linux64 is unrecorded: a real publish refuses it until a dry run records the pin");
+  assert.equal(pinFor(pins, "linux64").sha256, "");
 });

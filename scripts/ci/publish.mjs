@@ -26,7 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
-import { archiveScanProblems, checkNpmTarball, childEnv, integrity, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
+import { archiveScanProblems, checkNpmTarball, childEnv, integrity, LINUX_HOST, linuxRequiredFor, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
 import { registrySpecProblem } from "./registry-spec.mjs";
 import { featureLabels } from "./publication-record.mjs";
 
@@ -40,7 +40,7 @@ export const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]{0,63}\/)?[a-z0-9][a-z0-9._-]{0
 export const CRATE_NAME = /^[a-z][a-z0-9_-]{0,63}$/;
 export const PLAIN_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 export const MAX_UNITS = 60;
-export const HOSTS = ["macos", "windows"];
+export const HOSTS = ["macos", "windows", LINUX_HOST];
 
 // ---- version requirements ---------------------------------------------------------------------
 
@@ -382,11 +382,15 @@ function dryRunInput(env) {
 async function commandPlan(env = process.env) {
   const plan = await planPublication({ registry: env.PUBLISH_REGISTRY ?? "", unitsText: env.PUBLISH_UNITS ?? "", dryRun: dryRunInput(env), allowHostExclusionText: env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "", allowNoTestText: env.PUBLISH_ALLOW_NO_TEST ?? "", allowIgnoredText: env.PUBLISH_ALLOW_IGNORED ?? "", allowMissingAssetsText: env.PUBLISH_ALLOW_MISSING_ASSETS ?? "" });
   const names = new Set(plan.units.map((u) => u.name));
+  // Units whose plan requires a Linux verify row (ci/linux-required.json). An unreadable list refuses the whole plan.
+  const linux = linuxRequiredFor({ registry: plan.registry, units: plan.units.map((u) => u.name) });
+  if (linux.problems.length) throw new Error(`publish request refused:\n  - ${linux.problems.join("\n  - ")}`);
   const rows = [
     `## Publish plan (${plan.registry}, ${plan.dryRun ? "dry run" : "real publish"})`, "",
     "| Order | Unit | Version |", "|---|---|---|",
     ...plan.units.map((u, i) => `| ${i + 1} | ${u.name} | ${u.version} |`),
     "", plan.skipped.length ? `Already on the registry, skipped: ${plan.skipped.map((u) => `${u.name}@${u.version}`).join(", ")}` : "Nothing skipped.",
+    linux.units.length ? `Linux verification required for: ${linux.units.join(", ")}` : "No unit requires Linux verification.",
   ].join("\n");
   if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${rows}\n`);
   log(rows);
@@ -395,6 +399,8 @@ async function commandPlan(env = process.env) {
     dry_run: String(plan.dryRun),
     count: plan.units.length,
     units: plan.units.map((u) => u.name).join(" "),
+    linux_count: linux.units.length,
+    linux_units: linux.units.join(" "),
     skipped: plan.skipped.map((u) => u.name).join(" "),
     allow_host_exclusion: plan.allowHostExclusion.filter((n) => names.has(n)).join(" "),
     allow_no_test: plan.allowNoTest.filter((n) => names.has(n)).join(" "),
@@ -653,7 +659,7 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   if (!/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) problems.push("GITHUB_RUN_ATTEMPT is not set; the receipt cannot be bound to this attempt");
   if (manifest && manifest.commit !== commit) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${commit}`);
   const hostId = host;
-  if (!HOSTS.includes(hostId)) problems.push(`verify runs on macOS or Windows, not ${hostId}`);
+  if (!HOSTS.includes(hostId)) problems.push(`verify runs on macOS, Windows or Linux, not ${hostId}`);
   const allowHostExclusion = String(env.PUBLISH_ALLOW_HOST_EXCLUSION ?? "").split(/\s+/).filter(Boolean);
   const allowNoTest = String(env.PUBLISH_ALLOW_NO_TEST ?? "").split(/\s+/).filter(Boolean);
   const gate = gateEvidence(env, spawn, registry, commit);
@@ -664,10 +670,25 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   const rows = [];
   const scratchRoot = env.RUNNER_TEMP || os.tmpdir();
   const fail = () => { throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`); };
+  // Linux verifies ONLY the units whose plan requires it, re-derived here from the reviewed ci/linux-required.json
+  // (never from the plan output alone). The gate evidence must cover exactly that set, and a Linux run with nothing
+  // required is refused rather than written as an empty pass. macOS and Windows verify every sealed unit.
+  let scope = manifest?.units ?? [];
+  if (hostId === LINUX_HOST && manifest) {
+    const required = linuxRequiredFor({ registry, units: manifest.units.map((u) => u.name) });
+    problems.push(...required.problems);
+    scope = manifest.units.filter((u) => required.units.includes(u.name));
+    if (scope.length === 0 && required.problems.length === 0) problems.push("no sealed unit requires Linux verification; this host must not run");
+    const scopeNames = scope.map((u) => u.name).sort().join(" ");
+    const planned = splitList(env.PUBLISH_LINUX_UNITS).sort().join(" ");
+    if (planned !== scopeNames) problems.push(`the Linux units the plan named [${planned}] differ from the Linux-required sealed units [${scopeNames}]`);
+    const gated = (evidence.units ?? []).map((u) => u.name).sort().join(" ");
+    if (gated !== scopeNames) problems.push(`the gate ran [${gated}] on Linux, not exactly the Linux-required units [${scopeNames}]`);
+  }
   if (problems.length) fail();
   // Scan every sealed unit before any consumer installs, extracts or executes shipped contents.
   const archiveScans = new Map();
-  for (const unit of manifest.units) {
+  for (const unit of scope) {
     let scan;
     try { scan = await scanArchive({ file: path.join(dir, unit.file), registry: registry === "npm" ? "npm" : "cargo", name: unit.name, version: unit.version, scratchRoot }); }
     catch { problems.push(`${unit.name}: archive secret scan failed`); continue; }
@@ -679,10 +700,10 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   let consumed = new Map();
   if (manifest && problems.length === 0) {
     const excluded = (evidence.units ?? []).filter((u) => u.status === "allowed-exclusion").map((u) => u.name);
-    const common = { units: manifest.units, packDir: dir, scratchRoot, spawn, env };
-    try { consumed = registry === "npm" ? consume.npm(common) : consume.crates({ ...common, excluded, uploadMetadata: buildCrateUploadMetadata }); } catch (error) { for (const unit of manifest.units) consumed.set(unit.name, { problems: [`${unit.name}: consumer verification crashed: ${error.message}`], report: {} }); }
+    const common = { units: scope, packDir: dir, scratchRoot, spawn, env };
+    try { consumed = registry === "npm" ? consume.npm(common) : consume.crates({ ...common, excluded, uploadMetadata: buildCrateUploadMetadata }); } catch (error) { for (const unit of scope) consumed.set(unit.name, { problems: [`${unit.name}: consumer verification crashed: ${error.message}`], report: {} }); }
   }
-  for (const unit of manifest?.units ?? []) {
+  for (const unit of scope) {
     const file = path.join(dir, unit.file);
     let unitProblems;
     try {

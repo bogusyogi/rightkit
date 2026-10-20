@@ -4,16 +4,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { REPOSITORY, sha, loadSealed, checkReceipts } from "./upload.mjs";
+import { REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts } from "./upload.mjs";
 import { unpackArtifact, validateCandidate } from "./reviewed-candidate.mjs";
 
 const need = (ok, why) => { if (!ok) throw new Error(`candidate pins refused: ${why}`); };
 const id = (v) => /^[1-9][0-9]*$/.test(String(v ?? "")) && Number.isSafeInteger(Number(v));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const names = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025" };
+const LINUX_ARTIFACT = "publish-receipt-verify-ubuntu-24.04";
 const allowFields = { hostExclusion: "allowHostExclusion", noTest: "allowNoTest", ignored: "allowIgnored", missingAssets: "allowMissingAssets" };
 
-export function checkQualification({ repository, workflow, run, jobs, runId }) {
+export function checkQualification({ repository, workflow, run, jobs, runId, linuxRequired = false }) {
   need(id(repository?.id) && repository.full_name === REPOSITORY && repository.default_branch === "main" && repository.private === false, "wrong public repository/default branch");
   need(id(workflow?.id) && workflow.path === ".github/workflows/publish.yml" && workflow.state === "active", "wrong qualification workflow");
   need(String(run?.id) === String(runId) && id(run.run_attempt) && /^[0-9a-f]{40}$/.test(run.head_sha ?? ""), "invalid run/attempt/source SHA");
@@ -32,6 +33,8 @@ export function checkQualification({ repository, workflow, run, jobs, runId }) {
   if (qualified.length > 0) successful("qualified");
   const verify = jobs.jobs.filter((j) => /^verify \(/.test(j.name));
   need(verify.length === 2 && verify.every((j) => j.status === "completed" && j.conclusion === "success") && verify.some((j) => /^verify \(xcode-27, /.test(j.name)) && verify.some((j) => /^verify \(windows-2025, /.test(j.name)), "both native verification jobs must succeed");
+  const linuxJobs = jobs.jobs.filter((j) => j.name === "verify-linux");
+  need(linuxRequired ? linuxJobs.length === 1 && linuxJobs[0].status === "completed" && linuxJobs[0].conclusion === "success" : linuxJobs.every((j) => j.conclusion === "skipped"), "the Linux verification job must succeed exactly when the plan requires Linux");
   return qualified.length === 0 ? [{ kind: "qualified-job", status: "missing" }] : [];
 }
 
@@ -76,11 +79,14 @@ export async function collectCandidatePins({ runId, candidateId, outputDir, env 
   const exactRun = await api(attemptRoute);
   need(same(run.head_sha, exactRun.head_sha) && Number(run.run_attempt) === Number(exactRun.run_attempt), "run changed during collection");
   const jobs = await api(`${attemptRoute}/jobs?per_page=100`);
-  const missingProof = checkQualification({ repository, workflow, run: exactRun, jobs, runId });
+  // The sealed manifest is not downloaded yet; the Linux requirement is read from the exact packed artifact below, so the
+  // job check runs again once the units are known. First pass: any verify-linux job that exists must have succeeded.
+  const missingProof = checkQualification({ repository, workflow, run: exactRun, jobs, runId, linuxRequired: jobs.jobs.some((j) => j.name === "verify-linux" && j.conclusion !== "skipped") });
   const listed = await api(`actions/runs/${runId}/artifacts?per_page=100`);
   need(Array.isArray(listed?.artifacts) && listed.artifacts.length === listed.total_count, "incomplete artifact listing");
   const selected = {};
-  for (const [host, name] of Object.entries(names)) {
+  const wanted = { ...names, ...(jobs.jobs.some((j) => j.name === "verify-linux" && j.conclusion !== "skipped") ? { linux: LINUX_ARTIFACT } : {}) };
+  for (const [host, name] of Object.entries(wanted)) {
     const rows = listed.artifacts.filter((a) => a.name === name);
     need(rows.length === 1 && id(rows[0].id), `${host} artifact must exist exactly once`);
     const a = await api(`actions/artifacts/${rows[0].id}`);
@@ -88,7 +94,7 @@ export async function collectCandidatePins({ runId, candidateId, outputDir, env 
     need(String(a.workflow_run?.id) === String(runId) && a.workflow_run.head_sha === exactRun.head_sha && a.workflow_run.head_branch === "main" && a.workflow_run.repository_id === repository.id && a.workflow_run.head_repository_id === repository.id, `${host} foreign artifact provenance`);
     selected[host] = a;
   }
-  need(new Set(Object.values(selected).map((a) => a.id)).size === 3, "duplicate artifact IDs");
+  need(new Set(Object.values(selected).map((a) => a.id)).size === Object.keys(wanted).length, "duplicate artifact IDs");
   fs.mkdirSync(root);
   const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
   const pins = {}; const receipts = {};
@@ -116,6 +122,10 @@ export async function collectCandidatePins({ runId, candidateId, outputDir, env 
     allow[key] = receipts.macos[field];
   }
   const sealed = loadSealed({ packDir, registry: manifest.registry, unitsText: units.join(" "), run: { runId: String(runId), runAttempt: String(exactRun.run_attempt) } });
+  // The Linux requirement comes from the sealed units: a Linux-required candidate must have run and pinned Linux, and nothing else may.
+  const linux = linuxRequiredFor({ registry: manifest.registry, units });
+  need(linux.problems.length === 0, linux.problems.join("; "));
+  need((linux.units.length > 0) === ("linux" in selected), "the Linux receipt must be present exactly when the sealed units require Linux");
   const candidate = validateCandidate({ id: candidateId, sourceSha: exactRun.head_sha, runId: String(runId), runAttempt: String(exactRun.run_attempt), workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry: manifest.registry, units, allow, artifacts: pins });
   need(manifest.commit === candidate.sourceSha && String(manifest.runAttempt) === candidate.runAttempt, "sealed source/attempt mismatch");
   const missingScanDiagnostics = new Set();

@@ -23,10 +23,17 @@ const sorted = list => [...list].sort();
 const need = (ok, why) => { if (!ok) throw new Error(why); };
 
 // Hosts that must each hold PK evidence before a recipe may qualify, and the hosts this pipeline can run.
-// A required host without a runner is a refusal, never a skip (PK14-2 requires Linux).
+// A required host without a runner is a refusal, never a skip (PK14-2 requires Linux). Linux is its own host and is
+// admitted ONLY for a unit whose reviewed host list names it; every other unit is macOS & Windows, as before.
 export const REQUIRED_HOSTS = Object.freeze({ '@rightkit/qa-chrome': ['linux', 'macos', 'windows'] });
-export const RUNNABLE_HOSTS = Object.freeze(['macos', 'windows']);
+export const RUNNABLE_HOSTS = Object.freeze(['linux', 'macos', 'windows']);
+export const DEFAULT_HOSTS = Object.freeze(['macos', 'windows']);
+export const HOST_RUNNER_OS = Object.freeze({ linux: 'Linux', macos: 'macOS', windows: 'Windows' });
 export const missingRequiredHosts = name => (REQUIRED_HOSTS[name] ?? []).filter(host => !RUNNABLE_HOSTS.includes(host));
+/** The hosts this unit's recipe may be qualified on. */
+export const allowedHosts = name => REQUIRED_HOSTS[name] ?? DEFAULT_HOSTS;
+/** Host name of a Node platform: exactly win32, darwin or linux; anything else is unknown, never guessed as macOS. */
+export const hostForPlatform = platform => ({ win32: 'windows', darwin: 'macos', linux: 'linux' })[platform];
 // Reviewed runtime environment: besides the fixed RIGHTKIT_CONSUMER_* binding, only these variables reach the consumer.
 export const RUNTIME_ENV = Object.freeze({ '@rightkit/qa-chrome': ['RIGHTKIT_CHROME_FOR_TESTING_ROOT'] });
 export const runtimeEnvNames = name => RUNTIME_ENV[name] ?? [];
@@ -140,7 +147,7 @@ function qualification({ report, expected, recipe, sourceBindings } = {}) {
   const identity = ['name', 'version', 'commit', 'runId', 'runAttempt', 'manifestRunId', 'manifestRunAttempt', 'manifestSha256', 'archiveSha256', 'archiveSize', 'archiveIntegrity', 'host', 'runnerOS', 'arch'];
   for (const field of identity) if (expected[field] === undefined || report[field] !== expected[field]) fail(`identity mismatch/missing ${field}`);
   if (report.schema !== 1 || report.kind !== 'npm-consumer' || report.qualification !== 'R2a' || report.recipeId !== entry.recipeId || report.pkId !== entry.pkId || report.verified !== true || report.error !== undefined || report.name !== name) fail('unverified or unknown qualification');
-  if (!/^[a-f0-9]{40}$/.test(report.commit ?? '') || !['windows', 'macos'].includes(report.host) || report.runnerOS !== (report.host === 'windows' ? 'Windows' : 'macOS') || !Number.isSafeInteger(report.archiveSize) || report.archiveSize < 1 || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(report.archiveIntegrity ?? '')) fail('malformed candidate/native identity');
+  if (!/^[a-f0-9]{40}$/.test(report.commit ?? '') || !allowedHosts(name).includes(report.host) || report.runnerOS !== HOST_RUNNER_OS[report.host] || !Number.isSafeInteger(report.archiveSize) || report.archiveSize < 1 || !/^sha512-[A-Za-z0-9+/]{86}==$/.test(report.archiveIntegrity ?? '')) fail('malformed candidate/native identity');
   const pin = expected.packageManager;
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(pin ?? '') || report.toolchain?.packageManager !== pin || report.toolchain?.pnpm !== pin?.slice(5) || !/^v\d+\.\d+\.\d+$/.test(report.toolchain?.node ?? '')) fail('native toolchain/pnpm pin mismatch');
   const recipeFiles = Object.keys(entry.files); const bound = [...recipeFiles, ...sourceFiles(name)];
@@ -203,8 +210,11 @@ function qualification({ report, expected, recipe, sourceBindings } = {}) {
 }
 
 export function runNpmRecipeConsumer({ packDir, name, reportFile, root = ROOT, scratchRoot = process.env.RUNNER_TEMP ?? os.tmpdir(), env = process.env, spawn = spawnSync } = {}) {
-  validateContext(env);
+  validateContext(env, process.platform, { linux: allowedHosts(name).includes('linux') });
   need(missingRequiredHosts(name).length === 0, `${name} requires evidence from ${REQUIRED_HOSTS[name]?.join(', ')} but no runner exists for ${missingRequiredHosts(name).join(', ')}: refusing instead of skipping`);
+  const host = hostForPlatform(process.platform);
+  need(host !== undefined && allowedHosts(name).includes(host), `${name} is not qualified on ${host ?? process.platform}; its reviewed hosts are ${allowedHosts(name).join(', ')}: refusing`);
+  need(env.RUNNER_OS === HOST_RUNNER_OS[host], `RUNNER_OS ${JSON.stringify(env.RUNNER_OS)} does not match the ${host} host`);
   need(packDir && reportFile, 'sealed pack & report required');
   const short = shortName(name);
   root = fs.realpathSync(root); scratchRoot = fs.realpathSync(scratchRoot);
@@ -239,7 +249,7 @@ export function runNpmRecipeConsumer({ packDir, name, reportFile, root = ROOT, s
       return invoked.result;
     });
   };
-  const report = { schema: 1, kind: 'npm-consumer', qualification: 'R2a', recipeId: null, pkId: null, name, version: unit.version, commit: sealed.manifest.commit, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, host: process.platform === 'win32' ? 'windows' : 'macos', runnerOS: env.RUNNER_OS, arch: process.arch, commands, verified: false };
+  const report = { schema: 1, kind: 'npm-consumer', qualification: 'R2a', recipeId: null, pkId: null, name, version: unit.version, commit: sealed.manifest.commit, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, manifestRunId: String(sealed.manifest.runId), manifestRunAttempt: String(sealed.manifest.runAttempt), manifestSha256: sealed.manifestSha256, archiveSha256: unit.sha256, archiveSize: unit.size, host, runnerOS: env.RUNNER_OS, arch: process.arch, commands, verified: false };
   try {
     // The reviewed entry is read first and names every file that may execute; nothing else is trusted.
     const inventoryPath = path.join(root, 'ci/consumer-recipes.json');

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, loadSealed, checkReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
 import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -37,7 +37,10 @@ export function validateCandidate(candidate) {
   requireThat(candidate.units.every((unit) => typeof unit === "string" && name.test(unit)), "invalid unit name");
   exact(candidate.allow, ["hostExclusion", "noTest", "ignored", "missingAssets"], "allowsets");
   for (const value of Object.values(candidate.allow)) requireThat(Array.isArray(value) && new Set(value).size === value.length && value.every((unit) => candidate.units.includes(unit)), "allowsets must be unique subsets of candidate units");
-  exact(candidate.artifacts, ["packed", "macos", "windows"], "artifact pins");
+  // A candidate whose units require Linux (ci/linux-required.json) must pin the Linux receipt too; any other candidate must not.
+  const linux = linuxRequiredFor({ registry: candidate.registry, units: candidate.units });
+  requireThat(linux.problems.length === 0, linux.problems.join("; "));
+  exact(candidate.artifacts, ["packed", "macos", "windows", ...(linux.units.length > 0 ? ["linux"] : [])], "artifact pins");
   const ids = new Set();
   for (const [host, pin] of Object.entries(candidate.artifacts)) {
     exact(pin, host === "packed" ? ["id", "digest"] : ["id", "digest", "receiptSha256"], `${host} pin`);
@@ -108,6 +111,11 @@ export function checkProvenance({ candidate, repository, workflow, run, jobs, pr
   }
   const verify = rows.filter((job) => /^verify \(/.test(job.name));
   requireThat(verify.length === 2 && verify.every((job) => job.conclusion === "success") && verify.some((job) => /^verify \(xcode-27, /.test(job.name)) && verify.some((job) => /^verify \(windows-2025, /.test(job.name)), "both native verify jobs must succeed");
+  // verify-linux must have succeeded exactly once when the candidate requires Linux, and must not have run otherwise.
+  const linuxRequired = linuxRequiredFor({ registry: candidate.registry, units: candidate.units });
+  requireThat(linuxRequired.problems.length === 0, linuxRequired.problems.join("; "));
+  const linuxJobs = rows.filter((job) => job.name === "verify-linux");
+  requireThat(linuxRequired.units.length > 0 ? linuxJobs.length === 1 && linuxJobs[0].conclusion === "success" : linuxJobs.every((job) => job.conclusion === "skipped"), "the Linux verify job must succeed exactly when the candidate requires Linux");
   requireThat(rows.every((job) => String(job.run_id) === String(candidate.runId) && String(job.run_attempt) === String(candidate.runAttempt) && job.head_sha === candidate.sourceSha), "job provenance mismatch");
 }
 
@@ -163,7 +171,7 @@ export async function prepareCandidate({ env, candidateId, approvedFile = APPROV
   const supplementPin = selectArchiveSupplement(supplementalFile, candidate, approvedFile);
   const root = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "reviewed-candidate-"));
   const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
-  const expectedNames = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025" };
+  const expectedNames = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025", linux: "publish-receipt-verify-ubuntu-24.04" };
   for (const [host, pin] of Object.entries(candidate.artifacts)) {
     const artifact = await api(`actions/artifacts/${pin.id}`, env, fetchImpl);
     requireThat(String(artifact.id) === String(pin.id) && artifact.name === expectedNames[host] && artifact.expired === false && artifact.digest === pin.digest && String(artifact.workflow_run?.id) === String(candidate.runId) && artifact.workflow_run?.head_sha === candidate.sourceSha && artifact.workflow_run?.head_branch === "main" && artifact.workflow_run?.repository_id === repository.id && artifact.workflow_run?.head_repository_id === repository.id, `${host} artifact provenance/digest mismatch`);
@@ -198,7 +206,7 @@ export function assertAuthenticatedContext(context, actual) {
   for (const [key, value] of Object.entries(bound.env)) if (key.startsWith("GITHUB_")) requireThat(actual.env[key] === value, "promotion GitHub identity changed");
   requireThat(bound.admitted === true, "semantic admission is required");
   const candidate = context.candidate;
-  for (const host of ["macos", "windows"]) {
+  for (const host of Object.keys(candidate.artifacts).filter((key) => key !== "packed")) {
     const directory = path.join(bound.receiptsDir, host);
     const files = fs.readdirSync(directory);
     requireThat(files.length === 1 && sha("sha256", fs.readFileSync(path.join(directory, files[0]))) === candidate.artifacts[host].receiptSha256, "original native receipt changed after admission");

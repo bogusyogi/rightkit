@@ -1,4 +1,4 @@
-# Qualification only: pack once, verify exact archives on Windows & macOS, retain provenance.
+# Qualification only: pack once, verify exact archives on Windows & macOS (and on Linux for units whose plan requires it, ci/linux-required.json), retain provenance.
 # publish-reviewed.yml alone promotes approved archives without rebuilding.
 name: publish
 
@@ -66,6 +66,8 @@ jobs:
       registry: ${{ steps.plan.outputs.registry }}
       count: ${{ steps.plan.outputs.count }}
       units: ${{ steps.plan.outputs.units }}
+      linux_count: ${{ steps.plan.outputs.linux_count }}
+      linux_units: ${{ steps.plan.outputs.linux_units }}
       allow_host_exclusion: ${{ steps.plan.outputs.allow_host_exclusion }}
       allow_no_test: ${{ steps.plan.outputs.allow_no_test }}
       allow_ignored: ${{ steps.plan.outputs.allow_ignored }}
@@ -406,22 +408,115 @@ jobs:
           overwrite: true
           if-no-files-found: ignore
 
+  # Linux verification: ONLY for units ci/linux-required.json says the plan requires on Linux (today @rightkit/qa-chrome),
+  # and only when the request names one. It runs those units through the same gate and writes the same receipt
+  # (publish-receipt-verify-ubuntu-24.04); upload.mjs checkReceipts then requires that receipt for exactly that set.
+  verify-linux:
+    needs: [guard, plan, pack]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.linux_count != '0' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.24.0
+      - name: Install the workspace
+        shell: bash
+        env:
+          RK_REGISTRY: ${{ needs.plan.outputs.registry }}
+        run: |
+          if [ "$RK_REGISTRY" = "crates" ]; then pnpm install --frozen-lockfile --ignore-scripts; else pnpm install --frozen-lockfile; fi
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        if: ${{ needs.plan.outputs.registry == 'crates' }}
+        with:
+          components: rustfmt, clippy
+      - name: Fetch the sealed artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: publish-packed
+          path: ${{ runner.temp }}/rk-pack
+      - name: Cache the pinned Chrome for Testing
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.linux_units), ' rightkit-browser ')) }}
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/chrome-for-testing
+          key: chrome-for-testing-${{ runner.os }}-ubuntu-24.04-${{ hashFiles('ci/chrome-for-testing.json') }}
+      - name: Provision the pinned Chrome for Testing
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.linux_units), ' rightkit-browser ')) }}
+        shell: bash
+        env:
+          RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
+          PUBLISH_DRY_RUN: "false"
+        run: node scripts/ci/provision-chrome.mjs
+      - name: Build and test exactly the Linux-required units
+        shell: bash
+        env:
+          RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
+          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
+          PUBLISH_LINUX_UNITS: ${{ needs.plan.outputs.linux_units }}
+          CARGO_INCREMENTAL: "1"
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          CARGO_PROFILE_TEST_DEBUG: "0"
+        run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"
+      - name: Verify the sealed bytes and write this host's receipt
+        shell: bash
+        env:
+          PUBLISH_REGISTRY: ${{ needs.plan.outputs.registry }}
+          PUBLISH_UNITS: ${{ needs.plan.outputs.units }}
+          PUBLISH_ALLOW_HOST_EXCLUSION: ${{ needs.plan.outputs.allow_host_exclusion }}
+          PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
+          PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
+          PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
+          PUBLISH_LINUX_UNITS: ${{ needs.plan.outputs.linux_units }}
+        run: node scripts/ci/publish.mjs verify
+      - name: Keep this host's receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publish-receipt-verify-ubuntu-24.04
+          path: ${{ runner.temp }}/verify-receipt
+          retention-days: 90
+          overwrite: true
+          if-no-files-found: error
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: publish-verify-ubuntu-24.04-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rightkit-ci
+          retention-days: 90
+          overwrite: true
+          if-no-files-found: ignore
+
   qualified:
-    needs: [guard, plan, pack, verify]
+    needs: [guard, plan, pack, verify, verify-linux]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require completed packing & both native verification hosts
+      - name: Require completed packing & both native verification hosts, and Linux where the plan requires it
         env:
           GUARD_RESULT: ${{ needs.guard.result }}
           PLAN_RESULT: ${{ needs.plan.result }}
           PACK_RESULT: ${{ needs.pack.result }}
           VERIFY_RESULT: ${{ needs.verify.result }}
+          VERIFY_LINUX_RESULT: ${{ needs.verify-linux.result }}
           UNIT_COUNT: ${{ needs.plan.outputs.count }}
+          LINUX_COUNT: ${{ needs.plan.outputs.linux_count }}
+          LINUX_EXPECTED_RESULT: ${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}
         run: |
           test "$GUARD_RESULT" = success
           test "$PLAN_RESULT" = success
           test "$PACK_RESULT" = success
           test "$VERIFY_RESULT" = success
           test "$UNIT_COUNT" -gt 0
+          test "$LINUX_COUNT" -ge 0
+          test "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"

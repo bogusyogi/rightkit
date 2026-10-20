@@ -38,9 +38,12 @@ export function validateRuntime(result, vectors) {
   if (result?.schema !== 1 || result.recipe !== 'PK11-npm-logs' || result.passed !== true || JSON.stringify(Object.keys(result).sort()) !== '["counts","passed","recipe","schema"]' || JSON.stringify(result.counts) !== JSON.stringify(counts)) throw new Error('missing/unknown runtime proof or counts');
   return counts;
 }
-export function validateContext(env, platform = process.platform) {
+// Linux is refused unless the caller passes { linux: true }, which only the reviewed-recipe runner does for a unit whose
+// reviewed host list names Linux (npm-recipe-consumer.mjs allowedHosts); the PK11 logs consumer never does.
+export function validateContext(env, platform = process.platform, { linux = false } = {}) {
   if (env.GITHUB_ACTIONS !== 'true') throw new Error('npm consumer requires GitHub CI');
-  if (!['win32', 'darwin'].includes(platform) || env.RUNNER_OS !== (platform === 'win32' ? 'Windows' : 'macOS')) throw new Error('native Windows/macOS runner required');
+  const runnerOS = { win32: 'Windows', darwin: 'macOS', ...(linux === true ? { linux: 'Linux' } : {}) }[platform];
+  if (runnerOS === undefined || env.RUNNER_OS !== runnerOS) throw new Error(linux === true ? 'native Linux/Windows/macOS runner required' : 'native Windows/macOS runner required');
   if (!/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '') || !/^\d+$/.test(env.GITHUB_RUN_ID ?? '') || !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? '')) throw new Error('missing CI source/run identity');
   for (const [key, value] of Object.entries(env)) if (value && /(?:TOKEN|PASSWORD|SECRET|CREDENTIAL|AUTHORIZATION|ACCESS_KEY|PRIVATE_KEY)/i.test(key)) throw new Error(`credential-bearing environment forbidden: ${key}`);
 }

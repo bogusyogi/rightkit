@@ -8,6 +8,11 @@ import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 
 export const VERIFY_HOSTS = ["windows-2025", "xcode-27"];
+// Linux is a separate job, not a matrix leg: it verifies ONLY the units ci/linux-required.json lists (plan output
+// linux_units) and exists only when the plan names one (linux_count != '0'). A required Linux row that is missing,
+// partial or not a pass is refused by upload.mjs checkReceipts; qualified refuses a skipped or failed verify-linux
+// whenever linux_count is not '0'.
+export const LINUX_HOST_LABEL = "ubuntu-24.04";
 export const PUBLISH_CONCURRENCY_GROUP = "qualification-${{ github.run_id }}";
 // Conditions are compared as exact strings (after trimming), never matched by pattern: an appended
 // `|| true`, a reordered operand or a different operator is a different condition.
@@ -21,7 +26,10 @@ const COUNT_TERM = "needs.plan.outputs.count != '0'";
 export const SWAP_OK_OR_SKIPPED = "((needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped'))";
 export const PACK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${COUNT_TERM} && ${SWAP_OK_OR_SKIPPED} }}`;
 export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} }}`;
+export const LINUX_COUNT_TERM = "needs.plan.outputs.linux_count != '0'";
+export const LINUX_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} && ${LINUX_COUNT_TERM} }}`;
 export const CHROME_IF = "${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}";
+export const LINUX_CHROME_IF = CHROME_IF.replaceAll("needs.plan.outputs.units", "needs.plan.outputs.linux_units");
 export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
 export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
 export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
@@ -31,9 +39,9 @@ export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
   PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
 };
-const ALL_JOBS = ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "qualified"];
-export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\n';
-export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}" };
+const ALL_JOBS = ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "verify-linux", "qualified"];
+export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\ntest "$LINUX_COUNT" -ge 0\ntest "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"\n';
+export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", VERIFY_LINUX_RESULT: "${{ needs.verify-linux.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}", LINUX_COUNT: "${{ needs.plan.outputs.linux_count }}", LINUX_EXPECTED_RESULT: "${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}" };
 // sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only qualification job that may use an
 // environment or the secrets context, and then only the three Apple identity secrets, in exactly one step; the build
 // builder runs on a separate secretless runner. pack stays secretless & only downloads signed result.
@@ -109,6 +117,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(doc?.concurrency?.["cancel-in-progress"] === "false", "a publish must never be cancelled half-way");
   check(same(sorted(Object.keys(jobs)), sorted(ALL_JOBS)), `jobs must be exactly ${ALL_JOBS.join(", ")}`);
   const { guard, plan, pack, verify } = jobs;
+  const verifyLinux = jobs["verify-linux"];
   const signSwap = jobs["sign-swap"];
   const rest = { ...doc }; delete rest.jobs;
   check(findMatches(rest, SECRET_PATTERN).length === 0 && findMatches(rest, ID_TOKEN_PATTERN).length === 0, `no secret or id-token outside a job (${[...findMatches(rest, SECRET_PATTERN), ...findMatches(rest, ID_TOKEN_PATTERN)].map((h) => h.path).join(", ")})`);
@@ -123,13 +132,16 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(stepsOf(pack).filter((s) => s.run?.trim() === "node scripts/ci/publish.mjs pack").length === 1, "qualification must pack exactly once");
   const receipt = stepsOf(verify).filter((s) => s.with?.name === "publish-receipt-verify-${{ matrix.os }}");
   check(receipt.length === 1 && receipt[0].with.path === `${RT}/verify-receipt` && receipt[0].with["if-no-files-found"] === "error" && receipt[0].with["retention-days"] === "90", "every verify host must retain its native receipt");
+  const linuxReceipt = stepsOf(verifyLinux).filter((s) => s.with?.name === `publish-receipt-verify-${LINUX_HOST_LABEL}`);
+  check(linuxReceipt.length === 1 && /^actions\/upload-artifact@/.test(linuxReceipt[0].uses ?? "") && linuxReceipt[0].with.path === `${RT}/verify-receipt` && linuxReceipt[0].with["if-no-files-found"] === "error" && linuxReceipt[0].with["retention-days"] === "90" && linuxReceipt[0].if === undefined, "the Linux verify job must retain its native receipt unconditionally");
+  check(plan?.outputs?.linux_count === "${{ steps.plan.outputs.linux_count }}" && plan?.outputs?.linux_units === "${{ steps.plan.outputs.linux_units }}", "plan must expose the Linux-required unit count and names");
 
   const qualified = jobs.qualified;
-  check(same(needsOf(qualified), ["guard", "plan", "pack", "verify"]) && qualified?.if === "${{ always() }}", "qualified must always inspect guard, plan, pack & both-host verify results");
+  check(same(needsOf(qualified), ["guard", "plan", "pack", "verify", "verify-linux"]) && qualified?.if === "${{ always() }}", "qualified must always inspect guard, plan, pack, both-host verify & Linux verify results");
   check(same(sorted(Object.keys(qualified ?? {})), ["if", "needs", "runs-on", "steps", "timeout-minutes"]) && qualified?.["runs-on"] === "ubuntu-24.04", "qualified must be a closed hosted result gate");
   check(stepsOf(qualified).length === 1 && same(sorted(Object.keys(qualified.steps[0])), ["env", "name", "run"]) && same(qualified.steps[0].env, QUALIFIED_ENV) && qualified.steps[0].run === QUALIFIED_RUN, "qualified must fail for every failed, cancelled or skipped prerequisite & empty plan");
 
-  for (const [jobName, artifactName] of [["pack", "publish-packed"], ["build-swap", UNSIGNED_ARTIFACT], ["sign-swap", SIGN_SWAP_ARTIFACT], ["verify", "publish-verify-${{ matrix.os }}-${{ github.run_attempt }}"]]) {
+  for (const [jobName, artifactName] of [["pack", "publish-packed"], ["build-swap", UNSIGNED_ARTIFACT], ["sign-swap", SIGN_SWAP_ARTIFACT], ["verify", "publish-verify-${{ matrix.os }}-${{ github.run_attempt }}"], ["verify-linux", `publish-verify-${LINUX_HOST_LABEL}-\${{ github.run_attempt }}`]]) {
     const artifacts = stepsOf(jobs[jobName]).filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === artifactName);
     check(artifacts.length === 1 && artifacts[0].with["retention-days"] === "90", `${artifactName} must retain qualification evidence for 90 days`);
   }
@@ -176,6 +188,23 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(stepsOf(pack).some((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? "")) && stepsOf(pack).some((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "pack must seal and upload publish-packed");
   check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
 
+  // Linux verification: only the units the plan requires on Linux, only when there are any, through the same gate and receipt.
+  check(verifyLinux && !("strategy" in verifyLinux) && verifyLinux?.["runs-on"] === LINUX_HOST_LABEL, `verify-linux must run on ${LINUX_HOST_LABEL} with no matrix`);
+  check(same(sorted(Object.keys(verifyLinux ?? {})), ["if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"]), "verify-linux job is closed against containers, env & defaults");
+  check(same(needsOf(verifyLinux), ["guard", "plan", "pack"]), "verify-linux must need exactly guard, plan & pack");
+  check(typeof verifyLinux?.if === "string" && verifyLinux.if.trim() === LINUX_IF, `verify-linux's condition must be exactly ${LINUX_IF}`);
+  const linuxSteps = stepsOf(verifyLinux);
+  const linuxGateAt = linuxSteps.findIndex((s) => /node scripts\/ci\/gate\.mjs /.test(s.run ?? ""));
+  const linuxVerifyAt = linuxSteps.findIndex((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? ""));
+  check(linuxSteps.filter((s) => /node scripts\/ci\/gate\.mjs /.test(s.run ?? "")).length === 1 && linuxSteps[linuxGateAt]?.run?.trim() === 'node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"', "verify-linux must gate exactly the Linux-required units, with no allowance flag");
+  check(linuxGateAt >= 0 && linuxSteps[linuxGateAt].env?.PUBLISH_LINUX_UNITS === PLAN_OUT("linux_units") && linuxSteps[linuxGateAt].env?.PUBLISH_REGISTRY === PLAN_OUT("registry") && linuxSteps[linuxGateAt].if === undefined, "the Linux gate must read the plan's registry and linux_units unconditionally");
+  check(linuxSteps.filter((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? "")).length === 1 && linuxVerifyAt > linuxGateAt && linuxGateAt >= 0 && linuxSteps[linuxVerifyAt].run?.trim() === "node scripts/ci/publish.mjs verify" && linuxSteps[linuxVerifyAt].if === undefined && same(linuxSteps[linuxVerifyAt].env, { ...PUBLISH_ENV, PUBLISH_LINUX_UNITS: PLAN_OUT("linux_units") }), "verify-linux must gate, then write the Linux receipt with the plan's exact request");
+  const linuxChromeCache = linuxSteps.find((s) => s.name === "Cache the pinned Chrome for Testing");
+  const linuxChrome = linuxSteps.find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
+  check(linuxChromeCache?.if?.trim() === LINUX_CHROME_IF && linuxChromeCache?.uses?.startsWith("actions/cache@") && linuxChrome?.if?.trim() === LINUX_CHROME_IF && linuxChrome?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && linuxChrome?.env?.PUBLISH_DRY_RUN === "false", "verify-linux must provision the pinned Chrome for Testing for the Linux units (pinned download, never a dry run)");
+  check(linuxSteps.some((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "verify-linux must download the sealed publish-packed artifact");
+  check(linuxSteps.some((s) => /^actions\/checkout@/.test(s.uses ?? "")), "verify-linux must check out the dispatched commit");
+
   // Qualification has no registry privilege; only sign-swap holds Apple identity secrets.
   for (const [jobName, job] of Object.entries(jobs)) {
     const isSign = jobName === "sign-swap";
@@ -196,7 +225,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(denyInstallAt >= 0 && planSteps.filter((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).length === 1 && planSteps[denyInstallAt].if?.trim() === DENY_IF && same(Object.keys(planSteps[denyInstallAt].with ?? {}), ["tool"]) && planSteps[denyInstallAt].with.tool === DENY_TOOL && planSteps[denyInstallAt].env === undefined, `plan must install ${DENY_TOOL} (pinned action, only the tool input) under the exact licence-gate condition`);
   check(denyRunAt >= 0 && planSteps.filter((s) => /cargo deny\b/.test(s.run ?? "")).length === 1 && planSteps[denyRunAt].run.trim() === DENY_RUN && planSteps[denyRunAt].if?.trim() === DENY_IF && planSteps[denyRunAt].env === undefined && planSteps[denyRunAt].shell === undefined, `plan must run exactly "${DENY_RUN}" under the exact licence-gate condition, with no env or shell`);
   check(planAt >= 0 && denyInstallAt > planAt && denyRunAt > denyInstallAt, "the licence gate must install the checker, then run it, after the plan step");
-  for (const job of ["pack", "verify"]) check(reaches(job, "plan"), `${job} must run only after plan, which holds the licence gate`);
+  for (const job of ["pack", "verify", "verify-linux"]) check(reaches(job, "plan"), `${job} must run only after plan, which holds the licence gate`);
 
   // Isolated native builder emits only sealed bytes; fresh signer has no source checkout or build process.
   const buildSwap = jobs["build-swap"]; const buildSteps = stepsOf(buildSwap);
@@ -266,6 +295,7 @@ const withoutTerm = (condition, term) => {
 const CONDITION_JOBS = [
   ["pack", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), COUNT_TERM, SWAP_OK_OR_SKIPPED]],
   ["verify", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM]],
+  ["verify-linux", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM, LINUX_COUNT_TERM]],
 ];
 /** One mutation per operand of verify's, seal-check's and upload's conditions, plus weakened result checks. */
 const CONDITION_MUTATIONS = [
@@ -281,6 +311,53 @@ const CONDITION_MUTATIONS = [
   ["pack has no condition", edit((j) => { delete j.pack.if; })],
   ["verify has no condition", edit((j) => { delete j.verify.if; })],
   ["verify's condition is the old implicit-success count test", edit((j) => { j.verify.if = "${{ needs.plan.outputs.count != '0' }}"; })],
+  ["verify-linux has no condition", edit((j) => { delete j["verify-linux"].if; })],
+  ["verify-linux's condition is the old implicit-success count test", edit((j) => { j["verify-linux"].if = "${{ needs.plan.outputs.linux_count != '0' }}"; })],
+];
+
+/** Linux verification mutations: a required Linux row must never be skippable, narrowable or counted without a receipt. */
+const LINUX_MUTATIONS = [
+  ["verify-linux is removed", edit((j) => { delete j["verify-linux"]; })],
+  ["qualified stops needing verify-linux", edit((j) => { j.qualified.needs = j.qualified.needs.filter((n) => n !== "verify-linux"); })],
+  ["qualified stops reading the verify-linux result", edit((j) => { delete j.qualified.steps[0].env.VERIFY_LINUX_RESULT; })],
+  ["qualified drops the Linux result test", edit((j) => { j.qualified.steps[0].run = j.qualified.steps[0].run.replace('test "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"\n', ""); })],
+  ["qualified always expects Linux skipped", edit((j) => { j.qualified.steps[0].env.LINUX_EXPECTED_RESULT = "skipped"; })],
+  ["qualified expects Linux skipped when required", edit((j) => { j.qualified.steps[0].env.LINUX_EXPECTED_RESULT = "${{ needs.plan.outputs.linux_count != '0' && 'skipped' || 'success' }}"; })],
+  ["qualified reads another Linux count", edit((j) => { j.qualified.steps[0].env.LINUX_COUNT = "${{ needs.plan.outputs.count }}"; })],
+  ["plan stops exposing linux_units", edit((j) => { delete j.plan.outputs.linux_units; })],
+  ["plan stops exposing linux_count", edit((j) => { delete j.plan.outputs.linux_count; })],
+  ["verify-linux runs on Windows", edit((j) => { j["verify-linux"]["runs-on"] = "windows-2025"; })],
+  ["verify-linux becomes a matrix", edit((j) => { j["verify-linux"].strategy = { matrix: { os: ["ubuntu-24.04"] } }; })],
+  ["verify-linux needs no pack", edit((j) => { j["verify-linux"].needs = j["verify-linux"].needs.filter((n) => n !== "pack"); })],
+  ["verify-linux continues on error", edit((j) => { j["verify-linux"]["continue-on-error"] = "true"; })],
+  ["verify-linux step continues on error", edit((j) => { j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? ""))["continue-on-error"] = "true"; })],
+  ["verify-linux gates every unit, not the Linux-required ones", edit((j) => { const s = j["verify-linux"].steps.find((x) => /gate\.mjs/.test(x.run ?? "")); s.run = s.run.replace("$PUBLISH_LINUX_UNITS", "$PUBLISH_UNITS"); })],
+  ["verify-linux gate gains an allowance", edit((j) => { const s = j["verify-linux"].steps.find((x) => /gate\.mjs/.test(x.run ?? "")); s.run = `${s.run.trim()} --allow-no-test "$PUBLISH_LINUX_UNITS"`; })],
+  ["verify-linux gate reads another unit list", edit((j) => { j["verify-linux"].steps.find((x) => /gate\.mjs/.test(x.run ?? "")).env.PUBLISH_LINUX_UNITS = PLAN_OUT("units"); })],
+  ["verify-linux gate is conditional", edit((j) => { j["verify-linux"].steps.find((x) => /gate\.mjs/.test(x.run ?? "")).if = "${{ needs.plan.outputs.registry == 'npm' }}"; })],
+  ["verify-linux skips the unit gate", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => !/gate\.mjs/.test(s.run ?? "")); })],
+  ["verify-linux skips the receipt", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => !/publish\.mjs verify/.test(s.run ?? "")); })],
+  ["verify-linux receipt is written before the gate", edit((j) => { const steps = j["verify-linux"].steps; const i = steps.findIndex((s) => /publish\.mjs verify/.test(s.run ?? "")); const [x] = steps.splice(i, 1); steps.splice(steps.findIndex((s) => /gate\.mjs/.test(s.run ?? "")), 0, x); })],
+  ["verify-linux receipt is conditional", edit((j) => { j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).if = "${{ needs.plan.outputs.registry == 'npm' }}"; })],
+  ["verify-linux receipt loses the Linux unit list", edit((j) => { delete j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.PUBLISH_LINUX_UNITS; })],
+  ["verify-linux receipt loses an allowance record", edit((j) => { delete j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.PUBLISH_ALLOW_NO_TEST; })],
+  ["verify-linux receipt artifact is lost", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => s.with?.name !== `publish-receipt-verify-${LINUX_HOST_LABEL}`); })],
+  ["verify-linux receipt artifact is optional", edit((j) => { j["verify-linux"].steps.find((s) => s.with?.name === `publish-receipt-verify-${LINUX_HOST_LABEL}`).with["if-no-files-found"] = "ignore"; })],
+  ["verify-linux receipt artifact is conditional", edit((j) => { j["verify-linux"].steps.find((s) => s.with?.name === `publish-receipt-verify-${LINUX_HOST_LABEL}`).if = "${{ success() }}"; })],
+  ["verify-linux receipt retention shortens", edit((j) => { j["verify-linux"].steps.find((s) => s.with?.name === `publish-receipt-verify-${LINUX_HOST_LABEL}`).with["retention-days"] = "7"; })],
+  ["verify-linux receipt is named for another host", edit((j) => { j["verify-linux"].steps.find((s) => s.with?.name === `publish-receipt-verify-${LINUX_HOST_LABEL}`).with.name = "publish-receipt-verify-xcode-27"; })],
+  ["verify-linux evidence retention shortens", edit((j) => { j["verify-linux"].steps.find((s) => s.with?.name === `publish-verify-${LINUX_HOST_LABEL}-\${{ github.run_attempt }}`).with["retention-days"] = "7"; })],
+  ["verify-linux Chrome cache drops qa-chrome coverage", edit((j) => { const s = j["verify-linux"].steps.find((x) => x.name === "Cache the pinned Chrome for Testing"); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa-chrome ')", ""); })],
+  ["verify-linux Chrome provision drops qa-chrome coverage", edit((j) => { const s = j["verify-linux"].steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa-chrome ')", ""); })],
+  ["verify-linux Chrome provision tests the full unit list", edit((j) => { const s = j["verify-linux"].steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")); s.if = s.if.replaceAll("linux_units", "units"); })],
+  ["verify-linux Chrome pin is told it is a dry run", edit((j) => { j["verify-linux"].steps.find((x) => /provision-chrome\.mjs/.test(x.run ?? "")).env.PUBLISH_DRY_RUN = "true"; })],
+  ["verify-linux reads a secret", edit((j) => { j["verify-linux"].steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.CARGO_REGISTRY_TOKEN = "${{ secrets.CARGO_REGISTRY_TOKEN }}"; })],
+  ["verify-linux requests id-token", edit((j) => { j["verify-linux"].permissions = { contents: "read", "id-token": "write" }; })],
+  ["verify-linux joins an environment", edit((j) => { j["verify-linux"].environment = "release"; })],
+  ["verify-linux has no timeout", edit((j) => { delete j["verify-linux"]["timeout-minutes"]; })],
+  ["verify-linux uses an unpinned action", edit((j) => { j["verify-linux"].steps[0].uses = "actions/checkout@v7"; })],
+  ["verify-linux checkout keeps credentials", edit((j) => { j["verify-linux"].steps[0].with["persist-credentials"] = "true"; })],
+  ["verify-linux stops downloading the sealed bytes", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => s.with?.name !== "publish-packed"); })],
 ];
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
@@ -419,6 +496,7 @@ export const MUTATIONS = [
   ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
   ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
   ...CONDITION_MUTATIONS,
+  ...LINUX_MUTATIONS,
 ];
 
 /** Returns the names of mutations the contract failed to reject (empty when every one is caught). */

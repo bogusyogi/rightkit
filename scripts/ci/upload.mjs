@@ -29,6 +29,10 @@ import { shippedDependencyProblems } from "./registry-spec.mjs";
 
 export const REPOSITORY = "bogusyogi/rightkit"; // moved 2026-10-17 (#342)
 export const REQUIRED_HOSTS = ["macos", "windows"];
+export const LINUX_HOST = "linux";
+// Reviewed list of units whose plan requires a Linux verify row. Fixed path next to this script, read from the
+// dispatched/promotion checkout, never from an input; a missing or malformed file refuses (fail closed).
+export const LINUX_REQUIRED_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "linux-required.json");
 export const NPM_REGISTRY_URL = "https://registry.npmjs.org/";
 export const CRATES_PUBLISH_URL = "https://crates.io/api/v1/crates/new";
 export const CRATES_INDEX_URL = "https://index.crates.io/";
@@ -201,8 +205,33 @@ export async function authenticatedArchiveScanResolver(evidence, candidate, mani
   return resolver;
 }
 
-export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {}, run = {}, archiveScanResolver }) {
+/** The units of this request whose plan requires a Linux verify row: { units, problems }. Any defect is a problem. */
+export function linuxRequiredFor({ registry, units, file = LINUX_REQUIRED_FILE }) {
   const problems = [];
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return { units: [], problems: [`${path.basename(file)} is missing or not JSON; the Linux requirement cannot be derived`] }; }
+  const unique = (list) => Array.isArray(list) && list.every((n) => typeof n === "string" && n !== "" && n === n.trim() && !/\s/.test(n)) && new Set(list).size === list.length;
+  if (!doc || typeof doc !== "object" || Array.isArray(doc) || doc.schema !== 1 || !unique(doc.npm) || !unique(doc.crates)) return { units: [], problems: [`${path.basename(file)} must be {schema: 1, npm: [unique names], crates: [unique names]}`] };
+  if (registry !== "npm" && registry !== "crates") return { units: [], problems: [`unknown registry ${JSON.stringify(registry)}`] };
+  const listed = new Set(doc[registry]);
+  return { units: [...units].filter((name) => listed.has(name)), problems };
+}
+
+/** The verify hosts a publication of these Linux-required units needs a receipt from. */
+export const requiredHostsFor = (linuxUnits) => (linuxUnits.length > 0 ? [...REQUIRED_HOSTS, LINUX_HOST] : [...REQUIRED_HOSTS]);
+
+export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {}, run = {}, archiveScanResolver, linuxRequired }) {
+  const problems = [];
+  // The units whose plan requires a Linux row. Derived from the reviewed ci/linux-required.json unless the caller
+  // pins it; an unreadable list refuses. A required Linux row is never optional: no receipt, a partial receipt or a
+  // non-pass row refuses. Units outside this set are verified on macos and windows only, exactly as before.
+  let linuxUnits = linuxRequired;
+  if (linuxUnits === undefined) {
+    const derived = linuxRequiredFor({ registry: manifest.registry, units: manifest.units.map((u) => u.name) });
+    problems.push(...derived.problems);
+    linuxUnits = derived.units;
+  }
+  const requiredHosts = requiredHostsFor(linuxUnits);
   const docs = [];
   for (const file of listFiles(receiptsDir)) {
     if (!file.endsWith(".json")) continue;
@@ -213,7 +242,9 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
   const sameSet = (a, b) => JSON.stringify([...(a ?? [])].sort()) === JSON.stringify([...b].sort());
   if (!run.runId) problems.push("this run's id is unknown; receipts cannot be bound to it");
   const statusByUnit = new Map(manifest.units.map((u) => [u.name, []]));
-  for (const host of REQUIRED_HOSTS) {
+  // The receipt host set must equal the required host set: a receipt from any other host is refused.
+  for (const host of new Set(docs.map((d) => d.doc.host))) if (!requiredHosts.includes(host)) problems.push(`unexpected verify receipt from ${JSON.stringify(host)}; the required hosts are ${requiredHosts.join(", ")}`);
+  for (const host of requiredHosts) {
     const mine = docs.filter((d) => d.doc.host === host);
     if (mine.length !== 1) { problems.push(`expected exactly one verify receipt from ${host}, found ${mine.length}`); continue; }
     const { doc } = mine[0];
@@ -238,8 +269,10 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
     if (!sameSet(doc.allowIgnored, allowIgnored)) bad("it ran with different allow_ignored than this request");
     if (!sameSet(doc.allowMissingAssets, allowAssets)) bad("it ran with different allow_missing_assets than this request");
     const byName = new Map((doc.units ?? []).map((u) => [u.name, u]));
-    if ((doc.units ?? []).length !== manifest.units.length) bad(`covers ${(doc.units ?? []).length} units, the manifest has ${manifest.units.length}`);
-    for (const unit of manifest.units) {
+    // macos and windows cover every sealed unit; linux covers exactly the Linux-required subset.
+    const scope = host === LINUX_HOST ? manifest.units.filter((u) => linuxUnits.includes(u.name)) : manifest.units;
+    if ((doc.units ?? []).length !== scope.length || (doc.units ?? []).some((u) => !scope.some((s) => s.name === u?.name))) bad(`covers ${(doc.units ?? []).length} units${host === LINUX_HOST ? ` [${(doc.units ?? []).map((u) => u?.name).join(", ")}], the Linux-required units are [${scope.map((u) => u.name).join(", ")}]` : `, the manifest has ${manifest.units.length}`}`);
+    for (const unit of scope) {
       const row = byName.get(unit.name);
       if (!row) { bad(`no evidence for ${unit.name}`); continue; }
       if (row.version !== unit.version || row.file !== unit.file || row.sha256 !== unit.sha256) bad(`${unit.name}: it verified different bytes (${row.file} ${String(row.sha256).slice(0, 12)}) than the sealed ${unit.file} ${unit.sha256.slice(0, 12)}`);
@@ -253,6 +286,7 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
       }
       for (const problem of archiveScanProblems(archiveScan, unit.sha256)) bad(`${unit.name}: ${problem}`);
       if (!PASS_STATUSES.includes(row.status)) bad(`${unit.name}: status ${JSON.stringify(row.status)} is not a pass`);
+      if (host === LINUX_HOST && row.status !== "pass") bad(`${unit.name}: a Linux-required unit needs a real pass on Linux, not ${JSON.stringify(row.status)}`);
       if (row.status === "allowed-exclusion" && !allowExcl.has(unit.name)) bad(`${unit.name}: excluded from this host without allow_host_exclusion`);
       if (row.status === "allowed-no-test" && !allowNoTest.has(unit.name)) bad(`${unit.name}: has no test script and is not named in allow_no_test`);
       if (row.status === "pass" && !(row.executed > 0 && (row.ignored ?? 0) === 0 && (row.skipped ?? 0) === 0)) bad(`${unit.name}: status pass without a positive executed count and zero ignored/skipped (executed ${row.executed}, ignored ${row.ignored}, skipped ${row.skipped})`);

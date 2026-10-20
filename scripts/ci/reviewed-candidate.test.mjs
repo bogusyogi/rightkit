@@ -720,3 +720,33 @@ test("admission refuses a committed runtime pin that no qualified unit transfers
   const f = fixture(t, historicalReceipts, true);
   assert.ok(await f.prepare());
 });
+
+test("a Linux-required candidate must pin the Linux receipt and its Linux job; any other candidate must not", (t) => {
+  const f = fixture(t); validateCandidate(f.candidate); checkProvenance(f.provenance);
+  const linuxPin = { id: "999", digest: `sha256:${"e".repeat(64)}`, receiptSha256: "f".repeat(64) };
+  const required = (candidate) => { candidate.registry = "npm"; candidate.units = ["@rightkit/qa-chrome"]; return candidate; };
+  // Not required: a Linux pin is surplus and refused; the three-pin shape stays valid.
+  const surplus = clone(f.candidate); surplus.artifacts.linux = linuxPin;
+  assert.throws(() => validateCandidate(surplus), /artifact pins has unexpected or missing keys/);
+  // Required: the Linux pin is mandatory and must be shaped like the native pins.
+  const missing = required(clone(f.candidate));
+  assert.throws(() => validateCandidate(missing), /artifact pins has unexpected or missing keys/);
+  const pinned = required(clone(f.candidate)); pinned.artifacts.linux = linuxPin;
+  assert.equal(validateCandidate(pinned), pinned);
+  const badPin = required(clone(f.candidate)); badPin.artifacts.linux = { ...linuxPin }; delete badPin.artifacts.linux.receiptSha256;
+  assert.throws(() => validateCandidate(badPin), /linux pin has unexpected or missing keys/);
+  const dupId = required(clone(f.candidate)); dupId.artifacts.linux = { ...linuxPin, id: f.candidate.artifacts.macos.id };
+  assert.throws(() => validateCandidate(dupId), /duplicate artifact ID/);
+  // Provenance: the Linux verify job must have succeeded exactly once when required, and must not have run otherwise.
+  const job = (conclusion) => ({ id: 70, name: "verify-linux", run_id: 77, run_attempt: 1, head_sha: SOURCE, status: "completed", conclusion });
+  const base = clone(f.provenance);
+  const withLinux = (conclusion, candidate) => { const p = clone(base); p.candidate = candidate; p.jobs.jobs.push(...(conclusion === null ? [] : [job(conclusion)])); p.jobs.total_count = p.jobs.jobs.length; return p; };
+  checkProvenance(withLinux("skipped", clone(f.candidate)));
+  checkProvenance(withLinux(null, clone(f.candidate)));
+  assert.throws(() => checkProvenance(withLinux("success", clone(f.candidate))), /Linux verify job must succeed exactly when/);
+  assert.throws(() => checkProvenance(withLinux("failure", clone(f.candidate))), /refused|Linux verify job/);
+  checkProvenance(withLinux("success", pinned));
+  for (const bad of ["skipped", "failure", "cancelled", null]) assert.throws(() => checkProvenance(withLinux(bad, pinned)), /Linux verify job must succeed exactly when/, String(bad));
+  const twice = withLinux("success", pinned); twice.jobs.jobs.push({ ...job("success"), id: 71 }); twice.jobs.total_count = twice.jobs.jobs.length;
+  assert.throws(() => checkProvenance(twice), /Linux verify job must succeed exactly when/);
+});

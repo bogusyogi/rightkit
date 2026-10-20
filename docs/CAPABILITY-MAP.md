@@ -16,7 +16,7 @@ Capabilities: 92 (57 with fingerprints, 35 declaration-only). Internal owners th
 | agent-sessions | `rightkit-agents` | none | declaration-only | 0 | rightkit-agents: published 0.2.0 (crates.io) |
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.2.0 (crates.io) |
 | android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.2.0 (crates.io) |
-| app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.1 (npm) |
+| app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.2 (npm) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.3.1 (crates.io) |
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.4 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.8 (npm) |
@@ -45,11 +45,11 @@ Capabilities: 92 (57 with fingerprints, 35 declaration-only). Internal owners th
 | github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.0 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: published 0.1.2 (crates.io) |
 | google-identity | `rightkit-google-identity` | none | declaration-only | 0 | rightkit-google-identity: published 0.1.0 (crates.io) |
-| http-client | `rightkit-http` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-http: published 0.3.6 (crates.io) |
+| http-client | `rightkit-http` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-http: published 0.3.7 (crates.io) |
 | installation-identity | `rightkit-identity` | none | declaration-only | 0 | rightkit-identity: published 0.1.0 (crates.io) |
 | legal-assent | `@rightkit/legal` | none | declaration-only | 0 | @rightkit/legal: published 0.6.1 (npm) |
 | legal-ui | `@rightkit/legal-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/legal-ui: published 0.4.1 (npm) |
-| licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.2.1 (npm); rightkit-license: published 0.2.3 (crates.io) |
+| licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.3.0 (npm); rightkit-license: published 0.2.3 (crates.io) |
 | lifecycle-hooks | `@rightkit/hooks`, `rightkit-hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm); rightkit-hooks: published 0.2.0 (crates.io) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.3.0 (crates.io) |
 | local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.3.0 (crates.io) |
@@ -85,7 +85,7 @@ Capabilities: 92 (57 with fingerprints, 35 declaration-only). Internal owners th
 | script-alignment | `rightkit-align` | none | declaration-only | 0 | rightkit-align: none recorded |
 | search | `rightkit-search` | advise | fingerprinted | 9 (0 block, 9 advise) | rightkit-search: published 0.4.0 (crates.io) |
 | secret-vault | `rightkit-vault` | none | declaration-only | 0 | rightkit-vault: published 0.1.0 (crates.io) |
-| settings-persistence | `rightkit-app-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-app-settings: published 0.2.4 (crates.io) |
+| settings-persistence | `rightkit-app-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-app-settings: published 0.3.0 (crates.io) |
 | settings-ui | `@rightkit/settings-ui` | none | declaration-only | 0 | @rightkit/settings-ui: published 0.6.1 (npm) |
 | shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.3.6 (crates.io) |
 | speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.2.4 (crates.io) |
@@ -99,7 +99,7 @@ Capabilities: 92 (57 with fingerprints, 35 declaration-only). Internal owners th
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.2.3 (crates.io); rightkit-tts-qwen: published 0.2.7 (crates.io); rightkit-tts-qwen-sys: published 0.1.2 (crates.io) |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.3.1 (npm) |
 | time-civil | `rightkit-time` | none | declaration-only | 0 | rightkit-time: published 0.1.0 (crates.io) |
-| timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.3.0 (crates.io) |
+| timed-transcripts | `rightkit-transcript` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-transcript: published 0.4.0 (crates.io) |
 | typeset | `rightkit-typeset` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-typeset: published 0.1.0 (crates.io) |
 | update-policy | `@rightkit/app-update` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/app-update: published 0.4.0 (npm) |
 | voice-activity-detection | `rightkit-vad` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-vad: published 0.1.2 (crates.io) |

@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-crash-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-crash = { version = "=0.3.4", default-features = false }

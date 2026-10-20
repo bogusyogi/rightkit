@@ -1,0 +1,6 @@
+{
+  "_comment": "Units whose plan REQUIRES a Linux verify row (docs/plans/2026-10-20-rightkit-implementation/01-packages.md PK14 and the section 4 host matrix: qa-chrome is the only unit run on Linux). publish.yml verify-linux runs only these units, and only when the request names one. A unit listed here has no Linux exclusion: a missing, partial or non-pass Linux receipt refuses the publication (scripts/ci/upload.mjs checkReceipts). Reviewed list: change it only with the plan.",
+  "schema": 1,
+  "npm": ["@rightkit/qa-chrome"],
+  "crates": []
+}

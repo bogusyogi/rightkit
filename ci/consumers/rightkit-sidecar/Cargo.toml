@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-sidecar-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-sidecar = { version = "=0.3.0" }
+serde_json = "1"

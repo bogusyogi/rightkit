@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { sha, loadApprovedArtifacts, checkReceipts } from "./upload.mjs";
 import { validateCandidate } from "./reviewed-candidate.mjs";
-import { collectCandidatePins, proposalOutput } from "./candidate-pins.mjs";
+import { checkQualification, collectCandidatePins, proposalOutput } from "./candidate-pins.mjs";
 
 const SOURCE = "a".repeat(40);
 const archiveScanFixture = (unit) => ({ schema: 1, scanner: "publish-cargo/scanCrateForSecrets", archiveSha256: unit.sha256, status: "pass", files: 1, violations: [], problems: [] });
@@ -208,4 +208,15 @@ test("explicit IDs, authentication & fresh scratch destination fail before reque
 test("network errors cannot leak read token", async (t) => {
   const f = fixture(t);
   await assert.rejects(f.collect({ fetchImpl: async () => { throw new Error(f.env.GITHUB_TOKEN); } }), (error) => !error.message.includes(f.env.GITHUB_TOKEN));
+});
+
+test("qualification: the Linux verify job must have succeeded exactly when the plan requires Linux", (t) => {
+  const f = fixture(t);
+  const base = { repository: f.repository, workflow: f.workflow, run: f.run, runId: 77 };
+  const withJobs = (extra, linuxRequired) => { const jobs = { total_count: f.jobs.jobs.length + extra.length, jobs: [...f.jobs.jobs, ...extra.map((conclusion, i) => ({ id: 50 + i, name: "verify-linux", status: "completed", conclusion, run_id: 77, run_attempt: 1, head_sha: SOURCE }))] }; return () => checkQualification({ ...base, jobs, ...(linuxRequired === undefined ? {} : { linuxRequired }) }); };
+  assert.deepEqual(withJobs([])(), []);
+  assert.deepEqual(withJobs(["skipped"])(), []);
+  assert.deepEqual(withJobs(["success"], true)(), []);
+  for (const bad of [[], ["skipped"], ["failure"], ["cancelled"], ["success", "success"]]) assert.throws(withJobs(bad, true), /Linux verification job must succeed exactly when the plan requires Linux/, JSON.stringify(bad));
+  assert.throws(withJobs(["success"], false), /Linux verification job must succeed/);
 });

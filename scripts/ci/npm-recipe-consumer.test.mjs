@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { consumeNpm } from './consume.mjs';
 import { sha } from './upload.mjs';
-import { RUNNER_FILE, recipeDirectory, sourceFiles, hasReviewedNpmEntry, missingRequiredHosts, runtimeEnvironment, consumerChildEnv, runNpmRecipeConsumer, validateRecipeEntry, validatePackedClosure, validateConsumerManifest, validateLockClosure, validateMountResult, scratchManifest, npmRecipeQualificationProblems } from './npm-recipe-consumer.mjs';
+import { RUNNER_FILE, recipeDirectory, sourceFiles, hasReviewedNpmEntry, missingRequiredHosts, allowedHosts, hostForPlatform, RUNNABLE_HOSTS, runtimeEnvironment, consumerChildEnv, runNpmRecipeConsumer, validateRecipeEntry, validatePackedClosure, validateConsumerManifest, validateLockClosure, validateMountResult, scratchManifest, npmRecipeQualificationProblems } from './npm-recipe-consumer.mjs';
 
 const read = file => fs.readFileSync(new URL(`../../${file}`, import.meta.url));
 const inventory = JSON.parse(read('ci/consumer-recipes.json'));
@@ -181,15 +181,54 @@ test('react-shell runtime peer is an explicit exact closure pin', () => {
   for (const name of ['@rightkit/onboarding', '@rightkit/settings-ui']) assert.equal(inventory.npm[name].closure.install['@rightkit/platform-ui'], '0.4.0');
 });
 
-test('qa-chrome refuses while its required Linux host has no runner, in the runner and in admission', () => {
-  assert.deepEqual(missingRequiredHosts('@rightkit/qa-chrome'), ['linux']);
+test('qa-chrome lists Linux as a required, runnable host of its own; every other unit stays macOS & Windows', () => {
+  assert.deepEqual(RUNNABLE_HOSTS, ['linux', 'macos', 'windows']);
+  assert.deepEqual(missingRequiredHosts('@rightkit/qa-chrome'), []);
   assert.deepEqual(missingRequiredHosts(NAME), []);
-  const problems = npmRecipeQualificationProblems({ report: {}, expected: { name: '@rightkit/qa-chrome' }, recipe: inventory.npm['@rightkit/qa-chrome'], sourceBindings: {} });
-  assert.ok(problems.some(problem => problem.includes('required host evidence missing for linux')));
-  if (['win32', 'darwin'].includes(process.platform)) {
-    const env = { GITHUB_ACTIONS: 'true', GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1', RUNNER_OS: process.platform === 'win32' ? 'Windows' : 'macOS' };
-    assert.throws(() => runNpmRecipeConsumer({ packDir: os.tmpdir(), name: '@rightkit/qa-chrome', reportFile: path.join(os.tmpdir(), 'r.json'), env }), /refusing instead of skipping/);
-  }
+  assert.deepEqual(allowedHosts('@rightkit/qa-chrome'), ['linux', 'macos', 'windows']);
+  for (const name of reviewedNames.filter(name => name !== '@rightkit/qa-chrome')) assert.deepEqual(allowedHosts(name), ['macos', 'windows'], name);
+  assert.deepEqual(['win32', 'darwin', 'linux', 'freebsd', 'sunos'].map(hostForPlatform), ['windows', 'macos', 'linux', undefined, undefined]);
+});
+
+// Runs fn with process.platform replaced, then restores it.
+function withPlatform(platform, fn) {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  try { return fn(); } finally { Object.defineProperty(process, 'platform', original); }
+}
+
+test('the runner labels Linux as its own host, only for a unit whose reviewed hosts name it', () => {
+  const env = runnerOS => ({ GITHUB_ACTIONS: 'true', GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1', RUNNER_OS: runnerOS });
+  const run = (name, runnerOS) => runNpmRecipeConsumer({ packDir: path.join(os.tmpdir(), 'rk-no-such-pack'), name, reportFile: path.join(os.tmpdir(), 'r.json'), env: env(runnerOS) });
+  // Passes every host gate and only then fails on the absent sealed manifest (ENOENT), never on a host refusal.
+  assert.throws(() => withPlatform('linux', () => run('@rightkit/qa-chrome', 'Linux')), /ENOENT/);
+  assert.throws(() => withPlatform('darwin', () => run('@rightkit/qa-chrome', 'macOS')), /ENOENT/);
+  assert.throws(() => withPlatform('win32', () => run('@rightkit/qa-chrome', 'Windows')), /ENOENT/);
+  // A unit that does not list Linux is refused there, with or without a matching RUNNER_OS.
+  assert.throws(() => withPlatform('linux', () => run(NAME, 'Linux')), /native Windows\/macOS runner required/);
+  assert.throws(() => withPlatform('linux', () => run(NAME, 'macOS')), /native Windows\/macOS runner required/);
+  // The runner OS must match the platform; Linux is never mislabelled macOS and an unknown platform is refused.
+  assert.throws(() => withPlatform('linux', () => run('@rightkit/qa-chrome', 'macOS')), /runner required/);
+  assert.throws(() => withPlatform('linux', () => run('@rightkit/qa-chrome', undefined)), /runner required/);
+  assert.throws(() => withPlatform('darwin', () => run('@rightkit/qa-chrome', 'Linux')), /runner required/);
+  assert.throws(() => withPlatform('freebsd', () => run('@rightkit/qa-chrome', 'Linux')), /runner required/);
+});
+
+test('admission accepts a Linux receipt only for a Linux-listed unit and only with the Linux runner OS', () => {
+  const identity = (name, host, runnerOS) => {
+    const fixture = qualificationFixture();
+    const report = { ...fixture.report, name, host, runnerOS };
+    return npmRecipeQualificationProblems({ report, expected: { ...fixture.expected, name, host, runnerOS }, recipe: inventory.npm[name], sourceBindings: fixture.sourceBindings }).filter(problem => problem.includes('malformed candidate/native identity'));
+  };
+  assert.deepEqual(identity('@rightkit/qa-chrome', 'linux', 'Linux'), []);
+  assert.deepEqual(identity('@rightkit/qa-chrome', 'macos', 'macOS'), []);
+  assert.deepEqual(identity('@rightkit/qa-chrome', 'windows', 'Windows'), []);
+  assert.equal(identity('@rightkit/qa-chrome', 'linux', 'macOS').length, 1, 'Linux host with the macOS runner OS');
+  assert.equal(identity('@rightkit/qa-chrome', 'macos', 'Linux').length, 1, 'macOS host with the Linux runner OS');
+  assert.equal(identity('@rightkit/qa-chrome', 'freebsd', 'Linux').length, 1, 'unknown host');
+  assert.equal(identity(NAME, 'linux', 'Linux').length, 1, 'a unit whose reviewed hosts omit Linux');
+  assert.deepEqual(identity(NAME, 'macos', 'macOS'), []);
+  assert.deepEqual(identity(NAME, 'windows', 'Windows'), []);
 });
 
 test('Chrome for Testing root must be explicit, absolute, canonical, existing and outside checkout & scratch', () => {
