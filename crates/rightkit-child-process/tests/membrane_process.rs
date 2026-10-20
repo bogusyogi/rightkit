@@ -261,6 +261,7 @@ fn best_effort_reports_real_assignment_failure_without_failing_spawn() {
 #[cfg(windows)]
 #[test]
 fn strict_assignment_failure_is_still_fatal() {
+    use rightkit_child_process::{LeaderTermination, RunnerFailure, RunnerPhase};
     use std::os::windows::io::AsHandle;
     for allowlisted in [false, true] {
         let not_a_job = process_handle_that_is_not_a_job();
@@ -278,7 +279,12 @@ fn strict_assignment_failure_is_still_fatal() {
         }
         command.windows_job(not_a_job.as_handle()).unwrap();
         command.partial_spawn_cleanup_timeout(Duration::from_secs(5));
-        assert_eq!(command.spawn().unwrap_err().raw_os_error(), Some(6));
+        let error = command.spawn().unwrap_err();
+        // Failed setup retains cleanup provenance around the original Win32 error.
+        let failure = RunnerFailure::from_io(&error).expect("partial-spawn provenance");
+        assert_eq!(failure.phase(), RunnerPhase::Setup);
+        assert_eq!(failure.termination(), LeaderTermination::Unconfirmed);
+        assert_eq!(failure.source_io_error().raw_os_error(), Some(6));
     }
 }
 
