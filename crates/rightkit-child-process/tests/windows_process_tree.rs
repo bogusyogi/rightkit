@@ -235,7 +235,9 @@ fn breakaway_helper_child() {
 }
 
 /// Starts the helper, assigns it to `job`, opens the gate and returns what it reported and the
-/// helper child.
+/// helper child. The helper is assigned to `job` (kill-on-close) at once and every caller waits
+/// on the returned child, so a panic between spawn and return cannot leave it running.
+#[allow(clippy::zombie_processes)]
 fn run_breakaway_helper(
     job: &rightkit_child_process::WindowsJob,
     mode: &str,
