@@ -23,6 +23,7 @@ vendor/tauri-runtime-wry/** -text
 # Named npm consumer evidence binds source & recipe bytes across both native hosts.
 /ci/consumers/npm-logs/** text eol=lf
 /ci/consumer-recipes.json text eol=lf
+/ci/approved-artifacts.json text eol=lf
 /ci/consumers/npm/** text eol=lf
 /packages/onboarding/package.json text eol=lf
 /packages/settings-ui/package.json text eol=lf

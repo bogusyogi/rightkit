@@ -754,11 +754,13 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "npm @rightkit/logs@0.1.6 72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
     "npm @rightkit/onboarding@0.6.3 9db84e3f619ab01cc932e5a9323ee77022287c82e752604a339fc3ddff8047a3",
     "npm @rightkit/react-shell@0.7.2 b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
+    "npm @rightkit/tauri-shell@0.1.2 dd71d57ac0250c75a27871d5d6ae5231c05ec8033934ddf027be032ee5089952",
   ]);
   // Each approval names its exact reviewer: the first three compared exact CI archives with previously signed
   // Mac tar streams; later ones are R8 exact-archive SIGNs on a single-unit qualification run.
   const foundation = { reviewer: "Oracle (agent source-byte review)", reviewRef: "agent-review:/root/npm_foundation_review/39398432518/source-bytes" };
   const reviews = {
+    "@rightkit/tauri-shell@0.1.2": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_view_foundation/39500169311/tauri-shell-0.1.2" },
     "@rightkit/license@0.3.0": foundation,
     "@rightkit/logs@0.1.6": foundation,
     "@rightkit/react-shell@0.7.2": foundation,
