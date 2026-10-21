@@ -122,10 +122,7 @@ impl HangOptions {
 
     fn resolve(&self) -> Resolved {
         let threshold = self.threshold.max(self.floor);
-        let interval = self
-            .interval
-            .unwrap_or(threshold / 4)
-            .max(MIN_INTERVAL);
+        let interval = self.interval.unwrap_or(threshold / 4).max(MIN_INTERVAL);
         Resolved {
             threshold_ms: u64::try_from(threshold.as_millis()).unwrap_or(u64::MAX),
             threshold,
@@ -149,7 +146,9 @@ struct Resolved {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Stop signal that wakes sleepers at once.
@@ -422,8 +421,10 @@ impl Monitor {
         }
         // The registry lock is held only to copy the list; beating threads never take it.
         let loops: Vec<Arc<LoopState>> = lock(&self.shared.loops).clone();
-        self.episodes.retain(|id, _| loops.iter().any(|l| l.id == *id));
-        self.captured.retain(|id, _| loops.iter().any(|l| l.id == *id));
+        self.episodes
+            .retain(|id, _| loops.iter().any(|l| l.id == *id));
+        self.captured
+            .retain(|id, _| loops.iter().any(|l| l.id == *id));
         for state in &loops {
             let last = state.last.load(Ordering::Acquire);
             let now = state.now_ms();
@@ -521,7 +522,13 @@ fn scrub_tail(text: &str, secrets: &[String]) -> String {
         rightkit_logs::scrub_text(&redact_known(text, secrets))
     }));
     match scrubbed {
-        Ok(out) if !secrets.iter().any(|s| !s.is_empty() && out.contains(s.as_str())) => out,
+        Ok(out)
+            if !secrets
+                .iter()
+                .any(|s| !s.is_empty() && out.contains(s.as_str())) =>
+        {
+            out
+        }
         _ => LOG_WITHHELD_MARKER.to_string(),
     }
 }
@@ -530,12 +537,7 @@ fn scrub_tail(text: &str, secrets: &[String]) -> String {
 /// written to a temp file and renamed into place (a symlink at the name is replaced, never
 /// written through). Nothing unscrubbed touches the disk. The `sample_` prefix makes retention
 /// prune it with the native captures and the support bundle scrub it again.
-fn write_log_tail(
-    dir: &Path,
-    files: &[PathBuf],
-    max: u64,
-    secrets: &[String],
-) -> Option<PathBuf> {
+fn write_log_tail(dir: &Path, files: &[PathBuf], max: u64, secrets: &[String]) -> Option<PathBuf> {
     let mut text = String::new();
     for path in files {
         let name = path
@@ -653,8 +655,14 @@ mod tests {
         assert!(wait_until(|| hangs(&seen) == 1), "the stall is reported");
         std::thread::sleep(Duration::from_millis(250));
         assert_eq!(hangs(&seen), 1, "one report for the whole episode");
-        let message = seen.lock().unwrap()[0]["message"].as_str().unwrap().to_string();
-        assert!(message.contains("loop ui"), "the report names the loop: {message}");
+        let message = seen.lock().unwrap()[0]["message"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            message.contains("loop ui"),
+            "the report names the loop: {message}"
+        );
         let wrote_report = std::fs::read_dir(&dir)
             .unwrap()
             .flatten()
@@ -706,7 +714,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(30));
         }
         assert_eq!(hangs(&seen), 0, "neither loop is reported");
-        assert!(lock(&watchdog.shared.loops).len() == 1, "only the live loop is watched");
+        assert!(
+            lock(&watchdog.shared.loops).len() == 1,
+            "only the live loop is watched"
+        );
         watchdog.stop();
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -771,10 +782,16 @@ mod tests {
                         .is_some_and(|n| n.to_string_lossy().starts_with("sample_hang_logs_"))
                 })
         };
-        assert!(wait_until(|| find_tail().is_some()), "the log tail is written");
+        assert!(
+            wait_until(|| find_tail().is_some()),
+            "the log tail is written"
+        );
         let written = std::fs::read_to_string(find_tail().unwrap()).unwrap();
         assert!(written.contains("last line before the hang"), "{written}");
-        assert!(!written.contains(secret), "the secret is redacted: {written}");
+        assert!(
+            !written.contains(secret),
+            "the secret is redacted: {written}"
+        );
         watchdog.stop();
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&logs);
@@ -788,7 +805,10 @@ mod tests {
         std::fs::write(&log, "0123456789\nabcdef\n").unwrap();
         assert_eq!(tail_text(&log, 10).as_deref(), Some("abcdef\n"));
         assert_eq!(tail_text(&log, 3).as_deref(), Some(""));
-        assert_eq!(tail_text(&log, 200).as_deref(), Some("0123456789\nabcdef\n"));
+        assert_eq!(
+            tail_text(&log, 200).as_deref(),
+            Some("0123456789\nabcdef\n")
+        );
         assert_eq!(tail_text(&dir.join("missing.log"), 10).as_deref(), Some(""));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -832,8 +852,15 @@ mod tests {
 
         assert!(wait_until(|| posts.load(Ordering::SeqCst) == 1));
         std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(posts.load(Ordering::SeqCst), 1, "nothing stacks while blocked");
-        assert!(wait_until(|| hangs(&seen) == 1), "the blocked loop is a hang");
+        assert_eq!(
+            posts.load(Ordering::SeqCst),
+            1,
+            "nothing stacks while blocked"
+        );
+        assert!(
+            wait_until(|| hangs(&seen) == 1),
+            "the blocked loop is a hang"
+        );
 
         let first = queued.lock().unwrap().pop().expect("one queued closure");
         first();
