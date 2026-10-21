@@ -9,6 +9,9 @@
 //! rightkit-qa sweep
 //! rightkit-qa prune-runs [--app <key>] [--root <managed root>] [--dry-run]
 //! rightkit-qa verify  <evidence.json>
+//! rightkit-qa journeys check [--root <app root>]
+//! rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>]
+//!                     [--results <results.jsonl>] [--evidence-root <dir>] [--allow-dirty]
 use rightkit_qa::config::QaConfig;
 use rightkit_qa::evidence::Bundle;
 use rightkit_qa::guard::{scripts_from_package_json, validate, Backend, ContractInput};
@@ -47,6 +50,10 @@ impl Args {
             "--kind",
             "--app",
             "--root",
+            "--tree",
+            "--manifest",
+            "--results",
+            "--evidence-root",
         ];
         let mut out = vec![];
         let mut skip = false;
@@ -327,6 +334,104 @@ fn verify(a: &Args) -> Result<i32> {
     }
 }
 
+/// `rightkit-qa journeys check [--root <app root>]` and
+/// `rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>]
+/// [--results <results.jsonl>] [--evidence-root <dir>] [--allow-dirty]`.
+///
+/// `check` exits 0 only when `journeys.toml` (and `journeys-map.toml` when present) has no issue.
+/// `validate-receipt` exits 0 only when the receipt is a pass after every D5 rule is re-checked;
+/// any problem, an unreadable receipt or a missing results file exits non-zero. `--results`
+/// defaults to `results.jsonl` beside the receipt and `--evidence-root` to the receipt's directory.
+/// `run`, `census` and `gate` are not implemented.
+fn journeys(a: &Args) -> Result<i32> {
+    use rightkit_qa::journeys::manifest::parse_manifest;
+    use rightkit_qa::journeys::{check, parse_receipt, validate_receipt, ValidateOptions};
+    let sub = a.0.get(1).map(String::as_str);
+    match sub {
+        Some("check") => {
+            let root = PathBuf::from(a.value("--root").unwrap_or_else(|| ".".into()));
+            let c = check(&root)?;
+            for i in &c.issues {
+                println!("- {i}");
+            }
+            if c.ok() {
+                println!(
+                    "journeys ok: {} ({} journeys, {} adapters, mapping {})",
+                    c.manifest.app,
+                    c.manifest.journey.len(),
+                    c.manifest.adapter.len(),
+                    if c.mapping.is_some() { "present" } else { "absent" }
+                );
+                Ok(0)
+            } else {
+                println!("{} issue(s)", c.issues.len());
+                Ok(1)
+            }
+        }
+        Some("validate-receipt") => {
+            let pos = a.positionals();
+            let Some(file) = pos.get(1).map(PathBuf::from) else {
+                return err("usage: rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>] [--results <file>] [--evidence-root <dir>] [--allow-dirty]");
+            };
+            let receipt = parse_receipt(&std::fs::read(&file)?)?;
+            let dir = file
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let results_path = a
+                .value("--results")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.join("results.jsonl"));
+            let results = std::fs::read(&results_path).ok();
+            let evidence_root = a
+                .value("--evidence-root")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.clone());
+            // Without --manifest the path the receipt records is tried; a manifest that cannot be
+            // read leaves the receipt incomplete (validate_receipt refuses it), never accepted.
+            let manifest_path = a
+                .value("--manifest")
+                .unwrap_or_else(|| receipt.manifest.path.clone());
+            let manifest = std::fs::read(&manifest_path)
+                .ok()
+                .and_then(|b| parse_manifest(&b).ok());
+            let tree = a.value("--tree");
+            let v = validate_receipt(
+                &receipt,
+                &ValidateOptions {
+                    expected_tree: tree.as_deref(),
+                    manifest: manifest.as_ref().map(|(m, s)| (m, s.as_str())),
+                    results: results.as_deref(),
+                    evidence_root: Some(evidence_root.as_path()),
+                    allow_dirty: a.has("--allow-dirty"),
+                },
+            );
+            for p in &v.problems {
+                println!(
+                    "- {}{}: {}",
+                    p.code,
+                    p.id.as_deref().map(|i| format!(" [{i}]")).unwrap_or_default(),
+                    p.detail
+                );
+            }
+            for u in &v.unchecked {
+                println!("unchecked: {u}");
+            }
+            println!(
+                "receipt claims {}, recomputed {}: {}",
+                v.claimed.as_str(),
+                v.verdict.as_str(),
+                if v.passed() { "ACCEPTED" } else { "REFUSED" }
+            );
+            Ok(if v.passed() { 0 } else { 1 })
+        }
+        _ => {
+            eprintln!("usage: rightkit-qa journeys <check|validate-receipt> ...");
+            Ok(2)
+        }
+    }
+}
+
 fn run() -> Result<i32> {
     let a = Args(std::env::args().skip(1).collect());
     match a.0.first().map(String::as_str) {
@@ -342,8 +447,9 @@ fn run() -> Result<i32> {
         Some("homes") => homes(&a),
         Some("clean") => clean(&a),
         Some("verify") => verify(&a),
+        Some("journeys") => journeys(&a),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|journeys> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }

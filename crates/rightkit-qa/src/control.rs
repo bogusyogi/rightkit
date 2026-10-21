@@ -1571,6 +1571,31 @@ impl Control {
             .cloned()
             .unwrap_or(Value::Null))
     }
+    /// QA IPC fixture (needs the app's `control` build with the service active, which injects
+    /// `window.__RK_QA_IPC__`): answer the app's Tauri IPC command `rule["cmd"]` from the page
+    /// instead of its engine. `rule` is `{cmd, args?: subset match, replies: [{kind: "ok"|"error",
+    /// value}], times?}`; replies are used in order and the last repeats. Unmatched commands reach
+    /// the real engine. Rules live in the page: a reload or navigation drops them, so add them again
+    /// after it. Returns the number of rules now installed.
+    pub fn ipc_fixture_add(&self, rule: &Value) -> Result<u64> {
+        let js = format!(
+            "if (!window.__RK_QA_IPC__) return null; return window.__RK_QA_IPC__.add({rule});"
+        );
+        self.eval(&js)?.as_u64().ok_or_else(|| {
+            Error("ipc fixture not installed (no control build, or the page reloaded)".into())
+        })
+    }
+    /// Every IPC call the page made since the fixture was installed or cleared, oldest first, as
+    /// `{cmd, args}` (matched or not; at most the last 1000). Empty before the fixture exists.
+    pub fn ipc_fixture_log(&self) -> Result<Vec<Value>> {
+        let v = self.eval("return window.__RK_QA_IPC__ ? window.__RK_QA_IPC__.log() : [];")?;
+        Ok(v.as_array().cloned().unwrap_or_default())
+    }
+    /// Remove all fixture rules and the log. A reload drops them anyway.
+    pub fn ipc_fixture_clear(&self) -> Result<()> {
+        self.eval("if (window.__RK_QA_IPC__) window.__RK_QA_IPC__.clear(); return null;")
+            .map(|_| ())
+    }
     pub fn dom(&self, selector: &str) -> Result<Vec<Value>> {
         let v = self.json("dom", json!({"selector": selector}))?;
         Ok(v.get("elements")

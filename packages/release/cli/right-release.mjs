@@ -19,6 +19,7 @@ const commands = new Map([
   ["sign-windows", "sign-windows.mjs"],
   ["sign-updater", "sign-updater.mjs"],
   ["sign-dev-artifact", "sign-dev-artifact.mjs"],
+  ["sign-qa-bundle", "sign-qa-bundle.mjs"],
   ["sign-candidate", "sign-candidate.mjs"],
   ["engine-locate", "engine-locator.mjs"],
   ["stage-sidecar", "stage-sidecar-command.mjs"],
@@ -237,6 +238,8 @@ Commands:
                                                       Fail when a built web dist/ carries a forbidden marker string or mock/fixture chunk name (dev, mock or fixture code in release)
   sign-dev-artifact --artifact <dir> --manifest <sign.json> [--metadata <payload.json>] [--evidence <path>] [--dry-run]
                                                       Developer ID sign an existing CI dev artifact per file with fixed identifiers; never builds, notarizes or publishes (macOS)
+  sign-qa-bundle --app <abs .app> --qa-root <abs dir> [--entitlements <abs plist>] [--out <evidence.json>]
+                                                      QA ONLY: ad hoc sign a bundle inside a QA scratch root, nested code first, outer last, never --deep, never the signing agent (macOS); not a release artifact
   sign-candidate --platform win|mac --artifact <dir> --candidate-receipt <receipt.json> --out <binding.json> [--manifest <sign.json>] [--publisher <subject>] [--dry-run]
                                                       Sign the exact unsigned candidate bytes (sha256 checked against the candidate receipt) instead of rebuilding; writes a candidate-sha -> signed-sha binding receipt
   engine-locate --engine cutright|genright [--sha256 <hex>] [--json]

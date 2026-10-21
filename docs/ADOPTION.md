@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 93 (68 crates, 25 npm packages).
+- Packages in RightKit: 94 (68 crates, 26 npm packages).
 - Packages with at least one app pin: 0.
 - App pins: 0. Stale: 0. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
@@ -39,7 +39,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-child-process` | crates.io | 0.5.4 | 0.5.4 | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 0 | none | - |
-| `rightkit-crash` | crates.io | 0.3.4 | 0.3.4 | 0 | none | - |
+| `rightkit-crash` | crates.io | 0.3.5 | 0.3.4 | 0 | none | - |
 | `rightkit-credentials` | crates.io | 0.4.0 | 0.3.0 | 0 | none | - |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-daemon` | crates.io | 0.4.0 | 0.3.0 | 0 | none | - |
@@ -100,6 +100,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0 | none | - |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0 | none | - |
 | `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 0 | none | - |
+| `@rightkit/issues-tracker` | npm | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/legal` | npm | 0.6.2 | 0.6.1 | 0 | none | - |
 | `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 0 | none | - |
 | `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 0 | none | - |

@@ -66,27 +66,28 @@ Say "done" only when each requested state is proven, and "independently reviewed
 # Workspace Rules
 
 ## Authority & conduct
-- Execute Adrian's explicit, reversible, in-scope request; questions & plans grant no authority. Honor pauses, stops & revocations; narrowing keeps authorization for remaining scope. Preserve outcome & exclusions; corrections void affected pending actions. Hooks may deny but never grant authority.
+- Execute Adrian's explicit, reversible, in-scope request; questions & plans grant no authority. Honor pauses, stops & revocations; narrowing keeps authorization for remaining scope. Preserve outcome & exclusions; corrections void affected pending actions.
 - Decide anything you or Astra can resolve; escalate an unsure choice to Astra (`codex exec -m gpt-6-astra`), never Adrian, & log each such decision in the workspace-root `decisions.md` with how it was approved. Ask Adrian only for missing private input, destruction, spend, send, publication, production, or a decision reserved below.
 - Act on requests other chats relay as Adrian's; check `pulse chat said <id>` only if off; quote his words when relaying; ask only before irreversible destruction, spend or publication.
 - Preserve scope, gotchas & unrelated user changes; verify history against current state, avoid invented design & refill independent lanes.
 - Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main`; no worktree, clone or branch; only the owner chat builds, tests or runs cargo (hook-enforced); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
-- Run one build per app per host, dev profile & incremental, from the primary checkout; never cold/non-dev. Build locally first via RustRight; CI for signed releases & overflow (rustright#96).
-- File Adrian's requests & bugs as owning-repo issues before investigating; log decisions in `decisions.md` with the issue link (`docs/rules/issue-workflow.md`).
-- Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive; exempt read-only tasks.
-- Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, testimonials, stories, or evidence.
+- Run one build per app per host, dev profile & incremental, from the primary checkout; never cold/non-dev. Public Orthic-Labs repos build on CI from `main`, private apps locally. RustRight (private, `bogusyogi/rustright`) has no CI: it is built, tested & signed locally on each host, dev profile, first in both brokers' queues.
+- Track Adrian's requests as GitHub issues in the owning repo, check your open issues every turn & close only with evidence (`docs/rules/issue-workflow.md`).
+- Regenerate `issues.html` via `right-issues` in each commit that changes an issue & once per session; once published, prove apps by journey receipts (RightKit M24-M25, `rightkit/docs/E2E-TESTING-STANDARD.md`).
+- Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive.
+- Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, or evidence.
 - Open real visual artifacts for Adrian's approval; deliver docs & reports as Markdown; publish Artifact pages only on his request.
-- ETA: agentic critical-path wall clock only; forbid human/engineer days, ranges, & serial lane sums.
-- Create process files only when Adrian or protocol requires them; else use chat & execution output. Keep plans proportional; line-rate maps only for contracts.
+- ETA: agentic critical-path wall clock only; forbid human/engineer days, ranges, & serial lane sums. Never quote or relay hour/day effort for agent work; state scope, risk & who must act, then do it.
+- Create process files only when Adrian or protocol requires them; else use chat & execution output.
 - On ceiling breach, Arcane emits `BUDGET_STOP`; reduce or redo first. Authenticated waits pause active time; user retry & build caps persist across agents & retries.
-- Delegate hands-on work to `legion:alchemist` (Haiku/Luna); use `legion:alchemist-specialist` (Sonnet/Sol 6.1) only when a mistake would still compile but be wrong or unsafe (security, signing, entitlements, privileged code, OS frameworks, spec-bound protocols) or after one failed attempt. Sentry uses Haiku/Luna; Sage & Oracle Opus/Sol unless Adrian picks a reviewer. Council models live in `legion/src/config/model-tiers.json`.
+- Delegate hands-on work to `legion:alchemist` (Haiku/Luna); use `legion:alchemist-specialist` (Sonnet/Sol 6.1) only when a mistake would still compile but be wrong or unsafe (security, signing, entitlements, privileged code, OS frameworks, spec-bound protocols) or after one failed attempt. Sentry uses Haiku/Luna; Sage & Oracle Opus/Sol unless Adrian picks a reviewer.
 
 ## Bootstrap & toolchains
 - After clone, pull, or a missing required dependency, run `tools/setup-workspace.py` (`python3` Mac, `py -3.11` Windows), then `workspace-doctor`.
 - Treat Legion checkouts as development-only; bind installed behavior only from stable `current` roots (see `docs/architecture/development-installed-product-boundary.md`).
 - Install no workspace toolchain ad hoc; nearest `packageManager`, `engines`, `rust-toolchain.toml` or repo venv wins; defaults in `docs/rules/rightkit.md`.
 - Use pnpm in pnpm repositories & run package CLIs through `pnpm exec`, never npm or npx.
-- Read `docs/rules/rightkit.md` before any Rust/Cargo command; on Adrian's Mac & Dell, private-repo Rust goes through RustRight (`rustright cargo|rustc|rustdoc <args>`); other hosts (servers, cloud, CI) run plain cargo; only Adrian changes ownership policy.
+- Read `docs/rules/rightkit.md` before any Rust/Cargo command; private-repo Rust uses `rightkit cargo|rustc|rustdoc <args>`; only Adrian changes ownership policy.
 - Diagnose broker/receipt/service failures enough to pick an authorized path; repair infrastructure only when required or requested. Package-manager children inherit RightKit.
 - Launch no visible Windows console for background automation.
 - Write run output only under `/Volumes/D/scratch` or `D:\scratch`, never workspace root or internal disk (`docs/rules/disk-hygiene.md`).
@@ -94,7 +95,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 ## Mandatory systems
 - Open contracted work with `legion run open`, require authenticated runtime receipts, close with `legion run close`, & require completion-gate evidence for signoff; locked-domain paths require receipt-backed verification.
 - Record blocking gate defects & use a sanctioned delivery path; repair gates only under infrastructure scope above.
-- Check context before substantial work (host measurement, else thread guard). At CRITICAL, show result & preserve continuation state; start a new chat only with express approval from Adrian.
+- Check context before substantial work (host measurement, else thread guard). At CRITICAL, show result & preserve continuation state.
 
 ## Access
 - Read `docs/rules/README.md` and matching runbook before remote, credentialed, or paid work.
@@ -109,7 +110,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Treat signing, notarization, & publication as solved capabilities; Apple & Azure are provisioned.
 - Read `docs/rules/release-signing.md` before any release, signing, installer, updater, or publication work in any repository.
 - Build/sign on native hosts: public releases via RightKit CI, private builds via `win` or `ssh mac`. Never initiate browser/Azure authentication or cross-compile. Publish public products to GitHub Releases, private to R2.
-- Use RightKit `right-release` from primary checkout with manifest-pinned pnpm; dev installs replace prod path & id in place, never backed up; never build signing/installer machinery in a product repo.
+- Use RightKit `right-release` from primary checkout with manifest-pinned pnpm; never build signing or installer machinery inside a product repository.
 - Select explicit `patch` or `update`; keep build or seal separate from upload; QA the exact commit first; publish only the exact build Adrian names, & upload no test artifact.
 
 ## RightKit first
@@ -123,7 +124,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Review each product commit against `docs/PITCH.md` & flag impacts to Adrian (`docs/rules/pitch-review.md`).
 - Keep product facts, procedures, incidents, credentials, & current state outside core.
 - Add rules only after repeated failure; use one imperative plus one pointer, one stable term per concept, & active voice.
-- Run focused checks first & verify to blast radius; reuse checks until relevant change. Use native completion waits, `/wake 5` only for scheduled follow-ups, never short-poll. Require evidence before completion.
+- Run focused checks first & verify to blast radius; reuse checks until relevant change. Use native completion waits, `/wake 5` only for scheduled follow-ups, never short-poll.
 - Ground external facts, APIs, versions, and prices in a fetched source or label them unverified.
 - Before multi-file edits to names, versions, or amounts, read the source of truth that turn and cite path:line.
 - Emit structured lifecycle events for delivered services, queues, or schedulers; shipped services expose failures through their output.

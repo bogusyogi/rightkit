@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 15.
+Flagged mismatches: 16.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -30,7 +30,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-child-process` | crates.io | 0.5.4 | 0.5.4 | 0.5.4 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 0.1.7 | ok | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
-| `rightkit-crash` | crates.io | 0.3.4 | 0.3.4 | 0.3.4 | ok | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
+| `rightkit-crash` | crates.io | 0.3.5 | 0.3.4 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.5** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
 | `rightkit-credentials` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | crypto-primitives | Neutral crypto primitives: SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens. |
 | `rightkit-daemon` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
@@ -85,7 +85,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-vault` | crates.io | 0.2.0 | 0.1.0 | 0.2.0 | staged, not yet published | secret-vault | Split-key secret sync for Right Suite apps: a small secret map sealed under a random data key, the key wrapped under a server-held wrapping key combined with a client-held secret, the blob kept in the user's own cloud app folder. |
 | `rightkit-workflow` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | scenario-runtime | Shared scenario interpreter and durable state machine for the RightKit scenario runtime (RK8): perform separated from observe_until, idempotency keys, append-only fsync journal, leases with fencing tokens, cooperative cancellation, retake replay, and a remote worker transport trait boundary |
 
-## npm packages (25)
+## npm packages (26)
 
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
@@ -96,6 +96,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 0.2.1 | ok |  | document-rendering | Brand-neutral, read-only document renderer (Markdown, sanitized HTML, safe email frame) for Right Suite readers. |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 0.1.2 | ok | rightkit-hooks | lifecycle-hooks | Neutral lifecycle runtime shared by independently installable agent systems. |
 | `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | localization | Shared locale catalog and React provider for Right Suite apps. |
+| `@rightkit/issues-tracker` | npm | 0.1.0 | none recorded | 0.1.0 | staged, never published | right-issues | issues-tracker | Writes issues.html at a repository root from its GitHub issues: grouped by feature, status chips from labels, offline, light and dark. |
 | `@rightkit/legal` | npm | 0.6.2 | 0.6.1 | 0.6.1 | **MISMATCH staged 0.6.1 != source 0.6.2** | legal-snapshot, generate-npm-license-appendix, rightkit-legal | legal-assent | Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps. |
 | `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 0.4.1 | ok |  | legal-ui | The one first-run / re-acceptance legal gate screen for Right Suite desktop apps. |
 | `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |

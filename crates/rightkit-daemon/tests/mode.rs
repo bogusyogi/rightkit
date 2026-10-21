@@ -427,6 +427,29 @@ mod capable {
     }
 
     #[test]
+    fn no_protected_paths_cannot_prove_disjointness_and_refuses() {
+        let w = world();
+        make_root(&w.qa, "viewright");
+        let fake = Fake::new(w.real_suite.clone(), Vec::new())
+            .set(ACTIVATION, "1")
+            .set(ROOT, s(&w.qa));
+        assert_eq!(decide(&APP, &fake).unwrap_err(), Refusal::UserRootUnknown);
+    }
+
+    #[test]
+    fn a_validated_test_root_passes_the_build_tool_guard_for_its_own_suite_only() {
+        let w = world();
+        make_root(&w.qa, "viewright");
+        let fake = w.fake().set(ACTIVATION, "1").set(ROOT, s(&w.qa));
+        let mode = decide(&APP, &fake).unwrap();
+        let suite = roots_with(&APP, &mode, &fake).unwrap().suite;
+        rightkit_daemon::refuse_build_tool_real_data_for_mode(&suite, &mode).unwrap();
+        // The release mode gets the plain rule (the world is under the temporary directory, so
+        // it passes either way; the table with a root outside it is in `suite.rs`).
+        rightkit_daemon::refuse_build_tool_real_data_for_mode(&suite, &Mode::Release).unwrap();
+    }
+
+    #[test]
     #[allow(clippy::assertions_on_constants)] // the marker is a const by design; the test documents it
     fn the_capability_marker_is_present() {
         assert!(rightkit_daemon::mode::TEST_CAPABILITY);
@@ -434,5 +457,101 @@ mod capable {
             &rightkit_daemon::mode::TEST_MODE_MARKER[..],
             rightkit_daemon::mode::TEST_MODE_MARKER_TEXT.as_bytes()
         );
+    }
+
+    /// `ModeInput` over a fixed environment; the real root and protected paths come from the
+    /// operating system, as in a real run.
+    #[cfg(windows)]
+    struct EnvOnly(HashMap<String, String>);
+
+    #[cfg(windows)]
+    impl ModeInput for EnvOnly {
+        fn env(&self, name: &str) -> Option<String> {
+            self.0.get(name).cloned()
+        }
+    }
+
+    /// QA-isolation regression (Windows): a launcher that points `USERPROFILE` and `LOCALAPPDATA`
+    /// at a QA home must not move the real per-user root, and the QA home is a valid test root.
+    /// The environment is changed only on a child process (never `set_var` in this one): the
+    /// parent re-runs `child_under_qa_environment` in a subprocess with that environment.
+    #[cfg(windows)]
+    #[test]
+    fn a_qa_home_environment_does_not_move_the_real_root() {
+        let clean = Suite::per_user_default().unwrap();
+        let profile = clean.root().ancestors().nth(4).unwrap().to_path_buf();
+        let tmp = tempfile::tempdir().unwrap();
+        let qa = std::fs::canonicalize(tmp.path()).unwrap().join("qa");
+        rightkit_fs::private::ensure_private_dir(&qa).unwrap();
+        for dir in ["Documents", "Pictures", "Desktop", r"AppData\Local"] {
+            std::fs::create_dir_all(qa.join(dir)).unwrap();
+        }
+        std::fs::write(qa.join(".rightkit-app.json"), r#"{"app":"viewright"}"#).unwrap();
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "capable::child_under_qa_environment",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("USERPROFILE", &qa)
+            .env("LOCALAPPDATA", qa.join(r"AppData\Local"))
+            .env("RK_CHILD_EXPECT_ROOT", clean.root())
+            .env("RK_CHILD_PROFILE", &profile)
+            .env("RK_CHILD_QA", &qa)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// The child half of the test above; a no-op unless the parent started it.
+    #[cfg(windows)]
+    #[test]
+    fn child_under_qa_environment() {
+        let Some(expect) = std::env::var_os("RK_CHILD_EXPECT_ROOT") else {
+            return;
+        };
+        let profile = PathBuf::from(std::env::var_os("RK_CHILD_PROFILE").unwrap());
+        let qa = PathBuf::from(std::env::var_os("RK_CHILD_QA").unwrap());
+        // The environment really is the QA one.
+        assert_eq!(std::env::var_os("USERPROFILE").unwrap(), qa.as_os_str());
+
+        assert_eq!(
+            Suite::per_user_default().unwrap().root(),
+            Path::new(&expect),
+            "per_user_default followed the environment"
+        );
+        let input = |root: &Path| {
+            EnvOnly(HashMap::from([
+                (ACTIVATION.to_string(), "1".to_string()),
+                (ROOT.to_string(), s(root).to_string()),
+            ]))
+        };
+        let mode = decide(&APP, &input(&qa)).expect("a bound private QA home is a test root");
+        assert_eq!(mode.test_root().expect("test run").path(), qa);
+
+        // Real user locations, found from the account and only read, still refuse.
+        let mut real = vec![profile.clone(), profile.join(r"AppData\Local")];
+        real.extend(
+            ["Documents", "Pictures", "Desktop"]
+                .into_iter()
+                .map(|d| profile.join(d))
+                .filter(|p| p.is_dir()),
+        );
+        real.push(Path::new(&expect).parent().unwrap().to_path_buf());
+        for root in real.into_iter().filter(|p| p.is_dir()) {
+            assert_eq!(
+                decide(&APP, &input(&root)).unwrap_err(),
+                Refusal::RootOverlapsUserData,
+                "{}",
+                root.display()
+            );
+        }
     }
 }

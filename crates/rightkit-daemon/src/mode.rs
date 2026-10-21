@@ -179,6 +179,16 @@ impl TestRoot {
         self.suite.clone()
     }
 
+    /// A unit-test stand-in for what [`decide`] builds after validation.
+    #[cfg(test)]
+    pub(crate) fn for_test(path: PathBuf, suite: Suite) -> TestRoot {
+        TestRoot {
+            path,
+            suite,
+            app_id: "test",
+        }
+    }
+
     /// The app's own data directory inside the root: `<root>/<dir_name>`.
     pub fn app_dir(&self, app: &AppId) -> PathBuf {
         self.path.join(app.dir_name)
@@ -269,8 +279,16 @@ impl ModeInput for ProcessInput {
 
 /// Protected paths derived from the real suite root: the whole `Orthic Labs` folder and the
 /// user's content folders under the home.
+///
+/// Fails closed with an empty list (which [`decide`] turns into [`Refusal::UserRootUnknown`])
+/// when, on Windows in a `test-mode` build, the real root lies under a `USERPROFILE` or
+/// `LOCALAPPDATA` that differs from the account's own value: such a root was shaped by the
+/// environment (a QA home), and the folders derived from it would protect the wrong place.
 pub fn default_protected_paths(real: &Suite) -> Vec<PathBuf> {
     let mut out = Vec::new();
+    if real_root_is_env_shaped(real.root()) {
+        return out;
+    }
     let Some(orthic) = real.root().parent() else {
         return out;
     };
@@ -285,6 +303,64 @@ pub fn default_protected_paths(real: &Suite) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// Windows, `test-mode` build: whether `real` lies under an environment profile value that
+/// differs from the account's. An unreadable account profile counts as env-shaped. Elsewhere
+/// (and in a build without `test-mode`, which reads no environment) always `false`.
+fn real_root_is_env_shaped(real: &Path) -> bool {
+    #[cfg(all(windows, feature = "test-mode"))]
+    {
+        let Ok(profile) = crate::suite::account_profile_dir() else {
+            return true;
+        };
+        let env = |key: &str| {
+            std::env::var_os(key)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
+        let local = profile.join("AppData").join("Local");
+        root_under_differing_env(
+            real,
+            &[
+                (env("USERPROFILE"), profile),
+                (env("LOCALAPPDATA"), local),
+            ],
+        )
+    }
+    #[cfg(not(all(windows, feature = "test-mode")))]
+    {
+        let _ = real;
+        false
+    }
+}
+
+/// True when `root` lies under (or equals) an `env` value of a pair whose `env` differs from its
+/// `account` value. Paths compare by whole components, ignoring a verbatim prefix and, on
+/// Windows, case and separator style.
+#[cfg_attr(not(all(windows, feature = "test-mode")), allow(dead_code))]
+pub(crate) fn root_under_differing_env(root: &Path, pairs: &[(Option<PathBuf>, PathBuf)]) -> bool {
+    fn norm(p: &Path) -> Vec<String> {
+        let text = p.to_string_lossy();
+        let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+        text.split(['/', '\\'])
+            .filter(|c| !c.is_empty())
+            .map(|c| {
+                if cfg!(windows) {
+                    c.to_ascii_lowercase()
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect()
+    }
+    let root = norm(root);
+    pairs.iter().any(|(env, account)| {
+        env.as_deref().is_some_and(|env| {
+            let env = norm(env);
+            !env.is_empty() && env != norm(account) && root.starts_with(&env)
+        })
+    })
 }
 
 fn user_content_dirs() -> [&'static str; 7] {
@@ -427,6 +503,10 @@ mod capable {
             .per_user_default()
             .map_err(|_| Refusal::UserRootUnknown)?;
         let mut protected = input.protected_paths(&real);
+        if protected.is_empty() {
+            // Nothing to prove disjointness against; the real root alone is not enough.
+            return Err(Refusal::UserRootUnknown);
+        }
         protected.push(real.root().to_path_buf());
         let validated =
             rightkit_fs::test_mode::validate_root(app.id, Path::new(raw.trim()), &protected)
@@ -464,5 +544,70 @@ mod capable {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pair(env: Option<&str>, account: &str) -> (Option<PathBuf>, PathBuf) {
+        (env.map(PathBuf::from), PathBuf::from(account))
+    }
+
+    #[test]
+    fn a_root_under_a_differing_env_profile_is_env_shaped() {
+        let root = Path::new("/qa/home/AppData/Local/Orthic Labs/shared");
+        // The env value differs from the account and the root lies under it: fail closed.
+        assert!(root_under_differing_env(
+            root,
+            &[pair(Some("/qa/home"), "/users/real")]
+        ));
+        assert!(root_under_differing_env(
+            root,
+            &[pair(None, "/users/real"), pair(Some("/qa/home/AppData/Local"), "/x")]
+        ));
+        // The env value equals the account value, is unset, or the root is not under it.
+        assert!(!root_under_differing_env(
+            root,
+            &[pair(Some("/qa/home"), "/qa/home")]
+        ));
+        assert!(!root_under_differing_env(root, &[pair(None, "/qa/home")]));
+        assert!(!root_under_differing_env(
+            root,
+            &[pair(Some("/elsewhere"), "/qa/home")]
+        ));
+        // Whole components only: `/qa/hom` is not an ancestor of `/qa/home/...`.
+        assert!(!root_under_differing_env(
+            root,
+            &[pair(Some("/qa/hom"), "/users/real")]
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn env_comparison_ignores_case_separators_and_the_verbatim_prefix_on_windows() {
+        let root = Path::new(r"\\?\C:\Users\QA\AppData\Local\Orthic Labs\shared");
+        assert!(root_under_differing_env(
+            root,
+            &[pair(Some("c:/users/qa"), r"C:\Users\Real")]
+        ));
+        assert!(!root_under_differing_env(
+            root,
+            &[pair(Some(r"C:\USERS\QA"), r"c:\users\qa")]
+        ));
+    }
+
+    #[test]
+    fn the_default_protected_paths_keep_the_orthic_folder_and_content_dirs() {
+        let real = Suite::at(Path::new(if cfg!(windows) {
+            r"C:\Users\acct\AppData\Local\Orthic Labs\shared"
+        } else {
+            "/users/acct/AppData/Local/Orthic Labs/shared"
+        }))
+        .unwrap();
+        let paths = default_protected_paths(&real);
+        assert!(paths.iter().any(|p| p.ends_with("Orthic Labs")));
+        assert!(paths.iter().any(|p| p.ends_with("Documents")));
     }
 }

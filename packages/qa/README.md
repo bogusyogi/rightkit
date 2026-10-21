@@ -15,6 +15,7 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 |---|---|
 | `@rightkit/qa` | `export *` from evidence, devserver, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, userdata, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
 | `@rightkit/qa/chrome` | Re-export of `@rightkit/qa-chrome` |
+| `@rightkit/qa/journeys` | End-to-end journeys standard (`docs/E2E-TESTING-STANDARD.md`): manifest reader, adapter protocol helpers, receipt validator, census, advisory gate, `runJourneys`. Also `journeys` from `@rightkit/qa`; CLI `rightkit-qa-journeys`. |
 
 Dependency: `@rightkit/qa-chrome` (exact `0.1.10`).
 
@@ -205,6 +206,23 @@ Seed state with generated fixtures; that is the default. `seedFrom(workspace, so
 ### QA home hygiene
 
 Each home carries `.rightkit-home.json` (owner pid, start time). `withQaWorkspace(options, body)` removes the home when `body` ends, pass or fail; `disposeQaWorkspace(ws, { failed, keepFailedHome })` or `RIGHTKIT_QA_KEEP_FAILED_HOME=1` keeps only a failed run's home and prints its path and size. `createQaWorkspace` first removes homes whose owner is dead and that are older than 2 hours (`RIGHTKIT_QA_HOME_MAX_AGE_SECS`; a live pid is never touched), then throws `QaRootOverCapError` naming the largest homes if this product's homes still hold more than 4 GB (`RIGHTKIT_QA_ROOT_CAP_BYTES`, `0` disables; "QA root limits" below adds the root-wide ceiling; `RIGHTKIT_QA_HOME_SWEEP=0` skips the sweep). Both are off under vitest unless `preflight: { enabled: true }`. `cleanQaHomes({ dryRun })` runs the sweep by hand. Deletion happens only inside the `rightkit-qa` root, never by a caller's path, and never follows a symlink out of it. `disposeQaWorkspace` refuses a home that is not runner-created.
+
+## End-to-end journeys (0.6.0)
+
+Implements the Node side of `docs/E2E-TESTING-STANDARD.md` (phase 1). The app declares user journeys in `journeys.toml` (and, for the gate, `journeys-map.toml`); RightKit selects, builds, launches an adapter and writes a receipt that a validator re-checks offline.
+
+```
+rightkit-qa-journeys check [--root DIR]
+rightkit-qa-journeys census [--root DIR] [--base REF] [--json]      # report only
+rightkit-qa-journeys run [--root DIR] [--id J-001]... [--platform P] [--tier T] [--run-root DIR]
+rightkit-qa-journeys validate-receipt FILE [--root DIR] [--manifest PATH] [--results PATH] [--tree SHA] [--require-clean] [--check-files]
+rightkit-qa-journeys gate [--root DIR] [--base REF] [--receipts DIR]  # advisory: always exits 0
+```
+
+- `check` exits 1 on any problem. `run` and `validate-receipt` exit 0 only for a verdict of `passed`; `failed` and `incomplete` exit 1. A receipt is never accepted on its own word: `validate-receipt` recomputes counts and verdict from `results.jsonl` (beside the receipt unless `--results`), the manifest and the digests, and a missing results file, manifest or evidence file is `incomplete`.
+- Adapter protocol v1: the runner writes `selection.json` and an empty `results.jsonl` and sets `RIGHTKIT_JOURNEYS_PROTOCOL=1`, `RIGHTKIT_JOURNEYS_SELECTION` and `RIGHTKIT_JOURNEYS_RESULTS`. A Node adapter uses `Reporter.fromEnv()` then `start`, one `journey` per selected id, `end`; its exit code is 0 whenever it finished the protocol. Every line carries `run_id` and `nonce`.
+- Tests are tagged `// rk-test: pure`, `contract` or `pin #<issue>`; `census` counts tagged, untagged and malformed tags, journeys, tests per journey, and the change against `--base`.
+- Phase 1 limits: `run` supports `runner = "adapter"` only, starts the adapter directly (no interactive-session launcher, no broker receipt), records `session: "noninteractive"` unless `RIGHTKIT_QA_INTERACTIVE=1`, and has been exercised only against the fixture adapter (`@rightkit/qa/journeys-fixture-adapter`). The `gate` does not fetch approval comments.
 
 ## Ownership: this package versus the Rust `rightkit-qa` crate
 

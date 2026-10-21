@@ -574,6 +574,12 @@ impl<R: Runtime> Control<R> {
         let builder = builder.on_webview_ready(|webview| {
             enforce_hidden_activation(webview.app_handle());
         });
+        // QA IPC fixture seam: only while the runtime QA control service is active (this whole
+        // plugin exists only in a `control` build, which release builds never carry).
+        let builder = match ipc_fixture_script(service_from_env().as_deref()) {
+            Some(script) => builder.js_init_script(script),
+            None => builder,
+        };
         builder
             .setup(move |app, _| {
                 // Before any window exists (plugin setup precedes the app's own setup).
@@ -630,6 +636,18 @@ fn enforce_hidden_activation<R: Runtime>(app: &AppHandle<R>) {
     if hidden_requested(std::env::var_os(ENV_HIDDEN).as_deref()) {
         let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     }
+}
+
+/// QA IPC fixture page script (`window.__RK_QA_IPC__`, a `window.fetch` wrapper; see `ipc_fixture.js`).
+const IPC_FIXTURE_JS: &str = include_str!("ipc_fixture.js");
+
+/// The fixture init script, only when the runtime QA control service is active (`service` is the
+/// `RIGHTKIT_CONTROL_SERVICE` value). `None` when unset or blank, so a normal launch of a control
+/// build injects nothing.
+fn ipc_fixture_script(service: Option<&str>) -> Option<&'static str> {
+    service
+        .filter(|s| !s.trim().is_empty())
+        .map(|_| IPC_FIXTURE_JS)
 }
 
 fn service_from_env() -> Option<String> {
@@ -1412,6 +1430,39 @@ mod tests {
         assert!(!hidden_requested(Some(OsStr::new(""))));
         assert!(!hidden_requested(None));
         assert_eq!(ENV_HIDDEN, "RIGHTKIT_QA_HIDDEN");
+    }
+    #[test]
+    fn ipc_fixture_script_only_when_the_service_env_is_set() {
+        assert!(ipc_fixture_script(None).is_none());
+        assert!(ipc_fixture_script(Some("")).is_none());
+        assert!(ipc_fixture_script(Some("  ")).is_none());
+        let script = ipc_fixture_script(Some("svc")).expect("script when the service is active");
+        assert!(script.contains("__RK_QA_IPC__"));
+        assert!(script.contains("window.fetch"));
+    }
+    #[test]
+    fn ipc_fixture_script_never_assigns_invoke_ipc_or_post_message() {
+        let script = ipc_fixture_script(Some("svc")).unwrap();
+        let code: String = script
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        for name in ["invoke", "ipc", "postMessage"] {
+            for assign in [
+                format!(".{name} ="),
+                format!(".{name}="),
+                format!("['{name}']"),
+                format!("[\"{name}\"]"),
+            ] {
+                assert!(
+                    !code.contains(&assign),
+                    "fixture script must not assign {name}: {assign}"
+                );
+            }
+        }
+        assert!(!code.contains("defineProperty"));
+        assert!(!code.contains("__TAURI_INTERNALS__.invoke"));
     }
     #[test]
     fn qa_marker_is_the_fixed_scanned_string() {

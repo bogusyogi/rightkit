@@ -1403,3 +1403,20 @@ test("onnxruntime extracts the catalog archive.member when present and keeps wri
     await assert.rejects(stage(bad), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /invalid archive member/ }, bad);
   }
 });
+
+test("a bare member name skips the same-named DWARF copy inside a .dSYM bundle (ORT osx tgz)", () => {
+  const destDir = path.resolve("/rk-extract-dest");
+  const listing = [
+    "onnxruntime-osx-arm64-1.24.4/", "onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
+    "onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib.dSYM/Contents/Resources/DWARF/libonnxruntime.1.24.4.dylib",
+    "onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.dylib", "",
+  ].join(String.fromCharCode(10));
+  const tar = fakeTar(listing);
+  defaultExtractMember({ archive: path.resolve("/rk-cache/ort.tgz"), fileName: "libonnxruntime.1.24.4.dylib", destDir, run: tar.run });
+  assert.deepEqual(tar.extracted(), ["onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib"]);
+  const onlyDsym = fakeTar(`x/lib/a.dylib.dSYM/Contents/Resources/DWARF/a.dylib${String.fromCharCode(10)}`);
+  assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/ort.tgz"), fileName: "a.dylib", destDir, run: onlyDsym.run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /has 0 members named a\.dylib/ });
+  const pathed = fakeTar(listing);
+  defaultExtractMember({ archive: path.resolve("/rk-cache/ort.tgz"), fileName: "onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib.dSYM/Contents/Resources/DWARF/libonnxruntime.1.24.4.dylib", destDir, run: pathed.run });
+  assert.equal(pathed.extracted().length, 1, "an explicit full path can still address the dSYM copy");
+});

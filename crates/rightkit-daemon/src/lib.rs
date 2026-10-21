@@ -145,7 +145,7 @@ pub use server::{
 };
 pub use service::{BuildError, Service, ServiceBuilder};
 pub use suite::{
-    refuse_build_tool_real_data, valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT,
+    refuse_build_tool_real_data, refuse_build_tool_real_data_for_mode, valid_service_name, Suite, SuiteError, ENV_SUITE_ROOT,
     MAX_SERVICE_NAME_LEN, SHARED_DIR_NAME, SUITE_DIR_NAME,
 };
 pub use transport::{

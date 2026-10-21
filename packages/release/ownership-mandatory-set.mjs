@@ -2,7 +2,7 @@
 // right-release ownership-mandatory: Table 1 mandatory-owner-set check (plan task 5.1).
 //
 // This evaluates declarations only; it does not establish active target/features, lock resolution or production adoption.
-// A registered app must declare every Table 1 owner (rows M1-M23) at or above the required version,
+// A registered app must declare every Table 1 owner (enforced rows M1-M20, M22; pending rows M21, M23-M25 never fail) at or above the required version,
 // from the registry. Report mode (default) prints per-app findings and exits 0; --enforce exits 1
 // on any missing owner, below-required version, or path/git/patch override ("not-on-registry").
 // Mode switching of the ownership gate itself (Report -> Enforce) is a separate step; this check
@@ -15,8 +15,9 @@
 //   { "profile": "desktop", "notApplicable": { "M16": "reason text" },
 //     "M22": { "role": "client|host|both|absent", "entrypoints": ["src-tauri/src/agent.rs#register_tools"] } }
 //
-// PK17.scanner (report only, never enforcement): rows M21 and M23 stay `ownerPending` and never fail, but each lists its
-// `pendingOwners` (M21: rightkit-fs, rightkit-daemon, rightkit-qa; M23: @rightkit/release, rightkit-daemon) and the report shows
+// PK17.scanner (report only, never enforcement): rows M21, M23, M24 and M25 stay `ownerPending` and never fail, but each lists its
+// `pendingOwners` (M21: rightkit-fs, rightkit-daemon, rightkit-qa; M23: @rightkit/release, rightkit-daemon; M24: @rightkit/issues-tracker,
+// unpublished; M25: rightkit-qa, @rightkit/qa, journeys capability unbuilt) and the report shows
 // how each app's declarations measure up (`pending[].candidateOwners`, `enforced: false`). Moving those owners into `rows` and
 // raising minimums is the separate activation step (PK17.activation). The M22 applicability record (PK15-2) is validated and
 // reported under `applicability.M22`; an invalid or contradictory record is a `problem`, which never changes the exit code.
@@ -295,6 +296,11 @@ export function loadAppDeclaration(root, data) {
   return { profile: doc.profile ?? data.defaultProfile, notApplicable, records, problems };
 }
 
+// A pending row's `profile` is one profile name, a list of profile names, or "all" (repository-wide: every profile, including future ones).
+export function pendingAppliesTo(row, active) {
+  return row.profile === "all" || (Array.isArray(row.profile) ? row.profile.includes(active) : row.profile === active);
+}
+
 export function checkApp(root, { data = loadData(), profile, amendments = [] } = {}) {
   const name = path.basename(root);
   if (!existsSync(root) || !statSync(root).isDirectory()) return { app: name, root, scanned: false, profile: profile ?? data.defaultProfile, owners: [], pending: [], notApplicable: [], problems: ["app root missing"], violations: 0 };
@@ -319,7 +325,7 @@ export function checkApp(root, { data = loadData(), profile, amendments = [] } =
   const facts = manifests.flatMap((m) => m.facts);
   // Pending rows never fail. Their `pendingOwners` are judged like any owner and listed as `candidateOwners` (`enforced: false`)
   // so the report shows what activation would find; the result is never counted in `violations`.
-  const pending = data.pendingRows.filter((r) => r.profile === active).map((r) => ({
+  const pending = data.pendingRows.filter((r) => pendingAppliesTo(r, active)).map((r) => ({
     row: r.id, name: r.name, status: "owner-pending", note: r.ownerPending,
     candidateOwners: r.id in declaration.notApplicable ? [] : (r.pendingOwners ?? []).map((o) => {
       const judged = judge({ ...o, rows: [r.id] }, facts);

@@ -1,0 +1,37 @@
+{
+  "name": "@rightkit/issues-tracker",
+  "version": "0.1.0",
+  "description": "Writes issues.html at a repository root from its GitHub issues: grouped by feature, status chips from labels, offline, light and dark.",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "bin": {
+    "right-issues": "cli/right-issues.mjs"
+  },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "right-issues": [
+          "--version"
+        ]
+      }
+    }
+  },
+  "files": [
+    "cli",
+    "tracker.mjs"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "test": "node --test *.test.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bogusyogi/rightkit.git",
+    "directory": "packages/issues-tracker"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

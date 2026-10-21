@@ -121,9 +121,9 @@ impl Suite {
     /// * Linux: `<home>/.local/share/Orthic Labs/shared`. `XDG_DATA_HOME` is an environment
     ///   variable and is ignored, so a user who relocated it must host with this function too, or
     ///   host and hardened client disagree on the root.
-    /// * Windows: `<local app data>\Orthic Labs\shared`, `<local app data>` from
-    ///   `SHGetKnownFolderPath(FOLDERID_LocalAppData)`, which reads the profile's registry, not
-    ///   `%LOCALAPPDATA%`.
+    /// * Windows: `<profile>\AppData\Local\Orthic Labs\shared`, `<profile>` from
+    ///   `GetUserProfileDirectoryW` on the process token. `%USERPROFILE%` and `%LOCALAPPDATA%` are
+    ///   ignored, so a launcher that sets them (a QA home) cannot move the real root.
     /// * Other Unix: not implemented; fails closed.
     pub fn per_user_default() -> Result<Suite, SuiteError> {
         let base = platform_default_base()?;
@@ -283,63 +283,99 @@ fn platform_default_base() -> Result<PathBuf, SuiteError> {
     })
 }
 
-/// Windows: the profile's local application data folder from the shell's known-folder table
-/// (`SHGetKnownFolderPath(FOLDERID_LocalAppData)`), which reads the profile's registry and never
-/// `%LOCALAPPDATA%`.
+/// Windows: `<profile>\AppData\Local`, with `<profile>` from the process token
+/// ([`account_profile_dir`]), never from `%USERPROFILE%` or `%LOCALAPPDATA%`.
+///
+/// `SHGetKnownFolderPath(FOLDERID_LocalAppData, token = NULL)` is not used: for the current user
+/// it expands the known folder's `%USERPROFILE%\AppData\Local` default against the process
+/// environment, so a launcher (`rightkit-qa` sets `USERPROFILE` for its child) redirects it.
+/// `LocalAppData` is a per-machine folder that Windows does not redirect to a server, so the
+/// profile-relative path is the real one.
 #[cfg(windows)]
 fn platform_default_base() -> Result<PathBuf, SuiteError> {
+    Ok(account_profile_dir()?.join("AppData").join("Local"))
+}
+
+/// Windows: the account's profile directory, from `GetUserProfileDirectoryW` on a
+/// `TOKEN_QUERY` handle of the current process token.
+///
+/// Microsoft documents that function as returning "the path to the root directory of the specified
+/// user's profile" for the user the token represents, and `OpenProcessToken` as a way to obtain
+/// that token (`hToken` "must have TOKEN_QUERY access"):
+/// <https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-getuserprofiledirectoryw>,
+/// <https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocesstoken>.
+/// The lookup is keyed by the token's SID, so no environment variable takes part. The Microsoft
+/// page for `SHGetKnownFolderPath` only promises token-based resolution when a token is passed and
+/// does not say it stops expanding `%USERPROFILE%` from the environment, so that API is not relied on.
+#[cfg(windows)]
+pub(crate) fn account_profile_dir() -> Result<PathBuf, SuiteError> {
     use std::ffi::{c_void, OsString};
     use std::os::windows::ffi::OsStringExt;
 
-    #[repr(C)]
-    #[allow(dead_code)]
-    struct Guid(u32, u16, u16, [u8; 8]);
-    /// `FOLDERID_LocalAppData`, {F1B32785-6FBA-4FCF-9D55-7B8E7F157091}.
-    const LOCAL_APP_DATA: Guid = Guid(
-        0xF1B3_2785,
-        0x6FBA,
-        0x4FCF,
-        [0x9D, 0x55, 0x7B, 0x8E, 0x7F, 0x15, 0x70, 0x91],
-    );
+    const TOKEN_QUERY: u32 = 0x0008;
+    const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
 
-    #[link(name = "shell32")]
+    #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn SHGetKnownFolderPath(
-            id: *const Guid,
-            flags: u32,
-            token: *mut c_void,
-            path: *mut *mut u16,
-        ) -> i32;
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
     }
-    #[link(name = "ole32")]
+    #[link(name = "advapi32")]
     unsafe extern "system" {
-        fn CoTaskMemFree(memory: *mut c_void);
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+    }
+    #[link(name = "userenv")]
+    unsafe extern "system" {
+        fn GetUserProfileDirectoryW(token: *mut c_void, buf: *mut u16, size: *mut u32) -> i32;
     }
 
-    let mut text: *mut u16 = std::ptr::null_mut();
-    // SAFETY: a valid folder id and out-parameter; a null token means the current user.
-    let status =
-        unsafe { SHGetKnownFolderPath(&LOCAL_APP_DATA, 0, std::ptr::null_mut(), &mut text) };
-    let folder = if status >= 0 && !text.is_null() {
-        let mut len = 0;
-        // SAFETY: on success the function returned a NUL-terminated string.
-        while unsafe { *text.add(len) } != 0 {
-            len += 1;
+    struct Token(*mut c_void);
+    impl Drop for Token {
+        fn drop(&mut self) {
+            // SAFETY: the handle came from a successful `OpenProcessToken` and is closed once.
+            unsafe { CloseHandle(self.0) };
         }
-        // SAFETY: `len` units were just read from this allocation.
-        Some(PathBuf::from(OsString::from_wide(unsafe {
-            std::slice::from_raw_parts(text, len)
-        })))
-    } else {
-        None
-    };
-    // SAFETY: the caller frees the string in every case; null is allowed.
-    unsafe { CoTaskMemFree(text.cast()) };
-    folder.filter(|path| path.is_absolute()).ok_or_else(|| {
-        SuiteError::NoRoot(format!(
-            "the profile's local application data folder is unavailable (SHGetKnownFolderPath: 0x{status:08X})"
-        ))
-    })
+    }
+
+    let mut raw: *mut c_void = std::ptr::null_mut();
+    // SAFETY: the pseudo-handle needs no close; `raw` is a valid out-parameter.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut raw) } == 0 {
+        return Err(SuiteError::NoRoot(format!(
+            "the process token is unavailable: {}",
+            io::Error::last_os_error()
+        )));
+    }
+    let token = Token(raw);
+
+    let mut buf = vec![0u16; 260];
+    for _ in 0..2 {
+        let mut size = buf.len() as u32;
+        // SAFETY: `buf` is writable for `size` UTF-16 units and `token` is a live query handle.
+        let ok = unsafe { GetUserProfileDirectoryW(token.0, buf.as_mut_ptr(), &mut size) };
+        if ok != 0 {
+            let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+            let dir = PathBuf::from(OsString::from_wide(&buf[..len]));
+            return if dir.is_absolute() {
+                Ok(dir)
+            } else {
+                Err(SuiteError::NoRoot(
+                    "the account's profile directory is not absolute".into(),
+                ))
+            };
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(ERROR_INSUFFICIENT_BUFFER) && size as usize > buf.len() {
+            // `size` now holds the required length in UTF-16 units, terminator included.
+            buf = vec![0u16; size as usize];
+            continue;
+        }
+        return Err(SuiteError::NoRoot(format!(
+            "the account's profile directory is unavailable: {error}"
+        )));
+    }
+    Err(SuiteError::NoRoot(
+        "the account's profile directory changed size during the lookup".into(),
+    ))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
@@ -446,18 +482,48 @@ const BUILD_TOOL_ENV: &[&str] = &["CARGO", "CARGO_MANIFEST_DIR"];
 /// proceed; the fix is an isolated suite (`Suite::per_run_temp` or `RIGHTKIT_SUITE_ROOT` pointing
 /// at a temporary directory). An unresolvable root is already an error from [`Suite::resolve`].
 /// It does nothing for an installed app, which the build tool does not start.
+///
+/// A QA run whose suite sits in a validated test root that is not under the temporary directory
+/// (macOS: the QA home is under the user's home) uses [`refuse_build_tool_real_data_for_mode`].
 pub fn refuse_build_tool_real_data(suite: &Suite) -> Result<(), SuiteError> {
-    if !BUILD_TOOL_ENV.iter().any(|k| std::env::var_os(k).is_some()) {
+    refuse_build_tool_real_data_inner(suite, None, build_tool_env_present())
+}
+
+/// [`refuse_build_tool_real_data`] for a run whose [`crate::mode::Mode`] came from
+/// [`crate::mode::decide`]. A suite inside the test root of a [`crate::mode::Mode::Test`] is
+/// accepted: `decide` already proved that root is bound to the app, private and disjoint from the
+/// real per-user data. `Mode::Test` exists only in a `test-mode` build and only `decide` makes
+/// one, so no environment variable or flag can grant this. A [`crate::mode::Mode::Release`], or a
+/// suite outside the test root (a forged or unrelated suite), gets the plain rule.
+pub fn refuse_build_tool_real_data_for_mode(
+    suite: &Suite,
+    mode: &crate::mode::Mode,
+) -> Result<(), SuiteError> {
+    refuse_build_tool_real_data_inner(suite, Some(mode), build_tool_env_present())
+}
+
+fn build_tool_env_present() -> bool {
+    BUILD_TOOL_ENV.iter().any(|k| std::env::var_os(k).is_some())
+}
+
+/// The rule with the build-tool signal and the mode passed in, so tests need no `set_var`.
+fn refuse_build_tool_real_data_inner(
+    suite: &Suite,
+    mode: Option<&crate::mode::Mode>,
+    build_tool: bool,
+) -> Result<(), SuiteError> {
+    if !build_tool || suite._temp.is_some() {
         return Ok(());
     }
-    if suite._temp.is_some() {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let root = canon(&suite.root);
+    if root.starts_with(canon(&std::env::temp_dir())) {
         return Ok(());
     }
-    let temp = std::env::temp_dir();
-    let temp = std::fs::canonicalize(&temp).unwrap_or(temp);
-    let root = std::fs::canonicalize(&suite.root).unwrap_or_else(|_| suite.root.clone());
-    if root.starts_with(&temp) {
-        return Ok(());
+    if let Some(test) = mode.and_then(crate::mode::Mode::test_root) {
+        if root.starts_with(canon(test.path())) {
+            return Ok(());
+        }
     }
     Err(SuiteError::Insecure(format!(
         "a build-tool run may not use the real suite root {}; use Suite::per_run_temp or an isolated RIGHTKIT_SUITE_ROOT",
@@ -578,5 +644,68 @@ mod tests {
             Suite::resolve_ignoring_env_overrides(true).unwrap().root(),
             suite.root()
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_account_profile_is_absolute_and_holds_the_default_base() {
+        let profile = account_profile_dir().unwrap();
+        assert!(profile.is_absolute() && profile.is_dir(), "{profile:?}");
+        assert_eq!(
+            platform_default_base().unwrap(),
+            profile.join("AppData").join("Local")
+        );
+    }
+
+    #[test]
+    fn the_build_tool_guard_table() {
+        let temp = Suite::per_run_temp("guard").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside = std::fs::canonicalize(outside.path()).unwrap();
+        // A real-looking root that is not under the temporary directory: the user's own directory.
+        let home = Suite::at(std::env::current_dir().unwrap()).unwrap();
+        let in_temp = Suite::at(outside.join("suite")).unwrap();
+
+        // No build tool: nothing is refused.
+        assert!(refuse_build_tool_real_data_inner(&home, None, false).is_ok());
+        // Build tool: a per-run temp suite and a suite under the temporary directory pass.
+        assert!(refuse_build_tool_real_data_inner(&temp, None, true).is_ok());
+        assert!(refuse_build_tool_real_data_inner(&in_temp, None, true).is_ok());
+        // Build tool, release, a real-looking root: refused.
+        assert!(matches!(
+            refuse_build_tool_real_data_inner(&home, None, true),
+            Err(SuiteError::Insecure(_))
+        ));
+        assert!(matches!(
+            refuse_build_tool_real_data_inner(&home, Some(&crate::mode::Mode::Release), true),
+            Err(SuiteError::Insecure(_))
+        ));
+    }
+
+    #[test]
+    fn a_validated_test_root_is_accepted_and_a_forged_suite_is_not() {
+        use crate::mode::{Mode, TestRoot};
+        // The macOS case: the QA home is not under the temporary directory (`/private/tmp`).
+        let cwd = std::env::current_dir().unwrap();
+        let qa = cwd.join("qa-home");
+        let inside = Suite::at(qa.join("shared")).unwrap();
+        let mode = Mode::Test(TestRoot::for_test(qa.clone(), inside.clone()));
+        assert!(refuse_build_tool_real_data_inner(&inside, Some(&mode), true).is_ok());
+        // A sibling that merely shares the name prefix, the real root, and the root itself above
+        // the test root are all outside it.
+        for forged in [cwd.join("qa-home-evil").join("shared"), cwd.join("real"), cwd.clone()] {
+            let forged = Suite::at(forged).unwrap();
+            assert!(
+                matches!(
+                    refuse_build_tool_real_data_inner(&forged, Some(&mode), true),
+                    Err(SuiteError::Insecure(_))
+                ),
+                "{forged:?}"
+            );
+        }
+        // Without the build tool nothing changes either way.
+        assert!(refuse_build_tool_real_data_inner(&inside, None, false).is_ok());
+        // The same suite without a Test mode is refused.
+        assert!(refuse_build_tool_real_data_inner(&inside, None, true).is_err());
     }
 }

@@ -1,0 +1,15 @@
+{
+  "package": "@rightkit/issues-tracker",
+  "capabilities": [
+    {
+      "capability": "issues-tracker",
+      "summary": "Per-repository issues.html tracker generated from GitHub issues by right-issues: groups, label-driven status chips, offline, light and dark; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    }
+  ]
+}

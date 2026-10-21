@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 — unpublished staging
+
+Additive. Implements phase 1 of `docs/E2E-TESTING-STANDARD.md` (D3 to D5, D8) on the Node side. 0.5.2 is already on npm, so this is a minor bump.
+
+- New `@rightkit/qa/journeys` export (also `journeys` from the package root) and bin `rightkit-qa-journeys`: `check`, `census`, `run`, `validate-receipt`, `gate`.
+- Manifest reader and validator for `journeys.toml` and `journeys-map.toml`: schema, unique immutable ids, entries exist, no `data = "real"`, adapters declared and resolved, `native-ui` must launch a built binary (an adapter artifact with role `app`, `engine` or `binary`) and may not use a dev server or mocked IPC. Includes a small TOML reader (no new dependency).
+- Adapter protocol v1: `newSelection`, `writeRunFiles` (selection.json, empty results.jsonl), `adapterEnv`, `parseResults` (start/journey/end, run_id and nonce on every line, statuses, units, evidence), and the adapter-side `Reporter` and `readSelection`.
+- Receipt `rightkit.journeys.receipt/1` and `validateReceipt` / `validateReceiptFile`: re-checks every D5 pass condition from the records, results file, manifest and digests, and never trusts the receipt's own verdict, counts or problems. Zero selected or executed, missing, duplicate, unselected, skipped, errored or failed journeys, inconsistent units, stale nonce or run_id, artifact digest mismatch, artifact not from the build, source/build/manifest disagreement, dirty source (release), isolation failure, non-zero adapter exit and evidence digest mismatch each yield `failed` or `incomplete`. Anything unprovable (no results file, no manifest, no evidence root) is `incomplete`.
+- `runJourneys` against an adapter declared in the manifest: select, git source identity, build argv with cargo `compiler-artifact` parsing, digest re-check before launch, launch, collect, receipt. Phase 1 supports `runner = "adapter"` only and starts the adapter directly; the interactive-session launcher (D11) and the broker receipt are not wired yet.
+- `journeys-fixture-adapter.mjs` (exported as `@rightkit/qa/journeys-fixture-adapter`): the RightKit-owned fixture adapter whose `RK_FIXTURE_MODE` reproduces each refusal.
+- `census` (Rust `#[test]`, JS `it`/`test`, `// rk-test: pure|contract|pin #N`, base-ref diff through git) and an advisory `gate` (path classification, carry-forward, tombstone hashes). Both are report-only; `gate` always exits 0.
+- Tests: `src/journeys/journeys.test.ts`. Not run by the author: the owner chat owes the vitest run and the package build; only `tsc --noEmit` on the sources was run (clean).
+
 ## 0.5.2 — unpublished staging
 
 - PK14-2: exact dependency `@rightkit/qa-chrome` 0.1.10 (bounded cleanup, native Windows process identity checks & scanner bootstrap correction).

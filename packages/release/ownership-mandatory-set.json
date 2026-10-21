@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source": {
-    "table": "private-audits/TABLE1-MANDATORY.md:56-78 (M1-M23 requirement catalog)",
+    "table": "private-audits/TABLE1-MANDATORY.md:56-78 (M1-M23 requirement catalog; M24-M25 added 2026-10-21, pending)",
     "versions": "registry readback 2026-10-19 after the mandatory-set publish (#790): min = registryMax = the live version",
     "note": "min = registryMax = the required version: the live registry version of the published mandatory set (#790). Raise both with each mandatory-set publish."
   },
@@ -434,6 +434,42 @@
           "name": "rightkit-daemon",
           "ecosystem": "cargo",
           "min": "0.3.0"
+        }
+      ]
+    },
+    {
+      "id": "M24",
+      "name": "Issue tracker",
+      "profile": "all",
+      "owners": [],
+      "ownerPending": "@rightkit/issues-tracker 0.1.0 is not yet published (rightkit#875); never fails.",
+      "pendingOwners": [
+        {
+          "name": "@rightkit/issues-tracker",
+          "ecosystem": "npm",
+          "min": "0.1.0",
+          "allowDev": true
+        }
+      ]
+    },
+    {
+      "id": "M25",
+      "name": "End-to-end journeys",
+      "profile": ["desktop", "apple"],
+      "owners": [],
+      "ownerPending": "Journeys capability (E2E-TESTING-STANDARD, rightkit#878) is not built or published in rightkit-qa / @rightkit/qa; never fails.",
+      "pendingOwners": [
+        {
+          "name": "rightkit-qa",
+          "ecosystem": "cargo",
+          "min": "0.7.0",
+          "allowDev": true
+        },
+        {
+          "name": "@rightkit/qa",
+          "ecosystem": "npm",
+          "min": "0.5.1",
+          "allowDev": true
         }
       ]
     }

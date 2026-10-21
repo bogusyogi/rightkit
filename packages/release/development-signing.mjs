@@ -3,6 +3,7 @@ import { closeSync, copyFileSync, existsSync, mkdtempSync, openSync, readFileSyn
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { adhocSafeEntitlements } from "./adhoc-entitlements.mjs";
 import { runMacCodesignCommands } from "./macos-signing-session.mjs";
 import { bundleRelativePath, compileBundlePathMap, globToRegExp, isGlobPattern, lookupBundlePath, resolveBundleIdentifier, validateBundleRelativeKey, validateIdentifierTemplate, validateSigningIdentifier } from "./mac-bundle-signing.mjs";
 
@@ -308,7 +309,7 @@ export function signMacosDevelopmentBundle(options) {
     const entitlementFile = (file) => {
       if (!signing.adhoc) return file;
       if (!safeFiles.has(file)) {
-        const safe = Object.fromEntries(Object.entries(readPlist(file, context)).filter(([key]) => key.startsWith("com.apple.security.cs.") || key === "com.apple.security.device.audio-input"));
+        const safe = adhocSafeEntitlements(readPlist(file, context));
         const out = path.join(scratch, `adhoc-${safeFiles.size}.plist`);
         writeFileSync(out, JSON.stringify(safe));
         checked("plutil", ["-convert", "xml1", out], context, "DEV_MAC_SIGNING_CONFIG_INVALID", identity);

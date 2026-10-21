@@ -61,6 +61,8 @@ pub mod inplace;
 pub mod installed;
 /// Run a journey in the logged-on user's interactive session from a session-0 (SSH) process.
 pub mod interactive;
+/// End-to-end journeys: `journeys.toml`, adapter protocol v1 and the `rightkit.journeys.receipt/1` validator.
+pub mod journeys;
 pub mod lock;
 pub mod loudness;
 pub mod media;

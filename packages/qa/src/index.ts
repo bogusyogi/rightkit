@@ -15,3 +15,4 @@ export * from './storage.js';
 export * from './userdata.js';
 export * from './page.js';
 export { CdpClient, connectCdp, type CdpAnyListener, type CdpListener, type CdpParams } from './cdp.js';
+export * as journeys from './journeys/index.js';

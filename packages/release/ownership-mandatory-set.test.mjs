@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { checkApp, checkApps, compareVersions, loadData, lowerBound, main, renderText, validateApplicabilityRecord } from "./ownership-mandatory-set.mjs";
+import { pendingAppliesTo, checkApp, checkApps, compareVersions, loadData, lowerBound, main, renderText, validateApplicabilityRecord } from "./ownership-mandatory-set.mjs";
 
 const data = loadData();
 const tmp = () => mkdtempSync(path.join(tmpdir(), "rk-mandatory-"));
@@ -28,10 +28,10 @@ test("version helpers read lower bounds", () => {
   assert.ok(compareVersions(lowerBound("1.0.0-rc.1"), lowerBound("1.0.0")) < 0);
 });
 
-test("data file: rows M1-M23 are covered, M21/M23 are owner-pending, Apple ships no rows", () => {
+test("data file: rows M1-M25 are covered, M21/M23/M24/M25 are owner-pending, Apple ships no rows", () => {
   const ids = [...data.rows, ...data.pendingRows].map((r) => r.id).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  assert.deepEqual(ids, Array.from({ length: 23 }, (_, i) => `M${i + 1}`));
-  assert.deepEqual(data.pendingRows.map((r) => r.id), ["M21", "M23"]);
+  assert.deepEqual(ids, Array.from({ length: 25 }, (_, i) => `M${i + 1}`));
+  assert.deepEqual(data.pendingRows.map((r) => r.id), ["M21", "M23", "M24", "M25"]);
   assert.ok(data.pendingRows.every((r) => r.owners.length === 0));
   assert.equal(data.rows.filter((r) => r.profile === "apple").length, 0);
   assert.equal(data.profiles.apple.ratified, false);
@@ -44,7 +44,7 @@ test("known-good: all owners at required version pass, pending rows never fail",
     goodApp(root);
     const report = checkApp(root, { data });
     assert.equal(report.violations, 0, JSON.stringify(report.owners.filter((o) => o.status !== "ok")));
-    assert.deepEqual(report.pending.map((p) => p.row), ["M21", "M23"]);
+    assert.deepEqual(report.pending.map((p) => p.row), ["M21", "M23", "M24", "M25"]);
     assert.equal(checkApps([root], { enforce: true }).failed, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -258,7 +258,8 @@ test("data file: M21 and M23 list their pending owners without raising any minim
   for (const row of data.pendingRows) {
     assert.match(row.ownerPending, /never fails/);
     assert.deepEqual(row.owners, []);
-    for (const o of row.pendingOwners) assert.equal(o.min, minOf(o.name), `${row.id} ${o.name} keeps today's minimum`);
+    // M24's owner is unpublished: it has no enforced minimum to match and never carries a registryMax.
+    for (const o of row.pendingOwners) if (row.id !== "M24") assert.equal(o.min, minOf(o.name), `${row.id} ${o.name} keeps today's minimum`);
   }
   assert.deepEqual(data.applicabilityRecords.M22.roles, ["client", "host", "both", "absent"]);
 });
@@ -269,7 +270,7 @@ test("pending M21/M23 owners are reported per app but never counted: report and 
     goodApp(root);
     const good = checkApp(root, { data });
     assert.equal(good.violations, 0);
-    for (const row of good.pending) {
+    for (const row of good.pending.filter((p) => p.row === "M21" || p.row === "M23")) {
       assert.ok(row.candidateOwners.length >= 2, row.row);
       assert.ok(row.candidateOwners.every((c) => c.declarationStatus === "ok" && c.enforced === false), row.row);
     }
@@ -358,5 +359,58 @@ test("M22 applicability record: bad roles, missing or escaping entrypoints and m
     assert.match(reasons({ role: "client", entrypoints: ["src"], extra: 1 }), /unknown applicability record key/);
     assert.equal(check({ role: "client", entrypoints: ["src/agent.rs"] }).status, "recorded");
     assert.equal(check({ role: "client", entrypoints: ["src"] }).unverifiedEntrypoints, 1, "a bare token is a symbol, recorded unverified");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("M24 and M25 are pending rows: unpublished owners, no registryMax, listed pendingOwners, never fail in --enforce", () => {
+  const pending = Object.fromEntries(data.pendingRows.map((r) => [r.id, r]));
+  assert.equal(pending.M24.name, "Issue tracker");
+  assert.equal(pending.M25.name, "End-to-end journeys");
+  assert.deepEqual(pending.M24.pendingOwners.map((o) => `${o.ecosystem}:${o.name}`), ["npm:@rightkit/issues-tracker"]);
+  assert.equal(pending.M24.pendingOwners[0].min, "0.1.0");
+  assert.equal(pending.M24.pendingOwners[0].allowDev, true);
+  assert.deepEqual(pending.M25.pendingOwners.map((o) => `${o.ecosystem}:${o.name}`).sort(), ["cargo:rightkit-qa", "npm:@rightkit/qa"]);
+  for (const id of ["M24", "M25"]) {
+    assert.deepEqual(pending[id].owners, []);
+    assert.match(pending[id].ownerPending, /not (yet )?(built or )?published|never fails/);
+    assert.ok(pending[id].pendingOwners.every((o) => !("registryMax" in o)), `${id} carries no registryMax`);
+    assert.ok(!data.rows.some((r) => r.id === id), `${id} is not enforced`);
+  }
+  const root = tmp();
+  try {
+    goodApp(root);
+    const report = checkApp(root, { data });
+    assert.equal(report.violations, 0);
+    const m24 = report.pending.find((p) => p.row === "M24");
+    assert.deepEqual(m24.candidateOwners.map((c) => [c.owner, c.declarationStatus, c.enforced]), [["@rightkit/issues-tracker", "missing", false]]);
+    assert.ok(report.pending.find((p) => p.row === "M25").candidateOwners.every((c) => c.enforced === false));
+    assert.equal(checkApps([root], { data, enforce: true }).failed, false);
+    assert.match(renderText(checkApps([root], { data })), /pending=M21,M23,M24,M25/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("M24 is repository-wide and M25 covers desktop and apple: pending on every profile, report-only under --enforce", () => {
+  const pending = Object.fromEntries(data.pendingRows.map((r) => [r.id, r]));
+  assert.equal(pending.M24.profile, "all");
+  assert.deepEqual(pending.M25.profile, ["desktop", "apple"]);
+  assert.equal(pendingAppliesTo(pending.M24, "tooling"), true, "M24 applies to any profile, even one not yet defined");
+  assert.equal(pendingAppliesTo(pending.M25, "tooling"), false);
+  const root = tmp();
+  try {
+    goodApp(root);
+    for (const profile of ["desktop", "apple"]) {
+      const report = checkApp(root, { data, profile });
+      const rows = report.pending.map((p) => p.row);
+      assert.ok(rows.includes("M24"), `${profile} lists M24`);
+      assert.ok(rows.includes("M25"), `${profile} lists M25`);
+      assert.ok(report.pending.every((p) => p.status === "owner-pending" && p.candidateOwners.every((c) => c.enforced === false)));
+      assert.ok(!report.owners.some((o) => o.rows.some((r) => r === "M24" || r === "M25")), `${profile} enforces neither`);
+    }
+    const apple = checkApp(root, { data, profile: "apple" });
+    assert.ok(apple.problems.some((p) => /unratified/.test(p)), "the apple profile problem is the profile's own, not M24");
+    assert.equal(apple.violations, apple.owners.filter((o) => o.status !== "ok").length);
+    assert.equal(apple.owners.filter((o) => o.rows.length).length, 0, "M24 adds no owner outcomes");
+    // report-only: the pending rows add no violation to the desktop result under --enforce
+    assert.equal(checkApps([root], { data, enforce: true, profile: "desktop" }).failed, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

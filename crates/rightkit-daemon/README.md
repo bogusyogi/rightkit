@@ -207,7 +207,7 @@ An application route that needs no device signature (a provider webhook, a callb
 
 ## Build-tool guard (`suite`)
 
-`suite::refuse_build_tool_real_data(&suite)` returns an error when the build tool's runtime environment is present and the suite is neither `Suite::per_run_temp` nor under the system temporary directory. It is opt-in: call it at the start of a test or dev run; it is not called from `Suite::resolve`.
+`suite::refuse_build_tool_real_data(&suite)` returns an error when the build tool's runtime environment is present and the suite is neither `Suite::per_run_temp` nor under the system temporary directory. It is opt-in: call it at the start of a test or dev run; it is not called from `Suite::resolve`. A QA run whose suite is in a validated test root outside the temporary directory calls `suite::refuse_build_tool_real_data_for_mode(&suite, &mode)` with the `Mode` from `mode::decide`; only a `Mode::Test` and a suite inside its root pass.
 
 ## Listener (`transport`)
 

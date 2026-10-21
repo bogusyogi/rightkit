@@ -1,10 +1,13 @@
 {
   "name": "@rightkit/qa",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",
   "type": "module",
+  "bin": {
+    "rightkit-qa-journeys": "dist/journeys/cli.js"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -16,6 +19,11 @@
       "types": "./dist/chrome.d.ts",
       "import": "./dist/chrome.js"
     },
+    "./journeys": {
+      "types": "./dist/journeys/index.d.ts",
+      "import": "./dist/journeys/index.js"
+    },
+    "./journeys-fixture-adapter": "./journeys-fixture-adapter.mjs",
     "./ts-register": "./ts-register.mjs",
     "./ts-hooks": "./ts-hooks.mjs"
   },
@@ -23,6 +31,7 @@
     "dist",
     "ts-register.mjs",
     "ts-hooks.mjs",
+    "journeys-fixture-adapter.mjs",
     "README.md",
     "LICENSE-MIT",
     "LICENSE-APACHE"

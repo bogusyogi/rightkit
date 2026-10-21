@@ -526,7 +526,10 @@ export function defaultRun(command, args, { cwd, env = process.env } = {}) {
  * a `fileName` containing `/` selects the one member whose full archive path equals it (case-sensitive, leading `./` ignored on both
  * sides), so archives with the same base name in several directories (ORT DirectML nupkgs) can be addressed. The returned file is
  * always under `destDir`; callers copy it to their own declared output name, so the member path never decides where anything is written.
+ * A bare name ignores members inside a `.dSYM` bundle: Apple archives (ORT osx tgz) ship the DWARF copy under the same base name.
  */
+const isDebugSymbolMember = (member) => member.split("/").some((part) => part.toLowerCase().endsWith(".dsym"));
+
 export function defaultExtractMember({ archive, fileName, destDir, run = defaultRun }) {
   const wanted = normalizeArchiveMember(fileName);
   if (wanted.error) fail("STAGE_SIDECAR_EXTRACT_FAILED", `archive member ${JSON.stringify(fileName)} ${wanted.error}`);
@@ -535,7 +538,7 @@ export function defaultExtractMember({ archive, fileName, destDir, run = default
   const lines = String(listing.stdout).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const members = wanted.byPath
     ? lines.filter((line) => (line.startsWith("./") ? line.slice(2) : line) === wanted.value)
-    : lines.filter((line) => path.posix.basename(line) === wanted.value);
+    : lines.filter((line) => path.posix.basename(line) === wanted.value && !isDebugSymbolMember(line));
   if (members.length !== 1) fail("STAGE_SIDECAR_EXTRACT_FAILED", `${archive} has ${members.length} members ${wanted.byPath ? "at the path" : "named"} ${wanted.value}, expected exactly one`);
   const extracted = run("tar", ["-xf", archive, "-C", destDir, members[0]], { cwd: path.dirname(archive) });
   if (extracted.status !== 0) fail("STAGE_SIDECAR_EXTRACT_FAILED", `cannot extract ${members[0]} from ${archive}`);

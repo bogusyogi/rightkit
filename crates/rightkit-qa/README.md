@@ -231,6 +231,23 @@ if let Some(plugin) = rightkit_qa::embedded::Control::<tauri::Wry>::new().build_
 - Input goes to the webview from inside the process (on Windows through WebView2's `Input.dispatch*`), not through OS input events.
 - Apps still on `rightkit-qa-driver` (Pulse pins an older version) use the legacy feature `qa-control`; check the feature names against the version the app pins.
 
+### Faking engine replies: the IPC fixture
+
+Tauri freezes `__TAURI_INTERNALS__.invoke`, so a test cannot replace it. In a `control` build with `RIGHTKIT_CONTROL_SERVICE` set, the control plugin injects `window.__RK_QA_IPC__` (`src/embedded/ipc_fixture.js`), which wraps `window.fetch`, the writable transport under every Tauri command. Add rules from the harness:
+
+```rust
+control.ipc_fixture_add(&serde_json::json!({
+    "cmd": "get_settings",
+    "args": {"scope": "mandatory"},            // optional subset match
+    "replies": [{"kind": "ok", "value": {"ready": false}}, {"kind": "error", "value": "boom"}],
+    "times": 5                                  // optional; replies run in order, the last repeats
+}))?;
+let calls = control.ipc_fixture_log()?;         // [{cmd, args}, ...]
+control.ipc_fixture_clear()?;
+```
+
+Unmatched commands reach the real engine. Rules live in the page, so a reload or navigation drops them: add them again afterwards. The script is never injected without the service env, never assigns invoke, ipc or postMessage, and ships in no release build (no `control` feature; `right-release` refuses `QA_CONTROL_MARKER` binaries).
+
 ### Harness side
 
 - Launch with `control::launch(&LaunchSpec { binary, mode: Mode::Hidden, env, startup_timeout, label, focus: false }, &ws, sc.tracker())`, then `Control::wait_eval(js, timeout)` until the app's shell is up (Pulse waits for `nav.rk-nav`). `Control::eval` and `wait_for_text` read the page. `wait_eval`/`wait_for_text` wait in the page in one round trip (an app on a driver older than 0.4 is polled every 25 ms instead), `Control::batch(&[(method, params)])` and the `ui_batch` scenario step send many steps in one round trip, `screenshot_png` receives the image inline, and `RIGHTKIT_QA_PACE_MS` or `Control::set_pace_ms` restores a gap between input events (default none). `examples/control-test-app/bench/` holds the fixed latency benchmark scenarios.
@@ -317,3 +334,28 @@ let report = run_suite(&cfg, &SuiteOptions { hooks, ..Default::default() })?;
 ```
 
 A custom step's return value feeds `[[step.expect]]` and `save` like a built-in's. `util::hmac_sha256` and `util::secret_forms` (with base64 at all three stream alignments) are available to mocks and secret-absence steps.
+
+## End-to-end journeys
+
+The proof of an app is a declared list of user journeys (`docs/E2E-TESTING-STANDARD.md`). This crate owns the manifest reader, the adapter helper and the receipt validator; the Node mirror lives in `@rightkit/qa`. `journeys run`, `census` and `gate` are not implemented yet.
+
+**`journeys.toml`** (app root, `journeys::manifest`). `rightkit-qa journeys check [--root DIR]` validates it and `journeys-map.toml` (when present): unique immutable ids, known platforms (`macos`, `windows`, `linux`), surface, tier and runner, entries that exist and stay inside the app root (a glob needs its fixed directory), every `adapter` reference resolving, `data = "real"` refused, a `native-ui` journey declaring a built binary (an adapter with `artifacts`) and not building through vite, vitest or storybook, tombstone shape, and mapping journeys that exist. Unknown keys are errors. Exit 0 only when there is no issue.
+
+**Adapter helper** (`journeys::adapter`, linked by the app's own test target). The runner sets `RIGHTKIT_JOURNEYS_PROTOCOL=1`, `RIGHTKIT_JOURNEYS_SELECTION` and `RIGHTKIT_JOURNEYS_RESULTS`.
+
+```rust
+use rightkit_qa::journeys::adapter::{journey_from_outcomes, Isolation, Reporter, Selection, StartInfo};
+let sel = Selection::read()?;                 // zero selected journeys is an error
+let mut rep = Reporter::from_env(&sel)?;      // the runner pre-creates the file empty
+rep.start(StartInfo { adapter: "app-scenarios".into(), adapter_version: "1".into(),
+    artifacts: vec![/* ArtifactDigest::of("engine", path)? */], isolation: Isolation::from_env()? })?;
+for j in &sel.journeys {
+    let outcomes = run_the_apps_scenarios(&j.entry);          // the app's own hooks, unchanged
+    rep.journey(&journey_from_outcomes(&j.id, &outcomes))?;   // 1:1, never softened
+}
+rep.end()?;                                   // errors if a selected journey was not reported
+```
+
+The adapter exits 0 once the protocol is complete, whether or not journeys failed; the verdict comes from the records. `Isolation::from_env` only attests that `RIGHTKIT_QA_DATA_DIR` is set and absolute; the runner still checks the directory against the guard.
+
+**Receipt** (`journeys::receipt`). `rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>] [--results <file>] [--evidence-root <dir>] [--allow-dirty]` re-checks every rule of D5 and exits 0 only for an accepted pass. `--results` defaults to `results.jsonl` beside the receipt and `--evidence-root` to the receipt's directory. Without the results file, the manifest (`--manifest`, default the path the receipt records) or an evidence root the receipt is refused as incomplete (`results_unverified`), because those inputs cannot be re-checked. The adapter declaration also accepts `path` for `executable` and `artifacts`, and an optional `sources` list for carry-forward (the gate, not implemented, treats a missing list as stale); `manifest::change_hash` computes a tombstone `before_after_sha256` from canonical JSON of `{id, before, after}`. Problem codes: the D5 codes (`zero_executed`, `missing_result`, `duplicate_result`, `unselected_result`, `skipped`, `protocol_violation`, `stale_results`, `artifact_mismatch`, `artifact_not_from_build`, `source_mismatch`, `isolation`, `adapter_exit`) plus `journey_failed`, `empty_journey`, `schema`, `counts_mismatch`, `verdict_mismatch`, `receipt_results_mismatch`, `selection_invalid`, `no_launch`, `results_unverified`, `evidence_mismatch`, `dirty_tree` and `host_mismatch`. In code: `journeys::validate_receipt(&receipt, &ValidateOptions { .. })` returns a `Validation`; accept only when `passed()` is true.

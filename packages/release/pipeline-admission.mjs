@@ -40,7 +40,7 @@ export const hasShellMeta = (text) => SHELL_META.test(String(text));
 /** right-release subcommands a config may invoke (the CLI's own commands; unknown names are refused). */
 export const OWNER_SUBCOMMANDS = Object.freeze(new Set([
   "release", "build", "package", "publish", "upload", "deps", "publish-update", "hardening", "harden", "hardeningscan", "sign-windows",
-  "sign-updater", "sign-dev-artifact", "sign-candidate", "engine-locate", "stage-sidecar", "init", "pe", "icons", "recipe-build",
+  "sign-updater", "sign-dev-artifact", "sign-qa-bundle", "sign-candidate", "engine-locate", "stage-sidecar", "init", "pe", "icons", "recipe-build",
   "signing-agent", "create-mac-updater", "mirror-root-artifact", "test", "web-build", "license-notices", "toolchain", "github",
   "cargo-target", "qa", "ownership", "ownership-approval", "ownership-report", "ownership-mandatory", "adoption-evidence", "swift-package", "bundle-scan",
   "check-release-dependencies", "dist-scan", "identity-scan", "apple-profile-create", "ios-credentials", "dev", "doctor", "hooks",
