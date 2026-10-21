@@ -3,5 +3,5 @@
   "allow": "build-test-publish",
   "approvedBy": "Adrian D'souza",
   "approved": "2026-10-22",
-  "reason": "Restored 2026-10-22 on Adrian's instruction (RightKit package coordination chat: \"I would be stupid not to go ahead and restore the grant\"; rule of the same day: every deterministic check runs locally through the broker before any push, CI only as fallback, pinned build-script standardization issue #900). Original grant 2026-10-14; revoked 2026-10-20 under #828 (CI-only), superseded by #900. Agents may compile, test and qualify locally on the Mac and the Dell; publication stays on the approved-hash path (docs/CI.md)."
+  "reason": "Every deterministic check runs locally before any push or CI build, irrespective of CI (Adrian 2026-10-22, #888): clippy, check, doc, deny, audit, package list and the rest through the RustRight broker. CI still qualifies and publishes; crates.io publication stays on the approved-hash workflow."
 }
