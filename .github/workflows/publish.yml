@@ -300,6 +300,8 @@ jobs:
           out="$RUNNER_TEMP/credentials-helper-unsigned"
           bin="$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
           test -f "$bin"
+          cp "$out/stage/source/entitlements.plist" "$out/entitlements.plist"
+          rm -rf "$out/stage"
           chmod 0755 "$bin"
           (cd "$(dirname "$bin")" && shasum -a 256 RightKitCredentialsQualification > "$out/helper.sha256")
           printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-credentials-helper\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
