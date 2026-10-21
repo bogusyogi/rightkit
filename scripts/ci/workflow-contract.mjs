@@ -143,7 +143,7 @@ export const CREDENTIALS_SIGN_RUN = [
   "data = plistlib.loads(raw)",
   "entitlements = data.get(\"Entitlements\", {})",
   "expected = team + \".\" + identifier",
-  "app_id = entitlements.get(\"application-identifier\")",
+  "app_id = entitlements.get(\"com.apple.application-identifier\", entitlements.get(\"application-identifier\"))",
   "if app_id != expected and not (isinstance(app_id, str) and app_id.startswith(team + \".\") and app_id.endswith(\"*\") and \"*\" not in app_id[:-1] and expected.startswith(app_id[:-1])):",
   "    raise SystemExit(\"profile application-identifier mismatch\")",
   "groups = entitlements.get(\"keychain-access-groups\")",
