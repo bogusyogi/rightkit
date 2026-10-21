@@ -1136,15 +1136,39 @@ fn private_trust_handle(
     check
 }
 
-#[cfg(windows)]
+/// Verify the current owner-only state of this exact handle. This never repairs permissions,
+/// removes an entry, or reopens a displayed path. Later permission changes remain possible.
 pub(crate) fn verify_owner_only_handle(
     file: &std::fs::File,
     shown: &Path,
 ) -> crate::error::Result<()> {
-    if is_owner_only_handle(file, shown)? {
-        Ok(())
-    } else {
-        Err(FsError::TooPermissive(shown.to_path_buf()))
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = file.metadata().map_err(|error| FsError::io(shown, error))?;
+        // SAFETY: geteuid has no preconditions.
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(FsError::NotOwned(shown.to_path_buf()));
+        }
+        if metadata.mode() & 0o077 != 0 {
+            return Err(FsError::TooPermissive(shown.to_path_buf()));
+        }
+        crate::acl::refuse_acl(file, shown)
+    }
+    #[cfg(windows)]
+    {
+        if is_owner_only_handle(file, shown)? {
+            Ok(())
+        } else {
+            Err(FsError::TooPermissive(shown.to_path_buf()))
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (file, shown);
+        Err(FsError::Unavailable(
+            "owner-only handle verification requires Unix or Windows",
+        ))
     }
 }
 

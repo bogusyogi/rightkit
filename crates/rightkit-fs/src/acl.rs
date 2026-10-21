@@ -22,9 +22,10 @@
 //!    inheritable or not, pass.
 //! 2. **After creating**, the new inode's own ACL is read through its descriptor. If it has any
 //!    `allow` entry (the parent's ACL changed between step 1 and the creation), the creation is
-//!    refused with [`FsError::UnsafeAcl`] and the caller removes the inode, which is still empty
-//!    because no byte is written before this check. Nothing is filled into an inode that
-//!    inherited access. Inherited `deny` entries are left on the new inode.
+//!    refused with [`FsError::UnsafeAcl`]. Temporary creations remove the still-empty inode.
+//!    [`crate::StateDir::create_new_empty`] retains its visible final name so an existing lock
+//!    cannot be split across two inodes. Such a failed entry is not verified private. Nothing
+//!    is filled into an inode that inherited access. Inherited `deny` entries are left on it.
 //! 3. **Existing entries** ([`crate::restrict_owner_only`], [`crate::private::is_owner_only`])
 //!    are inspected the same way: `restrict_owner_only` narrows the mode bits and then refuses an
 //!    entry that has an `allow` entry ([`FsError::UnsafeAcl`]); it does not remove it. A
@@ -275,8 +276,8 @@ fn is_not_a_directory(error: &std::io::Error) -> bool {
 
 /// Step 2 (and step 3): `Ok` when `file` carries no `allow` ACL entry (no ACL at all, or only
 /// `deny` entries), [`FsError::UnsafeAcl`] when it carries one. Nothing is changed. For an entry
-/// this call just created the caller removes the (still empty) entry on `Err`; for an existing
-/// entry the caller leaves it as it is.
+/// just created temporarily the caller removes the still-empty entry on `Err`; an existing
+/// entry or a visible permanent empty-file name is left as it is.
 pub(crate) fn refuse_acl(file: &File, shown: &Path) -> Result<()> {
     match sys::has_allow_entry(file) {
         Ok(false) => Ok(()),
