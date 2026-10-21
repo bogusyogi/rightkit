@@ -41,7 +41,7 @@
         "ci/consumers/npm/app-update/consumer.mjs": "c1d29b8ead2f4574388beeacd74c84ca6c78c9181854dc2373c7a48bcc8f56b7",
         "ci/consumers/npm/app-update/package.json": "ff6bbd8955ee8c52d636d20794e8c00b01bf5651c6a5b7fd44521c4e54575b10",
         "ci/consumers/npm/app-update/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "4f152aacbd23803c82063fc053d1ef06300b610e6f5a896d3c4297566afa1f28"
       }
     },
     "@rightkit/onboarding": {

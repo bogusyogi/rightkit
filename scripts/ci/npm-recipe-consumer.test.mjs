@@ -16,7 +16,7 @@ const clone = value => structuredClone(value);
 const NAME = '@rightkit/settings-ui';
 // Closed entries retain their authenticated historical runner; this never admits fresh execution.
 const CLOSED_RUNNER_HASH = 'b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd';
-const CLOSED_NAMES = new Set(['@rightkit/app-update', '@rightkit/onboarding', '@rightkit/qa-chrome', '@rightkit/tauri-shell', '@rightkit/legal', '@rightkit/doc-render', '@rightkit/tauri']);
+const CLOSED_NAMES = new Set(['@rightkit/onboarding', '@rightkit/qa-chrome', '@rightkit/tauri-shell', '@rightkit/legal', '@rightkit/doc-render', '@rightkit/tauri']);
 const inventoryHashMatches = (name, file, hash) => sha('sha256', read(file)) === hash || (file === RUNNER_FILE && CLOSED_NAMES.has(name) && hash === CLOSED_RUNNER_HASH);
 
 test('every committed reviewed npm recipe matches its inventory entry, package manifest & closure', () => {
