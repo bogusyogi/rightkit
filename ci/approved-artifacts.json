@@ -517,6 +517,76 @@
           "receiptSha256": "28620dbfe225006b5e096058982c2bb95308d91125b08cf06fc8466e3f39d82a"
         }
       }
+    },
+    {
+      "id": "cargo-overlay-020-4161",
+      "sourceSha": "41613cc67be0da90afdedb7006898aa3e46e1112",
+      "runId": "39531709031",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "43e0841276b8ce42d3b1c3f0318db1d9d11d0b23af68375434930bdae0e8edca",
+      "registry": "crates",
+      "units": [
+        "rightkit-overlay"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12315244331",
+          "digest": "sha256:e847c3d61b08dcd0e0bdba9494cb7b9f058babe3f9a13514dab30e9d072d9723"
+        },
+        "macos": {
+          "id": "12315768559",
+          "digest": "sha256:966281429dc110fed8541931dc7df74146ad750e9776322c10172b0763e0b0aa",
+          "receiptSha256": "ffe152e45c9b1ffa25267228fa9f2ee09e19aa5937e35852c13f8e5231c90c80"
+        },
+        "windows": {
+          "id": "12315773289",
+          "digest": "sha256:1ed0fed63cd411eea433f68853406177029814f2d1ceaa6e0f07d93f49b0e185",
+          "receiptSha256": "4bdbbc6fd8bb694f66f34e35d6a5613202154f55f5017b25ce8cbbbce02bb18c"
+        }
+      }
+    },
+    {
+      "id": "cargo-pdf-033-4161",
+      "sourceSha": "41613cc67be0da90afdedb7006898aa3e46e1112",
+      "runId": "39531711587",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "109d0b04e07b27e45d4e81302c18395d5f6f5ef483ec14f4625e0f02f3b4d778",
+      "registry": "crates",
+      "units": [
+        "rightkit-pdf"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-pdf"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12315522201",
+          "digest": "sha256:8842264fe72f1cbcc13155286f52ba9115cb38902b36bd3cc0f551c1708aa72b"
+        },
+        "macos": {
+          "id": "12315819136",
+          "digest": "sha256:5d687053e9ea80b7fdb08e2aa1b5c198f907e2dfd62735d57322959af0ad6949",
+          "receiptSha256": "b9827b061f14f84b9d19103b05c25529ce4fb34f9b9209374d1f60a0c1c40366"
+        },
+        "windows": {
+          "id": "12315454175",
+          "digest": "sha256:37914f5d55ca2e505ddaf4eb1efd6d757b1f8e4e8897c3b618b6313c4c5ab198",
+          "receiptSha256": "f152bd30ecf8f7d751af81b8073fc08b3a5ceb30706f9eaef3c6feb30530ef53"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -647,6 +717,22 @@
       "sha256": "c55badace046a991171fa48e5e070b5822c5ba0f429fd8e5b114e490bd70031d",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/root/review_chrome_diagnostic/39516076778/qa-0.5.2"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-overlay",
+      "version": "0.2.0",
+      "sha256": "d80bdc9880c338f6ddf08a3c7168865ae1499977f238f5f06f51c8ffa506b990",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/overlay020_final_review/39531709031/overlay-0.2.0"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-pdf",
+      "version": "0.3.3",
+      "sha256": "b099552e03cffb91f19c0148e70c8bd27a3a9ae17f0d3b413170e2188f2ea1b8",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/root/pdf033_final_review/39531711587/pdf-0.3.3"
     }
   ]
 }
