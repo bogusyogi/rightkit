@@ -757,6 +757,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "crates rightkit-logs@0.3.5 3d00b6f923404ec52f3c42b6c1fc17da351d92a8c479208540716ef00ee4af19",
     "crates rightkit-overlay@0.2.0 d80bdc9880c338f6ddf08a3c7168865ae1499977f238f5f06f51c8ffa506b990",
     "crates rightkit-pdf@0.3.3 b099552e03cffb91f19c0148e70c8bd27a3a9ae17f0d3b413170e2188f2ea1b8",
+    "npm @rightkit/app-update@0.4.1 422f7281f7beba0453ac1250b823f9cb9e65cb290c7a098372c3888641813a09",
     "npm @rightkit/doc-render@0.2.1 05d226219b9f7d783d6a106dd1cf0fd6a50b238715c348ebc6c3b4bebbe18e43",
     "npm @rightkit/license@0.3.0 9cccfca32a85198f6bb1f863c8e16fe16260e2c5e6ee99d9d5ee169b87302082",
     "npm @rightkit/logs@0.1.6 72bb07be21cd4138458a635d9c48b7619f3b2874c0758089972e40015de0286c",
@@ -772,6 +773,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   const foundation = { reviewer: "Oracle (agent source-byte review)", reviewRef: "agent-review:/root/npm_foundation_review/39398432518/source-bytes" };
   const reviews = {
     "rightkit-crash@0.3.5": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/crash035_final_review/39535294878/crash-0.3.5" },
+    "@rightkit/app-update@0.4.1": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/oracle/app-update041/39579320760" },
     "rightkit-overlay@0.2.0": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/overlay020_final_review/39531709031/overlay-0.2.0" },
     "rightkit-pdf@0.3.3": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/pdf033_final_review/39531711587/pdf-0.3.3" },
     "@rightkit/qa@0.5.2": {"reviewer":"Oracle (exact archive and native receipt review)","reviewRef":"agent-review:/root/review_chrome_diagnostic/39516076778/qa-0.5.2"},

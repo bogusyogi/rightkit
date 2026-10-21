@@ -27,4 +27,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "task-spawn: spawn_blocking inside the prepare_media_playback and prepare_registered_media_playback Tauri commands (lib.rs), one ffmpeg compatibility copy per command bounded by PREPARE_TIMEOUT and cancellation; sleep: PREPARE_POLL between try_wait calls inside that one copy; the SourceRegistry only holds paths the host registers and can revoke, no listener, timer or watcher (reviewed 2026-10-11)"
+continuous_reason = "task-spawn: spawn_blocking inside the prepare_media_playback and prepare_registered_media_playback Tauri commands (lib.rs), one ffmpeg compatibility copy per command bounded by PREPARE_TIMEOUT and cancellation; sleep: PREPARE_POLL between try_wait calls inside that one copy; resident-static: PlaybackRegistry::shared() OnceLock (lib.rs) holds the one process-wide registry of paths the host registers and can revoke, and the SERIAL AtomicU64 (lib.rs) only mints copy ids; the SourceRegistry only holds paths the host registers and can revoke, no listener, timer or watcher (reviewed 2026-10-21)"
