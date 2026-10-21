@@ -49,5 +49,35 @@ windows-sys = { version = "0.61.2", features = [
 rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", features = ["testing"] }
 
 [package.metadata.rightkit]
-continuous = false
-continuous_reason = "sleep: 40 ms try_wait poll while the one-shot native dump helper runs (native.rs), bounded by the platform TIMEOUT and a single-flight guard; the panic hook runs only on panic; thread-spawn: only the opt-in HangWatchdog (src/hang.rs) holds one watchdog thread, plus one poster thread per pump_via loop, while the handle lives, and stop() or drop joins them (reviewed 2026-10-21, #882); no task-spawn, timer, listener or watcher (reviewed 2026-10-11); resident-static: IN_HOOK in src/hook.rs is a thread_local Cell<bool> re-entrancy flag, one bool per panicking thread, reset when the capture guard drops (reviewed 2026-10-17)"
+continuous = "held-resource"
+
+[[package.metadata.rightkit.resources]]
+api = "HangWatchdog"
+file = "src/hang.rs"
+holds = ["thread"]
+scale = "one watchdog thread (rightkit-hang-watchdog) plus one poster thread (rightkit-hang-pump) per pump_via loop while a HangWatchdog lives; each registered loop adds one small registry entry; nothing runs unless the app starts the watchdog"
+release = "HangWatchdog::stop or Drop (joins the watchdog thread; a capture in flight finishes first, bounded by the native helper timeout; pump threads end at stop or their next wake)"
+
+[[package.metadata.rightkit.resources]]
+api = "record_report"
+file = "src/hook.rs"
+holds = ["thread"]
+scale = "one short-lived sink thread (rightkit-crash-sink) per recorded report, bounded by SINK_TIMEOUT; the panic hook runs only on panic"
+release = "the sink thread ends when the sink returns; the report call returns after SINK_TIMEOUT at most"
+static_note = "IN_HOOK is a thread_local Cell<bool> re-entrancy flag, one bool per panicking thread, reset when the capture guard drops (reviewed 2026-10-17); it holds no thread and cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "capture_native"
+file = "src/native.rs"
+holds = ["child"]
+scale = "one one-shot native dump helper or sample child at a time (single-flight guard), polled with a 40 ms try_wait sleep and bounded by the platform TIMEOUT"
+release = "capture_native returns when the child exits or the TIMEOUT kills it"
+static_note = "DUMP_HELPER is one RwLock<Option<PathBuf>> and IN_FLIGHT is one AtomicBool per platform: single values, not collections, so they cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "run"
+file = "src/dump_helper.rs"
+holds = ["memory"]
+scale = "the rightkit-dump-helper process holds one minidump write at a time"
+release = "run returns when the dump is written"
+static_note = "DUMP_LOCK is one Mutex<()> serialising DbgHelp dumps: no data, cannot grow"

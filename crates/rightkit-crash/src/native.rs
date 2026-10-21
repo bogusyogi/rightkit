@@ -85,12 +85,22 @@ fn dump_helper_path() -> Option<PathBuf> {
 /// written to stderr as one `rightkit-crash:` line. The artifact is
 /// local-only, like the panic hook's.
 pub fn capture_native(dir: &Path, kind: &str) -> Option<PathBuf> {
+    capture_native_with_secrets(dir, kind, &[])
+}
+
+/// [`capture_native`] with the configured known secrets removed from the macOS sample text, for
+/// callers that hold a `CrashConfig` (the hang watchdog).
+pub(crate) fn capture_native_with_secrets(
+    dir: &Path,
+    kind: &str,
+    secrets: &[String],
+) -> Option<PathBuf> {
     std::fs::create_dir_all(dir).ok()?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    capture(dir, &crate::report::sanitize_kind(kind), stamp)
+    capture_detailed(dir, &crate::report::sanitize_kind(kind), stamp, secrets).artifact
 }
 
 /// Native capture of another process, `pid`, named by the caller (a supervised helper that hangs
@@ -113,10 +123,6 @@ pub enum NativeCapture {
     Off,
     /// Also capture a native sample/minidump when the platform supports it.
     Auto,
-}
-
-pub(crate) fn capture(dir: &Path, kind: &str, stamp: u64) -> Option<PathBuf> {
-    capture_detailed(dir, kind, stamp, &[]).artifact
 }
 
 /// [`capture`] plus the note the panic hook records on the report. Also writes the note to
