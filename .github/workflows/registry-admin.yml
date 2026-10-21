@@ -1,0 +1,53 @@
+name: registry-admin
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "yank-cargo or deprecate-npm (owner-authorized, one action per run)"
+        type: choice
+        options: [yank-cargo, deprecate-npm]
+        required: true
+      package:
+        description: Package name (crate or @rightkit/* npm)
+        type: string
+        required: true
+      version:
+        description: Exact version
+        type: string
+        required: true
+      message:
+        description: Deprecation message (deprecate-npm only)
+        type: string
+        required: false
+        default: ""
+permissions: {}
+jobs:
+  admin:
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+          registry-url: "https://registry.npmjs.org"
+      - name: Install Rust toolchain (cargo yank only)
+        if: ${{ inputs.action == 'yank-cargo' }}
+        uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+      - name: Run owner-authorized registry action & verify readback
+        env:
+          RK_ADMIN_ACTION: ${{ inputs.action }}
+          RK_ADMIN_PACKAGE: ${{ inputs.package }}
+          RK_ADMIN_VERSION: ${{ inputs.version }}
+          RK_ADMIN_MESSAGE: ${{ inputs.message }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/ci/registry-admin.mjs
