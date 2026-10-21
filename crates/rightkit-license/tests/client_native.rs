@@ -326,12 +326,30 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
     let other = clock.clone();
     let (finished, result) = mpsc::channel();
     let reader = std::thread::spawn(move || {
-        finished.send(other.load()).unwrap();
+        // A clock load polls the ledger lock only up to a bounded wait, so
+        // retry until the retained guard is released. Any success before the
+        // gate opens would prove the guard was dropped early.
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            match other.load() {
+                Ok(value) => {
+                    finished.send(Ok(value)).unwrap();
+                    break;
+                }
+                Err(error) => {
+                    if std::time::Instant::now() >= deadline {
+                        finished.send(Err(error)).unwrap();
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
     });
     // Even though B reports no held rotation, A's abandoned native write still owns guard.
-    assert!(result.recv_timeout(Duration::from_millis(80)).is_err());
+    assert!(result.recv_timeout(Duration::from_millis(400)).is_err());
     release.send(()).unwrap();
-    assert!(result.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+    assert!(result.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
     reader.join().unwrap();
     assert!(shared.targets[0].text("highest-seen-unix").is_some());
     assert!(shared.targets[1].text("highest-seen-unix").is_none());
@@ -458,11 +476,32 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
     let other = client.native_entitlement_source().unwrap();
     let (finished, result) = mpsc::channel();
     let reader = std::thread::spawn(move || {
-        finished.send(other.read()).unwrap();
+        // A native read waits only a bounded time (250 ms) for the operation
+        // lock and then reports Refused, so retry until the retained guard is
+        // released. Any success before the gate opens would prove the guard
+        // was dropped while the timed-out delete was still running.
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            match other.read() {
+                Ok(value) => {
+                    finished.send(Ok(value)).unwrap();
+                    break;
+                }
+                Err(error) => {
+                    if std::time::Instant::now() >= deadline {
+                        finished.send(Err(error)).unwrap();
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        }
     });
-    assert!(result.recv_timeout(Duration::from_millis(80)).is_err());
+    // Longer than one full bounded lock wait: no read may succeed while the
+    // delete worker still holds the operation guard.
+    assert!(result.recv_timeout(Duration::from_millis(400)).is_err());
     release.send(()).unwrap();
-    assert!(result.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+    assert!(result.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
     reader.join().unwrap();
     assert!(shared.targets[0].text("legacy-record").is_none());
 }
