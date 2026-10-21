@@ -145,7 +145,8 @@ impl HangOptions {
     /// [`CrashConfig`] sink is not used for hangs; this is the hook for the app (for example to
     /// show a message or write to its own log). The callback must return promptly: the watchdog
     /// does no other work while it runs, and `stop()` waits for it. No callback runs once `stop()`
-    /// has returned.
+    /// has returned. Stopping or dropping the watchdog from inside the callback does not wait (a
+    /// thread cannot join itself); the thread exits at its next check.
     pub fn on_hang(mut self, callback: impl Fn(&HangEvent) + Send + Sync + 'static) -> Self {
         self.on_hang = Some(HangCallback(Arc::new(callback)));
         self
@@ -425,7 +426,11 @@ impl HangWatchdog {
     fn shutdown(&mut self) {
         self.shared.stop.trigger();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            // Stopped from inside an `on_hang` callback the watchdog thread cannot join itself;
+            // it exits at its next check instead.
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
         }
     }
 }
@@ -511,24 +516,29 @@ impl Monitor {
                     // From the last beat before the stall to the first one after it, or a little
                     // later when several beats came between two checks.
                     let stalled = Duration::from_millis(last.saturating_sub(beat_ms));
-                    event_line("hang-recovered", &state.name, stalled);
-                    self.notify(&state.name, stalled, None, true);
+                    // An earlier callback may have turned recording off.
+                    if self.may_write(state) {
+                        event_line("hang-recovered", &state.name, stalled);
+                        self.notify(&state.name, stalled, None, true);
+                    }
                 }
                 Some(_) => {}
                 None => {
                     let silent = now.saturating_sub(last);
-                    // An episode is only committed when its report can be written, so a hang
+                    // An episode is only committed once its report was written, so a hang
                     // skipped while recording was off is still reported once it is back on.
-                    if silent >= self.options.threshold_ms && self.may_write(state) {
+                    if silent >= self.options.threshold_ms
+                        && self.report(state, Duration::from_millis(silent))
+                    {
                         self.episodes.insert(state.id, Episode { beat_ms: last });
-                        self.report(state, Duration::from_millis(silent));
                     }
                 }
             }
         }
     }
 
-    fn report(&mut self, state: &LoopState, stalled: Duration) {
+    /// Whether the report was written (consent, stop and registration allowed it).
+    fn report(&mut self, state: &LoopState, stalled: Duration) -> bool {
         let message = format!(
             "loop {} stopped beating for {:.1} s (threshold {:.1} s)",
             state.name,
@@ -540,14 +550,19 @@ impl Monitor {
         let mut config = self.config.clone().without_sink();
         config.native_capture = NativeCapture::Off;
         if !self.may_write(state) {
-            return;
+            return false;
         }
         let path = record_report(&config, "hang", &message, None, &state.name, "");
         event_line("hang", &state.name, stalled);
         self.notify(&state.name, stalled, path, false);
+        self.capture(state);
+        true
+    }
 
-        // The callback may have turned recording off, the loop may have ended, or the watchdog may
-        // have been stopped: checked again before each write step.
+    /// The hang's log tail and native capture, once per cooldown. The callback may have turned
+    /// recording off, the loop may have ended, or the watchdog may have been stopped: checked
+    /// again before each write step.
+    fn capture(&mut self, state: &LoopState) {
         if !self.may_write(state) {
             return;
         }
@@ -585,12 +600,12 @@ impl Monitor {
         }
     }
 
-    /// Tell `on_hang`, synchronously, unless the watchdog is stopping.
+    /// Tell `on_hang`, synchronously, unless the watchdog is stopping or recording is off.
     fn notify(&self, name: &str, stalled: Duration, report: Option<PathBuf>, recovered: bool) {
         let Some(callback) = &self.options.on_hang else {
             return;
         };
-        if self.shared.stop.is_stopped() {
+        if self.shared.stop.is_stopped() || !recording_enabled() {
             return;
         }
         let event = HangEvent {
@@ -791,6 +806,33 @@ mod tests {
         fn drop(&mut self) {
             set_recording_enabled(true);
         }
+    }
+
+    #[test]
+    fn a_callback_can_stop_its_own_watchdog() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let _on = RecordingOn;
+        set_recording_enabled(true);
+        let dir = temp_dir("self-stop");
+        let (config, _seen) = config_for(&dir);
+        let slot: Arc<Mutex<Option<HangWatchdog>>> = Arc::new(Mutex::new(None));
+        let cb_slot = Arc::clone(&slot);
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+        let done_tx = Mutex::new(done_tx);
+        let options = fast_options().on_hang(move |_| {
+            let watchdog = cb_slot.lock().unwrap().take();
+            if let Some(watchdog) = watchdog {
+                watchdog.stop();
+                let _ = done_tx.lock().unwrap().send(());
+            }
+        });
+        let watchdog = HangWatchdog::start(config, options).expect("start");
+        let _heartbeat = watchdog.heartbeat("ui");
+        *slot.lock().unwrap() = Some(watchdog);
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("stop from the callback returned without joining itself");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
