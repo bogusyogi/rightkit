@@ -334,7 +334,7 @@
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
-        "Cargo.toml": "83b15f41068d16723f2963f5ecf628e6ce0bc575c6de0c2fc1c3ca4b2610e9c9",
+        "Cargo.toml": "22b8a0125f0c13d08e9b63e2be90724974c39185a8244dbb733b79741e6849bf",
         "prepare_signed_helper.py": "40d6c35ddb41a2d5a87263ebd1775583044218129538d819c8ca05d6e4949ca7",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
