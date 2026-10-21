@@ -40,7 +40,7 @@ pub use android::{
 pub use archive::create_zip;
 #[cfg(feature = "support-bundle")]
 pub use bundle::{build_support_bundle, BundleManifest, SupportBundleOptions};
-pub use hang::{HangOptions, HangWatchdog, Heartbeat};
+pub use hang::{HangEvent, HangOptions, HangWatchdog, Heartbeat};
 pub use hook::{
     capture_native_for_pid, fallback_crash_dir, install_panic_hook, install_process_hook,
     record_helper_exit, record_report, recording_enabled, set_recording_enabled, CrashConfig,

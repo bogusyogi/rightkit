@@ -161,6 +161,13 @@ impl CrashConfig {
         self
     }
 
+    /// This configuration without its sink (used by the hang watchdog, which reports through
+    /// `HangOptions::on_hang` instead).
+    pub(crate) fn without_sink(mut self) -> Self {
+        self.sink = None;
+        self
+    }
+
     /// Choose whether reports are also written to `crash_dir` (default `true`). With `false` and no
     /// sink, nothing is recorded and [`record_report`] returns `None`.
     pub fn write_report_file(mut self, enabled: bool) -> Self {
