@@ -606,7 +606,7 @@
       ],
       "consumes": "rightkit-daemon/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
       "files": {
-        "Cargo.toml": "6d0da2e08ef92f90eccca7e8e009b12393a0e92d0d8e6f3edd43ba45f913114f",
+        "Cargo.toml": "f9686ac1ef8454074488f7eb1cabe693ee03ec92b21ef839f7bfe906a6f3393d",
         "src/main.rs": "af25d66aab5f44c0f39f72977928be9e757558aba61fa5f75ab618a65cad3823"
       },
       "runs": [

@@ -8,5 +8,5 @@ publish = false
 
 [dependencies]
 rightkit-oauth = { version = "=0.10.0", default-features = false, features = ["secrets", "server"] }
-rightkit-credentials = { version = "=0.4.0", default-features = false }
+rightkit-credentials = { version = "=0.4.1", default-features = false }
 rightkit-http = { version = "0.3", default-features = false }
