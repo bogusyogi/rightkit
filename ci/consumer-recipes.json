@@ -557,7 +557,7 @@
       "pkId": "PK11",
       "id": "ci/consumers/rightkit-crash/src/main.rs",
       "files": {
-        "Cargo.toml": "d17c517bacd8afff3adf66707a5d6666ee5addc1305ccf71353af50fabf4d45b",
+        "Cargo.toml": "7474a92fa11fc1ec26711ba30b3d33842ad76df51499ce9199dc95cc42e3e9b8",
         "README.md": "8d07eb390d19d32634bee0b6027c909af54e2899452222bb981a91a3ebcb6848",
         "src/main.rs": "5e435b1d8f81d0bcd3b6d4c045b21b05388b263ae88bc5470c92d166b1a0f0bc"
       }
