@@ -749,7 +749,7 @@ mod tests {
     fn setup_to_main_geometry_transition_never_reveals_before_the_resize() {
         let main = SurfaceSpec::new("main", 1200.0, 760.0).minimum(900.0, 600.0);
         let p = plan(&main, &facts((960.0, 640.0), (480.0, 220.0)));
-        let order: Vec<_> = p.steps.iter().map(|s| std::mem::discriminant(s)).collect();
+        let order: Vec<_> = p.steps.iter().map(std::mem::discriminant).collect();
         let pos = |want: SurfaceStep| {
             p.steps
                 .iter()

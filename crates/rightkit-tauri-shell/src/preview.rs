@@ -398,7 +398,7 @@ impl PreviewOrigins {
 /// See [`PreviewOrigins::is_preview_url`].
 pub fn is_preview_url(schemes: &[String], url: &tauri::Url) -> bool {
     let scheme = url.scheme().to_ascii_lowercase();
-    if schemes.iter().any(|s| *s == scheme) {
+    if schemes.contains(&scheme) {
         return true;
     }
     matches!(scheme.as_str(), "http" | "https")
@@ -406,7 +406,7 @@ pub fn is_preview_url(schemes: &[String], url: &tauri::Url) -> bool {
             .host_str()
             .map(str::to_ascii_lowercase)
             .and_then(|h| h.strip_suffix(".localhost").map(str::to_owned))
-            .is_some_and(|name| schemes.iter().any(|s| *s == name))
+            .is_some_and(|name| schemes.contains(&name))
 }
 
 /// What the preview commands answer for a registered document: the token and the URL its iframe

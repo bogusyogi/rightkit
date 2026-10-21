@@ -100,19 +100,39 @@ impl WindowErrorGate {
     }
 }
 
-fn truncate_chars(text: &str, max: usize) -> String {
-    text.chars().take(max).collect()
+const OMITTED_MESSAGE: &str = "[oversized window message omitted]";
+const OMITTED_STACK: &str = "[oversized window stack omitted]";
+const OMITTED_SOURCE: &str = "[oversized window source omitted]";
+
+// Never truncate before scrubbing: a partial credential may evade both pattern & known-value
+// redaction. Inspect only enough input to reject an oversized field, then scrub accepted input.
+fn bounded_message(text: &str) -> &str {
+    if text.chars().nth(MAX_WINDOW_MESSAGE_CHARS).is_some() {
+        OMITTED_MESSAGE
+    } else {
+        text
+    }
 }
 
-fn truncate_bytes(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_string();
+fn bounded_stack(text: &str) -> &str {
+    if text.len() > MAX_WINDOW_STACK_BYTES {
+        OMITTED_STACK
+    } else {
+        text
     }
-    let mut cut = max;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
+}
+
+fn bounded_source(text: &str) -> &str {
+    for (count, ch) in text.chars().take(MAX_SOURCE_CHARS + 1).enumerate() {
+        if ch == '?' || ch == '#' {
+            // Removing a suffix could expose a fragment of a configured secret.
+            return OMITTED_SOURCE;
+        }
+        if count == MAX_SOURCE_CHARS {
+            return OMITTED_SOURCE;
+        }
     }
-    text[..cut].to_string()
+    text
 }
 
 /// Record one renderer error as a window crash report. Returns the report path, or `None` when
@@ -131,23 +151,13 @@ pub fn record_window_error(
     } else {
         "window_error"
     };
-    let message = truncate_chars(&report.message, MAX_WINDOW_MESSAGE_CHARS);
-    let stack = truncate_bytes(&report.stack, MAX_WINDOW_STACK_BYTES);
-    let source = report
-        .source
-        .as_deref()
-        .map(|s| truncate_chars(s.split(['?', '#']).next().unwrap_or(""), MAX_SOURCE_CHARS));
+    let message = bounded_message(&report.message);
+    let stack = bounded_stack(&report.stack);
+    let source = report.source.as_deref().map(bounded_source);
     let mut config = config.clone().process_kind(ProcessKind::Window);
     // A JS error is not a process crash: never take a native sample/minidump per renderer error.
     config.native_capture = crate::NativeCapture::Off;
-    record_report(
-        &config,
-        kind,
-        &message,
-        source.as_deref(),
-        "webview",
-        &stack,
-    )
+    record_report(&config, kind, message, source, "webview", stack)
 }
 
 #[cfg(test)]
@@ -190,11 +200,114 @@ mod tests {
         let v = &got[0];
         assert_eq!(v["kind"], "window_rejection");
         assert_eq!(v["process_kind"], "window");
-        assert_eq!(v["location"], "app://index.js");
+        assert_eq!(v["location"], OMITTED_SOURCE);
         let message = v["message"].as_str().unwrap();
         assert!(!message.contains("hunter2-secret"));
         assert!(message.chars().count() <= MAX_WINDOW_MESSAGE_CHARS);
         assert!(v["backtrace"].as_str().unwrap().len() <= MAX_WINDOW_STACK_BYTES + 16);
+    }
+
+    #[test]
+    fn cap_straddling_credentials_are_omitted_in_every_field() {
+        for (secret, known) in [
+            ("0123456789abcdef0123456789abcdef", false),
+            ("known/private/credential/value", true),
+        ] {
+            let out = Arc::new(Mutex::new(Vec::new()));
+            let config = config_with_sink(out.clone()).redact_values(if known {
+                vec![secret.into()]
+            } else {
+                Vec::new()
+            });
+            // One final character lies beyond each cap. Prefix truncation would expose a
+            // credential fragment, including opaque hex shorter than the pattern threshold.
+            let report = WindowErrorReport {
+                message: format!(
+                    "{}{}",
+                    " ".repeat(MAX_WINDOW_MESSAGE_CHARS - secret.len() + 1),
+                    secret
+                ),
+                stack: format!(
+                    "{}{}",
+                    " ".repeat(MAX_WINDOW_STACK_BYTES - secret.len() + 1),
+                    secret
+                ),
+                source: Some(format!(
+                    "{}{}",
+                    " ".repeat(MAX_SOURCE_CHARS - secret.len() + 1),
+                    secret
+                )),
+                ..Default::default()
+            };
+            record_window_error(&config, &WindowErrorGate::default(), &report);
+            let got = out.lock().unwrap();
+            assert_eq!(got[0]["message"], OMITTED_MESSAGE);
+            assert_eq!(got[0]["backtrace"], OMITTED_STACK);
+            assert_eq!(got[0]["location"], OMITTED_SOURCE);
+            assert!(!got[0].to_string().contains(&secret[..secret.len() - 1]));
+        }
+    }
+
+    #[test]
+    fn accepted_fields_remain_intact_then_are_scrubbed() {
+        let out = Arc::new(Mutex::new(Vec::new()));
+        let secret = "private/credential";
+        let config = config_with_sink(out.clone()).redact_values(vec![secret.into()]);
+        let report = WindowErrorReport {
+            message: format!("failure {secret}"),
+            stack: format!("frame {secret}"),
+            source: Some(format!("app://{secret}")),
+            ..Default::default()
+        };
+        record_window_error(&config, &WindowErrorGate::default(), &report);
+        let got = out.lock().unwrap();
+        assert_eq!(got[0]["message"], "failure [redacted]");
+        assert_eq!(got[0]["backtrace"], "frame [redacted]");
+        assert_eq!(got[0]["location"], "app://[redacted]");
+    }
+
+    #[test]
+    fn source_delimiters_do_not_expose_known_secret_prefixes() {
+        for delimiter in ['?', '#'] {
+            let out = Arc::new(Mutex::new(Vec::new()));
+            let secret = format!("known/private{delimiter}credential/value");
+            let config = config_with_sink(out.clone()).redact_values(vec![secret.clone()]);
+            let report = WindowErrorReport {
+                source: Some(format!("app://{secret}")),
+                ..Default::default()
+            };
+            record_window_error(&config, &WindowErrorGate::default(), &report);
+            let got = out.lock().unwrap();
+            assert_eq!(got[0]["location"], OMITTED_SOURCE);
+            assert!(!got[0].to_string().contains("known/private"));
+        }
+    }
+
+    #[test]
+    fn bounds_preserve_utf8_and_accept_exact_caps() {
+        let message = "é".repeat(MAX_WINDOW_MESSAGE_CHARS);
+        assert_eq!(bounded_message(&message), message);
+        assert_eq!(bounded_message(&format!("{message}é")), OMITTED_MESSAGE);
+        let stack = "é".repeat(MAX_WINDOW_STACK_BYTES / 2);
+        assert_eq!(bounded_stack(&stack), stack);
+        assert_eq!(bounded_stack(&format!("{stack}é")), OMITTED_STACK);
+        let source = "é".repeat(MAX_SOURCE_CHARS);
+        assert_eq!(bounded_source(&source), source);
+        assert_eq!(bounded_source(&format!("{source}é")), OMITTED_SOURCE);
+        for delimiter in ['?', '#'] {
+            assert_eq!(
+                bounded_source(&format!("{source}{delimiter}{}", "x".repeat(10_000))),
+                OMITTED_SOURCE
+            );
+            assert_eq!(
+                bounded_source(&format!("app://é.js{delimiter}secret")),
+                OMITTED_SOURCE
+            );
+            assert_eq!(
+                bounded_source(&format!("{source}é{delimiter}secret")),
+                OMITTED_SOURCE
+            );
+        }
     }
 
     #[test]
