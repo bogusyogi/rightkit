@@ -676,6 +676,15 @@
         "src/main.rs": "07d122389195670f78149d7eafa72929f7f6cf826d450af986500a3ade38ec64"
       },
       "aggregateSha256": "3a6033b298bf8e52ab257af0058f1551e87af138b2c66775d01232ab0d5f1b02"
+    },
+    "rightkit-sandbox": {
+      "pkId": "PK12",
+      "id": "ci/consumers/rightkit-sandbox/src/main.rs",
+      "files": {
+        "Cargo.toml": "98ed4cd71a1bbb0eda4f31f120f9a7708378b5546cdb7126c39bc0498699dc4a",
+        "README.md": "2ce53ce957085de0c58484641fe7ad6c13f63f6c7b9ad18f7b884ddd7dcd81de",
+        "src/main.rs": "746471476290c50901ec052c4be95e43db6240c3dce7c533d33f967ce250aa1a"
+      }
     }
   }
 }
