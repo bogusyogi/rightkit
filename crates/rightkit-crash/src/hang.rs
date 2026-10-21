@@ -839,7 +839,8 @@ mod tests {
         let (config, seen) = config_with_sink(&dir);
         let watchdog = HangWatchdog::start(config, fast_options()).expect("start");
 
-        let queued: Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>> = Arc::new(Mutex::new(Vec::new()));
+        type Task = Box<dyn FnOnce() + Send>;
+        let queued: Arc<Mutex<Vec<Task>>> = Arc::new(Mutex::new(Vec::new()));
         let posts = Arc::new(AtomicUsize::new(0));
         let (queue, count) = (Arc::clone(&queued), Arc::clone(&posts));
         watchdog

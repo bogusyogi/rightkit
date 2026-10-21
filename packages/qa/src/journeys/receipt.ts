@@ -320,7 +320,8 @@ export function validateReceipt(input: unknown, opts: ValidateReceiptOptions = {
   }
 
   // Rule 7: adapter exit and evidence digests.
-  if (r.adapter.exit_code !== 0) add('adapter_exit', null, `adapter exited ${r.adapter.exit_code}`);
+  // Nothing launched is no_launch (incomplete); the adapter never ran, so its exit code says nothing.
+  if (r.adapter.exit_code !== 0 && r.launched.length > 0) add('adapter_exit', null, `adapter exited ${r.adapter.exit_code}`);
   for (const j of r.journeys) {
     for (const e of j.evidence) {
       const root = opts.evidenceRoot;

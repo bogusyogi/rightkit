@@ -1105,6 +1105,8 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 const RIGHTKIT_VERIFICATION_WORKFLOWS = ["android.yml", "chrome-pins.yml", "ci.yml"];
 const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
 const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "qualify-existing-swift.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml", "chrome-native-diagnostic.yml", "repair-hygiene.yml"];
+// Owner-authorized registry administration (yank / deprecate) with registry readback; never publishes.
+const RIGHTKIT_ADMIN_WORKFLOWS = ["registry-admin.yml"];
 const RIGHTKIT_QUALIFICATION_WORKFLOWS = ["publish.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
 const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
@@ -1164,6 +1166,18 @@ function assertEvidenceWorkflow(text, name) {
   assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
   pinnedActionLines(text, name);
 }
+function assertAdminWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be manually dispatched`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_run|release):/m, `${name} must have no automatic trigger`);
+  assert.match(text, /^permissions: \{\}$/m, `${name} top-level permissions must be empty`);
+  assert.doesNotMatch(text, /id-token:|contents:\s*write|packages:\s*write/, `${name} must not request write or OIDC permissions`);
+  assert.match(text, /if: \$\{\{ github\.ref == 'refs\/heads\/main' && github\.repository == 'bogusyogi\/rightkit' \}\}/, `${name} must run only on main of this repository`);
+  assert.deepEqual([...new Set(text.match(/secrets\.[A-Z_]+/g) ?? [])].sort(), ["secrets.CARGO_REGISTRY_TOKEN", "secrets.NPM_TOKEN"], `${name} may read only the registry tokens`);
+  assert.doesNotMatch(text, PUBLISHING_WORKFLOW_COMMANDS, `${name} must not publish or release`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  pinnedActionLines(text, name);
+}
+const PUBLISHING_WORKFLOW_COMMANDS = /right-release\s+(?:build|upload|publish)|gh\s+release|action-gh-release|npm\s+publish|cargo\s+publish/;
 test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows", () => {
   for (const root of ["viewright", "scraperight", "heardright", "mailright", "coderight", "genright", "voiceright", "rightkit"]) {
     const workflowDir = path.join(workspace, root, ".github", "workflows");
@@ -1172,12 +1186,13 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS];
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS];
     assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
       if (RIGHTKIT_QUALIFICATION_WORKFLOWS.includes(name)) { assertPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_PUBLISHING_WORKFLOWS.includes(name)) { assertReviewedWorkflow(text, name); continue; }
+      if (RIGHTKIT_ADMIN_WORKFLOWS.includes(name)) { assertAdminWorkflow(text, name); continue; }
       if (RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS.includes(name)) {
         const doc = parseYaml(text);
         assertSwiftDoc(doc);

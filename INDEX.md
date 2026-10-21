@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 16.
+Flagged mismatches: 17.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -30,8 +30,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-child-process` | crates.io | 0.5.4 | 0.5.4 | 0.5.4 | ok | owned-processes | Ownership-safe child lifecycle, restart, and health primitives for Right Suite apps. |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 0.1.7 | ok | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
-| `rightkit-crash` | crates.io | 0.3.5 | 0.3.4 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.5** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
-| `rightkit-credentials` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
+| `rightkit-crash` | crates.io | 0.3.6 | 0.3.4 | 0.3.4 | **MISMATCH staged 0.3.4 != source 0.3.6** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
+| `rightkit-credentials` | crates.io | 0.4.1 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.1** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | crypto-primitives | Neutral crypto primitives: SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens. |
 | `rightkit-daemon` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-db` | crates.io | 0.5.1 | 0.5.1 | 0.5.0 | **MISMATCH staged 0.5.0 != source 0.5.1** | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
@@ -106,7 +106,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/outdated` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
 | `@rightkit/pdf-ui` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok |  | pdf-ui | Brand-neutral read-only PDF viewer (pdf.js) for Right Suite apps. |
 | `@rightkit/platform-ui` | npm | 0.4.0 | 0.4.0 | 0.4.0 | ok |  | platform-ui | Brand-neutral platform, shortcut, and window-control primitives for Right Suite apps. |
-| `@rightkit/qa` | npm | 0.5.2 | 0.5.2 | 0.5.2 | ok |  | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
+| `@rightkit/qa` | npm | 0.6.0 | 0.5.2 | 0.5.2 | **MISMATCH staged 0.5.2 != source 0.6.0** | rightkit-qa-journeys | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.10 | 0.1.10 | 0.1.10 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 0.7.2 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
 | `@rightkit/release` | npm | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |

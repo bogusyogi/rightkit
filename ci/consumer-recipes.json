@@ -294,6 +294,8 @@
       "surface": [
         ".",
         "./chrome",
+        "./journeys",
+        "./journeys-fixture-adapter",
         "./ts-hooks",
         "./ts-register"
       ],

@@ -706,7 +706,8 @@ fn check_isolation_and_adapter(r: &Receipt, p: &mut Vec<Problem>) {
     if iso.data_dir.trim().is_empty() {
         add(p, code::ISOLATION, None, "no isolated data_dir recorded");
     }
-    if r.adapter.exit_code != 0 {
+    // Nothing launched is NO_LAUNCH (incomplete); the adapter never ran, so its exit code says nothing.
+    if r.adapter.exit_code != 0 && !r.launched.is_empty() {
         add(
             p,
             code::ADAPTER_EXIT,
@@ -1017,21 +1018,20 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
                 oid(id),
                 "the adapter reported a result the receipt lacks",
             ),
-            (Some(f), Some(j)) => {
+            (Some(f), Some(j))
                 if f.status != j.status
                     || f.units != j.units
                     || f.evidence != j.evidence
                     || f.reason != j.reason
                     || f.started_at != j.started_at
-                    || f.duration_ms != j.duration_ms
-                {
-                    add(
-                        p,
-                        code::RECEIPT_RESULTS_MISMATCH,
-                        oid(id),
-                        "the receipt's journey differs from the adapter's record",
-                    );
-                }
+                    || f.duration_ms != j.duration_ms =>
+            {
+                add(
+                    p,
+                    code::RECEIPT_RESULTS_MISMATCH,
+                    oid(id),
+                    "the receipt's journey differs from the adapter's record",
+                );
             }
             _ => {}
         }

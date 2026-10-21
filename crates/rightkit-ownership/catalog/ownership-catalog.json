@@ -3505,6 +3505,17 @@
       ]
     },
     {
+      "package": "@rightkit/issues-tracker",
+      "capability": "issues-tracker",
+      "summary": "Per-repository issues.html tracker generated from GitHub issues by right-issues: groups, label-driven status chips, offline, light and dark; declaration-only detection (no precise implementation fingerprint)",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "No precise implementation fingerprint; declaration-only inventory, never enforced ownership or verified integration."
+      ]
+    },
+    {
       "package": "@rightkit/legal",
       "capability": "legal-assent",
       "summary": "Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps.; declaration-only detection (no precise implementation fingerprint)",
