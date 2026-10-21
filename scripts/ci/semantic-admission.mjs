@@ -79,6 +79,17 @@ export function consumerQualificationProblems({ report, expected, recipe }) {
   const commands = Array.isArray(report.commands) ? report.commands : [];
   if (!commands.length || commands.some((row) => !row || !text(row.command) || !Array.isArray(row.args) || row.args.some((arg) => typeof arg !== "string") || !text(row.cwd) || row.status !== 0 || typeof row.stdout !== "string" || typeof row.stderr !== "string")) bad("R2a actual command evidence missing or failed");
   const declaredRuns = Array.isArray(report.runs) && report.runs.length > 0 ? report.runs : null;
+  // The execution rows must be exactly the reviewed recipe's runs for this host: a report may
+  // not invent rows, drop rows, or mark a host-applicable row not-applicable to skip evidence.
+  const reviewedRuns = Array.isArray(recipe?.runs) && recipe.runs.length > 0 ? recipe.runs : null;
+  if (reviewedRuns) {
+    const platform = expected.host === "macos" ? "darwin" : expected.host === "windows" ? "win32" : "linux";
+    if (!declaredRuns || !same(declaredRuns.map((run) => [run.id, run.args ?? [], run.features ?? []]), reviewedRuns.map((run) => [run.id, run.args ?? [], run.features ?? []]))) bad("R2a runtime runs differ from reviewed recipe runs");
+    else declaredRuns.forEach((run, i) => {
+      const expectedStatus = reviewedRuns[i].hosts && !reviewedRuns[i].hosts.includes(platform) ? "not-applicable" : "passed";
+      if (run.status !== expectedStatus) bad(`R2a runtime run ${run.id} status differs from reviewed host applicability`);
+    });
+  } else if (declaredRuns) bad("R2a runtime runs not in reviewed recipe");
   for (const stage of ["build", "runtime"]) {
     if (report[stage]?.status !== 0 || report[stage]?.locked !== true || report[stage]?.offline !== true) bad(`R2a ${stage} must succeed locked/offline`);
     if (stage === "runtime" && declaredRuns) continue;

@@ -196,6 +196,11 @@ test("R2a accepts bound named recipe & actual locked/offline command evidence", 
 test("R2a accepts a multi-run recipe whose rows each bind an actual command", () => {
   const f = consumer();
   const cwd = f.report.consumerDirectory;
+  f.recipe.runs = [
+    { id: "core", features: [], args: ["core"], hosts: null, env: {} },
+    { id: "native-db", features: ["sqlcipher-system"], args: ["native-db"], hosts: ["win32", "darwin"], env: { RIGHTKIT_TEST_REAL_USER_STORES: "literal1" } },
+    { id: "native-helper", features: [], args: ["native-helper"], hosts: ["darwin"], env: {} },
+  ];
   f.report.runs = [
     { id: "core", args: ["core"], features: [], envNames: [], status: "passed" },
     { id: "native-db", args: ["native-db"], features: ["sqlcipher-system"], envNames: [], status: "passed" },
@@ -212,6 +217,10 @@ test("R2a accepts a multi-run recipe whose rows each bind an actual command", ()
   const damaged = consumer();
   damaged.report.runs = f.report.runs; damaged.report.commands = f.report.commands.slice(0, -1); damaged.report.runtimeOutput = f.report.runtimeOutput;
   assert.ok(consumerQualificationProblems(damaged).length, "missing helper launch command must refuse");
+  const skipped = consumer();
+  skipped.recipe.runs = f.recipe.runs; skipped.report.runs = f.report.runs.map((run) => run.id === "native-helper" ? { ...run, status: "not-applicable" } : run);
+  skipped.report.commands = f.report.commands; skipped.report.runtimeOutput = f.report.runtimeOutput;
+  assert.ok(consumerQualificationProblems(skipped).length, "marking a host-applicable row not-applicable must refuse");
 });
 for (const [label, damage] of [
   ["generic import", (f) => { delete f.report.qualification; }],
