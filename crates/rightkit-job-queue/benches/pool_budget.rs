@@ -76,8 +76,14 @@ fn main() {
         .collect();
     let jobs: usize = args.first().and_then(|v| v.parse().ok()).unwrap_or(10_000);
     let idle_s: u64 = args.get(1).and_then(|v| v.parse().ok()).unwrap_or(30);
-    assert!((1..=100_000).contains(&jobs), "job count must be 1..=100000");
-    assert!((3..=3600).contains(&idle_s), "idle window must be 3..=3600 seconds");
+    assert!(
+        (1..=100_000).contains(&jobs),
+        "job count must be 1..=100000"
+    );
+    assert!(
+        (3..=3600).contains(&idle_s),
+        "idle window must be 3..=3600 seconds"
+    );
 
     let scratch = scratch_root();
     std::fs::create_dir_all(&scratch).expect("create scratch root");
@@ -155,7 +161,10 @@ fn main() {
 
     let idle = observe_idle_with_threads(Duration::from_secs(idle_s)).expect("idle window");
     println!("RESULT pool_jobs={} jobs", outcomes);
-    println!("RESULT lane_idle_callbacks={} callbacks", handler.idled.load(Ordering::Relaxed));
+    println!(
+        "RESULT lane_idle_callbacks={} callbacks",
+        handler.idled.load(Ordering::Relaxed)
+    );
     print!(
         "{}",
         idle.observation.result_lines(
