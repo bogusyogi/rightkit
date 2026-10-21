@@ -118,6 +118,9 @@ def main():
     binary = source / "Contents" / "MacOS" / NAME
     if not binary.is_file():
         raise RuntimeError("signed helper executable missing")
+    # Artifact transit can strip the executable bit; restore it before any digest is taken so
+    # the source, the ditto copy and the receipt all describe the same executable tree.
+    os.chmod(binary, binary.stat().st_mode | 0o111)
     # Complete all containment/alias checks before mkdir, copy, verification or receipt writes.
     scratch, consumer, bundle, receipt_path = validate_paths(args, source)
     # Source artifact selection belongs Fable. Derive hashes from that actual selection.

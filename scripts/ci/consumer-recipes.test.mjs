@@ -121,7 +121,7 @@ test("committed credentials & browser inventory declare their reviewed runs", ()
   assert.deepEqual(cred.runs.map(r => [r.id, r.args, r.features, r.hosts]), [["core", ["core"], [], null], ["native-db", ["native-db"], ["sqlcipher-system"], ["win32", "darwin"]], ["native-helper", ["native-helper"], [], ["darwin"]]]);
   assert.ok(cred.evidence.dependency.features.includes("db-adapter"));
   assert.deepEqual(cred.runs[2].env, { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" });
-  assert.equal(cred.evidence.files["prepare_signed_helper.py"], "40d6c35ddb41a2d5a87263ebd1775583044218129538d819c8ca05d6e4949ca7");
+  assert.equal(cred.evidence.files["prepare_signed_helper.py"], "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c");
   assert.deepEqual(Object.keys(cred.evidence.files).sort(), ["Cargo.toml", "README.md", "prepare_signed_helper.py", "qualification-helper/Info.plist", "qualification-helper/README.md", "qualification-helper/entitlements.plist", "qualification-helper/main.swift", "src/main.rs"]);
   const browser = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-browser", version: "0.3.5" } });
   assert.deepEqual(Object.keys(browser.runs[0].env).sort(), ["RK_R2_CFT_ROOT", "RK_R2_CFT_SHA256", "RK_R2_HEADLESS_SHELL_SHA256", "RK_R2_SCRATCH"]);
