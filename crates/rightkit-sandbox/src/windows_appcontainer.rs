@@ -4244,9 +4244,8 @@ mod tests {
             let wide_name = wide(name);
             let mut luid = Luid::default();
             // SAFETY: NUL-terminated name, null system name means local, valid out-pointer.
-            let looked = unsafe {
-                LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &mut luid)
-            };
+            let looked =
+                unsafe { LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &mut luid) };
             assert!(
                 looked != 0,
                 "precondition: look up {name}: {}",
@@ -4371,11 +4370,8 @@ mod tests {
     #[link(name = "advapi32")]
     unsafe extern "system" {
         fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
-        fn LookupPrivilegeValueW(
-            system_name: *const u16,
-            name: *const u16,
-            luid: *mut Luid,
-        ) -> i32;
+        fn LookupPrivilegeValueW(system_name: *const u16, name: *const u16, luid: *mut Luid)
+            -> i32;
         fn AdjustTokenPrivileges(
             token: *mut c_void,
             disable_all_privileges: i32,
@@ -4546,7 +4542,11 @@ mod tests {
                     .unwrap();
                 assert!(status.status.success(), "icacls {args:?} failed");
             };
-            run(&["/inheritance:r", "/grant", &format!("{user}:(OI)(CI)(M,RC)")]);
+            run(&[
+                "/inheritance:r",
+                "/grant",
+                &format!("{user}:(OI)(CI)(M,RC)"),
+            ]);
             run(&["/grant", "*S-1-3-4:(OI)(CI)(RX,D,DC)"]);
             // Owner change last: after it, DACL writes need privilege this fixture
             // setup no longer uses, & SYSTEM-owner proof is read back in helper.
