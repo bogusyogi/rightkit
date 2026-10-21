@@ -4223,13 +4223,25 @@ mod tests {
     }
 
     /// Impersonates, on this thread only, the process token with every privilege removed
-    /// (`CreateRestrictedToken` with `DISABLE_MAX_PRIVILEGE`). Reverted and closed on drop.
+    /// and BUILTIN\Administrators (S-1-5-32-544) deny-only (`CreateRestrictedToken` with
+    /// `DISABLE_MAX_PRIVILEGE` plus that SID in `SidsToDisable`), like a UAC-filtered token.
+    /// Privileges alone do not make a standard user: an elevated token keeps Administrators
+    /// enabled, and objects it creates are owned by Administrators (the token's default
+    /// owner), so the token still matches the owner and gets implicit `WRITE_DAC`, which
+    /// the `OWNER RIGHTS` ACE in `Unleasable` does not cap for that group-owner match.
+    /// Reverted and closed on drop.
     struct StandardUserImpersonation(*mut c_void);
 
     impl StandardUserImpersonation {
         fn start() -> Self {
             const TOKEN_ALL_ACCESS: u32 = 0xF01FF;
             const DISABLE_MAX_PRIVILEGE: u32 = 0x1;
+            let administrators = LocalSid::parse("S-1-5-32-544")
+                .unwrap_or_else(|e| panic!("precondition: parse the Administrators SID: {e}"));
+            let disable = [SidAndAttributes {
+                sid: administrators.0,
+                attributes: 0,
+            }];
             let mut process_token = std::ptr::null_mut();
             // SAFETY: valid out-pointer; the current-process pseudo handle needs no closing.
             let opened = unsafe {
@@ -4241,14 +4253,15 @@ mod tests {
                 io::Error::last_os_error()
             );
             let mut restricted = std::ptr::null_mut();
-            // SAFETY: null SID and privilege arrays with zero counts remove every privilege and
-            // restrict no SID; valid out-pointer; process_token was opened above.
+            // SAFETY: `disable` holds one live SID owned by `administrators` for the call;
+            // null privilege arrays with zero counts plus DISABLE_MAX_PRIVILEGE remove every
+            // privilege and restrict no SID; valid out-pointer; process_token opened above.
             let created = unsafe {
                 CreateRestrictedToken(
                     process_token,
                     DISABLE_MAX_PRIVILEGE,
-                    0,
-                    std::ptr::null(),
+                    1,
+                    disable.as_ptr().cast(),
                     0,
                     std::ptr::null(),
                     0,
@@ -4287,8 +4300,10 @@ mod tests {
     }
 
     /// Runs `body` on this thread under a standard-user token. The DACL refusals the
-    /// `best_effort_still_fails_*` tests need are only real for a token without privileges: an
-    /// elevated runner's process token can rewrite any DACL, so the same write succeeds there.
+    /// `best_effort_still_fails_*` tests need are only real for a token without privileges
+    /// and without enabled Administrators: an elevated runner's token can rewrite any DACL
+    /// (enabled Administrators matches the group owner of objects it creates and keeps
+    /// implicit `WRITE_DAC`), so the same write succeeds there.
     fn as_standard_user<T>(body: impl FnOnce() -> T) -> T {
         let _standard = StandardUserImpersonation::start();
         body()
@@ -4321,8 +4336,9 @@ mod tests {
     }
 
     /// A scratch directory (under this test's own temp tree) that the calling token cannot
-    /// re-ACL. Only a token without privileges is refused: an elevated process token can rewrite
-    /// any DACL (its privileges bypass the ACL), which is why the callers run under
+    /// re-ACL. Only a token without privileges and without enabled Administrators is refused:
+    /// an elevated token can rewrite any DACL (privileges, plus enabled Administrators
+    /// matching the group owner), which is why the callers run under
     /// `as_standard_user`. An explicit WRITE_DAC deny is not enough: the
     /// owner holds implicit READ_CONTROL | WRITE_DAC unless an OWNER RIGHTS (S-1-3-4) ACE is
     /// present. So the DACL is: the user may modify (no WRITE_DAC, no WRITE_OWNER) and
