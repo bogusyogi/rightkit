@@ -87,6 +87,10 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
   const cargoEnv = Object.fromEntries(Object.entries(childEnv(env)).filter(([key]) => !/^(?:GITHUB_|ACTIONS_|RUNNER_)/.test(key)));
   Object.assign(cargoEnv, { GITHUB_ACTIONS: "true", RUNNER_TEMP: env.RUNNER_TEMP ?? scratchRoot, HOME: path.join(scratch, "home"), RUSTUP_HOME: env.RUSTUP_HOME || path.join(env.HOME || env.USERPROFILE || os.homedir(), ".rustup"), CARGO_HOME: path.join(scratch, "cargo-home"), CARGO_TARGET_DIR: path.join(scratch, "target"), CARGO_TERM_COLOR: "never" });
   if (env.RUSTUP_TOOLCHAIN) cargoEnv.RUSTUP_TOOLCHAIN = env.RUSTUP_TOOLCHAIN;
+  // The workflow's native-OpenSSL locator exports include/lib dirs (GITHUB_ENV); the SQLCipher
+  // build script wants OPENSSL_DIR. Pass the trio through the childEnv allow-list filter.
+  for (const key of ["OPENSSL_DIR", "OPENSSL_INCLUDE_DIR", "OPENSSL_LIB_DIR"]) if (env[key]) cargoEnv[key] = env[key];
+  if (platform === "win32" && !cargoEnv.OPENSSL_DIR && cargoEnv.OPENSSL_INCLUDE_DIR) cargoEnv.OPENSSL_DIR = path.dirname(cargoEnv.OPENSSL_INCLUDE_DIR);
   fs.mkdirSync(cargoEnv.HOME); fs.mkdirSync(cargoEnv.CARGO_HOME);
   const tar = archiveTool(process.platform, env);
   const run = (command, args, cwd = scratch, extraEnv = {}) => {
@@ -159,6 +163,18 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
     if (resolved?.length !== 1 || !Array.isArray(resolved[0].features)) throw new Error("missing selected crate feature resolution");
     if (recipe.evidence.dependency.features.some(feature => !resolved[0].features.includes(feature))) throw new Error("selected PK feature prescription absent from resolved crate");
     run("cargo", ["build", "--locked", "--offline"], consumer);
+    // Real-store runs resolve the user-domain default keychain under this consumer's scratch
+    // HOME, which starts empty: provision a job-local default keychain there (synthetic store
+    // namespaces only; the keychain dies with the scratch root).
+    if (platform === "darwin" && plan.some((entry) => entry.values?.RIGHTKIT_TEST_REAL_USER_STORES === "1")) {
+      const keychains = path.join(cargoEnv.HOME, "Library", "Keychains");
+      fs.mkdirSync(keychains, { recursive: true });
+      const keychain = path.join(keychains, "login.keychain-db");
+      run("security", ["create-keychain", "-p", "", keychain]);
+      run("security", ["set-keychain-settings", "-lut", "21600", keychain]);
+      run("security", ["unlock-keychain", "-p", "", keychain]);
+      run("security", ["default-keychain", "-s", keychain]);
+    }
     // The default-feature binary exists only until the SQLCipher variant overwrites target: stage the signed helper bundle now.
     const staged = helper && stageNativeHelper({ recipeDirectory: template, reviewedFiles: recipe.evidence.files, scratch, targetDir: cargoEnv.CARGO_TARGET_DIR, sourceApp: helper.sourceApp, run: (command, args, extraEnv) => run(command, args, consumer, extraEnv) });
     if (staged) { report.helperInput = staged.input; report.helperInputSha256 = staged.inputSha256; }

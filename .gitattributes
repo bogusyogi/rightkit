@@ -36,6 +36,7 @@ vendor/tauri-runtime-wry/** -text
 /packages/tauri-shell/package.json text eol=lf
 /package.json text eol=lf
 /packages/logs/package.json text eol=lf
+/packages/release/package.json text eol=lf
 /packages/logs/README.md text eol=lf
 /packages/logs/src/index.ts text eol=lf
 /packages/logs/src/crash.ts text eol=lf
