@@ -254,7 +254,7 @@ test('admission accepts a Linux receipt only for a Linux-listed unit and only wi
 });
 
 test('Chrome for Testing root must be explicit, absolute, canonical, existing and outside checkout & scratch', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-cft-')); const checkout = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-checkout-')); const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-scratch-'));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rk-cft-'))); const checkout = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rk-checkout-'))); const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'rk-scratch-')));
   const name = '@rightkit/qa-chrome'; const key = 'RIGHTKIT_CHROME_FOR_TESTING_ROOT';
   try {
     assert.deepEqual(runtimeEnvironment(name, { [key]: fs.realpathSync(root), UNRELATED: 'x' }, { checkout, scratch }), { [key]: fs.realpathSync(root) });

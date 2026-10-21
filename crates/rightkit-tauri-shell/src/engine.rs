@@ -503,6 +503,8 @@ pub struct EngineHost {
     lifecycle: Mutex<Value>,
     gate: Arc<Gate>,
     latch: GenerationLatch,
+    /// Stop boundaries invalidate calls even before the process generation changes.
+    stop_fence: Arc<GenerationFence>,
     /// Boots of the unsupervised engine (the supervised one counts its own).
     legacy_generation: AtomicU64,
     snapshots: Mutex<SnapshotBoard>,
@@ -551,6 +553,7 @@ impl EngineHost {
             lifecycle: Mutex::new(serde_json::json!({"state": "starting"})),
             gate: Arc::new(Gate::new(presence)),
             latch: GenerationLatch::default(),
+            stop_fence: Arc::new(GenerationFence::default()),
             legacy_generation: AtomicU64::new(0),
             snapshots: Mutex::new(SnapshotBoard::default()),
             revoking: AtomicUsize::new(0),
@@ -763,8 +766,7 @@ impl EngineHost {
     }
 
     /// Count one use (a hold or a call), starting an idle-stopped engine on the way.
-    fn admit(&self, call: bool) -> Result<(), JobError> {
-        let presence = self.policy.presence.is_some();
+    fn admit(&self, call: bool) -> Result<Ticket, JobError> {
         let mut g = self.gate.state();
         loop {
             if g.closed || self.closing.load(Ordering::SeqCst) {
@@ -779,7 +781,12 @@ impl EngineHost {
                     "an entitlement change is being applied; try again in a moment",
                 ));
             }
-            if !presence || g.phase == RunPhase::Running {
+            if g.phase == RunPhase::Running {
+                // Issue under the same gate used to close admission and invalidate old calls.
+                let ticket = self
+                    .stop_fence
+                    .issue(self.stop_fence.epoch())
+                    .map_err(stale_error)?;
                 if call {
                     g.busy += 1;
                 } else {
@@ -787,7 +794,7 @@ impl EngineHost {
                 }
                 g.ever_used = true;
                 g.zero_since = None;
-                return Ok(());
+                return Ok(ticket);
             }
             match g.phase {
                 RunPhase::Idle => {
@@ -886,7 +893,7 @@ impl EngineHost {
         if self.closing.load(Ordering::SeqCst) {
             return Err(shutting_down());
         }
-        if self.policy.presence.is_some() {
+        {
             let mut g = self.gate.state();
             while matches!(g.phase, RunPhase::Starting | RunPhase::Stopping) {
                 g = self
@@ -896,16 +903,23 @@ impl EngineHost {
                     .unwrap_or_else(|e| e.into_inner())
                     .0;
             }
+            if g.closed || self.closing.load(Ordering::SeqCst) {
+                return Err(shutting_down());
+            }
             g.phase = RunPhase::Stopping;
+            self.stop_fence.advance();
         }
         let _ = self.stop_engine_process();
-        if self.policy.presence.is_some() {
-            let mut g = self.gate.state();
-            g.phase = RunPhase::Idle;
-            drop(g);
-            self.gate.cv.notify_all();
-        }
-        self.start()
+        let started = self.start_inner();
+        let mut g = self.gate.state();
+        g.phase = if started.is_ok() {
+            RunPhase::Running
+        } else {
+            RunPhase::Idle
+        };
+        drop(g);
+        self.gate.cv.notify_all();
+        started
     }
 
     // ---- snapshots ----
@@ -1032,7 +1046,7 @@ impl EngineHost {
         if self.closing.load(Ordering::SeqCst) {
             return Err(shutting_down());
         }
-        self.admit(true)?;
+        let stop_ticket = self.admit(true)?;
         let _busy = Busy(self);
         // Bind the call to the engine generation it is sent under. A supervised engine that is not
         // `Ready` now (stopped for idleness, recovering, on-demand restart pending) is started or
@@ -1056,13 +1070,17 @@ impl EngineHost {
         };
         let timeout = self.policy.timeout_for(method, self.spec.call_timeout);
         let fence = self.latch.fence();
+        let stop_fence = Arc::clone(&self.stop_fence);
         let dropped = Arc::clone(&self.stale_frames);
         let on_frame = |ticket: Option<Ticket>| {
             let (call, tag, sink) = (method.to_string(), tag.clone(), sink.clone());
             let (fence, dropped) = (Arc::clone(&fence), Arc::clone(&dropped));
+            let stop_fence = Arc::clone(&stop_fence);
             Box::new(move |frame: &EventFrame<'_>| {
                 // Events of a call whose engine was replaced are not forwarded.
-                if ticket.is_some_and(|t| fence.admit_reply(&t).is_err()) {
+                if stop_fence.admit_reply(&stop_ticket).is_err()
+                    || ticket.is_some_and(|t| fence.admit_reply(&t).is_err())
+                {
                     dropped.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
@@ -1092,7 +1110,10 @@ impl EngineHost {
                 }
                 None => client.call_with_frames(method, params.clone(), Some(on_frame(ticket))),
             };
-            let closing = || self.closing.load(Ordering::SeqCst);
+            let closing = || {
+                self.closing.load(Ordering::SeqCst)
+                    || self.stop_fence.admit_reply(&stop_ticket).is_err()
+            };
             match self.client().and_then(|c| attempt(c, ticket)) {
                 // The request never left this process (write to a dead pipe): safe to retry once on a
                 // fresh engine, under the new engine's generation.
@@ -1112,8 +1133,13 @@ impl EngineHost {
                 other => other,
             }
         };
-        // Deliver the reply only if the engine it was sent to is still the current one.
+        // Deliver only while both the process generation and its admitted stop epoch are current.
         self.latch.observe(self.generation());
+        if result.is_ok() {
+            self.stop_fence
+                .admit_reply(&stop_ticket)
+                .map_err(stale_error)?;
+        }
         match ticket {
             Some(ticket) => self.latch.admit(&ticket, result),
             None => result,
@@ -1166,6 +1192,10 @@ impl EngineHost {
                     .wait_timeout(g, left)
                     .unwrap_or_else(|e| e.into_inner())
                     .0;
+            }
+            // No reply or event from an abandoned call may escape during process teardown.
+            if g.busy > 0 {
+                self.stop_fence.advance();
             }
             (g.busy, g.holders)
         };

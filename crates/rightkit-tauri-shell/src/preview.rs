@@ -38,6 +38,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::http::{header, Method, Request, Response, StatusCode};
+#[cfg(feature = "host-services")]
+use tauri::Manager;
 
 use crate::error::ShellError;
 

@@ -184,7 +184,7 @@ impl crate::NativeEntitlementSource for ClientNativeEntitlementSource {
                 .records
                 .pinned()
                 .map_err(|_| NativeSourceError::Refused)?;
-            guard.records = Some(records.clone());
+            guard.records = Some(Box::new(records.clone()));
             let snap = records
                 .read_typed()
                 .map_err(|_| NativeSourceError::Refused)?;

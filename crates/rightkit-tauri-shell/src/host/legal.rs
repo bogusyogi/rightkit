@@ -34,7 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use rightkit_app_settings::{Document, Error as StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{Webview, Wry};
+use tauri::{Manager, Webview, Wry};
 
 use super::policy::ServiceId;
 use super::{blocking, HostError, HostServices};

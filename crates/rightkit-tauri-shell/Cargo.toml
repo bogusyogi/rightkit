@@ -37,7 +37,8 @@ dev-overrides = []
 # enables it fails with compile_error!.
 qa-probes = []
 logs = ["dep:rightkit-logs"]
-host-services = ["dep:rightkit-app-settings"]
+# Native event delivery rechecks each live webview; Tauri gates webview lookup behind unstable.
+host-services = ["dep:rightkit-app-settings", "tauri/unstable"]
 crash = ["dep:rightkit-crash"]
 license = ["host-services", "dep:rightkit-license"]
 update = ["host-services", "dep:tauri-plugin-updater", "dep:reqwest", "dep:sha2", "dep:tokio"]

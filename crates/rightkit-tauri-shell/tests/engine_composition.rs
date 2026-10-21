@@ -7,6 +7,7 @@ use rightkit_tauri_shell::engine::{
     ERROR_REVOCATION_PENDING, ERROR_SNAPSHOT_NOT_DECLARED,
 };
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -191,9 +192,20 @@ fn a_call_that_outlasts_the_drain_is_abandoned_and_reported() {
         base_policy().shutdown_drain(Duration::from_millis(60)),
     ));
     host.start().unwrap();
+    let events = Arc::new(AtomicUsize::new(0));
     let worker = {
         let host = Arc::clone(&host);
-        std::thread::spawn(move || call(&host, "slower"))
+        let events = Arc::clone(&events);
+        std::thread::spawn(move || {
+            host.call_tagged(
+                "slower",
+                Value::Null,
+                None,
+                Arc::new(move |_| {
+                    events.fetch_add(1, Ordering::SeqCst);
+                }),
+            )
+        })
     };
     wait_for("the call to start", || host.in_flight() == 1);
     let report = host.shutdown_ordered();
@@ -201,6 +213,7 @@ fn a_call_that_outlasts_the_drain_is_abandoned_and_reported() {
     assert_eq!(report.abandoned_calls, 1);
     // The engine stop ends the call; it is an error, never a late success.
     assert!(worker.join().unwrap().is_err());
+    assert_eq!(events.load(Ordering::SeqCst), 0);
 }
 
 fn snapshot_host() -> Arc<EngineHost> {
@@ -296,14 +309,26 @@ fn a_restart_replaces_the_engine_and_ends_the_calls_of_the_old_one() {
     host.start().unwrap();
     let before = pid(&host);
     let generation = host.generation();
+    let events = Arc::new(AtomicUsize::new(0));
     let worker = {
         let host = Arc::clone(&host);
-        std::thread::spawn(move || call(&host, "slower"))
+        let events = Arc::clone(&events);
+        std::thread::spawn(move || {
+            host.call_tagged(
+                "slower",
+                Value::Null,
+                None,
+                Arc::new(move |_| {
+                    events.fetch_add(1, Ordering::SeqCst);
+                }),
+            )
+        })
     };
     wait_for("the call to start", || host.in_flight() == 1);
     host.restart().unwrap();
     // The old call ends in an error: its reply is never delivered as a success.
     assert!(worker.join().unwrap().is_err());
+    assert_eq!(events.load(Ordering::SeqCst), 0);
     assert!(host.generation() > generation);
     assert_ne!(pid(&host), before);
     host.shutdown();

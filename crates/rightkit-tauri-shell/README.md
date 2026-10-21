@@ -412,6 +412,28 @@ generation/budget rules. Failed in-flight calls are returned without replay. Eng
 always takes a policy (`engine_with_policy`): a default `EnginePolicy` denies every method, so
 list them with `allow_methods` or opt in explicitly with `allow_any_method()`.
 
+The engine policy example used by the composition test:
+
+```rust,ignore
+fn readme_example(spec: EngineSpec) -> Result<(), rightkit_job_queue::JobError> {
+    let policy = EnginePolicy::default()
+        .allow_methods(["echo", "seen"])
+        .snapshot(SnapshotSlot::new("init", "set_init").required())
+        .snapshot(SnapshotSlot::new("settings", "set_settings"))
+        .presence(PresencePolicy::idle_exit(Duration::from_secs(300)))
+        .shutdown_drain(Duration::from_secs(2));
+    let host = Arc::new(EngineHost::with_policy(spec, policy));
+    host.start_idle_monitor();
+    host.set_snapshot("init", json!({"project": "demo"}))?;
+    let hold = host.hold("main-window")?;
+    host.call_tagged("echo", json!({"hello": 1}), None, Arc::new(|_| {}))?;
+    drop(hold);
+    let report = host.shutdown_ordered();
+    assert!(report.first && report.drained);
+    Ok(())
+}
+```
+
 Register commands through `rightkit_tauri_shell::handler![]` or add only
 `commands::rk_shell_engine_call_tagged` & `commands::rk_shell_engine_status` to an existing
 `tauri::generate_handler!`. Legacy `rk_shell_engine_call` keeps its signature & string errors;

@@ -35,10 +35,10 @@ use super::wire::{Answer, HttpRefreshTransport, Reply, Transport, TrialAnswer};
 use crate::{
     authenticate_token_any_device, evaluate_lifecycle, judge_refresh_response,
     refresh_and_reanchor, system_now_unix, verify_lease_envelope_fields, AntiRollbackClock,
-    ClockError, ClockRefusal, ClockState, Entitlement, EntitlementStage, FileClockStoreError,
-    LeaseEnvelope, LicenseKind, Lifecycle, LifecycleContext, LifecycleReport, ProcessAnchor,
-    RefreshJudgement, RefreshOutcome, RefreshParams, RefreshRejection, RefreshResponse,
-    StoredCredential, CLOCK_ROLLBACK_TOLERANCE_SECS, MAX_TOKEN_BYTES,
+    ClockError, ClockRefusal, ClockState, Entitlement, EntitlementStage, LeaseEnvelope,
+    LicenseKind, Lifecycle, LifecycleContext, LifecycleReport, ProcessAnchor, RefreshJudgement,
+    RefreshOutcome, RefreshParams, RefreshRejection, RefreshResponse, StoredCredential,
+    CLOCK_ROLLBACK_TOLERANCE_SECS, MAX_TOKEN_BYTES,
 };
 
 /// A status or authorization reader's reconcile budget. Longer work belongs to a mutation.
@@ -255,7 +255,7 @@ impl Core {
         let level = order::enter(Level::Op);
         let mut guard = self.op.acquire(lock_wait)?;
         let records = self.records.pinned().map_err(|_| LicenseError::Store)?;
-        guard.records = Some(records.clone());
+        guard.records = Some(Box::new(records.clone()));
         let mut snap = records.read()?;
         if self.is_unresolved(&snap) && !snap.held {
             match records.reconcile(guard, reconcile_wait) {
@@ -295,7 +295,11 @@ impl Core {
         guard: OpGuard,
         envelope: &Envelope,
     ) -> Result<OpGuard, LicenseError> {
-        let records = guard.records.clone().ok_or(LicenseError::Unresolved)?;
+        let records = guard
+            .records
+            .as_deref()
+            .cloned()
+            .ok_or(LicenseError::Unresolved)?;
         self.commit_to(&records, guard, envelope)
     }
 
@@ -1383,6 +1387,7 @@ pub(crate) fn plausible_email(email: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FileClockStoreError;
 
     #[test]
     fn the_suffix_is_the_last_four_characters() {

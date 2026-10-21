@@ -381,6 +381,7 @@ fn the_loopback_test_hook_works_in_a_test_run_and_reaches_a_local_server() {
     }
 
     let root = tempfile::tempdir().unwrap();
+    rightkit_fs::ensure_private_dir(root.path()).unwrap();
     fs::write(
         root.path().join(".rightkit-app.json"),
         r#"{"app":"models-hook-test"}"#,

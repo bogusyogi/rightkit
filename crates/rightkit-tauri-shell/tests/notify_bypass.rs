@@ -21,7 +21,9 @@ fn qa_background_selector_is_compiled_out_of_product_releases() {
     // one debug-only env read in lifecycle, a constant `false` without debug assertions, and
     // no notification code reading the selector itself.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let lifecycle = std::fs::read_to_string(root.join("src/lifecycle.rs")).unwrap();
+    let lifecycle = std::fs::read_to_string(root.join("src/lifecycle.rs"))
+        .unwrap()
+        .replace("\r\n", "\n");
     assert!(lifecycle
         .contains("#[cfg(not(debug_assertions))]\npub fn qa_background() -> bool {\n    false\n}"));
     assert!(lifecycle

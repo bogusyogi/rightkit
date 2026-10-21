@@ -1,5 +1,6 @@
 #if os(macOS) && canImport(CloudKit)
 import Foundation
+import AppKit
 import Testing
 import RightKitCloudSync
 
@@ -19,6 +20,7 @@ import RightKitCloudSync
 }
 
 @MainActor @Test func unentitledWakeHostRemainsDisabledWithoutCloudKitContainerOrObserverDelivery() throws {
+    _ = NSApplication.shared
     let identifier = "iCloud.invalid.rightkit.qualification"
     try #require(!CloudKitEntitlement.current(containerIdentifier: identifier).allowsCloudKit)
     let host = CloudKitWakeHost(configuration: .init(

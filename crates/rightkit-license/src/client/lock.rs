@@ -45,7 +45,7 @@ pub(crate) fn pause(deadline: Instant) {
 pub(crate) struct OpGuard {
     _lock: CrossProcessLock,
     /// Exact credential target selected after this licence operation acquired its lock.
-    pub(crate) records: Option<super::persist::RecordStore>,
+    pub(crate) records: Option<Box<super::persist::RecordStore>>,
 }
 impl std::fmt::Debug for OpGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
