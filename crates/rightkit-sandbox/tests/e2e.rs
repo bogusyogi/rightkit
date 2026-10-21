@@ -16,8 +16,16 @@ const T: Duration = Duration::from_secs(20);
 
 #[cfg(unix)]
 fn scratch(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("rk-sandbox-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&d);
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let d = std::env::temp_dir().join(format!(
+        "rk-sandbox-{name}-{}-{nanos}-{n}",
+        std::process::id()
+    ));
     fs::create_dir_all(&d).unwrap();
     fs::canonicalize(&d).unwrap()
 }
@@ -300,9 +308,19 @@ mod windows {
 
     const T: Duration = Duration::from_secs(60);
 
+    /// A fresh directory per call: pid, a timestamp and a counter, so a leftover from an earlier
+    /// run (or another test of this run) can never be reused.
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("rk-sandbox-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let d = std::env::temp_dir().join(format!(
+            "rk-sandbox-{name}-{}-{nanos}-{n}",
+            std::process::id()
+        ));
         fs::create_dir_all(&d).unwrap();
         let c = fs::canonicalize(&d).unwrap().to_string_lossy().to_string();
         PathBuf::from(c.strip_prefix(r"\\?\").unwrap_or(&c))
@@ -554,36 +572,80 @@ mod windows {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// Not a test on its own: the blocking grandchild of `confined_grandchildren_die_with_the_child`.
+    /// A no-op unless `RK_BLOCK_READY` names a file. Then it writes its pid there (temp file and
+    /// rename, so a reader never sees a partial pid) and blocks without touching stdin, the
+    /// network or a console.
     #[test]
-    fn confined_grandchildren_die_with_the_child() {
-        if !crate::common::real_user_stores_allowed("confined_grandchildren_die_with_the_child") {
+    fn rk_block_helper() {
+        let Some(ready) = std::env::var_os("RK_BLOCK_READY") else {
+            return;
+        };
+        let ready = PathBuf::from(ready);
+        let temp = ready.with_extension("tmp");
+        fs::write(&temp, std::process::id().to_string()).unwrap();
+        fs::rename(&temp, &ready).unwrap();
+        std::thread::sleep(Duration::from_secs(600));
+    }
+
+    /// Not a test on its own: the confined child of the blocking-grandchild tests. A no-op unless
+    /// `RK_BLOCK_READY` is set. Then it starts this test binary again as `rk_block_helper` (a
+    /// real grandchild of the sandbox's child) and waits for it.
+    #[test]
+    fn rk_block_parent() {
+        if std::env::var_os("RK_BLOCK_READY").is_none() {
             return;
         }
-        let root = scratch("tree");
-        let policy = SandboxPolicy::new().allow_write(&root);
-        let _profile = crate::common::ProfileCleanup::of(&policy);
+        let exe = std::env::current_exe().unwrap();
+        let _ = std::process::Command::new(exe)
+            .args(["--exact", "windows::rk_block_helper", "--nocapture"])
+            .status();
+    }
+
+    /// The path spelling `AdoptedIdentity::exe` and `current_exe` share once case and the
+    /// verbatim prefix are removed.
+    fn exe_key(path: &std::path::Path) -> String {
+        path.to_string_lossy()
+            .trim_start_matches(r"\\?\")
+            .to_ascii_lowercase()
+    }
+
+    /// Launch the confined parent, wait for the grandchild's ready file, and return the confined
+    /// child with the verified identities of the parent and the grandchild (a descendant of the
+    /// parent whose executable is this test binary). Panics with the diagnostics a hung launch
+    /// needs.
+    fn spawn_blocker(
+        root: &std::path::Path,
+        policy: &SandboxPolicy,
+    ) -> (
+        SandboxedChild,
+        rightkit_child_process::AdoptedIdentity,
+        rightkit_child_process::AdoptedIdentity,
+    ) {
+        let exe = std::env::current_exe().unwrap();
+        let ready = root.join("ready.txt");
         let mut child = expanded()
             .spawn(
-                &policy,
-                cmd("powershell -NoProfile -NonInteractive -Command $PID ^| Set-Content pid.txt; Start-Sleep 300")
-                    .cwd(&root),
+                policy,
+                SandboxCommand::new(&exe)
+                    .args(["--exact", "windows::rk_block_parent", "--nocapture"])
+                    .env("RK_BLOCK_READY", ready.to_string_lossy().to_string())
+                    .cwd(root),
             )
             .unwrap();
-        let pid_file = root.join("pid.txt");
         let deadline = Instant::now() + T;
         let pid: u32 = loop {
-            if let Some(pid) = fs::read_to_string(&pid_file)
+            if let Some(pid) = fs::read_to_string(&ready)
                 .ok()
                 .and_then(|s| s.trim().parse().ok())
             {
                 break pid;
             }
             if Instant::now() >= deadline {
-                // Name what the confined shell did, instead of only that nothing appeared: whether
-                // it already exited, with what code and output, and the DACLs it ran under.
+                // Name what the confined parent did, instead of only that nothing appeared.
                 let exited = child.has_exited().unwrap_or(false);
                 let code = child.observed_exit_code().ok().flatten();
-                let acls = icacls(&root);
+                let acls = icacls(root);
                 let _ = child.terminate_tree();
                 let out = child.wait_with_output(Duration::from_secs(10));
                 let (stdout, stderr) = match &out {
@@ -594,79 +656,150 @@ mod windows {
                     Err(e) => (String::new(), format!("collecting output failed: {e}")),
                 };
                 panic!(
-                    "confined grandchild never started: shell_exited={exited} exit_code={code:?}\n\
-                     pid.txt exists={}\nstdout: {stdout}\nstderr: {stderr}\nroot DACL:\n{acls}",
-                    pid_file.exists()
+                    "confined grandchild never started: parent_exited={exited} exit_code={code:?}\n\
+                     ready file exists={}\nstdout: {stdout}\nstderr: {stderr}\nroot DACL:\n{acls}",
+                    ready.exists()
                 );
             }
             std::thread::sleep(Duration::from_millis(100));
         };
-        let grandchild = rightkit_child_process::AdoptedProcess::new(pid.try_into().unwrap());
-        assert!(grandchild.is_running().unwrap());
-        drop(child);
-        let killed = Instant::now();
-        while grandchild.is_running().unwrap_or(false) {
-            assert!(
-                killed.elapsed() < Duration::from_secs(5),
-                "grandchild survived its child"
-            );
-            std::thread::sleep(Duration::from_millis(50));
+        let parent = rightkit_child_process::AdoptedIdentity::capture(
+            std::num::NonZeroU32::new(child.id()).unwrap(),
+        )
+        .unwrap()
+        .expect("the confined child is running");
+        let helper = parent
+            .descendants()
+            .unwrap()
+            .into_iter()
+            .find(|d| d.pid() == pid)
+            .unwrap_or_else(|| panic!("pid {pid} is not a descendant of the confined child"));
+        assert_eq!(
+            helper.exe().map(exe_key),
+            Some(exe_key(&exe)),
+            "the grandchild is not this test binary"
+        );
+        assert_eq!(
+            helper.verify().unwrap(),
+            rightkit_child_process::IdentityCheck::Same
+        );
+        (child, parent, helper)
+    }
+
+    #[test]
+    fn confined_grandchildren_die_with_the_child() {
+        if !crate::common::real_user_stores_allowed("confined_grandchildren_die_with_the_child") {
+            return;
         }
+        let root = scratch("tree");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
+        let (child, parent, helper) = spawn_blocker(&root, &policy);
+        // It blocks: a grandchild that exited by itself must not pass for one that was killed.
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(
+            helper.is_running().unwrap(),
+            "the blocking grandchild exited by itself"
+        );
+        drop(child);
+        assert!(
+            helper.wait_confirmed_gone(Duration::from_secs(10)).unwrap(),
+            "grandchild survived its child"
+        );
+        assert!(
+            parent.wait_confirmed_gone(Duration::from_secs(10)).unwrap(),
+            "the confined child survived its drop"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Negative control: while the child lives, the blocking grandchild stays up, so the test
+    /// above is not satisfied by a helper that dies on its own.
+    #[test]
+    fn a_blocking_grandchild_outlives_the_wait_while_its_child_lives() {
+        if !crate::common::real_user_stores_allowed(
+            "a_blocking_grandchild_outlives_the_wait_while_its_child_lives",
+        ) {
+            return;
+        }
+        let root = scratch("tree-control");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let _profile = crate::common::ProfileCleanup::of(&policy);
+        let (child, _parent, helper) = spawn_blocker(&root, &policy);
+        assert!(
+            !helper.wait_confirmed_gone(Duration::from_secs(3)).unwrap(),
+            "the grandchild died while its child was alive"
+        );
+        drop(child);
+        assert!(helper.wait_confirmed_gone(Duration::from_secs(10)).unwrap());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Run the same read the confined script would make, outside any sandbox. Proves the secret
+    /// is readable to the user, so a refused or empty confined read means something.
+    fn unsandboxed_type(path: &std::path::Path) -> String {
+        let out = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "type"])
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "the unsandboxed read failed: {out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn deny_read_inside_a_grant_is_refused_before_a_profile_exists() {
+        if !crate::common::real_user_stores_allowed(
+            "deny_read_inside_a_grant_is_refused_before_a_profile_exists",
+        ) {
+            return;
+        }
+        // Issue #887: a lowbox token ignores DENY ACEs, so a deny cannot be carved out of a grant.
+        // Windows fails closed: the spawn is refused with a typed error and no profile exists.
+        let root = scratch("deny");
+        fs::write(root.join("public.txt"), "PUBLIC").unwrap();
+        fs::create_dir_all(root.join("secrets")).unwrap();
+        let key = root.join("secrets").join("key.txt");
+        fs::write(&key, "TOP-SECRET").unwrap();
+        assert!(unsandboxed_type(&key).contains("TOP-SECRET"));
+        let policy = SandboxPolicy::new()
+            .allow_write(&root)
+            .deny_read(root.join("secrets"));
+        let name = appcontainer_profile_name_for_test(&policy).unwrap();
+        match expanded().spawn(&policy, cmd("type secrets\\key.txt").cwd(&root)) {
+            Err(SandboxError::Unsupported(why)) => {
+                assert!(why.contains("887"), "{why}");
+            }
+            other => panic!("a deny inside a grant must be refused: {:?}", other.err()),
+        }
+        assert!(
+            !delete_appcontainer_profile_for_test(&name).unwrap(),
+            "no profile may have been created"
+        );
+        assert_eq!(fs::read_to_string(&key).unwrap(), "TOP-SECRET");
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn deny_read_blocks_a_folder_inside_a_granted_root_and_leaves_its_neighbour() {
-        if !crate::common::real_user_stores_allowed(
-            "deny_read_blocks_a_folder_inside_a_granted_root_and_leaves_its_neighbour",
-        ) {
+    fn a_deny_outside_every_grant_is_refused_too() {
+        if !crate::common::real_user_stores_allowed("a_deny_outside_every_grant_is_refused_too") {
             return;
         }
-        let root = scratch("deny");
-        fs::write(root.join("public.txt"), "PUBLIC").unwrap();
-        fs::create_dir_all(root.join("secrets")).unwrap();
-        fs::write(root.join("secrets").join("key.txt"), "TOP-SECRET").unwrap();
-        let policy = SandboxPolicy::new()
-            .allow_write(&root)
-            .deny_read(root.join("secrets"));
-        let _profile = crate::common::ProfileCleanup::of(&policy);
-        // The trailing icacls calls record the DACLs the confined shell itself saw, while its
-        // ACEs are live; they decide nothing and only feed the failure message below.
-        let script = concat!(
-            r"type public.txt> public.copy & type secrets\key.txt> leak.txt",
-            r" & icacls secrets> acl-dir.txt 2>&1",
-            r" & icacls secrets\key.txt> acl-key.txt 2>&1",
-        );
-        let out = expanded()
-            .spawn(&policy, cmd(script).cwd(&root))
-            .unwrap()
-            .wait_with_output(T)
-            .unwrap();
-        assert_eq!(
-            fs::read_to_string(root.join("public.copy"))
-                .unwrap_or_default()
-                .trim_end(),
-            "PUBLIC",
-            "the neighbour stays readable: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        let leaked = fs::read_to_string(root.join("leak.txt")).unwrap_or_default();
-        assert!(
-            !leaked.contains("TOP-SECRET"),
-            "the secret leaked: {leaked:?}\nexit: {:?}\nstderr: {}\n\
-             DACL of secrets as the child saw it:\n{}\n\
-             DACL of secrets\\key.txt as the child saw it:\n{}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr),
-            fs::read_to_string(root.join("acl-dir.txt")).unwrap_or_default(),
-            fs::read_to_string(root.join("acl-key.txt")).unwrap_or_default(),
-        );
-        // The deny ACE is revoked with the child: the user reads the file again afterwards.
-        assert_eq!(
-            fs::read_to_string(root.join("secrets").join("key.txt")).unwrap(),
-            "TOP-SECRET"
-        );
+        let root = scratch("deny-out");
+        let other = scratch("deny-out-secret");
+        let key = other.join("key.txt");
+        fs::write(&key, "TOP-SECRET").unwrap();
+        assert!(unsandboxed_type(&key).contains("TOP-SECRET"));
+        let policy = SandboxPolicy::new().allow_write(&root).deny_read(&other);
+        let name = appcontainer_profile_name_for_test(&policy).unwrap();
+        match expanded().spawn(&policy, cmd("echo x").cwd(&root)) {
+            Err(SandboxError::Unsupported(_)) => {}
+            other => panic!("any deny_read entry must be refused: {:?}", other.err()),
+        }
+        assert!(!delete_appcontainer_profile_for_test(&name).unwrap());
+        assert!(!deny_read_enforced(), "Windows must not claim a carve-out");
         let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&other);
     }
 
     #[test]

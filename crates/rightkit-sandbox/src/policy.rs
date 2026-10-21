@@ -197,8 +197,9 @@ impl SandboxPolicy {
         self
     }
     /// Denies reading (and writing) `path` and everything below it, even inside a granted
-    /// root. macOS: a `(deny file-read* file-write*)` rule after every allow. Windows: an
-    /// explicit DENY ACE for the container for the lifetime of the child. **Linux: not
+    /// root. macOS: a `(deny file-read* file-write*)` rule after every allow. Windows: **not
+    /// supported yet** (issue #887; a lowbox token ignores DENY ACEs): any `deny_read` entry
+    /// makes the spawn fail with `SandboxError::Unsupported`, never a silent leak. **Linux: not
     /// enforced.** Landlock only adds allowances and cannot carve a hole out of a granted
     /// root, so the entry is omitted there; check [`crate::deny_read_enforced`] and grant
     /// narrower roots instead when it is `false`. Use [`crate::secret_paths_within`] to
@@ -207,9 +208,9 @@ impl SandboxPolicy {
         self.deny_read.push(DenyReadEntry::Path(path.into()));
         self
     }
-    /// As [`SandboxPolicy::deny_read()`] for an absolute glob. Windows expands it against the
-    /// files that exist when the child starts (bounded); macOS matches it by regex at access
-    /// time.
+    /// As [`SandboxPolicy::deny_read()`] for an absolute glob. macOS matches it by regex at
+    /// access time. Windows: not supported yet (issue #887), the spawn is refused with
+    /// `SandboxError::Unsupported` before the glob is expanded. Linux omits it.
     pub fn deny_read_glob(mut self, pattern: impl Into<String>) -> Self {
         self.deny_read.push(DenyReadEntry::Glob(pattern.into()));
         self

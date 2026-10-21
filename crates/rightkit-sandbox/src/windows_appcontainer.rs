@@ -8,6 +8,10 @@
 //! command that needs them is alive (the last one to end revokes the grant), and network is
 //! a capability, not a filter: without `internetClient` the container has no egress at all.
 //!
+//! `deny_read` is not carved out of a grant here: a lowbox token honours only allow entries for its
+//! own SIDs, so a DENY ACE is inert (issue #887). Any `deny_read` entry is refused with a typed
+//! `Unsupported` before any profile, lease or ACE exists.
+//!
 //! An AppContainer can only be established at process creation through a
 //! `SECURITY_CAPABILITIES` attribute, so this path calls `CreateProcessW` directly. The child
 //! is created suspended, assigned to a kill-on-close Job Object, and only then resumed, so it
@@ -51,7 +55,6 @@ use windows::Win32::System::Threading::{
 const DACL_SECURITY_INFORMATION: u32 = 0x0000_0004;
 const SE_FILE_OBJECT: u32 = 1;
 const GRANT_ACCESS: i32 = 1;
-const DENY_ACCESS: i32 = 3;
 const REVOKE_ACCESS: i32 = 4;
 /// `SE_GROUP_ENABLED`: attribute for a capability SID in the token.
 const SE_GROUP_ENABLED: u32 = 0x0000_0004;
@@ -881,54 +884,25 @@ fn lease_registry() -> &'static Mutex<HashMap<String, LeaseEntry>> {
     REGISTRY.get_or_init(Default::default)
 }
 
-/// Whether a lease allows access or carves it out of a wider allow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LeaseKind {
-    Allow,
-    Deny,
-}
-
-/// Everything a deny entry takes away: read, write, execute and delete.
-const DENY_PERMISSIONS: u32 =
-    FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE;
-
-/// One per-command grant for a container SID, an allow or a deny carve-out; dropping the last
-/// lease on a key revokes the ACE, so grants never outlive the commands that needed them.
+/// One per-command grant for a container SID; dropping the last lease on a key revokes the ACE,
+/// so grants never outlive the commands that needed them. Only allow entries are ever written:
+/// a lowbox token ignores DENY entries (issue #887), so none is added.
 struct GrantLease {
     key: String,
-    kind: LeaseKind,
     writable: bool,
     sid_text: String,
     path: PathBuf,
 }
 
-/// Registry key of one lease. Allow keys keep the `<sid>|<path>` form the ancestor sweep reads
-/// to tell a live grant from a stale one; deny keys carry a prefix so they never collide with it.
-fn lease_key(kind: LeaseKind, sid_text: &str, path: &Path) -> String {
-    match kind {
-        LeaseKind::Allow => format!("{sid_text}|{}", lexical_path_key(path)),
-        LeaseKind::Deny => format!("deny|{sid_text}|{}", lexical_path_key(path)),
-    }
+/// Registry key of one lease, the `<sid>|<path>` form the ancestor sweep reads to tell a live
+/// grant from a stale one.
+fn lease_key(sid_text: &str, path: &Path) -> String {
+    format!("{sid_text}|{}", lexical_path_key(path))
 }
 
 impl GrantLease {
     fn acquire(sid: *mut c_void, sid_text: &str, path: &Path, writable: bool) -> io::Result<Self> {
-        Self::acquire_kind(LeaseKind::Allow, sid, sid_text, path, writable)
-    }
-
-    /// An explicit DENY ACE for the container on `path` (and below it, for a directory).
-    fn deny(sid: *mut c_void, sid_text: &str, path: &Path) -> io::Result<Self> {
-        Self::acquire_kind(LeaseKind::Deny, sid, sid_text, path, false)
-    }
-
-    fn acquire_kind(
-        kind: LeaseKind,
-        sid: *mut c_void,
-        sid_text: &str,
-        path: &Path,
-        writable: bool,
-    ) -> io::Result<Self> {
-        let key = lease_key(kind, sid_text, path);
+        let key = lease_key(sid_text, path);
         let mut registry = lease_registry().lock().unwrap_or_else(|e| e.into_inner());
         let grant = |writable| {
             apply_sid_path_entry(
@@ -945,51 +919,27 @@ impl GrantLease {
         };
         match registry.get_mut(&key) {
             Some(entry) => {
-                if kind == LeaseKind::Allow && writable && !entry.writable {
+                if writable && !entry.writable {
                     grant(true)?;
                     entry.writable = true;
                 }
                 entry.count += 1;
             }
             None => {
-                match kind {
-                    LeaseKind::Allow => {
-                        // No live lease owns the key, so a write-capable ACE here is stale:
-                        // remove it before granting narrower read/execute access.
-                        if !writable && path_has_write_grant(path, sid) {
-                            apply_sid_path_entry(
-                                path,
-                                sid,
-                                REVOKE_ACCESS,
-                                0,
-                                inheritance_for(path),
-                            )
-                            .map_err(|e| {
-                                step_error(
-                                    format!("revoke stale write ACE on {}", path.display()),
-                                    e,
-                                )
-                            })?;
-                        }
-                        grant(writable)?;
-                    }
-                    LeaseKind::Deny => {
-                        apply_sid_path_entry(
-                            path,
-                            sid,
-                            DENY_ACCESS,
-                            DENY_PERMISSIONS,
-                            inheritance_for(path),
-                        )
-                        .map_err(|e| step_error(format!("deny ACE on {}", path.display()), e))?;
-                    }
+                // No live lease owns the key, so a write-capable ACE here is stale: remove it
+                // before granting narrower read/execute access.
+                if !writable && path_has_write_grant(path, sid) {
+                    apply_sid_path_entry(path, sid, REVOKE_ACCESS, 0, inheritance_for(path))
+                        .map_err(|e| {
+                            step_error(format!("revoke stale write ACE on {}", path.display()), e)
+                        })?;
                 }
+                grant(writable)?;
                 registry.insert(key.clone(), LeaseEntry { count: 1, writable });
             }
         }
         Ok(Self {
             key,
-            kind,
             writable,
             sid_text: sid_text.to_string(),
             path: path.to_path_buf(),
@@ -1009,8 +959,7 @@ impl Drop for GrantLease {
         }
         registry.remove(&self.key);
         // A failed revoke leaves an ACE for this container SID only; the next acquire for the
-        // same key re-checks the live DACL (and strips a stale write grant). A stale deny only
-        // ever narrows this container's access.
+        // same key re-checks the live DACL (and strips a stale write grant).
         if let Ok(sid) = LocalSid::parse(&self.sid_text) {
             let _ = apply_sid_path_entry(
                 &self.path,
@@ -1505,11 +1454,11 @@ impl ContainerProfile {
 
     /// Grant `path` to this profile for the lifetime of the launch's child.
     fn lease(&self, path: &Path, writable: bool) -> io::Result<()> {
-        let key = lease_key(LeaseKind::Allow, &self.sid_text, path);
+        let key = lease_key(&self.sid_text, path);
         let mut items = self.leases.items.lock().unwrap_or_else(|e| e.into_inner());
         if items
             .iter()
-            .any(|l| l.kind == LeaseKind::Allow && l.key == key && (l.writable || !writable))
+            .any(|l| l.key == key && (l.writable || !writable))
         {
             return Ok(());
         }
@@ -1519,18 +1468,6 @@ impl ContainerProfile {
             path,
             writable,
         )?);
-        Ok(())
-    }
-
-    /// Deny the container `path` (and everything below it) for the lifetime of the launch's
-    /// child, with an explicit DENY ACE that wins over any allow inherited from a granted root.
-    fn lease_deny(&self, path: &Path) -> io::Result<()> {
-        let key = lease_key(LeaseKind::Deny, &self.sid_text, path);
-        let mut items = self.leases.items.lock().unwrap_or_else(|e| e.into_inner());
-        if items.iter().any(|l| l.key == key) {
-            return Ok(());
-        }
-        items.push(GrantLease::deny(self.sid, &self.sid_text, path)?);
         Ok(())
     }
 
@@ -2359,7 +2296,8 @@ fn wants_loopback(policy: &SandboxPolicy) -> bool {
 /// The concrete, existing paths the policy's `deny_read` entries name: globs expanded (bounded),
 /// every path planned lexically and canonically. An entry that cannot be planned (a relative
 /// path, a filesystem root, a glob over a huge tree) fails the spawn instead of being dropped.
-/// A path that does not exist has no object to attach a deny to and is skipped.
+/// A path that does not exist has no object to name and is skipped. Only the profile name uses
+/// the result: every policy with a `deny_read` entry is refused ([`refuse_deny_read`]).
 fn deny_targets(policy: &SandboxPolicy) -> Result<Vec<PathBuf>, SandboxError> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for entry in &policy.deny_read {
@@ -2383,6 +2321,26 @@ fn deny_targets(policy: &SandboxPolicy) -> Result<Vec<PathBuf>, SandboxError> {
         }
     }
     Ok(targets)
+}
+
+/// Windows AppContainer cannot honour `deny_read` (issue #887): a lowbox token ignores DENY ACEs,
+/// and granting a root that contains the denied path would expose it. Until the full design lands,
+/// ANY `deny_read` entry (a glob, a missing path, a path outside every grant) is refused before a
+/// profile, lease or ACE exists. Callers check [`crate::deny_read_enforced`] first.
+pub(crate) fn refuse_deny_read_policy(policy: &SandboxPolicy) -> Result<(), SandboxError> {
+    refuse_deny_read(!policy.deny_read.is_empty())
+}
+
+fn refuse_deny_read(has_denies: bool) -> Result<(), SandboxError> {
+    if has_denies {
+        return Err(SandboxError::Unsupported(
+            "deny_read is not supported on Windows AppContainer yet (rightkit#887): a lowbox token \
+             ignores DENY ACEs, so the policy cannot be honoured; remove the deny_read entries and \
+             grant narrower roots instead"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Test support: the name of the AppContainer profile a spawn with `policy` registers for the
@@ -2454,12 +2412,37 @@ fn validated_grant(path: &Path) -> Result<PathBuf, SandboxError> {
     Ok(canonical)
 }
 
+/// `with_grant` failed: the original profile, its leases untouched, and why.
+pub struct WithGrantError {
+    /// The profile `with_grant` was called on.
+    pub profile: AppContainerProfile,
+    /// The refusal or failure.
+    pub error: SandboxError,
+}
+
+impl std::fmt::Debug for WithGrantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WithGrantError")
+            .field("profile", &self.profile.name())
+            .field("error", &self.error)
+            .finish()
+    }
+}
+
+impl std::fmt::Display for WithGrantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for WithGrantError {}
+
 /// A named, reusable AppContainer with its leases held: the confinement boundary for a series of
 /// commands, spawned with [`crate::Sandbox::spawn_in_profile`].
 ///
 /// The container is `rightkit.sandbox.<hash of its grants>` (so [`remove_unused_appcontainer_profiles`]
-/// and the ancestor sweeps know it), its SID derived from that name. Its allow grants, deny
-/// carve-outs, ancestor traverse leases and loopback exemption are reference-counted leases shared
+/// and the ancestor sweeps know it), its SID derived from that name. Its allow grants, ancestor
+/// traverse leases and loopback exemption are reference-counted leases shared
 /// with every child spawned from it: they are revoked when the profile and the last such child are
 /// gone, never earlier. Ancestors the user cannot re-ACL are skipped rather than failing the
 /// profile; the deepest one becomes a `GIT_CEILING_DIRECTORIES` entry in each child's environment
@@ -2469,9 +2452,11 @@ pub struct AppContainerProfile {
 }
 
 impl AppContainerProfile {
-    /// The container for one workspace: read/write on `workspace_root`, with an explicit deny on
-    /// every protected secret folder ([`crate::secret_paths_within`]) that lies inside it, so a
-    /// workspace that is the user profile never exposes `.ssh` and friends.
+    /// The container for one workspace: read/write on `workspace_root`, with a deny on every
+    /// protected secret folder ([`crate::secret_paths_within`]) that lies inside it. `deny_read` is
+    /// not supported on Windows yet (rightkit#887), so a workspace that contains such a folder (the
+    /// user profile, for one) is refused with `Unsupported` instead of exposing it. That is correct
+    /// fail-closed behaviour until the full design lands; check [`crate::deny_read_enforced`] first.
     pub fn for_workspace(workspace_root: &Path) -> Result<Self, SandboxError> {
         let canonical = std::fs::canonicalize(workspace_root)
             .map(|p| plain_path(&p))
@@ -2513,11 +2498,46 @@ impl AppContainerProfile {
 
     /// Add a grant by building a newly keyed profile. The container SID derives from the complete
     /// frozen grant and deny set, so the returned profile has its own identity (existing grants
-    /// plus `path`, with a deny on every protected secret inside it) and the original profile's
-    /// SID and ACLs are never mutated. Consuming `self` releases the old profile's leases.
-    /// Refuses a protected location, a filesystem root and a path that does not resolve; on any
-    /// failure every lease newly taken for the new profile is rolled back.
-    pub fn with_grant(self, path: &Path, writable: bool) -> Result<Self, SandboxError> {
+    /// plus `path`) and the original profile's SID and ACLs are never mutated. On success,
+    /// consuming `self` releases the old profile's leases. Everything that can be refused is
+    /// checked first, and on ANY failure the original profile comes back inside the error with its
+    /// leases untouched (every lease newly taken for the new profile is rolled back). Refuses a
+    /// protected location, a filesystem root, a path that does not resolve, and, as
+    /// `SandboxError::Unsupported`, a path with a protected secret inside it (`deny_read` is not
+    /// supported on Windows yet, rightkit#887).
+    pub fn with_grant(self, path: &Path, writable: bool) -> Result<Self, WithGrantError> {
+        match self.grant_inputs(path, writable) {
+            Ok((grants, denies)) => {
+                let built = prepare_container_from(
+                    grants,
+                    denies,
+                    self.prepared.loopback,
+                    self.prepared.network,
+                    self.prepared.named_capabilities.clone(),
+                    AncestorLeasePolicy::BestEffort,
+                );
+                match built {
+                    Ok(prepared) => Ok(Self { prepared }),
+                    Err(error) => Err(WithGrantError {
+                        profile: self,
+                        error,
+                    }),
+                }
+            }
+            Err(error) => Err(WithGrantError {
+                profile: self,
+                error,
+            }),
+        }
+    }
+
+    /// The grants and denies of the profile `with_grant(path, writable)` would build, with every
+    /// refusal that needs no new profile applied. Reads only; nothing is created or dropped.
+    fn grant_inputs(
+        &self,
+        path: &Path,
+        writable: bool,
+    ) -> Result<(Vec<(PathBuf, bool)>, Vec<PathBuf>), SandboxError> {
         let canonical = validated_grant(path)?;
         let mut grants = self
             .prepared
@@ -2538,15 +2558,8 @@ impl AppContainerProfile {
                 denies.push(secret);
             }
         }
-        let prepared = prepare_container_from(
-            grants,
-            denies,
-            self.prepared.loopback,
-            self.prepared.network,
-            self.prepared.named_capabilities.clone(),
-            AncestorLeasePolicy::BestEffort,
-        )?;
-        Ok(Self { prepared })
+        refuse_deny_read(!denies.is_empty())?;
+        Ok((grants, denies))
     }
 
     /// Always refused for a grant that would otherwise be valid: a profile's SID derives from its
@@ -3117,6 +3130,7 @@ fn prepare_container(
                 .into(),
         ));
     }
+    refuse_deny_read(!policy.deny_read.is_empty())?;
     let grants = canonical_grants(policy)?;
     let denies = deny_targets(policy)?;
     let loopback = wants_loopback(policy);
@@ -3131,8 +3145,8 @@ fn prepare_container(
 }
 
 /// Create or adopt the container keyed by the complete frozen `grants`, `denies` and `loopback`
-/// choice, then take its leases. Deny carve-outs are installed before any allow so a protected
-/// child is never reachable through a broad allow, and a failure at any step drops every lease
+/// choice, then take its leases. Any deny is refused first (issue #887: a lowbox token ignores
+/// DENY ACEs, so the denied object would be granted). A failure at any step drops every lease
 /// already taken (the profile's lease set is released with it).
 fn prepare_container_from(
     grants: Vec<(PathBuf, bool)>,
@@ -3142,6 +3156,7 @@ fn prepare_container_from(
     named_capabilities: Vec<String>,
     ancestor_policy: AncestorLeasePolicy,
 ) -> Result<PreparedContainer, SandboxError> {
+    refuse_deny_read(!denies.is_empty())?;
     let name = profile_name(&profile_key(&grants, &denies, loopback));
     let profile = {
         // Held while the profile is marked in use and created or adopted, so
@@ -3164,13 +3179,6 @@ fn prepare_container_from(
     };
     for (path, _) in &grants {
         profile.lease_ancestors(path, ancestor_policy)?;
-    }
-    // Before every allow: an explicit deny ACE on the protected object outranks an allow
-    // inherited from a granted root, and it is already in place when the broad allow lands.
-    for path in &denies {
-        profile
-            .lease_deny(path)
-            .map_err(|e| step_error(format!("deny {}", path.display()), e))?;
     }
     for (path, writable) in &grants {
         profile
@@ -3205,6 +3213,7 @@ fn spawn_inner(
     stdin_mode: StdinMode,
     ancestor_policy: AncestorLeasePolicy,
 ) -> Result<ConfinedLaunch, SandboxError> {
+    refuse_deny_read_policy(policy)?;
     let program = resolve_image(&command.program)?;
     let prepared = prepare_container(policy, ancestor_policy)?;
     launch_container(
@@ -4074,17 +4083,6 @@ mod tests {
     }
 
     #[test]
-    fn allow_and_deny_leases_never_share_a_registry_key() {
-        let path = Path::new(r"D:\work\secrets");
-        let allow = lease_key(LeaseKind::Allow, "S-1-15-2-1-2-3", path);
-        let deny = lease_key(LeaseKind::Deny, "S-1-15-2-1-2-3", path);
-        assert_ne!(allow, deny);
-        // The ancestor sweep reads allow keys as `<sid>|<path>`.
-        assert!(allow.starts_with("S-1-15-2-1-2-3|"), "{allow}");
-        assert!(deny.starts_with("deny|"), "{deny}");
-    }
-
-    #[test]
     fn deny_targets_plans_existing_paths_skips_missing_ones_and_refuses_the_hostile() {
         let root = scratch_dir("deny-targets");
         let secrets = root.join("secrets");
@@ -4132,24 +4130,127 @@ mod tests {
     }
 
     #[test]
-    fn a_deny_ace_is_added_and_revoked_on_a_scratch_folder() {
-        let root = scratch_dir("deny-ace");
-        // A SID that belongs to no container: the ACE is written on a folder this test owns and
-        // removed again, and nothing outside that folder is touched.
-        let sid = LocalSid::parse("S-1-15-2-1-2-3-4-5-6-7").unwrap();
-        let lease = GrantLease::deny(sid.0, "S-1-15-2-1-2-3-4-5-6-7", &root).unwrap();
-        assert!(lease_registry().lock().unwrap().contains_key(&lease_key(
-            LeaseKind::Deny,
-            "S-1-15-2-1-2-3-4-5-6-7",
-            &root
-        )));
-        drop(lease);
-        assert!(!lease_registry().lock().unwrap().contains_key(&lease_key(
-            LeaseKind::Deny,
-            "S-1-15-2-1-2-3-4-5-6-7",
-            &root
-        )));
+    fn any_deny_read_entry_is_refused_before_a_profile_exists() {
+        let root = scratch_dir("deny-any");
+        let inside = root.join("secrets");
+        std::fs::create_dir_all(&inside).unwrap();
+        let outside = scratch_dir("deny-any-outside");
+        let policies = [
+            SandboxPolicy::new().allow_write(&root).deny_read(&inside),
+            SandboxPolicy::new()
+                .allow_write(&root)
+                .deny_read(root.join("not-yet")),
+            SandboxPolicy::new().allow_write(&root).deny_read(&outside),
+            SandboxPolicy::new()
+                .allow_write(&root)
+                .deny_read_glob(format!("{}\\*.nothing", outside.display())),
+            SandboxPolicy::new()
+                .allow_write(&root)
+                .deny_read(r"C:\w\file.txt:stream"),
+        ];
+        for policy in &policies {
+            let name = appcontainer_profile_name_for_test(policy).ok();
+            for ancestors in [AncestorLeasePolicy::Strict, AncestorLeasePolicy::BestEffort] {
+                assert!(matches!(
+                    prepare_container(policy, ancestors),
+                    Err(SandboxError::Unsupported(_))
+                ));
+            }
+            assert!(matches!(
+                AppContainerProfile::for_policy(policy),
+                Err(SandboxError::Unsupported(_))
+            ));
+            if let Some(name) = name {
+                assert!(!registered(&name), "no profile may exist for {name}");
+            }
+        }
+        // The lower-level entry used by `with_grant` refuses too.
+        let grants = vec![(root.clone(), true)];
+        assert!(matches!(
+            prepare_container_from(
+                grants.clone(),
+                vec![inside.clone()],
+                false,
+                false,
+                Vec::new(),
+                AncestorLeasePolicy::Strict
+            ),
+            Err(SandboxError::Unsupported(_))
+        ));
+        assert!(!registered(&profile_name(&profile_key(
+            &grants,
+            &[inside],
+            false
+        ))));
         let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn a_refused_with_grant_keeps_the_profile_and_its_leases() {
+        if !real_store_body("a_refused_with_grant_keeps_the_profile_and_its_leases") {
+            return;
+        }
+        let root = scratch_dir("wg-keep");
+        let other = scratch_dir("wg-keep-other");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let _cleanup = Profiles(vec![appcontainer_profile_name_for_test(&policy).unwrap()]);
+        let mut profile = AppContainerProfile::for_policy(&policy).unwrap();
+        let sid = LocalSid::parse(profile.sid_string()).unwrap();
+        let key = lease_key(profile.sid_string(), &root);
+        assert!(lease_registry().lock().unwrap().contains_key(&key));
+        assert!(!explicit_allow_entries(&root, sid.0).unwrap().is_empty());
+        // A protected secret inside the new grant makes the profile carry a deny: refused.
+        profile.prepared.denies.push(other.join("secret"));
+        let name = profile.name().to_string();
+        let error = match profile.with_grant(&other, false) {
+            Err(error) => error,
+            Ok(_) => panic!("a grant that brings a deny must be refused"),
+        };
+        assert!(matches!(error.error, SandboxError::Unsupported(_)));
+        let kept = error.profile;
+        assert_eq!(kept.name(), name);
+        assert!(
+            lease_registry().lock().unwrap().contains_key(&key),
+            "the refusal must not drop the existing leases"
+        );
+        assert!(
+            !explicit_allow_entries(&root, sid.0).unwrap().is_empty(),
+            "the existing ACE must be unchanged"
+        );
+        assert!(explicit_allow_entries(&other, sid.0).unwrap().is_empty());
+        drop(kept);
+        assert!(!lease_registry().lock().unwrap().contains_key(&key));
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
+    fn a_deny_is_refused_before_the_executable_is_resolved() {
+        let root = scratch_dir("deny-before-image");
+        let policy = SandboxPolicy::new().allow_write(&root).deny_read(&root);
+        let command = SandboxCommand::new(r"C:\rk-no-such-dir\no-such-tool.exe");
+        assert!(matches!(
+            spawn_inner(
+                &policy,
+                &command,
+                None,
+                None,
+                StdinMode::Null,
+                AncestorLeasePolicy::Strict
+            ),
+            Err(SandboxError::Unsupported(_))
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_policy_without_deny_read_is_not_refused_by_the_deny_rule() {
+        assert!(refuse_deny_read(false).is_ok());
+        assert!(matches!(
+            refuse_deny_read(true),
+            Err(SandboxError::Unsupported(_))
+        ));
     }
 
     // ---- Ancestor policy of the pipe-pair launch: what BestEffort relaxes and what stays fatal ----
@@ -4617,7 +4718,7 @@ mod tests {
         let _cleanup = profile_of(&grants, &[]);
         let prepared = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort)
             .unwrap_or_else(|e| panic!("best effort preparation failed: {e}"));
-        let key = lease_key(LeaseKind::Allow, &prepared.profile.sid_text, &dir);
+        let key = lease_key(&prepared.profile.sid_text, &dir);
         assert!(lease_registry().lock().unwrap().contains_key(&key));
         drop(prepared);
         assert!(!lease_registry().lock().unwrap().contains_key(&key));
@@ -4642,30 +4743,6 @@ mod tests {
                 }
                 other => panic!("a grant that cannot be leased must fail the launch: {other:?}"),
             }
-        });
-    }
-
-    #[test]
-    fn best_effort_still_fails_when_a_deny_carve_out_cannot_be_leased() {
-        if !real_store_body("best_effort_still_fails_when_a_deny_carve_out_cannot_be_leased") {
-            return;
-        }
-        let locked = Unleasable::new("be-deny");
-        as_standard_user(|| {
-            locked.assert_precondition();
-            let ok = scratch_dir("be-deny-ok");
-            let grants = vec![(ok.clone(), true)];
-            let denies = vec![locked.0.clone()];
-            let _cleanup = profile_of(&grants, &denies);
-            let failed = prepare(grants, denies, AncestorLeasePolicy::BestEffort);
-            match failed.err() {
-                Some(SandboxError::Io(e)) => {
-                    assert!(e.to_string().contains("deny "), "{e}");
-                    assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
-                }
-                other => panic!("a deny that cannot be leased must fail the launch: {other:?}"),
-            }
-            let _ = std::fs::remove_dir_all(&ok);
         });
     }
 

@@ -93,11 +93,20 @@ pub fn landlock_abi_version() -> Option<u32> {
     }
 }
 
-/// Whether [`SandboxPolicy::deny_read()`] is enforced on this platform: `true` on macOS (Seatbelt)
-/// and Windows (explicit deny ACE), `false` on Linux, where Landlock cannot carve a hole out of a
-/// granted root. When it is `false`, grant narrower roots instead of relying on the deny.
+/// Whether [`SandboxPolicy::deny_read()`] carves a denied path out of a granted root on this
+/// platform: `true` on macOS (Seatbelt) only. When it is `false`, do not rely on the deny: grant
+/// narrower roots, and check this before building a policy with `deny_read` entries.
+///
+/// * Linux: Landlock cannot carve a hole out of a granted root; the entry is omitted.
+/// * Windows (AppContainer): not supported yet (issue #887: a lowbox token ignores DENY ACEs).
+///   A policy with any `deny_read` entry, including a glob, a missing path or a path outside
+///   every grant, is refused with `SandboxError::Unsupported` before any profile, lease or ACE
+///   exists, so a denied path is never silently granted. That includes
+///   `AppContainerProfile::for_workspace` whenever its policy has denies: correct fail-closed
+///   behaviour until the full design lands. Older versions may have left DENY ACEs behind (see
+///   the README).
 pub const fn deny_read_enforced() -> bool {
-    cfg!(any(windows, target_os = "macos"))
+    cfg!(target_os = "macos")
 }
 
 #[cfg(test)]
@@ -142,10 +151,9 @@ mod tests {
 
     #[test]
     fn deny_read_enforcement_is_reported_honestly() {
-        assert_eq!(
-            deny_read_enforced(),
-            cfg!(any(windows, target_os = "macos"))
-        );
+        assert_eq!(deny_read_enforced(), cfg!(target_os = "macos"));
+        #[cfg(windows)]
+        assert!(!deny_read_enforced());
         #[cfg(target_os = "linux")]
         assert!(!deny_read_enforced());
     }

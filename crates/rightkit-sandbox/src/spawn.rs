@@ -233,6 +233,9 @@ impl Sandbox {
         command: SandboxCommand,
         piped_stdin: bool,
     ) -> Result<SandboxedChild, SandboxError> {
+        // Windows refuses any deny_read first: before validation, a reservation or the image.
+        #[cfg(windows)]
+        crate::windows_appcontainer::refuse_deny_read_policy(policy)?;
         policy.validate()?;
         validate_command(&command)?;
         let reservation = self.authority.reserve(ResourceKind::ChildProcess)?;
@@ -324,6 +327,7 @@ impl Sandbox {
         handle_flag: &str,
         stdio_file: Option<&std::path::Path>,
     ) -> Result<WindowsPipeSpawn, SandboxError> {
+        crate::windows_appcontainer::refuse_deny_read_policy(policy)?;
         policy.validate()?;
         validate_command(&command)?;
         validate_handle_flag(&command, handle_flag)?;

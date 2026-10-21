@@ -18,7 +18,8 @@
 //!
 //! Windows APIs:
 //! * `AppContainerProfile::for_workspace(root)` is a reusable container with reference-counted
-//!   allow/deny leases and an optional loopback exemption, spawned into with
+//!   allow leases and an optional loopback exemption (any `deny_read` entry is refused, see
+//!   [`deny_read_enforced`]), spawned into with
 //!   `Sandbox::spawn_in_profile`; `resolve_program` finds the image a launch will use.
 //! * `AppContainerAncestorLease::acquire(path, appcontainer_sid)` leases physical ancestor traverse access until drop.
 //! * `AppContainerAncestorLease::acquire_with(path, sid, AncestorLeasePolicy::BestEffort)`
@@ -83,5 +84,5 @@ pub use windows_appcontainer::{
     remove_unused_appcontainer_profiles, resolve_program_str as resolve_program,
     sweep_stale_appcontainer_ancestor_aces, sweep_stale_appcontainer_ancestor_aces_for_owner,
     AncestorLeasePolicy, AppContainerAncestorLease, AppContainerProfile, ProfileKept,
-    ProfileSweepReport, UnleasableAncestor,
+    ProfileSweepReport, UnleasableAncestor, WithGrantError,
 };
