@@ -833,6 +833,43 @@
           "receiptSha256": "a85a12c0a1ef450fd845b112b1ec82df7055b7bc9a2a2e54501f8053b3414d72"
         }
       }
+    },
+    {
+      "id": "cargo-license-oauth-6135",
+      "sourceSha": "61352465de2c89bb3e9239880abcbf2942023c51",
+      "runId": "39671486654",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "fdcc1e38fe43f1283d00cf9c8c1eaee2c967e7b1a590e7edb3eaac26f8bd952c",
+      "registry": "crates",
+      "units": [
+        "rightkit-license",
+        "rightkit-oauth"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-license"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12380122211",
+          "digest": "sha256:dc4af786c6fabb9884bacce9393b716230912d0285a3131d84de1b11fbcfc570"
+        },
+        "macos": {
+          "id": "12380738599",
+          "digest": "sha256:7b718d6e3866f43f5132c58dfe1d5fe257772d5ab40e3eb15b97e7ad9b011307",
+          "receiptSha256": "92f2a1222832d803db0aebc771b498f4a02b62c7452df1ff7234191ed905eb08"
+        },
+        "windows": {
+          "id": "12380364616",
+          "digest": "sha256:81834d8e33003dc0f726a4d6d1fd7a5af5ade3f193c33d4b30da68ce7a7554ec",
+          "receiptSha256": "6da59319d46d5cad0ff00750dd35ec6890a56c690368cdb181b8ae6eb89f0a6a"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -1035,6 +1072,22 @@
       "sha256": "eff9ae836419d4a38ea1454d1374ed49846e647b6cc1f1780d297c185fe8da58",
       "reviewer": "Astra (gpt-6-astra high, adversarial review)",
       "reviewRef": "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6321286407"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-license",
+      "version": "0.2.4",
+      "sha256": "290cd2b85efffa9e7651b57cdfc070c5ee0d12baa27009235cdf4b5acca44386",
+      "reviewer": "Astra (gpt-6-astra high, adversarial review)",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-oauth",
+      "version": "0.10.0",
+      "sha256": "724aa2b0f39d30efe8d0779059e62d8763e160e836b067cae324795a7a0ea426",
+      "reviewer": "Astra (gpt-6-astra high, adversarial review)",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593"
     }
   ]
 }

@@ -755,8 +755,10 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "crates rightkit-db@0.5.1 5faf1c33643ce547f0ed1b73a2bf975390095cbd99476f737a2e35417afca4fc",
     "crates rightkit-fs@0.4.6 8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
     "crates rightkit-http@0.3.8 7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
+    "crates rightkit-license@0.2.4 290cd2b85efffa9e7651b57cdfc070c5ee0d12baa27009235cdf4b5acca44386",
     "crates rightkit-logs@0.3.4 c37d3ed6ae2d2c3199767cd07c152706a3bc8242647f3f30c3290257535f2855",
     "crates rightkit-logs@0.3.5 3d00b6f923404ec52f3c42b6c1fc17da351d92a8c479208540716ef00ee4af19",
+    "crates rightkit-oauth@0.10.0 724aa2b0f39d30efe8d0779059e62d8763e160e836b067cae324795a7a0ea426",
     "crates rightkit-overlay@0.2.0 d80bdc9880c338f6ddf08a3c7168865ae1499977f238f5f06f51c8ffa506b990",
     "crates rightkit-pdf@0.3.3 b099552e03cffb91f19c0148e70c8bd27a3a9ae17f0d3b413170e2188f2ea1b8",
     "crates rightkit-playback@0.3.0 3630a32d8ba9396c9d523713572afce43312e33b504173080fbac37a463bf547",
@@ -802,6 +804,8 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "rightkit-fs@0.4.6": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39482266477/fs-0.4.6" },
     "rightkit-http@0.3.8": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39485850149/http-0.3.8" },
     "rightkit-child-process@0.5.4": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39486639316/child-process-0.5.4" },
+    "rightkit-license@0.2.4": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593" },
+    "rightkit-oauth@0.10.0": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593" },
   };
   assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
