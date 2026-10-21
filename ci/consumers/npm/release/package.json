@@ -1,0 +1,11 @@
+{
+  "name": "rightkit-release-external-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "dependencies": {
+    "smol-toml": "1.9.1"
+  },
+  "scripts": { "consumer": "node consumer.mjs" }
+}

@@ -65,9 +65,15 @@ export const hasReviewedNpmEntry = (inventory, name) => inventory?.schema === 1 
 /** Missing, malformed or foreign entries are refused; nothing falls back to a default recipe. */
 export function validateRecipeEntry(entry, name) {
   const dir = recipeDirectory(name);
-  need(entry && typeof entry === 'object' && same(Object.keys(entry).sort(), entry.importClosures === undefined ? ENTRY_KEYS : [...ENTRY_KEYS, 'importClosures'].sort()), `missing reviewed PK example for ${name}: reviewed npm.${name} entry malformed`);
+  const optionalKeys = entry && typeof entry === 'object' ? [...(entry.importClosures === undefined ? [] : ['importClosures']), ...(entry.bin === undefined ? [] : ['bin'])] : [];
+  need(entry && typeof entry === 'object' && same(Object.keys(entry).sort(), [...ENTRY_KEYS, ...optionalKeys].sort()), `missing reviewed PK example for ${name}: reviewed npm.${name} entry malformed`);
   need(/^PK\d{2}$/.test(entry.pkId) && entry.id === `${dir}/consumer.mjs` && /^[a-z0-9][a-z0-9-]*$/.test(entry.recipeId ?? '') && Number.isSafeInteger(entry.scenarios) && entry.scenarios > 0, `reviewed npm.${name} identity differs from named recipe layout`);
-  need(Array.isArray(entry.surface) && entry.surface.length > 0 && entry.surface.every(s => typeof s === 'string' && (s === '.' || s.startsWith('./'))) && same(entry.surface, sorted(new Set(entry.surface))), `reviewed npm.${name} surface must be a sorted unique export list`);
+  if (entry.bin !== undefined) {
+    need(entry.bin && typeof entry.bin === 'object' && !Array.isArray(entry.bin) && Object.keys(entry.bin).length > 0 && same(Object.keys(entry.bin), sorted(Object.keys(entry.bin))) && Object.entries(entry.bin).every(([bin, target]) => /^[a-z0-9][a-z0-9-]*$/.test(bin) && typeof target === 'string' && !target.startsWith('/') && !target.split('/').includes('..')), `reviewed npm.${name} bin must be a sorted reviewed bin mapping`);
+    need(Array.isArray(entry.surface) && entry.surface.length === 0, `reviewed npm.${name} bin-only surface must be empty`);
+  } else {
+    need(Array.isArray(entry.surface) && entry.surface.length > 0 && entry.surface.every(s => typeof s === 'string' && (s === '.' || s.startsWith('./'))) && same(entry.surface, sorted(new Set(entry.surface))), `reviewed npm.${name} surface must be a sorted unique export list`);
+  }
   const { closure } = entry;
   need(closure && same(Object.keys(closure).sort(), ['declaredOnly', 'install']) && closure.install && typeof closure.install === 'object' && Array.isArray(closure.declaredOnly), `reviewed npm.${name} closure malformed`);
   for (const [dep, version] of Object.entries(closure.install)) need(dep !== name && typeof dep === 'string' && !/[:\\]/.test(dep) && typeof version === 'string' && EXACT.test(version), `closure install pin must be exact registry version: ${dep}`);
@@ -98,7 +104,11 @@ export function validateImportClosures(entry, name, runtimeSubpaths = entry.surf
 /** Packed unit may only depend on the declared closure; export surface is exactly the reviewed list. */
 export function validatePackedClosure(packed, entry, name, version) {
   need(packed?.name === name && packed.version === version, 'packed package identity differs');
-  need(packed.exports && typeof packed.exports === 'object' && same(Object.keys(packed.exports).sort(), entry.surface), `packed export surface differs from reviewed npm.${name} surface`);
+  if (entry.bin !== undefined) {
+    need(packed.exports === undefined && same(packed.bin ?? {}, entry.bin), `packed bin surface differs from reviewed npm.${name} bin`);
+  } else {
+    need(packed.exports && typeof packed.exports === 'object' && same(Object.keys(packed.exports).sort(), entry.surface), `packed export surface differs from reviewed npm.${name} surface`);
+  }
   const allowed = new Set([...Object.keys(entry.closure.install), ...entry.closure.declaredOnly]);
   const seen = [];
   for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']) for (const dep of Object.keys(packed[field] ?? {})) {
