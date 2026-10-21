@@ -470,6 +470,20 @@ impl Store {
     pub fn with_namespace(&self, ns: Namespace) -> Store {
         Store { ns, ..self.clone() }
     }
+    /// Same store, forced non-interactive: nothing it reads can raise an OS prompt. A store that
+    /// is already non-interactive keeps its own timeout.
+    pub fn non_interactive(&self) -> Store {
+        let timeout = if self.mode == Interaction::NonInteractive {
+            self.timeout
+        } else {
+            Duration::from_secs(5)
+        };
+        Store {
+            mode: Interaction::NonInteractive,
+            timeout,
+            ..self.clone()
+        }
+    }
     /// Same store, interactive. Use only for an explicit user action such as "Save key".
     pub fn interactive(&self) -> Store {
         let timeout = if self.mode == Interaction::Interactive {

@@ -209,7 +209,7 @@ function credentialsHarness(t, platform, { env = helperEnv, mutateReceipt = rece
     if (command.endsWith(STAGED_LAUNCH)) return { status: 0, stdout: helperOutput };
     return undefined;
   };
-  return runsHarness(t, null, platform, { name: "rightkit-credentials", version: "0.4.1", features: ["db-adapter"], env, hook });
+  return runsHarness(t, null, platform, { name: "rightkit-credentials", version: "0.4.2", features: ["db-adapter"], env, hook });
 }
 test("credentials macOS stages the default consumer + signed helper before SQLCipher, then launches the staged bundle instead of Cargo", t => {
   const h = credentialsHarness(t, "darwin"); const report = h.invoke(); assert.equal(report.verified, true);
@@ -241,7 +241,7 @@ test("credentials macOS refuses before any Cargo work without the supplied signe
 });
 test("credentials macOS refuses when the recipe row is not the exact reviewed native-helper argv, instead of falling back to Cargo", t => {
   for (const runs of [[{ id: "core", args: ["core"] }], [{ id: "native-helper", args: ["native-helper"], hosts: ["win32"] }, { id: "core", args: ["core"] }], [{ id: "native-helper", args: ["native-helper"], features: ["sqlcipher"], hosts: ["darwin"], env: { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" } }]]) {
-    const h = runsHarness(t, runs, "darwin", { name: "rightkit-credentials", version: "0.4.1", features: ["db-adapter"], env: helperEnv });
+    const h = runsHarness(t, runs, "darwin", { name: "rightkit-credentials", version: "0.4.2", features: ["db-adapter"], env: helperEnv });
     assert.throws(() => h.invoke(), /requires the reviewed native-helper run/); assert.deepEqual(h.calls, []);
   }
 });

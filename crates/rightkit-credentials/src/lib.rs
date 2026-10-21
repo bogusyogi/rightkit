@@ -29,6 +29,7 @@ pub mod android;
 pub mod apple_helper;
 #[cfg(feature = "db-adapter")]
 pub mod db_adapter;
+pub mod handoff;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]

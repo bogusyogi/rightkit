@@ -414,7 +414,7 @@ test("reviewed recipe binds candidate runs to trusted inventory runs", t => {
   fs.mkdirSync(path.join(root, "ci"), { recursive: true });
   const config = JSON.parse(fs.readFileSync(path.join(repo, "ci/consumer-recipes.json"), "utf8"));
   const source = () => ({ root, source: { sha: "a".repeat(40) } });
-  const unit = { name: "rightkit-credentials", version: "0.4.1" };
+  const unit = { name: "rightkit-credentials", version: "0.4.2" };
   fs.writeFileSync(path.join(root, "ci/consumer-recipes.json"), JSON.stringify(config));
   assert.equal(reviewedRecipe(source(), unit).runs.length, config.cargo["rightkit-credentials"].runs.length);
   const narrowed = structuredClone(config);
