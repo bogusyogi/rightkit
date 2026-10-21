@@ -25,6 +25,40 @@ The public-repository guard rejects private forks.
 | `scripts/ci/publish.mjs` | Qualification planning, packing, verification & receipt-ledger import |
 | `scripts/ci/reviewed-candidate.mjs`, `scripts/ci/upload.mjs` | Authenticate candidate provenance, enforce approvals & upload sealed bytes |
 
+## Deterministic scans come first
+
+What is implemented today:
+
+- `packages/release/deterministic-scans.mjs` is the one scan module. Class A scans compile nothing
+  and run no repository code; class B scans (clippy, check, doc, tsc, tests, the repository's docs
+  generator) start only after class A passes. Content scans run on the exported HEAD. A required
+  tool that is missing fails the scan.
+- `scripts/local-gate.mjs` (the pre-push hook) runs the module. RightKit has no local compile grant,
+  so the class B scans that compile or run tests are reported as deferred by name and are not
+  counted as passed; class A cargo scans run plain `cargo`.
+- `scripts/ci/gate.mjs` carries the class A scan step through the same runner (planner option
+  `cargoCommand: ["cargo"]`, plain tool in CI) in the hygiene job (step `lock`), before any compile
+  or test step; a failed scan stops them. It ships DORMANT: it runs only when
+  `ci/gate.config.json` has `deterministicScans.enabled === true` (absent or false is off). When off the gate
+  prints `deterministic scans: disabled (not run)`, which is never scan success or qualification evidence.
+  Class B stays in the shard jobs.
+- `deferredBeforeEnable` (these gate ENABLING the step, not shipping the dormant code): deferred `doc:*`
+  scans have no CI path yet; changed-path and base coverage for workflow-only and package-only changes in
+  `ci.yml` (the hygiene job passes no `--base`); pinned provisioning of `cargo-deny`, `cargo-audit` and
+  `actionlint` via right-git; class B wiring through the shared runner.
+- Class A evidence for class B binds to the input content (`inputDigest` of the changed files), the class A
+  scan set and a run that included class A; excluding every class A scan, or a plan with none, needs explicit
+  prior evidence. Changed paths are checked lexically and by real path (symlinks). Class A pnpm scans run with
+  `--ignore-pnpmfile` and `--ignore-scripts` (flags on `install`, the same settings through the environment for `audit`).
+- A scan refuses, and never runs, a changed path that is absolute or escapes the content root, and a
+  crate or package directory name that is not a plain name. Class B refuses to run without class A
+  passing in the same call or valid prior class A evidence for the same scan set. Parsers load from
+  the runner's own package; the docs generator runs only from a trusted checkout, with the exported
+  commit passed as data.
+- `packages/release/pipeline-receipts.mjs` verifies stage receipts (ADMISSION to PUBLISHED); the
+  broker signs them. Nothing in CI or the gate issues or checks them yet.
+- `local-publish.mjs` does not use the module yet; it follows once its pin is updated.
+
 ## What runs
 
 A push to `main` is compared with the last commit the same runner passed on. With no such commit,

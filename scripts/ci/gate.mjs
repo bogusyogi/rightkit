@@ -35,6 +35,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkArgs, clippyArgs, deterministicScansEnabled, planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
@@ -431,10 +432,11 @@ async function rustGate(selection, config, consumers = new Map()) {
       if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
     }
     // Keep every tested feature set linted, matching local publication & the frozen shard command plan.
-    for (const features of featureSets) await run(`rust:${name}`, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"], { timeoutMinutes });
+    // The clippy and check command lines come from the one scan module (packages/release/deterministic-scans.mjs).
+    for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features }), { timeoutMinutes });
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
-    for (const features of checkSets) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes });
+    for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { timeoutMinutes });
     // Consumer compile checks belong to either the test shard or the closure shard of their owner.
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes, env });
@@ -442,13 +444,55 @@ async function rustGate(selection, config, consumers = new Map()) {
   }
   for (const name of STEPS.has("closure") ? rust.check : []) {
     if (!applies(name)) continue;
-    await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets"], { timeoutMinutes: 30 });
+    await run(`rust:${name}`, "cargo", checkArgs(name), { timeoutMinutes: 30 });
     // R1: a dependent must also compile with the feature rows its own gate config names (all features unless it says otherwise).
-    for (const features of (config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) await run(`rust:${name}`, "cargo", ["check", "-p", name, "--all-targets", ...features], { timeoutMinutes: 30 });
+    for (const features of (config.rust?.[name]?.checkFeatureSets ?? [["--all-features"]]).filter((features) => features.length)) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { timeoutMinutes: 30 });
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes: config.rust?.[name]?.timeoutMinutes ?? 30, env: assetEnv(selection, name) });
     }
   }
+}
+
+/**
+ * The paths the class A scans cover. A diff run reads the diff; a sharded or unit run names its units, so every selected
+ * crate and package contributes its manifest (and the lock and deny config when Rust is selected), which selects the
+ * crate-level scans (metadata, deny, audit, package list, changelog, licence, secret scan, lockfile).
+ */
+function scanPaths(selection) {
+  if (!UNIT_MODE && !SELECT_MODE) {
+    return selection.all
+      ? git("ls-files").stdout.split("\n").filter(Boolean)
+      : git("diff", "--name-only", "--diff-filter=ACMR", selection.base, "HEAD").stdout.split("\n").filter(Boolean);
+  }
+  const paths = new Set();
+  if (selection.base) for (const f of git("diff", "--name-only", "--diff-filter=ACMR", selection.base, "HEAD").stdout.split("\n").filter(Boolean)) paths.add(f);
+  const crateDirs = new Map(rustMembers(selection.config).map((m) => [m.name, m.dir]));
+  const rustNames = [...new Set([...selection.rust.test, ...selection.rust.check])];
+  for (const name of rustNames) { const dir = crateDirs.get(name); if (dir) { paths.add(`${dir}/Cargo.toml`); paths.add(`${dir}/CHANGELOG.md`); } }
+  if (rustNames.length) { paths.add("Cargo.lock"); paths.add("deny.toml"); }
+  for (const dir of selection.npm.test) paths.add(`${dir}/package.json`);
+  return [...paths];
+}
+
+/**
+ * Class A deterministic scans (metadata, deny, audit, package list, changelog, licence, secret scan, parse checks), run
+ * through the shared runner BEFORE any class B work. CI may run the Rust tool directly, so the planner's prefix is plain
+ * `cargo`. Class B (clippy, check, tests, tsc) stays with the compile and test steps below, which run only when this
+ * step passed: a failed scan stops them.
+ */
+async function scansGate(selection) {
+  const started = Date.now();
+  const plan = planScans({ changed: scanPaths(selection), contentRoot: ROOT, liveRoot: ROOT, includeTests: false, cargoCommand: ["cargo"], readBytes: (f) => fs.readFileSync(f) });
+  console.log(`::group::scans: class A (${plan.scans.filter((x) => x.class === "A").length} scans)`);
+  const result = await runScans(plan, { classes: ["A"] });
+  for (const line of scanDeferrals(result)) console.log(line);
+  const failures = scanFailures(result);
+  for (const line of failures) console.log(`FAIL ${line}`);
+  console.log("::endgroup::");
+  const seconds = Math.round((Date.now() - started) / 1000);
+  for (const row of result.scans) results.push({ unit: "scans", command: `scan ${row.id}`, ok: row.status === "pass", code: row.status === "pass" ? 0 : 1, seconds: 0 });
+  if (!result.scans.length) results.push({ unit: "scans", command: "scan (none selected)", ok: true, code: 0, seconds });
+  return failures.length === 0 && result.ok;
 }
 
 async function npmGate(selection) {
@@ -620,7 +664,17 @@ if (process.env.GITHUB_ACTIONS !== "true") {
   process.exit(2);
 }
 console.log(`Selection: ${JSON.stringify({ base: selection.base, all: selection.all, rust: selection.rust, npm: selection.npm.test, root: selection.root, swift: selection.swift })}`);
-if (STEPS.has("test")) await chromeGate(selection);
-await rustGate(selection, selection.config, consumers);
-if (STEPS.has("test")) { await npmGate(selection); await swiftGate(selection); }
+// Class A scans run once per CI run, in the hygiene job (step lock), before any compile or test work (class B).
+// DORMANT by default: only ci/gate.config.json deterministicScans.enabled === true runs them. Disabled is never counted as success.
+let scansPassed = true;
+if (STEPS.has("lock")) {
+  if (deterministicScansEnabled(selection.config)) scansPassed = await scansGate(selection);
+  else console.log("deterministic scans: disabled (not run)");
+}
+if (!scansPassed) console.log("class A scans failed: class B (compile, lint and test steps) is not run");
+else {
+  if (STEPS.has("test")) await chromeGate(selection);
+  await rustGate(selection, selection.config, consumers);
+  if (STEPS.has("test")) { await npmGate(selection); await swiftGate(selection); }
+}
 process.exit(report(selection) ? 0 : 1);
