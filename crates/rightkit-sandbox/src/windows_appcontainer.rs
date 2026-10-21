@@ -4198,9 +4198,192 @@ mod tests {
         true
     }
 
+    const OWNER_SECURITY_INFORMATION: u32 = 0x0000_0001;
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct Luid {
+        low_part: u32,
+        high_part: i32,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct LuidAndAttributes {
+        luid: Luid,
+        attributes: u32,
+    }
+
+    #[repr(C)]
+    struct TokenPrivileges {
+        privilege_count: u32,
+        privileges: [LuidAndAttributes; 1],
+    }
+
+    /// Enables one process-token privilege for `body`, then restores prior state.
+    /// Panics naming elevation when privilege is absent from token.
+    fn with_privilege_enabled<T>(name: &str, body: impl FnOnce() -> T) -> T {
+        const TOKEN_ADJUST_PRIVILEGES: u32 = 0x0020;
+        const TOKEN_QUERY: u32 = 0x0008;
+        const SE_PRIVILEGE_ENABLED: u32 = 0x0002;
+        let mut token = std::ptr::null_mut();
+        // SAFETY: valid out-pointer; pseudo-handle needs no closing, token closed below.
+        let opened = unsafe {
+            OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+                &mut token,
+            )
+        };
+        assert!(
+            opened != 0,
+            "precondition: open process token to enable {name}: {}",
+            io::Error::last_os_error()
+        );
+        let result = (|| {
+            let wide_name = wide(name);
+            let mut luid = Luid::default();
+            // SAFETY: NUL-terminated name, null system name means local, valid out-pointer.
+            let looked = unsafe {
+                LookupPrivilegeValueW(std::ptr::null(), wide_name.as_ptr(), &mut luid)
+            };
+            assert!(
+                looked != 0,
+                "precondition: look up {name}: {}",
+                io::Error::last_os_error()
+            );
+            let mut previous = TokenPrivileges {
+                privilege_count: 1,
+                privileges: [LuidAndAttributes {
+                    luid,
+                    attributes: 0,
+                }],
+            };
+            let enabled = TokenPrivileges {
+                privilege_count: 1,
+                privileges: [LuidAndAttributes {
+                    luid,
+                    attributes: SE_PRIVILEGE_ENABLED,
+                }],
+            };
+            let mut returned = 0u32;
+            // SAFETY: token opened above; states sized for one privilege; prior state
+            // captured for restore below.
+            let adjusted = unsafe {
+                AdjustTokenPrivileges(
+                    token,
+                    0,
+                    &enabled,
+                    std::mem::size_of::<TokenPrivileges>() as u32,
+                    &mut previous,
+                    &mut returned,
+                )
+            };
+            let adjust_error = io::Error::last_os_error();
+            assert!(
+                adjusted != 0 && adjust_error.raw_os_error() == Some(0),
+                "precondition: enable {name} (host must run elevated with that privilege \
+                 present): {adjust_error}"
+            );
+            let value = body();
+            // SAFETY: `previous` was populated by call above; best-effort restore.
+            unsafe {
+                AdjustTokenPrivileges(
+                    token,
+                    0,
+                    &previous,
+                    std::mem::size_of::<TokenPrivileges>() as u32,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            };
+            value
+        })();
+        // SAFETY: token opened above, closed exactly once.
+        unsafe { CloseHandle(token) };
+        result
+    }
+
+    /// Sets `path` owner to SYSTEM (S-1-5-18) & verifies it. Call only outside
+    /// impersonation, while elevated: SeRestorePrivilege permits arbitrary owner.
+    fn set_owner_to_system(path: &Path) {
+        let system = LocalSid::parse("S-1-5-18")
+            .unwrap_or_else(|e| panic!("precondition: parse SYSTEM SID: {e}"));
+        // Result asserted after privileges restore, so no panic runs with them enabled.
+        let set = with_privilege_enabled("SeRestorePrivilege", || {
+            with_privilege_enabled("SeTakeOwnershipPrivilege", || {
+                let mut wide_path = wide(path);
+                // SAFETY: NUL-terminated path; `system` SID lives for call; only owner
+                // component is replaced.
+                unsafe {
+                    SetNamedSecurityInfoW(
+                        wide_path.as_mut_ptr(),
+                        SE_FILE_OBJECT,
+                        OWNER_SECURITY_INFORMATION,
+                        system.0,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                }
+            })
+        });
+        assert!(
+            set == 0,
+            "precondition: set owner of {} to SYSTEM (S-1-5-18): {}",
+            path.display(),
+            io::Error::from_raw_os_error(set as i32)
+        );
+        let mut wide_path = wide(path);
+        let mut owner = std::ptr::null_mut();
+        let mut descriptor = std::ptr::null_mut();
+        // SAFETY: NUL-terminated path, valid out-pointers, descriptor freed once.
+        let got = unsafe {
+            GetNamedSecurityInfoW(
+                wide_path.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                OWNER_SECURITY_INFORMATION,
+                &mut owner,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut descriptor,
+            )
+        };
+        assert!(
+            got == 0,
+            "precondition: read owner of {}: {}",
+            path.display(),
+            io::Error::from_raw_os_error(got as i32)
+        );
+        // SAFETY: both SIDs live for call; descriptor owns `owner`.
+        let is_system = unsafe { EqualSid(owner, system.0) } != 0;
+        // SAFETY: descriptor allocated by call above.
+        unsafe { LocalFree(descriptor) };
+        assert!(
+            is_system,
+            "precondition: owner of {} must be SYSTEM (S-1-5-18) so no test token \
+             (user, Administrators, or restricted) matches owner",
+            path.display()
+        );
+    }
+
     #[link(name = "advapi32")]
     unsafe extern "system" {
         fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn LookupPrivilegeValueW(
+            system_name: *const u16,
+            name: *const u16,
+            luid: *mut Luid,
+        ) -> i32;
+        fn AdjustTokenPrivileges(
+            token: *mut c_void,
+            disable_all_privileges: i32,
+            new_state: *const TokenPrivileges,
+            buffer_length: u32,
+            previous_state: *mut TokenPrivileges,
+            return_length: *mut u32,
+        ) -> i32;
         fn CreateRestrictedToken(
             existing: *mut c_void,
             flags: u32,
@@ -4335,19 +4518,23 @@ mod tests {
         Ok(())
     }
 
-    /// A scratch directory (under this test's own temp tree) that the calling token cannot
-    /// re-ACL. Only a token without privileges and without enabled Administrators is refused:
-    /// an elevated token can rewrite any DACL (privileges, plus enabled Administrators
-    /// matching the group owner), which is why the callers run under
-    /// `as_standard_user`. An explicit WRITE_DAC deny is not enough: the
-    /// owner holds implicit READ_CONTROL | WRITE_DAC unless an OWNER RIGHTS (S-1-3-4) ACE is
-    /// present. So the DACL is: the user may modify (no WRITE_DAC, no WRITE_OWNER) and
-    /// OWNER RIGHTS may read, traverse and delete (enough for cleanup), nothing else.
-    /// Inheritance is cut so no ALL APPLICATION PACKAGES grant leaks in and makes the directory
-    /// look readable to a container. Only this scratch directory's ACL changes.
+    /// Scratch directory that restricted token cannot re-ACL. Built OUTSIDE
+    /// `as_standard_user`, while elevated, & re-owned to SYSTEM last.
+    ///
+    /// Round-1 failure: fixture was built inside impersonation. Restricted token
+    /// inherits elevated TokenOwner (Administrators, S-1-5-32-544), so objects it
+    /// creates can still match group owner & keep implicit WRITE_DAC; OWNER RIGHTS
+    /// (S-1-3-4) ACE did not hold write back on CI (run 39592143691). SYSTEM
+    /// (S-1-5-18) is in neither token, so no owner match can arise under either
+    /// reading of deny-only/OWNER-RIGHTS semantics. DACL stays: user Modify (no
+    /// WRITE_DAC, no WRITE_OWNER) & OWNER RIGHTS RX,D,DC, inheritance cut.
+    /// `assert_precondition` must still be called inside `as_standard_user`.
     struct Unleasable(PathBuf);
     impl Unleasable {
         fn new(tag: &str) -> Self {
+            // Hold grant lock across privilege-enabled owner change so parallel
+            // in-process DACL writes cannot run under temporarily enabled privilege.
+            let _acl_guard = ACL_GRANT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
             let dir = scratch_dir(tag);
             let user = format!("*{}", current_user_sid().unwrap());
             let icacls = format!("{}\\System32\\icacls.exe", system_root());
@@ -4359,13 +4546,12 @@ mod tests {
                     .unwrap();
                 assert!(status.status.success(), "icacls {args:?} failed");
             };
-            // Order matters: the OWNER RIGHTS ACE goes last, because once it is there the owner
-            // can no longer change the DACL.
-            run(&["/inheritance:r", "/grant", &format!("{user}:(OI)(CI)(M)")]);
+            run(&["/inheritance:r", "/grant", &format!("{user}:(OI)(CI)(M,RC)")]);
             run(&["/grant", "*S-1-3-4:(OI)(CI)(RX,D,DC)"]);
-            let locked = Self(dir);
-            locked.assert_precondition();
-            locked
+            // Owner change last: after it, DACL writes need privilege this fixture
+            // setup no longer uses, & SYSTEM-owner proof is read back in helper.
+            set_owner_to_system(&dir);
+            Self(dir)
         }
 
         /// The DACL reads, and a real DACL write with the calling token is refused with
@@ -4436,8 +4622,9 @@ mod tests {
         if !real_store_body("best_effort_still_fails_when_the_grant_itself_cannot_be_leased") {
             return;
         }
+        let locked = Unleasable::new("be-grant");
         as_standard_user(|| {
-            let locked = Unleasable::new("be-grant");
+            locked.assert_precondition();
             let grants = vec![(locked.0.clone(), true)];
             let _cleanup = profile_of(&grants, &[]);
             let failed = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort);
@@ -4456,9 +4643,10 @@ mod tests {
         if !real_store_body("best_effort_still_fails_when_a_deny_carve_out_cannot_be_leased") {
             return;
         }
+        let locked = Unleasable::new("be-deny");
         as_standard_user(|| {
+            locked.assert_precondition();
             let ok = scratch_dir("be-deny-ok");
-            let locked = Unleasable::new("be-deny");
             let grants = vec![(ok.clone(), true)];
             let denies = vec![locked.0.clone()];
             let _cleanup = profile_of(&grants, &denies);
@@ -4479,9 +4667,10 @@ mod tests {
         if !real_store_body("best_effort_still_fails_when_the_image_directory_cannot_be_leased") {
             return;
         }
+        let locked = Unleasable::new("be-image");
         as_standard_user(|| {
+            locked.assert_precondition();
             let ok = scratch_dir("be-image-ok");
-            let locked = Unleasable::new("be-image");
             let grants = vec![(ok.clone(), true)];
             let _cleanup = profile_of(&grants, &[]);
             let prepared = prepare(grants, Vec::new(), AncestorLeasePolicy::BestEffort)
