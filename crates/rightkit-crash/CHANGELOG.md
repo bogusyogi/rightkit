@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.6 — 2026-10-21
+
+- A check that runs far later than scheduled (system sleep, suspended process) is skipped, so resuming from sleep is not reported as a hang. On Windows the all-threads minidump needs the `rightkit-dump-helper` binary next to the app (see `set_dump_helper`); without it the hang report is still written.
+- Added: hang watchdog (resolves #882), additive and non-breaking. `HangWatchdog::start(config, HangOptions)`, `HangWatchdog::heartbeat(name) -> Heartbeat` (`beat()` is one atomic store; dropping the last clone unregisters the loop), `HangWatchdog::pump_via(name, post)` for event loops the app cannot beat itself (Tauri: `run_on_main_thread`), `stop()`/drop joins promptly. A loop silent for the threshold (default 10 s, minimum 2 s) records one `hang` report per episode through `record_report`, takes the all-threads native capture (Windows minidump, macOS `sample`; on by default), writes the scrubbed tail of the configured log files to an owner-only `sample_hang_logs_*.txt`, and logs `hang` and `hang-recovered` lines on stderr. Respects `set_recording_enabled`. Adds a watcher thread (`rightkit-hang-watchdog`) and, for `pump_via`, a poster thread (`rightkit-hang-pump`) per call; neither runs unless the app starts the watchdog. Tests not run here.
+
 ## 0.3.5 — 2026-10-21
 
 - Fixed: renderer report limits no longer truncate credentials before redaction. Oversized fields and query/fragment-bearing sources are omitted; intact accepted fields retain shared scrubbing. Field inspection stays bounded. Regression coverage includes generic and configured secrets crossing caps or source delimiters, plus UTF-8 boundaries (#841).

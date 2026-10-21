@@ -54,6 +54,46 @@ With the opt-in feature `window-errors`, `record_window_error(&config, &gate, &r
 - `WindowErrorGate::default()` allows 5 reports per 60 seconds and 25 per process; `WindowErrorGate::new(window, max_per_window, max_total)` sets its own limits (`src/window.rs:54-61`).
 - The message is capped at `MAX_WINDOW_MESSAGE_CHARS` (1,000 characters) and the stack at `MAX_WINDOW_STACK_BYTES` (8 KiB) (`src/window.rs:17-19`, `src/window.rs:134-135`). The source keeps no query or fragment (`src/window.rs:136-139`).
 
+## Hang watchdog
+
+A process can hang without crashing: every window reports Responding, logs keep being written, and no panic report exists. `HangWatchdog` (`src/hang.rs`) catches an event loop or UI thread that stops pumping (#882). One thread, `rightkit-hang-watchdog`, compares each watched loop's last beat with a monotonic clock. A loop silent for the threshold (default 10 s, minimum 2 s) is one episode, handled once:
+
+- a `hang` report through `record_report` (redacted, owner-only, to the config's sink and crash folder), plus one `rightkit-crash: hang loop=<name> stalled_secs=<n>` line on stderr;
+- an all-threads native capture: a Windows minidump through the dump helper, or a macOS `sample` (scrubbed). Off with `HangOptions::native_capture(false)`;
+- the last `log_tail_bytes` (default 64 KiB) of each `log_file` in `sample_hang_logs_*.txt`, owner-only and written atomically. Known secrets (`redact_values`) and the pattern scrub run before any byte reaches disk, and a first partial line is dropped. If scrubbing fails the file holds only a withheld marker.
+
+Captures (native and log tail) repeat for the same loop at most once per cooldown (default 10 minutes). When beats resume the watchdog logs `hang-recovered` and re-arms. Nothing is recorded while `set_recording_enabled(false)`. A beat is one atomic store, safe on a UI thread; the watchdog takes no lock a beating thread holds. The last clone of a `Heartbeat` dropping unregisters the loop, so a loop that finished never reports. Dropping `HangWatchdog` or calling `stop()` ends the thread at once.
+
+Tauri: the app cannot beat from a blocked main thread, so post a beat to it. If the closure never runs, the main loop is hung. At most one closure is outstanding.
+
+```rust
+use rightkit_crash::{CrashConfig, HangOptions, HangWatchdog};
+
+let watchdog = HangWatchdog::start(
+    CrashConfig::new("MyApp", "1.2.3", crash_dir),
+    HangOptions::new().log_file(log_dir.join("app.log")),
+)?;
+let handle = app.handle().clone();
+watchdog.pump_via("main", move |beat| handle.run_on_main_thread(beat).is_ok())?;
+// Keep `watchdog` alive for the life of the app (for example in `app.manage`).
+```
+
+Tokio (or any loop you own): beat as the loop turns, and drop the heartbeat when it ends.
+
+```rust
+let heartbeat = watchdog.heartbeat("engine");
+tokio::spawn(async move {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    loop {
+        tick.tick().await;
+        heartbeat.beat();
+        // ... the loop's work ...
+    }
+});
+```
+
+A task that awaits one long call without ticking looks hung; beat from a separate ticking task only if that is the question you want answered.
+
 ## Platform support
 
 - macOS: `sample`-based native capture.

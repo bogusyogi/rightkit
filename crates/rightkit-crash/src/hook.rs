@@ -119,6 +119,16 @@ impl CrashConfig {
         self
     }
 
+    /// The known secrets set with [`CrashConfig::redact_values`], for the hang watchdog's log tail.
+    pub(crate) fn secrets(&self) -> &[String] {
+        self.redact_values.as_slice()
+    }
+
+    /// Whether files are written to `crash_dir` (see [`CrashConfig::write_report_file`]).
+    pub(crate) fn writes_files(&self) -> bool {
+        self.write_file
+    }
+
     /// Declare which process boundary this configuration belongs to; every report it records
     /// carries the code in `process_kind`.
     pub fn process_kind(mut self, kind: ProcessKind) -> Self {
@@ -355,7 +365,7 @@ fn dir_is_writable(dir: &Path) -> bool {
 /// The directory a report is written to: `crash_dir` when it is usable, else the private
 /// [`fallback_crash_dir`] (announced on stderr as one `rightkit-crash:` line), else `None`.
 /// The fallback is refused when it is a symlink or not ours (the private-dir hardening fails).
-fn resolve_crash_dir(config: &CrashConfig) -> Option<PathBuf> {
+pub(crate) fn resolve_crash_dir(config: &CrashConfig) -> Option<PathBuf> {
     if dir_is_writable(&config.crash_dir) {
         return Some(config.crash_dir.clone());
     }

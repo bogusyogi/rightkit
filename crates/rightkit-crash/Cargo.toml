@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-crash"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps."
@@ -50,4 +50,4 @@ rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", features = ["tes
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "sleep: 40 ms try_wait poll while the one-shot native dump helper runs (native.rs), bounded by the platform TIMEOUT and a single-flight guard; the panic hook runs only on panic; no thread-spawn, task-spawn, timer, listener or watcher (reviewed 2026-10-11); resident-static: IN_HOOK in src/hook.rs is a thread_local Cell<bool> re-entrancy flag, one bool per panicking thread, reset when the capture guard drops (reviewed 2026-10-17)"
+continuous_reason = "sleep: 40 ms try_wait poll while the one-shot native dump helper runs (native.rs), bounded by the platform TIMEOUT and a single-flight guard; the panic hook runs only on panic; thread-spawn: only the opt-in HangWatchdog (src/hang.rs) holds one watchdog thread, plus one poster thread per pump_via loop, while the handle lives, and stop() or drop joins them (reviewed 2026-10-21, #882); no task-spawn, timer, listener or watcher (reviewed 2026-10-11); resident-static: IN_HOOK in src/hook.rs is a thread_local Cell<bool> re-entrancy flag, one bool per panicking thread, reset when the capture guard drops (reviewed 2026-10-17)"
