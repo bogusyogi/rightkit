@@ -335,7 +335,16 @@ export async function authenticateAdmission({ prepared, env, fetchImpl = fetch, 
   const admissionDigest = `sha256:${env.PUBLISH_ADMISSION_DIGEST.replace(/^sha256:/, "")}`;
   const workflow = await api("actions/workflows/publish-reviewed.yml", env, fetchImpl);
   const run = await api(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}`, env, fetchImpl);
-  requireThat(POS.test(String(workflow.id)) && workflow.path === ".github/workflows/publish-reviewed.yml" && workflow.state === "active" && String(run.id) === env.GITHUB_RUN_ID && String(run.run_attempt) === env.GITHUB_RUN_ATTEMPT && run.repository?.id === bound.repository.id && run.repository?.full_name === REPOSITORY && run.head_repository?.id === bound.repository.id && run.head_repository?.full_name === REPOSITORY && String(run.workflow_id) === String(workflow.id) && run.path === workflow.path && run.event === "workflow_dispatch" && run.head_branch === "main" && run.head_sha === env.GITHUB_SHA && ["in_progress", "completed"].includes(run.status), "promotion run/workflow provenance mismatch");
+  const provenanceChecks = {
+    workflowId: POS.test(String(workflow.id)), workflowPath: workflow.path === ".github/workflows/publish-reviewed.yml", workflowState: workflow.state === "active",
+    runId: String(run.id) === env.GITHUB_RUN_ID, runAttempt: String(run.run_attempt) === env.GITHUB_RUN_ATTEMPT,
+    repositoryId: run.repository?.id === bound.repository.id, repositoryName: run.repository?.full_name === REPOSITORY,
+    headRepositoryId: run.head_repository?.id === bound.repository.id, headRepositoryName: run.head_repository?.full_name === REPOSITORY,
+    runWorkflowId: String(run.workflow_id) === String(workflow.id), runPath: run.path === workflow.path,
+    runEvent: run.event === "workflow_dispatch", runBranch: run.head_branch === "main", runSha: run.head_sha === env.GITHUB_SHA,
+    runStatus: ["in_progress", "completed"].includes(run.status),
+  };
+  requireThat(Object.values(provenanceChecks).every(Boolean), `promotion run/workflow provenance mismatch: ${Object.entries(provenanceChecks).filter(([, ok]) => !ok).map(([name]) => name).join(",")}`);
   const jobs = await api(`actions/runs/${env.GITHUB_RUN_ID}/attempts/${env.GITHUB_RUN_ATTEMPT}/jobs?per_page=100`, env, fetchImpl);
   requireThat(Array.isArray(jobs.jobs) && jobs.jobs.length === jobs.total_count && jobs.jobs.every((job) => String(job.run_id) === env.GITHUB_RUN_ID && String(job.run_attempt) === env.GITHUB_RUN_ATTEMPT && job.head_sha === env.GITHUB_SHA), "promotion job provenance mismatch");
   const seal = jobs.jobs.filter((job) => job.name === "seal-check");
