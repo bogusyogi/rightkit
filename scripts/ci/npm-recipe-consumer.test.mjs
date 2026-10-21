@@ -16,7 +16,7 @@ const clone = value => structuredClone(value);
 const NAME = '@rightkit/settings-ui';
 // Closed entries retain their authenticated historical runner; this never admits fresh execution.
 const CLOSED_RUNNER_HASH = 'b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd';
-const CLOSED_NAMES = new Set(['@rightkit/app-update', '@rightkit/onboarding', '@rightkit/qa-chrome', '@rightkit/settings-ui', '@rightkit/tauri-shell', '@rightkit/legal', '@rightkit/doc-render', '@rightkit/tauri']);
+const CLOSED_NAMES = new Set(['@rightkit/app-update', '@rightkit/onboarding', '@rightkit/qa-chrome', '@rightkit/tauri-shell', '@rightkit/legal', '@rightkit/doc-render', '@rightkit/tauri']);
 const inventoryHashMatches = (name, file, hash) => sha('sha256', read(file)) === hash || (file === RUNNER_FILE && CLOSED_NAMES.has(name) && hash === CLOSED_RUNNER_HASH);
 
 test('every committed reviewed npm recipe matches its inventory entry, package manifest & closure', () => {
@@ -339,7 +339,7 @@ test('tauri age exception is singleton reviewed dependency bytes, never another 
 
 test('historical runner inventory allowance is exact & never applies to QA, future units or other files', () => {
   for (const name of CLOSED_NAMES) assert.equal(inventory.npm[name].files[RUNNER_FILE], CLOSED_RUNNER_HASH, name);
-  assert.equal(inventoryHashMatches('@rightkit/settings-ui', RUNNER_FILE, CLOSED_RUNNER_HASH), true);
+  assert.equal(inventoryHashMatches('@rightkit/settings-ui', RUNNER_FILE, CLOSED_RUNNER_HASH), false);
   for (const name of ['@rightkit/qa', '@rightkit/future']) assert.equal(inventoryHashMatches(name, RUNNER_FILE, CLOSED_RUNNER_HASH), false);
   assert.equal(inventoryHashMatches(NAME, RUNNER_FILE, 'f'.repeat(64)), false);
   assert.equal(inventoryHashMatches(NAME, `${recipeDirectory(NAME)}/consumer.mjs`, CLOSED_RUNNER_HASH), false);

@@ -133,7 +133,7 @@
         "ci/consumers/npm/settings-ui/consumer.mjs": "6bb455d420a91094e84ea4d417cb352781aff42412a2716a4a25be5e842476ca",
         "ci/consumers/npm/settings-ui/package.json": "2461ab4540bfd71c284cd962ac8b1d69f9892076ca2bb208a84504f9674fb8d9",
         "ci/consumers/npm/settings-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "4f152aacbd23803c82063fc053d1ef06300b610e6f5a896d3c4297566afa1f28"
       },
       "importClosures": {
         ".": {
