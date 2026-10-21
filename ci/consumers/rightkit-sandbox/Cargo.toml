@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-sandbox = { version = "=0.5.1" }
+rightkit-sandbox = { version = "=0.6.0" }

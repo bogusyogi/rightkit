@@ -706,9 +706,9 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-sandbox/src/main.rs",
       "files": {
-        "Cargo.toml": "98ed4cd71a1bbb0eda4f31f120f9a7708378b5546cdb7126c39bc0498699dc4a",
-        "README.md": "2ce53ce957085de0c58484641fe7ad6c13f63f6c7b9ad18f7b884ddd7dcd81de",
-        "src/main.rs": "c4a5e452f9bcbfe8a8d7496121511924b7e0448dc792202bff814de02d56df46"
+        "Cargo.toml": "e4c1fead4cc4423914eefc3b7fa2f0918b58daad0218175f65974d1369264cb5",
+        "README.md": "388ca08f57a2a388768bb88dc3b9f94e5686f2f8bbf9199a52c51b059945544c",
+        "src/main.rs": "104009b4371f7ba4785478937c7b476fb3ba296188572c076932df2ee3e16ca1"
       }
     }
   }

@@ -1,6 +1,6 @@
-// rightkit-sandbox 0.5.1 registry consumer, outside the workspace.
+// rightkit-sandbox 0.6.0 registry consumer, outside the workspace.
 //
-// Pins `rightkit-sandbox =0.5.1` exactly with default features. No path, git,
+// Pins `rightkit-sandbox =0.6.0` exactly with default features. No path, git,
 // workspace, patch, or test-seam dependencies. Runs on Windows and macOS
 // runners; other hosts exercise the typed `Unsupported` path and exit nonzero.
 //
@@ -147,6 +147,6 @@ fn main() -> Result<(), Failure> {
         "read-only grant must not gain the file"
     );
 
-    println!("rightkit-sandbox 0.5.1 registry consumer passed");
+    println!("rightkit-sandbox 0.6.0 registry consumer passed");
     Ok(())
 }

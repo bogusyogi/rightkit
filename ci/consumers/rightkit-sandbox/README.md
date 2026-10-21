@@ -1,6 +1,6 @@
-# rightkit-sandbox 0.5.1 registry consumer (PK12 sandbox→browser edge)
+# rightkit-sandbox 0.6.0 registry consumer (PK12 sandbox→browser edge)
 
-Standalone consumer, outside the workspace, pinning `rightkit-sandbox =0.5.1`
+Standalone consumer, outside the workspace, pinning `rightkit-sandbox =0.6.0`
 exactly with default features. No path, Git, workspace, patch, or test-seam
 dependency, and no `Cargo.lock` committed in this directory (the validator
 rejects it); the harness pins and retains lock output outside the recipe.
