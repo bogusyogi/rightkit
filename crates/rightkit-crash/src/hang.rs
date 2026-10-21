@@ -342,11 +342,16 @@ impl HangWatchdog {
         })
     }
 
-    /// Start watching a loop named `name`. Configured secrets are removed first, then letters,
+    /// Start watching a loop named `name`. Configured secrets and token patterns are removed first, then letters,
     /// digits, `-`, `_` and `.` are kept, at most 48 characters. It counts as beating now. Drop
     /// every clone of the returned [`Heartbeat`] when the loop ends.
     pub fn heartbeat(&self, name: &str) -> Heartbeat {
-        let redacted = crate::report::redact_known(name, &self.shared.secrets);
+        // Known secrets, then the shared pattern scrub (tokens, keys); a scrubber panic yields
+        // the fallback name, never the input.
+        let redacted = catch_unwind(AssertUnwindSafe(|| {
+            rightkit_logs::scrub_text(&crate::report::redact_known(name, &self.shared.secrets))
+        }))
+        .unwrap_or_default();
         let mut name: String = redacted
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
@@ -839,6 +844,25 @@ mod tests {
         done_rx
             .recv_timeout(Duration::from_secs(5))
             .expect("stop from the callback returned without joining itself");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_token_pattern_never_survives_in_a_loop_name() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("token-name");
+        let (config, _seen) = config_for(&dir);
+        let watchdog = HangWatchdog::start(config, fast_options()).expect("start");
+        let token = format!("ghp_{}", &"a1B2c3D4e5".repeat(4)[..36]);
+        let beat = watchdog.heartbeat(&token);
+        let names: Vec<String> = lock(&watchdog.shared.loops)
+            .iter()
+            .map(|l| l.name.clone())
+            .collect();
+        drop(beat);
+        watchdog.stop();
+        assert_eq!(names.len(), 1);
+        assert!(!names[0].contains("a1B2c3D4e5"), "{}", names[0]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
