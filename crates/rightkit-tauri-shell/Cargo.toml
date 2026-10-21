@@ -113,6 +113,9 @@ harness = false
 [dev-dependencies]
 tempfile = "3"
 tauri = { version = "2", features = ["test"] }
+# The redirect fixture builds a bare reqwest client (rustls-no-provider); production gets the ring provider installed by
+# tauri-plugin-updater, so the test installs the same one (ring, already in the lock).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 # Workspace-lock constraint only (dev-dependencies are not published to consumers): keeps the shared Cargo.lock
 # on the tauri-utils that Tauri 2.11 (the workspace line, wv2-0_38) ships with. tauri-plugin 2.7+ (a build
 # dependency of tauri-plugin-updater) needs tauri-utils ~2.10.2, which adds AppConfig::app_directories_override

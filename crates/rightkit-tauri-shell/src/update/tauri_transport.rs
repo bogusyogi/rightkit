@@ -298,6 +298,11 @@ mod tests {
             stream.read(&mut request).unwrap();
             write!(stream, "HTTP/1.1 302 Found\r\nLocation: http://{target_address}/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
         });
+        // reqwest is built with rustls-no-provider; tauri-plugin-updater installs the ring provider before it
+        // builds its client, so do the same here or Client::build panics.
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
         // HTTP is limited to this in-process fixture. Production client_policy requires HTTPS.
         let result = tauri::async_runtime::block_on(async {
             reqwest::Client::builder()

@@ -4548,6 +4548,13 @@ mod tests {
                 &format!("{user}:(OI)(CI)(M,RC)"),
             ]);
             run(&["/grant", "*S-1-3-4:(OI)(CI)(RX,D,DC)"]);
+            // The refusal must not depend on which token the test thread impersonates: an
+            // explicit DENY of WRITE_DAC and WRITE_OWNER to Everyone (S-1-1-0, in every token,
+            // elevated or not) is evaluated before any allow, and with the owner re-assigned to
+            // SYSTEM below no owner-implicit right can bypass it. READ_CONTROL stays granted
+            // above, so the DACL still reads. On the hosted runner the impersonated restricted
+            // token alone still completed the write (`got Ok(())`, CI run 39663969961, #885).
+            run(&["/deny", "*S-1-1-0:(OI)(CI)(WDAC,WO)"]);
             // Owner change last: after it, DACL writes need privilege this fixture
             // setup no longer uses, & SYSTEM-owner proof is read back in helper.
             set_owner_to_system(&dir);

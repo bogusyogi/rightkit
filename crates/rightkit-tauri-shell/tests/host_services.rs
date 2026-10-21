@@ -969,7 +969,13 @@ fn services_the_app_never_registered_refuse_every_caller() {
 
 // ---- no response path carries a secret ---------------------------------------------------------
 
-const SECRETS_SOURCE: &str = include_str!("../src/host/secrets.rs");
+const SECRETS_SOURCE_RAW: &str = include_str!("../src/host/secrets.rs");
+
+/// The source with LF line endings. A Windows checkout may hold CRLF (git autocrlf), and these
+/// scans find declarations by blank-line and `}` line boundaries.
+fn secrets_source() -> String {
+    SECRETS_SOURCE_RAW.replace("\r\n", "\n")
+}
 
 /// The text of the declaration that starts at `marker`, up to its first `{`.
 fn declaration_head<'a>(source: &'a str, marker: &str) -> &'a str {
@@ -982,7 +988,8 @@ fn declaration_head<'a>(source: &'a str, marker: &str) -> &'a str {
 
 #[test]
 fn the_secret_value_type_cannot_be_serialized_cloned_or_displayed() {
-    let head = declaration_head(SECRETS_SOURCE, "pub struct SecretValue(String);");
+    let source = secrets_source();
+    let head = declaration_head(&source, "pub struct SecretValue(String);");
     for forbidden in ["Serialize", "Clone", "Display"] {
         assert!(
             !head.contains(forbidden),
@@ -995,7 +1002,7 @@ fn the_secret_value_type_cannot_be_serialized_cloned_or_displayed() {
         "impl serde::Serialize for SecretValue",
         "impl Serialize for SecretValue",
     ] {
-        assert!(!SECRETS_SOURCE.contains(forbidden), "{forbidden}");
+        assert!(!secrets_source().contains(forbidden), "{forbidden}");
     }
 }
 
@@ -1005,8 +1012,9 @@ fn the_credential_traits_have_no_read_method() {
         "pub trait SecretStore: Send + Sync {",
         "pub trait SecretWriter: Send + Sync {",
     ] {
-        let at = SECRETS_SOURCE.find(marker).expect(marker);
-        let body = &SECRETS_SOURCE[at..];
+        let source = secrets_source();
+        let at = source.find(marker).expect(marker);
+        let body = &source[at..];
         let body = &body[..body.find("\n}\n").expect("trait end")];
         for line in body.lines().filter(|l| l.trim_start().starts_with("fn ")) {
             for reader in ["get", "read", "load", "fetch", "export", "reveal", "value"] {
@@ -1034,8 +1042,9 @@ fn every_secrets_command_answers_a_presence_list_or_nothing() {
         ("pub async fn rightkit_secrets_set(", "()"),
         ("pub async fn rightkit_secrets_clear(", "()"),
     ] {
-        let at = SECRETS_SOURCE.find(command).expect(command);
-        let rest = &SECRETS_SOURCE[at..];
+        let source = secrets_source();
+        let at = source.find(command).expect(command);
+        let rest = &source[at..];
         let ret = rest.find("-> Result<").expect("return type") + "-> Result<".len();
         let end = rest[ret..].find(", HostError>").expect("error type");
         assert_eq!(&rest[ret..ret + end], answer, "{command}");
@@ -1045,7 +1054,7 @@ fn every_secrets_command_answers_a_presence_list_or_nothing() {
 #[test]
 fn the_host_module_has_no_generic_credential_surface() {
     for (name, source) in [
-        ("secrets", SECRETS_SOURCE),
+        ("secrets", SECRETS_SOURCE_RAW),
         ("settings", include_str!("../src/host/settings.rs")),
         ("mod", include_str!("../src/host/mod.rs")),
     ] {

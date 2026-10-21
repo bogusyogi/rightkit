@@ -352,7 +352,8 @@ fn nothing_the_renderer_receives_carries_a_url_a_header_or_a_token() {
 #[test]
 fn the_native_only_types_cannot_be_serialised_or_cloned() {
     // A source tripwire: these declarations must never gain `Serialize` (or `Clone` for the headers).
-    let src = include_str!("../src/update.rs");
+    // LF-normalised: a Windows checkout may hold CRLF, and the scan below finds items by blank lines.
+    let src = include_str!("../src/update.rs").replace("\r\n", "\n");
     for decl in [
         "pub struct ReleaseInfo",
         "pub struct RequestHeaders",
