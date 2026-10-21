@@ -50,7 +50,7 @@ Capabilities: 93 (57 with fingerprints, 36 declaration-only). Internal owners th
 | issues-tracker | `@rightkit/issues-tracker` | none | declaration-only | 0 | @rightkit/issues-tracker: staged 0.1.0, not published |
 | legal-assent | `@rightkit/legal` | none | declaration-only | 0 | @rightkit/legal: published 0.6.1 (npm) |
 | legal-ui | `@rightkit/legal-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/legal-ui: published 0.4.1 (npm) |
-| licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.3.0 (npm); rightkit-license: published 0.2.3 (crates.io) |
+| licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.3.0 (npm); rightkit-license: published 0.2.4 (crates.io) |
 | lifecycle-hooks | `@rightkit/hooks`, `rightkit-hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm); rightkit-hooks: published 0.2.0 (crates.io) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.3.0 (crates.io) |
 | local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.3.0 (crates.io) |
@@ -64,7 +64,7 @@ Capabilities: 93 (57 with fingerprints, 36 declaration-only). Internal owners th
 | motion-inspect-sheets | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.1.0 (crates.io) |
 | motion-takes | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.1.0 (crates.io) |
 | nearby-sharing | `rightkit-send` | none | declaration-only | 0 | rightkit-send: published 0.2.0 (crates.io) |
-| oauth-sign-in | `rightkit-oauth` | block | fingerprinted | 8 (3 block, 5 advise) | rightkit-oauth: published 0.9.0 (crates.io) |
+| oauth-sign-in | `rightkit-oauth` | block | fingerprinted | 8 (3 block, 5 advise) | rightkit-oauth: published 0.10.0 (crates.io) |
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.3 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.6.3 (npm) |
 | onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: published 0.2.6 (crates.io) |
