@@ -797,6 +797,42 @@
           "receiptSha256": "1c8f169dc395ccb7ad94259227c31adc696613e0ac9d3d5f87eb25ffdc572800"
         }
       }
+    },
+    {
+      "id": "cargo-credentials-041-3d8f",
+      "sourceSha": "3d8feb68a3fcf15ea53a91f88688758ce56dc0c6",
+      "runId": "39632070035",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "b9351fc2b519ae6d94ef1c46f7d76a6916713af8a1120347274bb3717e05f48a",
+      "registry": "crates",
+      "units": [
+        "rightkit-credentials"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-credentials"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12358694606",
+          "digest": "sha256:4fbd4d3f0ac5c9cae12f51a2d22b660f69eb4ab25d58d39c655f879f6361dc36"
+        },
+        "macos": {
+          "id": "12361420360",
+          "digest": "sha256:709d99a7a9a4d1728bffc8ac5eea9381f896a8867e862cd6589b2f4fdea83bcc",
+          "receiptSha256": "d60cafdbfe06eda8ebe9e25aff4bf7c68932e966a4c1a70e362687fb6f25a781"
+        },
+        "windows": {
+          "id": "12361452201",
+          "digest": "sha256:c32118a4f1b5c672c30cc95b249eb9eacee769293f89b42d827da555e17be892",
+          "receiptSha256": "a85a12c0a1ef450fd845b112b1ec82df7055b7bc9a2a2e54501f8053b3414d72"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -991,6 +1027,14 @@
       "sha256": "c74c8f18566064482803651b63d03571ac75343f673ca8c10580f4c7e5ca936f",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/oracle/credentials040/39610069491"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-credentials",
+      "version": "0.4.1",
+      "sha256": "eff9ae836419d4a38ea1454d1374ed49846e647b6cc1f1780d297c185fe8da58",
+      "reviewer": "Astra (gpt-6-astra high, adversarial review)",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6321286407"
     }
   ]
 }
