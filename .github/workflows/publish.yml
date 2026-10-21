@@ -615,6 +615,18 @@ jobs:
         env:
           CREDENTIALS_HELPER_SIGNED_ROOT: ${{ runner.temp }}/credentials-helper-signed
         run: node scripts/ci/provision-credentials-helper-env.mjs
+      - name: Provision the job-local default keychain for credentials consumers
+        if: ${{ needs.sign-credentials-helper.result == 'success' && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/consumer-default.keychain-db"
+          password="$(uuidgen)"
+          rm -f "$keychain"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security default-keychain -s "$keychain"
       - name: Mount mandatory FS qualification volumes
         if: ${{ needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         shell: bash

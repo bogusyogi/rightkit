@@ -12,8 +12,8 @@ rightkit-db = { version = "=0.5.1", default-features = false, optional = true }
 
 [features]
 # The sealed plain build resolves db-adapter, which deliberately selects no provider in the
-# credentials crate; the consumer selects the vendored provider so that build compiles.
-default = ["sqlcipher"]
+# credentials crate; the consumer selects the system provider so that build compiles.
+default = ["sqlcipher-system"]
 db-session = ["rightkit-credentials/db-adapter", "dep:rightkit-db", "rightkit-db/encrypted-lifecycle"]
 sqlcipher = ["db-session", "rightkit-db/sqlcipher"]
 sqlcipher-system = ["db-session", "rightkit-db/sqlcipher-system"]
