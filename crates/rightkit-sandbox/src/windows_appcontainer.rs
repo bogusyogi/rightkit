@@ -2412,6 +2412,9 @@ fn validated_grant(path: &Path) -> Result<PathBuf, SandboxError> {
     Ok(canonical)
 }
 
+/// The grants (path, writable) and denies a grant request would build a profile from.
+type GrantInputs = (Vec<(PathBuf, bool)>, Vec<PathBuf>);
+
 /// `with_grant` failed: the original profile, its leases untouched, and why.
 pub struct WithGrantError {
     /// The profile `with_grant` was called on.
@@ -2505,6 +2508,9 @@ impl AppContainerProfile {
     /// protected location, a filesystem root, a path that does not resolve, and, as
     /// `SandboxError::Unsupported`, a path with a protected secret inside it (`deny_read` is not
     /// supported on Windows yet, rightkit#887).
+    // The error deliberately carries the whole original profile back to the caller (leases
+    // untouched), so it is large by design.
+    #[allow(clippy::result_large_err)]
     pub fn with_grant(self, path: &Path, writable: bool) -> Result<Self, WithGrantError> {
         match self.grant_inputs(path, writable) {
             Ok((grants, denies)) => {
@@ -2533,11 +2539,7 @@ impl AppContainerProfile {
 
     /// The grants and denies of the profile `with_grant(path, writable)` would build, with every
     /// refusal that needs no new profile applied. Reads only; nothing is created or dropped.
-    fn grant_inputs(
-        &self,
-        path: &Path,
-        writable: bool,
-    ) -> Result<(Vec<(PathBuf, bool)>, Vec<PathBuf>), SandboxError> {
+    fn grant_inputs(&self, path: &Path, writable: bool) -> Result<GrantInputs, SandboxError> {
         let canonical = validated_grant(path)?;
         let mut grants = self
             .prepared
