@@ -41,7 +41,7 @@ required-features = ["system-sources"]
 
 [dependencies]
 rightkit-http = { path = "../rightkit-http", version = "0.3.0", features = ["gzip"] }
-rightkit-credentials = { path = "../rightkit-credentials", version = "0.4.0", optional = true }
+rightkit-credentials = { path = "../rightkit-credentials", version = "0.4.1", optional = true }
 rightkit-child-process = { path = "../rightkit-child-process", version = "0.5.0", optional = true }
 getrandom = "0.4"
 serde_json = "1.0.154"
