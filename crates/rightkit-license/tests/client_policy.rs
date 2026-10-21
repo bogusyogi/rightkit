@@ -213,6 +213,7 @@ impl<T: serde::Serialize> Probe<T> {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants)] // compile-time trait probe: the constant value IS the assertion
 fn nothing_that_holds_a_credential_can_be_serialised() {
     assert!(!Probe::<SecretString>::SERIALIZE);
     assert!(!Probe::<LicenseClient>::SERIALIZE);
