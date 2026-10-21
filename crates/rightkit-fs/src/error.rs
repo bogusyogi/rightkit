@@ -58,9 +58,11 @@ pub enum FsError {
     /// A private (owner-only) file or directory was asked for where its owner-only guarantee cannot
     /// be established because of an extended ACL (macOS): the parent directory has an inheritable
     /// `allow` entry that the new entry would receive, the new entry carries an `allow` entry
-    /// anyway (it is removed, still empty), or an existing entry handed to `restrict_owner_only`
-    /// carries one (it is left as it is, never repaired). An ACL made only of `deny` entries never
-    /// causes this error. See [`crate::private`] and the `acl` notes in the crate README.
+    /// anyway (a temporary entry is removed while empty, but a permanent name from
+    /// [`crate::StateDir::create_new_empty`] is retained), or an existing entry handed to
+    /// `restrict_owner_only` or an opted-in private read carries one (left as it is, never repaired).
+    /// An ACL made only of `deny` entries never causes this error. See [`crate::private`] and the
+    /// `acl` notes in the crate README.
     #[error(
         "{0} cannot be made owner-only: an extended ACL `allow` entry would grant access to others"
     )]

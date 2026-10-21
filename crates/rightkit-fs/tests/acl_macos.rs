@@ -7,8 +7,9 @@
 //! One predicate decides everything: an ACL is unsafe iff it has an `allow` entry; a `deny` entry
 //! cannot widen access, so deny-only ACLs pass. The crate reads the parent's ACL before it creates
 //! anything private and refuses (`FsError::UnsafeAcl`) when an inheritable `allow` entry would be
-//! handed on. A new entry that carries an `allow` entry anyway is removed while still empty and
-//! refused. No ACL is ever removed from an inode (that cannot revoke a descriptor already open),
+//! handed on. A temporary entry that carries an `allow` entry anyway is removed while still empty
+//! and refused; a visible permanent empty-file name is retained and refused. No ACL is ever
+//! removed from an inode (that cannot revoke a descriptor already open),
 //! and `restrict_owner_only` refuses an entry that has an `allow` entry instead of repairing it.
 //! These tests make the ACLs with `/bin/chmod +a`, read them back with `/bin/ls -lde`, and need a
 //! macOS volume that holds ACLs (APFS does). They have not been run in the tree that wrote them.
@@ -167,11 +168,62 @@ fn state_dir_refuses_an_inheriting_parent() {
     assert!(matches!(error, FsError::UnsafeAcl(_)), "{error:?}");
     let error = state.write("record", b"secret").expect_err("temp refused");
     assert!(matches!(error, FsError::UnsafeAcl(_)), "{error:?}");
+    let error = state
+        .create_new_empty("lock")
+        .expect_err("direct creation refused");
+    assert!(matches!(error, FsError::UnsafeAcl(_)), "{error:?}");
     assert!(
         names(&clean).is_empty(),
         "nothing was created: {:?}",
         names(&clean)
     );
+}
+
+#[cfg(feature = "testing")]
+#[test]
+fn direct_empty_acl_failure_keeps_the_inode_and_blocks_private_reopen() {
+    use rightkit_fs::handle::ReadOptions;
+    use rightkit_fs::{state::testing::on_empty_created, FileKey};
+    use std::sync::{Arc, Mutex};
+
+    let (_guard, root) = tmp();
+    let state = StateDir::create(&root.join("state")).unwrap();
+    let path = state.path().join("lock");
+    let changed = path.clone();
+    let key = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&key);
+    let hook = on_empty_created(move |file| {
+        *captured.lock().unwrap() = Some(FileKey::of_file(file, Path::new("lock")).unwrap());
+        add_acl(&changed, "everyone allow read");
+        assert!(
+            has_allow_entry(&changed),
+            "the actual ACL mutation is a precondition"
+        );
+        Ok(())
+    });
+    assert!(matches!(
+        state.create_new_empty("lock"),
+        Err(FsError::UnsafeAcl(_))
+    ));
+    drop(hook);
+    let strict = ReadOptions::new()
+        .require_single_link(true)
+        .require_owner_only(true);
+    assert!(matches!(
+        state.open_read("lock", &strict),
+        Err(FsError::UnsafeAcl(_))
+    ));
+    let plain = state.open_read("lock", &ReadOptions::new()).unwrap();
+    assert_eq!(
+        Some(FileKey::of_file(&plain, Path::new("lock")).unwrap()),
+        *key.lock().unwrap()
+    );
+    assert!(has_allow_entry(&path), "failure must not repair the ACL");
+    assert!(matches!(
+        state.create_new_empty("lock"),
+        Err(FsError::AlreadyExists(_))
+    ));
+    assert_eq!(names(state.path()), vec!["lock"]);
 }
 
 #[cfg(feature = "lock")]

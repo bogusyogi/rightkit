@@ -10,6 +10,339 @@ fn tmp() -> (tempfile::TempDir, PathBuf) {
     (dir, path)
 }
 
+#[cfg(any(unix, windows))]
+mod direct_empty {
+    use super::*;
+    use rightkit_fs::handle::{link_count, ReadOptions};
+    use rightkit_fs::{FileKey, StateOptions};
+    use std::fs::{File, TryLockError};
+    use std::path::Path;
+    use std::sync::Barrier;
+
+    #[test]
+    fn racing_creators_keep_one_inode_and_all_losers_can_open_it() {
+        let (_guard, root) = tmp();
+        let state = StateDir::create(&root.join("state")).unwrap();
+        let start = Barrier::new(8);
+        let attempts = std::thread::scope(|scope| {
+            let mut clients = Vec::new();
+            for _ in 0..8 {
+                let state = &state;
+                let start = &start;
+                clients.push(scope.spawn(move || {
+                    start.wait();
+                    state.create_new_empty("lock")
+                }));
+            }
+            clients
+                .into_iter()
+                .map(|client| client.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let mut winners = Vec::new();
+        for attempt in attempts {
+            match attempt {
+                Ok(file) => winners.push(file),
+                Err(FsError::AlreadyExists(_)) => {}
+                Err(error) => panic!("unexpected creation error: {error:?}"),
+            }
+        }
+        assert_eq!(winners.len(), 1);
+        let winner = winners.pop().unwrap();
+        assert_eq!(winner.metadata().unwrap().len(), 0);
+        assert_eq!(link_count(&winner).unwrap(), 1);
+        assert!(rightkit_fs::private::is_owner_only_strict(&state.path().join("lock")).unwrap());
+        let key = FileKey::of_file(&winner, Path::new("lock")).unwrap();
+        let peers = (0..8)
+            .map(|_| {
+                let peer = state
+                    .open_read(
+                        "lock",
+                        &ReadOptions::new()
+                            .require_single_link(true)
+                            .require_owner_only(true),
+                    )
+                    .unwrap();
+                assert_eq!(FileKey::of_file(&peer, Path::new("lock")).unwrap(), key);
+                peer
+            })
+            .collect::<Vec<_>>();
+        winner.try_lock().unwrap();
+        for peer in &peers {
+            assert!(matches!(peer.try_lock(), Err(TryLockError::WouldBlock)));
+        }
+        File::unlock(&winner).unwrap();
+        peers[0].try_lock().unwrap();
+        File::unlock(&peers[0]).unwrap();
+    }
+
+    #[test]
+    fn a_replaced_path_cannot_redirect_direct_creation() {
+        let (_guard, root) = tmp();
+        let path = root.join("state");
+        let moved = root.join("moved");
+        let state = StateDir::create_with(
+            &path,
+            &StateOptions {
+                allow_rename_while_open: true,
+                ..StateOptions::default()
+            },
+        )
+        .unwrap();
+        std::fs::rename(&path, &moved).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        let file = state.create_new_empty("lock").unwrap();
+        assert_eq!(
+            FileKey::of_file(&file, Path::new("lock")).unwrap(),
+            FileKey::of_path(&moved.join("lock")).unwrap()
+        );
+        assert!(!path.join("lock").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_only_read_checks_the_pinned_inode_and_preserves_plain_reads() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (_guard, root) = tmp();
+        let path = root.join("state");
+        let moved = root.join("moved");
+        let state = StateDir::create(&path).unwrap();
+        let original = state.create_new_empty("lock").unwrap();
+        let key = FileKey::of_file(&original, Path::new("lock")).unwrap();
+        std::fs::rename(&path, &moved).unwrap();
+        let replacement = StateDir::create(&path).unwrap();
+        replacement.create_new_empty("lock").unwrap();
+        original
+            .set_permissions(std::fs::Permissions::from_mode(0o644))
+            .unwrap();
+
+        let strict = ReadOptions::new()
+            .require_single_link(true)
+            .require_owner_only(true);
+        assert!(matches!(
+            state.open_read("lock", &strict),
+            Err(FsError::TooPermissive(_))
+        ));
+        assert!(replacement.open_read("lock", &strict).is_ok());
+        assert!(matches!(
+            rightkit_fs::handle::open_read_nofollow(&moved.join("lock"), &strict),
+            Err(FsError::TooPermissive(_))
+        ));
+        let plain = state.open_read("lock", &ReadOptions::new()).unwrap();
+        assert_eq!(FileKey::of_file(&plain, Path::new("lock")).unwrap(), key);
+        assert_eq!(
+            plain.metadata().unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn inherited_privacy_is_refused_before_direct_creation() {
+        for privacy in [
+            rightkit_fs::Privacy::Inherit,
+            rightkit_fs::Privacy::OwnerOnlyUnixInheritWindows,
+        ] {
+            let (_guard, root) = tmp();
+            let state = StateDir::create_with(
+                &root.join("state"),
+                &StateOptions {
+                    privacy,
+                    ..StateOptions::default()
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                state.create_new_empty("lock"),
+                Err(FsError::Unavailable(_))
+            ));
+            assert!(state.list(8).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn existing_content_and_invalid_names_are_unchanged() {
+        let (_guard, root) = tmp();
+        let state = StateDir::create_with(
+            &root.join("state"),
+            &StateOptions {
+                max_name_len: Some(8),
+                ..StateOptions::default()
+            },
+        )
+        .unwrap();
+        state.write("keep", b"original").unwrap();
+        let key = FileKey::of_path(&state.path().join("keep")).unwrap();
+        assert!(matches!(
+            state.create_new_empty("keep"),
+            Err(FsError::AlreadyExists(_))
+        ));
+        assert_eq!(state.read("keep", 32).unwrap(), b"original");
+        assert_eq!(FileKey::of_path(&state.path().join("keep")).unwrap(), key);
+        for name in ["", ".", "..", "../escape", "nested/x", "123456789"] {
+            assert!(matches!(
+                state.create_new_empty(name),
+                Err(FsError::BadName(_))
+            ));
+        }
+        let ordinary = StateDir::create(&root.join("ordinary")).unwrap();
+        assert!(matches!(
+            ordinary.create_new_empty(".lock.rktmp-1-2-3"),
+            Err(FsError::BadName(_))
+        ));
+        assert!(ordinary.list(8).unwrap().is_empty());
+        assert_eq!(state.list(8).unwrap(), vec!["keep"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn planted_links_and_directories_are_never_followed_or_replaced() {
+        let (_guard, root) = tmp();
+        let state = StateDir::create(&root.join("state")).unwrap();
+        let outside = root.join("outside");
+        std::fs::write(&outside, b"unchanged").unwrap();
+        std::os::unix::fs::symlink(&outside, state.path().join("link")).unwrap();
+        std::fs::create_dir(state.path().join("dir")).unwrap();
+        assert!(state.create_new_empty("link").is_err());
+        assert!(state.create_new_empty("dir").is_err());
+        assert_eq!(std::fs::read(&outside).unwrap(), b"unchanged");
+        assert!(std::fs::symlink_metadata(state.path().join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(state.path().join("dir").is_dir());
+    }
+
+    #[cfg(feature = "testing")]
+    mod boundary {
+        use super::*;
+        use rightkit_fs::state::testing::on_empty_created;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        #[test]
+        fn the_first_visible_name_has_one_link_and_can_be_locked_by_a_peer() {
+            let (_guard, root) = tmp();
+            let path = root.join("state");
+            let state = StateDir::create(&path).unwrap();
+            let observer = StateDir::open(&path).unwrap();
+            let observed = Arc::new(AtomicBool::new(false));
+            let seen = Arc::clone(&observed);
+            let hook = on_empty_created(move |created| {
+                assert_eq!(observer.list(8).unwrap(), vec!["lock"]);
+                assert_eq!(link_count(created).unwrap(), 1);
+                let peer = observer
+                    .open_read(
+                        "lock",
+                        &ReadOptions::new()
+                            .require_single_link(true)
+                            .require_owner_only(true),
+                    )
+                    .unwrap();
+                assert_eq!(
+                    FileKey::of_file(created, Path::new("lock")).unwrap(),
+                    FileKey::of_file(&peer, Path::new("lock")).unwrap()
+                );
+                created.try_lock().unwrap();
+                assert!(matches!(peer.try_lock(), Err(TryLockError::WouldBlock)));
+                File::unlock(created).unwrap();
+                seen.store(true, Ordering::SeqCst);
+                Ok(())
+            });
+            let file = state.create_new_empty("lock").unwrap();
+            drop(hook);
+            assert!(observed.load(Ordering::SeqCst));
+            assert_eq!(link_count(&file).unwrap(), 1);
+        }
+
+        #[test]
+        fn a_real_permission_failure_keeps_the_inode_and_blocks_private_reopen() {
+            let (_guard, root) = tmp();
+            let state = StateDir::create(&root.join("state")).unwrap();
+            let key = Arc::new(Mutex::new(None));
+            let captured = Arc::clone(&key);
+            #[cfg(windows)]
+            let shown = state.path().join("lock");
+            let hook = on_empty_created(move |created| {
+                *captured.lock().unwrap() =
+                    Some(FileKey::of_file(created, Path::new("lock")).unwrap());
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    created
+                        .set_permissions(std::fs::Permissions::from_mode(0o644))
+                        .unwrap();
+                }
+                #[cfg(windows)]
+                {
+                    let status = std::process::Command::new("icacls")
+                        .arg(&shown)
+                        .args(["/grant", "*S-1-1-0:(R)"])
+                        .stdout(std::process::Stdio::null())
+                        .status()
+                        .unwrap();
+                    assert!(status.success(), "icacls could not widen the new lock");
+                }
+                Ok(())
+            });
+            assert!(matches!(
+                state.create_new_empty("lock"),
+                Err(FsError::TooPermissive(_))
+            ));
+            drop(hook);
+            assert!(matches!(
+                state.open_read(
+                    "lock",
+                    &ReadOptions::new()
+                        .require_single_link(true)
+                        .require_owner_only(true)
+                ),
+                Err(FsError::TooPermissive(_))
+            ));
+            let peer = state
+                .open_read("lock", &ReadOptions::new().require_single_link(true))
+                .unwrap();
+            assert_eq!(
+                Some(FileKey::of_file(&peer, Path::new("lock")).unwrap()),
+                *key.lock().unwrap()
+            );
+            assert!(matches!(
+                state.create_new_empty("lock"),
+                Err(FsError::AlreadyExists(_))
+            ));
+            assert_eq!(
+                Some(FileKey::of_file(&peer, Path::new("lock")).unwrap()),
+                *key.lock().unwrap()
+            );
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn a_second_link_at_the_boundary_is_rejected_without_removing_names() {
+            let (_guard, root) = tmp();
+            let state = StateDir::create(&root.join("state")).unwrap();
+            let path = state.path().to_path_buf();
+            let hook = on_empty_created(move |_| {
+                std::fs::hard_link(path.join("lock"), path.join("alias")).unwrap();
+                Ok(())
+            });
+            assert!(matches!(
+                state.create_new_empty("lock"),
+                Err(FsError::HardLinked(_))
+            ));
+            drop(hook);
+            let mut names = state.list(8).unwrap();
+            names.sort();
+            assert_eq!(names, vec!["alias", "lock"]);
+            assert!(matches!(
+                state.open_read("lock", &ReadOptions::new().require_single_link(true)),
+                Err(FsError::HardLinked(_))
+            ));
+        }
+    }
+}
+
 // ------------------------------------------------------------ 1: directory sync propagates
 
 #[cfg(all(unix, feature = "testing"))]

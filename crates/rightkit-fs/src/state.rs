@@ -135,6 +135,7 @@ pub struct StateOptions {
     ///
     /// Unix ignores this: directories are always created `0700`, files `0600`, and a pinned
     /// directory must be owned by the user and not group/other writable.
+    /// [`StateDir::create_new_empty`] requires `OwnerOnly` on Windows and refuses inheritance.
     pub privacy: Privacy,
     /// Windows only: open the pinned directory with `FILE_SHARE_DELETE`, so other handles may
     /// rename or delete the directory (or an ancestor) while this `StateDir` is open. Operations
@@ -400,14 +401,15 @@ impl StateDir {
     /// The entry is opened relative to the pinned directory without following a symlink or reparse
     /// point ([`FsError::Symlink`]); anything that is not a regular file is [`FsError::NotAFile`] (a
     /// FIFO or device is never waited on); [`ReadOptions`](crate::handle::ReadOptions) adds the
-    /// checks for more than one hard link ([`FsError::HardLinked`]) and, on Windows, read-only sharing
+    /// checks for more than one hard link ([`FsError::HardLinked`]), owner-only access on the open
+    /// handle, and, on Windows, read-only sharing
     /// (no other handle may write, delete or rename the file while it is open). The handle is the
     /// caller's to read, query ([`crate::handle::final_path`], [`crate::FileKey::of_file`]) and drop.
     /// Any existing name up to [`PLATFORM_NAME_LIMIT`] can be opened.
     pub fn open_read(&self, name: &str, options: &crate::handle::ReadOptions) -> Result<File> {
         check_name(name, PLATFORM_NAME_LIMIT)?;
         let shown = self.path.join(name);
-        let file = self.dir.open_read_with(name, options.share_read_only)?;
+        let file = self.dir.open_read_with(name, options)?;
         crate::handle::finish_read_open(file, &shown, options)
     }
 
@@ -460,6 +462,64 @@ impl StateDir {
             Ok(bytes) => Ok(Some(bytes)),
             Err(e) if e.is_not_found() => Ok(None),
             Err(e) => Err(e),
+        }
+    }
+
+    /// Exclusively create an empty regular file at its final name and return its write handle.
+    ///
+    /// This is for permanent lock files: creation stays relative to this pinned directory,
+    /// never creates a second hard link, and never replaces an existing name. An existing name
+    /// returns [`FsError::AlreadyExists`]. Names obey the write cap and reserved-temp rules.
+    /// The returned handle passes the regular-file, single-link, and owner-only handle checks of
+    /// [`open_read`](Self::open_read) with `require_single_link(true).require_owner_only(true)`.
+    /// On Windows, [`StateOptions::privacy`] must be [`Privacy::OwnerOnly`]; an inheritance option
+    /// is refused before creation. Platforms other than Unix and Windows are likewise refused
+    /// before creation ([`FsError::Unavailable`]).
+    ///
+    /// No file or directory flush is performed. Use [`write_new`](Self::write_new) for durable
+    /// content publication. This method preserves process-lifetime lock identity; it does not
+    /// promise that the directory entry survives power loss.
+    ///
+    /// A check can fail after the name becomes visible. Such a failure leaves the empty entry
+    /// in place, closes its handle, and returns the error: removing a visible lock could let
+    /// another caller lock a different inode. An error is not permission to remove or replace
+    /// the name. Existing locks must be opened through this same pinned directory with
+    /// `require_single_link(true).require_owner_only(true)`: an earlier error may have left an
+    /// unverified file. Neither an existing name nor a single link proves private access.
+    /// All handle checks describe the state now; later changes are not prevented.
+    pub fn create_new_empty(&self, name: &str) -> Result<File> {
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = name;
+            Err(FsError::Unavailable(
+                "direct private empty-file creation requires Unix or Windows",
+            ))
+        }
+        #[cfg(any(unix, windows))]
+        {
+            #[cfg(windows)]
+            if self.options.inherit_acl() {
+                return Err(FsError::Unavailable(
+                    "direct private empty-file creation requires Privacy::OwnerOnly",
+                ));
+            }
+            check_name(name, self.options.write_cap())?;
+            crate::atomic::reject_reserved_name(name)?;
+            let shown = self.path.join(name);
+            let file = self
+                .dir
+                .create_new(name, true)
+                .map_err(|error| match error {
+                    FsError::AlreadyExists(_) => FsError::AlreadyExists(shown.clone()),
+                    other => other,
+                })?;
+            crate::handle::finish_read_open(
+                file,
+                &shown,
+                &crate::handle::ReadOptions::new()
+                    .require_single_link(true)
+                    .require_owner_only(true),
+            )
         }
     }
 
@@ -535,7 +595,7 @@ impl StateDir {
         for attempt in 0..crate::atomic::TEMP_ATTEMPTS {
             let n = COUNTER.fetch_add(1, Ordering::Relaxed);
             let temp = format!(".{prefix}{TEMP_MARKER}{}-{n}-{attempt}", std::process::id());
-            match self.dir.create_new(&temp) {
+            match self.dir.create_new(&temp, false) {
                 Ok(file) => return Ok((temp, file)),
                 Err(FsError::AlreadyExists(_)) => continue,
                 Err(e) => return Err(e),
@@ -610,7 +670,10 @@ impl StateDir {
 #[cfg(feature = "testing")]
 pub mod testing {
     use std::cell::{Cell, RefCell};
+    use std::fs::File;
     use std::io;
+
+    type EmptyCreateHook = Box<dyn Fn(&File) -> crate::Result<()>>;
 
     /// One directory-level step of a `StateDir` operation, in the order it happened. Recorded on
     /// Unix only (Windows makes no directory sync call).
@@ -624,6 +687,7 @@ pub mod testing {
     }
 
     thread_local! {
+        static EMPTY_CREATE_HOOK: RefCell<Option<EmptyCreateHook>> = const { RefCell::new(None) };
         static DIR_SYNC_FAILURE: RefCell<Option<io::ErrorKind>> = const { RefCell::new(None) };
         static DIR_EVENTS: RefCell<Vec<DirEvent>> = const { RefCell::new(Vec::new()) };
         static DIR_SYNCS: Cell<usize> = const { Cell::new(0) };
@@ -638,6 +702,22 @@ pub mod testing {
         fn drop(&mut self) {
             (self.0)();
         }
+    }
+
+    /// Observe or fail direct empty-file creation immediately after the final name is created,
+    /// before post-creation checks. The hook runs only for [`super::StateDir::create_new_empty`].
+    /// Returning an error leaves the visible entry in place. This tests publication boundaries
+    /// without a timing race or a different filesystem implementation.
+    pub fn on_empty_created(hook: impl Fn(&File) -> crate::Result<()> + 'static) -> HookGuard {
+        EMPTY_CREATE_HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        HookGuard(|| EMPTY_CREATE_HOOK.with(|slot| *slot.borrow_mut() = None))
+    }
+
+    pub(super) fn after_empty_create(file: &File) -> crate::Result<()> {
+        EMPTY_CREATE_HOOK.with(|slot| match slot.borrow().as_ref() {
+            Some(hook) => hook(file),
+            None => Ok(()),
+        })
     }
 
     /// Make every directory sync this thread's `StateDir` operations perform fail with `kind`
@@ -1004,11 +1084,15 @@ mod sys {
             }
         }
 
-        /// `share_read_only` is a Windows sharing mode; Unix has no mandatory sharing, so it is
-        /// ignored here. `O_NONBLOCK` keeps a planted FIFO or device from hanging the open; the
+        /// Windows sharing and access flags need no Unix open flags. `O_NONBLOCK` keeps a planted
+        /// FIFO or device from hanging the open; the
         /// caller (`StateDir::open_read`) refuses a non-regular file and returns the file to
         /// blocking mode.
-        pub fn open_read_with(&self, name: &str, _share_read_only: bool) -> Result<File> {
+        pub fn open_read_with(
+            &self,
+            name: &str,
+            _options: &crate::handle::ReadOptions,
+        ) -> Result<File> {
             let c = cname(name)?;
             // SAFETY: valid fd and C string.
             let fd = unsafe {
@@ -1029,7 +1113,7 @@ mod sys {
             Ok(unsafe { File::from_raw_fd(fd) })
         }
 
-        pub fn create_new(&self, name: &str) -> Result<File> {
+        pub fn create_new(&self, name: &str, retain_name: bool) -> Result<File> {
             let c = cname(name)?;
             // macOS: no private file below a directory whose ACL would hand it an inheritable `allow` entry.
             crate::acl::guard_parent(&self.0, Path::new(name))?;
@@ -1055,12 +1139,19 @@ mod sys {
             }
             // SAFETY: fd just returned by openat.
             let file = unsafe { File::from_raw_fd(fd) };
-            // A file that carries an `allow` entry anyway is still empty: remove it and refuse.
-            if let Err(error) = crate::acl::refuse_acl(&file, Path::new(name)) {
-                drop(file);
-                // SAFETY: valid fd and C string.
-                unsafe { libc::unlinkat(self.fd(), c.as_ptr(), 0) };
-                return Err(error);
+            #[cfg(feature = "testing")]
+            if retain_name {
+                super::testing::after_empty_create(&file)?;
+            }
+            // Temporary names may be removed while still empty. Direct permanent creation checks
+            // this same handle in finish_read_open, once, without removing a visible final name.
+            if !retain_name {
+                if let Err(error) = crate::acl::refuse_acl(&file, Path::new(name)) {
+                    drop(file);
+                    // SAFETY: valid fd and C string.
+                    unsafe { libc::unlinkat(self.fd(), c.as_ptr(), 0) };
+                    return Err(error);
+                }
             }
             Ok(file)
         }
@@ -1304,7 +1395,11 @@ mod sys {
                 Err(e) => Err(FsError::io(p, e)),
             }
         }
-        pub fn open_read_with(&self, name: &str, _share_read_only: bool) -> Result<File> {
+        pub fn open_read_with(
+            &self,
+            name: &str,
+            _options: &crate::handle::ReadOptions,
+        ) -> Result<File> {
             let p = self.0.join(name);
             if let Ok(m) = fs::symlink_metadata(&p) {
                 if is_link(&m) {
@@ -1313,7 +1408,7 @@ mod sys {
             }
             File::open(&p).map_err(|e| FsError::io(p, e))
         }
-        pub fn create_new(&self, name: &str) -> Result<File> {
+        pub fn create_new(&self, name: &str, _retain_name: bool) -> Result<File> {
             let p = self.0.join(name);
             let f = OpenOptions::new()
                 .write(true)
