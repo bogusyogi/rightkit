@@ -33,7 +33,9 @@
 //! # Exchange rules
 //!
 //! * A reply must carry the request's correlation id, mode and exactly the requested names
-//!   ([`expect_reply`]); anything else, including a stale reply, is refused.
+//!   ([`expect_reply`]); anything else, including a reply to a different request, is refused.
+//!   These helpers keep no record of consumed requests: the caller chooses a unique id per
+//!   request and accepts one reply for it, and the transport or session owns replay protection.
 //! * An owner failure travels as an Error message with the request's id ([`HandoffPolicy::respond`]).
 //! * The receiver of an unsolicited reply (a sidecar) confirms with an Ack ([`Message::ack`]);
 //!   the spawner checks it with [`expect_ack`].
@@ -56,7 +58,7 @@
 //! * Values and every buffer this module owns that holds them are zeroized on drop. No error
 //!   carries value bytes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::process::Command;
@@ -445,10 +447,11 @@ impl Message {
     /// Build a request. Names are validated and must be unique.
     pub fn request<S: AsRef<str>>(id: u64, mode: Mode, names: &[S]) -> Result<Message> {
         let mut out: Vec<String> = Vec::with_capacity(names.len());
+        let mut seen: HashSet<&str> = HashSet::with_capacity(names.len());
         for n in names {
             let n = n.as_ref();
             validate_name(n)?;
-            if out.iter().any(|x| x == n) {
+            if !seen.insert(n) {
                 return Err(HandoffError::DuplicateName { name: n.to_owned() });
             }
             out.push(n.to_owned());
@@ -550,6 +553,18 @@ pub fn expect_reply<S: AsRef<str>>(
             // Snapshot keys are already sorted and unique.
             if !want.iter().copied().eq(snapshot.names()) {
                 return Err(HandoffError::NamesMismatch);
+            }
+            // A directly constructed strict reply could carry Absent or ReadFailed entries, which
+            // the encoder and decoder both refuse: refuse them here too.
+            if mode == Mode::Strict
+                && snapshot
+                    .entries
+                    .values()
+                    .any(|e| !matches!(e, Entry::Present(_)))
+            {
+                return Err(HandoffError::Malformed(
+                    "strict reply needs Present entries",
+                ));
             }
             Ok(snapshot)
         }
@@ -659,9 +674,10 @@ fn validate_message(msg: &Message, limits: &Limits) -> Result<()> {
     match msg {
         Message::Request { names, .. } => {
             wire_count(names.len(), limits)?;
-            for (i, n) in names.iter().enumerate() {
+            let mut seen: HashSet<&str> = HashSet::with_capacity(names.len());
+            for n in names {
                 validate_name(n)?;
-                if names[..i].iter().any(|x| x == n) {
+                if !seen.insert(n.as_str()) {
                     return Err(HandoffError::DuplicateName { name: n.clone() });
                 }
             }
@@ -816,9 +832,10 @@ fn decode_body(kind: MessageKind, id: u64, body: &[u8], limits: &Limits) -> Resu
                 });
             }
             let mut names: Vec<String> = Vec::with_capacity(count);
+            let mut seen: HashSet<&str> = HashSet::with_capacity(count);
             for _ in 0..count {
                 let n = c.name()?;
-                if names.iter().any(|x| x == n) {
+                if !seen.insert(n) {
                     return Err(HandoffError::DuplicateName { name: n.to_owned() });
                 }
                 names.push(n.to_owned());
@@ -1292,6 +1309,40 @@ mod tests {
         drop(first);
         let again = StdinSession::begin().unwrap();
         drop(again);
+    }
+
+    #[test]
+    fn a_directly_built_strict_reply_with_a_non_present_entry_is_refused() {
+        let mut snap = Snapshot::new();
+        snap.insert_present("a", Secret::from_string("x")).unwrap();
+        snap.insert_absent("b").unwrap();
+        let msg = Message::Reply {
+            id: 3,
+            mode: Mode::Strict,
+            snapshot: snap,
+        };
+        let err = expect_reply(msg, 3, Mode::Strict, &["a", "b"]).err();
+        assert_eq!(
+            err,
+            Some(HandoffError::Malformed(
+                "strict reply needs Present entries"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_request_with_thousands_of_distinct_names_is_checked_in_linear_time() {
+        let names: Vec<String> = (0..20_000).map(|i| format!("n{i}")).collect();
+        let limits = Limits {
+            max_frame_bytes: HARD_MAX_FRAME_BYTES,
+            max_names: 30_000,
+        };
+        let msg = Message::request(1, Mode::Strict, &names).unwrap();
+        let mut bytes = Vec::new();
+        write_message_with_limits(&mut bytes, &msg, &limits).unwrap();
+        let back = read_single_message(&mut bytes.as_slice(), &limits).unwrap();
+        let (_, _, got) = back.into_request().unwrap();
+        assert_eq!(got.len(), 20_000);
     }
 
     #[test]

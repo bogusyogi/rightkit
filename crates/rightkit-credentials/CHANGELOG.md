@@ -2,6 +2,7 @@
 
 ## 0.4.2 — 2026-10-22
 
+- Astra review hardening (hand-off): duplicate-name detection is set-based (linear, was quadratic with permissive `Limits`); `expect_reply` refuses a directly constructed strict reply that carries Absent or ReadFailed entries; the docs no longer claim stale-reply rejection beyond the id check (callers use unique ids and accept one reply; the transport owns replay protection). Two regression tests added.
 - Added the `handoff` module (rightkit#886): owner-binary secret hand-off. A versioned, length-prefixed envelope (kinds Request, Reply, Error, Ack; u64 correlation id; `write_message`, `read_message`, `expect_reply`, `expect_ack`), strict and snapshot (Present, Absent, ReadFailed) replies with a full-replacement rule, `read_stdin_snapshot` / `read_stdin_bundle` returning `Delivery { id, bundle }` over an owned unbuffered stdin duplicate (one session per process, no unsafe), `scrub_inherited_env`, `SecretBundle` (names-only `Debug`, zeroizing, not `Clone`), and the owner-side `HandoffPolicy` of explicit (logical name, account) pairs answering non-interactively from the owner's own `Store`. Also `Store::non_interactive()`. Transport-agnostic, additive, every OS; no keychain access widening (cross-binary sharing stays settled as never, #884).
 
 ## 0.4.1
