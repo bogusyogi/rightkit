@@ -336,9 +336,30 @@ pub fn authenticate(request: &Request<'_>) -> Result<Verified, OsAuthError> {
 /// `Activity` or `JavaVM` is [`OsAuthError::Unavailable`]. It must return within `timeout`
 /// (cancelling the prompt and returning [`OsAuthError::Timeout`]); the crate cannot interrupt a
 /// bridge call.
+///
+/// PK08-7 Android policy (rightkit#771): `BIOMETRIC_STRONG | DEVICE_CREDENTIAL` is only a
+/// supported prompt combination from API 30; on API 28/29 — or when the level is unknown — this
+/// crate returns [`Availability::Unavailable`]/[`OsAuthError::Unavailable`] before any prompt
+/// opens, with no `BIOMETRIC_WEAK` downgrade. Bridges report the device level through
+/// [`BiometricBridge::android_api_level`] (the future rightkit-android bridge reports
+/// `Build.VERSION.SDK_INT`); the refusal lives here so no bridge can prompt below API 30.
 pub trait BiometricBridge: Send + Sync + 'static {
     fn availability(&self) -> Availability;
     fn authenticate(&self, reason: &str, timeout: Duration) -> Result<(), OsAuthError>;
+    /// The device's Android API level (`Build.VERSION.SDK_INT`), when the bridge can read it.
+    /// The default `None` (unknown) fails closed under the PK08-7 policy above.
+    fn android_api_level(&self) -> Option<u32> {
+        None
+    }
+}
+
+/// The lowest Android API level whose `BiometricPrompt` supports the strong-authenticator
+/// combination this primitive requires (PK08-7).
+const ANDROID_MIN_API_LEVEL: u32 = 30;
+
+#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+fn android_prompt_allowed(api_level: Option<u32>) -> bool {
+    api_level.is_some_and(|level| level >= ANDROID_MIN_API_LEVEL)
 }
 
 static BRIDGE: Mutex<Option<Arc<dyn BiometricBridge>>> = Mutex::new(None);
@@ -359,7 +380,10 @@ fn installed_bridge() -> Option<Arc<dyn BiometricBridge>> {
 
 #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
 fn bridge_availability(bridge: Option<Arc<dyn BiometricBridge>>) -> Availability {
-    bridge.map_or(Availability::Unavailable, |b| b.availability())
+    match bridge {
+        Some(b) if android_prompt_allowed(b.android_api_level()) => b.availability(),
+        _ => Availability::Unavailable,
+    }
 }
 
 #[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
@@ -368,6 +392,9 @@ fn bridge_authenticate(
     request: &Request<'_>,
 ) -> Result<Verified, OsAuthError> {
     let bridge = bridge.ok_or(OsAuthError::Unavailable)?;
+    if !android_prompt_allowed(bridge.android_api_level()) {
+        return Err(OsAuthError::Unavailable);
+    }
     bridge
         .authenticate(request.reason.trim(), request.timeout)
         .map(|()| Verified::now())
@@ -672,16 +699,35 @@ mod tests {
         outcome: Result<(), OsAuthError>,
         availability: Availability,
         seen: Mutex<Vec<(String, Duration)>>,
+        availability_calls: Mutex<u32>,
+        api_level: Option<u32>,
+    }
+
+    impl FakeBridge {
+        fn new(outcome: Result<(), OsAuthError>, availability: Availability) -> Self {
+            Self {
+                outcome,
+                availability,
+                seen: Mutex::new(Vec::new()),
+                availability_calls: Mutex::new(0),
+                api_level: Some(30),
+            }
+        }
     }
 
     impl BiometricBridge for FakeBridge {
         fn availability(&self) -> Availability {
+            *self.availability_calls.lock().unwrap() += 1;
             self.availability
         }
 
         fn authenticate(&self, reason: &str, timeout: Duration) -> Result<(), OsAuthError> {
             self.seen.lock().unwrap().push((reason.to_owned(), timeout));
             self.outcome
+        }
+
+        fn android_api_level(&self) -> Option<u32> {
+            self.api_level
         }
     }
 
@@ -692,11 +738,7 @@ mod tests {
             bridge_authenticate(None, &Request::new("Unlock")).unwrap_err(),
             OsAuthError::Unavailable
         );
-        let ok = Arc::new(FakeBridge {
-            outcome: Ok(()),
-            availability: Availability::Available,
-            seen: Mutex::new(Vec::new()),
-        });
+        let ok = Arc::new(FakeBridge::new(Ok(()), Availability::Available));
         let bridge: Arc<dyn BiometricBridge> = ok.clone();
         assert_eq!(
             bridge_availability(Some(bridge.clone())),
@@ -708,15 +750,38 @@ mod tests {
             ok.seen.lock().unwrap().as_slice(),
             &[("Unlock".to_owned(), Duration::from_secs(5))]
         );
-        let denied: Arc<dyn BiometricBridge> = Arc::new(FakeBridge {
-            outcome: Err(OsAuthError::Failed),
-            availability: Availability::Available,
-            seen: Mutex::new(Vec::new()),
-        });
+        let denied: Arc<dyn BiometricBridge> =
+            Arc::new(FakeBridge::new(Err(OsAuthError::Failed), Availability::Available));
         assert_eq!(
             bridge_authenticate(Some(denied), &Request::new("Unlock")).unwrap_err(),
             OsAuthError::Failed
         );
+    }
+
+    #[test]
+    fn android_api_below_30_or_unknown_refuses_with_no_prompt() {
+        for api_level in [Some(28), Some(29), None] {
+            let fake = Arc::new(FakeBridge {
+                api_level,
+                ..FakeBridge::new(Ok(()), Availability::Available)
+            });
+            let bridge: Arc<dyn BiometricBridge> = fake.clone();
+            assert_eq!(bridge_availability(Some(bridge.clone())), Availability::Unavailable);
+            assert_eq!(
+                bridge_authenticate(Some(bridge), &Request::new("Unlock")).unwrap_err(),
+                OsAuthError::Unavailable
+            );
+            assert!(fake.seen.lock().unwrap().is_empty(), "no prompt may be constructed");
+            assert_eq!(*fake.availability_calls.lock().unwrap(), 0);
+        }
+        let at_30 = Arc::new(FakeBridge {
+            api_level: Some(30),
+            ..FakeBridge::new(Ok(()), Availability::Available)
+        });
+        let bridge: Arc<dyn BiometricBridge> = at_30.clone();
+        assert_eq!(bridge_availability(Some(bridge.clone())), Availability::Available);
+        assert!(bridge_authenticate(Some(bridge), &Request::new("Unlock")).is_ok());
+        assert_eq!(at_30.seen.lock().unwrap().len(), 1);
     }
 
     #[test]

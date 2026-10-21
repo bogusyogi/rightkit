@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Fixed (PK08-7, rightkit#771): Android OS-auth now refuses with typed `Unavailable` on API 28/29 — and when the API level is unknown — before any prompt opens, with no `BIOMETRIC_WEAK` downgrade. `BiometricBridge` gains `android_api_level()` (additive, defaults to `None` = fail closed); bridges report `Build.VERSION.SDK_INT`. Fake-bridge tests assert 28, 29 and unknown refuse with zero prompt calls and that API 30 passes through. 0.4.0 lacked this refusal; prefer this release on Android.
+
 ## 0.4.0 — unreleased (PK03-1, PK08-7)
 
 Cumulative since the published 0.3.0 (crates.io has no 0.3.1 or 0.3.2; the staged 0.3.1 changes are folded in here).

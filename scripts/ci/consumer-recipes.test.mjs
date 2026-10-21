@@ -117,7 +117,7 @@ test("a missing provider prerequisite refuses; an other-OS run is only not-appli
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
 test("committed credentials & browser inventory declare their reviewed runs", () => {
-  const cred = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-credentials", version: "0.4.0" } });
+  const cred = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-credentials", version: "0.4.1" } });
   assert.deepEqual(cred.runs.map(r => [r.id, r.args, r.features, r.hosts]), [["core", ["core"], [], null], ["native-db", ["native-db"], ["sqlcipher-system"], ["win32", "darwin"]], ["native-helper", ["native-helper"], [], ["darwin"]]]);
   assert.ok(cred.evidence.dependency.features.includes("db-adapter"));
   assert.deepEqual(cred.runs[2].env, { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" });
