@@ -994,7 +994,11 @@ mod tests {
         if let Some(path) = sample {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             assert!(name.starts_with("sample_helperhang_"), "{name}");
-            assert!(name.ends_with(&format!("_{pid}.txt")), "{name}");
+            // sample_<kind>_<stamp>_<pid>_<seq>.txt (the sequence keeps same-second names apart).
+            let stem = name.strip_suffix(".txt").expect("txt sample");
+            let (rest, seq) = stem.rsplit_once('_').expect("sequence suffix");
+            assert!(seq.parse::<u64>().is_ok(), "{name}");
+            assert!(rest.ends_with(&format!("_{pid}")), "{name}");
             let text = std::fs::read_to_string(&path).unwrap();
             assert!(!text.contains("sleep"), "known secret survived: {text}");
         }

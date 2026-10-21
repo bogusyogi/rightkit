@@ -846,12 +846,12 @@ fn decode_body(kind: MessageKind, id: u64, body: &[u8], limits: &Limits) -> Resu
                     0 => {
                         let hex_len = c.u32()? as usize;
                         let hex = c.take(hex_len)?;
-                        if hex_len % 2 != 0 {
+                        if !hex_len.is_multiple_of(2) {
                             return Err(HandoffError::Malformed("odd-length value"));
                         }
                         let mut value: Zeroizing<Vec<u8>> =
                             Zeroizing::new(Vec::with_capacity(hex_len / 2));
-                        for pair in hex.chunks_exact(2) {
+                        for pair in hex.as_chunks::<2>().0 {
                             match (nibble(pair[0]), nibble(pair[1])) {
                                 (Some(hi), Some(lo)) => value.push((hi << 4) | lo),
                                 _ => return Err(HandoffError::Malformed("value is not hex")),
