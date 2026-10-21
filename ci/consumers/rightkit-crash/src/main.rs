@@ -1,4 +1,4 @@
-// rightkit-crash 0.3.4 consumed by exact registry pin, outside the workspace.
+// rightkit-crash 0.3.5 consumed by exact registry pin, outside the workspace.
 //
 // Proves list_pending, the crash-report discovery a host runs before it enqueues: only files named
 // crash_*.json count, the count is exact, and unrelated files in the same directory are ignored.
@@ -31,5 +31,5 @@ fn main() {
     );
 
     fs::remove_dir_all(&dir).expect("remove consumer temp dir");
-    println!("OK rightkit-crash 0.3.4 (registry consumer)");
+    println!("OK rightkit-crash 0.3.5 (registry consumer)");
 }

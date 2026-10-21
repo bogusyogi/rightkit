@@ -1,6 +1,6 @@
-# rightkit-crash 0.3.4 registry consumer (PK11)
+# rightkit-crash 0.3.5 registry consumer (PK11)
 
-Standalone consumer, outside the workspace, pinning `rightkit-crash =0.3.4` exactly with default
+Standalone consumer, outside the workspace, pinning `rightkit-crash =0.3.5` exactly with default
 features off. It exercises `list_pending`: only `crash_*.json` files are counted, and unrelated files
 in the same directory are ignored.
 
