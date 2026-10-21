@@ -748,6 +748,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   assert.deepEqual(entries.map((e) => `${e.registry} ${e.name}@${e.version} ${e.sha256}`).sort(), [
     "crates rightkit-child-process@0.5.4 b0e29813abd52bdba7629f4a82fa506338c21163d7d8675ce37fd63ea79a5105",
     "crates rightkit-crash@0.3.4 e59139ab374886e6c84b5fa8de86119d6cdfbd0d353baf2ffa82e756c93e796c",
+    "crates rightkit-crash@0.3.5 50a29ac424871a0d65fd186c6f65f0ebadc11fdbda9270e1446ce490c06dc0d0",
     "crates rightkit-db@0.5.1 5faf1c33643ce547f0ed1b73a2bf975390095cbd99476f737a2e35417afca4fc",
     "crates rightkit-fs@0.4.6 8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
     "crates rightkit-http@0.3.8 7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
@@ -769,6 +770,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
   // Mac tar streams; later ones are R8 exact-archive SIGNs on a single-unit qualification run.
   const foundation = { reviewer: "Oracle (agent source-byte review)", reviewRef: "agent-review:/root/npm_foundation_review/39398432518/source-bytes" };
   const reviews = {
+    "rightkit-crash@0.3.5": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/crash035_final_review/39535294878/crash-0.3.5" },
     "rightkit-overlay@0.2.0": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/overlay020_final_review/39531709031/overlay-0.2.0" },
     "rightkit-pdf@0.3.3": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/pdf033_final_review/39531711587/pdf-0.3.3" },
     "@rightkit/qa@0.5.2": {"reviewer":"Oracle (exact archive and native receipt review)","reviewRef":"agent-review:/root/review_chrome_diagnostic/39516076778/qa-0.5.2"},
