@@ -236,6 +236,237 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
+  # Isolated macOS credentials qualification helper (RightKitCredentialsQualification), mirroring
+  # build-swap/sign-swap: a secretless xcode-27 build compiles the unsigned app from pinned Swift
+  # sources, then a fresh release-environment signer embeds the qualification provisioning profile
+  # and Developer ID signs it. macOS verify downloads the same-run signed artifact for the
+  # rightkit-credentials native-helper run.
+  build-credentials-helper:
+    needs: [guard, plan]
+    if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.seal.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build the unsigned qualification helper from pinned sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/credentials-helper-unsigned"
+          stage="$out/stage"
+          rm -rf "$out" && mkdir -p "$stage/source" "$out/RightKitCredentialsQualification.app/Contents/MacOS"
+          commit="8f38ac109e09b182b0e5c0f4e365606a3522f45b"
+          git show "$commit:swift/RightKitSwift/Sources/RightKitAppleCredentials/AppleCredentialHelperHost.swift" > "$stage/source/AppleCredentialHelperHost.swift"
+          test "$(git hash-object "$stage/source/AppleCredentialHelperHost.swift")" = "e9f6aff167f9219eab465fa4d87f9bcc992bee07"
+          git show "$commit:swift/RightKitSwift/Sources/RightKitAppleCredentials/ForeignGenericPassword.swift" > "$stage/source/ForeignGenericPassword.swift"
+          test "$(git hash-object "$stage/source/ForeignGenericPassword.swift")" = "19b29a3d71663736fe481873e4490c53d0c4f27a"
+          git show "$commit:swift/RightKitSwift/Sources/RightKitAppleCredentials/RightKitAppleCredentials.swift" > "$stage/source/RightKitAppleCredentials.swift"
+          test "$(git hash-object "$stage/source/RightKitAppleCredentials.swift")" = "a4c53c429961eb187000a1f8151662ec4c529e26"
+          git show "$commit:swift/RightKitSwift/Sources/RightKitAppleCredentials/SyncedCredentialPolicy.swift" > "$stage/source/SyncedCredentialPolicy.swift"
+          test "$(git hash-object "$stage/source/SyncedCredentialPolicy.swift")" = "e1e3d9bc136c40ebccc13acb910f0bd009b56ca9"
+          git show "$commit:swift/RightKitSwift/Sources/RightKitAppleCredentials/SyncedEnvelopeStore.swift" > "$stage/source/SyncedEnvelopeStore.swift"
+          test "$(git hash-object "$stage/source/SyncedEnvelopeStore.swift")" = "fd45199d5ff0846712e05e4d833c9f60acd7a5b9"
+          fixture="ci/consumers/rightkit-credentials/qualification-helper"
+          cp "$GITHUB_WORKSPACE/$fixture/main.swift" "$GITHUB_WORKSPACE/$fixture/Info.plist" "$GITHUB_WORKSPACE/$fixture/entitlements.plist" "$stage/source/"
+          mkdir -p "$stage/module-cache"
+          export CLANG_MODULE_CACHE_PATH="$stage/module-cache"
+          xcrun swiftc -swift-version 6 -target "$(uname -m)-apple-macosx14.0" -module-cache-path "$stage/module-cache" -parse-as-library -emit-library -static -emit-module -module-name RightKitAppleCredentials -emit-module-path "$stage/RightKitAppleCredentials.swiftmodule" "$stage/source/AppleCredentialHelperHost.swift" "$stage/source/ForeignGenericPassword.swift" "$stage/source/RightKitAppleCredentials.swift" "$stage/source/SyncedCredentialPolicy.swift" "$stage/source/SyncedEnvelopeStore.swift" -o "$stage/libRightKitAppleCredentials.a"
+          xcrun swiftc -swift-version 6 -target "$(uname -m)-apple-macosx14.0" -module-cache-path "$stage/module-cache" -I "$stage" -L "$stage" -lRightKitAppleCredentials "$stage/source/main.swift" -o "$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
+          cp "$stage/source/Info.plist" "$out/RightKitCredentialsQualification.app/Contents/Info.plist"
+          python3 - "$stage" "$out" <<'PY'
+          import hashlib
+          import json
+          import sys
+          records = [{"name": "git-commit", "commit": "8f38ac109e09b182b0e5c0f4e365606a3522f45b"}]
+          for name in ["AppleCredentialHelperHost.swift", "ForeignGenericPassword.swift", "RightKitAppleCredentials.swift", "SyncedCredentialPolicy.swift", "SyncedEnvelopeStore.swift", "main.swift", "Info.plist", "entitlements.plist"]:
+              with open(sys.argv[1] + "/source/" + name, "rb") as stream:
+                  data = stream.read()
+              records.append({"name": name, "sha256": hashlib.sha256(data).hexdigest()})
+          with open(sys.argv[2] + "/source-inputs.json", "w") as stream:
+              stream.write(json.dumps({"schema": 1, "files": records}, indent=2) + "\n")
+          PY
+      - name: Seal unsigned helper & bind its native build receipt
+        id: seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/credentials-helper-unsigned"
+          bin="$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
+          test -f "$bin"
+          chmod 0755 "$bin"
+          (cd "$(dirname "$bin")" && shasum -a 256 RightKitCredentialsQualification > "$out/helper.sha256")
+          printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-credentials-helper\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
+          cat "$out/helper.sha256" >> "$out/source-receipt.txt"
+          printf 'sha256=%s\n' "$(cut -d ' ' -f 1 "$out/helper.sha256")" >> "$GITHUB_OUTPUT"
+      - name: Hand over sealed unsigned helper
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rightkit-credentials-helper-unsigned-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/credentials-helper-unsigned
+          retention-days: 90
+          overwrite: false
+          if-no-files-found: error
+
+  sign-credentials-helper:
+    needs: [guard, plan, build-credentials-helper]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-credentials-helper.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') }}
+    environment: release
+    runs-on: xcode-27
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch exact unsigned helper from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rightkit-credentials-helper-unsigned-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/credentials-helper-unsigned
+      - name: Validate same-run source receipt & expected unsigned hash before credential import
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.build-credentials-helper.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          in="$RUNNER_TEMP/credentials-helper-unsigned"
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          shopt -s dotglob nullglob
+          files=("$in"/*)
+          test "${#files[@]}" -eq 5
+          for file in RightKitCredentialsQualification.app helper.sha256 source-receipt.txt source-inputs.json entitlements.plist; do
+            test -e "$in/$file"
+            test ! -L "$in/$file"
+          done
+          test -f "$in/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
+          test -f "$in/RightKitCredentialsQualification.app/Contents/Info.plist"
+          test ! -e "$in/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile"
+          printf '%s  RightKitCredentialsQualification\n' "$EXPECTED_SHA256" > "$RUNNER_TEMP/expected-credentials-helper.sha256"
+          cmp "$RUNNER_TEMP/expected-credentials-helper.sha256" "$in/helper.sha256"
+          printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=build-credentials-helper\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$RUNNER_TEMP/expected-credentials-helper-receipt.txt"
+          cat "$RUNNER_TEMP/expected-credentials-helper.sha256" >> "$RUNNER_TEMP/expected-credentials-helper-receipt.txt"
+          cmp "$RUNNER_TEMP/expected-credentials-helper-receipt.txt" "$in/source-receipt.txt"
+          (cd "$in/RightKitCredentialsQualification.app/Contents/MacOS" && shasum -a 256 -c "$in/helper.sha256")
+      - name: Install Apple signing identity in temporary keychain
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate_path="$RUNNER_TEMP/apple-signing.p12"
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: -k "$APPLE_KEYCHAIN_PASSWORD" "$keychain_path"
+          security list-keychain -d user -s "$keychain_path"
+          rm -f "$certificate_path"
+      - name: Embed the qualification profile, Developer ID sign and verify the helper
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID: ${{ vars.APPLE_DEVELOPER_ID }}
+          APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: ${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          in="$RUNNER_TEMP/credentials-helper-unsigned"
+          out="$RUNNER_TEMP/credentials-helper-signed"
+          rm -rf "$out" && mkdir -p "$out"
+          profile="$RUNNER_TEMP/credentials-qual.mobileprovision"
+          printf '%s' "$APPLE_CREDENTIALS_QUAL_PROFILE_BASE64" | base64 --decode > "$profile"
+          identity_hash="$(security find-identity -v -p codesigning "$RUNNER_TEMP/apple-signing.keychain-db" | awk '/Developer ID Application/ {print $2; exit}')"
+          [[ "$identity_hash" =~ ^[0-9A-F]{40}$ ]]
+          python3 - "$profile" "$identity_hash" <<'PY'
+          import datetime
+          import hashlib
+          import plistlib
+          import subprocess
+          import sys
+          team = "6KLGD3LLKF"
+          identifier = "org.rightkit.qualification.credentials"
+          profile, identity_hash = sys.argv[1], sys.argv[2].upper()
+          raw = subprocess.run(["security", "cms", "-D", "-i", profile], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+          data = plistlib.loads(raw)
+          entitlements = data.get("Entitlements", {})
+          if entitlements.get("application-identifier") != team + "." + identifier:
+              raise SystemExit("profile application-identifier mismatch")
+          expected = team + "." + identifier
+          groups = entitlements.get("keychain-access-groups")
+          def authorized(group):
+              if group == expected:
+                  return True
+              return isinstance(group, str) and group.startswith(team + ".") and group.endswith("*") and "*" not in group[:-1] and expected.startswith(group[:-1])
+          if not isinstance(groups, list) or not any(authorized(group) for group in groups):
+              raise SystemExit("profile keychain-access-groups mismatch")
+          if team not in data.get("TeamIdentifier", []):
+              raise SystemExit("profile team mismatch")
+          platforms = data.get("Platform", [])
+          if not platforms or any(platform not in ("OSX", "macOS") for platform in platforms):
+              raise SystemExit("profile platform mismatch")
+          expiry = data.get("ExpirationDate")
+          if expiry is None:
+              raise SystemExit("profile expiry missing")
+          if expiry.tzinfo is None:
+              expiry = expiry.replace(tzinfo=datetime.timezone.utc)
+          if datetime.datetime.now(datetime.timezone.utc) >= expiry:
+              raise SystemExit("profile expired")
+          if entitlements.get("get-task-allow", False) is not False:
+              raise SystemExit("profile must disable debugging")
+          fingerprints = {hashlib.sha1(certificate).hexdigest().upper() for certificate in data.get("DeveloperCertificates", [])}
+          if identity_hash not in fingerprints:
+              raise SystemExit("profile does not authorize the signing identity")
+          PY
+          cp -R "$in/RightKitCredentialsQualification.app" "$out/"
+          cp "$profile" "$out/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile"
+          cp "$in/source-receipt.txt" "$out/unsigned-source-receipt.txt"
+          cp "$in/entitlements.plist" "$out/entitlements.plist"
+          cp "$in/source-inputs.json" "$out/source-inputs.json"
+          codesign --force --strict --options runtime --timestamp --entitlements "$in/entitlements.plist" --sign "$APPLE_DEVELOPER_ID" "$out/RightKitCredentialsQualification.app"
+          codesign --verify --strict --verbose=2 "$out/RightKitCredentialsQualification.app"
+          details="$(codesign -dvv "$out/RightKitCredentialsQualification.app" 2>&1)"
+          printf '%s\n' "$details"
+          printf '%s\n' "$details" | grep -q 'Authority=Developer ID Application'
+          printf '%s\n' "$details" | grep -q 'TeamIdentifier=6KLGD3LLKF'
+          printf '%s\n' "$details" | grep -q 'Identifier=org.rightkit.qualification.credentials'
+          printf '%s\n' "$details" | grep -Eq 'flags=0x[0-9a-f]+\(.*runtime'
+          python3 - "$out/RightKitCredentialsQualification.app" <<'PY'
+          import plistlib
+          import subprocess
+          import sys
+          result = subprocess.run(["codesign", "-d", "--entitlements", ":-", sys.argv[1]], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+          entitlements = plistlib.loads(result.stdout)
+          if entitlements != {"keychain-access-groups": ["6KLGD3LLKF.org.rightkit.qualification.credentials"]}:
+              raise SystemExit("signed helper must carry only its isolated access group")
+          PY
+          bin="$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
+          (cd "$(dirname "$bin")" && shasum -a 256 RightKitCredentialsQualification > "$out/helper.sha256" && cat "$out/helper.sha256")
+          printf 'repository=%s\nsource=%s\nrun=%s\nattempt=%s\nworkflow=%s\nhost=%s\narch=%s\njob=sign-credentials-helper\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_WORKFLOW_REF" "$RUNNER_OS" "$RUNNER_ARCH" > "$out/source-receipt.txt"
+          cat "$out/helper.sha256" >> "$out/source-receipt.txt"
+          { echo '### RightKitCredentialsQualification (Developer ID signed)'; echo '```'; cat "$out/helper.sha256"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove Apple signing material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          keychain_path="$RUNNER_TEMP/apple-signing.keychain-db"
+          security delete-keychain "$keychain_path" || true
+          rm -f "$RUNNER_TEMP/apple-signing.p12" "$RUNNER_TEMP/credentials-qual.mobileprovision"
+      - name: Hand over the signed helper
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rightkit-credentials-helper-signed
+          path: ${{ runner.temp }}/credentials-helper-signed
+          retention-days: 90
+          overwrite: true
+          if-no-files-found: error
+
   pack:
     needs: [guard, plan, build-swap, sign-swap]
     if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped')) }}
@@ -294,8 +525,8 @@ jobs:
           if-no-files-found: error
 
   verify:
-    needs: [guard, plan, pack]
-    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' }}
+    needs: [guard, plan, pack, build-credentials-helper, sign-credentials-helper]
+    if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') && needs.build-credentials-helper.result == 'success' && needs.sign-credentials-helper.result == 'success') || ((needs.plan.outputs.registry != 'crates' || !contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ')) && needs.build-credentials-helper.result == 'skipped' && needs.sign-credentials-helper.result == 'skipped')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -363,6 +594,24 @@ jobs:
           RIGHTKIT_CHROME_FOR_TESTING_ROOT: ${{ runner.temp }}/chrome-for-testing
           PUBLISH_DRY_RUN: "false"
         run: node scripts/ci/provision-chrome.mjs
+      - name: Export the trusted pinned CFT route for R2 consumers
+        if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
+        shell: bash
+        env:
+          RK_R2_CFT_MANAGED_ROOT: ${{ runner.temp }}/chrome-for-testing
+        run: node scripts/ci/provision-r2-cft-env.mjs
+      - name: Fetch the signed credentials qualification helper
+        if: ${{ needs.sign-credentials-helper.result == 'success' && runner.os == 'macOS' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: rightkit-credentials-helper-signed
+          path: ${{ runner.temp }}/credentials-helper-signed
+      - name: Export the sealed signed-helper route for credentials consumers
+        if: ${{ needs.sign-credentials-helper.result == 'success' && runner.os == 'macOS' }}
+        shell: bash
+        env:
+          CREDENTIALS_HELPER_SIGNED_ROOT: ${{ runner.temp }}/credentials-helper-signed
+        run: node scripts/ci/provision-credentials-helper-env.mjs
       - name: Mount mandatory FS qualification volumes
         if: ${{ needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}
         shell: bash
@@ -384,6 +633,12 @@ jobs:
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
+          RK_R2_CFT_ROOT: ${{ env.RK_R2_CFT_ROOT }}
+          RK_R2_CFT_SHA256: ${{ env.RK_R2_CFT_SHA256 }}
+          RK_R2_HEADLESS_SHELL_SHA256: ${{ env.RK_R2_HEADLESS_SHELL_SHA256 }}
+          RK_SOURCE_HELPER_APP: ${{ env.RK_SOURCE_HELPER_APP }}
+          RK_CONSUMER_HELPER_NAME: ${{ env.RK_CONSUMER_HELPER_NAME }}
+          RK_CONSUMER_HELPER_TEAM_ID: ${{ env.RK_CONSUMER_HELPER_TEAM_ID }}
         run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_UNITS" --allow-host-exclusion "$PUBLISH_ALLOW_HOST_EXCLUSION" --allow-no-test "$PUBLISH_ALLOW_NO_TEST" --allow-ignored "$PUBLISH_ALLOW_IGNORED" --allow-missing-assets "$PUBLISH_ALLOW_MISSING_ASSETS"
       - name: Verify the sealed bytes and write this host's receipt
         shell: bash
@@ -395,6 +650,12 @@ jobs:
           PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
           PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
+          RK_R2_CFT_ROOT: ${{ env.RK_R2_CFT_ROOT }}
+          RK_R2_CFT_SHA256: ${{ env.RK_R2_CFT_SHA256 }}
+          RK_R2_HEADLESS_SHELL_SHA256: ${{ env.RK_R2_HEADLESS_SHELL_SHA256 }}
+          RK_SOURCE_HELPER_APP: ${{ env.RK_SOURCE_HELPER_APP }}
+          RK_CONSUMER_HELPER_NAME: ${{ env.RK_CONSUMER_HELPER_NAME }}
+          RK_CONSUMER_HELPER_TEAM_ID: ${{ env.RK_CONSUMER_HELPER_TEAM_ID }}
         run: node scripts/ci/publish.mjs verify
       - name: Detach FS qualification volumes & remove bounded fixture state
         if: ${{ always() && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-fs ') }}

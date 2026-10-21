@@ -2,7 +2,7 @@
 
 Static candidate for PK12-2/4 R2(a) packed artifact & R2(b) fetched artifact. Named consumer: ScrapeRight `inapp_sign_in.rs` cookie publication. Source uses public crate APIs only. Current browser API exposes `BrowserSession` + `LaunchOptions`; no public `BrowserBuilder` exists.
 
-Fable substitutes `__BROWSER_VERSION__` & `__FS_VERSION__` in `Cargo.toml.in` with exact selected artifact versions, then writes `Cargo.toml`. Keep `cookie-export` enabled & `install` disabled. Both RightKit versions must exist in sealed directory registry for R2(a), then real registry for R2(b). No path, Git, workspace, patch or test-seam dependency. Pin & retain resulting Cargo.lock; R2(b) must bind same exact browser/fs versions & run unchanged source. Existing harness owns registry configuration, packed/fetched hashes, host gates & execution output.
+Committed `Cargo.toml` pins exact selected versions (`rightkit-browser = "=0.3.5"`, `rightkit-fs = "=0.4.6"` with feature `fs` for `private` verify APIs); no template substitution. Keep `cookie-export` enabled & `install` disabled. Both RightKit versions must exist in sealed directory registry for R2(a), then real registry for R2(b). No path, Git, workspace, patch or test-seam dependency, & no `Cargo.lock` committed in this directory (validator rejects it); harness pins & retains lock output outside recipe. R2(b) must bind same exact browser/fs versions & run unchanged source. Existing harness owns registry configuration, packed/fetched hashes, host gates & execution output.
 
 Required inputs, never defaulted:
 

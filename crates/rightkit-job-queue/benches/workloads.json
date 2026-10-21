@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "crate": "rightkit-job-queue",
+  "defaultFeatures": false,
+  "coverage": {
+    "default": "no workload: default features are empty (Cargo.toml [features] default = []); the default build has only JobError and InlineCancelRegistry (src/lib.rs, src/error.rs, src/inline.rs) and starts no thread or timer",
+    "store": "covered by pool_budget: StagedPool starts rk-pool-lane and rk-pool-dispatch threads (src/pool.rs:590-611); finite synthetic jobs exercise store, dispatcher, job workers, compute lane, lane idle callback, and shutdown",
+    "protocol": "covered transitively by supervisor (Cargo.toml: supervisor = [protocol, doctor, zeroize]); wire constants only, no thread or timer (src/wire.rs)",
+    "contract": "StagedPool store threads covered by pool_budget; contract feature's src/contract.rs:543 serves long-running requests on demand, event-driven, and is not exercised by this pool workload",
+    "supervisor": "covered by workload budget: an EngineSupervisor with a live engine, 100 event subscribers, and the default 2 s HealthCheck ping then idle (benches/budget.rs:55-90); the monitor thread (src/supervisor.rs:1703 boot, 1806 monitor), the health probe schedule (src/supervisor.rs:1820-1838), the event forwarder (src/supervisor.rs:1791) and the restart thread (src/supervisor.rs:1985, only when a restart is scheduled) all run under this feature",
+    "doctor": "covered transitively by supervisor; src/doctor_probe.rs:101-121 is a bounded probe (sleep of at most 5 ms inside its timeout), not a background thread",
+    "service": "StagedPool store threads covered by pool_budget; src/service.rs has no thread, sleep or timer, and service transport is not exercised by this pool workload",
+    "crash": "NOT COVERED, no workload needed for continuous work: src/crash_observer.rs (25 lines) contains no thread, sleep, interval or timer; it only records an abnormal engine exit",
+    "ffi": "NOT COVERED, one-shot only: spawn_reaper starts an rkp-reap thread (src/ffi.rs:786-803) that retries shutdown with a doubling pause from 250 ms for a bounded number of attempts; per-call threads at src/ffi.rs:659 and src/ffi.rs:849 are event-driven. No continuous timer, so a gap of lower priority than store"
+  },
+  "workloads": [
+    {
+      "id": "budget",
+      "args": [
+        "test",
+        "--locked",
+        "--profile",
+        "release-iterate",
+        "-p",
+        "rightkit-job-queue",
+        "--features",
+        "supervisor",
+        "--bench",
+        "budget"
+      ],
+      "bench": "budget",
+      "intervalMs": null
+    },
+    {
+      "id": "pool_budget",
+      "args": [
+        "test",
+        "--locked",
+        "--profile",
+        "release-iterate",
+        "-p",
+        "rightkit-job-queue",
+        "--features",
+        "store,supervisor",
+        "--bench",
+        "pool_budget",
+        "--",
+        "10000",
+        "30"
+      ],
+      "bench": "pool_budget",
+      "intervalMs": null
+    }
+  ]
+}

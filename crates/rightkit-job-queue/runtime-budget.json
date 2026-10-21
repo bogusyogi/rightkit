@@ -139,5 +139,5 @@
       }
     }
   ],
-  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. The 0.2.9 staged pool (pool::StagedPool) adds a continuous dispatcher thread and a compute lane thread while it runs; its resident memory, idle CPU, wake-ups and disk operations are not yet measured, so the ceilings above do not yet cover it and no numbers are declared for it."
+  "notes": "Ceilings come from the recorded measurements by stated rules (ceilingSources); a ceiling left null names its reason below. The 0.2.9 staged pool (pool::StagedPool) adds a continuous dispatcher thread and a compute lane thread while it runs. Its trusted workload is pool_budget (benches/pool_budget.rs, features store,supervisor: 10000 staged jobs, 30 s live idle, shutdown joins), but no measurement from it is recorded above yet, so the ceilings do not yet cover the pool and no numbers are declared for it until runtime qualification receipts exist."
 }

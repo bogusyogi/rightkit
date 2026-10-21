@@ -16,7 +16,7 @@ Shared browser and QA primitives for Right Suite apps: run storage and evidence 
 | `@rightkit/qa` | `export *` from evidence, devserver, frames, guard, loopback, ownership, paint, panes, process, workspace, storage, userdata, page and chrome modules. Includes `QaBrowserSession`, `QaPage`, `QaElement`, `QaKeyboard`, `QaMouse`, `TimeoutError`, `ElementOccludedError`, `FillMismatchError`, `freePort`. From 0.4.8 also `CdpClient`, `connectCdp`, `freePortSync`, `waitForHttp`, `stopDevServer`, `readDetachedRecord`, `DevServerIdentityError`. |
 | `@rightkit/qa/chrome` | Re-export of `@rightkit/qa-chrome` |
 
-Dependency: `@rightkit/qa-chrome` (exact `0.1.6`).
+Dependency: `@rightkit/qa-chrome` (exact `0.1.10`).
 
 Peer dependencies: none.
 
@@ -226,7 +226,7 @@ This package drives no native app and no WebView2 window (`spawnQaApp` only star
 
 ## Known issues
 
-- `@rightkit/qa-chrome` is pinned exactly to `0.1.9` (the published 0.5.1 pins `0.1.8`). A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers.
+- `@rightkit/qa-chrome` is pinned exactly to `0.1.10` (the published 0.5.2 pins `0.1.10`). A qa-chrome release therefore needs a `@rightkit/qa` republish to reach consumers.
 
 ## QA root limits
 

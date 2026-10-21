@@ -128,7 +128,7 @@ Added in 0.2.2:
 
 See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
 `tests/e2e_resume.rs`, and `tests/shared_runtime_gc.rs` for end-to-end usage. The tests use the
-`rightkit-qa` `MockServer` (Range, dropped connections, servers without resume) as a dev-dependency.
+`rightkit-http` testing `MockServer` (Range, dropped connections, servers without resume) as a dev-dependency.
 `tests/http_options.rs` covers the HTTP options above (trust roots, user agent validation, timeouts,
 retries, the total budget) against in-process listeners; its `dev-worker-override` tests run when the
 feature is enabled, and one test checks that the allowance is ignored when it is not.

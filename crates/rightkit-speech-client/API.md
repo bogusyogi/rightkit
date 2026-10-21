@@ -1,4 +1,4 @@
-# rightkit-speech-client 0.3.6: API reference
+# rightkit-speech-client 0.4.0: API reference
 
 Every public item, with one line on its purpose and the errors it returns. Errors are
 `ClientError` variants unless the row says otherwise. The host's input contract (what it

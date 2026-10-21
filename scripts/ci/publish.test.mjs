@@ -6,14 +6,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies } from "./publish.mjs";
+import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies, stageSealedHelperEnv } from "./publish.mjs";
 import { APPROVED_ARTIFACTS_FILE, checkReceipts, linuxRequiredFor, requiredHostsFor, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
 import { consumeCrates, consumeNpm as consumeNpmChecked, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
 // These portability tests use synthetic units without a reviewed PK recipe. Refusal of unreviewed npm units is
 // covered in npm-recipe-consumer.test.mjs, so only that one problem is dropped here.
 const consumeNpm = (options) => { const rows = consumeNpmChecked(options); for (const row of rows.values()) row.problems = row.problems.filter((problem) => !problem.includes("missing reviewed PK example")); return rows; };
 import { scanArchiveForSecrets } from "./archive-secret-scan.mjs";
-import { assertPublishDoc, assertUploadScript, LINUX_CHROME_IF, LINUX_IF, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
+import { assertPublishDoc, assertUploadScript, CREDENTIALS_OK_OR_SKIPPED, LINUX_CHROME_IF, LINUX_IF, MUTATIONS, proveMutations, proveUploadScriptMutations, CHROME_IF, PACK_IF, PUBLISH_CONCURRENCY_GROUP, QUALIFIED_ENV, QUALIFIED_RUN, SWAP_OK_OR_SKIPPED, UNSIGNED_ARTIFACT, UNSIGNED_VALIDATE_RUN, SIGN_SWAP_IF, UPLOAD_SCRIPT_MUTATIONS, VERIFY_IF } from "./workflow-contract.mjs";
+import { NATIVE_HELPER } from "./consumer-recipes.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { pinFor, recordPin } from "./provision-chrome.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
@@ -1269,7 +1270,7 @@ const realDoc = () => parseYaml(fs.readFileSync(new URL("../../.github/workflows
 test("qualification packs once, retains both native receipts & has no publication privilege or dispatch dry-run", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   assert.equal(assertPublishDoc(doc), true);
-  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "verify-linux", "qualified"]);
+  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"]);
   assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
   assert.equal(doc.on.workflow_dispatch.inputs.dry_run, undefined);
   assert.equal(doc.jobs.plan.outputs.dry_run, undefined);
@@ -1293,15 +1294,16 @@ test("packing & native verification stop after failed, skipped or cancelled requ
   const doc = realDoc();
   assert.equal(doc.jobs.pack.if.trim(), PACK_IF);
   assert.equal(doc.jobs.verify.if.trim(), VERIFY_IF);
-  const evaluate = (condition, { results, count = "3", cancelled = false, registry = "npm", release = false }) => condition.replace(SWAP_OK_OR_SKIPPED, "swap-statuses").replace(/^\$\{\{\s*|\s*\}\}$/g, "").split(" && ").every((term) => {
+  const evaluate = (condition, { results, count = "3", cancelled = false, registry = "npm", release = false, credentials = false }) => condition.replace(SWAP_OK_OR_SKIPPED, "swap-statuses").replace(CREDENTIALS_OK_OR_SKIPPED, "credentials-statuses").replace(/^\$\{\{\s*|\s*\}\}$/g, "").split(" && ").every((term) => {
     if (term === "!cancelled()") return !cancelled;
     if (term === "swap-statuses") return registry === "npm" && release ? results["build-swap"] === "success" && results["sign-swap"] === "success" : results["build-swap"] === "skipped" && results["sign-swap"] === "skipped";
+    if (term === "credentials-statuses") return registry === "crates" && credentials ? results["build-credentials-helper"] === "success" && results["sign-credentials-helper"] === "success" : results["build-credentials-helper"] === "skipped" && results["sign-credentials-helper"] === "skipped";
     const m = /^needs\.([a-z-]+)\.result == 'success'$/.exec(term);
     if (m) return results[m[1]] === "success";
     if (term === "needs.plan.outputs.count != '0'") return count !== "0";
     throw new Error(`unknown gate term: ${term}`);
   });
-  const ok = { guard: "success", plan: "success", pack: "success", "build-swap": "skipped", "sign-swap": "skipped" };
+  const ok = { guard: "success", plan: "success", pack: "success", "build-swap": "skipped", "sign-swap": "skipped", "build-credentials-helper": "skipped", "sign-credentials-helper": "skipped" };
   for (const gate of [PACK_IF, VERIFY_IF]) {
     assert.equal(evaluate(gate, { results: ok }), true);
     assert.equal(evaluate(gate, { results: ok, count: "0" }), false);
@@ -1313,6 +1315,10 @@ test("packing & native verification stop after failed, skipped or cancelled requ
   assert.equal(evaluate(PACK_IF, { results: ok, release: true }), false, "required signer cannot skip");
   assert.equal(evaluate(PACK_IF, { results: { ...ok, "build-swap": "success", "sign-swap": "success" }, release: true }), true);
   for (const bad of ["failure", "cancelled", "skipped"]) assert.equal(evaluate(PACK_IF, { results: { ...ok, "build-swap": bad, "sign-swap": "success" }, release: true }), false, "required unsigned build must succeed");
+  for (const bad of ["failure", "cancelled"]) assert.equal(evaluate(VERIFY_IF, { results: { ...ok, "sign-credentials-helper": bad }, registry: "crates", credentials: true }), false);
+  assert.equal(evaluate(VERIFY_IF, { results: ok, registry: "crates", credentials: true }), false, "required credentials signer cannot skip");
+  assert.equal(evaluate(VERIFY_IF, { results: { ...ok, "build-credentials-helper": "success", "sign-credentials-helper": "success" }, registry: "crates", credentials: true }), true);
+  for (const bad of ["failure", "cancelled", "skipped"]) assert.equal(evaluate(VERIFY_IF, { results: { ...ok, "build-credentials-helper": bad, "sign-credentials-helper": "success" }, registry: "crates", credentials: true }), false, "required unsigned credentials build must succeed");
   for (const [name, mutate] of MUTATIONS.filter(([n]) => /^(?:pack|verify) (?:condition (?:drops|uses)|accepts a (?:skipped|failed))/.test(n))) {
     const copy = structuredClone(doc); mutate(copy);
     assert.throws(() => assertPublishDoc(copy), /condition must be exactly/, name);
@@ -1336,6 +1342,48 @@ test("native helper build is isolated from fresh source-free signer & same-run i
   assert.equal(signer.steps.some((step) => /cargo |pnpm |npm |node /.test(step.run ?? "")), false);
   const names = MUTATIONS.map(([name]) => name);
   for (const name of ["build-swap joins signing environment", "build-swap requests OIDC", "signer reads secrets before validation", "signer checks out package code", "signer takes unsigned artifact from foreign run", "signer omits unsigned hash validation", "signer omits source run validation", "signer substitutes source attempt in receipt", "sign-swap rebuilds after receiving secrets", "pack admits skipped signer for required helper"]) assert.ok(names.includes(name), name);
+});
+
+test("verify stages the sealed signed-helper route for the macOS credentials consumer", async () => {
+  const units = [{ name: "rightkit-credentials", version: "0.4.0" }];
+  const staged = { RK_CONSUMER_HELPER_NAME: NATIVE_HELPER.name, RK_CONSUMER_HELPER_TEAM_ID: NATIVE_HELPER.teamId, RK_SOURCE_HELPER_APP: path.join(tmp("helper"), `${NATIVE_HELPER.name}.app`) };
+  // out of scope: no staging, no requirement
+  assert.deepEqual(stageSealedHelperEnv({ env: {}, registry: "crates", units, host: "windows" }), {});
+  assert.deepEqual(stageSealedHelperEnv({ env: {}, registry: "crates", units: [{ name: "rightkit-license" }], host: "macos" }), {});
+  assert.deepEqual(stageSealedHelperEnv({ env: staged, registry: "npm", units, host: "macos" }), {});
+  assert.deepEqual(stageSealedHelperEnv({ env: staged, registry: "crates", units: ["rightkit-credentials"], host: "macos" }), staged);
+  assert.deepEqual(stageSealedHelperEnv({ env: staged, registry: "crates", units, host: "macos" }), staged);
+  // every malformed route refuses before any sealed byte is consumed
+  for (const env of [{}, { ...staged, RK_CONSUMER_HELPER_NAME: "OtherHelper" }, { ...staged, RK_CONSUMER_HELPER_TEAM_ID: "OTHER" }, { ...staged, RK_CONSUMER_HELPER_NAME: undefined }]) {
+    assert.throws(() => stageSealedHelperEnv({ env, registry: "crates", units, host: "macos" }), /signed helper name & team id/);
+  }
+  for (const source of [undefined, `relative/${NATIVE_HELPER.name}.app`, `/x/../${NATIVE_HELPER.name}.app`, "/x/OtherHelper.app"]) {
+    assert.throws(() => stageSealedHelperEnv({ env: { ...staged, RK_SOURCE_HELPER_APP: source }, registry: "crates", units, host: "macos" }), /same-run signed helper app/);
+  }
+  // the sealed candidate reaches the consumer only with the staged route, and a missing route refuses first
+  const sealed = sealCrates(["rightkit-credentials"]);
+  const runTemp = tmp("verify-credentials");
+  const evidenceDir = path.join(runTemp, "rightkit-ci");
+  fs.mkdirSync(evidenceDir, { recursive: true });
+  const result = { unit: "rust:rightkit-credentials", command: "cargo run --locked --offline -- native-helper", isTest: true, code: 0, timedOut: false, seconds: 1, executed: 1, failed: 0, ignored: 0, skipped: 0, ok: true };
+  fs.writeFileSync(path.join(evidenceDir, "unit-evidence.json"), JSON.stringify({ schema: 2, ok: true, host: "macos", registry: "crates", sha: SHA, dependentClosure: { selection: [], expected: [], results: [], ok: true, problems: [] }, units: [{ name: "rightkit-credentials", status: "pass", executed: 1, steps: [result] }] }));
+  fs.writeFileSync(path.join(evidenceDir, "summary.json"), JSON.stringify({ host: "macos", sha: SHA, results: [{ ...result, command: "cargo test -p rightkit-credentials --no-fail-fast" }] }));
+  const blob = (name) => ({ "crates/rightkit-credentials/Cargo.toml": `[package]\nname = "rightkit-credentials"\n`, "crates/rightkit-credentials/src/lib.rs": "pub fn a() {}\n", "src/lib.rs": "pub fn a() {}\n" }[name]);
+  const git = (args) => args[0] === "cat-file" ? { status: 0, stdout: Buffer.from(blob(args[2].slice(`${SHA}:`.length)) ?? "") } : { status: 0, stdout: `${SHA}\n` };
+  const seen = [];
+  const scanArchive = (options) => scanArchiveForSecrets({ ...options, scannerOwner: { packageFileViolations: () => [], scanCrateForSecrets: () => [] } });
+  const consume = { npm: () => { throw new Error("not used"); }, crates: ({ env }) => { seen.push(env); return new Map([["rightkit-credentials", { problems: [], report: { entries: 1 } }]]); } };
+  const base = actionsEnv({ RUNNER_TEMP: runTemp, PUBLISH_PACK_DIR: sealed.dir, GITHUB_ACTOR: "fixture-actor", GITHUB_JOB: "verify", PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-credentials" });
+  const run = (over = {}) => commandVerify({ env: { ...base, ...over }, spawn: spy({ git }).spawn, host: "macos", consume, scanArchive });
+  await assert.rejects(() => run(), /signed helper name & team id/);
+  await assert.rejects(() => run({ ...staged, RK_SOURCE_HELPER_APP: "/x/OtherHelper.app" }), /same-run signed helper app/);
+  assert.equal(seen.length, 0, "a missing helper route refuses before the sealed consumer runs");
+  const receipt = await run(staged);
+  assert.equal(receipt.units[0].consumer.verified, true);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].RK_SOURCE_HELPER_APP, staged.RK_SOURCE_HELPER_APP);
+  assert.equal(seen[0].RK_CONSUMER_HELPER_NAME, NATIVE_HELPER.name);
+  assert.equal(seen[0].RK_CONSUMER_HELPER_TEAM_ID, NATIVE_HELPER.teamId);
 });
 
 test("qualification aggregate always runs & refuses every missing prerequisite or empty plan", { skip: realWorkflowSkip }, () => {
@@ -1374,7 +1422,7 @@ test("qualification contract finds every secret expression & exact-condition byp
   assert.throws(broken((d) => { d.jobs.verify.if = d.jobs.verify.if.replace(" }}", " || true }}"); }), /condition must be exactly/);
   assert.doesNotThrow(broken((d) => { d.jobs.verify.if = `  ${d.jobs.verify.if}  `; }));
   for (const form of ["${{ secrets.X }}", "${{ secrets['X'] }}", '${{ secrets["X"] }}', "${{ toJSON(secrets) }}", "${{ secrets }}", "${{ SECRETS.X }}", "${{ format('{0}', secrets.X) }}"]) {
-    for (const job of ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "qualified"]) {
+    for (const job of ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "qualified"]) {
       assert.throws(broken((d) => { const step = d.jobs[job].steps.at(-1); step.env = { ...(step.env ?? {}), T: form }; }), /secrets context|secret/, `${job}: ${form}`);
     }
   }

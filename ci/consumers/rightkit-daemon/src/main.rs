@@ -8,16 +8,87 @@
 // `CutoverParticipant` that keeps the default hooks, a refused relative old root (`InvalidRoot`),
 // the completed rerun, the completed recovery, the retirement of the old root, `valid_app_name`,
 // and the record file name.
+// Also proves frozen PK07 R2 example at 0.4.0: `Service::builder().methods(..).handler(..)
+// .local(..).start()` + `Client::connect_expecting` (host = this process), echo round-trip,
+// executable-mismatch refusal before any request & unlisted-app refusal.
 // Does not prove: `FsMove::Companions`, participant failure, abort or panic paths, path
-// substitution, the db relocation participant, approvals (PK07-4), service registration (PK07-5),
-// or any listener or process.
-// State: a per-run private temp suite, removed on drop. No network, no processes, no real user data.
+// substitution, the db relocation participant, approvals (PK07-4), separate-process host,
+// takeover across processes, or any non-default feature.
+// State: per-run private temp suites, removed on drop. No network/TCP, no real user data.
+use rightkit_daemon::contract::{MethodPolicy, MethodTable};
 use rightkit_daemon::{
-    valid_app_name, CutoverError, CutoverParticipant, CutoverPhase, FsMove, MigrateOptions,
-    RecoverOutcome, RetireMode, RootCutover, RootSelection, Suite, CUTOVER_RECORD,
+    valid_app_name, Allowlist, CallContext, Client, ClientConfig, ConnectError, CutoverError,
+    CutoverParticipant, CutoverPhase, Emit, FsMove, Handler, HostExpectation,
+    HostIdentityReason, HostOptions, MigrateOptions, RecoverOutcome, RetireMode, RootCutover,
+    RootSelection, Service, ServiceConfig, ServiceError, Suite, CUTOVER_RECORD,
+    ERROR_NOT_ALLOWED, ERROR_RATE_LIMITED,
 };
+use serde_json::{json, Value};
 use std::error::Error;
 use std::fs;
+use std::sync::Arc;
+
+struct Echo;
+
+impl Handler for Echo {
+    fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        params: &Value,
+        _emit: &Emit,
+    ) -> Result<Value, ServiceError> {
+        match method {
+            "echo" => Ok(json!({ "echo": params, "app": cx.app() })),
+            _ => Err(ServiceError::new("unknown_method", method)),
+        }
+    }
+}
+
+fn service_r2() -> Result<(), Box<dyn Error>> {
+    let suite = Suite::per_run_temp("consumer-svc")?;
+    let table = MethodTable::new().method("echo", MethodPolicy::local(["alpha"]));
+    let service = Service::builder()
+        .methods(table)
+        .handler(Arc::new(Echo))
+        .local(
+            &suite,
+            ServiceConfig::new("rkconsumer", "test", 5, "0.0.0", Allowlist::new()),
+            HostOptions::new(),
+        )
+        .start()?;
+    assert!(service.local().is_some());
+    assert!(service.methods().get("echo").is_some());
+
+    let config = ClientConfig::new("rkconsumer", "alpha").suite(suite.clone());
+    let me = std::env::current_exe()?;
+    let client = Client::connect_expecting(&config, &HostExpectation::executable(&me))
+        .unwrap_or_else(|e| panic!("expected host must be accepted: {e}"));
+    let verified = client.verified_host().expect("verified host recorded");
+    assert_eq!(verified.pid, std::process::id());
+    assert_eq!(
+        client.call("echo", json!({ "n": 1 }))?,
+        json!({ "echo": { "n": 1 }, "app": "alpha" })
+    );
+    assert_eq!(
+        client.call("not_in_table", json!({})).expect_err("method outside table").code,
+        ERROR_NOT_ALLOWED
+    );
+    let other = suite.root().join("some-other-host-binary");
+    match Client::connect_expecting(&config, &HostExpectation::executable(&other)) {
+        Err(ConnectError::HostIdentity(e)) => {
+            assert_eq!(e.reason, HostIdentityReason::ExecutableMismatch);
+            assert_eq!(e.found_pid, Some(std::process::id()));
+        }
+        other => panic!("different executable must be refused, got {:?}", other.map(|_| ())),
+    }
+    let ghost = Client::connect(&suite, "rkconsumer", "ghost").err().expect("unlisted app");
+    assert_eq!(ghost.code, ERROR_NOT_ALLOWED);
+    assert_eq!(ERROR_RATE_LIMITED, "rate_limited");
+    drop(client);
+    service.shutdown();
+    Ok(())
+}
 
 struct NoOp;
 
@@ -86,6 +157,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let repeat = RootCutover::retire_old_root(&app, RetireMode::RenameAside)?;
     assert!(repeat.already, "a second retirement reports the retired root");
 
-    println!("OK rightkit-daemon 0.4.0 (registry consumer, PK07-3 root cutover)");
+    service_r2()?;
+
+    println!("OK rightkit-daemon 0.4.0 (registry consumer, PK07-3 root cutover + PK07 R2 service)");
     Ok(())
 }

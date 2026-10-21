@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
+import { NATIVE_HELPER } from "./consumer-recipes.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { archiveScanProblems, checkNpmTarball, childEnv, integrity, LINUX_HOST, linuxRequiredFor, loadSealed, PASS_STATUSES, sha, TOKEN_VARS } from "./upload.mjs";
@@ -645,6 +646,27 @@ function canonicalPublicationEvidence({ unit, row, summary, registry, commit, tr
   } };
 }
 
+// ---- sealed signed-helper staging (rightkit-credentials macOS consumer) -------------------------------
+// The verify job exports RK_SOURCE_HELPER_APP/RK_CONSUMER_HELPER_NAME/RK_CONSUMER_HELPER_TEAM_ID from the
+// same-run signed artifact (provision-credentials-helper-env.mjs) before the gate. Verify stages exactly
+// those three vars for the sealed-candidate consumer and refuses to consume sealed rightkit-credentials
+// bytes on macOS without them. Pins come from consumer-recipes NATIVE_HELPER so this boundary cannot drift
+// from the consumer's own prerequisite.
+export function stageSealedHelperEnv({ env = process.env, registry, units = [], host = hostName() } = {}) {
+  const names = units.map((unit) => (unit && typeof unit === "object" ? unit.name : unit));
+  if (registry !== "crates" || host !== "macos" || !names.includes(NATIVE_HELPER.unit)) return {};
+  const name = env.RK_CONSUMER_HELPER_NAME;
+  const team = env.RK_CONSUMER_HELPER_TEAM_ID;
+  const source = env.RK_SOURCE_HELPER_APP;
+  if (name !== NATIVE_HELPER.name || team !== NATIVE_HELPER.teamId) {
+    throw new Error("rightkit-credentials on macOS requires the workflow-provisioned signed helper name & team id (RK_CONSUMER_HELPER_NAME/RK_CONSUMER_HELPER_TEAM_ID)");
+  }
+  if (typeof source !== "string" || !path.isAbsolute(source) || source.split(/[\\/]/).includes("..") || path.basename(source) !== `${NATIVE_HELPER.name}.app`) {
+    throw new Error("rightkit-credentials on macOS requires the workflow-provisioned same-run signed helper app (RK_SOURCE_HELPER_APP)");
+  }
+  return { RK_SOURCE_HELPER_APP: source, RK_CONSUMER_HELPER_NAME: name, RK_CONSUMER_HELPER_TEAM_ID: team };
+}
+
 /**
  * Verify the SEALED bytes on this host and write this host's receipt. Re-hashes every sealed file,
  * checks the npm tarballs (name, version, entry points, provenance repository) or the crate sources,
@@ -695,12 +717,17 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
     archiveScans.set(unit.name, scan);
     for (const problem of archiveScanProblems(scan, unit.sha256)) problems.push(`${unit.name}: ${problem}`);
   }
+  // Stage the sealed signed-helper route before any scan or consumer runs: a missing route refuses here,
+  // never deep inside the consumer after sealed bytes were already extracted.
+  let helperEnv = {};
+  try { helperEnv = stageSealedHelperEnv({ env, registry, units: scope, host: hostId }); }
+  catch (error) { problems.push(error.message); }
   if (problems.length) fail();
   // Consumer verification: install/extract the SEALED artifacts together and use them as a consumer would.
   let consumed = new Map();
   if (manifest && problems.length === 0) {
     const excluded = (evidence.units ?? []).filter((u) => u.status === "allowed-exclusion").map((u) => u.name);
-    const common = { units: scope, packDir: dir, scratchRoot, spawn, env };
+    const common = { units: scope, packDir: dir, scratchRoot, spawn, env: { ...env, ...helperEnv } };
     try { consumed = registry === "npm" ? consume.npm(common) : consume.crates({ ...common, excluded, uploadMetadata: buildCrateUploadMetadata }); } catch (error) { for (const unit of scope) consumed.set(unit.name, { problems: [`${unit.name}: consumer verification crashed: ${error.message}`], report: {} }); }
   }
   for (const unit of scope) {

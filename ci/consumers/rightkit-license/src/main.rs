@@ -8,10 +8,12 @@
 // The public keys and vectors are copied verbatim from the crate's test-vectors/ (public material).
 // State: a temp directory removed on exit. No network, no OS keychain, no real user data.
 use rightkit_license::{
-    verify_lease_envelope, verify_token, ClockStore, FileClockStore, Lifecycle, LifecyclePolicy,
+    verify_lease_envelope, verify_token, ClockStore, DeviceIdError, DeviceIdSource, FileClockStore,
+    LicenseClient, LicenseMode, LicenseSetup, Lifecycle, LifecyclePolicy,
     MemoryClockStore, NativeCredential, NativeEngineEntitlements, NativeEntitlementSource,
-    NativeSignedCredential, NativeSourceError, ProcessAnchor, VerifyError,
+    NativeSignedCredential, NativeSourceError, ProcessAnchor, VerifyError, ViewStatus,
 };
+use std::sync::Arc;
 use std::path::PathBuf;
 
 type Failure = Box<dyn std::error::Error>;
@@ -37,6 +39,14 @@ const NOW: i64 = 2_000;
 /// A native source with no stored credential: absence is a value, and it must grant nothing.
 struct NoCredential;
 
+/// Synthetic identity injected only to construct the disabled client.
+struct SyntheticDevice;
+
+impl DeviceIdSource for SyntheticDevice {
+    fn device_id(&self) -> Result<String, DeviceIdError> { Ok("synthetic-device".into()) }
+    fn device_id_hash(&self) -> Result<String, DeviceIdError> { Ok("synthetic-hash".into()) }
+}
+
 impl NativeEntitlementSource for NoCredential {
     fn read(&self) -> Result<NativeCredential, NativeSourceError> {
         Ok(NativeCredential::Absent)
@@ -61,6 +71,13 @@ fn main() -> Result<(), Failure> {
 }
 
 fn exercise(dir: &std::path::Path) -> Result<(), Failure> {
+    // The disabled setup is deliberately inert; this does not qualify configured operations.
+    let client = LicenseClient::new(LicenseSetup::Disabled, Arc::new(SyntheticDevice))?;
+    assert!(client.is_disabled());
+    let status = client.status();
+    assert_eq!(status.mode, LicenseMode::Disabled);
+    assert_eq!(status.status, ViewStatus::None);
+
     // Published token verifies for its app and device at its vector time.
     let entitlement = verify_token(LICENSE_TOKEN, &LICENSE_KEY, "heardright", "dev-1", NOW)
         .expect("published license-v2 vector must verify");

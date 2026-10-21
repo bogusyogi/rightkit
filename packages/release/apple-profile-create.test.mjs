@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildCsr, containerManualSteps, createAppleProfile, main, parseCreateArgs } from "./apple-profile-create.mjs";
+import { buildCsr, containerManualSteps, createAppleProfile, main, parseCreateArgs, verifyDirectProfile } from "./apple-profile-create.mjs";
 
 // Mocked fetch and mocked local commands only: no network, no Keychain, no Apple call.
 // Synthetic public certificate fixture (no private signing material).
@@ -214,7 +214,8 @@ const releaseCertificate = "MIIDizCCAnOgAwIBAgIUOVtNhnSONprpVGyOy5KS4rF7WawwDQYJ
 const TEAM = "6KLGD3LLKF", DIRECT_BUNDLE = "org.rightkit.qualification.credentials", DIRECT_NAME = "RightKit Qualification Credentials Direct";
 const GROUP = `${TEAM}.${DIRECT_BUNDLE}`;
 const directIssued = () => ({ Name: DIRECT_NAME, TeamIdentifier: [TEAM], Platform: ["OSX"], ProvisionsAllDevices: true, ExpirationDate: "2030-01-01T00:00:00Z", DeveloperCertificates: [releaseCertificate],
-  Entitlements: { "com.apple.application-identifier": `${TEAM}.${DIRECT_BUNDLE}`, "com.apple.developer.team-identifier": TEAM, "get-task-allow": false, "keychain-access-groups": [`${TEAM}.*`] } });
+  // Apple-issued MAC_APP_DIRECT profile W7AVF2AK9C omits both debugging aliases.
+  Entitlements: { "com.apple.application-identifier": `${TEAM}.${DIRECT_BUNDLE}`, "com.apple.developer.team-identifier": TEAM, "keychain-access-groups": [`${TEAM}.*`] } });
 const directState = () => ({ bundles: [{ id: "BUNDLE-1", attributes: { identifier: DIRECT_BUNDLE, platform: "MAC_OS" } }], certificates: [{ id: "CERTDIRECT1", attributes: { certificateType: "DEVELOPER_ID_APPLICATION", serialNumber: new X509Certificate(Buffer.from(releaseCertificate, "base64")).serialNumber, expirationDate: "2030-01-01T00:00:00Z", certificateContent: releaseCertificate } }] });
 function directFixture(t, options = {}) {
   const f = fixture(t, { state: directState(), decoded: directIssued(), localCertificate: releaseCertificate, ...options });
@@ -320,7 +321,7 @@ test("direct certificate selection fails closed before any write", async (t) => 
 test("direct decoded profile rejects wrong team, app, platform, expiry, debug, certificate & group", async (t) => {
   const base = directIssued();
   const patches = [{ Name: "Other" }, { TeamIdentifier: ["OTHERTEAMX"] }, { TeamIdentifier: [TEAM, "OTHERTEAMX"] }, { Platform: ["iOS"] }, { ExpirationDate: "2000-01-01" }, { ProvisionsAllDevices: false }, { DeveloperCertificates: [developmentCertificate] },
-    ...[{ "com.apple.application-identifier": `${TEAM}.other` }, { "com.apple.application-identifier": `${TEAM}.*` }, { "application-identifier": "OTHER.app" }, { "com.apple.developer.team-identifier": "OTHERTEAMX" }, { "get-task-allow": true }, { "get-task-allow": undefined }, { "com.apple.security.get-task-allow": true }, { "keychain-access-groups": ["OTHERTEAMX.*"] }, { "keychain-access-groups": [`${TEAM}.other.*`] }, { "keychain-access-groups": ["*"] }].map((ent) => ({ Entitlements: { ...base.Entitlements, ...ent } }))];
+    ...[{ "com.apple.application-identifier": `${TEAM}.other` }, { "com.apple.application-identifier": `${TEAM}.*` }, { "application-identifier": "OTHER.app" }, { "com.apple.developer.team-identifier": "OTHERTEAMX" }, { "get-task-allow": true }, { "com.apple.security.get-task-allow": true }, { "keychain-access-groups": ["OTHERTEAMX.*"] }, { "keychain-access-groups": [`${TEAM}.other.*`] }, { "keychain-access-groups": ["*"] }].map((ent) => ({ Entitlements: { ...base.Entitlements, ...ent } }))];
   for (const patch of patches) {
     const f = directFixture(t, { decoded: { ...base, ...patch } });
     await assert.rejects(createAppleProfile({ ...f.options, dryRun: false }), { code: "APPLE_PROFILE_VERIFY_FAILED" });
@@ -334,4 +335,26 @@ test("direct accepts exact keychain authorization without broadening app entitle
   const f = directFixture(t, { decoded });
   await createAppleProfile({ ...f.options, dryRun: false });
   assert.equal(readFileSync(f.out, "utf8"), "issued CMS bytes");
+});
+
+test("direct debug allowlist accepts absence or false & rejects grants, malformed values & conflicting aliases", () => {
+  const keys = ["get-task-allow", "com.apple.security.get-task-allow"];
+  const options = { bundleId: DIRECT_BUNDLE, name: DIRECT_NAME, expectedTeam: TEAM, expectedKeychainGroup: GROUP,
+    certificateSha1: createHash("sha1").update(Buffer.from(releaseCertificate, "base64")).digest("hex").toUpperCase(), now: new Date("2026-10-20T00:00:00Z") };
+  const check = (debug) => {
+    const decoded = directIssued();
+    decoded.Entitlements = { ...decoded.Entitlements, ...debug };
+    return () => verifyDirectProfile(decoded, options);
+  };
+  for (const debug of [{}, { [keys[0]]: false }, { [keys[1]]: false }, { [keys[0]]: false, [keys[1]]: false }]) {
+    assert.doesNotThrow(check(debug), JSON.stringify(debug));
+  }
+  for (const key of keys) {
+    const other = keys.find((alias) => alias !== key);
+    for (const value of [true, "false", "true", 0, 1, null, undefined, [], {}]) {
+      for (const debug of [{ [key]: value }, { [key]: value, [other]: false }]) {
+        assert.throws(check(debug), (error) => error.code === "APPLE_PROFILE_VERIFY_FAILED" && /debugging is not disabled/.test(error.message), `${key}=${String(value)}`);
+      }
+    }
+  }
 });

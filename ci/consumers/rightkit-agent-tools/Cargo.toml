@@ -8,3 +8,4 @@ publish = false
 
 [dependencies]
 rightkit-agent-tools = { version = "=0.3.0", default-features = false }
+serde_json = "1"

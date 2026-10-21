@@ -16,6 +16,8 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // qualification harness, so the table is repeated here; a test asserts it equals scripts/ci/runtime-qualify.mjs exactly.
 export const RUNTIME_PROOF_WORKLOADS = Object.freeze({
   "rightkit-logs": Object.freeze(["tracing", "detached"]),
+  "rightkit-job-queue": Object.freeze(["budget", "pool_budget"]),
+  "rightkit-qa": Object.freeze(["budget"]),
   "rightkit-daemon": Object.freeze(["local", "remote", "remote-loopback"]),
   "rightkit-tauri-shell": Object.freeze(["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"]),
 });

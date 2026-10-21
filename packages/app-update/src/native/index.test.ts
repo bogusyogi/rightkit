@@ -108,6 +108,9 @@ describe('native updater renderer bridge', () => {
       [{ code: 'store' }, { code: 'store', messageCode: 'storeFailed' }],
       [{ code: 'verify', message: 'native-secret' }, { code: 'verify', messageCode: 'unknown' }],
       [{ code: 'busy', message: 'keyNotAccepted' }, { code: 'busy', messageCode: 'unknown' }],
+      // The native host's `unknown` code keeps its message code instead of degrading to the generic text.
+      [{ code: 'unknown', message: 'updateFailed' }, { code: 'unknown', messageCode: 'updateFailed' }],
+      [{ code: 'unknown' }, { code: 'unknown', messageCode: 'unknown' }],
     ]) {
       const client = createNativeUpdateClient({ invoke: async () => { throw error; }, listen: async () => () => {} });
       await expect(client.check()).rejects.toMatchObject(expected);

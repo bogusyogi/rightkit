@@ -1,6 +1,6 @@
 # rightkit-speech-client: file index
 
-Version 0.3.6. Start with [README.md](README.md) for scope, then [API.md](API.md) for every
+Version 0.4.0. Start with [README.md](README.md) for scope, then [API.md](API.md) for every
 public item and the host's input contract. The repository-wide index is the generated
 `INDEX.md` at the repository root.
 
@@ -8,7 +8,7 @@ public item and the host's input contract. The repository-wide index is the gene
 
 | Path | What it is |
 |---|---|
-| `Cargo.toml` | Manifest. Version 0.3.6. `include` lists the files that ship. |
+| `Cargo.toml` | Manifest. Version 0.4.0. `include` lists the files that ship. |
 | `README.md` | Scope, platform support, and the contract-extension table. |
 | `API.md` | Public API reference: purpose and errors for each item, the input contract, and known divergences. |
 | `CHANGELOG.md` | Release notes, newest first. |

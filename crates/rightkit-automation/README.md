@@ -38,7 +38,7 @@ act       ->  kill switch -> allowlist -> lease fence -> freshness -> secure/cre
 - Use it when an in-process Rust app or CLI must observe and act on a desktop app in the background, with receipts for each step.
 - Use it when a caller needs the kill switch, allowlist and admission hook around every effect.
 
-Do not use it for Right Suite apps that expose their own in-app control service: use `rightkit-agent-tools` or `rightkit-qa-driver`. The crate does not run as a daemon.
+Do not use it for Right Suite apps that expose their own in-app control service: use `rightkit-agent-tools`, or `rightkit-qa` behind its dev-only `control` feature (`rightkit-qa-driver` is a deprecated shim). The crate does not run as a daemon.
 
 ## Cargo features
 

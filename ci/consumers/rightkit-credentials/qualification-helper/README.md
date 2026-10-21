@@ -20,6 +20,8 @@ Source commit: `8f38ac109e09b182b0e5c0f4e365606a3522f45b`, prefix `swift/RightKi
 
 Run on provisioned Mac from RightKit primary checkout. Set `SCRATCH` to fresh absolute directory under `/Volumes/D/scratch`; parent must already exist. Export `FIXTURE` from this checkout. Build uses static library, so staged helper has no private dylib dependency.
 
+Set `PROFILE` to issued `MAC_APP_DIRECT` profile for this identifier (bundle record `6A3SLN3NW3`, profile `W7AVF2AK9C`, produced by `packages/release/apple-profile-create.mjs`). Profile embeds at `Contents/embedded.provisionprofile` before signing, so codesign seals it. Signing without it still passes preparer signature & entitlement-shape checks yet leaves keychain-access-group unauthorized at runtime: readiness then fails. Before embedding, decode profile (`security cms -D`) & require application-identifier `6KLGD3LLKF.org.rightkit.qualification.credentials`, authorization for `6KLGD3LLKF.org.rightkit.qualification.credentials`, team `6KLGD3LLKF`, OSX platform, future expiry, debugging disabled & embedded Developer ID certificate fingerprint matching signing identity. Issued profile authorizes team wildcard `6KLGD3LLKF.*`; signed helper must still request exactly `[6KLGD3LLKF.org.rightkit.qualification.credentials]`, never that wildcard. ASC Admin key stays on provisioned Mac; profile bytes alone carry no private key.
+
 ```sh
 set -eu
 export FIXTURE="$PWD/ci/consumers/rightkit-credentials/qualification-helper"
@@ -71,6 +73,7 @@ xcrun swiftc -swift-version 6 -target "$(uname -m)-apple-macosx14.0" \
   -lRightKitAppleCredentials "$SCRATCH/source/main.swift" \
   -o "$SCRATCH/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"
 cp "$SCRATCH/source/Info.plist" "$SCRATCH/RightKitCredentialsQualification.app/Contents/Info.plist"
+cp "$PROFILE" "$SCRATCH/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile"
 node packages/release/sign-macos.mjs \
   --entitlements "$SCRATCH/source/entitlements.plist" \
   --receipt "$SCRATCH/signing.json" \
@@ -78,3 +81,7 @@ node packages/release/sign-macos.mjs \
 ```
 
 Run shell with `set -eu` so failures stop before signing/staging. Preserve source-inputs, compiler output, signing receipt & helper tree digest. Set `RK_SOURCE_HELPER_APP` to resulting app, `RK_CONSUMER_HELPER_NAME=RightKitCredentialsQualification` & `RK_CONSUMER_HELPER_TEAM_ID=6KLGD3LLKF`; use parent preparer with fresh consumer bundle/receipt paths. Preparer independently checks designated identifier, team, exact sole access group & copied bytes. Run staged consumer's `native-helper` mode for readiness & wrong-team refusal evidence.
+
+## CI provisioning handoff (root-owned)
+
+`publish.yml` currently provisions none of `RK_SOURCE_HELPER_APP`, `RK_CONSUMER_HELPER_NAME` or `RK_CONSUMER_HELPER_TEAM_ID`, so crates verification of `rightkit-credentials` refuses at `planNativeHelper`/`signedHelper` prerequisites before Cargo work; never weaken that refusal. Root mirrors `build-swap`/`sign-swap`: secretless `xcode-27` build job compiles unsigned app from pinned blobs above & seals source-inputs/tree digest/run receipt; fresh `release`-environment sign job (no checkout, install or compile) validates same-run artifact before credential import, decodes profile from release-environment secret, re-validates exact profile fields above, embeds it, Developer ID signs with committed entitlements (carried hash-sealed in unsigned artifact), verifies designated requirement & sole group, seals signed tree digest; macOS `verify` downloads that same-run signed artifact, re-checks receipt & tree digest, then exports three variables above. No ASC key, profile regeneration or notarization in CI; expired profile fails qualification until root renews secret locally. Workflow, contract & inventory-hash changes belong root.

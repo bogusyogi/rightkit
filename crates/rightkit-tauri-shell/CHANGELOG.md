@@ -14,7 +14,8 @@ Status: nothing in this section has been compiled, tested or run, and CI has not
 - `update`: implies `host-services`; adds `tauri-plugin-updater` =2.10.1, `reqwest` 0.13.5 (`rustls-no-provider`), `sha2` 0.10 and `tokio` 1 (`macros`, `time`).
 - Workspace lock: dev-dependency `tauri-utils >=2.9.3, <2.10` keeps the shared `Cargo.lock` on tauri-utils 2.9.x so tauri 2.11 `test` builds (tauri-plugin 2.7+ pulled tauri-utils 2.10.2 into the lock, E0063 `app_directories_override`). Dev-only: published requirements are unchanged and apps on Tauri 2.12 are unaffected.
 - `update-license`: implies `update` and `license`; adds `url` 2 and the licence authority `LicenseAuthority` (`src/update.rs:1317`).
-- `overlay`: adds `rightkit-overlay` 0.1.2 and `src/overlay_host.rs`.
+- `overlay`: adds `rightkit-overlay` 0.2.0 and `src/overlay_host.rs`.
+- Documentation: README feature table now lists `qa-probes` and `app-lock`; the stale `dev-inspect` feature text is removed (the feature does not exist in `Cargo.toml`; `DEV_INSPECT_COMPILED` is always `false`, `src/devtools.rs:60-62`).
 - `pdf-host`: implies `host-services`; adds `rightkit-pdf` 0.3.3 with its `host` feature (`Cargo.toml`) and `src/pdf_host.rs` (`src/lib.rs:51`). PDFKit drives the view on macOS; every other platform answers `unsupported` (`src/pdf_host.rs:41`).
 
 **New modules.** Compiled on every feature set: `associations`, `caller_gate`, `open_paths`, `os_settings`, `preview`, `print`, `surface`, `webview2_env`, `webview2_menu` (`src/lib.rs`). Behind features: `host` (`host-services`), `logs_commands` (`logs`), `overlay_host` (`overlay`), `update` (`update`), `pdf_host` (`pdf-host`).

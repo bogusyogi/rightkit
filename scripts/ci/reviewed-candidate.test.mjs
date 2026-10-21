@@ -659,7 +659,7 @@ test("credential-side runtime workload table equals the trusted coverage table e
   const trusted = {};
   for (const crate of RUNTIME_BUDGET_CRATES) { try { trusted[crate] = trustedWorkloadsFor(crate).map((w) => w.id); } catch (error) { assert.match(error.message, /no trusted supported coverage/); } }
   assert.deepEqual(Object.fromEntries(Object.entries(RUNTIME_PROOF_WORKLOADS).map(([name, ids]) => [name, [...ids]])), trusted);
-  assert.deepEqual(Object.keys(trusted).sort(), ["rightkit-daemon", "rightkit-logs", "rightkit-tauri-shell"]);
+  assert.deepEqual(Object.keys(trusted).sort(), ["rightkit-daemon", "rightkit-job-queue", "rightkit-logs", "rightkit-qa", "rightkit-tauri-shell"]);
 });
 test("a candidate may carry one runtime pin per crate; every other kind stays unique", (t) => {
   const f = fixture(t, historicalReceipts, true);
@@ -684,8 +684,8 @@ test("a candidate may carry one runtime pin per crate; every other kind stays un
 });
 test("runtime transfer admits each trusted crate with its trusted workloads and refuses everything else", (t) => {
   const f = fixture(t, historicalReceipts, true), id = f.candidate.id;
-  const pins = [runtimePin(f, 1), runtimePin(f, 2), runtimePin(f, 3)];
   const names = Object.keys(RUNTIME_PROOF_WORKLOADS);
+  const pins = names.map((_, i) => runtimePin(f, i + 1));
   names.forEach((name, i) => validateRuntimeTransfer(transferRow(name, pins[i], id), pins, id));
   const [logs, daemon] = [transferRow("rightkit-logs", pins[0], id), transferRow("rightkit-daemon", pins[1], id)];
   const bad = [

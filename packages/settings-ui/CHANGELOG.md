@@ -22,6 +22,7 @@ BREAKING: the licence section and hooks move from `StoredLicense` to the `Licens
 - Additive: `SecretsBackend.set(ref, value, intent?)` with `WriteIntent` (`"create"` refuses a stored key, `"replace"` overwrites; the shell adapter defaults to `"replace"`). There is no secret getter or export; `createMemorySecrets` honours `intent`.
 - Additive: `SettingsSnapshot` has optional `schemaVersion` and `warning`. `errText` shows the `message` of a host error envelope instead of `[object Object]`.
 - Tests: the adapter test and the e2e host use the registered command names; the e2e harness supplies its own models backend over the test host.
+- Native qualification uses existing `crates/rightkit-tauri-shell/benches/budget_native.rs` settings/secrets IPC & registered ContentWebview refusal probes. Current Windows+Mac native execution receipts remain outstanding, so 0.7.0 stays unpublished staging.
 
 ## 0.6.1 (2026-10-19)
 

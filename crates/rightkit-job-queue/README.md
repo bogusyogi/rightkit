@@ -4,7 +4,7 @@ Shared engine base for Right Suite apps: a persistent SQLite job store (on `righ
 
 Product work plugs in through `JobHandler` (what a job does) and `CommandSet` (extra commands). Apps with their own wire protocol can use only the store (see below).
 
-Catalog capability: `persistent-jobs`. Published to crates.io at 0.2.7 (registry record); the source is 0.3.0, which [INDEX.md](../../INDEX.md) flags as a mismatch. Version history: [CHANGELOG.md](CHANGELOG.md).
+Catalog capability: `persistent-jobs`. Published to crates.io at 0.4.0; the source is 0.5.0 (unpublished staging), which [INDEX.md](../../INDEX.md) flags as a mismatch. Version history: [CHANGELOG.md](CHANGELOG.md).
 
 ## What it owns
 
@@ -38,7 +38,7 @@ No feature is on by default (0.3.0): a bare dependency builds error types & `Inl
 - `supervisor` (implies `protocol` & `doctor`): `EngineSupervisor`, `EngineClient` and the `rightkit-child-process` re-exports; pulls `rightkit-child-process`, not `rightkit-db`.
 - `service` (implies `contract`): `DispatcherHandler` over `rightkit-daemon`.
 
-Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run; set per submit, or once per job kind with `StoreConfig::recovery_for_kind`), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state are ungated and build with `default-features = false`.
+Per-job `Recovery::Never` (destructive jobs are failed as `interrupted` after a crash, never re-run; set per submit, or once per job kind with `StoreConfig::recovery_for_kind`), `JobStore::prune`, `JobStore::delete`, `JobStore::submit_rejected`, `ProgressPolicy`, `CancelToken`, single-flight submit (`SubmitOptions::single_flight`), the staged pool and held jobs are documented on their types and in the changelog. The staged pool (`pool` module) and held state build with `store` (`src/lib.rs` gates `pool` behind it); a `default-features = false` build has neither.
 
 ## Usage
 

@@ -40,6 +40,24 @@ const TRUSTED_COVERAGE = Object.freeze({
     // Source the candidate must keep bound beyond the generic crate and bench inventory.
     requiredSources: Object.freeze(["crates/rightkit-logs/src/detached.rs"]),
   }),
+  "rightkit-job-queue": Object.freeze({
+    defaultFeatures: false,
+    coverage: Object.freeze({
+      default: "no workload: default features are empty (Cargo.toml [features] default = []); the default build has only JobError and InlineCancelRegistry (src/lib.rs, src/error.rs, src/inline.rs) and starts no thread or timer",
+      store: "covered by pool_budget: StagedPool starts rk-pool-lane and rk-pool-dispatch threads (src/pool.rs:590-611); finite synthetic jobs exercise store, dispatcher, job workers, compute lane, lane idle callback, and shutdown",
+      protocol: "covered transitively by supervisor (Cargo.toml: supervisor = [protocol, doctor, zeroize]); wire constants only, no thread or timer (src/wire.rs)",
+      contract: "StagedPool store threads covered by pool_budget; contract feature's src/contract.rs:543 serves long-running requests on demand, event-driven, and is not exercised by this pool workload",
+      supervisor: "covered by workload budget: an EngineSupervisor with a live engine, 100 event subscribers, and the default 2 s HealthCheck ping then idle (benches/budget.rs:55-90); the monitor thread (src/supervisor.rs:1703 boot, 1806 monitor), the health probe schedule (src/supervisor.rs:1820-1838), the event forwarder (src/supervisor.rs:1791) and the restart thread (src/supervisor.rs:1985, only when a restart is scheduled) all run under this feature",
+      doctor: "covered transitively by supervisor; src/doctor_probe.rs:101-121 is a bounded probe (sleep of at most 5 ms inside its timeout), not a background thread",
+      service: "StagedPool store threads covered by pool_budget; src/service.rs has no thread, sleep or timer, and service transport is not exercised by this pool workload",
+      crash: "NOT COVERED, no workload needed for continuous work: src/crash_observer.rs (25 lines) contains no thread, sleep, interval or timer; it only records an abnormal engine exit",
+      ffi: "NOT COVERED, one-shot only: spawn_reaper starts an rkp-reap thread (src/ffi.rs:786-803) that retries shutdown with a doubling pause from 250 ms for a bounded number of attempts; per-call threads at src/ffi.rs:659 and src/ffi.rs:849 are event-driven. No continuous timer, so a gap of lower priority than store",
+    }),
+    workloads: Object.freeze([
+      Object.freeze({ id: "budget", features: "supervisor", bench: "budget", intervalMs: null, description: "EngineSupervisor with a live engine, 100 event subscribers and the default health ping, then idle" }),
+      Object.freeze({ id: "pool_budget", features: "store,supervisor", bench: "pool_budget", trailing: Object.freeze(["10000", "30"]), env: Object.freeze(["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]), intervalMs: null, description: "10000 synthetic staged jobs through scratch SQLite store, then 30 s live dispatcher/lane idle and shutdown" }),
+    ]),
+  }),
   "rightkit-daemon": Object.freeze({
     defaultFeatures: true,
     coverage: Object.freeze({
@@ -78,6 +96,21 @@ const TRUSTED_COVERAGE = Object.freeze({
       Object.freeze({ id: "native-host-wv2-0_39", features: "wv2-0_39,host-services,logs,crash,content-devtools", noDefaultFeatures: true, bench: "budget_native", trailing: Object.freeze([]), env: Object.freeze([]), intervalMs: 1000, description: "CI isolated native Wry shell with settings/secrets services, registered ContentWebview ACL refusal, logs runtime and report-only crash adapter, 0.39 binding: paired children, then 30 s observation" }),
     ]),
     requiredSources: Object.freeze(["crates/rightkit-tauri-shell/src/watchdog.rs", "crates/rightkit-tauri-shell/src/lib.rs", "crates/rightkit-tauri-shell/src/host/mod.rs", "crates/rightkit-tauri-shell/src/host/policy.rs", "crates/rightkit-tauri-shell/src/logs_commands.rs"]),
+  }),
+  "rightkit-qa": Object.freeze({
+    defaultFeatures: false,
+    coverage: Object.freeze({
+      default: "covered by workload budget for the engine sidecar path: its reader threads (src/engine.rs:471, 486) and output pumps (src/process.rs:429). NOT COVERED: FocusMonitor, which runs only for a launched-app session (the budget bench never launches an app). Windows is an event-driven SetWinEventHook message-pump thread with no timer (src/control/windows_focus.rs:71, 104; wired src/control.rs:429); macOS is a bounded /usr/bin/osascript helper child plus one reader thread (src/control/macos_focus.rs:103, 143; wired src/control.rs:431); other platforms keep a 20 ms poll thread (src/control.rs:475-480)",
+      android: "NOT COVERED: no thread or timer in src/android.rs; it starts an adb logcat child process for the capture (src/android.rs:686-695, ChildLog). That is a background child process, not an in-crate thread, and the 15 ms loop at src/android.rs:645 runs only during shutdown, bounded by LOGCAT_REAP",
+      browser: "NOT COVERED: src/browser.rs:145 builds a current-thread tokio runtime and launches a Chrome child process; src/browser.rs has no thread spawn or timer. Chromium and CDP handler threads live in the rightkit-browser and chromiumoxide dependencies, which were not inspected here",
+      control: "NOT COVERED, debug builds only (src/lib.rs:49-50 gates embedded on feature control plus debug_assertions): src/embedded/win_view.rs:547-548 runs an infinite thread that sleeps 2 s and probes each WebView2 controller and browser process (Windows, with one wv2-* feature). The macOS and shared loops in src/embedded/mac_view.rs:260, src/embedded/mod.rs:1365 and src/embedded/viewport.rs:189 are bounded by timeouts. src/control.rs:142 and src/control.rs:158 are on-demand threads, event-driven, and ungated",
+      "wv2-0_38": "no separate workload: selects the WebView2 binding generation only (Cargo.toml [features]; src/embedded/win_view.rs:22). The 2 s probe thread at src/embedded/win_view.rs:547 exists only with control plus one wv2 feature; see control",
+      "wv2-0_39": "no separate workload: selects the WebView2 binding generation only (Cargo.toml [features]; src/embedded/win_view.rs:24). The 2 s probe thread at src/embedded/win_view.rs:547 exists only with control plus one wv2 feature; see control",
+      testing: "test-only; excluded: thread spawns at src/embedded/mac_view.rs:1057 and 1130 and src/embedded/viewport.rs:341 are inside #[test] code",
+    }),
+    workloads: Object.freeze([
+      Object.freeze({ id: "budget", features: null, bench: "budget", intervalMs: null, description: "CI isolated QA harness: one --stdio engine sidecar, 10000 echo commands at bench defaults, sidecar held open, then 30 s idle" }),
+    ]),
   }),
 });
 // Every declared env name must have a harness provider; refuse a malformed table at load, never at measurement.

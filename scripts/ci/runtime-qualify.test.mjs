@@ -81,8 +81,54 @@ test("Windows 1.394 wakeups cannot qualify against unchanged ceiling 1", () => {
 });
 test("bench commands are derived per crate, locked & scoped to the named crate", () => {
   assert.deepEqual(workloadsFor(CRATE)[0].args, ["test", "--locked", "--profile", "release-iterate", "-p", "rightkit-logs", "--features", "tracing", "--bench", "budget"]);
-  // A crate without pinned trusted coverage has no workloads at all.
-  assert.throws(() => workloadsFor("rightkit-job-queue"), /no trusted supported coverage for rightkit-job-queue/);
+});
+
+test("job queue trusted inventory binds supervisor & pool workloads without claiming contract/service coverage", () => {
+  const crate = "rightkit-job-queue";
+  const source = JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-job-queue/benches/workloads.json", import.meta.url), "utf8"));
+  assert.deepEqual(source, supportedPrescription(crate));
+  const rows = validateSourcePrescription(crate, source);
+  assert.deepEqual(rows.map((w) => w.id), ["budget", "pool_budget"]);
+  assert.deepEqual(rows[1].env, ["RIGHTKIT_RUNTIME_SCRATCH_ROOT"]);
+  assert.deepEqual(rows[0].args, ["test", "--locked", "--profile", "release-iterate", "-p", crate, "--features", "supervisor", "--bench", "budget"]);
+  assert.deepEqual(rows[1].args, ["test", "--locked", "--profile", "release-iterate", "-p", crate, "--features", "store,supervisor", "--bench", "pool_budget", "--", "10000", "30"]);
+  assert.match(source.coverage.store, /lane idle callback/);
+  assert.match(source.coverage.contract, /not exercised/);
+  assert.match(source.coverage.service, /not exercised/);
+  const blobs = new Map([
+    [workloadPrescriptionPath(crate), Buffer.from(JSON.stringify(source))],
+    [`crates/${crate}/benches/budget.rs`, Buffer.from("// supervisor workload")],
+    [`crates/${crate}/benches/pool_budget.rs`, Buffer.from("// pool workload")],
+  ]);
+  const bindings = bindHarnessMetadata(crate, source, (rel) => {
+    if (!blobs.has(rel)) throw new Error(`missing ${rel}`);
+    return blobs.get(rel);
+  });
+  assert.deepEqual(Object.keys(bindings).sort(), [...blobs.keys()].sort());
+});
+
+test("QA trusted inventory binds the existing sidecar budget bench at its declared scale", () => {
+  const crate = "rightkit-qa";
+  const source = JSON.parse(fs.readFileSync(new URL("../../crates/rightkit-qa/benches/workloads.json", import.meta.url), "utf8"));
+  assert.deepEqual(source, supportedPrescription(crate));
+  const rows = validateSourcePrescription(crate, source);
+  assert.deepEqual(rows.map((w) => w.id), ["budget"]);
+  assert.deepEqual(rows[0].args, ["test", "--locked", "--profile", "release-iterate", "-p", crate, "--bench", "budget"]);
+  assert.deepEqual(rows[0].env, []);
+  assert.match(source.coverage.default, /engine sidecar path/);
+  assert.match(source.coverage.default, /NOT COVERED: FocusMonitor/);
+  const blobs = new Map([
+    [workloadPrescriptionPath(crate), Buffer.from(JSON.stringify(source))],
+    [`crates/${crate}/benches/budget.rs`, Buffer.from("// qa sidecar workload")],
+  ]);
+  const bindings = bindHarnessMetadata(crate, source, (rel) => {
+    if (!blobs.has(rel)) throw new Error(`missing ${rel}`);
+    return blobs.get(rel);
+  });
+  assert.deepEqual(Object.keys(bindings).sort(), [...blobs.keys()].sort());
+  // agent-tools is held-resource, not a listed runtime-budget owner: structural declaration at publish,
+  // installed-app measurement at adoption, so it must refuse here rather than gain an invented workload.
+  assert.throws(() => workloadsFor("rightkit-agent-tools"), /no trusted supported coverage/);
 });
 
 test("dual workload inventory keeps detached interval explicit & commands isolated", () => {
@@ -140,7 +186,7 @@ test("both workload records retain distinct immutable evidence paths", () => {
   assert.equal(new Set(rows.map((r) => r.evidence.file)).size, 2);
   assert.equal(original.evidence.file, "runtime-budget.evidence/win32-x64-0.3.4-synthetic.txt");
   assert.throws(() => preserveWorkloadRecord(original, "unknown", CRATE));
-  assert.throws(() => preserveWorkloadRecord(original, "tracing", "rightkit-job-queue"), /no trusted supported coverage/);
+  assert.throws(() => preserveWorkloadRecord(original, "tracing", "rightkit-unsupported"), /no trusted supported coverage/);
 });
 test("receipt set rejects legacy, missing, duplicate, unknown & every failed identity", () => {
   const { receipts, context, validate } = fixture();
@@ -149,7 +195,8 @@ test("receipt set rejects legacy, missing, duplicate, unknown & every failed ide
   for (const patch of [{ schema: 1 }, { exitCode: 1 }, { signal: "SIGTERM" }, { problems: ["failed"] }, { sourceSha: "f".repeat(40) }, { runAttempt: "2" }, { runId: "456" }, { artifactId: 43 }, { artifactDigest: "different" }, { repository: "fork/repo" }, { harnessSha: "f".repeat(40) }, { manifestSha256: "f".repeat(64) }, { command: "cargo other" }, { intervalMs: 10 }, { bindings: {} }, { rawSha256: "0".repeat(64) }, { toolchain: {} }, { crate: "rightkit-daemon" }]) assert.throws(() => validate([receipts[0], { ...receipts[1], ...patch }]));
   // Mixed crate: a context or sealed unit naming another crate refuses even when every other field agrees.
   assert.throws(() => validate(receipts, { ...context, crate: "rightkit-daemon" }), /mixed candidate crate/);
-  assert.throws(() => validate(receipts, context, { name: "rightkit-job-queue", version: "0.3.4" }), /no trusted supported coverage/ );
+  assert.throws(() => validate(receipts, context, { name: "rightkit-job-queue", version: "0.3.4" }), /mixed candidate crate/ );
+  assert.throws(() => validate(receipts, context, { name: "rightkit-unsupported", version: "0.3.4" }), /no trusted supported coverage/ );
   for (const patch of [{ observed: { ...receipts[1].record.observed, residentMemoryBytes: 0 } }, { observed: { ...receipts[1].record.observed, wakeupsPerSecond: 2 } }, { dataScale: { unit: "lines", count: 0 } }, { commit: "f".repeat(40) }, { command: "cargo wrong" }, { evidence: receipts[0].record.evidence }]) assert.throws(() => validate([receipts[0], { ...receipts[1], record: { ...receipts[1].record, ...patch } }]));
 });
 test("delta basis uses unchanged declared delta ceiling & requires consistent baseline", () => {

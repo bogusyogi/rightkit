@@ -382,7 +382,9 @@ export function verifyDirectProfile(decoded, { bundleId, name, expectedTeam, exp
   if (!(Date.parse(decoded.ExpirationDate) > now.getTime())) problems.push("expired or missing expiration");
   if (decoded.ProvisionsAllDevices !== true) problems.push("not an all-devices direct profile");
   const debugKeys = ["get-task-allow", "com.apple.security.get-task-allow"].filter((key) => Object.hasOwn(entitlements, key));
-  if (!debugKeys.length || debugKeys.some((key) => entitlements[key] !== false)) problems.push("debugging is not disabled");
+  // Profiles carry an entitlement allowlist (Apple TN3125). Direct profiles may
+  // omit debugging entirely; every present alias must still be boolean false.
+  if (debugKeys.some((key) => entitlements[key] !== false)) problems.push("debugging is not disabled");
   if (!certificateSha1 || !(decoded.DeveloperCertificates ?? []).some((data) => sha1(Buffer.from(data, "base64")) === certificateSha1)) problems.push("selected certificate not authorized");
   const groups = entitlements["keychain-access-groups"];
   // Apple-issued terminal wildcards may authorize an exact app group. This never

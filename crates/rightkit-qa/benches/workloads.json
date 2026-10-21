@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "crate": "rightkit-qa",
+  "defaultFeatures": false,
+  "coverage": {
+    "default": "covered by workload budget for the engine sidecar path: its reader threads (src/engine.rs:471, 486) and output pumps (src/process.rs:429). NOT COVERED: FocusMonitor, which runs only for a launched-app session (the budget bench never launches an app). Windows is an event-driven SetWinEventHook message-pump thread with no timer (src/control/windows_focus.rs:71, 104; wired src/control.rs:429); macOS is a bounded /usr/bin/osascript helper child plus one reader thread (src/control/macos_focus.rs:103, 143; wired src/control.rs:431); other platforms keep a 20 ms poll thread (src/control.rs:475-480)",
+    "android": "NOT COVERED: no thread or timer in src/android.rs; it starts an adb logcat child process for the capture (src/android.rs:686-695, ChildLog). That is a background child process, not an in-crate thread, and the 15 ms loop at src/android.rs:645 runs only during shutdown, bounded by LOGCAT_REAP",
+    "browser": "NOT COVERED: src/browser.rs:145 builds a current-thread tokio runtime and launches a Chrome child process; src/browser.rs has no thread spawn or timer. Chromium and CDP handler threads live in the rightkit-browser and chromiumoxide dependencies, which were not inspected here",
+    "control": "NOT COVERED, debug builds only (src/lib.rs:49-50 gates embedded on feature control plus debug_assertions): src/embedded/win_view.rs:547-548 runs an infinite thread that sleeps 2 s and probes each WebView2 controller and browser process (Windows, with one wv2-* feature). The macOS and shared loops in src/embedded/mac_view.rs:260, src/embedded/mod.rs:1365 and src/embedded/viewport.rs:189 are bounded by timeouts. src/control.rs:142 and src/control.rs:158 are on-demand threads, event-driven, and ungated",
+    "wv2-0_38": "no separate workload: selects the WebView2 binding generation only (Cargo.toml [features]; src/embedded/win_view.rs:22). The 2 s probe thread at src/embedded/win_view.rs:547 exists only with control plus one wv2 feature; see control",
+    "wv2-0_39": "no separate workload: selects the WebView2 binding generation only (Cargo.toml [features]; src/embedded/win_view.rs:24). The 2 s probe thread at src/embedded/win_view.rs:547 exists only with control plus one wv2 feature; see control",
+    "testing": "test-only; excluded: thread spawns at src/embedded/mac_view.rs:1057 and 1130 and src/embedded/viewport.rs:341 are inside #[test] code"
+  },
+  "workloads": [
+    {
+      "id": "budget",
+      "args": [
+        "test",
+        "--locked",
+        "--profile",
+        "release-iterate",
+        "-p",
+        "rightkit-qa",
+        "--bench",
+        "budget"
+      ],
+      "bench": "budget",
+      "intervalMs": null
+    }
+  ]
+}

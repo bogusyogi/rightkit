@@ -1,7 +1,11 @@
 // The Developer-ID-signed `bin/darwin/rightkit-swap` that @rightkit/release ships (Orthic-Labs/rightkit#258).
-// rightkit-swap is the bin target of crates/rightkit-fs (renamex_np RENAME_SWAP). CI has no Apple signing secrets, so
-// @rightkit/release is published through `right-release publish npm --local` on the Mac, which calls
-// `prepareSwapHelper` before packing. install-app calls `assertShippedSwapHelperSigned` before it trusts the helper.
+// rightkit-swap is the bin target of crates/rightkit-fs (renamex_np RENAME_SWAP). Two signing routes produce it:
+// (a) local publish — `right-release publish npm --local` on the Mac calls `prepareSwapHelper` before packing;
+// (b) CI qualification — `publish.yml` build-swap -> sign-swap -> pack (docs/CI.md), where sign-swap imports the
+// Developer ID from the `release` environment secrets. Route (b) stays blocked until root provisions
+// APPLE_CERTIFICATE_BASE64/APPLE_CERTIFICATE_PASSWORD there; exporting that identity needs an Aqua login session
+// (SSH export fails errSecInteractionNotAllowed/-25308 & the signing agent has no key-export capability — never
+// retry either). install-app calls `assertShippedSwapHelperSigned` before it trusts the helper.
 import crypto from "node:crypto";
 import nodeFs from "node:fs";
 import path from "node:path";

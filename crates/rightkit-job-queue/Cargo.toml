@@ -66,6 +66,11 @@ name = "budget"
 harness = false
 required-features = ["supervisor"]
 
+[[bench]]
+name = "pool_budget"
+harness = false
+required-features = ["store", "supervisor"]
+
 [[test]]
 name = "e2e"
 required-features = ["service"]

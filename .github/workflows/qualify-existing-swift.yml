@@ -1,0 +1,51 @@
+name: qualify-existing-swift
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Swift release tag to qualify
+        type: string
+        required: true
+      commit:
+        description: Full commit SHA to qualify
+        type: string
+        required: true
+      archive_sha256:
+        description: Expected SHA-256 for the release archive
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: qualify-existing-swift-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' && github.event.repository.private == false }}
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Qualify existing Swift release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SWIFT_QUALIFY_TAG: ${{ inputs.tag }}
+          SWIFT_QUALIFY_COMMIT: ${{ inputs.commit }}
+          SWIFT_QUALIFY_ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
+        run: node scripts/ci/qualify-existing-swift.mjs
+      - name: Keep qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: swift-existing-qualification-${{ github.run_id }}
+          path: ${{ runner.temp }}/swift-existing-qualification
+          if-no-files-found: error
+          retention-days: 90

@@ -16,7 +16,7 @@
   "requiredScale": {
     "unit": "connections",
     "minCount": 64,
-    "source": "crates/rightkit-daemon/benches/budget.rs:38"
+    "source": "crates/rightkit-daemon/benches/budget.rs:40"
   },
   "status": {
     "api": "Hosted::status()",
@@ -160,7 +160,7 @@
       "requiredScale": {
         "unit": "submissions",
         "minCount": 10000,
-        "source": "crates/rightkit-daemon/benches/remote_budget.rs:49"
+        "source": "crates/rightkit-daemon/benches/remote_budget.rs:42"
       },
       "measurementsEvidenceDir": "runtime-budget.evidence/",
       "measurements": [],

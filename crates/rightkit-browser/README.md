@@ -108,9 +108,12 @@ Chrome or Edge through chromiumoxide. Platform-specific paths are in the resolut
 
 ## Tests
 
-- `tests/e2e.rs`: real headless Chrome against a local static page. Assertions read page state produced by trusted input.
+- `tests/e2e.rs`: real headless Chrome against a local static page, including Netscape cookie import. Assertions read page state produced by trusted input.
 - `tests/policy_e2e.rs`: network-policy behaviour.
 - `tests/cft_close.rs`: Chrome for Testing close behaviour.
+- `tests/fixture_session.rs`: native confined fixture session (Windows AppContainer / macOS Seatbelt).
+- `tests/managed_root_public.rs`: public `ManagedRoot` construction for `install`.
+- Cookie export unit tests live in `src/cookie_export.rs` & `src/cookies.rs` (feature `cookie-export`).
 
 ## Version and changes
 

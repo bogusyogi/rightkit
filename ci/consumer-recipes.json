@@ -129,7 +129,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/settings-ui/README.md": "332e8fea99765925ebfaadf22c440b0c3a9767b65a7384224dc3fad9cbfc0179",
+        "ci/consumers/npm/settings-ui/README.md": "57174977e1831f6ed5aefa31e7c47c781df515880d734e8b4dfa1c3ac8e21851",
         "ci/consumers/npm/settings-ui/consumer.mjs": "6bb455d420a91094e84ea4d417cb352781aff42412a2716a4a25be5e842476ca",
         "ci/consumers/npm/settings-ui/package.json": "2461ab4540bfd71c284cd962ac8b1d69f9892076ca2bb208a84504f9674fb8d9",
         "ci/consumers/npm/settings-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
@@ -335,13 +335,13 @@
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
         "Cargo.toml": "83b15f41068d16723f2963f5ecf628e6ce0bc575c6de0c2fc1c3ca4b2610e9c9",
-        "README.md": "a3e99bfe14dd20d2ff52e1bf061f1efb8dc3afed8baaf8e4b0f0867bef3d3845",
-        "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a",
         "prepare_signed_helper.py": "40d6c35ddb41a2d5a87263ebd1775583044218129538d819c8ca05d6e4949ca7",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
         "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
         "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
-        "qualification-helper/README.md": "a61d6a6aad65432879b6cc44ca403e891b959abb2f4329811d7e015105e9a962"
+        "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
+        "README.md": "8aae0e4630500f529171dd6399138807955ff55df50239cc749f277d5c26b32b",
+        "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a"
       },
       "runs": [
         {
@@ -394,8 +394,8 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-browser/src/main.rs",
       "files": {
-        "Cargo.toml": "df01b363ccea5746f65322c7c21f3f6b189758cc7c0d382324226a8924a633f1",
-        "README.md": "9f8d7e1a070336ffed82b72683b3d3773e09566fd81e82e4e69eb53b8a5a1733",
+        "Cargo.toml": "32d8c1be1eed3f9ac67506500c64bfb7536b9aa857aa9d0aa949dbd8bb37820d",
+        "README.md": "f8f8d5ecd0d7a1ca131e1dd5c05c0d7a3bee05cdffb5a9b9214e9d057b7e35b8",
         "src/main.rs": "34683521bd5e58ac1bbad2251731492b415600fe6b6c9f67a8eb8290a57b9b8c"
       },
       "runs": [
@@ -559,9 +559,9 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-agent-tools/src/main.rs",
       "files": {
-        "Cargo.toml": "041074edd2375d297fe2634660a5e82b377fb8ae22c3320f543d0e65b3413c84",
-        "README.md": "a3396481847231daaeb11cbfe0e8d4bc9232289a3cae838cfc3d76fb28dcea53",
-        "src/main.rs": "65565417050474ff5604454d304dfc2686f577f2a4cf07035e290627ee6ec315"
+        "Cargo.toml": "562631dda63fc2dd42a576cdbaf3f0654e6e2c9d680fe7739510e9593f2c3669",
+        "README.md": "aa7dbfb189d496b1407d4cac1a2404fcb167103e60f6fc5c1a3e22ab7c89fb3b",
+        "src/main.rs": "26ca5069dbbb486e0a0c2f871911851b1f9ee0e04d23a330f2343f034d85c0ac"
       }
     },
     "rightkit-tauri-shell": {
@@ -569,8 +569,8 @@
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
         "Cargo.toml": "53c330dd2bc5d4d98c3221ab8aecb60bb736c0bd8dae3c0621f8b6d4d7690ecd",
-        "README.md": "07b657f97347265433987d882766a7f778d6cc15ba7ee2059ba185b7d5c606b5",
-        "src/main.rs": "b62f82ab32be14780f678b7064487ef12e89942e4573ecd202aae8f65dee15d6"
+        "README.md": "18a838ad228795a3fe6a34d9aab27e33763ef2b310b1c885efaca0ce46f8e242",
+        "src/main.rs": "ca6930520624872d500a042c93e470b98d8621f7987cfc9195b6532204e45b58"
       }
     },
     "rightkit-oauth": {
@@ -622,14 +622,14 @@
       "id": "ci/consumers/rightkit-license/src/main.rs",
       "dependency": "rightkit-license = { version = \"=0.2.4\" }",
       "extraDependencies": [],
-      "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; no network, no OS keychain; client, update-auth, engine-gate and subject-entitlement features not enabled",
-      "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118)",
+      "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
+      "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "f6eb5367aa3288a0555ddc13761125141c3f1cb8d9aa41ebdb8b469af05634cd",
-        "README.md": "917ce9afbf3e528dc361fb7f02d204a6731162059e35fe29d45dcf696d490b41",
-        "src/main.rs": "1d5dc73479b09b6d2ccf9a72c410bf87c6911355f0bdd6e53f2530d12fdfe087"
+        "Cargo.toml": "551f139d5755d1ac15e9faecadace5e8c660a83683b5a517cd6e02db19569632",
+        "README.md": "4abd6869451076b56d9822016fc48733da706836d6f7cb4c2a7d51edb0bfe7a0",
+        "src/main.rs": "df050c58a46bb12213098b5f0c37b7ba69399982bb23ffe3838733306f1319d0"
       },
-      "aggregateSha256": "895141be1a8a2d04483fad0e0dd5a8eb6254dc935e7bf3a6779dec50cd5f0578"
+      "aggregateSha256": "24f0586eccd10226d88986d48c4c55c4e64f5b8430704cd65dd1aee61a4167f5"
     },
     "rightkit-child-process": {
       "pkId": "PK02",
@@ -649,15 +649,17 @@
       "pkId": "PK07",
       "id": "ci/consumers/rightkit-daemon/src/main.rs",
       "dependency": "rightkit-daemon = { version = \"=0.4.0\" }",
-      "extraDependencies": [],
-      "gateEvidence": "no assets needed; per-run private temp suite removed on drop; no listener or process; no ci/asset-gated.json entry needed",
-      "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231",
+      "extraDependencies": [
+        "serde_json = \"1\""
+      ],
+      "gateEvidence": "per-run private temp suites removed on drop; local current-user IPC to same process for PK07 R2; no TCP or real user data",
+      "consumes": "PK07 named consumers per docs/plans/2026-10-20-rightkit-implementation/01-packages.md: HeardRight and ScrapeRight data-folder move; Pulse migrated_app_root() retirement (PK07-3); CutoverParticipant surface at crates/rightkit-daemon/src/root_cutover.rs:231; PK07 R2 Service builder/local host, Client::connect_expecting, echo, method/app denial & executable mismatch",
       "files": {
-        "Cargo.toml": "15a0868c784cc4505f596d7e05da62bbc8e73554208a85efc0605a5eb2599a77",
-        "README.md": "b89ee7a6e9885c773c7b592b000149c7e0e142b76a6184257ae3eec72d188445",
-        "src/main.rs": "6520ef82f8788601e842876d46578bab9e015e2f2535a78be83ffe51d64c3a02"
+        "Cargo.toml": "613e0506819f53d190b3353508dfaedf93c3123d249fe9c155f7dc6d5e7b4670",
+        "README.md": "c8089bb550515c35b36ec6d5c496a0ad1e889add6111ae86ea1adcb7b6d55fff",
+        "src/main.rs": "d730da13e7bf3eb6fd1b2e3bbd96081e5e145d8a5ae56179b04a97e09847659a"
       },
-      "aggregateSha256": "ad35b4ad88b463e7aae79ceadef909ba30283f8a017b52a0d3280fe8e4752bc9"
+      "aggregateSha256": "32d8c0b5da714ee07e195fd9bb5839138bac038cc6d4e732ce5852f99600c0fb"
     },
     "rightkit-qa": {
       "pkId": "PK14",

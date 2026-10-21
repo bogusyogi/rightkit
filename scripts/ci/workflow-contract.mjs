@@ -24,8 +24,11 @@ export const PUBLISH_CONCURRENCY_GROUP = "qualification-${{ github.run_id }}";
 const RESULT_OK = (job) => `needs.${job}.result == 'success'`;
 const COUNT_TERM = "needs.plan.outputs.count != '0'";
 export const SWAP_OK_OR_SKIPPED = "((needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') && needs.build-swap.result == 'success' && needs.sign-swap.result == 'success') || ((needs.plan.outputs.registry != 'npm' || !contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ')) && needs.build-swap.result == 'skipped' && needs.sign-swap.result == 'skipped'))";
+export const BUILD_CREDENTIALS_IF = "${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') }}";
+export const SIGN_CREDENTIALS_IF = "${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.build-credentials-helper.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') }}";
+export const CREDENTIALS_OK_OR_SKIPPED = "((needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') && needs.build-credentials-helper.result == 'success' && needs.sign-credentials-helper.result == 'success') || ((needs.plan.outputs.registry != 'crates' || !contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ')) && needs.build-credentials-helper.result == 'skipped' && needs.sign-credentials-helper.result == 'skipped'))";
 export const PACK_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${COUNT_TERM} && ${SWAP_OK_OR_SKIPPED} }}`;
-export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} }}`;
+export const VERIFY_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} && ${CREDENTIALS_OK_OR_SKIPPED} }}`;
 export const LINUX_COUNT_TERM = "needs.plan.outputs.linux_count != '0'";
 export const LINUX_IF = `\${{ !cancelled() && ${RESULT_OK("guard")} && ${RESULT_OK("plan")} && ${RESULT_OK("pack")} && ${COUNT_TERM} && ${LINUX_COUNT_TERM} }}`;
 export const CHROME_IF = "${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}";
@@ -39,7 +42,7 @@ export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
   PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
 };
-const ALL_JOBS = ["guard", "plan", "build-swap", "sign-swap", "pack", "verify", "verify-linux", "qualified"];
+export const ALL_JOBS = ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"];
 export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\ntest "$LINUX_COUNT" -ge 0\ntest "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"\n';
 export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", VERIFY_LINUX_RESULT: "${{ needs.verify-linux.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}", LINUX_COUNT: "${{ needs.plan.outputs.linux_count }}", LINUX_EXPECTED_RESULT: "${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}" };
 // sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only qualification job that may use an
@@ -60,6 +63,150 @@ export const SIGN_SWAP_SECRETS = {
 };
 export const SIGN_SWAP_ARTIFACT = "rightkit-swap-signed";
 const PACK_SWAP_STEP_IF = "${{ needs.sign-swap.result == 'success' }}";
+// build-credentials-helper compiles the isolated macOS qualification helper (RightKitCredentialsQualification)
+// from pinned Swift sources on a secretless runner; sign-credentials-helper embeds the release-environment
+// provisioning profile and Developer ID signs it. verify (macOS leg only) downloads the same-run signed
+// artifact, re-checks its receipt and tree digest through provision-credentials-helper-env.mjs, and exports
+// RK_SOURCE_HELPER_APP/RK_CONSUMER_HELPER_NAME/RK_CONSUMER_HELPER_TEAM_ID. No new signing protocol: the
+// identity import, codesign argv, strict verify and receipt binding mirror sign-swap exactly.
+export const CREDENTIALS_VERIFY_STEP_IF = "${{ needs.sign-credentials-helper.result == 'success' && runner.os == 'macOS' }}";
+export const CREDENTIALS_HELPER_ENV = {
+  RK_SOURCE_HELPER_APP: "${{ env.RK_SOURCE_HELPER_APP }}",
+  RK_CONSUMER_HELPER_NAME: "${{ env.RK_CONSUMER_HELPER_NAME }}",
+  RK_CONSUMER_HELPER_TEAM_ID: "${{ env.RK_CONSUMER_HELPER_TEAM_ID }}",
+};
+// Exact pinned sources of the qualification helper (ci/consumers/rightkit-credentials/qualification-helper/README.md):
+// five Swift files at this commit, verified by git blob SHA-1 at build time, plus the three committed fixture
+// files (main.swift, Info.plist, entitlements.plist) from the dispatched checkout.
+export const CREDENTIALS_HELPER_SOURCE_COMMIT = "8f38ac109e09b182b0e5c0f4e365606a3522f45b";
+export const CREDENTIALS_HELPER_SOURCE_PREFIX = "swift/RightKitSwift/Sources/RightKitAppleCredentials";
+const CREDENTIALS_HELPER_SOURCE_BLOBS = [
+  ["AppleCredentialHelperHost.swift", "e9f6aff167f9219eab465fa4d87f9bcc992bee07"],
+  ["ForeignGenericPassword.swift", "19b29a3d71663736fe481873e4490c53d0c4f27a"],
+  ["RightKitAppleCredentials.swift", "a4c53c429961eb187000a1f8151662ec4c529e26"],
+  ["SyncedCredentialPolicy.swift", "e1e3d9bc136c40ebccc13acb910f0bd009b56ca9"],
+  ["SyncedEnvelopeStore.swift", "fd45199d5ff0846712e05e4d833c9f60acd7a5b9"],
+];
+const CREDENTIALS_HELPER_SYNTH =
+  "xcrun swiftc -swift-version 6 -target \"$(uname -m)-apple-macosx14.0\"";
+export const CREDENTIALS_BUILD_RUN = [
+  "set -euo pipefail",
+  "out=\"$RUNNER_TEMP/credentials-helper-unsigned\"",
+  "stage=\"$out/stage\"",
+  "rm -rf \"$out\" && mkdir -p \"$stage/source\" \"$out/RightKitCredentialsQualification.app/Contents/MacOS\"",
+  `commit="${CREDENTIALS_HELPER_SOURCE_COMMIT}"`,
+  ...CREDENTIALS_HELPER_SOURCE_BLOBS.flatMap(([name, blob]) => [
+    `git show "$commit:${CREDENTIALS_HELPER_SOURCE_PREFIX}/${name}" > "$stage/source/${name}"`,
+    `test "$(git hash-object "$stage/source/${name}")" = "${blob}"`,
+  ]),
+  "fixture=\"ci/consumers/rightkit-credentials/qualification-helper\"",
+  "cp \"$GITHUB_WORKSPACE/$fixture/main.swift\" \"$GITHUB_WORKSPACE/$fixture/Info.plist\" \"$GITHUB_WORKSPACE/$fixture/entitlements.plist\" \"$stage/source/\"",
+  "mkdir -p \"$stage/module-cache\"",
+  "export CLANG_MODULE_CACHE_PATH=\"$stage/module-cache\"",
+  `${CREDENTIALS_HELPER_SYNTH} -module-cache-path "$stage/module-cache" -parse-as-library -emit-library -static -emit-module -module-name RightKitAppleCredentials -emit-module-path "$stage/RightKitAppleCredentials.swiftmodule" "$stage/source/AppleCredentialHelperHost.swift" "$stage/source/ForeignGenericPassword.swift" "$stage/source/RightKitAppleCredentials.swift" "$stage/source/SyncedCredentialPolicy.swift" "$stage/source/SyncedEnvelopeStore.swift" -o "$stage/libRightKitAppleCredentials.a"`,
+  `${CREDENTIALS_HELPER_SYNTH} -module-cache-path "$stage/module-cache" -I "$stage" -L "$stage" -lRightKitAppleCredentials "$stage/source/main.swift" -o "$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification"`,
+  "cp \"$stage/source/Info.plist\" \"$out/RightKitCredentialsQualification.app/Contents/Info.plist\"",
+  "python3 - \"$stage\" \"$out\" <<'PY'",
+  "import hashlib",
+  "import json",
+  "import sys",
+  `records = [{"name": "git-commit", "commit": "${CREDENTIALS_HELPER_SOURCE_COMMIT}"}]`,
+  "for name in [\"AppleCredentialHelperHost.swift\", \"ForeignGenericPassword.swift\", \"RightKitAppleCredentials.swift\", \"SyncedCredentialPolicy.swift\", \"SyncedEnvelopeStore.swift\", \"main.swift\", \"Info.plist\", \"entitlements.plist\"]:",
+  "    with open(sys.argv[1] + \"/source/\" + name, \"rb\") as stream:",
+  "        data = stream.read()",
+  "    records.append({\"name\": name, \"sha256\": hashlib.sha256(data).hexdigest()})",
+  "with open(sys.argv[2] + \"/source-inputs.json\", \"w\") as stream:",
+  "    stream.write(json.dumps({\"schema\": 1, \"files\": records}, indent=2) + \"\\n\")",
+  "PY",
+].join("\n") + "\n";
+export const CREDENTIALS_SEAL_RUN = "set -euo pipefail\nout=\"$RUNNER_TEMP/credentials-helper-unsigned\"\nbin=\"$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification\"\ntest -f \"$bin\"\nchmod 0755 \"$bin\"\n(cd \"$(dirname \"$bin\")\" && shasum -a 256 RightKitCredentialsQualification > \"$out/helper.sha256\")\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-credentials-helper\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"\ncat \"$out/helper.sha256\" >> \"$out/source-receipt.txt\"\nprintf 'sha256=%s\\n' \"$(cut -d ' ' -f 1 \"$out/helper.sha256\")\" >> \"$GITHUB_OUTPUT\"\n";
+export const CREDENTIALS_VALIDATE_RUN = "set -euo pipefail\nin=\"$RUNNER_TEMP/credentials-helper-unsigned\"\n[[ \"$EXPECTED_SHA256\" =~ ^[0-9a-f]{64}$ ]]\nshopt -s dotglob nullglob\nfiles=(\"$in\"/*)\ntest \"${#files[@]}\" -eq 5\nfor file in RightKitCredentialsQualification.app helper.sha256 source-receipt.txt source-inputs.json entitlements.plist; do\n  test -e \"$in/$file\"\n  test ! -L \"$in/$file\"\ndone\ntest -f \"$in/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification\"\ntest -f \"$in/RightKitCredentialsQualification.app/Contents/Info.plist\"\ntest ! -e \"$in/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile\"\nprintf '%s  RightKitCredentialsQualification\\n' \"$EXPECTED_SHA256\" > \"$RUNNER_TEMP/expected-credentials-helper.sha256\"\ncmp \"$RUNNER_TEMP/expected-credentials-helper.sha256\" \"$in/helper.sha256\"\nprintf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=build-credentials-helper\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$RUNNER_TEMP/expected-credentials-helper-receipt.txt\"\ncat \"$RUNNER_TEMP/expected-credentials-helper.sha256\" >> \"$RUNNER_TEMP/expected-credentials-helper-receipt.txt\"\ncmp \"$RUNNER_TEMP/expected-credentials-helper-receipt.txt\" \"$in/source-receipt.txt\"\n(cd \"$in/RightKitCredentialsQualification.app/Contents/MacOS\" && shasum -a 256 -c \"$in/helper.sha256\")\n";
+export const CREDENTIALS_SIGN_RUN = [
+  "set -euo pipefail",
+  "in=\"$RUNNER_TEMP/credentials-helper-unsigned\"",
+  "out=\"$RUNNER_TEMP/credentials-helper-signed\"",
+  "rm -rf \"$out\" && mkdir -p \"$out\"",
+  "profile=\"$RUNNER_TEMP/credentials-qual.mobileprovision\"",
+  "printf '%s' \"$APPLE_CREDENTIALS_QUAL_PROFILE_BASE64\" | base64 --decode > \"$profile\"",
+  "identity_hash=\"$(security find-identity -v -p codesigning \"$RUNNER_TEMP/apple-signing.keychain-db\" | awk '/Developer ID Application/ {print $2; exit}')\"",
+  "[[ \"$identity_hash\" =~ ^[0-9A-F]{40}$ ]]",
+  "python3 - \"$profile\" \"$identity_hash\" <<'PY'",
+  "import datetime",
+  "import hashlib",
+  "import plistlib",
+  "import subprocess",
+  "import sys",
+  "team = \"6KLGD3LLKF\"",
+  "identifier = \"org.rightkit.qualification.credentials\"",
+  "profile, identity_hash = sys.argv[1], sys.argv[2].upper()",
+  "raw = subprocess.run([\"security\", \"cms\", \"-D\", \"-i\", profile], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout",
+  "data = plistlib.loads(raw)",
+  "entitlements = data.get(\"Entitlements\", {})",
+  "if entitlements.get(\"application-identifier\") != team + \".\" + identifier:",
+  "    raise SystemExit(\"profile application-identifier mismatch\")",
+  "expected = team + \".\" + identifier",
+  "groups = entitlements.get(\"keychain-access-groups\")",
+  "def authorized(group):",
+  "    if group == expected:",
+  "        return True",
+  "    return isinstance(group, str) and group.startswith(team + \".\") and group.endswith(\"*\") and \"*\" not in group[:-1] and expected.startswith(group[:-1])",
+  "if not isinstance(groups, list) or not any(authorized(group) for group in groups):",
+  "    raise SystemExit(\"profile keychain-access-groups mismatch\")",
+  "if team not in data.get(\"TeamIdentifier\", []):",
+  "    raise SystemExit(\"profile team mismatch\")",
+  "platforms = data.get(\"Platform\", [])",
+  "if not platforms or any(platform not in (\"OSX\", \"macOS\") for platform in platforms):",
+  "    raise SystemExit(\"profile platform mismatch\")",
+  "expiry = data.get(\"ExpirationDate\")",
+  "if expiry is None:",
+  "    raise SystemExit(\"profile expiry missing\")",
+  "if expiry.tzinfo is None:",
+  "    expiry = expiry.replace(tzinfo=datetime.timezone.utc)",
+  "if datetime.datetime.now(datetime.timezone.utc) >= expiry:",
+  "    raise SystemExit(\"profile expired\")",
+  "if entitlements.get(\"get-task-allow\", False) is not False:",
+  "    raise SystemExit(\"profile must disable debugging\")",
+  "fingerprints = {hashlib.sha1(certificate).hexdigest().upper() for certificate in data.get(\"DeveloperCertificates\", [])}",
+  "if identity_hash not in fingerprints:",
+  "    raise SystemExit(\"profile does not authorize the signing identity\")",
+  "PY",
+  "cp -R \"$in/RightKitCredentialsQualification.app\" \"$out/\"",
+  "cp \"$profile\" \"$out/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile\"",
+  "cp \"$in/source-receipt.txt\" \"$out/unsigned-source-receipt.txt\"",
+  "cp \"$in/entitlements.plist\" \"$out/entitlements.plist\"",
+  "cp \"$in/source-inputs.json\" \"$out/source-inputs.json\"",
+  "codesign --force --strict --options runtime --timestamp --entitlements \"$in/entitlements.plist\" --sign \"$APPLE_DEVELOPER_ID\" \"$out/RightKitCredentialsQualification.app\"",
+  "codesign --verify --strict --verbose=2 \"$out/RightKitCredentialsQualification.app\"",
+  "details=\"$(codesign -dvv \"$out/RightKitCredentialsQualification.app\" 2>&1)\"",
+  "printf '%s\\n' \"$details\"",
+  "printf '%s\\n' \"$details\" | grep -q 'Authority=Developer ID Application'",
+  "printf '%s\\n' \"$details\" | grep -q 'TeamIdentifier=6KLGD3LLKF'",
+  "printf '%s\\n' \"$details\" | grep -q 'Identifier=org.rightkit.qualification.credentials'",
+  "printf '%s\\n' \"$details\" | grep -Eq 'flags=0x[0-9a-f]+\\(.*runtime'",
+  "python3 - \"$out/RightKitCredentialsQualification.app\" <<'PY'",
+  "import plistlib",
+  "import subprocess",
+  "import sys",
+  "result = subprocess.run([\"codesign\", \"-d\", \"--entitlements\", \":-\", sys.argv[1]], check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)",
+  "entitlements = plistlib.loads(result.stdout)",
+  "if entitlements != {\"keychain-access-groups\": [\"6KLGD3LLKF.org.rightkit.qualification.credentials\"]}:",
+  "    raise SystemExit(\"signed helper must carry only its isolated access group\")",
+  "PY",
+  "bin=\"$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification\"",
+  "(cd \"$(dirname \"$bin\")\" && shasum -a 256 RightKitCredentialsQualification > \"$out/helper.sha256\" && cat \"$out/helper.sha256\")",
+  "printf 'repository=%s\\nsource=%s\\nrun=%s\\nattempt=%s\\nworkflow=%s\\nhost=%s\\narch=%s\\njob=sign-credentials-helper\\n' \"$GITHUB_REPOSITORY\" \"$GITHUB_SHA\" \"$GITHUB_RUN_ID\" \"$GITHUB_RUN_ATTEMPT\" \"$GITHUB_WORKFLOW_REF\" \"$RUNNER_OS\" \"$RUNNER_ARCH\" > \"$out/source-receipt.txt\"",
+  "cat \"$out/helper.sha256\" >> \"$out/source-receipt.txt\"",
+  "{ echo '### RightKitCredentialsQualification (Developer ID signed)'; echo '```'; cat \"$out/helper.sha256\"; echo '```'; } >> \"$GITHUB_STEP_SUMMARY\"",
+].join("\n") + "\n";
+export const CREDENTIALS_CLEANUP_RUN = "keychain_path=\"$RUNNER_TEMP/apple-signing.keychain-db\"\nsecurity delete-keychain \"$keychain_path\" || true\nrm -f \"$RUNNER_TEMP/apple-signing.p12\" \"$RUNNER_TEMP/credentials-qual.mobileprovision\"\n";
+export const UNSIGNED_CREDENTIALS_ARTIFACT = "rightkit-credentials-helper-unsigned-${{ github.run_attempt }}";
+export const SIGN_CREDENTIALS_SECRETS = {
+  APPLE_CERTIFICATE_BASE64: "${{ secrets.APPLE_CERTIFICATE_BASE64 }}",
+  APPLE_CERTIFICATE_PASSWORD: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}",
+  APPLE_KEYCHAIN_PASSWORD: "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}",
+  APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}",
+};
+export const SIGN_CREDENTIALS_ARTIFACT = "rightkit-credentials-helper-signed";
 // The licence gate (rightkit#264) lives in plan, which every later job needs, so nothing can pack or upload past a failure.
 export const DENY_IF = "${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}";
 export const DENY_TOOL = "cargo-deny@0.20.2";
@@ -149,7 +296,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(same(sorted(Object.keys(qualified ?? {})), ["if", "needs", "runs-on", "steps", "timeout-minutes"]) && qualified?.["runs-on"] === "ubuntu-24.04", "qualified must be a closed hosted result gate");
   check(stepsOf(qualified).length === 1 && same(sorted(Object.keys(qualified.steps[0])), ["env", "name", "run"]) && same(qualified.steps[0].env, QUALIFIED_ENV) && qualified.steps[0].run === QUALIFIED_RUN, "qualified must fail for every failed, cancelled or skipped prerequisite & empty plan");
 
-  for (const [jobName, artifactName] of [["pack", "publish-packed"], ["build-swap", UNSIGNED_ARTIFACT], ["sign-swap", SIGN_SWAP_ARTIFACT], ["verify", "publish-verify-${{ matrix.os }}-${{ github.run_attempt }}"], ["verify-linux", `publish-verify-${LINUX_HOST_LABEL}-\${{ github.run_attempt }}`]]) {
+  for (const [jobName, artifactName] of [["pack", "publish-packed"], ["build-swap", UNSIGNED_ARTIFACT], ["sign-swap", SIGN_SWAP_ARTIFACT], ["build-credentials-helper", UNSIGNED_CREDENTIALS_ARTIFACT], ["sign-credentials-helper", SIGN_CREDENTIALS_ARTIFACT], ["verify", "publish-verify-${{ matrix.os }}-${{ github.run_attempt }}"], ["verify-linux", `publish-verify-${LINUX_HOST_LABEL}-\${{ github.run_attempt }}`]]) {
     const artifacts = stepsOf(jobs[jobName]).filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === artifactName);
     check(artifacts.length === 1 && artifacts[0].with["retention-days"] === "90", `${artifactName} must retain qualification evidence for 90 days`);
   }
@@ -171,7 +318,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(verify?.strategy?.matrix && !("exclude" in verify.strategy.matrix) && !("include" in verify.strategy.matrix), "verify matrix must not exclude or include legs");
   check(verify?.["runs-on"] === "${{ matrix.os }}", "verify must run on the matrix host");
   for (const needed of ["guard", "plan", "build-swap", "sign-swap"]) check(needsOf(pack).includes(needed), `pack must need ${needed}`);
-  for (const needed of ["guard", "plan", "pack"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
+  for (const needed of ["guard", "plan", "pack", "build-credentials-helper", "sign-credentials-helper"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
   check(typeof verify?.if === "string" && verify.if.trim() === VERIFY_IF, `verify's condition must be exactly ${VERIFY_IF}`);
   // pack runs after sign-swap succeeded or was skipped (a crates run, or a run without @rightkit/release), never after it failed.
   check(typeof pack?.if === "string" && pack.if.trim() === PACK_IF, `pack's condition must be exactly ${PACK_IF}`);
@@ -200,6 +347,18 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const chromeCache = stepsOf(verify).find((s) => s.name === "Cache the pinned Chrome for Testing");
   check(chromeCache?.if?.trim() === CHROME_IF && chromeCache?.uses?.startsWith("actions/cache@"), "the pinned Chrome cache must cover npm @rightkit/qa, @rightkit/react-shell, @rightkit/settings-ui and @rightkit/onboarding plus crates rightkit-browser");
   check(chromeStep?.if?.trim() === CHROME_IF, "the pinned Chrome provision step must cover npm @rightkit/qa, @rightkit/react-shell, @rightkit/settings-ui and @rightkit/onboarding plus crates rightkit-browser");
+  // The macOS-only credentials helper route: download the same-run signed artifact, then export its route
+  // through provision-credentials-helper-env.mjs before the gate; gate and receipt read the three helper
+  // vars from the job environment, never from the candidate or a literal.
+  const credsDownload = stepsOf(verify).filter((s) => /^actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === SIGN_CREDENTIALS_ARTIFACT);
+  check(credsDownload.length === 1 && same(sorted(Object.keys(credsDownload[0].with)), ["name", "path"]) && credsDownload[0].with.path === `${RT}/credentials-helper-signed` && credsDownload[0].if?.trim() === CREDENTIALS_VERIFY_STEP_IF, `verify must download ${SIGN_CREDENTIALS_ARTIFACT} into ${RT}/credentials-helper-signed only on the macOS leg after a successful credentials signing`);
+  const credsSteps = stepsOf(verify).filter((s) => /provision-credentials-helper-env\.mjs/.test(s.run ?? ""));
+  check(credsSteps.length === 1 && credsSteps[0]?.run?.trim() === "node scripts/ci/provision-credentials-helper-env.mjs" && same(credsSteps[0]?.env, { CREDENTIALS_HELPER_SIGNED_ROOT: `${RT}/credentials-helper-signed` }) && credsSteps[0]?.shell === "bash" && credsSteps[0]?.if?.trim() === CREDENTIALS_VERIFY_STEP_IF, "verify must export the sealed signed-helper route from the same-run artifact on the macOS leg");
+  const credsDownloadAt = stepsOf(verify).findIndex((s) => /^actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === SIGN_CREDENTIALS_ARTIFACT);
+  const credsProvisionAt = stepsOf(verify).findIndex((s) => /provision-credentials-helper-env\.mjs/.test(s.run ?? ""));
+  check(credsDownloadAt >= 0 && credsProvisionAt > credsDownloadAt && credsProvisionAt < gateAt, "verify must download the signed helper, then export its route, before the unit gate");
+  check(stepsOf(verify)[gateAt]?.env?.RK_SOURCE_HELPER_APP === CREDENTIALS_HELPER_ENV.RK_SOURCE_HELPER_APP && stepsOf(verify)[gateAt]?.env?.RK_CONSUMER_HELPER_NAME === CREDENTIALS_HELPER_ENV.RK_CONSUMER_HELPER_NAME && stepsOf(verify)[gateAt]?.env?.RK_CONSUMER_HELPER_TEAM_ID === CREDENTIALS_HELPER_ENV.RK_CONSUMER_HELPER_TEAM_ID, "verify gate must read the signed helper route from the job environment");
+  check(stepsOf(verify)[receiptAt]?.env?.RK_SOURCE_HELPER_APP === CREDENTIALS_HELPER_ENV.RK_SOURCE_HELPER_APP && stepsOf(verify)[receiptAt]?.env?.RK_CONSUMER_HELPER_NAME === CREDENTIALS_HELPER_ENV.RK_CONSUMER_HELPER_NAME && stepsOf(verify)[receiptAt]?.env?.RK_CONSUMER_HELPER_TEAM_ID === CREDENTIALS_HELPER_ENV.RK_CONSUMER_HELPER_TEAM_ID, "verify receipt must read the signed helper route from the job environment");
   check(stepsOf(verify).some((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "verify must download the sealed publish-packed artifact");
   check(stepsOf(pack).some((s) => /node scripts\/ci\/publish\.mjs pack/.test(s.run ?? "")) && stepsOf(pack).some((s) => /actions\/upload-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "pack must seal and upload publish-packed");
   check(stepsOf(plan).some((s) => /node scripts\/ci\/workflow-contract\.mjs/.test(s.run ?? "")), "plan must run this contract before planning");
@@ -221,9 +380,11 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(linuxSteps.some((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === "publish-packed"), "verify-linux must download the sealed publish-packed artifact");
   check(linuxSteps.some((s) => /^actions\/checkout@/.test(s.uses ?? "")), "verify-linux must check out the dispatched commit");
 
-  // Qualification has no registry privilege; only sign-swap holds Apple identity secrets.
+  // Qualification has no registry privilege; only the two signers hold Apple secrets (sign-swap the
+  // identity alone, sign-credentials-helper the identity plus the qualification provisioning profile).
+  const privileged = ["sign-swap", "sign-credentials-helper"];
   for (const [jobName, job] of Object.entries(jobs)) {
-    const isSign = jobName === "sign-swap";
+    const isSign = privileged.includes(jobName);
     const secretHits = findMatches(job, SECRET_PATTERN); const idHits = findMatches(job, ID_TOKEN_PATTERN);
     if (!isSign) check(secretHits.length === 0, `${jobName} must not reference the secrets context in any form (${secretHits.map((h) => h.path).join(", ")})`);
     check(idHits.length === 0, `${jobName} must not request id-token (${idHits.map((h) => h.path).join(", ")})`);
@@ -250,6 +411,12 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(buildSteps.length === 5 && buildSteps[2]?.run === "cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs" && buildSteps[2]?.env === undefined && buildSteps[3]?.run === UNSIGNED_SEAL_RUN && buildSteps[3]?.id === "seal" && buildSteps[3]?.shell === "bash" && buildSteps[3]?.env === undefined && buildSteps[3]?.if === undefined, "build-swap must build & seal with exact source/run/hash receipt before artifact transfer");
   check(buildSteps[0]?.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" && buildSteps[1]?.uses === "dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0", "build-swap uses pinned checkout & native toolchain");
   check(buildSteps[4]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(buildSteps[4]?.with, { name: UNSIGNED_ARTIFACT, path: `${RT}/swap-unsigned`, "retention-days": "90", overwrite: "false", "if-no-files-found": "error" }) && buildSteps[4]?.if === undefined, "build-swap must retain immutable unsigned helper artifact");
+  const buildCreds = jobs["build-credentials-helper"]; const buildCredsSteps = stepsOf(buildCreds);
+  check(buildCreds?.if === BUILD_CREDENTIALS_IF && same(needsOf(buildCreds), ["guard", "plan"]) && buildCreds?.["runs-on"] === "xcode-27", "build-credentials-helper must be the native secretless build behind guard & plan");
+  check(same(sorted(Object.keys(buildCreds ?? {})), ["if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"]) && same(buildCreds?.outputs, { sha256: "${{ steps.seal.outputs.sha256 }}" }), "build-credentials-helper must expose only its sealed helper hash");
+  check(buildCredsSteps.length === 4 && buildCredsSteps[1]?.name === "Build the unsigned qualification helper from pinned sources" && buildCredsSteps[1]?.run === CREDENTIALS_BUILD_RUN && buildCredsSteps[1]?.env === undefined && buildCredsSteps[1]?.shell === "bash" && buildCredsSteps[1]?.if === undefined && buildCredsSteps[2]?.id === "seal" && buildCredsSteps[2]?.run === CREDENTIALS_SEAL_RUN && buildCredsSteps[2]?.shell === "bash" && buildCredsSteps[2]?.env === undefined && buildCredsSteps[2]?.if === undefined, "build-credentials-helper must build from pinned sources & seal with exact source/hash receipt before artifact transfer");
+  check(buildCredsSteps[0]?.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" && same(buildCredsSteps[0]?.with, { "persist-credentials": "false", "fetch-depth": "0" }), "build-credentials-helper checks out the dispatched commit with full history for pinned-blob access and no credentials");
+  check(buildCredsSteps[3]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(buildCredsSteps[3]?.with, { name: UNSIGNED_CREDENTIALS_ARTIFACT, path: `${RT}/credentials-helper-unsigned`, "retention-days": "90", overwrite: "false", "if-no-files-found": "error" }) && buildCredsSteps[3]?.if === undefined, "build-credentials-helper must retain immutable unsigned helper artifact");
   const signSteps = stepsOf(signSwap);
   check(same(findMatches(signSwap, SECRET_PATTERN), Object.entries(SIGN_SWAP_SECRETS).map(([key, text]) => ({ path: `.steps[2].env.${key}`, text }))), "sign-swap secrets context must occur only in exact identity import step after validation");
   check(same(sorted(Object.keys(signSwap ?? {})), ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"]), "sign-swap job is closed against containers, env & defaults");
@@ -265,6 +432,22 @@ export function assertPublishDoc(doc, name = "publish.yml") {
     check(same(sorted(Object.keys(step ?? {})), expectedKeys) && step?.run === expectedRuns[i - 1] && same(step?.env, expectedEnvs[i - 1]) && step?.shell === "bash" && step?.if === (i === 4 ? "${{ always() }}" : undefined), `signer step ${i} must match exact validation/signing-only source & authority`);
   }
   check(same(sorted(Object.keys(signSteps[5] ?? {})), ["name", "uses", "with"]) && signSteps[5]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(signSteps[5]?.with, { name: SIGN_SWAP_ARTIFACT, path: `${RT}/swap-signed`, "retention-days": "90", overwrite: "true", "if-no-files-found": "error" }), "signer hands over only signed helper & bound source/hash receipts");
+  // Fresh signer for the credentials helper: same closure and step discipline as sign-swap, plus the
+  // release-environment provisioning profile decoded, validated and embedded before Developer ID signing.
+  const signCreds = jobs["sign-credentials-helper"]; const signCredsSteps = stepsOf(signCreds);
+  check(same(sorted(Object.keys(signCreds ?? {})), ["environment", "if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"]) && signCreds?.environment === "release" && same(signCreds?.permissions, { contents: "read" }) && signCreds?.["runs-on"] === "xcode-27", "sign-credentials-helper uses only native signing environment with no OIDC");
+  check(signCreds?.if === SIGN_CREDENTIALS_IF && same(needsOf(signCreds), ["guard", "plan", "build-credentials-helper"]), "sign-credentials-helper requires successful credentials build, guard & plan");
+  check(signCredsSteps.length === 6, "credentials signer must have exactly download, validation, identity, signing, cleanup & handover steps");
+  check(same(sorted(Object.keys(signCredsSteps[0] ?? {})), ["name", "uses", "with"]) && signCredsSteps[0]?.uses === "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" && same(signCredsSteps[0]?.with, { name: UNSIGNED_CREDENTIALS_ARTIFACT, path: `${RT}/credentials-helper-unsigned` }), "credentials signer downloads only exact unsigned artifact from same run, with no checkout or foreign run");
+  const credsExpectedRuns = [CREDENTIALS_VALIDATE_RUN, SIGN_IDENTITY_RUN, CREDENTIALS_SIGN_RUN, CREDENTIALS_CLEANUP_RUN];
+  const credsExpectedEnvs = [{ EXPECTED_SHA256: "${{ needs.build-credentials-helper.outputs.sha256 }}" }, SIGN_SWAP_SECRETS, { APPLE_DEVELOPER_ID: "${{ vars.APPLE_DEVELOPER_ID }}", APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }, undefined];
+  for (let i = 1; i <= 4; i++) {
+    const step = signCredsSteps[i];
+    const expectedKeys = i === 4 ? ["if", "name", "run", "shell"] : ["env", "name", "run", "shell"];
+    check(same(sorted(Object.keys(step ?? {})), expectedKeys) && step?.run === credsExpectedRuns[i - 1] && same(step?.env, credsExpectedEnvs[i - 1]) && step?.shell === "bash" && step?.if === (i === 4 ? "${{ always() }}" : undefined), `credentials signer step ${i} must match exact validation/signing-only source & authority`);
+  }
+  check(same(sorted(Object.keys(signCredsSteps[5] ?? {})), ["name", "uses", "with"]) && signCredsSteps[5]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(signCredsSteps[5]?.with, { name: SIGN_CREDENTIALS_ARTIFACT, path: `${RT}/credentials-helper-signed`, "retention-days": "90", overwrite: "true", "if-no-files-found": "error" }), "credentials signer hands over only signed helper & bound source/hash receipts");
+  check(same(findMatches(signCreds, SECRET_PATTERN), [...Object.entries(SIGN_SWAP_SECRETS).map(([key, text]) => ({ path: `.steps[2].env.${key}`, text })), { path: ".steps[3].env.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64", text: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }]), "sign-credentials-helper secrets context must occur only in exact identity import and profile signing steps");
   // pack is secretless and consumes the signed helper only by download.
   const packSwapDownload = stepsOf(pack).filter((s) => /^actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === SIGN_SWAP_ARTIFACT);
   check(packSwapDownload.length === 1 && packSwapDownload[0].if?.trim() === PACK_SWAP_STEP_IF && same(sorted(Object.keys(packSwapDownload[0].with)), ["name", "path"]) && packSwapDownload[0].with.path === `${RT}/swap-signed`, `pack must download ${SIGN_SWAP_ARTIFACT} into ${RT}/swap-signed with only name and path, only when sign-swap succeeded`);
@@ -310,7 +493,7 @@ const withoutTerm = (condition, term) => {
 };
 const CONDITION_JOBS = [
   ["pack", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), COUNT_TERM, SWAP_OK_OR_SKIPPED]],
-  ["verify", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM]],
+  ["verify", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM, CREDENTIALS_OK_OR_SKIPPED]],
   ["verify-linux", ["!cancelled()", RESULT_OK("guard"), RESULT_OK("plan"), RESULT_OK("pack"), COUNT_TERM, LINUX_COUNT_TERM]],
 ];
 /** One mutation per operand of verify's, seal-check's and upload's conditions, plus weakened result checks. */
@@ -421,6 +604,48 @@ export const MUTATIONS = [
   ["signer validation may skip", edit((j) => { j["sign-swap"].steps[1].if = "${{ false }}"; })],
   ["signer loses build dependency", edit((j) => { j["sign-swap"].needs = ["guard", "plan"]; })],
   ["signer installs dependencies", edit((j) => { j["sign-swap"].steps[3].run += "\npnpm install"; })],
+  ["build-credentials-helper is removed", edit((j) => { delete j["build-credentials-helper"]; })],
+  ["sign-credentials-helper is removed", edit((j) => { delete j["sign-credentials-helper"]; })],
+  ["verify no longer needs sign-credentials-helper", edit((j) => { j.verify.needs = j.verify.needs.filter((n) => n !== "sign-credentials-helper"); })],
+  ["verify no longer needs build-credentials-helper", edit((j) => { j.verify.needs = j.verify.needs.filter((n) => n !== "build-credentials-helper"); })],
+  ["verify runs after a failed sign-credentials-helper", edit((j) => { j.verify.if = withoutTerm(j.verify.if, CREDENTIALS_OK_OR_SKIPPED); })],
+  ["verify admits a skipped credentials signer for a required helper", edit((j) => { j.verify.if = j.verify.if.replace("needs.sign-credentials-helper.result == 'success'", "(needs.sign-credentials-helper.result == 'success' || needs.sign-credentials-helper.result == 'skipped')"); })],
+  ["sign-credentials-helper runs for npm runs too", edit((j) => { j["sign-credentials-helper"].if = "${{ needs.plan.outputs.count != '0' }}"; })],
+  ["sign-credentials-helper runs for any crates run", edit((j) => { j["sign-credentials-helper"].if = j["sign-credentials-helper"].if.replace(" && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ')", ""); })],
+  ["sign-credentials-helper loses its environment", edit((j) => { delete j["sign-credentials-helper"].environment; })],
+  ["verify joins the release environment", edit((j) => { j.verify.environment = "release"; })],
+  ["sign-credentials-helper reads the npm token", edit((j) => { j["sign-credentials-helper"].steps.find((s) => s.env?.APPLE_CERTIFICATE_BASE64).env.NODE_AUTH_TOKEN = "${{ secrets.NPM_TOKEN }}"; })],
+  ["sign-credentials-helper reads a secret in a second step", edit((j) => { j["sign-credentials-helper"].steps.find((s) => /codesign --force/.test(s.run ?? "")).env.X = "${{ secrets.APPLE_KEYCHAIN_PASSWORD }}"; })],
+  ["the credentials profile secret leaks into pack", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }; })],
+  ["the credentials profile secret leaks into verify", edit((j) => { j.verify.steps.at(-3).env = { ...(j.verify.steps.at(-3).env ?? {}), APPLE_CREDENTIALS_QUAL_PROFILE_BASE64: "${{ secrets.APPLE_CREDENTIALS_QUAL_PROFILE_BASE64 }}" }; })],
+  ["the credentials build step gets a secret", edit((j) => { j["build-credentials-helper"].steps.find((s) => /git show /.test(s.run ?? "")).env = { T: "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" }; })],
+  ["build-credentials-helper joins the signing environment", edit((j) => { j["build-credentials-helper"].environment = "release"; })],
+  ["build-credentials-helper requests OIDC", edit((j) => { j["build-credentials-helper"].permissions["id-token"] = "write"; })],
+  ["build-credentials-helper loses its sealed checkout history", edit((j) => { delete j["build-credentials-helper"].steps[0].with["fetch-depth"]; })],
+  ["build-credentials-helper substitutes pinned sources", edit((j) => { j["build-credentials-helper"].steps[1].run = j["build-credentials-helper"].steps[1].run.replace(`commit="${CREDENTIALS_HELPER_SOURCE_COMMIT}"`, 'commit="other"'); })],
+  ["build-credentials-helper skips blob verification", edit((j) => { j["build-credentials-helper"].steps[1].run = j["build-credentials-helper"].steps[1].run.replace('test "$(git hash-object "$stage/source/AppleCredentialHelperHost.swift")" = "e9f6aff167f9219eab465fa4d87f9bcc992bee07"', "true"); })],
+  ["credentials signer rebuilds after receiving secrets", edit((j) => { j["sign-credentials-helper"].steps.splice(3, 0, { run: "swiftc main.swift" }); })],
+  ["credentials signer installs dependencies", edit((j) => { j["sign-credentials-helper"].steps[3].run += "\npnpm install"; })],
+  ["credentials signer checks out package code", edit((j) => { j["sign-credentials-helper"].steps.splice(0, 0, { uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", with: { "persist-credentials": "false" } }); })],
+  ["credentials signer takes unsigned artifact from foreign run", edit((j) => { j["sign-credentials-helper"].steps[0].with["run-id"] = "1"; })],
+  ["credentials signer takes different unsigned artifact", edit((j) => { j["sign-credentials-helper"].steps[0].with.name = "other"; })],
+  ["credentials signer omits unsigned hash validation", edit((j) => { j["sign-credentials-helper"].steps[1].run = j["sign-credentials-helper"].steps[1].run.replace('(cd "$in/RightKitCredentialsQualification.app/Contents/MacOS" && shasum -a 256 -c "$in/helper.sha256")', "true"); })],
+  ["credentials signer omits source run validation", edit((j) => { j["sign-credentials-helper"].steps[1].run = j["sign-credentials-helper"].steps[1].run.replace('cmp "$RUNNER_TEMP/expected-credentials-helper-receipt.txt" "$in/source-receipt.txt"', "true"); })],
+  ["credentials signer admits a smuggled profile in the unsigned app", edit((j) => { j["sign-credentials-helper"].steps[1].run = j["sign-credentials-helper"].steps[1].run.replace('test ! -e "$in/RightKitCredentialsQualification.app/Contents/embedded.provisionprofile"', "true"); })],
+  ["credentials signer admits arbitrary unsigned hash", edit((j) => { j["sign-credentials-helper"].steps[1].env.EXPECTED_SHA256 = "literal"; })],
+  ["credentials signer reads secrets before validation", edit((j) => { [j["sign-credentials-helper"].steps[1], j["sign-credentials-helper"].steps[2]] = [j["sign-credentials-helper"].steps[2], j["sign-credentials-helper"].steps[1]]; })],
+  ["credentials signer skips profile validation", edit((j) => { j["sign-credentials-helper"].steps[3].run = j["sign-credentials-helper"].steps[3].run.replace("python3 - \"$profile\" \"$identity_hash\" <<'PY'", "true"); })],
+  ["credentials signer drops the hardened runtime", edit((j) => { const s = j["sign-credentials-helper"].steps.find((x) => /codesign --force/.test(x.run ?? "")); s.run = s.run.replace(" --options runtime", ""); })],
+  ["credentials signer uses another identity", edit((j) => { j["sign-credentials-helper"].steps.find((s) => /codesign --force/.test(s.run ?? "")).env.APPLE_DEVELOPER_ID = "-"; })],
+  ["credentials signer drops the sole-group check", edit((j) => { const s = j["sign-credentials-helper"].steps.find((x) => /codesign --force/.test(x.run ?? "")); s.run = s.run.replace('if entitlements != {"keychain-access-groups": ["6KLGD3LLKF.org.rightkit.qualification.credentials"]}:', "if False:"); })],
+  ["credentials signer keeps the keychain and profile", edit((j) => { j["sign-credentials-helper"].steps = j["sign-credentials-helper"].steps.filter((s) => !/security delete-keychain/.test(s.run ?? "")); })],
+  ["credentials signer hands over another path", edit((j) => { j["sign-credentials-helper"].steps.find((s) => /upload-artifact/.test(s.uses ?? "")).with.path = "target"; })],
+  ["credentials signer loses its build dependency", edit((j) => { j["sign-credentials-helper"].needs = ["guard", "plan"]; })],
+  ["verify downloads the credentials helper unconditionally", edit((j) => { delete j.verify.steps.find((s) => s.with?.name === SIGN_CREDENTIALS_ARTIFACT).if; })],
+  ["verify provisions the helper route unconditionally", edit((j) => { delete j.verify.steps.find((s) => /provision-credentials-helper-env/.test(s.run ?? "")).if; })],
+  ["verify provisions the helper route on every host", edit((j) => { const s = j.verify.steps.find((x) => /provision-credentials-helper-env/.test(x.run ?? "")); s.if = s.if.replace(" && runner.os == 'macOS'", ""); })],
+  ["verify gate takes a literal helper app", edit((j) => { j.verify.steps.find((s) => /gate\.mjs --registry/.test(s.run ?? "")).env.RK_SOURCE_HELPER_APP = "/tmp/other.app"; })],
+  ["verify receipt loses the helper team", edit((j) => { delete j.verify.steps.find((s) => /publish\.mjs verify/.test(s.run ?? "")).env.RK_CONSUMER_HELPER_TEAM_ID; })],
   ["qualification drops final result gate", edit((j) => { delete j.qualified; })],
   ["qualification final gate can skip", edit((j) => { delete j.qualified.if; })],
   ["qualification final gate accepts skipped verify", edit((j) => { j.qualified.steps[0].run = j.qualified.steps[0].run.replace('test "$VERIFY_RESULT" = success', 'true'); })],
