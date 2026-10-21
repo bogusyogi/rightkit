@@ -349,7 +349,10 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
     // Even though B reports no held rotation, A's abandoned native write still owns guard.
     assert!(result.recv_timeout(Duration::from_millis(400)).is_err());
     release.send(()).unwrap();
-    assert!(result.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
+    assert!(result
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .is_ok());
     reader.join().unwrap();
     assert!(shared.targets[0].text("highest-seen-unix").is_some());
     assert!(shared.targets[1].text("highest-seen-unix").is_none());
@@ -501,7 +504,10 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
     // delete worker still holds the operation guard.
     assert!(result.recv_timeout(Duration::from_millis(400)).is_err());
     release.send(()).unwrap();
-    assert!(result.recv_timeout(Duration::from_secs(10)).unwrap().is_ok());
+    assert!(result
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .is_ok());
     reader.join().unwrap();
     assert!(shared.targets[0].text("legacy-record").is_none());
 }
