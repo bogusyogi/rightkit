@@ -177,6 +177,7 @@ export const CREDENTIALS_SIGN_RUN = [
   "cp \"$in/entitlements.plist\" \"$out/entitlements.plist\"",
   "cp \"$in/source-inputs.json\" \"$out/source-inputs.json\"",
   "codesign --force --strict --options runtime --timestamp --entitlements \"$in/entitlements.plist\" --sign \"$APPLE_DEVELOPER_ID\" \"$out/RightKitCredentialsQualification.app\"",
+  "chmod 0755 \"$out/RightKitCredentialsQualification.app/Contents/MacOS/RightKitCredentialsQualification\"",
   "codesign --verify --strict --verbose=2 \"$out/RightKitCredentialsQualification.app\"",
   "details=\"$(codesign -dvv \"$out/RightKitCredentialsQualification.app\" 2>&1)\"",
   "printf '%s\\n' \"$details\"",
