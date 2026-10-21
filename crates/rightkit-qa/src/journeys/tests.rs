@@ -1,14 +1,13 @@
 //! Tests for the journeys module: manifest refusals, the adapter round trip, and one test per
 //! way a receipt must never be accepted.
 use super::adapter::{
-    journey_from_outcomes, journey_from_units, JourneyResult, Record, Reporter, Selection,
-    SelectedJourney, StartInfo, UnitOutcome,
+    journey_from_outcomes, journey_from_units, JourneyResult, Record, Reporter, SelectedJourney,
+    Selection, StartInfo, UnitOutcome,
 };
 use super::manifest::{check, check_manifest, check_mapping, parse_manifest, parse_mapping};
 use super::receipt::*;
 use super::{
-    code, is_rfc3339, ArtifactDigest, Evidence, EvidenceKind, JourneyStatus, Units,
-    RECEIPT_SCHEMA,
+    code, is_rfc3339, ArtifactDigest, Evidence, EvidenceKind, JourneyStatus, Units, RECEIPT_SCHEMA,
 };
 use crate::harness::Outcome;
 use crate::util::{new_id, sha256_hex};
@@ -36,7 +35,11 @@ impl Drop for Fx {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("rkqa-journeys-{name}-{}-{}", std::process::id(), new_id()));
+    let d = std::env::temp_dir().join(format!(
+        "rkqa-journeys-{name}-{}-{}",
+        std::process::id(),
+        new_id()
+    ));
     fs::create_dir_all(&d).unwrap();
     d
 }
@@ -338,10 +341,19 @@ fn selection_parse_refuses_zero_and_malformed() {
     };
     let one = "[{\"id\":\"J-001\",\"entry\":\"e\"}]";
     assert!(Selection::parse(good(one, &rep('a', 32)).as_bytes()).is_ok());
-    assert!(Selection::parse(good("[]", &rep('a', 32)).as_bytes()).is_err(), "zero selected");
-    assert!(Selection::parse(good(one, "short").as_bytes()).is_err(), "bad nonce");
+    assert!(
+        Selection::parse(good("[]", &rep('a', 32)).as_bytes()).is_err(),
+        "zero selected"
+    );
+    assert!(
+        Selection::parse(good(one, "short").as_bytes()).is_err(),
+        "bad nonce"
+    );
     let dup = "[{\"id\":\"J-001\",\"entry\":\"e\"},{\"id\":\"J-001\",\"entry\":\"e\"}]";
-    assert!(Selection::parse(good(dup, &rep('a', 32)).as_bytes()).is_err(), "duplicate id");
+    assert!(
+        Selection::parse(good(dup, &rep('a', 32)).as_bytes()).is_err(),
+        "duplicate id"
+    );
     let v2 = good(one, &rep('a', 32)).replace("\"protocol\":1", "\"protocol\":2");
     assert!(Selection::parse(v2.as_bytes()).is_err(), "wrong protocol");
 }
@@ -387,13 +399,19 @@ fn the_reporter_refuses_what_the_protocol_forbids() {
         failed: 0,
         skipped: 1,
     };
-    assert!(r.journey(&skipped_unit).is_err(), "passed with a skipped unit");
+    assert!(
+        r.journey(&skipped_unit).is_err(),
+        "passed with a skipped unit"
+    );
     let mut missing = passed("J-001");
     missing.status = JourneyStatus::Missing;
     assert!(r.journey(&missing).is_err(), "adapter never writes missing");
     let mut no_reason = journey_from_units("J-001", &[UnitOutcome::Failed(String::new())]);
     no_reason.reason = None;
-    assert!(r.journey(&no_reason).is_err(), "reason required unless passed");
+    assert!(
+        r.journey(&no_reason).is_err(),
+        "reason required unless passed"
+    );
     r.journey(&passed("J-001")).unwrap();
     assert!(r.journey(&passed("J-001")).is_err(), "duplicate journey");
     let end = r.end();
@@ -404,8 +422,14 @@ fn the_reporter_refuses_what_the_protocol_forbids() {
     assert_eq!(last["selected"], 2);
     assert_eq!(last["reported"], 1, "end states the true counts");
     // a stale file is refused
-    assert!(Reporter::open(&s, &path).is_err(), "results file already holds data");
-    assert!(Reporter::open(&s, &dir.join("nope.jsonl")).is_err(), "never created by the adapter");
+    assert!(
+        Reporter::open(&s, &path).is_err(),
+        "results file already holds data"
+    );
+    assert!(
+        Reporter::open(&s, &dir.join("nope.jsonl")).is_err(),
+        "never created by the adapter"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -413,13 +437,34 @@ fn the_reporter_refuses_what_the_protocol_forbids() {
 fn outcomes_map_one_to_one() {
     let p = journey_from_outcomes("J-1", &[Outcome::Passed, Outcome::Passed]);
     assert_eq!(p.status, JourneyStatus::Passed);
-    assert_eq!(p.units, Units { total: 2, passed: 2, failed: 0, skipped: 0 });
-    let s = journey_from_outcomes("J-1", &[Outcome::Passed, Outcome::Skipped("needs mic".into())]);
+    assert_eq!(
+        p.units,
+        Units {
+            total: 2,
+            passed: 2,
+            failed: 0,
+            skipped: 0
+        }
+    );
+    let s = journey_from_outcomes(
+        "J-1",
+        &[Outcome::Passed, Outcome::Skipped("needs mic".into())],
+    );
     assert_eq!(s.status, JourneyStatus::Skipped);
     assert_eq!(s.reason.as_deref(), Some("needs mic"));
     let none = journey_from_outcomes("J-1", &[]);
-    assert_eq!(none.status, JourneyStatus::Errored, "a group that matched nothing is errored");
-    let f = journey_from_units("J-1", &[UnitOutcome::Skipped("s".into()), UnitOutcome::Failed("boom".into())]);
+    assert_eq!(
+        none.status,
+        JourneyStatus::Errored,
+        "a group that matched nothing is errored"
+    );
+    let f = journey_from_units(
+        "J-1",
+        &[
+            UnitOutcome::Skipped("s".into()),
+            UnitOutcome::Failed("boom".into()),
+        ],
+    );
     assert_eq!(f.status, JourneyStatus::Failed, "failed outranks skipped");
     assert_eq!(f.reason.as_deref(), Some("boom"));
 }
@@ -504,7 +549,12 @@ fn an_unselected_result_is_refused() {
 fn skipped_failed_and_errored_are_not_passes() {
     let skipped = JourneyResult {
         status: JourneyStatus::Skipped,
-        units: Units { total: 1, passed: 0, failed: 0, skipped: 1 },
+        units: Units {
+            total: 1,
+            passed: 0,
+            failed: 0,
+            skipped: 1,
+        },
         reason: Some("not today".into()),
         ..passed("J-001")
     };
@@ -517,7 +567,10 @@ fn skipped_failed_and_errored_are_not_passes() {
         reason: Some("adapter crashed".into()),
         ..passed("J-001")
     };
-    refused(&run(&build(&["J-001"], vec![errored])), code::JOURNEY_FAILED);
+    refused(
+        &run(&build(&["J-001"], vec![errored])),
+        code::JOURNEY_FAILED,
+    );
 }
 
 #[test]
@@ -714,7 +767,10 @@ fn a_non_zero_adapter_exit_is_refused_even_when_every_record_passed() {
     fx.receipt.adapter.exit_code = 1;
     let v = run(&fx);
     refused(&v, code::ADAPTER_EXIT);
-    assert_eq!(v.counts.passed, 2, "records are all passed, exit code still decides");
+    assert_eq!(
+        v.counts.passed, 2,
+        "records are all passed, exit code still decides"
+    );
 }
 
 #[test]
@@ -731,7 +787,9 @@ fn a_forged_verdict_is_not_believed() {
     refused(&run(&fx), code::VERDICT_MISMATCH);
     // a receipt that lists its own problems cannot claim passed
     let mut fx = ok();
-    fx.receipt.problems.push(super::Problem::new(code::SKIPPED, None, "x"));
+    fx.receipt
+        .problems
+        .push(super::Problem::new(code::SKIPPED, None, "x"));
     refused(&run(&fx), code::VERDICT_MISMATCH);
 }
 
@@ -830,11 +888,26 @@ fn a_good_manifest_has_no_issues() {
 
 #[test]
 fn manifest_refusals() {
-    assert!(has_issue(&manifest_issues(|t| t.replace("generated", "real")), "data = \"real\""));
-    assert!(has_issue(&manifest_issues(|t| t.replace("version = 1", "version = 2")), "version"));
-    assert!(has_issue(&manifest_issues(|t| t.replace("\"windows\"", "\"beos\"")), "platform"));
-    assert!(has_issue(&manifest_issues(|t| t.replace("\"fast\"", "\"sometimes\"")), "tier"));
-    assert!(has_issue(&manifest_issues(|t| t.replace("\"engine\"", "\"nowhere\"")), "surface"));
+    assert!(has_issue(
+        &manifest_issues(|t| t.replace("generated", "real")),
+        "data = \"real\""
+    ));
+    assert!(has_issue(
+        &manifest_issues(|t| t.replace("version = 1", "version = 2")),
+        "version"
+    ));
+    assert!(has_issue(
+        &manifest_issues(|t| t.replace("\"windows\"", "\"beos\"")),
+        "platform"
+    ));
+    assert!(has_issue(
+        &manifest_issues(|t| t.replace("\"fast\"", "\"sometimes\"")),
+        "tier"
+    ));
+    assert!(has_issue(
+        &manifest_issues(|t| t.replace("\"engine\"", "\"nowhere\"")),
+        "surface"
+    ));
     assert!(has_issue(
         &manifest_issues(|t| t.replace("adapter = \"demo-adapter\"", "adapter = \"ghost\"")),
         "not declared"
@@ -912,14 +985,21 @@ fn check_reads_files_from_the_app_root() {
     assert!(has_issue(&c.issues, "J-404"), "{:?}", c.issues);
     assert!(c.mapping_sha256.is_some());
     fs::remove_file(dir.join("journeys.toml")).unwrap();
-    assert!(check(&dir).is_err(), "no manifest is an error, never an empty pass");
+    assert!(
+        check(&dir).is_err(),
+        "no manifest is an error, never an empty pass"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn mapping_refusals() {
     let (m, _) = parse_manifest(manifest_text(&["J-001"]).as_bytes()).unwrap();
-    let map = |body: &str| parse_mapping(format!("version = 1\n{body}").as_bytes()).unwrap().0;
+    let map = |body: &str| {
+        parse_mapping(format!("version = 1\n{body}").as_bytes())
+            .unwrap()
+            .0
+    };
     assert!(check_mapping(
         &map("[[behavior]]\nid = \"B-1\"\ntitle = \"t\"\npaths = [\"src/**\"]\njourneys = [\"J-001\"]\n"),
         &m

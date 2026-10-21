@@ -221,7 +221,9 @@ fn check_artifact_ref(a: &ArtifactRef, what: &str, issues: &mut Vec<String>) {
     }
     if let Some(p) = a.path.as_deref() {
         if !is_safe_relative(p) {
-            issues.push(format!("{what}: path {p:?} must be relative and inside the app root"));
+            issues.push(format!(
+                "{what}: path {p:?} must be relative and inside the app root"
+            ));
         }
     }
 }
@@ -252,11 +254,15 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
             issues.push(format!("{what}: duplicate adapter name"));
         }
         if a.build.is_empty() || a.build.iter().any(|s| s.trim().is_empty()) {
-            issues.push(format!("{what}: build argv is empty or holds an empty word"));
+            issues.push(format!(
+                "{what}: build argv is empty or holds an empty word"
+            ));
         }
         for src in &a.sources {
             if !is_safe_relative(src) {
-                issues.push(format!("{what}: source {src:?} must be a relative glob inside the app root"));
+                issues.push(format!(
+                    "{what}: source {src:?} must be a relative glob inside the app root"
+                ));
             }
         }
         check_artifact_ref(&a.executable, &format!("{what} executable"), &mut issues);
@@ -280,18 +286,24 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
             ));
         }
         if !ids.insert(j.id.as_str()) {
-            issues.push(format!("{what}: duplicate id (ids are immutable and never reused)"));
+            issues.push(format!(
+                "{what}: duplicate id (ids are immutable and never reused)"
+            ));
         }
         if j.title.trim().is_empty() {
             issues.push(format!("{what}: title is empty"));
         }
         if j.platforms.is_empty() {
-            issues.push(format!("{what}: platforms is empty, so it would never be required anywhere"));
+            issues.push(format!(
+                "{what}: platforms is empty, so it would never be required anywhere"
+            ));
         }
         let mut seen = BTreeSet::new();
         for p in &j.platforms {
             if !PLATFORMS.contains(&p.as_str()) {
-                issues.push(format!("{what}: unknown platform {p:?} (macos, windows, linux)"));
+                issues.push(format!(
+                    "{what}: unknown platform {p:?} (macos, windows, linux)"
+                ));
             } else if !seen.insert(p.as_str()) {
                 issues.push(format!("{what}: platform {p:?} listed twice"));
             }
@@ -300,21 +312,33 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
             issues.push(format!("{what}: unknown surface {:?}", j.surface));
         }
         if !TIERS.contains(&j.tier.as_str()) {
-            issues.push(format!("{what}: unknown tier {:?} (fast, full, paid)", j.tier));
+            issues.push(format!(
+                "{what}: unknown tier {:?} (fast, full, paid)",
+                j.tier
+            ));
         }
         if j.data == "real" {
-            issues.push(format!("{what}: data = \"real\" is refused; QA never runs on real user data"));
+            issues.push(format!(
+                "{what}: data = \"real\" is refused; QA never runs on real user data"
+            ));
         } else if !DATA.contains(&j.data.as_str()) {
-            issues.push(format!("{what}: unknown data {:?} (generated, seeded)", j.data));
+            issues.push(format!(
+                "{what}: unknown data {:?} (generated, seeded)",
+                j.data
+            ));
         }
         match j.runner.as_str() {
             "scenario" => {
                 if j.adapter.is_some() {
-                    issues.push(format!("{what}: runner \"scenario\" must not name an adapter"));
+                    issues.push(format!(
+                        "{what}: runner \"scenario\" must not name an adapter"
+                    ));
                 }
             }
             "adapter" => match j.adapter.as_deref() {
-                None => issues.push(format!("{what}: runner \"adapter\" requires adapter = \"<name>\"")),
+                None => issues.push(format!(
+                    "{what}: runner \"adapter\" requires adapter = \"<name>\""
+                )),
                 Some(name) => match adapters.get(name) {
                     None => issues.push(format!("{what}: adapter {name:?} is not declared")),
                     Some(a) => {
@@ -337,7 +361,9 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
                     }
                 },
             },
-            other => issues.push(format!("{what}: unknown runner {other:?} (scenario, adapter)")),
+            other => issues.push(format!(
+                "{what}: unknown runner {other:?} (scenario, adapter)"
+            )),
         }
         // Entry: relative, inside the app root, and present (a glob needs its fixed prefix directory).
         if !is_safe_relative(&j.entry) {
@@ -360,7 +386,11 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
                 ));
             }
         } else if !root.join(&j.entry).exists() {
-            issues.push(format!("{what}: entry {:?} does not exist under {}", j.entry, root.display()));
+            issues.push(format!(
+                "{what}: entry {:?} does not exist under {}",
+                j.entry,
+                root.display()
+            ));
         }
     }
 
@@ -371,14 +401,21 @@ pub fn check_manifest(m: &Manifest, root: &Path) -> Vec<String> {
             issues.push(format!("{what}: unknown kind {:?}", c.kind));
         }
         if !is_hex_lower(&c.before_after_sha256, 64) {
-            issues.push(format!("{what}: before_after_sha256 must be 64 lowercase hex characters"));
+            issues.push(format!(
+                "{what}: before_after_sha256 must be 64 lowercase hex characters"
+            ));
         }
-        if !c.approval.starts_with("https://github.com/") || !c.approval.contains("#issuecomment-") {
-            issues.push(format!("{what}: approval must be a GitHub issue comment URL"));
+        if !c.approval.starts_with("https://github.com/") || !c.approval.contains("#issuecomment-")
+        {
+            issues.push(format!(
+                "{what}: approval must be a GitHub issue comment URL"
+            ));
         }
         match c.replacement.as_deref() {
             Some(r) if !ids.contains(r) => {
-                issues.push(format!("{what}: replacement {r:?} is not a declared journey"));
+                issues.push(format!(
+                    "{what}: replacement {r:?} is not a declared journey"
+                ));
             }
             None if !c.risk_accepted => {
                 issues.push(format!("{what}: no replacement and risk_accepted is false"));
@@ -399,12 +436,17 @@ pub fn check_mapping(map: &Mapping, m: &Manifest) -> Vec<String> {
         }
         for p in paths {
             if !is_safe_relative(p) {
-                issues.push(format!("{what}: path {p:?} must be a relative glob inside the app root"));
+                issues.push(format!(
+                    "{what}: path {p:?} must be a relative glob inside the app root"
+                ));
             }
         }
     };
     if map.version != 1 {
-        issues.push(format!("{MAPPING_FILE}: version must be 1, found {}", map.version));
+        issues.push(format!(
+            "{MAPPING_FILE}: version must be 1, found {}",
+            map.version
+        ));
     }
     if map.behavior.is_empty() {
         issues.push(format!("{MAPPING_FILE}: no [[behavior]] declared"));
@@ -423,11 +465,15 @@ pub fn check_mapping(map: &Mapping, m: &Manifest) -> Vec<String> {
         }
         paths_ok(&b.paths, &what, &mut issues);
         if b.journeys.is_empty() {
-            issues.push(format!("{what}: names no journey, so the behavior is uncovered"));
+            issues.push(format!(
+                "{what}: names no journey, so the behavior is uncovered"
+            ));
         }
         for j in &b.journeys {
             if !ids.contains(j.as_str()) {
-                issues.push(format!("{what}: journey {j:?} is not declared in {MANIFEST_FILE}"));
+                issues.push(format!(
+                    "{what}: journey {j:?} is not declared in {MANIFEST_FILE}"
+                ));
             }
         }
     }
@@ -454,7 +500,11 @@ pub fn require_ok(c: &Checked) -> Result<()> {
     if c.ok() {
         Ok(())
     } else {
-        err(format!("{} journey manifest issue(s): {}", c.issues.len(), c.issues.join("; ")))
+        err(format!(
+            "{} journey manifest issue(s): {}",
+            c.issues.len(),
+            c.issues.join("; ")
+        ))
     }
 }
 

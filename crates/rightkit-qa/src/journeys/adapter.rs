@@ -10,9 +10,7 @@
 //! status into another, never retries, and never writes a `missing` status (the runner alone
 //! synthesizes that). `end` always states the true `selected` and `reported` counts, and returns
 //! an error when they differ.
-use super::{
-    is_hex_lower, ArtifactDigest, Evidence, JourneyStatus, Units, PROTOCOL,
-};
+use super::{is_hex_lower, ArtifactDigest, Evidence, JourneyStatus, Units, PROTOCOL};
 use crate::harness::Outcome;
 use crate::util::{err, now_iso, sha256_hex, Error, Result};
 use serde::{Deserialize, Serialize};
@@ -53,8 +51,16 @@ impl Selection {
     pub fn read() -> Result<Selection> {
         match std::env::var(ENV_PROTOCOL) {
             Ok(v) if v.trim() == PROTOCOL.to_string() => {}
-            Ok(v) => return err(format!("{ENV_PROTOCOL} is {v:?}, this adapter speaks protocol {PROTOCOL}")),
-            Err(_) => return err(format!("{ENV_PROTOCOL} is not set: not started by a journeys runner")),
+            Ok(v) => {
+                return err(format!(
+                    "{ENV_PROTOCOL} is {v:?}, this adapter speaks protocol {PROTOCOL}"
+                ))
+            }
+            Err(_) => {
+                return err(format!(
+                    "{ENV_PROTOCOL} is not set: not started by a journeys runner"
+                ))
+            }
         }
         let path = std::env::var_os(ENV_SELECTION)
             .filter(|p| !p.is_empty())
@@ -72,7 +78,10 @@ impl Selection {
     pub fn parse(bytes: &[u8]) -> Result<Selection> {
         let s: Selection = serde_json::from_slice(bytes)?;
         if s.protocol != PROTOCOL {
-            return err(format!("selection protocol is {}, expected {PROTOCOL}", s.protocol));
+            return err(format!(
+                "selection protocol is {}, expected {PROTOCOL}",
+                s.protocol
+            ));
         }
         if s.run_id.trim().is_empty() {
             return err("selection run_id is empty");
@@ -293,7 +302,13 @@ pub fn journey_from_units(id: &str, units: &[UnitOutcome]) -> JourneyResult {
         duration_ms: 0,
         units: u,
         evidence: vec![],
-        reason: reason.map(|r| if r.trim().is_empty() { "no reason given".to_string() } else { r }),
+        reason: reason.map(|r| {
+            if r.trim().is_empty() {
+                "no reason given".to_string()
+            } else {
+                r
+            }
+        }),
     }
 }
 
@@ -374,7 +389,10 @@ impl Reporter {
         }
         for a in &info.artifacts {
             if !is_hex_lower(&a.sha256, 64) || a.role.trim().is_empty() {
-                return err(format!("artifact {:?} needs a role and a 64-hex sha256", a.role));
+                return err(format!(
+                    "artifact {:?} needs a role and a 64-hex sha256",
+                    a.role
+                ));
             }
         }
         let rec = Record::Start(StartRecord {
@@ -407,7 +425,9 @@ impl Reporter {
             return err(format!("journey {} already reported", r.id));
         }
         if r.status == JourneyStatus::Missing {
-            return err("status \"missing\" is synthesized by the runner and never reported by an adapter");
+            return err(
+                "status \"missing\" is synthesized by the runner and never reported by an adapter",
+            );
         }
         if !r.units.consistent() {
             return err(format!("journey {}: units do not add up to total", r.id));
@@ -421,7 +441,10 @@ impl Reporter {
         if r.status != JourneyStatus::Passed
             && r.reason.as_deref().is_none_or(|s| s.trim().is_empty())
         {
-            return err(format!("journey {}: a reason is required unless passed", r.id));
+            return err(format!(
+                "journey {}: a reason is required unless passed",
+                r.id
+            ));
         }
         for e in &r.evidence {
             if !is_hex_lower(&e.sha256, 64) || !super::is_safe_relative(&e.path) {

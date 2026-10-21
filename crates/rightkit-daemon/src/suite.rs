@@ -693,7 +693,11 @@ mod tests {
         assert!(refuse_build_tool_real_data_inner(&inside, Some(&mode), true).is_ok());
         // A sibling that merely shares the name prefix, the real root, and the root itself above
         // the test root are all outside it.
-        for forged in [cwd.join("qa-home-evil").join("shared"), cwd.join("real"), cwd.clone()] {
+        for forged in [
+            cwd.join("qa-home-evil").join("shared"),
+            cwd.join("real"),
+            cwd.clone(),
+        ] {
             let forged = Suite::at(forged).unwrap();
             assert!(
                 matches!(

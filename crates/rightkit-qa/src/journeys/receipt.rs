@@ -298,7 +298,10 @@ fn finish(r: &Receipt, mut p: Vec<Problem>, counts: Counts, unchecked: Vec<Strin
             &mut p,
             code::VERDICT_MISMATCH,
             None,
-            format!("receipt claims passed but lists {} problem(s)", r.problems.len()),
+            format!(
+                "receipt claims passed but lists {} problem(s)",
+                r.problems.len()
+            ),
         );
     }
     if r.verdict == Verdict::Passed && base != Verdict::Passed {
@@ -306,7 +309,10 @@ fn finish(r: &Receipt, mut p: Vec<Problem>, counts: Counts, unchecked: Vec<Strin
             &mut p,
             code::VERDICT_MISMATCH,
             None,
-            format!("receipt claims passed; recomputed verdict is {}", base.as_str()),
+            format!(
+                "receipt claims passed; recomputed verdict is {}",
+                base.as_str()
+            ),
         );
     }
     if r.verdict != Verdict::Passed && p.is_empty() {
@@ -353,13 +359,20 @@ fn check_formats(r: &Receipt, p: &mut Vec<Problem>) {
     if !is_hex_lower(&r.source.tree, 40) {
         bad("source.tree (40 hex)");
     }
-    if r.source.diff_sha256.as_deref().is_some_and(|d| !is_hex_lower(d, 64)) {
+    if r.source
+        .diff_sha256
+        .as_deref()
+        .is_some_and(|d| !is_hex_lower(d, 64))
+    {
         bad("source.diff_sha256");
     }
     if r.manifest.path.trim().is_empty() || !is_hex_lower(&r.manifest.sha256, 64) {
         bad("manifest {path, sha256}");
     }
-    if r.mapping.as_ref().is_some_and(|m| m.path.trim().is_empty() || !is_hex_lower(&m.sha256, 64)) {
+    if r.mapping
+        .as_ref()
+        .is_some_and(|m| m.path.trim().is_empty() || !is_hex_lower(&m.sha256, 64))
+    {
         bad("mapping {path, sha256}");
     }
     if !is_hex_lower(&r.build.source_tree, 40) || !is_hex_lower(&r.build.tree_after_build, 40) {
@@ -420,9 +433,19 @@ fn check_journeys(r: &Receipt, p: &mut Vec<Problem>) -> Counts {
     let mut selset: BTreeSet<&str> = BTreeSet::new();
     for id in &r.selection.ids {
         if id.trim().is_empty() {
-            add(p, code::SELECTION_INVALID, None, "selection holds an empty id");
+            add(
+                p,
+                code::SELECTION_INVALID,
+                None,
+                "selection holds an empty id",
+            );
         } else if !selset.insert(id.as_str()) {
-            add(p, code::SELECTION_INVALID, oid(id), "selection lists the id twice");
+            add(
+                p,
+                code::SELECTION_INVALID,
+                oid(id),
+                "selection lists the id twice",
+            );
         } else {
             selected.push(id.as_str());
         }
@@ -436,12 +459,22 @@ fn check_journeys(r: &Receipt, p: &mut Vec<Problem>) -> Counts {
         ..Counts::default()
     };
     if c.selected == 0 {
-        add(p, code::ZERO_EXECUTED, None, "no journey was selected; zero is never a pass");
+        add(
+            p,
+            code::ZERO_EXECUTED,
+            None,
+            "no journey was selected; zero is never a pass",
+        );
     }
     for id in &selected {
         let Some(entries) = by_id.get(id) else {
             c.missing += 1;
-            add(p, code::MISSING_RESULT, oid(id), "no result for a selected journey");
+            add(
+                p,
+                code::MISSING_RESULT,
+                oid(id),
+                "no result for a selected journey",
+            );
             continue;
         };
         if entries.len() > 1 {
@@ -456,17 +489,32 @@ fn check_journeys(r: &Receipt, p: &mut Vec<Problem>) -> Counts {
         let j = entries[0];
         if j.status == JourneyStatus::Missing {
             c.missing += 1;
-            add(p, code::MISSING_RESULT, oid(id), "journey result is missing");
+            add(
+                p,
+                code::MISSING_RESULT,
+                oid(id),
+                "journey result is missing",
+            );
             continue;
         }
         c.executed += 1;
         if !j.units.consistent() {
-            add(p, code::EMPTY_JOURNEY, oid(id), "units do not add up to total");
+            add(
+                p,
+                code::EMPTY_JOURNEY,
+                oid(id),
+                "units do not add up to total",
+            );
         }
         if j.status != JourneyStatus::Passed
             && j.reason.as_deref().is_none_or(|s| s.trim().is_empty())
         {
-            add(p, code::PROTOCOL_VIOLATION, oid(id), "a reason is required unless passed");
+            add(
+                p,
+                code::PROTOCOL_VIOLATION,
+                oid(id),
+                "a reason is required unless passed",
+            );
         }
         match j.status {
             JourneyStatus::Passed => {
@@ -497,7 +545,12 @@ fn check_journeys(r: &Receipt, p: &mut Vec<Problem>) -> Counts {
     }
     for id in by_id.keys() {
         if !selset.contains(id) {
-            add(p, code::UNSELECTED_RESULT, oid(id), "result for a journey that was not selected");
+            add(
+                p,
+                code::UNSELECTED_RESULT,
+                oid(id),
+                "result for a journey that was not selected",
+            );
         }
     }
     if c.selected > 0 && c.executed == 0 {
@@ -518,7 +571,10 @@ fn check_journeys(r: &Receipt, p: &mut Vec<Problem>) -> Counts {
             p,
             code::COUNTS_MISMATCH,
             None,
-            format!("receipt counts {:?} but its journeys give {:?}", r.counts, c),
+            format!(
+                "receipt counts {:?} but its journeys give {:?}",
+                r.counts, c
+            ),
         );
     }
     c
@@ -536,7 +592,12 @@ fn check_provenance(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>) 
     }
     if let Some(t) = o.expected_tree {
         if !is_hex_lower(t, 40) {
-            add(p, code::SOURCE_MISMATCH, None, "expected tree is not 40 lowercase hex characters");
+            add(
+                p,
+                code::SOURCE_MISMATCH,
+                None,
+                "expected tree is not 40 lowercase hex characters",
+            );
         } else if t != r.source.tree {
             add(
                 p,
@@ -547,18 +608,38 @@ fn check_provenance(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>) 
         }
     }
     if r.source.dirty && r.source.diff_sha256.is_none() {
-        add(p, code::SOURCE_MISMATCH, None, "dirty tree without diff_sha256");
+        add(
+            p,
+            code::SOURCE_MISMATCH,
+            None,
+            "dirty tree without diff_sha256",
+        );
     }
     if r.source.dirty && !o.allow_dirty {
-        add(p, code::DIRTY_TREE, None, "the tree was dirty; release signoff requires a clean tree");
+        add(
+            p,
+            code::DIRTY_TREE,
+            None,
+            "the tree was dirty; release signoff requires a clean tree",
+        );
     }
     if r.build.artifacts.is_empty() {
-        add(p, code::ARTIFACT_NOT_FROM_BUILD, None, "the build recorded no artifacts");
+        add(
+            p,
+            code::ARTIFACT_NOT_FROM_BUILD,
+            None,
+            "the build recorded no artifacts",
+        );
     }
     let mut roles = BTreeSet::new();
     for a in &r.build.artifacts {
         if !roles.insert(a.role.as_str()) {
-            add(p, code::ARTIFACT_MISMATCH, oid(&a.role), "build.artifacts repeats a role");
+            add(
+                p,
+                code::ARTIFACT_MISMATCH,
+                oid(&a.role),
+                "build.artifacts repeats a role",
+            );
         }
         if a.produced_by == ProducedBy::BrokerReceipt && r.build.broker_receipt.is_none() {
             add(
@@ -575,7 +656,12 @@ fn check_provenance(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>) 
     let mut launched_roles = BTreeSet::new();
     for l in &r.launched {
         if !launched_roles.insert(l.role.as_str()) {
-            add(p, code::ARTIFACT_MISMATCH, oid(&l.role), "launched repeats a role");
+            add(
+                p,
+                code::ARTIFACT_MISMATCH,
+                oid(&l.role),
+                "launched repeats a role",
+            );
         }
         match r.build.artifacts.iter().find(|a| a.role == l.role) {
             None => add(
@@ -599,10 +685,20 @@ fn check_provenance(r: &Receipt, o: &ValidateOptions<'_>, p: &mut Vec<Problem>) 
 fn check_isolation_and_adapter(r: &Receipt, p: &mut Vec<Problem>) {
     let iso = &r.isolation;
     if iso.guard != "passed" {
-        add(p, code::ISOLATION, None, format!("isolation guard is {:?}, not \"passed\"", iso.guard));
+        add(
+            p,
+            code::ISOLATION,
+            None,
+            format!("isolation guard is {:?}, not \"passed\"", iso.guard),
+        );
     }
     if iso.qa_mode != "runtime" {
-        add(p, code::ISOLATION, None, format!("qa_mode is {:?}, not \"runtime\"", iso.qa_mode));
+        add(
+            p,
+            code::ISOLATION,
+            None,
+            format!("qa_mode is {:?}, not \"runtime\"", iso.qa_mode),
+        );
     }
     if iso.real_data_touched {
         add(p, code::ISOLATION, None, "real user data was touched");
@@ -623,7 +719,10 @@ fn check_isolation_and_adapter(r: &Receipt, p: &mut Vec<Problem>) {
             p,
             code::PROTOCOL_VIOLATION,
             None,
-            format!("adapter protocol {}, expected {PROTOCOL}", r.adapter.protocol),
+            format!(
+                "adapter protocol {}, expected {PROTOCOL}",
+                r.adapter.protocol
+            ),
         );
     }
     if r.selection.platform != r.host.os {
@@ -666,7 +765,12 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
         return;
     }
     if records.is_empty() {
-        add(p, code::PROTOCOL_VIOLATION, None, "results file holds no records");
+        add(
+            p,
+            code::PROTOCOL_VIOLATION,
+            None,
+            "results file holds no records",
+        );
         return;
     }
     let rid: &str = &r.run_id;
@@ -700,28 +804,53 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
             Record::Start(s) => {
                 starts.push(s);
                 if i != 0 {
-                    add(p, code::PROTOCOL_VIOLATION, None, "start is not the first record");
+                    add(
+                        p,
+                        code::PROTOCOL_VIOLATION,
+                        None,
+                        "start is not the first record",
+                    );
                 }
             }
             Record::Journey(j) => {
                 journeys.push(j);
                 if i == 0 {
-                    add(p, code::PROTOCOL_VIOLATION, None, "a journey record precedes start");
+                    add(
+                        p,
+                        code::PROTOCOL_VIOLATION,
+                        None,
+                        "a journey record precedes start",
+                    );
                 }
             }
             Record::End(_) => {
                 end_count += 1;
                 if i != records.len() - 1 {
-                    add(p, code::PROTOCOL_VIOLATION, None, "end is not the last record");
+                    add(
+                        p,
+                        code::PROTOCOL_VIOLATION,
+                        None,
+                        "end is not the last record",
+                    );
                 }
             }
         }
     }
     if starts.len() != 1 {
-        add(p, code::PROTOCOL_VIOLATION, None, format!("{} start record(s), expected 1", starts.len()));
+        add(
+            p,
+            code::PROTOCOL_VIOLATION,
+            None,
+            format!("{} start record(s), expected 1", starts.len()),
+        );
     }
     if end_count != 1 {
-        add(p, code::PROTOCOL_VIOLATION, None, format!("{end_count} end record(s), expected 1"));
+        add(
+            p,
+            code::PROTOCOL_VIOLATION,
+            None,
+            format!("{end_count} end record(s), expected 1"),
+        );
     }
     if let Some(Record::End(e)) = records.last() {
         if e.selected != counts.selected || e.reported != counts.selected {
@@ -740,7 +869,11 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
                 p,
                 code::PROTOCOL_VIOLATION,
                 None,
-                format!("end says reported {} but {} journey record(s) exist", e.reported, journeys.len()),
+                format!(
+                    "end says reported {} but {} journey record(s) exist",
+                    e.reported,
+                    journeys.len()
+                ),
             );
         }
     }
@@ -748,13 +881,23 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
     // start: protocol, isolation, artifact digests.
     if let Some(s) = starts.first() {
         if s.protocol != PROTOCOL {
-            add(p, code::PROTOCOL_VIOLATION, None, format!("start.protocol is {}", s.protocol));
+            add(
+                p,
+                code::PROTOCOL_VIOLATION,
+                None,
+                format!("start.protocol is {}", s.protocol),
+            );
         }
         if s.isolation.guard != "passed"
             || s.isolation.qa_mode != "runtime"
             || s.isolation.data_dir.trim().is_empty()
         {
-            add(p, code::ISOLATION, None, "start.isolation is not guard passed, qa_mode runtime");
+            add(
+                p,
+                code::ISOLATION,
+                None,
+                "start.isolation is not guard passed, qa_mode runtime",
+            );
         }
         for a in &s.artifacts {
             if let Some(b) = r.build.artifacts.iter().find(|b| b.role == a.role) {
@@ -802,7 +945,12 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
     let mut file_dups = 0u64;
     for (id, recs) in &by_id {
         if !selset.contains(id) {
-            add(p, code::UNSELECTED_RESULT, oid(id), "the adapter reported an unselected journey");
+            add(
+                p,
+                code::UNSELECTED_RESULT,
+                oid(id),
+                "the adapter reported an unselected journey",
+            );
         }
         if recs.len() > 1 {
             file_dups += (recs.len() - 1) as u64;
@@ -810,15 +958,28 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
                 p,
                 code::DUPLICATE_RESULT,
                 oid(id),
-                format!("the adapter reported {} records for one journey", recs.len()),
+                format!(
+                    "the adapter reported {} records for one journey",
+                    recs.len()
+                ),
             );
         }
         let j = recs[0];
         if j.status == JourneyStatus::Missing {
-            add(p, code::PROTOCOL_VIOLATION, oid(id), "an adapter never reports status missing");
+            add(
+                p,
+                code::PROTOCOL_VIOLATION,
+                oid(id),
+                "an adapter never reports status missing",
+            );
         }
         if !is_rfc3339(&j.started_at) {
-            add(p, code::PROTOCOL_VIOLATION, oid(id), "started_at is not RFC 3339");
+            add(
+                p,
+                code::PROTOCOL_VIOLATION,
+                oid(id),
+                "started_at is not RFC 3339",
+            );
         }
         if j.status == JourneyStatus::Passed && !j.units.supports_pass() {
             add(
@@ -834,7 +995,10 @@ fn check_results(r: &Receipt, o: &ValidateOptions<'_>, counts: &Counts, p: &mut 
             p,
             code::COUNTS_MISMATCH,
             None,
-            format!("results hold {file_dups} duplicate record(s), receipt counts {}", r.counts.duplicate),
+            format!(
+                "results hold {file_dups} duplicate record(s), receipt counts {}",
+                r.counts.duplicate
+            ),
         );
     }
     for id in &r.selection.ids {
@@ -909,7 +1073,12 @@ fn check_manifest_binding(
     let mut needs_adapter = false;
     for id in &r.selection.ids {
         match m.journey.iter().find(|j| &j.id == id) {
-            None => add(p, code::SOURCE_MISMATCH, oid(id), "selected journey is not in the manifest"),
+            None => add(
+                p,
+                code::SOURCE_MISMATCH,
+                oid(id),
+                "selected journey is not in the manifest",
+            ),
             Some(j) => {
                 if !j.platforms.iter().any(|x| x == &r.selection.platform) {
                     add(
@@ -938,7 +1107,10 @@ fn check_manifest_binding(
             p,
             code::SOURCE_MISMATCH,
             None,
-            format!("adapter {:?} is not declared in the manifest", r.adapter.name),
+            format!(
+                "adapter {:?} is not declared in the manifest",
+                r.adapter.name
+            ),
         );
     }
 }
@@ -957,7 +1129,10 @@ fn check_evidence(
                     p,
                     code::EVIDENCE_MISMATCH,
                     oid(&j.id),
-                    format!("evidence {:?} has an unsafe path or malformed sha256", e.path),
+                    format!(
+                        "evidence {:?} has an unsafe path or malformed sha256",
+                        e.path
+                    ),
                 );
                 continue;
             }

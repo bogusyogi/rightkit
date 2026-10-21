@@ -322,10 +322,7 @@ fn real_root_is_env_shaped(real: &Path) -> bool {
         let local = profile.join("AppData").join("Local");
         root_under_differing_env(
             real,
-            &[
-                (env("USERPROFILE"), profile),
-                (env("LOCALAPPDATA"), local),
-            ],
+            &[(env("USERPROFILE"), profile), (env("LOCALAPPDATA"), local)],
         )
     }
     #[cfg(not(all(windows, feature = "test-mode")))]
@@ -565,7 +562,10 @@ mod tests {
         ));
         assert!(root_under_differing_env(
             root,
-            &[pair(None, "/users/real"), pair(Some("/qa/home/AppData/Local"), "/x")]
+            &[
+                pair(None, "/users/real"),
+                pair(Some("/qa/home/AppData/Local"), "/x")
+            ]
         ));
         // The env value equals the account value, is unset, or the root is not under it.
         assert!(!root_under_differing_env(

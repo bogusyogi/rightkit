@@ -360,7 +360,11 @@ fn journeys(a: &Args) -> Result<i32> {
                     c.manifest.app,
                     c.manifest.journey.len(),
                     c.manifest.adapter.len(),
-                    if c.mapping.is_some() { "present" } else { "absent" }
+                    if c.mapping.is_some() {
+                        "present"
+                    } else {
+                        "absent"
+                    }
                 );
                 Ok(0)
             } else {
@@ -410,7 +414,9 @@ fn journeys(a: &Args) -> Result<i32> {
                 println!(
                     "- {}{}: {}",
                     p.code,
-                    p.id.as_deref().map(|i| format!(" [{i}]")).unwrap_or_default(),
+                    p.id.as_deref()
+                        .map(|i| format!(" [{i}]"))
+                        .unwrap_or_default(),
                     p.detail
                 );
             }
