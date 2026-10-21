@@ -765,8 +765,8 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "npm @rightkit/onboarding@0.6.3 9db84e3f619ab01cc932e5a9323ee77022287c82e752604a339fc3ddff8047a3",
     "npm @rightkit/qa-chrome@0.1.10 60e7bee4a1b92d409bf67decac5e60de208eede8c16f846e8e3272f11f964797",
     "npm @rightkit/qa@0.5.2 c55badace046a991171fa48e5e070b5822c5ba0f429fd8e5b114e490bd70031d",
-    "npm @rightkit/settings-ui@0.7.0 723b019f8f27f0d6c6600d846098040d21e28a17d0fb1cdf4e9b577f18000475",
     "npm @rightkit/react-shell@0.7.2 b0d6f495eaccfafaa5191d9c502c07a11cae84b58572597a10b69055103a8809",
+    "npm @rightkit/settings-ui@0.7.0 723b019f8f27f0d6c6600d846098040d21e28a17d0fb1cdf4e9b577f18000475",
     "npm @rightkit/tauri-shell@0.1.2 dd71d57ac0250c75a27871d5d6ae5231c05ec8033934ddf027be032ee5089952",
     "npm @rightkit/tauri@0.3.0 4441a7191e5da878dcd6029206cc0fafcc746de755282f6553183668eeb7a0b2",
   ]);
