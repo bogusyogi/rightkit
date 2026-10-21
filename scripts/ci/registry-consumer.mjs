@@ -170,9 +170,9 @@ export function runRegistryConsumer({ packDir, name = "rightkit-logs", root = RO
       const keychains = path.join(cargoEnv.HOME, "Library", "Keychains");
       fs.mkdirSync(keychains, { recursive: true });
       const keychain = path.join(keychains, "login.keychain-db");
-      run("security", ["create-keychain", "-p", "", keychain]);
+      run("security", ["create-keychain", "-p", "consumer", keychain]);
       run("security", ["set-keychain-settings", "-lut", "21600", keychain]);
-      run("security", ["unlock-keychain", "-p", "", keychain]);
+      run("security", ["unlock-keychain", "-p", "consumer", keychain]);
       run("security", ["default-keychain", "-s", keychain]);
     }
     // The default-feature binary exists only until the SQLCipher variant overwrites target: stage the signed helper bundle now.
