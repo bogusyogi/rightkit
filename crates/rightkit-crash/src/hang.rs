@@ -553,6 +553,11 @@ impl Monitor {
             return false;
         }
         let path = record_report(&config, "hang", &message, None, &state.name, "");
+        // Consent turned off around the write: the episode stays open, so the hang is reported
+        // (perhaps a second time) once recording is back on, never silently dropped.
+        if !self.may_write(state) {
+            return false;
+        }
         event_line("hang", &state.name, stalled);
         self.notify(&state.name, stalled, path, false);
         self.capture(state);
