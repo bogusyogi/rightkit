@@ -761,6 +761,42 @@
           "receiptSha256": "5f2f869a6ef00be47d8a8509f5a9bed8f89b4625157ba4700cadadb3811c1054"
         }
       }
+    },
+    {
+      "id": "cargo-credentials-040-9797",
+      "sourceSha": "9797bd557df7f240e0bf314c326ed301f42f1e61",
+      "runId": "39610069491",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "dfaef5de9a8aaf0debc61dc4b672f8fe1b19a2319032f14b7cc2bc724ada083d",
+      "registry": "crates",
+      "units": [
+        "rightkit-credentials"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-credentials"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12349778458",
+          "digest": "sha256:51e1041c3a965d2fdeae0ab9a17cfb64dd9b71fea3a9bd10c01128921dfe0dd8"
+        },
+        "macos": {
+          "id": "12350403943",
+          "digest": "sha256:fe22b28cc9a640c29c2caaec0a5642c96ca73d8a939434bdf9b63581e98cd2c9",
+          "receiptSha256": "9a45ef7ba5b42ebbc83c4dd22d710eb46e6acf5b32d22b65e98e6bdb9cfca379"
+        },
+        "windows": {
+          "id": "12351832492",
+          "digest": "sha256:efd2d4c539e0c06c1e118adc834495d764550a6d79908332131acabeb6b10a1b",
+          "receiptSha256": "1c8f169dc395ccb7ad94259227c31adc696613e0ac9d3d5f87eb25ffdc572800"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -947,6 +983,14 @@
       "sha256": "725f265b2df780bd066a3749a75c7ce2a34e947a63e2d78dbd79df69045c9eec",
       "reviewer": "Oracle (exact archive and native receipt review)",
       "reviewRef": "agent-review:/oracle/release041/39592147750"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-credentials",
+      "version": "0.4.0",
+      "sha256": "c74c8f18566064482803651b63d03571ac75343f673ca8c10580f4c7e5ca936f",
+      "reviewer": "Oracle (exact archive and native receipt review)",
+      "reviewRef": "agent-review:/oracle/credentials040/39610069491"
     }
   ]
 }
