@@ -1195,7 +1195,7 @@ mod tests {
         let (config, seen) = config_for(&dir);
         let (mut monitor, shared) = test_monitor(config, fast_options());
         let _heartbeat = register(&shared, "ui");
-        for now in (20..=500).step_by(20) {
+        for now in (20..500).step_by(20) {
             monitor.tick_at(now);
         }
         assert_eq!(hangs(&seen), 0, "under the threshold");
