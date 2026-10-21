@@ -750,8 +750,10 @@ mod tests {
             ok.seen.lock().unwrap().as_slice(),
             &[("Unlock".to_owned(), Duration::from_secs(5))]
         );
-        let denied: Arc<dyn BiometricBridge> =
-            Arc::new(FakeBridge::new(Err(OsAuthError::Failed), Availability::Available));
+        let denied: Arc<dyn BiometricBridge> = Arc::new(FakeBridge::new(
+            Err(OsAuthError::Failed),
+            Availability::Available,
+        ));
         assert_eq!(
             bridge_authenticate(Some(denied), &Request::new("Unlock")).unwrap_err(),
             OsAuthError::Failed
@@ -766,12 +768,18 @@ mod tests {
                 ..FakeBridge::new(Ok(()), Availability::Available)
             });
             let bridge: Arc<dyn BiometricBridge> = fake.clone();
-            assert_eq!(bridge_availability(Some(bridge.clone())), Availability::Unavailable);
+            assert_eq!(
+                bridge_availability(Some(bridge.clone())),
+                Availability::Unavailable
+            );
             assert_eq!(
                 bridge_authenticate(Some(bridge), &Request::new("Unlock")).unwrap_err(),
                 OsAuthError::Unavailable
             );
-            assert!(fake.seen.lock().unwrap().is_empty(), "no prompt may be constructed");
+            assert!(
+                fake.seen.lock().unwrap().is_empty(),
+                "no prompt may be constructed"
+            );
             assert_eq!(*fake.availability_calls.lock().unwrap(), 0);
         }
         let at_30 = Arc::new(FakeBridge {
@@ -779,7 +787,10 @@ mod tests {
             ..FakeBridge::new(Ok(()), Availability::Available)
         });
         let bridge: Arc<dyn BiometricBridge> = at_30.clone();
-        assert_eq!(bridge_availability(Some(bridge.clone())), Availability::Available);
+        assert_eq!(
+            bridge_availability(Some(bridge.clone())),
+            Availability::Available
+        );
         assert!(bridge_authenticate(Some(bridge), &Request::new("Unlock")).is_ok());
         assert_eq!(at_30.seen.lock().unwrap().len(), 1);
     }

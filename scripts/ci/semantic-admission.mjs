@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { publicationObligationsVerdict } from "./publication-obligations.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
 import { featureLabels } from "./publication-record.mjs";
-import { cargoRecipe } from "./consumer-recipes.mjs";
+import { cargoRecipe, parseRuns } from "./consumer-recipes.mjs";
 import { validatePublicationEvidence } from "../../packages/release/publication-gate.mjs";
 import { runtimeBudgetCheck, runtimeBudgetStructureCheck, crateClass, RUNTIME_BUDGET_CRATES } from "../../packages/release/runtime-budgets.mjs";
 import { authenticatedRuntimeProof } from "./runtime-supplement.mjs";
@@ -145,7 +145,7 @@ export function canonicalRunProblems({ evidence, expected, actualResults, host }
   return errors;
 }
 
-function reviewedRecipe(source, unit) {
+export function reviewedRecipe(source, unit) {
   // Trust inventory from verifier revision; candidate's inventory cannot grant itself review.
   const config = JSON.parse(file(ROOT, "ci/consumer-recipes.json"));
   const row = config.cargo?.[unit.name] ?? config.crates?.[unit.name];
@@ -153,7 +153,12 @@ function reviewedRecipe(source, unit) {
   const recipe = cargoRecipe({ root: source.root, unit }).evidence;
   // A reviewed entry must bind every recipe file, rather than merely naming a directory.
   if (row.pkId !== recipe.pkId || row.id !== recipe.id || !row.files || !same(row.files, recipe.files)) throw new Error("candidate PK identity/recipe files differ from reviewed inventory");
-  return { ...recipe, sourceCommit: source.source.sha };
+  // cargoRecipe reads runs from the candidate tree's inventory; bind them to the trusted row so a
+  // candidate cannot narrow hosts/rows & skip reviewed evidence as not-applicable.
+  let trustedRuns;
+  try { trustedRuns = parseRuns(row.runs); } catch { throw new Error("reviewed inventory runs invalid"); }
+  if (!same(recipe.runs ?? null, trustedRuns)) throw new Error("candidate recipe runs differ from reviewed inventory runs");
+  return { ...recipe, runs: trustedRuns, sourceCommit: source.source.sha };
 }
 
 /** Match unchanged generic portability to authenticated manifest declarations, without waivers. */

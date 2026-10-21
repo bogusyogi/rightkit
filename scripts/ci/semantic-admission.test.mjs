@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { canonicalRunProblems, consumerQualificationProblems, runtimeFeatureProofPolicy, semanticAdmission, namedNpmQualificationProblems, npmPortabilityQualificationProblems } from "./semantic-admission.mjs";
+import { canonicalRunProblems, consumerQualificationProblems, runtimeFeatureProofPolicy, semanticAdmission, namedNpmQualificationProblems, npmPortabilityQualificationProblems, reviewedRecipe } from "./semantic-admission.mjs";
 import { derivePublicationObligations } from "./publication-obligations.mjs";
 import { RECIPE_FILES as NPM_RECIPE_FILES, SOURCE_FILES as NPM_SOURCE_FILES } from "./npm-consumer.mjs";
 import { TEST_COMMAND } from "./test-results.mjs";
@@ -375,4 +375,24 @@ test("named npm semantic integration refuses source/output/portability/host/pin 
 test("unknown npm remains HOLD even with a forged named consumer", t => {
   const fixture = namedNpmFixture(t);
   assert.ok(namedNpmQualificationProblems({ unit: { name: "@rightkit/other" }, report: fixture.input.receipts.macos.units[0].consumer }).some(problem => problem.includes("generic import is not PK qualification")));
+});
+test("reviewed recipe binds candidate runs to trusted inventory runs", t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-admission-runs-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const repo = path.resolve(import.meta.dirname, "../..");
+  fs.cpSync(path.join(repo, "ci/consumers/rightkit-credentials"), path.join(root, "ci/consumers/rightkit-credentials"), { recursive: true });
+  fs.mkdirSync(path.join(root, "ci"), { recursive: true });
+  const config = JSON.parse(fs.readFileSync(path.join(repo, "ci/consumer-recipes.json"), "utf8"));
+  const source = () => ({ root, source: { sha: "a".repeat(40) } });
+  const unit = { name: "rightkit-credentials", version: "0.4.1" };
+  fs.writeFileSync(path.join(root, "ci/consumer-recipes.json"), JSON.stringify(config));
+  assert.equal(reviewedRecipe(source(), unit).runs.length, config.cargo["rightkit-credentials"].runs.length);
+  const narrowed = structuredClone(config);
+  narrowed.cargo["rightkit-credentials"].runs.find(run => run.id === "native-db").hosts = ["win32"];
+  fs.writeFileSync(path.join(root, "ci/consumer-recipes.json"), JSON.stringify(narrowed));
+  assert.throws(() => reviewedRecipe(source(), unit), /candidate recipe runs differ from reviewed inventory runs/);
+  const dropped = structuredClone(config);
+  dropped.cargo["rightkit-credentials"].runs = dropped.cargo["rightkit-credentials"].runs.filter(run => run.id !== "native-helper");
+  fs.writeFileSync(path.join(root, "ci/consumer-recipes.json"), JSON.stringify(dropped));
+  assert.throws(() => reviewedRecipe(source(), unit), /candidate recipe runs differ from reviewed inventory runs/);
 });
