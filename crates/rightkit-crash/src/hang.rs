@@ -553,9 +553,11 @@ impl Monitor {
             return false;
         }
         let path = record_report(&config, "hang", &message, None, &state.name, "");
-        // Consent turned off around the write: the episode stays open, so the hang is reported
-        // (perhaps a second time) once recording is back on, never silently dropped.
-        if !self.may_write(state) {
+        // The writer's own outcome decides: when the file was not written (consent turned off
+        // around the write, or the write failed) the episode stays open and the hang is reported
+        // at a later check, never silently dropped. Without a report file, stderr and `on_hang`
+        // are the report.
+        if (config.writes_files() && path.is_none()) || !self.may_write(state) {
             return false;
         }
         event_line("hang", &state.name, stalled);
@@ -1181,6 +1183,33 @@ mod tests {
             1,
             "a stuck loop is reported at the next check"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_hang_whose_report_was_not_written_is_reported_later() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let _on = RecordingOn;
+        set_recording_enabled(true);
+        let dir = temp_dir("unwritten");
+        let (config, seen) = config_for(&dir);
+        let (mut monitor, shared) = test_monitor(config, fast_options());
+        let _heartbeat = register(&shared, "ui");
+        for now in (20..=500).step_by(20) {
+            monitor.tick_at(now);
+        }
+        assert_eq!(hangs(&seen), 0, "under the threshold");
+        // The report write fails at the first check past the threshold.
+        crate::hook::FAIL_NEXT_WRITE.store(true, Ordering::SeqCst);
+        let failed = catch_unwind(AssertUnwindSafe(|| monitor.tick_at(520)));
+        assert!(failed.is_err(), "the injected write failure unwinds");
+        assert!(
+            monitor.episodes.is_empty(),
+            "no episode is committed without its report"
+        );
+        monitor.tick_at(540);
+        assert_eq!(hangs(&seen), 1, "the hang is reported at the next check");
+        assert_eq!(monitor.episodes.len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

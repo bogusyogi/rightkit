@@ -245,7 +245,7 @@ pub(crate) static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static RECORDING: AtomicBool = AtomicBool::new(true);
 /// Test seam: the next report write panics once, so tests can prove the guard resets.
 #[cfg(test)]
-static FAIL_NEXT_WRITE: AtomicBool = AtomicBool::new(false);
+pub(crate) static FAIL_NEXT_WRITE: AtomicBool = AtomicBool::new(false);
 
 /// Holds this thread's re-entrancy flag for one capture. Dropping it (normally or while unwinding) clears
 /// the flag. A caller that finds the flag already set gets `None` and records nothing.
