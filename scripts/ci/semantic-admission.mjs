@@ -78,13 +78,32 @@ export function consumerQualificationProblems({ report, expected, recipe }) {
   if (!text(report.toolchain?.rustc) || !text(report.toolchain?.cargo)) bad("R2a native toolchain evidence missing");
   const commands = Array.isArray(report.commands) ? report.commands : [];
   if (!commands.length || commands.some((row) => !row || !text(row.command) || !Array.isArray(row.args) || row.args.some((arg) => typeof arg !== "string") || !text(row.cwd) || row.status !== 0 || typeof row.stdout !== "string" || typeof row.stderr !== "string")) bad("R2a actual command evidence missing or failed");
+  const declaredRuns = Array.isArray(report.runs) && report.runs.length > 0 ? report.runs : null;
   for (const stage of ["build", "runtime"]) {
     if (report[stage]?.status !== 0 || report[stage]?.locked !== true || report[stage]?.offline !== true) bad(`R2a ${stage} must succeed locked/offline`);
+    if (stage === "runtime" && declaredRuns) continue;
     const args = [stage === "runtime" ? "run" : "build", "--locked", "--offline"];
     if (!commands.some((row) => row?.command === "cargo" && same(row.args, args) && row.status === 0 && row.cwd === report.consumerDirectory)) bad(`R2a ${stage} actual command missing`);
   }
-  const runtime = commands.filter((row) => row?.command === "cargo" && same(row.args, ["run", "--locked", "--offline"]) && row.cwd === report.consumerDirectory);
-  if (runtime?.length !== 1 || runtime[0].stdout !== report.runtimeOutput) bad("R2a runtime output differs from actual command");
+  if (declaredRuns) {
+    // Multi-run recipes execute one reviewed Cargo run per passed row (the staged native-helper
+    // row launches the bundled consumer binary instead of Cargo); runtimeOutput is the status
+    // header plus each executed row's stdout in plan order.
+    const outputs = [];
+    for (const run of declaredRuns) {
+      if (run.status === "not-applicable") continue;
+      if (run.status !== "passed") { bad(`R2a runtime run ${run.id} did not pass`); continue; }
+      const cargoArgs = ["run", "--locked", "--offline", ...(run.features?.length ? ["--features", run.features.join(",")] : []), ...(run.args?.length ? ["--", ...run.args] : [])];
+      const matches = commands.filter((row) => row.cwd === report.consumerDirectory && row.status === 0 && ((row.command === "cargo" && same(row.args, cargoArgs)) || (/Contents[/\\]MacOS[/\\]consumer$/.test(row.command ?? "") && same(row.args, run.args ?? []))));
+      if (matches.length !== 1) { bad(`R2a runtime actual command missing for run ${run.id}`); continue; }
+      outputs.push(matches[0].stdout);
+    }
+    const expectedOutput = declaredRuns.map((run) => `[run ${run.id}] ${run.status}`).join("\n") + "\n" + outputs.join("");
+    if (report.runtimeOutput !== expectedOutput) bad("R2a runtime output differs from actual command");
+  } else {
+    const runtime = commands.filter((row) => row?.command === "cargo" && same(row.args, ["run", "--locked", "--offline"]) && row.cwd === report.consumerDirectory);
+    if (runtime?.length !== 1 || runtime[0].stdout !== report.runtimeOutput) bad("R2a runtime output differs from actual command");
+  }
   try {
     const metadata = commands.filter((row) => row?.command === "cargo" && same(row.args, ["metadata", "--format-version", "1", "--locked", "--offline"]) && row.cwd === report.consumerDirectory);
     if (metadata.length !== 1) throw new Error("missing final metadata command");

@@ -193,6 +193,26 @@ function consumer() {
 test("R2a accepts bound named recipe & actual locked/offline command evidence", () => {
   assert.deepEqual(consumerQualificationProblems(consumer()), []);
 });
+test("R2a accepts a multi-run recipe whose rows each bind an actual command", () => {
+  const f = consumer();
+  const cwd = f.report.consumerDirectory;
+  f.report.runs = [
+    { id: "core", args: ["core"], features: [], envNames: [], status: "passed" },
+    { id: "native-db", args: ["native-db"], features: ["sqlcipher-system"], envNames: [], status: "passed" },
+    { id: "native-helper", args: ["native-helper"], features: [], envNames: [], status: "passed" },
+  ];
+  f.report.commands = f.report.commands.filter((row) => !(row.command === "cargo" && row.args[0] === "run"));
+  f.report.commands.push(
+    { command: "cargo", args: ["run", "--locked", "--offline", "--", "core"], cwd, status: 0, stdout: "core ok\n", stderr: "" },
+    { command: "cargo", args: ["run", "--locked", "--offline", "--features", "sqlcipher-system", "--", "native-db"], cwd, status: 0, stdout: "db ok\n", stderr: "" },
+    { command: "/tmp/CredentialsConsumer.app/Contents/MacOS/consumer", args: ["native-helper"], cwd, status: 0, stdout: "helper ok\n", stderr: "" },
+  );
+  f.report.runtimeOutput = "[run core] passed\n[run native-db] passed\n[run native-helper] passed\ncore ok\ndb ok\nhelper ok\n";
+  assert.deepEqual(consumerQualificationProblems(f), []);
+  const damaged = consumer();
+  damaged.report.runs = f.report.runs; damaged.report.commands = f.report.commands.slice(0, -1); damaged.report.runtimeOutput = f.report.runtimeOutput;
+  assert.ok(consumerQualificationProblems(damaged).length, "missing helper launch command must refuse");
+});
 for (const [label, damage] of [
   ["generic import", (f) => { delete f.report.qualification; }],
   ["unverified", (f) => { f.report.verified = false; }],
