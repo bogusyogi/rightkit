@@ -87,7 +87,8 @@ fn main() -> Result<(), Failure> {
     let probe = SandboxCommand::new("/bin/sh").arg("-c").arg("echo probe");
     match strict_sandbox.spawn(&probe_policy, probe) {
         Err(SandboxError::ResourceDenied(_)) => {}
-        other => panic!("Strict spawn must be ResourceDenied, got {other:?}"),
+        Ok(_) => panic!("Strict spawn must be ResourceDenied, but it spawned"),
+        Err(other) => panic!("Strict spawn must be ResourceDenied, got {other}"),
     }
 
     // Pure planning helpers: anchored glob, containment, relative refusal.
