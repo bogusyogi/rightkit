@@ -1104,7 +1104,7 @@ test("product scripts never override or destroy RightKit-owned Cargo cache state
 // Windows build exception, sealed-archive qualification, and reviewed-candidate promotion. Product repositories host none.
 const RIGHTKIT_VERIFICATION_WORKFLOWS = ["android.yml", "chrome-pins.yml", "ci.yml"];
 const RIGHTKIT_EXCEPTION_WORKFLOWS = ["ffmpeg-windows.yml"];
-const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml", "chrome-native-diagnostic.yml", "repair-hygiene.yml"];
+const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "qualify-existing-swift.yml", "registry-readback.yml", "reviewed-registry-readback.yml", "supplement-archive-scan.yml", "chrome-native-diagnostic.yml", "repair-hygiene.yml"];
 const RIGHTKIT_QUALIFICATION_WORKFLOWS = ["publish.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
 const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
