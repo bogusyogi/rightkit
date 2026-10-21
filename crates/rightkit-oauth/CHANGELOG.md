@@ -4,6 +4,7 @@
 
 - BREAKING: `SecretTokenStore` (`src/credentials.rs:25-26`) and `SecretTokenStore::new(store: rightkit_credentials::Store)` (`src/credentials.rs:30`) take the `rightkit-credentials` 0.4 `Store`, which changes its identity from 0.3. The dependency is 0.4.1 (`Cargo.toml:44`); published 0.9.0 pins `rightkit-credentials ^0.3.0`. Gated behind feature `secrets` (`src/lib.rs:24-25`, `Cargo.toml:17`). Requires rightkit-credentials 0.4.1 on crates.io (0.4.0 is yanked); publish it before this crate.
 - Fixed: a stored token whose `expires_in` or `obtained_at` is present but malformed is refused as unreadable instead of being treated as never expiring.
+- Fixed: a stored `expires_in` above 10 years (`MAX_STORED_EXPIRES_IN_SECS`, `src/token_codec.rs`) or whose deadline overflows `obtained_at` is refused on decode, and `TokenSet::is_expired` treats an overflowing deadline as expired (`src/lib.rs`) instead of never expiring.
 - Otherwise source-identical to published 0.9.0 (`src/`, `tests/`, `examples/`); README corrected for the Linux backend and the server-mode version pin.
 
 ## 0.9.0 — 2026-10-18

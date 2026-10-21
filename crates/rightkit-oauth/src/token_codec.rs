@@ -4,6 +4,11 @@ use rightkit_http::Secret;
 use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// Largest stored `expires_in` accepted on decode: 10 years in seconds. Real
+/// providers issue lifetimes of hours to months; anything larger is treated as
+/// a corrupt or hostile stored form and refused, never as a long-lived token.
+pub(crate) const MAX_STORED_EXPIRES_IN_SECS: u64 = 10 * 365 * 24 * 60 * 60;
+
 fn storage(e: impl fmt::Display) -> OAuthError {
     OAuthError::Storage(e.to_string())
 }
@@ -53,9 +58,11 @@ pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
     let expires_in = match v.get("expires_in") {
         None | Some(serde_json::Value::Null) => None,
         Some(x) => {
-            Some(Duration::from_secs(x.as_u64().ok_or_else(|| {
-                storage("stored sign-in expiry is invalid")
-            })?))
+            let secs = x
+                .as_u64()
+                .filter(|s| *s <= MAX_STORED_EXPIRES_IN_SECS)
+                .ok_or_else(|| storage("stored sign-in expiry is invalid"))?;
+            Some(Duration::from_secs(secs))
         }
     };
     let obtained_secs = match v.get("obtained_at") {
@@ -64,6 +71,14 @@ pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
             .as_u64()
             .ok_or_else(|| storage("stored sign-in timestamp is invalid"))?,
     };
+    // The deadline must be representable: an overflowing sum would otherwise
+    // read as "no deadline" and keep the token usable forever.
+    if let Some(d) = expires_in {
+        UNIX_EPOCH
+            .checked_add(Duration::from_secs(obtained_secs))
+            .and_then(|at| at.checked_add(d))
+            .ok_or_else(|| storage("stored sign-in expiry is invalid"))?;
+    }
     Ok(TokenSet {
         access_token: Secret::new(access),
         token_type: v

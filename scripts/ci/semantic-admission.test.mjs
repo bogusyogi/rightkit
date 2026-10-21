@@ -208,6 +208,21 @@ test("R2a accepts the implicit default row of a no-runs recipe & refuses lookali
   reviewed.report.runs = [{ id: "default", args: [], features: [], envNames: [], status: "passed" }];
   assert.ok(consumerQualificationProblems(reviewed).length, "implicit row must not substitute for reviewed runs");
 });
+test("R2a refuses null or missing args, features and envNames on the implicit default row", () => {
+  const exact = consumer();
+  exact.report.runs = [{ id: "default", args: [], features: [], envNames: [], status: "passed" }];
+  assert.deepEqual(consumerQualificationProblems(exact), []);
+  for (const key of ["args", "features", "envNames"]) {
+    for (const value of [null, undefined]) {
+      const f = consumer();
+      f.report.runs = [{ id: "default", args: [], features: [], envNames: [], status: "passed" }];
+      f.report.runs[0][key] = value;
+      const problems = consumerQualificationProblems(f);
+      assert.ok(problems.length, `${key}=${value} must refuse`);
+      if (value === null) assert.ok(problems.some((p) => p.includes(key) && p.includes("array")), `${key} null reason must name the array requirement`);
+    }
+  }
+});
 test("R2a accepts a multi-run recipe whose rows each bind an actual command", () => {
   const f = consumer();
   const cwd = f.report.consumerDirectory;

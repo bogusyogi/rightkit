@@ -314,6 +314,44 @@ mod tests {
     }
 
     #[test]
+    fn overflowing_or_excessive_stored_expiry_is_refused() {
+        for bad in [
+            r#"{"access":"a-1","expires_in":18446744073709551615,"obtained_at":1700000000}"#,
+            r#"{"access":"a-1","expires_in":315360001,"obtained_at":1700000000}"#,
+            r#"{"access":"a-1","expires_in":3600,"obtained_at":18446744073709551615}"#,
+        ] {
+            assert!(decode(bad).is_err(), "accepted unsafe stored expiry: {bad}");
+        }
+        let max = format!(
+            r#"{{"access":"a-1","expires_in":{},"obtained_at":1700000000}}"#,
+            crate::token_codec::MAX_STORED_EXPIRES_IN_SECS
+        );
+        assert!(decode(&max).is_ok());
+        let normal =
+            decode(r#"{"access":"a-1","expires_in":3600,"obtained_at":1700000000}"#).unwrap();
+        assert_eq!(normal.expires_in, Some(Duration::from_secs(3600)));
+    }
+
+    #[test]
+    fn overflowing_deadline_reads_as_expired() {
+        let tokens = TokenSet {
+            access_token: Secret::new("a-1"),
+            token_type: "bearer".into(),
+            expires_in: Some(Duration::from_secs(u64::MAX)),
+            refresh_token: None,
+            scope: None,
+            id_token: None,
+            obtained_at: UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        };
+        assert!(tokens.is_expired(Duration::ZERO));
+        let open = TokenSet {
+            expires_in: None,
+            ..tokens
+        };
+        assert!(!open.is_expired(Duration::ZERO));
+    }
+
+    #[test]
     fn resolutions_never_print_the_token() {
         let r = Resolution::Token {
             token: Secret::new("very-private-value"),

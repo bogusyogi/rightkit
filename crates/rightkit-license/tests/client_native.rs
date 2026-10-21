@@ -311,10 +311,16 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
             .timeout(Duration::from_millis(30)),
     );
     let client = f.client_with(|cfg| {
-        cfg.with_credential_clock(store, "highest-seen-unix")
+        cfg.with_credential_clock(store.clone(), "highest-seen-unix")
             .with_persist_wait(Duration::from_millis(20))
     });
     let clock = client.native_clock_store().unwrap();
+    // The reader gets its own generous worker wait: only the retained guard may
+    // refuse it before release, and a correct load after release must not time out.
+    let reader_client = f.client_with(|cfg| {
+        cfg.with_credential_clock(store, "highest-seen-unix")
+            .with_persist_wait(Duration::from_secs(5))
+    });
     let new = ClockState {
         highest_seen: 100,
         trusted_process: "native".into(),
@@ -323,7 +329,7 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
     assert!(clock.compare_and_save(None, &new).is_err());
     started.recv_timeout(Duration::from_secs(2)).unwrap();
     shared.selected.store(1, SeqCst);
-    let other = clock.clone();
+    let other = reader_client.native_clock_store().unwrap();
     let (finished, result) = mpsc::channel();
     let refused = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let refused_in_reader = refused.clone();
@@ -339,13 +345,22 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
                     finished.send(Ok(value)).unwrap();
                     break;
                 }
-                Err(error) => {
+                Err(rightkit_license::ClientClockError::Busy) => {
                     refused_in_reader.fetch_add(1, SeqCst);
                     if std::time::Instant::now() >= deadline {
-                        finished.send(Err(error)).unwrap();
+                        finished
+                            .send(Err(rightkit_license::ClientClockError::Busy))
+                            .unwrap();
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(5));
+                }
+                // Only the lock-wait refusal proves the retained guard blocked the
+                // load; any other error (e.g. a reader-worker timeout) is unrelated,
+                // is not counted, and ends the reader so the test fails with it.
+                Err(other_error) => {
+                    finished.send(Err(other_error)).unwrap();
+                    break;
                 }
             }
         }
@@ -358,18 +373,27 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
             std::time::Instant::now() < wait_deadline,
             "reader never attempted a load while the gate was closed"
         );
-        assert!(
-            result.try_recv().is_err(),
-            "load succeeded before the gate opened"
-        );
+        if let Ok(early) = result.try_recv() {
+            panic!(
+                "reader ended before the gate opened (only Busy may refuse): {:?}",
+                early.as_ref().err()
+            );
+        }
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(result.try_recv().is_err());
+    if let Ok(early) = result.try_recv() {
+        panic!(
+            "reader ended before the gate opened (only Busy may refuse): {:?}",
+            early.as_ref().err()
+        );
+    }
     release.send(()).unwrap();
-    assert!(result
-        .recv_timeout(Duration::from_secs(10))
-        .unwrap()
-        .is_ok());
+    let outcome = result.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(
+        outcome.is_ok(),
+        "clock load did not succeed after release (only Busy may refuse): {:?}",
+        outcome.as_ref().err()
+    );
     reader.join().unwrap();
     assert!(shared.targets[0].text("highest-seen-unix").is_some());
     assert!(shared.targets[1].text("highest-seen-unix").is_none());
@@ -493,7 +517,9 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
         .unwrap();
     started.recv_timeout(Duration::from_secs(2)).unwrap();
     shared.selected.store(1, SeqCst);
-    let other = client.native_entitlement_source().unwrap();
+    // Own generous worker wait for the reader; the writer client keeps its short one.
+    let reader_client = f.client_with(|cfg| cfg.with_persist_wait(Duration::from_secs(5)));
+    let other = reader_client.native_entitlement_source().unwrap();
     let (finished, result) = mpsc::channel();
     let refused = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let refused_in_reader = refused.clone();
@@ -510,13 +536,19 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
                     finished.send(Ok(value)).unwrap();
                     break;
                 }
-                Err(error) => {
+                Err(NativeSourceError::Refused) => {
                     refused_in_reader.fetch_add(1, SeqCst);
                     if std::time::Instant::now() >= deadline {
-                        finished.send(Err(error)).unwrap();
+                        finished.send(Err(NativeSourceError::Refused)).unwrap();
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(5));
+                }
+                // Only the lock-wait Refused proves the retained guard blocked the
+                // read; Unavailable is unrelated, is not counted, and fails the test.
+                Err(other_error) => {
+                    finished.send(Err(other_error)).unwrap();
+                    break;
                 }
             }
         }
@@ -529,18 +561,27 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
             std::time::Instant::now() < wait_deadline,
             "reader never attempted a read while the gate was closed"
         );
-        assert!(
-            result.try_recv().is_err(),
-            "read succeeded before the gate opened"
-        );
+        if let Ok(early) = result.try_recv() {
+            panic!(
+                "reader ended before the gate opened (only Refused may count): {:?}",
+                early.as_ref().err()
+            );
+        }
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(result.try_recv().is_err());
+    if let Ok(early) = result.try_recv() {
+        panic!(
+            "reader ended before the gate opened (only Refused may count): {:?}",
+            early.as_ref().err()
+        );
+    }
     release.send(()).unwrap();
-    assert!(result
-        .recv_timeout(Duration::from_secs(10))
-        .unwrap()
-        .is_ok());
+    let outcome = result.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(
+        outcome.is_ok(),
+        "read did not succeed after release (only Refused may count): {:?}",
+        outcome.as_ref().err()
+    );
     reader.join().unwrap();
     assert!(shared.targets[0].text("legacy-record").is_none());
 }

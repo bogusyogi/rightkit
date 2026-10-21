@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mandatory local gate before every push (Adrian 2026-10-22). Never bypass with --no-verify.
+exec node "$(git rev-parse --show-toplevel)/scripts/local-gate.mjs" --base origin/main

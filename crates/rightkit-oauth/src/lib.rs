@@ -341,13 +341,18 @@ impl TokenSet {
     }
 
     pub fn is_expired(&self, skew: Duration) -> bool {
-        self.expires_in
-            .and_then(|d| self.obtained_at.checked_add(d))
-            .map(|at| match at.duration_since(SystemTime::now()) {
-                Ok(remaining) => remaining <= skew,
-                Err(_) => true,
-            })
-            .unwrap_or(false)
+        // No lifetime means no deadline; a lifetime whose deadline overflows
+        // is unusable and fails closed as expired.
+        match self.expires_in {
+            None => false,
+            Some(d) => match self.obtained_at.checked_add(d) {
+                None => true,
+                Some(at) => match at.duration_since(SystemTime::now()) {
+                    Ok(remaining) => remaining <= skew,
+                    Err(_) => true,
+                },
+            },
+        }
     }
 }
 

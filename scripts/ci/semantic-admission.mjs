@@ -62,6 +62,8 @@ function file(root, relative) {
   return fs.readFileSync(full);
 }
 
+const emptyArray = (value) => Array.isArray(value) && value.length === 0;
+
 /** Validate an actual R2a report against authenticated identity & reviewed recipe DATA. */
 export function consumerQualificationProblems({ report, expected, recipe }) {
   const errors = []; const bad = (s) => errors.push(s);
@@ -86,8 +88,14 @@ export function consumerQualificationProblems({ report, expected, recipe }) {
   // harness. That exact row IS the no-runs execution (single locked/offline cargo run,
   // headerless runtimeOutput), not an invented run; any other row still refuses below.
   const implicitDefault = rawRuns?.length === 1 && same(Object.keys(rawRuns[0]).sort(), ["args", "envNames", "features", "id", "status"])
-    && rawRuns[0].id === "default" && same(rawRuns[0].args ?? [], []) && same(rawRuns[0].features ?? [], [])
-    && same(rawRuns[0].envNames ?? [], []) && rawRuns[0].status === "passed";
+    && rawRuns[0].id === "default" && emptyArray(rawRuns[0].args) && emptyArray(rawRuns[0].features)
+    && emptyArray(rawRuns[0].envNames) && rawRuns[0].status === "passed";
+  // A null or non-array args/features/envNames is malformed evidence, never an empty list.
+  for (const run of rawRuns ?? []) {
+    for (const key of ["args", "features", "envNames"]) {
+      if (run && key in run && !Array.isArray(run[key])) bad(`R2a run ${run.id} ${key} must be an array, not ${run[key] === null ? "null" : typeof run[key]}`);
+    }
+  }
   const declaredRuns = implicitDefault && !reviewedRuns ? null : rawRuns;
   if (reviewedRuns) {
     const platform = expected.host === "macos" ? "darwin" : expected.host === "windows" ? "win32" : "linux";
