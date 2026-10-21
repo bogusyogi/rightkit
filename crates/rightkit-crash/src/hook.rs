@@ -5,9 +5,17 @@ use crate::{native, retention, NativeCapture, Retention};
 use std::fmt;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
+
+static FILE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Process-wide sequence number that keeps artifact file names unique when several land within the
+/// same second.
+pub(crate) fn next_file_seq() -> u64 {
+    FILE_SEQ.fetch_add(1, Ordering::Relaxed)
+}
 
 /// How long a report waits for its sink. A sink that blocks (for example on a lock the panicking
 /// thread holds) stops being waited for after this, and the report path continues.
@@ -508,7 +516,11 @@ pub fn record_report(
     // must already be on disk by then. A failed file never skips the sink.
     let written = match (&dir, config.write_file) {
         (Some(dir), true) => {
-            let path = dir.join(format!("crash_{kind}_{stamp}_{}.json", std::process::id()));
+            let path = dir.join(format!(
+                "crash_{kind}_{stamp}_{}_{}.json",
+                std::process::id(),
+                next_file_seq()
+            ));
             persist_report(config, dir, &path, &value)
         }
         _ => None,
@@ -634,6 +646,21 @@ mod tests {
         let path = record_report(&config, "panic", "mode", None, "t", "bt").expect("written");
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_reports_in_the_same_second_are_two_files() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("same-second");
+        let config = CrashConfig::new("test-app", "0.0.0", &dir);
+        let first = record_report(&config, "hang", "one", None, "t", "").expect("first");
+        let second = record_report(&config, "hang", "one", None, "t", "").expect("second");
+        assert_ne!(
+            first, second,
+            "the second report must not replace the first"
+        );
+        assert_eq!(reports_in(&dir).len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

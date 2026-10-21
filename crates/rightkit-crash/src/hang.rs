@@ -193,11 +193,9 @@ struct LoopState {
     name: String,
     epoch: Instant,
     last: AtomicU64,
-    /// False once the last [`Heartbeat`] clone has dropped. The watchdog holds this lock across
-    /// that loop's whole report sequence and the last drop takes it to clear it, so once the drop
-    /// returns no report for the loop is in progress or can start. Never held while another loop's
-    /// lock is held, and never taken by `beat`.
-    alive: Mutex<bool>,
+    /// Cleared by the last [`Heartbeat`] drop (never blocks) and checked before each write step.
+    /// A report already past its last check may still complete.
+    alive: AtomicBool,
 }
 
 impl LoopState {
@@ -221,7 +219,7 @@ struct Registration {
 
 impl Drop for Registration {
     fn drop(&mut self) {
-        *lock(&self.state.alive) = false;
+        self.state.alive.store(false, Ordering::Release);
         if let Some(shared) = self.shared.upgrade() {
             lock(&shared.loops).retain(|l| l.id != self.state.id);
         }
@@ -229,8 +227,10 @@ impl Drop for Registration {
 }
 
 /// A watched loop's pulse. Cheap to clone and to call from any thread, including a UI thread.
-/// When the last clone is dropped the loop is no longer watched, so a loop that finished
-/// normally never reports.
+/// When the last clone is dropped the loop is no longer watched and the drop never blocks. A
+/// report already in progress at that moment may still complete: the loop is checked right before
+/// each write step, not across the whole report. The `sink` of such a report may even run after
+/// the drop returns.
 #[derive(Clone)]
 pub struct Heartbeat {
     registration: Arc<Registration>,
@@ -318,7 +318,7 @@ impl HangWatchdog {
             name,
             epoch: self.shared.epoch,
             last: AtomicU64::new(0),
-            alive: Mutex::new(true),
+            alive: AtomicBool::new(true),
         });
         state.last.store(state.now_ms(), Ordering::Release);
         lock(&self.shared.loops).push(Arc::clone(&state));
@@ -376,8 +376,10 @@ impl HangWatchdog {
     /// Stop the watchdog and wait for its thread to exit. Returns at once, not after a whole
     /// interval, unless a hang report or native capture is in flight: that work cannot be
     /// cancelled and finishes first (worst case the native helper timeout, about 12 s on Windows,
-    /// plus the sink timeout). No write step starts once stop is signalled, and none happens after
-    /// this returns.
+    /// plus the sink timeout). No write step starts once stop is signalled, and the watchdog
+    /// writes nothing after this returns. A `sink` call that started before stop is the app's
+    /// callback and is abandoned after 2 s by `record_report`, so it may still finish after stop
+    /// returns; no new sink call starts once stop is set.
     pub fn stop(mut self) {
         self.shutdown();
     }
@@ -455,9 +457,7 @@ impl Monitor {
         self.captured
             .retain(|id, _| loops.iter().any(|l| l.id == *id));
         for state in &loops {
-            // Held for this loop's whole check and report: the last Heartbeat drop waits for it.
-            let alive = lock(&state.alive);
-            if !*alive {
+            if !state.alive.load(Ordering::Acquire) {
                 self.episodes.remove(&state.id);
                 self.captured.remove(&state.id);
                 continue;
@@ -484,7 +484,6 @@ impl Monitor {
                     }
                 }
             }
-            drop(alive);
         }
     }
 
@@ -498,12 +497,15 @@ impl Monitor {
         // The native capture below is the hang's own, not the panic hook's.
         let mut config = self.config.clone();
         config.native_capture = NativeCapture::Off;
+        if !self.may_write(state) {
+            return;
+        }
         let _ = record_report(&config, "hang", &message, None, &state.name, "");
         event_line("hang", &state.name, stalled);
 
-        // The sink may have turned recording off, and the watchdog may have been stopped, while
-        // the report was recorded: consent is checked again before anything more is written.
-        if !recording_enabled() || self.shared.stop.is_stopped() {
+        // The sink may have turned recording off, the loop may have ended, or the watchdog may
+        // have been stopped while the report was recorded: checked again before each write step.
+        if !self.may_write(state) {
             return;
         }
         let wants_capture = self.options.native || !self.options.log_files.is_empty();
@@ -519,7 +521,7 @@ impl Monitor {
             return;
         };
         if !self.options.log_files.is_empty() {
-            if !recording_enabled() || self.shared.stop.is_stopped() {
+            if !self.may_write(state) {
                 return;
             }
             let _ = write_log_tail(
@@ -530,14 +532,19 @@ impl Monitor {
             );
         }
         if self.options.native {
-            if !recording_enabled() || self.shared.stop.is_stopped() {
+            if !self.may_write(state) {
                 return;
             }
             let _ = capture_native_with_secrets(&dir, "hang", self.config.secrets());
         }
-        if recording_enabled() && !self.shared.stop.is_stopped() {
+        if self.may_write(state) {
             crate::retention::prune(&dir, self.config.retention);
         }
+    }
+
+    /// Consent, stop and registration, checked right before each write step.
+    fn may_write(&self, state: &LoopState) -> bool {
+        recording_enabled() && !self.shared.stop.is_stopped() && state.alive.load(Ordering::Acquire)
     }
 }
 
@@ -985,7 +992,7 @@ mod tests {
             name: name.to_string(),
             epoch: shared.epoch,
             last: AtomicU64::new(0),
-            alive: Mutex::new(true),
+            alive: AtomicBool::new(true),
         });
         lock(&shared.loops).push(Arc::clone(&state));
         Heartbeat {
@@ -1116,35 +1123,72 @@ mod tests {
         std::fs::create_dir_all(&logs).unwrap();
         let log = logs.join("app.log");
         std::fs::write(&log, "a line\n").unwrap();
-        let entered = Arc::new(AtomicBool::new(false));
-        let sink_entered = Arc::clone(&entered);
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel::<()>();
+        let entered_tx = Mutex::new(entered_tx);
+        let stop_flag: Arc<Mutex<Option<Arc<Shared>>>> = Arc::new(Mutex::new(None));
+        let sink_flag = Arc::clone(&stop_flag);
         let config = CrashConfig::new("test-app", "0.0.0", &dir).with_sink(move |_| {
-            sink_entered.store(true, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(300));
+            let _ = entered_tx.lock().unwrap().send(());
+            // Hold the report open until stop has been signalled (bounded, so a failure ends).
+            let until = Instant::now() + Duration::from_millis(1500);
+            while Instant::now() < until {
+                let stopped = sink_flag
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .is_some_and(|s| s.stop.is_stopped());
+                if stopped {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
         });
         let watchdog = HangWatchdog::start(config, fast_options().log_file(&log)).expect("start");
+        *stop_flag.lock().unwrap() = Some(Arc::clone(&watchdog.shared));
         let _heartbeat = watchdog.heartbeat("ui");
-        assert!(wait_until(|| entered.load(Ordering::SeqCst)));
-        // Stop while the report is in flight: stop waits for it, then no tail is written.
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the report reached its sink");
+        // Stop while the report is in flight: stop waits for the thread, then no tail is written.
         watchdog.stop();
-        let files = || -> Vec<String> {
-            let mut names: Vec<String> = std::fs::read_dir(&dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect();
-            names.sort();
-            names
-        };
-        let after_stop = files();
-        std::thread::sleep(Duration::from_millis(500));
-        assert_eq!(files(), after_stop, "no write after stop returned");
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
         assert!(
-            !after_stop.iter().any(|n| n.starts_with("sample_")),
-            "no capture step ran once stop was signalled: {after_stop:?}"
+            !names.iter().any(|n| n.starts_with("sample_")),
+            "no capture step ran once stop was signalled: {names:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&logs);
+    }
+
+    #[test]
+    fn a_heartbeat_dropped_inside_its_own_sink_does_not_deadlock() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let _on = RecordingOn;
+        set_recording_enabled(true);
+        let dir = temp_dir("own-sink");
+        let slot: Arc<Mutex<Option<Heartbeat>>> = Arc::new(Mutex::new(None));
+        let sink_slot = Arc::clone(&slot);
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let sink_seen = Arc::clone(&seen);
+        let config = CrashConfig::new("test-app", "0.0.0", &dir).with_sink(move |value| {
+            sink_seen.lock().unwrap().push(value);
+            drop(sink_slot.lock().unwrap().take());
+        });
+        let watchdog = HangWatchdog::start(config, fast_options()).expect("start");
+        *slot.lock().unwrap() = Some(watchdog.heartbeat("ui"));
+        assert!(wait_until(|| hangs(&seen) == 1), "the report ran");
+        assert!(
+            slot.lock().unwrap().is_none(),
+            "the sink dropped its own heartbeat"
+        );
+        let started = Instant::now();
+        watchdog.stop();
+        assert!(started.elapsed() < Duration::from_secs(1), "stop returned");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

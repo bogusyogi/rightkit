@@ -125,7 +125,7 @@ pub enum NativeCapture {
     Auto,
 }
 
-/// [`capture`] plus the note the panic hook records on the report. Also writes the note to
+/// Native capture plus the note the panic hook records on the report. Also writes the note to
 /// stderr (best effort: a closed stderr must not panic inside a panic hook).
 pub(crate) fn capture_detailed(
     dir: &Path,
@@ -378,7 +378,10 @@ mod platform {
         }
         let _guard = Guard;
         crate::retention::sweep_raw(dir);
-        let final_path = dir.join(format!("sample_{kind}_{stamp}_{pid}.txt"));
+        let final_path = dir.join(format!(
+            "sample_{kind}_{stamp}_{pid}_{}.txt",
+            crate::hook::next_file_seq()
+        ));
         // `sample` writes the unscrubbed text into a private directory outside the crash folder.
         // Nothing raw is ever written under `dir`.
         let Ok((raw_dir, raw)) = sample::create_raw_dir(&std::env::temp_dir(), dir) else {
@@ -475,8 +478,9 @@ mod platform {
         if !helper.is_file() {
             return None;
         }
-        let final_path = dir.join(format!("dump_{kind}_{stamp}_{pid}.dmp"));
-        let partial = dir.join(format!(".dump_{kind}_{stamp}_{pid}.dmp.partial"));
+        let seq = crate::hook::next_file_seq();
+        let final_path = dir.join(format!("dump_{kind}_{stamp}_{pid}_{seq}.dmp"));
+        let partial = dir.join(format!(".dump_{kind}_{stamp}_{pid}_{seq}.dmp.partial"));
         let _ = std::fs::remove_file(&partial);
         let mut child = Command::new(&helper)
             .arg("--pid")
