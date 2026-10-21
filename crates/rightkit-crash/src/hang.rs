@@ -247,6 +247,8 @@ struct Shared {
     loops: Mutex<Vec<Arc<LoopState>>>,
     next_id: AtomicU64,
     stop: Stop,
+    /// The config's known secrets, removed from loop names before they are filtered or shown.
+    secrets: Vec<String>,
 }
 
 /// Removes the loop from the registry when the last [`Heartbeat`] clone is dropped.
@@ -318,6 +320,7 @@ impl HangWatchdog {
             loops: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             stop: Stop::new(),
+            secrets: config.secrets().to_vec(),
         });
         let monitor = Monitor {
             config,
@@ -338,11 +341,12 @@ impl HangWatchdog {
         })
     }
 
-    /// Start watching a loop named `name` (letters, digits, `-`, `_` and `.` are kept, at most 48
-    /// characters). It counts as beating now. Drop every clone of the returned [`Heartbeat`] when
-    /// the loop ends.
+    /// Start watching a loop named `name`. Configured secrets are removed first, then letters,
+    /// digits, `-`, `_` and `.` are kept, at most 48 characters. It counts as beating now. Drop
+    /// every clone of the returned [`Heartbeat`] when the loop ends.
     pub fn heartbeat(&self, name: &str) -> Heartbeat {
-        let mut name: String = name
+        let redacted = crate::report::redact_known(name, &self.shared.secrets);
+        let mut name: String = redacted
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
             .take(48)
@@ -412,8 +416,8 @@ impl HangWatchdog {
 
     /// Stop the watchdog and wait for its thread to exit. This waits for any `on_hang` callback
     /// and native capture in progress (callbacks must return promptly; a capture cannot be
-    /// cancelled). No write step or callback starts once stop is signalled, and none runs after
-    /// this returns.
+    /// cancelled). Once this returns, no write step or callback runs; one already past its check
+    /// when stop is signalled may still finish before the thread exits.
     pub fn stop(mut self) {
         self.shutdown();
     }
@@ -513,7 +517,9 @@ impl Monitor {
                 Some(_) => {}
                 None => {
                     let silent = now.saturating_sub(last);
-                    if silent >= self.options.threshold_ms {
+                    // An episode is only committed when its report can be written, so a hang
+                    // skipped while recording was off is still reported once it is back on.
+                    if silent >= self.options.threshold_ms && self.may_write(state) {
                         self.episodes.insert(state.id, Episode { beat_ms: last });
                         self.report(state, Duration::from_millis(silent));
                     }
@@ -788,6 +794,26 @@ mod tests {
     }
 
     #[test]
+    fn a_configured_secret_never_survives_in_a_loop_name() {
+        let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = temp_dir("secret-name");
+        let config = CrashConfig::new("test-app", "0.0.0", &dir)
+            .redact_values(vec!["zq-secret-value-7781".into()]);
+        let watchdog = HangWatchdog::start(config, fast_options()).expect("start");
+        let beat = watchdog.heartbeat("ui-zq-secret-value-7781-loop");
+        let names: Vec<String> = lock(&watchdog.shared.loops)
+            .iter()
+            .map(|l| l.name.clone())
+            .collect();
+        drop(beat);
+        watchdog.stop();
+        assert_eq!(names.len(), 1);
+        assert!(!names[0].contains("zq-secret"), "{}", names[0]);
+        assert!(!names[0].contains("7781"), "{}", names[0]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_stall_is_reported_exactly_once_per_episode() {
         let _serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let _on = RecordingOn;
@@ -1044,6 +1070,7 @@ mod tests {
             loops: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             stop: Stop::new(),
+            secrets: config.secrets().to_vec(),
         });
         let monitor = Monitor {
             config,
