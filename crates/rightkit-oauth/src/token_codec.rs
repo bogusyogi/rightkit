@@ -48,6 +48,22 @@ pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
         .and_then(|x| x.as_str())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| storage("stored sign-in has no access value"))?;
+    // A present-but-malformed expiry or timestamp refuses the stored form:
+    // silently dropping it would make a bounded token look unexpired forever.
+    let expires_in = match v.get("expires_in") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(x) => {
+            Some(Duration::from_secs(x.as_u64().ok_or_else(|| {
+                storage("stored sign-in expiry is invalid")
+            })?))
+        }
+    };
+    let obtained_secs = match v.get("obtained_at") {
+        None | Some(serde_json::Value::Null) => 0,
+        Some(x) => x
+            .as_u64()
+            .ok_or_else(|| storage("stored sign-in timestamp is invalid"))?,
+    };
     Ok(TokenSet {
         access_token: Secret::new(access),
         token_type: v
@@ -55,10 +71,7 @@ pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
             .and_then(|x| x.as_str())
             .unwrap_or("Bearer")
             .to_string(),
-        expires_in: v
-            .get("expires_in")
-            .and_then(|x| x.as_u64())
-            .map(Duration::from_secs),
+        expires_in,
         refresh_token: v
             .get("renew")
             .and_then(|x| x.as_str())
@@ -71,9 +84,7 @@ pub(crate) fn decode(text: &str) -> Result<TokenSet, OAuthError> {
             .filter(|s| !s.is_empty())
             .map(Secret::new),
         obtained_at: UNIX_EPOCH
-            .checked_add(Duration::from_secs(
-                v.get("obtained_at").and_then(|x| x.as_u64()).unwrap_or(0),
-            ))
+            .checked_add(Duration::from_secs(obtained_secs))
             .ok_or_else(|| storage("stored sign-in timestamp is invalid"))?,
     })
 }

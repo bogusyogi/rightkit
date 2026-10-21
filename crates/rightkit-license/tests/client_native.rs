@@ -325,10 +325,13 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
     shared.selected.store(1, SeqCst);
     let other = clock.clone();
     let (finished, result) = mpsc::channel();
+    let refused = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let refused_in_reader = refused.clone();
     let reader = std::thread::spawn(move || {
         // A clock load polls the ledger lock only up to a bounded wait, so
-        // retry until the retained guard is released. Any success before the
-        // gate opens would prove the guard was dropped early.
+        // retry until the retained guard is released. Each refusal is counted
+        // so the test can prove an attempt really ran while the gate was
+        // closed; any success then would prove the guard was dropped early.
         let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
             match other.load() {
@@ -337,6 +340,7 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
                     break;
                 }
                 Err(error) => {
+                    refused_in_reader.fetch_add(1, SeqCst);
                     if std::time::Instant::now() >= deadline {
                         finished.send(Err(error)).unwrap();
                         break;
@@ -346,8 +350,21 @@ fn switched_default_cannot_release_clock_guard_before_old_target_worker_finishes
             }
         }
     });
-    // Even though B reports no held rotation, A's abandoned native write still owns guard.
-    assert!(result.recv_timeout(Duration::from_millis(400)).is_err());
+    // Even though B reports no held rotation, A's abandoned native write still owns guard:
+    // wait until the reader has provably attempted and been refused at least once.
+    let wait_deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while refused.load(SeqCst) == 0 {
+        assert!(
+            std::time::Instant::now() < wait_deadline,
+            "reader never attempted a load while the gate was closed"
+        );
+        assert!(
+            result.try_recv().is_err(),
+            "load succeeded before the gate opened"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(result.try_recv().is_err());
     release.send(()).unwrap();
     assert!(result
         .recv_timeout(Duration::from_secs(10))
@@ -478,11 +495,14 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
     shared.selected.store(1, SeqCst);
     let other = client.native_entitlement_source().unwrap();
     let (finished, result) = mpsc::channel();
+    let refused = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let refused_in_reader = refused.clone();
     let reader = std::thread::spawn(move || {
         // A native read waits only a bounded time (250 ms) for the operation
         // lock and then reports Refused, so retry until the retained guard is
-        // released. Any success before the gate opens would prove the guard
-        // was dropped while the timed-out delete was still running.
+        // released. Each refusal is counted so the test can prove an attempt
+        // really ran while the gate was closed; any success then would prove
+        // the guard was dropped while the timed-out delete was still running.
         let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
             match other.read() {
@@ -491,6 +511,7 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
                     break;
                 }
                 Err(error) => {
+                    refused_in_reader.fetch_add(1, SeqCst);
                     if std::time::Instant::now() >= deadline {
                         finished.send(Err(error)).unwrap();
                         break;
@@ -500,9 +521,21 @@ fn legacy_cleanup_timeout_retains_operation_guard_until_native_delete_settles() 
             }
         }
     });
-    // Longer than one full bounded lock wait: no read may succeed while the
-    // delete worker still holds the operation guard.
-    assert!(result.recv_timeout(Duration::from_millis(400)).is_err());
+    // No read may succeed while the delete worker still holds the operation
+    // guard: wait until the reader has provably attempted and been refused.
+    let wait_deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while refused.load(SeqCst) == 0 {
+        assert!(
+            std::time::Instant::now() < wait_deadline,
+            "reader never attempted a read while the gate was closed"
+        );
+        assert!(
+            result.try_recv().is_err(),
+            "read succeeded before the gate opened"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(result.try_recv().is_err());
     release.send(()).unwrap();
     assert!(result
         .recv_timeout(Duration::from_secs(10))

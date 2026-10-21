@@ -296,6 +296,24 @@ mod tests {
     }
 
     #[test]
+    fn malformed_stored_expiry_refuses_instead_of_never_expiring() {
+        for bad in [
+            r#"{"access":"a-1","expires_in":"3600","obtained_at":1700000000}"#,
+            r#"{"access":"a-1","expires_in":-5,"obtained_at":1700000000}"#,
+            r#"{"access":"a-1","expires_in":36.5,"obtained_at":1700000000}"#,
+            r#"{"access":"a-1","expires_in":3600,"obtained_at":"soon"}"#,
+        ] {
+            assert!(
+                decode(bad).is_err(),
+                "accepted malformed stored form: {bad}"
+            );
+        }
+        let open =
+            decode(r#"{"access":"a-1","expires_in":null,"obtained_at":1700000000}"#).unwrap();
+        assert_eq!(open.expires_in, None);
+    }
+
+    #[test]
     fn resolutions_never_print_the_token() {
         let r = Resolution::Token {
             token: Secret::new("very-private-value"),

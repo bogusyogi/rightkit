@@ -193,6 +193,21 @@ function consumer() {
 test("R2a accepts bound named recipe & actual locked/offline command evidence", () => {
   assert.deepEqual(consumerQualificationProblems(consumer()), []);
 });
+test("R2a accepts the implicit default row of a no-runs recipe & refuses lookalikes", () => {
+  const f = consumer();
+  f.report.runs = [{ id: "default", args: [], features: [], envNames: [], status: "passed" }];
+  assert.deepEqual(consumerQualificationProblems(f), []);
+  const widened = consumer();
+  widened.report.runs = [{ id: "default", args: [], features: ["x"], envNames: [], status: "passed" }];
+  assert.ok(consumerQualificationProblems(widened).length, "default row with features must refuse");
+  const extraKey = consumer();
+  extraKey.report.runs = [{ id: "default", args: [], features: [], envNames: [], status: "passed", hosts: null }];
+  assert.ok(consumerQualificationProblems(extraKey).length, "default row with extra keys must refuse");
+  const reviewed = consumer();
+  reviewed.recipe.runs = [{ id: "core", features: [], args: ["core"], hosts: null, env: {} }];
+  reviewed.report.runs = [{ id: "default", args: [], features: [], envNames: [], status: "passed" }];
+  assert.ok(consumerQualificationProblems(reviewed).length, "implicit row must not substitute for reviewed runs");
+});
 test("R2a accepts a multi-run recipe whose rows each bind an actual command", () => {
   const f = consumer();
   const cwd = f.report.consumerDirectory;

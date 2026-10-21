@@ -78,10 +78,17 @@ export function consumerQualificationProblems({ report, expected, recipe }) {
   if (!text(report.toolchain?.rustc) || !text(report.toolchain?.cargo)) bad("R2a native toolchain evidence missing");
   const commands = Array.isArray(report.commands) ? report.commands : [];
   if (!commands.length || commands.some((row) => !row || !text(row.command) || !Array.isArray(row.args) || row.args.some((arg) => typeof arg !== "string") || !text(row.cwd) || row.status !== 0 || typeof row.stdout !== "string" || typeof row.stderr !== "string")) bad("R2a actual command evidence missing or failed");
-  const declaredRuns = Array.isArray(report.runs) && report.runs.length > 0 ? report.runs : null;
+  const rawRuns = Array.isArray(report.runs) && report.runs.length > 0 ? report.runs : null;
   // The execution rows must be exactly the reviewed recipe's runs for this host: a report may
   // not invent rows, drop rows, or mark a host-applicable row not-applicable to skip evidence.
   const reviewedRuns = Array.isArray(recipe?.runs) && recipe.runs.length > 0 ? recipe.runs : null;
+  // A recipe with no reviewed runs executes as one implicit default row in the consumer
+  // harness. That exact row IS the no-runs execution (single locked/offline cargo run,
+  // headerless runtimeOutput), not an invented run; any other row still refuses below.
+  const implicitDefault = rawRuns?.length === 1 && same(Object.keys(rawRuns[0]).sort(), ["args", "envNames", "features", "id", "status"])
+    && rawRuns[0].id === "default" && same(rawRuns[0].args ?? [], []) && same(rawRuns[0].features ?? [], [])
+    && same(rawRuns[0].envNames ?? [], []) && rawRuns[0].status === "passed";
+  const declaredRuns = implicitDefault && !reviewedRuns ? null : rawRuns;
   if (reviewedRuns) {
     const platform = expected.host === "macos" ? "darwin" : expected.host === "windows" ? "win32" : "linux";
     if (!declaredRuns || !same(declaredRuns.map((run) => [run.id, run.args ?? [], run.features ?? []]), reviewedRuns.map((run) => [run.id, run.args ?? [], run.features ?? []]))) bad("R2a runtime runs differ from reviewed recipe runs");
