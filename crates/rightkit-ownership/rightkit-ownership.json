@@ -10,6 +10,17 @@
         "Declaration-only: the scanner is the enforcement point, so it has no competing-dependency fingerprints.",
         "Shared contract fixtures live in packages/release/fixtures/ownership and are run in place by this crate's tests."
       ]
+    },
+    {
+      "capability": "appkit-autorelease-pool",
+      "summary": "AppKit, Accessibility and CoreFoundation calls inside a long-lived std::thread loop must drain objc2::rc::autoreleasepool once per iteration; a pool-less polling thread leaks every autoreleased object it touches (heardright#292: 2.18M NSRunningApplication objects, 1.1 GB after 62 h).",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the scanner evaluates this rule natively (rightkit-ownership src/autorelease.rs), not as a catalog regex, because it must see a thread closure, its loop and the absence of a pool inside the loop. The rule runs only when the scanned catalog declares this capability.",
+        "Finding fingerprint appkit.autorelease.thread-loop-no-pool, block tier, reported at the spawn line of a macOS-scoped .rs file (path contains /macos/ or macos_, or a non-negated target_os = \"macos\" cfg). Fix: drain objc2::rc::autoreleasepool once per loop iteration; a pool around the whole loop never drains.",
+        "An app records a reviewed exception in .rightkit/ownership-exceptions.json with capability appkit-autorelease-pool, package rightkit-ownership, optional fingerprint and path, reason, owner and date (Orthic-Labs/rightkit#893)."
+      ]
     }
   ]
 }

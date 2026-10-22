@@ -1,0 +1,20 @@
+// Fixture text, never compiled. The pool is entered and drained once per iteration.
+use objc2::rc::autoreleasepool;
+use objc2_app_kit::NSWorkspace;
+
+pub fn start_frontmost_poll(tx: Sender<FrontApp>) {
+    std::thread::Builder::new()
+        .name("frontmost-poll".into())
+        .spawn(move || {
+            loop {
+                autoreleasepool(|_| {
+                    let workspace = NSWorkspace::sharedWorkspace();
+                    if let Some(app) = workspace.frontmostApplication() {
+                        let _ = tx.send(FrontApp::from_running(&app));
+                    }
+                });
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        })
+        .expect("spawn frontmost poll");
+}

@@ -1,0 +1,14 @@
+// Fixture text, never compiled. An Accessibility polling loop without a pool.
+pub fn start_focus_observation(running: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        while running.load(Ordering::Relaxed) {
+            let system = unsafe { AXUIElementCreateSystemWide() };
+            let mut value: CFTypeRef = std::ptr::null();
+            let status = unsafe {
+                AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute, &mut value)
+            };
+            publish_focus(status, value);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+}

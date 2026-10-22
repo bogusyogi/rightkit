@@ -2349,6 +2349,40 @@
       ]
     },
     {
+      "package": "rightkit-overlay-win",
+      "capability": "windows-native-overlay-renderer",
+      "summary": "Native Windows overlay renderer (Win32 layered window, GDI software canvas, DWM pacing; no WebView2) for Right Suite pills and notches, consuming rightkit-overlay's state, hit testing and placement",
+      "fingerprints": [
+        {
+          "id": "overlay-win.api.update-layered-window",
+          "type": "source",
+          "pattern": "\\bUpdateLayeredWindow\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification: the crate is imported from HeardRight (bogusyogi/rightkit#896) and not yet published."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Visual design and the app's state machine stay per-app; the renderer, window ownership thread and layered-window presentation are shared (bogusyogi/rightkit#896)."
+      ]
+    },
+    {
       "package": "rightkit-ownership",
       "capability": "ownership-scanner",
       "summary": "RightKit's ownership scanner, verdict and admission: committed-tree inventory, dependency and source fingerprint findings, signed exception evaluation, the six-binding cache key, and single-flight admission for brokers.",
@@ -2357,6 +2391,18 @@
       "policyNotes": [
         "Declaration-only: the scanner is the enforcement point, so it has no competing-dependency fingerprints.",
         "Shared contract fixtures live in packages/release/fixtures/ownership and are run in place by this crate's tests."
+      ]
+    },
+    {
+      "package": "rightkit-ownership",
+      "capability": "appkit-autorelease-pool",
+      "summary": "AppKit, Accessibility and CoreFoundation calls inside a long-lived std::thread loop must drain objc2::rc::autoreleasepool once per iteration; a pool-less polling thread leaks every autoreleased object it touches (heardright#292: 2.18M NSRunningApplication objects, 1.1 GB after 62 h).",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Declaration-only: the scanner evaluates this rule natively (rightkit-ownership src/autorelease.rs), not as a catalog regex, because it must see a thread closure, its loop and the absence of a pool inside the loop. The rule runs only when the scanned catalog declares this capability.",
+        "Finding fingerprint appkit.autorelease.thread-loop-no-pool, block tier, reported at the spawn line of a macOS-scoped .rs file (path contains /macos/ or macos_, or a non-negated target_os = \"macos\" cfg). Fix: drain objc2::rc::autoreleasepool once per loop iteration; a pool around the whole loop never drains.",
+        "An app records a reviewed exception in .rightkit/ownership-exceptions.json with capability appkit-autorelease-pool, package rightkit-ownership, optional fingerprint and path, reason, owner and date (Orthic-Labs/rightkit#893)."
       ]
     },
     {

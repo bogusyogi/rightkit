@@ -1,0 +1,1 @@
+fn start() { std::thread::spawn /* worker */ (|| { loop { NSWorkspace::sharedWorkspace(); } }); }

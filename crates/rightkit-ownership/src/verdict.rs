@@ -335,13 +335,19 @@ fn valid_report(value: &Value) -> bool {
 // ---- classification -----------------------------------------------------------------
 
 fn describe(finding: &Value) -> String {
-    format!(
+    let mut out = format!(
         "{} ({} in {}) is owned by {}",
         str_of(field(finding, "capability")),
         str_of(field(finding, "fingerprint")),
         str_of(field(finding, "file")),
         str_of(field(finding, "package")),
-    )
+    );
+    // The AppKit autorelease rule has no competing owner to name: state the site and the fix.
+    if str_of(field(finding, "fingerprint")) == crate::autorelease::FINGERPRINT {
+        out.push_str(": ");
+        out.push_str(str_of(field(finding, "text")));
+    }
+    out
 }
 
 fn strings_of(value: &Value) -> Vec<String> {

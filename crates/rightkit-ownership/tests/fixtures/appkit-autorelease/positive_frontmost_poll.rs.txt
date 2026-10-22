@@ -1,0 +1,19 @@
+// Fixture text, never compiled. Shape of the leak in heardright#292: a pool-less polling thread.
+use objc2_app_kit::{NSRunningApplication, NSWorkspace};
+use std::sync::mpsc::Sender;
+use std::time::Duration;
+
+pub fn start_frontmost_poll(tx: Sender<FrontApp>) {
+    std::thread::Builder::new()
+        .name("frontmost-poll".into())
+        .spawn(move || {
+            loop {
+                let workspace = NSWorkspace::sharedWorkspace();
+                if let Some(app) = workspace.frontmostApplication() {
+                    let _ = tx.send(FrontApp::from_running(&app));
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        })
+        .expect("spawn frontmost poll");
+}

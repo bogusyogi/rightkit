@@ -1,0 +1,14 @@
+// Fixture text, never compiled. The pool wraps the whole loop body, sleep included.
+pub fn start_frontmost_poll(tx: Sender<FrontApp>) {
+    std::thread::spawn(move || {
+        loop {
+            objc2::rc::autoreleasepool(|_| {
+                let workspace = NSWorkspace::sharedWorkspace();
+                if let Some(app) = workspace.frontmostApplication() {
+                    let _ = tx.send(FrontApp::from_running(&app));
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            })
+        }
+    });
+}

@@ -2,7 +2,7 @@
 
 The single Rust implementation of RightKit's ownership scanner, verdict and admission. It replaces the Node scanner in `packages/release` (`ownership-scan-worker.mjs` and the modules it imports) and is linked as a library by the RustRight broker.
 
-Catalog capability: `ownership-scanner`. Version 0.2.1, published to crates.io and matching the source (see [INDEX.md](../../INDEX.md)).
+Catalog capability: `ownership-scanner`. Version 0.4.0 (see [CHANGELOG.md](CHANGELOG.md) and [INDEX.md](../../INDEX.md)).
 
 ## What it owns
 
@@ -30,9 +30,19 @@ Approval signatures are verified with RustCrypto: P-256 ECDSA/SHA-256 (`p256`) a
 - A Cargo Git dependency pinned by a full 40-hex `rev` with a third-party URL is reported on `DepsResult.covered` as `pinned-git-dependency` (`scanned: false`), not as a coverage gap. First-party orgs (github.com/Orthic-Labs, github.com/bogusyogi; the Node scanner also reads `ownership-repositories.json`, whose orgs are the same two) and unparseable URLs stay unscanned gaps.
 - `scannerPolicyDigest` hashes this crate's own source files, not the Node module closure.
 
+## Source rules
+
+Catalog source fingerprints are single-pattern regular expressions evaluated per line or per file (`src/source.rs`). One rule is evaluated natively because it must relate a thread closure, its loop and the absence of a pool inside that loop (`src/autorelease.rs`); it runs only when the scanned catalog declares its capability.
+
+| Rule id | Capability / owner | Tier | Fails when | Fix |
+|---|---|---|---|---|
+| `appkit.autorelease.thread-loop-no-pool` | `appkit-autorelease-pool` / `rightkit-ownership` | block | A macOS-scoped `.rs` file (path contains `/macos/` or `macos_`, or a non-negated `target_os = "macos"` cfg) passes a closure (or same-file fn) to `thread::spawn`, `.spawn(..)` or `.spawn_scoped(..)` whose `loop` or `while` calls AppKit, `AX*`, `CF*`, `msg_send!` or an `objc2_app_kit`, `core_foundation`, `accessibility_sys`, `objc2_foundation::NS*` path with no `autoreleasepool(..)` inside the loop body. A pool around the whole loop does not count. | Drain `objc2::rc::autoreleasepool` once per loop iteration. |
+
+The finding names the file, the line of the spawn, the first uncovered API and the fix. Record a reviewed exception as a plain entry in `.rightkit/ownership-exceptions.json` (`capability: "appkit-autorelease-pool"`, `package: "rightkit-ownership"`, optional `fingerprint` and `path`, `reason`, `owner`, `date`). Limits: helpers in other files, trait objects, stored closures and `for` loops are not followed. Origin: Orthic-Labs/rightkit#893, heardright#292.
+
 ## Tests
 
-`cargo test` runs the unit tests and `tests/ownership_fixtures.rs`, which reads every case in `packages/release/fixtures/ownership/cases` in place (no vendored copy) and reports a pass count per group.
+`cargo test` runs the unit tests (including `src/autorelease.rs` over `tests/fixtures/appkit-autorelease/`) and `tests/ownership_fixtures.rs`, which reads every case in `packages/release/fixtures/ownership/cases` in place (no vendored copy) and reports a pass count per group.
 
 ## Windows
 

@@ -21,8 +21,9 @@ use crate::scan::{catalog_digest, catalog_version, ScanContext, SCANNER_VERSION}
 use crate::verdict::{codes, ownership_cache_key, ownership_verdict, Decision};
 
 /// Source files whose bytes make up the scanner policy digest.
-const POLICY_SOURCES: [(&str, &str); 14] = [
+const POLICY_SOURCES: [(&str, &str); 15] = [
     ("approval.rs", include_str!("approval.rs")),
+    ("autorelease.rs", include_str!("autorelease.rs")),
     ("committed.rs", include_str!("committed.rs")),
     ("deps.rs", include_str!("deps.rs")),
     ("evidence.rs", include_str!("evidence.rs")),

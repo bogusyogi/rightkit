@@ -8,6 +8,8 @@
 //! - [`scan`], [`deps`], [`lockfiles`], [`source`], [`inventory`], [`committed`]: the
 //!   repository inventory, direct and transitive dependency findings, source findings and
 //!   exception evaluation. Git is read through the `git` executable.
+//! - [`autorelease`]: the native AppKit autorelease-pool rule for long-lived thread loops
+//!   (Orthic-Labs/rightkit#893), evaluated per source file when the catalog declares it.
 //! - [`evidence`]: sealed scan evidence over exact committed source.
 //! - [`approval`], [`keylog`], [`keyauth`], [`trust`]: canonical identity (WHATWG),
 //!   trust-registry validation, signed approval records, the key log, the shared key
@@ -22,6 +24,7 @@
 
 pub mod admission;
 pub mod approval;
+pub mod autorelease;
 pub mod clock;
 pub mod committed;
 pub mod deps;

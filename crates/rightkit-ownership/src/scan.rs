@@ -13,6 +13,7 @@ use crate::approval::{
     canonical_repository_identity, occurrence_hash, resolve_key_log_trust, sha256_value,
     verify_protected_provenance,
 };
+use crate::autorelease;
 use crate::clock::Clock;
 use crate::committed::CommittedSource;
 use crate::deps::{dependencies_from_inventory, CommittedInfo, Dep, RepoFile, ScanInv};
@@ -732,6 +733,7 @@ fn scan_internal(
         }
     }
     let matchers = source_matchers(manifest)?;
+    let appkit_package = autorelease::declared_package(manifest);
     for file in &inventory.files {
         let Some(bytes) = &file.bytes else { continue };
         if !has_code_ext(&file.rel) {
@@ -757,6 +759,12 @@ fn scan_internal(
         for mut finding in source_findings(&file.rel, bytes, &matchers) {
             finding.insert("file".into(), json!(file.rel));
             findings.push(Value::Object(finding));
+        }
+        if let Some(package) = &appkit_package {
+            for mut finding in autorelease::findings(&file.rel, bytes, package) {
+                finding.insert("file".into(), json!(file.rel));
+                findings.push(Value::Object(finding));
+            }
         }
     }
     if !path_prefix.is_empty() {
@@ -1490,6 +1498,28 @@ mod exception_tests {
     }
 
     #[test]
+    fn plain_entry_excepts_the_autorelease_rule_by_capability_fingerprint_and_path() {
+        let f = finding(
+            "src/macos/frontmost.rs",
+            crate::autorelease::FINGERPRINT,
+            crate::autorelease::CAPABILITY,
+            crate::autorelease::PACKAGE,
+        );
+        let mut e = json!({"capability": crate::autorelease::CAPABILITY, "package": crate::autorelease::PACKAGE,
+                           "fingerprint": crate::autorelease::FINGERPRINT, "path": "src/macos",
+                           "reason": "pool added in the next release", "owner": "app",
+                           "date": "2026-10-22", "index": 0});
+        let result = run(std::slice::from_ref(&f), std::slice::from_ref(&e));
+        assert!(result.problems.is_empty(), "{:?}", result.problems);
+        assert_eq!(result.covered.len(), 1);
+        assert!(result.violations.is_empty());
+        e["path"] = json!("src/other");
+        let result = run(std::slice::from_ref(&f), std::slice::from_ref(&e));
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(stale(&result), 1);
+    }
+
+    #[test]
     fn crate_alias_fingerprint_and_path_narrow_the_match() {
         let f = finding(
             "engine/src/a.rs",
@@ -1594,5 +1624,87 @@ mod exception_tests {
             .warnings
             .iter()
             .any(|w| w.contains("enrollment pending")));
+    }
+}
+
+#[cfg(test)]
+mod autorelease_wiring_tests {
+    use super::*;
+
+    const POLL: &str =
+        "fn start() {\n    std::thread::spawn(move || loop {\n        NSWorkspace::sharedWorkspace();\n    });\n}\n";
+
+    fn file(rel: &str, text: &str) -> File {
+        File {
+            rel: rel.into(),
+            abs: PathBuf::from(rel),
+            size: Some(text.len() as u64),
+            bytes: Some(Arc::new(text.as_bytes().to_vec())),
+            oid: None,
+            digest: None,
+            cache_key: None,
+            in_node_modules: false,
+        }
+    }
+
+    fn manifest(declared: bool) -> Value {
+        let capabilities = if declared {
+            json!([{"capability": autorelease::CAPABILITY, "package": autorelease::PACKAGE, "fingerprints": []}])
+        } else {
+            json!([])
+        };
+        json!({"capabilities": capabilities})
+    }
+
+    fn scan_files(manifest: &Value, files: Vec<File>) -> Scanned {
+        let inventory = ScanInv {
+            files,
+            coverage: Vec::new(),
+            committed: None,
+        };
+        scan_internal(
+            Path::new("."),
+            manifest,
+            inventory,
+            &Value::Null,
+            None,
+            Path::new("."),
+            "",
+        )
+        .unwrap()
+    }
+
+    fn rule_hits(scanned: &Scanned) -> Vec<&Value> {
+        scanned
+            .findings
+            .iter()
+            .filter(|f| str_of(field(f, "fingerprint")) == autorelease::FINGERPRINT)
+            .collect()
+    }
+
+    #[test]
+    fn declared_rule_reports_a_blocking_finding_for_macos_files_only() {
+        let scanned = scan_files(
+            &manifest(true),
+            vec![
+                file("src/macos/frontmost.rs", POLL),
+                file("src/platform/poll.rs", POLL),
+            ],
+        );
+        let hits = rule_hits(&scanned);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(str_of(field(hits[0], "file")), "src/macos/frontmost.rs");
+        assert_eq!(
+            str_of(field(hits[0], "capability")),
+            autorelease::CAPABILITY
+        );
+        assert!(!str_of(field(hits[0], "occurrenceHash")).is_empty());
+        assert!(is_blocking_finding(hits[0]));
+    }
+
+    #[test]
+    fn a_catalog_without_the_capability_never_runs_the_rule() {
+        let scanned = scan_files(&manifest(false), vec![file("src/macos/frontmost.rs", POLL)]);
+        assert!(rule_hits(&scanned).is_empty());
     }
 }
