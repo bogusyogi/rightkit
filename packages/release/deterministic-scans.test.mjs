@@ -984,6 +984,50 @@ test("workspaces: a workspace-wide change reaches only its own workspace, narrow
   assert.deepEqual(deny, ["cargo-metadata:engine", "cargo-deny:engine", "cargo-audit:engine"]);
 });
 
+// ---- fix6: Rust configuration of ANY ancestor directory reaches every workspace below it ------------------------------------
+
+const nestedFiles = {
+  "crates/core/Cargo.toml": manifest, "crates/core/src/lib.rs": "", "Cargo.lock": "version = 4\n",
+  "apps/foo/Cargo.toml": manifest, "apps/foo/src/lib.rs": "", "apps/foo/Cargo.lock": "version = 4\n",
+  "apps/bar/Cargo.toml": manifest, "apps/bar/src/lib.rs": "", "apps/bar/Cargo.lock": "version = 4\n",
+  "other/baz/Cargo.toml": manifest, "other/baz/src/lib.rs": "", "other/baz/Cargo.lock": "version = 4\n",
+  ".cargo/config.toml": "[build]\n", "apps/.cargo/config.toml": "[build]\n", "apps/foo/.cargo/config.toml": "[build]\n", "docs/.cargo/config.toml": "[build]\n",
+  "rust-toolchain.toml": "[toolchain]\n", "clippy.toml": "msrv = \"1.81\"\n", "rustfmt.toml": "edition = \"2021\"\n", "deny.toml": "[advisories]\n", "apps/deny.toml": "[advisories]\n", "apps/clippy.toml": "msrv = \"1.81\"\n",
+};
+const nestedUnits = [
+  { name: "core", crate: "core", dir: "crates/core", cargoDir: "." },
+  { name: "apps/foo:foo", crate: "foo", dir: "apps/foo", cargoDir: "apps/foo" },
+  { name: "apps/bar:bar", crate: "bar", dir: "apps/bar", cargoDir: "apps/bar" },
+  { name: "other/baz:baz", crate: "baz", dir: "other/baz", cargoDir: "other/baz" },
+];
+const nested = (changed, opts = {}) => planFor(changed, nestedFiles, { rustUnits: nestedUnits, npmUnits: [], ...opts }).plan;
+const compiled = (plan) => ids(plan).filter((i) => i.startsWith("clippy:")).sort();
+
+test("workspaces: Rust configuration at any ancestor of a workspace puts its whole crate set in scope (the repository .cargo reproduction)", () => {
+  const everything = ["clippy:apps/bar:bar", "clippy:apps/foo:foo", "clippy:core", "clippy:other/baz:baz"];
+  // The review's reproduction: only the repository-level .cargo/config.toml changed; before the fix it planned toml-parse alone.
+  const repo = nested([".cargo/config.toml"]);
+  assert.deepEqual(compiled(repo), everything);
+  for (const id of ["cargo-metadata", "cargo-metadata:apps/foo", "cargo-deny:apps/foo", "cargo-audit:apps/bar", "test:rust:apps/foo:foo", "test:rust:core"]) assert.ok(ids(repo).includes(id), id);
+  // Every other root-level toolchain and tool configuration reaches every nested workspace as well.
+  for (const file of ["rust-toolchain.toml", "clippy.toml", "rustfmt.toml"]) assert.deepEqual(compiled(nested([file])), everything, file);
+  // cargo-deny reads deny.toml from ancestors too: every workspace below runs its deny, audit and metadata scans, with no compile scan.
+  const deny = nested(["deny.toml"]);
+  assert.deepEqual(compiled(deny), []);
+  for (const id of ["cargo-deny", "cargo-deny:apps/foo", "cargo-deny:apps/bar", "cargo-deny:other/baz", "cargo-audit:apps/foo", "cargo-metadata:apps/bar"]) assert.ok(ids(deny).includes(id), id);
+  assert.deepEqual(ids(nested(["apps/deny.toml"])).filter((i) => i.startsWith("cargo-deny")).sort(), ["cargo-deny:apps/bar", "cargo-deny:apps/foo"]);
+  // An intermediate directory reaches its own descendants only.
+  assert.deepEqual(compiled(nested(["apps/.cargo/config.toml"])), ["clippy:apps/bar:bar", "clippy:apps/foo:foo"], "apps/.cargo reaches apps/foo and apps/bar");
+  assert.deepEqual(compiled(nested(["apps/clippy.toml"])), ["clippy:apps/bar:bar", "clippy:apps/foo:foo"]);
+  assert.deepEqual(compiled(nested(["apps/foo/.cargo/config.toml"])), ["clippy:apps/foo:foo"], "a workspace's own .cargo reaches only that workspace");
+  assert.deepEqual(compiled(nested(["docs/.cargo/config.toml"])), [], "a directory that is no ancestor of any workspace reaches none");
+});
+
+test("workspaces: ordinary source changes still plan only their own workspace", () => {
+  assert.deepEqual(compiled(nested(["apps/foo/src/lib.rs"])), ["clippy:apps/foo:foo"], "an ordinary source change is unchanged");
+  assert.deepEqual(compiled(nested(["README.md"])), []);
+});
+
 test("workspaces: reverse dependents come from each workspace's own lock, never across workspaces", () => {
   const rustLocks = { ".": lockOf(["core"]), engine: lockOf(["eng"], ["eng-cli", ["eng"]]), "hub/src-tauri": lockOf(["app"]) };
   const p = multi(["engine/eng/src/lib.rs"], { rustLocks });

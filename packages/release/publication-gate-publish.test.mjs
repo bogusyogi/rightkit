@@ -5,6 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { checkPublicationGate, publishGatedTarball, prepareNpmPublication, verifyNpmRegistryBytes } from './publication-gate.mjs';
+import { HOST_UPLOAD_REFUSED } from './host-upload-refusal.mjs';
+import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
+
+// A capability for exactly this npm archive, created through the production admission validator.
+const capabilityFor = (name, version, bytes) => mintTestCapability({ registry: 'npm', archives: [{ name, version, sha256: crypto.createHash('sha256').update(bytes).digest('hex') }] });
 
 const SHA = 'a'.repeat(40);
 const run = (host) => ({ host: { os: host, arch: 'arm64' }, commit: SHA, command: 'pnpm exec vitest run', features: ['default'], artifactSha256: 'b'.repeat(64), passed: 12, failed: 0, operator: 'adrdsouza', timestamp: '2026-10-07T00:00:00Z' });
@@ -29,7 +34,7 @@ test('publishGatedTarball refuses a non-gated tarball, never exposes the token, 
   const sha256 = crypto.createHash('sha256').update('tarball-bytes').digest('hex');
   const sha1 = crypto.createHash('sha1').update('tarball-bytes').digest('hex');
   const ev = path.join(dir, 'e.json');
-  const args = { name: '@rightkit/x', version: '1.0.0', tarball: tgz, evidencePath: ev };
+  const args = { name: '@rightkit/x', version: '1.0.0', tarball: tgz, evidencePath: ev, capability: capabilityFor('@rightkit/x', '1.0.0', 'tarball-bytes') };
 
   fs.writeFileSync(ev, JSON.stringify({ artifactSha256: 'c'.repeat(64) }));
   assert.throws(() => publishGatedTarball(args, { readToken: () => 'SECRET', spawnSync: () => ({ status: 0 }) }), /sha256/);
@@ -65,7 +70,7 @@ test('publishGatedTarball refuses a non-gated tarball, never exposes the token, 
 test('npm helper refuses absent evidence, catches upload swap, and never records mismatch', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-npm-swap-')), tarball = path.join(dir, 'x.tgz'), evidencePath = path.join(dir, 'evidence.json');
   fs.writeFileSync(tarball, 'gated bytes');
-  const args = { name: '@rightkit/x', version: '1.0.0', tarball, evidencePath };
+  const args = { name: '@rightkit/x', version: '1.0.0', tarball, evidencePath, capability: capabilityFor('@rightkit/x', '1.0.0', 'gated bytes') };
   const deps = { readToken: () => 'mock-token', spawnSync: () => assert.fail('unexpected transport') };
   assert.throws(() => publishGatedTarball(args, deps), /ENOENT/);
   fs.writeFileSync(evidencePath, JSON.stringify({ artifactSha256: crypto.createHash('sha256').update('gated bytes').digest('hex') }));
@@ -104,4 +109,35 @@ test('CI npm template captures hash before publish and requires shared readback 
   assert.ok(source.indexOf('verifyNpmRegistryBytes({') > source.indexOf('- run: npm publish'));
   assert.match(source, /evidencePath:.*publication-evidence.json/);
   assert.doesNotMatch(source, /continue-on-error|if:.*always/);
+});
+
+// A direct import must not publish: every way of calling publishGatedTarball without a capability from a validated admission
+// refuses before the token is looked up, an npmrc is written or npm is started.
+test('publishGatedTarball refuses without a publish capability from a validated admission, before any credential or transport', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-gate-cap-'));
+  try {
+    const tarball = path.join(dir, 'x.tgz'), evidencePath = path.join(dir, 'e.json');
+    fs.writeFileSync(tarball, 'tarball-bytes');
+    const sha256 = crypto.createHash('sha256').update('tarball-bytes').digest('hex');
+    fs.writeFileSync(evidencePath, JSON.stringify({ artifactSha256: sha256 }));
+    const base = { name: '@rightkit/x', version: '1.0.0', tarball, evidencePath };
+    const deps = { readToken: () => assert.fail('the credential must not be read'), spawnSync: () => assert.fail('nothing may be started'), recordPublished: () => assert.fail('nothing may be recorded') };
+    const real = capabilityFor('@rightkit/x', '1.0.0', 'tarball-bytes');
+    const refused = /host uploads are retired|publish capability/;
+    for (const [label, capability] of Object.entries({
+      'no capability': undefined,
+      'an object literal shaped like one': { kind: 'rightkit-publish-capability', registry: 'npm' },
+      'a copy of a real capability': { ...real },
+      'a clone of a real capability': structuredClone(real),
+      'a string': 'capability',
+      'the capability of another version': capabilityFor('@rightkit/x', '2.0.0', 'tarball-bytes'),
+      'the capability of another package': capabilityFor('@rightkit/y', '1.0.0', 'tarball-bytes'),
+      'the capability of other bytes': capabilityFor('@rightkit/x', '1.0.0', 'other bytes'),
+      'a crates capability': mintTestCapability({ registry: 'crates', archives: [{ name: '@rightkit/x', version: '1.0.0', sha256 }] }),
+    })) assert.throws(() => publishGatedTarball({ ...base, capability }, deps), (error) => error.code === HOST_UPLOAD_REFUSED && refused.test(error.message), label);
+    // The same call with the real capability goes through the whole publisher.
+    const calls = [];
+    publishGatedTarball({ ...base, capability: real }, { readToken: () => 'SECRET', spawnSync: (cmd, argv) => { calls.push(argv[0]); return argv[0] === 'publish' ? { status: 0, stdout: 'ok', stderr: '' } : { status: 0, stdout: crypto.createHash('sha1').update('tarball-bytes').digest('hex') }; }, sleep: () => {}, recordPublished: () => {} });
+    assert.deepEqual(calls, ['publish', 'view']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

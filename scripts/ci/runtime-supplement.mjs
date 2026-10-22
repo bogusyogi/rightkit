@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { sha, REPOSITORY, localRuntimeProofSha256 } from "./upload.mjs";
-import { WINDOW_POLICY, windowProblems, worstIndex } from "./local-runtime-proof.mjs";
+import { WINDOW_POLICY, minWindowMsFor, windowProblems, worstIndex } from "./local-runtime-proof.mjs";
 import { validateSupplementPin, candidateHash, retainedSupplementOriginal, authenticateSupplement } from "./supplemental-proof.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { fileURLToPath } from "node:url";
@@ -310,7 +310,8 @@ export async function verifyLocalRuntimeProof({ candidate, manifest, manifestSha
         need(run.record && run.record.command === row.command && run.record.evidence?.sha256 === run.rawSha256 && run.record.evidence.file === row.record.evidence.file, `${at}: record does not describe its raw output and command`);
         const issues = owner.measurementProblems(run.record, gate, candidate.sourceSha, host);
         need(issues.length === 0, `${at}: ${issues.join("; ")}`);
-        const quiet = windowProblems(run.window);
+        // The window must last this workload's trusted minimum and equal the span the repeat itself recorded.
+        const quiet = windowProblems(run.window, WINDOW_POLICY, { minWindowMs: minWindowMsFor(crate, row.workload), runStartedAtMs: Date.parse(run.startedAt), runEndedAtMs: Date.parse(run.endedAt) });
         need(quiet.length === 0, `${at}: window is not quiet: ${quiet.join("; ")}`);
         need(run.window.startedAtMs >= previousEnd, `${at}: window overlaps the previous repeat`);
         previousEnd = run.window.endedAtMs;

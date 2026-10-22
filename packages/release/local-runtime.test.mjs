@@ -41,14 +41,16 @@ function host(t, { platform = "win32", arch = "x64", plan = {} } = {}) {
     throw new Error(`unexpected git ${args.join(" ")}`);
   };
   const gitBlob = (full) => (Object.hasOwn(files, full) ? Buffer.from(files[full]) : fs.readFileSync(path.join(ROOT, full)));
-  const snapshot = () => ({ writtenAtMs: state.clock - 500, sampledAtMs: state.clock, state: "READY", admissionPaused: plan.paused ?? false, inFlight: state.running ? 1 + (plan.during?.(state) ?? 0) : (plan.busyBefore && state.benches === 0 && state.idleCalls++ < plan.busyBefore ? 2 : (plan.afterInFlight && state.benchEnd ? plan.afterInFlight : 0)), queued: plan.queued ?? 0, admitting: 0, pid: 1 });
+  // The broker rewrites health.json every 5 s: a read between two writes returns the earlier one.
+  const snapshot = () => ({ writtenAtMs: Math.floor(state.clock / 5000) * 5000, sampledAtMs: state.clock, state: "READY", admissionPaused: plan.paused ?? false, inFlight: state.running ? 1 + (plan.during?.(state) ?? 0) : (plan.busyBefore && state.benches === 0 && state.idleCalls++ < plan.busyBefore ? 2 : (plan.afterInFlight && state.benchEnd ? plan.afterInFlight : 0)), queued: plan.queued ?? 0, admitting: 0, pid: 1 });
   const run = async (command, args) => {
     state.calls.push([command, ...args]);
     if (args.includes("-V") || args.includes("-Vv")) return { status: 0, stdout: "tool fixture\n", stderr: "" };
     if (args.includes("--no-run")) return { status: 0, stdout: "built\n", stderr: "" };
-    // The bench: eight 5 s steps, each yielding to the sampling loop.
+    // The bench: forty 1 s steps (seventy for the detached drainer, whose trusted idle observation is 60 s), each yielding to the sampling loop.
     state.running = true; state.benchStart = state.clock; const n = state.benches++;
-    for (let step = 0; step < 8; step += 1) { state.clock += 5000; await new Promise((resolve) => setImmediate(resolve)); }
+    const steps = args.some((arg) => String(arg).includes("budget_detached")) ? 70 : 40;
+    for (let step = 0; step < steps; step += 1) { state.clock += 1000; await new Promise((resolve) => setImmediate(resolve)); }
     if (plan.dirtyDuringRun) state.dirty = true;
     state.running = false; state.benchEnd = state.clock;
     const hot = plan.hot?.(n) ?? 100 + 10 * (n % 3);
@@ -59,6 +61,7 @@ function host(t, { platform = "win32", arch = "x64", plan = {} } = {}) {
     sampleCpu: async (ms) => { const startedAtMs = state.clock; state.clock += ms; return { startedAtMs, durationMs: ms, idlePercent: plan.cpuIdle?.(state) ?? 98, cores: 8, loadavg1: null }; },
     listJobs: async () => {
       if (plan.listFails) throw new Error("rustright list failed");
+      if (plan.liveAtGrant && state.benchStart === null) return [{ id: "stray", workspace: "/elsewhere", live: true, submittedAtMs: state.clock - 1000, startedAtMs: state.clock - 1000, endedAtMs: null }];
       const mine = state.benchStart === null ? [] : [{ id: "mine", workspace: ROOT, live: false, submittedAtMs: state.benchStart, startedAtMs: state.benchStart, endedAtMs: state.benchEnd }];
       return [...mine, ...(plan.foreign ? [{ id: "other", workspace: "/elsewhere", live: false, submittedAtMs: state.benchStart + 1000, startedAtMs: state.benchStart + 1000, endedAtMs: state.benchEnd - 1000 }] : [])];
     },
@@ -80,6 +83,9 @@ test("one host: trusted workloads only, warm build then three quiet runs each, w
     assert.equal(w.repeats.length, 3); assert.equal(w.selected, 2); assert.equal(w.record.observed.residentMemoryBytes, 120);
     assert.equal(w.command, `cargo ${workloadsFor(CRATE).find((x) => x.id === w.workload).args.join(" ")}`);
     assert.ok(w.repeats.every((run) => run.window.quiet === true && run.exitCode === 0 && hash(Buffer.from(run.raw)) === run.rawSha256));
+    // Duration, density and the job listing at grant and at release are part of the recorded evidence.
+    assert.ok(w.repeats.every((run) => run.window.endedAtMs - run.window.startedAtMs >= 40_000 && run.window.during.health.length >= 7 && run.window.during.health.every((sample, i, all) => sample.writtenAtMs >= run.window.startedAtMs && (i === 0 || sample.writtenAtMs > all[i - 1].writtenAtMs))));
+    assert.ok(w.repeats.every((run) => run.window.jobs.atGrant.checked && run.window.jobs.atGrant.live.length === 0 && run.window.jobs.atRelease.checked && run.window.jobs.atRelease.live.length === 0 && run.window.jobs.atRelease.checkedAtMs >= run.window.endedAtMs));
   }
   // Commands: toolchain through the broker, then per workload one warm build and three runs, all through `rightkit cargo`.
   const benches = h.state.calls.filter((call) => call.includes("--bench") && !call.includes("--no-run"));
@@ -132,6 +138,7 @@ test("a window disturbed during or after the run refuses; so does an unreadable 
     ["broker not idle afterwards", { afterInFlight: 1 }, /after: broker inFlight is 1/],
     ["a foreign root job overlapped the run", { foreign: true }, /other root job\(s\) overlapped/],
     ["the job listing is unavailable", { listFails: true }, /job listing was not checked/],
+    ["a root job was live at grant", { liveAtGrant: true }, /root job\(s\) were live at grant/],
   ]) {
     const h = host(t, { plan }); await assert.rejects(measureRuntimeCrate(h.options, h.deps), pattern, name);
   }

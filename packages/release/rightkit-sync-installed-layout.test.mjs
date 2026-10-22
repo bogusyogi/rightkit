@@ -10,6 +10,7 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { publishGatedTarball } from "./publication-gate.mjs";
+import { mintTestCapability } from "./test-support/publish-capability-fixture.mjs";
 import { syncConsumerCopies, workspaceFeedOptions } from "./rightkit-sync.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -98,7 +99,7 @@ test("publishGatedTarball records into the requested workspace feed, not the mod
     const spawn = (_command, argv) => (argv[0] === "publish" ? { status: 0, stdout: "ok", stderr: "" } : { status: 0, stdout: `${sha("sha1")}\n` });
     const calls = [];
     const workspaceRoot = path.join(dir, "workspace");
-    publishGatedTarball({ name: "@rightkit/x", version: "1.0.0", tarball, evidencePath, workspaceRoot }, {
+    publishGatedTarball({ name: "@rightkit/x", version: "1.0.0", tarball, evidencePath, workspaceRoot, capability: mintTestCapability({ registry: "npm", archives: [{ name: "@rightkit/x", version: "1.0.0", sha256: sha("sha256") }] }) }, {
       readToken: () => "SECRET", spawnSync: spawn, sleep: () => {},
       recordPublished: (entry, options) => calls.push({ entry, options }),
     });

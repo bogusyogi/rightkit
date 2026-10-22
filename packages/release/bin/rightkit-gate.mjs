@@ -45,7 +45,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { WORKSPACE_RUST_FILE, canonicalJson, defaultSpawn, fileScanCache, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, fileScanCache, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 
 const ZERO = /^0+$/;
@@ -219,6 +219,9 @@ export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, unt
  * file changed or the base has no lock: every crate stays in scope.
  */
 export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLock }) {
+  // Rust configuration of any ancestor directory (repository .cargo, intermediate .cargo, toolchain, clippy, rustfmt) reaches
+  // every crate of the workspace, whatever the lock graph says.
+  if (ancestorConfigChanged(cargoDir, changed)) return null;
   const rel = (f) => (cargoDir === "." ? f : f.startsWith(`${cargoDir}/`) ? f.slice(cargoDir.length + 1) : null);
   const wide = changed.map((f) => [f, rel(f)]).filter(([, r]) => r !== null && WORKSPACE_RUST_FILE.test(r));
   if (!wide.length || wide.some(([, r]) => r !== "Cargo.lock" && !r.startsWith("vendor/"))) return null;
@@ -283,16 +286,20 @@ exit 0
 `;
 }
 
-// Hook names git runs (githooks(5)); only these are chained, and only when a file of that name (not a .sample) is in .git/hooks.
-const GIT_HOOKS = new Set(["applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit", "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout", "post-merge", "pre-push", "pre-auto-gc", "post-rewrite", "reference-transaction", "push-to-checkout", "sendemail-validate", "fsmonitor-watchman", "post-index-change", "p4-changelist", "p4-prepare-changelist", "p4-post-changelist", "p4-pre-submit"]);
+// EVERY file present in .git/hooks is chained, whatever git version or hook family it belongs to (pre-receive, update and
+// post-receive included), except git's own `.sample` templates. The name goes into a committed shell script, so only plain file
+// names are chained; anything else is reported and skipped, never interpolated.
+const HOOK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const chainableHook = (name) => !name.endsWith(".sample") && HOOK_FILE_NAME.test(name);
 
 // ---- result cache inputs ------------------------------------------------------------------------------------
 
 // The build inputs that change how every crate compiles, relative to the Cargo workspace root, plus the gate's own config.
-const SHARED_RUST_INPUTS = ["Cargo.lock", "Cargo.toml", "rust-toolchain", "rust-toolchain.toml", ".cargo", "deny.toml", "clippy.toml", "rustfmt.toml", "vendor"];
+const SHARED_RUST_INPUTS = ["Cargo.lock", "Cargo.toml", "rust-toolchain", "rust-toolchain.toml", ".cargo", "deny.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "vendor"];
 const GATE_CONFIG = "ci/gate.config.json";
-// What cargo, clippy and rustfmt also read from the repository root when the workspace is below it (they search ancestor directories).
-const ANCESTOR_RUST_INPUTS = [".cargo", "rust-toolchain", "rust-toolchain.toml", "clippy.toml", "rustfmt.toml"];
+// What cargo, clippy, rustfmt and cargo-deny also read from EVERY ancestor directory of the workspace (the repository root and each
+// directory between it and the workspace: they search upward), relative to that directory.
+const ANCESTOR_RUST_INPUTS = [".cargo", "rust-toolchain", "rust-toolchain.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "deny.toml"];
 
 /**
  * The unit a cargo scan id belongs to (clippy:x, check:x, check-features:x:0, check-dependent:x, doc:x, test:rust:x,
@@ -324,6 +331,11 @@ const PARENT_PATH = /(?:[\w@.-]+[\\/])*\.\.(?:[\\/][\w@.-]*)+/g;
 const BUILD_READS_FILES = /\b(?:fs::(?:read|read_to_string|read_dir|metadata|File)|File::open|OpenOptions|read_to_string|read_dir|walkdir|glob)\b/;
 const BUILD_LEAVES_CRATE = /\.(?:parent|ancestors|pop)\s*\(|CARGO_WORKSPACE_DIR|workspace_root|current_dir/;
 const RERUN_LITERAL = /cargo::?rerun-if-changed=([^"\\{}\n]+)/g;
+// `#[path = "x.rs"]` on a module, and a plain `mod x;` declaration (no body): both name another source file.
+const PATH_ATTRIBUTE = new RegExp(String.raw`#\s*!?\s*\[\s*path\s*=\s*"` + STRING_BODY + String.raw`"\s*\]`, "g");
+const MOD_DECLARATION = /(?:^|[;{}\s\]])(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;/g;
+// The most source files one crate's traversal reads before it gives up and keys the scan on the whole tree.
+export const EXTERNAL_INPUT_FILE_LIMIT = 10_000;
 
 const within = (dir, p) => dir === "." || p === dir || p.startsWith(`${dir}/`);
 
@@ -333,7 +345,12 @@ const within = (dir, p) => dir === "." || p === dir || p.startsWith(`${dir}/`);
  * literal containing "../" (tried against the including file's and the crate's directory; only paths that exist count), and the
  * rerun-if-changed literals of a build.rs that reads files. `unresolved` names the first reference that cannot be resolved
  * statically (a computed include path, a build.rs that reads files and walks out of its crate, a path that leaves the
- * repository, an unreadable file); the caller then keys on the whole tree. `exists(path)` says whether a repo path exists.
+ * repository, an unreadable file, more than EXTERNAL_INPUT_FILE_LIMIT files); the caller then keys on the whole tree. `exists(path)`
+ * says whether a repo path exists.
+ *
+ * The traversal runs to a fixed point: every out-of-crate .rs file reached is itself scanned for the same references (include!,
+ * include_str!, include_bytes!, `#[path = ".."]`, `mod x;` declarations of an out-of-crate file, "../" literals), whatever the
+ * depth (lib.rs -> shared/one.rs -> shared/two.rs -> shared/three.rs reaches three.rs), with a visited set so cycles end.
  */
 export function externalInputs({ dir, files, readBlob, exists }) {
   const paths = new Set(); let unresolved = null;
@@ -349,14 +366,17 @@ export function externalInputs({ dir, files, readBlob, exists }) {
       const resolved = path.posix.normalize(path.posix.join(base, raw)).replace(/\/+$/, "");
       if (resolved === ".." || resolved.startsWith("../")) { escapes += 1; continue; }
       if (within(dir, resolved) || paths.has(resolved)) continue;
-      if (exists(resolved)) paths.add(resolved);
+      if (exists(resolved)) { paths.add(resolved); if (resolved.endsWith(".rs")) enqueue(resolved, { external: true }); }
     }
     if (escapes === bases.length) stop(`${from}: ${JSON.stringify(rel)} leaves the repository`);
   };
-  const seen = new Set();
-  const scan = (file, { build = false } = {}) => {
-    if (seen.has(file) || seen.size > 4096) return;
-    seen.add(file);
+  const seen = new Set(); const queue = [];
+  const enqueue = (file, options = {}) => {
+    if (seen.has(file)) return;
+    if (seen.size >= EXTERNAL_INPUT_FILE_LIMIT) { stop(`more than ${EXTERNAL_INPUT_FILE_LIMIT} source files are reachable`); return; }
+    seen.add(file); queue.push([file, options]);
+  };
+  const scan = (file, { build = false, external = false } = {}) => {
     let text;
     try { text = readBlob(file); } catch (e) { stop(`${file}: unreadable (${e.message})`); return; }
     if (typeof text !== "string") { stop(`${file}: unreadable`); return; }
@@ -372,14 +392,22 @@ export function externalInputs({ dir, files, readBlob, exists }) {
     for (const m of text.matchAll(PARENT_PATH)) {
       consider(file, [fileDir, dir], m[0]);
     }
+    // A module attribute names its file relative to the including file's directory (tried against the crate directory too).
+    for (const m of text.matchAll(PATH_ATTRIBUTE)) consider(file, [fileDir, dir], m[1]);
+    // An out-of-crate file's own `mod x;` declarations: x.rs / x/mod.rs beside a mod-rs file (mod.rs, lib.rs, main.rs), else under the file's own directory.
+    if (external) {
+      const base = path.posix.basename(file); const stem = base.slice(0, -3);
+      const home = ["mod.rs", "lib.rs", "main.rs"].includes(base) ? fileDir : path.posix.join(fileDir, stem);
+      for (const m of text.matchAll(MOD_DECLARATION)) for (const candidate of [`${m[1]}.rs`, `${m[1]}/mod.rs`]) consider(file, [home], candidate);
+    }
     if (build && BUILD_READS_FILES.test(text)) {
       for (const m of text.matchAll(RERUN_LITERAL)) consider(file, [dir], m[1].trim());
       if (BUILD_LEAVES_CRATE.test(text)) stop(`${file}: a build script that reads files and navigates out of its crate`);
     }
   };
-  for (const file of files) if (file.endsWith(".rs")) scan(file, { build: path.posix.basename(file) === "build.rs" && path.posix.dirname(file) === dir });
-  // An out-of-crate .rs file that is included is itself a source: follow its own includes once.
-  for (const extra of [...paths]) if (extra.endsWith(".rs")) scan(extra);
+  for (const file of files) if (file.endsWith(".rs")) enqueue(file, { build: path.posix.basename(file) === "build.rs" && path.posix.dirname(file) === dir });
+  // Fixed point: an out-of-crate .rs file that is reached is itself a source, so its own references are followed, and theirs.
+  while (queue.length) { const [file, options] = queue.pop(); scan(file, options); }
   return { paths: [...paths].sort(), unresolved };
 }
 
@@ -444,8 +472,10 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], cargoDir 
         if (found.unresolved) return whole();
         for (const p of found.paths) extra.add(p);
       }
-      // cargo also reads .cargo and the toolchain files of every ancestor directory, so a nested workspace keys on the root's too.
-      const shared = new Set([...SHARED_RUST_INPUTS.map((p) => inWs(ws, p)), ...(ws === "." ? [] : ANCESTOR_RUST_INPUTS), GATE_CONFIG]);
+      // cargo also reads .cargo and the toolchain files of every ancestor directory, so a nested workspace keys on those of the
+      // repository root AND of each directory between the root and the workspace (apps/.cargo for apps/foo).
+      const ancestors = ancestorDirsOf(ws).filter((dir) => dir !== ws);
+      const shared = new Set([...SHARED_RUST_INPUTS.map((p) => inWs(ws, p)), ...ancestors.flatMap((dir) => ANCESTOR_RUST_INPUTS.map((p) => inWs(dir, p))), GATE_CONFIG]);
       return canonicalJson({
         kind: testScan ? "rust-test" : "rust", unit, cargoDir: ws,
         members: closure.map((m) => [m.name, m.dir, idOf(m.dir)]),
@@ -505,7 +535,9 @@ function installHook(o, root, force) {
   const gitDirResult = git("rev-parse", "--git-dir");
   let present = [];
   if (!failed(gitDirResult) && text(gitDirResult).trim()) { try { present = o.readdir(path.join(path.resolve(root, text(gitDirResult).trim()), "hooks")); } catch { present = []; } }
-  const own = present.filter((name) => GIT_HOOKS.has(name)).sort();
+  const own = present.filter(chainableHook).sort();
+  const skipped = present.filter((name) => !name.endsWith(".sample") && !chainableHook(name)).sort();
+  if (skipped.length) o.err(`rightkit-gate: WARNING: not chaining .git/hooks/${skipped.join(", .git/hooks/")}: not a plain hook file name (letters, digits, - and _ only); run it from a hook of its own.`);
   const trampolines = own.filter((name) => name !== "pre-push").map((name) => ({ name, file: path.join(hooksDir, name), wanted: trampolineText(name) }));
   for (const t of trampolines) {
     t.exists = o.exists(t.file);

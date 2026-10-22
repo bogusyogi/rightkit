@@ -90,16 +90,137 @@ const describe = (dep) => JSON.stringify({ package: dep.name, key: dep.key, req:
 const IDENTITY_FIELDS = ["name", "key", "req", "defaultFeatures", "optional", "target", "registry"];
 const sameIdentity = (a, b) => IDENTITY_FIELDS.every((field) => a[field] === b[field]) && JSON.stringify(a.features) === JSON.stringify(b.features);
 
+// ---- fix6 (blocker 3): targets and every behavior-bearing manifest field --------------------------------------------
+// `cargo package` legitimately rewrites Cargo.toml: inherited `workspace = true` package fields are resolved, auto-discovered
+// targets are written out as explicit [lib]/[[bin]]/[[test]]/... tables with their paths, `build = false`, `autolib` and
+// `autobins`/`autoexamples`/`autotests`/`autobenches = false` are added, and path dependencies lose their path. Everything
+// else must be the same: the packaged manifest is compared with Cargo.toml.orig through the EFFECTIVE build it describes (the
+// targets after discovery over the archive's own files, the build script, links, edition, rust-version, include/exclude,
+// default-run, metadata, resolver, lints), never through the raw text. `build = "src/lib.rs"` added only to the generated
+// manifest turns an existing archive file into an unqualified consumer build script and is refused here.
+const isTable = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+const canon = (value) => {
+  if (Array.isArray(value)) return `[${value.map(canon).join(",")}]`;
+  if (isTable(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canon(value[key])}`).join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+};
+const kebab = (table) => Object.fromEntries(Object.entries(isTable(table) ? table : {}).map(([key, value]) => [key.replaceAll("_", "-"), value]));
+const slashPath = (value) => String(value ?? "").replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+const COSMETIC_PACKAGE = new Set(["name", "version", "authors", "description", "documentation", "homepage", "readme", "keywords", "categories", "license", "license-file", "repository", "publish"]);
+const AUTO_KEYS = ["autolib", "autobins", "autoexamples", "autotests", "autobenches"];
+const HANDLED_TOP = new Set(["package", "lib", "bin", "example", "test", "bench", "dependencies", "dev-dependencies", "dev_dependencies", "build-dependencies", "build_dependencies", "target", "features"]);
+const DEPENDENCY_TABLES = new Set(["dependencies", "dev-dependencies", "dev_dependencies", "build-dependencies", "build_dependencies"]);
+
+/** `[package]` with `field.workspace = true` replaced by the workspace's value; keys in kebab-case. */
+function resolvedPackage(manifest, workspacePackage, problems, label) {
+  const out = kebab(manifest?.package);
+  for (const key of Object.keys(out)) {
+    if (isTable(out[key]) && out[key].workspace === true) {
+      if (workspacePackage?.[key] === undefined) { problems.push(`${label}: package.${key} inherits from the workspace, which does not declare it`); delete out[key]; } else out[key] = workspacePackage[key];
+    }
+  }
+  return out;
+}
+
+/** The targets a manifest describes over the files of the archive: declared tables plus Cargo's discovery, keyed `kind:name`. */
+function effectiveTargets(manifest, pkg, files, packageName) {
+  const auto = { lib: pkg.autolib, bins: pkg.autobins, examples: pkg.autoexamples, tests: pkg.autotests, benches: pkg.autobenches };
+  const edition = pkg.edition ?? "2015";
+  const found = new Map();
+  const add = (kind, name, file, declared = {}) => {
+    const procMacro = declared["proc-macro"] === true;
+    const crateType = Array.isArray(declared["crate-type"]) ? declared["crate-type"].map(String) : kind === "lib" ? [procMacro ? "proc-macro" : "lib"] : ["bin"];
+    found.set(`${kind}:${name}`, {
+      kind, name, path: slashPath(file), harness: declared.harness !== false, procMacro, crateType: [...crateType].sort(),
+      requiredFeatures: uniqueSorted(declared["required-features"]), edition: String(declared.edition ?? edition),
+    });
+  };
+  const discover = (kind, dir) => {
+    const out = [];
+    for (const file of files) {
+      const direct = new RegExp(`^${dir}/([^/]+)\\.rs$`).exec(file); const nested = new RegExp(`^${dir}/([^/]+)/main\\.rs$`).exec(file);
+      if (direct) out.push([direct[1], file]); else if (nested) out.push([nested[1], file]);
+    }
+    return out;
+  };
+  if (auto.lib !== false && files.has("src/lib.rs")) add("lib", packageName.replaceAll("-", "_"), "src/lib.rs");
+  if (auto.bins !== false) { if (files.has("src/main.rs")) add("bin", packageName, "src/main.rs"); for (const [name, file] of discover("bin", "src/bin")) add("bin", name, file); }
+  for (const [kind, flag, dir] of [["example", auto.examples, "examples"], ["test", auto.tests, "tests"], ["bench", auto.benches, "benches"]]) if (flag !== false) for (const [name, file] of discover(kind, dir)) add(kind, name, file);
+  const lib = isTable(manifest?.lib) ? kebab(manifest.lib) : null;
+  if (lib) { found.delete(`lib:${packageName.replaceAll("-", "_")}`); const name = String(lib.name ?? packageName.replaceAll("-", "_")); for (const key of [...found.keys()]) if (key.startsWith("lib:")) found.delete(key); add("lib", name, lib.path ?? "src/lib.rs", lib); }
+  for (const [kind, key, dir] of [["bin", "bin", "src/bin"], ["example", "example", "examples"], ["test", "test", "tests"], ["bench", "bench", "benches"]]) {
+    for (const raw of Array.isArray(manifest?.[key]) ? manifest[key] : []) {
+      const declared = kebab(raw);
+      if (typeof declared.name !== "string" || !declared.name) { found.set(`${kind}:<unnamed:${found.size}>`, { kind, name: "<unnamed>", path: slashPath(declared.path), unnamed: true }); continue; }
+      const conventional = kind === "bin" && declared.name === packageName && files.has("src/main.rs") ? "src/main.rs" : files.has(`${dir}/${declared.name}.rs`) ? `${dir}/${declared.name}.rs` : files.has(`${dir}/${declared.name}/main.rs`) ? `${dir}/${declared.name}/main.rs` : `${dir}/${declared.name}.rs`;
+      add(kind, declared.name, declared.path ?? found.get(`${kind}:${declared.name}`)?.path ?? conventional, declared);
+    }
+  }
+  return found;
+}
+
+const buildOf = (pkg, files) => (typeof pkg.build === "string" ? slashPath(pkg.build) : pkg.build === false ? false : files.has("build.rs") ? "build.rs" : false);
+
+/**
+ * Differences between the packaged Cargo.toml and Cargo.toml.orig other than dependencies and features (checked above) and
+ * the rewrites `cargo package` makes by itself. `files` is the set of file paths of the archive.
+ */
+export function effectiveManifestProblems({ generated, original, files, unit, workspacePackage, workspaceLints }) {
+  const problems = [];
+  const label = unit.name;
+  const was = resolvedPackage(original, workspacePackage, problems, label);
+  const now = kebab(generated.package);
+  // The package fields that change what is built or how: build script, links, edition, MSRV, file selection, default-run,
+  // resolver and package metadata.
+  if (canon(buildOf(was, files)) !== canon(buildOf(now, files))) problems.push(`${label}: the packaged Cargo.toml sets build ${JSON.stringify(buildOf(now, files))}, Cargo.toml.orig has ${JSON.stringify(buildOf(was, files))}`);
+  if (canon(was.links ?? null) !== canon(now.links ?? null)) problems.push(`${label}: the packaged package.links differs from Cargo.toml.orig`);
+  if (String(was.edition ?? "2015") !== String(now.edition ?? "2015")) problems.push(`${label}: the packaged edition ${JSON.stringify(now.edition ?? "2015")} differs from Cargo.toml.orig ${JSON.stringify(was.edition ?? "2015")}`);
+  for (const key of ["rust-version", "include", "exclude", "default-run", "metadata"]) if (canon(was[key] ?? null) !== canon(now[key] ?? null)) problems.push(`${label}: the packaged package.${key} differs from Cargo.toml.orig`);
+  const resolverOf = (pkg) => String(pkg.resolver ?? (String(pkg.edition ?? "2015") >= "2021" ? "2" : "1"));
+  if (resolverOf(was) !== resolverOf(now)) problems.push(`${label}: the packaged package.resolver differs from Cargo.toml.orig`);
+  for (const key of Object.keys(now)) {
+    if (COSMETIC_PACKAGE.has(key) || AUTO_KEYS.includes(key) || ["build", "links", "edition", "rust-version", "include", "exclude", "default-run", "metadata", "resolver"].includes(key)) continue;
+    if (canon(was[key] ?? null) !== canon(now[key])) problems.push(`${label}: the packaged package.${key} is not in Cargo.toml.orig`);
+  }
+  // Targets: the same set, with the same path, name, harness, proc-macro, crate-type, required features and edition.
+  const wasTargets = effectiveTargets(original, was, files, unit.name);
+  const nowTargets = effectiveTargets(generated, now, files, unit.name);
+  for (const [id, target] of nowTargets) {
+    const before = wasTargets.get(id);
+    if (!before) problems.push(`${label}: the packaged Cargo.toml adds ${target.kind} target ${target.name}${target.path ? ` (${target.path})` : ""} that Cargo.toml.orig does not declare`);
+    else if (canon(before) !== canon(target)) problems.push(`${label}: the packaged ${target.kind} target ${target.name} differs from Cargo.toml.orig: ${canon(target)} instead of ${canon(before)}`);
+  }
+  for (const [id, target] of wasTargets) if (!nowTargets.has(id)) problems.push(`${label}: the packaged Cargo.toml drops ${target.kind} target ${target.name}`);
+  // Every other section: lints resolve through the workspace; anything else (profile, patch, replace, workspace, badges,
+  // cargo-features, unknown keys) must equal Cargo.toml.orig and may never appear only in the packaged manifest.
+  for (const key of Object.keys(generated)) {
+    if (HANDLED_TOP.has(key)) continue;
+    const base = key === "lints" && isTable(original.lints) && original.lints.workspace === true ? workspaceLints : original[key];
+    if (base === undefined) problems.push(`${label}: the packaged Cargo.toml adds a [${key}] section`);
+    else if (canon(base) !== canon(generated[key])) problems.push(`${label}: the packaged [${key}] differs from Cargo.toml.orig`);
+  }
+  for (const [tableName, holder] of Object.entries(generated.target ?? {})) {
+    for (const key of Object.keys(isTable(holder) ? holder : {})) {
+      if (DEPENDENCY_TABLES.has(key)) continue;
+      if (canon(original.target?.[tableName]?.[key] ?? null) !== canon(holder[key])) problems.push(`${label}: the packaged [target.${tableName}.${key}] is not in Cargo.toml.orig`);
+    }
+  }
+  return problems;
+}
+// ---- end fix6 (blocker 3) ----------------------------------------------------------------------------------------
+
 /**
  * Cargo rewrites Cargo.toml when packaging, so it is the one packaged file source blobs cannot vouch for. It must still be the
  * rewrite of THIS crate's Cargo.toml.orig: same package identity and, for every dependency, the same full identity (the real
  * package name behind a rename, version requirement, features, default-features, optional, target cfg, kind and registry; a
- * `workspace = true` entry resolves against `workspaceDependencies`, the authenticated workspace manifest). Nothing may be
+ * `workspace = true` entry resolves against `workspaceDependencies`, the authenticated workspace manifest; package fields and lints
+ * inherit through `workspacePackage` and `workspaceLints` the same way). Targets, build script, links, edition, rust-version,
+ * include/exclude, default-run, metadata, profile, patch and replace must match too (effectiveManifestProblems). Nothing may be
  * added; only path-only dev-dependencies may be dropped; no path or git source may survive packaging. The upload metadata that
  * fills the registry index must then describe exactly those identities (name, version_req, features, optional,
  * default_features, target, kind, registry, explicit_name_in_toml).
  */
-export function packagedManifestProblems({ bytes, unit, metadataText, workspaceDependencies = {} }) {
+export function packagedManifestProblems({ bytes, unit, metadataText, workspaceDependencies = {}, workspacePackage = {}, workspaceLints }) {
   let entries;
   try { entries = readArchiveEntries(bytes, { root: `${unit.name}-${unit.version}` }); } catch { return [`${unit.name}: the archive is not a well-formed .crate`]; }
   const problems = [];
@@ -107,7 +228,8 @@ export function packagedManifestProblems({ bytes, unit, metadataText, workspaceD
   const generated = read("Cargo.toml"); const original = read("Cargo.toml.orig");
   if (!generated || !original) return [...problems, `${unit.name}: the archive lacks a readable Cargo.toml and Cargo.toml.orig`];
   if (generated.package?.name !== unit.name || generated.package?.version !== unit.version) problems.push(`${unit.name}: the packaged Cargo.toml is ${generated.package?.name}@${generated.package?.version}`);
-  for (const section of ["patch", "replace"]) if (generated[section] !== undefined && original[section] === undefined) problems.push(`${unit.name}: the packaged Cargo.toml adds a [${section}] section`);
+  // fix6: build, links, targets, edition, MSRV, include/exclude, default-run, metadata, profile, patch, replace and every other section.
+  problems.push(...effectiveManifestProblems({ generated, original, files: new Set(entries.filter((entry) => !entry.directory).map((entry) => entry.path)), unit, workspacePackage, workspaceLints }));
   if (JSON.stringify(generated.features ?? {}) !== JSON.stringify(original.features ?? {})) problems.push(`${unit.name}: the packaged [features] differ from Cargo.toml.orig`);
   const have = dependencyIdentities(generated, {}, problems, unit.name);
   const was = dependencyIdentities(original, workspaceDependencies, problems, unit.name);
@@ -147,7 +269,7 @@ export function packagedManifestProblems({ bytes, unit, metadataText, workspaceD
     if (wrong.length) problems.push(`${unit.name}: the upload metadata for dependency ${label} differs from the packaged Cargo.toml: ${wrong.join("; ")}`);
   }
   for (const [id, dep] of byMetaId) if (!listed.has(id)) problems.push(`${unit.name}: the upload metadata omits dependency ${dep.kind}:${dep.key}`);
-  return problems;
+  return [...new Set(problems)];
 }
 // ---- end fix5 (blocker 3) ----------------------------------------------------------------------------------------
 
@@ -200,10 +322,10 @@ export async function localAdmission({ candidate, manifest, manifestSha256, sour
   const lock = source.readData("Cargo.lock");
   // fix5: what each host must prove is recomputed from the authenticated source, never from the receipts.
   const sourceText = (name) => source.readData(name).toString("utf8");
-  let requiredIds = null; let gateConfig = {}; let workspaceDependencies = {};
+  let requiredIds = null; let gateConfig = {}; let workspaceDependencies = {}; let workspacePackage = {}; let workspaceLints;
   try { requiredIds = localRequiredScanIds({ units: candidate.units, readText: sourceText }); } catch (error) { fail(`required scan set: ${error.message}`); }
   try { gateConfig = JSON.parse(sourceText("ci/gate.config.json")); } catch (error) { if (error instanceof SyntaxError) fail("ci/gate.config.json in the authenticated source is not valid JSON"); }
-  try { workspaceDependencies = parseToml(sourceText("Cargo.toml")).workspace?.dependencies ?? {}; } catch { /* a source without a workspace manifest inherits nothing; an inheriting dependency is then refused */ }
+  try { const workspaceManifest = parseToml(sourceText("Cargo.toml")).workspace ?? {}; workspaceDependencies = workspaceManifest.dependencies ?? {}; workspacePackage = workspaceManifest.package ?? {}; workspaceLints = workspaceManifest.lints; } catch { /* a source without a workspace manifest inherits nothing; an inheriting field is then refused */ }
   for (const host of hosts) {
     const receipt = receipts[host];
     if (receipt?.commit !== candidate.sourceSha || receipt?.tree !== source.source.tree) fail(`${host}: receipt commit/tree differ from the authenticated source`);
@@ -217,7 +339,7 @@ export async function localAdmission({ candidate, manifest, manifestSha256, sour
       bytes = fs.readFileSync(path.join(packDir, unit.file));
       if (sha256(bytes) !== unit.sha256) bad(`${unit.name}: archive bytes differ from the manifest`);
       problems.push(...crateSourceProblems({ bytes, unit, sourceSha: candidate.sourceSha, readData: source.readData }));
-      problems.push(...packagedManifestProblems({ bytes, unit, metadataText: fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"), workspaceDependencies }));
+      problems.push(...packagedManifestProblems({ bytes, unit, metadataText: fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"), workspaceDependencies, workspacePackage, workspaceLints }));
       const unitRoot = path.join(source.root, unit.dir);
       const info = readCargoPackage(unitRoot);
       if (info.name !== unit.name || info.version !== unit.version) bad(`${unit.name}: unit name/version differs from the authenticated source manifest`);

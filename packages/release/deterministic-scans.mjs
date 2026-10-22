@@ -168,7 +168,25 @@ const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 // Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
 // so a dependency or toolchain update never reaches a push without local qualification.
-export const WORKSPACE_RUST_FILE =/^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|clippy\.toml|rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/;
+export const WORKSPACE_RUST_FILE = /^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/;
+// What cargo, clippy, rustfmt and cargo-deny read from EVERY ancestor directory of a workspace (cargo merges `.cargo/config*` and
+// finds the toolchain file, clippy and rustfmt search upward): a change to one at any ancestor of a workspace, the workspace's own
+// root included, puts that workspace's whole crate set in scope. Patterns are relative to the ancestor directory.
+export const ANCESTOR_RUST_CONFIG_FILE = /^(rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|\.cargo\/.+)$/;
+// cargo-deny reads deny.toml from the workspace root and its ancestors, but it changes no compilation: a change anywhere above a
+// workspace runs that workspace's metadata, cargo-deny and cargo-audit scans (the deny scan covers the workspace's whole crate set),
+// not its compile or test scans.
+export const ANCESTOR_DENY_FILE = /^deny\.toml$/;
+/** The directories whose Rust configuration reaches workspace `ws`: "." (the repository root), every directory between, and `ws` itself. */
+export const ancestorDirsOf = (ws) => {
+  const parts = ws === "." ? [] : String(ws).split("/").filter(Boolean);
+  return [".", ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))];
+};
+/** True when a changed repo-relative file is Rust configuration of some ancestor directory (or the root) of workspace `ws`. */
+export const ancestorConfigChanged = (ws, changed, pattern = ANCESTOR_RUST_CONFIG_FILE) => ancestorDirsOf(ws).some((dir) => changed.some((f) => {
+  const rel = dir === "." ? f : f.startsWith(`${dir}/`) ? f.slice(dir.length + 1) : null;
+  return rel !== null && pattern.test(rel);
+}));
 const WORKSPACE_JS_FILE = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/;
 const ESLINT_FILES = ["eslint.config.js", "eslint.config.mjs", ".eslintrc.json"];
 const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
@@ -358,7 +376,9 @@ export function planScans({
   }
   const wsRel = (ws, f) => (ws === "." ? f : f.startsWith(`${ws}/`) ? f.slice(ws.length + 1) : null);
   // Workspaces whose own root files (lock, manifest, toolchain, .cargo, vendor) changed: every unit of such a workspace is in scope.
-  const wideWs = new Set(workspaces.filter((ws) => files.some((f) => { const r = wsRel(ws, f); return r !== null && WORKSPACE_RUST_FILE.test(r); })));
+  // A workspace is also wide when Rust configuration changed in ANY ancestor directory of it (a repository-level .cargo/config.toml,
+  // an intermediate apps/.cargo, a root rust-toolchain.toml, clippy.toml, rustfmt.toml or deny.toml reaches every nested workspace).
+  const wideWs = new Set(workspaces.filter((ws) => ancestorConfigChanged(ws, files) || files.some((f) => { const r = wsRel(ws, f); return r !== null && WORKSPACE_RUST_FILE.test(r); })));
   const jsWide = files.some((f) => WORKSPACE_JS_FILE.test(f));
   const wideCrates = wideWs.size ? (rustMap ? [...rustMap.keys()].filter((n) => wideWs.has(wsOf(n))) : listDir(path.join(contentRoot, "crates"))).filter((n) => !rustScope || rustScope.has(n)) : [];
   if (wideWs.size && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
@@ -371,6 +391,8 @@ export function planScans({
     if (ws !== null) { if (isConfig || wsRel(ws, f) === "deny.toml") configWs.add(ws); }
     else if (isConfig && workspaces.length === 1) configWs.add(workspaces[0]);
   }
+  // Ancestor configuration is configuration of the workspace too: its metadata, cargo-deny and cargo-audit scans run as well.
+  for (const ws of workspaces) if (ancestorConfigChanged(ws, files) || ancestorConfigChanged(ws, files, ANCESTOR_DENY_FILE)) configWs.add(ws);
   const rustConfigChanged = configWs.size > 0;
   const rustTouched = crateNames.length > 0 || rustConfigChanged;
   const touchedWs = [...new Set([...crateNames.map(wsOf), ...configWs])].sort();

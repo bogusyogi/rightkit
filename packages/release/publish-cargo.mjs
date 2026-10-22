@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingFeatureSets } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
-import { refuseHostUpload } from "./host-upload-refusal.mjs";
+import { assertPublishCapability, refuseHostUpload } from "./host-upload-refusal.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
@@ -154,7 +154,13 @@ export function scanCrateForSecrets(crateDir) {
   return [...new Set(violations)].sort();
 }
 
+/**
+ * Package, qualify and (unless `options.dryRun`) publish one crate. A real publish is refused (HOST_UPLOAD_REFUSED) before anything
+ * runs unless `options.capability` is a publish capability (host-upload-refusal.mjs createPublishCapability) created from a
+ * validated admission that names this crate, and again before the registry upload unless the verified archive is the admitted one.
+ */
 export async function runCargoPublish(options, execute = (_command, args, settings) => runCargoSync(args, settings), deps = {}) {
+  if (!options.dryRun) assertPublishCapability(options.capability, { what: "runCargoPublish", registry: "crates", name: options.crate });
   const crateDir = path.join(options.workspaceRoot, "crates", options.crate);
   const manifest = path.join(crateDir, "Cargo.toml");
   if (!fs.existsSync(manifest)) throw new Error(`crate manifest not found: ${manifest}`);
@@ -252,7 +258,10 @@ export async function runCargoPublish(options, execute = (_command, args, settin
       publication = await verifyCargoRegistry({ name: options.crate, version: cargoVersion, sha256: artifact.sha256 }, deps);
       continue;
     }
-    if (step.label === "registry publish") assertArtifactUnchanged(artifact);
+    if (step.label === "registry publish") {
+      assertArtifactUnchanged(artifact);
+      assertPublishCapability(options.capability, { what: "runCargoPublish", registry: "crates", name: options.crate, version: cargoVersion, sha256: artifact.sha256 });
+    }
     // `execute` may be synchronous (the default) or async (the batch publisher overlaps uploads).
     const isReadOnlyInspection = ["package contents", "package location"].includes(step.label);
     const settings = {

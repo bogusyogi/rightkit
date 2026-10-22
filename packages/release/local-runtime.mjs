@@ -103,6 +103,9 @@ export function analyzeJobs({ jobs, root, fromMs, toMs, runStartMs, checkedAtMs,
   return { checked: true, fromMs, toMs, checkedAtMs, ours: mine.length, foreign: foreign.map(({ id, workspace, live, startedAtMs, endedAtMs }) => ({ id, workspace, live, startedAtMs, endedAtMs })) };
 }
 
+/** The broker listing at one moment, reduced to what the window proof needs: when it was read, which root jobs it names, which are live. */
+export const listingRecord = (jobs, checkedAtMs) => ({ checked: true, checkedAtMs, ids: jobs.map((job) => job.id), live: jobs.filter((job) => job.live).map((job) => job.id) });
+
 async function listBrokerJobs({ client, env, run }) {
   const result = await run(client, ["list"], { env, timeout: 30_000, windowsHide: true });
   if (result.error || result.status !== 0) throw new Error(`rustright list failed: ${result.error?.message ?? `exit ${result.status}`}`);
@@ -236,6 +239,9 @@ export async function measureRuntimeCrate(options, deps = {}) {
       const label = `${workload.id} run ${index + 1}/${repeats}`;
       log(`[local-runtime] ${crate}/${label}: waiting for a quiet host`);
       const quiet = await awaitQuiet(label);
+      // The broker's job listing at grant: read once the host is quiet and before the run starts. Nothing may be live.
+      let grantJobs;
+      try { grantJobs = listingRecord(await listJobs(), now()); } catch (error) { grantJobs = { checked: false, error: error.message }; }
       let provisioned; let cleanup = null; let result; const during = [];
       const startedAtMs = now();
       try {
@@ -245,7 +251,8 @@ export async function measureRuntimeCrate(options, deps = {}) {
         let finished = false;
         running.then(() => { finished = true; }, () => { finished = true; });
         while (!finished) {
-          const sample = readHealth(); if (sample) during.push(sample);
+          // Only a snapshot the broker WROTE during the run is evidence of it, and each distinct write is kept once.
+          const sample = readHealth(); if (sample && sample.writtenAtMs >= startedAtMs && (!during.length || sample.writtenAtMs > during[during.length - 1].writtenAtMs)) during.push(sample);
           await Promise.race([running.catch(() => {}), sleep(1000)]);
         }
         result = await running;
@@ -263,9 +270,12 @@ export async function measureRuntimeCrate(options, deps = {}) {
       const afterCpu = await cpuSample(policy.after.minCpuSampleMs + 500);
       const checkedAtMs = now();
       let jobs;
-      try { jobs = analyzeJobs({ jobs: await listJobs(), root, fromMs: quiet.cpu.startedAtMs, toMs: afterCpu.startedAtMs + afterCpu.durationMs, runStartMs: startedAtMs, checkedAtMs }); } catch (error) { jobs = { checked: false, error: error.message }; }
+      try {
+        const listing = await listJobs();
+        jobs = { ...analyzeJobs({ jobs: listing, root, fromMs: quiet.cpu.startedAtMs, toMs: afterCpu.startedAtMs + afterCpu.durationMs, runStartMs: startedAtMs, checkedAtMs }), atGrant: grantJobs, atRelease: listingRecord(listing, checkedAtMs) };
+      } catch (error) { jobs = { checked: false, error: error.message }; }
       const window = { policy: policy.id, startedAtMs, endedAtMs, before: { health: quiet.health, cpu: quiet.cpu }, during: { health: during }, after: { health: afterHealth, cpu: afterCpu }, jobs };
-      const windowIssues = proof.windowProblems(window, policy);
+      const windowIssues = proof.windowProblems(window, policy, { minWindowMs: proof.minWindowMsFor(crate, workload.id, policy), runStartedAtMs: startedAtMs, runEndedAtMs: endedAtMs });
       window.quiet = windowIssues.length === 0;
       assertCheckout(`${label} after`);
       if (!window.quiet) throw new Error(`${label}: the window was not quiet (disturbed by something on this host; rerun when idle): ${windowIssues.join("; ")}`);

@@ -138,6 +138,69 @@ test("the packaged Cargo.toml must be the rewrite of Cargo.toml.orig, and the up
   assert.match(packagedManifestProblems({ bytes: Buffer.from("junk"), unit, metadataText: "{}" }).join("\n"), /not a well-formed/);
 });
 
+// ---- fix6: targets, build script and every other behavior-bearing manifest field ----
+const withFiles = (files, input = {}) => packagedManifestProblems({ bytes: tarGz("rightkit-a-0.1.0", { "Cargo.toml": input.generated ?? generatedToml("rightkit-a"), "Cargo.toml.orig": input.original ?? origToml("rightkit-a"), "src/lib.rs": "x", ...files }), unit, metadataText: input.metadata ?? uploadMetadata("rightkit-a"), workspacePackage: input.workspacePackage, workspaceLints: input.workspaceLints });
+// What `cargo package` really writes for a crate with a lib and one integration test (target/package/rightkit-logs-0.1.0/Cargo.toml).
+const CARGO_HEAD = (extra = "") => `[package]\nedition = "2021"\nrust-version = "1.81"\nname = "rightkit-a"\nversion = "0.1.0"\nbuild = false\ninclude = [\n    "src/**",\n    "tests/**",\n]\nautolib = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n${extra}\n[lib]\nname = "rightkit_a"\npath = "src/lib.rs"\n\n[[test]]\nname = "contract"\npath = "tests/contract.rs"\n\n[dependencies.serde]\nversion = "1"\n`;
+const ORIG_HEAD = (extra = "") => `[package]\nname = "rightkit-a"\nversion = "0.1.0"\nedition = "2021"\nrust-version = "1.81"\ninclude = ["src/**", "tests/**"]\n${extra}\n[dependencies]\nserde = "1"\n`;
+
+test("the packaged manifest must describe the same targets, build script and package fields as Cargo.toml.orig", () => {
+  const real = { generated: CARGO_HEAD(), original: ORIG_HEAD() };
+  const tests = { "tests/contract.rs": "x" };
+  // The rewrite Cargo itself makes (explicit targets, build = false, auto* = false) is the same build.
+  assert.deepEqual(withFiles(tests, real), []);
+  // Workspace inheritance resolves against the authenticated workspace manifest.
+  const inherit = { generated: CARGO_HEAD(), original: ORIG_HEAD().replace('edition = "2021"', "edition.workspace = true") };
+  assert.deepEqual(withFiles(tests, { ...inherit, workspacePackage: { edition: "2021" } }), []);
+  assert.match(withFiles(tests, { ...inherit, workspacePackage: { edition: "2018" } }).join("\n"), /edition "2021" differs from Cargo\.toml\.orig "2018"/);
+  assert.match(withFiles(tests, inherit).join("\n"), /package\.edition inherits from the workspace, which does not declare it/);
+  const lints = { generated: CARGO_HEAD("\n[lints.rust]\nunsafe_code = \"forbid\"\n"), original: ORIG_HEAD("\n[lints]\nworkspace = true\n") };
+  assert.deepEqual(withFiles(tests, { ...lints, workspaceLints: { rust: { unsafe_code: "forbid" } } }), []);
+  assert.match(withFiles(tests, { ...lints, workspaceLints: { rust: { unsafe_code: "allow" } } }).join("\n"), /\[lints\] differs/);
+  // A crate that relies on discovery (no [lib], no [[test]] in the original) matches its explicit rewrite.
+  assert.deepEqual(withFiles(tests, { generated: CARGO_HEAD(), original: ORIG_HEAD() }), []);
+  // The reproduction of the review (fa86eeb2, local-admission.mjs:109): `build = "src/lib.rs"` only in the generated manifest.
+  assert.match(withFiles(tests, { generated: CARGO_HEAD().replace("build = false", 'build = "src/lib.rs"'), original: ORIG_HEAD() }).join("\n"), /sets build "src\/lib\.rs", Cargo\.toml\.orig has false/);
+  assert.match(withFiles(tests, { generated: generatedToml("rightkit-a", '\n[package.metadata]\nx = 1\n').replace('version = "0.1.0"\n', 'version = "0.1.0"\nbuild = "src/lib.rs"\n') }).join("\n"), /sets build "src\/lib\.rs"/);
+  // The same build script written by both sides is the original's own and passes; an inferred build.rs counts as build.rs.
+  assert.deepEqual(withFiles({ ...tests, "build.rs": "fn main() {}\n" }, { generated: CARGO_HEAD().replace("build = false", 'build = "build.rs"'), original: ORIG_HEAD() }), []);
+  assert.match(withFiles({ ...tests, "build.rs": "fn main() {}\n" }, real).join("\n"), /sets build false, Cargo\.toml\.orig has "build\.rs"/);
+  const refused = {
+    "links added": [{ generated: CARGO_HEAD().replace("build = false", 'build = false\nlinks = "evil"') }, /package\.links differs/],
+    "edition changed": [{ generated: CARGO_HEAD().replace('edition = "2021"', 'edition = "2018"') }, /edition "2018" differs from Cargo\.toml\.orig "2021"/],
+    "rust-version changed": [{ generated: CARGO_HEAD().replace('"1.81"', '"1.60"') }, /package\.rust-version differs/],
+    "include widened": [{ generated: CARGO_HEAD().replace('"tests/**",', '"tests/**",\n    "build.rs",') }, /package\.include differs/],
+    "exclude added": [{ generated: CARGO_HEAD().replace("autolib = false", 'exclude = ["x"]\nautolib = false') }, /package\.exclude differs/],
+    "default-run added": [{ generated: CARGO_HEAD().replace("autolib = false", 'default-run = "evil"\nautolib = false') }, /package\.default-run differs/],
+    "package metadata added": [{ generated: CARGO_HEAD("\n[package.metadata.x]\ny = 1\n") }, /package\.metadata differs/],
+    "an unknown package key added": [{ generated: CARGO_HEAD().replace("autolib = false", 'publish-lockfile = true\nautolib = false') }, /package\.publish-lockfile is not in Cargo\.toml\.orig/],
+    "resolver changed": [{ generated: CARGO_HEAD().replace("autolib = false", 'resolver = "1"\nautolib = false') }, /package\.resolver differs/],
+    "a binary pointing at the library": [{ generated: CARGO_HEAD('\n[[bin]]\nname = "evil"\npath = "src/lib.rs"\n') }, /adds bin target evil \(src\/lib\.rs\)/],
+    "a bench added": [{ generated: CARGO_HEAD('\n[[bench]]\nname = "evil"\npath = "src/lib.rs"\n') }, /adds bench target evil/],
+    "an example added": [{ generated: CARGO_HEAD('\n[[example]]\nname = "evil"\npath = "src/lib.rs"\n') }, /adds example target evil/],
+    "a test added": [{ generated: CARGO_HEAD('\n[[test]]\nname = "evil"\npath = "src/lib.rs"\n') }, /adds test target evil/],
+    "the test target dropped": [{ generated: CARGO_HEAD().replace('\n[[test]]\nname = "contract"\npath = "tests/contract.rs"\n', "") }, /drops test target contract/],
+    "the lib path changed": [{ generated: CARGO_HEAD().replace('path = "src/lib.rs"', 'path = "tests/contract.rs"') }, /lib target rightkit_a differs/],
+    "the lib turned into a proc-macro": [{ generated: CARGO_HEAD().replace('[lib]\n', "[lib]\nproc-macro = true\n") }, /lib target rightkit_a differs.*"procMacro":true/],
+    "the lib crate-type changed": [{ generated: CARGO_HEAD().replace('[lib]\n', '[lib]\ncrate-type = ["cdylib"]\n') }, /lib target rightkit_a differs.*cdylib/],
+    "the lib harness switched off": [{ generated: CARGO_HEAD().replace('[lib]\n', "[lib]\nharness = false\n") }, /lib target rightkit_a differs.*"harness":false/],
+    "the lib renamed": [{ generated: CARGO_HEAD().replace('name = "rightkit_a"', 'name = "evil"') }, /adds lib target evil.*|drops lib target rightkit_a/],
+    "the test target path changed": [{ generated: CARGO_HEAD().replace('path = "tests/contract.rs"', 'path = "src/lib.rs"') }, /test target contract differs/],
+    "a required feature added": [{ generated: CARGO_HEAD().replace('path = "tests/contract.rs"', 'path = "tests/contract.rs"\nrequired-features = ["evil"]') }, /test target contract differs/],
+    "autobins left on over a hidden binary": [{ generated: CARGO_HEAD().replace("autobins = false", "autobins = true"), original: ORIG_HEAD("autobins = false"), files: { "src/bin/hidden.rs": "fn main() {}\n" } }, /adds bin target hidden/],
+    "a profile added": [{ generated: CARGO_HEAD("\n[profile.release]\nopt-level = 0\n") }, /adds a \[profile\] section/],
+    "a patch added": [{ generated: CARGO_HEAD('\n[patch.crates-io]\nserde = { path = "x" }\n') }, /adds a \[patch\] section/],
+    "a replace added": [{ generated: CARGO_HEAD('\n[replace]\n"serde:1.0.0" = { path = "x" }\n') }, /adds a \[replace\] section/],
+    "a workspace table added": [{ generated: CARGO_HEAD("\n[workspace]\n") }, /adds a \[workspace\] section/],
+    "a cargo-features entry added": [{ generated: `cargo-features = ["x"]\n${CARGO_HEAD()}` }, /adds a \[cargo-features\] section/],
+    "a lints table added": [{ generated: CARGO_HEAD("\n[lints.rust]\nunsafe_code = \"allow\"\n") }, /adds a \[lints\] section/],
+    "an unknown target table key": [{ generated: CARGO_HEAD("\n[target.'cfg(unix)'.runner]\nx = 1\n") }, /\[target\.cfg\(unix\)\.runner\] is not in Cargo\.toml\.orig/],
+  };
+  for (const [name, [input, pattern]] of Object.entries(refused)) assert.match(withFiles({ ...tests, ...(input.files ?? {}) }, { generated: input.generated, original: input.original ?? ORIG_HEAD() }).join("\n"), pattern, name);
+  // The same fields hold when the original sets them too: an identical profile is not an addition.
+  assert.deepEqual(withFiles(tests, { generated: CARGO_HEAD("\n[profile.release]\nopt-level = 3\n"), original: ORIG_HEAD("\n[profile.release]\nopt-level = 3\n") }), []);
+});
+
 test("a dirty or misplaced vcs record in the archive refuses", () => {
   const check = (info) => crateSourceProblems({ bytes: tarGz("rightkit-a-0.1.0", crateFiles({ ".cargo_vcs_info.json": JSON.stringify(info) })), unit, sourceSha: SOURCE, readData });
   assert.deepEqual(check({ git: { sha1: SOURCE }, path_in_vcs: "crates/rightkit-a" }), []);

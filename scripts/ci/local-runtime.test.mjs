@@ -17,7 +17,7 @@ import { localTestPlan } from "../../packages/release/local-publish.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
 import { localAdmission } from "./local-admission.mjs";
 import { buildLocalScanRecord, SCAN_TOOL_PINS } from "./scan-receipt.mjs";
-import { WINDOW_POLICY, windowProblems, worstIndex } from "./local-runtime-proof.mjs";
+import { WINDOW_POLICY, WORKLOAD_MIN_WINDOW_MS, minWindowMsFor, windowProblems, worstIndex } from "./local-runtime-proof.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const CRATE = "rightkit-logs", VERSION = "0.3.4", SOURCE = "a".repeat(40), TREE = "c".repeat(40), ID = "local-logs-034-aaaaaa";
@@ -39,15 +39,15 @@ function tarGz(root, files) {
 }
 const health = (written, over = {}) => ({ writtenAtMs: written, sampledAtMs: written + 500, state: "READY", admissionPaused: false, inFlight: 0, queued: 0, admitting: 0, pid: 1, ...over });
 /** A quiet window starting at t0: idle broker and CPU before, only the measured job during, idle again after, one job in the listing. */
-export function quietWindow(t0) {
-  const end = t0 + 40_000;
+export function quietWindow(t0, durationMs = 40_000) {
+  const end = t0 + durationMs;
   const during = []; for (let at = t0 + 2000; at < end; at += 5000) during.push(health(at, { inFlight: 1 }));
   return {
     policy: WINDOW_POLICY.id, startedAtMs: t0, endedAtMs: end, quiet: true,
     before: { health: { ...health(t0 - 3000), sampledAtMs: t0 - 1000 }, cpu: { startedAtMs: t0 - 11_000, durationMs: 10_500, idlePercent: 98, cores: 8, loadavg1: null } },
     during: { health: during },
     after: { health: { ...health(end + 500), sampledAtMs: end + 1000 }, cpu: { startedAtMs: end + 1000, durationMs: 5500, idlePercent: 97, cores: 8, loadavg1: null } },
-    jobs: { checked: true, fromMs: t0 - 11_000, toMs: end + 6500, checkedAtMs: end + 7000, ours: 1, foreign: [] },
+    jobs: { checked: true, fromMs: t0 - 11_000, toMs: end + 6500, checkedAtMs: end + 7000, ours: 1, foreign: [], atGrant: { checked: true, checkedAtMs: t0 - 200, ids: ["j-0"], live: [] }, atRelease: { checked: true, checkedAtMs: end + 7000, ids: ["j-0", "j-1"], live: [] } },
   };
 }
 
@@ -109,7 +109,7 @@ function runtimeFixture(t) {
         const raw = `noise\nRESULT budget crate=${CRATE} version=${VERSION} resident_bytes=${100 + 10 * index} idle_cpu_percent=0 wakeups_per_s=0 disk_ops_per_s=${host === "darwin" ? "unavailable" : "0"} scale_count=200000 scale_unit=lines\n`;
         const file = `runtime-budget.evidence/${host}-${ARCH[key]}-${VERSION}-synthetic-${w.id}.txt`;
         const record = { host: { os: host, arch: ARCH[key] }, crateVersion: VERSION, commit: SOURCE, date: "2026-10-22", scope: "synthetic", dataScale: { description: w.description, unit: "lines", count: 200000 }, command: `cargo ${w.args.join(" ")}`, observed: { residentMemoryBytes: 100 + 10 * index, idleCpuPercent: 0, wakeupsPerSecond: 0, diskOpsPerSecond: host === "darwin" ? null : 0 }, evidence: { file, sha256: hash(Buffer.from(raw)) } };
-        const window = quietWindow(hostBase + (wi * 3 + index) * 100_000 + 20_000);
+        const window = quietWindow(hostBase + (wi * 3 + index) * 100_000 + 20_000, Math.max(40_000, minWindowMsFor(CRATE, w.id) + 5000));
         return { index, startedAt: new Date(window.startedAtMs).toISOString(), endedAt: new Date(window.endedAtMs).toISOString(), exitCode: 0, signal: null, rawSha256: hash(Buffer.from(raw)), raw, record, window };
       });
       const picked = runs[2];
@@ -207,7 +207,7 @@ test("a missing host receipt, a missing runtime block or a fabricated selection 
     ["the submitted record differs from its repeat", (f) => { f.entryOf("windows").workloads[0].record.observed.residentMemoryBytes = 1; }, /refused/],
     ["raw hash does not match the raw text", (f) => { f.entryOf("windows").workloads[0].repeats[0].raw += "x"; }, /raw output or exit status/],
     ["a repeat that failed", (f) => { f.entryOf("windows").workloads[0].repeats[1].exitCode = 1; }, /raw output or exit status/],
-    ["repeats whose windows overlap", (f) => { const runs = f.entryOf("macos").workloads[0].repeats; const w = quietWindow(runs[0].window.startedAtMs + 1000); runs[1].window = w; }, /overlaps the previous repeat/],
+    ["repeats whose windows overlap", (f) => { const runs = f.entryOf("macos").workloads[0].repeats; const w = quietWindow(runs[0].window.startedAtMs + 1000); runs[1].window = w; runs[1].startedAt = new Date(w.startedAtMs).toISOString(); runs[1].endedAt = new Date(w.endedAtMs).toISOString(); }, /overlaps the previous repeat/],
   ]) { const f = runtimeFixture(t); mutate(f); await assert.rejects(f.verify(), expected, name); }
 });
 
@@ -241,6 +241,61 @@ test("a window that was not quiet is refused, whatever the receipt claims about 
     if (f.entryOf("windows").workloads[0].repeats[1].window) assert.equal(win(f).quiet, true);
     await assert.rejects(f.verify(), expected, name);
   }
+  assert.deepEqual(windowProblems(quietWindow(T0)), []);
+});
+
+test("the trusted minimum-window table names exactly the trusted workloads", () => {
+  assert.deepEqual(Object.keys(WORKLOAD_MIN_WINDOW_MS).sort(), Object.entries(RUNTIME_PROOF_WORKLOADS).flatMap(([crate, ids]) => ids.map((id) => `${crate}/${id}`)).sort());
+  for (const [crate, ids] of Object.entries(RUNTIME_PROOF_WORKLOADS)) for (const id of ids) assert.ok(minWindowMsFor(crate, id) >= WINDOW_POLICY.minWindowMs, `${crate}/${id}`);
+  assert.equal(minWindowMsFor("rightkit-logs", "detached"), 60_000);
+  assert.equal(minWindowMsFor("rightkit-unknown", "x"), WINDOW_POLICY.minWindowMs, "an unlisted workload still has the floor");
+});
+
+// The reproduction of the Astra review (fa86eeb2, local-runtime-proof.mjs:72): every repeat replaced by a 1 ms window with no
+// during-snapshots and a self-reported job count reached "qualified" through verifyLocalRuntimeProof.
+test("fabricated 1 ms windows with empty during-snapshots are refused by construction", async (t) => {
+  const f = runtimeFixture(t);
+  for (const key of ["windows", "macos"]) for (const row of f.entryOf(key).workloads) for (const run of row.repeats) {
+    const start = run.window.startedAtMs;
+    run.window = { ...quietWindow(start), endedAtMs: start + 1, during: { health: [] } };
+    run.endedAt = new Date(start + 1).toISOString();
+  }
+  await assert.rejects(f.verify(), (error) => /lasted 1 ms, not at least/.test(error.message) && /0 distinct broker snapshot/.test(error.message));
+  // Even with a long claimed run the window cannot be shorter than the run it describes.
+  const g = runtimeFixture(t);
+  const run = g.entryOf("windows").workloads[0].repeats[1];
+  run.endedAt = new Date(run.window.endedAtMs + 30_000).toISOString();
+  await assert.rejects(g.verify(), /not the span the repeat recorded/);
+});
+
+test("a window must last its workload's trusted minimum, hold dense monotonic in-window snapshots, and record the job listing at grant and release", () => {
+  const w = (change) => { const x = quietWindow(T0); change(x); return x; };
+  const refuses = (window, pattern, context) => { const problems = windowProblems(window, WINDOW_POLICY, context); assert.ok(problems.some((p) => pattern.test(p)), `${pattern}: ${JSON.stringify(problems)}`); };
+  // Duration: the floor, the workload minimum and the repeat's own span.
+  refuses(quietWindow(T0, 5_000), /lasted 5000 ms, not at least 10000 ms/);
+  refuses(quietWindow(T0), /lasted 40000 ms, not at least 60000 ms/, { minWindowMs: minWindowMsFor("rightkit-logs", "detached") });
+  assert.deepEqual(windowProblems(quietWindow(T0, 65_000), WINDOW_POLICY, { minWindowMs: 60_000, runStartedAtMs: T0, runEndedAtMs: T0 + 65_000 }), []);
+  refuses(quietWindow(T0), /not the span the repeat recorded/, { runStartedAtMs: T0, runEndedAtMs: T0 + 90_000 });
+  refuses(quietWindow(T0), /not the span the repeat recorded/, { runStartedAtMs: Number.NaN, runEndedAtMs: T0 + 40_000 });
+  // Density, order and placement of the during-snapshots.
+  refuses(w((x) => { x.during.health = x.during.health.slice(0, 3); }), /3 distinct broker snapshot\(s\) in a 40000 ms window; at least 7/);
+  refuses(w((x) => { x.during.health = []; }), /0 distinct broker snapshot/);
+  refuses(w((x) => { x.during.health = x.during.health.map((sample) => ({ ...x.during.health[0] })); }), /not strictly increasing/);
+  refuses(w((x) => { x.during.health.reverse(); }), /not strictly increasing/);
+  refuses(w((x) => { x.during.health[3] = { ...x.during.health[3], writtenAtMs: x.startedAtMs - 30_000, sampledAtMs: x.startedAtMs - 29_500 }; }), /written outside the run/);
+  refuses(w((x) => { x.during.health[3] = { ...x.during.health[3], writtenAtMs: x.endedAtMs + 30_000, sampledAtMs: x.endedAtMs + 30_500 }; }), /written outside the run/);
+  // The job listing at grant and at release.
+  refuses(w((x) => { delete x.jobs.atGrant; }), /listing at grant was not recorded/);
+  refuses(w((x) => { delete x.jobs.atRelease; }), /listing at release was not recorded/);
+  refuses(w((x) => { x.jobs.atGrant.checked = false; }), /listing at grant was not recorded/);
+  refuses(w((x) => { x.jobs.atGrant.live = ["j-7"]; }), /1 root job\(s\) were live at grant/);
+  refuses(w((x) => { x.jobs.atRelease.live = ["j-7"]; }), /1 root job\(s\) were live at release/);
+  refuses(w((x) => { x.jobs.atGrant.checkedAtMs = x.startedAtMs - 300_000; }), /at grant was not taken between/);
+  refuses(w((x) => { x.jobs.atGrant.checkedAtMs = x.startedAtMs + 5000; }), /at grant was not taken between/);
+  refuses(w((x) => { x.jobs.atRelease.checkedAtMs = x.endedAtMs - 5000; }), /at release was not taken after/);
+  // The CPU samples lie immediately around the window.
+  refuses(w((x) => { x.before.cpu.startedAtMs -= 600_000; x.jobs.fromMs -= 600_000; }), /CPU sample is not immediately before/);
+  refuses(w((x) => { x.after.cpu.startedAtMs += 600_000; x.jobs.toMs += 600_000; x.jobs.checkedAtMs += 600_000; x.jobs.atRelease.checkedAtMs += 600_000; }), /CPU sample is not immediately after/);
   assert.deepEqual(windowProblems(quietWindow(T0)), []);
 });
 

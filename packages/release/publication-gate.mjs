@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { refuseHostUpload } from "./host-upload-refusal.mjs";
+import { assertPublishCapability, refuseHostUpload } from "./host-upload-refusal.mjs";
 import { recordPublished, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { fileURLToPath } from "node:url";
 import { digestBytes, readVerifiedArtifact } from "./publication-artifacts.mjs";
@@ -309,12 +309,20 @@ export function runNpmPreflight(argv, workspaceRoot = process.cwd(), deps = {}) 
   publishGatedTarball({ name: pkg, version: manifest.version, tarball, evidencePath, workspaceRoot }, deps);
 }
 
-export function publishGatedTarball({ name, version, tarball, evidencePath, workspaceRoot }, deps = {}) {
+/**
+ * Publish one gated tarball. Exported for the reviewed publisher and its tests only: it reads registry credentials, so it refuses
+ * (HOST_UPLOAD_REFUSED) before reading anything unless `capability` is a publish capability (host-upload-refusal.mjs
+ * createPublishCapability) created from a validated admission that names this npm archive, and the bytes about to be sent must
+ * be the admitted archive's.
+ */
+export function publishGatedTarball({ name, version, tarball, evidencePath, workspaceRoot, capability }, deps = {}) {
+  assertPublishCapability(capability, { what: "publishGatedTarball", registry: "npm", name, version });
   const run = deps.spawnSync ?? spawnSync;
   const bytes = fs.readFileSync(tarball);
   const evidence = JSON.parse(fs.readFileSync(evidencePath, "utf8"));
   const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
   if (sha256 !== evidence.artifactSha256) throw new Error(`tarball sha256 ${sha256} != evidence artifactSha256 ${evidence.artifactSha256}`);
+  assertPublishCapability(capability, { what: "publishGatedTarball", registry: "npm", name, version, sha256 });
   const token = deps.readToken ? deps.readToken() : readKeychainToken(run);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-npm-publish-"));
   const userconfig = path.join(dir, "npmrc");

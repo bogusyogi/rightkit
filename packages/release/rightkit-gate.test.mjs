@@ -7,7 +7,7 @@ import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import {
-  buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, parseWorkspaceGlobs, rustUnitName, rustUnitOfScanId, trampolineText,
+  EXTERNAL_INPUT_FILE_LIMIT, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, parseWorkspaceGlobs, rustUnitName, rustUnitOfScanId, trampolineText,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -390,6 +390,69 @@ test("externalInputs: include targets resolve against the including file, build.
   assert.deepEqual(out.paths, ["shared/a.json", "shared/b.txt", "shared/deep.txt", "shared/gen.rs"]);
 });
 
+// ---- fix6: ancestor configuration in the cache key and the lock scope, transitive includes -------------------------------------
+
+test("cache digest: Rust configuration of EVERY ancestor directory of a nested workspace is an input, the intermediate ones included", () => {
+  const units = [{ name: "apps/foo:foo", crate: "foo", dir: "apps/foo/foo", cargoDir: "apps/foo" }];
+  const rustLocks = { "apps/foo": shipped.parseLock(lockPkg("foo", "1.0.0")) };
+  const ids = { "apps/foo/foo": "f1", "apps/foo/Cargo.lock": "l", "ci/gate.config.json": "cfg" };
+  const digest = (over = {}) => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: "head", rustUnits: units, cargoDir: ".", rustLocks, ...plainSources })({ id: "clippy:apps/foo:foo", class: "B" });
+  const base = digest();
+  assert.equal(digest(), base);
+  // The review's reproduction: apps/.cargo sits between the repository root and the workspace and was not an input.
+  assert.notEqual(digest({ "apps/.cargo": "intermediate" }), base, "apps/.cargo");
+  for (const file of [".cargo", "rust-toolchain", "rust-toolchain.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "deny.toml"]) {
+    assert.notEqual(digest({ [file]: "root" }), base, `root ${file}`);
+    assert.notEqual(digest({ [`apps/${file}`]: "mid" }), base, `apps/${file}`);
+    assert.notEqual(digest({ [`apps/foo/${file}`]: "own" }), base, `apps/foo/${file}`);
+  }
+  assert.equal(digest({ "other/.cargo": "x", "apps/bar/.cargo": "x" }), base, "a directory that is no ancestor of the workspace is no input");
+});
+
+test("lockScope: Rust configuration of an ancestor directory keeps every crate in scope, even beside a lock-only change", () => {
+  const lock = shipped.parseLock(lockPkg("foo", "1.0.0"));
+  const base = { cargoDir: "apps/foo", unitNames: new Set(["foo"]), showBase: () => lockPkg("foo", "0.9.0"), readLock: () => lockPkg("foo", "1.0.0") };
+  assert.ok(lockScope({ ...base, changed: ["apps/foo/Cargo.lock"] }) instanceof Set, "a lock-only change is scoped by the lock graph");
+  for (const file of [".cargo/config.toml", "apps/.cargo/config.toml", "rust-toolchain.toml", "apps/clippy.toml", "rustfmt.toml"]) assert.equal(lockScope({ ...base, changed: ["apps/foo/Cargo.lock", file] }), null, file);
+  assert.ok(lockScope({ ...base, changed: ["apps/foo/Cargo.lock", "docs/.cargo/config.toml"] }) instanceof Set, "a directory that is no ancestor changes nothing");
+  assert.ok(lock);
+});
+
+test("externalInputs and the cache digest follow includes to a fixed point: lib.rs -> shared/one.rs -> two.rs -> three.rs", () => {
+  const files = {
+    "crates/rightkit-ownership/src/lib.rs": 'include!("../../../shared/one.rs");\n',
+    "shared/one.rs": 'include!("two.rs");\n', "shared/two.rs": 'include!("three.rs");\n', "shared/three.rs": "pub fn three() {}\n",
+  };
+  const t = sourceTree(files);
+  const found = externalInputs({ dir: "crates/rightkit-ownership", files: t.listFiles("crates/rightkit-ownership"), readBlob: t.readBlob, exists: (p) => p in files });
+  assert.equal(found.unresolved, null);
+  assert.deepEqual(found.paths, ["shared/one.rs", "shared/three.rs", "shared/two.rs"]);
+  // The review's reproduction: changing three.rs must change the digest of a compile scan.
+  const digest = (three) => ownershipDigest({ scanId: "clippy:rightkit-ownership", files, ids: { "shared/one.rs": "o", "shared/two.rs": "t", "shared/three.rs": three } });
+  assert.equal(digest("3a"), digest("3a"));
+  assert.notEqual(digest("3a"), digest("3b"), "three.rs is four hops from the crate");
+  // Another depth and other reference forms: #[path], mod declarations of an out-of-crate file, "../" literals.
+  const deep = { "crates/rightkit-ownership/src/lib.rs": '#[path = "../../../shared/a.rs"] mod a;\n' };
+  for (let i = 0; i < 12; i += 1) deep[`shared/f${i}.rs`] = i < 11 ? `include!("f${i + 1}.rs");\n` : "pub fn end() {}\n";
+  deep["shared/a.rs"] = 'include!("f0.rs");\n';
+  const reach = (files2) => { const x = sourceTree(files2); return externalInputs({ dir: "crates/rightkit-ownership", files: x.listFiles("crates/rightkit-ownership"), readBlob: x.readBlob, exists: (p) => p in files2 }); };
+  assert.ok(reach(deep).paths.includes("shared/f11.rs"), "twelve hops deep, through a #[path] attribute");
+  const viaMod = { "crates/rightkit-ownership/src/lib.rs": '#[path = "../../../shared/m.rs"]\nmod m;\n', "shared/m.rs": "mod inner;\npub mod other;\n", "shared/m/inner.rs": 'include_str!("../data.txt");\n', "shared/m/other/mod.rs": "", "shared/data.txt": "x" };
+  const modPaths = reach(viaMod);
+  assert.equal(modPaths.unresolved, null);
+  assert.deepEqual(modPaths.paths, ["shared/data.txt", "shared/m.rs", "shared/m/inner.rs", "shared/m/other/mod.rs"]);
+  const viaLiteral = { "crates/rightkit-ownership/src/lib.rs": 'let _ = dir.join("../../shared/x.rs");\n', "shared/x.rs": 'let _ = d.join("../y/z.rs");\n', "y/z.rs": "" };
+  assert.deepEqual(reach(viaLiteral).paths, ["shared/x.rs", "y/z.rs"]);
+  // Cycles end: a and b include each other.
+  const cyc = { "crates/rightkit-ownership/src/lib.rs": 'include!("../../../shared/a.rs");\n', "shared/a.rs": 'include!("b.rs");\n', "shared/b.rs": 'include!("a.rs");\n' };
+  assert.deepEqual(reach(cyc).paths, ["shared/a.rs", "shared/b.rs"]);
+  // An unreadable out-of-crate file, and a traversal beyond the bound, both fall back to the whole tree (never a silent stop).
+  const unreadable = { listFiles: (dir) => (dir === "crates/rightkit-ownership" ? ["crates/rightkit-ownership/src/lib.rs"] : []), readBlob: (p) => { if (p.startsWith("crates/")) return 'include!("../../../shared/one.rs");\n'; throw new Error("git down"); } };
+  assert.match(externalInputs({ dir: "crates/rightkit-ownership", files: unreadable.listFiles("crates/rightkit-ownership"), readBlob: unreadable.readBlob, exists: () => true }).unresolved, /unreadable/);
+  const many = Array.from({ length: EXTERNAL_INPUT_FILE_LIMIT + 1 }, (_, i) => `crates/c/src/f${i}.rs`);
+  assert.match(externalInputs({ dir: "crates/c", files: many, readBlob: () => "pub fn f() {}\n", exists: () => false }).unresolved, /more than 10000 source files/);
+});
+
 // ---- npm: the root package.json (adoption gap 4) ----------------------------------------------------------------------------
 
 const npmFixture = (workspaceYaml, extra = {}) => {
@@ -617,13 +680,13 @@ const withGitHooks = (root, names) => { fs.mkdirSync(path.join(root, ".git", "ho
 
 test("install-hook: every hook present in .git/hooks gets a trampoline, pre-push chains at run time, and it says which hooks it chained", async (t) => {
   const root = mkRepo({ "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.5.0"}}', "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "" }, t);
-  withGitHooks(root, ["pre-commit", "commit-msg", "pre-push", "pre-commit.sample", "not-a-hook", "applypatch-msg.sample"]);
+  withGitHooks(root, ["pre-commit", "commit-msg", "pre-push", "pre-receive", "update", "post-receive", "pre-commit.sample", "not-a-hook", "applypatch-msg.sample", "pre-receive.sample"]);
   const state = { hooksPath: "", sets: [] };
   const c = capture();
   const code = await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root });
   assert.equal(code, 0, c.err.join("\n"));
-  assert.deepEqual(fs.readdirSync(path.join(root, ".githooks")).sort(), ["commit-msg", "pre-commit", "pre-push"], "samples and unknown names get no trampoline");
-  for (const name of ["pre-commit", "commit-msg"]) {
+  assert.deepEqual(fs.readdirSync(path.join(root, ".githooks")).sort(), ["commit-msg", "not-a-hook", "post-receive", "pre-commit", "pre-push", "pre-receive", "update"], "every file without a .sample suffix is chained, pre-receive, update and post-receive included; samples get none");
+  for (const name of ["pre-commit", "commit-msg", "pre-receive", "update", "post-receive", "not-a-hook"]) {
     const body = fs.readFileSync(path.join(root, ".githooks", name), "utf8");
     assert.equal(body, trampolineText(name));
     assert.match(body, new RegExp(`"\\$\\(git rev-parse --git-dir\\)/hooks/${name}"`));
@@ -634,15 +697,27 @@ test("install-hook: every hook present in .git/hooks gets a trampoline, pre-push
   assert.match(prePush, /own="\$\(git rev-parse --git-dir\)\/hooks\/pre-push"/);
   assert.ok(!prePush.includes(root) && !/[A-Za-z]:[\\/]/.test(prePush.replace(/\\\//g, "")), "no absolute path in the pre-push hook");
   const out = c.out.join("\n");
-  assert.match(out, /chained hooks from \.git\/hooks: commit-msg, pre-commit, pre-push \(run first, then the gate\)/);
+  assert.match(out, /chained hooks from \.git\/hooks: commit-msg, not-a-hook, post-receive, pre-commit, pre-push \(run first, then the gate\), pre-receive, update/);
+  for (const name of ["pre-receive", "update", "post-receive"]) assert.match(out, new RegExp(`wrote \\.githooks/${name} \\(runs \\.git/hooks/${name}\\)`));
   assert.match(out, /wrote \.githooks\/pre-commit \(runs \.git\/hooks\/pre-commit\)/);
-  assert.match(out, /git add --chmod=\+x \.githooks\/pre-push \.githooks\/commit-msg \.githooks\/pre-commit/);
+  assert.match(out, /git add --chmod=\+x \.githooks\/pre-push \.githooks\/commit-msg \.githooks\/not-a-hook \.githooks\/post-receive \.githooks\/pre-commit \.githooks\/pre-receive \.githooks\/update/);
   assert.match(out, /@rightkit\/release is declared in package\.json/);
   assert.ok(!c.err.join("\n").includes("WARNING"));
   // Running it again changes nothing.
   const again = capture();
   assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0);
   assert.ok(again.out.some((l) => /\.githooks\/pre-commit already current/.test(l)) && again.out.some((l) => /\.githooks\/pre-push already current/.test(l)));
+});
+
+test("install-hook: a .git/hooks file whose name is not a plain hook name is reported and never written into a shell script", async (t) => {
+  const root = mkRepo({ "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.5.0"}}' }, t);
+  withGitHooks(root, ["pre-commit", "pre-commit;touch x", "post-receive", ".DS_Store"]);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0, c.err.join("\n"));
+  assert.deepEqual(fs.readdirSync(path.join(root, ".githooks")).sort(), ["post-receive", "pre-commit", "pre-push"]);
+  assert.match(c.err.join("\n"), /WARNING: not chaining \.git\/hooks\/\.DS_Store, \.git\/hooks\/pre-commit;touch x: not a plain hook file name/);
+  for (const name of fs.readdirSync(path.join(root, ".githooks"))) assert.ok(!fs.readFileSync(path.join(root, ".githooks", name), "utf8").includes("touch x"), name);
 });
 
 test("install-hook: a different hook already in .githooks is never replaced without --force, and nothing changes then", async (t) => {

@@ -9,6 +9,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { checkPublicationGate, provenGateSteps, publishGatedTarball } from './publication-gate.mjs';
+import { mintTestCapability } from './test-support/publish-capability-fixture.mjs';
 import { LOCAL_WIN32_HOST_POLICY_REASON, LocalPublishError, batchCargoExecute, batchClippyInvocations, checkCrateLayers, consumerRows, deriveCrateLayers, localTestPlan, parseCrateLayers, parseLocalPublishArgs, runLocalPublishUploadEngine as runLocalPublish } from './local-publish.mjs';
 import { runCargoAsync, spawnCollect } from './managed-cargo.mjs';
 
@@ -329,7 +330,7 @@ test('npm: the Keychain token never reaches the output, even when npm echoes it'
     return { status: 0, stdout: '', stderr: '' };
   };
   const h = harness(root, 'npm', {
-    publishGatedTarball: (info) => publishGatedTarball(info, { readToken: () => TOKEN, spawnSync: spawn, recordPublished() {}, sleep() {}, verifyTimeoutMs: 0 }),
+    publishGatedTarball: (info) => publishGatedTarball({ ...info, capability: mintTestCapability({ registry: 'npm', archives: [{ name: info.name, version: info.version, sha256: crypto.createHash('sha256').update(fs.readFileSync(info.tarball)).digest('hex') }] }) }, { readToken: () => TOKEN, spawnSync: spawn, recordPublished() {}, sleep() {}, verifyTimeoutMs: 0 }),
   });
   process.stdout.write = (chunk, ...rest) => { written.push(String(chunk)); return real(chunk, ...rest); };
   let message = '';

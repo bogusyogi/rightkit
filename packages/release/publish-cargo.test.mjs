@@ -13,6 +13,8 @@ import {
   scanCrateForSecrets,
 } from "./publish-cargo.mjs";
 import { digestBytes } from "./publication-artifacts.mjs";
+import { HOST_UPLOAD_REFUSED } from "./host-upload-refusal.mjs";
+import { mintTestCapability } from "./test-support/publish-capability-fixture.mjs";
 import { checkPublicationGate } from "./publication-gate.mjs";
 import { localTestPlan } from "./local-publish.mjs";
 
@@ -155,7 +157,9 @@ function fixture(t, { verifyOnPublish = false } = {}) {
       return { ok: true, text: async () => JSON.stringify({ name, vers: version, cksum: evidence.artifactSha256 }) };
     },
   };
-  return { root, name, version, bytes, crateFile, evidence, events, execute, deps, options: { workspaceRoot: root, crate: name } };
+  // A capability for exactly this crate archive, created through the production admission validator.
+  const capability = mintTestCapability({ registry: "crates", archives: [{ name, version, sha256: evidence.artifactSha256 }] });
+  return { root, name, version, bytes, crateFile, evidence, events, execute, deps, capability, options: { workspaceRoot: root, crate: name, capability } };
 }
 
 test("Cargo publisher packages, checks evidence hash, publishes through same runner & reads back", async (t) => {
@@ -248,6 +252,41 @@ test("registry mismatch propagates from publisher without executing yank", async
   fx.deps.fetch = async () => ({ ok: true, text: async () => JSON.stringify({ name: fx.name, vers: fx.version, cksum: "b".repeat(64) }) });
   await assert.rejects(runCargoPublish(fx.options, fx.execute, fx.deps), { code: "PUBLICATION_REGISTRY_MISMATCH" });
   assert.deepEqual(fx.events, ["package", "hash check", "publish"]);
+});
+
+// A direct import must not publish: a real run without a capability from a validated admission refuses before the gate, packaging
+// or any command; a capability for other bytes refuses before the registry upload.
+test("a real publish refuses without a publish capability from a validated admission, before the gate or any command", async (t) => {
+  const fx = fixture(t);
+  let gated = 0;
+  const deps = { ...fx.deps, enforceGate: () => { gated += 1; return { ok: true, evidence: fx.evidence }; } };
+  const other = mintTestCapability({ registry: "crates", archives: [{ name: "rightkit-other", version: fx.version, sha256: fx.evidence.artifactSha256 }] });
+  for (const [label, capability] of Object.entries({
+    "no capability": undefined,
+    "an object literal shaped like one": { kind: "rightkit-publish-capability", registry: "crates" },
+    "a copy of a real capability": { ...fx.capability },
+    "the capability of another crate": other,
+    "an npm capability": mintTestCapability({ registry: "npm", archives: [{ name: fx.name, version: fx.version, sha256: fx.evidence.artifactSha256 }] }),
+  })) {
+    await assert.rejects(runCargoPublish({ ...fx.options, capability }, fx.execute, deps), (error) => error.code === HOST_UPLOAD_REFUSED && /host uploads are retired/.test(error.message), label);
+  }
+  assert.equal(gated, 0, "refused before the gate");
+  assert.deepEqual(fx.events, [], "and before any command");
+  await assert.rejects(runCargoPublish({ ...fx.options, fromEvidence: true, evidence: "gate.json", capability: undefined }, fx.execute, deps), { code: HOST_UPLOAD_REFUSED });
+});
+
+test("a capability for other bytes refuses before the registry upload and readback", async (t) => {
+  const fx = fixture(t);
+  const wrongBytes = mintTestCapability({ registry: "crates", archives: [{ name: fx.name, version: fx.version, sha256: "e".repeat(64) }] });
+  await assert.rejects(runCargoPublish({ ...fx.options, capability: wrongBytes }, fx.execute, fx.deps), (error) => error.code === HOST_UPLOAD_REFUSED && /are not the admitted archive/.test(error.message));
+  assert.deepEqual(fx.events, ["package", "hash check"], "packaged and hash-checked, never uploaded");
+  const wrongVersion = mintTestCapability({ registry: "crates", archives: [{ name: fx.name, version: "9.9.9", sha256: fx.evidence.artifactSha256 }] });
+  await assert.rejects(runCargoPublish({ ...fx.options, capability: wrongVersion }, fx.execute, fx.deps), (error) => error.code === HOST_UPLOAD_REFUSED && /is not the admitted 9\.9\.9/.test(error.message));
+});
+
+test("a dry run needs no capability", async (t) => {
+  const fx = fixture(t);
+  assert.deepEqual(await runCargoPublish({ ...fx.options, capability: undefined, dryRun: true }, fx.execute, fx.deps), { name: fx.name, version: fx.version, dryRun: true });
 });
 
 test("dry-run publisher never checks an archive, uploads or reads registry", async (t) => {
