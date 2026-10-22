@@ -61,10 +61,9 @@ impl tauri::Assets<Wry> for NativeAssets {
 }
 
 fn main() {
-    assert!(
-        cfg!(any(windows, target_os = "macos")),
-        "native Windows/macOS desktop required"
-    );
+    if !cfg!(any(windows, target_os = "macos")) {
+        panic!("native Windows/macOS desktop required");
+    }
     let args: Vec<_> = std::env::args()
         .skip(1)
         .filter(|arg| arg != "--bench")
@@ -373,6 +372,8 @@ fn native(mode: String, idle_seconds: u64) {
     let capture_started = Arc::new(AtomicBool::new(false));
     #[cfg(feature = "host-services")]
     let content_ready = Arc::new(AtomicBool::new(false));
+    // Mutated only by the `crash` capture setup below.
+    #[cfg_attr(not(feature = "crash"), allow(unused_mut))]
     let mut config = WatchdogConfig::default();
     #[cfg(feature = "crash")]
     {
@@ -465,6 +466,8 @@ fn native(mode: String, idle_seconds: u64) {
         .plugin(shell.plugin());
     #[cfg(feature = "host-services")]
     let builder = builder.manage(ContentWitness::default());
+    // Mutated only on macOS (activation policy).
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut app = builder
         .setup(move |app| {
             host_services(app.handle(), &fixture_root);

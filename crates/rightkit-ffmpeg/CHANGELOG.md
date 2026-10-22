@@ -12,6 +12,11 @@
 
 - Tests only (`runner.rs`): the straggler deadline test no longer races its own start-up (the 400 ms deadline could fire before the fake leader had written the straggler's pid file under host load; now 4 s against a 30 s straggler), and the overhead test warms up, uses medians, best of five rounds, and a bound of floor plus 3x the blocking baseline capped by a hard ceiling. No production change.
 
+- Fix (test only): `tests/catalog_tools_e2e.rs` `vendor_file` returned the macOS x86_64 ffprobe for a Windows host, so
+  the Windows catalog row `ffprobe-7.1.5-windows-x64` was verified against a Mach-O and (correctly) failed with
+  `DigestMismatch`. It now returns the Windows ffprobe under `windows-x64/ffprobe-run/`. The content digest is
+  unchanged and strict. New `content_digest` unit test pins a fixture Mach-O digest (computed independently)
+  to prove the digest is host-independent. Written without compiling or running anything.
 - New (issue #479): "override first" for the one-call resolver. `ResolveOptions::new().override_first(path)`
   makes `resolve_ffmpeg_handle_with` and `resolve_ffprobe_handle_with` verify the caller-supplied path
   before any bundled candidate, with the same checks (catalog digest and build probe, development

@@ -219,7 +219,7 @@ function run(unit, command, args, { cwd = ROOT, env = {}, timeoutMinutes = 25, d
       resolve(ok);
     };
     // pnpm is a .cmd shim on Windows and needs a shell there; the arguments here never contain spaces.
-    const child = spawn(command, args, { cwd, env: { ...process.env, CARGO_TERM_COLOR: "always", ...(UNIT_MODE ? { RIGHTKIT_REQUIRE_ASSETS: "1" } : {}), ...env }, stdio: ["ignore", "pipe", "pipe"], shell: WIN && command === "pnpm", detached: !WIN });
+    const child = spawn(command, args, { cwd, env: { ...process.env, CARGO_TERM_COLOR: "always", ...(UNIT_MODE ? { RIGHTKIT_REQUIRE_ASSETS: "1" } : {}), ...(UNIT_MODE || process.env.CI ? { RIGHTKIT_REQUIRE_DESKTOP: "1" } : {}), ...env }, stdio: ["ignore", "pipe", "pipe"], shell: WIN && command === "pnpm", detached: !WIN });
     const timeoutNote = `timed out after ${timeoutMinutes} minutes`;
     // The step ends when the command EXITS, not when its output pipes close. "close" waits for
     // every holder of those pipes, and a test that leaves a child process behind keeps them open

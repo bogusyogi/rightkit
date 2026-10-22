@@ -615,6 +615,36 @@ mod tests {
         assert_eq!(a.slices[0].arch, Some("aarch64"));
     }
 
+    /// The digest is a pure function of the bytes: no host, path or extension input. These
+    /// pinned values were computed by an independent re-implementation (Python) of the module
+    /// algorithm, so every host must reproduce them; a `cfg`-dependent branch would break this.
+    #[test]
+    fn a_fixture_mach_o_has_the_same_pinned_digest_on_every_host() {
+        const PINNED: &str = "5e0426eea4826919881b90c3b5e202ff3d618c26800f336cf254fc8abb497ef0";
+        let unsigned = macho(CPU_TYPE_X86_64, PAYLOAD, None);
+        let signed = macho(CPU_TYPE_X86_64, PAYLOAD, Some(&[0x11; 300]));
+        for bytes in [&unsigned, &signed] {
+            let identity = content_identity(bytes).unwrap();
+            assert_eq!(identity.format, ContentFormat::MachO);
+            assert_eq!(identity.digest_for("x86_64"), Some(PINNED));
+        }
+        // Read back from disk under a Windows-style name: the path never matters.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ffprobe-decode-macos-x86_64.exe");
+        fs::write(&path, &signed).unwrap();
+        assert_eq!(
+            content_identity_file(&path).unwrap().digest_for("x86_64"),
+            Some(PINNED)
+        );
+        // Strictness: one flipped code byte is a different digest.
+        let mut flipped = unsigned.clone();
+        flipped[0x1000] ^= 1;
+        assert_ne!(
+            content_identity(&flipped).unwrap().digest_for("x86_64"),
+            Some(PINNED)
+        );
+    }
+
     #[test]
     fn a_changed_code_byte_or_header_field_changes_the_digest() {
         let base = content_identity(&macho(CPU_TYPE_ARM64, PAYLOAD, Some(&[1; 64]))).unwrap();

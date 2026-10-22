@@ -36,6 +36,9 @@ fn vendor_file(tool: Tool, os: &str, arch: &str) -> PathBuf {
         (Tool::Ffmpeg, "windows", _) => vendor("ffmpeg-win-x64.exe"),
         (Tool::Ffmpeg, "macos", "aarch64") => vendor("ffmpeg-macos-arm64"),
         (Tool::Ffmpeg, _, _) => vendor("ffmpeg-macos-x86_64"),
+        (Tool::Ffprobe, "windows", _) => vendor(
+            "windows-x64/ffprobe-run/ffprobe-decode-windows-x64/ffprobe-decode-windows-x64.exe",
+        ),
         (Tool::Ffprobe, "macos", "aarch64") => vendor("ffprobe-decode-macos-arm64"),
         (Tool::Ffprobe, _, _) => vendor("ffprobe-decode-macos-x86_64"),
     }
