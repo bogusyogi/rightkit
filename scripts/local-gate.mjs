@@ -9,19 +9,39 @@
 // the shared checkout, so another lane's edits can neither hide nor cause a failure.
 //
 // Usage: node scripts/local-gate.mjs [--base <ref>]   (default base: origin/main)
+// From the pre-push hook, git's ref lines arrive on stdin: the commit being pushed must be the checked-out
+// HEAD (broker scans read the live checkout), and the remote's current commit is the diff base. To push an
+// earlier commit of the local stack, check it out first (a detached HEAD is fine), push HEAD:main, return.
+// RK_GATE_JOBS (default 4) sets how many compile scans run side by side; tests stay one at a time.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { planScans, runScans, scanDeferrals, scanFailures } from "../packages/release/deterministic-scans.mjs";
+import { changedLockNames, parseLock, reach } from "./ci/select.mjs";
 
 const live = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
-const base = args.includes("--base") ? args[args.indexOf("--base") + 1] : "origin/main";
+let base = args.includes("--base") ? args[args.indexOf("--base") + 1] : "origin/main";
 
 const run = (cmd, argv, opts = {}) =>
   spawnSync(cmd, argv, { cwd: live, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, ...opts });
+
+// git pre-push: "<local ref> <local sha> <remote ref> <remote sha>" per pushed ref.
+{
+  const ZERO = /^0+$/;
+  const head = run("git", ["rev-parse", "HEAD"]).stdout.trim();
+  const lines = process.stdin.isTTY ? [] : readFileSync(0, "utf8").split(/\r?\n/).map((l) => l.trim().split(/\s+/)).filter((f) => f.length === 4);
+  for (const [, localSha, remoteRef, remoteSha] of lines) {
+    if (ZERO.test(localSha)) continue; // a delete pushes no content
+    if (localSha !== head) {
+      console.error(`local-gate: BLOCKED: pushing ${localSha.slice(0, 10)} to ${remoteRef}, but HEAD is ${head.slice(0, 10)}; broker scans read the checkout, so check the pushed commit out first (git checkout --detach ${localSha.slice(0, 10)}), push HEAD:main, then return`);
+      process.exit(1);
+    }
+    if (!ZERO.test(remoteSha) && run("git", ["cat-file", "-e", `${remoteSha}^{commit}`]).status === 0) base = remoteSha;
+  }
+}
 
 const exportRoot = mkdtempSync(path.join(os.tmpdir(), "rk-local-gate-"));
 const repo = path.join(exportRoot, "rightkit");
@@ -96,14 +116,38 @@ if (!cargoCommand) {
   cleanup();
   process.exit(1);
 }
+// A lock-only workspace change (Cargo.lock, vendor/) reaches only the crates whose resolved dependency closure
+// holds a changed package (the same lock graph CI's selection uses). Any other workspace Rust file, or a base
+// without a lock, keeps every crate in scope.
+const rustScope = (() => {
+  const wide = changed.filter((f) => /^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|clippy\.toml|rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/.test(f));
+  if (!wide.length || wide.some((f) => f !== "Cargo.lock" && !f.startsWith("vendor/"))) return null;
+  const before = run("git", ["show", `${base}:Cargo.lock`]);
+  if (before.status !== 0) return null;
+  const next = parseLock(readFileSync(path.join(repo, "Cargo.lock"), "utf8"));
+  const touched = changedLockNames(parseLock(before.stdout), next);
+  for (const f of wide) if (f.startsWith("vendor/")) touched.add(f.split("/")[1]);
+  const memo = new Map();
+  const scope = new Set();
+  for (const [name] of next) {
+    if (!existsSync(path.join(repo, "crates", name, "Cargo.toml"))) continue;
+    if (touched.has(name) || [...touched].some((t) => reach(next, name, memo).has(t))) scope.add(name);
+  }
+  return scope;
+})();
 const plan = planScans({
-  changed, contentRoot: repo, liveRoot: live, includeTests: true,
+  changed, contentRoot: repo, liveRoot: live, includeTests: true, rustScope,
   localCompile: existsSync(path.join(live, ".rightkit-local-build.json")),
   cargoCommand,
   // The same per-crate feature sets CI uses (crates whose features cannot all be on together).
   crateFeatures: (() => { try { return JSON.parse(readFileSync(path.join(repo, "ci/gate.config.json"), "utf8")).rust ?? {}; } catch { return {}; } })(),
 });
-const scanResult = await runScans(plan, { classes: ["A", "B"] });
+const jobs = Math.max(1, Number(process.env.RK_GATE_JOBS ?? 4) || 4);
+console.log(`local-gate: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time`);
+const scanResult = await runScans(plan, {
+  classes: ["A", "B"], jobs,
+  onResult: (row, p) => console.log(`local-gate: [${p.done}/${p.total}] ${row.status.padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
+});
 for (const line of scanFailures(scanResult)) failures.push(line);
 const deferrals = scanDeferrals(scanResult);
 for (const line of deferrals) failures.push(`DEFERRED ${line}`);

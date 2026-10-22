@@ -22,7 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync } from "./background-process.mjs";
+import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
@@ -167,6 +167,9 @@ export function planScans({
   listDir = (d) => { try { return fs.readdirSync(d); } catch { return []; } },
   // Per-crate feature sets, shaped like ci/gate.config.json `rust` ({ [crate]: { featureSets, checkFeatureSets } }).
   crateFeatures = {},
+  // Crates a workspace-wide Rust change (Cargo.lock, vendor/) actually reaches, computed by the caller from
+  // the lock graph (scripts/ci/select.mjs). null keeps every crate in scope.
+  rustScope = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rightkit", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -253,7 +256,9 @@ export function planScans({
   }
   const rustWide = files.some((f) => WORKSPACE_RUST_FILE.test(f));
   const jsWide = files.some((f) => WORKSPACE_JS_FILE.test(f));
-  const crateNames = safeUnits([...new Set([...under("crates/").map((f) => f.split("/")[1]), ...(rustWide ? listDir(path.join(contentRoot, "crates")) : [])])].filter((n) => exists(path.join(contentRoot, "crates", n, "Cargo.toml"))).sort(), "crate");
+  const wideCrates = rustWide ? listDir(path.join(contentRoot, "crates")).filter((n) => !rustScope || rustScope.has(n)) : [];
+  if (rustWide && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
+  const crateNames = safeUnits([...new Set([...under("crates/").map((f) => f.split("/")[1]), ...wideCrates])].filter((n) => exists(path.join(contentRoot, "crates", n, "Cargo.toml"))).sort(), "crate");
   const rustConfigChanged = files.some((f) => CONFIG_CRATE_FILE.test(f) || f === "deny.toml");
   const rustTouched = crateNames.length > 0 || rustConfigChanged;
   const pkgNames = safeUnits([...new Set([...under("packages/").map((f) => f.split("/")[1]), ...(jsWide ? listDir(path.join(contentRoot, "packages")) : [])])].filter((n) => exists(path.join(contentRoot, "packages", n, "package.json"))).sort(), "package");
@@ -303,13 +308,15 @@ export function planScans({
     });
   }
   for (const name of crateNames) {
-    add({ id: `check:${name}`, class: B, ...cargo(...checkArgs(name, { locked: true })) });
     // Feature sets exactly as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>):
     // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
     // --all-features), none when a lint set already uses --all-features. Some crates' features cannot
     // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
     const own = crateFeatures?.[name] ?? {};
     const lintSets = Array.isArray(own.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+    // `cargo clippy --all-targets` type-checks exactly what `cargo check --all-targets` does: the default
+    // check runs only when no clippy set covers default features.
+    if (!lintSets.some((set) => set.length === 0)) add({ id: `check:${name}`, class: B, ...cargo(...checkArgs(name, { locked: true })) });
     const checkSets = lintSets.some((set) => set.includes("--all-features")) ? [] : (Array.isArray(own.checkFeatureSets) ? own.checkFeatureSets : [["--all-features"]]);
     checkSets.filter((set) => set.length).forEach((set, i) => add({ id: `check-features:${name}:${i}`, class: B, ...cargo(...checkArgs(name, { features: set, locked: true })) }));
     lintSets.forEach((set, i) => add({ id: lintSets.length === 1 ? `clippy:${name}` : `clippy:${name}:${i}`, class: B, ...cargo(...clippyArgs(name, { features: set, locked: true })) }));
@@ -413,6 +420,35 @@ export function defaultSpawn(command, args, options = {}) {
   return spawnSync(inv.file, inv.args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, windowsVerbatimArguments: inv.verbatim, ...options, shell: false });
 }
 
+const OUTPUT_KEEP = 4 * 1024 * 1024;
+/** The same invocation as defaultSpawn without blocking, so scans can run side by side. Keeps the last 4 MiB of each stream. */
+export function defaultSpawnAsync(command, args, options = {}) {
+  const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
+  if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });
+  return new Promise((resolve) => {
+    let stdout = ""; let stderr = ""; let error = null;
+    const keep = (buf, chunk) => { const next = buf + chunk; return next.length > OUTPUT_KEEP ? next.slice(-OUTPUT_KEEP) : next; };
+    let child;
+    try {
+      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, ...options, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; }
+    child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
+    child.stderr.on("data", (c) => { stderr = keep(stderr, c); });
+    child.on("error", (e) => { error = e; });
+    child.on("close", (status) => resolve({ status, stdout, stderr, ...(error ? { error } : {}) }));
+  });
+}
+
+// Lanes for concurrent class B runs. The broker admits check and clippy side by side; rustdoc and
+// package are serialized by the broker anyway; tests and repository code share files, ports and
+// devices, so they run one at a time, as on a CI runner.
+function laneOf(scan) {
+  if (/^(clippy|check|check-features):/.test(scan.id)) return "compile";
+  if (/^doc:/.test(scan.id)) return "doc";
+  return "serial";
+}
+
 const tail = (r) => `${r.stdout ?? ""}${r.stderr ?? ""}`.split(/\r?\n/).filter((l) => l.trim()).slice(-8).join(" | ");
 
 /** rustfmt: $RUSTFMT, else the newest installed rustup toolchain, else PATH (null when none). */
@@ -510,7 +546,8 @@ const INTERNAL = {
  */
 export async function runScans(plan, options = {}) {
   const deps = {
-    spawn: defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
+    // Concurrent runs need a spawn that does not block the event loop.
+    spawn: Number(options.jobs ?? 1) > 1 ? defaultSpawnAsync : defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
     env: process.env, platform: process.platform, execPath: process.execPath,
     loadToml: defaultLoadToml, loadYaml: defaultLoadYaml, scanSecrets: defaultScanSecrets, findRustfmt,
     ...options,
@@ -556,22 +593,48 @@ export async function runScans(plan, options = {}) {
     return outcome;
   }
 
-  for (const s of ordered) {
+  const jobs = Math.max(1, Number(options.jobs ?? 1) || 1);
+  const onResult = typeof options.onResult === "function" ? options.onResult : () => {};
+  const total = ordered.length; let done = 0;
+  async function runOne(s) {
+    const started = Date.now();
+    const row = await scanRow(s);
+    done += 1;
+    try { onResult(row, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
+    return row;
+  }
+  // Class A in order (a failure stops class B); then class B, concurrently by lane when jobs > 1.
+  const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
+  const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
+  for (const s of aScans) results.push(await runOne(s));
+  if (jobs === 1) {
+    for (const s of bScans) results.push(await runOne(s));
+  } else {
+    const slots = new Array(bScans.length);
+    const lanes = { compile: [], doc: [], serial: [] };
+    bScans.forEach((s, i) => lanes[laneOf(s)].push(i));
+    const drain = async (queue) => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(bScans[i]); } };
+    await Promise.all([
+      ...Array.from({ length: jobs }, () => drain(lanes.compile)),
+      drain(lanes.doc),
+      drain(lanes.serial),
+    ]);
+    results.push(...slots);
+  }
+
+  async function scanRow(s) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
     if (s.class === SCAN_CLASS.B && classBBlocked) {
-      results.push({ ...row, status: "not-run", code: "CLASS_A_REQUIRED", detail: "class B refused: class A did not run in this call and no valid prior class A evidence for the same scan set was supplied" });
-      continue;
+      return { ...row, status: "not-run", code: "CLASS_A_REQUIRED", detail: "class B refused: class A did not run in this call and no valid prior class A evidence for the same scan set was supplied" };
     }
     if (s.class === SCAN_CLASS.B && classAFailed) {
-      results.push({ ...row, status: "not-run", detail: "a class A scan failed; class B starts only after class A passes" });
-      continue;
+      return { ...row, status: "not-run", detail: "a class A scan failed; class B starts only after class A passes" };
     }
     let status = "pass"; let detail = ""; let code;
     if (s.deferred) {
-      results.push({ ...row, status: "deferred", detail: s.deferred });
       // A class A scan that did not run is not a class A pass: class B waits.
       if (s.class === SCAN_CLASS.A) classAFailed = true;
-      continue;
+      return { ...row, status: "deferred", detail: s.deferred };
     }
     try {
       if (s.internal) {
@@ -590,7 +653,7 @@ export async function runScans(plan, options = {}) {
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }
     if (status === "fail" && s.class === SCAN_CLASS.A) classAFailed = true;
-    results.push({ ...row, status, ...(code ? { code } : {}), ...(detail ? { detail } : {}) });
+    return { ...row, status, ...(code ? { code } : {}), ...(detail ? { detail } : {}) };
   }
 
   return {

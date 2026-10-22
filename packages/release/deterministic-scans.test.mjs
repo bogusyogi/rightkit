@@ -43,7 +43,8 @@ test("plan: a changed crate selects class A and class B scans, through rightkit 
   const { plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const a = ids(plan, "A"); const b = ids(plan, "B");
   for (const id of ["rustfmt:2024", "toml-parse", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "changelog-version:foo", "license", "secret-scan"]) assert.ok(a.includes(id), `class A has ${id}`);
-  for (const id of ["check:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
+  for (const id of ["check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
+  assert.ok(!b.includes("check:foo"), "default clippy already type-checks every target: no separate default check");
   for (const s of plan.scans.filter((s) => s.tool === "rightkit")) assert.equal(s.args[0], "cargo", `${s.id} runs through rightkit cargo`);
   const doc = plan.scans.find((s) => s.id === "doc:foo");
   assert.deepEqual(doc.args.slice(-3), ["--", "-D", "warnings"]);
@@ -204,7 +205,7 @@ test("internal checks: JSON, changelog heading, license, ownership catalog and s
 
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { localCompile: false });
-  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
+  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
   assert.deepEqual([...plan.deferred].sort(), [...broker].sort());
   for (const id of broker) assert.ok(plan.scans.find((x) => x.id === id)?.deferred, `${id} stays in the plan, deferred`);
   const log = [];
@@ -229,7 +230,7 @@ test("a workspace Cargo.lock or toolchain change puts every crate in scope", () 
     const extra = { "Cargo.lock": "version = 4\n", "Cargo.toml": "[workspace]\n", "rust-toolchain.toml": "[toolchain]\n", ".cargo/config.toml": "[build]\n", "crates/bar/Cargo.toml": crateFiles["crates/foo/Cargo.toml"], "crates/bar/src/lib.rs": "pub fn g() {}\n" };
     const { plan } = planFor(changed, extra, { listDir: () => ["foo", "bar"] });
     for (const name of ["foo", "bar"]) {
-      for (const kind of ["check", "clippy", "doc", "test:rust"]) {
+      for (const kind of ["clippy", "doc", "test:rust"]) {
         assert.ok(plan.scans.some((s) => s.id === `${kind}:${name}`), `${changed[0]} plans ${kind}:${name}`);
       }
     }
@@ -385,7 +386,7 @@ test("runner: class B alone is refused without valid class A evidence, and runs 
 test("plan: cargoCommand selects the cargo prefix (rightkit cargo locally, plain cargo in CI)", () => {
   const ci = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoCommand: ["cargo"] }).plan;
   const cargoScans = ci.scans.filter((s) => s.tool === "cargo");
-  assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
+  assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
   assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, "cargo deny check");
   assert.ok(!ci.scans.some((s) => s.tool === "rightkit"));
@@ -530,4 +531,31 @@ test("vendor/ keeps upstream formatting only for files recorded verbatim in vend
   assert.ok(!checked.includes("vendor/up/src/lib.rs"), "a verbatim upstream file is exempt");
   assert.ok(checked.includes("vendor/up/src/patched.rs"), "a file whose bytes differ from upstream is checked");
   assert.ok(checked.includes("vendor/up/src/new.rs"), "a file not in the manifest is checked");
+});
+
+test("a crate with no default-feature clippy set keeps its default check", () => {
+  const { plan } = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures: { foo: { featureSets: [["--features", "x"]], checkFeatureSets: [] } } });
+  assert.ok(plan.scans.some((s) => s.id === "check:foo"));
+});
+
+test("rustScope narrows a lock-only workspace change to the crates the lock graph reaches", () => {
+  const extra = { "Cargo.lock": "version = 4\n", "crates/bar/Cargo.toml": crateFiles["crates/foo/Cargo.toml"], "crates/bar/src/lib.rs": "pub fn g() {}\n" };
+  const { plan } = planFor(["Cargo.lock"], extra, { listDir: () => ["foo", "bar"], rustScope: new Set(["bar"]) });
+  assert.ok(plan.scans.some((s) => s.id === "clippy:bar"));
+  assert.ok(!plan.scans.some((s) => s.id === "clippy:foo"));
+});
+
+test("jobs > 1 runs class B side by side by lane, reports each result, and keeps plan order in the result", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+  let running = 0; let peak = 0; const seen = [];
+  const spawn = async (cmd, args) => {
+    running += 1; peak = Math.max(peak, running);
+    await new Promise((r) => setTimeout(r, 5));
+    running -= 1;
+    return { status: 0, stdout: "ok 1.0.0", stderr: "" };
+  };
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 3, onResult: (row, p) => seen.push([row.id, p.done, p.total]) });
+  assert.equal(seen.length, plan.scans.length);
+  assert.deepEqual(result.scans.map((r) => r.id), [...plan.scans.filter((s) => s.class === "A"), ...plan.scans.filter((s) => s.class === "B")].map((s) => s.id));
+  assert.ok(peak > 1, "class B scans overlapped");
 });
