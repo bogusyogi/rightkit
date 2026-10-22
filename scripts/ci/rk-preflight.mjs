@@ -188,7 +188,7 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
  * receipt, so that one check is not independent yet; the signature over the canonical payload is. */
 export function verifyAttestation(requestId, { nonce, argv, pins, spawnFn = spawnSync, tmpDir = os.tmpdir() }) {
   if (!requestId || !nonce) return { verified: false, requestId: requestId ?? null, nonce: nonce ?? null, reason: "no broker request or nonce" };
-  if (!pins?.publicKey || !pins.keyId || !pins.host || !pins.brokerDigest) return { verified: false, requestId, nonce, reason: "no enrollment pins for this host" };
+  if (!pins?.publicKey || !pins.keyId || !pins.host || !pins.brokerDigest || !pins.cargoSha256) return { verified: false, requestId, nonce, reason: "no enrollment pins for this host" };
   const r = spawnFn("rustright", ["status", requestId], { encoding: "utf8", timeout: 60_000 });
   if (r.error || r.status !== 0) return { verified: false, requestId, nonce, reason: "broker status unavailable" };
   let doc;
@@ -210,6 +210,8 @@ export function verifyAttestation(requestId, { nonce, argv, pins, spawnFn = spaw
     [request.kind === "cargo", "not a cargo job"],
     [JSON.stringify(request.requestedArgv ?? []) === JSON.stringify(argv), "argv mismatch"],
     [receipt.state === "SUCCEEDED" && receipt.exitCode === 0, "job did not succeed"],
+    [payload.executable?.sha256 === pins.cargoSha256, "executable is not this host's enrolled cargo (the row did not run locally on this host)"],
+    [receipt.route !== "ci", "the broker routed this row to hosted CI; it did not run locally"],
     [/^[0-9a-f]{64}$/.test(payload.requestDigest ?? ""), "no request digest"],
   ];
   const failed = checks.find(([ok]) => !ok);

@@ -59,11 +59,12 @@ export async function registryVersion(name, registry, fetchImpl = fetch) {
   return crateRegistryVersions(name, fetchImpl); // Exact versions, checksums & yanks; transport failure throws.
 }
 const usable = (versions, requirement) => [...versions].some(([v, meta]) => !meta.yanked && satisfies(requirement, v));
-export function waves(crates, registryVersions) {
+export function waves(crates, registryVersions, failures = new Map()) {
   const unpublished = new Set([...crates.values()].filter((c) => c.publish && !registryVersions.get(c.name)?.has(c.version)).map((c) => c.name));
   const blockers = new Map();
   for (const name of unpublished) {
     const blocked = [];
+    if (failures.has(name)) blocked.push(`lookup-failed:${name}`); // unknown to the registry read: never ready, never done
     for (const d of crates.get(name).deps) {
       if (!crates.has(d.name) || d.name === name) continue;
       if (!d.req || (typeof d.source === "string" && d.source.startsWith("git+"))) { blocked.push(`invalid:${d.name}`); continue; }
@@ -82,14 +83,38 @@ export function waves(crates, registryVersions) {
   }
   return { unpublished, blockers, waves: out };
 }
-async function readiness(opts) {
-  const crates = readCrates(), versions = new Map();
-  // Bounded registry reads; errors are never interpreted as unpublished versions.
-  const queue = [...crates.values()].filter((c) => c.publish);
+/** The workspace crates a request needs to reason about: the selected units and every workspace dependency beneath them. */
+export function closureOf(crates, selected) {
+  const needed = new Set();
+  const visit = (name) => {
+    if (needed.has(name) || !crates.has(name)) return;
+    needed.add(name);
+    for (const d of crates.get(name).deps) visit(d.name);
+  };
+  for (const name of selected.length ? selected : [...crates.keys()]) visit(name);
+  return needed;
+}
+
+/** Registry truth for the needed closure only. A lookup that fails marks THAT crate unknown (never "unpublished"):
+ * it cannot be ready and cannot satisfy a consumer, while every unrelated crate proceeds (Astra review item 6). */
+export async function readiness(opts, deps = {}) {
+  const crates = deps.crates ?? readCrates();
+  const lookup = deps.lookup ?? registryVersion;
+  const needed = [...closureOf(crates, opts.units ?? [])].filter((n) => crates.get(n).publish);
+  const versions = new Map(), failures = new Map();
+  const queue = [...needed];
   await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
-    while (queue.length) { const c = queue.shift(); versions.set(c.name, await registryVersion(c.name, opts.registry)); }
+    while (queue.length) {
+      const name = queue.shift();
+      try {
+        versions.set(name, await lookup(name, opts.registry));
+      } catch (error) {
+        failures.set(name, String(error?.message ?? error));
+      }
+    }
   }));
-  return { crates, versions, ...waves(crates, versions) };
+  const scoped = new Map([...crates].filter(([name]) => needed.includes(name)));
+  return { crates: scoped, versions, failures, ...waves(scoped, versions, failures) };
 }
 
 // ---------- receipts, allowsets, state ----------
@@ -368,8 +393,12 @@ export async function cmdLoop(opts, deps = {}) {
   const active = new Map(), attempted = new Set();
   let dispatchTail = Promise.resolve();
   let failed = false;
+  // Every exit path drains the live preflight workers and the serialized dispatch tail first: no worker may dispatch
+  // after the coordinator has stopped and released its lock (Astra review item 1).
+  const drain = async () => { await Promise.allSettled([...active.values(), dispatchTail]); };
+  try {
   for (;;) {
-    if (head() !== sha) { await Promise.all(active.values()); throw new Error("HEAD moved during release; retain receipts, reconcile before continuing"); }
+    if (head() !== sha) throw new Error("HEAD moved during release; retain receipts, reconcile before continuing");
     await watch({ ...opts, wait: false });
     const r = await readyFn(opts);
     const selected = [...r.unpublished].filter((u) => !opts.units.length || opts.units.includes(u));
@@ -407,6 +436,37 @@ export async function cmdLoop(opts, deps = {}) {
     }
     await Promise.race([...active.values(), pause()]);
   }
+  } catch (error) {
+    failed = true;
+    await drain();
+    throw error;
+  } finally {
+    await drain();
+  }
+}
+
+/** (2) Coordinator lock with stale-owner recovery: a lock whose recorded pid is dead is reclaimed; a live owner excludes. */
+export function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
+}
+export function acquireLock(lockFile, { alive = pidAlive, pid = process.pid } = {}) {
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const fd = fs.openSync(lockFile, "wx"); fs.writeFileSync(fd, JSON.stringify({ pid, at: new Date().toISOString() })); fs.closeSync(fd);
+      return;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let owner = null;
+      try { owner = JSON.parse(fs.readFileSync(lockFile, "utf8")).pid; } catch { owner = null; }
+      if (owner && alive(owner)) throw new Error(`another coordinator (pid ${owner}) holds ${lockFile}; wait for it or stop it, never delete the lock by hand`);
+      fs.unlinkSync(lockFile); // stale: owner gone; the state file is authoritative and the loop skips recorded dispatches
+    }
+  }
+  throw new Error(`could not acquire ${lockFile}`);
+}
+export function releaseLock(lockFile, { pid = process.pid } = {}) {
+  try { if (JSON.parse(fs.readFileSync(lockFile, "utf8")).pid === pid) fs.unlinkSync(lockFile); } catch { /* not ours or gone */ }
 }
 
 export async function main(argv) {
@@ -438,11 +498,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const lock = `${STATE_FILE}.lock`;
   let locked = false;
   try {
-    if (mutates) {
-      fs.mkdirSync(path.dirname(lock), { recursive: true });
-      const fd = fs.openSync(lock, "wx"); fs.writeFileSync(fd, String(process.pid)); fs.closeSync(fd); locked = true;
-    }
+    if (mutates) { acquireLock(lock); locked = true; }
     process.exitCode = await main(process.argv.slice(2));
   } catch (error) { fail(error.message); process.exitCode = 2; }
-  finally { if (locked) fs.unlinkSync(lock); }
+  finally { if (locked) releaseLock(lock); }
 }

@@ -65,8 +65,8 @@ test("rustdoc diagnostics & request IDs are captured", () => {
 
 test("per-row attestation: broker status fields must match, then the envelope signature is verified against the enrolled key", () => {
   const nonce = "a".repeat(64), job = "11111111-1111-4111-8111-111111111111";
-  const pins = { host: "mac.local", keyId: "b".repeat(64), publicKey: "c".repeat(64), brokerDigest: "d".repeat(64) };
-  const status = (over = {}) => ({ receipt: { state: "SUCCEEDED", exitCode: 0, inputBoundary: { status: "unrequested" }, provenance: { schema: "rustright.provenance.v1", signature: { alg: "ES256", keyId: pins.keyId }, payload: { host: pins.host, broker: { brokerDigest: pins.brokerDigest }, nonce, jobId: job, requestDigest: "e".repeat(64), request: { kind: "cargo", requestedArgv: ["check", "-p", "x", "--locked"], manifestDigest: null } } }, ...over } });
+  const pins = { host: "mac.local", keyId: "b".repeat(64), publicKey: "c".repeat(64), brokerDigest: "d".repeat(64), cargoSha256: "1".repeat(64) };
+  const status = (over = {}) => ({ receipt: { state: "SUCCEEDED", exitCode: 0, inputBoundary: { status: "unrequested" }, provenance: { schema: "rustright.provenance.v1", signature: { alg: "ES256", keyId: pins.keyId }, payload: { host: pins.host, broker: { brokerDigest: pins.brokerDigest }, nonce, jobId: job, requestDigest: "e".repeat(64), executable: { sha256: pins.cargoSha256 }, request: { kind: "cargo", requestedArgv: ["check", "-p", "x", "--locked"], manifestDigest: null } } }, ...over } });
   const spawnFor = (doc, verifyStatus = 0) => (cmd, args) => (args[0] === "status" ? { status: 0, stdout: JSON.stringify(doc) } : { status: verifyStatus, stdout: "" });
   const calls = [];
   const good = verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, tmpDir: process.env.TMPDIR ?? "/tmp", spawnFn: (cmd, args) => { calls.push(args); return spawnFor(status())(cmd, args); } });
@@ -80,6 +80,9 @@ test("per-row attestation: broker status fields must match, then the envelope si
   assert.equal(bad({}, nonce, ["check", "-p", "y", "--locked"]), "argv mismatch");
   assert.equal(bad({ exitCode: 1 }), "job did not succeed");
   assert.equal(bad({}, nonce, ["check", "-p", "x", "--locked"], 1), "signature verification failed");
+  const foreignCargo = status(); foreignCargo.receipt.provenance.payload.executable.sha256 = "2".repeat(64);
+  assert.match(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(foreignCargo) }).reason, /not this host's enrolled cargo/);
+  assert.match(bad({ route: "ci" }), /routed this row to hosted CI/);
   const foreignKey = status(); foreignKey.receipt.provenance.signature.keyId = "9".repeat(64);
   assert.equal(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(foreignKey) }).reason, "signature key is not the enrolled key");
   const unsigned = status(); delete unsigned.receipt.provenance;

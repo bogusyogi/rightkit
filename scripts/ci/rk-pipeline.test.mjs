@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import test from "node:test";
-import { allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { acquireLock, releaseLock, closureOf, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -119,4 +121,67 @@ test("dependent enters once its registry prerequisite is live while unrelated sl
   });
   assert.equal(result, 0);
   assert.deepEqual(entered, ["parent", "slow", "child"]);
+});
+
+
+test("readiness: an unrelated crate's registry failure blocks only that crate and its consumers; selected ready units advance", async () => {
+  const crates = new Map([
+    ["rightkit-a", { name: "rightkit-a", version: "0.2.0", publish: true, deps: [] }],
+    ["rightkit-b", { name: "rightkit-b", version: "0.3.0", publish: true, deps: [{ name: "rightkit-a", req: "0.2.0" }] }],
+    ["rightkit-z", { name: "rightkit-z", version: "9.0.0", publish: true, deps: [] }],
+    ["rightkit-zc", { name: "rightkit-zc", version: "1.0.0", publish: true, deps: [{ name: "rightkit-z", req: "9.0.0" }] }],
+  ]);
+  const lookup = async (name) => { if (name === "rightkit-z") throw new Error("registry 503"); return new Map(name === "rightkit-a" ? [["0.2.0", { yanked: false }]] : []); };
+  const r = await readiness({ registry: "crates", units: [] }, { crates, lookup });
+  assert.deepEqual([...r.failures.keys()], ["rightkit-z"]);
+  assert.ok(r.waves[0].includes("rightkit-b"), "b is ready: a is on the registry");
+  assert.ok(!r.waves.flat().includes("rightkit-z"), "z is never ready while its lookup failed");
+  const stuck = r.waves.find((w) => !Array.isArray(w));
+  assert.ok(stuck && stuck.stuck.includes("rightkit-z") && stuck.stuck.includes("rightkit-zc"), "z and its consumer wait; nothing else does");
+  const scoped = await readiness({ registry: "crates", units: ["rightkit-b"] }, { crates, lookup });
+  assert.deepEqual([...scoped.crates.keys()].sort(), ["rightkit-a", "rightkit-b"], "only the requested closure is looked up");
+  assert.equal(scoped.failures.size, 0);
+  assert.deepEqual([...closureOf(crates, ["rightkit-zc"])].sort(), ["rightkit-z", "rightkit-zc"]);
+});
+
+test("coordinator lock: a dead owner's lock is reclaimed, a live owner excludes, release only removes our own", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const lock = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-lock-")), "state.json.lock");
+  acquireLock(lock, { pid: 111, alive: () => true });
+  assert.throws(() => acquireLock(lock, { pid: 222, alive: () => true }), /another coordinator \(pid 111\)/);
+  releaseLock(lock, { pid: 222 });
+  assert.ok(fs.existsSync(lock), "a foreign pid cannot release the lock");
+  acquireLock(lock, { pid: 333, alive: () => false });
+  assert.equal(JSON.parse(fs.readFileSync(lock, "utf8")).pid, 333, "a stale lock is reclaimed by the next coordinator");
+  releaseLock(lock, { pid: 333 });
+  assert.ok(!fs.existsSync(lock));
+});
+
+
+test("loop: a readiness exception drains the live preflight worker and the dispatch tail before it propagates; nothing dispatches afterwards", async () => {
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const dispatched = [];
+  let readinessCalls = 0;
+  const unitState = { dispatches: {} };
+  const deps = {
+    head: () => "a".repeat(40),
+    readiness: async () => { readinessCalls += 1; if (readinessCalls === 2) throw new Error("registry exploded"); return { unpublished: new Set(["rightkit-x"]), waves: [["rightkit-x"]], failures: new Map() }; },
+    readState: () => unitState, writeState: (st) => Object.assign(unitState, st),
+    watch: async () => 0,
+    preflight: async () => { await held; return { code: 0, last: "GREEN" }; },
+    dispatch: async (o) => { dispatched.push(o.units[0]); return 0; },
+    pause: async () => {},
+  };
+  const loop = cmdLoop({ registry: "crates", units: ["rightkit-x"], jobs: 2, wait: false }, deps);
+  let settled = false;
+  loop.then(() => { settled = true; }, () => { settled = true; });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(settled, false, "the loop must not finish while a worker is held, even after readiness threw");
+  release();
+  await assert.rejects(loop, /registry exploded/);
+  assert.deepEqual(dispatched, ["rightkit-x"], "the held worker completed its dispatch before the loop ended, not after");
+  const after = dispatched.length;
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(dispatched.length, after, "nothing dispatches after the loop has ended");
 });
