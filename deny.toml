@@ -5,6 +5,23 @@
 [graph]
 all-features = true
 
+[advisories]
+# Generated from ci/advisory-exceptions.json; packages/release/advisory-exceptions.mjs fails on any mismatch.
+# Do not add an ignore here without an entry there (owner, evidence, absolute reviewBy date).
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+unmaintained = "workspace"
+yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2023-0071", reason = "Marvin timing attack applies to RSA private-key operations; rightkit-ownership only parses and exports public keys and verifies signatures, and no RustCrypto RSA private-key operation exists in the workspace." },
+  { id = "RUSTSEC-2026-0235", reason = "Scope is the mitex DEFAULT_SPEC path only: the typeset wrapper passes None, so mitex deserializes its embedded include_bytes data and user LaTeX never becomes archive bytes." },
+  { id = "RUSTSEC-2024-0429", reason = "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships." },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained (a maintenance notice, no vulnerability). It is a direct dependency of rightkit-pdf and also arrives through the typst and font stack (fontdb, lopdf, pixglyph, rustybuzz, typst-layout, typst-library, typst-render, typst-svg, usvg); the dependents set is pinned. Migration to skrifa is tracked in rightkit#890." },
+  { id = "RUSTSEC-2026-0367", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted." },
+  { id = "RUSTSEC-2026-0368", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted." },
+  { id = "RUSTSEC-2026-0369", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted." },
+]
+
 [licenses]
 # Permissive licences, plus OFL for fonts (Typst embeds fonts, with notices in THIRD-PARTY).
 # MPL-2.0 is file-level copyleft and allowed for unmodified dependencies.

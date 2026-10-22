@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "_comment": "Single source for every RustSec advisory exception. deny.toml [advisories].ignore and .cargo/audit.toml must match it exactly; packages/release/advisory-exceptions.mjs fails on missing fields, expired reviewBy, scope drift against Cargo.lock, or any mismatch. Renewal needs fresh evidence. Policy: Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md. unaffectedVersions lists other locked versions of the same crate that the advisory does not cover. dependents is the exact set of Cargo.lock packages that directly depend on an affected version; the gate fails if a consumer is added or removed, and every hop of path must be a Cargo.lock dependency edge.",
+  "exceptions": [
+    {
+      "id": "RUSTSEC-2023-0071",
+      "crate": "rsa",
+      "affectedVersions": ["0.9.10"],
+      "dependents": ["rightkit-ownership 0.3.1"],
+      "path": "rightkit-ownership -> rsa",
+      "owner": "RK Fable",
+      "rationale": "Marvin timing attack applies to RSA private-key operations; rightkit-ownership only parses and exports public keys and verifies signatures, and no RustCrypto RSA private-key operation exists in the workspace.",
+      "evidence": "crates/rightkit-ownership/src/keylog.rs:11-25",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0235",
+      "crate": "rkyv",
+      "affectedVersions": ["0.7.46"],
+      "dependents": ["mitex-spec 0.2.4"],
+      "path": "rightkit-typeset -> mitex -> mitex-parser -> mitex-spec -> rkyv",
+      "owner": "RK Fable",
+      "rationale": "Scope is the mitex DEFAULT_SPEC path only: the typeset wrapper passes None, so mitex deserializes its embedded include_bytes data and user LaTeX never becomes archive bytes.",
+      "evidence": "crates/rightkit-typeset/src/lib.rs:145; https://docs.rs/crate/mitex-spec-gen/0.2.4",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md"
+    },
+    {
+      "id": "RUSTSEC-2024-0429",
+      "crate": "glib",
+      "affectedVersions": ["0.18.5"],
+      "dependents": ["atk 0.18.2", "cairo-rs 0.18.5", "gdk 0.18.2", "gdk-pixbuf 0.18.5", "gdkx11 0.18.2", "gio 0.18.4", "gtk 0.18.2", "javascriptcore-rs 1.1.2", "libappindicator 0.9.0", "pango 0.18.3", "soup3 0.5.0", "webkit2gtk 2.0.2"],
+      "path": "tauri -> gtk -> glib",
+      "owner": "RK Fable",
+      "rationale": "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships.",
+      "evidence": "tauri-2.11.5/Cargo.toml:335 (Linux/BSD-gated gtk); .github/workflows/publish.yml:603 (release build matrix is xcode-27 and windows-2025 only); ci/linux-required.json (Linux verify row for @rightkit/qa-chrome only, crates empty)",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0192",
+      "crate": "ttf-parser",
+      "affectedVersions": ["0.25.1"],
+      "dependents": ["fontdb 0.23.0", "lopdf 0.42.0", "pixglyph 0.6.1", "rightkit-pdf 0.3.3", "rustybuzz 0.20.1", "typst-layout 0.15.1", "typst-library 0.15.1", "typst-render 0.15.1", "typst-svg 0.15.1", "usvg 0.47.0"],
+      "path": "rightkit-pdf -> ttf-parser",
+      "owner": "RK Fable",
+      "rationale": "ttf-parser is unmaintained (a maintenance notice, no vulnerability). It is a direct dependency of rightkit-pdf and also arrives through the typst and font stack (fontdb, lopdf, pixglyph, rustybuzz, typst-layout, typst-library, typst-render, typst-svg, usvg); the dependents set is pinned. Migration to skrifa is tracked in rightkit#890.",
+      "evidence": "crates/rightkit-pdf/Cargo.toml:52; https://github.com/Orthic-Labs/rightkit/issues/890; https://rustsec.org/advisories/RUSTSEC-2026-0192.html",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0367",
+      "crate": "zip",
+      "affectedVersions": ["4.6.1"],
+      "dependents": ["tauri-plugin-updater 2.10.1"],
+      "unaffectedVersions": ["9.0.4"],
+      "path": "rightkit-tauri-shell -> tauri-plugin-updater 2.10.1 -> zip 4.6.1",
+      "owner": "RK Fable",
+      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
+      "evidence": "tauri-plugin-updater-2.10.1/src/updater.rs:652-712 download() verifies the minisign signature before returning bytes; install(bytes) at :718 does not, so crates/rightkit-tauri-shell/src/update/tauri_transport.rs:214-229 installs only the VerifiedBytes token produced by download_verified (:231-245) after an identity recheck; 2.14.0 keeps zip ^4 (Cargo.toml:198)",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22 MODIFY (temporary; Windows bundles are raw signed installers, ZIP path signature-verified first; reassess on platform, path or key change), D:/scratch/rk-888/astra-zip-answer.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0368",
+      "crate": "zip",
+      "affectedVersions": ["4.6.1"],
+      "dependents": ["tauri-plugin-updater 2.10.1"],
+      "unaffectedVersions": ["9.0.4"],
+      "path": "rightkit-tauri-shell -> tauri-plugin-updater 2.10.1 -> zip 4.6.1",
+      "owner": "RK Fable",
+      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
+      "evidence": "tauri-plugin-updater-2.10.1/src/updater.rs:652-712 download() verifies the minisign signature before returning bytes; install(bytes) at :718 does not, so crates/rightkit-tauri-shell/src/update/tauri_transport.rs:214-229 installs only the VerifiedBytes token produced by download_verified (:231-245) after an identity recheck; 2.14.0 keeps zip ^4 (Cargo.toml:198)",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22 MODIFY (temporary; Windows bundles are raw signed installers, ZIP path signature-verified first; reassess on platform, path or key change), D:/scratch/rk-888/astra-zip-answer.md"
+    },
+    {
+      "id": "RUSTSEC-2026-0369",
+      "crate": "zip",
+      "affectedVersions": ["4.6.1"],
+      "dependents": ["tauri-plugin-updater 2.10.1"],
+      "unaffectedVersions": ["9.0.4"],
+      "path": "rightkit-tauri-shell -> tauri-plugin-updater 2.10.1 -> zip 4.6.1",
+      "owner": "RK Fable",
+      "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
+      "evidence": "tauri-plugin-updater-2.10.1/src/updater.rs:652-712 download() verifies the minisign signature before returning bytes; install(bytes) at :718 does not, so crates/rightkit-tauri-shell/src/update/tauri_transport.rs:214-229 installs only the VerifiedBytes token produced by download_verified (:231-245) after an identity recheck; 2.14.0 keeps zip ^4 (Cargo.toml:198)",
+      "reviewBy": "2026-11-22",
+      "approvedBy": "Astra 2026-10-22 MODIFY (temporary; Windows bundles are raw signed installers, ZIP path signature-verified first; reassess on platform, path or key change), D:/scratch/rk-888/astra-zip-answer.md"
+    }
+  ]
+}
