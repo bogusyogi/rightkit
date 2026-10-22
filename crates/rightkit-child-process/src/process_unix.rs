@@ -1,48 +1,130 @@
-use std::{io, os::fd::RawFd};
+use std::{
+    io,
+    os::fd::RawFd,
+    sync::atomic::{AtomicI32, Ordering},
+};
 
+/// The descriptor policy of a spawned child (Orthic-Labs/rightkit#835): every descriptor above
+/// stderr is marked close-on-exec between `fork` and `exec`, except the listed ones, whose
+/// close-on-exec flag is cleared so they survive. Descriptors 0, 1 and 2 are never touched:
+/// they are the child's stdio, which the spawning `Command` has already wired by the time a
+/// `pre_exec` hook runs.
+///
+/// Everything that allocates, reads a directory or can fail for a reason the caller could act
+/// on happens in the constructors, in the parent. [`apply`](Self::apply) is the only part that
+/// runs in the forked child.
 pub(crate) struct Inheritance {
     allowed: Vec<RawFd>,
     upper_bound: RawFd,
+    /// Also honour [`SHARED_BOUND`] (the `SanitizeDescriptors` path, whose registration-time
+    /// snapshot can be stale by the time the caller spawns).
+    shared: bool,
+    validation_error: Option<i32>,
+}
+
+/// Descriptors above the highest listed one that the child loop still visits (std's exec-error
+/// pipe and descriptors opened between the listing and the fork land just above it).
+const SWEEP_MARGIN: RawFd = 256;
+/// Safety net for the child loop when the parent cannot list its descriptors.
+const FALLBACK_CAP: RawFd = 65_536;
+
+/// Sweep bound last refreshed in the parent by `refresh_shared_bound` (called when a sanitizing
+/// hook is registered and by `SanitizeDescriptors::refresh_sanitized`). The hook reads it in
+/// the child with one atomic load, which is async-signal-safe.
+static SHARED_BOUND: AtomicI32 = AtomicI32::new(0);
+
+/// Re-lists the parent's descriptors and publishes the bound; a failed listing leaves it.
+pub(crate) fn refresh_shared_bound() {
+    if let Some(highest) = highest_open_descriptor() {
+        SHARED_BOUND.store(
+            highest.saturating_add(SWEEP_MARGIN).saturating_add(1),
+            Ordering::Relaxed,
+        );
+    }
+}
+
+/// Highest descriptor open in this process, from `/proc/self/fd` or `/dev/fd`; `None` when
+/// neither can be listed. Runs in the parent only (it allocates).
+fn highest_open_descriptor() -> Option<RawFd> {
+    ["/proc/self/fd", "/dev/fd"].into_iter().find_map(|path| {
+        std::fs::read_dir(path).ok().map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| entry.file_name().to_str()?.parse::<RawFd>().ok())
+                .max()
+                .unwrap_or(2)
+        })
+    })
 }
 
 impl Inheritance {
-    pub(crate) fn new(mut allowed: Vec<RawFd>) -> io::Result<Self> {
-        if allowed.iter().any(|fd| *fd < 0) {
-            return Err(io::Error::from_raw_os_error(libc::EBADF));
+    /// Validating constructor for the `OwnedCommand` path: a listed descriptor that is not open
+    /// fails the spawn before anything starts (`EBADF`).
+    pub(crate) fn new(allowed: Vec<RawFd>) -> io::Result<Self> {
+        let this = Self::build(allowed, false);
+        if let Some(code) = this.validation_error {
+            return Err(io::Error::from_raw_os_error(code));
         }
-        allowed.sort_unstable();
-        allowed.dedup();
-        for &fd in &allowed {
-            if unsafe { libc::fcntl(fd, libc::F_GETFD) } < 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        let maximum = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
-        if maximum < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // Include descriptors above a subsequently lowered soft limit.
-        let highest = ["/proc/self/fd", "/dev/fd"]
-            .into_iter()
-            .find_map(|path| {
-                std::fs::read_dir(path).ok().map(|entries| {
-                    entries
-                        .filter_map(Result::ok)
-                        .filter_map(|entry| entry.file_name().to_str()?.parse::<RawFd>().ok())
-                        .max()
-                        .unwrap_or(2)
-                })
-            })
-            .unwrap_or(2);
-        let upper_bound = maximum.min(i64::from(i32::MAX) as libc::c_long) as RawFd;
-        Ok(Self {
-            allowed,
-            upper_bound: upper_bound.max(highest.saturating_add(1)),
-        })
+        Ok(this)
     }
 
-    // Called after fork: no allocation, directory traversal, locks or destructors.
+    /// Constructor for builders that cannot return an error (`SanitizeDescriptors`): a listed
+    /// descriptor that is not open (or negative) is recorded in the parent and reported by
+    /// the child. Checking before spawn prevents std's newly opened exec-error pipe from
+    /// accidentally occupying an invalid keep-list descriptor and becoming inheritable.
+    pub(crate) fn unchecked(allowed: Vec<RawFd>) -> Self {
+        refresh_shared_bound();
+        Self::build(allowed, true)
+    }
+
+    fn build(mut allowed: Vec<RawFd>, shared: bool) -> Self {
+        allowed.sort_unstable();
+        allowed.dedup();
+        let validation_error = allowed.iter().find_map(|&fd| {
+            if unsafe { libc::fcntl(fd, libc::F_GETFD) } < 0 {
+                Some(
+                    io::Error::last_os_error()
+                        .raw_os_error()
+                        .unwrap_or(libc::EBADF),
+                )
+            } else {
+                None
+            }
+        });
+        // The bound is the highest descriptor open in the parent right now plus a small margin,
+        // never `_SC_OPEN_MAX`: with a large RLIMIT_NOFILE a limit-sized loop costs hundreds of
+        // thousands of `fcntl` calls per spawn in the forked child. Only when no listing works
+        // does the loop fall back to the descriptor limit, capped at `FALLBACK_CAP`.
+        // Race: a descriptor another thread opens between this listing and the fork, above the
+        // bound, is not swept (the same window exists for any listing-based sweep).
+        let upper_bound = match highest_open_descriptor() {
+            Some(highest) => highest.saturating_add(SWEEP_MARGIN).saturating_add(1),
+            None => {
+                let maximum = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
+                let maximum = if maximum < 0 { 4096 } else { maximum };
+                maximum.min(FALLBACK_CAP as libc::c_long) as RawFd
+            }
+        };
+        Self {
+            allowed,
+            upper_bound,
+            shared,
+            validation_error,
+        }
+    }
+
+    /// Runs in the forked child, between `fork` and `exec`.
+    ///
+    /// Async-signal-safety invariant (code review, not a runtime check): this function and
+    /// [`exclude`](Self::exclude) call only `fcntl` and `syscall(SYS_close_range)`, read
+    /// `self.allowed` and `self.upper_bound` (plain integers and a `Vec` that is only
+    /// iterated), and build `io::Error` values from an errno, which stores the code in the
+    /// error itself and allocates nothing. No allocation, no lock, no directory traversal, no
+    /// destructor with side effects, no use of `std::env` or any other global state.
     pub(crate) fn apply(&self) -> io::Result<()> {
+        if let Some(code) = self.validation_error {
+            return Err(io::Error::from_raw_os_error(code));
+        }
         let mut first = 3u32;
         for &fd in self.allowed.iter().filter(|fd| **fd >= 3) {
             self.exclude(first, fd as u32 - 1)?;
@@ -59,15 +141,17 @@ impl Inheritance {
         Ok(())
     }
 
+    /// Marks every open descriptor in `first..=last` close-on-exec. Never closes one: a
+    /// descriptor that is already close-on-exec (std's exec-error pipe among them) must stay
+    /// open until `exec`, or a failed exec would look like a successful spawn.
     fn exclude(&self, first: u32, last: u32) -> io::Result<()> {
         if first > last {
             return Ok(());
         }
         #[cfg(target_os = "linux")]
         {
-            // Keep std's CLOEXEC exec-error pipe alive until exec: closing it
-            // in pre_exec would make failed exec look like successful spawn.
-            // CLOSE_RANGE_CLOEXEC excludes every unwanted fd atomically at exec.
+            // CLOSE_RANGE_CLOEXEC (Linux 5.11) marks the whole range in one call. A kernel or
+            // seccomp policy that refuses it (ENOSYS, EINVAL, EPERM) falls through to the loop.
             const CLOSE_RANGE_CLOEXEC: libc::c_uint = 4;
             if unsafe { libc::syscall(libc::SYS_close_range, first, last, CLOSE_RANGE_CLOEXEC) }
                 == 0
@@ -75,7 +159,12 @@ impl Inheritance {
                 return Ok(());
             }
         }
-        let end = last.min(self.upper_bound.saturating_sub(1) as u32);
+        let bound = if self.shared {
+            self.upper_bound.max(SHARED_BOUND.load(Ordering::Relaxed))
+        } else {
+            self.upper_bound
+        };
+        let end = last.min(bound.saturating_sub(1) as u32);
         for fd in first..=end {
             let fd = fd as RawFd;
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
@@ -84,17 +173,10 @@ impl Inheritance {
                 if error.raw_os_error() != Some(libc::EBADF) {
                     return Err(error);
                 }
-            } else if flags & libc::FD_CLOEXEC == 0 {
-                // All preexisting CLOEXEC fds (including std's error pipe)
-                // already disappear at exec; only inheritable fds need close.
-                // Even if close is interrupted on a host that leaves fd open,
-                // CLOEXEC guarantees it cannot escape into the executed child.
-                if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
-                    return Err(io::Error::last_os_error());
-                }
-                unsafe {
-                    libc::close(fd);
-                }
+            } else if flags & libc::FD_CLOEXEC == 0
+                && unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
+            {
+                return Err(io::Error::last_os_error());
             }
         }
         Ok(())

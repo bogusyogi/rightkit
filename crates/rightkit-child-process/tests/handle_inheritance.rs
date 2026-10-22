@@ -53,13 +53,45 @@ fn command() -> OwnedCommand {
     owned
 }
 
+/// How the test names (or does not name) the parent's handle to the spawn.
+#[derive(Clone, Copy)]
+enum Policy {
+    /// `inherit_handles_only([handle])`.
+    Listed,
+    /// `inherit_handles_only([])`.
+    EmptyList,
+    /// Nothing named: the default, which since Orthic-Labs/rightkit#835 inherits no handle
+    /// beyond stdio (Unix: every descriptor above stderr is marked close-on-exec; Windows: a
+    /// native spawn with an empty handle list).
+    Default,
+    /// `inherit_all_descriptors(true)`: the unsafe-by-policy opt-out.
+    InheritAll,
+}
+
 fn assert_inheritance(allow: bool, cloexec: bool) {
+    let policy = if allow {
+        Policy::Listed
+    } else {
+        Policy::EmptyList
+    };
+    assert_inheritance_with(policy, cloexec);
+}
+
+fn assert_inheritance_with(policy: Policy, cloexec: bool) {
+    let allow = matches!(policy, Policy::Listed | Policy::InheritAll);
     let (mut read, write) = pipe(cloexec);
     let mut command = command();
-    if allow {
-        command.inherit_handles_only([raw(&write)]);
-    } else {
-        command.inherit_handles_only([]);
+    match policy {
+        Policy::Listed => {
+            command.inherit_handles_only([raw(&write)]);
+        }
+        Policy::EmptyList => {
+            command.inherit_handles_only([]);
+        }
+        Policy::Default => {}
+        Policy::InheritAll => {
+            command.inherit_all_descriptors(true);
+        }
     }
     let mut child = command.spawn().unwrap();
     assert!(
@@ -116,6 +148,22 @@ fn assert_inheritance(allow: bool, cloexec: bool) {
 #[test]
 fn unlisted_inheritable_pipe_is_not_inherited() {
     assert_inheritance(false, false);
+}
+
+/// The #835 default on both hosts: an inheritable pipe end the caller never named does not reach
+/// the child, with no allowlist call at all. On Windows this holds for a command whose stdio and
+/// environment are known (`OwnedCommand::new`, or an explicit `windows_spawn_config` as here);
+/// a bare `from_command` has no config and keeps std's spawn, which inherits every inheritable
+/// handle (see the README).
+#[test]
+fn unlisted_inheritable_pipe_is_not_inherited_by_default() {
+    assert_inheritance_with(Policy::Default, false);
+}
+
+/// The opt-out hands the child the parent's inheritable handle again.
+#[test]
+fn inherit_all_descriptors_restores_inheritance_of_an_unlisted_pipe() {
+    assert_inheritance_with(Policy::InheritAll, false);
 }
 
 #[test]

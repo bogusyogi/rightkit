@@ -142,6 +142,11 @@ pub struct OwnedCommand {
     // None preserves the existing unbounded partial-spawn reap.
     partial_spawn_cleanup_timeout: Option<Duration>,
     inherited_handles: Option<Vec<InheritedValue>>,
+    // Unix: descriptors that stay open in the child on top of `inherited_handles`.
+    #[cfg(unix)]
+    inherited_fds: Vec<std::os::fd::RawFd>,
+    // Opt-out of descriptor/handle sanitation (Orthic-Labs/rightkit#835).
+    inherit_all_descriptors: bool,
     #[cfg(windows)]
     windows_spawn_config: Option<crate::WindowsSpawnConfig>,
     #[cfg(windows)]
@@ -195,6 +200,9 @@ impl OwnedCommand {
             hold_suspended: false,
             partial_spawn_cleanup_timeout: None,
             inherited_handles: None,
+            #[cfg(unix)]
+            inherited_fds: Vec::new(),
+            inherit_all_descriptors: false,
             #[cfg(windows)]
             windows_spawn_config: None,
             #[cfg(windows)]
@@ -231,6 +239,39 @@ impl OwnedCommand {
         #[cfg(unix)]
         let handles = handles.into_iter().collect();
         self.inherited_handles = Some(handles);
+        self
+    }
+    /// Unix: keeps descriptor `fd` open in the child, in addition to stdio and anything listed
+    /// through [`inherit_handles_only`](Self::inherit_handles_only) or other `inherit_fd(s)`
+    /// calls. By default a spawned child inherits no descriptor above stderr: every one is
+    /// marked close-on-exec between `fork` and `exec` (Orthic-Labs/rightkit#835). Listing `fd`
+    /// clears that flag in the child only; the parent's flags are not changed. The descriptor
+    /// must be open when [`spawn`](Self::spawn) runs, else the spawn fails with `EBADF`, and
+    /// stays caller-owned. Use this, not a `pre_exec` of your own on
+    /// [`command_mut`](Self::command_mut): the sweep is registered at spawn, after every hook
+    /// you added, and would close what such a hook opened. Descriptors 0 to 2 are stdio and
+    /// follow the command's stdio settings. Not available on Windows.
+    #[cfg(unix)]
+    pub fn inherit_fd(&mut self, fd: std::os::fd::RawFd) -> &mut Self {
+        self.inherited_fds.push(fd);
+        self
+    }
+    /// Unix: [`inherit_fd`](Self::inherit_fd) for each descriptor in `fds`.
+    #[cfg(unix)]
+    pub fn inherit_fds(&mut self, fds: &[std::os::fd::RawFd]) -> &mut Self {
+        self.inherited_fds.extend_from_slice(fds);
+        self
+    }
+    /// Opts out of descriptor sanitation. Unsafe by policy: with `true`, a Unix child inherits
+    /// every descriptor of the parent that is not itself close-on-exec, a sandboxed child
+    /// included, which is exactly what a sandbox must not allow (Orthic-Labs/rightkit#835).
+    /// On Windows it keeps the ordinary `CreateProcess` with handle inheritance on and no
+    /// handle list, which hands the child every inheritable handle of the parent. Only a caller
+    /// that passes descriptors it cannot name (a launcher forwarding an unknown inherited set)
+    /// has a reason. Conflicts with [`inherit_handles_only`](Self::inherit_handles_only) and
+    /// `inherit_fd(s)`: the spawn fails with `InvalidInput` instead of guessing which wins.
+    pub fn inherit_all_descriptors(&mut self, enabled: bool) -> &mut Self {
+        self.inherit_all_descriptors = enabled;
         self
     }
     /// Supply opaque stdio/environment/raw-arg settings for native allowlisted spawns.
@@ -468,6 +509,27 @@ impl OwnedCommand {
                 "kill_on_parent_exit cannot combine with a detached launch",
             ));
         }
+        #[cfg(unix)]
+        let lists_fds = !self.inherited_fds.is_empty();
+        #[cfg(not(unix))]
+        let lists_fds = false;
+        if self.inherit_all_descriptors && (self.inherited_handles.is_some() || lists_fds) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "inherit_all_descriptors conflicts with inherit_handles_only and inherit_fd(s)",
+            ));
+        }
+        // Windows: a command whose stdio and environment are known (`new`, or an explicit
+        // config) takes the native spawn with an empty handle list by default, so the child
+        // inherits its stdio and nothing else. A bare `from_command` has no config and keeps
+        // std's spawn (see the README).
+        #[cfg(windows)]
+        if !self.inherit_all_descriptors
+            && self.inherited_handles.is_none()
+            && self.windows_spawn_config.is_some()
+        {
+            self.inherited_handles = Some(Vec::new());
+        }
         if let Some(RunStdio { stdin_piped }) = self.run_stdio {
             // Applied here, after every caller edit, to both launch paths: the std spawn reads
             // the `Command`, an allowlisted Windows spawn reads only the config.
@@ -504,11 +566,15 @@ impl OwnedCommand {
             let nice_floor = self.process_priority.nice_floor();
             #[cfg(target_os = "macos")]
             let utility_qos = self.process_priority == ProcessPriority::Efficient;
-            let inheritance = self
-                .inherited_handles
-                .take()
-                .map(crate::process_unix::Inheritance::new)
-                .transpose()?;
+            // Default: sweep every descriptor above stderr (Orthic-Labs/rightkit#835); the
+            // allowlist and `inherit_fd(s)` are the exceptions. Built here, in the parent.
+            let inheritance = if self.inherit_all_descriptors {
+                None
+            } else {
+                let mut allowed = self.inherited_handles.take().unwrap_or_default();
+                allowed.extend(self.inherited_fds.iter().copied());
+                Some(crate::process_unix::Inheritance::new(allowed)?)
+            };
             // The supervisor's pid, read here and compared in the child (see `die_with_parent`).
             #[cfg(target_os = "linux")]
             let supervisor = self

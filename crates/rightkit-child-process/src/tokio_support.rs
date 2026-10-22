@@ -47,11 +47,15 @@ impl NoWindow for tokio::process::Command {
 
 /// A `tokio::process::Command` for `program` that already has the no-window flag set on
 /// Windows, returned by value so it chains. The async counterpart of
-/// [`command_std`](crate::command_std).
+/// [`command_std`](crate::command_std): on Unix the child also inherits no descriptor above
+/// stderr (see [`SanitizeDescriptors`](crate::SanitizeDescriptors)).
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
     // windowless: no_window() is applied on the next line
     let mut command = tokio::process::Command::new(program);
     command.no_window();
+    // Unix: the child inherits no descriptor above stderr (Orthic-Labs/rightkit#835).
+    #[cfg(unix)]
+    crate::SanitizeDescriptors::sanitize_descriptors(&mut command, &[]);
     command
 }
 

@@ -1,6 +1,8 @@
-//! `OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio; Windows requires `windows_spawn_config` for opaque Command settings.
+//! `OwnedCommand::inherit_handles_only` restricts inheritance to caller handles/fds plus stdio (Unix children inherit no other descriptor by default, `inherit_fds` adds some, `inherit_all_descriptors(true)` opts out); Windows requires `windows_spawn_config` for opaque Command settings.
 
 mod capture;
+#[cfg(unix)]
+mod descriptors;
 #[cfg(unix)]
 mod exit_watch;
 mod foreign;
@@ -40,6 +42,8 @@ mod usage;
 pub mod windows_job;
 
 pub use capture::{read_bounded, CapturedOutput, OutputCapture};
+#[cfg(unix)]
+pub use descriptors::SanitizeDescriptors;
 pub use foreign::{
     find_processes, process_group_exists, suspend_current_process, sweep, sweep_descendants,
     sweep_matching, wait_process_group_empty, AdoptedIdentity, AdoptedSignal, IdentityCheck,
