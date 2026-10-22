@@ -1,10 +1,11 @@
 import crypto from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
 import {
-  CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
+  CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
 } from "./deterministic-scans.mjs";
 
@@ -558,4 +559,307 @@ test("jobs > 1 runs class B side by side by lane, reports each result, and keeps
   assert.equal(seen.length, plan.scans.length);
   assert.deepEqual(result.scans.map((r) => r.id), [...plan.scans.filter((s) => s.class === "A"), ...plan.scans.filter((s) => s.class === "B")].map((s) => s.id));
   assert.ok(peak > 1, "class B scans overlapped");
+});
+
+// ---- repository-specific units, scoping, reverse dependents and cancellation (rightkit-gate) ------------------
+
+import { defaultSpawnAsync, killProcessTree, laneOf } from "./deterministic-scans.mjs";
+import { parseLock } from "./lock-graph.mjs";
+
+const manifest = 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n';
+const unitFiles = {
+  "core/Cargo.toml": manifest, "core/CHANGELOG.md": "## 1.0.0\n", "core/src/lib.rs": "pub fn c() {}\n",
+  "apps/ui/Cargo.toml": manifest, "apps/ui/src/main.rs": "fn main() {}\n",
+};
+const coreUi = [{ name: "app-core", dir: "core" }, { name: "app-ui", dir: "apps/ui" }];
+const scanOf = (plan, id) => plan.scans.find((s) => s.id === id);
+
+test("rustUnits: a changed file maps to the unit whose directory holds it, and every path uses that directory", () => {
+  const { plan } = planFor(["core/src/lib.rs"], unitFiles, { rustUnits: coreUi, npmUnits: [] });
+  const b = ids(plan, "B");
+  for (const id of ["clippy:app-core", "doc:app-core", "test:rust:app-core"]) assert.ok(b.includes(id), id);
+  assert.ok(!plan.scans.some((s) => s.id.includes("app-ui") || s.id.includes("foo")), "no other unit, no crates/ layout");
+  assert.deepEqual(scanOf(plan, "license").files, ["core/Cargo.toml"]);
+  assert.deepEqual(scanOf(plan, "changelog-version:app-core").files, ["core/Cargo.toml", "core/CHANGELOG.md"]);
+  assert.deepEqual(scanOf(plan, "secret-scan").dirs, ["core"]);
+  assert.ok(scanOf(plan, "cargo-package-list:app-core"));
+});
+
+test("rustUnits: a workspace-wide change uses the full list, narrowed by rustScope", () => {
+  const all = planFor(["Cargo.lock"], unitFiles, { rustUnits: coreUi, npmUnits: [] }).plan;
+  for (const name of ["app-core", "app-ui"]) assert.ok(all.scans.some((s) => s.id === `clippy:${name}`), name);
+  const narrowed = planFor(["Cargo.lock"], unitFiles, { rustUnits: coreUi, npmUnits: [], rustScope: new Set(["app-ui"]) }).plan;
+  assert.ok(narrowed.scans.some((s) => s.id === "clippy:app-ui"));
+  assert.ok(!narrowed.scans.some((s) => s.id === "clippy:app-core"));
+});
+
+test("rustUnits: the deepest directory wins; a root unit takes only what no other unit holds", () => {
+  const nested = { "x/Cargo.toml": manifest, "x/y/Cargo.toml": manifest, "x/y/src/lib.rs": "" };
+  const a = planFor(["x/y/src/lib.rs"], nested, { rustUnits: [{ name: "outer", dir: "x" }, { name: "inner", dir: "x/y" }], npmUnits: [] }).plan;
+  assert.ok(a.scans.some((s) => s.id === "clippy:inner") && !a.scans.some((s) => s.id === "clippy:outer"));
+  const rooted = { "Cargo.toml": manifest, "src/lib.rs": "", "sub/Cargo.toml": manifest, "sub/src/lib.rs": "" };
+  const units = [{ name: "root", dir: "." }, { name: "sub", dir: "sub" }];
+  const sub = planFor(["sub/src/lib.rs"], rooted, { rustUnits: units, npmUnits: [] }).plan;
+  assert.ok(sub.scans.some((s) => s.id === "clippy:sub") && !sub.scans.some((s) => s.id === "clippy:root"));
+  const root = planFor(["src/lib.rs"], rooted, { rustUnits: units, npmUnits: [] }).plan;
+  assert.ok(root.scans.some((s) => s.id === "clippy:root") && !root.scans.some((s) => s.id === "clippy:sub"));
+  assert.deepEqual(scanOf(root, "license").files, ["Cargo.toml"]);
+  assert.deepEqual(scanOf(root, "secret-scan").dirs, ["."]);
+});
+
+test("rustUnits: publish false skips only the package list; a bad directory is a path-policy refusal; malformed input throws", () => {
+  const p = planFor(["core/src/lib.rs"], unitFiles, { rustUnits: [{ name: "app-core", dir: "core", publish: false }], npmUnits: [] }).plan;
+  assert.ok(!p.scans.some((s) => s.id.startsWith("cargo-package-list")));
+  assert.ok(p.scans.some((s) => s.id === "license") && p.scans.some((s) => s.id === "clippy:app-core"));
+  for (const dir of ["a b", "../x", "/abs", "a/../../b", "a&b"]) {
+    const bad = planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "x", dir }], npmUnits: [] }).plan;
+    assert.ok(bad.scans.some((s) => s.id.startsWith("path-policy:") && /not a plain repository-relative path/.test(s.detail)), dir);
+  }
+  assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { rustUnits: "crates" }), /array/);
+  assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "a" }] }), /name and dir/);
+  assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "a", dir: "a" }, { name: "a", dir: "b" }] }), /duplicate/);
+});
+
+test("rustUnits equal to the crates/ layout plan exactly what the default plan does", () => {
+  const changed = ["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"];
+  const dflt = planFor(changed).plan;
+  const units = planFor(changed, {}, { rustUnits: [{ name: "foo", dir: "crates/foo" }], npmUnits: [] }).plan;
+  assert.deepEqual(units.scans.map((s) => [s.id, s.command, s.class]), dflt.scans.map((s) => [s.id, s.command, s.class]));
+  assert.equal(units.scanSetDigest, dflt.scanSetDigest);
+});
+
+test("npmUnits: units live anywhere, and tsc, eslint, tests, license use their directory", () => {
+  const files = {
+    "apps/web/package.json": '{"name":"web","license":"MIT","scripts":{"test":"x"}}', "apps/web/tsconfig.json": "{}", "apps/web/eslint.config.mjs": "", "apps/web/src/a.ts": "",
+  };
+  const { plan } = planFor(["apps/web/src/a.ts"], files, { rustUnits: [], npmUnits: [{ name: "web", dir: "apps/web" }] });
+  assert.equal(scanOf(plan, "tsc:web").cwd, "apps/web");
+  assert.equal(scanOf(plan, "eslint:web").cwd, "apps/web");
+  assert.deepEqual(scanOf(plan, "test:npm:web").args, ["--dir", "apps/web", "run", "test"]);
+  assert.deepEqual(scanOf(plan, "license").files, ["apps/web/package.json"]);
+  assert.ok(!plan.scans.some((s) => /clippy|cargo/.test(s.id)));
+  const wide = planFor(["package.json"], { ...files, "package.json": "{}" }, { rustUnits: [], npmUnits: [{ name: "web", dir: "apps/web" }] }).plan;
+  assert.ok(wide.scans.some((s) => s.id === "tsc:web"), "a root pnpm file change puts every unit in scope");
+});
+
+test("cargoDir: cargo scans run in the workspace directory and its lock and config files are the workspace-wide ones", () => {
+  const files = { "ws/core/Cargo.toml": manifest, "ws/core/src/lib.rs": "", "ws/ui/Cargo.toml": manifest, "ws/ui/src/lib.rs": "", "ws/Cargo.lock": "version = 4\n" };
+  const opts = { rustUnits: [{ name: "a", dir: "ws/core" }, { name: "b", dir: "ws/ui" }], npmUnits: [], cargoDir: "ws" };
+  const one = planFor(["ws/core/src/lib.rs"], files, opts).plan;
+  assert.ok(one.scans.some((s) => s.id === "clippy:a") && !one.scans.some((s) => s.id === "clippy:b"));
+  for (const s of one.scans.filter((x) => x.tool === "rightkit")) assert.equal(s.cwd, "ws", s.id);
+  const lock = planFor(["ws/Cargo.lock"], files, opts).plan;
+  assert.ok(lock.scans.some((s) => s.id === "clippy:a") && lock.scans.some((s) => s.id === "clippy:b"));
+  const stray = planFor(["Cargo.lock"], files, opts).plan;
+  assert.ok(!stray.scans.some((s) => s.id.startsWith("clippy:")), "a lock outside the workspace is not workspace-wide for it");
+  assert.ok(planFor(["crates/foo/src/lib.rs"]).plan.scans.every((s) => s.cwd === undefined), "no cwd by default");
+  assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { cargoDir: "../x" }), /cargoDir/);
+});
+
+test("generated-docs runs only when a changed file is an input of scripts/generate-index.mjs", () => {
+  const extra = {
+    "scripts/generate-index.mjs": "", "Cargo.toml": "[workspace]\n", "INDEX.md": "x", "README.md": "x", "docs/ADOPTION.md": "x", "docs/CAPABILITY-MAP.md": "x",
+    "crates/foo/README.md": "x", "packages/p/README.md": "x", "packages/p/package.json": '{"license":"MIT"}', "packages/p/src/a.ts": "",
+    "packages/release/rightkit-versions.json": "{}", "packages/release/rightkit-ownership.json": "{}", "packages/release/ownership-availability.mjs": "",
+  };
+  const has = (f) => planFor([f], extra).plan.scans.some((s) => s.id === "generated-docs");
+  for (const f of ["crates/foo/Cargo.toml", "crates/foo/README.md", "packages/p/package.json", "packages/p/README.md", "Cargo.toml", "packages/release/rightkit-versions.json",
+    "packages/release/rightkit-ownership.json", "packages/release/ownership-availability.mjs", "scripts/generate-index.mjs", "INDEX.md", "docs/ADOPTION.md", "docs/CAPABILITY-MAP.md"]) {
+    assert.ok(has(f), `${f} is a generator input`);
+  }
+  for (const f of ["crates/foo/src/lib.rs", "crates/foo/CHANGELOG.md", "packages/p/src/a.ts", "README.md"]) assert.ok(!has(f), `${f} is not`);
+});
+
+test("scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference changed", () => {
+  const extra = {
+    "scripts/ci/a.test.mjs": "", "scripts/ci/x.mjs": 'import "../../packages/release/foo.mjs";\nconst u = new URL("../../packages/logs/package.json", import.meta.url);\n',
+    "packages/release/foo.mjs": 'import "./bar.mjs";\n', "packages/release/bar.mjs": "", "packages/release/unrelated.mjs": "", "packages/logs/package.json": '{"license":"MIT"}',
+    "scripts/other.mjs": "", ".github/workflows/ci.yml": "a: b", "ci/gate.config.json": "{}", "README.md": "x",
+  };
+  const listDir = (d) => (norm(d).endsWith("/scripts/ci") ? ["a.test.mjs", "x.mjs"] : []);
+  const has = (f) => planFor([f], extra, { listDir }).plan.scans.some((s) => s.id === "test:scripts-ci");
+  for (const f of ["scripts/ci/x.mjs", "scripts/other.mjs", ".github/workflows/ci.yml", "ci/gate.config.json", "packages/release/foo.mjs", "packages/release/bar.mjs", "packages/logs/package.json"]) assert.ok(has(f), f);
+  for (const f of ["crates/foo/src/lib.rs", "packages/release/unrelated.mjs", "README.md"]) assert.ok(!has(f), f);
+  // Without scripts/ci: the RightKit default still plans them for a scripts/ change; unit mode does not.
+  assert.ok(planFor(["scripts/x.mjs"], { "scripts/x.mjs": "" }).plan.scans.some((s) => s.id === "test:scripts-ci"));
+  assert.ok(!planFor(["scripts/x.mjs"], { "scripts/x.mjs": "" }, { rustUnits: [], npmUnits: [] }).plan.scans.some((s) => s.id === "test:scripts-ci"));
+});
+
+test("reverse dependents: a crate that depends on one in scope gets a check-dependent scan in the compile lane", () => {
+  const lock = parseLock('[[package]]\nname = "foo"\nversion = "1.2.3"\n\n[[package]]\nname = "bar"\nversion = "1.0.0"\ndependencies = [\n "foo",\n]\n\n[[package]]\nname = "baz"\nversion = "1.0.0"\ndependencies = [\n "bar 1.0.0",\n]\n\n[[package]]\nname = "qux"\nversion = "1.0.0"\n');
+  const extra = Object.fromEntries(["bar", "baz", "qux"].flatMap((n) => [[`crates/${n}/Cargo.toml`, manifest], [`crates/${n}/src/lib.rs`, ""]]));
+  const listDir = () => ["foo", "bar", "baz", "qux"];
+  const dep = (changed, opts = {}) => planFor(changed, extra, { listDir, rustLock: lock, ...opts }).plan;
+  const p = dep(["crates/foo/src/lib.rs"]);
+  assert.deepEqual(ids(p).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:bar", "check-dependent:baz"]);
+  assert.deepEqual(scanOf(p, "check-dependent:bar").args.slice(-5), ["check", "-p", "bar", "--all-targets", "--locked"]);
+  assert.equal(scanOf(p, "check-dependent:bar").class, "B");
+  assert.equal(scanClassOf("check-dependent:bar"), "B");
+  assert.equal(laneOf({ id: "check-dependent:bar" }), "compile");
+  assert.ok(!p.scans.some((s) => s.id === "clippy:bar"), "a dependent is compiled, not linted or tested");
+  // A dependent that is itself in scope is not repeated; an unreachable crate is never a dependent.
+  assert.deepEqual(ids(dep(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"])).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:baz"]);
+  assert.deepEqual(ids(planFor(["crates/foo/src/lib.rs"], extra, { listDir }).plan).filter((i) => i.startsWith("check-dependent:")), [], "no lock graph, none planned");
+  // The same through units.
+  const units = ["foo", "bar", "baz", "qux"].map((name) => ({ name, dir: `crates/${name}` }));
+  assert.deepEqual(ids(dep(["crates/foo/src/lib.rs"], { rustUnits: units, npmUnits: [] })).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:bar", "check-dependent:baz"]);
+  // Without a compile grant a dependent check is deferred like every other broker scan.
+  assert.ok(dep(["crates/foo/src/lib.rs"], { localCompile: false }).deferred.includes("check-dependent:bar"));
+});
+
+test("cancellation: an aborted signal stops scheduling, reaches the running scan, and leaves every unfinished scan not-run", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const ac = new AbortController(); const log = []; const signals = [];
+  const spawn = async (command, args, options) => {
+    log.push([command, ...args]);
+    if (args.includes("deny")) {
+      signals.push(options.signal);
+      setTimeout(() => ac.abort(), 5);
+      await new Promise((r) => options.signal.addEventListener("abort", r, { once: true }));
+      return { status: null, stdout: "", stderr: "", error: new Error("cancelled") };
+    }
+    return fakeSpawn()(command, args);
+  };
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), signal: ac.signal });
+  assert.deepEqual(signals, [ac.signal]);
+  assert.equal(result.cancelled, true);
+  assert.equal(result.ok, false);
+  const row = (id) => result.scans.find((s) => s.id === id);
+  assert.equal(row("cargo-deny").status, "not-run");
+  assert.equal(row("cargo-deny").code, "CANCELLED");
+  assert.equal(row("cargo-audit").code, "CANCELLED");
+  assert.ok(result.scans.filter((s) => s.class === "B").every((s) => s.code === "CANCELLED"));
+  assert.equal(result.scans.length, plan.scans.length, "every scan is listed");
+  assert.ok(!log.some((c) => c.includes("clippy") || c.includes("audit")), "nothing started after the abort");
+  assert.ok(scanFailures(result).some((l) => l.startsWith("cargo-audit") && /not run/.test(l)));
+  // Not cancelled: the result shape is unchanged.
+  const normal = await runScans(plan, deps({ ...fs }));
+  assert.equal("cancelled" in normal, false);
+});
+
+test("cancellation: defaultSpawnAsync kills a running child on abort and never starts one when already aborted", async () => {
+  const ac = new AbortController();
+  const started = Date.now();
+  const running = defaultSpawnAsync(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { signal: ac.signal });
+  setTimeout(() => ac.abort(), 300);
+  const r = await running;
+  assert.equal(r.cancelled, true);
+  assert.ok(r.error);
+  assert.ok(Date.now() - started < 30000, "the child did not run to its 60 s timer");
+  const pre = await defaultSpawnAsync(process.execPath, ["-e", "process.exit(0)"], { signal: ac.signal });
+  assert.equal(pre.cancelled, true);
+  assert.equal(pre.status, null);
+});
+
+test("killProcessTree: taskkill /T /F on Windows, the process group elsewhere", () => {
+  const calls = [];
+  killProcessTree({ pid: 123 }, { platform: "win32", run: (...a) => calls.push(a) });
+  assert.deepEqual(calls[0].slice(0, 2), ["taskkill", ["/T", "/F", "/PID", "123"]]);
+  const sent = [];
+  killProcessTree({ pid: 77 }, { platform: "linux", kill: (pid, sig) => sent.push([pid, sig]) });
+  assert.deepEqual(sent, [[-77, "SIGKILL"]]);
+  let direct = null;
+  killProcessTree({ pid: 78, kill: (sig) => { direct = sig; } }, { platform: "linux", kill: () => { throw new Error("ESRCH"); } });
+  assert.equal(direct, "SIGKILL", "falls back to the child itself");
+  killProcessTree({}, { platform: "win32", run: () => { throw new Error("no pid: not called"); } });
+});
+
+// ---- gate result cache ----------------------------------------------------------------------------------------
+
+function memCache(digest) {
+  const store = new Map();
+  return { store, digest, read: (k) => store.get(k) ?? null, write: (k, row) => store.set(k, { key: k, at: "2026-10-22T10:00:00.000Z", row }) };
+}
+const bRows = (r) => r.scans.filter((s) => s.class === "B");
+const spawned = (log, word) => log.filter((l) => l.some((a) => String(a).includes(word)) && !l.some((a) => String(a).includes("version"))).length;
+
+test("cache: identical inputs hit; only class B passes are stored and the hit is reported as a pass", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const cache = memCache(() => "digest-1");
+  const first = await runScans(plan, deps({ ...fs, cache }));
+  assert.equal(first.ok, true, JSON.stringify(scanFailures(first)));
+  assert.deepEqual(first.cacheHits, []);
+  assert.equal(cache.store.size, bRows(first).length, "one entry per class B pass, none for class A");
+  const log = [];
+  const second = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ log }) }));
+  assert.equal(second.ok, true);
+  assert.deepEqual(second.cacheHits, bRows(second).map((r) => r.id).sort());
+  assert.ok(bRows(second).every((r) => r.status === "pass" && r.cached === true && r.detail === "cached 2026-10-22"));
+  assert.equal(spawned(log, "clippy") + spawned(log, "test"), 0, "no cached scan was spawned");
+  assert.equal(second.scanSetDigest, plan.scanSetDigest);
+  assert.ok(second.scans.filter((r) => r.class === "A").every((r) => !r.cached), "class A is never cached");
+});
+
+test("cache: a changed input digest (a closure member's tree id) is a miss", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+  let member = "tree-1";
+  const cache = memCache(() => `foo+${member}`);
+  await runScans(plan, deps({ ...fs, cache }));
+  member = "tree-2";
+  const log = [];
+  const again = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ log }) }));
+  assert.deepEqual(again.cacheHits, []);
+  assert.ok(spawned(log, "clippy") > 0, "the scan reran");
+});
+
+test("cache: a changed tool version is a miss", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+  const cache = memCache(() => "d");
+  await runScans(plan, deps({ ...fs, cache }));
+  const newer = (command, args) => (args.some((a) => String(a).includes("version")) ? { status: 0, stdout: "tool 2.0.0\n", stderr: "" } : { status: 0, stdout: "", stderr: "" });
+  const again = await runScans(plan, deps({ ...fs, cache, spawn: newer }));
+  assert.deepEqual(again.cacheHits, []);
+  assert.ok(bRows(again).every((r) => r.status === "pass" && !r.cached));
+});
+
+test("cache: a changed command is a miss", async () => {
+  const one = planFor(["crates/foo/src/lib.rs"]);
+  const cache = memCache(() => "d");
+  await runScans(one.plan, deps({ ...one.fs, cache }));
+  const two = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures: { foo: { featureSets: [["--features", "x"]] } } });
+  assert.notEqual(one.plan.scans.find((s) => s.id === "clippy:foo").command, two.plan.scans.find((s) => s.id === "clippy:foo").command);
+  const again = await runScans(two.plan, deps({ ...two.fs, cache }));
+  assert.ok(!again.cacheHits.includes("clippy:foo"));
+});
+
+test("cache: a failure is never cached, and a null digest is never cached", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+  const cache = memCache(() => "d");
+  const bad = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ failing: ["clippy"] }) }));
+  assert.equal(bad.ok, false);
+  assert.ok(![...cache.store.values()].some((e) => e.row.id === "clippy:foo"), "the failing scan left no entry");
+  assert.ok(![...cache.store.values()].some((e) => e.row.status !== "pass"));
+  const log = [];
+  const good = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ log }) }));
+  assert.ok(!good.cacheHits.includes("clippy:foo"));
+  assert.ok(spawned(log, "clippy") > 0);
+  const none = memCache(() => null);
+  await runScans(plan, deps({ ...fs, cache: none }));
+  assert.equal(none.store.size, 0);
+});
+
+test("cache: a corrupt or foreign entry is a miss; the key covers id, command, tool version, env and digest", async () => {
+  const base = { id: "clippy:a", command: "c", toolVersion: "1", env: {}, digest: "d" };
+  const key = scanCacheKey(base);
+  assert.match(key, /^[0-9a-f]{64}$/);
+  for (const change of [{ id: "clippy:b" }, { command: "c2" }, { toolVersion: "2" }, { env: { A: "1" } }, { digest: "d2" }]) assert.notEqual(scanCacheKey({ ...base, ...change }), key);
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+  const foreign = { digest: () => "d", read: () => ({ key: "other", at: "x", row: { status: "pass" } }), write() {} };
+  const r = await runScans(plan, deps({ ...fs, cache: foreign }));
+  assert.deepEqual(r.cacheHits, []);
+});
+
+test("fileScanCache: round trip, atomic file named by key, garbage and bad keys are misses", () => {
+  const dir = mkdtempSync(path.join(process.env.RK_GATE_TMPDIR || os.tmpdir(), "rk-cache-test-"));
+  try {
+    const cache = fileScanCache(path.join(dir, "rightkit-gate-cache"), { now: () => new Date("2026-10-22T01:02:03.000Z") });
+    const key = "a".repeat(64);
+    assert.equal(cache.read(key), null);
+    cache.write(key, { id: "x", status: "pass" });
+    assert.deepEqual(cache.read(key), { key, at: "2026-10-22T01:02:03.000Z", row: { id: "x", status: "pass" } });
+    writeFileSync(path.join(dir, "rightkit-gate-cache", `${"b".repeat(64)}.json`), "{nope");
+    assert.equal(cache.read("b".repeat(64)), null);
+    cache.write("../escape", { id: "x" });
+    assert.equal(cache.read("../escape"), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

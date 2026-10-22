@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
 import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -26,8 +26,41 @@ function exact(value, keys, label) {
   requireThat(value && typeof value === "object" && !Array.isArray(value) && same(Object.keys(value).sort(), [...keys].sort()), `${label} has unexpected or missing keys`);
 }
 
+// A local candidate (source "local") was qualified on Adrian's own hosts through the RustRight broker. Its assets live on a
+// GitHub prerelease named by its ID; the committed SHA-256 of each asset is the only thing that binds the bytes, so the
+// names are fixed by convention and nothing about them is read from the release.
+export const localTag = (id) => `candidate-${id}`;
+export const localAssetName = (id, kind) => (kind === "packed" ? `packed-${id}.zip` : `local-receipt-${kind}-${id}.json`);
+const LOCAL_RELEASE_HOSTS = ["https://release-assets.githubusercontent.com", "https://objects.githubusercontent.com", "https://github-releases.githubusercontent.com"];
+
+function validateLocalCandidate(candidate, linuxFile) {
+  exact(candidate, ["id", "source", "sourceSha", "registry", "units", "allow", "release", "assets"], "local candidate");
+  requireThat(candidate.source === "local", "unknown candidate source");
+  requireThat(/^[a-z0-9][a-z0-9-]{0,79}$/.test(candidate.id), "invalid candidate ID");
+  requireThat(/^[0-9a-f]{40}$/.test(candidate.sourceSha), "invalid source SHA");
+  requireThat(candidate.registry === "crates", "local qualification supports crates only");
+  requireThat(Array.isArray(candidate.units) && candidate.units.length > 0 && new Set(candidate.units).size === candidate.units.length, "units must be nonempty, unique & ordered");
+  requireThat(candidate.units.every((unit) => typeof unit === "string" && /^rightkit-[a-z0-9][a-z0-9-]*$/.test(unit)), "invalid unit name");
+  exact(candidate.allow, ["hostExclusion", "noTest", "ignored", "missingAssets"], "allowsets");
+  for (const value of Object.values(candidate.allow)) requireThat(Array.isArray(value) && new Set(value).size === value.length && value.every((unit) => candidate.units.includes(unit)), "allowsets must be unique subsets of candidate units");
+  exact(candidate.release, ["tag"], "release");
+  requireThat(candidate.release.tag === localTag(candidate.id), "release tag must be candidate-<id>");
+  // A Linux-required unit needs a pinned Linux receipt; a candidate without one is refused, never qualified on two hosts only.
+  const linux = linuxRequiredFor({ registry: candidate.registry, units: candidate.units, ...(linuxFile ? { file: linuxFile } : {}) });
+  requireThat(linux.problems.length === 0, linux.problems.join("; "));
+  exact(candidate.assets, ["packed", "macos", "windows", ...(linux.units.length > 0 ? ["linux"] : [])], "asset pins");
+  for (const [kind, pin] of Object.entries(candidate.assets)) {
+    exact(pin, ["name", "sha256"], `${kind} asset pin`);
+    requireThat(pin.name === localAssetName(candidate.id, kind), `${kind} asset name must be ${localAssetName(candidate.id, kind)}`);
+    requireThat(HEX.test(pin.sha256), `invalid ${kind} asset SHA-256`);
+  }
+  return candidate;
+}
+
 // Schema 2 extends the existing R8 list; candidates never replace per-unit approvals.
-export function validateCandidate(candidate) {
+export function validateCandidate(candidate, options = {}) {
+  // An Actions candidate has no `source` key; its exact key list below is unchanged.
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate) && Object.hasOwn(candidate, "source")) return validateLocalCandidate(candidate, options.linuxFile);
   exact(candidate, ["id", "sourceSha", "runId", "runAttempt", "workflowId", "manifestSha256", "registry", "units", "allow", "artifacts"], "candidate");
   requireThat(/^[a-z0-9][a-z0-9-]{0,79}$/.test(candidate.id), "invalid candidate ID");
   requireThat(/^[0-9a-f]{40}$/.test(candidate.sourceSha), "invalid source SHA");
@@ -121,6 +154,37 @@ export function checkProvenance({ candidate, repository, workflow, run, jobs, pr
   requireThat(rows.every((job) => String(job.run_id) === String(candidate.runId) && String(job.run_attempt) === String(candidate.runAttempt) && job.head_sha === candidate.sourceSha), "job provenance mismatch");
 }
 
+/**
+ * A local candidate's provenance: the prerelease and its tag are the committed candidate's, the tag points at the
+ * original source commit, the release holds exactly the pinned asset names, and the promotion descends from the source.
+ * Nothing here trusts an asset's content; each asset is hash-checked against its committed pin after download.
+ */
+export function checkLocalProvenance({ candidate, repository, release, ref, promotionSha, comparison }) {
+  requireThat(repository.full_name === REPOSITORY && repository.default_branch === "main", "wrong repository/default branch");
+  const tag = candidate.release.tag;
+  requireThat(release?.tag_name === tag && release.prerelease === true && release.draft === false, "candidate release is not the published prerelease of its tag");
+  requireThat(ref?.ref === `refs/tags/${tag}` && ref.object?.type === "commit" && ref.object.sha === candidate.sourceSha, "candidate tag does not point at the original source commit");
+  const expected = Object.entries(candidate.assets).map(([kind]) => localAssetName(candidate.id, kind)).sort();
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  requireThat(JSON.stringify(assets.map((asset) => asset?.name).sort()) === JSON.stringify(expected), "candidate release assets differ from the pinned asset set");
+  requireThat(assets.every((asset) => POS.test(String(asset.id)) && asset.state === "uploaded" && Number.isSafeInteger(asset.size) && asset.size > 0 && asset.size <= 512 * 1024 * 1024) && new Set(assets.map((asset) => String(asset.id))).size === assets.length, "candidate release has an incomplete or duplicate asset");
+  requireThat(promotionSha !== candidate.sourceSha && comparison.status === "ahead" && comparison.merge_base_commit?.sha === candidate.sourceSha, "promotion must descend from original source commit");
+}
+
+/** One release asset's bytes through the API (octet-stream), following only the one redirect to GitHub's release storage. */
+export async function releaseAssetBytes(id, env, fetchImpl) {
+  const response = await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/releases/assets/${id}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: "application/octet-stream", "x-github-api-version": "2022-11-28" }, redirect: "manual", signal: AbortSignal.timeout(60_000) });
+  if (response.status === 302) {
+    const url = new URL(response.headers.get("location"));
+    requireThat(url.protocol === "https:" && !url.username && !url.password && !url.port && LOCAL_RELEASE_HOSTS.includes(url.origin), "unsafe release asset redirect");
+    const download = await fetchImpl(url, { redirect: "error", signal: AbortSignal.timeout(120_000) });
+    requireThat(download.ok, "release asset download failed");
+    return Buffer.from(await download.arrayBuffer());
+  }
+  requireThat(response.ok, `GitHub release asset ${id} returned ${response.status}`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export async function api(route, env, fetchImpl, binary = false) {
   const response = await fetchImpl(`https://api.github.com/repos/${REPOSITORY}${route ? `/${route}` : ""}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" }, redirect: "manual", signal: AbortSignal.timeout(60_000) });
   if (binary && response.status === 302) {
@@ -154,6 +218,13 @@ export async function authenticateSource({ env, candidateId, approvedFile = APPR
   const candidate = selectCandidate(approvedFile, candidateId);
   // All API routes derive from committed identifiers, never dispatch URLs or paths.
   const repository = await api("", env, fetchImpl);
+  if (candidate.source === "local") {
+    const release = await api(`releases/tags/${candidate.release.tag}`, env, fetchImpl);
+    const ref = await api(`git/ref/tags/${candidate.release.tag}`, env, fetchImpl);
+    const comparison = await api(`compare/${candidate.sourceSha}...${env.GITHUB_SHA}`, env, fetchImpl);
+    checkLocalProvenance({ candidate, repository, release, ref, promotionSha: env.GITHUB_SHA, comparison });
+    return { candidate, repository, release };
+  }
   const workflow = await api("actions/workflows/publish.yml", env, fetchImpl);
   const run = await api(`actions/runs/${candidate.runId}/attempts/${candidate.runAttempt}`, env, fetchImpl);
   const jobs = await api(`actions/runs/${candidate.runId}/attempts/${candidate.runAttempt}/jobs?per_page=100`, env, fetchImpl);
@@ -168,8 +239,32 @@ export async function identifyCandidate(options) {
   return { sourceSha: candidate.sourceSha, registry: candidate.registry };
 }
 
+const freezeDeep = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freezeDeep); Object.freeze(value); } };
+
+/** Local candidate: download each pinned release asset, require its committed SHA-256, rebuild the packed/receipts layout. */
+async function prepareLocal({ env, candidate, repository, release, approvedFile, supplementalFile, fetchImpl, spawn }) {
+  const root = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "reviewed-candidate-"));
+  const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
+  for (const [kind, pin] of Object.entries(candidate.assets)) {
+    const rows = release.assets.filter((asset) => asset.name === pin.name);
+    requireThat(rows.length === 1, `${kind} asset must exist exactly once`);
+    const bytes = await releaseAssetBytes(rows[0].id, env, fetchImpl);
+    requireThat(bytes.length === rows[0].size && sha("sha256", bytes) === pin.sha256, `${kind} asset size or SHA-256 differs from the committed pin`);
+    if (kind === "packed") unpackArtifact({ bytes, zipFile: path.join(root, "packed.zip"), destination: packDir, spawn });
+    else { fs.mkdirSync(path.join(receiptsDir, kind), { recursive: true }); fs.writeFileSync(path.join(receiptsDir, kind, pin.name), bytes, { flag: "wx" }); }
+  }
+  const sealed = loadSealed({ packDir, registry: candidate.registry, unitsText: candidate.units.join(" ") });
+  requireThat(sealed.manifest && sealed.manifest.commit === candidate.sourceSha && sealed.manifest.source === "local" && sealed.manifest.candidateId === candidate.id, "source/candidate binding mismatch in the packed manifest");
+  const problems = [...sealed.problems, ...checkApprovedArtifacts({ manifest: sealed.manifest, registry: candidate.registry, approvedFile }), ...checkLocalReceipts({ manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow: candidate.allow, candidate })];
+  requireThat(problems.length === 0, problems.join("; "));
+  const context = JSON.parse(JSON.stringify({ candidate })); freezeDeep(context);
+  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, supplementalFile, archiveScanResolver: undefined, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, admitted: false });
+  return { context, packDir, receiptsDir };
+}
+
 export async function prepareCandidate({ env, candidateId, approvedFile = APPROVED_ARTIFACTS_FILE, supplementalFile = SUPPLEMENTAL_PROOFS_FILE, fetchImpl = fetch, spawn = spawnSync }) {
-  const { candidate, repository } = await authenticateSource({ env, candidateId, approvedFile, fetchImpl });
+  const { candidate, repository, release } = await authenticateSource({ env, candidateId, approvedFile, fetchImpl });
+  if (candidate.source === "local") return prepareLocal({ env, candidate, repository, release, approvedFile, supplementalFile, fetchImpl, spawn });
   const supplementPin = selectArchiveSupplement(supplementalFile, candidate, approvedFile);
   const root = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "reviewed-candidate-"));
   const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
@@ -208,10 +303,12 @@ export function assertAuthenticatedContext(context, actual) {
   for (const [key, value] of Object.entries(bound.env)) if (key.startsWith("GITHUB_")) requireThat(actual.env[key] === value, "promotion GitHub identity changed");
   requireThat(bound.admitted === true, "semantic admission is required");
   const candidate = context.candidate;
-  for (const host of Object.keys(candidate.artifacts).filter((key) => key !== "packed")) {
+  const local = candidate.source === "local";
+  const pins = local ? candidate.assets : candidate.artifacts;
+  for (const host of Object.keys(pins).filter((key) => key !== "packed")) {
     const directory = path.join(bound.receiptsDir, host);
     const files = fs.readdirSync(directory);
-    requireThat(files.length === 1 && sha("sha256", fs.readFileSync(path.join(directory, files[0]))) === candidate.artifacts[host].receiptSha256, "original native receipt changed after admission");
+    requireThat(files.length === 1 && sha("sha256", fs.readFileSync(path.join(directory, files[0]))) === (local ? pins[host].sha256 : pins[host].receiptSha256), "original native receipt changed after admission");
   }
   requireThat(actual.env.PUBLISH_REGISTRY === candidate.registry && actual.env.PUBLISH_UNITS === candidate.units.join(" "), "candidate plan changed");
   for (const [key, envKey] of Object.entries({ hostExclusion: "HOST_EXCLUSION", noTest: "NO_TEST", ignored: "IGNORED", missingAssets: "MISSING_ASSETS" })) requireThat((actual.env[`PUBLISH_ALLOW_${envKey}`] ?? "") === candidate.allow[key].join(" "), "candidate allowsets changed");
@@ -288,10 +385,37 @@ async function originalQa({ prepared, env, fetchImpl, spawn }) {
   return { qa, bindings };
 }
 
-function originalBinding(candidate, manifest) {
-  return { candidateId: candidate.id, candidateSha256: sha("sha256", JSON.stringify(candidate)), sourceSha: candidate.sourceSha, manifestSha256: candidate.manifestSha256, archives: manifest.units.map(({ name, version, file, sha256, metaFile, metaSha256 }) => ({ name, version, file, sha256, ...(metaFile ? { metaFile, metaSha256 } : {}) })) };
+function originalBinding(candidate, manifest, manifestSha256 = candidate.manifestSha256) {
+  return { candidateId: candidate.id, candidateSha256: sha("sha256", JSON.stringify(candidate)), sourceSha: candidate.sourceSha, manifestSha256, archives: manifest.units.map(({ name, version, file, sha256, metaFile, metaSha256 }) => ({ name, version, file, sha256, ...(metaFile ? { metaFile, metaSha256 } : {}) })) };
 }
+const safeHashes = (hashes) => hashes && typeof hashes === "object" && !Array.isArray(hashes) && Object.keys(hashes).length > 0 && Object.entries(hashes).every(([name, hash]) => name.length <= 1024 && !/[\\\x00-\x1f:]/.test(name) && name.split("/").every((part) => part && part !== "." && part !== "..") && HEX.test(hash));
+
+// The local admission carries no Actions QA artifacts: it names the pinned receipts it read and the per-unit verdicts of
+// local-admission.mjs. A runtime proof that is still required (HOLD) can never be local, so it must read not-applicable.
+function validateLocalAdmission(admission, prepared, env) {
+  const bound = contexts.get(prepared.context), candidate = prepared.context.candidate;
+  exact(admission, ["schema", "kind", "original", "sourceTree", "sourceHashes", "verifierSha", "runId", "runAttempt", "receipts", "units"], "local admission");
+  requireThat(admission.schema === 1 && admission.kind === "local-admission" && same(admission.original, originalBinding(candidate, bound.manifest, bound.manifestSha256)), "local original candidate/manifest/archive mismatch");
+  requireThat(/^[0-9a-f]{40}$/.test(admission.sourceTree ?? "") && admission.verifierSha === env.GITHUB_SHA && String(admission.runId) === env.GITHUB_RUN_ID && String(admission.runAttempt) === env.GITHUB_RUN_ATTEMPT, "local admission verifier/tree/run/attempt mismatch");
+  requireThat(safeHashes(admission.sourceHashes), "invalid local admission source hashes");
+  const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
+  exact(admission.receipts, hosts, "local admission receipts");
+  requireThat(hosts.every((host) => admission.receipts[host] === candidate.assets[host].sha256), "local admission receipts differ from the pinned assets");
+  requireThat(Array.isArray(admission.units) && admission.units.length === bound.manifest.units.length, "incomplete local unit verdicts");
+  const names = new Set();
+  for (const row of admission.units) {
+    exact(row, ["name", "version", "archiveSha256", "ok", "failures", "policies", "runtimeFeatureProof", "evidenceSha256"], "local unit verdict");
+    exact(row.policies, ["macos", "windows"], "local unit host policies");
+    exact(row.runtimeFeatureProof, ["classification", "listedOwner", "required", "status", "failures"], "local runtime feature proof");
+    requireThat(Object.values(row.policies).every((policy) => policy === "required-positive-tests") && row.runtimeFeatureProof.status === "not-applicable" && row.runtimeFeatureProof.required === false && Array.isArray(row.runtimeFeatureProof.failures) && row.runtimeFeatureProof.failures.length === 0, "local runtime feature proof remains required, held or incoherent");
+    const unit = bound.manifest.units.find((item) => item.name === row.name);
+    requireThat(unit && !names.has(row.name) && row.version === unit.version && row.archiveSha256 === unit.sha256 && row.ok === true && Array.isArray(row.failures) && row.failures.length === 0 && HEX.test(row.evidenceSha256 ?? ""), "failed/duplicate/mismatched local unit verdict"); names.add(row.name);
+  }
+  return admission;
+}
+
 function validateAdmission(admission, prepared, env) {
+  if (prepared.context.candidate.source === "local") return validateLocalAdmission(admission, prepared, env);
   const bound = contexts.get(prepared.context), candidate = prepared.context.candidate;
   exact(admission, ["schema", "kind", "original", "sourceTree", "sourceHashes", "verifierSha", "runId", "runAttempt", "qa", "units"], "semantic admission");
   requireThat(admission.schema === 1 && admission.kind === "semantic-admission" && same(admission.original, originalBinding(candidate, bound.manifest)), "semantic original candidate/manifest/archive mismatch");
@@ -360,12 +484,34 @@ export async function authenticateAdmission({ prepared, env, fetchImpl = fetch, 
   return admission;
 }
 
+// Secretless local admission. Source, archive and receipts are read as DATA; nothing the candidate ships is executed.
+async function localDryRun({ prepared, env, spawn }) {
+  const bound = contexts.get(prepared.context), candidate = prepared.context.candidate;
+  const payloadProblems = checkUploadPayloads({ manifest: bound.manifest, packDir: prepared.packDir, registry: candidate.registry, spawn });
+  requireThat(payloadProblems.length === 0, payloadProblems.join("; "));
+  const { loadCandidateSource } = await import("./candidate-source.mjs");
+  const source = loadCandidateSource({ directory: env.PUBLISH_SOURCE_DIR, sourceSha: candidate.sourceSha, promotionSha: env.GITHUB_SHA, registry: candidate.registry, units: candidate.units, allow: candidate.allow, spawn });
+  const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
+  const receipts = Object.fromEntries(hosts.map((host) => { const directory = path.join(prepared.receiptsDir, host); return [host, JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), "utf8"))]; }));
+  const { localAdmission } = await import("./local-admission.mjs");
+  const result = await localAdmission({ candidate, manifest: bound.manifest, source, receipts, packDir: prepared.packDir });
+  requireThat(result.ok === true, `local admission failed: ${JSON.stringify({ failures: result.failures, units: result.units.filter((unit) => unit.ok !== true) })}`);
+  const admission = { schema: 1, kind: "local-admission", original: originalBinding(candidate, bound.manifest, bound.manifestSha256), sourceTree: source.source.tree, sourceHashes: source.sourceHashes, verifierSha: env.GITHUB_SHA, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, receipts: Object.fromEntries(hosts.map((host) => [host, candidate.assets[host].sha256])), units: result.units };
+  validateAdmission(admission, prepared, env);
+  const destination = path.join(env.RUNNER_TEMP, "publication-admission");
+  fs.mkdirSync(destination, { recursive: true });
+  requireThat(fs.readdirSync(destination).length === 0, "admission destination must be empty");
+  fs.writeFileSync(path.join(destination, "admission.json"), `${JSON.stringify(admission, null, 2)}\n`, { flag: "wx" });
+  return admission;
+}
+
 export async function runReviewed({ env, dryRun = false, verifyAdmission = false, fetchImpl = fetch, spawn = spawnSync, approvedFile = APPROVED_ARTIFACTS_FILE, supplementalFile = SUPPLEMENTAL_PROOFS_FILE }) {
   requireThat(!(dryRun && verifyAdmission), "conflicting run modes");
   if (dryRun || verifyAdmission) for (const key of ["NODE_AUTH_TOKEN", "NPM_TOKEN", "CARGO_REGISTRY_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in secretless admission`);
   if (dryRun) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in secretless admission`);
   const prepared = await prepareCandidate({ env, candidateId: env.PUBLISH_CANDIDATE_ID, approvedFile, supplementalFile, fetchImpl, spawn });
   const candidate = prepared.context.candidate, bound = contexts.get(prepared.context);
+  if (dryRun && candidate.source === "local") return localDryRun({ prepared, env, spawn });
   if (dryRun) {
     const payloadProblems = checkUploadPayloads({ manifest: bound.manifest, packDir: prepared.packDir, registry: candidate.registry, spawn });
     requireThat(payloadProblems.length === 0, payloadProblems.join("; "));

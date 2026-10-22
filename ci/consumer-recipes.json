@@ -320,7 +320,8 @@
       "scenarios": 3,
       "surface": [],
       "bin": {
-        "right-release": "cli/right-release.mjs"
+        "right-release": "cli/right-release.mjs",
+        "rightkit-gate": "bin/rightkit-gate.mjs"
       },
       "closure": {
         "install": {

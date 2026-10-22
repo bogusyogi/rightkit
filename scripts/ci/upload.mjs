@@ -310,6 +310,125 @@ export function checkReceipts({ manifest, manifestSha256, receiptsDir, allow = {
   return problems;
 }
 
+// ---- local qualification receipts -------------------------------------------------------------
+// A local candidate (reviewed-candidate.mjs, source "local") is qualified on Adrian's own hosts through the RustRight
+// broker instead of on hosted runners. Each host writes one `local-verify` receipt; the committed candidate pins the
+// SHA-256 of every receipt, so a receipt can only be forged by someone who can also commit the approval. This function
+// repeats, as data checks, what the credentialed job must not skip; the deep scan-record and source checks run in the
+// secretless admission (local-admission.mjs, scan-receipt.mjs) and reach this job only through the admission transfer.
+
+export const LOCAL_RECEIPT_KIND = "local-verify";
+export const LOCAL_HOST_OS = Object.freeze({ macos: "darwin", windows: "win32", linux: "linux" });
+export const LOCAL_SCAN_SCHEMA = "rightkit.local-scan-receipt/1";
+export const LOCAL_SCAN_CLASSES = Object.freeze(["A", "B"]);
+const LOCAL_HOST_POLICY = Object.freeze({ darwin: "darwin-only", win32: "win32-only" });
+const LOCAL_SCAN_KEYS = ["cargoLockSha256", "classDigests", "classes", "deferred", "headCommit", "inputDigest", "passed", "problems", "scanSetDigest", "scans", "schema", "scope", "sourceCommit", "tools"];
+
+/** Structural problems with a host's local deterministic-scan record; the digest and tool-pin checks live in scan-receipt.mjs. */
+export function localScanShapeProblems(record, { commit, units }) {
+  if (!record || typeof record !== "object" || Array.isArray(record) || JSON.stringify(Object.keys(record).sort()) !== JSON.stringify(LOCAL_SCAN_KEYS)) return ["scans record is missing or has unexpected keys"];
+  const problems = [];
+  if (record.schema !== LOCAL_SCAN_SCHEMA || record.passed !== true || !Array.isArray(record.problems) || record.problems.length !== 0) problems.push("scans record does not show a passed scan");
+  if (!Array.isArray(record.deferred) || record.deferred.length !== 0) problems.push("scans record has a deferred scan");
+  if (record.sourceCommit !== commit || record.headCommit !== commit) problems.push("scans record is not bound to the sealed commit");
+  if (!/^[0-9a-f]{64}$/.test(record.cargoLockSha256 ?? "")) problems.push("scans record has no Cargo.lock hash");
+  if (JSON.stringify(record.classes) !== JSON.stringify(LOCAL_SCAN_CLASSES)) problems.push(`scans record must cover exactly classes ${LOCAL_SCAN_CLASSES.join(", ")}`);
+  if (JSON.stringify([...(record.scope?.units ?? [])].sort()) !== JSON.stringify([...units].sort())) problems.push("scans record scope differs from the sealed units");
+  if (!Array.isArray(record.scans) || record.scans.length === 0 || !record.scans.every((row) => row && typeof row.id === "string" && typeof row.command === "string" && LOCAL_SCAN_CLASSES.includes(row.class) && row.status === "pass")) problems.push("scans record rows are not all passed class A or B scans");
+  return problems;
+}
+
+/**
+ * The local twin of checkReceipts: every required host (macos and windows, linux for Linux-required units) holds exactly one
+ * `local-verify` receipt that names this commit, tree, manifest and candidate, the host OS, the broker that ran the builds, the
+ * archive SHA-256 of every unit (equal to the sealed bytes on EVERY host: a host that packed other bytes qualified other bytes),
+ * a passing gate evidence per unit, and a passed scan record with nothing deferred. Returns problems.
+ */
+export function checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allow = {}, candidate, linuxRequired }) {
+  const problems = [];
+  let linuxUnits = linuxRequired;
+  if (linuxUnits === undefined) {
+    const derived = linuxRequiredFor({ registry: manifest.registry, units: manifest.units.map((u) => u.name) });
+    problems.push(...derived.problems);
+    linuxUnits = derived.units;
+  }
+  const requiredHosts = requiredHostsFor(linuxUnits);
+  const docs = [];
+  for (const file of listFiles(receiptsDir)) {
+    if (!file.endsWith(".json")) continue;
+    try { const doc = JSON.parse(fs.readFileSync(file, "utf8")); if (doc?.kind === LOCAL_RECEIPT_KIND) docs.push({ file, doc }); else problems.push(`unexpected receipt kind ${JSON.stringify(doc?.kind)} in ${path.basename(file)}`); } catch { problems.push(`unreadable receipt ${path.basename(file)}`); }
+  }
+  const allowExcl = new Set(allow.hostExclusion ?? []); const allowNoTest = new Set(allow.noTest ?? []);
+  const allowIgnored = new Set(allow.ignored ?? []); const allowAssets = new Set(allow.missingAssets ?? []);
+  const sameSet = (a, b) => JSON.stringify([...(a ?? [])].sort()) === JSON.stringify([...b].sort());
+  if (manifest.registry !== "crates") problems.push(`local qualification supports crates only, not ${manifest.registry}`);
+  const statusByUnit = new Map(manifest.units.map((u) => [u.name, []]));
+  for (const host of new Set(docs.map((d) => d.doc.host))) if (!requiredHosts.includes(host)) problems.push(`unexpected local receipt from ${JSON.stringify(host)}; the required hosts are ${requiredHosts.join(", ")}`);
+  const trees = new Set();
+  for (const host of requiredHosts) {
+    const mine = docs.filter((d) => d.doc.host === host);
+    if (mine.length !== 1) { problems.push(`expected exactly one local receipt from ${host}, found ${mine.length}`); continue; }
+    const { doc } = mine[0];
+    const bad = (why) => problems.push(`${host} receipt: ${why}`);
+    const hostOs = LOCAL_HOST_OS[host];
+    if (doc.schema !== 1) bad(`unknown schema ${doc.schema}`);
+    if (doc.hostOs !== hostOs) bad(`host OS ${JSON.stringify(doc.hostOs)} is not ${hostOs}`);
+    if (typeof doc.arch !== "string" || !doc.arch.trim()) bad("host arch is missing");
+    if (doc.commit !== manifest.commit) bad(`commit ${doc.commit} is not the sealed commit ${manifest.commit}`);
+    if (!/^[0-9a-f]{40}$/.test(doc.tree ?? "")) bad("tree is not a 40-hex git tree"); else trees.add(doc.tree);
+    if (doc.registry !== manifest.registry) bad(`registry ${doc.registry} is not ${manifest.registry}`);
+    if (doc.manifestSha256 !== manifestSha256) bad("it qualified a different manifest than the one being uploaded");
+    if (candidate && doc.candidateId !== candidate.id) bad(`candidate ${doc.candidateId} is not ${candidate.id}`);
+    const broker = doc.broker;
+    if (!broker || JSON.stringify(Object.keys(broker).sort()) !== JSON.stringify(["client", "name", "sha256"]) || broker.name !== "rustright" || typeof broker.client !== "string" || !broker.client || broker.client.length > 400 || !/^[0-9a-f]{64}$/.test(broker.sha256 ?? "")) bad("broker identity must be {name: rustright, client, sha256}");
+    if (typeof doc.qualifiedAt !== "string" || Number.isNaN(Date.parse(doc.qualifiedAt))) bad("qualifiedAt is not a timestamp");
+    if (!sameSet(doc.allowHostExclusion, allowExcl)) bad("it ran with different allow_host_exclusion than this request");
+    if (!sameSet(doc.allowNoTest, allowNoTest)) bad("it ran with different allow_no_test than this request");
+    if (!sameSet(doc.allowIgnored, allowIgnored)) bad("it ran with different allow_ignored than this request");
+    if (!sameSet(doc.allowMissingAssets, allowAssets)) bad("it ran with different allow_missing_assets than this request");
+    for (const problem of localScanShapeProblems(doc.scans, { commit: manifest.commit, units: manifest.units.map((u) => u.name) })) bad(problem);
+    const byName = new Map((doc.units ?? []).map((u) => [u.name, u]));
+    const scope = host === "linux" ? manifest.units.filter((u) => linuxUnits.includes(u.name)) : manifest.units;
+    if ((doc.units ?? []).length !== scope.length || (doc.units ?? []).some((u) => !scope.some((s) => s.name === u?.name))) bad(`covers ${(doc.units ?? []).length} units, expected ${scope.length}`);
+    for (const unit of scope) {
+      const row = byName.get(unit.name);
+      if (!row) { bad(`no evidence for ${unit.name}`); continue; }
+      const excluded = row.status === "allowed-exclusion";
+      if (row.version !== unit.version || row.file !== unit.file) bad(`${unit.name}: it covers ${row.file}@${row.version}, not the sealed ${unit.file}@${unit.version}`);
+      // A host that excludes the unit packed and tested nothing, so it vouches for no bytes.
+      if (!excluded) {
+        if (row.sha256 !== unit.sha256) bad(`${unit.name}: it qualified different bytes (${row.file} ${String(row.sha256).slice(0, 12)}) than the sealed ${unit.file} ${unit.sha256.slice(0, 12)}`);
+        if (row.bytesVerified !== true) bad(`${unit.name}: the packed bytes were not verified`);
+        for (const problem of archiveScanProblems(row.archiveScan, unit.sha256)) bad(`${unit.name}: ${problem}`);
+      }
+      if (!PASS_STATUSES.includes(row.status) || row.status === "allowed-no-test") bad(`${unit.name}: status ${JSON.stringify(row.status)} is not a pass`);
+      if (host === "linux" && row.status !== "pass") bad(`${unit.name}: a Linux-required unit needs a real pass on Linux, not ${JSON.stringify(row.status)}`);
+      if (excluded && !allowExcl.has(unit.name)) bad(`${unit.name}: excluded from this host without allow_host_exclusion`);
+      if (row.status === "pass" && !(row.executed > 0 && (row.ignored ?? 0) === 0 && (row.skipped ?? 0) === 0)) bad(`${unit.name}: status pass without a positive executed count and zero ignored/skipped`);
+      if (row.status === "allowed-skips") {
+        if (!(row.executed > 0)) bad(`${unit.name}: allowed-skips without a positive executed count`);
+        if ((row.ignored ?? 0) > 0 && !allowIgnored.has(unit.name)) bad(`${unit.name}: ${row.ignored} ignored test(s) and not named in allow_ignored`);
+        if ((row.skipped ?? 0) > 0 && !allowAssets.has(unit.name)) bad(`${unit.name}: ${row.skipped} skipped test(s) and not named in allow_missing_assets`);
+        if (!((row.ignored ?? 0) > 0 || (row.skipped ?? 0) > 0)) bad(`${unit.name}: allowed-skips with nothing ignored or skipped`);
+      }
+      if (!excluded) {
+        const evidence = row.evidence; const run = evidence?.runs?.[0];
+        const sound = evidence && evidence.schema === 1 && evidence.kind === "cargo" && evidence.name === unit.name && evidence.version === unit.version && evidence.commit === manifest.commit && evidence.artifactSha256 === unit.sha256
+          && evidence.hostPolicy === LOCAL_HOST_POLICY[hostOs] && Array.isArray(evidence.runs) && evidence.runs.length === 1
+          && run?.host?.os === hostOs && run.commit === manifest.commit && run.artifactSha256 === unit.sha256 && run.failed === 0 && Number.isInteger(run.passed) && run.passed > 0 && run.batch === undefined;
+        if (!sound) bad(`${unit.name}: the gate evidence does not bind this host, commit and archive with a positive pass`);
+        else if (run.passed !== row.executed || (run.ignored ?? 0) !== (row.ignored ?? 0) || (run.skipped ?? 0) !== (row.skipped ?? 0)) bad(`${unit.name}: the receipt counts differ from its gate evidence`);
+      }
+      statusByUnit.get(unit.name)?.push(row.status);
+    }
+  }
+  if (trees.size > 1) problems.push("the hosts qualified different git trees");
+  for (const [name, statuses] of statusByUnit) {
+    if (statuses.length && !statuses.some((s) => s === "pass" || s === "allowed-skips")) problems.push(`${name}: no host passed it (${statuses.join(", ")})`);
+  }
+  return problems;
+}
+
 // ---- reviewer-approved artifacts --------------------------------------------------------------
 
 /**
@@ -564,13 +683,15 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
   const allow = { hostExclusion: splitNames(env.PUBLISH_ALLOW_HOST_EXCLUSION), noTest: splitNames(env.PUBLISH_ALLOW_NO_TEST), ignored: splitNames(env.PUBLISH_ALLOW_IGNORED), missingAssets: splitNames(env.PUBLISH_ALLOW_MISSING_ASSETS) };
   if (!/^\d+$/.test(env.GITHUB_RUN_ID ?? "") || !/^\d+$/.test(env.GITHUB_RUN_ATTEMPT ?? "")) throw new Error("GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT must be set; the sealed bytes and receipts are bound to this run");
   const promotionRun = { runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT };
-  const run = candidateContext ? { runId: candidateContext.candidate.runId, runAttempt: candidateContext.candidate.runAttempt } : promotionRun;
+  // A local candidate was never sealed by an Actions run: its bytes are bound by the pinned packed asset instead.
+  const local = candidateContext?.candidate.source === "local";
+  const run = local ? {} : candidateContext ? { runId: candidateContext.candidate.runId, runAttempt: candidateContext.candidate.runAttempt } : promotionRun;
   const { manifest, manifestSha256, problems } = loadSealed({ packDir, registry, unitsText: env.PUBLISH_UNITS, run });
   if (manifest) {
     const sourceSha = candidateContext?.candidate.sourceSha ?? env.GITHUB_SHA;
     if (manifest.commit !== sourceSha) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${sourceSha}`);
     problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));
-    problems.push(...checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run, archiveScanResolver }));
+    problems.push(...(local ? checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allow, candidate: candidateContext.candidate }) : checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run, archiveScanResolver })));
     problems.push(...checkUploadPayloads({ manifest, packDir, registry, spawn }));
   }
   if (problems.length) throw new Error(`sealed upload refused:\n  - ${problems.join("\n  - ")}`);

@@ -6,7 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { digestScanSet } from "../../packages/release/deterministic-scans.mjs";
+import { digestScanSet } from "../../packages/release/scan-digest.mjs";
+import { LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
 
 export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/1";
 export const SCAN_RECEIPT_FILE = "scan-receipt.json";
@@ -112,6 +113,73 @@ export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, 
   return true;
 }
 
+// ---- local candidates -------------------------------------------------------------------------
+// A local candidate has no Actions `scans` job. Each host runs the same scan module (class A, then class B through the
+// RustRight broker) over the scope of the candidate's units and writes this record into its receipt. Class B is required
+// here because no native verify job follows. The record is bound to the source commit and the candidate's Cargo.lock.
+
+/** Every reason a local scan result cannot be publication evidence. `planned` is the full plan; every planned scan must have passed. */
+export function localResultProblems(result, planned) {
+  const problems = [];
+  if (!result || !Array.isArray(result.scans) || result.scans.length === 0) return ["no scans ran"];
+  if (!Array.isArray(planned) || planned.length === 0) problems.push("no planned scans to prove");
+  if (result.ok !== true || result.complete !== true) problems.push("the scan result is not ok and complete");
+  if (JSON.stringify(result.classes) !== JSON.stringify(LOCAL_SCAN_CLASSES)) problems.push(`the scan result must cover exactly classes ${LOCAL_SCAN_CLASSES.join(", ")}`);
+  if ((result.deferred ?? []).length) problems.push(`deferred scans are not allowed: ${result.deferred.join(", ")}`);
+  for (const row of result.scans) if (row.status !== "pass") problems.push(`${row.id}: ${row.status}`);
+  const ids = new Set(result.scans.map((row) => row.id));
+  for (const id of REQUIRED_SCAN_IDS) if (!ids.has(id)) problems.push(`required scan ${id} is missing from the plan`);
+  if (!result.scans.some((row) => row.class === "B")) problems.push("no class B (compile, lint) scan ran");
+  if (Array.isArray(planned) && planned.length > 0 && !scanGatePassed(planned, result)) problems.push("not every planned scan ran and passed");
+  return problems;
+}
+
+export function buildLocalScanRecord({ result, planned, sourceCommit, headCommit, cargoLockSha256, observedTools, units, files }) {
+  const problems = [...localResultProblems(result, planned), ...toolVersionProblems(observedTools)];
+  const rows = (result?.scans ?? []).map(({ id, class: cls, command, status }) => ({ id, class: cls, command, status }));
+  return {
+    schema: LOCAL_SCAN_SCHEMA, passed: problems.length === 0, problems, sourceCommit, headCommit, cargoLockSha256,
+    scope: { units: [...units], files },
+    tools: { pinned: { ...SCAN_TOOL_PINS }, observed: { ...observedTools } },
+    classes: [...LOCAL_SCAN_CLASSES], scanSetDigest: digestScanSet(rows),
+    classDigests: { A: digestScanSet(rows.filter((r) => r.class === "A")), B: digestScanSet(rows.filter((r) => r.class === "B")) },
+    inputDigest: result?.inputDigest ?? null, deferred: [...(result?.deferred ?? [])], scans: rows,
+  };
+}
+
+/** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set. */
+export function verifyLocalScanRecord(record, { sourceSha, cargoLockSha256, units }) {
+  const shape = localScanShapeProblems(record, { commit: sourceSha, units });
+  requireThat(shape.length === 0, shape.join("; "));
+  requireThat(HEX64.test(cargoLockSha256 ?? "") && record.cargoLockSha256 === cargoLockSha256, "local scan record is not bound to the candidate Cargo.lock hash");
+  requireThat(HEX64.test(record.scanSetDigest ?? "") && digestScanSet(record.scans) === record.scanSetDigest, "local scan set digest does not match its scans");
+  requireThat(record.classDigests && digestScanSet(record.scans.filter((r) => r.class === "A")) === record.classDigests.A && digestScanSet(record.scans.filter((r) => r.class === "B")) === record.classDigests.B, "local scan class digests do not match its scans");
+  const ids = new Set(record.scans.map((row) => row.id));
+  for (const id of REQUIRED_SCAN_IDS) requireThat(ids.has(id), `local scan record lacks required scan ${id}`);
+  requireThat(record.scans.some((row) => row.class === "B"), "local scan record has no class B scan");
+  requireThat(record.tools?.pinned && Object.entries(SCAN_TOOL_PINS).every(([tool, version]) => record.tools.pinned[tool] === version), "local scan tool pins differ from the trusted pins");
+  const toolProblems = toolVersionProblems(record.tools?.observed);
+  requireThat(toolProblems.length === 0, `local scan tool versions: ${toolProblems.join("; ")}`);
+  return true;
+}
+
+/** Verify the scan record inside every pinned local receipt of a prepared candidate against the candidate checkout. */
+export function verifyLocalScanReceipts({ candidate, receiptsDir, candidateDir }) {
+  const lock = path.join(candidateDir, "Cargo.lock");
+  requireThat(fs.existsSync(lock), "candidate has no Cargo.lock to bind");
+  const cargoLockSha256 = sha256Hex(fs.readFileSync(lock));
+  const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
+  for (const host of hosts) {
+    const directory = path.join(receiptsDir, host);
+    const files = fs.readdirSync(directory);
+    requireThat(files.length === 1, `${host} receipt directory must hold exactly one receipt`);
+    let doc;
+    try { doc = JSON.parse(fs.readFileSync(path.join(directory, files[0]), "utf8")); } catch { refuse(`${host} receipt is not valid JSON`); }
+    verifyLocalScanRecord(doc?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256, units: candidate.units });
+  }
+  return hosts;
+}
+
 /**
  * Fetch the original run's scan receipt and verify it against the candidate. `api`, `artifactMatches` and
  * `unpack` come from reviewed-candidate.mjs (injected so tests need no network).
@@ -146,11 +214,18 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
   const [command, ...rest] = process.argv.slice(2);
   try {
     requireThat(command === "verify" && rest.length === 0, "usage: scan-receipt.mjs verify");
-    const { authenticateSource, api, artifactMatches, unpackArtifact } = await import("./reviewed-candidate.mjs");
+    const { authenticateSource, prepareCandidate, api, artifactMatches, unpackArtifact } = await import("./reviewed-candidate.mjs");
     const { env } = process;
     requireThat(env.PUBLISH_SOURCE_DIR && env.RUNNER_TEMP, "PUBLISH_SOURCE_DIR and RUNNER_TEMP are required");
     const { candidate, repository } = await authenticateSource({ env, candidateId: env.PUBLISH_CANDIDATE_ID });
-    await verifyOriginalScanReceipt({ candidate, repository, env, candidateDir: env.PUBLISH_SOURCE_DIR, fetchImpl: fetch, workDir: path.join(env.RUNNER_TEMP, "scan-receipt-verify"), api, artifactMatches, unpack: unpackArtifact });
-    process.stdout.write(`scan receipt verified for ${candidate.sourceSha}\n`);
+    if (candidate.source === "local") {
+      // A local candidate's scan records live in its pinned receipts; prepareCandidate re-downloads and hash-checks them.
+      const prepared = await prepareCandidate({ env, candidateId: env.PUBLISH_CANDIDATE_ID });
+      verifyLocalScanReceipts({ candidate, receiptsDir: prepared.receiptsDir, candidateDir: env.PUBLISH_SOURCE_DIR });
+      process.stdout.write(`local scan records verified for ${candidate.sourceSha}\n`);
+    } else {
+      await verifyOriginalScanReceipt({ candidate, repository, env, candidateDir: env.PUBLISH_SOURCE_DIR, fetchImpl: fetch, workDir: path.join(env.RUNNER_TEMP, "scan-receipt-verify"), api, artifactMatches, unpack: unpackArtifact });
+      process.stdout.write(`scan receipt verified for ${candidate.sourceSha}\n`);
+    }
   } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
 }

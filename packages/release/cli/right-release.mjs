@@ -66,6 +66,7 @@ try {
     || first?.startsWith("-")
     || (first === "addon" && args[1] === "build")
     || (first === "dmg" && args[1] === "build")
+    || first === "qualify"
     || (first === "publish" && ["cargo", "swift"].includes(args[1]))) {
     assertReleaseExecutionAllowed({ command: `right-release ${args.join(" ")}`.trim() });
   }
@@ -104,8 +105,24 @@ if (first === "--version" || first === "-v") {
   run("dmg-build.mjs", args.slice(1));
 } else if (first === "apple") {
   run("apple-profile-renew.mjs", args.slice(1));
+} else if (first === "qualify") {
+  // Local qualification (default): both native hosts qualify the crates through the RustRight broker and a candidate is cut.
+  // It uploads nothing; the approval commit and publish-reviewed.yml publish the pinned bytes (docs/CI.md "Local qualification").
+  run("local-qualify.mjs", args.slice(1));
 } else if (first === "publish") {
   const rest = args.slice(1);
+  // RightKit crates and @rightkit packages reach a registry from CI only: publish.yml qualification, the approval
+  // commit in ci/approved-artifacts.json, then publish-reviewed.yml uploads exactly the approved bytes (docs/CI.md).
+  // Every host-side upload path is refused on every host; preflight, --dry-run and --qualify-only still run.
+  if (rest[0] === "cargo" || rest[0] === "npm") {
+    const uploads = rest[0] === "npm"
+      ? rest.includes("--publish") || rest.includes("--local")
+      : !rest.includes("--dry-run") && !rest.includes("--qualify-only");
+    if (uploads && process.env.GITHUB_ACTIONS !== "true") {
+      console.error(`right-release publish ${rest[0]}: host uploads are retired; RightKit publishes only through CI's approved-hash path (publish.yml, approval in ci/approved-artifacts.json, publish-reviewed.yml). Use --dry-run${rest[0] === "cargo" ? " or --local --qualify-only" : ""} to qualify locally.`);
+      process.exit(2);
+    }
+  }
   if ((rest[0] === "cargo" || rest[0] === "npm") && rest.includes("--local")) {
     run("local-publish.mjs", rest);
   } else if (rest[0] === "cargo") {
@@ -271,6 +288,10 @@ Commands:
                                                       Verify on source host; export crate bytes & gate evidence without uploading
   publish cargo --crate <name> --from-evidence <gate.json>
                                                       Reuse exact HEAD/artifact proof on upload host; recheck archive hash & registry bytes
+  qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <1-64>] [--concurrency <1-8>] [--out <dir>] [--no-release]
+                                                      Qualify the crates on BOTH native hosts through the RustRight broker (Dell: Windows, Mac: macOS over ssh), seal one packed
+                                                      asset and one receipt per host, attach them to the prerelease candidate-<id> and print the candidate and approval entry.
+                                                      Needs a clean checkout with HEAD on origin/main (the other host at the same HEAD). Never uploads to a registry
   publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]
                                                       Check main, a clean tree, and the publication evidence, then tag RightKitSwift at its VERSION on origin
   inventory check [--json] [--warn-only] [--md <file>] [--no-cache]

@@ -43,6 +43,14 @@ fn notepad_end_to_end() {
 }
 
 fn run() {
+    // Launching Notepad steals focus, which the no-focus-change assertions below would then report: this
+    // test runs only in a dedicated desktop session, which CI's gate marks with RIGHTKIT_REQUIRE_DESKTOP=1.
+    // It never runs against a developer's live desktop.
+    let require_desktop = std::env::var("RIGHTKIT_REQUIRE_DESKTOP").as_deref() == Ok("1");
+    if !require_desktop {
+        eprintln!("SKIP notepad_end_to_end: needs a dedicated desktop session (RIGHTKIT_REQUIRE_DESKTOP=1, set by CI); never run on a live user desktop");
+        return;
+    }
     reset_kill();
     let out = tempfile::tempdir().unwrap();
     let a = native(Policy::new(["notepad.exe"]));
@@ -56,13 +64,8 @@ fn run() {
     // Real foreground measurement: pid AND top-level window, sampled continuously from
     // here to the end. `None == None` is not a pass: an unmeasurable foreground fails.
     let front0 = a.frontmost();
-    // A session with no interactive desktop (a hidden build broker) cannot measure a foreground
-    // window: the test says so and stops, unless RIGHTKIT_REQUIRE_DESKTOP=1 (publication CI), where
-    // that is a failure.
-    if front0.is_none() && std::env::var("RIGHTKIT_REQUIRE_DESKTOP").as_deref() != Ok("1") {
-        eprintln!("SKIP notepad_end_to_end: no interactive desktop session (set RIGHTKIT_REQUIRE_DESKTOP=1 to require one)");
-        return;
-    }
+    // RIGHTKIT_REQUIRE_DESKTOP=1 is set (the test returned above otherwise), so a foreground that cannot
+    // be measured (no interactive desktop, such as a hidden build broker) is a failure, never a skip.
     assert!(
         front0.is_some(),
         "foreground window could not be measured; run in an interactive desktop session"

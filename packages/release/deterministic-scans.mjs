@@ -24,6 +24,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
+import { canonicalJson, digestScanSet } from "./scan-digest.mjs";
+import { reach } from "./lock-graph.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
@@ -35,7 +37,7 @@ export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions",
 ]);
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
-  "clippy", "check", "check-all-features", "check-features", "doc", "tsc", "eslint", "swift-build", "test", "generated-docs",
+  "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "tsc", "eslint", "swift-build", "test", "generated-docs",
 ]);
 
 /**
@@ -62,26 +64,41 @@ export function scanClassOf(id) {
 
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
-/** Deterministic JSON: object keys sorted, no undefined, no non-finite numbers. */
-export function canonicalJson(value) {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new TypeError("canonicalJson: non-finite number");
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (typeof value === "object") {
-    const keys = Object.keys(value).sort();
-    for (const key of keys) if (value[key] === undefined) throw new TypeError(`canonicalJson: undefined at ${key}`);
-    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
-  }
-  throw new TypeError(`canonicalJson: unsupported ${typeof value}`);
+// canonicalJson and digestScanSet live in the dependency-free scan-digest.mjs, so credentialed CI code that verifies
+// scan receipts never loads this scanner.
+export { canonicalJson, digestScanSet };
+
+// ---- gate result cache --------------------------------------------------------------------------------
+// A passing class B scan is reused on a later run only when every input is identical: the key is the sha256 of the
+// canonical JSON of the scan id, its command text, the probed tool version, the environment the scan sets and an input
+// digest the caller computes from the gated commit's object ids (bin/rightkit-gate.mjs). Only "pass" rows are stored
+// (never fail, deferred or not-run), and class A content scans are never cached. A changed input changes the key, so
+// there is no separate invalidation; a corrupt or foreign file is a miss.
+
+/** The cache key for one scan; `digest` is the caller's input digest. */
+export function scanCacheKey({ id, command, toolVersion, env = {}, digest }) {
+  return sha256(canonicalJson({ id: String(id), command: String(command), toolVersion: String(toolVersion), env: { ...env }, digest: String(digest) }));
 }
 
-/** Digest of a scan set: the sorted (id, class, command) of every entry. Plan items and result rows agree. */
-export function digestScanSet(entries) {
-  const rows = entries.map((e) => [String(e.id), String(e.class), String(e.command)]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-  return sha256(canonicalJson(rows));
+const CACHE_KEY_SHAPE = /^[0-9a-f]{64}$/;
+
+/** A cache directory (`<git dir>/rightkit-gate-cache`): { read(key) => entry | null, write(key, row) }. Never throws. */
+export function fileScanCache(dir, { now = () => new Date(), fsApi = fs } = {}) {
+  const file = (key) => (CACHE_KEY_SHAPE.test(key) ? path.join(dir, `${key}.json`) : null);
+  return {
+    read(key) {
+      try { const f = file(key); return f ? JSON.parse(fsApi.readFileSync(f, "utf8")) : null; } catch { return null; }
+    },
+    write(key, row) {
+      try {
+        const f = file(key); if (!f) return;
+        fsApi.mkdirSync(dir, { recursive: true });
+        const tmp = `${f}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+        fsApi.writeFileSync(tmp, JSON.stringify({ key, at: now().toISOString(), row }));
+        fsApi.renameSync(tmp, f);
+      } catch { /* a cache that cannot be written is only a miss next time */ }
+    },
+  };
 }
 
 // ---- command builders shared with scripts/ci/gate.mjs and packages/release/local-publish.mjs -------------
@@ -134,10 +151,13 @@ const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 // Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
 // so a dependency or toolchain update never reaches a push without local qualification.
-const WORKSPACE_RUST_FILE = /^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|clippy\.toml|rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/;
+export const WORKSPACE_RUST_FILE =/^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|clippy\.toml|rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/;
 const WORKSPACE_JS_FILE = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/;
 const ESLINT_FILES = ["eslint.config.js", "eslint.config.mjs", ".eslintrc.json"];
 const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
+// Everything scripts/generate-index.mjs reads or writes (its header and loadInventory): crate and package manifests and
+// READMEs, the root Cargo.toml (workspace version), the versions and ownership data, the ownership-availability helper it imports, itself, and its outputs.
+const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-index\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP)\.md)$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rightkit: ["cargo", "--version"], pnpm: ["--version"],
   actionlint: ["-version"], "right-git": ["--version"], swift: ["--version"],
@@ -170,6 +190,12 @@ export function planScans({
   // Crates a workspace-wide Rust change (Cargo.lock, vendor/) actually reaches, computed by the caller from
   // the lock graph (scripts/ci/select.mjs). null keeps every crate in scope.
   rustScope = null,
+  // Repository-specific units for any layout: [{ name, dir, publish? }], dir repo-relative ("." for a root unit). When given they
+  // replace the crates/<name> and packages/<name> layout (rightkit-gate). `cargoDir` is the Cargo workspace root the cargo scans run in.
+  rustUnits = null, npmUnits = null, cargoDir = ".",
+  // Parsed Cargo.lock graph (lock-graph.mjs parseLock). With it, every workspace crate that depends on a crate in scope and is
+  // not itself in scope gets a `check-dependent` scan, as CI's rust-check rows do. null plans none.
+  rustLock = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rightkit", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -211,7 +237,38 @@ export function planScans({
     refuse(`${kind} directory name ${JSON.stringify(n)}`, "not a plain name");
     return false;
   });
-  const cargo = (...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args] });
+  const cleanDir = (d) => { const n = path.posix.normalize(posix(String(d))).replace(/\/+$/, ""); return n === "" ? "." : n; };
+  const SAFE_UNIT_DIR = /^(?:\.|[A-Za-z0-9_@+.-]+(?:\/[A-Za-z0-9_@+.-]+)*)$/;
+  const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
+  const cargoWs = cleanDir(cargoDir);
+  if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
+  const cargo = (...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(cargoWs !== "." ? { cwd: cargoWs } : {}) });
+  const unitMap = (units, kind) => {
+    if (units === null) return null;
+    if (!Array.isArray(units)) throw new TypeError(`planScans: ${kind}Units must be an array of { name, dir }`);
+    const map = new Map();
+    for (const u of units) {
+      if (typeof u?.name !== "string" || typeof u?.dir !== "string") throw new TypeError(`planScans: every ${kind} unit needs a string name and dir`);
+      if (map.has(u.name)) throw new TypeError(`planScans: duplicate ${kind} unit ${u.name}`);
+      const dir = cleanDir(u.dir);
+      if (!plainDir(dir)) { refuse(`${kind} unit ${JSON.stringify(u.name)} directory ${JSON.stringify(u.dir)}`, "not a plain repository-relative path"); continue; }
+      map.set(u.name, { dir, publish: u.publish !== false });
+    }
+    return map;
+  };
+  const rustMap = unitMap(rustUnits, "rust"); const npmMap = unitMap(npmUnits, "npm");
+  const rustDir = (n) => (rustMap ? rustMap.get(n).dir : `crates/${n}`);
+  const npmDir = (n) => (npmMap ? npmMap.get(n).dir : `packages/${n}`);
+  const inDir = (dir, f) => (dir === "." ? f : `${dir}/${f}`);
+  // The unit whose directory holds `f`; the deepest directory wins and a root unit (".") only takes what no other unit does.
+  const unitOf = (map, f) => {
+    let best = null; let score = -1;
+    for (const [name, u] of map) {
+      const s = u.dir === "." ? 0 : u.dir.length;
+      if ((u.dir === "." || f === u.dir || f.startsWith(`${u.dir}/`)) && s > score) { best = name; score = s; }
+    }
+    return best;
+  };
 
   // ---- class A: content checks on the exported commit
   // A vendor/ file keeps upstream formatting only when vendor/upstream-files.json records it and its
@@ -254,14 +311,15 @@ export function planScans({
   if (exists(path.join(contentRoot, "packages/release/rightkit-ownership.json")) && exists(path.join(contentRoot, "crates/rightkit-ownership/catalog/ownership-catalog.json"))) {
     add({ id: "ownership-catalog", class: A, internal: "ownership-catalog", files: ["packages/release/rightkit-ownership.json", "crates/rightkit-ownership/catalog/ownership-catalog.json"] });
   }
-  const rustWide = files.some((f) => WORKSPACE_RUST_FILE.test(f));
+  const wsRel = (f) => (cargoWs === "." ? f : f.startsWith(`${cargoWs}/`) ? f.slice(cargoWs.length + 1) : null);
+  const rustWide = files.some((f) => { const r = wsRel(f); return r !== null && WORKSPACE_RUST_FILE.test(r); });
   const jsWide = files.some((f) => WORKSPACE_JS_FILE.test(f));
-  const wideCrates = rustWide ? listDir(path.join(contentRoot, "crates")).filter((n) => !rustScope || rustScope.has(n)) : [];
+  const wideCrates = rustWide ? (rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"))).filter((n) => !rustScope || rustScope.has(n)) : [];
   if (rustWide && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
-  const crateNames = safeUnits([...new Set([...under("crates/").map((f) => f.split("/")[1]), ...wideCrates])].filter((n) => exists(path.join(contentRoot, "crates", n, "Cargo.toml"))).sort(), "crate");
-  const rustConfigChanged = files.some((f) => CONFIG_CRATE_FILE.test(f) || f === "deny.toml");
+  const crateNames = safeUnits([...new Set([...(rustMap ? files.map((f) => unitOf(rustMap, f)).filter(Boolean) : under("crates/").map((f) => f.split("/")[1])), ...wideCrates])].filter((n) => exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort(), "crate");
+  const rustConfigChanged = files.some((f) => CONFIG_CRATE_FILE.test(f) || wsRel(f) === "deny.toml");
   const rustTouched = crateNames.length > 0 || rustConfigChanged;
-  const pkgNames = safeUnits([...new Set([...under("packages/").map((f) => f.split("/")[1]), ...(jsWide ? listDir(path.join(contentRoot, "packages")) : [])])].filter((n) => exists(path.join(contentRoot, "packages", n, "package.json"))).sort(), "package");
+  const pkgNames = safeUnits([...new Set([...(npmMap ? files.map((f) => unitOf(npmMap, f)).filter(Boolean) : under("packages/").map((f) => f.split("/")[1])), ...(jsWide ? (npmMap ? [...npmMap.keys()] : listDir(path.join(contentRoot, "packages"))) : [])])].filter((n) => exists(path.join(contentRoot, npmDir(n), "package.json"))).sort(), "package");
   const jsTouched = pkgNames.length > 0 || files.some((f) => JS_TOOLING_FILE.test(f));
 
   // Explicit files: the exported commit has no .git for actionlint's project discovery.
@@ -275,7 +333,7 @@ export function planScans({
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
   if (rustTouched) {
     add({ id: "cargo-metadata", class: A, ...cargo(...metadataArgs()) });
-    for (const name of crateNames) add({ id: `cargo-package-list:${name}`, class: A, ...cargo("package", "-p", name, "--list", "--allow-dirty", "--locked") });
+    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: `cargo-package-list:${name}`, class: A, ...cargo("package", "-p", name, "--list", "--allow-dirty", "--locked") });
   }
   if (rustConfigChanged) {
     add({ id: "cargo-deny", class: A, ...cargo("deny", "check") });
@@ -287,11 +345,11 @@ export function planScans({
     add({ id: "pnpm-lockfile", class: A, tool: "pnpm", args: ["install", "--frozen-lockfile", "--lockfile-only", "--ignore-pnpmfile", "--ignore-scripts"], env: PNPM_NO_HOOKS_ENV, root: "content" });
     add({ id: "pnpm-audit", class: A, tool: "pnpm", args: ["audit", "--prod", "--audit-level", "high"], env: PNPM_NO_HOOKS_ENV, root: "content" });
   }
-  const crateDirs = crateNames.map((n) => `crates/${n}`); const pkgDirs = pkgNames.map((n) => `packages/${n}`);
-  const withChangelog = crateNames.filter((n) => exists(path.join(contentRoot, "crates", n, "CHANGELOG.md")) && exists(path.join(contentRoot, "crates", n, "Cargo.toml")));
-  for (const name of withChangelog) add({ id: `changelog-version:${name}`, class: A, internal: "changelog-version", files: [`crates/${name}/Cargo.toml`, `crates/${name}/CHANGELOG.md`] });
+  const crateDirs = crateNames.map(rustDir); const pkgDirs = pkgNames.map(npmDir);
+  const withChangelog = crateNames.filter((n) => exists(path.join(contentRoot, rustDir(n), "CHANGELOG.md")) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")));
+  for (const name of withChangelog) add({ id: `changelog-version:${name}`, class: A, internal: "changelog-version", files: [inDir(rustDir(name), "Cargo.toml"), inDir(rustDir(name), "CHANGELOG.md")] });
   if (crateDirs.length || pkgDirs.length) {
-    add({ id: "license", class: A, internal: "license", files: [...crateDirs.map((d) => `${d}/Cargo.toml`), ...pkgDirs.map((d) => `${d}/package.json`)] });
+    add({ id: "license", class: A, internal: "license", files: [...crateDirs.map((d) => inDir(d, "Cargo.toml")), ...pkgDirs.map((d) => inDir(d, "package.json"))] });
     add({ id: "secret-scan", class: A, internal: "secret-scan", dirs: [...crateDirs, ...pkgDirs] });
   }
 
@@ -300,7 +358,8 @@ export function planScans({
   // handed to it as data (`--root`); the content root's own copy is never executed. When no separate
   // trusted checkout exists (liveRoot is contentRoot) or it lacks the generator, the scan is marked as
   // requiring a trusted-root run: deferred (never a pass), not run from submitted code.
-  if (exists(path.join(contentRoot, "scripts/generate-index.mjs"))) {
+  // Planned only when a changed file is one of the generator's inputs (GENERATOR_INPUT).
+  if (exists(path.join(contentRoot, "scripts/generate-index.mjs")) && files.some((f) => GENERATOR_INPUT.test(f))) {
     const trusted = path.resolve(liveRoot) !== path.resolve(contentRoot) && exists(path.join(liveRoot, "scripts/generate-index.mjs"));
     add({
       id: "generated-docs", class: B, tool: "node", args: ["scripts/generate-index.mjs", "--check", "--root", "{contentRoot}"],
@@ -322,13 +381,20 @@ export function planScans({
     lintSets.forEach((set, i) => add({ id: lintSets.length === 1 ? `clippy:${name}` : `clippy:${name}:${i}`, class: B, ...cargo(...clippyArgs(name, { features: set, locked: true })) }));
     // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
     // a request that sets it. A crate with no library has no API docs to check.
-    if (exists(path.join(contentRoot, "crates", name, "src", "lib.rs"))) {
+    if (exists(path.join(contentRoot, rustDir(name), "src", "lib.rs"))) {
       add({ id: `doc:${name}`, class: B, ...cargo("rustdoc", "-p", name, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
     }
   }
+  // Reverse dependents: a workspace crate that is not in scope but whose lock closure reaches one that is must still compile.
+  if (rustLock instanceof Map && crateNames.length) {
+    const inScope = new Set(crateNames); const memo = new Map();
+    const workspace = rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"));
+    const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && crateNames.some((t) => reach(rustLock, n, memo).has(t))).sort(), "crate");
+    for (const name of dependents) add({ id: `check-dependent:${name}`, class: B, ...cargo(...checkArgs(name, { locked: true })) });
+  }
   const rootLint = ROOT_LINT_FILES.some((f) => exists(path.join(liveRoot, f)));
   for (const name of pkgNames) {
-    const dir = `packages/${name}`;
+    const dir = npmDir(name);
     if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], cwd: dir });
     if (rootLint || ESLINT_FILES.some((f) => exists(path.join(liveRoot, dir, f)))) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], cwd: dir });
   }
@@ -349,10 +415,34 @@ export function planScans({
     }
     for (const name of pkgNames) {
       let manifest = null;
-      try { manifest = JSON.parse(readFile(path.join(liveRoot, "packages", name, "package.json"))); } catch { /* unreadable manifest: no test row */ }
-      if (manifest?.scripts?.test) add({ id: `test:npm:${name}`, class: B, tool: "pnpm", args: ["--dir", `packages/${name}`, "run", "test"] });
+      try { manifest = JSON.parse(readFile(path.join(liveRoot, npmDir(name), "package.json"))); } catch { /* unreadable manifest: no test row */ }
+      if (manifest?.scripts?.test) add({ id: `test:npm:${name}`, class: B, tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"] });
     }
-    if (files.some((f) => f.startsWith("scripts/")) || exists(path.join(liveRoot, "scripts/ci"))) {
+    // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
+    // relative path literals, followed through packages/*.mjs) changed. Where unreadable, they run.
+    const ciDir = exists(path.join(liveRoot, "scripts/ci"));
+    const scriptsCiTouched = () => {
+      if (files.some((f) => /^(scripts|ci|\.github)\//.test(f))) return true;
+      try {
+        const sources = listDir(path.join(liveRoot, "scripts/ci")).filter((n) => /\.mjs$/.test(n));
+        if (!sources.length) return true;
+        const inputs = new Set(); const seen = new Set();
+        const visit = (rel) => {
+          if (seen.has(rel)) return;
+          seen.add(rel);
+          let text; try { text = readFile(path.join(liveRoot, rel)); } catch { return; }
+          for (const m of text.matchAll(/["'`]((?:\.\.?\/)+[^"'`\s]+)["'`]/g)) {
+            const target = path.posix.normalize(path.posix.join(path.posix.dirname(rel), m[1])).replace(/\/+$/, "");
+            if (!target || target === "." || target.startsWith("..")) continue;
+            inputs.add(target);
+            if (target.startsWith("packages/") && target.endsWith(".mjs")) visit(target);
+          }
+        };
+        for (const n of sources) visit(`scripts/ci/${n}`);
+        return files.some((f) => [...inputs].some((i) => f === i || f.startsWith(`${i}/`)));
+      } catch { return true; }
+    };
+    if (ciDir ? scriptsCiTouched() : (!(rustMap || npmMap) && files.some((f) => f.startsWith("scripts/")))) {
       add({ id: "test:scripts-ci", class: B, tool: "node", args: ["--test", "scripts/ci/*.test.mjs"] });
     }
   }
@@ -421,30 +511,52 @@ export function defaultSpawn(command, args, options = {}) {
 }
 
 const OUTPUT_KEEP = 4 * 1024 * 1024;
-/** The same invocation as defaultSpawn without blocking, so scans can run side by side. Keeps the last 4 MiB of each stream. */
+/** Kill `child` and everything it started: taskkill /T /F on Windows, the whole process group elsewhere (the child leads one when spawned with a signal). */
+export function killProcessTree(child, { platform = process.platform, run = spawnSync, kill = (pid, sig) => process.kill(pid, sig) } = {}) {
+  if (!child?.pid) return;
+  if (platform === "win32") {
+    try { run("taskkill", ["/T", "/F", "/PID", String(child.pid)], { windowsHide: true, stdio: "ignore" }); } catch { /* already gone */ }
+    return;
+  }
+  try { kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+}
+
+/**
+ * The same invocation as defaultSpawn without blocking, so scans can run side by side. Keeps the last 4 MiB of each stream.
+ * With `options.signal` (an AbortSignal), an abort kills the whole process tree and the result carries `cancelled: true`.
+ */
 export function defaultSpawnAsync(command, args, options = {}) {
-  const inv = resolveInvocation(command, args, { env: options.env ?? process.env });
+  const { signal, ...rest } = options;
+  const inv = resolveInvocation(command, args, { env: rest.env ?? process.env });
   if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });
+  if (signal?.aborted) return Promise.resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true });
   return new Promise((resolve) => {
     let stdout = ""; let stderr = ""; let error = null;
     const keep = (buf, chunk) => { const next = buf + chunk; return next.length > OUTPUT_KEEP ? next.slice(-OUTPUT_KEEP) : next; };
     let child;
     try {
-      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, ...options, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+      child = spawnChild(inv.file, inv.args, { windowsHide: true, windowsVerbatimArguments: inv.verbatim, ...(signal && process.platform !== "win32" ? { detached: true } : {}), ...rest, shell: false, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) { resolve({ status: null, stdout: "", stderr: "", error: e }); return; }
+    const onAbort = () => killProcessTree(child);
+    signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
     child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
     child.stderr.on("data", (c) => { stderr = keep(stderr, c); });
     child.on("error", (e) => { error = e; });
-    child.on("close", (status) => resolve({ status, stdout, stderr, ...(error ? { error } : {}) }));
+    child.on("close", (status) => {
+      signal?.removeEventListener("abort", onAbort);
+      const cancelled = signal?.aborted === true;
+      resolve({ status, stdout, stderr, ...(error ? { error } : cancelled ? { error: new Error("cancelled") } : {}), ...(cancelled ? { cancelled: true } : {}) });
+    });
+    if (signal?.aborted) onAbort();
   });
 }
 
 // Lanes for concurrent class B runs. The broker admits check and clippy side by side; rustdoc and
 // package are serialized by the broker anyway; tests and repository code share files, ports and
 // devices, so they run one at a time, as on a CI runner.
-function laneOf(scan) {
-  if (/^(clippy|check|check-features):/.test(scan.id)) return "compile";
+export function laneOf(scan) {
+  if (/^(clippy|check|check-features|check-dependent):/.test(scan.id)) return "compile";
   if (/^doc:/.test(scan.id)) return "doc";
   return "serial";
 }
@@ -473,7 +585,7 @@ async function defaultLoadToml() {
 }
 // Parsers come from this package's own trusted location (the runner's copy), never from the content root,
 // which is submitted code. `smol-toml` resolves through this package's own dependencies.
-const TRUSTED_YAML_PARSER = fileURLToPath(new URL("../../scripts/ci/workflow-yaml.mjs", import.meta.url));
+const TRUSTED_YAML_PARSER = fileURLToPath(new URL("./workflow-yaml.mjs", import.meta.url));
 async function defaultLoadYaml() {
   if (!fs.existsSync(TRUSTED_YAML_PARSER)) throw new Error(`strict YAML parser not found at ${TRUSTED_YAML_PARSER}`);
   return (await import(pathToFileURL(TRUSTED_YAML_PARSER).href)).parseYaml;
@@ -547,13 +659,15 @@ const INTERNAL = {
 export async function runScans(plan, options = {}) {
   const deps = {
     // Concurrent runs need a spawn that does not block the event loop.
-    spawn: Number(options.jobs ?? 1) > 1 ? defaultSpawnAsync : defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
+    spawn: Number(options.jobs ?? 1) > 1 || options.signal ? defaultSpawnAsync : defaultSpawn, exists: fs.existsSync, readFile: (f) => fs.readFileSync(f, "utf8"), readdir: fs.readdirSync,
     env: process.env, platform: process.platform, execPath: process.execPath,
     loadToml: defaultLoadToml, loadYaml: defaultLoadYaml, scanSecrets: defaultScanSecrets, findRustfmt,
     ...options,
   };
   const classes = options.classes ?? [SCAN_CLASS.A, SCAN_CLASS.B];
   const exclude = options.exclude ?? (() => false);
+  // An AbortSignal: once aborted, no further scan starts, running children are killed (process tree) and every unfinished scan is "not-run" with code CANCELLED.
+  const signal = options.signal; const sig = signal ? { signal } : {};
   const { contentRoot, liveRoot } = plan.roots;
   const rootDir = (r) => (r === "content" ? contentRoot : r === "parent" ? path.dirname(contentRoot) : liveRoot);
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
@@ -561,6 +675,9 @@ export async function runScans(plan, options = {}) {
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
   const toolVersions = {}; const probed = new Map();
   const results = [];
+  // options.cache = { read(key), write(key, row), digest(scan) => string | null } (null: not cacheable); never used for class A.
+  const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
+  const cacheHits = [];
   let classAFailed = false;
   // Class B needs class A first: in this call (classes includes A) or valid prior class A evidence for the
   // same class A scan set (options.priorClassA: an earlier runScans result whose class A rows all passed).
@@ -584,7 +701,7 @@ export async function runScans(plan, options = {}) {
     const command = toolCommand(tool);
     if (!command) outcome = { ok: false, why: "not found" };
     else {
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: liveRoot, env: deps.env });
+      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: liveRoot, env: deps.env, ...sig });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
       else outcome = { ok: true, command, version: String(r.stdout || r.stderr || "").split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown" };
     }
@@ -597,6 +714,7 @@ export async function runScans(plan, options = {}) {
   const onResult = typeof options.onResult === "function" ? options.onResult : () => {};
   const total = ordered.length; let done = 0;
   async function runOne(s) {
+    if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
     const started = Date.now();
     const row = await scanRow(s);
     done += 1;
@@ -646,9 +764,23 @@ export async function runScans(plan, options = {}) {
         row.toolVersion = p.ok ? p.version : null;
         if (!p.ok) { status = "fail"; code = "TOOL_MISSING"; detail = `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
         else {
-          const r = await deps.spawn(p.command, s.args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env } });
+          let cacheKey = null;
+          if (cache && s.class === SCAN_CLASS.B) {
+            try {
+              const digest = cache.digest(s);
+              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion: p.version, env: s.env ?? {}, digest });
+            } catch { cacheKey = null; }
+            const hit = cacheKey ? cache.read(cacheKey) : null;
+            if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command) {
+              cacheHits.push(s.id);
+              return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
+            }
+          }
+          const r = await deps.spawn(p.command, s.args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, ...sig });
+          if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }
+          else if (cacheKey && !signal?.aborted) cache.write(cacheKey, { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: row.toolVersion, status: "pass" });
         }
       }
     } catch (e) { status = "fail"; code = "SCAN_ERROR"; detail = e.message; }
@@ -656,11 +788,12 @@ export async function runScans(plan, options = {}) {
     return { ...row, status, ...(code ? { code } : {}), ...(detail ? { detail } : {}) };
   }
 
+  const cancelled = signal?.aborted === true;
   return {
-    schema: SCAN_RESULT_SCHEMA, ok: results.every((r) => r.status === "pass"), complete: results.every((r) => r.status === "pass"), classes,
+    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
-    scans: results, toolVersions, notes: plan.notes ?? [],
+    scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: plan.notes ?? [],
     scanSetDigest: digestScanSet(results),
     classDigests: { A: digestScanSet(results.filter((r) => r.class === "A")), B: digestScanSet(results.filter((r) => r.class === "B")) },
   };

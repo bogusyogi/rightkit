@@ -174,9 +174,9 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Publishing
 
-Publication has two dispatches from `main` of public `bogusyogi/rightkit`: qualify once,
-then promote approved original bytes. Builds, package tests & publication stay in Actions;
-local-build exceptions do not authorize local execution under current CI-only instruction.
+Qualification is local by default (see "Local qualification", below: both native hosts through the RustRight broker, then an
+approval commit, then `publish-reviewed.yml`). The GitHub route is the fallback for what a host cannot run: two dispatches from `main`
+of public `bogusyogi/rightkit`, qualify once, then promote approved original bytes. Registry uploads exist only in Actions.
 
 ```bash
 gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa"
@@ -212,6 +212,73 @@ Promotion defaults to `dry_run=true`: admission & authenticated transfer run wit
 Set `dry_run=false` explicitly for publication. Secretless `seal-check` internally runs
 `reviewed-candidate.mjs run --dry-run`; credentialed `upload` authenticates its same-run receipt &
 uploads exact approved archives without rebuilding. Dispatch cannot supply paths, URLs, units or wider allowsets.
+
+### Local qualification (default)
+
+Adrian's design (2026-10-21/22): every crate is qualified on the two native hosts through the RustRight broker, the exact
+bytes are approved by hash in a commit, and `publish-reviewed.yml` uploads exactly those bytes. No GitHub qualification run
+and no rebuild stand between the approval and the upload. `publish.yml` qualification stays as the fallback (below).
+
+```bash
+# Dell, D:/Claude/rightkit. Clean tree, HEAD pushed to origin/main, the Mac checkout (/Volumes/D/claude/rightkit) at the same HEAD.
+right-release qualify cargo --crates rightkit-fs,rightkit-child-process
+# without right-release on PATH: node packages/release/cli/right-release.mjs qualify cargo --crates ...
+```
+
+`--hosts win,mac` is the default and the only set that cuts a candidate (one host alone writes its bundle and stops);
+`--id`, `--allow-ignored-units`, `--jobs`, `--concurrency`, `--out`, `--win-root`, `--mac-root` and `--no-release` are the
+other options. Crates only: `publish cargo --local --qualify-only` is cargo only, so npm packages use `publish.yml`.
+
+What runs, at once on both hosts (Windows on the Dell; macOS on the Mac through `ssh mac "<cmd>"`, or from the Mac through
+`win "<cmd>"`; set `RK_LOCALQ_REMOTE_NODE` when `node` is not on the non-interactive PATH of the other host):
+
+1. `packages/release/local-qualify.mjs host`: the deterministic scans of the units' scope (class A then class B, through the
+   broker, none deferred), then per crate `right-release publish cargo --crate X --local --qualify-only --bundle <dir>` (tests,
+   clippy, fmt, secret scan, package verify, publication gate), the archive secret scan of the packed `.crate`, and a hashed
+   bundle. The macOS host also writes the crates.io upload metadata: its archive is the canonical one, as on CI's macOS packer.
+2. The driver pulls each remote bundle as one hash-checked JSON document (`export`), refuses unless every host packed the SAME
+   archive bytes for every unit, seals `packed-<id>.zip` (manifest, `.crate` files, upload metadata) and one `local-verify`
+   receipt per host, and runs the same `loadSealed` and `checkLocalReceipts` the promotion runs.
+3. `gh release create candidate-<id> --prerelease --target <HEAD>` attaches the three assets, and the driver reads the release
+   back. It prints the candidate and the approval rows; it never edits `ci/approved-artifacts.json`.
+
+The printed candidate (`source: "local"`) has this shape; every key is required and nothing else is allowed:
+
+```json
+{ "id": "local-fs-032-1a2b3c", "source": "local", "sourceSha": "<HEAD>", "registry": "crates", "units": ["rightkit-fs"],
+  "allow": { "hostExclusion": [], "noTest": [], "ignored": [], "missingAssets": [] }, "release": { "tag": "candidate-local-fs-032-1a2b3c" },
+  "assets": { "packed": { "name": "packed-<id>.zip", "sha256": "<64 hex>" },
+              "windows": { "name": "local-receipt-windows-<id>.json", "sha256": "<64 hex>" },
+              "macos": { "name": "local-receipt-macos-<id>.json", "sha256": "<64 hex>" } } }
+```
+
+The `artifacts` rows come with `reviewer` and `reviewRef` set to `null`, which the approval loader refuses until a reviewer
+fills them. After the R8 review, one commit adds the candidate to `candidates`, the filled rows to `artifacts` and the two
+sorted lines to `scripts/ci/publish.test.mjs`; the promotion commit must descend from `sourceSha`. Then:
+
+```bash
+gh workflow run publish-reviewed.yml -f candidate_id="<candidate-id>" -f dry_run=true
+gh workflow run publish-reviewed.yml -f candidate_id="<candidate-id>" -f dry_run=false
+```
+
+Promotion of a local candidate, with the workflow file unchanged: `identify` reads the committed candidate, its prerelease, the
+tag (a lightweight tag at `sourceSha`) and the compare against the promotion commit; `run --dry-run` downloads each asset by
+release asset ID through the API, requires its SHA-256 to equal the committed pin, rebuilds the `packed`/`receipts` layout,
+and runs `local-admission.mjs` over the source as data; `scan-receipt.mjs verify` re-checks every host's scan record against
+the candidate's `Cargo.lock`; `upload` repeats every pin, approval and receipt check in the credential job.
+
+Binding: a `local-verify` receipt names host and OS, the RustRight client (path and SHA-256), commit and tree (equal to the
+candidate's source), the manifest hash, the archive SHA-256 of every unit (equal on both hosts), the gate evidence of every
+unit, the archive secret scan, and a scan record (classes A and B, nothing deferred, bound to `Cargo.lock`). Admission also
+requires each packed file to equal the blob at `sourceSha` and `.cargo_vcs_info.json` to name it.
+
+Fall back to `publish.yml` for a unit that: needs a Linux row (`ci/linux-required.json`); is restricted away from macOS;
+is a continuous runtime owner (`packages/release/runtime-budget-crates.mjs`) or carries an always-on runtime class (the
+authenticated runtime proof exists only on the Actions path, so local admission holds it); packs different bytes on the two hosts; or whose scan tools are missing on a host. The refusal says which.
+
+Not covered by a local candidate: the R2a sealed-registry consumer recipe, the original-run QA artifacts and the runtime
+supplement pins. `reviewed-registry-readback.yml` and `supplement-archive-scan.yml` read Actions-run fields and do not
+accept a local candidate. The R8 review is the compensating control, and it must read the receipts and scan records.
 
 ### Qualification batch & scheduling
 
