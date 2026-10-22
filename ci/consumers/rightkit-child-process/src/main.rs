@@ -10,8 +10,7 @@
 // Not covered: the strict incomplete-capture Err path; it is not deterministic on a trivial child.
 // State: no files, no network, no real user data.
 use rightkit_child_process::{
-    run, run_command, run_command_capture, run_with_stdin, CaptureOptions, OwnedCommand,
-    RunOptions,
+    run, run_command, run_command_capture, run_with_stdin, CaptureOptions, OwnedCommand, RunOptions,
 };
 use std::{
     io::{Read, Write},
@@ -63,13 +62,20 @@ fn main() -> Result<(), Failure> {
 
     // run: a zero exit with bounded stdout.
     let ok = run(&exe, ["--child", "ok"], &RunOptions::new(deadline))?;
-    assert!(ok.status.success() && !ok.timed_out, "run must report a clean exit");
+    assert!(
+        ok.status.success() && !ok.timed_out,
+        "run must report a clean exit"
+    );
     assert_eq!(ok.stdout.bytes, b"child-ok\n".to_vec());
     assert!(!ok.stdout.truncated);
 
     // run: a non-zero exit is Ok with the status set, and stderr is captured.
     let failed = run(&exe, ["--child", "fail"], &RunOptions::new(deadline))?;
-    assert_eq!(failed.status.code(), Some(3), "non-zero exit is an Ok status, not an error");
+    assert_eq!(
+        failed.status.code(),
+        Some(3),
+        "non-zero exit is an Ok status, not an error"
+    );
     assert_eq!(failed.stderr.bytes, b"child-fail".to_vec());
 
     // run_with_stdin: input reaches the child and comes back on stdout.
@@ -96,12 +102,25 @@ fn main() -> Result<(), Failure> {
         &CaptureOptions::new().stdout_cap(4),
     )?;
     assert_eq!(capped.stdout.bytes, b"chil".to_vec());
-    assert!(capped.stdout.truncated, "stdout longer than the cap must report truncation");
-    assert_eq!(capped.stdout.total_bytes, 9, "every produced byte is counted");
+    assert!(
+        capped.stdout.truncated,
+        "stdout longer than the cap must report truncation"
+    );
+    assert_eq!(
+        capped.stdout.total_bytes, 9,
+        "every produced byte is counted"
+    );
 
     // Execution deadline: a sleeping child is terminated and reported as timed out.
-    let timed = run(&exe, ["--child", "sleep"], &RunOptions::new(Duration::from_secs(1)))?;
-    assert!(timed.timed_out, "a child past its deadline must be reported as timed out");
+    let timed = run(
+        &exe,
+        ["--child", "sleep"],
+        &RunOptions::new(Duration::from_secs(1)),
+    )?;
+    assert!(
+        timed.timed_out,
+        "a child past its deadline must be reported as timed out"
+    );
 
     // Descriptor policy (0.5.5): the opt-out is accepted and the child still runs.
     let mut opted_out = command(&exe, "ok");
@@ -115,7 +134,10 @@ fn main() -> Result<(), Failure> {
         let mut conflicting = command(&exe, "ok");
         conflicting.inherit_all_descriptors(true).inherit_fd(2);
         let refused = run_command(conflicting, None, &RunOptions::new(deadline));
-        assert!(refused.is_err(), "inherit_fd with the opt-out must be refused");
+        assert!(
+            refused.is_err(),
+            "inherit_fd with the opt-out must be refused"
+        );
     }
 
     println!("rightkit-child-process 0.5.5 registry consumer passed");

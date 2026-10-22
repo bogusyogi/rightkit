@@ -27,7 +27,10 @@ fn main() -> Result<(), String> {
 
     // Write budget: a per-hour cap, no footprint cap until one is added.
     let budget = WriteBudgetConfig::new(1 << 30);
-    assert_eq!((budget.max_bytes_per_hour, budget.max_footprint_bytes), (1 << 30, None));
+    assert_eq!(
+        (budget.max_bytes_per_hour, budget.max_footprint_bytes),
+        (1 << 30, None)
+    );
     let capped = budget.with_max_footprint(1 << 40);
     assert_eq!(capped.max_footprint_bytes, Some(1 << 40));
 
@@ -42,10 +45,14 @@ fn main() -> Result<(), String> {
     let empty = parse_usn_records(&7u64.to_le_bytes()).map_err(|e| format!("{e:?}"))?;
     assert!(empty.records.is_empty());
     assert_eq!(empty.next, 7);
-    assert!(parse_usn_records(&[0u8; 12]).is_err(), "a truncated record header is refused");
+    assert!(
+        parse_usn_records(&[0u8; 12]).is_err(),
+        "a truncated record header is refused"
+    );
 
     // The stub backend refuses typed, on every platform.
-    let dir: PathBuf = std::env::temp_dir().join(format!("rightkit-fsindex-consumer-{}", std::process::id()));
+    let dir: PathBuf =
+        std::env::temp_dir().join(format!("rightkit-fsindex-consumer-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("a")).map_err(|e| e.to_string())?;
     let outcome = run(&dir);
     let _ = std::fs::remove_dir_all(&dir);
@@ -81,7 +88,9 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
         let index = Index::open(config).map_err(|e| e.to_string())?;
         let root = std::fs::canonicalize(dir).map_err(|e| e.to_string())?;
 
-        let folder = index.folder_size(root.join("a")).ok_or("folder a not indexed")?;
+        let folder = index
+            .folder_size(root.join("a"))
+            .ok_or("folder a not indexed")?;
         assert_eq!(folder.logical, 1010);
         assert_eq!(folder.files, 2);
         assert!(folder.allocated >= folder.logical || folder.allocated_unique <= folder.allocated);
@@ -90,7 +99,9 @@ fn run(dir: &std::path::Path) -> Result<(), String> {
         let hits = index.search("report_final").map_err(|e| e.to_string())?;
         assert!(hits.iter().any(|hit| hit.item.name == "report_final.txt"));
 
-        let children = index.children_sorted_by_size(&root).ok_or("root not indexed")?;
+        let children = index
+            .children_sorted_by_size(&root)
+            .ok_or("root not indexed")?;
         assert!(children.iter().any(|item| item.name == "a"));
         assert!(children.iter().any(|item| item.name == "top.bin"));
 

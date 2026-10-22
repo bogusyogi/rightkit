@@ -19,7 +19,11 @@ fn main() {
     let file = dir.join("fixture.bin");
 
     fs::write(&file, b"abc").expect("write fixture");
-    assert_eq!(sha256_file(&file).expect("digest of fixture"), SHA256_ABC, "SHA-256 of abc");
+    assert_eq!(
+        sha256_file(&file).expect("digest of fixture"),
+        SHA256_ABC,
+        "SHA-256 of abc"
+    );
 
     fs::write(&file, b"abd").expect("rewrite fixture");
     assert_ne!(
@@ -28,7 +32,10 @@ fn main() {
         "changed bytes give a different digest"
     );
 
-    assert!(sha256_file(&dir.join("missing.bin")).is_err(), "missing file is refused");
+    assert!(
+        sha256_file(&dir.join("missing.bin")).is_err(),
+        "missing file is refused"
+    );
 
     fs::remove_dir_all(&dir).expect("remove consumer temp dir");
     println!("OK rightkit-models 0.5.1 (registry consumer)");

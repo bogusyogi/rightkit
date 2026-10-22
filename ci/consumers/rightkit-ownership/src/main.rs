@@ -36,7 +36,12 @@ fn main() -> Result<(), String> {
     // Embedded catalog: text and parsed value agree, and the scanner version is stated.
     assert!(!catalog().is_empty());
     assert!(catalog_value().is_object());
-    assert_eq!(catalog_value()["version"].as_str().map(|v| v.split('.').count()), Some(3));
+    assert_eq!(
+        catalog_value()["version"]
+            .as_str()
+            .map(|v| v.split('.').count()),
+        Some(3)
+    );
     assert_eq!(SCANNER_VERSION.split('.').count(), 3);
     assert!(is_hex64(&scanner_policy_digest()));
 
@@ -49,7 +54,9 @@ fn main() -> Result<(), String> {
     // Findings: advise is not blocking; block and banned are.
     assert!(!is_blocking_finding(&json!({"tier": "advise"})));
     assert!(is_blocking_finding(&json!({"tier": "block"})));
-    assert!(is_blocking_finding(&json!({"tier": "advise", "policy": "banned"})));
+    assert!(is_blocking_finding(
+        &json!({"tier": "advise", "policy": "banned"})
+    ));
 
     // Cache key: well-formed digests and floors are accepted; an unknown field is refused, typed.
     let digest = "a".repeat(64);
@@ -60,7 +67,11 @@ fn main() -> Result<(), String> {
     });
     let key = ownership_cache_key(&inputs).map_err(|e| e.message)?;
     assert!(!key.is_empty());
-    assert_eq!(ownership_cache_key(&inputs).map_err(|e| e.message)?, key, "the key is deterministic");
+    assert_eq!(
+        ownership_cache_key(&inputs).map_err(|e| e.message)?,
+        key,
+        "the key is deterministic"
+    );
     let mut extra = inputs.clone();
     extra["surprise"] = json!(1);
     let error = ownership_cache_key(&extra).expect_err("unknown field must be refused");
@@ -68,15 +79,21 @@ fn main() -> Result<(), String> {
 
     // Repository identity: canonical HTTPS form, scp remote accepted, absent and relative refused.
     assert_eq!(
-        canonical_repository_identity(&json!("https://github.com/Orthic-Labs/rightkit")).map_err(|e| e)?,
+        canonical_repository_identity(&json!("https://github.com/Orthic-Labs/rightkit"))
+            .map_err(|e| e)?,
         "https://github.com/orthic-labs/rightkit"
     );
-    assert!(canonical_repository_identity(&json!("git@github.com:Orthic-Labs/rightkit.git")).is_ok());
+    assert!(
+        canonical_repository_identity(&json!("git@github.com:Orthic-Labs/rightkit.git")).is_ok()
+    );
     assert!(canonical_repository_identity(&json!("")).is_err());
     assert!(canonical_repository_identity(&json!("relative/path")).is_err());
 
     // Scanner over a temp directory.
-    let dir: PathBuf = std::env::temp_dir().join(format!("rightkit-ownership-consumer-{}", std::process::id()));
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "rightkit-ownership-consumer-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let outcome = scan(&dir);
     let _ = std::fs::remove_dir_all(&dir);
@@ -93,7 +110,9 @@ fn scan(dir: &std::path::Path) -> Result<(), String> {
     let unverified = Scanner::with_embedded_catalog(context(json!({})));
     for result in [unverified.inputs(dir), unverified.scan(dir)] {
         assert_eq!(result["code"], codes::INVALID_INPUTS, "{result}");
-        assert!(result["error"].as_str().is_some_and(|text| text.contains("trust location")));
+        assert!(result["error"]
+            .as_str()
+            .is_some_and(|text| text.contains("trust location")));
     }
 
     // An absent external trust file is a pending enrolment: inputs are probed and hashed.
@@ -104,10 +123,22 @@ fn scan(dir: &std::path::Path) -> Result<(), String> {
     let probe = pending.inputs(dir);
     assert!(probe.get("error").is_none(), "{probe}");
     assert_eq!(probe["enrollmentPending"], true);
-    for field in ["contentDigest", "catalogDigest", "trustDigest", "approvalsDigest", "scannerPolicyDigest"] {
-        assert!(probe["inputs"][field].as_str().is_some_and(is_hex64), "{field}: {probe}");
+    for field in [
+        "contentDigest",
+        "catalogDigest",
+        "trustDigest",
+        "approvalsDigest",
+        "scannerPolicyDigest",
+    ] {
+        assert!(
+            probe["inputs"][field].as_str().is_some_and(is_hex64),
+            "{field}: {probe}"
+        );
     }
-    assert_eq!(probe["inputs"]["scannerPolicyDigest"], scanner_policy_digest());
+    assert_eq!(
+        probe["inputs"]["scannerPolicyDigest"],
+        scanner_policy_digest()
+    );
     assert_eq!(probe["metadata"]["scannerVersion"], SCANNER_VERSION);
     ownership_cache_key(&probe["inputs"]).map_err(|e| e.message)?;
     Ok(())

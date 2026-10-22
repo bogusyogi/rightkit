@@ -50,8 +50,13 @@ fn main() -> Result<(), String> {
     // Installed model directory: derived from the executable path only, refusing a non-plain subdir.
     #[cfg(target_os = "macos")]
     assert_eq!(
-        installed_model_dir(Path::new("/Applications/Foo.app/Contents/MacOS/foo"), "models"),
-        Some(PathBuf::from("/Applications/Foo.app/Contents/Resources/models"))
+        installed_model_dir(
+            Path::new("/Applications/Foo.app/Contents/MacOS/foo"),
+            "models"
+        ),
+        Some(PathBuf::from(
+            "/Applications/Foo.app/Contents/Resources/models"
+        ))
     );
     #[cfg(windows)]
     assert_eq!(
@@ -63,11 +68,22 @@ fn main() -> Result<(), String> {
         installed_model_dir(Path::new("/opt/foo/foo"), "models"),
         Some(PathBuf::from("/opt/foo/resources/models"))
     );
-    let exe = if cfg!(windows) { "C:\\Apps\\Foo\\foo.exe" } else { "/opt/foo/foo" };
+    let exe = if cfg!(windows) {
+        "C:\\Apps\\Foo\\foo.exe"
+    } else {
+        "/opt/foo/foo"
+    };
     for bad in ["", "..", ".", "a/b"] {
-        assert_eq!(installed_model_dir(Path::new(exe), bad), None, "subdir {bad:?}");
+        assert_eq!(
+            installed_model_dir(Path::new(exe), bad),
+            None,
+            "subdir {bad:?}"
+        );
     }
-    assert_eq!(installed_model_dir(Path::new("relative/foo"), "models"), None);
+    assert_eq!(
+        installed_model_dir(Path::new("relative/foo"), "models"),
+        None
+    );
 
     // Config builder: defaults and chained overrides.
     let config = EmbedderConfig::new("model-dir", "runtime-lib");
@@ -76,22 +92,35 @@ fn main() -> Result<(), String> {
     assert_eq!(config.ingest_batch, DEFAULT_INGEST_BATCH);
     assert_eq!(config.intra_threads, 1);
     assert!(config.prewarm.is_none() && config.fallback_model_dir.is_none());
-    let tuned = config.clone().with_truncate_dim(128).with_max_batch(4).with_intra_threads(2).with_prewarm(false);
-    assert_eq!((tuned.truncate_dim, tuned.max_batch, tuned.intra_threads), (128, 4, 2));
+    let tuned = config
+        .clone()
+        .with_truncate_dim(128)
+        .with_max_batch(4)
+        .with_intra_threads(2)
+        .with_prewarm(false);
+    assert_eq!(
+        (tuned.truncate_dim, tuned.max_batch, tuned.intra_threads),
+        (128, 4, 2)
+    );
     assert_eq!(tuned.prewarm, Some(false));
 
     // Embedder::load refuses before touching any model: missing directory, then invalid dimension.
-    let missing = Embedder::load(EmbedderConfig::new("rightkit-embed-consumer-absent-dir", "runtime-lib"));
+    let missing = Embedder::load(EmbedderConfig::new(
+        "rightkit-embed-consumer-absent-dir",
+        "runtime-lib",
+    ));
     assert!(matches!(missing, Err(EmbedError::MissingModelDirectory(_))));
 
-    let dir: PathBuf = std::env::temp_dir().join(format!("rightkit-embed-consumer-{}", std::process::id()));
+    let dir: PathBuf =
+        std::env::temp_dir().join(format!("rightkit-embed-consumer-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let outcome = (|| -> Result<(), String> {
         // An empty directory holds no recognised bundle.
         assert!(matches!(bundle_files(&dir), Ok(None)));
         let invalid = Embedder::load(EmbedderConfig::new(&dir, "runtime-lib").with_truncate_dim(0));
         assert!(matches!(invalid, Err(EmbedError::InvalidConfig(_))));
-        let too_wide = Embedder::load(EmbedderConfig::new(&dir, "runtime-lib").with_truncate_dim(100_000));
+        let too_wide =
+            Embedder::load(EmbedderConfig::new(&dir, "runtime-lib").with_truncate_dim(100_000));
         assert!(matches!(too_wide, Err(EmbedError::InvalidConfig(_))));
         Ok(())
     })();

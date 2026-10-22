@@ -578,7 +578,7 @@
       "files": {
         "Cargo.toml": "23b56a7743da35707bc8296dde7677c42d7928c4eb70b8071d2765335d7146bf",
         "README.md": "dbd6204f4a06fd229cb7167fe23102bd463c2d73597161f9ea4749adffb80ed0",
-        "src/main.rs": "ae5ade6d25e92593626b03585f46f3a7e4b088ea128ef380ca193c805c3596f8"
+        "src/main.rs": "8569b1e97468d0a9da2f663786746973f1e6390e47c6dc6a1e675c8d26ef5ea9"
       }
     },
     "rightkit-automation": {
@@ -676,7 +676,7 @@
       "files": {
         "Cargo.toml": "9094bfcf7129df9212f9083568d15b1e73de66d6dd12c866920e9979f28096cf",
         "README.md": "32f28f7d77462a21e5b404a41b07529279ac75d191aea1784351aab4dedd3923",
-        "src/main.rs": "7eab290d9a82e2d230f865eeff949ece32c222d3a542d44197dd83ad837f0c25"
+        "src/main.rs": "2c0516340c6c15f8a273988facd0a00fcf88600ee1352332bf6ae31a0639d699"
       },
       "aggregateSha256": "e46f1b991e40ba6bc2988e6eaea8483fe53eba08eb484d07047af295f2348ffb"
     },
@@ -731,7 +731,7 @@
       "files": {
         "Cargo.toml": "b78bcee34656829916861f0b15a8a6d6a4a97078ef1538c3e960e4a5f80823ab",
         "README.md": "e15d8bc2963ba4feba16751a39f89510d2530ca7611d08826b29f14952ad057f",
-        "src/main.rs": "9ea876727b5ddb0582a9b277c3f042a6427124f6b7dab31a1718fed78dd7a91a"
+        "src/main.rs": "a5a33dc9989abb59d91a2cb7abc773cdd6273402304bcfdc6ea97aa6a2f8c37a"
       },
       "aggregateSha256": "8e545f4ce244dbb268abdd9954cb331cc3236fe4b26db29ede41889e1a3e9fcb"
     },
@@ -745,7 +745,7 @@
       "files": {
         "Cargo.toml": "9920b6571e14c13ae6c4dfe51942ca1f81334b836553cdc36ff956b0babb351e",
         "README.md": "0d702b13a0d3ad250420bf7f71af80ea568575fd5bcf0fe33fd966fa880affeb",
-        "src/main.rs": "9dd93635a7ce30e5929a340e7a284ac655967fd27880549b11dc32e27f7e1b26"
+        "src/main.rs": "003c72a2dfb82c91f516acedb27eda12566a94864b585beccca08e0ee23bf69d"
       },
       "aggregateSha256": "527ea042fa844af31fa768968f853917f9df6dbbc55f3f687df0f6b342b2db25"
     },
@@ -761,7 +761,7 @@
       "files": {
         "Cargo.toml": "952aff65af6b5dc0699b9ffed406491788baf87d43f0b9d670db2ef2b547e2f7",
         "README.md": "6ff521d90f53d935785f3a6ea4ee730c1debe671736a38f47c5e9d4d13b914b2",
-        "src/main.rs": "d5e86f547445f580c832b581fd74476ffcfd7bd032b97920ae21d2a626ec5f0e"
+        "src/main.rs": "bafd2008cfe854e873a4e14018b05d0131f60928fb92e7cb2d6a0838c823cd8a"
       },
       "aggregateSha256": "d8f21200898579b9503a352d3ca62d64790b10cf0af0f8d628e73887af425535"
     },
@@ -775,7 +775,7 @@
       "files": {
         "Cargo.toml": "d7eafe9369d53cbe84e0e7fe6795968eec2c7ca3b5233f711ba9aa5d5af7ddc3",
         "README.md": "fdfb60ba5d3fdcef8473ca74e2d0797d6e44e9639f7c95dc97ce6bec6ddb0f18",
-        "src/main.rs": "78722edda894a6fd6d43cdc92177c05233bb376402a2acfa5435faf68d37c417"
+        "src/main.rs": "a3e53c37dce90b1c9fa9141384f3f28d28b47881852f0869d19cc1765fa1c025"
       },
       "aggregateSha256": "ada1d6084c05d5944081baff49cc14f99a7dedb00a1e6659baddf1c5aa362548"
     }
