@@ -196,7 +196,7 @@ pub enum ProxyMode {
     /// including `<local>`, wildcards anywhere, `.suffix` and scheme-limited entries. This
     /// applies to every hop, so a redirect to another host is routed on its own. Nothing is
     /// refused for being per-scheme or per-host. A proxy auto-config script is still
-    /// [`HttpError::SystemProxyUnsupported`](crate::HttpError::SystemProxyUnsupported) and
+    /// [`HttpError::SystemProxyUnsupported`] and
     /// nothing is sent (use [`ProxyMode::SystemForUrl`] for a PAC script). With one endpoint
     /// for both schemes and a bypass list of plain hosts the client holds that one proxy, as
     /// before; `proxy_diagnostic` is `None` when the choice is made per request.
@@ -222,11 +222,11 @@ pub enum ProxyMode {
     /// result is one proxy (or none) for the client, so build one client per target host:
     /// a redirect to another host reuses the decision made for this URL. A PAC script that
     /// is set but cannot be evaluated is
-    /// [`HttpError::SystemProxyUnsupported`](crate::HttpError::SystemProxyUnsupported); a
+    /// [`HttpError::SystemProxyUnsupported`]; a
     /// failed automatic detection alone (no WPAD on the network) falls back to the static
     /// proxy, then the environment proxy variables, then a direct connection. The URL must be
     /// `http` or `https`, otherwise the client fails closed with
-    /// [`HttpError::InvalidRequest`](crate::HttpError::InvalidRequest). Reported through
+    /// [`HttpError::InvalidRequest`]. Reported through
     /// `proxy_mode_used` as [`ProxyModeUsed::SystemForUrl`] (or a fallback). Other systems:
     /// as [`ProxyMode::Environment`].
     SystemForUrl(String),

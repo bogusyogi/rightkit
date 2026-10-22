@@ -33,7 +33,7 @@
 //!   the cooldown after the last capture, or while another capture is in flight; a capture that
 //!   fails or panics is counted ([`WatchdogStatus::capture_failures`]) and reported
 //!   ([`WatchdogEvent::CaptureFailed`]), never silent. With the `crash` feature,
-//!   [`crash_capture`] adapts `rightkit-crash` (a redacted report, optionally a native sample or
+//!   `crash_capture` adapts `rightkit-crash` (a redacted report, optionally a native sample or
 //!   minidump, retention) to it.
 //! * **Bounded shutdown.** [`WatchdogHandle::stop`] (and [`shutdown`], which the shell's ordered exit
 //!   calls) ends both threads and waits for them and any capture for at most

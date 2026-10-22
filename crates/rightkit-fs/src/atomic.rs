@@ -2002,16 +2002,16 @@ fn move_file_ex(temp: &Path, target: &Path, _flags: u32) -> std::io::Result<()> 
 /// Fault injection for consumer tests (feature `testing`, off by default). Every hook is per
 /// thread and removed when its guard drops.
 ///
-/// - [`on_replace`]: runs on the calling thread immediately before the replace call of every
+/// - `on_replace`: runs on the calling thread immediately before the replace call of every
 ///   atomic write. It sees the call that is about to happen ([`ReplaceCall`]: the API, its flag
 ///   word, temp and target) and may return an error, which then stands in for the OS call: the
 ///   destination is untouched, and the writer removes its temp file and returns the error,
 ///   exactly as for a failed `MoveFileExW` or `rename`.
-/// - [`on_harden`]: runs before each Windows owner-only security step ([`HardenCall`]) and may
+/// - `on_harden`: runs before each Windows owner-only security step ([`HardenCall`]) and may
 ///   return an error in place of it, to prove a write fails closed. Unix takes no such steps.
-/// - [`take_steps`]: the flush, replace and directory-sync calls of this thread's writes, in
-///   order ([`Step`]), so tests assert the order a power-loss argument depends on.
-/// - [`fail_dir_sync`] and [`force_link_fallback`]: make the post-publication steps fail.
+/// - `take_steps`: the flush, replace and directory-sync calls of this thread's writes, in
+///   order (`Step`), so tests assert the order a power-loss argument depends on.
+/// - `fail_dir_sync` and `force_link_fallback`: make the post-publication steps fail.
 ///
 /// The feature cannot be used in a release build by accident: without `debug_assertions` the
 /// crate fails to compile with it enabled.
@@ -2147,14 +2147,14 @@ pub mod testing {
 /// installs something, and costs one thread-local read per write and per counted sync. Everything
 /// is per thread: a write or sync made on another thread is neither failed nor counted.
 ///
-/// - [`fail_write_after`]: writes made through [`AtomicWriter::write_all`] or
+/// - `fail_write_after`: writes made through [`AtomicWriter::write_all`] or
 ///   [`AtomicWriter::writer`] on this thread succeed for the first `bytes` bytes in total, then
 ///   fail with the chosen error kind. A write that straddles the limit writes the bytes up to it
 ///   first (what a full disk does). It does not see bytes written through
 ///   [`AtomicWriter::file_mut`], or through the `File` the `atomic_write_with*` closures receive.
 ///   The failed write leaves the destination untouched and the temp removed once the writer is
 ///   dropped or committed, as any write error does.
-/// - [`sync_counts`], [`take_sync_counts`], [`reset_sync_counts`]: how many file flushes
+/// - `sync_counts`, `take_sync_counts`, `reset_sync_counts`: how many file flushes
 ///   ([`durable_sync_with`], [`durable_sync`], and the `sync_all` of a checked commit) and
 ///   directory syncs (Unix `fsync` of a directory; on Windows the flush of a directory made by a
 ///   durable `create_parents` write) this thread attempted, whether or not they succeeded.

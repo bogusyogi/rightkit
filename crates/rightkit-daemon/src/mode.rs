@@ -6,8 +6,8 @@
 //!
 //! * **Without the `test-mode` cargo feature** (the default, and the only thing a release build may
 //!   use): [`decide`] returns [`Mode::Release`] and performs no environment or argument read at all.
-//!   [`test_selector!`] expands to `None` and drops its name literal. The binary carries no selector
-//!   name and no [`TEST_MODE_MARKER`]. [`roots`] resolves from the operating system's account
+//!   `test_selector!` expands to `None` and drops its name literal. The binary carries no selector
+//!   name and no `TEST_MODE_MARKER`. [`roots`] resolves from the operating system's account
 //!   database ([`Suite::per_user_default`]), never from the environment.
 //! * **With `test-mode`** (QA and dev builds only): [`decide`] reads the activation selector. A run
 //!   is a test run only when the activation selector AND a root that passes every check below are
@@ -19,7 +19,7 @@
 //!   that `rightkit-qa` writes when it creates an isolated home, naming this app.
 //!
 //! `@rightkit/release` (`release-switch-scan.mjs`) refuses a release build that enables
-//! `test-mode`, and refuses a native binary that contains [`TEST_MODE_MARKER`] text or any selector
+//! `test-mode`, and refuses a native binary that contains `TEST_MODE_MARKER` text or any selector
 //! name. Selector names therefore live only behind the feature, and no message in this module that is
 //! compiled into a release build names one.
 //!

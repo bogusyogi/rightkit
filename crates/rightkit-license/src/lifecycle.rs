@@ -374,7 +374,7 @@ impl<'a> LifecycleContext<'a> {
         self
     }
 
-    /// Produce messages that carry values ("not yet valid until <time>"). Additive to
+    /// Produce messages that carry values ("not yet valid until `<time>`"). Additive to
     /// [`LifecycleMessages`]; `LifecycleMessages` itself stays `Copy`, which is why the
     /// formatter is borrowed here (keep the `Arc` alive for the evaluation) and not stored
     /// in it.

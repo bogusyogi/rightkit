@@ -584,7 +584,7 @@ impl EngineClient {
     }
 
     /// Bound the kill of an owned child whose request write stalled (default
-    /// [`DEFAULT_KILL_BOUND`]). The supervisor sets it to its `shutdown_grace`.
+    /// `DEFAULT_KILL_BOUND`). The supervisor sets it to its `shutdown_grace`.
     pub fn set_kill_bound(&self, bound: Duration) {
         self.core.kill_bound_ms.store(
             bound.as_millis().min(u64::MAX as u128) as u64,

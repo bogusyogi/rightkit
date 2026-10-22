@@ -5,7 +5,7 @@
 //! ViewRight file grants (paths, not bytes) and ViewRight `commands/clipboard.rs` (typed
 //! files/image/text/empty result, CF_DIB to BMP, temp-file grants, one-hour purge).
 //!
-//! * [`read`] / [`write`] are the raw transaction API. macOS uses `NSPasteboard` (one primary item
+//! * [`read`] / [`write()`] are the raw transaction API. macOS uses `NSPasteboard` (one primary item
 //!   carrying every representation, plus one item per file, which is how Finder lays files out);
 //!   Windows uses the Win32 clipboard (`CF_UNICODETEXT`, `HTML Format`, `PNG`, `CF_HDROP`).
 //!   `Board::Named` targets a private pasteboard so tests and apps can stage content without
@@ -208,7 +208,7 @@ fn needs_png_fallback(board: &Board, types: &[String]) -> bool {
 /// Why a private pasteboard name is refused, or `None` when it is usable. The `Apple CFPasteboard`
 /// family names the system boards (`general`, `find`, `font`, `ruler`, `drag`); asking AppKit for
 /// one by name would hand back the user's own pasteboard. Pure and available on every platform, so a
-/// caller (and the QA probes in [`qa`]) can refuse a name before any pasteboard is touched.
+/// caller (and the QA probes in `qa`) can refuse a name before any pasteboard is touched.
 pub fn named_board_refusal(name: &str) -> Option<&'static str> {
     if name.trim().is_empty() {
         Some("a named board needs a non-empty name")

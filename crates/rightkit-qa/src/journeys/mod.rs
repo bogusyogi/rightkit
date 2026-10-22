@@ -1,10 +1,10 @@
 //! End-to-end journeys: the `journeys.toml` manifest, the adapter protocol and the
 //! `rightkit.journeys.receipt/1` receipt (`docs/E2E-TESTING-STANDARD.md` D3, D4, D5).
 //!
-//! * [`manifest`]: the manifest and mapping types and [`check`], the static validation.
-//! * [`adapter`]: what an app's own Rust test adapter links: read the selection, append
+//! * `manifest`: the manifest and mapping types and [`check`], the static validation.
+//! * `adapter`: what an app's own Rust test adapter links: read the selection, append
 //!   `start`, `journey` and `end` lines to the results file.
-//! * [`receipt`]: the receipt types and [`validate_receipt`], which recomputes the verdict
+//! * `receipt`: the receipt types and `validate_receipt`, which recomputes the verdict
 //!   from the evidence and never trusts the receipt's own `verdict` field.
 //!
 //! Not here yet: `journeys run` (select, build, launch, collect), `census` and `gate`. The

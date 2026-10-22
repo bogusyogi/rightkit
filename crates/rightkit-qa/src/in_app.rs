@@ -4,7 +4,7 @@
 //!
 //! A Tauri app that embeds the server (launched with `RIGHTKIT_CONTROL_SERVICE=<name>`) accepts
 //! trusted input injected straight into its webview, with no focus and no AX grant.
-//! [`ServiceBridge`] is the client: it speaks the shared `rightkit-daemon` convention
+//! `ServiceBridge` is the client: it speaks the shared `rightkit-daemon` convention
 //! (discovery file, current-user-only Unix socket or named pipe, per-app request allowlist).
 //! There is no TCP and no bearer token. Register it with
 //! `rightkit_automation::Automation::add_in_app`. Moved from `rightkit-automation`'s former

@@ -40,7 +40,7 @@ pub enum Denial {
     UnknownOrigin,
     /// The webview shows a page that is not the app's own origin.
     ForeignOrigin,
-    /// No [`crate::host::HostServices`] was installed, so no per-service trust is known.
+    /// No `crate::host::HostServices` was installed, so no per-service trust is known.
     HostServicesNotInstalled,
     /// The service was never registered with the host, or the app declared it with no trust.
     ServiceNotRegistered,

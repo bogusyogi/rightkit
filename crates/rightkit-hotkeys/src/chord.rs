@@ -362,7 +362,7 @@ const TABLE: &[(&str, u16, u16)] = &[
     ("f24", NO_MAC_KEYCODE, 0x87),
 ];
 
-/// Sentinel in [`TABLE`] for a key with no macOS virtual keycode. Not a real `kVK_*` value.
+/// Sentinel in `TABLE` for a key with no macOS virtual keycode. Not a real `kVK_*` value.
 pub const NO_MAC_KEYCODE: u16 = 0xFFFF;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

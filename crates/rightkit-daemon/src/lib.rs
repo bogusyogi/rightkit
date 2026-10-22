@@ -16,7 +16,7 @@
 //! * **Authentication** - no TCP and no bearer tokens. Unix: a socket in a 0700
 //!   directory, mode 0600, and the kernel-reported peer uid (`getpeereid` on macOS
 //!   and the BSDs, `SO_PEERCRED` on Linux) checked on every accept and by every
-//!   client ([`verify_peer_is_current_user`]); a platform that cannot check refuses
+//!   client (`verify_peer_is_current_user`); a platform that cannot check refuses
 //!   every peer. Windows: a named pipe whose DACL grants only the current user's SID
 //!   ([`owner_only_security_attributes`]), remote clients rejected, first-instance
 //!   flag set against name squatting, a bounded instance count

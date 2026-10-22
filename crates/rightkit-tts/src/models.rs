@@ -522,7 +522,7 @@ fn select_runtime(developer: Option<PathBuf>, dirs: Vec<PathBuf>) -> Option<Path
 
 /// Find ONNX Runtime for a worker of `model_dir` under the caller's data root: the directory
 /// beside the model folder's parent `runtime/`, then `<data>/runtime/qts`. Only a debug build
-/// honours `ORT_DYLIB_PATH` (see [`developer_env_runtime`]).
+/// honours `ORT_DYLIB_PATH` (see `developer_env_runtime`).
 pub fn find_onnxruntime_in(data_root: Option<&Path>, model_dir: Option<&Path>) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(parent) = model_dir.and_then(Path::parent) {

@@ -3,7 +3,7 @@
 //! [`plan_sheets`] is pure layout. It picks the frame times (uniform, explicit or from beats),
 //! converts them to frame numbers and assigns every frame a tile on a sheet. The plan
 //! serialises as the `rightkit.motion.sheets.v1` manifest: times, frame numbers and tile
-//! positions. With feature `assemble`, [`assemble`] composes PNG sheets from frames the caller
+//! positions. With feature `assemble`, `assemble` composes PNG sheets from frames the caller
 //! decodes (through `rightkit-ffmpeg`); this crate never decodes media.
 //!
 //! # Defaults (to confirm)

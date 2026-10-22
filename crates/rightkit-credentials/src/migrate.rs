@@ -38,7 +38,7 @@ pub struct MigrationReport {
 ///
 /// A destination that is not durable ([`Store::is_durable`]) takes nothing: every account is
 /// `refused`, because this function removes the source and a copy that dies with the process
-/// would be the only one left. The source is removed by [`remove_copied_source`], the one place
+/// would be the only one left. The source is removed by `remove_copied_source`, the one place
 /// that does it.
 pub fn migrate_between(from: &Store, to: &Store, accounts: &[&str]) -> MigrationReport {
     let mut r = MigrationReport::default();

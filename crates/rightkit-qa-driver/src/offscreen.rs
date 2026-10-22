@@ -3,7 +3,7 @@
 //! the Tauri window helpers (`tauri-plugin` feature), which need `tauri` and so cannot live
 //! in `rightkit-automation`.
 //!
-//! Tauri embedded path: the app calls [`start_from_env`] / [`start_for_window`] at startup,
+//! Tauri embedded path: the app calls `start_from_env` / `start_for_window` at startup,
 //! before its window is first ordered, when it was launched with `RIGHTKIT_OFFSCREEN=1`.
 
 pub use rightkit_automation::offscreen::*;

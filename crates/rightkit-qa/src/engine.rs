@@ -670,7 +670,7 @@ impl Sidecar {
     /// params: input}` answered by `{type:"response", id, ok, result | error:{code,message}}`.
     /// With `legacy_status_frames` the old GenRight shape is used (`method:{method:"command",
     /// params:{name,input}}`, answered with `status: ok|err`). The shape a hello announces is
-    /// used when nothing is set; see [`Sidecar::resolve_shape`].
+    /// used when nothing is set; see `Sidecar::resolve_shape`.
     pub fn command(&mut self, name: &str, input: Value, timeout: Duration) -> Result<Value> {
         self.command_with(name, input, timeout, None)
     }

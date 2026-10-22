@@ -5,7 +5,7 @@
 //! - [`values`]: date / relative / size operator values (no chrono).
 //! - [`sql`]: [`Schema`] maps operators to columns and compiles a [`Query`] to a parameterised WHERE body.
 //! - [`snippet`]: FTS5 snippet helper, highlight spans, plain-text excerpts.
-//! - [`fold`] / [`matcher`]: case-folded substring matching over explicit haystacks (no index).
+//! - [`fold`](mod@fold) / [`matcher`]: case-folded substring matching over explicit haystacks (no index).
 //! - [`page`]: keyset paging over compiled predicates, with opaque cursors.
 //! - [`scan`]: budgeted, resumable scans over sources that cannot be filtered in SQL.
 //! - `filename` (feature `filename-index`): Cockpit-derived in-memory filename index.

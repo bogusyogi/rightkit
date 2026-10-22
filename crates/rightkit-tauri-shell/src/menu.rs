@@ -56,7 +56,7 @@ pub enum MenuEntry {
 /// depth 1, so a submenu directly in them is level 1).
 pub const MAX_SUBMENU_DEPTH: usize = 4;
 
-/// Id of the app-menu quit item (macOS "Quit <app>", Windows/Linux File > "Exit <app>"). A click
+/// Id of the app-menu quit item (macOS "Quit `<app>`", Windows/Linux File > "Exit `<app>`"). A click
 /// is handled by the shell as `lifecycle::request_quit` and is not emitted as a menu event.
 pub const ID_QUIT: &str = "rk.menu.quit";
 

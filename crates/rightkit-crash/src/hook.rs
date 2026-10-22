@@ -402,7 +402,7 @@ pub(crate) fn resolve_crash_dir(config: &CrashConfig) -> Option<PathBuf> {
 /// Native sample (macOS) or minidump (Windows) of another process, `pid`, that the caller names:
 /// a supervised helper that hangs or misbehaves while still alive. Call it before killing the
 /// helper; a process that already exited cannot be sampled. It runs the same tools as
-/// [`capture_native`] into `config.crash_dir` (or the fallback folder), under the same
+/// `capture_native` into `config.crash_dir` (or the fallback folder), under the same
 /// single-flight guard, and the macOS sample text goes through the same scrub-before-publish path
 /// (pattern scrub plus [`CrashConfig::redact_values`]). A Windows minidump stays unscrubbed and
 /// local, as for the panic hook. Returns `None` when recording is off, `pid` is zero, the

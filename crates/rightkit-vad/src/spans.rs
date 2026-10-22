@@ -267,7 +267,7 @@ pub struct SpanOptions {
     /// With calibration, cap the silence threshold at the calibrated speech threshold
     /// (default `true`, the behaviour before this option). `false` passes the silence
     /// threshold through unchanged. A silence threshold above the calibrated one then
-    /// fails [`VadConfig::validate`] with an `Input` error; nothing is capped silently.
+    /// fails `VadConfig::validate` with an `Input` error; nothing is capped silently.
     pub cap_silence_at_calibrated: bool,
 }
 

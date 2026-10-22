@@ -419,7 +419,7 @@ pub struct PreviewHandle {
 
 /// The preview service the shell's `rightkit_preview_*` commands drive (feature `host-services`):
 /// one store and the scheme it is served under. Register it with
-/// [`crate::host::HostServicesBuilder::service`] under [`crate::host::ServiceId::PREVIEW`].
+/// `crate::host::HostServicesBuilder::service` under `crate::host::ServiceId::PREVIEW`.
 #[derive(Clone)]
 pub struct PreviewService {
     store: Arc<PreviewStore>,

@@ -97,7 +97,7 @@ pub struct Excludes {
     pub honor_cachedir_tag: bool,
 }
 
-/// First bytes of a valid `CACHEDIR.TAG` (https://bford.info/cachedir/).
+/// First bytes of a valid `CACHEDIR.TAG` (<https://bford.info/cachedir/>).
 pub const CACHEDIR_TAG_SIGNATURE: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55";
 
 /// Whether `content` (the start of a `CACHEDIR.TAG` file) carries the standard signature.

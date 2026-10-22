@@ -734,7 +734,7 @@ mod flock {
 
 /// Fault injection for consumer tests (feature `testing`, off by default; debug builds only).
 ///
-/// [`after_identity_check`] runs a closure on the calling thread at the one point of a POSIX
+/// `after_identity_check` runs a closure on the calling thread at the one point of a POSIX
 /// record-lock acquisition where a name can be swapped under it: after the pre-open `lstat`
 /// decided the file was not held, before the file is opened. It lets a test build the swap
 /// deterministically.

@@ -40,7 +40,7 @@
 //!   that Windows or macOS folding does not know about) are two keys. On Windows and macOS file
 //!   names are compared case-folded even on a case-sensitive volume, which only ever serializes
 //!   more than needed.
-//! * Unicode normalization differences (NFC against NFD) are two keys, as in [`crate::contain`].
+//! * Unicode normalization differences (NFC against NFD) are two keys, as in `crate::contain`.
 //! * The parent must exist and be a directory; it is verified, not created.
 //!
 //! # What it does not promise

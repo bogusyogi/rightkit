@@ -102,7 +102,7 @@ pub struct NavPolicy {
     /// ViewRight-style broker host. `https://<host>/?target=<url>` navigates nothing and asks the
     /// shell to open `target` externally (only when `target` has an external scheme).
     pub broker_host: Option<String>,
-    /// Origins (scheme://host[:port]) allowed to open popup windows in-app.
+    /// Origins (scheme://host`[:port]`) allowed to open popup windows in-app.
     pub popup_origins: Vec<String>,
     /// Extra schemes the host serves as its own content, loaded in place like `tauri:` (a custom
     /// protocol registered by the app). Empty by default; add with [`NavPolicy::with_internal_scheme`].

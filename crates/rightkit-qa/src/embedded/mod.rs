@@ -1,7 +1,7 @@
 //! In-app control server (Tauri plugin, feature `control`).
 //!
 //! QA ONLY, NEVER SHIPPED. This module is compiled only with the explicit `control` cargo feature.
-//! A binary that contains it carries [`QA_CONTROL_MARKER`] and `right-release` refuses to seal or upload
+//! A binary that contains it carries [`QA_CONTROL_MARKER`](crate::embedded::QA_CONTROL_MARKER) and `right-release` refuses to seal or upload
 //! a release or update build that does; a compiled-in server still serves nothing unless the launcher
 //! sets `RIGHTKIT_CONTROL_SERVICE`, and then logs one loud line to stderr.
 //!
@@ -43,7 +43,7 @@
 //!   `ok:false` reports unsettled readback or placement timeout. `clamped` means confirmed OS limits.
 //!   Hidden macOS windows retain their screen-constraint exemption through deferred layout; mismatches
 //!   are corrected within this request's bound. Showing them restores normal constraints. No activation.
-//!   ax  screenshot{mask?:[selector],inline?:bool} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
+//!   ax  screenshot{mask?:`[selector]`,inline?:bool} -> {path,bytes,masked} (PNG in `<service dir>/shots/`,
 //!   owner-only) or, with `inline:true`, {bytes,masked,encoding:"base64",data} and no file;
 //!   password/one-time-code/data-rk-secret elements and `mask` selectors are
 //!   hidden during capture so secrets never reach the image (macOS hides, captures and restores in one
@@ -53,7 +53,7 @@
 //!   lease_reconcile{leaseEpoch,decision}  lease_status
 //!
 //! EFF-001: every effectful method (input, eval, screenshot, command) passes
-//! the plugin's [`EffectGate`] (`Control::gate`; default allow-all) before any
+//! the plugin's `EffectGate` (`Control::gate`; default allow-all) before any
 //! side effect and is settled with lifecycle events. PTY-002: when
 //! `Control::input_lease` is set, input methods additionally require
 //! `leaseEpoch` + `inputSequence` and are fenced/sequenced by the lease before

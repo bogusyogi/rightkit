@@ -9,7 +9,7 @@ use crate::pipeline::tts_transformer::CodecRolloutSubTimings;
 ///
 /// When pipelining is disabled, stages are sequential and their sum approximates
 /// end-to-end latency. With pipelining (`vocoder_chunk_size > 0`), `codec_rollout`
-/// and `vocoder_decode` overlap; use [`total()`] which accounts for this via
+/// and `vocoder_decode` overlap; use `total()` which accounts for this via
 /// `pipeline_overlap`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SynthesisStageTimings {

@@ -491,7 +491,7 @@ fn valid_pin(pin: &str) -> bool {
 /// [`DownloadOptions::resume_without_strong_etag`] and the request pins a sha256.
 ///
 /// Requests go through the vetted `rightkit-http` transport (see [`crate::http`]).
-/// Pass a [`Client`]; a legacy `&ureq::Agent` still compiles but only contributes
+/// Pass a `Client`; a legacy `&ureq::Agent` still compiles but only contributes
 /// its redirect limit.
 pub fn download_resumable(
     client: &impl AsHttpClient,

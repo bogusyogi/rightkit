@@ -1,7 +1,7 @@
 //! Whisper decoding behind the shared [`Transcriber`] interface.
 //!
 //! Two native engines, no Python, no subprocess, no CLI fallback:
-//! - macOS: [`coreml`] — WhisperKit-format `.mlmodelc` bundle (AudioEncoder +
+//! - macOS: `coreml` — WhisperKit-format `.mlmodelc` bundle (AudioEncoder +
 //!   TextDecoder) plus `tokenizer.json`, run in-process through CoreML.framework
 //!   (ANE/GPU/CPU). The one-time ANE compile is not performed by this crate.
 //! - all platforms: whisper.cpp via dynamic FFI (`libwhisper.dylib` built with
@@ -47,7 +47,7 @@
 //! - Text: [`WhisperSegment::raw_text`] / [`WhisperTranscript::raw_text`] keep
 //!   whisper.cpp's untrimmed text; `text` joins without inserted spaces for
 //!   [`UNSPACED_LANGUAGES`].
-//! - [`load_wav_mono_16k`] / [`load_audio`](crate::load_audio) read WAV input.
+//! - [`load_wav_mono_16k`] / [`load_audio`] read WAV input.
 
 pub(crate) mod control;
 // whisper.cpp (dynamic FFI over `libloading`) is not compiled for Android: the stub keeps the

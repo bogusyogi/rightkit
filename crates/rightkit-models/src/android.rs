@@ -14,7 +14,7 @@
 //! - **Storage**: Android has no `HOME` or per-user suite folder, and apps are sandboxed from each
 //!   other, so there is no shared store. The app injects `Context.getFilesDir()` once with
 //!   [`init_android_files_dir`]; the suite root is then that directory, so the models live in
-//!   `<filesDir>/models` and the tools in `<filesDir>/tools`. [`ModelStore::at_android_files_dir`]
+//!   `<filesDir>/models` and the tools in `<filesDir>/tools`. `ModelStore::at_android_files_dir`
 //!   gives a store without any global state.
 
 use std::path::{Path, PathBuf};

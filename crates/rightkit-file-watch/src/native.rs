@@ -1,17 +1,17 @@
-//! Native watch backends and the options that reach them through [`TypedWatcher::watch_with`].
+//! Native watch backends and the options that reach them through `TypedWatcher::watch_with`.
 //!
 //! `TypedWatcher::watch` uses the native Windows reader, with notify on other hosts or if native
-//! arming fails. `watch_with` adds, on top of the same [`Translator`](crate::typed::Translator):
+//! arming fails. `watch_with` adds, on top of the same `Translator`:
 //! a bounded queue, path exclusions, directory
 //! granularity, and (macOS) a native FSEvents backend with a resumable [`WatchCursor`].
 //!
 //! # Seam for platform backends
 //!
 //! A platform module (`macos`, `windows`) exposes `Handle`, `start` and `current_cursor`.
-//! `start` receives a [`BackendSink`]: feed it `notify::Event` values (or errors) from the
-//! backend's own thread or callback with [`BackendSink::event`], optionally tagged with the
-//! backend's private resume id, call [`BackendSink::commit`] once per backend batch, and
-//! [`BackendSink::finish`] when the stream ends. The sink runs the `Translator`, applies
+//! `start` receives a `BackendSink`: feed it `notify::Event` values (or errors) from the
+//! backend's own thread or callback with `BackendSink::event`, optionally tagged with the
+//! backend's private resume id, call `BackendSink::commit` once per backend batch, and
+//! `BackendSink::finish` when the stream ends. The sink runs the `Translator`, applies
 //! exclusions and granularity folding, and pushes into the bounded queue. A backend never
 //! blocks the consumer and never grows memory beyond the queue capacity.
 //!
@@ -21,7 +21,7 @@
 //! unlike notify's Windows backend, reports a buffer overflow. `DirWatchSet` (`watch_batches`,
 //! `watch_records`) uses it on Windows and falls back to notify if it cannot open the folder.
 //! The typed `watch_with` path uses it too: [`WatchBackend::Native`] and [`WatchBackend::Auto`]
-//! wrap a `DirWatcher` in a pump thread that feeds the [`BackendSink`], so a lost report becomes
+//! wrap a `DirWatcher` in a pump thread that feeds the `BackendSink`, so a lost report becomes
 //! `WatchEvent::Overflow`. The buffer is `windows_buffer_bytes` clamped to [4 KiB, 64 KiB]. If the
 //! native open or first arm fails, `watch_with` falls back to notify on Windows.
 

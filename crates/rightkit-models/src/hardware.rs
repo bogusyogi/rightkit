@@ -3,7 +3,7 @@
 //! Probe: macOS `sysctlbyname` + `system_profiler -json`; Windows kernel32 FFI for
 //! RAM and `reg.exe` display-class keys for GPUs; Linux `/proc/meminfo`;
 //! `nvidia-smi` for NVIDIA VRAM on Windows/Linux when present. [`probe`](crate::probe) runs the
-//! same queries through an injected [`probe::ProbeRunner`] for confined callers.
+//! same queries through an injected `probe::ProbeRunner` for confined callers.
 //! `RIGHTKIT_HW_JSON` injects a profile (tests, or hardware of another host);
 //! apps with their own override pass its path or JSON to
 //! [`Hardware::probe_with`] (the crate never reads app env vars).

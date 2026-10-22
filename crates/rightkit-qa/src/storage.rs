@@ -282,7 +282,7 @@ pub(crate) fn app_temp_dir() -> PathBuf {
 }
 
 /// Environment variable that moves QA app homes: homes go under `<value>/rightkit-qa/`.
-/// Must be an absolute path. Unset or empty keeps the system default ([`app_temp_dir`]).
+/// Must be an absolute path. Unset or empty keeps the system default (`app_temp_dir`).
 ///
 /// The default is NOT the managed data root: on macOS a launchd-started app cannot open its
 /// live log on an external volume (`open` fails with -10810, see `control::launch`) and the
@@ -987,7 +987,7 @@ fn unmarked_home_verdict(
 ///   process is gone and its run started more than `max_age` ago. A home whose pid is alive is
 ///   never touched.
 /// * Any other home (written before the marker existed, or missing a file) goes only under
-///   [`unmarked_home_verdict`]: a QA home name, no live recorded pid, and nothing in it modified
+///   `unmarked_home_verdict`: a QA home name, no live recorded pid, and nothing in it modified
 ///   within `max_age`. That function states what is and is not checked.
 ///
 /// Symlinks, dot-directories, anything outside `parent` (the `.../rightkit-qa` directory), and any

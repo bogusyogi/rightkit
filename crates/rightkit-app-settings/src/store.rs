@@ -38,7 +38,7 @@ pub enum Error {
     Conflict { expected: u64, actual: u64 },
     #[error("timed out waiting for the settings lock at {0}")]
     LockTimeout(String),
-    /// The file is unreadable as JSON and the store was opened with [`OnCorrupt::Refuse`].
+    /// The file is unreadable as JSON and the store was opened with `OnCorrupt::Refuse`.
     /// Nothing was moved or written.
     #[error("settings file is corrupt: {0}")]
     Corrupt(String),

@@ -7,7 +7,7 @@
 //! * Crates layered **below** it never depend on this crate. `rightkit-credentials` takes a
 //!   `KeystoreBridge` and a files directory (this crate installs both, see `keystore`);
 //!   `rightkit-http` initialises `rustls-platform-verifier` (feature `platform-verifier`, done by
-//!   [`crate::init_platform_verifier`] during init); `rightkit-models`, `rightkit-logs` and
+//!   `crate::init_platform_verifier` during init); `rightkit-models`, `rightkit-logs` and
 //!   `rightkit-app-settings` receive plain directory strings from [`crate::app_dirs`].
 
 use crate::error::{jni_error_code, AndroidError, JNI_NO_VM};

@@ -4,14 +4,14 @@
 //! "Inspect" item), the hardening layer (no stray engine menu) and the app (its own items on the
 //! frames it shows). WebView2 runs every registered handler, so three separate handlers would make
 //! the result depend on registration order. This module is the single owner: each layer records a
-//! stage for the webview ([`chain`]), and ONE native handler runs the stages in a fixed order:
+//! stage for the webview (`chain`), and ONE native handler runs the stages in a fixed order:
 //!
 //! 1. **Inspect filter** (DevTools policy): a denied webview loses its "Inspect" items
-//!    ([`chain::InspectRule::Strip`]); a content webview keeps only "Inspect"
-//!    ([`chain::InspectRule::OnlyInspect`]); a developer webview is left alone.
+//!    (`chain::InspectRule::Strip`); a content webview keeps only "Inspect"
+//!    (`chain::InspectRule::OnlyInspect`); a developer webview is left alone.
 //! 2. **App graft** ([`install_context_menu`]): on frames the app's classifier claims, drop the named
 //!    engine items and empty submenus, then append the app's items.
-//! 3. **Resolution** ([`chain::resolve_handled`]): decides `Handled` once. An app item that was
+//! 3. **Resolution** (`chain::resolve_handled`): decides `Handled` once. An app item that was
 //!    added always wins (the menu must show); otherwise a content webview with nothing left shows no
 //!    menu, and hardening hides the menu unless the target is an editable field it allows.
 //!

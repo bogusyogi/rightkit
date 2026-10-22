@@ -241,7 +241,7 @@ impl LegacySingleInstanceNames {
     }
 }
 
-/// Holds one primary claim. Dropping it releases the claim, the same as [`destroy`] does for all.
+/// Holds one primary claim. Dropping it releases the claim, the same as `destroy` does for all.
 pub struct SingleInstanceGuard {
     token: u64,
 }

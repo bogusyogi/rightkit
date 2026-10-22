@@ -48,7 +48,7 @@ const MAX_STDERR_BYTES: usize = 1024 * 1024;
 pub const WORKER_DEADLINE: Duration = Duration::from_secs(90);
 /// Exit code the worker uses when its own deadline fires.
 pub const SELF_DEADLINE_EXIT: i32 = 124;
-/// Default argv[1] selecting worker mode.
+/// Default `argv[1]` selecting worker mode.
 pub const DEFAULT_WORKER_ARG: &str = "--rightkit-ocr-worker";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -227,7 +227,7 @@ struct CapturedOutput {
     exceeded: bool,
 }
 
-/// If argv[1] equals `arg`, serve one request and exit; otherwise return
+/// If `argv[1]` equals `arg`, serve one request and exit; otherwise return
 /// `false` immediately. The worker never creates a window.
 pub fn run_if_requested(arg: &str) -> bool {
     if std::env::args().nth(1).as_deref() != Some(arg) {

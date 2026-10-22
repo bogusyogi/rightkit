@@ -225,7 +225,7 @@ impl ReceiptStore {
     }
 
     /// The store Membrane reads and writes: marker prefix `membrane`, the same
-    /// `receipts/<session>/<id>.json` layout and the shared field spellings of [`DiskReceipt`].
+    /// `receipts/<session>/<id>.json` layout and the shared field spellings of `DiskReceipt`.
     pub fn membrane(root: impl Into<PathBuf>) -> Self {
         Self::new(root, MEMBRANE_MARKER_PREFIX)
     }

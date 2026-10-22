@@ -13,9 +13,9 @@
 //! Controller sequencing (Windows semantics, matching ScrapeRight's `webview_idle.rs`): suspend is
 //! one operation on the WebView2 thread, `SetIsVisible(false)` then `TrySuspend`, and `TrySuspend`
 //! is never called when hiding failed. Resume is one operation, `Resume` then `SetIsVisible(true)`,
-//! and the show is skipped when `Resume` failed. A failed step stays pending in [`Applied`] and is
+//! and the show is skipped when `Resume` failed. A failed step stays pending in `Applied` and is
 //! retried by the next resume request; a resume with nothing hidden or suspended by this shell
-//! makes no controller call. The calls go through the internal [`Controller`] trait so the order
+//! makes no controller call. The calls go through the internal `Controller` trait so the order
 //! is tested with a fake.
 //!
 //! Hide/show paths owned by the shell (`rk_shell_window hide|show`, tray toggle, close-to-tray,

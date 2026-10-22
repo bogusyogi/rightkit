@@ -3,7 +3,7 @@
 //! A new device (the *requester*) gets the account data key only after an enrolled device (the
 //! *approver*) approves it. The two talk through a relay that sees only opaque byte strings; the
 //! relay is never trusted for secrecy or authenticity. The approval is the `rk-pair/1`
-//! short-code pairing of `rightkit-daemon` (see [`crate::pairing_sas`] for the copied functions)
+//! short-code pairing of `rightkit-daemon` (see `crate::pairing_sas` for the copied functions)
 //! with an X25519 step and an AEAD key wrap added.
 //!
 //! ```text

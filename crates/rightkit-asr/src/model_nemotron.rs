@@ -12,7 +12,7 @@ pub struct NemotronEncoderCache {
     pub cache_last_channel: Array4<f32>,
     /// [24, 1, 1024, 8] - 24 layers, batch=1, 1024 features, 8 conv context
     pub cache_last_time: Array4<f32>,
-    /// [1] - current cache length
+    /// \[1\] - current cache length
     pub cache_last_channel_len: Array1<i64>,
 }
 
@@ -206,7 +206,7 @@ impl NemotronModel {
     }
 
     /// Run decoder step.
-    /// Returns: (logits [vocab_size], new_state_1, new_state_2)
+    /// Returns: (logits \[vocab_size\], new_state_1, new_state_2)
     pub fn run_decoder(
         &mut self,
         encoder_frame: &Array3<f32>, // [1, hidden_dim, 1]

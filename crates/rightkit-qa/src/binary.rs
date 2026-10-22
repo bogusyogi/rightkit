@@ -16,7 +16,7 @@
 //!    whose `identity.json` `canonicalRoot` is the app's cargo workspace root. See "Broker format" below.
 //! 4. **App-root relative paths**: the existing `ui.binaries` entry.
 //!
-//! Every candidate must also be a QA build: it carries [`QA_CONTROL_MARKER`] (Latin-1 or UTF-16LE), the same
+//! Every candidate must also be a QA build: it carries `QA_CONTROL_MARKER` (Latin-1 or UTF-16LE), the same
 //! bytes `right-release` scans for. A broker or app-root candidate without it is skipped with a reason; an env or
 //! pointer value without it is an error. With a single dev profile a plain dev build and the control build both
 //! write `target/<triple>/debug/<bin>`, so the marker is what tells them apart. `--build-ui` keeps a stable copy

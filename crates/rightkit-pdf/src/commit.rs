@@ -26,7 +26,7 @@
 //!
 //! Identity is not the path string. `/tmp/./memo.pdf`, a hard link, a symlink, and (on a
 //! case-insensitive volume) `MEMO.pdf` are the same file, and the source recheck must run for all of
-//! them. [`FileIdentity`] is the volume and file id read from the file itself (`dev`/`ino` on Unix,
+//! them. `FileIdentity` is the volume and file id read from the file itself (`dev`/`ino` on Unix,
 //! `FILE_ID_INFO` from an opened handle on Windows) together with the canonical path; a destination
 //! that does not exist yet is its canonical parent directory plus its file name. Where the platform
 //! cannot give an existing file an id, the commit is refused (fail closed) rather than compared by

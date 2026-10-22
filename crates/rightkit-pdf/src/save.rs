@@ -21,11 +21,11 @@
 //! - **"Document session" (§10.3: "at most two candidates per document session"; §10.3: "token
 //!   ... is invalidated after any source revision")** is not a concept this codebase threads
 //!   anywhere yet, so both rules are scoped to `source_path`: at most two live tokens per source
-//!   path (oldest evicted first), and a *successful* [`commit_pdf_save`] for a path invalidates
+//!   path (oldest evicted first), and a *successful* `commit_pdf_save` for a path invalidates
 //!   every other outstanding token for that same path (the source's on-disk bytes just changed
 //!   out from under them).
 //! - **§11's frozen error taxonomy has no dedicated "token expired/unknown/replayed" variant.**
-//!   Every token-lifecycle failure in [`commit_pdf_save`] (unknown token, expired token, already-
+//!   Every token-lifecycle failure in `commit_pdf_save` (unknown token, expired token, already-
 //!   consumed/replayed token, source changed since prepare) maps to
 //!   [`PdfEditError::WriteConflict`] ("target changed before save") as the closest existing
 //!   variant, per §14.1's own grouping of "expired/replayed/mismatched candidate token" as one
@@ -95,7 +95,7 @@ pub struct PreparedPdfSaveMeta {
     pub expected_text: Vec<ExpectedTextCheck>,
 }
 
-/// Result of a successful [`commit_pdf_save`].
+/// Result of a successful `commit_pdf_save`.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfCommitResult {
@@ -503,7 +503,7 @@ pub fn expected_text_checks(commands: &[PdfEditCommand]) -> Vec<ExpectedTextChec
 /// `read_current_source_for_recheck` is called only for a same-path Save (§10.3: "Same-path Save
 /// rechecks source SHA immediately before atomic replacement") and must return the *current*
 /// on-disk bytes at `source_path`, compared against the SHA-256 recorded when the token's
-/// candidate was staged ([`SaveTokenRecord::source_sha256`]). Kept filesystem-free otherwise so
+/// candidate was staged (`SaveTokenRecord::source_sha256`). Kept filesystem-free otherwise so
 /// token lifecycle (expiry/replay/conflict) is directly unit-testable.
 ///
 /// "Same path" here is string equality, which a path alias (`/tmp/./memo.pdf`, a hard link, a case

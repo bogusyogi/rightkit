@@ -244,7 +244,7 @@ fn resolve_handle<V>(
     Err(MediaError::ArtifactNotFound)
 }
 
-/// [`resolve_handle`] for `ffmpeg`: bundled beside `exe` (or in `src-tauri/binaries`), verified
+/// `resolve_handle` for `ffmpeg`: bundled beside `exe` (or in `src-tauri/binaries`), verified
 /// against the `variant` row, else (development builds only) the `dev` request.
 pub fn resolve_ffmpeg_handle(
     exe: &Path,

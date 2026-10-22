@@ -201,7 +201,7 @@ impl Toolbox {
         tools.into_iter().try_for_each(|t| self.register(t))
     }
 
-    /// Let `caller` use tools matching `patterns` (`*`, `prefix*`, exact; see [`pattern_matches`]).
+    /// Let `caller` use tools matching `patterns` (`*`, `prefix*`, exact; see `pattern_matches`).
     pub fn allow<I: IntoIterator<Item = S>, S: Into<String>>(
         &mut self,
         caller: &str,

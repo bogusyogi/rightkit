@@ -172,7 +172,7 @@ fn has_root_marker(dir: &Path, policy: &SitePolicy) -> bool {
 
 /// Infer the site root for a document: the nearest enclosing directory with a project marker,
 /// searching upward at most [`MAX_ROOT_DEPTH`] levels and never returning a directory
-/// [`is_too_broad`] rejects. Falls back to the document's own directory (the pre-existing
+/// `is_too_broad` rejects. Falls back to the document's own directory (the pre-existing
 /// behaviour), so a loose HTML file grants no more than before.
 pub fn infer_site_root(doc_path: &Path, policy: &SitePolicy) -> Option<PathBuf> {
     infer_site_root_report(doc_path, policy).map(|found| found.root)

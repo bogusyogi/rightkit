@@ -33,7 +33,7 @@
 //! ## Editability (`PdfTextIsland::editable`)
 //!
 //! `editable` answers "can a replacement be written through this island's own font?". The
-//! decision lives in one place, [`ReverseTable`] (built once per font in `resolve_page_fonts`),
+//! decision lives in one place, `ReverseTable` (built once per font in `resolve_page_fonts`),
 //! and the composer's in-place write reads the same table, so the page graph and `compose_candidate`
 //! cannot disagree. A font that can never be re-encoded makes the island `editable: false` with a
 //! typed [`PdfEditBlocker`]; a replacement that merely needs a glyph the subset lacks stays

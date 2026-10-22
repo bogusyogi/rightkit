@@ -3,9 +3,9 @@
 //!
 //! This module owns the **state machine and its guarantees**, not the wire. What the owner signs
 //! (Pulse's P-256 `pulse.approval.v1` lines, Mail's account-scoped database decisions) and what the
-//! effect does (send, delete, unlock) stay declared inputs: an [`ApprovalVerifier`] the app
-//! implements, an [`ApprovalProfile`] of per-action data, an [`AuditSink`] and the effect itself.
-//! The coordinator never re-encodes signed bytes: [`VerifyInput`] hands the verifier the stored request (id,
+//! effect does (send, delete, unlock) stay declared inputs: an `ApprovalVerifier` the app
+//! implements, an `ApprovalProfile` of per-action data, an `AuditSink` and the effect itself.
+//! The coordinator never re-encodes signed bytes: `VerifyInput` hands the verifier the stored request (id,
 //! action, effect digest, account, client, expiry, revision) and the decision being made, and the
 //! verifier builds its own signing input from them, as Pulse builds its lines from "the engine's
 //! own record of the waiting request, never from the caller".
@@ -23,41 +23,41 @@
 //! # Guarantees
 //!
 //! * **Request binding.** A decision applies to the stored request at the revision the approver
-//!   saw ([`ApprovalCoordinator::decide`] takes it, the verifier receives it). A signature for
+//!   saw (`ApprovalCoordinator::decide` takes it, the verifier receives it). A signature for
 //!   one request, action, account or revision cannot answer another; a stale revision is
-//!   [`ApprovalError::StaleRevision`]. A nonce the verifier reports is accepted once, across all
-//!   requests ([`ApprovalStore::claim_nonce`]).
+//!   `ApprovalError::StaleRevision`. A nonce the verifier reports is accepted once, across all
+//!   requests (`ApprovalStore::claim_nonce`).
 //! * **Scope.** The verified principal's account claims must cover the request's account (an
 //!   account-restricted principal never decides an account-less request), and when the request
 //!   names approvers the principal must be one of them.
 //! * **Expiry and revocation.** Every touch of an open request checks the clock first; a decision
 //!   or claim at or after `expires_ms` finds the request `Expired`. A revoked, denied, cancelled
 //!   or expired request can never be claimed.
-//! * **One execution claim.** [`ApprovalCoordinator::claim`] is a compare-and-set on the
-//!   revision; of any number of concurrent claimants exactly one gets a [`ClaimToken`]. The token
-//!   is not `Clone`; [`settle`](ApprovalCoordinator::settle) accepts only the token whose claim
+//! * **One execution claim.** `ApprovalCoordinator::claim` is a compare-and-set on the
+//!   revision; of any number of concurrent claimants exactly one gets a `ClaimToken`. The token
+//!   is not `Clone`; `settle` accepts only the token whose claim
 //!   id is on record.
-//! * **Audit before effect.** When the action's profile says [`AuditRequirement::BeforeEffect`]
+//! * **Audit before effect.** When the action's profile says `AuditRequirement::BeforeEffect`
 //!   every mutating request or state transition appends a durable audit row before insert or
 //!   compare-and-set. Failed appends leave approval state unchanged. Rows record attempted
 //!   transitions: a later store conflict can prevent their candidate revision from committing.
-//!   A coordinator without an [`AuditSink`] refuses such a request.
+//!   A coordinator without an `AuditSink` refuses such a request.
 //! * **No exactly-once claim for external effects.** A claim that is never settled (a crash, a
-//!   handler that disappeared) is resolved by [`ApprovalCoordinator::recover_claims`]: an
-//!   action declared `reconcilable` asks the app's [`EffectReconciler`]; everything else becomes
-//!   `Settled` with [`EffectOutcome::OutcomeUnknown`]. The coordinator never guesses that an
+//!   handler that disappeared) is resolved by `ApprovalCoordinator::recover_claims`: an
+//!   action declared `reconcilable` asks the app's `EffectReconciler`; everything else becomes
+//!   `Settled` with `EffectOutcome::OutcomeUnknown`. The coordinator never guesses that an
 //!   effect did not happen.
 //!
 //! # Storage
 //!
-//! [`ApprovalStore`] is the durable half. Its contract: `replace` is an atomic compare-and-set on
-//! `revision`, durable when it returns `Ok`, and `claim_nonce` is atomic. [`MemoryApprovalStore`]
+//! `ApprovalStore` is the durable half. Its contract: `replace` is an atomic compare-and-set on
+//! `revision`, durable when it returns `Ok`, and `claim_nonce` is atomic. `MemoryApprovalStore`
 //! is the in-process reference (a restart forgets everything, as Pulse's engine does today); an
 //! app with a database implements the trait over a table with a unique key on `id`, a
 //! `WHERE revision = ?` update, and a unique key on the nonce.
 //!
-//! Strings that reach a record or an audit row ([`NewRequest::detail`], outcome details,
-//! reasons) go through [`redact_detail`]: anything but `[A-Za-z0-9_=. -]` withholds the whole
+//! Strings that reach a record or an audit row (`NewRequest::detail`, outcome details,
+//! reasons) go through `redact_detail`: anything but `[A-Za-z0-9_=. -]` withholds the whole
 //! detail, so a caller cannot log message content through the approval ledger.
 
 use std::collections::{BTreeMap, BTreeSet};

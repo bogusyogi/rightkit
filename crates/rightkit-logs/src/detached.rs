@@ -90,7 +90,7 @@ pub struct DrainReport {
     pub skipped: bool,
 }
 
-/// Durable stderr capture for a detached child. See the [module docs](self).
+/// Durable stderr capture for a detached child. See the module docs.
 ///
 /// ```text
 /// let sink = Arc::new(RotatingTextWriter::new(dir.join("job.log"), 1 << 20).with_generations(3));

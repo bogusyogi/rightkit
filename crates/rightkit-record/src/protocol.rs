@@ -1,4 +1,4 @@
-//! The helper wire protocol: the [`Backend`] seam carried as length-prefixed JSON
+//! The helper wire protocol: the `Backend` seam carried as length-prefixed JSON
 //! frames (`rightkit-sidecar`) between the core and an out-of-process helper.
 //!
 //! Every frame is one JSON object with a `kind`:

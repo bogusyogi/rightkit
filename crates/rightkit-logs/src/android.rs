@@ -1,11 +1,11 @@
 //! Android conventions: the log directory and a logcat mirror for `tracing`.
 //!
-//! The JSONL record stays the file written by [`crate::TracingFileConfig`]. Nothing here looks up
+//! The JSONL record stays the file written by `crate::TracingFileConfig`. Nothing here looks up
 //! `HOME`, `XDG_*` or any environment variable: the caller injects the app's files directory
 //! (`Context.getFilesDir()`, delivered by `rightkit-android` as `AppPaths::files_dir`).
 //!
-//! The logcat mirror ([`LogcatLayer`], feature `tracing`) does not bind `liblog` itself. It hands
-//! each event to a [`LogcatSink`], and on Android the sink is `rightkit_android::logcat::write`,
+//! The logcat mirror (`LogcatLayer`, feature `tracing`) does not bind `liblog` itself. It hands
+//! each event to a `LogcatSink`, and on Android the sink is `rightkit_android::logcat::write`,
 //! which already owns the `__android_log_write` FFI and the debug-only switch. That keeps one
 //! liblog binding in the suite and keeps logcat off unless the app enabled debug logging.
 

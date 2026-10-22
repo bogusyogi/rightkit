@@ -9,7 +9,7 @@
 //! * WAV I/O ([`wav`]) — dedupes ScrapeRight's reader.
 //! * Live capture ([`capture`], feature `capture`) — donor HeardRight
 //!   `heardright_capture`; Windows endpoint/power lifecycle in [`lifecycle`].
-//! * Audio output ([`playback`], feature `playback`): lock-free ring into a cpal output
+//! * Audio output (`playback`, feature `playback`): lock-free ring into a cpal output
 //!   stream with a latency-adjusted playback clock.
 //!
 //! Graph builders are pure and never spawn processes; everything that runs FFmpeg goes

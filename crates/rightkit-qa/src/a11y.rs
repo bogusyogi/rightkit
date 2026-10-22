@@ -1,7 +1,7 @@
 //! Accessibility evidence for UI scenarios: text contrast (WCAG 2.x), the keyboard-focus indicator,
 //! and role/name assertions over the control server's `ax` nodes.
 //!
-//! The page-side reads are small JS snippets ([`contrast_probe_js`], [`focus_probe_js`]) sent through
+//! The page-side reads are small JS snippets (`contrast_probe_js`, `focus_probe_js`) sent through
 //! the control server's `eval`. Everything that decides a verdict is pure Rust over the JSON they
 //! return, so it is unit-tested without an app: colour parsing, background compositing, the contrast
 //! ratio, the focus-indicator verdict and the role/name matcher.

@@ -6,18 +6,18 @@
 //! (the harness AND the app) must run in the interactive session; this module relaunches it there.
 //!
 //! Design (see the README, Windows section):
-//! * Opt-in only: [`opted_in`] (`--interactive` or `RIGHTKIT_QA_INTERACTIVE=1`). Without it a
-//!   session-0 process keeps failing with the existing clear error ([`Decision::NotOptedIn`]).
-//! * [`decide`] is pure: it maps [`SessionFacts`] to a [`Decision`]. The task is only created when
+//! * Opt-in only: `opted_in` (`--interactive` or `RIGHTKIT_QA_INTERACTIVE=1`). Without it a
+//!   session-0 process keeps failing with the existing clear error (`Decision::NotOptedIn`).
+//! * `decide` is pure: it maps `SessionFacts` to a `Decision`. The task is only created when
 //!   the current account is the console (logged-on interactive) account.
-//! * The task runs THIS executable in `__child <spec.json>` mode ([`child_main`]), never `cmd.exe`
+//! * The task runs THIS executable in `__child <spec.json>` mode (`child_main`), never `cmd.exe`
 //!   or a shell: the journey program and its arguments travel as JSON data and are spawned as argv,
 //!   so no journey argument is ever parsed by a shell. Only one generated path appears on the task
-//!   command line, quoted with the `CommandLineToArgvW` rules ([`quote_windows_arg`]) and
-//!   XML-escaped ([`task_xml`]).
+//!   command line, quoted with the `CommandLineToArgvW` rules (`quote_windows_arg`) and
+//!   XML-escaped (`task_xml`).
 //! * The child redirects stdout and stderr to files in a private temp dir and writes the exit code
 //!   file last, by rename (atomic). The parent polls, streams new output, and propagates the code.
-//! * [`run_interactive`] owns a cleanup guard: the task is ended and deleted and the temp dir
+//! * `run_interactive` owns a cleanup guard: the task is ended and deleted and the temp dir
 //!   removed on success, error, timeout and unwinding.
 //!
 //! Account and token: `LogonType = InteractiveToken`, `UserId` = the current account, `RunLevel =

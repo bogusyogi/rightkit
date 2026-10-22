@@ -10,7 +10,7 @@
 //!    knows, before any schema or semantic work starts.
 //! 2. The document is validated against the embedded Draft 2020-12 schema.
 //! 3. Semantic rules that JSON Schema cannot express (unique ids, resolvable
-//!    references, contiguous time maps) run in [`semantic`].
+//!    references, contiguous time maps) run in `semantic`.
 //! 4. [`parse`] additionally deserialises into the typed structs in [`types`].
 //!
 //! Version policy: a document with major `M` and minor `m` is accepted by a

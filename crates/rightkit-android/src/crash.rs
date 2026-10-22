@@ -1,7 +1,7 @@
 //! Rust panic capture for Android (rightkit#156, bounded piece).
 //!
 //! [`install_panic_recorder`] chains a panic hook that writes one small text report per panic into
-//! a crash directory (conventionally [`AppPaths::crash_dir`], `<files_dir>/crashes`). The app reads
+//! a crash directory (conventionally `AppPaths::crash_dir`, `<files_dir>/crashes`). The app reads
 //! the reports on the next launch with [`pending_reports`] and [`read_report`] and clears them with
 //! [`clear_reports`]; nothing is uploaded here.
 //!

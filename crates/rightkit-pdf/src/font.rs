@@ -60,7 +60,7 @@ pub struct FontCatalog {
 
 impl FontCatalog {
     /// Builds a catalog from embedded bundled fonts plus installed system fonts. System-font
-    /// discovery is host-dependent; prefer [`FontCatalog::from_parts`] in deterministic tests.
+    /// discovery is host-dependent; prefer `FontCatalog::from_parts` in deterministic tests.
     pub fn discover() -> FontCatalog {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();

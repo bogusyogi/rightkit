@@ -5,8 +5,8 @@
 //! - [`sheet`]: plan (and, with feature `assemble`, compose) storyboard inspect sheets of
 //!   rendered frames, six tiles per sheet by default.
 //!
-//! - [`render`], [`encoder`], [`frame`] (feature `encode`): a per-frame seek-and-capture driver over
-//!   an app-implemented [`render::FrameSource`], H.264/MPEG-4 encoder pick with the bits-per-pixel
+//! - `render`, `encoder`, `frame` (feature `encode`): a per-frame seek-and-capture driver over
+//!   an app-implemented `render::FrameSource`, H.264/MPEG-4 encoder pick with the bits-per-pixel
 //!   quality map, ProRes 4444 and VP9 alpha output with an encoder-availability probe, PNG to
 //!   PPM/PAM conversion, and still and poster export.
 //!

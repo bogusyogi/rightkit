@@ -4,7 +4,7 @@
 //! - [`Typesetter::new`]`(FontSource, ppi)` then [`Typesetter::render`]`(&Request)`.
 //! - A [`Request`] source is Typst markup, Typst math, or (feature `latex`) LaTeX via mitex.
 //! - Output is SVG by default, or PNG with feature `png` (typst-render).
-//! - [`latex_to_typst`] (feature `latex`) converts LaTeX math to Typst math on its own.
+//! - `latex_to_typst` (feature `latex`) converts LaTeX math to Typst math on its own.
 //!
 //! The Typst world has no file access and no package fetching: `#image`, `#read`, `#import` of
 //! packages and the like fail with a compile error. Fonts are explicit ([`FontSource`]); none

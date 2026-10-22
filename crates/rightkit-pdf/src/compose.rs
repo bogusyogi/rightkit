@@ -30,15 +30,15 @@
 //! ## Deliberate scope/judgment calls (not fully pinned by §8/§9)
 //!
 //! - **Strategy selection.** A `ReplaceSourceText` command takes
-//!   [`WriteStrategy::ExactOperandPatch`] when (a) `before` and `after` appearance are identical
+//!   `WriteStrategy::ExactOperandPatch` when (a) `before` and `after` appearance are identical
 //!   (same font/size/color) and (b) the page graph reports the island `editable`, i.e. its own font
 //!   can re-encode text (`inspect::ReverseTable`, one decision shared with the graph) and all its
 //!   glyphs share one font, size and spacing. The island may span several operands (kerned `TJ`
 //!   text): the whole replacement is written into the earliest span and the later spans are
 //!   blanked. Text the font cannot encode is refused with `PdfEditError::MissingGlyphs` naming the
 //!   characters; nothing is ever substituted. Every other digest-verified command falls through
-//!   to [`WriteStrategy::LocalTextObjectRewrite`] (a catalog font). `AddText` always uses
-//!   [`WriteStrategy::AppendTextStream`].
+//!   to `WriteStrategy::LocalTextObjectRewrite` (a catalog font). `AddText` always uses
+//!   `WriteStrategy::AppendTextStream`.
 //! - **Font reuse vs. embed.** [`PdfFontResolver`] (§7.2) resolves *catalog* fonts only — it has no
 //!   notion of "the font already used at this source location," and `pdf_inspect.rs`'s
 //!   content-stream font decoder (`TextStateFont`) is a different, page-local abstraction this
