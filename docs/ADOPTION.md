@@ -15,7 +15,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 ## Summary
 
-- Packages in RightKit: 94 (68 crates, 26 npm packages).
+- Packages in RightKit: 95 (69 crates, 26 npm packages).
 - Packages with at least one app pin: 0.
 - App pins: 0. Stale: 0. Ahead of published: 0. Unpublished: 0. Local: 0. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
@@ -36,7 +36,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-browser` | crates.io | 0.3.5 | 0.3.4 | 0 | none | - |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 0 | none | - |
 | `rightkit-channel-memory` | crates.io | 0.2.1 | 0.2.1 | 0 | none | - |
-| `rightkit-child-process` | crates.io | 0.5.4 | 0.5.4 | 0 | none | - |
+| `rightkit-child-process` | crates.io | 0.5.5 | 0.5.4 | 0 | none | - |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 0 | none | - |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.5 | 0 | none | - |
@@ -46,11 +46,11 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-db` | crates.io | 0.5.1 | 0.5.1 | 0 | none | - |
 | `rightkit-device` | crates.io | 0.4.0 | 0.3.1 | 0 | none | - |
 | `rightkit-docs` | crates.io | 0.1.2 | 0.1.1 | 0 | none | - |
-| `rightkit-embed` | crates.io | 0.6.0 | 0.6.0 | 0 | none | - |
+| `rightkit-embed` | crates.io | 0.6.1 | 0.6.0 | 0 | none | - |
 | `rightkit-ffmpeg` | crates.io | 0.2.10 | 0.2.9 | 0 | none | - |
 | `rightkit-file-watch` | crates.io | 0.4.1 | 0.4.1 | 0 | none | - |
 | `rightkit-fs` | crates.io | 0.4.6 | 0.4.6 | 0 | none | - |
-| `rightkit-fsindex` | crates.io | 0.4.1 | 0.4.1 | 0 | none | - |
+| `rightkit-fsindex` | crates.io | 0.5.0 | 0.4.1 | 0 | none | - |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
 | `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
 | `rightkit-hotkeys` | crates.io | 0.1.2 | 0.1.2 | 0 | none | - |
@@ -61,13 +61,14 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-llm` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
 | `rightkit-logs` | crates.io | 0.3.5 | 0.3.5 | 0 | none | - |
 | `rightkit-mcp` | crates.io | 0.7.0 | 0.7.0 | 0 | none | - |
-| `rightkit-models` | crates.io | 0.5.0 | 0.4.4 | 0 | none | - |
+| `rightkit-models` | crates.io | 0.5.1 | 0.4.4 | 0 | none | - |
 | `rightkit-motion` | crates.io | 0.2.0 | 0.1.0 | 0 | none | - |
 | `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 0 | none | - |
 | `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 0 | none | - |
 | `rightkit-onnx` | crates.io | 0.2.7 | 0.2.6 | 0 | none | - |
 | `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 0 | none | - |
-| `rightkit-ownership` | crates.io | 0.3.1 | 0.3.1 | 0 | none | - |
+| `rightkit-overlay-win` | crates.io | 0.1.0 | none recorded | 0 | none | - |
+| `rightkit-ownership` | crates.io | 0.4.0 | 0.3.1 | 0 | none | - |
 | `rightkit-pdf` | crates.io | 0.3.3 | 0.3.3 | 0 | none | - |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
