@@ -519,7 +519,9 @@ export function planScans({
     for (const name of pkgNames) {
       let manifest = null;
       try { manifest = JSON.parse(readFile(path.join(liveRoot, npmDir(name), "package.json"))); } catch { /* unreadable manifest: no test row */ }
-      if (manifest?.scripts?.test) add({ id: `test:npm:${name}`, class: B, tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"] });
+      // A gate proves the repository's own content: sibling checkouts beside it (RightKit's suite-contract tests read the app
+      // repositories when present) are not inputs, so the package tests run as an isolated checkout, as they do in CI.
+      if (manifest?.scripts?.test) add({ id: `test:npm:${name}`, class: B, tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
     }
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
     // relative path literals, followed through packages/*.mjs) changed. Where unreadable, they run.

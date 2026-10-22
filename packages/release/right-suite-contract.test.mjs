@@ -694,13 +694,12 @@ for (const app of apps) {
         ...(versions.legacyNpm?.["@rightkit/release"] ?? []),
       ]).has(pkg.devDependencies?.["@rightkit/release"]),
     );
-    assert.equal(
-      pkg.dependencies?.["@rightkit/app-update"],
-      versions.npm["@rightkit/app-update"] === pkg.dependencies?.["@rightkit/app-update"]
-        ? versions.npm["@rightkit/app-update"]
-        : versions.registry?.npm?.["@rightkit/app-update"],
-      `${app.key} must consume the exact published shared updater runtime`,
-    );
+    // The updater runtime an app consumes must be a published rollout version: the mandatory one, the registry's latest, or a
+    // retained legacy version (apps port to a newly published runtime in one batch, after RightKit publishes it; until then they
+    // stay on the previous published one). The app's own release doctor is where "latest" is enforced, at the app's release.
+    const updater = pkg.dependencies?.["@rightkit/app-update"];
+    const publishedUpdaters = new Set([versions.npm["@rightkit/app-update"], versions.registry?.npm?.["@rightkit/app-update"], ...(versions.legacyNpm?.["@rightkit/app-update"] ?? [])].filter(Boolean));
+    assert.ok(publishedUpdaters.has(updater), `${app.key} must consume a published shared updater runtime (got ${updater}; published: ${[...publishedUpdaters].join(", ")})`);
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/tools/right-release"));
     assert(!JSON.stringify(pkg).includes("github:adrdsouza/claude#main&path:/rightkit/packages/release"));
     assert(!JSON.stringify(pkg).includes("git+https://github.com/adrdsouza/rightkit.git"));
