@@ -206,8 +206,11 @@ impl<T: Copy> Col<T> {
         let newcap = grown_cap(self.cap, n);
         match &self.file {
             Some(f) => {
-                f.set_len((newcap * Self::SZ) as u64)?;
-                self.map = unsafe { MmapMut::map_mut(f)? };
+                release_map(&mut self.map)?;
+                let grown = f.set_len((newcap * Self::SZ) as u64);
+                let remap = unsafe { MmapMut::map_mut(f) };
+                grown?;
+                self.map = remap?;
                 self.dirty
                     .resize(dirty_words(newcap * Self::SZ, self.shift), 0);
                 self.grown = true;
@@ -323,6 +326,21 @@ impl<T: Copy> Col<T> {
         self.grown = false;
         Ok(bytes)
     }
+}
+
+/// Windows refuses to resize a file while a view of it is mapped (error 1224), so a growing
+/// column or segment unmaps first: the dirty pages are flushed, then the view is replaced by a
+/// one-page anonymous placeholder that the caller overwrites with the new mapping. Elsewhere
+/// the old view stays valid across `set_len` and this does nothing.
+pub(crate) fn release_map(map: &mut MmapMut) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        map.flush()?;
+        *map = MmapMut::map_anon(1)?;
+    }
+    #[cfg(not(windows))]
+    let _ = map;
+    Ok(())
 }
 
 #[cfg(test)]

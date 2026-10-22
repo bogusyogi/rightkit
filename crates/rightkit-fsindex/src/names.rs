@@ -321,8 +321,11 @@ impl NameStore {
         let seg = &mut self.segs[i];
         match &seg.file {
             Some(f) => {
-                f.set_len(size as u64)?;
-                seg.map = unsafe { MmapMut::map_mut(f)? };
+                crate::col::release_map(&mut seg.map)?;
+                let grown = f.set_len(size as u64);
+                let remap = unsafe { MmapMut::map_mut(f) };
+                grown?;
+                seg.map = remap?;
             }
             None => {
                 let mut m = MmapMut::map_anon(size)?;
