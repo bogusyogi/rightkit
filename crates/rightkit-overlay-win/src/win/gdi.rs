@@ -208,6 +208,9 @@ fn wide_text(text: &str) -> Vec<u16> {
 pub(crate) struct GdiText {
     scratch: Option<Surface>,
     fonts: Vec<(FontKey, HFONT)>,
+    /// Every font handed to `DeleteObject` by eviction, with whether GDI accepted it (tests).
+    #[cfg(test)]
+    evicted: Vec<(HFONT, bool)>,
 }
 
 impl GdiText {
@@ -215,6 +218,8 @@ impl GdiText {
         Self {
             scratch: None,
             fonts: Vec::new(),
+            #[cfg(test)]
+            evicted: Vec::new(),
         }
     }
 
@@ -262,6 +267,11 @@ impl GdiText {
             let (_, oldest) = self.fonts.remove(0);
             // SAFETY: the font is not selected into any DC (every selection is undone before the
             // calls below return) and its handle is dropped here.
+            #[cfg(test)]
+            let deleted = unsafe { DeleteObject(oldest) } != 0;
+            #[cfg(test)]
+            self.evicted.push((oldest, deleted));
+            #[cfg(not(test))]
             unsafe {
                 DeleteObject(oldest);
             }
@@ -486,11 +496,10 @@ mod font_cache_tests {
         assert_eq!(text.font("Segoe UI", 10.0, 400, false), Some(first));
         text.font("Segoe UI", 50.0, 400, false).unwrap();
         assert_eq!(text.fonts.len(), FONT_CACHE_MAX);
-        // SAFETY: GetObjectType validates handles; evicted handles report zero.
-        unsafe {
-            assert_eq!(windows_sys::Win32::Graphics::Gdi::GetObjectType(cold), 0);
-            assert_ne!(windows_sys::Win32::Graphics::Gdi::GetObjectType(first), 0);
-        }
+        // GDI recycles freed handle values, so a stale handle's type is not a reliable probe;
+        // assert on what the cache itself did: exactly the cold font was deleted, and GDI took it.
+        assert_eq!(text.evicted, vec![(cold, true)]);
+        assert!(text.fonts.iter().any(|(_, font)| *font == first));
         assert!(text.fonts.iter().all(|(key, _)| key.px != 11));
     }
 }

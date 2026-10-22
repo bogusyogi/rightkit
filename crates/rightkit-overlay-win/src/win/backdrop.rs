@@ -68,7 +68,7 @@ fn enable_acrylic(hwnd: HWND, tint: Rgba) -> bool {
         if module.is_null() {
             return false;
         }
-        let Some(export) = GetProcAddress(module, b"SetWindowCompositionAttribute\0".as_ptr())
+        let Some(export) = GetProcAddress(module, c"SetWindowCompositionAttribute".as_ptr().cast())
         else {
             return false;
         };
