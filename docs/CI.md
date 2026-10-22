@@ -35,8 +35,11 @@ What is implemented today:
   and run no repository code; class B scans (clippy, check, doc, tsc, tests, the repository's docs
   generator) start only after class A passes. Content scans run on the exported HEAD. A required
   tool that is missing fails the scan.
-- `scripts/local-gate.mjs` (the pre-push hook) runs the module, classes A and B with the changed
-  units' tests, before any push or CI build (Adrian 2026-10-22, #888). It needs the committed local
+- `scripts/local-gate.mjs` (the pre-push hook) invokes `rightkit-gate --pre-push`: all applicable
+  class A scans, focused `scripts/ci` tests & deterministic `generated-docs` checks before each push
+  (Adrian 2026-10-22, #911). Native compile, clippy, rustdoc & package tests remain mandatory in
+  publication qualification. Direct `rightkit-gate` invocation retains full class A & B coverage;
+  generated app hooks also retain that default. Pre-push mode needs the committed local
   compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rightkit cargo`, or
   the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate,
   and so does a checkout that differs from HEAD where the broker scans read it. A change to a root
@@ -60,7 +63,8 @@ What is implemented today:
   it succeeds, and receive its result as `RK_SCANS_JOB_RESULT`. A gate job that neither ran the scans
   step nor received that success runs no class B work and fails.
   `scripts/ci/ci-scans-contract.mjs` asserts these rules on the parsed `ci.yml` and proves them by mutation.
-- Still open: deferred `doc:*` scans have no CI path in `ci.yml` yet; class B in the shard jobs does not
+- Native CI & publication qualification run `cargo doc --no-deps` through `scripts/ci/gate.mjs`
+  for configured feature sets, with rustdoc warnings treated as errors. Class B in shard jobs does not
   run through the shared runner (clippy and check command lines are shared, execution is not).
 - Class A evidence for class B binds to the input content (`inputDigest` of the changed files), the class A
   scan set and a run that included class A; excluding every class A scan, or a plan with none, needs explicit

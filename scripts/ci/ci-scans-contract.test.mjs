@@ -38,6 +38,15 @@ test("gate.mjs treats a missing scan proof as a failure, never a pass", () => {
   assert.match(gate, /class A scans: no scans step here and no successful hygiene result/);
 });
 
+test("CI qualification retains warnings-denied rustdoc for configured feature rows", () => {
+  const gate = fs.readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const rustGate = gate.slice(gate.indexOf("async function rustGate("), gate.indexOf("async function npmGate("));
+  assert.match(rustGate, /if \(!applies\(name\)\) continue;/);
+  assert.match(rustGate, /new Map\(\[\.\.\.featureSets, \.\.\.checkSets\]/);
+  assert.match(rustGate, /for \(const features of docSets\) await run\(`rust:\$\{name\}`, "cargo", \["doc", "-p", name, "--no-deps", \.\.\.features\]/);
+  assert.match(rustGate, /RUSTDOCFLAGS: `\$\{process\.env\.RUSTDOCFLAGS \?\? ""\} -D warnings`/);
+});
+
 test("workflow YAML: the empty flow mapping parses; any other flow mapping is refused; every workflow parses", () => {
   assert.deepEqual(parseYaml("permissions: {}\n"), { permissions: {} });
   assert.throws(() => parseYaml("permissions: { contents: read }\n"), /flow mappings are not supported/);

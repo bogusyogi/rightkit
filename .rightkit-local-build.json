@@ -3,5 +3,5 @@
   "allow": "build-test-publish",
   "approvedBy": "Adrian D'souza",
   "approved": "2026-10-22",
-  "reason": "Every deterministic check runs locally before any push or CI build, irrespective of CI (Adrian 2026-10-22, #888): clippy, check, doc, deny, audit, package list and the rest through the RustRight broker. CI still qualifies and publishes; crates.io publication stays on the approved-hash workflow."
+  "reason": "Adrian authorized static class A scans, focused scripts/ci tests & generated-doc checks before push; native compile, clippy, doc & package tests remain mandatory in publication qualification (2026-10-22, #911). Local build, test & publish remain allowed through RightKit & RustRight; green sealed qualification artifacts may use direct upload."
 }

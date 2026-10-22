@@ -6,8 +6,9 @@ import test from "node:test";
 import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
+import { digestScanSet } from "./scan-digest.mjs";
 import {
-  EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, quietLeaseLane, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
+  EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -218,6 +219,38 @@ const gateFiles = (extra = {}) => ({
   "Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n", "Cargo.lock": "version = 4\n",
   "crates/a/Cargo.toml": pkg("a"), "crates/a/src/lib.rs": "pub fn a() {}\n", "crates/b/Cargo.toml": pkg("b", "publish = false\n"), "crates/b/src/lib.rs": "",
   ".rightkit-local-build.json": "{}", ...extra,
+});
+
+test("repository pre-push selects every class A & only focused CI tests/generated docs, preserving evidence bindings", () => {
+  const scans = [
+    ...["cargo-deny", "cargo-audit", "cargo-package-list:a", "secret-scan"].map((id) => ({ id, class: "A", command: id })),
+    ...["test:scripts-ci", "generated-docs", "clippy:a", "check:a", "doc:a", "test:rust:a", "test:npm:p", "tsc:p", "swift-build"].map((id) => ({ id, class: "B", command: id })),
+  ];
+  const full = { scans, deferred: ["generated-docs", "doc:a"], notes: [], inputDigest: "content", roots: { contentRoot: "export", liveRoot: "checkout" } };
+  const selected = prePushPlan(full);
+  assert.deepEqual(selected.scans.map((s) => s.id), ["cargo-deny", "cargo-audit", "cargo-package-list:a", "secret-scan", "test:scripts-ci", "generated-docs"]);
+  assert.deepEqual(selected.deferred, ["generated-docs"], "retained deferred checks still fail");
+  assert.equal(selected.inputDigest, full.inputDigest);
+  assert.equal(selected.roots, full.roots);
+  assert.equal(selected.classDigests.A, digestScanSet(scans.filter((s) => s.class === "A")), "no class A checks removed");
+  assert.equal(selected.classDigests.B, digestScanSet(selected.scans.filter((s) => s.class === "B")));
+  assert.equal(selected.scanSetDigest, digestScanSet(selected.scans));
+  assert.equal(full.scans, scans, "full plan stays intact");
+  assert.deepEqual(full.deferred, ["generated-docs", "doc:a"]);
+});
+
+test("--pre-push --plan excludes native checks while default CLI retains them", async (t) => {
+  const root = mkRepo(gateFiles(), t);
+  const selected = capture(); const full = capture();
+  for (const [args, c] of [[["--plan", "--pre-push"], selected], [["--plan"], full]]) {
+    assert.equal(await main(args, { ...c.io, spawn: repoSpawn(root), cwd: root, env: {} }), 0, c.err.join("\n"));
+  }
+  assert.match(selected.out.join("\n"), /\[A\] cargo-package-list:a /);
+  assert.doesNotMatch(selected.out.join("\n"), /\[B\] (?:clippy|check|doc|test:rust):/);
+  assert.match(full.out.join("\n"), /\[B\] clippy:a /);
+  assert.match(full.out.join("\n"), /\[B\] doc:a /);
+  const wrapper = fs.readFileSync(new URL("../../scripts/local-gate.mjs", import.meta.url), "utf8");
+  assert.match(wrapper, /main\(\["--pre-push", \.\.\.process\.argv\.slice\(2\)\]\)/);
 });
 
 test("--plan prints the plan for a fake repo from its own units and runs nothing", async (t) => {

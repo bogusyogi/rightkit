@@ -439,6 +439,10 @@ async function rustGate(selection, config, consumers = new Map()) {
     // Features the tests do not enable must still compile; keep in step with packages/release/local-publish.mjs.
     const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
     for (const features of checkSets) await run(`rust:${name}`, "cargo", checkArgs(name, { features }), { timeoutMinutes });
+    // Keep rustdoc qualification when local pre-push runs only static checks. Use configured rows
+    // rather than blanket all-features: several crates have mutually exclusive feature families.
+    const docSets = [...new Map([...featureSets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
+    for (const features of docSets) await run(`rust:${name}`, "cargo", ["doc", "-p", name, "--no-deps", ...features], { timeoutMinutes, env: { ...env, RUSTDOCFLAGS: `${process.env.RUSTDOCFLAGS ?? ""} -D warnings`.trim() } });
     // Consumer compile checks belong to either the test shard or the closure shard of their owner.
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes, env });

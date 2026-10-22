@@ -47,7 +47,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, fileScanCache, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 
 const ZERO = /^0+$/;
@@ -58,9 +58,21 @@ const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
-const USAGE = `usage: rightkit-gate [--base <ref>] [--plan] [--no-cache] | rightkit-gate install-hook [--force] | --version`;
+const USAGE = `usage: rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
+
+/** Repository pre-push policy only. Full gates & publication qualification retain native checks. */
+export function prePushPlan(plan) {
+  const scans = plan.scans.filter((s) => s.class === "A" || (s.class === "B" && ["test:scripts-ci", "generated-docs"].includes(s.id)));
+  const ids = new Set(scans.map((s) => s.id));
+  return {
+    ...plan, scans, deferred: plan.deferred.filter((id) => ids.has(id)),
+    scanSetDigest: digestScanSet(scans),
+    classDigests: { A: digestScanSet(scans.filter((s) => s.class === "A")), B: digestScanSet(scans.filter((s) => s.class === "B")) },
+    notes: [...plan.notes, "pre-push mode: class A, focused scripts/ci tests & generated docs only; native checks remain required for publication qualification"],
+  };
+}
 
 /** The `packages:` globs of a pnpm-workspace.yaml (block or flow list; the subset pnpm repositories use). */
 export function parseWorkspaceGlobs(source) {
@@ -963,7 +975,7 @@ export async function main(argv, io = {}) {
     }
     const rustScope = restricted ? scopeNames : null;
 
-    const plan = planScans({
+    const fullPlan = planScans({
       changed, contentRoot: repo, liveRoot: root, includeTests: true, rustScope, cargoCommand,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
@@ -972,6 +984,7 @@ export async function main(argv, io = {}) {
       localCompile: o.exists(path.join(root, GRANT_FILE)),
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
+    const plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
 
