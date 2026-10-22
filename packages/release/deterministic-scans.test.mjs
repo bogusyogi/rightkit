@@ -46,7 +46,9 @@ test("plan: a changed crate selects class A and class B scans, through rightkit 
   for (const id of ["check:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
   for (const s of plan.scans.filter((s) => s.tool === "rightkit")) assert.equal(s.args[0], "cargo", `${s.id} runs through rightkit cargo`);
   const doc = plan.scans.find((s) => s.id === "doc:foo");
-  assert.equal(doc.env.RUSTDOCFLAGS, "-D warnings");
+  assert.deepEqual(doc.args.slice(-3), ["--", "-D", "warnings"]);
+  assert.ok(doc.args.includes("rustdoc") && doc.args.includes("--lib"));
+  assert.equal(doc.env.RUSTDOCFLAGS, undefined, "the broker owns RUSTDOCFLAGS");
   assert.match(plan.scans.find((s) => s.id === "clippy:foo").command, /-D warnings$/);
 });
 
@@ -168,13 +170,14 @@ test("runner: classes [A] runs no class B; exclude is an explicit omission", asy
   assert.ok(!noTests.scans.some((s) => s.id.startsWith("test:")));
 });
 
-test("runner: Rust scans pass RUSTDOCFLAGS and run in the live root; content scans in the content root", async () => {
+test("runner: Rust scans run in the live root with rustdoc warnings as errors; content scans in the content root", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "x.mjs"], { "x.mjs": "" });
   const calls = [];
   const spawn = (command, args, options) => { calls.push({ command, args, options }); return fakeSpawn()(command, args); };
   await runScans(plan, deps({ ...fs, spawn }));
-  const doc = calls.find((c) => c.args.includes("doc"));
-  assert.equal(doc.options.env.RUSTDOCFLAGS, "-D warnings");
+  const doc = calls.find((c) => c.args.includes("rustdoc"));
+  assert.deepEqual(doc.args.slice(-3), ["--", "-D", "warnings"]);
+  assert.equal(doc.options.env.RUSTDOCFLAGS, undefined);
   assert.equal(path.normalize(doc.options.cwd), path.normalize(LIVE));
   const nodeCheck = calls.find((c) => c.args[0] === "--check" && c.args[1] === "x.mjs");
   assert.equal(path.normalize(nodeCheck.options.cwd), path.normalize(CONTENT));
@@ -223,7 +226,7 @@ test("no local compile grant: every broker scan is deferred by name, never passe
 
 test("a workspace Cargo.lock or toolchain change puts every crate in scope", () => {
   for (const changed of [["Cargo.lock"], ["Cargo.toml"], ["rust-toolchain.toml"], [".cargo/config.toml"]]) {
-    const extra = { "Cargo.lock": "version = 4\n", "Cargo.toml": "[workspace]\n", "rust-toolchain.toml": "[toolchain]\n", ".cargo/config.toml": "[build]\n", "crates/bar/Cargo.toml": crateFiles["crates/foo/Cargo.toml"] };
+    const extra = { "Cargo.lock": "version = 4\n", "Cargo.toml": "[workspace]\n", "rust-toolchain.toml": "[toolchain]\n", ".cargo/config.toml": "[build]\n", "crates/bar/Cargo.toml": crateFiles["crates/foo/Cargo.toml"], "crates/bar/src/lib.rs": "pub fn g() {}\n" };
     const { plan } = planFor(changed, extra, { listDir: () => ["foo", "bar"] });
     for (const name of ["foo", "bar"]) {
       for (const kind of ["check", "clippy", "doc", "test:rust"]) {

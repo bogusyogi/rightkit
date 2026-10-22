@@ -98,9 +98,11 @@ export function checkArgs(unit, { features = [], messageFormat, locked = false }
   return ["check", "-p", unit, ...(messageFormat ? [`--message-format=${messageFormat}`] : []), "--all-targets", ...features, ...(locked ? ["--locked"] : [])];
 }
 
-/** `cargo doc -p <unit> --no-deps --all-features --locked`; run it with RUSTDOCFLAGS=DOC_RUSTDOCFLAGS. */
+/** `cargo doc -p <unit> --no-deps --all-features --locked`; run it with RUSTDOCFLAGS=DOC_RUSTDOCFLAGS (CI). */
 export function docArgs(unit) { return ["doc", "-p", unit, "--no-deps", "--all-features", "--locked"]; }
 export const DOC_RUSTDOCFLAGS = "-D warnings";
+/** The same check as rustdoc arguments (`cargo rustdoc ... -- -D warnings`), for the broker path. */
+export const DOC_RUSTDOC_ARGS = Object.freeze(["-D", "warnings"]);
 
 /** `cargo fmt --check` for one crate, or the whole workspace when `unit` is null. */
 export function fmtCheckArgs(unit = null) { return unit ? ["fmt", "-p", unit, "--check"] : ["fmt", "--all", "--check"]; }
@@ -311,7 +313,11 @@ export function planScans({
     const checkSets = lintSets.some((set) => set.includes("--all-features")) ? [] : (Array.isArray(own.checkFeatureSets) ? own.checkFeatureSets : [["--all-features"]]);
     checkSets.filter((set) => set.length).forEach((set, i) => add({ id: `check-features:${name}:${i}`, class: B, ...cargo(...checkArgs(name, { features: set, locked: true })) }));
     lintSets.forEach((set, i) => add({ id: lintSets.length === 1 ? `clippy:${name}` : `clippy:${name}:${i}`, class: B, ...cargo(...clippyArgs(name, { features: set, locked: true })) }));
-    add({ id: `doc:${name}`, class: B, ...cargo("doc", "-p", name, "--no-deps", ...lintSets[0], "--locked"), env: { RUSTDOCFLAGS: DOC_RUSTDOCFLAGS } });
+    // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
+    // a request that sets it. A crate with no library has no API docs to check.
+    if (exists(path.join(contentRoot, "crates", name, "src", "lib.rs"))) {
+      add({ id: `doc:${name}`, class: B, ...cargo("rustdoc", "-p", name, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
+    }
   }
   const rootLint = ROOT_LINT_FILES.some((f) => exists(path.join(liveRoot, f)));
   for (const name of pkgNames) {
@@ -324,7 +330,16 @@ export function planScans({
     else notes.push("swift files changed; `swift build` is required on the Mac host before its push");
   }
   if (includeTests) {
-    for (const name of crateNames) add({ id: `test:rust:${name}`, class: B, ...cargo("test", "-p", name, "--locked", "--no-fail-fast") });
+    // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them.
+    for (const name of crateNames) {
+      const own = crateFeatures?.[name] ?? {};
+      const sets = Array.isArray(own.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+      sets.forEach((set, i) => {
+        const suffix = sets.length === 1 ? "" : `:${i}`;
+        add({ id: `test:rust:${name}${suffix}`, class: B, ...cargo("test", "-p", name, ...set, "--locked", "--no-fail-fast") });
+        if (own.alsoSerial) add({ id: `test:rust-serial:${name}${suffix}`, class: B, ...cargo("test", "-p", name, ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
+      });
+    }
     for (const name of pkgNames) {
       let manifest = null;
       try { manifest = JSON.parse(readFile(path.join(liveRoot, "packages", name, "package.json"))); } catch { /* unreadable manifest: no test row */ }
