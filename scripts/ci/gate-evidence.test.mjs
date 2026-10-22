@@ -73,3 +73,8 @@ test("dependent closure proof refuses missing, substituted or failed standalone 
     assert.equal(dependentClosureEvidence({ selected: ["dependent"], config, results: damaged }).ok, false);
   }
 });
+
+test("publication with no reverse selection rejects unexpected workspace consumer results", () => {
+  assert.equal(dependentClosureEvidence({ selected: [], requested: ["leaf"], results: [{ unit: "rust:leaf", command: "cargo doc -p leaf --no-deps", ok: true }] }).ok, true);
+  assert.equal(dependentClosureEvidence({ selected: [], requested: ["leaf"], results: [{ unit: "rust:consumer", command: "cargo check -p consumer --all-targets", ok: true }] }).ok, false);
+});

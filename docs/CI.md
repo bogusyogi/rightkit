@@ -251,6 +251,8 @@ Dispatch `publish.yml` through broker adapter with registry, units, broker reque
 Guard rejects missing correlation or mismatched commit before scans; direct sealed-byte publication stays unchanged.
 
 `units` is a space-separated, dependency-first list; one registry per qualification run.
+Native publication checks cover exactly those units & their configured standalone consumers; reverse workspace
+dependents remain ordinary CI obligations (`scripts/ci/select.mjs`, `selectUnits`).
 `publish.yml` has no `dry_run` dispatch input & never uploads to a registry. It packs once,
 then Windows (`windows-2025`) & macOS (`xcode-27`) verify those sealed archives.
 Its per-run concurrency group permits independent qualifications concurrently; `publish-direct.yml` uploads

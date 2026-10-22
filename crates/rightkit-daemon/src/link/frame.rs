@@ -4,9 +4,9 @@
 //! (the frame's sequence number, 1 for the first frame of a direction, then +1 each) and `t`
 //! (the frame type). `tag` is unpadded base64url:
 //!
-//! * machine to host (`c2s`): the device's Ed25519 signature over [`message`];
+//! * machine to host (`c2s`): the device's Ed25519 signature over `message`;
 //! * host to machine (`s2c`): HMAC-SHA256 under the session key the host issued in the
-//!   upgrade response, over the same [`message`].
+//!   upgrade response, over the same `message`.
 //!
 //! `message` is `rk-link/1 \n dir \n link_id \n payload`, so a tag is bound to one
 //! direction, one connection (`link_id` is chosen by the host per upgrade) and exact payload

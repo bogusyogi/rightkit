@@ -4,8 +4,8 @@
 //! updates. Behind the `client` feature; needs no async runtime.
 //!
 //! Signing and hashing are the server's own functions
-//! ([`crate::remote::signing::sign_request`] / [`verify_request`](crate::remote::signing::verify_request),
-//! [`chunk_digest`](crate::remote::signing::chunk_digest), [`object_hasher`](crate::remote::signing::object_hasher)),
+//! ([`crate::remote::signing::sign_request`] / [`crate::remote::signing::verify_request`],
+//! [`crate::remote::signing::chunk_digest`], [`crate::remote::signing::object_hasher`]),
 //! so client and server cannot drift. TLS trusts only the root certificates
 //! the caller supplies: there is no system-root fallback.
 //!

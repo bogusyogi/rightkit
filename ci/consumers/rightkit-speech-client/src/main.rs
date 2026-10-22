@@ -10,13 +10,13 @@
 // State: per-run temp dir removed on drop. No network, pipe, process spawn,
 // daemon transport, or real user data.
 use rightkit_speech_client::{
-    decide as decide_capture, endpoint_for, installed_heardright_path, is_allowed_schema,
+    decide_capture, endpoint_for, installed_heardright_path, is_allowed_schema,
     is_allowed_schema_for_minor, parse_srt_cues, pid_alive, plan_host, preflight_file,
     read_live_record, read_takeover, request_takeover, should_request_takeover,
     takeover_obliges_yield, Capabilities, CaptureRole, ClientError, EngineInfo, EngineSelector,
-    FileTranscript, HostPlan, HostRole, ServiceRecord, StageInput, TimedWord, TranscribeOptions,
-    CAPABILITY_CANCEL, CAPABILITY_CAPTURE, CAPABILITY_QUEUE, CAPABILITY_VERBATIM,
-    DEFAULT_STAGE_LIMIT_BYTES,
+    FileTranscript, HostPlan, HostRole, ServiceRecord, StageInput, TakeoverRequest, TimedWord,
+    TranscribeOptions, CAPABILITY_CANCEL, CAPABILITY_CAPTURE, CAPABILITY_QUEUE,
+    CAPABILITY_VERBATIM, DEFAULT_STAGE_LIMIT_BYTES,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -47,10 +47,19 @@ fn main() -> Result<(), Failure> {
     assert_eq!(HostRole::ScrapeRight.as_str(), "scrape_right");
     assert_eq!(HostRole::rank_table()["cut_right"], 3);
 
-    // Paths and endpoint derive under the root; endpoint names the user tag.
+    // Windows endpoint names user tag; Unix endpoint derives under root.
     let root = temp_root();
     let endpoint = endpoint_for(&root, "qa-user");
-    assert!(endpoint.contains("qa-user"), "endpoint names the user tag");
+    if cfg!(windows) {
+        assert!(endpoint.contains("qa-user"), "endpoint names the user tag");
+    } else {
+        assert_eq!(
+            PathBuf::from(&endpoint),
+            root.join("runtime")
+                .join("speech-service")
+                .join("speech.sock")
+        );
+    }
     assert!(installed_heardright_path(&root).starts_with(&root));
     assert!(
         read_live_record(&root).is_none(),
@@ -76,24 +85,36 @@ fn main() -> Result<(), Failure> {
     ));
     assert!(!should_request_takeover(HostRole::CutRight, Some(&other)));
     let me = std::process::id();
+    let requester_pid = me.wrapping_add(1);
+    let alive = |pid| pid == requester_pid;
+    let higher = TakeoverRequest {
+        role: HostRole::HeardRightShell,
+        pid: requester_pid,
+        requested_at_ms: 0,
+    };
+    let lower = TakeoverRequest {
+        role: HostRole::CutRight,
+        pid: requester_pid,
+        requested_at_ms: 0,
+    };
     assert!(takeover_obliges_yield(
         HostRole::CutRight,
-        Some((0, me.wrapping_add(1))),
+        Some(&higher),
         me,
-        &pid_alive
+        &alive
     ));
     assert!(!takeover_obliges_yield(
         HostRole::HeardRightShell,
-        Some((3, me.wrapping_add(1))),
+        Some(&lower),
         me,
-        &pid_alive
+        &alive
     ));
     request_takeover(&root, HostRole::ScrapeRight)?;
     let pending = read_takeover(&root).expect("takeover readable");
     assert_eq!(pending.role, HostRole::ScrapeRight);
     rightkit_speech_client::clear_takeover_if_ours(&root);
 
-    // Transcribe options: builders set every public field; staging defaults hold.
+    // Transcribe options: assert public fields; staging builders remain callable.
     let opts = TranscribeOptions::new(Duration::from_secs(5))
         .engine(EngineSelector::parakeet())
         .language("en")
@@ -105,7 +126,6 @@ fn main() -> Result<(), Failure> {
     assert_eq!(opts.language.as_deref(), Some("en"));
     assert_eq!(opts.request_id.as_deref(), Some("job-1"));
     assert!(opts.verbatim);
-    assert_eq!(opts.stage_limit, 1024);
     assert_eq!(DEFAULT_STAGE_LIMIT_BYTES, 4 * 1024 * 1024 * 1024);
     assert_eq!(EngineSelector::parse("whisper"), EngineSelector::whisper());
     assert_eq!(EngineSelector::parse(""), EngineSelector::Auto);

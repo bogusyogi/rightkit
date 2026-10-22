@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-qa-driver-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-qa-driver = { version = "=0.7.0" }

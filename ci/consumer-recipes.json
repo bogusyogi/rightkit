@@ -680,6 +680,77 @@
       },
       "aggregateSha256": "e46f1b991e40ba6bc2988e6eaea8483fe53eba08eb484d07047af295f2348ffb"
     },
+    "rightkit-onnx": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-onnx/src/main.rs",
+      "dependency": "rightkit-onnx = { version = \"=0.2.7\" }",
+      "gateEvidence": "private scratch fixtures via freshRunRoot; no native library loading, model assets, download or inference",
+      "consumes": "New PK18 publication qualification supplement, 2026-10-23; public resolution, bundle integrity, KleidiAI guard policy & session options; no native-runtime proof; added after original PK01-PK17 inventory",
+      "extraDependencies": [
+        "serde_json = \"1\"",
+        "tempfile = \"3\""
+      ],
+      "runs": [
+        {
+          "id": "default",
+          "env": {
+            "RK_CONSUMER_RUN_ROOT": "freshRunRoot"
+          }
+        }
+      ],
+      "files": {
+        "Cargo.toml": "beb4916039ae229b60d2dc5a5d275484b956926fcbcb576dd07a74a427c94a9f",
+        "README.md": "bd1826337aebd775d5a4c55cc14a144a0319c1a95f98e0d671c3ee576d603f2e",
+        "src/main.rs": "5b993d0703b4f770c327d04248c450b989ccb6475eb7f115e65dd903cc7e8d28"
+      },
+      "aggregateSha256": "19696175af4c0d8a0734694f461c1eb1029cc2f3a6c5f55bb3b1b8536700656c"
+    },
+    "rightkit-asr": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-asr/src/main.rs",
+      "dependency": "rightkit-asr = { version = \"=0.3.0\", default-features = false }",
+      "gateEvidence": "assetless API/transcript compatibility & impossible-model-path refusal; no model download, session or inference",
+      "consumes": "New PK18 publication qualification supplement, 2026-10-23; transcript 0.4 type identity/source_ms wire, longform word/cue assembly & early model refusal; optional engine features disabled; added after original PK01-PK17 inventory",
+      "extraDependencies": [
+        "rightkit-transcript = { version = \"=0.4.0\" }",
+        "serde_json = \"1\""
+      ],
+      "files": {
+        "Cargo.toml": "c3da9800f10461cc970f266d9262a0c15a60d13abd5667b5009ab6571175809a",
+        "README.md": "5e12707d11b0b88c7f82541808ee5260136e5aad4ec3a74bfb958568988e73e0",
+        "src/main.rs": "77a1fdae68ad0faca0ff96168d26c4a24ebcc33100724b4db7443408ecbae07e"
+      },
+      "aggregateSha256": "3e3f139ef17e70ce19253600b0123ba57ca64ababecbae26b6504589e58a9f52"
+    },
+    "rightkit-qa-driver": {
+      "pkId": "PK14",
+      "id": "ci/consumers/rightkit-qa-driver/src/main.rs",
+      "dependency": "rightkit-qa-driver = { version = \"=0.7.0\" }",
+      "gateEvidence": "in-memory compatibility only; no user stores, process launch, network or OS input",
+      "consumes": "New PK14 compatibility supplement, 2026-10-23; approval denial/no executor, memory lease sequence/acknowledgement, JSON/base64, pure AppKit key mappings & offscreen constant; no native desktop proof; added after original PK01-PK17 inventory",
+      "files": {
+        "Cargo.toml": "716ab4e8388e62b40399e5003b3eb8b1c04928f5fc232bd7d2c2df81c602c33e",
+        "README.md": "a34932cab89545fc49d818f33e2f8bddd6c8c7a5b4ca57f6ae17d5740d6da436",
+        "src/main.rs": "1773cebe9fb93d00e97f6e6114fb42112e2578b6c7966d9a43b5e3122c6e1a44"
+      },
+      "aggregateSha256": "bdab217acf5134b82520e0cbf9e90be8c6ad1ae79b7e6277364bde2788f379df"
+    },
+    "rightkit-speech-client": {
+      "pkId": "PK15",
+      "id": "ci/consumers/rightkit-speech-client/src/main.rs",
+      "dependency": "rightkit-speech-client = { version = \"=0.4.0\" }",
+      "extraDependencies": [
+        "serde_json = \"1\""
+      ],
+      "gateEvidence": "no models or network; temp-root admission/takeover files & current-process liveness only; no host launch or transport connection",
+      "consumes": "PK15 speech-client floor 0.4.0 per docs/plans/2026-10-20-rightkit-implementation/01-packages.md:341; role/discovery, options/preflight, SRT, TimedWord source_ms wire, schemas/capabilities & capture arbitration; no live transport proof",
+      "files": {
+        "Cargo.toml": "9ac217b82013d2608740a21eb4d89e1ad7e65dc99085054b82bbe2bb7ef19d09",
+        "README.md": "457e47b39f4216507afc699dacc8129bd87578f3d55db317bde1846e70f01960",
+        "src/main.rs": "4c0c9101e285c5f4a7bd0056ef16448e3e5a8eed3f8565e2cb5956c937ee572e"
+      },
+      "aggregateSha256": "1534bcab39a25752eaa7d9e983d7cbf446e6f3275d3ecf16161aee1c7530d3e3"
+    },
     "rightkit-daemon": {
       "pkId": "PK07",
       "id": "ci/consumers/rightkit-daemon/src/main.rs",

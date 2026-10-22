@@ -17,20 +17,21 @@ function proof(plan) {
   return { summary: { host: plan.host, sha, selection: null, steps: plan.steps, rows, results }, unitEvidence: { schema: 2, host: plan.host, registry: plan.registry, sha, ok: true, units } };
 }
 
-test("source-derived feature, serial, lint & reverse-dependent rows qualify", () => {
+test("source-derived feature, serial, lint & docs rows qualify without reverse dependents", () => {
   const plan = derivePublicationObligations(crateInput());
   assert.equal(plan.commands.filter((row) => row.command.startsWith("cargo test ")).length, 4);
   assert.equal(plan.commands.filter((row) => row.command.startsWith("cargo clippy ")).length, 2);
-  assert.deepEqual(plan.selection.rust.check, ["consumer"]);
-  assert.ok(plan.commands.some((row) => row.command === "cargo check -p consumer --all-targets --features use-leaf"));
+  assert.deepEqual(plan.selection.rust.check, []);
+  assert.ok(!plan.commands.some((row) => row.unit === "rust:consumer"));
+  assert.ok(plan.commands.some((row) => row.command.startsWith("cargo doc -p leaf ")));
   assert.equal(publicationObligationsVerdict(plan, proof(plan), sha).ok, true);
 });
 
 for (const damage of ["missing", "duplicate", "substituted", "failed", "timed-out", "missing-code", "invalid-count"]) {
-  test(`reverse-dependent ${damage} proof refuses`, () => {
+  test(`selected crate ${damage} proof refuses`, () => {
     const plan = derivePublicationObligations(crateInput());
     const data = proof(plan);
-    const index = data.summary.results.findIndex((row) => row.command.includes("-p consumer"));
+    const index = data.summary.results.findIndex((row) => row.command.startsWith("cargo clippy -p leaf "));
     if (damage === "missing") data.summary.results.splice(index, 1);
     if (damage === "duplicate") data.summary.results.push({ ...data.summary.results[index] });
     if (damage === "substituted") data.summary.results[index].command += " --features other";
@@ -98,12 +99,12 @@ test("producer expected commands & green flags cannot replace command data", () 
   const plan = derivePublicationObligations(crateInput());
   const data = proof(plan);
   data.unitEvidence.dependentClosure = { ok: true, expected: [], results: [] };
-  data.summary.results = data.summary.results.filter((row) => row.unit !== "rust:consumer");
+  data.summary.results = data.summary.results.filter((row) => !row.command.startsWith("cargo doc -p leaf "));
   assert.equal(publicationObligationsVerdict(plan, data, sha).ok, false);
 });
 
 
-test("publication proof requires closure consumers & one shared locked metadata check", () => {
+test("publication proof requires selected standalone consumers & one shared locked metadata check", () => {
   const input = crateInput();
   const manifestPath = "ci/consumers/native/Cargo.toml";
   const rows = [{ manifestPath }, { manifestPath, args: ["--features", "engine"] }];
@@ -112,9 +113,9 @@ test("publication proof requires closure consumers & one shared locked metadata 
   const plan = derivePublicationObligations(input);
   const metadata = `cargo metadata --manifest-path ${manifestPath} --locked --format-version 1`;
   assert.equal(plan.commands.filter((row) => row.command === metadata).length, 1);
-  assert.equal(plan.commands.filter((row) => row.unit === "rust:consumer" && row.command.includes("--manifest-path")).length, 2);
+  assert.equal(plan.commands.filter((row) => row.unit === "rust:leaf" && row.command.includes("--manifest-path")).length, 2);
   assert.equal(publicationObligationsVerdict(plan, proof(plan), sha).ok, true);
-  for (const omitted of plan.commands.filter((row) => row.command === metadata || (row.unit === "rust:consumer" && row.command.includes("--manifest-path")))) {
+  for (const omitted of plan.commands.filter((row) => row.command === metadata || (row.unit === "rust:leaf" && row.command.includes("--manifest-path")))) {
     const data = proof(plan);
     data.summary.results = data.summary.results.filter((row) => row.unit !== omitted.unit || row.command !== omitted.command);
     assert.equal(publicationObligationsVerdict(plan, data, sha).ok, false);

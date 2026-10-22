@@ -21,7 +21,7 @@
 // Publish verification (.github/workflows/publish.yml) names its units explicitly:
 //   gate.mjs --registry npm|crates --units "<names>" [--allow-host-exclusion "<names>"] [--allow-no-test "<names>"]
 //            [--allow-ignored "<names>"] [--allow-missing-assets "<names>"]
-// That mode tests exactly those units and compile-checks reverse workspace dependents (no diff,
+// That mode tests exactly those units & their configured standalone consumers (no diff,
 // no dependent tests, no root or Swift suites) and
 // treats every red unit as a failure: known-red is not a waiver for publishing. Nothing is skipped
 // silently: a unit this host would not run, or an npm package with no test script, fails the run

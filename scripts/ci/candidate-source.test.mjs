@@ -134,7 +134,7 @@ test("executable Git configuration is rejected before invoking Git", (t) => {
   assert.equal(input.calls.length, 0);
 });
 
-test("asset gating & reverse dependent inventories reach obligation derivation", (t) => {
+test("asset gating remains mandatory while publication obligations isolate requested units", (t) => {
   const input = fixture(t, { files: {
     "ci/asset-gated.json": '{"crates":{"rightkit-one":"models"},"npm":{}}',
     "crates/one/src/lib.rs": 'const KEY: &str = "RIGHTKIT_REQUIRE_ASSETS";',
@@ -144,7 +144,12 @@ test("asset gating & reverse dependent inventories reach obligation derivation",
   const request = { ...input, registry: "crates", units: ["rightkit-one"] };
   assert.throws(() => loadCandidateSource(request), /need assets/);
   const loaded = loadCandidateSource({ ...request, allow: { missingAssets: ["rightkit-one"] } });
-  assert.deepEqual(loaded.hosts.windows.selection.rust.check, ["rightkit-two"]);
+  for (const host of Object.values(loaded.hosts)) {
+    assert.deepEqual(host.selection.rust.test, ["rightkit-one"]);
+    assert.deepEqual(host.selection.rust.check, []);
+    assert.ok(!host.commands.some((row) => row.unit === "rust:rightkit-two"));
+    assert.equal(host.unitPolicies[0].allowMissingAssets, true);
+  }
 });
 
 test("reviewed candidate allowsets preserve host exclusion, ignored & asset policies", (t) => {

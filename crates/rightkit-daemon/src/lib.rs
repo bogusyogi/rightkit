@@ -18,7 +18,7 @@
 //!   and the BSDs, `SO_PEERCRED` on Linux) checked on every accept and by every
 //!   client (`verify_peer_is_current_user`); a platform that cannot check refuses
 //!   every peer. Windows: a named pipe whose DACL grants only the current user's SID
-//!   ([`owner_only_security_attributes`]), remote clients rejected, first-instance
+//!   (`owner_only_security_attributes` on Windows), remote clients rejected, first-instance
 //!   flag set against name squatting, a bounded instance count
 //!   ([`HostOptions::max_pipe_instances`]), the client's process-token SID checked on
 //!   every accept, and clients opening with `SECURITY_IDENTIFICATION` and checking

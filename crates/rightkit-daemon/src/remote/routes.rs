@@ -123,7 +123,7 @@ pub const ROUTES: &[RouteDef] = &[
 pub const CALL_ROUTE_ID: &str = "device.call";
 
 /// The additive 1.1.0 route. Not in [`ROUTES`], which stays the exact 1.0.0 table the v1
-/// fixture pins; [`ROUTES_V1_1`] is both. Its scopes name the scopes the contract knows; which
+/// fixture pins; [`routes_v1_1`] iterates both. Its scopes name the scopes the contract knows; which
 /// scope a method needs is the service's method table, which the daemon checks per call.
 pub static CALL_ROUTE: RouteDef = RouteDef {
     id: CALL_ROUTE_ID,

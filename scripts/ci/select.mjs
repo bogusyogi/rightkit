@@ -120,8 +120,8 @@ export function changedConfigCrates(previous, next) {
 
 /**
  * Explicit unit selection for a publish verification run: named units are tested in the order
- * given; a parsed Cargo.lock graph is required, and reverse workspace dependents of tested crates
- * are added to `check`. `registry` is "crates" (units are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
+ * given; the parsed Cargo.lock graph must contain each requested crate. Reverse workspace dependents
+ * belong to ordinary CI selection, never this publication request. `registry` is "crates" (units are crate names, `members` as for selectRust) or "npm" (units are package names, `packages` as
  * for selectNpm, each with `scripts`). Returns the shapes selectRust and selectNpm return, so the
  * gate runs them unchanged, plus `excluded` and `noTest`: the units the gate will NOT run on `host`
  * and has been explicitly allowed not to.
@@ -145,12 +145,12 @@ export function selectUnits({ registry, units, members = [], packages = [], lock
   const notGated = allowMissingAssets.filter((name) => !Object.hasOwn(gated, name));
   if (notGated.length) throw new Error(`allow_missing_assets names ${notGated.join(", ")}, which ci/asset-gated.json does not list for ${registry}`);
   if (registry === "crates") {
-    if (!(lock instanceof Map)) throw new Error("crates selection requires the parsed Cargo.lock workspace graph to check reverse dependents");
-    const incomplete = members.filter((member) => !lock.has(member.name)).map((member) => member.name);
-    if (incomplete.length) throw new Error(`Cargo.lock workspace graph is incomplete; missing member(s): ${incomplete.join(", ")}`);
+    if (!(lock instanceof Map)) throw new Error("crates selection requires the parsed Cargo.lock workspace graph to validate requested crates");
     const known = new Set(members.map((m) => m.name));
     const unknown = unique.filter((name) => !known.has(name));
     if (unknown.length) throw new Error(`unknown crate(s): ${unknown.join(", ")}`);
+    const incomplete = unique.filter((name) => !lock.has(name));
+    if (incomplete.length) throw new Error(`Cargo.lock workspace graph is incomplete; missing member(s): ${incomplete.join(", ")}`);
     if (allowNoTest.length) throw new Error("allow_no_test applies to npm packages only");
     const excluded = []; const refused = [];
     for (const name of unique) {
@@ -160,17 +160,7 @@ export function selectUnits({ registry, units, members = [], packages = [], lock
     }
     if (refused.length) throw new Error(`${refused.join(", ")} would be skipped on ${host}; name each in allow_host_exclusion or lift the restriction`);
     const test = unique.filter((n) => !excluded.includes(n));
-    const memo = new Map();
-    const reverse = members.map((member) => member.name).filter((name) => !unique.includes(name) && test.some((target) => reach(lock, name, memo).has(target)));
-    const restricted = reverse.filter((name) => {
-      const os = config.rust?.[name]?.os;
-      return host && os && !os.includes(host);
-    });
-    if (restricted.length) {
-      const detail = restricted.map((name) => `${name} (restricted to ${config.rust[name].os.join(", ")})`).join(", ");
-      throw new Error(`reverse-dependent check would be skipped on ${host}: ${detail}; lift the host restriction or select an allowed native verification path`);
-    }
-    return { rust: { all: false, test, check: reverse.sort() }, npm: { all: false, test: [] }, excluded, noTest: [] };
+    return { rust: { all: false, test, check: [] }, npm: { all: false, test: [] }, excluded, noTest: [] };
   }
   if (registry === "npm") {
     const byName = new Map(packages.map((p) => [p.name, p]));

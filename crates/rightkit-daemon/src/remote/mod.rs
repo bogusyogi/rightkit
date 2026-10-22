@@ -4,18 +4,18 @@
 //! Implements the `daemon-api` v1 contract: three authorisation classes
 //! (device-authenticated mutations, OAuth callbacks, signed webhooks), bounded
 //! blake3-keyed resumable uploads, compare-and-swap mutations, durable state and
-//! structured lifecycle events. The core ([`self::core::Daemon`]) is transport-free and
-//! platform-neutral; [`http::router`] adapts it to axum and [`http::serve`] terminates TLS
-//! with rustls. [`http::serve_blocking`] runs it on a runtime the crate owns.
+//! structured lifecycle events. With `remote`, the core (`crate::remote::Daemon`) is transport-free and
+//! platform-neutral; `crate::remote::router` adapts it to axum and `crate::remote::serve` terminates TLS
+//! with rustls. `crate::remote::serve_blocking` runs it on a runtime the crate owns.
 //!
 //! Feature gates:
-//! * `link` - the blocking device client ([`client`]) plus the request signing ([`signing`])
+//! * `link` - the blocking device client ([`crate::remote::client`]) plus the request signing ([`crate::remote::signing`])
 //!   and hashing helpers it needs. No tokio, axum or hyper.
 //! * `remote` (implies `link`) - the server stack: core, HTTP listener, routes, OAuth adapter,
 //!   durable state and events.
-//! * The outbound link (`rk-link/1`, see [`crate::link`]): the host side is in [`core`]
-//!   (`Daemon::link_accept`, `enqueue_task`, durable leases) and [`http`] (the upgrade).
-//! * `testing` (implies `remote`) - a run-time test certificate and in-process host ([`testing`]).
+//! * The outbound link (`rk-link/1`, see [`crate::link`]): with `remote`, the host side is in `crate::remote::core`
+//!   (`Daemon::link_accept`, `enqueue_task`, durable leases) and `crate::remote::http` (the upgrade).
+//! * `testing` (implies `remote`) - a run-time test certificate and in-process host (`crate::remote::testing`).
 
 #[cfg(feature = "remote")]
 pub mod call;

@@ -127,7 +127,7 @@ test("explicit unit selection preserves named-unit order and keeps selected crat
   assert.throws(() => selectUnits({ registry: "pip", units: ["x"] }), /npm or crates/);
 });
 
-test("explicit crate selection tests named units and checks every transitive workspace dependent", () => {
+test("publication selection tests named units without reverse workspace dependents", () => {
   const graph = parseLock(`
 [[package]]
 name = "rightkit-logs"
@@ -155,12 +155,12 @@ version = "0.1.0"
   const chain = ["rightkit-logs", "rightkit-crash", "rightkit-job-queue", "rightkit-tauri-shell", "rightkit-independent"]
     .map((name) => ({ name, dir: `crates/${name}` }));
   const picked = selectUnits({ registry: "crates", units: ["rightkit-logs"], members: chain, lock: graph });
-  assert.deepEqual(picked.rust, { all: false, test: ["rightkit-logs"], check: ["rightkit-crash", "rightkit-job-queue", "rightkit-tauri-shell"] });
-  assert.ok(!picked.rust.test.includes("rightkit-crash"), "reverse dependents are checks, not full tests");
+  assert.deepEqual(picked.rust, { all: false, test: ["rightkit-logs"], check: [] });
+  assert.ok(!picked.rust.test.includes("rightkit-crash"), "reverse dependents stay outside publication tests");
   assert.ok(!picked.rust.check.includes("rightkit-independent"), "unrelated workspace crates stay out of the request");
 });
 
-test("crate selection refuses incomplete graphs and host-restricted reverse checks", () => {
+test("crate selection validates requested graph entries without blocking on host-restricted dependents", () => {
   assert.throws(() => selectUnits({ registry: "crates", units: ["rightkit-a"], members, host: "windows" }), /requires the parsed Cargo\.lock workspace graph/);
   assert.throws(() => selectUnits({ registry: "crates", units: ["rightkit-a"], members, lock: new Map(), host: "windows" }), /Cargo\.lock workspace graph is incomplete; missing member/);
 
@@ -174,11 +174,14 @@ name = "rightkit-crash"
 version = "1"
 dependencies = ["rightkit-logs"]
 `);
-  assert.throws(() => selectUnits({
+  const selected = selectUnits({
     registry: "crates", units: ["rightkit-logs"],
     members: [{ name: "rightkit-logs", dir: "crates/rightkit-logs" }, { name: "rightkit-crash", dir: "crates/rightkit-crash" }],
     lock: chainLock, host: "windows", config: { rust: { "rightkit-crash": { os: ["macos"] } } },
-  }), /reverse-dependent check would be skipped on windows: rightkit-crash/);
+  });
+  assert.deepEqual(selected.rust, { all: false, test: ["rightkit-logs"], check: [] });
+  chainLock.delete("rightkit-crash");
+  assert.deepEqual(selectUnits({ registry: "crates", units: ["rightkit-logs"], members: [{ name: "rightkit-logs" }, { name: "rightkit-crash" }], lock: chainLock }).rust.check, []);
 });
 
 test("a unit that a host would skip fails the selection unless the request names it", () => {

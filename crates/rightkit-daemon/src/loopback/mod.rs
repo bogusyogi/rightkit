@@ -27,7 +27,7 @@
 //!
 //! # What a request goes through
 //!
-//! In [`LoopbackApp::handle`]'s caller, in order: the global token bucket (CodeRight's 200/s,
+//! In [`crate::loopback::LoopbackApp::handle`]'s caller, in order: the global token bucket (CodeRight's 200/s,
 //! burst 400, `429 rate limited`); the bounded parser (head, header and body limits,
 //! timeouts, no `Transfer-Encoding`, no `Expect`, no smuggling-prone duplicates); the Host and
 //! Origin policy (DNS-rebinding and cross-site refusal); the CORS preflight; `GET
@@ -36,7 +36,7 @@
 //! owner's handler, under `catch_unwind`. A refused request never reaches the handler.
 //!
 //! The verification of the token and of capabilities is done here, inside the owner's process,
-//! before any handler runs: an app's handler receives an [`Authenticated`] value, not a header to
+//! before any handler runs: an app's handler receives an [`crate::loopback::Authenticated`] value, not a header to
 //! check.
 //!
 //! # CodeRight wire points preserved
@@ -46,8 +46,8 @@
 //!   the `access_token` query only on declared stream routes; `GET /health` and CORS preflight
 //!   exempt; exact-match public routes for signed deliveries (`auth.rs:37-135`).
 //! * `401` with the plain text `unauthorized`, `429` with `rate limited` (`auth.rs`).
-//! * The discovery record in PascalCase ([`LoopbackRecord`], `startup.rs:18-37`).
-//! * The presence routes and the exit rule ([`Presence`], `api_clients.rs`).
+//! * The discovery record in PascalCase ([`crate::loopback::LoopbackRecord`], `startup.rs:18-37`).
+//! * The presence routes and the exit rule ([`crate::loopback::Presence`], `api_clients.rs`).
 //!
 //! Not preserved, deliberately: CodeRight's `allow_headers(Any)` CORS (the owner lists the request
 //! headers it needs) and its unbounded request line and head (the parser has bounds). A client that
