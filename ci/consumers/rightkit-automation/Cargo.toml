@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-automation-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-automation = { version = "=0.6.0", features = ["paths"] }
+rightkit-daemon = { version = "=0.4.0" }

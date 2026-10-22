@@ -580,6 +580,15 @@
         "src/main.rs": "a441f1ff9b2465c706791476fc359897bdb08a5ead7df53ef0df46a57f69b077"
       }
     },
+    "rightkit-automation": {
+      "pkId": "PK15",
+      "id": "ci/consumers/rightkit-automation/src/main.rs",
+      "files": {
+        "Cargo.toml": "c958bc6e43f493e183865827b2563fa79390d61bc1e3e067dc779668f2be5e1d",
+        "README.md": "7e6256207f36119308357bc0ace7a3b0f9a696e92dcad2859597ca77188b9bbd",
+        "src/main.rs": "76e255d6574c9f3537d33a68a6e6409ed528bbbac17231a2df89084356078678"
+      }
+    },
     "rightkit-agent-tools": {
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-agent-tools/src/main.rs",
