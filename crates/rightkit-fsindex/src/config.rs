@@ -92,6 +92,38 @@ pub const DEFAULT_EXCLUDE_ROOTS_WINDOWS: &[&str] = &[r"D:\scratch"];
 /// Folders that raise a consent prompt when opened without Full Disk Access.
 pub const CONSENT_HOME_RELATIVE: &[&str] = &["Desktop", "Documents", "Downloads"];
 
+/// Caps on what the index writes to `Config::state_dir` and on how large it may grow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct WriteBudgetConfig {
+    /// Bytes the index may write to its state files per rolling hour. What counts is the dirty
+    /// pages each commit writes, plus the pages a rebuild (full rescan, compaction) writes.
+    /// Past it, a full rescan waits until the window has room for the store's footprint (see
+    /// `Status::rescan_deferred`), periodic commits are coalesced (never past ten minutes
+    /// without one), and compaction waits. Shutdown and `Index::snapshot` always commit.
+    /// Zero means no cap (the writes are still counted).
+    pub max_bytes_per_hour: u64,
+    /// Refuse new entries while the store's footprint (`WriteBudgetStatus::footprint_bytes`)
+    /// is above this many bytes. Nothing already stored is removed. `None`: no cap.
+    pub max_footprint_bytes: Option<u64>,
+}
+
+impl WriteBudgetConfig {
+    /// A budget of `max_bytes_per_hour` and no footprint cap.
+    pub fn new(max_bytes_per_hour: u64) -> WriteBudgetConfig {
+        WriteBudgetConfig {
+            max_bytes_per_hour,
+            max_footprint_bytes: None,
+        }
+    }
+
+    /// The same budget with a footprint cap.
+    pub fn with_max_footprint(mut self, bytes: u64) -> WriteBudgetConfig {
+        self.max_footprint_bytes = Some(bytes);
+        self
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Roots to index (usually `/`). Missing or unreadable roots are reported in `Status`, not fatal.
@@ -146,6 +178,9 @@ pub struct Config {
     pub crawl_threads: usize,
     /// A snapshot older than this is discarded for a full crawl.
     pub snapshot_max_age: Duration,
+    /// Cap on the bytes written to `state_dir` per hour and on the store's footprint. `None`
+    /// (the default) enforces nothing; writes are still counted for `Index::write_budget_status`.
+    pub write_budget: Option<WriteBudgetConfig>,
     #[cfg(feature = "content")]
     pub content: ContentConfig,
 }
@@ -174,6 +209,7 @@ impl Config {
             max_change_rollups: 2048,
             crawl_threads: cpus.clamp(2, 8),
             snapshot_max_age: Duration::from_secs(3 * 24 * 3600),
+            write_budget: None,
             #[cfg(feature = "content")]
             content: ContentConfig::default(),
         }

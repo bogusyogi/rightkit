@@ -3,7 +3,7 @@
 
 mod common;
 use common::*;
-use rightkit_fsindex::{EntryKind, Index, SearchOptions};
+use rightkit_fsindex::{EntryKind, Index, SearchOptions, WriteBudgetConfig};
 
 #[test]
 fn crawl_sizes_and_children_sorted() {
@@ -561,4 +561,66 @@ fn compaction_reclaims_slots_and_keeps_rollups() {
     let again = Index::open(state_cfg(&t.root, state.path())).unwrap();
     assert!(again.status().resumed_from_snapshot);
     assert_eq!(again.folder_size(&t.root).unwrap().logical, 4252);
+}
+
+#[test]
+fn writes_are_counted_without_a_cap_and_defaults_enforce_nothing() {
+    let t = tree();
+    write(&t.root.join("a/b.txt"), 100);
+    let state = tempfile::tempdir().unwrap();
+    let idx = Index::open(state_cfg(&t.root, state.path())).unwrap();
+    let w = idx.write_budget_status();
+    assert!(w.bytes_last_hour > 0, "the first crawl was committed");
+    assert_eq!(w.bytes_total, w.bytes_last_hour);
+    assert_eq!(w.max_bytes_per_hour, None);
+    assert_eq!(w.headroom_bytes, None);
+    assert!(!w.would_exceed(u64::MAX));
+    assert!(!idx.would_exceed_write_budget(u64::MAX));
+    assert!(w.footprint_bytes > 0);
+    assert!(!w.footprint_capped);
+    assert_eq!(w.refused_adds, 0);
+    assert!(idx.status().rescan_deferred.is_none());
+}
+
+#[test]
+fn a_write_budget_reports_headroom_and_counts_snapshots() {
+    let t = tree();
+    write(&t.root.join("a/b.txt"), 100);
+    let state = tempfile::tempdir().unwrap();
+    let mut cfg = state_cfg(&t.root, state.path());
+    let cap = 10u64 << 30;
+    cfg.write_budget = Some(WriteBudgetConfig::new(cap));
+    let idx = Index::open(cfg).unwrap();
+    let before = idx.write_budget_status();
+    assert_eq!(before.max_bytes_per_hour, Some(cap));
+    assert!(before.bytes_last_hour > 0);
+    assert!(before.headroom_bytes.unwrap() <= cap - before.bytes_last_hour);
+    assert!(!before.would_exceed(1));
+    assert!(before.would_exceed(cap));
+    assert!(idx.would_exceed_write_budget(cap));
+    assert!(!idx.would_exceed_write_budget(1));
+    idx.snapshot().unwrap();
+    let after = idx.write_budget_status();
+    assert!(
+        after.bytes_total > before.bytes_total,
+        "a snapshot is a commit"
+    );
+}
+
+#[test]
+fn the_footprint_cap_refuses_new_entries_and_reports_it() {
+    let t = tree();
+    for i in 0..600 {
+        write(&t.root.join(format!("d/f{i}.txt")), 1);
+    }
+    let state = tempfile::tempdir().unwrap();
+    let mut cfg = state_cfg(&t.root, state.path());
+    cfg.write_budget = Some(WriteBudgetConfig::new(0).with_max_footprint(1));
+    let idx = Index::open(cfg).unwrap();
+    let w = idx.write_budget_status();
+    assert!(w.footprint_capped);
+    assert!(w.refused_adds > 0);
+    assert!(idx.status().footprint_capped);
+    assert!(idx.status().entries < 600, "the crawl stopped growing");
+    assert_eq!(w.max_bytes_per_hour, None, "zero means no hourly cap");
 }

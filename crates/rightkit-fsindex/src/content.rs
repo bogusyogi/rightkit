@@ -49,6 +49,24 @@ impl ContentIndex {
         }
     }
 
+    /// Publish a new slot namespace without reopening surviving file contents.
+    pub fn remap(&mut self, map: impl Fn(u32) -> Option<u32>) {
+        self.per_file = std::mem::take(&mut self.per_file)
+            .into_iter()
+            .filter_map(|(old, ts)| map(old).map(|new| (new, ts)))
+            .collect();
+        self.postings.clear();
+        for (&slot, ts) in &self.per_file {
+            for &t in ts {
+                self.postings.entry(t).or_default().push(slot);
+            }
+        }
+        for slots in self.postings.values_mut() {
+            slots.sort_unstable();
+            slots.dedup();
+        }
+    }
+
     pub fn clear(&mut self) {
         self.postings.clear();
         self.per_file.clear();
@@ -141,4 +159,82 @@ pub fn verify(path: &Path, needle_lower: &[u8]) -> u32 {
     };
     let lower = data.to_ascii_lowercase();
     memchr::memmem::find_iter(&lower, needle_lower).count() as u32
+}
+#[cfg(test)]
+mod rewrite_tests {
+    use super::*;
+    use crate::backend::*;
+    use crate::store::Store;
+
+    #[test]
+    fn compaction_remaps_content_postings_to_surviving_slots() {
+        let temp = tempfile::tempdir().unwrap();
+        let text = temp.path().join("kept.txt");
+        std::fs::write(&text, b"unique needle content").unwrap();
+        let mut cfg = Config::new(vec![temp.path().into()]);
+        cfg.content.enabled = true;
+        let mut content = ContentIndex::new(&cfg);
+        let mut old = Store::create(None, Vec::new(), 9).unwrap();
+        let root = old
+            .add_root(
+                b"/r",
+                EntryData {
+                    kind: KIND_DIR,
+                    dev: 1,
+                    ..EntryData::default()
+                },
+            )
+            .unwrap();
+        let mount = old
+            .add_child(
+                root,
+                b"mnt",
+                EntryData {
+                    kind: KIND_DIR,
+                    flags: FLAG_MOUNT,
+                    dev: 1,
+                    ..EntryData::default()
+                },
+            )
+            .unwrap();
+        let foreign = old
+            .add_child(
+                mount,
+                b"gone.txt",
+                EntryData {
+                    kind: KIND_FILE,
+                    dev: 2,
+                    nlink: 1,
+                    ..EntryData::default()
+                },
+            )
+            .unwrap();
+        let kept = old
+            .add_child(
+                root,
+                b"kept.txt",
+                EntryData {
+                    kind: KIND_FILE,
+                    dev: 1,
+                    nlink: 1,
+                    ..EntryData::default()
+                },
+            )
+            .unwrap();
+        content.index_file(foreign, &text);
+        content.index_file(kept, &text);
+        old.remove_subtree(foreign);
+        let mut fresh = Store::create_sized(None, Vec::new(), 9, old.copy_hint()).unwrap();
+        old.copy_into(&mut fresh).unwrap();
+        let mapped = fresh.lookup(b"/r/kept.txt").unwrap();
+        assert_ne!(mapped, kept);
+        content.remap(|s| {
+            old.is_live(s)
+                .then(|| fresh.lookup(&old.path_of(s)))
+                .flatten()
+        });
+        assert_eq!(content.candidates(b"needle"), vec![mapped]);
+        assert_eq!(fresh.path_of(mapped), b"/r/kept.txt");
+        assert_eq!(content.per_file.len(), 1);
+    }
 }

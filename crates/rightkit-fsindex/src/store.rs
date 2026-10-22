@@ -7,8 +7,8 @@
 //! by deletions are reused and `Index::compact` rebuilds the store.
 //!
 //! Crash safety: a header holds a `dirty` flag and a generation. The flag is
-//! made durable (msync + fsync) before the first column write after a commit;
-//! `commit` flushes every column, then writes the header clean with the next
+//! flushed with msync before the first column write after a commit;
+//! `commit` flushes dirty columns, then writes the header clean with the next
 //! generation. A header found dirty at open means a torn update: the store is
 //! discarded and re-crawled.
 //!
@@ -19,6 +19,12 @@
 //!   contributes its largest shared part once per folder containing a member.
 //! * A hard-linked inode contributes through exactly one owner link; other links are
 //!   flagged SECONDARY_LINK and add nothing to any rollup.
+//!
+//! Clone groups (0.5.0): a group is allocated only when a second member joins. A file that is
+//! the only member of its clone id is one entry of a small `key -> slot` table (its shared
+//! bytes are read back from its columns); the second member promotes the entry to a full
+//! `Group`, and removing down to one member demotes it again. Keys carry the device, so clone
+//! ids and file ids of different volumes never merge.
 
 use crate::backend::*;
 use crate::col::Col;
@@ -51,10 +57,86 @@ struct Group {
     s: u64,
 }
 
+/// Identity of a clone group: the APFS clone id (or, for shared extents without one, the file
+/// id) within one device. Qualifying by device keeps ids of different volumes apart: before
+/// 0.5.0 the key was the bare id, so a store holding two volumes merged unrelated groups and
+/// over-counted `allocated_unique` (12,038,144 B on the measured root store, which held a
+/// second volume's whole tree).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct CloneKey {
+    id: u64,
+    dev: u32,
+    /// `id` is a file id (no clone id was reported), not a clone id.
+    fallback: bool,
+}
+
+impl CloneKey {
+    fn of(d: &EntryData) -> CloneKey {
+        if d.cloneid != 0 {
+            CloneKey {
+                id: d.cloneid,
+                dev: d.dev,
+                fallback: false,
+            }
+        } else {
+            CloneKey {
+                id: d.fileid,
+                dev: d.dev,
+                fallback: true,
+            }
+        }
+    }
+}
+
+/// Sizes to create a store at, so a rewrite allocates what it will hold (plus a sixteenth)
+/// instead of growing into it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SizeHint {
+    pub slots: usize,
+    pub dirs: usize,
+    pub names: usize,
+    pub name_bytes: u64,
+}
+
+/// Heap the store tracks, by owner (an estimate: allocator rounding and bookkeeping excluded).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeapParts {
+    pub links: usize,
+    pub clone_solo: usize,
+    pub clone_multi: usize,
+    pub free_lists: usize,
+    pub other: usize,
+}
+
+impl HeapParts {
+    pub fn total(&self) -> usize {
+        self.links + self.clone_solo + self.clone_multi + self.free_lists + self.other
+    }
+}
+
+/// Bytes of a hashbrown table with `capacity` usable slots holding pairs of `pair` bytes: the
+/// bucket array, one control byte per bucket and a trailing control group.
+fn map_heap(capacity: usize, pair: usize) -> usize {
+    if capacity == 0 {
+        return 0;
+    }
+    let buckets = if capacity < 8 {
+        capacity + 1
+    } else {
+        capacity / 7 * 8
+    };
+    buckets * pair + buckets + 16
+}
+
+/// The header is rewritten at least this often while the store is clean, so the snapshot age
+/// (`Config::snapshot_max_age`) keeps meaning "no older than this when last confirmed".
+const HEADER_REFRESH_SECS: u64 = 3600;
+
 const LIVE: u8 = 0x80;
 /// Hard-linked file or one with shared (clone) extents: the only entries `rebuild_aux` must inspect.
 const SPECIAL: u8 = 0x40;
-const MAGIC: &[u8; 8] = b"RKFSIX02";
+const MAGIC: &[u8; 8] = b"RKFSIX03";
+const LEGACY_MAGIC: &[u8; 8] = b"RKFSIX02";
 const H_DIRTY: usize = 12;
 const H_FP: usize = 16;
 const H_GEN: usize = 24;
@@ -70,6 +152,15 @@ const H_ROOTS: usize = 88;
 const MAX_ROOTS: usize = 64;
 const H_SEGS: usize = H_ROOTS + MAX_ROOTS * 4;
 const HDR_LEN: usize = H_SEGS + MAX_SEGS * 4;
+/// Bytes one slot occupies across the per-slot columns (eight u32, two u8, one u16, five u64).
+const SLOT_BYTES: u64 = (8 * std::mem::size_of::<u32>()
+    + 2 * std::mem::size_of::<u8>()
+    + std::mem::size_of::<u16>()
+    + 5 * std::mem::size_of::<u64>()) as u64;
+/// Bytes one folder occupies across the per-folder columns (owner and rollup).
+const DIR_BYTES: u64 = (std::mem::size_of::<u32>() + std::mem::size_of::<Rollup>()) as u64;
+/// With a footprint cap set, the footprint is re-measured after this many adds.
+const FOOTPRINT_CHECK_EVERY: u32 = 256;
 
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now()
@@ -114,12 +205,29 @@ pub struct Store {
     dir_free: Vec<u32>,
     pub roots: Vec<u32>,
     links: HashMap<(u32, u64), Vec<u32>>,
-    clones: HashMap<u64, Group>,
+    /// Clone groups with one member: key to that member's slot.
+    clone_solo: HashMap<CloneKey, u32>,
+    legacy_clone_keys: bool,
+    name_refs: Vec<u32>,
+    live_names: usize,
+    live_name_bytes: u64,
+    /// Clone groups with two or more members.
+    clone_multi: HashMap<CloneKey, Group>,
     package_exts: Vec<Vec<u8>>,
     live: usize,
     fingerprint: u64,
     generation: u64,
+    /// Event id and time of the header on disk (what the last commit, or open, saw).
+    committed_event: u64,
+    committed_at: u64,
     dirty: bool,
+    /// Bytes of dirty pages flushed by commits (and header writes) since `take_flushed_bytes`.
+    flushed_bytes: u64,
+    /// Refuse `add_child` while the footprint is above this many bytes.
+    max_footprint: Option<u64>,
+    adds_since_check: u32,
+    footprint_capped: bool,
+    refused_adds: u64,
     /// Record removed/touched slots (content index feed). Off unless content search is on.
     pub log_changes: bool,
     pub removed_log: Vec<u32>,
@@ -138,11 +246,34 @@ fn rd_u32(h: &MmapMut, at: usize) -> u32 {
 }
 
 impl Store {
+    pub fn footprint_headroom(&self) -> Option<u64> {
+        self.max_footprint
+            .map(|cap| cap.saturating_sub(self.footprint_bytes()))
+    }
+
+    pub fn replacement_growth(&self, entries: usize, name_bytes: u64) -> u64 {
+        (entries as u64)
+            .saturating_mul(SLOT_BYTES + DIR_BYTES)
+            .saturating_add(self.names.additional_footprint(entries, name_bytes))
+    }
+
     /// Fresh store. `dir` must exist for a file-backed store; `None` is anonymous (no persistence).
+    #[cfg(test)]
     pub fn create(
         dir: Option<&Path>,
         package_exts: Vec<Vec<u8>>,
         fingerprint: u64,
+    ) -> io::Result<Store> {
+        Self::create_sized(dir, package_exts, fingerprint, SizeHint::default())
+    }
+
+    /// As `create`, with columns allocated for `hint` (a sixteenth of headroom) so a rewrite
+    /// does not grow into its size and does not end with a doubled tail.
+    pub fn create_sized(
+        dir: Option<&Path>,
+        package_exts: Vec<Vec<u8>>,
+        fingerprint: u64,
+        hint: SizeHint,
     ) -> io::Result<Store> {
         let hdr = match dir {
             Some(d) => {
@@ -157,8 +288,9 @@ impl Store {
             }
             None => None,
         };
-        let names = NameStore::create(dir)?;
-        let n = 1024;
+        let names = NameStore::create_sized(dir, hint.names, hint.name_bytes)?;
+        let n = (hint.slots + hint.slots / 16).max(1024);
+        let nd = (hint.dirs + hint.dirs / 16).max(256);
         let (a, b, c, d, e, f, g, h, i, j, k, l, m, n2, o, p, q, r) = (
             Col::<u32>::create(dir, "c-name.col", n)?,
             Col::<u32>::create(dir, "c-parent.col", n)?,
@@ -176,8 +308,8 @@ impl Store {
             Col::<u64>::create(dir, "c-alloc.col", n)?,
             Col::<u64>::create(dir, "c-private.col", n)?,
             Col::<u64>::create(dir, "c-clone.col", n)?,
-            Col::<u32>::create(dir, "d-owner.col", 256)?,
-            Col::<Rollup>::create(dir, "d-roll.col", 256)?,
+            Col::<u32>::create(dir, "d-owner.col", nd)?,
+            Col::<Rollup>::create(dir, "d-roll.col", nd)?,
         );
         let mut s = Store::assemble(
             dir,
@@ -247,12 +379,24 @@ impl Store {
             dir_free: Vec::new(),
             roots: Vec::new(),
             links: HashMap::new(),
-            clones: HashMap::new(),
+            clone_solo: HashMap::new(),
+            legacy_clone_keys: false,
+            name_refs: Vec::new(),
+            live_names: 0,
+            live_name_bytes: 0,
+            clone_multi: HashMap::new(),
             package_exts,
             live: 0,
             fingerprint,
             generation: 0,
+            committed_event: 0,
+            committed_at: 0,
             dirty: false,
+            flushed_bytes: 0,
+            max_footprint: None,
+            adds_since_check: 0,
+            footprint_capped: false,
+            refused_adds: 0,
             log_changes: false,
             removed_log: Vec::new(),
             touched_log: Vec::new(),
@@ -276,7 +420,10 @@ impl Store {
             return Ok(None);
         }
         let hdr = unsafe { MmapMut::map_mut(&f)? };
-        if &hdr[0..8] != MAGIC || rd_u32(&hdr, H_DIRTY) != 0 || rd_u64(&hdr, H_FP) != fingerprint {
+        if (&hdr[0..8] != MAGIC && &hdr[0..8] != LEGACY_MAGIC)
+            || rd_u32(&hdr, H_DIRTY) != 0
+            || rd_u64(&hdr, H_FP) != fingerprint
+        {
             return Ok(None);
         }
         let (nslots, ndirs) = (
@@ -323,6 +470,9 @@ impl Store {
         let Ok(mut s) = opened else { return Ok(None) };
         let (event_id, saved_at) = (rd_u64(&hdr, H_EVENT), rd_u64(&hdr, H_SAVED));
         s.generation = rd_u64(&hdr, H_GEN);
+        s.committed_event = event_id;
+        s.committed_at = saved_at;
+        s.legacy_clone_keys = &hdr[0..8] == LEGACY_MAGIC;
         s.hdr = Some(hdr);
         s.rebuild_aux();
         s.trim();
@@ -333,9 +483,13 @@ impl Store {
     fn rebuild_aux(&mut self) {
         self.live = 0;
         self.free.clear();
+        self.name_refs = vec![0; self.names.len()];
+        self.live_names = 0;
+        self.live_name_bytes = 0;
         for s in (0..self.nslots).rev() {
             if self.c_meta.get(s) & LIVE != 0 {
                 self.live += 1;
+                self.retain_name(self.c_name.get(s));
             } else {
                 self.free.push(s as u32);
             }
@@ -367,9 +521,11 @@ impl Store {
             }
         }
         self.links = by_link;
+        self.clone_solo.clear();
+        self.clone_multi.clear();
         for s in shared {
             let d = self.entry(s).d;
-            self.group_join_membership(s, d.alloc - d.private);
+            self.clone_join(s, d.alloc - d.private, false);
         }
     }
 
@@ -377,9 +533,20 @@ impl Store {
     pub fn aux_counts(&self) -> (usize, usize, usize) {
         (
             self.links.len(),
-            self.clones.len(),
-            self.clones.values().map(|g| g.members.len()).sum(),
+            self.clone_solo.len() + self.clone_multi.len(),
+            self.clone_solo.len()
+                + self
+                    .clone_multi
+                    .values()
+                    .map(|g| g.members.len())
+                    .sum::<usize>(),
         )
+    }
+
+    /// Clone groups that were promoted to a full `Group` (two or more members).
+    #[cfg(test)]
+    pub fn multi_clone_groups(&self) -> usize {
+        self.clone_multi.len()
     }
 
     pub fn special_count(&self) -> usize {
@@ -399,10 +566,15 @@ impl Store {
         }
         self.dirty = true;
         if let Some(h) = self.hdr.as_mut() {
-            h[0..8].copy_from_slice(MAGIC);
+            h[0..8].copy_from_slice(if self.legacy_clone_keys {
+                LEGACY_MAGIC
+            } else {
+                MAGIC
+            });
             h[H_DIRTY..H_DIRTY + 4].copy_from_slice(&1u32.to_le_bytes());
             h[H_FP..H_FP + 8].copy_from_slice(&self.fingerprint.to_le_bytes());
             h.flush()?;
+            self.flushed_bytes += crate::col::page_size() as u64;
         }
         Ok(())
     }
@@ -417,34 +589,68 @@ impl Store {
         self.dirty && self.hdr.is_some()
     }
 
-    /// Flush every column, then publish a clean header with the next generation.
+    /// Flush every column that has dirty pages, then publish a clean header with the next
+    /// generation. A column nothing was written to is not touched, and a clean store whose
+    /// header already carries `event_id` (and was confirmed within the last hour) writes
+    /// nothing at all.
     pub fn commit(&mut self, event_id: u64) -> io::Result<()> {
+        self.commit_with(event_id, |_| Ok(()))
+    }
+
+    /// As `commit`, but the header is always rewritten (an explicit snapshot: the caller asked
+    /// for the state, with its time, to be on disk now).
+    pub fn commit_forced(&mut self, event_id: u64) -> io::Result<()> {
+        self.committed_at = 0;
+        self.commit(event_id)
+    }
+
+    fn commit_with(
+        &mut self,
+        event_id: u64,
+        mut before: impl FnMut(&str) -> io::Result<()>,
+    ) -> io::Result<()> {
         if self.hdr.is_none() {
             return Ok(());
         }
-        self.names.flush()?;
-        for r in [
-            self.c_name.flush(),
-            self.c_parent.flush(),
-            self.c_first.flush(),
-            self.c_next.flush(),
-            self.c_prev.flush(),
-            self.c_dir.flush(),
-            self.c_meta.flush(),
-            self.c_flags.flush(),
-            self.c_nlink.flush(),
-            self.c_mtime.flush(),
-            self.c_dev.flush(),
-            self.c_fileid.flush(),
-            self.c_logical.flush(),
-            self.c_alloc.flush(),
-            self.c_private.flush(),
-            self.c_clone.flush(),
-            self.d_owner.flush(),
-            self.d_roll.flush(),
-        ] {
-            r?;
+        if !self.dirty
+            && event_id == self.committed_event
+            && now_secs().saturating_sub(self.committed_at) < HEADER_REFRESH_SECS
+        {
+            return Ok(());
         }
+        macro_rules! flush_col {
+            ($field:ident) => {
+                if !self.$field.is_clean() {
+                    before(stringify!($field))?;
+                    let result = self.$field.flush();
+                    self.flushed_bytes += self.$field.take_partial_flush_bytes();
+                    self.flushed_bytes += result?;
+                }
+            };
+        }
+        if !self.names.is_clean() {
+            before("names")?;
+            self.names.flush(&mut self.flushed_bytes)?;
+        }
+        flush_col!(c_name);
+        flush_col!(c_parent);
+        flush_col!(c_first);
+        flush_col!(c_next);
+        flush_col!(c_prev);
+        flush_col!(c_dir);
+        flush_col!(c_meta);
+        flush_col!(c_flags);
+        flush_col!(c_nlink);
+        flush_col!(c_mtime);
+        flush_col!(c_dev);
+        flush_col!(c_fileid);
+        flush_col!(c_logical);
+        flush_col!(c_alloc);
+        flush_col!(c_private);
+        flush_col!(c_clone);
+        flush_col!(d_owner);
+        flush_col!(d_roll);
+        before("header")?;
         self.generation += 1;
         let (gen, ns, nd, nn, nb) = (
             self.generation,
@@ -455,13 +661,18 @@ impl Store {
         );
         let roots = self.roots.clone();
         let segs = self.names.seg_used.clone();
+        let saved = now_secs();
         let h = self.hdr.as_mut().unwrap();
-        h[0..8].copy_from_slice(MAGIC);
-        h[8..12].copy_from_slice(&2u32.to_le_bytes());
+        h[0..8].copy_from_slice(if self.legacy_clone_keys {
+            LEGACY_MAGIC
+        } else {
+            MAGIC
+        });
+        h[8..12].copy_from_slice(&(if self.legacy_clone_keys { 2u32 } else { 3u32 }).to_le_bytes());
         h[H_FP..H_FP + 8].copy_from_slice(&self.fingerprint.to_le_bytes());
         h[H_GEN..H_GEN + 8].copy_from_slice(&gen.to_le_bytes());
         h[H_EVENT..H_EVENT + 8].copy_from_slice(&event_id.to_le_bytes());
-        h[H_SAVED..H_SAVED + 8].copy_from_slice(&now_secs().to_le_bytes());
+        h[H_SAVED..H_SAVED + 8].copy_from_slice(&saved.to_le_bytes());
         h[H_NSLOTS..H_NSLOTS + 8].copy_from_slice(&ns.to_le_bytes());
         h[H_NDIRS..H_NDIRS + 8].copy_from_slice(&nd.to_le_bytes());
         h[H_NAMES..H_NAMES + 8].copy_from_slice(&nn.to_le_bytes());
@@ -476,9 +687,160 @@ impl Store {
             h[H_SEGS + i * 4..H_SEGS + i * 4 + 4].copy_from_slice(&u.to_le_bytes());
         }
         h[H_DIRTY..H_DIRTY + 4].copy_from_slice(&0u32.to_le_bytes());
-        h.flush()?;
+        if let Err(e) = h.flush() {
+            h[H_DIRTY..H_DIRTY + 4].copy_from_slice(&1u32.to_le_bytes());
+            self.dirty = true;
+            return Err(e);
+        }
         self.dirty = false;
+        self.committed_event = event_id;
+        self.committed_at = saved;
+        self.flushed_bytes += crate::col::page_size() as u64;
         Ok(())
+    }
+
+    /// Bytes of dirty pages committed since the last call (zero for an anonymous store).
+    /// The index adds them to its write budget.
+    pub fn take_flushed_bytes(&mut self) -> u64 {
+        std::mem::take(&mut self.flushed_bytes)
+    }
+
+    /// Bytes the next `commit` will write: every page dirtied since the last one, plus the
+    /// header when anything is pending (a clean store has nothing to write).
+    pub fn pending_write_bytes(&self) -> u64 {
+        if self.hdr.is_none() {
+            return 0;
+        }
+        let cols = self.names.dirty_bytes()
+            + [
+                self.c_name.dirty_bytes(),
+                self.c_parent.dirty_bytes(),
+                self.c_first.dirty_bytes(),
+                self.c_next.dirty_bytes(),
+                self.c_prev.dirty_bytes(),
+                self.c_dir.dirty_bytes(),
+                self.c_meta.dirty_bytes(),
+                self.c_flags.dirty_bytes(),
+                self.c_nlink.dirty_bytes(),
+                self.c_mtime.dirty_bytes(),
+                self.c_dev.dirty_bytes(),
+                self.c_fileid.dirty_bytes(),
+                self.c_logical.dirty_bytes(),
+                self.c_alloc.dirty_bytes(),
+                self.c_private.dirty_bytes(),
+                self.c_clone.dirty_bytes(),
+                self.d_owner.dirty_bytes(),
+                self.d_roll.dirty_bytes(),
+            ]
+            .iter()
+            .sum::<u64>();
+        if cols == 0 && !self.dirty {
+            0
+        } else {
+            cols + crate::col::page_size() as u64
+        }
+    }
+
+    /// Pending dirty pages plus any cursor-only or age-only header publication.
+    pub fn pending_commit_bytes(&self, event_id: u64) -> u64 {
+        let pending = self.pending_write_bytes();
+        if pending == 0
+            && self.hdr.is_some()
+            && (event_id != self.committed_event
+                || now_secs().saturating_sub(self.committed_at) >= HEADER_REFRESH_SECS)
+        {
+            crate::col::page_size() as u64
+        } else {
+            pending
+        }
+    }
+
+    /// Bytes the store's files span (column and name capacities plus the header): what the
+    /// disk holds for it, used or not.
+    pub fn capacity_bytes(&self) -> u64 {
+        let slot_cols = self.c_name.capacity_bytes()
+            + self.c_parent.capacity_bytes()
+            + self.c_first.capacity_bytes()
+            + self.c_next.capacity_bytes()
+            + self.c_prev.capacity_bytes()
+            + self.c_dir.capacity_bytes()
+            + self.c_meta.capacity_bytes()
+            + self.c_flags.capacity_bytes()
+            + self.c_nlink.capacity_bytes()
+            + self.c_mtime.capacity_bytes()
+            + self.c_dev.capacity_bytes()
+            + self.c_fileid.capacity_bytes()
+            + self.c_logical.capacity_bytes()
+            + self.c_alloc.capacity_bytes()
+            + self.c_private.capacity_bytes()
+            + self.c_clone.capacity_bytes();
+        slot_cols
+            + self.d_owner.capacity_bytes()
+            + self.d_roll.capacity_bytes()
+            + self.names.capacity_bytes()
+            + HDR_LEN.max(4096) as u64
+    }
+
+    /// Bytes of live data: live slots and folders, the names, the header. What a rewrite of
+    /// the store would occupy before headroom.
+    pub fn live_bytes(&self) -> u64 {
+        let buckets = (self.live_names + 1).next_power_of_two().max(1024);
+        self.live as u64 * SLOT_BYTES
+            + self.dir_count() as u64 * DIR_BYTES
+            + self.live_name_bytes
+            + self.live_names as u64 * 10
+            + buckets as u64 * 4
+            + HDR_LEN.max(4096) as u64
+    }
+
+    /// Capacity not holding live data: unused tails, dead slots, name garbage.
+    pub fn unused_bytes(&self) -> u64 {
+        self.capacity_bytes().saturating_sub(self.live_bytes())
+    }
+
+    /// Whether a rewrite would reclaim enough to be worth its writes: unused capacity above
+    /// `min_bytes` and above a fifth of the capacity. A store settled by 0.5.0 growth (at
+    /// most an eighth unused) never qualifies on capacity alone, so growth and compaction do
+    /// not take turns.
+    pub fn wants_compaction(&self, min_bytes: u64) -> bool {
+        let (cap, unused) = (self.capacity_bytes(), self.unused_bytes());
+        unused > min_bytes && unused.saturating_mul(5) > cap
+    }
+
+    /// Bytes the store's data occupies on disk (slots and folders in use, names, header). It
+    /// counts used extents, not the doubled column capacity, and is what a rebuild rewrites.
+    pub fn footprint_bytes(&self) -> u64 {
+        self.nslots as u64 * SLOT_BYTES
+            + self.ndirs as u64 * DIR_BYTES
+            + self.names.footprint_bytes()
+            + HDR_LEN as u64
+    }
+
+    /// Refuse `add_child` while `footprint_bytes()` is above `cap` (`None`: no cap). Entries
+    /// already stored are never removed because of it.
+    pub fn set_max_footprint(&mut self, cap: Option<u64>) {
+        self.max_footprint = cap;
+        self.footprint_capped = cap.is_some_and(|cap| self.footprint_bytes() > cap);
+        self.adds_since_check = 0;
+    }
+
+    /// Adds refused because of the footprint cap since the store was created or opened.
+    pub fn refused_adds(&self) -> u64 {
+        self.refused_adds
+    }
+
+    /// Whether another entry may not be added. The footprint is measured every
+    /// `FOOTPRINT_CHECK_EVERY` adds, and on every add while it is over the cap.
+    fn growth_blocked(&mut self) -> bool {
+        let Some(cap) = self.max_footprint else {
+            return false;
+        };
+        self.adds_since_check += 1;
+        if self.footprint_capped || self.adds_since_check >= FOOTPRINT_CHECK_EVERY {
+            self.adds_since_check = 0;
+            self.footprint_capped = self.footprint_bytes() > cap;
+        }
+        self.footprint_capped
     }
 
     /// Drop clean mapped pages from this process's resident set (they refault on demand).
@@ -517,25 +879,38 @@ impl Store {
     /// hard-link and clone tables, package list). An estimate of what the index allocates
     /// itself; allocator bookkeeping and transient buffers are not included.
     pub fn heap_bytes(&self) -> usize {
-        let links: usize = self
-            .links
+        self.heap_parts().total()
+    }
+
+    /// `heap_bytes` split by owner.
+    pub fn heap_parts(&self) -> HeapParts {
+        let links = map_heap(
+            self.links.capacity(),
+            std::mem::size_of::<((u32, u64), Vec<u32>)>(),
+        ) + self.links.values().map(|v| v.capacity() * 4).sum::<usize>();
+        let clone_solo = map_heap(
+            self.clone_solo.capacity(),
+            std::mem::size_of::<(CloneKey, u32)>(),
+        );
+        let clone_multi = map_heap(
+            self.clone_multi.capacity(),
+            std::mem::size_of::<(CloneKey, Group)>(),
+        ) + self
+            .clone_multi
             .values()
-            .map(|v| v.capacity() * 4 + 48)
-            .sum::<usize>()
-            + self.links.capacity() * 40;
-        let clones: usize = self
-            .clones
-            .values()
-            .map(|g| g.members.capacity() * 16 + g.per_dir.capacity() * 12 + 48)
-            .sum::<usize>()
-            + self.clones.capacity() * 40;
+            .map(|g| {
+                g.members.capacity() * std::mem::size_of::<(u32, u64)>()
+                    + map_heap(g.per_dir.capacity(), std::mem::size_of::<(u32, u32)>())
+            })
+            .sum::<usize>();
         let pkgs: usize = self.package_exts.iter().map(|p| p.capacity() + 24).sum();
-        self.free.capacity() * 4
-            + self.dir_free.capacity() * 4
-            + self.roots.capacity() * 4
-            + pkgs
-            + links
-            + clones
+        HeapParts {
+            links,
+            clone_solo,
+            clone_multi,
+            free_lists: self.free.capacity() * 4 + self.dir_free.capacity() * 4,
+            other: self.roots.capacity() * 4 + pkgs + self.name_refs.capacity() * 4,
+        }
     }
 
     pub fn trim(&mut self) {
@@ -560,10 +935,76 @@ impl Store {
         self.d_roll.trim();
     }
 
-    /// The store directory moved (compaction swap).
-    pub fn relocate(&mut self, dir: &Path) {
-        self.dir = Some(dir.to_path_buf());
-        self.names.relocate(dir);
+    /// Drop the resident pages of every mapping except the search set (meta and name columns,
+    /// name offsets, lengths and text): the pages crawls, rescans and rollup work touch go,
+    /// the pages a name search reads stay.
+    #[allow(dead_code)]
+    pub fn trim_cold(&mut self) {
+        self.names.trim_cold();
+        self.c_parent.trim();
+        self.c_first.trim();
+        self.c_next.trim();
+        self.c_prev.trim();
+        self.c_dir.trim();
+        self.c_mtime.trim();
+        self.c_dev.trim();
+        self.c_flags.trim();
+        self.c_nlink.trim();
+        self.c_fileid.trim();
+        self.c_logical.trim();
+        self.c_alloc.trim();
+        self.c_private.trim();
+        self.c_clone.trim();
+        self.d_owner.trim();
+        self.d_roll.trim();
+    }
+
+    /// Sizes a rewrite of the live tree needs, counted exactly by walking it: slots and
+    /// folders reached from roots & distinct names they use.
+    pub fn copy_hint(&self) -> SizeHint {
+        let mut hint = SizeHint::default();
+        let mut seen = vec![0u64; self.names.len().div_ceil(64)];
+        for &r in &self.roots {
+            let mut stack = vec![r];
+            while let Some(x) = stack.pop() {
+                let i = x as usize;
+                hint.slots += 1;
+                if (self.c_meta.get(i) & 3) == KIND_DIR {
+                    hint.dirs += 1;
+                }
+                let nid = self.c_name.get(i) as usize;
+                if seen[nid >> 6] & (1u64 << (nid & 63)) == 0 {
+                    seen[nid >> 6] |= 1u64 << (nid & 63);
+                    hint.names += 1;
+                    hint.name_bytes += self.names.get(nid as u32).len() as u64;
+                }
+                let mut c = self.c_first.get(i);
+                while c != NONE {
+                    stack.push(c);
+                    c = self.c_next.get(c as usize);
+                }
+            }
+        }
+        hint
+    }
+
+    /// Copy the live tree depth first into `fresh` (contiguous slots, no garbage names, no
+    /// dead rows). Leaves this store untouched until publication.
+    pub fn copy_into(&self, fresh: &mut Store) -> io::Result<()> {
+        for &r in &self.roots {
+            let nr = fresh.add_root(self.name_of(r), self.entry(r).d)?;
+            let mut stack = vec![(r, nr)];
+            while let Some((o, n)) = stack.pop() {
+                for c in self.children(o).into_iter().rev() {
+                    let e = self.entry(c);
+                    let nc = fresh.add_child(n, self.name_of(c), e.d)?;
+                    if e.d.kind == KIND_DIR {
+                        stack.push((c, nc));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Slots on the free list (reusable) as a fraction signal for compaction.
@@ -572,6 +1013,11 @@ impl Store {
     }
 
     // ---------------------------------------------------------------- accessors
+
+    pub fn relocate(&mut self, dir: &Path) {
+        self.dir = Some(dir.to_path_buf());
+        self.names.relocate(dir);
+    }
 
     pub fn len(&self) -> usize {
         self.live
@@ -582,6 +1028,10 @@ impl Store {
     }
     pub fn slots(&self) -> usize {
         self.nslots
+    }
+    /// Live folders: allocated folder rows minus those on the free list.
+    pub fn dir_count(&self) -> usize {
+        self.ndirs - self.dir_free.len()
     }
     pub fn is_live(&self, s: u32) -> bool {
         (s as usize) < self.nslots && self.c_meta.get(s as usize) & LIVE != 0
@@ -726,9 +1176,29 @@ impl Store {
         Ok(())
     }
 
+    fn retain_name(&mut self, id: u32) {
+        self.name_refs.resize(self.names.len(), 0);
+        let count = &mut self.name_refs[id as usize];
+        if *count == 0 {
+            self.live_names += 1;
+            self.live_name_bytes += self.names.get(id).len() as u64;
+        }
+        *count += 1;
+    }
+
+    fn release_name(&mut self, id: u32) {
+        let count = &mut self.name_refs[id as usize];
+        *count -= 1;
+        if *count == 0 {
+            self.live_names -= 1;
+            self.live_name_bytes -= self.names.get(id).len() as u64;
+        }
+    }
+
     fn init_slot(&mut self, s: u32, name: u32, parent: u32, d: &EntryData) -> io::Result<()> {
         let i = s as usize;
         self.c_name.set(i, name);
+        self.retain_name(name);
         self.c_parent.set(i, parent);
         self.c_first.set(i, NONE);
         self.c_next.set(i, NONE);
@@ -747,6 +1217,7 @@ impl Store {
         if self.roots.len() >= MAX_ROOTS {
             return Err(io::Error::other("too many roots"));
         }
+        self.mark_dirty()?;
         let name = self.names.intern(path)?;
         let s = self.alloc_slot()?;
         self.init_slot(s, name, NONE, &d)?;
@@ -756,11 +1227,19 @@ impl Store {
 
     /// Add `name` under directory `parent`. Contribution to ancestors is applied.
     pub fn add_child(&mut self, parent: u32, name: &[u8], mut d: EntryData) -> io::Result<u32> {
+        if self.growth_blocked() {
+            self.refused_adds += 1;
+            return Err(io::Error::new(
+                io::ErrorKind::StorageFull,
+                "index footprint cap reached",
+            ));
+        }
         if d.kind == KIND_DIR && self.is_package(name) {
             d.flags |= FLAG_PACKAGE;
         }
         d.flags &= !FLAG_SECONDARY_LINK;
         d.private = d.private.min(d.alloc);
+        self.mark_dirty()?;
         let nid = self.names.intern(name)?;
         let s = self.alloc_slot()?;
         self.init_slot(s, nid, parent, &d)?;
@@ -831,14 +1310,6 @@ impl Store {
         }
     }
 
-    fn clone_key(d: &EntryData) -> u64 {
-        if d.cloneid != 0 {
-            d.cloneid
-        } else {
-            (1u64 << 63) | d.fileid
-        }
-    }
-
     fn unique_delta(&mut self, dir_slot: u32, delta: i64) {
         if let Some(di) = self.dir_of(dir_slot) {
             let mut r = self.d_roll.get(di);
@@ -864,39 +1335,98 @@ impl Store {
         let shared = d.alloc - d.private;
         if shared > 0 {
             if sign > 0 {
-                self.group_join(s, shared);
+                self.clone_join(s, shared, true);
             } else {
-                self.group_leave(s);
+                self.clone_leave(s);
             }
         }
     }
 
-    /// Group membership and per-folder counts only (no rollup change); used when reopening.
-    fn group_join_membership(&mut self, s: u32, shared: u64) {
-        let key = Self::clone_key(&self.entry(s).d);
-        let mut dirs = Vec::new();
+    /// Parent chain of `s`, nearest first (not including `s`).
+    fn ancestors(&self, s: u32) -> Vec<u32> {
+        let mut v = Vec::new();
         let mut p = self.parent_of(s);
         while p != NONE {
-            dirs.push(p);
+            v.push(p);
             p = self.parent_of(p);
         }
-        let g = self.clones.entry(key).or_default();
-        g.members.push((s, shared));
-        g.s = g.s.max(shared);
-        for d in dirs {
-            *g.per_dir.entry(d).or_insert(0) += 1;
+        v
+    }
+
+    /// Add `delta` to the `unique` rollup of every ancestor of `s`.
+    fn add_unique_up(&mut self, s: u32, delta: i64) {
+        let mut p = self.parent_of(s);
+        while p != NONE {
+            self.unique_delta(p, delta);
+            p = self.parent_of(p);
         }
     }
 
-    fn group_join(&mut self, s: u32, shared: u64) {
-        let key = Self::clone_key(&self.entry(s).d);
-        let mut ancestors = Vec::new();
-        let mut p = self.parent_of(s);
-        while p != NONE {
-            ancestors.push(p);
-            p = self.parent_of(p);
+    /// Shared bytes (allocated beyond private) `s` holds, read from its columns.
+    fn shared_of(&self, s: u32) -> u64 {
+        self.c_alloc
+            .get(s as usize)
+            .saturating_sub(self.c_private.get(s as usize))
+    }
+
+    /// `s` joins the clone group of its key. With `apply`, the rollups of its folders move by
+    /// what the group adds (a first member: its shared bytes for every ancestor; later ones:
+    /// the new maximum for folders already holding the group, the maximum for new folders).
+    /// Without it only membership is recorded (rebuilding after open; rollups are on disk).
+    /// A group is a table entry until a second member arrives, then a full `Group`.
+    pub fn clone_rollups_need_rewrite(&self) -> bool {
+        self.legacy_clone_keys
+    }
+
+    fn clone_key(&self, s: u32) -> CloneKey {
+        let d = self.entry(s).d;
+        if self.legacy_clone_keys {
+            CloneKey {
+                id: if d.cloneid == 0 {
+                    (1 << 63) | d.fileid
+                } else {
+                    d.cloneid
+                },
+                dev: 0,
+                fallback: false,
+            }
+        } else {
+            CloneKey::of(&d)
         }
-        let g = self.clones.entry(key).or_default();
+    }
+
+    fn clone_join(&mut self, s: u32, shared: u64, apply: bool) {
+        let key = self.clone_key(s);
+        if !self.clone_multi.contains_key(&key) {
+            match self.clone_solo.get(&key).copied() {
+                None => {
+                    self.clone_solo.insert(key, s);
+                    if apply {
+                        self.add_unique_up(s, shared as i64);
+                    }
+                    return;
+                }
+                Some(m) => {
+                    // Second member: promote. The first one's contribution is already in the
+                    // rollups; only its membership moves into the group.
+                    self.clone_solo.remove(&key);
+                    let m_shared = self.shared_of(m);
+                    let mut g = Group {
+                        members: vec![(m, m_shared)],
+                        per_dir: HashMap::new(),
+                        s: m_shared,
+                    };
+                    for a in self.ancestors(m) {
+                        *g.per_dir.entry(a).or_insert(0) += 1;
+                    }
+                    self.clone_multi.insert(key, g);
+                }
+            }
+        }
+        let ancestors = self.ancestors(s);
+        let Some(g) = self.clone_multi.get_mut(&key) else {
+            return;
+        };
         g.members.push((s, shared));
         let (old, new) = (g.s, g.s.max(shared));
         let mut deltas: Vec<(u32, i64)> = Vec::new();
@@ -911,20 +1441,28 @@ impl Store {
                 deltas.push((a, g.s as i64));
             }
         }
-        for (d, v) in deltas {
-            self.unique_delta(d, v);
+        if apply {
+            for (d, v) in deltas {
+                self.unique_delta(d, v);
+            }
         }
     }
 
-    fn group_leave(&mut self, s: u32) {
-        let key = Self::clone_key(&self.entry(s).d);
-        let mut ancestors = Vec::new();
-        let mut p = self.parent_of(s);
-        while p != NONE {
-            ancestors.push(p);
-            p = self.parent_of(p);
+    /// `s` leaves its clone group (its columns still hold the values it joined with). The
+    /// last member takes the group's table entry with it; a group left with one member goes
+    /// back to a table entry.
+    fn clone_leave(&mut self, s: u32) {
+        let key = self.clone_key(s);
+        if let Some(&m) = self.clone_solo.get(&key) {
+            if m == s {
+                self.clone_solo.remove(&key);
+                let shared = self.shared_of(s);
+                self.add_unique_up(s, -(shared as i64));
+            }
+            return;
         }
-        let Some(g) = self.clones.get_mut(&key) else {
+        let ancestors = self.ancestors(s);
+        let Some(g) = self.clone_multi.get_mut(&key) else {
             return;
         };
         let mut deltas: Vec<(u32, i64)> = Vec::new();
@@ -943,8 +1481,12 @@ impl Store {
             deltas.extend(g.per_dir.keys().map(|&d| (d, -((g.s - new) as i64))));
             g.s = new;
         }
-        if g.members.is_empty() {
-            self.clones.remove(&key);
+        if g.members.len() <= 1 {
+            let survivor = g.members.first().map(|m| m.0);
+            self.clone_multi.remove(&key);
+            if let Some(m) = survivor {
+                self.clone_solo.insert(key, m);
+            }
         }
         for (d, v) in deltas {
             self.unique_delta(d, v);
@@ -1024,6 +1566,7 @@ impl Store {
                 self.d_owner.set(di, NONE);
                 self.dir_free.push(di as u32);
             }
+            self.release_name(self.c_name.get(x as usize));
             self.c_meta.set(x as usize, 0);
             self.c_dir.set(x as usize, NONE);
             self.free.push(x);
@@ -1050,6 +1593,14 @@ impl Store {
             self.remove_detached_subtree(g);
         }
         gone
+    }
+
+    // ------------------------------------------------------------ mount boundaries
+
+    /// Parent slot of `s` (`NONE` for a root).
+    #[cfg(test)]
+    pub fn parent_slot(&self, s: u32) -> u32 {
+        self.c_parent.get(s as usize)
     }
 
     pub fn path_of(&self, s: u32) -> Vec<u8> {
@@ -1144,3 +1695,143 @@ impl Store {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file() -> EntryData {
+        EntryData {
+            kind: KIND_FILE,
+            nlink: 1,
+            logical: 10,
+            alloc: 4096,
+            private: 4096,
+            ..EntryData::default()
+        }
+    }
+
+    fn store_with(dir: &Path, n: usize) -> (Store, u32) {
+        let mut s = Store::create(Some(dir), Vec::new(), 7).unwrap();
+        let root = s.add_root(b"/r", EntryData::default()).unwrap();
+        for i in 0..n {
+            s.add_child(root, format!("f{i}").as_bytes(), file())
+                .unwrap();
+        }
+        (s, root)
+    }
+
+    #[test]
+    fn failed_commit_keeps_successful_flush_accounting() {
+        use crate::limits::{WriteBudget, WRITE_WINDOW};
+        use std::time::{Duration, Instant};
+        for failure in ["c_parent", "header"] {
+            let dir = tempfile::tempdir().unwrap();
+            let (mut store, _) = store_with(dir.path(), 10);
+            // Creating the store wrote its dirty header once; that is not part of the commit.
+            store.take_flushed_bytes();
+            let expected = store.pending_write_bytes();
+            assert!(store
+                .commit_with(1, |column| {
+                    if column == failure {
+                        Err(io::Error::other("injected flush failure"))
+                    } else {
+                        Ok(())
+                    }
+                })
+                .is_err());
+            let flushed = store.take_flushed_bytes();
+            assert!(flushed > 0 && flushed < expected);
+            let now = Instant::now();
+            let mut budget = WriteBudget::new(Some(expected * 2));
+            budget.record(now, flushed);
+            store.commit(1).unwrap();
+            let remaining = store.take_flushed_bytes();
+            assert_eq!(flushed + remaining, expected);
+            budget.record(now + Duration::from_secs(2), remaining);
+            assert_eq!(budget.bytes_in_window(now + WRITE_WINDOW), remaining);
+            assert_eq!(
+                budget.bytes_in_window(now + WRITE_WINDOW + Duration::from_secs(2)),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn a_commit_reports_the_pages_it_wrote_and_an_idle_one_only_the_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let page = crate::col::page_size() as u64;
+        let (mut s, root) = store_with(dir.path(), 50_000);
+        assert!(s.pending_write_bytes() > 10 * page);
+        s.commit(1).unwrap();
+        let first = s.take_flushed_bytes();
+        assert!(first > 10 * page, "first={first}");
+        assert_eq!(s.take_flushed_bytes(), 0, "taking resets the counter");
+        s.commit(2).unwrap();
+        assert_eq!(
+            s.take_flushed_bytes(),
+            page,
+            "nothing dirty: the header page"
+        );
+        s.add_child(root, b"one-more", file()).unwrap();
+        let pending = s.pending_write_bytes();
+        s.commit(3).unwrap();
+        let small = s.take_flushed_bytes();
+        assert!(small >= 2 * page, "small={small}");
+        assert!(small < first, "one change must cost less than the crawl");
+        assert!(
+            small >= pending,
+            "the commit writes at least what was pending"
+        );
+    }
+
+    #[test]
+    fn the_footprint_cap_refuses_adds_and_keeps_what_is_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut s, root) = store_with(dir.path(), 10);
+        let before = s.len();
+        s.set_max_footprint(Some(1));
+        assert_eq!(
+            s.add_child(root, b"already-full", file())
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::StorageFull
+        );
+        assert_eq!(s.len(), before);
+        let mut refused = 1;
+        for i in 0..2 * FOOTPRINT_CHECK_EVERY as usize {
+            match s.add_child(root, format!("g{i}").as_bytes(), file()) {
+                Ok(_) => {}
+                Err(e) => {
+                    assert_eq!(e.kind(), io::ErrorKind::StorageFull);
+                    refused += 1;
+                }
+            }
+        }
+        assert!(refused > 0);
+        assert_eq!(s.refused_adds(), refused);
+        assert!(s.len() >= before, "nothing already stored was dropped");
+        assert!(s.len() < before + 2 * FOOTPRINT_CHECK_EVERY as usize);
+        s.set_max_footprint(None);
+        assert!(s.add_child(root, b"allowed-again", file()).is_ok());
+    }
+
+    #[test]
+    fn the_footprint_grows_with_the_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let (small, _) = store_with(dir.path(), 10);
+        let dir2 = tempfile::tempdir().unwrap();
+        let (big, _) = store_with(dir2.path(), 1000);
+        assert!(big.footprint_bytes() > small.footprint_bytes());
+        assert!(big.footprint_bytes() >= 1000 * SLOT_BYTES);
+    }
+}
+
+/// Test-only read of the index's own state file (store.rs is the sanctioned opener).
+#[cfg(test)]
+fn read_state_file(path: &std::path::Path) -> Vec<u8> {
+    std::fs::read(path).unwrap()
+}
+
+#[cfg(test)]
+mod p1_tests;

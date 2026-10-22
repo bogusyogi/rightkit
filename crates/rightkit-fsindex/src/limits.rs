@@ -6,7 +6,7 @@
 // Some accessors are only used by the tests. Off macOS, lib.rs already allows dead code here.
 #![cfg_attr(target_os = "macos", allow(dead_code))]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -19,6 +19,14 @@ pub const RESCAN_COOLDOWN_BASE: Duration = Duration::from_secs(30);
 pub const RESCAN_COOLDOWN_MAX: Duration = Duration::from_secs(600);
 /// A rescan this long after the previous one starts again from the base cooldown.
 pub const RESCAN_QUIET_RESET: Duration = Duration::from_secs(30 * 60);
+
+/// The rolling window `WriteBudget` accounts over.
+pub const WRITE_WINDOW: Duration = Duration::from_secs(3600);
+/// A periodic commit that the write budget holds back is forced through once this long has
+/// passed since the last commit, so a burst of changes never stays uncommitted indefinitely.
+pub const COMMIT_DEFER_MAX: Duration = Duration::from_secs(600);
+/// Oversized rebuilds cannot wait longer than two hours from their first request.
+pub const RESCAN_WRITE_DEFER_MAX: Duration = Duration::from_secs(2 * 3600);
 
 /// Subtree re-lists allowed in a burst across all folders.
 pub const RELIST_BUDGET_BURST: u32 = 8;
@@ -125,6 +133,7 @@ pub struct RescanGovernor {
     next_allowed: Option<Instant>,
     last_finish: Option<Instant>,
     dirty: bool,
+    requested_at: Option<Instant>,
     coalesced: u64,
     runs: u64,
 }
@@ -140,9 +149,22 @@ impl RescanGovernor {
             next_allowed: None,
             last_finish: None,
             dirty: false,
+            requested_at: None,
             coalesced: 0,
             runs: 0,
         }
+    }
+
+    /// A rescan is wanted and its cooldown has passed. Unlike `try_begin` it changes nothing,
+    /// so the caller can still hold the rescan back (`defer_until`) without losing the request.
+    pub fn can_begin(&self, now: Instant) -> bool {
+        self.dirty && !self.next_allowed.is_some_and(|t| now < t)
+    }
+
+    /// Holds the wanted rescan back until `t` (never earlier than the cooldown already set).
+    /// The request stays pending; no run is counted and the cooldown does not grow.
+    pub fn defer_until(&mut self, t: Instant) {
+        self.next_allowed = Some(self.next_allowed.map_or(t, |c| c.max(t)));
     }
 
     pub fn with_defaults() -> RescanGovernor {
@@ -154,11 +176,20 @@ impl RescanGovernor {
     }
 
     /// A drop event arrived. While a rescan is already pending this only counts it.
+    pub fn requested_at(&self) -> Option<Instant> {
+        self.requested_at
+    }
+
     pub fn request(&mut self) {
+        self.request_at(Instant::now());
+    }
+
+    pub fn request_at(&mut self, now: Instant) {
         if self.dirty {
             self.coalesced += 1;
         } else {
             self.dirty = true;
+            self.requested_at = Some(now);
         }
     }
 
@@ -188,6 +219,8 @@ impl RescanGovernor {
         self.last_finish = Some(now);
         if !ok {
             self.dirty = true;
+        } else {
+            self.requested_at = None;
         }
     }
 
@@ -218,6 +251,152 @@ impl RescanGovernor {
     /// Cooldown applied after the last rescan, in milliseconds (0 before any).
     pub fn applied_ms(&self) -> u64 {
         self.applied.as_millis() as u64
+    }
+}
+
+// ---------------------------------------------------------------- disk write budget
+
+/// Rolling accounting of the bytes the index writes to its state files, with an optional cap
+/// per window (one hour). Every time-dependent method takes `now`, so tests inject a clock.
+/// With no cap it only counts.
+pub struct WriteBudget {
+    max: Option<u64>,
+    window: Duration,
+    /// `(time, bytes)`, oldest first. Records less than a second apart are merged.
+    log: VecDeque<(Instant, u64)>,
+    in_window: u64,
+    total: u64,
+}
+
+impl WriteBudget {
+    /// A budget of `max_per_hour` bytes per `WRITE_WINDOW`. `None` or zero: count only.
+    pub fn new(max_per_hour: Option<u64>) -> WriteBudget {
+        WriteBudget::with_window(max_per_hour, WRITE_WINDOW)
+    }
+
+    pub fn with_window(max: Option<u64>, window: Duration) -> WriteBudget {
+        WriteBudget {
+            max: max.filter(|&m| m > 0),
+            window,
+            log: VecDeque::new(),
+            in_window: 0,
+            total: 0,
+        }
+    }
+
+    fn prune(&mut self, now: Instant) {
+        while let Some(&(t, b)) = self.log.front() {
+            if now.saturating_duration_since(t) < self.window {
+                break;
+            }
+            self.in_window = self.in_window.saturating_sub(b);
+            self.log.pop_front();
+        }
+    }
+
+    /// Whether a cap is set.
+    pub fn is_capped(&self) -> bool {
+        self.max.is_some()
+    }
+
+    /// The cap per window, if any.
+    pub fn max_per_window(&self) -> Option<u64> {
+        self.max
+    }
+
+    /// Bytes written since the budget was created, whatever the window.
+    pub fn total_written(&self) -> u64 {
+        self.total
+    }
+
+    /// Adds `bytes` written at `now`.
+    pub fn record(&mut self, now: Instant, bytes: u64) {
+        if bytes == 0 {
+            return;
+        }
+        self.prune(now);
+        self.in_window = self.in_window.saturating_add(bytes);
+        self.total = self.total.saturating_add(bytes);
+        if let Some(last) = self.log.back_mut() {
+            if now.saturating_duration_since(last.0) < Duration::from_secs(1) {
+                last.1 = last.1.saturating_add(bytes);
+                return;
+            }
+        }
+        self.log.push_back((now, bytes));
+    }
+
+    /// Bytes written in the window ending at `now`.
+    pub fn bytes_in_window(&mut self, now: Instant) -> u64 {
+        self.prune(now);
+        self.in_window
+    }
+
+    /// Bytes still available in the window; `None` without a cap.
+    pub fn headroom(&mut self, now: Instant) -> Option<u64> {
+        let used = self.bytes_in_window(now);
+        self.max.map(|m| m.saturating_sub(used))
+    }
+
+    /// Whether writing `bytes` more now would pass the cap. Always false without a cap.
+    pub fn would_exceed(&mut self, now: Instant, bytes: u64) -> bool {
+        let used = self.bytes_in_window(now);
+        self.max.is_some_and(|m| used.saturating_add(bytes) > m)
+    }
+
+    /// The earliest time at which `bytes` fit under the cap, as old records age out of the
+    /// window; `now` when they fit already (and always without a cap). A request larger than
+    /// the whole cap waits until the window is empty and is then allowed: it could never fit,
+    /// and refusing it forever would starve the work.
+    pub fn fits_at(&mut self, now: Instant, bytes: u64) -> Instant {
+        let Some(max) = self.max else {
+            return now;
+        };
+        self.prune(now);
+        let need = bytes.min(max);
+        let mut used = self.in_window;
+        if used.saturating_add(need) <= max {
+            return now;
+        }
+        for &(t, b) in &self.log {
+            used = used.saturating_sub(b);
+            if used.saturating_add(need) <= max {
+                return t + self.window;
+            }
+        }
+        now
+    }
+
+    /// Oversized rebuilds run once usage falls to one quarter of the cap, or two hours
+    /// after the first request, whichever happens first. New writes never reset that deadline.
+    pub fn rescan_fits_at(&mut self, now: Instant, bytes: u64, requested: Instant) -> Instant {
+        let Some(max) = self.max.filter(|max| bytes > *max) else {
+            return self.fits_at(now, bytes);
+        };
+        self.prune(now);
+        let deadline = requested + RESCAN_WRITE_DEFER_MAX;
+        if now >= deadline || self.in_window <= max / 4 {
+            return now;
+        }
+        let mut used = self.in_window;
+        for &(at, bytes) in &self.log {
+            used = used.saturating_sub(bytes);
+            if used <= max / 4 {
+                return (at + self.window).min(deadline);
+            }
+        }
+        deadline
+    }
+
+    /// Whether a periodic commit of `pending` bytes should wait: it would pass the cap and
+    /// the last commit is less than `COMMIT_DEFER_MAX` ago.
+    pub fn defer_commit(
+        &mut self,
+        now: Instant,
+        pending: u64,
+        since_last_commit: Duration,
+    ) -> bool {
+        since_last_commit < COMMIT_DEFER_MAX && self.would_exceed(now, pending)
     }
 }
 
@@ -345,6 +524,27 @@ mod tests {
     }
 
     #[test]
+    fn oversized_rescans_use_quarter_cap_or_original_two_hour_deadline() {
+        let start = Instant::now();
+        let mut budget = WriteBudget::new(Some(100));
+        budget.record(start, 25);
+        assert_eq!(budget.rescan_fits_at(start, 101, start), start);
+        budget.record(start, 1);
+        assert!(budget.rescan_fits_at(start, 101, start) > start);
+        let mut governor = RescanGovernor::with_defaults();
+        governor.request_at(start);
+        for minute in (10..=120).step_by(10) {
+            let now = start + Duration::from_secs(minute * 60);
+            budget.record(now, 100);
+            governor.request_at(now);
+            assert_eq!(governor.requested_at(), Some(start));
+            let at = budget.rescan_fits_at(now, 101, governor.requested_at().unwrap());
+            assert!(at <= start + RESCAN_WRITE_DEFER_MAX);
+            assert_eq!(at <= now, minute == 120);
+        }
+    }
+
+    #[test]
     fn the_clamp_holds() {
         assert_eq!(clamp_crawl_threads(0), 1);
         assert_eq!(clamp_crawl_threads(1), 1);
@@ -444,6 +644,107 @@ mod tests {
         assert!(g.pending());
         assert!(!g.try_begin(t0 + s(1)));
         assert!(g.try_begin(t0 + s(30)));
+    }
+
+    #[test]
+    fn the_write_budget_rolls_over_an_injected_clock() {
+        let t0 = Instant::now();
+        let mut b = WriteBudget::new(Some(1000));
+        assert_eq!(b.headroom(t0), Some(1000));
+        b.record(t0, 400);
+        b.record(t0 + s(1800), 300);
+        assert_eq!(b.bytes_in_window(t0 + s(1800)), 700);
+        assert_eq!(b.headroom(t0 + s(1800)), Some(300));
+        assert!(!b.would_exceed(t0 + s(1800), 300));
+        assert!(b.would_exceed(t0 + s(1800), 301));
+        // The first record leaves the window an hour after it was written.
+        assert_eq!(b.bytes_in_window(t0 + s(3599)), 700);
+        assert_eq!(b.bytes_in_window(t0 + s(3600)), 300);
+        assert_eq!(b.bytes_in_window(t0 + s(5400)), 0);
+        assert_eq!(b.total_written(), 700, "the lifetime total is not windowed");
+    }
+
+    #[test]
+    fn writes_close_together_merge_and_still_expire() {
+        let t0 = Instant::now();
+        let mut b = WriteBudget::new(None);
+        for i in 0..1000u64 {
+            b.record(t0 + Duration::from_millis(i), 10);
+        }
+        assert_eq!(b.log.len(), 1, "one record per second at most");
+        assert_eq!(b.bytes_in_window(t0 + s(10)), 10_000);
+        assert_eq!(b.bytes_in_window(t0 + s(3601)), 0);
+    }
+
+    #[test]
+    fn without_a_cap_the_budget_only_counts() {
+        let t0 = Instant::now();
+        for cap in [None, Some(0)] {
+            let mut b = WriteBudget::new(cap);
+            b.record(t0, u64::MAX / 2);
+            assert!(!b.is_capped());
+            assert_eq!(b.headroom(t0), None);
+            assert!(!b.would_exceed(t0, u64::MAX));
+            assert_eq!(b.fits_at(t0, u64::MAX), t0);
+            assert!(!b.defer_commit(t0, u64::MAX, Duration::ZERO));
+        }
+    }
+
+    #[test]
+    fn a_rescan_that_does_not_fit_waits_for_the_window_to_free_it() {
+        let t0 = Instant::now();
+        let mut b = WriteBudget::new(Some(1000));
+        b.record(t0, 600);
+        b.record(t0 + s(1000), 300);
+        // 600 bytes fit once the first 600 leave: an hour after t0.
+        assert_eq!(b.fits_at(t0 + s(1000), 600), t0 + s(3600));
+        // 100 bytes fit now.
+        assert_eq!(b.fits_at(t0 + s(1000), 100), t0 + s(1000));
+        // 800 needs both records gone: an hour after the second.
+        assert_eq!(b.fits_at(t0 + s(1000), 800), t0 + s(4600));
+        // More than the whole cap runs once the window is empty, not never.
+        assert_eq!(b.fits_at(t0 + s(1000), 5000), t0 + s(4600));
+        assert_eq!(b.fits_at(t0 + s(4600), 5000), t0 + s(4600));
+    }
+
+    #[test]
+    fn a_deferred_rescan_stays_pending_and_keeps_its_cooldown() {
+        let t0 = Instant::now();
+        let mut g = RescanGovernor::with_defaults();
+        g.request();
+        assert!(g.can_begin(t0));
+        g.defer_until(t0 + s(100));
+        assert!(g.pending(), "the request is not lost");
+        assert!(!g.can_begin(t0 + s(99)));
+        assert!(!g.try_begin(t0 + s(99)));
+        assert_eq!(g.next_due(), Some(t0 + s(100)));
+        assert!(g.can_begin(t0 + s(100)));
+        assert!(g.try_begin(t0 + s(100)));
+        assert_eq!(g.runs(), 1, "deferral is not a run");
+        g.finish(t0 + s(100), true);
+        assert_eq!(
+            g.applied_ms(),
+            30_000,
+            "the cooldown did not grow while waiting"
+        );
+        // A later cooldown is never shortened by an earlier deferral.
+        g.request();
+        g.defer_until(t0 + s(110));
+        assert_eq!(g.next_due(), Some(t0 + s(130)));
+    }
+
+    #[test]
+    fn a_commit_that_would_pass_the_cap_waits_but_never_past_the_ceiling() {
+        let t0 = Instant::now();
+        let mut b = WriteBudget::new(Some(1000));
+        b.record(t0, 900);
+        assert!(!b.defer_commit(t0, 100, s(30)), "fits: commit now");
+        assert!(b.defer_commit(t0, 101, s(30)), "over: coalesce");
+        assert!(b.defer_commit(t0, 101, COMMIT_DEFER_MAX - s(1)));
+        assert!(
+            !b.defer_commit(t0, 101, COMMIT_DEFER_MAX),
+            "the ceiling forces the commit through"
+        );
     }
 
     #[test]

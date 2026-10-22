@@ -71,6 +71,16 @@ what remains and gives no signal for the gap; `Dropped` and `RootChanged` are th
 re-crawl. Events are delivered over an unbounded channel. A consumer that stops draining it grows
 its memory.
 
+## Write budget and footprint cap (0.5.0)
+
+`Config::write_budget = Some(WriteBudgetConfig::new(max_bytes_per_hour).with_max_footprint(bytes))` bounds what the index writes to `state_dir` and how large it may grow; `None` (default) enforces nothing.
+
+* `Index::write_budget_status() -> WriteBudgetStatus` reports `bytes_last_hour` (rolling), `headroom_bytes`, `pending_write_bytes`, `footprint_bytes` and the deferral counters. `Index::would_exceed_write_budget(bytes) -> bool` and `WriteBudgetStatus::would_exceed(bytes)` let the caller hold back its own work. Writes are counted even when no budget is set.
+* Counted bytes are the dirty pages each commit writes (tracked per column and name segment) plus what a rebuild writes. This is an estimate of disk writes, not a kernel measurement.
+* With a budget set, a full rescan that would not fit (it rewrites about `footprint_bytes`) waits for headroom: `Status::rescan_deferred` carries the typed reason and one `ChangeBatch` announces it. Periodic commits that would pass the cap are coalesced (never more than ten minutes apart); `snapshot()`, `shrink()` and drop always commit. Compaction waits for the same headroom.
+* Above the footprint cap, new entries are refused and `Status::footprint_capped` is set; nothing stored is removed. The store is re-measured every 256 adds.
+* Steady-state persistence is already incremental (in-place column writes, only dirty pages flushed). The whole-store write is the full rescan or compaction, which the budget gates; the rescan still rebuilds a new store rather than diffing into the live one.
+
 ## Change handling, excludes, and rate limits (0.2.0)
 
 * A folder is re-listed at most once per `Config::relist_min_interval` (default 5 s). While it keeps changing the interval doubles, up to `relist_max_interval` (60 s), and it returns to the floor once it is quiet. Changes inside the window are deferred to its end, not dropped. `status()` reports `relists_total`, `relist_rate_per_s` (last minute), and `backoff_folders`. Set the floor to zero to disable.
@@ -148,10 +158,10 @@ memory-mapped fixed-width column files under `Config::state_dir/index/` (anonymo
 interned in mapped segments with an on-disk chained hash. Resident memory is only the pages a query touches, the FSEvents working
 set, the hard-link and clone-group tables (proportional to hard-linked and cloned files, not to the disk), and query scratch.
 Updates are in-place column writes plus slot appends; freed slots are reused and the worker rebuilds the store (`compaction`,
-depth-first, drops garbage names) when more than a quarter of the slots are free.
+depth-first, drops garbage names) when more than a quarter of slots are free or unused capacity exceeds 64 MiB & 20%. Each commit's dirty-page bytes feed the write budget above.
 
 Crash safety: `header.bin` carries a `dirty` flag and a generation. The flag is made durable (msync) before the first column
-write after a commit; a commit flushes every column, then writes the header clean with the next generation (every 30 s while
+write after a commit; a commit flushes dirty columns, then writes the header clean with the next generation (every 30 s while
 changing, and on drop). A dirty header at open means a torn update: the store is discarded and re-crawled. A crawl or compaction builds
 `index.new` and swaps it in; an interrupted swap is recovered on open.
 
@@ -179,3 +189,15 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required hosts: macOS only (rightkit-fsindex has no Windows backend (crates/rightkit-fsindex/README.md:25, :159 'no Windows backend'); the public APIs are macOS-only.).
 - Status exposure: `Index::status()` in `src/index.rs`; exposes resident memory, idle CPU.
 - Measured: not yet measured.
+
+Oversized rescans and automatic compactions (estimated bytes above the entire hourly cap)
+run once trailing-hour writes are at most one quarter of that cap, or two hours after
+the first request, whichever comes first. Repeated requests do not reset this deadline.
+Subtree rescans check replacement headroom before pruning. A full crawl cut short by the
+footprint cap never replaces the old store; `RescanDeferral::FootprintCap` reports the hold.
+
+## Storage (0.5.0)
+
+Clones use device-qualified keys with separate clone-ID/file-ID namespaces; singletons allocate no multi-member group. Opening an older store preserves its legacy rollup algebra until compaction; `Index::storage_status().clone_rollups_need_rewrite` reports this. A rewrite recomputes rollups. New stores use RKFSIX03; older readers reject them and rebuild.
+
+Large columns grow with 12.5% headroom; rewrites start at live need plus 6.25%. Name segments grow to need. Compaction also considers unused capacity (64 MiB and 20%). Dirty-column commits skip clean files; identical clean cursors write nothing until the hourly header refresh. Changed event IDs persist when committed. `snapshot` forces a header commit. Byte counters count successful logical flush ranges in page units, not physical device writes.

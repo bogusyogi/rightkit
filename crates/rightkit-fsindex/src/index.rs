@@ -6,9 +6,10 @@ use crate::config::*;
 use crate::error::Error;
 use crate::error::Result;
 use crate::gate::{Decision, Rate, RelistGate};
-use crate::limits::{RelistBudget, RescanGovernor};
+use crate::limits::{RelistBudget, RescanGovernor, WriteBudget};
 use crate::query::Query;
-use crate::store::{now_secs, Store};
+use crate::store::{now_secs, SizeHint, Store};
+const COMPACT_MIN_UNUSED: u64 = 64 << 20;
 use std::borrow::Cow;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::ffi::OsString;
@@ -120,6 +121,73 @@ pub struct ChangeBatch {
     pub rescanned: bool,
     /// Batches this subscriber missed because its queue was full; re-read what is shown.
     pub missed_batches: u32,
+    /// Set on the batch sent when a wanted full rescan starts waiting for write budget (see
+    /// `Config::write_budget`). The index stays live meanwhile; `Status::rescan_deferred`
+    /// holds the reason until the rescan runs.
+    pub rescan_deferred: Option<RescanDeferral>,
+}
+
+/// Why a wanted full rescan has not run yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RescanDeferral {
+    /// Replacements cannot fit without discarding existing entries; retry after freeing space.
+    /// `needed_bytes` is a conservative replacement estimate, or cap + 1 (a lower bound)
+    /// for a full crawl interrupted by the cap.
+    FootprintCap {
+        needed_bytes: u64,
+        headroom_bytes: u64,
+    },
+    /// The rescan rewrites about `needed_bytes` (the store's footprint), more than the hourly
+    /// write budget has left (`headroom_bytes`). It runs in `retry_in` at the latest, when the
+    /// oldest writes have left the rolling hour.
+    WriteBudget {
+        needed_bytes: u64,
+        headroom_bytes: u64,
+        retry_in: Duration,
+    },
+}
+
+/// What the index has written to its state files and how large it is. See
+/// `Index::write_budget_status`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WriteBudgetStatus {
+    /// `Config::write_budget` cap per rolling hour; `None` when not set.
+    pub max_bytes_per_hour: Option<u64>,
+    /// Bytes written in the trailing hour (commits' dirty pages and rebuilds). Counted even
+    /// without a cap.
+    pub bytes_last_hour: u64,
+    /// Bytes written since open.
+    pub bytes_total: u64,
+    /// `max_bytes_per_hour - bytes_last_hour`; `None` without a cap.
+    pub headroom_bytes: Option<u64>,
+    /// Bytes the next commit will write: pages changed since the last one.
+    pub pending_write_bytes: u64,
+    /// Bytes the store occupies on disk: slots, folders, names and header, as used (a full
+    /// rescan or compaction rewrites about this much).
+    pub footprint_bytes: u64,
+    /// `Config::write_budget` footprint cap; `None` when not set.
+    pub max_footprint_bytes: Option<u64>,
+    /// The footprint is above its cap: new entries are refused until it falls below.
+    pub footprint_capped: bool,
+    /// Entries not added because of the footprint cap, counted by the current store (a
+    /// rebuild starts the count again).
+    pub refused_adds: u64,
+    /// Times a periodic commit was held back by the budget, since open.
+    pub commits_deferred: u64,
+    /// Times a wanted full rescan started waiting for budget, since open.
+    pub rescans_deferred: u64,
+    /// The full rescan that is waiting for budget now, if any.
+    pub rescan_deferred: Option<RescanDeferral>,
+}
+
+impl WriteBudgetStatus {
+    /// Whether writing `bytes` more now would pass the hourly cap (always false without one).
+    /// This is a reading as of the call; ask `Index::write_budget_status` again later.
+    pub fn would_exceed(&self, bytes: u64) -> bool {
+        self.max_bytes_per_hour
+            .is_some_and(|m| self.bytes_last_hour.saturating_add(bytes) > m)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -176,6 +244,35 @@ pub struct Status {
     /// Process CPU percent since the previous `status()` call (since open, for the first call).
     /// Process-wide: it includes other work in the same process.
     pub cpu_percent: f64,
+    /// A wanted full rescan is waiting for write budget (`Config::write_budget`), with the
+    /// reason. `None` while nothing is held back.
+    pub rescan_deferred: Option<RescanDeferral>,
+    /// The store's footprint is above `WriteBudgetConfig::max_footprint_bytes`: new entries are
+    /// refused (the index keeps what it has and stays live for it).
+    pub footprint_capped: bool,
+}
+
+/// Store capacity & clone-key migration diagnostics.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
+pub struct StorageStatus {
+    pub capacity_bytes: u64,
+    pub live_bytes: u64,
+    pub unused_bytes: u64,
+    /// Slots in use plus dead slots (the high-water mark the columns hold).
+    pub slots: u64,
+    /// Dead slots awaiting reuse.
+    pub free_slots: u64,
+    /// Distinct names stored (including ones only dead entries use).
+    pub names: u64,
+    /// `capacity_bytes` per live entry (0 when empty).
+    pub capacity_bytes_per_entry: f64,
+    /// `live_bytes` per live entry (0 when empty).
+    pub live_bytes_per_entry: f64,
+    /// A rewrite would reclaim enough to be worth its writes (`Store::wants_compaction`).
+    pub wants_compaction: bool,
+    /// Legacy unique rollups retain 0.5.x key semantics until a rewrite.
+    pub clone_rollups_need_rewrite: bool,
 }
 
 /// Resident bytes, split by kind. See `Status::resident_bytes`.
@@ -225,6 +322,10 @@ struct Shared {
     last_event_id: AtomicU64,
     status: Mutex<Status>,
     fingerprint: u64,
+    /// Bytes written to the state files, rolling hour (see `Config::write_budget`).
+    budget: Mutex<WriteBudget>,
+    commits_deferred: AtomicU64,
+    rescans_deferred: AtomicU64,
     #[cfg(feature = "content")]
     content: Mutex<crate::content::ContentIndex>,
 }
@@ -388,6 +489,23 @@ fn canon(p: &Path) -> PathBuf {
 
 // ------------------------------------------------------------------ crawl into store
 
+/// Bound all replacement allocations before pruning; the worker holds the store write lock.
+fn replacement_deferral(store: &Store, ls: &[Listing]) -> Option<RescanDeferral> {
+    let headroom_bytes = store.footprint_headroom()?;
+    let entries = ls
+        .iter()
+        .fold(0usize, |n, l| n.saturating_add(l.ents.len()));
+    let name_bytes = ls
+        .iter()
+        .flat_map(|l| &l.ents)
+        .fold(0u64, |n, e| n.saturating_add(u64::from(e.name_len)));
+    let needed_bytes = store.replacement_growth(entries, name_bytes);
+    (needed_bytes > headroom_bytes).then_some(RescanDeferral::FootprintCap {
+        needed_bytes,
+        headroom_bytes,
+    })
+}
+
 fn apply_listings(store: &mut Store, parent: u32, ls: &[Listing]) -> std::io::Result<()> {
     if ls.is_empty() {
         return Ok(());
@@ -399,7 +517,12 @@ fn apply_listings(store: &mut Store, parent: u32, ls: &[Listing]) -> std::io::Re
     while let Some((li, slot)) = stack.pop() {
         let l = &ls[li];
         for e in &l.ents {
-            let s = store.add_child(slot, l.name(e), e.data)?;
+            let s = match store.add_child(slot, l.name(e), e.data) {
+                Ok(s) => s,
+                // Footprint cap: leave this entry (and its subtree) out, keep going.
+                Err(err) if err.kind() == std::io::ErrorKind::StorageFull => continue,
+                Err(err) => return Err(err),
+            };
             if e.child != NONE {
                 let ci = e.child as usize;
                 if ls.get(ci).is_some_and(|c| c.error.is_some()) {
@@ -422,12 +545,14 @@ struct Pending {
     dirty: Vec<u32>,
     dirty_set: HashSet<u32>,
     rescanned: bool,
+    /// A full rescan just started waiting for write budget; the next batch says so.
+    deferred: Option<RescanDeferral>,
     first_at: Option<Instant>,
 }
 
 impl Pending {
     fn is_empty(&self) -> bool {
-        self.total == 0 && !self.rescanned && self.dirty.is_empty()
+        self.total == 0 && !self.rescanned && self.dirty.is_empty() && self.deferred.is_none()
     }
     fn touch(&mut self) {
         self.first_at.get_or_insert_with(Instant::now);
@@ -635,6 +760,8 @@ impl Index {
         {
             store.log_changes = cfg.content.enabled;
         }
+        store.set_max_footprint(cfg.write_budget.and_then(|b| b.max_footprint_bytes));
+        let mut budget = WriteBudget::new(cfg.write_budget.map(|b| b.max_bytes_per_hour));
 
         let (tx, rx) = channel();
         let start_id = backend.current_event_id();
@@ -662,6 +789,7 @@ impl Index {
             }
             store.commit(start_id)?;
         }
+        budget.record(Instant::now(), store.take_flushed_bytes());
         status.crawl_time = t0.elapsed();
         for r in &roots {
             status.roots.push(root_status(&*backend, &store, r));
@@ -689,6 +817,9 @@ impl Index {
             last_event_id: AtomicU64::new(resumed.unwrap_or(start_id)),
             status: Mutex::new(status),
             fingerprint: fp,
+            budget: Mutex::new(budget),
+            commits_deferred: AtomicU64::new(0),
+            rescans_deferred: AtomicU64::new(0),
             #[cfg(feature = "content")]
             content,
         });
@@ -701,6 +832,7 @@ impl Index {
             pending: Pending::default(),
             last_commit: Instant::now(),
             last_compact: Instant::now(),
+            compaction_requested: None,
             last_trim: Instant::now(),
             rescans: RescanGovernor::new(
                 shared.cfg.rescan_cooldown,
@@ -719,6 +851,32 @@ impl Index {
             worker: Some(worker),
             watcher,
         })
+    }
+
+    /// Capacity, reclaimable bytes & legacy clone-rollup migration state of the store.
+    pub fn storage_status(&self) -> StorageStatus {
+        let store = rd(&self.shared);
+        let live = store.len() as f64;
+        StorageStatus {
+            capacity_bytes: store.capacity_bytes(),
+            live_bytes: store.live_bytes(),
+            unused_bytes: store.unused_bytes(),
+            slots: store.slots() as u64,
+            free_slots: store.free_slots() as u64,
+            names: store.names.len() as u64,
+            capacity_bytes_per_entry: if store.is_empty() {
+                0.0
+            } else {
+                store.capacity_bytes() as f64 / live
+            },
+            live_bytes_per_entry: if store.is_empty() {
+                0.0
+            } else {
+                store.live_bytes() as f64 / live
+            },
+            wants_compaction: store.wants_compaction(COMPACT_MIN_UNUSED),
+            clone_rollups_need_rewrite: store.clone_rollups_need_rewrite(),
+        }
     }
 
     pub fn status(&self) -> Status {
@@ -763,6 +921,12 @@ impl Index {
             heap: (store.heap_bytes() + gate_heap) as u64,
         };
         st.entries = store.len();
+        st.footprint_capped = self
+            .shared
+            .cfg
+            .write_budget
+            .and_then(|b| b.max_footprint_bytes)
+            .is_some_and(|cap| store.footprint_bytes() > cap);
         st.resident_per_entry = if st.entries == 0 {
             0.0
         } else {
@@ -919,8 +1083,72 @@ impl Index {
     /// Write the snapshot now (needs `Config::state_dir`).
     pub fn snapshot(&self) -> Result<()> {
         let mut store = wr(&self.shared);
-        store.commit(self.shared.last_event_id.load(Ordering::Relaxed))?;
+        let result = store.commit_forced(self.shared.last_event_id.load(Ordering::Relaxed));
+        self.shared.drain_writes(&mut store);
+        result?;
         Ok(())
+    }
+
+    /// What the index has written to its state files in the trailing hour, what is left of
+    /// `Config::write_budget`, and the store's size. Writes are counted even when no budget
+    /// is set. Cheap: take the numbers when logging or before starting work of your own that
+    /// writes to the same disk.
+    pub fn write_budget_status(&self) -> WriteBudgetStatus {
+        let now = Instant::now();
+        let (max, last_hour, total, headroom) = {
+            let mut b = self.shared.budget.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                b.max_per_window(),
+                b.bytes_in_window(now),
+                b.total_written(),
+                b.headroom(now),
+            )
+        };
+        let (footprint, pending, refused) = {
+            let store = rd(&self.shared);
+            (
+                store.footprint_bytes(),
+                store.pending_commit_bytes(self.shared.last_event_id.load(Ordering::Relaxed)),
+                store.refused_adds(),
+            )
+        };
+        let max_footprint = self
+            .shared
+            .cfg
+            .write_budget
+            .and_then(|b| b.max_footprint_bytes);
+        let deferred = self
+            .shared
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .rescan_deferred;
+        WriteBudgetStatus {
+            max_bytes_per_hour: max,
+            bytes_last_hour: last_hour,
+            bytes_total: total,
+            headroom_bytes: headroom,
+            pending_write_bytes: pending,
+            footprint_bytes: footprint,
+            max_footprint_bytes: max_footprint,
+            footprint_capped: max_footprint.is_some_and(|cap| footprint > cap),
+            refused_adds: refused,
+            commits_deferred: self.shared.commits_deferred.load(Ordering::Relaxed),
+            rescans_deferred: self.shared.rescans_deferred.load(Ordering::Relaxed),
+            rescan_deferred: deferred,
+        }
+    }
+
+    /// Whether `bytes` more written now would pass the hourly cap of `Config::write_budget`
+    /// (always false without one). Use it to hold back work of your own, such as a full
+    /// rescan of the whole disk, that the index would write out in full.
+    pub fn would_exceed_write_budget(&self, bytes: u64) -> bool {
+        let now = Instant::now();
+        self.shared
+            .budget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .would_exceed(now, bytes)
     }
 
     /// Rebuild the column store now (drops freed slots and unreferenced names). Test hook.
@@ -945,6 +1173,7 @@ impl Index {
             let mut st = wr(&self.shared);
             if st.is_dirty() {
                 let _ = st.commit(self.shared.last_event_id.load(Ordering::Relaxed));
+                self.shared.drain_writes(&mut st);
             }
             st.trim();
         }
@@ -1003,14 +1232,23 @@ fn fresh_store(
     pkg: Vec<Vec<u8>>,
     fp: u64,
 ) -> std::io::Result<Store> {
+    fresh_store_sized(state_dir, sub, pkg, fp, SizeHint::default())
+}
+fn fresh_store_sized(
+    state_dir: Option<&Path>,
+    sub: &str,
+    pkg: Vec<Vec<u8>>,
+    fp: u64,
+    hint: SizeHint,
+) -> std::io::Result<Store> {
     match state_dir {
         Some(sd) => {
             let d = sd.join(sub);
             let _ = std::fs::remove_dir_all(&d);
             std::fs::create_dir_all(&d)?;
-            Store::create(Some(&d), pkg, fp)
+            Store::create_sized(Some(&d), pkg, fp, hint)
         }
-        None => Store::create(None, pkg, fp),
+        None => Store::create_sized(None, pkg, fp, hint),
     }
 }
 
@@ -1042,6 +1280,8 @@ fn crawl_into(
                         slots.insert(e.child, s);
                     }
                 }
+                // Footprint cap: leave this entry (and its subtree) out, keep going.
+                Err(e) if e.kind() == std::io::ErrorKind::StorageFull => {}
                 Err(e) => {
                     err = Some(e);
                     return;
@@ -1169,6 +1409,7 @@ struct Worker {
     pending: Pending,
     last_commit: Instant,
     last_compact: Instant,
+    compaction_requested: Option<Instant>,
     last_trim: Instant,
     /// Coalesces dropped-event full rescans behind a cooldown with exponential backoff.
     rescans: RescanGovernor,
@@ -1239,7 +1480,9 @@ impl Worker {
                 wr(&self.shared).trim();
             }
             for a in compacts {
-                let _ = self.shared.compact();
+                if self.compact_store() {
+                    self.compaction_requested = None;
+                }
                 let _ = a.send(());
             }
             if !acks.is_empty() {
@@ -1319,6 +1562,9 @@ impl Worker {
     /// Runs the coalesced full rescan if one is wanted and its cooldown has passed. Returns
     /// whether it ran. Subtree re-lists waiting for budget are covered by it and cleared.
     fn run_full_rescan_if_ready(&mut self, now: Instant) -> bool {
+        if !self.rescans.can_begin(now) || self.rescan_waits_for_budget(now) {
+            return false;
+        }
         if !self.rescans.try_begin(now) {
             return false;
         }
@@ -1329,6 +1575,48 @@ impl Worker {
             self.relists.clear_pending();
         }
         true
+    }
+
+    /// With a write budget set, holds a wanted full rescan back until the rolling hour has room
+    /// for the store's footprint (what a rebuild writes). The request stays pending, the
+    /// cooldown is untouched, and the wait is reported through `Status::rescan_deferred` and
+    /// once through the change feed. Returns whether the rescan must wait.
+    fn rescan_waits_for_budget(&mut self, now: Instant) -> bool {
+        let sh = self.shared.clone();
+        // The store lock is never taken while the budget lock is held (commits take them in
+        // the other order).
+        let needed = rd(&sh).footprint_bytes();
+        let mut budget = sh.budget.lock().unwrap_or_else(|e| e.into_inner());
+        if !budget.is_capped() {
+            return false;
+        }
+        let at = budget.rescan_fits_at(now, needed, self.rescans.requested_at().unwrap_or(now));
+        let headroom = budget.headroom(now).unwrap_or(u64::MAX);
+        drop(budget);
+        if at <= now {
+            self.set_rescan_deferral(None);
+            return false;
+        }
+        self.rescans.defer_until(at);
+        self.set_rescan_deferral(Some(RescanDeferral::WriteBudget {
+            needed_bytes: needed,
+            headroom_bytes: headroom,
+            retry_in: at.saturating_duration_since(now),
+        }));
+        true
+    }
+
+    /// Publishes the deferral in `Status`; the first one of an episode also goes out as a batch.
+    fn set_rescan_deferral(&mut self, d: Option<RescanDeferral>) {
+        let prev = {
+            let mut st = self.shared.status.lock().unwrap_or_else(|e| e.into_inner());
+            std::mem::replace(&mut st.rescan_deferred, d)
+        };
+        if let (None, Some(r)) = (prev, d) {
+            self.shared.rescans_deferred.fetch_add(1, Ordering::Relaxed);
+            self.pending.deferred = Some(r);
+            self.pending.touch();
+        }
     }
 
     /// Re-lists the subtrees the global budget allows now; the rest stay pending.
@@ -1417,30 +1705,64 @@ impl Worker {
             || self.relists.pending() > 0
     }
 
+    fn compact_store(&mut self) -> bool {
+        let ok = self.shared.compact().is_ok();
+        if ok {
+            // Pending directory slots belong to the old generation.
+            self.pending.rescanned = true;
+            self.pending.changes.clear();
+            self.pending.dirty.clear();
+            self.pending.dirty_set.clear();
+            self.pending.touch();
+        }
+        ok
+    }
+
     fn maybe_commit(&mut self) {
         if self.last_commit.elapsed() < Duration::from_secs(30) {
             return;
         }
-        self.last_commit = Instant::now();
         let mut st = wr(&self.shared);
-        if st.is_dirty() {
+        let event_id = self.shared.last_event_id.load(Ordering::Relaxed);
+        if st.pending_commit_bytes(event_id) != 0 {
+            // Over the hourly write budget: coalesce into a later, larger commit. It is only
+            // held back, never dropped; ten minutes without a commit forces one through.
+            let pending = st.pending_commit_bytes(event_id);
+            let hold = self
+                .shared
+                .budget
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .defer_commit(Instant::now(), pending, self.last_commit.elapsed());
+            if hold {
+                self.shared.commits_deferred.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
             let _ = st.commit(self.shared.last_event_id.load(Ordering::Relaxed));
+            self.shared.drain_writes(&mut st);
         }
+        self.last_commit = Instant::now();
         st.trim();
     }
 
     fn after_apply(&mut self) {
         self.maybe_commit();
-        let (slots, free) = {
+        let (slots, free, excess) = {
             let st = rd(&self.shared);
-            (st.slots(), st.free_slots())
+            (
+                st.slots(),
+                st.free_slots(),
+                st.wants_compaction(COMPACT_MIN_UNUSED),
+            )
         };
-        if slots > 50_000
-            && free * 4 > slots
+        if ((slots > 50_000 && free * 4 > slots) || excess)
             && self.last_compact.elapsed() > Duration::from_secs(600)
+            && self.compaction_fits_budget()
         {
             self.last_compact = Instant::now();
-            let _ = self.shared.compact();
+            if self.compact_store() {
+                self.compaction_requested = None;
+            }
         }
         let (removed, touched) = wr(&self.shared).take_logs();
         #[cfg(feature = "content")]
@@ -1449,14 +1771,34 @@ impl Worker {
         let _ = (removed, touched);
     }
 
+    /// Compaction rewrites the store like a rescan does, so it waits for the same headroom.
+    /// It is retried on the next apply; nothing is lost by waiting.
+    fn compaction_fits_budget(&mut self) -> bool {
+        let sh = &self.shared;
+        let needed = rd(sh).footprint_bytes();
+        let mut budget = sh.budget.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        let requested = *self.compaction_requested.get_or_insert(now);
+        !budget.is_capped() || budget.rescan_fits_at(now, needed, requested) <= now
+    }
+
     /// Rebuilds the whole index. Returns false when the rebuild failed (it is then retried
     /// after the cooldown).
     fn full_rescan(&mut self) -> bool {
         let sh = self.shared.clone();
-        let Ok(fresh) = sh.build_fresh() else {
-            return false;
+        let fresh = match sh.build_fresh() {
+            Ok(fresh) => fresh,
+            Err(crate::Error::Io(e)) if e.kind() == std::io::ErrorKind::StorageFull => {
+                self.set_rescan_deferral(Some(RescanDeferral::FootprintCap {
+                    needed_bytes: sh.footprint_cap().unwrap_or(0).saturating_add(1),
+                    headroom_bytes: 0,
+                }));
+                return false;
+            }
+            Err(_) => return false,
         };
         sh.swap_store(fresh);
+        self.set_rescan_deferral(None);
         sh.status
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1493,6 +1835,12 @@ impl Worker {
         let ls = sh.collect_listings(path);
         let mut store = wr(&sh);
         if store.lookup(path) != Some(slot) {
+            return;
+        }
+        if let Some(reason) = replacement_deferral(&store, &ls) {
+            drop(store);
+            self.rescans.request();
+            self.set_rescan_deferral(Some(reason));
             return;
         }
         store.prune_children(slot, &HashSet::new());
@@ -1614,6 +1962,7 @@ impl Worker {
             rollups_truncated,
             rescanned: p.rescanned,
             missed_batches: 0,
+            rescan_deferred: p.deferred,
         };
         static SEQ: AtomicU64 = AtomicU64::new(1);
         batch.seq = SEQ.fetch_add(1, Ordering::Relaxed);
@@ -1720,6 +2069,17 @@ pub(crate) fn path_bytes(p: &Path) -> Vec<u8> {
 
 #[cfg(feature = "content")]
 impl Shared {
+    // Caller holds store write lock, also held by content readers before obtaining postings.
+    fn remap_content(&self, old: &Store, fresh: &Store) {
+        let mut content = self.content.lock().unwrap_or_else(|e| e.into_inner());
+        content.remap(|slot| {
+            if !old.is_live(slot) {
+                return None;
+            }
+            fresh.lookup(&old.path_of(slot))
+        });
+    }
+
     fn content_collect(&self, slots: &[u32]) -> Vec<(u32, PathBuf)> {
         let store = rd(self);
         let c = self.content.lock().unwrap_or_else(|e| e.into_inner());
@@ -1776,12 +2136,12 @@ impl Shared {
                 "content needle needs at least 3 bytes".into(),
             ));
         }
+        let store = rd(self);
         let cands = self
             .content
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .candidates(&n);
-        let store = rd(self);
         let mut hits = Vec::new();
         for s in cands {
             if !store.is_live(s) {
@@ -1807,10 +2167,29 @@ impl Shared {
 }
 
 impl Shared {
+    /// Adds the bytes `store` committed since the last call to the rolling write budget.
+    fn drain_writes(&self, store: &mut Store) {
+        let bytes = store.take_flushed_bytes();
+        self.record_writes(bytes);
+    }
+
+    fn record_writes(&self, bytes: u64) {
+        self.budget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(Instant::now(), bytes);
+    }
+
+    fn footprint_cap(&self) -> Option<u64> {
+        self.cfg.write_budget.and_then(|b| b.max_footprint_bytes)
+    }
+
     fn swap_store(&self, fresh: Store) {
         let mut g = wr(self);
         match &self.cfg.state_dir {
             Some(sd) if fresh.is_file_backed() => {
+                #[cfg(feature = "content")]
+                self.remap_content(&g, &fresh);
                 let old = std::mem::replace(&mut *g, fresh);
                 drop(old);
                 let cur = sd.join("index");
@@ -1819,7 +2198,11 @@ impl Shared {
                     g.relocate(&cur);
                 }
             }
-            _ => *g = fresh,
+            _ => {
+                #[cfg(feature = "content")]
+                self.remap_content(&g, &fresh);
+                *g = fresh;
+            }
         }
     }
 
@@ -1832,6 +2215,7 @@ impl Shared {
             pk,
             self.fingerprint,
         )?;
+        fresh.set_max_footprint(self.footprint_cap());
         for r in &self.roots {
             let _ = crawl_root(
                 &*self.backend,
@@ -1841,41 +2225,52 @@ impl Shared {
                 r,
             );
         }
+        // A capped crawl is incomplete. Never publish it over the existing tree.
+        if fresh.refused_adds() != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "rebuild exceeded the footprint cap; original store retained",
+            )
+            .into());
+        }
         fresh.log_changes = rd(self).log_changes;
         fresh.take_logs();
-        fresh.commit(start)?;
+        let result = fresh.commit(start);
+        self.drain_writes(&mut fresh);
+        result?;
         Ok(fresh)
     }
 
     /// Copy the live tree depth-first into a fresh store (contiguous slots, no garbage names), then swap.
     /// Only the worker thread writes, so the copy under the read lock is consistent.
     fn compact(&self) -> Result<()> {
-        let pk = rd(self).package_exts_clone();
-        let mut fresh = fresh_store(
+        #[cfg(feature = "content")]
+        {
+            let (removed, touched) = wr(self).take_logs();
+            self.content_apply(&removed, &touched);
+        }
+
+        let (pkg, hint) = {
+            let old = rd(self);
+            (old.package_exts_clone(), old.copy_hint())
+        };
+        let mut fresh = fresh_store_sized(
             self.cfg.state_dir.as_deref(),
             "index.new",
-            pk,
+            pkg,
             self.fingerprint,
+            hint,
         )?;
         {
             let old = rd(self);
-            for &r in &old.roots {
-                let nr = fresh.add_root(old.name_of(r), old.entry(r).d)?;
-                let mut stack = vec![(r, nr)];
-                while let Some((o, n)) = stack.pop() {
-                    for c in old.children(o).into_iter().rev() {
-                        let e = old.entry(c);
-                        let nc = fresh.add_child(n, old.name_of(c), e.d)?;
-                        if e.d.kind == KIND_DIR {
-                            stack.push((c, nc));
-                        }
-                    }
-                }
-            }
+            old.copy_into(&mut fresh)?;
             fresh.log_changes = old.log_changes;
         }
         fresh.take_logs();
-        fresh.commit(self.last_event_id.load(Ordering::Relaxed))?;
+        fresh.set_max_footprint(self.footprint_cap());
+        let result = fresh.commit(self.last_event_id.load(Ordering::Relaxed));
+        self.drain_writes(&mut fresh);
+        result?;
         self.swap_store(fresh);
         Ok(())
     }
@@ -1894,5 +2289,57 @@ impl Shared {
             .record(Instant::now(), v.len() as u64);
         v.sort_by_key(|l| l.id);
         v
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod cap_tests {
+    use super::*;
+
+    #[test]
+    fn capped_subtree_and_full_rebuild_preserve_existing_children() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        std::fs::write(root.join("keep"), b"keep").unwrap();
+        let mut cfg = Config::new(vec![root.clone()]);
+        cfg.watch = false;
+        cfg.include_build_output = true;
+        cfg.home_dirs = Some(Vec::new());
+        // Initial crawl may be capped; seed the old store explicitly to represent a
+        // previously complete index whose persisted footprint now exceeds its limit.
+        cfg.write_budget = Some(crate::WriteBudgetConfig::new(u64::MAX).with_max_footprint(1));
+        let index = Index::open(cfg).unwrap();
+        {
+            let mut store = wr(&index.shared);
+            store.set_max_footprint(None);
+            let parent = store.lookup(&pb(&root)).unwrap();
+            if store.lookup(&pb(&root.join("keep"))).is_none() {
+                store
+                    .add_child(parent, b"keep", EntryData::default())
+                    .unwrap();
+            }
+            store.set_max_footprint(Some(1));
+        }
+        let mut worker = Worker {
+            shared: index.shared.clone(),
+            max_seen: 0,
+            pending: Pending::default(),
+            last_commit: Instant::now(),
+            last_compact: Instant::now(),
+            compaction_requested: None,
+            last_trim: Instant::now(),
+            rescans: RescanGovernor::with_defaults(),
+            relists: RelistBudget::from_config(None, Instant::now()),
+            state_dir: None,
+        };
+        worker.rescan_subtree(&pb(&root));
+        assert!(rd(&index.shared).lookup(&pb(&root.join("keep"))).is_some());
+        assert!(matches!(
+            index.status().rescan_deferred,
+            Some(RescanDeferral::FootprintCap { .. })
+        ));
+        assert!(!worker.full_rescan());
+        assert!(rd(&index.shared).lookup(&pb(&root.join("keep"))).is_some());
+        assert_eq!(index.status().full_rescans, 0);
     }
 }

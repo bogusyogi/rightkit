@@ -29,8 +29,8 @@ mod store;
 pub use config::*;
 pub use error::{Error, Result};
 pub use index::{
-    Change, ChangeBatch, ChangeKind, EntryKind, Hit, Index, Item, RollupUpdate, RootStatus,
-    SearchOptions, SizeInfo, SortKey, Status,
+    Change, ChangeBatch, ChangeKind, EntryKind, Hit, Index, Item, RescanDeferral, RollupUpdate,
+    RootStatus, SearchOptions, SizeInfo, SortKey, Status, StorageStatus, WriteBudgetStatus,
 };
 pub use query::Query;
 
