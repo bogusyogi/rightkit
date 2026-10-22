@@ -1011,7 +1011,16 @@ fn inventory_reuses_inputs_only_while_size_and_mtime_hold() {
 fn inventory_never_keeps_a_file_modified_inside_the_racy_window() {
     let dir = inventory_repo("racy");
     let file = dir.join("fresh.txt");
-    let mtime = write_aged(&file, "aaaa\n", Duration::ZERO);
+    // A fixed mtime an hour ahead of the clock is inside the racy window however slow the
+    // host is; `now - 0` would age out whenever the first inventory ran over two seconds late.
+    fs::write(&file, "aaaa\n").unwrap();
+    let mtime = std::time::SystemTime::now() + Duration::from_secs(3600);
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
     let first = inventory_digest(&dir, "fresh.txt");
     fs::write(&file, "bbbb\n").unwrap();
     fs::OpenOptions::new()
