@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 16.
+Flagged mismatches: 14.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -31,7 +31,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | composition-model | Product-neutral evaluated composition model: layered video, stills, cursor sprites, backgrounds, clipping, shadows, motion blur, overlays and keyframed tracks, with one pure per-frame evaluation shared by preview and export |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 0.1.7 | ok | content-contracts | Versioned content-pipeline contracts for the Right Suite: content brief, delivery envelope, record session and event, demo plan and daemon API. JSON Schema validation, serde types, and major-version negotiation. |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.5 | 0.3.5 | **MISMATCH staged 0.3.5 != source 0.3.6** | crash-reporting | Privacy-first panic capture, redacted crash reports, native dumps and support bundles for Right Suite apps. |
-| `rightkit-credentials` | crates.io | 0.4.2 | 0.4.1 | 0.4.1 | **MISMATCH staged 0.4.1 != source 0.4.2** | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
+| `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 0.4.2 | ok | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | crypto-primitives | Neutral crypto primitives: SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens. |
 | `rightkit-daemon` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
 | `rightkit-db` | crates.io | 0.5.1 | 0.5.1 | 0.5.0 | **MISMATCH staged 0.5.0 != source 0.5.1** | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
@@ -57,7 +57,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-oauth` | crates.io | 0.10.0 | 0.10.0 | 0.10.0 | ok | oauth-sign-in | Shared OAuth 2.0 sign-in for Right Suite apps: loopback PKCE, RFC 8628 device flow, provider presets, encrypted daemon persistence, and stored, refreshing credentials. |
 | `rightkit-ocr` | crates.io | 0.2.3 | 0.2.3 | 0.2.3 | ok | ocr | Product-neutral OCR: Apple Vision / Windows.Media.Ocr native backends with per-line geometry, isolated worker, and verified two-stage ONNX fallback |
 | `rightkit-onnx` | crates.io | 0.2.7 | 0.2.6 | 0.2.7 | staged, not yet published | onnx-runtime | Product-neutral ONNX Runtime dynamic-library resolution, environment, execution-provider and session setup (single suite ort pin) |
-| `rightkit-overlay` | crates.io | 0.2.0 | 0.1.2 | 0.1.2 | **MISMATCH staged 0.1.2 != source 0.2.0** | desktop-overlay | Shared overlay state, hit testing, and placement policy for Right Suite apps |
+| `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | desktop-overlay | Shared overlay state, hit testing, and placement policy for Right Suite apps |
 | `rightkit-ownership` | crates.io | 0.3.1 | 0.3.1 | 0.3.1 | ok | ownership-scanner | RightKit ownership scanner, verdict and admission: the single Rust implementation the RustRight broker links. |
 | `rightkit-pdf` | crates.io | 0.3.3 | 0.3.3 | 0.3.3 | ok | pdf, pdf-engine | Product-neutral PDF engine: inspect, compose (source-text replace / add text / OCR correction), font subsetting, staged atomic save, plus optional page merge/select and text extraction |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | platform-rules | Versioned catalog of per-platform limits and rules with a stable rule-revision hash and a check of planned values against sourced rules. |
@@ -89,7 +89,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 
 | Package | Registry | Source | Published | Staged | Flag | CLI | Owns | What it is |
 |---|---|---|---|---|---|---|---|---|
-| `@rightkit/app-update` | npm | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
+| `@rightkit/app-update` | npm | 0.4.1 | 0.4.1 | 0.4.1 | ok |  | update-policy | Shared runtime update policy helper for Right Suite Tauri apps. |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 0.3.2 | ok | right-ax | agent-experience-gates | Suite-wide agent-experience (AX) + agent-plugins.org conformance layer: plugin scaffolding/validation and AXA-1 static/conformance/behavioral gates over one product's MCP/CLI surface. |
 | `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded |  | private |  |  | `ownership-write-hook-cli.mjs` adds secondary feedback for Claude `Write`/`Edit`/`MultiEdit` and shell (`Bash`) calls, and for Codex `apply_patch` and shell (`exec_command`) calls. Both adapters deny writes targeting ownership exception or platform trust records. `ownership-session-hook-cli.mjs` adds the current RightKit ownership index at session start. Hook feedback is fail-open for ambiguous edits; build admission remains authoritative. |
 | `@rightkit/ci` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok | right-git | github-workflows | Public-repo-only GitHub Actions workflow layer: templates, visibility gate, sync/drift/adopt/uninstall for right-git. |
@@ -100,7 +100,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/legal` | npm | 0.6.2 | 0.6.1 | 0.6.1 | **MISMATCH staged 0.6.1 != source 0.6.2** | legal-snapshot, generate-npm-license-appendix, rightkit-legal | legal-assent | Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps. |
 | `@rightkit/legal-ui` | npm | 0.4.1 | 0.4.1 | 0.4.1 | ok |  | legal-ui | The one first-run / re-acceptance legal gate screen for Right Suite desktop apps. |
 | `@rightkit/license` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok |  | licensing | Native licence invoke client & safe display views for Right Suite apps. |
-| `@rightkit/logs` | npm | 0.1.6 | 0.1.5 | 0.1.6 | staged, not yet published |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
+| `@rightkit/logs` | npm | 0.1.6 | 0.1.6 | 0.1.6 | ok |  | structured-logging | Local-only structured logging and diagnostics client for Right Suite apps. |
 | `@rightkit/media-ui` | npm | 0.3.4 | 0.3.4 | 0.3.4 | ok |  | media-ui | Brand-neutral media player and image viewer/editor for Right Suite apps. |
 | `@rightkit/onboarding` | npm | 0.6.3 | 0.6.3 | 0.6.3 | ok |  | onboarding-ui | First-run onboarding framework: ordered steps, progress, skip/resume, legal gate first, permissions, model download and licence/trial steps. |
 | `@rightkit/outdated` | npm | 0.2.0 | 0.2.0 | 0.2.0 | ok | right-update | dependency-updates | Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler). |
@@ -109,8 +109,8 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `@rightkit/qa` | npm | 0.6.0 | 0.5.2 | 0.5.2 | **MISMATCH staged 0.5.2 != source 0.6.0** | rightkit-qa-journeys | qa-evidence | Shared QA evidence, ownership, browser helpers, and release-backdoor guards for Right Suite apps. |
 | `@rightkit/qa-chrome` | npm | 0.1.10 | 0.1.10 | 0.1.10 | ok | rightkit-qa-chrome | browser-qa | Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses. |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 0.7.2 | ok |  | app-shell-ui | Brand-neutral React frame for Right Suite desktop apps: optional fused sidebar+titlebar layout with slots, command palette, shortcut registry/help, toasts, modals, context menus, ui kit, theme hooks. |
-| `@rightkit/release` | npm | 0.4.1 | 0.4.0 | 0.4.1 | staged, not yet published | right-release | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
-| `@rightkit/settings-ui` | npm | 0.7.0 | 0.6.1 | 0.7.0 | staged, not yet published |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
+| `@rightkit/release` | npm | 0.5.0 | 0.4.1 | 0.5.0 | staged, not yet published | right-release, rightkit-gate | release-tooling | Portable release CLI/SDK with fail-closed public GitHub Releases and private R2 + RightApps distribution. |
+| `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 0.7.0 | ok |  | settings-ui | Settings panel frame, search and standard sections (appearance, updates, license, legal, diagnostics, models, API keys, about) persisted through rightkit-app-settings. The panel shell and primitives (/core) need only React. |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded |  | private |  | sync-worker | Cloudflare Worker (D1 + R2) implementing the server side of rightkit-sync-http/1: opaque encrypted records, per-account auth, version preconditions, paged change feeds, rate limits, account erase and tombstone compaction. |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 0.3.0 | ok |  | tauri-host-adapters | Typed host adapters for shared Right Suite Tauri commands. |
 | `@rightkit/tauri-shell` | npm | 0.1.2 | 0.1.2 | 0.1.2 | ok |  | desktop-shell | Typed renderer bridge for the rightkit-tauri-shell Tauri crate: window controls, menu/tray events, deep links, autostart, rich clipboard, engine calls. |

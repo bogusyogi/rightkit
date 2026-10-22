@@ -8,6 +8,8 @@ import { gzipSync } from "node:zlib";
 import { crateSourceProblems, localAdmission, packagedManifestProblems } from "./local-admission.mjs";
 import { buildLocalScanRecord, verifyLocalScanRecord, verifyLocalScanReceipts, localResultProblems, SCAN_TOOL_PINS } from "./scan-receipt.mjs";
 import { LOCAL_SCAN_SCHEMA } from "./upload.mjs";
+import { requiredScanIds } from "../../packages/release/scan-digest.mjs";
+import { localTestPlan } from "../../packages/release/local-publish.mjs";
 
 const SOURCE = "a".repeat(40); const TREE = "c".repeat(40);
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
@@ -43,16 +45,19 @@ test("the packed crate must be this commit's source: every file equals a blob, a
 });
 
 // ---- scan records ----
-const ids = ["cargo-metadata", "cargo-deny", "cargo-audit", "actionlint", "yaml-parse"];
+const existsInSource = (p) => p === "crates/rightkit-a/src/lib.rs";
+const REQUIRED = requiredScanIds({ units: ["rightkit-a"], exists: existsInSource });
+const ids = [...REQUIRED, "rustfmt:2021"];
+const classOf = (id) => (/^(check|check-features|clippy|doc|generated-docs|test):/.test(id) ? "B" : "A");
 const tools = { "cargo-deny": `cargo-deny ${SCAN_TOOL_PINS["cargo-deny"]}`, "cargo-audit": `cargo-audit-audit ${SCAN_TOOL_PINS["cargo-audit"]}`, actionlint: SCAN_TOOL_PINS.actionlint };
 const LOCK = Buffer.from("# Cargo.lock\n"); const LOCK_SHA = sha256(LOCK);
 const scanResult = (mutate = () => {}) => {
-  const scans = [...ids.map((id) => ({ id, class: "A", command: id, status: "pass" })), { id: "clippy:rightkit-a", class: "B", command: "cargo clippy -p rightkit-a", status: "pass" }];
+  const scans = ids.map((id) => ({ id, class: classOf(id), command: id, status: "pass" }));
   const result = { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A", "B"], inputDigest: "f".repeat(64), deferred: [], scans }; mutate(result);
   return { result, planned: scans.map(({ id }) => ({ id })) };
 };
 const record = (mutate) => { const { result, planned } = scanResult(mutate); return buildLocalScanRecord({ result, planned, sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: tools, units: ["rightkit-a"], files: 7 }); };
-const verify = (rec, over = {}) => verifyLocalScanRecord(rec, { sourceSha: SOURCE, cargoLockSha256: LOCK_SHA, units: ["rightkit-a"], ...over });
+const verify = (rec, over = {}) => verifyLocalScanRecord(rec, { sourceSha: SOURCE, cargoLockSha256: LOCK_SHA, units: ["rightkit-a"], requiredIds: REQUIRED, ...over });
 
 test("a passed local scan record verifies; deferred, failed, missing, rescoped or re-bound records never do", () => {
   const good = record(); assert.equal(good.passed, true); assert.equal(good.schema, LOCAL_SCAN_SCHEMA); assert.equal(verify(good), true);
@@ -79,6 +84,19 @@ test("a passed local scan record verifies; deferred, failed, missing, rescoped o
   assert.throws(() => verify(null), /scans record/);
 });
 
+test("a record that quietly omits a required scan, with consistent plan and digests, is refused (the producer plan is never trusted)", () => {
+  for (const dropped of ["clippy:rightkit-a", "doc:rightkit-a", "cargo-package-list:rightkit-a", "check-features:rightkit-a:0", "license", "secret-scan", "toml-parse", "rustfmt:2021"]) {
+    const rec = record((r) => { r.scans.splice(r.scans.findIndex((s) => s.id === dropped), 1); });
+    assert.equal(rec.passed, true, "the producer's own plan agrees with the omission: " + dropped);
+    assert.throws(() => verify(rec), /incomplete|required scan|rustfmt/, dropped);
+  }
+  const failedRow = record((r) => { r.scans.find((s) => s.id === "clippy:rightkit-a").status = "fail"; r.ok = false; });
+  assert.equal(failedRow.passed, false);
+  assert.throws(() => verifyLocalScanRecord(record(), { sourceSha: SOURCE, cargoLockSha256: LOCK_SHA, units: ["rightkit-a"] }), /recomputed/, "a caller that did not recompute the required set is refused");
+  assert.throws(() => verify(record(), { requiredIds: [] }), /recomputed/);
+  assert.throws(() => verify(record(), { requiredIds: [...REQUIRED, "clippy:rightkit-extra"] }), /clippy:rightkit-extra is missing/);
+});
+
 test("verifyLocalScanReceipts binds every host's record to the candidate checkout's Cargo.lock", (t) => {
   const temp = fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-scan-")); t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const source = path.join(temp, "candidate"); fs.mkdirSync(source); fs.writeFileSync(path.join(source, "Cargo.lock"), LOCK);
@@ -94,7 +112,8 @@ test("verifyLocalScanReceipts binds every host's record to the candidate checkou
 
 // ---- the packaged manifest and upload metadata ----
 const generatedToml = (name, extra = "") => `[package]\nname = "${name}"\nversion = "0.1.0"\n\n[dependencies.serde]\nversion = "1"\n${extra}`;
-const uploadMetadata = (name, deps = [{ name: "serde", kind: "normal", explicit_name_in_toml: null }], extra = {}) => JSON.stringify({ name, vers: "0.1.0", deps, ...extra });
+const metaDep = (dep) => ({ version_req: "^1", features: [], optional: false, default_features: true, target: null, registry: null, explicit_name_in_toml: null, ...dep });
+const uploadMetadata = (name, deps = [{ name: "serde", kind: "normal" }], extra = {}) => JSON.stringify({ name, vers: "0.1.0", deps: deps.map(metaDep), ...extra });
 const origToml = (name, extra = "") => `[package]\nname = "${name}"\nversion = "0.1.0"\n\n[dependencies]\nserde = "1"\n${extra}`;
 const manifestCheck = ({ generated = generatedToml("rightkit-a"), original = origToml("rightkit-a"), metadata = uploadMetadata("rightkit-a") } = {}) => packagedManifestProblems({ bytes: tarGz("rightkit-a-0.1.0", { "Cargo.toml": generated, "Cargo.toml.orig": original, "src/lib.rs": "x" }), unit, metadataText: metadata });
 
@@ -102,7 +121,7 @@ test("the packaged Cargo.toml must be the rewrite of Cargo.toml.orig, and the up
   assert.deepEqual(manifestCheck(), []);
   // Cargo drops path-only dev-dependencies, keeps versioned ones as kind dev, and a rename keeps the alias key.
   assert.deepEqual(manifestCheck({ original: origToml("rightkit-a", "[dev-dependencies]\nlocal = { path = \"../local\" }\n"), generated: generatedToml("rightkit-a") }), []);
-  assert.deepEqual(manifestCheck({ original: origToml("rightkit-a", "[dev-dependencies]\ntempfile = \"3\"\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n[build-dependencies]\ncc = \"1\"\n"), generated: generatedToml("rightkit-a", "[dev-dependencies.tempfile]\nversion = \"3\"\n[target.'cfg(unix)'.dependencies.libc]\nversion = \"0.2\"\n[build-dependencies.cc]\nversion = \"1\"\n"), metadata: uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal" }, { name: "tempfile", kind: "dev" }, { name: "libc", kind: "normal", target: "cfg(unix)" }, { name: "cc", kind: "build" }]) }), []);
+  assert.deepEqual(manifestCheck({ original: origToml("rightkit-a", "[dev-dependencies]\ntempfile = \"3\"\n[target.'cfg(unix)'.dependencies]\nlibc = \"0.2\"\n[build-dependencies]\ncc = \"1\"\n"), generated: generatedToml("rightkit-a", "[dev-dependencies.tempfile]\nversion = \"3\"\n[target.'cfg(unix)'.dependencies.libc]\nversion = \"0.2\"\n[build-dependencies.cc]\nversion = \"1\"\n"), metadata: uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal" }, { name: "tempfile", kind: "dev", version_req: "^3" }, { name: "libc", kind: "normal", target: "cfg(unix)", version_req: "^0.2" }, { name: "cc", kind: "build" }]) }), []);
   assert.deepEqual(manifestCheck({ original: origToml("rightkit-a").replace("serde = \"1\"", "alias = { package = \"serde\", version = \"1\" }"), generated: generatedToml("rightkit-a").replace("[dependencies.serde]", "[dependencies.alias]\npackage = \"serde\""), metadata: uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", explicit_name_in_toml: "alias" }]) }), []);
   const cases = {
     "dependency injected into the packaged manifest": [{ generated: generatedToml("rightkit-a", "[dependencies.evil]\nversion = \"1\"\n"), metadata: uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal" }, { name: "evil", kind: "normal" }]) }, /adds dependency normal:evil/],
@@ -128,9 +147,19 @@ test("a dirty or misplaced vcs record in the archive refuses", () => {
 
 // ---- the whole local admission ----
 const OS = { macos: "darwin", windows: "win32" };
+// The steps the host's qualification run records, exactly as the source-derived plan demands them.
+function evidenceSteps(host, name, config = {}) {
+  const plan = localTestPlan({ kind: "cargo", unit: name, dir: "crates/" + name, config, manifest: null, batch: false, platform: OS[host] });
+  return [
+    { command: "scanCrateForSecrets crates/" + name, ok: true },
+    { command: "cargo fmt -p " + name + " --check", ok: true },
+    ...plan.steps.map((s) => ({ command: s.command + " " + s.args.join(" "), ok: true, ...(s.test ? { executed: 2, failed: 0, ignored: 0, skipped: 0, binaries: 1 } : {}) })),
+    { command: "cargo package --locked -p " + name, ok: true },
+  ];
+}
 function receiptRow(host, name, crate) {
   const sha = sha256(crate);
-  const evidence = { schema: 1, kind: "cargo", name, version: "0.1.0", commit: SOURCE, artifactSha256: sha, hostPolicy: `${OS[host] === "darwin" ? "darwin" : "win32"}-only`, hostPolicyReason: "fixture", runs: [{ host: { os: OS[host], arch: "arm64" }, commit: SOURCE, features: ["default"], artifactSha256: sha, command: `cargo test -p ${name}`, operator: "agent", timestamp: "t", passed: 2, failed: 0, skipped: 0, ignored: 0, steps: [] }] };
+  const evidence = { schema: 1, kind: "cargo", name, version: "0.1.0", commit: SOURCE, artifactSha256: sha, hostPolicy: `${OS[host] === "darwin" ? "darwin" : "win32"}-only`, hostPolicyReason: "fixture", runs: [{ host: { os: OS[host], arch: "arm64" }, commit: SOURCE, features: ["default"], artifactSha256: sha, command: `cargo test -p ${name}`, operator: "agent", timestamp: "t", passed: 2, failed: 0, skipped: 0, ignored: 0, steps: evidenceSteps(host, name) }] };
   return { name, version: "0.1.0", file: `${name}-0.1.0.crate`, sha256: sha, bytesVerified: true, status: "pass", executed: 2, ignored: 0, skipped: 0, evidence };
 }
 function admissionFixture(t, name = "rightkit-a", mutate = () => {}) {
@@ -191,4 +220,82 @@ test("an excluded host vouches for no bytes in admission, but the other host's e
   assert.equal((await f.run()).ok, true);
   const g = admissionFixture(t, "rightkit-a", (s) => { s.receipts.windows.units[0] = { name: "rightkit-a", status: "allowed-exclusion" }; delete s.receipts.macos.units[0].evidence; });
   assert.equal((await g.run()).ok, false);
+});
+
+test("local admission refuses a host whose evidence records no, partial or failing qualification steps (steps: [] is not evidence)", async (t) => {
+  const cases = {
+    "no steps": [(r) => { r.steps = []; }, /required step is not recorded: cargo test -p rightkit-a/],
+    "steps missing": [(r) => { delete r.steps; }, /records no steps array/],
+    "tests dropped": [(r) => { r.steps = r.steps.filter((s) => !s.command.startsWith("cargo test")); }, /required step is not recorded: cargo test/],
+    "clippy dropped": [(r) => { r.steps = r.steps.filter((s) => !s.command.startsWith("cargo clippy")); }, /required step is not recorded: cargo clippy/],
+    "all-features check dropped": [(r) => { r.steps = r.steps.filter((s) => !s.command.startsWith("cargo check")); }, /required step is not recorded: cargo check/],
+    "fmt dropped": [(r) => { r.steps = r.steps.filter((s) => !s.command.startsWith("cargo fmt")); }, /cargo fmt -p rightkit-a --check/],
+    "package dropped": [(r) => { r.steps = r.steps.filter((s) => !s.command.startsWith("cargo package")); }, /cargo package --locked/],
+    "secret scan dropped": [(r) => { r.steps = r.steps.filter((s) => !s.command.startsWith("scanCrateForSecrets")); }, /scanCrateForSecrets/],
+    "step failed": [(r) => { r.steps.find((s) => s.command.startsWith("cargo clippy")).ok = false; }, /did not pass/],
+    "test executed nothing": [(r) => { for (const s of r.steps) if (s.command.startsWith("cargo test")) s.executed = 0; }, /executed no test/],
+    "test failures": [(r) => { for (const s of r.steps) if (s.command.startsWith("cargo test")) s.failed = 1; }, /no clean executed count/],
+    "test count not a number": [(r) => { for (const s of r.steps) if (s.command.startsWith("cargo test")) s.executed = "2"; }, /no clean executed count/],
+  };
+  for (const [name, [mutate, reason]] of Object.entries(cases)) {
+    const f = admissionFixture(t, "rightkit-a", (s) => mutate(s.receipts.windows.units[0].evidence.runs[0]));
+    const result = await f.run(); assert.equal(result.ok, false, name);
+    assert.match([...result.failures, ...result.units.flatMap((unit) => unit.failures)].join("\n"), reason, name);
+  }
+  // Feature sets declared in the authenticated source's gate config are obligations too.
+  const demanding = admissionFixture(t, "rightkit-a", (s) => { s.data["ci/gate.config.json"] = Buffer.from(JSON.stringify({ rust: { "rightkit-a": { featureSets: [[], ["--features", "x"]], alsoSerial: true } } })); });
+  const result = await demanding.run(); assert.equal(result.ok, false);
+  assert.match(result.units[0].failures.join("\n"), /required step is not recorded: cargo test -p rightkit-a .*--features x/);
+});
+
+test("local admission recomputes required scans from the source: a record without a required scan is refused even if it verifies by itself", async (t) => {
+  const f = admissionFixture(t, "rightkit-a", (s) => {
+    const dropped = record((r) => { r.scans.splice(r.scans.findIndex((x) => x.id === "doc:rightkit-a"), 1); });
+    s.receipts.macos.scans = dropped;
+  });
+  const result = await f.run(); assert.equal(result.ok, false);
+  assert.match(result.failures.join("\n"), /macos: .*required scan doc:rightkit-a is missing/);
+});
+
+// ---- dependency identity (blocker 3) ----
+test("a dependency swapped for another package, version, feature set, target or registry in the packaged manifest is refused", () => {
+  const orig = (body) => origToml("rightkit-a").replace('serde = "1"', body);
+  const gen = (body) => generatedToml("rightkit-a").replace('[dependencies.serde]\nversion = "1"\n', body);
+  const check = (original, generated, metadata) => manifestCheck({ original, generated, metadata }).join("\n");
+  // The reproduction: the manifest still says serde, the packaged key now builds an attacker's crate through package = ...
+  const swapped = check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\npackage = "attacker-owned-crate"\n'), uploadMetadata("rightkit-a", [{ name: "attacker-owned-crate", kind: "normal", explicit_name_in_toml: "serde" }]));
+  assert.match(swapped, /packaged dependency normal:serde differs from Cargo\.toml\.orig/);
+  assert.match(swapped, /"package":"attacker-owned-crate"/);
+  // Metadata alone lying about the package behind an honest manifest is refused too.
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "attacker-owned-crate", kind: "normal", explicit_name_in_toml: "serde" }])), /upload metadata for dependency normal:serde differs.*package "attacker-owned-crate" is not "serde"/);
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", version_req: "^2" }])), /version_req "\^2" is not "\^1"/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "2"\n'), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", version_req: "^2" }])), /packaged dependency normal:serde differs/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\nfeatures = ["derive"]\n'), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", features: ["derive"] }])), /packaged dependency normal:serde differs/);
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", features: ["derive"] }])), /features differ/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\ndefault-features = false\n'), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", default_features: false }])), /packaged dependency normal:serde differs/);
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", default_features: false }])), /default_features differs/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\noptional = true\n'), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", optional: true }])), /packaged dependency normal:serde differs/);
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", optional: true }])), /optional differs/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\nregistry-index = "https://evil.example/index"\n'), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", registry: "https://evil.example/index" }])), /packaged dependency normal:serde differs/);
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", registry: "https://evil.example/index" }])), /registry differs/);
+  assert.match(check(origToml("rightkit-a"), generatedToml("rightkit-a"), uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", target: "cfg(unix)" }])), /upload metadata (lists dependency normal:serde|omits)|differs/);
+  // A dependency moved to a target table, or a path/git source surviving packaging, is refused.
+  assert.match(check(origToml("rightkit-a"), "[package]\nname = \"rightkit-a\"\nversion = \"0.1.0\"\n\n[target.'cfg(windows)'.dependencies.serde]\nversion = \"1\"\n", uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", target: "cfg(windows)" }])), /adds dependency normal:serde|drops dependency normal:serde/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\npath = "../serde"\n'), uploadMetadata("rightkit-a")), /keeps a path source/);
+  assert.match(check(origToml("rightkit-a"), gen('[dependencies.serde]\nversion = "1"\ngit = "https://evil.example/serde"\n'), uploadMetadata("rightkit-a")), /keeps a git source/);
+  // Spelling differences cargo itself introduces are not differences: "1" is "^1", whitespace in cfg and requirement lists.
+  assert.deepEqual(manifestCheck({ original: orig('serde = { version = "1.0", features = ["derive", "rc"] }'), generated: gen('[dependencies.serde]\nversion = "1.0"\nfeatures = ["rc", "derive"]\n'), metadata: uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", version_req: "^1.0", features: ["derive", "rc"] }]) }), []);
+  // [features] may not change under packaging.
+  assert.match(check(origToml("rightkit-a", "[features]\ndefault = []\n"), generatedToml("rightkit-a", "[features]\ndefault = [\"x\"]\n"), uploadMetadata("rightkit-a")), /\[features\] differ/);
+});
+
+test("workspace-inherited dependencies resolve against the authenticated workspace manifest", () => {
+  const original = origToml("rightkit-a").replace('serde = "1"', "serde = { workspace = true, features = [\"derive\"] }");
+  const generated = generatedToml("rightkit-a", "").replace('[dependencies.serde]\nversion = "1"\n', '[dependencies.serde]\nversion = "1.0.200"\nfeatures = ["derive", "std"]\n');
+  const meta = uploadMetadata("rightkit-a", [{ name: "serde", kind: "normal", version_req: "^1.0.200", features: ["derive", "std"] }]);
+  const workspaceDependencies = { serde: { version: "1.0.200", features: ["std"] } };
+  const bytes = tarGz("rightkit-a-0.1.0", { "Cargo.toml": generated, "Cargo.toml.orig": original, "src/lib.rs": "x" });
+  assert.deepEqual(packagedManifestProblems({ bytes, unit, metadataText: meta, workspaceDependencies }), []);
+  assert.match(packagedManifestProblems({ bytes, unit, metadataText: meta, workspaceDependencies: { serde: { version: "1.0.201", features: ["std"] } } }).join("\n"), /differs from Cargo\.toml\.orig/);
+  assert.match(packagedManifestProblems({ bytes, unit, metadataText: meta, workspaceDependencies: {} }).join("\n"), /inherits from the workspace, which does not declare it/);
 });

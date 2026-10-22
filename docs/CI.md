@@ -73,6 +73,41 @@ What is implemented today:
   broker signs them. Nothing in CI or the gate issues or checks them yet.
 - `local-publish.mjs` does not use the module yet; it follows once its pin is updated.
 
+### The gate in other repositories (`rightkit-gate`)
+
+`@rightkit/release` ships `rightkit-gate`, the same scan module as the pre-push gate above for any repository. It reads the layout from
+the repository itself and covers all of it; what it cannot scan it names, never skips quietly.
+
+- **Rust.** Every tracked `Cargo.toml` that is a workspace root, or a standalone package not inside another workspace, is its own Cargo
+  workspace, read with its own `cargo metadata --no-deps --locked` through the broker (`rightkit cargo` or the managed shim). A manifest below
+  a workspace that is not one of its members is tried on its own (an `exclude`d crate is a real workspace); when cargo refuses it there it
+  is a fixture or vendored crate, and the run prints it as skipped. A workspace member whose manifest is untracked or ignored, and an untracked
+  `Cargo.toml`, are skipped with a note too. A manifest outside every workspace that cargo refuses stops the gate.
+- **Names.** A unit of the root workspace keeps its crate name. A unit of a workspace below the root is `<cargoDir>:<crate>`
+  (`hub/src-tauri:app`): that is its name in scan ids (`clippy:hub/src-tauri:app`), its scans run with that directory as cwd and `-p <crate>`,
+  and `ci/gate.config.json` `rust` may key its feature sets by `<cargoDir>:<crate>` (wins) or by the plain crate name. The per-workspace scans
+  are `cargo-metadata`, `cargo-deny` and `cargo-audit` (suffixed `:<cargoDir>` below the root). Reverse dependents, the lock scope of a
+  lock-only change and the result-cache keys come from each workspace's own `Cargo.lock`; a change to one workspace's root files puts only
+  that workspace's units in scope.
+- **npm.** The `pnpm-workspace.yaml` globs over tracked `package.json` files. The root `package.json` is a unit as well when that file is
+  absent, has no `packages:` or declares `.`; with a `packages:` list that does not name the root, the root is only the workspace manifest.
+  A file inside a Rust unit below the root does not put a root package in scope.
+- **Hooks.** `rightkit-gate install-hook` sets `core.hooksPath=.githooks`, which makes git ignore `.git/hooks`. The generated `.githooks/pre-push`
+  therefore runs `.git/hooks/pre-push` first when it is executable (git's stdin is buffered and given to it and to the gate; its failure stops
+  the push), and every other hook found in `.git/hooks` when `install-hook` ran (`pre-commit`, `commit-msg`, ...) gets a `.githooks/<name>`
+  trampoline that execs the own hook when present. Nothing absolute is written, so the hooks are committed (`git add --chmod=+x .githooks/*`);
+  `install-hook` lists the hooks it chained and replaces a differing `.githooks/<name>` only with `--force`.
+- **Finding the gate.** The hook runs the root `node_modules/.bin/rightkit-gate`; else the first workspace package's (one to three levels
+  below the root: `tauri-app-next`, `apps/*`, `packages/*`); else `pnpm exec rightkit-gate`; else node with a package-relative path. It prints which
+  it used. `install-hook` warns when no `package.json` in the repository depends on `@rightkit/release`.
+
+#### Release evidence for an app
+
+`right-release qualify cargo` qualifies crates for a registry upload (below). A product repository, an app, publishes no crate through it:
+the pin's evidence "a release qualified locally on both hosts" is the app's own `right-release` release QA, run on both hosts (the sealed
+`right-release qa` source and installed receipts of the release for macOS and Windows, which `right-release qa audit` checks), not crate
+qualification.
+
 ## What runs
 
 A push to `main` is compared with the last commit the same runner passed on. With no such commit,
@@ -226,8 +261,25 @@ right-release qualify cargo --crates rightkit-fs,rightkit-child-process
 ```
 
 `--hosts win,mac` is the default and the only set that cuts a candidate (one host alone writes its bundle and stops);
-`--id`, `--allow-ignored-units`, `--jobs`, `--concurrency`, `--out`, `--win-root`, `--mac-root` and `--no-release` are the
-other options. Crates only: `publish cargo --local --qualify-only` is cargo only, so npm packages use `publish.yml`.
+`--id`, `--allow-ignored-units`, `--jobs`, `--concurrency`, `--runtime-repeats`, `--wait-idle-min`, `--out`, `--win-root`,
+`--mac-root`, `--no-release` and `--with-ci` ("`--with-ci`", below) are the other options (the two runtime options: "Runtime proof (local)", below). Crates only: `publish cargo --local --qualify-only` is cargo only, so npm packages use `publish.yml`.
+
+Any repository that publishes crates this way, not only RightKit: the repository (owner/name) is the `origin` remote, and the host
+checkout roots, the approvals file and the promotion workflow come from a committed `.rightkit-gate.json`:
+
+```json
+{ "hosts": { "win": { "root": "D:/work/widgets" }, "mac": { "root": "/Volumes/D/work/widgets" } },
+  "approvedArtifacts": "ci/approved-artifacts.json", "promotionWorkflow": "publish-reviewed.yml" }
+```
+
+RightKit's own values (`D:/Claude/rightkit`, `/Volumes/D/claude/rightkit`, `ci/approved-artifacts.json`, `publish-reviewed.yml`) are the
+defaults only when the origin is `bogusyogi/rightkit`. For any other repository an absent file, an unknown key or a missing value refuses by
+name before anything runs (a host root is needed only for a host in `--hosts`; `--win-root` and `--mac-root` still override), and the
+repository must keep crates under `crates/` and ship the CI scripts qualification loads from its own checkout (`scripts/ci/scan-receipt.mjs`,
+`reviewed-candidate.mjs`, `upload.mjs`, `publish.mjs`, `archive-secret-scan.mjs`): a missing one refuses by file name. The other host runs
+this script from the same layout, or from `node_modules/@rightkit/release` when the repository installs the package. Those scripts' promotion
+side (`reviewed-candidate.mjs`, `upload.mjs`) check the repository name they were written for; a repository carrying its own copy keeps
+that check in step with its `origin`.
 
 What runs, at once on both hosts (Windows on the Dell; macOS on the Mac through `ssh mac "<cmd>"`, or from the Mac through
 `win "<cmd>"`; set `RK_LOCALQ_REMOTE_NODE` when `node` is not on the non-interactive PATH of the other host):
@@ -252,6 +304,8 @@ The printed candidate (`source: "local"`) has this shape; every key is required 
               "macos": { "name": "local-receipt-macos-<id>.json", "sha256": "<64 hex>" } } }
 ```
 
+Under `--with-ci` the candidate has one more key, `ci`, as described below.
+
 The `artifacts` rows come with `reviewer` and `reviewRef` set to `null`, which the approval loader refuses until a reviewer
 fills them. After the R8 review, one commit adds the candidate to `candidates`, the filled rows to `artifacts` and the two
 sorted lines to `scripts/ci/publish.test.mjs`; the promotion commit must descend from `sourceSha`. Then:
@@ -269,16 +323,96 @@ the candidate's `Cargo.lock`; `upload` repeats every pin, approval and receipt c
 
 Binding: a `local-verify` receipt names host and OS, the RustRight client (path and SHA-256), commit and tree (equal to the
 candidate's source), the manifest hash, the archive SHA-256 of every unit (equal on both hosts), the gate evidence of every
-unit, the archive secret scan, and a scan record (classes A and B, nothing deferred, bound to `Cargo.lock`). Admission also
-requires each packed file to equal the blob at `sourceSha` and `.cargo_vcs_info.json` to name it.
+unit, the archive secret scan, a scan record (classes A and B, nothing deferred, bound to `Cargo.lock`) and, for a runtime
+owner, its runtime proof (below). Admission also requires each packed file to equal the blob at `sourceSha` and
+`.cargo_vcs_info.json` to name it.
 
-Fall back to `publish.yml` for a unit that: needs a Linux row (`ci/linux-required.json`); is restricted away from macOS;
-is a continuous runtime owner (`packages/release/runtime-budget-crates.mjs`) or carries an always-on runtime class (the
-authenticated runtime proof exists only on the Actions path, so local admission holds it); packs different bytes on the two hosts; or whose scan tools are missing on a host. The refusal says which.
+**`--with-ci`: the GitHub qualification rides along (Adrian 2026-10-22).** Local qualification (warm caches on both hosts) and a GitHub
+qualification (fresh VMs) of the same commit can start together, and promotion does not wait for the second. With
+`right-release qualify cargo --crates a,b --with-ci` the driver refuses unless HEAD is `origin/main`'s tip (the run starts from
+main) and, when the hosts start, dispatches `gh workflow run publish.yml -R <owner/repo> --ref main -f registry=crates -f units="a b"`
+(plus `allow_host_exclusion`, `allow_ignored` and `allow_missing_assets` when the plan carries them) for that commit. It pins only a run
+that is new since before the dispatch, on main, started by hand, at that commit, and refuses rather than guess when two such runs
+appear; the dispatch-and-capture window of batches on the same machine takes turns on a lock file under `--out` (seconds), the runs
+never wait on each other, and several batches may be in flight. The candidate then carries
+`"ci": { "workflowId", "runId", "sourceSha", "units", "dispatchedAt" }` (all required; `sourceSha` and `units` equal the candidate's), so
+the committed approval names exactly one run. Promotion proceeds on the locally qualified, hash-approved bytes. The secretless
+admission reads the run through the Actions API with the checks an Actions candidate's run passes (run and workflow id, workflow path,
+`head_sha` equal to `sourceSha`, branch main, hand dispatch, repository ids, and for a finished run its required jobs) and writes
+`ciProof: { runId, runAttempt, conclusion, checkedAt, requiredUnits, failedJobs }` into the hashed admission; the credential job
+re-validates it and copies it into the publication receipt. `conclusion` is `pending` while the run is in progress (promotion
+proceeds; the run is attached as clean-room proof when it lands), `success` only when the run and its required jobs succeeded, and
+otherwise `failure`: promotion is then REFUSED naming the failed jobs, unless the committed candidate's `allow.ciFailure` lists every
+unit with a reason (`[{ "unit": "rightkit-fs", "reason": "..." }]`, a reviewer's decision, valid only beside `ci`). A Linux-required unit
+(`ci/linux-required.json`) is planned only with `--with-ci`: the run is its Linux proof, the candidate pins no local Linux receipt, and
+promotion requires `conclusion` `success` (pending and failure are refused, and `allow.ciFailure` cannot waive it). A continuous
+runtime owner without trusted runtime coverage still refuses with or without `--with-ci`: `publish.yml` has no runtime workload, so
+its success is no runtime proof.
 
-Not covered by a local candidate: the R2a sealed-registry consumer recipe, the original-run QA artifacts and the runtime
-supplement pins. `reviewed-registry-readback.yml` and `supplement-archive-scan.yml` read Actions-run fields and do not
-accept a local candidate. The R8 review is the compensating control, and it must read the receipts and scan records.
+Fall back to `publish.yml` for a unit that: needs a Linux row (`ci/linux-required.json`) and `--with-ci` is not used; is restricted away from macOS or
+Windows while being a runtime owner; is a runtime owner (`packages/release/runtime-budget-crates.mjs`) with no trusted
+runtime coverage in `scripts/ci/runtime-qualify.mjs` (`fsindex`, `file-watch`, `cache`, `sync`, `send` today: there is no
+workload to run, so no host and no runner can prove them); packs different bytes on the two hosts; or whose scan tools are
+missing on a host. The refusal says which.
+
+Not covered by a local candidate: the R2a sealed-registry consumer recipe and the original-run QA artifacts.
+`reviewed-registry-readback.yml` and `supplement-archive-scan.yml` read Actions-run fields and do not accept a local
+candidate. The R8 review is the compensating control, and it must read the receipts, scan records and runtime receipts.
+
+#### Runtime proof (local)
+
+Runtime-budget owners (`logs`, `job-queue`, `qa`, `daemon`, `tauri-shell`) no longer need `qualify-runtime.yml`. After a
+host's units are qualified, and only then (a quiet host is the precondition), `packages/release/local-runtime.mjs` measures
+each runtime owner on that host and writes the proof into the host's `local-verify` receipt as `runtime.crates[<crate>]`.
+The receipt is pinned by hash in the committed candidate, so the proof is pinned with it; no new asset, no new candidate key.
+
+What runs, per crate, per host:
+
+- **The trusted workloads.** `workloadsFor(crate)` from `scripts/ci/runtime-qualify.mjs` (the table of pinned `cargo test
+  --locked --profile release-iterate ... --bench ...` commands, features, trailing arguments, env names, profiles), never the
+  candidate's list: `crates/<crate>/benches/workloads.json` must equal that table or the run refuses. Each command runs
+  through the broker (`rightkit cargo`), after a warm `--no-run` build that is never part of a window.
+- **The measured source.** The checkout is clean and at the candidate commit before and after every run (HEAD is on
+  `origin/main`, as for the rest of local qualification). Every file the measurement depends on is hashed from the git
+  blobs of that commit into `bindings`, as CI's `bindSource` does, and the whole harness helper closure
+  (`trustedRuntimeHelperPaths`) is hashed into `harness.helpers`; admission requires it to equal the promotion checkout's.
+- **The same measurement code.** The bench's own `RESULT budget` line is recorded by the owner's `recordMeasurement` and
+  judged by `measurementProblems` against the frozen budget (top-level or profile ceilings, delta basis, required scale).
+- **Three runs, the worst submitted.** Each workload runs `--runtime-repeats` times (3 to 9, default 3), each in its own
+  window; every run must pass the owner gate and the submitted record is the worst by `value / ceiling`. A lucky quiet run
+  cannot hide a noisy workload.
+
+The quiet window (`scripts/ci/local-runtime-proof.mjs`, policy `local-runtime-window/1`), recorded for every run and
+**recomputed by admission from the samples** (the receipt's own `quiet` flag is never trusted):
+
+1. before: the broker's `health.json` is fresh, `READY`, not paused, with `inFlight`, `queued` and `admitting` all 0, and
+   the host CPU (OS tick counters, all processes) was at least 90% idle over a 10 s sample;
+2. during: every broker snapshot shows at most the measured job (`inFlight` <= 1, `queued` 0), with no gap over 15 s;
+3. after: a snapshot written after the run ended shows the broker idle again, and CPU was at least 90% idle over 5 s;
+4. the broker's job listing (`rustright list`) shows exactly one root job in the measured checkout and no other root job
+   overlapping the span from the first CPU sample to the last (this catches a short job that two 5 s snapshots could miss).
+
+A window that fails any of these refuses the run with the reason; it is never retried silently. `--wait-idle-min` (0 to 240,
+default 30) bounds how long the host waits for quiet before the first sample; it never waits during or after a run.
+
+**Broker exclusivity: a gap, not a feature.** The broker (`D:/Claude/rustright`) has no client-held exclusive or drain lease.
+`pause-admission` / `resume-admission` (`DataRootGate`) is a global, persisted switch that rejects, not queues, every new
+root job, including the bench itself (only NESTED jobs pass), and a crashed holder leaves the whole host paused across broker
+restarts. `RIGHTKIT_EXCLUSIVE` classes only serialize jobs that declare the same class. The cutover `DRAIN_STATUS`, hold fence
+and activation fence belong to the installer. So the proof DETECTS a disturbed window; it does not prevent one. A broker lease
+(`EXCLUSIVE_WINDOW` with a TTL, queueing other roots instead of rejecting, the holder's nested jobs admitted) would turn
+detection into prevention; ask for it in `rustright` if disturbed windows turn out common.
+
+Admission (`local-admission.mjs`, `runtime-supplement.mjs verifyLocalRuntimeProof`) applies the Actions path's validators to
+the receipts of both hosts: trusted workload ids and order, prescription equality, frozen budget (ceilings, scale, profiles),
+`validateWorkloadReceipts`, `measurementProblems` and the full owner record gate (`validateRuntimeRecords`) once per repeat
+index and once for the submitted records, every source binding against the candidate's blobs, and the window recomputation.
+The result is the same opaque handle `runtimeFeatureProofPolicy` accepts, so the unit reads `qualified` with the trusted
+workload ids and a proof hash over the pinned runtime evidence, which the credentialed job recomputes from the receipts it
+downloaded. `checkLocalReceipts` repeats only the shape checks (both hosts present, workload ids, repeat bounds, raw hashes,
+selected record, no runtime claim for a unit without coverage). `rightkit-tauri-shell` and `rightkit-daemon` need the
+broker to forward the harness env (`RIGHTKIT_RUNTIME_SCRATCH_ROOT`, TLS fixture paths); if it does not, those workloads fail
+closed with the bench's own error.
 
 ### Qualification batch & scheduling
 

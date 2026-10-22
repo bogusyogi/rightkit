@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
+import { refuseHostUpload } from "./host-upload-refusal.mjs";
 import { recordPublished, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { fileURLToPath } from "node:url";
 import { digestBytes, readVerifiedArtifact } from "./publication-artifacts.mjs";
@@ -301,6 +302,8 @@ export function runNpmPreflight(argv, workspaceRoot = process.cwd(), deps = {}) 
     return;
   }
   if (dryRun) throw new Error("--publish and --dry-run are mutually exclusive");
+  // Host uploads are retired on every host with no environment override; publishGatedTarball stays for direct calls only.
+  refuseHostUpload("right-release publish npm --publish");
   if (!tarball) throw new Error("--publish requires --tarball <gated .tgz>");
   enforcePublicationGate(options);
   publishGatedTarball({ name: pkg, version: manifest.version, tarball, evidencePath, workspaceRoot }, deps);

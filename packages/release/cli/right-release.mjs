@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "../background-process.mjs";
 import { fileURLToPath } from "node:url";
 import { assertReleaseExecutionAllowed } from "../execution-policy.mjs";
+import { hostUploadRefusalMessage } from "../host-upload-refusal.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const commands = new Map([
@@ -118,8 +119,9 @@ if (first === "--version" || first === "-v") {
     const uploads = rest[0] === "npm"
       ? rest.includes("--publish") || rest.includes("--local")
       : !rest.includes("--dry-run") && !rest.includes("--qualify-only");
-    if (uploads && process.env.GITHUB_ACTIONS !== "true") {
-      console.error(`right-release publish ${rest[0]}: host uploads are retired; RightKit publishes only through CI's approved-hash path (publish.yml, approval in ci/approved-artifacts.json, publish-reviewed.yml). Use --dry-run${rest[0] === "cargo" ? " or --local --qualify-only" : ""} to qualify locally.`);
+    // Unconditional: a caller-set GITHUB_ACTIONS=true never lifts it (CI uploads use scripts/ci/publish.mjs and reviewed-candidate.mjs).
+    if (uploads) {
+      console.error(hostUploadRefusalMessage(`right-release publish ${rest[0]}`));
       process.exit(2);
     }
   }
@@ -288,10 +290,13 @@ Commands:
                                                       Verify on source host; export crate bytes & gate evidence without uploading
   publish cargo --crate <name> --from-evidence <gate.json>
                                                       Reuse exact HEAD/artifact proof on upload host; recheck archive hash & registry bytes
-  qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <1-64>] [--concurrency <1-8>] [--out <dir>] [--no-release]
+  qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <1-64>] [--concurrency <1-8>] [--out <dir>] [--no-release] [--with-ci]
                                                       Qualify the crates on BOTH native hosts through the RustRight broker (Dell: Windows, Mac: macOS over ssh), seal one packed
                                                       asset and one receipt per host, attach them to the prerelease candidate-<id> and print the candidate and approval entry.
-                                                      Needs a clean checkout with HEAD on origin/main (the other host at the same HEAD). Never uploads to a registry
+                                                      Needs a clean checkout with HEAD on origin/main (the other host at the same HEAD). Never uploads to a registry.
+                                                      --with-ci also dispatches publish.yml for the same commit when the hosts start and pins that run in the candidate as clean-room proof
+                                                      (Linux-required units and runtime owners no local workload covers are planned only with --with-ci, and then need that run to succeed).
+                                                      Any repository: owner/name from its origin remote; hosts, approvals file and promotion workflow from .rightkit-gate.json
   publish swift [--dry-run] [--evidence <file>] [--workspace <dir>]
                                                       Check main, a clean tree, and the publication evidence, then tag RightKitSwift at its VERSION on origin
   inventory check [--json] [--warn-only] [--md <file>] [--no-cache]

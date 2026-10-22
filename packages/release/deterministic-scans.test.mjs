@@ -5,9 +5,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
 import {
-  CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
+  CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
 } from "./deterministic-scans.mjs";
+import { requiredScanProblems } from "./scan-digest.mjs";
 
 const CONTENT = path.join(path.sep, "c", "rightkit");
 const LIVE = path.join(path.sep, "l", "rightkit");
@@ -839,10 +840,11 @@ test("cache: a failure is never cached, and a null digest is never cached", asyn
 });
 
 test("cache: a corrupt or foreign entry is a miss; the key covers id, command, tool version, env and digest", async () => {
-  const base = { id: "clippy:a", command: "c", toolVersion: "1", env: {}, digest: "d" };
+  const base = { id: "clippy:a", command: "c", toolVersion: "1", env: {}, inheritedEnv: inheritedEnvDigest({ CI: "false" }), digest: "d" };
   const key = scanCacheKey(base);
   assert.match(key, /^[0-9a-f]{64}$/);
-  for (const change of [{ id: "clippy:b" }, { command: "c2" }, { toolVersion: "2" }, { env: { A: "1" } }, { digest: "d2" }]) assert.notEqual(scanCacheKey({ ...base, ...change }), key);
+  for (const change of [{ id: "clippy:b" }, { command: "c2" }, { toolVersion: "2" }, { env: { A: "1" } }, { inheritedEnv: inheritedEnvDigest({ CI: "true" }) }, { digest: "d2" }]) assert.notEqual(scanCacheKey({ ...base, ...change }), key);
+  assert.throws(() => scanCacheKey({ ...base, inheritedEnv: undefined }), /inheritedEnv/, "a key without the inherited environment digest is refused");
   const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
   const foreign = { digest: () => "d", read: () => ({ key: "other", at: "x", row: { status: "pass" } }), write() {} };
   const r = await runScans(plan, deps({ ...fs, cache: foreign }));
@@ -862,4 +864,169 @@ test("fileScanCache: round trip, atomic file named by key, garbage and bad keys 
     cache.write("../escape", { id: "x" });
     assert.equal(cache.read("../escape"), null);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("cache: the inherited environment is part of the key (CI=false then CI=true is a miss; RUSTFLAGS too); volatile names are not", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
+  const cache = memCache(() => "d");
+  await runScans(plan, deps({ ...fs, cache, env: { CI: "false", PATH: "/bin" } }));
+  const sameLog = [];
+  const same = await runScans(plan, deps({ ...fs, cache, env: { PATH: "/bin", CI: "false" }, spawn: fakeSpawn({ log: sameLog }) }));
+  assert.deepEqual(same.cacheHits, bRows(same).map((r) => r.id).sort(), "an identical environment still hits");
+  const log = [];
+  const flipped = await runScans(plan, deps({ ...fs, cache, env: { CI: "true", PATH: "/bin" }, spawn: fakeSpawn({ log }) }));
+  assert.deepEqual(flipped.cacheHits, [], "CI=true must not reuse a pass recorded under CI=false");
+  assert.ok(spawned(log, "clippy") > 0, "the clippy scan ran again");
+  const flags = await runScans(plan, deps({ ...fs, cache, env: { CI: "true", PATH: "/bin", RUSTFLAGS: "--cfg x" }, spawn: fakeSpawn({}) }));
+  assert.deepEqual(flags.cacheHits, [], "a new RUSTFLAGS is a miss");
+  const added = await runScans(plan, deps({ ...fs, cache, env: { CI: "true", PATH: "/bin" }, spawn: fakeSpawn({}) }));
+  assert.deepEqual(added.cacheHits, bRows(added).map((r) => r.id).sort(), "the CI=true run itself was stored");
+  const volatile = { PWD: "/a", OLDPWD: "/b", SHLVL: "2", _: "/x", PROMPT: "p", PS1: "q", TERM_SESSION_ID: "t", WT_SESSION: "w", WEZTERM_PANE: "9", SSH_AUTH_SOCK: "/s", CLAUDE_SESSION: "z", RANDOM: "42" };
+  assert.equal(inheritedEnvDigest({ CI: "true", PATH: "/bin" }), inheritedEnvDigest({ CI: "true", PATH: "/bin", ...volatile }), "volatile names do not change the digest");
+  assert.notEqual(inheritedEnvDigest({ CI: "true" }), inheritedEnvDigest({ CI: "true", FOO: "1" }));
+  assert.notEqual(inheritedEnvDigest({ CI: "true" }), inheritedEnvDigest({ CI: "True" }));
+});
+
+// ---- requiredScanIds agrees with planScans ---------------------------------------------------------------------------
+
+test("requiredScanIds: every id it requires is planned by planScans, and the per-crate ids agree exactly, for the local qualification plan", () => {
+  const variants = [
+    {},
+    { foo: { featureSets: [["--features", "a"], ["--all-features"]] }, bar: { featureSets: [[], ["--features", "x"]], checkFeatureSets: [["--features", "y"], []] } },
+    { foo: { featureSets: [["--features", "a"]], checkFeatureSets: [["--features", "b"], ["--features", "c"]] }, bar: { alsoSerial: true, featureSets: [[]] } },
+    { foo: { featureSets: [["--all-features"]] } },
+  ];
+  for (const withLib of [true, false]) for (const crateFeatures of variants) {
+    const all = {
+      ...crateFiles,
+      "crates/bar/Cargo.toml": 'edition = "2021"\nversion = "0.1.0"\nlicense = "MIT"\n', "crates/bar/src/main.rs": "fn main() {}\n",
+      ".github/workflows/ci.yml": "a: b", "scripts/generate-index.mjs": "", "INDEX.md": "x", "package.json": "{}", "ci/gate.config.json": "{}",
+      "packages/release/rightkit-ownership.json": "{}", "crates/rightkit-ownership/catalog/ownership-catalog.json": "{}",
+    };
+    if (!withLib) delete all["crates/foo/src/lib.rs"];
+    const fs = fakeFs(all, all);
+    const plan = planScans({ changed: Object.keys(all), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: true, crateFeatures, localCompile: true, cargoCommand: ["rightkit", "cargo"] });
+    const planned = new Set(ids(plan));
+    const required = requiredScanIds({ units: ["foo", "bar"], crateFeatures, exists: (p) => fs.exists(path.join(CONTENT, p)), includeTests: true });
+    for (const id of required) assert.ok(planned.has(id), id + " is required but not planned (lib=" + withLib + ", " + JSON.stringify(crateFeatures) + ")");
+    const perCrate = (set) => [...set].filter((id) => /^(check|check-features|clippy|doc|test:rust|test:rust-serial|cargo-package-list|changelog-version):(foo|bar)(:|$)/.test(id)).sort();
+    assert.deepEqual(perCrate(required), perCrate(planned), "per-crate ids agree (lib=" + withLib + ", " + JSON.stringify(crateFeatures) + ")");
+    assert.equal(required.includes("doc:foo"), withLib);
+  }
+});
+
+test("requiredScanProblems: a missing, failed or deferred required scan is a problem; extra scans are fine", () => {
+  const required = ["a", "b"];
+  assert.deepEqual(requiredScanProblems([{ id: "a", status: "pass" }, { id: "b", status: "pass" }, { id: "extra", status: "pass" }, { id: "rustfmt:2021", status: "pass" }], required), []);
+  assert.deepEqual(requiredScanProblems([{ id: "a", status: "pass" }, { id: "rustfmt:2021", status: "pass" }], required), ["required scan b is missing"]);
+  assert.deepEqual(requiredScanProblems([{ id: "a", status: "pass" }, { id: "b", status: "deferred" }, { id: "rustfmt:2021", status: "pass" }], required), ["required scan b is deferred"]);
+  assert.deepEqual(requiredScanProblems([{ id: "a", status: "pass" }, { id: "b", status: "pass" }], required), ["no passing rustfmt:* scan"]);
+  assert.deepEqual(requiredScanProblems([], ["a"], []), ["required scan a is missing"]);
+  assert.throws(() => requiredScanIds({ units: [], exists: () => true }), /non-empty/);
+  assert.throws(() => requiredScanIds({ units: ["a"] }), /exists/);
+});
+
+// ---- several Cargo workspaces and a root npm package (rightkit-gate adoption survey, gaps 3 and 4) ----------------------------
+
+const lockOf = (...pkgs) => parseLock(pkgs.map(([name, deps = []]) => `[[package]]\nname = "${name}"\nversion = "1.0.0"\n${deps.length ? `dependencies = [\n${deps.map((d) => ` "${d}",`).join("\n")}\n]\n` : ""}`).join("\n"));
+const multiFiles = {
+  "crates/core/Cargo.toml": manifest, "crates/core/src/lib.rs": "", "Cargo.lock": "version = 4\n",
+  "hub/src-tauri/Cargo.toml": manifest, "hub/src-tauri/src/lib.rs": "", "hub/src-tauri/Cargo.lock": "version = 4\n",
+  "engine/eng/Cargo.toml": manifest, "engine/eng/src/lib.rs": "", "engine/eng-cli/Cargo.toml": manifest, "engine/eng-cli/src/lib.rs": "", "engine/Cargo.lock": "version = 4\n",
+  "engine/deny.toml": "[advisories]\nignore = []\n",
+};
+const multiUnits = [
+  { name: "core", crate: "core", dir: "crates/core", cargoDir: "." },
+  { name: "hub/src-tauri:app", crate: "app", dir: "hub/src-tauri", cargoDir: "hub/src-tauri" },
+  { name: "engine:eng", crate: "eng", dir: "engine/eng", cargoDir: "engine" },
+  { name: "engine:eng-cli", crate: "eng-cli", dir: "engine/eng-cli", cargoDir: "engine" },
+];
+const multi = (changed, opts = {}) => planFor(changed, multiFiles, { rustUnits: multiUnits, npmUnits: [], ...opts }).plan;
+
+test("workspaces: a unit of a nested workspace runs in that workspace with its crate name, and only its own workspace's scans are planned", () => {
+  const p = multi(["hub/src-tauri/src/lib.rs"]);
+  const clippy = scanOf(p, "clippy:hub/src-tauri:app");
+  assert.ok(clippy, ids(p).join(","));
+  assert.equal(clippy.cwd, "hub/src-tauri");
+  assert.deepEqual(clippy.args.slice(0, 5), ["cargo", "clippy", "-p", "app", "--no-deps"], "-p takes the crate, not the unit name");
+  for (const id of ["check-features:hub/src-tauri:app:0", "doc:hub/src-tauri:app", "test:rust:hub/src-tauri:app", "cargo-metadata:hub/src-tauri", "cargo-package-list:hub/src-tauri:app"]) {
+    const s = scanOf(p, id); assert.ok(s, id); assert.equal(s.cwd, "hub/src-tauri", id);
+  }
+  assert.ok(!ids(p).some((i) => /clippy:core|engine/.test(i)), "no unit of another workspace");
+  assert.ok(!ids(p).includes("cargo-metadata"), "the root workspace's metadata is not planned for a change below it");
+  for (const s of p.scans) assert.equal(scanClassOf(s.id), s.class, s.id);
+  assert.equal(new Set(ids(p)).size, ids(p).length);
+  // A root-workspace unit keeps its plain name and no cwd.
+  const root = multi(["crates/core/src/lib.rs"]);
+  assert.equal(scanOf(root, "clippy:core").cwd, undefined);
+  assert.ok(scanOf(root, "cargo-metadata") && !ids(root).some((i) => i.startsWith("cargo-metadata:")));
+});
+
+test("workspaces: feature sets are keyed by <cargoDir>:<crate> or by the plain crate name, the qualified name first", () => {
+  const sets = (crateFeatures) => scanOf(multi(["hub/src-tauri/src/lib.rs"], { crateFeatures }), "clippy:hub/src-tauri:app:0")?.args ?? [];
+  assert.ok(sets({ "hub/src-tauri:app": { featureSets: [["--features", "x"], []] } }).includes("x"));
+  assert.ok(sets({ app: { featureSets: [["--features", "y"], []] } }).includes("y"));
+  assert.ok(sets({ app: { featureSets: [["--features", "y"], []] }, "hub/src-tauri:app": { featureSets: [["--features", "z"], []] } }).includes("z"), "the qualified key wins");
+  const serial = scanOf(multi(["hub/src-tauri/src/lib.rs"], { crateFeatures: { "hub/src-tauri:app": { featureSets: [["--features", "x"], []], alsoSerial: true } } }), "test:rust-serial:hub/src-tauri:app:0");
+  assert.deepEqual(serial.args.slice(-3), ["--no-fail-fast", "--", "--test-threads=1"]);
+});
+
+test("workspaces: a workspace-wide change reaches only its own workspace, narrowed by rustScope by unit name; deny and audit run there", () => {
+  const p = multi(["engine/Cargo.lock"]);
+  assert.deepEqual(ids(p).filter((i) => i.startsWith("clippy:")), ["clippy:engine:eng", "clippy:engine:eng-cli"]);
+  assert.deepEqual(["cargo-deny:engine", "cargo-audit:engine", "cargo-metadata:engine"].map((i) => scanOf(p, i)?.cwd), ["engine", "engine", "engine"]);
+  assert.ok(!ids(p).some((i) => /^cargo-(deny|audit|metadata)$/.test(i)), "the root workspace's own scans are not planned");
+  const narrowed = multi(["engine/Cargo.lock"], { rustScope: new Set(["engine:eng-cli"]) });
+  assert.deepEqual(ids(narrowed).filter((i) => i.startsWith("clippy:")), ["clippy:engine:eng-cli"]);
+  // A root Cargo.lock is not engine's or the hub's; deny.toml of one workspace stays in that workspace.
+  assert.ok(!ids(multi(["Cargo.lock"])).some((i) => i.startsWith("clippy:engine") || i.includes("hub/src-tauri")));
+  const deny = ids(multi(["engine/deny.toml"])).filter((i) => i.startsWith("cargo-"));
+  assert.deepEqual(deny, ["cargo-metadata:engine", "cargo-deny:engine", "cargo-audit:engine"]);
+});
+
+test("workspaces: reverse dependents come from each workspace's own lock, never across workspaces", () => {
+  const rustLocks = { ".": lockOf(["core"]), engine: lockOf(["eng"], ["eng-cli", ["eng"]]), "hub/src-tauri": lockOf(["app"]) };
+  const p = multi(["engine/eng/src/lib.rs"], { rustLocks });
+  assert.deepEqual(ids(p).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:engine:eng-cli"]);
+  const dep = scanOf(p, "check-dependent:engine:eng-cli");
+  assert.equal(dep.cwd, "engine"); assert.deepEqual(dep.args.slice(0, 4), ["cargo", "check", "-p", "eng-cli"]);
+  // The root workspace's lock has an edge named like engine's; it is not engine's dependent edge.
+  const clash = multi(["engine/eng/src/lib.rs"], { rustLocks: { ".": lockOf(["core", ["eng"]]), engine: lockOf(["eng"], ["eng-cli", ["eng"]]) } });
+  assert.deepEqual(ids(clash).filter((i) => i.startsWith("check-dependent:")), ["check-dependent:engine:eng-cli"]);
+  assert.deepEqual(ids(multi(["engine/eng/src/lib.rs"])).filter((i) => i.startsWith("check-dependent:")), [], "no lock for the workspace, none planned");
+});
+
+test("workspaces: a workspace directory or crate that is not a plain name is refused, never run", () => {
+  const bad = planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "x:a", crate: "a", dir: "x", cargoDir: "../x" }], npmUnits: [] }).plan;
+  assert.ok(bad.scans.some((s) => s.id.startsWith("path-policy:") && /cargoDir/.test(s.detail)));
+  assert.ok(!bad.scans.some((s) => s.tool === "rightkit"));
+  const evil = planFor(["x/src/lib.rs"], { "x/Cargo.toml": manifest, "x/src/lib.rs": "" }, { rustUnits: [{ name: "x:a b", crate: "a b", dir: "x", cargoDir: "x" }], npmUnits: [] }).plan;
+  assert.ok(evil.scans.some((s) => s.id.startsWith("path-policy:") && /not a plain name/.test(s.detail)));
+  assert.ok(!evil.scans.some((s) => s.args.includes("a b")));
+  assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "a", dir: "a", crate: 3 }] }), /string crate/);
+  assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "a", dir: "a", cargoDir: 3 }] }), /string cargoDir/);
+});
+
+test("workspaces: without a per-unit cargoDir the plan is the old single-workspace plan, ids unsuffixed", () => {
+  const files = { "ws/core/Cargo.toml": manifest, "ws/core/src/lib.rs": "", "ws/Cargo.lock": "version = 4\n" };
+  const p = planFor(["ws/Cargo.lock"], files, { rustUnits: [{ name: "a", dir: "ws/core" }], npmUnits: [], cargoDir: "ws" }).plan;
+  assert.ok(ids(p).includes("cargo-metadata") && ids(p).includes("cargo-deny") && ids(p).includes("clippy:a"));
+  for (const s of p.scans.filter((x) => x.tool === "rightkit")) assert.equal(s.cwd, "ws", s.id);
+});
+
+test("root npm package: it is a unit like any other, but a file inside a nested Rust unit does not trigger it", () => {
+  const files = { ...multiFiles, "package.json": '{"name":"app","license":"MIT","scripts":{"test":"x"}}', "tsconfig.json": "{}", "src/main.ts": "", "README.md": "x", "eslint.config.mjs": "" };
+  const opts = { rustUnits: multiUnits, npmUnits: [{ name: "app", dir: "." }] };
+  const p = planFor(["src/main.ts"], files, opts).plan;
+  for (const id of ["tsc:app", "eslint:app", "test:npm:app", "license"]) assert.ok(ids(p).includes(id), id);
+  assert.deepEqual(scanOf(p, "test:npm:app").args, ["--dir", ".", "run", "test"]);
+  assert.equal(scanOf(p, "tsc:app").cwd, ".");
+  const rustOnly = planFor(["hub/src-tauri/src/lib.rs"], files, opts).plan;
+  assert.ok(!ids(rustOnly).some((i) => /^(tsc|eslint|test:npm):app$/.test(i)), "a Rust-only change does not run the root package");
+  const wide = planFor(["package.json"], files, opts).plan;
+  assert.ok(ids(wide).includes("tsc:app"), "a root pnpm file change puts the root package in scope");
+  // Nested packages still win their own files.
+  const nested = { ...files, "apps/web/package.json": '{"name":"web","license":"MIT"}', "apps/web/tsconfig.json": "{}", "apps/web/src/a.ts": "" };
+  const both = planFor(["apps/web/src/a.ts", "src/main.ts"], nested, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }, { name: "web", dir: "apps/web" }] }).plan;
+  assert.ok(ids(both).includes("tsc:app") && ids(both).includes("tsc:web"));
 });

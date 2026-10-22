@@ -24,6 +24,7 @@ import { localBuildGranted, LOCAL_BUILD_FILE } from "./execution-policy.mjs";
 import { GATE_SCHEMA, MAX_CARGO_JOBS, defaultEvidencePath, enforcePublicationGate, publishGatedTarball } from "./publication-gate.mjs";
 import { runCargoPublish, runCargoReadOnly, scanCrateForSecrets } from "./publish-cargo.mjs";
 import { cargoIndexUrl } from "./cargo-registry-readback.mjs";
+import { refuseHostUpload } from "./host-upload-refusal.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { recordPublished, stageSourceVersions, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { prepareSwapHelper, SWAP_HELPER_CARGO_ARGS, SWAP_HELPER_PACKAGE } from "./swap-helper-bundle.mjs";
@@ -411,7 +412,15 @@ function assertLocalHost(deps, workspaceRoot, kind) {
   return platform;
 }
 
+// Host uploads are retired: only --qualify-only (no upload) runs. The upload engine below is kept for direct calls in
+// tests; no CLI path reaches it (see host-upload-refusal.mjs).
 export async function runLocalPublish(kind, argv, deps = {}) {
+  const parsed = parseLocalPublishArgs(kind, argv, deps.cwd);
+  if (!parsed.qualifyOnly) refuseHostUpload(`right-release publish ${kind} --local`);
+  return runLocalPublishUploadEngine(kind, argv, deps);
+}
+
+export async function runLocalPublishUploadEngine(kind, argv, deps = {}) {
   const parsed = parseLocalPublishArgs(kind, argv, deps.cwd);
   if (parsed.batch) return runLocalPublishBatch(parsed, deps);
   return publishUnit(parsed, deps, null);

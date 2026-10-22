@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { sha } from "./upload.mjs";
+import { sha, REPOSITORY, localRuntimeProofSha256 } from "./upload.mjs";
+import { WINDOW_POLICY, windowProblems, worstIndex } from "./local-runtime-proof.mjs";
 import { validateSupplementPin, candidateHash, retainedSupplementOriginal, authenticateSupplement } from "./supplemental-proof.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ const TRUST_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 // every byte as well as its expression so a new call cannot extend this closure.
 const COMPUTED_HELPER_IMPORTS = Object.freeze({
   "packages/release/local-publish.mjs": Object.freeze({
-    sha256: "8e6346df537dde58e6ca6511710958fae9ecd4d0098e793f6bb7286595c0d585",
+    sha256: "ee715dd020151c8f975016836a185277056d4e78b6cc8aa830bf2f52a7e9cb3c",
     expression: 'pathToFileURL(path.join(workspaceRoot, "scripts", "ci", file)).href',
     count: 1,
     paths: Object.freeze(["scripts/ci/test-results.mjs", "scripts/ci/upload.mjs"]),
@@ -239,6 +240,91 @@ export async function verifyRuntimeSupplement({ candidate, pin, manifest, manife
     authenticated.set(handle, { candidate: candidateHash(candidate), unit: { name: unit.name, version: unit.version, sha256: unit.sha256 }, reports });
     return handle;
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+const LOCAL_HOST_KEYS = Object.freeze({ win32: "windows", darwin: "macos" });
+/**
+ * Admits the runtime proof of one runtime owner of a LOCAL candidate (source "local"): the proof each native host wrote into
+ * its pinned `local-verify` receipt after measuring on its own broker (packages/release/local-runtime.mjs). Nothing the
+ * candidate ships runs; the receipts are DATA. Every check the Actions path applies to a runtime proof applies here, through
+ * the same validators (workload table, prescription equality, frozen budget, validateWorkloadReceipts, the owner record gate):
+ *   - the workloads, their order, arguments, env names and profiles are the TRUSTED table's, never the receipt's or the candidate's;
+ *   - the budget's ceilings, scale and profiles equal the trusted checkout's (a loosened profile or short scale refuses);
+ *   - every source binding hashes to the candidate's blob, and the harness helper closure equals the promotion checkout's;
+ *   - every repeat of every workload passes the owner gate at full scale on both hosts, in a quiet window recomputed from
+ *     its samples (local-runtime-proof.mjs), and the submitted record is the worst repeat.
+ * Returns the opaque handle runtimeFeatureProofPolicy accepts; a caller's JSON never qualifies a unit.
+ */
+export async function verifyLocalRuntimeProof({ candidate, manifest, manifestSha256, unit, source, receipts }) {
+  need(candidate?.source === "local" && candidate.registry === "crates" && Array.isArray(candidate.units) && candidate.units.includes(unit?.name), "local runtime proof is for a unit of a local crates candidate");
+  need(source?.source?.sha === candidate.sourceSha && path.isAbsolute(source.root ?? "") && typeof source.readData === "function", "local runtime candidate/source mismatch");
+  need(manifest?.commit === candidate.sourceSha && /^[0-9a-f]{64}$/.test(manifestSha256 ?? ""), "local runtime manifest binding mismatch");
+  const owner = await import("./runtime-qualify.mjs");
+  need(owner.isCrateName(unit.name), "runtime crate name invalid");
+  const crate = unit.name;
+  const readSource = (name) => { need(safe(name), "unsafe source path"); return Buffer.from(source.readData(name)); };
+  let prescribed; let trustedWorkloads;
+  try { prescribed = owner.readSourcePrescription(crate, readSource); trustedWorkloads = owner.workloadsFor(crate); } catch (error) { need(false, error.message); }
+  let budget; let trustedBudget;
+  try { budget = JSON.parse(readSource(`crates/${crate}/runtime-budget.json`)); } catch { need(false, "candidate runtime budget missing or not JSON"); }
+  try { trustedBudget = JSON.parse(fs.readFileSync(path.join(TRUST_ROOT, `crates/${crate}/runtime-budget.json`), "utf8")); } catch { need(false, "trusted runtime budget missing"); }
+  validateFrozenRuntimeBudget(budget, trustedBudget);
+  const helpers = trustedRuntimeHelperPaths();
+  const trustedHelperHashes = Object.fromEntries(helpers.map((name) => [name, hash(fs.readFileSync(path.join(TRUST_ROOT, name)))]));
+  const context = { crate, repository: REPOSITORY, runId: candidate.id, runAttempt: "local", sourceSha: candidate.sourceSha, artifactId: "local", artifactDigest: `local:${manifestSha256}` };
+  const qualificationRun = { id: candidate.id, attempt: "local" };
+  const newSet = () => ({ records: [], raw: new Map(), profiles: new Map() });
+  const addTo = (set, record, raw, profile) => {
+    const file = record.evidence.file;
+    need(!set.raw.has(file), "duplicate raw record evidence path");
+    set.records.push(structuredClone(record)); set.raw.set(file, Buffer.from(raw));
+    if (profile) set.profiles.set(file, profile.name);
+  };
+  const sets = []; const selectedSet = newSet(); let repeatCount;
+  for (const host of owner.REQUIRED_HOSTS) {
+    const receipt = receipts?.[LOCAL_HOST_KEYS[host]];
+    const entry = receipt?.runtime?.crates?.[crate];
+    need(receipt?.hostOs === host && typeof receipt.arch === "string" && receipt.runtime?.schema === 1 && receipt.runtime.kind === "local-runtime" && entry && typeof entry === "object", `${host}: no local runtime proof for ${crate} in the pinned receipt`);
+    need(entry.kind === "local-runtime-crate" && entry.source === "local" && entry.policy === WINDOW_POLICY.id, `${host}: runtime proof kind, source or window policy mismatch`);
+    need(entry.crate === crate && entry.version === unit.version && entry.sourceSha === candidate.sourceSha && entry.candidateId === candidate.id && entry.manifestSha256 === manifestSha256 && entry.archiveSha256 === unit.sha256, `${host}: runtime proof does not bind this crate, version, commit, candidate, manifest and archive`);
+    need(entry.host?.os === host && entry.host.arch === receipt.arch && same(entry.broker, receipt.broker), `${host}: runtime proof host, architecture or broker differ from the receipt's`);
+    need(entry.harness?.sourceSha === candidate.sourceSha && entry.harness.helpers && same(Object.keys(entry.harness.helpers).sort(), helpers), `${host}: runtime harness inventory differs from the trusted helper closure`);
+    for (const [name, digest] of Object.entries(entry.harness.helpers)) need(digest === trustedHelperHashes[name], `${host}: runtime harness differs from trusted supported helper: ${name}`);
+    const rows = entry.workloads;
+    need(Array.isArray(rows) && rows.length > 0, `${host}: no runtime workload receipts`);
+    const bindings = rows[0]?.bindings;
+    need(bindings && typeof bindings === "object" && Object.keys(bindings).length > 0, `${host}: runtime source bindings missing`);
+    for (const [name, digest] of Object.entries(bindings)) need(hash(readSource(name)) === digest, "source binding differs from original candidate");
+    for (const name of [owner.workloadPrescriptionPath(crate), ...owner.trustedRequiredSources(crate), `crates/${crate}/Cargo.toml`, ...prescribed.workloads.map((w) => `crates/${crate}/benches/${w.bench}.rs`)]) need(Object.hasOwn(bindings, name), "required sealed binding absent");
+    try { owner.validateWorkloadReceipts(rows, context, unit, manifestSha256, bindings, host, candidate.sourceSha, budget, qualificationRun); } catch (error) { need(false, `${host}: ${error.message}`); }
+    for (const row of rows) {
+      const workload = trustedWorkloads.find((item) => item.id === row.workload);
+      need(workload && row.source === "local", `${host}: unknown or non-local workload receipt`);
+      let gate; try { gate = owner.budgetForWorkload(budget, workload); } catch (error) { need(false, error.message); }
+      const runs = row.repeats;
+      need(Array.isArray(runs) && runs.length >= WINDOW_POLICY.minRepeats && runs.length <= WINDOW_POLICY.maxRepeats && (repeatCount === undefined || runs.length === repeatCount), `${host} ${row.workload}: repeat count is outside the policy or differs between workloads`);
+      repeatCount = runs.length;
+      let previousEnd = -Infinity;
+      runs.forEach((run, index) => {
+        const at = `${host} ${row.workload} repeat ${index}`;
+        need(run?.index === index && typeof run.raw === "string" && hash(Buffer.from(run.raw)) === run.rawSha256 && run.exitCode === 0 && !run.signal, `${at}: raw output or exit status`);
+        need(run.record && run.record.command === row.command && run.record.evidence?.sha256 === run.rawSha256 && run.record.evidence.file === row.record.evidence.file, `${at}: record does not describe its raw output and command`);
+        const issues = owner.measurementProblems(run.record, gate, candidate.sourceSha, host);
+        need(issues.length === 0, `${at}: ${issues.join("; ")}`);
+        const quiet = windowProblems(run.window);
+        need(quiet.length === 0, `${at}: window is not quiet: ${quiet.join("; ")}`);
+        need(run.window.startedAtMs >= previousEnd, `${at}: window overlaps the previous repeat`);
+        previousEnd = run.window.endedAtMs;
+        addTo((sets[index] ??= newSet()), run.record, run.raw, workload.profile);
+      });
+      need(Number.isInteger(row.selected) && row.selected === worstIndex(runs.map((run) => run.record), gate) && row.rawSha256 === runs[row.selected].rawSha256 && same(row.record, runs[row.selected].record), `${host} ${row.workload}: the submitted record is not the worst repeat`);
+      addTo(selectedSet, row.record, runs[row.selected].raw, workload.profile);
+    }
+  }
+  // The full owner gate, on both hosts at full scale: once per repeat index, and once for the submitted (worst) records.
+  for (const set of [...sets, selectedSet]) validateRuntimeRecords({ source, sourceSha: candidate.sourceSha, unit, budget, records: set.records, rawByEvidence: set.raw, profiles: set.profiles });
+  const handle = Object.freeze({ candidateId: candidate.id, proofSha256: localRuntimeProofSha256(receipts, crate) });
+  authenticated.set(handle, { candidate: candidateHash(candidate), unit: { name: unit.name, version: unit.version, sha256: unit.sha256 }, reports: selectedSet.records });
+  return handle;
 }
 export function authenticatedRuntimeProof(handle, candidate, unit) {
   const result = authenticated.get(handle);

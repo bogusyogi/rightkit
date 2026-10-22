@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, REPOSITORY, sha, linuxRequiredFor, loadSealed, checkReceipts, checkLocalReceipts, checkApprovedArtifacts, checkUploadPayloads, executeUpload, childEnv, authenticatedArchiveScanResolver, RUNTIME_PROOF_WORKLOADS, localRuntimeProofSha256 } from "./upload.mjs";
 import { validateSupplementPin, verifyArchiveSupplement } from "./supplemental-proof.mjs";
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -12,15 +12,9 @@ const POS = /^[1-9][0-9]*$/;
 const contexts = new WeakMap();
 export const SUPPLEMENTAL_PROOFS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "ci", "supplemental-proofs.json");
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-// Workload ids of each crate that has trusted runtime coverage. This file runs under credentials and must not load the
-// qualification harness, so the table is repeated here; a test asserts it equals scripts/ci/runtime-qualify.mjs exactly.
-export const RUNTIME_PROOF_WORKLOADS = Object.freeze({
-  "rightkit-logs": Object.freeze(["tracing", "detached"]),
-  "rightkit-job-queue": Object.freeze(["budget", "pool_budget"]),
-  "rightkit-qa": Object.freeze(["budget"]),
-  "rightkit-daemon": Object.freeze(["local", "remote", "remote-loopback"]),
-  "rightkit-tauri-shell": Object.freeze(["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"]),
-});
+// Workload ids of each crate that has trusted runtime coverage. The table lives in upload.mjs (the local receipt checks need it
+// there); it is re-exported so this module keeps its public name, and a test asserts it equals scripts/ci/runtime-qualify.mjs.
+export { RUNTIME_PROOF_WORKLOADS };
 const requireThat = (condition, message) => { if (!condition) throw new Error(`reviewed candidate refused: ${message}`); };
 function exact(value, keys, label) {
   requireThat(value && typeof value === "object" && !Array.isArray(value) && same(Object.keys(value).sort(), [...keys].sort()), `${label} has unexpected or missing keys`);
@@ -33,22 +27,52 @@ export const localTag = (id) => `candidate-${id}`;
 export const localAssetName = (id, kind) => (kind === "packed" ? `packed-${id}.zip` : `local-receipt-${kind}-${id}.json`);
 const LOCAL_RELEASE_HOSTS = ["https://release-assets.githubusercontent.com", "https://objects.githubusercontent.com", "https://github-releases.githubusercontent.com"];
 
+// A local candidate may carry the GitHub qualification run that was dispatched together with the local one (`--with-ci`): the
+// clean-room proof that attaches when it lands. `ci` pins which run, so the committed approval names exactly one run.
+export const LOCAL_CI_KEYS = ["workflowId", "runId", "sourceSha", "units", "dispatchedAt"];
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+function validateLocalCi(candidate) {
+  const ci = candidate.ci;
+  exact(ci, LOCAL_CI_KEYS, "ci run pin");
+  requireThat(POS.test(String(ci.workflowId)) && POS.test(String(ci.runId)), "invalid ci workflowId or runId");
+  requireThat(ci.sourceSha === candidate.sourceSha, "the ci run must be for the candidate's source commit");
+  requireThat(Array.isArray(ci.units) && ci.units.length > 0 && new Set(ci.units).size === ci.units.length && same([...ci.units].sort(), [...candidate.units].sort()), "the ci run must qualify exactly the candidate units");
+  requireThat(typeof ci.dispatchedAt === "string" && ISO_TIME.test(ci.dispatchedAt) && !Number.isNaN(Date.parse(ci.dispatchedAt)), "invalid ci dispatchedAt");
+}
+// A failed CI run blocks promotion unless a reviewer named every unit of the run here, each with a reason.
+function validateCiFailure(candidate) {
+  const rows = candidate.allow.ciFailure;
+  requireThat(candidate.ci !== undefined, "allow.ciFailure needs a ci run pin");
+  requireThat(Array.isArray(rows) && rows.length > 0, "allow.ciFailure must be a nonempty list of { unit, reason }");
+  for (const row of rows) {
+    exact(row, ["unit", "reason"], "allow.ciFailure row");
+    requireThat(candidate.units.includes(row.unit) && typeof row.reason === "string" && row.reason.trim() === row.reason && row.reason.length >= 8 && row.reason.length <= 500, "allow.ciFailure rows name a candidate unit and a reason of 8 to 500 characters");
+  }
+  requireThat(new Set(rows.map((row) => row.unit)).size === rows.length, "allow.ciFailure names a unit twice");
+}
+
 function validateLocalCandidate(candidate, linuxFile) {
-  exact(candidate, ["id", "source", "sourceSha", "registry", "units", "allow", "release", "assets"], "local candidate");
+  const withCi = Object.hasOwn(candidate, "ci");
+  exact(candidate, ["id", "source", "sourceSha", "registry", "units", "allow", "release", "assets", ...(withCi ? ["ci"] : [])], "local candidate");
   requireThat(candidate.source === "local", "unknown candidate source");
   requireThat(/^[a-z0-9][a-z0-9-]{0,79}$/.test(candidate.id), "invalid candidate ID");
   requireThat(/^[0-9a-f]{40}$/.test(candidate.sourceSha), "invalid source SHA");
   requireThat(candidate.registry === "crates", "local qualification supports crates only");
   requireThat(Array.isArray(candidate.units) && candidate.units.length > 0 && new Set(candidate.units).size === candidate.units.length, "units must be nonempty, unique & ordered");
   requireThat(candidate.units.every((unit) => typeof unit === "string" && /^rightkit-[a-z0-9][a-z0-9-]*$/.test(unit)), "invalid unit name");
-  exact(candidate.allow, ["hostExclusion", "noTest", "ignored", "missingAssets"], "allowsets");
-  for (const value of Object.values(candidate.allow)) requireThat(Array.isArray(value) && new Set(value).size === value.length && value.every((unit) => candidate.units.includes(unit)), "allowsets must be unique subsets of candidate units");
+  requireThat(candidate.allow && typeof candidate.allow === "object" && !Array.isArray(candidate.allow), "allowsets has unexpected or missing keys");
+  const withCiFailure = Object.hasOwn(candidate.allow, "ciFailure");
+  exact(candidate.allow, ["hostExclusion", "noTest", "ignored", "missingAssets", ...(withCiFailure ? ["ciFailure"] : [])], "allowsets");
+  for (const [key, value] of Object.entries(candidate.allow)) if (key !== "ciFailure") requireThat(Array.isArray(value) && new Set(value).size === value.length && value.every((unit) => candidate.units.includes(unit)), "allowsets must be unique subsets of candidate units");
+  if (withCi) validateLocalCi(candidate);
+  if (withCiFailure) validateCiFailure(candidate);
   exact(candidate.release, ["tag"], "release");
   requireThat(candidate.release.tag === localTag(candidate.id), "release tag must be candidate-<id>");
-  // A Linux-required unit needs a pinned Linux receipt; a candidate without one is refused, never qualified on two hosts only.
+  // A Linux-required unit needs a pinned Linux receipt, unless the candidate pins the CI run that qualifies it on Linux (no local
+  // host can); a candidate with neither is refused, never qualified on two hosts only.
   const linux = linuxRequiredFor({ registry: candidate.registry, units: candidate.units, ...(linuxFile ? { file: linuxFile } : {}) });
   requireThat(linux.problems.length === 0, linux.problems.join("; "));
-  exact(candidate.assets, ["packed", "macos", "windows", ...(linux.units.length > 0 ? ["linux"] : [])], "asset pins");
+  exact(candidate.assets, ["packed", "macos", "windows", ...(linux.units.length > 0 && !withCi ? ["linux"] : [])], "asset pins");
   for (const [kind, pin] of Object.entries(candidate.assets)) {
     exact(pin, ["name", "sha256"], `${kind} asset pin`);
     requireThat(pin.name === localAssetName(candidate.id, kind), `${kind} asset name must be ${localAssetName(candidate.id, kind)}`);
@@ -171,6 +195,92 @@ export function checkLocalProvenance({ candidate, repository, release, ref, prom
   requireThat(promotionSha !== candidate.sourceSha && comparison.status === "ahead" && comparison.merge_base_commit?.sha === candidate.sourceSha, "promotion must descend from original source commit");
 }
 
+// ---- the CI run that rides with a local candidate (`ci`) --------------------------------------------------------
+export const CI_CONCLUSIONS = Object.freeze(["success", "failure", "pending"]);
+export const CI_PROOF_KEYS = Object.freeze(["runId", "runAttempt", "conclusion", "checkedAt", "requiredUnits", "failedJobs"]);
+
+/**
+ * The units whose proof only the CI run can give: the Linux-required ones (ci/linux-required.json; no local host is Linux). For
+ * these the run must have SUCCEEDED; for every other unit it is attached proof and a failure needs a reviewer's allow.ciFailure.
+ * A runtime proof is NOT one of them: publish.yml carries no runtime workload, so a held runtime proof is refused as before.
+ */
+export function ciRequiredUnits({ candidate, linuxFile }) {
+  const linux = linuxRequiredFor({ registry: candidate.registry, units: candidate.units, ...(linuxFile ? { file: linuxFile } : {}) });
+  requireThat(linux.problems.length === 0, linux.problems.join("; "));
+  return [...linux.units].sort();
+}
+
+/** Problems with a COMPLETED, successful run's jobs: the same jobs checkProvenance demands of an Actions candidate's run. */
+function ciJobProblems(rows, linuxUnits) {
+  const problems = [];
+  for (const name of ["guard", "plan", "pack"]) {
+    const found = rows.filter((job) => job.name === name);
+    if (!(found.length === 1 && found[0].conclusion === "success")) problems.push(`${name} did not succeed`);
+  }
+  const verify = rows.filter((job) => /^verify \(/.test(job.name));
+  if (!(verify.length === 2 && verify.every((job) => job.conclusion === "success") && verify.some((job) => /^verify \(xcode-27, /.test(job.name)) && verify.some((job) => /^verify \(windows-2025, /.test(job.name)))) problems.push("both native verify jobs must succeed");
+  const linuxJobs = rows.filter((job) => job.name === "verify-linux");
+  if (!(linuxUnits.length > 0 ? linuxJobs.length === 1 && linuxJobs[0].conclusion === "success" : linuxJobs.every((job) => job.conclusion === "skipped"))) problems.push("the Linux verify job must succeed exactly when the run covers Linux-required units");
+  return problems;
+}
+
+/**
+ * What the candidate's pinned run is, read from the Actions API: { runId, runAttempt, conclusion, failedJobs }. The run must be the
+ * pinned one of the publish workflow on main at the candidate's commit, dispatched by hand in this repository (the checks an Actions
+ * candidate's run passes). conclusion: "pending" while it runs, "success" only when the run AND every required job succeeded,
+ * otherwise "failure" with the names of the jobs that did not. Throws on any provenance mismatch.
+ */
+export function checkCiRun({ candidate, repository, workflow, run, jobs, linuxFile }) {
+  const ci = candidate.ci;
+  requireThat(ci, "candidate pins no ci run");
+  requireThat(repository.full_name === REPOSITORY && repository.default_branch === "main", "wrong repository/default branch");
+  requireThat(String(workflow.id) === String(ci.workflowId) && workflow.path === ".github/workflows/publish.yml" && workflow.state === "active", "ci run: wrong source workflow");
+  requireThat(String(run.id) === String(ci.runId) && POS.test(String(run.run_attempt)), "ci run: wrong run");
+  requireThat(run.repository?.id === repository.id && run.repository?.full_name === REPOSITORY && run.head_repository?.id === repository.id && run.head_repository?.full_name === REPOSITORY, "ci run: foreign source/head repository");
+  requireThat(String(run.workflow_id) === String(ci.workflowId) && run.path === ".github/workflows/publish.yml", "ci run: wrong run workflow");
+  requireThat(run.event === "workflow_dispatch" && run.head_branch === "main" && run.head_sha === ci.sourceSha && ci.sourceSha === candidate.sourceSha, "ci run: event/ref/SHA mismatch");
+  const attempt = Number(run.run_attempt);
+  if (run.status !== "completed") return { runId: String(run.id), runAttempt: attempt, conclusion: "pending", failedJobs: [] };
+  const rows = jobs?.jobs;
+  requireThat(Array.isArray(rows) && rows.length === jobs.total_count, "ci run: incomplete job provenance");
+  requireThat(rows.every((job) => String(job.run_id) === String(run.id) && String(job.run_attempt) === String(run.run_attempt) && job.head_sha === ci.sourceSha), "ci run: job provenance mismatch");
+  const failedJobs = rows.filter((job) => job.conclusion !== "success" && job.conclusion !== "skipped").map((job) => String(job.name));
+  if (run.conclusion !== "success") return { runId: String(run.id), runAttempt: attempt, conclusion: "failure", failedJobs: failedJobs.length ? failedJobs : [`run ${String(run.conclusion)}`] };
+  const linux = linuxRequiredFor({ registry: candidate.registry, units: ci.units, ...(linuxFile ? { file: linuxFile } : {}) });
+  requireThat(linux.problems.length === 0, linux.problems.join("; "));
+  const problems = ciJobProblems(rows, linux.units);
+  requireThat(problems.length === 0, `ci run reports success but ${problems.join("; ")}`);
+  return { runId: String(run.id), runAttempt: attempt, conclusion: "success", failedJobs: [] };
+}
+
+/**
+ * The promotion decision on a ci proof: a unit only CI can prove needs a SUCCESSFUL run (pending is refused); otherwise pending
+ * proceeds (the local bytes are the approved ones, the run is attached when it lands) and a failure is refused, naming the failed
+ * jobs, unless allow.ciFailure names every unit of the run with a reason, which is a reviewer's decision committed with the approval.
+ */
+export function ciPolicy({ candidate, proof, requiredUnits }) {
+  const failed = proof.failedJobs.length ? ` (failed jobs: ${proof.failedJobs.join(", ")})` : "";
+  if (requiredUnits.length > 0) requireThat(proof.conclusion === "success", `ci run ${proof.runId} is ${proof.conclusion}${failed}; its success is required for ${requiredUnits.join(", ")}, which local qualification cannot prove, and no allowance covers that`);
+  if (proof.conclusion === "failure") {
+    const named = new Set((candidate.allow.ciFailure ?? []).map((row) => row.unit));
+    requireThat(candidate.units.every((unit) => named.has(unit)), `ci run ${proof.runId} failed${failed}; promotion needs allow.ciFailure to name every unit of the run with a reason`);
+  }
+}
+
+/** Query the pinned run (read-only, the promotion's own GitHub token) and return the proof the admission records. */
+export async function ciProofFor({ candidate, repository, env, fetchImpl, now = () => new Date().toISOString(), linuxFile }) {
+  const ci = candidate.ci;
+  const workflow = await api("actions/workflows/publish.yml", env, fetchImpl);
+  const run = await api(`actions/runs/${ci.runId}`, env, fetchImpl);
+  requireThat(POS.test(String(run?.run_attempt)), "ci run: no run attempt");
+  const jobs = run?.status === "completed" ? await api(`actions/runs/${ci.runId}/attempts/${run.run_attempt}/jobs?per_page=100`, env, fetchImpl) : null;
+  const checked = checkCiRun({ candidate, repository, workflow, run, jobs, linuxFile });
+  const proof = { ...checked, checkedAt: now(), requiredUnits: ciRequiredUnits({ candidate, linuxFile }) };
+  const ordered = Object.fromEntries(CI_PROOF_KEYS.map((key) => [key, proof[key]]));
+  ciPolicy({ candidate, proof: ordered, requiredUnits: ordered.requiredUnits });
+  return ordered;
+}
+
 /** One release asset's bytes through the API (octet-stream), following only the one redirect to GitHub's release storage. */
 export async function releaseAssetBytes(id, env, fetchImpl) {
   const response = await fetchImpl(`https://api.github.com/repos/${REPOSITORY}/releases/assets/${id}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: "application/octet-stream", "x-github-api-version": "2022-11-28" }, redirect: "manual", signal: AbortSignal.timeout(60_000) });
@@ -241,8 +351,13 @@ export async function identifyCandidate(options) {
 
 const freezeDeep = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freezeDeep); Object.freeze(value); } };
 
+/** The four allowsets every checker knows; `ciFailure` is a promotion decision about the CI run, not an allowance for a receipt. */
+export const localAllow = (candidate) => { const { ciFailure, ...allow } = candidate.allow; return allow; };
+/** A candidate that pins its CI run is qualified on Linux by that run, not by a local Linux receipt (there is none to give). */
+export const localLinuxPolicy = (candidate) => (candidate.ci ? { linuxRequired: [] } : {});
+
 /** Local candidate: download each pinned release asset, require its committed SHA-256, rebuild the packed/receipts layout. */
-async function prepareLocal({ env, candidate, repository, release, approvedFile, supplementalFile, fetchImpl, spawn }) {
+async function prepareLocal({ env, candidate, repository, release, approvedFile, supplementalFile, fetchImpl, spawn, linuxFile }) {
   const root = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "reviewed-candidate-"));
   const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
   for (const [kind, pin] of Object.entries(candidate.assets)) {
@@ -255,16 +370,16 @@ async function prepareLocal({ env, candidate, repository, release, approvedFile,
   }
   const sealed = loadSealed({ packDir, registry: candidate.registry, unitsText: candidate.units.join(" ") });
   requireThat(sealed.manifest && sealed.manifest.commit === candidate.sourceSha && sealed.manifest.source === "local" && sealed.manifest.candidateId === candidate.id, "source/candidate binding mismatch in the packed manifest");
-  const problems = [...sealed.problems, ...checkApprovedArtifacts({ manifest: sealed.manifest, registry: candidate.registry, approvedFile }), ...checkLocalReceipts({ manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow: candidate.allow, candidate })];
+  const problems = [...sealed.problems, ...checkApprovedArtifacts({ manifest: sealed.manifest, registry: candidate.registry, approvedFile }), ...checkLocalReceipts({ manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow: localAllow(candidate), candidate, ...localLinuxPolicy(candidate) })];
   requireThat(problems.length === 0, problems.join("; "));
   const context = JSON.parse(JSON.stringify({ candidate })); freezeDeep(context);
-  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, supplementalFile, archiveScanResolver: undefined, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, admitted: false });
+  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, supplementalFile, archiveScanResolver: undefined, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, linuxFile, admitted: false });
   return { context, packDir, receiptsDir };
 }
 
-export async function prepareCandidate({ env, candidateId, approvedFile = APPROVED_ARTIFACTS_FILE, supplementalFile = SUPPLEMENTAL_PROOFS_FILE, fetchImpl = fetch, spawn = spawnSync }) {
+export async function prepareCandidate({ env, candidateId, approvedFile = APPROVED_ARTIFACTS_FILE, supplementalFile = SUPPLEMENTAL_PROOFS_FILE, fetchImpl = fetch, spawn = spawnSync, linuxFile }) {
   const { candidate, repository, release } = await authenticateSource({ env, candidateId, approvedFile, fetchImpl });
-  if (candidate.source === "local") return prepareLocal({ env, candidate, repository, release, approvedFile, supplementalFile, fetchImpl, spawn });
+  if (candidate.source === "local") return prepareLocal({ env, candidate, repository, release, approvedFile, supplementalFile, fetchImpl, spawn, linuxFile });
   const supplementPin = selectArchiveSupplement(supplementalFile, candidate, approvedFile);
   const root = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "reviewed-candidate-"));
   const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
@@ -295,6 +410,13 @@ export async function prepareCandidate({ env, candidateId, approvedFile = APPROV
   const freeze = (value) => { if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); } }; freeze(context);
   contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, supplementalFile, archiveScanResolver, manifest: sealed.manifest, repository, admitted: false });
   return { context, packDir, receiptsDir };
+}
+
+/** The ci proof the authenticated admission recorded for this context's candidate (null when it pins no CI run). */
+export function ciProofOf(context) {
+  const bound = contexts.get(context);
+  requireThat(bound && bound.admitted === true, "semantic admission is required");
+  return bound.ciProof ?? null;
 }
 
 export function assertAuthenticatedContext(context, actual) {
@@ -390,11 +512,30 @@ function originalBinding(candidate, manifest, manifestSha256 = candidate.manifes
 }
 const safeHashes = (hashes) => hashes && typeof hashes === "object" && !Array.isArray(hashes) && Object.keys(hashes).length > 0 && Object.entries(hashes).every(([name, hash]) => name.length <= 1024 && !/[\\\x00-\x1f:]/.test(name) && name.split("/").every((part) => part && part !== "." && part !== "..") && HEX.test(hash));
 
+/**
+ * A runtime owner of a local candidate is admitted only as "qualified" by the local runtime receipts: the transfer must
+ * name the trusted workload ids and carry the hash of the runtime evidence in the PINNED receipts, recomputed here from the
+ * receipt bytes the credentialed job itself downloaded and hash-checked. The deep checks ran in the secretless admission.
+ */
+function validateLocalRuntimeTransfer(row, candidate, receiptsDir) {
+  const proof = row.runtimeFeatureProof;
+  requireThat(proof.status === "qualified" && proof.classification === "always-on" && proof.listedOwner === true && proof.required === true, "local runtime owner is not qualified by its runtime receipts");
+  exact(proof.proof, ["candidateId", "proofSha256", "workloads"], "local runtime transfer");
+  requireThat(proof.proof.candidateId === candidate.id && same(proof.proof.workloads, RUNTIME_PROOF_WORKLOADS[row.name]), "local runtime transfer names another candidate or workload set");
+  const docs = {};
+  for (const host of ["macos", "windows"]) {
+    const directory = path.join(receiptsDir, host);
+    docs[host] = JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), "utf8"));
+  }
+  requireThat(HEX.test(proof.proof.proofSha256) && proof.proof.proofSha256 === localRuntimeProofSha256(docs, row.name), "local runtime proof hash differs from the pinned receipts");
+}
+
 // The local admission carries no Actions QA artifacts: it names the pinned receipts it read and the per-unit verdicts of
-// local-admission.mjs. A runtime proof that is still required (HOLD) can never be local, so it must read not-applicable.
+// local-admission.mjs. A runtime owner reads "qualified" only through its local runtime receipts (validateLocalRuntimeTransfer);
+// a proof that is still required (HOLD) never reaches here, and any other unit must read not-applicable.
 function validateLocalAdmission(admission, prepared, env) {
   const bound = contexts.get(prepared.context), candidate = prepared.context.candidate;
-  exact(admission, ["schema", "kind", "original", "sourceTree", "sourceHashes", "verifierSha", "runId", "runAttempt", "receipts", "units"], "local admission");
+  exact(admission, ["schema", "kind", "original", "sourceTree", "sourceHashes", "verifierSha", "runId", "runAttempt", "receipts", "units", ...(candidate.ci ? ["ciProof"] : [])], "local admission");
   requireThat(admission.schema === 1 && admission.kind === "local-admission" && same(admission.original, originalBinding(candidate, bound.manifest, bound.manifestSha256)), "local original candidate/manifest/archive mismatch");
   requireThat(/^[0-9a-f]{40}$/.test(admission.sourceTree ?? "") && admission.verifierSha === env.GITHUB_SHA && String(admission.runId) === env.GITHUB_RUN_ID && String(admission.runAttempt) === env.GITHUB_RUN_ATTEMPT, "local admission verifier/tree/run/attempt mismatch");
   requireThat(safeHashes(admission.sourceHashes), "invalid local admission source hashes");
@@ -406,12 +547,27 @@ function validateLocalAdmission(admission, prepared, env) {
   for (const row of admission.units) {
     exact(row, ["name", "version", "archiveSha256", "ok", "failures", "policies", "runtimeFeatureProof", "evidenceSha256"], "local unit verdict");
     exact(row.policies, ["macos", "windows"], "local unit host policies");
-    exact(row.runtimeFeatureProof, ["classification", "listedOwner", "required", "status", "failures"], "local runtime feature proof");
-    requireThat(Object.values(row.policies).every((policy) => policy === "required-positive-tests") && row.runtimeFeatureProof.status === "not-applicable" && row.runtimeFeatureProof.required === false && Array.isArray(row.runtimeFeatureProof.failures) && row.runtimeFeatureProof.failures.length === 0, "local runtime feature proof remains required, held or incoherent");
+    const proof = row.runtimeFeatureProof;
+    exact(proof, ["classification", "listedOwner", "required", "status", "failures", ...(proof?.status === "qualified" ? ["proof"] : [])], "local runtime feature proof");
+    requireThat(Object.values(row.policies).every((policy) => policy === "required-positive-tests") && Array.isArray(proof.failures) && proof.failures.length === 0, "local runtime feature proof failed");
+    if (Object.hasOwn(RUNTIME_PROOF_WORKLOADS, row.name)) validateLocalRuntimeTransfer(row, candidate, bound.receiptsDir);
+    else requireThat(proof.status === "not-applicable" && proof.required === false, "local runtime feature proof remains required, held or incoherent");
     const unit = bound.manifest.units.find((item) => item.name === row.name);
     requireThat(unit && !names.has(row.name) && row.version === unit.version && row.archiveSha256 === unit.sha256 && row.ok === true && Array.isArray(row.failures) && row.failures.length === 0 && HEX.test(row.evidenceSha256 ?? ""), "failed/duplicate/mismatched local unit verdict"); names.add(row.name);
   }
+  if (candidate.ci) validateLocalCiProof(admission.ciProof, candidate, bound.linuxFile);
   return admission;
+}
+
+/** The recorded ci proof: it names the pinned run, derives the same CI-required units from the Linux list, and passes the policy. */
+function validateLocalCiProof(proof, candidate, linuxFile) {
+  exact(proof, CI_PROOF_KEYS, "ci proof");
+  requireThat(String(proof.runId) === String(candidate.ci.runId) && Number.isInteger(proof.runAttempt) && proof.runAttempt > 0, "ci proof is for another run");
+  requireThat(CI_CONCLUSIONS.includes(proof.conclusion) && typeof proof.checkedAt === "string" && ISO_TIME.test(proof.checkedAt) && !Number.isNaN(Date.parse(proof.checkedAt)), "ci proof conclusion or time is invalid");
+  requireThat(Array.isArray(proof.failedJobs) && proof.failedJobs.every((name) => typeof name === "string" && name.length > 0 && name.length <= 200) && (proof.conclusion === "failure" ? proof.failedJobs.length > 0 : proof.failedJobs.length === 0), "ci proof failed jobs are incoherent with its conclusion");
+  const required = ciRequiredUnits({ candidate, linuxFile });
+  requireThat(same(proof.requiredUnits, required), "ci proof names other required units than the Linux list requires");
+  ciPolicy({ candidate, proof, requiredUnits: required });
 }
 
 function validateAdmission(admission, prepared, env) {
@@ -481,22 +637,26 @@ export async function authenticateAdmission({ prepared, env, fetchImpl = fetch, 
   requireThat(names.length === 1 && names[0] === "admission.json", "admission ZIP must contain exactly admission.json");
   const admission = validateAdmission(proofs["admission.json"].value, prepared, env);
   bound.admitted = true;
+  bound.ciProof = admission.ciProof === undefined ? null : structuredClone(admission.ciProof);
   return admission;
 }
 
 // Secretless local admission. Source, archive and receipts are read as DATA; nothing the candidate ships is executed.
-async function localDryRun({ prepared, env, spawn }) {
+async function localDryRun({ prepared, env, spawn, fetchImpl }) {
   const bound = contexts.get(prepared.context), candidate = prepared.context.candidate;
   const payloadProblems = checkUploadPayloads({ manifest: bound.manifest, packDir: prepared.packDir, registry: candidate.registry, spawn });
   requireThat(payloadProblems.length === 0, payloadProblems.join("; "));
   const { loadCandidateSource } = await import("./candidate-source.mjs");
-  const source = loadCandidateSource({ directory: env.PUBLISH_SOURCE_DIR, sourceSha: candidate.sourceSha, promotionSha: env.GITHUB_SHA, registry: candidate.registry, units: candidate.units, allow: candidate.allow, spawn });
+  const source = loadCandidateSource({ directory: env.PUBLISH_SOURCE_DIR, sourceSha: candidate.sourceSha, promotionSha: env.GITHUB_SHA, registry: candidate.registry, units: candidate.units, allow: localAllow(candidate), spawn });
   const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
   const receipts = Object.fromEntries(hosts.map((host) => { const directory = path.join(prepared.receiptsDir, host); return [host, JSON.parse(fs.readFileSync(path.join(directory, fs.readdirSync(directory)[0]), "utf8"))]; }));
   const { localAdmission } = await import("./local-admission.mjs");
-  const result = await localAdmission({ candidate, manifest: bound.manifest, source, receipts, packDir: prepared.packDir });
+  const result = await localAdmission({ candidate, manifest: bound.manifest, manifestSha256: bound.manifestSha256, source, receipts, packDir: prepared.packDir });
   requireThat(result.ok === true, `local admission failed: ${JSON.stringify({ failures: result.failures, units: result.units.filter((unit) => unit.ok !== true) })}`);
-  const admission = { schema: 1, kind: "local-admission", original: originalBinding(candidate, bound.manifest, bound.manifestSha256), sourceTree: source.source.tree, sourceHashes: source.sourceHashes, verifierSha: env.GITHUB_SHA, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, receipts: Object.fromEntries(hosts.map((host) => [host, candidate.assets[host].sha256])), units: result.units };
+  // The CI run that rides with the candidate is read here, once, and its verdict recorded in the hashed admission; the policy
+  // (required units need success, failure needs a reviewer's allowance) refuses before anything reaches the credentialed job.
+  const ciProof = candidate.ci ? await ciProofFor({ candidate, repository: bound.repository, env, fetchImpl, linuxFile: bound.linuxFile }) : undefined;
+  const admission = { schema: 1, kind: "local-admission", original: originalBinding(candidate, bound.manifest, bound.manifestSha256), sourceTree: source.source.tree, sourceHashes: source.sourceHashes, verifierSha: env.GITHUB_SHA, runId: env.GITHUB_RUN_ID, runAttempt: env.GITHUB_RUN_ATTEMPT, receipts: Object.fromEntries(hosts.map((host) => [host, candidate.assets[host].sha256])), units: result.units, ...(ciProof ? { ciProof } : {}) };
   validateAdmission(admission, prepared, env);
   const destination = path.join(env.RUNNER_TEMP, "publication-admission");
   fs.mkdirSync(destination, { recursive: true });
@@ -511,7 +671,7 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
   if (dryRun) for (const key of ["ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in secretless admission`);
   const prepared = await prepareCandidate({ env, candidateId: env.PUBLISH_CANDIDATE_ID, approvedFile, supplementalFile, fetchImpl, spawn });
   const candidate = prepared.context.candidate, bound = contexts.get(prepared.context);
-  if (dryRun && candidate.source === "local") return localDryRun({ prepared, env, spawn });
+  if (dryRun && candidate.source === "local") return localDryRun({ prepared, env, spawn, fetchImpl });
   if (dryRun) {
     const payloadProblems = checkUploadPayloads({ manifest: bound.manifest, packDir: prepared.packDir, registry: candidate.registry, spawn });
     requireThat(payloadProblems.length === 0, payloadProblems.join("; "));

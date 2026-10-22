@@ -295,7 +295,8 @@ mod tests {
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
             let mut request = [0u8; 4096];
-            stream.read(&mut request).unwrap();
+            // The mock answers any request with a redirect: whatever part of the request line arrived is enough.
+            let _request_len = stream.read(&mut request).unwrap();
             write!(stream, "HTTP/1.1 302 Found\r\nLocation: http://{target_address}/private\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
         });
         // reqwest is built with rustls-no-provider; tauri-plugin-updater installs the ring provider before it

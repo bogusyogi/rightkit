@@ -338,6 +338,66 @@ export function localScanShapeProblems(record, { commit, units }) {
   return problems;
 }
 
+// ---- local runtime proof ----------------------------------------------------------------------
+// A runtime-budget owner (packages/release/runtime-budget-crates.mjs) is qualified locally only with a runtime proof inside
+// each host's `local-verify` receipt (`receipt.runtime`, packages/release/local-runtime.mjs). The receipt is pinned by hash in
+// the committed candidate, so the proof is as pinned as every other receipt field. This file only repeats the SHAPE checks
+// the credentialed job must not skip; the budget, ceiling, scale, identity, prescription and quiet-window checks run in the
+// secretless admission (runtime-supplement.mjs verifyLocalRuntimeProof) and reach the credentialed job through the hashed
+// admission artifact.
+
+// Workload ids of each crate that has trusted runtime coverage. The credentialed jobs must not load the qualification
+// harness, so the table is repeated here (reviewed-candidate.mjs re-exports it); a test asserts it equals
+// scripts/ci/runtime-qualify.mjs exactly.
+export const RUNTIME_PROOF_WORKLOADS = Object.freeze({
+  "rightkit-logs": Object.freeze(["tracing", "detached"]),
+  "rightkit-job-queue": Object.freeze(["budget", "pool_budget"]),
+  "rightkit-qa": Object.freeze(["budget"]),
+  "rightkit-daemon": Object.freeze(["local", "remote", "remote-loopback"]),
+  "rightkit-tauri-shell": Object.freeze(["native-shell-wv2-0_38", "native-shell-wv2-0_39", "native-host-wv2-0_38", "native-host-wv2-0_39"]),
+});
+// Repeats per workload; a test asserts these equal WINDOW_POLICY in scripts/ci/local-runtime-proof.mjs.
+export const LOCAL_RUNTIME_MIN_REPEATS = 3;
+export const LOCAL_RUNTIME_MAX_REPEATS = 9;
+
+/** Stable JSON: object keys sorted, arrays in order. The proof hash is taken over this text on every side. */
+export function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+/** Hash of one crate's runtime evidence on both hosts, from the pinned receipt documents ({ windows, macos }). */
+export function localRuntimeProofSha256(receipts, crate) {
+  return sha("sha256", Buffer.from(canonicalJson({ crate, hosts: { darwin: receipts?.macos?.runtime?.crates?.[crate] ?? null, win32: receipts?.windows?.runtime?.crates?.[crate] ?? null } })));
+}
+
+/** Structural problems with one host receipt's runtime proof for one runtime unit (deep checks live in admission). */
+export function localRuntimeShapeProblems({ doc, unit, hostOs, commit, manifestSha256 }) {
+  const ids = RUNTIME_PROOF_WORKLOADS[unit.name];
+  const problems = [];
+  const bad = (why) => problems.push(`${unit.name}: local runtime proof: ${why}`);
+  const entry = doc.runtime?.crates?.[unit.name];
+  if (doc.runtime?.schema !== 1 || doc.runtime?.kind !== "local-runtime" || !entry || typeof entry !== "object") { bad("the receipt carries none for this unit"); return problems; }
+  if (entry.kind !== "local-runtime-crate" || entry.source !== "local") bad("it is not a local runtime proof");
+  if (entry.crate !== unit.name || entry.version !== unit.version || entry.sourceSha !== commit || entry.manifestSha256 !== manifestSha256 || entry.archiveSha256 !== unit.sha256) bad("it does not bind this crate, version, commit, manifest and archive");
+  if (entry.host?.os !== hostOs || entry.host?.arch !== doc.arch || JSON.stringify(entry.broker) !== JSON.stringify(doc.broker)) bad("its host, architecture or broker differ from the receipt's");
+  const workloads = Array.isArray(entry.workloads) ? entry.workloads : [];
+  if (JSON.stringify(workloads.map((item) => item?.workload)) !== JSON.stringify(ids)) bad(`its workloads are not exactly ${ids.join(", ")}`);
+  for (const item of workloads) {
+    const at = String(item?.workload);
+    if (item?.source !== "local" || item.schema !== 2 || item.exitCode !== 0 || item.signal || !Array.isArray(item.problems) || item.problems.length) bad(`${at}: not a clean local workload run`);
+    const repeats = Array.isArray(item?.repeats) ? item.repeats : [];
+    if (repeats.length < LOCAL_RUNTIME_MIN_REPEATS || repeats.length > LOCAL_RUNTIME_MAX_REPEATS) bad(`${at}: ${repeats.length} repeats, expected ${LOCAL_RUNTIME_MIN_REPEATS} to ${LOCAL_RUNTIME_MAX_REPEATS}`);
+    if (!Number.isInteger(item?.selected) || item.selected < 0 || item.selected >= repeats.length) bad(`${at}: no selected repeat`);
+    repeats.forEach((run, index) => {
+      if (run?.index !== index || typeof run.raw !== "string" || sha("sha256", Buffer.from(run.raw)) !== run.rawSha256 || run.exitCode !== 0 || run.signal || run.window?.quiet !== true || run.record?.evidence?.sha256 !== run.rawSha256) bad(`${at}[${index}]: raw output, exit status, quiet window or record evidence do not agree`);
+    });
+    const picked = repeats[item?.selected];
+    if (picked && (item.rawSha256 !== picked.rawSha256 || item.record?.evidence?.sha256 !== picked.rawSha256 || JSON.stringify(item.record) !== JSON.stringify(picked.record))) bad(`${at}: the submitted record is not its selected repeat`);
+  }
+  return problems;
+}
+
 /**
  * The local twin of checkReceipts: every required host (macos and windows, linux for Linux-required units) holds exactly one
  * `local-verify` receipt that names this commit, tree, manifest and candidate, the host OS, the broker that ran the builds, the
@@ -418,6 +478,13 @@ export function checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allo
           && run?.host?.os === hostOs && run.commit === manifest.commit && run.artifactSha256 === unit.sha256 && run.failed === 0 && Number.isInteger(run.passed) && run.passed > 0 && run.batch === undefined;
         if (!sound) bad(`${unit.name}: the gate evidence does not bind this host, commit and archive with a positive pass`);
         else if (run.passed !== row.executed || (run.ignored ?? 0) !== (row.ignored ?? 0) || (run.skipped ?? 0) !== (row.skipped ?? 0)) bad(`${unit.name}: the receipt counts differ from its gate evidence`);
+      }
+      // A runtime owner carries its runtime proof on both native hosts; any other unit must not claim one.
+      if (host !== "linux") {
+        if (Object.hasOwn(RUNTIME_PROOF_WORKLOADS, unit.name)) {
+          if (excluded) bad(`${unit.name}: a runtime owner cannot be excluded from a host; its runtime proof needs both native hosts`);
+          else for (const problem of localRuntimeShapeProblems({ doc, unit, hostOs, commit: manifest.commit, manifestSha256 })) bad(problem);
+        } else if (doc.runtime?.crates && Object.hasOwn(doc.runtime.crates, unit.name)) bad(`${unit.name}: it carries a runtime proof but has no trusted runtime coverage`);
       }
       statusByUnit.get(unit.name)?.push(row.status);
     }
@@ -660,10 +727,12 @@ export function checkUploadPayloads({ manifest, packDir, registry, spawn = spawn
  * and `fetchImpl` let a test intercept every child process and HTTP call. Returns the receipt document.
  */
 export async function executeUpload({ env, packDir, receiptsDir, approvedFile, previousDir = null, outDir, dryRun, candidateContext = null, spawn = spawnSync, fetchImpl = fetch, log = (line) => process.stdout.write(`${line}\n`), pause = 10_000 }) {
-  let archiveScanResolver;
+  let archiveScanResolver; let ciProof = null;
   if (candidateContext) {
-    const { assertAuthenticatedContext } = await import("./reviewed-candidate.mjs");
+    const { assertAuthenticatedContext, ciProofOf } = await import("./reviewed-candidate.mjs");
     archiveScanResolver = assertAuthenticatedContext(candidateContext, { env, packDir, receiptsDir, approvedFile });
+    // A local candidate that pins its CI run carries the proof its admission recorded into the publication receipt.
+    ciProof = ciProofOf(candidateContext);
   }
   const registry = env.PUBLISH_REGISTRY;
   if (registry !== "npm" && registry !== "crates") throw new Error(`registry must be npm or crates, got ${JSON.stringify(registry)}`);
@@ -691,7 +760,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
     const sourceSha = candidateContext?.candidate.sourceSha ?? env.GITHUB_SHA;
     if (manifest.commit !== sourceSha) problems.push(`sealed commit ${manifest.commit} is not the dispatched commit ${sourceSha}`);
     problems.push(...checkApprovedArtifacts({ manifest, registry, approvedFile }));
-    problems.push(...(local ? checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allow, candidate: candidateContext.candidate }) : checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run, archiveScanResolver })));
+    problems.push(...(local ? checkLocalReceipts({ manifest, manifestSha256, receiptsDir, allow, candidate: candidateContext.candidate, ...(candidateContext.candidate.ci ? { linuxRequired: [] } : {}) }) : checkReceipts({ manifest, manifestSha256, receiptsDir, allow, run, archiveScanResolver })));
     problems.push(...checkUploadPayloads({ manifest, packDir, registry, spawn }));
   }
   if (problems.length) throw new Error(`sealed upload refused:\n  - ${problems.join("\n  - ")}`);
@@ -699,7 +768,7 @@ export async function executeUpload({ env, packDir, receiptsDir, approvedFile, p
   if (!dryRun && !candidateContext) throw new Error("real upload requires an admitted authenticated candidate context");
 
   const previous = !dryRun && previousDir ? loadPreviousReceipt({ previousDir, registry, commit: manifest.commit, run: promotionRun }) : null;
-  const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", ...(candidateContext ? { promotionCommit: env.GITHUB_SHA, candidate: candidateContext.candidate } : {}) }, previous);
+  const receipt = new Receipt(outDir, { schema: 1, registry, dryRun, commit: manifest.commit, repository: env.GITHUB_REPOSITORY, runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", ...(candidateContext ? { promotionCommit: env.GITHUB_SHA, candidate: candidateContext.candidate, ...(ciProof ? { ciProof } : {}) } : {}) }, previous);
   const redact = (text) => (token ? String(text ?? "").split(token).join("<redacted>") : String(text ?? ""));
   log(`sealed ${manifest.units.length} ${registry} unit(s) at ${manifest.commit}; both hosts verified the same bytes`);
   if (previous) log(`continuing run ${run.runId} from attempt ${previous.runAttempt}'s receipt (${previous.receipts.length} unit row(s))`);

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { digestScanSet } from "../../packages/release/scan-digest.mjs";
+import { digestScanSet, requiredScanIds, requiredScanProblems } from "../../packages/release/scan-digest.mjs";
 import { LOCAL_SCAN_CLASSES, LOCAL_SCAN_SCHEMA, localScanShapeProblems } from "./upload.mjs";
 
 export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/1";
@@ -147,10 +147,28 @@ export function buildLocalScanRecord({ result, planned, sourceCommit, headCommit
   };
 }
 
-/** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set. */
-export function verifyLocalScanRecord(record, { sourceSha, cargoLockSha256, units }) {
+/**
+ * The scan ids a local record must hold for these units, RECOMPUTED from the authenticated source: ci/gate.config.json
+ * (feature sets), and which crates have src/lib.rs, a CHANGELOG, and the repository's own advisory/ownership/docs inputs.
+ * `readText(path)` returns a source file's text or throws when it is absent; the record's own plan is never consulted.
+ */
+export function localRequiredScanIds({ units, readText }) {
+  const exists = (name) => { try { readText(name); return true; } catch { return false; } };
+  let crateFeatures = {};
+  if (exists("ci/gate.config.json")) {
+    try { crateFeatures = JSON.parse(readText("ci/gate.config.json")).rust ?? {}; } catch { refuse("ci/gate.config.json in the authenticated source is not valid JSON"); }
+  }
+  return requiredScanIds({ units, crateFeatures, exists });
+}
+
+/** Throws unless the record shows a complete, passed local scan of exactly this source commit, lockfile and unit set,
+ * containing every id in `requiredIds` (see localRequiredScanIds) with status pass. A caller without requiredIds is refused. */
+export function verifyLocalScanRecord(record, { sourceSha, cargoLockSha256, units, requiredIds }) {
+  requireThat(Array.isArray(requiredIds) && requiredIds.length > 0, "the required scan set was not recomputed from the authenticated source");
   const shape = localScanShapeProblems(record, { commit: sourceSha, units });
   requireThat(shape.length === 0, shape.join("; "));
+  const missing = requiredScanProblems(record.scans, requiredIds);
+  requireThat(missing.length === 0, `local scan record is incomplete: ${missing.join("; ")}`);
   requireThat(HEX64.test(cargoLockSha256 ?? "") && record.cargoLockSha256 === cargoLockSha256, "local scan record is not bound to the candidate Cargo.lock hash");
   requireThat(HEX64.test(record.scanSetDigest ?? "") && digestScanSet(record.scans) === record.scanSetDigest, "local scan set digest does not match its scans");
   requireThat(record.classDigests && digestScanSet(record.scans.filter((r) => r.class === "A")) === record.classDigests.A && digestScanSet(record.scans.filter((r) => r.class === "B")) === record.classDigests.B, "local scan class digests do not match its scans");
@@ -169,13 +187,14 @@ export function verifyLocalScanReceipts({ candidate, receiptsDir, candidateDir }
   requireThat(fs.existsSync(lock), "candidate has no Cargo.lock to bind");
   const cargoLockSha256 = sha256Hex(fs.readFileSync(lock));
   const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
+  const requiredIds = localRequiredScanIds({ units: candidate.units, readText: (name) => fs.readFileSync(path.join(candidateDir, name), "utf8") });
   for (const host of hosts) {
     const directory = path.join(receiptsDir, host);
     const files = fs.readdirSync(directory);
     requireThat(files.length === 1, `${host} receipt directory must hold exactly one receipt`);
     let doc;
     try { doc = JSON.parse(fs.readFileSync(path.join(directory, files[0]), "utf8")); } catch { refuse(`${host} receipt is not valid JSON`); }
-    verifyLocalScanRecord(doc?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256, units: candidate.units });
+    verifyLocalScanRecord(doc?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256, units: candidate.units, requiredIds });
   }
   return hosts;
 }

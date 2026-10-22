@@ -10,8 +10,10 @@ import { validatePublicationEvidence } from "../../packages/release/publication-
 import { readCargoPackage } from "../../packages/release/crate-graph.mjs";
 import { readArchiveEntries } from "./archive-secret-scan.mjs";
 import { runtimeFeatureProofPolicy } from "./semantic-admission.mjs";
-import { verifyLocalScanRecord } from "./scan-receipt.mjs";
+import { localRequiredScanIds, verifyLocalScanRecord } from "./scan-receipt.mjs";
+import { localTestPlan } from "../../packages/release/local-publish.mjs";
 import { LOCAL_HOST_OS } from "./upload.mjs";
+import { verifyLocalRuntimeProof } from "./runtime-supplement.mjs";
 
 // smol-toml is a dependency of @rightkit/release (installed for the verifier), not of scripts/ci: resolve it from that package.
 const { parse: parseToml } = createRequire(new URL("../../packages/release/package.json", import.meta.url))("smol-toml");
@@ -43,21 +45,61 @@ export function crateSourceProblems({ bytes, unit, sourceSha, readData }) {
   return problems;
 }
 
-const DEP_TABLES = [["dependencies", "normal"], ["build-dependencies", "build"], ["dev-dependencies", "dev"]];
-function dependencyKeys(manifest) {
-  const keys = new Set();
-  const take = (holder) => { for (const [table, kind] of DEP_TABLES) for (const key of Object.keys(holder?.[table] ?? {})) keys.add(`${kind}:${key}`); };
-  take(manifest);
-  for (const target of Object.values(manifest?.target ?? {})) take(target);
-  return keys;
+// ---- fix5 (blocker 3): full dependency identity ------------------------------------------------------------------
+const DEP_TABLES = [[["dependencies"], "normal"], [["build-dependencies", "build_dependencies"], "build"], [["dev-dependencies", "dev_dependencies"], "dev"]];
+const CRATES_IO_INDEXES = new Set(["https://github.com/rust-lang/crates.io-index", "sparse+https://index.crates.io/", "sparse+https://index.crates.io"]);
+const squash = (text) => String(text).replace(/\s+/g, "");
+// Cargo prints a version requirement in its own normal form (`1` is `^1`, commas get one space); compare in that form.
+const normalizeReq = (req) => {
+  if (req === undefined || req === null) return null;
+  return String(req).split(",").map((part) => squash(part)).filter(Boolean).map((part) => (/^\d/.test(part) ? `^${part}` : part)).join(", ");
+};
+const uniqueSorted = (list) => [...new Set((Array.isArray(list) ? list : []).map(String))].sort();
+
+/** Every dependency of a parsed manifest as { id: "kind:target:key", ...identity }, workspace inheritance resolved from `workspaceDeps`. */
+function dependencyIdentities(manifest, workspaceDeps, problems, label) {
+  const out = new Map();
+  const take = (holder, target) => {
+    for (const [names, kind] of DEP_TABLES) {
+      for (const tableName of names) {
+        for (const [key, raw] of Object.entries(holder?.[tableName] ?? {})) {
+          let spec = typeof raw === "string" ? { version: raw } : { ...(raw ?? {}) };
+          if (spec.workspace === true) {
+            const inherited = workspaceDeps?.[key];
+            if (inherited === undefined) { problems.push(`${label}: dependency ${kind}:${key} inherits from the workspace, which does not declare it`); continue; }
+            const base = typeof inherited === "string" ? { version: inherited } : { ...inherited };
+            spec = { ...base, features: [...(base.features ?? []), ...(spec.features ?? [])], optional: spec.optional };
+          }
+          const id = `${kind}:${target ?? ""}:${key}`;
+          const registry = spec.registry ?? spec["registry-index"] ?? null;
+          out.set(id, {
+            key, kind, target: target === null ? null : squash(target), name: String(spec.package ?? key), req: normalizeReq(spec.version),
+            features: uniqueSorted(spec.features), defaultFeatures: !(spec["default-features"] === false || spec.default_features === false),
+            optional: spec.optional === true, registry: registry === null || CRATES_IO_INDEXES.has(String(registry)) ? null : String(registry),
+            path: spec.path ?? null, git: spec.git ?? null,
+          });
+        }
+      }
+    }
+  };
+  take(manifest, null);
+  for (const [target, holder] of Object.entries(manifest?.target ?? {})) take(holder, target);
+  return out;
 }
+const describe = (dep) => JSON.stringify({ package: dep.name, key: dep.key, req: dep.req, features: dep.features, defaultFeatures: dep.defaultFeatures, optional: dep.optional, target: dep.target, registry: dep.registry });
+const IDENTITY_FIELDS = ["name", "key", "req", "defaultFeatures", "optional", "target", "registry"];
+const sameIdentity = (a, b) => IDENTITY_FIELDS.every((field) => a[field] === b[field]) && JSON.stringify(a.features) === JSON.stringify(b.features);
 
 /**
  * Cargo rewrites Cargo.toml when packaging, so it is the one packaged file source blobs cannot vouch for. It must still be the
- * rewrite of THIS crate's Cargo.toml.orig (same package identity; no dependency added; none but path-only dev-dependencies
- * dropped), and the upload metadata that fills the registry index must list exactly the dependencies it declares.
+ * rewrite of THIS crate's Cargo.toml.orig: same package identity and, for every dependency, the same full identity (the real
+ * package name behind a rename, version requirement, features, default-features, optional, target cfg, kind and registry; a
+ * `workspace = true` entry resolves against `workspaceDependencies`, the authenticated workspace manifest). Nothing may be
+ * added; only path-only dev-dependencies may be dropped; no path or git source may survive packaging. The upload metadata that
+ * fills the registry index must then describe exactly those identities (name, version_req, features, optional,
+ * default_features, target, kind, registry, explicit_name_in_toml).
  */
-export function packagedManifestProblems({ bytes, unit, metadataText }) {
+export function packagedManifestProblems({ bytes, unit, metadataText, workspaceDependencies = {} }) {
   let entries;
   try { entries = readArchiveEntries(bytes, { root: `${unit.name}-${unit.version}` }); } catch { return [`${unit.name}: the archive is not a well-formed .crate`]; }
   const problems = [];
@@ -65,29 +107,107 @@ export function packagedManifestProblems({ bytes, unit, metadataText }) {
   const generated = read("Cargo.toml"); const original = read("Cargo.toml.orig");
   if (!generated || !original) return [...problems, `${unit.name}: the archive lacks a readable Cargo.toml and Cargo.toml.orig`];
   if (generated.package?.name !== unit.name || generated.package?.version !== unit.version) problems.push(`${unit.name}: the packaged Cargo.toml is ${generated.package?.name}@${generated.package?.version}`);
-  const have = dependencyKeys(generated); const was = dependencyKeys(original);
-  for (const key of have) if (!was.has(key)) problems.push(`${unit.name}: the packaged Cargo.toml adds dependency ${key} that Cargo.toml.orig does not declare`);
-  for (const key of was) if (!key.startsWith("dev:") && !have.has(key)) problems.push(`${unit.name}: the packaged Cargo.toml drops dependency ${key}`);
+  for (const section of ["patch", "replace"]) if (generated[section] !== undefined && original[section] === undefined) problems.push(`${unit.name}: the packaged Cargo.toml adds a [${section}] section`);
+  if (JSON.stringify(generated.features ?? {}) !== JSON.stringify(original.features ?? {})) problems.push(`${unit.name}: the packaged [features] differ from Cargo.toml.orig`);
+  const have = dependencyIdentities(generated, {}, problems, unit.name);
+  const was = dependencyIdentities(original, workspaceDependencies, problems, unit.name);
+  for (const [id, dep] of have) {
+    const label = `${dep.kind}:${dep.key}`;
+    const before = was.get(id);
+    if (!before) { problems.push(`${unit.name}: the packaged Cargo.toml adds dependency ${label} that Cargo.toml.orig does not declare`); continue; }
+    if (!sameIdentity(before, dep)) problems.push(`${unit.name}: the packaged dependency ${label} differs from Cargo.toml.orig: ${describe(dep)} instead of ${describe(before)}`);
+    if (dep.path !== null) problems.push(`${unit.name}: the packaged dependency ${label} keeps a path source`);
+    if (dep.git !== null) problems.push(`${unit.name}: the packaged dependency ${label} keeps a git source`);
+  }
+  for (const [id, dep] of was) if (!have.has(id) && !(dep.kind === "dev" && dep.req === null)) problems.push(`${unit.name}: the packaged Cargo.toml drops dependency ${dep.kind}:${dep.key}`);
   let meta;
   try { meta = JSON.parse(metadataText); } catch { return [...problems, `${unit.name}: the upload metadata is not JSON`]; }
   if (meta?.name !== unit.name || meta?.vers !== unit.version || !Array.isArray(meta?.deps)) return [...problems, `${unit.name}: the upload metadata does not describe ${unit.name}@${unit.version}`];
-  const listed = new Set(meta.deps.map((dep) => `${dep?.kind ?? "normal"}:${dep?.explicit_name_in_toml ?? dep?.name}`));
-  for (const key of listed) if (!have.has(key)) problems.push(`${unit.name}: the upload metadata lists dependency ${key} that the packaged Cargo.toml does not declare`);
-  for (const key of have) if (!listed.has(key)) problems.push(`${unit.name}: the upload metadata omits dependency ${key}`);
+  const listed = new Map();
+  for (const dep of meta.deps) {
+    const kind = dep?.kind ?? "normal"; const alias = dep?.explicit_name_in_toml ?? dep?.name; const target = dep?.target ? squash(dep.target) : null;
+    listed.set(`${kind}:${target ?? ""}:${alias}`, dep);
+  }
+  const byMetaId = new Map([...have].map(([, dep]) => [`${dep.kind}:${dep.target ?? ""}:${dep.key}`, dep]));
+  for (const [id, entry] of listed) {
+    const dep = byMetaId.get(id);
+    const label = id.replace(/^([^:]*):[^:]*:/, "$1:");
+    if (!dep) { problems.push(`${unit.name}: the upload metadata lists dependency ${label} that the packaged Cargo.toml does not declare`); continue; }
+    const wrong = [];
+    if (entry.name !== dep.name) wrong.push(`package ${JSON.stringify(entry.name)} is not ${JSON.stringify(dep.name)}`);
+    if (normalizeReq(entry.version_req) !== dep.req) wrong.push(`version_req ${JSON.stringify(entry.version_req)} is not ${JSON.stringify(dep.req)}`);
+    if (JSON.stringify(uniqueSorted(entry.features)) !== JSON.stringify(dep.features)) wrong.push("features differ");
+    if ((entry.optional === true) !== dep.optional) wrong.push("optional differs");
+    if (entry.default_features !== undefined && (entry.default_features !== false) !== dep.defaultFeatures) wrong.push("default_features differs");
+    if (entry.default_features === undefined && dep.defaultFeatures === false) wrong.push("default_features is not stated");
+    const registry = entry.registry ?? null;
+    if ((registry === null || CRATES_IO_INDEXES.has(String(registry)) ? null : String(registry)) !== dep.registry) wrong.push("registry differs");
+    const alias = entry.explicit_name_in_toml ?? null;
+    if ((alias ?? dep.name) !== dep.key || (alias === null && dep.key !== dep.name)) wrong.push(`explicit_name_in_toml ${JSON.stringify(alias)} does not name key ${JSON.stringify(dep.key)}`);
+    if (wrong.length) problems.push(`${unit.name}: the upload metadata for dependency ${label} differs from the packaged Cargo.toml: ${wrong.join("; ")}`);
+  }
+  for (const [id, dep] of byMetaId) if (!listed.has(id)) problems.push(`${unit.name}: the upload metadata omits dependency ${dep.kind}:${dep.key}`);
   return problems;
 }
+// ---- end fix5 (blocker 3) ----------------------------------------------------------------------------------------
+
+// ---- fix5 (blocker 2): required evidence steps ------------------------------------------------------------------
+/**
+ * The qualification steps a host's gate evidence must record for this unit, derived from the AUTHENTICATED source
+ * (ci/gate.config.json through localTestPlan, the one definition the producer runs) and never from the evidence itself: the
+ * unit's tests per feature set (and serially where it asks), clippy per feature set, the all-features checks and consumer rows,
+ * plus fmt, the secret scan and the locked package. Every one must be recorded ok; a test step must carry an integer executed
+ * count and zero failures, and the tests together must have executed something. `steps: []` is refused.
+ */
+export function evidenceStepProblems({ evidence, unit, gateConfig, hostOs }) {
+  const run = evidence?.runs?.[0];
+  const recorded = Array.isArray(run?.steps) ? run.steps : null;
+  if (!recorded) return ["the evidence records no steps array"];
+  let plan;
+  try { plan = localTestPlan({ kind: "cargo", unit: unit.name, dir: unit.dir, config: gateConfig, manifest: null, batch: false, platform: hostOs }); }
+  catch (error) { return [`the source-derived qualification plan cannot be built for ${hostOs}: ${error.message}`]; }
+  const wanted = [
+    { command: `cargo fmt -p ${unit.name} --check`, test: false },
+    { command: `scanCrateForSecrets ${unit.dir}`, test: false },
+    ...plan.steps.map((step) => ({ command: `${step.command} ${step.args.join(" ")}`, test: step.test === true })),
+    { command: `cargo package --locked -p ${unit.name}`, test: false },
+  ];
+  const problems = [];
+  let executed = 0;
+  for (const want of wanted) {
+    const rows = recorded.filter((row) => row?.command === want.command);
+    if (rows.length === 0) { problems.push(`required step is not recorded: ${want.command}`); continue; }
+    for (const row of rows) {
+      if (row.ok !== true) problems.push(`required step did not pass: ${want.command}`);
+      if (want.test) {
+        if (!Number.isInteger(row.executed) || row.executed < 0 || row.failed !== 0) problems.push(`test step has no clean executed count: ${want.command}`);
+        else executed += row.executed;
+      }
+    }
+  }
+  for (const row of recorded) if (row?.ok !== true) problems.push(`a recorded step did not pass: ${String(row?.command).slice(0, 120)}`);
+  if (plan.steps.some((step) => step.test === true) && !(executed > 0)) problems.push("the test steps executed no test");
+  return [...new Set(problems)];
+}
+// ---- end fix5 (blocker 2) ----------------------------------------------------------------------------------------
 
 /** Caller has authenticated provenance and the pinned bytes; this validates contents and never publishes. */
-export async function localAdmission({ candidate, manifest, source, receipts, packDir }) {
+export async function localAdmission({ candidate, manifest, manifestSha256, source, receipts, packDir }) {
   const failures = []; const units = [];
   const fail = (text) => failures.push(text);
   if (!source || source.source?.sha !== candidate.sourceSha || manifest.commit !== candidate.sourceSha || manifest.registry !== candidate.registry || candidate.registry !== "crates") fail("candidate/source/manifest identity mismatch");
   const hosts = Object.keys(candidate.assets).filter((key) => key !== "packed");
   const lock = source.readData("Cargo.lock");
+  // fix5: what each host must prove is recomputed from the authenticated source, never from the receipts.
+  const sourceText = (name) => source.readData(name).toString("utf8");
+  let requiredIds = null; let gateConfig = {}; let workspaceDependencies = {};
+  try { requiredIds = localRequiredScanIds({ units: candidate.units, readText: sourceText }); } catch (error) { fail(`required scan set: ${error.message}`); }
+  try { gateConfig = JSON.parse(sourceText("ci/gate.config.json")); } catch (error) { if (error instanceof SyntaxError) fail("ci/gate.config.json in the authenticated source is not valid JSON"); }
+  try { workspaceDependencies = parseToml(sourceText("Cargo.toml")).workspace?.dependencies ?? {}; } catch { /* a source without a workspace manifest inherits nothing; an inheriting dependency is then refused */ }
   for (const host of hosts) {
     const receipt = receipts[host];
     if (receipt?.commit !== candidate.sourceSha || receipt?.tree !== source.source.tree) fail(`${host}: receipt commit/tree differ from the authenticated source`);
-    try { verifyLocalScanRecord(receipt?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256: sha256(lock), units: candidate.units }); } catch (error) { fail(`${host}: ${error.message}`); }
+    try { verifyLocalScanRecord(receipt?.scans, { sourceSha: candidate.sourceSha, cargoLockSha256: sha256(lock), units: candidate.units, requiredIds }); } catch (error) { fail(`${host}: ${error.message}`); }
   }
   for (const unit of manifest.units) {
     const problems = [...failures]; const policies = {};
@@ -97,14 +217,25 @@ export async function localAdmission({ candidate, manifest, source, receipts, pa
       bytes = fs.readFileSync(path.join(packDir, unit.file));
       if (sha256(bytes) !== unit.sha256) bad(`${unit.name}: archive bytes differ from the manifest`);
       problems.push(...crateSourceProblems({ bytes, unit, sourceSha: candidate.sourceSha, readData: source.readData }));
-      problems.push(...packagedManifestProblems({ bytes, unit, metadataText: fs.readFileSync(path.join(packDir, unit.metaFile), "utf8") }));
+      problems.push(...packagedManifestProblems({ bytes, unit, metadataText: fs.readFileSync(path.join(packDir, unit.metaFile), "utf8"), workspaceDependencies }));
       const unitRoot = path.join(source.root, unit.dir);
       const info = readCargoPackage(unitRoot);
       if (info.name !== unit.name || info.version !== unit.version) bad(`${unit.name}: unit name/version differs from the authenticated source manifest`);
-      // An always-on runtime class needs an authenticated isolated workload proof that only the Actions path produces.
-      runtimeFeatureProof = runtimeFeatureProofPolicy({ crate: unit.name, meta: info.manifest?.package?.metadata?.rightkit ?? {}, hasFile: fs.existsSync(path.join(unitRoot, "runtime-budget.json")), candidate, unit });
-      for (const text of runtimeFeatureProof.failures) bad(`${unit.name}: ${text}; qualify this unit through publish.yml`);
-      if (runtimeFeatureProof.status !== "not-applicable") bad(`${unit.name}: runtime proof is ${runtimeFeatureProof.status}; a local candidate cannot carry it`);
+      // An always-on runtime class needs an authenticated isolated workload proof. A local candidate carries it as the runtime
+      // receipts each native host wrote after measuring on its own quiet broker; verifyLocalRuntimeProof applies the Actions
+      // path's validators to them and hands back the same opaque handle, so the policy below is the one CI uses.
+      const policyInput = { crate: unit.name, meta: info.manifest?.package?.metadata?.rightkit ?? {}, hasFile: fs.existsSync(path.join(unitRoot, "runtime-budget.json")), candidate, unit };
+      runtimeFeatureProof = runtimeFeatureProofPolicy(policyInput);
+      if (runtimeFeatureProof.status === "HOLD") {
+        try {
+          const proofManifestSha256 = manifestSha256 ?? receipts.macos?.manifestSha256;
+          if (receipts.macos?.manifestSha256 !== receipts.windows?.manifestSha256 || (manifestSha256 !== undefined && receipts.macos?.manifestSha256 !== manifestSha256)) throw new Error("the host receipts name different manifests");
+          const handle = await verifyLocalRuntimeProof({ candidate, manifest, manifestSha256: proofManifestSha256, unit, source, receipts });
+          runtimeFeatureProof = runtimeFeatureProofPolicy({ ...policyInput, runtimeProofs: [handle] });
+        } catch (error) { bad(`${unit.name}: local runtime proof: ${error.message}`); }
+      }
+      if (runtimeFeatureProof.status === "HOLD") for (const text of runtimeFeatureProof.failures) bad(`${unit.name}: ${text}; the local runtime receipts did not qualify it (a crate without trusted runtime coverage must use publish.yml)`);
+      if (!["not-applicable", "qualified", "HOLD"].includes(runtimeFeatureProof.status)) bad(`${unit.name}: runtime proof is ${runtimeFeatureProof.status}`);
     } catch (error) { bad(`${unit.name}: ${error.message}`); }
     for (const host of HOSTS) {
       const policy = source.hosts?.[host]?.unitPolicies?.find((item) => item.name === unit.name);
@@ -114,8 +245,9 @@ export async function localAdmission({ candidate, manifest, source, receipts, pa
       if (row?.status === "allowed-exclusion") continue;
       const result = validatePublicationEvidence({ expected: { kind: "cargo", name: unit.name, version: unit.version, commit: candidate.sourceSha, requiredHosts: [LOCAL_HOST_OS[host]] }, evidence: row?.evidence, artifactBytes: bytes });
       for (const text of result.missing) bad(`${host}: publication gate: ${text}`);
+      for (const text of evidenceStepProblems({ evidence: row?.evidence, unit, gateConfig, hostOs: LOCAL_HOST_OS[host] })) bad(`${host}: ${text}`);
     }
-    units.push({ name: unit.name, version: unit.version, archiveSha256: bytes ? sha256(bytes) : null, ok: problems.length === 0, failures: problems, policies, runtimeFeatureProof: { classification: runtimeFeatureProof.classification, listedOwner: runtimeFeatureProof.listedOwner, required: runtimeFeatureProof.required, status: runtimeFeatureProof.status, failures: runtimeFeatureProof.failures }, evidenceSha256: sha256(JSON.stringify({ rows: hosts.map((host) => receipts[host]?.units?.filter((item) => item.name === unit.name)), runtimeFeatureProof })) });
+    units.push({ name: unit.name, version: unit.version, archiveSha256: bytes ? sha256(bytes) : null, ok: problems.length === 0, failures: problems, policies, runtimeFeatureProof: { classification: runtimeFeatureProof.classification, listedOwner: runtimeFeatureProof.listedOwner, required: runtimeFeatureProof.required, status: runtimeFeatureProof.status, failures: runtimeFeatureProof.failures, ...(runtimeFeatureProof.status === "qualified" ? { proof: runtimeFeatureProof.proof } : {}) }, evidenceSha256: sha256(JSON.stringify({ rows: hosts.map((host) => receipts[host]?.units?.filter((item) => item.name === unit.name)), runtimeFeatureProof })) });
   }
   return { ok: failures.length === 0 && units.every((unit) => unit.ok), failures, units };
 }

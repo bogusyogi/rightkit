@@ -196,8 +196,8 @@
         {
           "name": "@rightkit/settings-ui",
           "ecosystem": "npm",
-          "min": "0.6.1",
-          "registryMax": "0.6.1"
+          "min": "0.7.0",
+          "registryMax": "0.7.0"
         }
       ]
     },
@@ -209,8 +209,8 @@
         {
           "name": "rightkit-credentials",
           "ecosystem": "cargo",
-          "min": "0.3.0",
-          "registryMax": "0.3.0"
+          "min": "0.4.2",
+          "registryMax": "0.4.2"
         }
       ]
     },
@@ -291,8 +291,8 @@
         {
           "name": "@rightkit/logs",
           "ecosystem": "npm",
-          "min": "0.1.5",
-          "registryMax": "0.1.5"
+          "min": "0.1.6",
+          "registryMax": "0.1.6"
         }
       ]
     },
@@ -330,8 +330,8 @@
         {
           "name": "@rightkit/app-update",
           "ecosystem": "npm",
-          "min": "0.4.0",
-          "registryMax": "0.4.0"
+          "min": "0.4.1",
+          "registryMax": "0.4.1"
         }
       ]
     },
@@ -343,8 +343,8 @@
         {
           "name": "@rightkit/release",
           "ecosystem": "npm",
-          "min": "0.4.0",
-          "registryMax": "0.4.0",
+          "min": "0.4.1",
+          "registryMax": "0.4.1",
           "allowDev": true
         }
       ]
@@ -427,8 +427,9 @@
         {
           "name": "@rightkit/release",
           "ecosystem": "npm",
-          "min": "0.4.0",
-          "allowDev": true
+          "min": "0.4.1",
+          "allowDev": true,
+          "registryMax": "0.4.1"
         },
         {
           "name": "rightkit-daemon",
@@ -455,7 +456,10 @@
     {
       "id": "M25",
       "name": "End-to-end journeys",
-      "profile": ["desktop", "apple"],
+      "profile": [
+        "desktop",
+        "apple"
+      ],
       "owners": [],
       "ownerPending": "Journeys capability (E2E-TESTING-STANDARD, rightkit#878) is not built or published in rightkit-qa / @rightkit/qa; never fails.",
       "pendingOwners": [

@@ -12,7 +12,21 @@
 //   4. A prerelease `candidate-<id>` gets the three assets; the driver prints the candidate JSON and the approval entry for
 //      ci/approved-artifacts.json. It never writes the approval: a reviewer commits that, and publish-reviewed.yml then
 //      uploads exactly the pinned bytes (docs/CI.md "Local qualification").
-// Hosts that cannot run a unit (Linux-only units) stay on the GitHub qualification fallback (publish.yml).
+// Hosts that cannot run a unit (Linux-only units) stay on the GitHub qualification fallback (publish.yml), or ride with the local
+// run under --with-ci: the same publish.yml qualification is dispatched for the same commit when the hosts start, its run is pinned
+// in the candidate (`ci`), and promotion admits it as clean-room proof (docs/CI.md "Local qualification"). A unit local qualification
+// cannot prove (a Linux-required unit) is planned only under --with-ci and then needs that run to have succeeded. A runtime owner no
+// local workload covers stays refused: publish.yml carries no runtime workload, so its success is no runtime proof.
+//
+// Any repository that publishes crates this way, not only RightKit: the repository (owner/name) is read from `git remote get-url
+// origin`, and the host checkout roots, the approvals file and the promotion workflow come from a committed `.rightkit-gate.json`
+//   { "hosts": { "win": { "root": "D:/..." }, "mac": { "root": "/Volumes/D/..." } },
+//     "approvedArtifacts": "ci/approved-artifacts.json", "promotionWorkflow": "publish-reviewed.yml" }
+// RightKit's own values are the defaults only when the origin is bogusyogi/rightkit; any other repository must declare every value it
+// uses, and a missing one refuses by name (loadQualifyConfig). The repository must also ship the CI scripts qualification loads from
+// its own checkout (scripts/ci: scan-receipt, reviewed-candidate, upload, publish, archive-secret-scan) and keep crates under crates/.
+// This is crate qualification for a registry upload. It is NOT an app's "release qualified locally on both hosts": for a product
+// repository that evidence is the app's own `right-release` release QA on both hosts (docs/CI.md "Release evidence for an app").
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,6 +38,7 @@ import { planScans, runScans } from "./deterministic-scans.mjs";
 import { pathDependencyDirs, readCargoPackage } from "./crate-graph.mjs";
 import { deriveCrateLayers } from "./local-publish.mjs";
 import { RUNTIME_BUDGET_CRATES } from "./runtime-budget-crates.mjs";
+import { measureRuntimeCrate, bindRuntimeManifest } from "./local-runtime.mjs";
 
 export const REPOSITORY = "bogusyogi/rightkit";
 export class QualifyError extends Error {
@@ -31,7 +46,8 @@ export class QualifyError extends Error {
 }
 const refuse = (message) => { throw new QualifyError(message); };
 
-// Host table. `remote` is how the OTHER host reaches this one: the Dell runs `ssh mac "<cmd>"`, the Mac runs `win "<cmd>"`.
+// Host table. `reach` is how the OTHER host reaches this one: the Dell runs `ssh mac "<cmd>"`, the Mac runs `win "<cmd>"`. The `root`
+// values are RightKit's own checkout locations, the defaults of the config below only when the origin is bogusyogi/rightkit.
 export const HOSTS = Object.freeze({
   win: Object.freeze({ key: "win", name: "windows", os: "win32", root: "D:/Claude/rightkit", scratch: "D:/scratch/rk-localq", reach: ["win"] }),
   mac: Object.freeze({ key: "mac", name: "macos", os: "darwin", root: "/Volumes/D/claude/rightkit", scratch: "/Volumes/D/scratch/rk-localq", reach: ["ssh", "mac"] }),
@@ -52,17 +68,92 @@ const list = (text, what) => {
   return names;
 };
 
+export const GATE_CONFIG_FILE = ".rightkit-gate.json";
+/** RightKit's own values: used for missing config only when the origin is bogusyogi/rightkit. */
+export const DEFAULT_QUALIFY_CONFIG = Object.freeze({
+  repository: REPOSITORY,
+  hosts: Object.freeze({ win: Object.freeze({ root: HOSTS.win.root }), mac: Object.freeze({ root: HOSTS.mac.root }) }),
+  approvedArtifacts: "ci/approved-artifacts.json",
+  promotionWorkflow: "publish-reviewed.yml",
+});
+const ORIGIN_URL = /^(?:https?:\/\/(?:[^@/\s]+@)?github\.com\/|ssh:\/\/git@github\.com(?:-[A-Za-z0-9._-]+)?(?::\d+)?\/|git@github\.com(?:-[A-Za-z0-9._-]+)?:)([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/;
+const REPOSITORY_SLUG = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const APPROVALS_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\.json$/;
+const WORKFLOW_FILE = /^[A-Za-z0-9._-]+\.ya?ml$/;
+
+/** owner/name from a GitHub remote URL (https, ssh://, scp-style, with or without .git or a ssh host alias), else null. */
+export function repositoryFromOrigin(url) {
+  const m = ORIGIN_URL.exec(String(url ?? "").trim());
+  if (!m || m[1] === "." || m[1] === ".." || m[2] === "." || m[2] === "..") return null;
+  const slug = `${m[1]}/${m[2]}`;
+  return slug.toLowerCase() === REPOSITORY.toLowerCase() ? REPOSITORY : slug;
+}
+
+/**
+ * The repository this qualification belongs to and where its pieces live: { repository, hosts: { win?: { root }, mac?: { root } },
+ * approvedArtifacts, promotionWorkflow }. The repository is the `origin` remote; the rest is the committed `.rightkit-gate.json`
+ * (unknown keys refuse). A value the file omits takes RightKit's default only when the repository is bogusyogi/rightkit; for any
+ * other repository a missing value refuses by name, and an absent file refuses with the file to write. A host root is only
+ * required later, for a host that is actually asked to run (hostRoot).
+ */
+export function loadQualifyConfig({ root, git, readText = (file) => fs.readFileSync(file, "utf8"), exists = fs.existsSync }) {
+  const origin = git(["remote", "get-url", "origin"], root);
+  const repository = repositoryFromOrigin(origin);
+  if (!repository) refuse(`cannot derive owner/name from \`git remote get-url origin\` (${origin === null || origin === undefined || origin === "" ? "no origin remote" : JSON.stringify(String(origin).replace(/\/\/[^@/\s]*@/, "//"))}); the repository must have a GitHub origin`);
+  const own = repository === DEFAULT_QUALIFY_CONFIG.repository;
+  const file = path.join(root, GATE_CONFIG_FILE);
+  let doc = {};
+  if (exists(file)) {
+    try { doc = JSON.parse(String(readText(file)).replace(/^\uFEFF/, "")); } catch (error) { refuse(`${GATE_CONFIG_FILE} is not valid JSON: ${error.message}`); }
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)) refuse(`${GATE_CONFIG_FILE} must be a JSON object`);
+    for (const key of Object.keys(doc)) if (!["hosts", "approvedArtifacts", "promotionWorkflow"].includes(key)) refuse(`${GATE_CONFIG_FILE}: unknown key ${JSON.stringify(key)} (known: hosts, approvedArtifacts, promotionWorkflow)`);
+  } else if (!own) {
+    refuse(`${repository} has no ${GATE_CONFIG_FILE} at its root and no built-in values (only ${DEFAULT_QUALIFY_CONFIG.repository} has); commit one: { "hosts": { "win": { "root": "<checkout on the Dell>" }, "mac": { "root": "<checkout on the Mac>" } }, "approvedArtifacts": "ci/approved-artifacts.json", "promotionWorkflow": "publish-reviewed.yml" }`);
+  }
+  const missing = (what) => refuse(`${GATE_CONFIG_FILE} does not set ${what}, and only ${DEFAULT_QUALIFY_CONFIG.repository} has a default for it`);
+  const approvedArtifacts = doc.approvedArtifacts ?? (own ? DEFAULT_QUALIFY_CONFIG.approvedArtifacts : missing("approvedArtifacts"));
+  if (typeof approvedArtifacts !== "string" || !APPROVALS_PATH.test(approvedArtifacts) || approvedArtifacts.split("/").includes("..")) refuse(`${GATE_CONFIG_FILE}: approvedArtifacts must be a plain repository-relative .json path`);
+  const promotionWorkflow = doc.promotionWorkflow ?? (own ? DEFAULT_QUALIFY_CONFIG.promotionWorkflow : missing("promotionWorkflow"));
+  if (typeof promotionWorkflow !== "string" || !WORKFLOW_FILE.test(promotionWorkflow)) refuse(`${GATE_CONFIG_FILE}: promotionWorkflow must be a workflow file name such as publish-reviewed.yml`);
+  if (doc.hosts !== undefined && (!doc.hosts || typeof doc.hosts !== "object" || Array.isArray(doc.hosts))) refuse(`${GATE_CONFIG_FILE}: hosts must be an object keyed by win and mac`);
+  const hosts = {};
+  for (const key of Object.keys(doc.hosts ?? {})) if (!Object.hasOwn(HOSTS, key)) refuse(`${GATE_CONFIG_FILE}: unknown host ${JSON.stringify(key)} (win or mac)`);
+  for (const key of Object.keys(HOSTS)) {
+    const declared = doc.hosts?.[key];
+    if (declared !== undefined) {
+      if (!declared || typeof declared !== "object" || Array.isArray(declared) || typeof declared.root !== "string" || !SAFE_TOKEN.test(declared.root)) refuse(`${GATE_CONFIG_FILE}: hosts.${key}.root must be a plain checkout path`);
+      hosts[key] = { root: declared.root };
+    } else if (own) hosts[key] = { root: DEFAULT_QUALIFY_CONFIG.hosts[key].root };
+  }
+  return { repository, hosts, approvedArtifacts, promotionWorkflow };
+}
+
+/** The checkout root of `key` on that host: the --win-root / --mac-root flag, else the config; refuses by name when neither has it. */
+export function hostRoot({ key, flags = {}, config }) {
+  const root = flags[key] ?? config.hosts[key]?.root;
+  if (typeof root !== "string" || !SAFE_TOKEN.test(root)) refuse(`no checkout root for the ${HOSTS[key].name} host: set hosts.${key}.root in ${GATE_CONFIG_FILE} or pass --${key}-root (needed because --hosts includes ${key})`);
+  return root;
+}
+
+/** Where the OTHER host finds this script in its checkout: the source layout, or the installed package (node_modules/@rightkit/release). */
+export function remoteScriptPath(root, file = fileURLToPath(import.meta.url)) {
+  const rel = path.relative(root, file).split(path.sep).join("/");
+  if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) return rel.includes("node_modules/") ? "node_modules/@rightkit/release/local-qualify.mjs" : rel;
+  return /[\\/]node_modules[\\/]/.test(file) ? "node_modules/@rightkit/release/local-qualify.mjs" : "packages/release/local-qualify.mjs";
+}
+
 export const localHostKey = (platform = process.platform) => (platform === "win32" ? "win" : platform === "darwin" ? "mac" : refuse(`local qualification runs on the Dell (win32) or the Mac (darwin), not ${platform}`));
 export const otherHostKey = (key) => (key === "win" ? "mac" : "win");
 
 // ---- arguments --------------------------------------------------------------------------------
 
-/** `qualify cargo --crates a,b [--hosts win,mac] [--id <id>] [--allow-ignored-units a] [--jobs n] [--concurrency n] [--out <dir>] [--win-root <dir>] [--mac-root <dir>] [--no-release]` */
+/** `qualify cargo --crates a,b [--hosts win,mac] [--id <id>] [--allow-ignored-units a] [--jobs n] [--concurrency n] [--out <dir>] [--win-root <dir>] [--mac-root <dir>] [--no-release] [--with-ci]` */
 export function parseQualifyArgs(argv, platform = process.platform) {
   const [kind, ...rest] = argv;
   if (kind === "npm") refuse("npm has no local qualification: publish cargo --local --qualify-only is cargo only; qualify npm packages with publish.yml");
-  if (kind !== "cargo") refuse("usage: right-release qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <n>] [--concurrency <n>] [--out <dir>] [--no-release]");
-  const out = { kind, crates: [], hosts: ["win", "mac"], id: undefined, allowIgnoredUnits: [], jobs: undefined, concurrency: 2, outRoot: undefined, roots: { win: HOSTS.win.root, mac: HOSTS.mac.root }, release: true };
+  if (kind !== "cargo") refuse("usage: right-release qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <n>] [--concurrency <n>] [--out <dir>] [--no-release] [--with-ci]");
+  // `roots` holds only the checkout roots given on the command line; runQualify fills the rest from .rightkit-gate.json (hostRoot).
+  const out = { kind, crates: [], hosts: ["win", "mac"], id: undefined, allowIgnoredUnits: [], jobs: undefined, concurrency: 2, runtimeRepeats: 3, waitIdleMin: 30, outRoot: undefined, roots: {}, release: true, withCi: false };
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];
     if (arg === "--crates" || arg === "--crate") out.crates = list(rest[++i], arg);
@@ -73,16 +164,20 @@ export function parseQualifyArgs(argv, platform = process.platform) {
     else if (arg === "--allow-ignored-units") out.allowIgnoredUnits = list(rest[++i], arg);
     else if (arg === "--jobs") { out.jobs = Number(rest[++i]); if (!Number.isInteger(out.jobs) || out.jobs < 1 || out.jobs > 64) refuse("--jobs must be an integer from 1 to 64"); }
     else if (arg === "--concurrency") { out.concurrency = Number(rest[++i]); if (!Number.isInteger(out.concurrency) || out.concurrency < 1 || out.concurrency > 8) refuse("--concurrency must be an integer from 1 to 8"); }
+    else if (arg === "--runtime-repeats") { out.runtimeRepeats = Number(rest[++i]); if (!Number.isInteger(out.runtimeRepeats) || out.runtimeRepeats < 3 || out.runtimeRepeats > 9) refuse("--runtime-repeats must be an integer from 3 to 9"); }
+    else if (arg === "--wait-idle-min") { out.waitIdleMin = Number(rest[++i]); if (!Number.isInteger(out.waitIdleMin) || out.waitIdleMin < 0 || out.waitIdleMin > 240) refuse("--wait-idle-min must be an integer from 0 to 240"); }
     else if (arg === "--out") out.outRoot = rest[++i];
     else if (arg === "--win-root") out.roots.win = rest[++i];
     else if (arg === "--mac-root") out.roots.mac = rest[++i];
     else if (arg === "--no-release") out.release = false;
+    else if (arg === "--with-ci") out.withCi = true;
     else refuse(`unknown qualify option: ${arg}`);
   }
   if (!out.crates.length) refuse("qualify cargo requires --crates <a,b>");
   if (new Set(out.crates).size !== out.crates.length) refuse("--crates names a crate more than once");
   for (const name of out.allowIgnoredUnits) if (!out.crates.includes(name)) refuse(`--allow-ignored-units names ${name}, which is not in --crates`);
   if (out.id !== undefined && !ID.test(out.id)) refuse("--id must match [a-z0-9][a-z0-9-]{0,79}");
+  if (out.withCi && !(out.hosts.includes("win") && out.hosts.includes("mac"))) refuse("--with-ci rides with a candidate, which needs both hosts; drop --hosts or name win,mac");
   for (const [key, value] of Object.entries(out.roots)) if (typeof value !== "string" || !SAFE_TOKEN.test(value)) refuse(`--${key}-root must be a plain path`);
   out.outRoot = out.outRoot ?? HOSTS[localHostKey(platform)].scratch;
   return out;
@@ -90,7 +185,7 @@ export function parseQualifyArgs(argv, platform = process.platform) {
 
 /** `local-qualify.mjs host ...`: what one host is asked to do. Produced by hostArgs, parsed here. */
 export function parseHostArgs(argv) {
-  const out = { root: undefined, id: undefined, commit: undefined, crates: [], out: undefined, exclude: [], allowIgnoredUnits: [], jobs: undefined, concurrency: 2, canonical: false };
+  const out = { root: undefined, id: undefined, commit: undefined, crates: [], out: undefined, exclude: [], allowIgnoredUnits: [], jobs: undefined, concurrency: 2, runtimeRepeats: 3, waitIdleMin: 30, canonical: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--root") out.root = argv[++i];
@@ -102,27 +197,33 @@ export function parseHostArgs(argv) {
     else if (arg === "--allow-ignored-units") out.allowIgnoredUnits = list(argv[++i], arg);
     else if (arg === "--jobs") out.jobs = Number(argv[++i]);
     else if (arg === "--concurrency") out.concurrency = Number(argv[++i]);
+    else if (arg === "--runtime-repeats") out.runtimeRepeats = Number(argv[++i]);
+    else if (arg === "--wait-idle-min") out.waitIdleMin = Number(argv[++i]);
     else if (arg === "--canonical") out.canonical = true;
+    else if (arg === "--repository") { out.repository = argv[++i]; if (!REPOSITORY_SLUG.test(out.repository ?? "")) refuse("--repository must be owner/name"); }
     else refuse(`unknown host option: ${arg}`);
   }
   if (!out.root || !out.out || !ID.test(out.id ?? "") || !SHA40.test(out.commit ?? "") || !out.crates.length) refuse("host needs --root, --out, --id, --commit and --crates");
   if (out.jobs !== undefined && !(Number.isInteger(out.jobs) && out.jobs >= 1 && out.jobs <= 64)) refuse("--jobs must be an integer from 1 to 64");
   if (!Number.isInteger(out.concurrency) || out.concurrency < 1 || out.concurrency > 8) refuse("--concurrency must be an integer from 1 to 8");
+  if (!Number.isInteger(out.runtimeRepeats) || out.runtimeRepeats < 3 || out.runtimeRepeats > 9) refuse("--runtime-repeats must be an integer from 3 to 9");
+  if (!Number.isInteger(out.waitIdleMin) || out.waitIdleMin < 0 || out.waitIdleMin > 240) refuse("--wait-idle-min must be an integer from 0 to 240");
   return out;
 }
 
-export function hostArgs({ root, id, commit, crates, out, exclude = [], allowIgnoredUnits = [], jobs, concurrency, canonical }) {
-  const args = ["host", "--root", root, "--id", id, "--commit", commit, "--crates", crates.join(","), "--out", out, "--concurrency", String(concurrency ?? 2)];
+export function hostArgs({ root, id, commit, crates, out, exclude = [], allowIgnoredUnits = [], jobs, concurrency, runtimeRepeats = 3, waitIdleMin = 30, canonical, repository }) {
+  const args = ["host", "--root", root, "--id", id, "--commit", commit, "--crates", crates.join(","), "--out", out, "--concurrency", String(concurrency ?? 2), "--runtime-repeats", String(runtimeRepeats), "--wait-idle-min", String(waitIdleMin)];
   if (exclude.length) args.push("--exclude", exclude.join(","));
   if (allowIgnoredUnits.length) args.push("--allow-ignored-units", allowIgnoredUnits.join(","));
   if (jobs !== undefined) args.push("--jobs", String(jobs));
   if (canonical) args.push("--canonical");
+  if (repository !== undefined) args.push("--repository", repository);
   return args;
 }
 
 /** The one string the other host's `ssh mac` / `win` runs. Every token is checked: nothing is quoted or interpolated. */
-export function remoteCommand({ root, args, node = "node" }) {
-  const tokens = [node, `${root}/packages/release/local-qualify.mjs`, ...args];
+export function remoteCommand({ root, args, node = "node", script = "packages/release/local-qualify.mjs" }) {
+  const tokens = [node, `${root}/${script}`, ...args];
   for (const token of tokens) if (!SAFE_TOKEN.test(token)) refuse(`refusing to send ${JSON.stringify(token)} to a remote shell`);
   return tokens.join(" ");
 }
@@ -159,26 +260,33 @@ export function checkoutState({ git, root }) {
 
 /**
  * Units, dependency-first, with the allowsets this request implies. A unit gate.config.json restricts away from Windows is a
- * host exclusion; one restricted away from macOS, or one that needs a Linux row, cannot be qualified locally and refuses.
+ * host exclusion; one restricted away from macOS cannot be qualified locally and refuses. A unit that needs a Linux row has proof
+ * only a GitHub run can give: it refuses unless `withCi` (--with-ci) rides that run with the local one, and then it is listed in
+ * `ciRequired` (the run must succeed for it). A runtime owner with no trusted runtime coverage refuses either way.
  */
-export function planUnits({ root, crates, readJson = defaultReadJson, readPackage = readCargoPackage, dependsOn }) {
+export function planUnits({ root, crates, readJson = defaultReadJson, readPackage = readCargoPackage, dependsOn, runtimeCoverage = [], withCi = false }) {
   const gateConfig = readJson(path.join(root, "ci", "gate.config.json")) ?? {};
   const assetGated = (readJson(path.join(root, "ci", "asset-gated.json")) ?? {}).crates ?? {};
   const linux = readJson(path.join(root, "ci", "linux-required.json"));
   if (!linux || linux.schema !== 1 || !Array.isArray(linux.crates)) refuse("ci/linux-required.json is missing or malformed; the Linux requirement cannot be derived");
   const members = new Set(crates);
   const deps = dependsOn ?? ((name) => pathDependencyDirs(path.join(root, "crates", name)).map((dir) => path.basename(dir)).filter((dep) => members.has(dep) && dep !== name));
-  const info = new Map();
+  const info = new Map(); const ciOnly = new Set();
   for (const name of crates) {
     const dir = `crates/${name}`;
     if (!fs.existsSync(path.join(root, dir))) refuse(`unit directory not found: ${dir}`);
     const pkg = readPackage(path.join(root, dir));
     if (pkg.name !== name) refuse(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crates entry ${name}`);
     if (typeof pkg.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(pkg.version)) refuse(`${name}: version ${JSON.stringify(pkg.version)} is not a plain x.y.z release version`);
-    if (linux.crates.includes(name)) refuse(`${name} requires a Linux receipt, which local qualification cannot produce; qualify it with publish.yml`);
-    // The authenticated isolated runtime proof of a continuous owner exists only on the Actions path; admission would hold it hours from now.
-    if (RUNTIME_BUDGET_CRATES.includes(name)) refuse(`${name} is a continuous runtime owner whose runtime proof exists only on the Actions path; qualify it with publish.yml`);
+    if (linux.crates.includes(name)) {
+      if (!withCi) refuse(`${name} requires a Linux receipt, which local qualification cannot produce; qualify it with publish.yml, or pass --with-ci so its GitHub run, which has the Linux job, is its proof`);
+      ciOnly.add(name);
+    }
+    // A continuous runtime owner is qualified locally with a runtime proof on each host (local-runtime.mjs). That needs trusted
+    // workloads to run: a listed owner without pinned coverage has none, so no host can prove it (CI cannot either).
+    if (RUNTIME_BUDGET_CRATES.includes(name) && !runtimeCoverage.includes(name)) refuse(`${name} is a continuous runtime owner with no trusted runtime coverage (scripts/ci/runtime-qualify.mjs TRUSTED_COVERAGE), so there is no workload for any host to run (--with-ci does not help: publish.yml has no runtime workload either); pin its coverage first`);
     const hosts = gateConfig.rust?.[name]?.os;
+    if (RUNTIME_BUDGET_CRATES.includes(name) && hosts && !(hosts.includes("windows") && hosts.includes("macos"))) refuse(`${name}: a runtime owner needs its runtime proof on both native hosts, but ci/gate.config.json restricts it to ${hosts.join(", ")}`);
     if (hosts && !hosts.includes("macos")) refuse(`${name}: ci/gate.config.json restricts it to ${hosts.join(", ")}; crates are packed on macOS`);
     info.set(name, { name, version: pkg.version, dir, excludedOn: hosts && !hosts.includes("windows") ? ["win"] : [] });
   }
@@ -186,6 +294,7 @@ export function planUnits({ root, crates, readJson = defaultReadJson, readPackag
   return {
     units: order.map((name) => info.get(name)), layers: deriveCrateLayers(crates, deps),
     allow: { hostExclusion: order.filter((name) => info.get(name).excludedOn.length), noTest: [], ignored: [], missingAssets: order.filter((name) => Object.hasOwn(assetGated, name)) },
+    ciRequired: order.filter((name) => ciOnly.has(name)),
   };
 }
 
@@ -276,7 +385,16 @@ function detectCargoCommand(deps) {
   return refuse("neither `rightkit` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used");
 }
 
-const loadFromRoot = (root, file) => import(pathToFileURL(path.join(root, "scripts", "ci", file)).href);
+const loadFromRoot = (root, file) => {
+  const target = path.join(root, "scripts", "ci", file);
+  if (!fs.existsSync(target)) refuse(`${root} has no scripts/ci/${file}; local qualification runs the repository's own CI scripts (the ones its promotion workflow runs), so a repository without them cannot qualify crates this way`);
+  return import(pathToFileURL(target).href);
+};
+/** The qualifying checkout's own right-release CLI: the source layout, else the installed package; the source path when neither exists (the run then reports it). */
+const cliOf = (root) => {
+  for (const rel of [["packages", "release", "cli", "right-release.mjs"], ["node_modules", "@rightkit", "release", "cli", "right-release.mjs"]]) if (fs.existsSync(path.join(root, ...rel))) return path.join(root, ...rel);
+  return path.join(root, "packages", "release", "cli", "right-release.mjs");
+};
 
 /** The deterministic scans over the units' scope (class A then class B), recorded the way scan-receipt.mjs verifies them. */
 async function localScanRecord({ root, commit, crates, jobs, scratch, deps, log }) {
@@ -307,9 +425,15 @@ async function localScanRecord({ root, commit, crates, jobs, scratch, deps, log 
  * packed .crate and the gate evidence (from `publish cargo --local --qualify-only`), and on the canonical host the upload
  * metadata. Any failure refuses the whole host: a partial bundle is never a candidate.
  */
+/** The repository a host measures runtime proof for: the driver passes it (--repository) for any repository but RightKit; otherwise it is the host's own origin remote. */
+function repositoryOf({ git, root }) {
+  const repository = repositoryFromOrigin(git(["remote", "get-url", "origin"], root));
+  return repository ?? refuse("cannot derive owner/name from the origin remote; pass --repository owner/name");
+}
+
 export async function qualifyHost(options, deps = {}) {
   const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
-  const { root, id, commit, crates, exclude = [], allowIgnoredUnits = [], jobs, concurrency = 2, canonical = false } = options;
+  const { root, id, commit, crates, exclude = [], allowIgnoredUnits = [], jobs, concurrency = 2, canonical = false, runtimeRepeats = 3, waitIdleMin = 30 } = options;
   const out = path.resolve(options.out);
   const platform = deps.platform ?? process.platform;
   const hostKey = localHostKey(platform);
@@ -329,7 +453,7 @@ export async function qualifyHost(options, deps = {}) {
   if (scans.passed !== true) refuse(`${hostKey}: deterministic scans did not pass:\n  - ${scans.problems.join("\n  - ")}`);
   // Async so a long unit never stops this process draining the other host's output.
   const run = deps.runAsync ?? ((command, args, options) => spawnCollect(command, args, options));
-  const cli = path.join(root, "packages", "release", "cli", "right-release.mjs");
+  const cli = cliOf(root);
   const rows = new Array(unitInfo.length);
   const queue = unitInfo.map((unit, index) => ({ unit, index }));
   const failures = [];
@@ -362,7 +486,21 @@ export async function qualifyHost(options, deps = {}) {
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, unitInfo.length) }, worker));
   if (failures.length) refuse(`${hostKey}: qualification failed:\n  - ${failures.join("\n  - ")}`);
-  const result = { schema: 1, kind: "local-host-result", host: HOSTS[hostKey].name, hostOs: platform, arch: deps.arch ?? process.arch, candidateId: id, commit, tree, broker, qualifiedAt: (deps.now ?? (() => new Date().toISOString()))(), scans, units: rows };
+  // Runtime owners: measured AFTER every other unit finished, one at a time, because a quiet host is the precondition. The host
+  // proves each on its own broker; nothing here can be satisfied by the other host (admission needs both).
+  let runtime;
+  const runtimeRows = rows.filter((row) => RUNTIME_BUDGET_CRATES.includes(row.name));
+  if (runtimeRows.length) {
+    const excluded = runtimeRows.filter((row) => row.status === "allowed-exclusion").map((row) => row.name);
+    if (excluded.length) refuse(`${hostKey}: ${excluded.join(", ")} ${excluded.length > 1 ? "are runtime owners" : "is a runtime owner"}; the runtime proof needs both native hosts, so it cannot be excluded from one`);
+    runtime = { schema: 1, kind: "local-runtime", crates: {} };
+    for (const row of runtimeRows) {
+      try {
+        runtime.crates[row.name] = await (deps.measureRuntime ?? measureRuntimeCrate)({ root, commit, crate: row.name, version: row.version, archiveSha256: row.sha256, candidateId: id, broker, cargoCommand: detectCargoCommand(deps), repository: options.repository ?? repositoryOf({ git, root }), scratch: path.join(path.dirname(out), `${path.basename(out)}-runtime-scratch`), repeats: runtimeRepeats, waitIdleMs: waitIdleMin * 60_000, log }, deps.runtime ?? {});
+      } catch (error) { refuse(`${hostKey}: runtime proof for ${row.name} refused:\n  - ${String(error.message).split("\n").join("\n    ")}`); }
+    }
+  }
+  const result = { schema: 1, kind: "local-host-result", host: HOSTS[hostKey].name, hostOs: platform, arch: deps.arch ?? process.arch, candidateId: id, commit, tree, broker, qualifiedAt: (deps.now ?? (() => new Date().toISOString()))(), scans, units: rows, ...(runtime ? { runtime } : {}) };
   fs.writeFileSync(path.join(out, "host-result.json"), `${JSON.stringify(result, null, 2)}\n`);
   writeBundleManifest(out);
   log(`[local-qualify] ${hostKey}: ${rows.length} unit(s) qualified; bundle ${out}`);
@@ -414,9 +552,9 @@ export function writeStoredZip(entries) {
 }
 
 /** The sealed manifest (loadSealed shape) over the canonical host's archives and upload metadata, in dependency order. */
-export function buildManifest({ id, commit, units }) {
+export function buildManifest({ id, commit, units, repository = REPOSITORY }) {
   return {
-    schema: 1, registry: "crates", commit, repository: REPOSITORY, source: "local", candidateId: id,
+    schema: 1, registry: "crates", commit, repository, source: "local", candidateId: id,
     units: units.map(({ name, version, dir, crate, metadata }) => ({ name, version, dir, file: `${name}-${version}.crate`, size: crate.length, sha256: sha256(crate), metaFile: `${name}-${version}.upload.json`, metaSha256: sha256(metadata) })),
   };
 }
@@ -429,6 +567,7 @@ export function buildReceipt({ result, candidateId, manifestSha256, allow }) {
     allowHostExclusion: [...allow.hostExclusion], allowNoTest: [...allow.noTest], allowIgnored: [...allow.ignored], allowMissingAssets: [...allow.missingAssets],
     scans: result.scans,
     units: result.units.map((row) => ({ ...row })),
+    ...(result.runtime ? { runtime: bindRuntimeManifest(result.runtime, manifestSha256) } : {}),
   };
 }
 
@@ -437,7 +576,7 @@ export function buildReceipt({ result, candidateId, manifestSha256, allow }) {
  * tree or archive bytes differ from the canonical host's: every host must have qualified the bytes that will be uploaded.
  * Returns the files to write and the candidate JSON, and runs the same loadSealed/checkLocalReceipts the promotion runs.
  */
-export function sealCandidate({ id, commit, tree, plan, bundles, readFile = fs.readFileSync, stage }) {
+export function sealCandidate({ id, commit, tree, plan, bundles, readFile = fs.readFileSync, stage, repository = REPOSITORY }) {
   const results = {};
   for (const [key, dir] of Object.entries(bundles)) {
     const result = JSON.parse(readFile(path.join(dir, "host-result.json"), "utf8"));
@@ -458,7 +597,7 @@ export function sealCandidate({ id, commit, tree, plan, bundles, readFile = fs.r
     return { name: unit.name, version: unit.version, dir: unit.dir, crate, metadata };
   });
   const allow = { ...plan.allow, ignored: plan.units.filter((unit) => Object.values(results).some((result) => (result.units.find((row) => row.name === unit.name)?.ignored ?? 0) > 0)).map((unit) => unit.name) };
-  const manifest = buildManifest({ id, commit, units });
+  const manifest = buildManifest({ id, commit, units, repository });
   const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
   const manifestSha256 = sha256(manifestBytes);
   const files = [{ name: "manifest.json", data: manifestBytes }, ...units.flatMap((unit) => [{ name: `${unit.name}-${unit.version}.crate`, data: unit.crate }, { name: `${unit.name}-${unit.version}.upload.json`, data: unit.metadata }])];
@@ -469,10 +608,83 @@ export function sealCandidate({ id, commit, tree, plan, bundles, readFile = fs.r
 }
 
 /** Candidate JSON and the approval skeleton. reviewer/reviewRef are null on purpose: null fails the approval loader until a reviewer fills it. */
-export function candidateDocument({ id, commit, units, allow, names, hashes }) {
-  const candidate = { id, source: "local", sourceSha: commit, registry: "crates", units: units.map((unit) => unit.name), allow, release: { tag: `candidate-${id}` }, assets: Object.fromEntries(Object.entries(names).map(([kind, name]) => [kind, { name, sha256: hashes[kind] }])) };
+export function candidateDocument({ id, commit, units, allow, names, hashes, ci }) {
+  const candidate = { id, source: "local", sourceSha: commit, registry: "crates", units: units.map((unit) => unit.name), allow, release: { tag: `candidate-${id}` }, assets: Object.fromEntries(Object.entries(names).map(([kind, name]) => [kind, { name, sha256: hashes[kind] }])), ...(ci ? { ci } : {}) };
   const artifacts = units.map((unit) => ({ registry: "crates", name: unit.name, version: unit.version, sha256: sha256(unit.crate), reviewer: null, reviewRef: null }));
   return { candidate, approval: { candidates: [candidate], artifacts } };
+}
+
+// ---- the GitHub qualification that rides with the local one (--with-ci) -------------------------
+
+export const CI_WORKFLOW = "publish.yml";
+const RUN_FIELDS = "databaseId,headSha,headBranch,event,createdAt,workflowDatabaseId,status";
+const POSITIVE = /^[1-9][0-9]*$/;
+const LOCK_STALE_MS = 5 * 60 * 1000;
+
+/** The `gh` arguments that start the qualification workflow for exactly these units, with the allowsets the local plan carries. */
+export function ciDispatchArgs({ repository, units, allow = {} }) {
+  const args = ["workflow", "run", CI_WORKFLOW, "-R", repository, "--ref", "main", "-f", "registry=crates", "-f", `units=${units.join(" ")}`];
+  for (const [input, names] of [["allow_host_exclusion", allow.hostExclusion], ["allow_ignored", allow.ignored], ["allow_missing_assets", allow.missingAssets]]) if (names?.length) args.push("-f", `${input}=${names.join(" ")}`);
+  return args;
+}
+
+/** The dispatch-and-capture window of one process at a time on this machine: another batch's new run must not be mistaken for ours. */
+async function withDispatchLock(dir, { sleep, log }, fn) {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, ".ci-dispatch.lock");
+  let fd;
+  for (let tries = 0; fd === undefined; tries += 1) {
+    try { fd = fs.openSync(file, "wx"); } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let age = 0; try { age = Date.now() - fs.statSync(file).mtimeMs; } catch { continue; }
+      if (age > LOCK_STALE_MS) { try { fs.unlinkSync(file); } catch { /* another process took it */ } continue; }
+      if (tries >= 120) refuse(`ci: another qualification has held ${file} for two minutes; remove it if that process is gone`);
+      if (tries === 0) log(`[qualify] ci: waiting for another dispatch on this machine to be captured`);
+      await sleep(1000);
+    }
+  }
+  try { fs.writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`); return await fn(); } finally { try { fs.closeSync(fd); } catch { /* closed */ } try { fs.unlinkSync(file); } catch { /* gone */ } }
+}
+
+/**
+ * Start the publish.yml qualification for the commit the hosts qualify and capture the run it created: { workflowId, runId,
+ * sourceSha, units, dispatchedAt }, the `ci` block of the candidate. Only a run that did not exist before the dispatch, on main, by
+ * hand, at this commit, and created after the dispatch is taken; one such run is ours, any other count refuses (never a guess).
+ * Several batches may be in flight: only this capture window is serialised, never the runs themselves.
+ */
+export async function dispatchCi({ repository, sourceSha, units, allow = {}, lockDir, deps = {}, log }) {
+  const spawn = deps.spawn ?? spawnSync;
+  const sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const pollMs = deps.ciPollMs ?? 3000; const polls = deps.ciPolls ?? 20;
+  const gh = (args) => {
+    const result = spawn("gh", args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+    if (result.error || result.status !== 0) refuse(`ci: gh ${args.slice(0, 2).join(" ")} failed: ${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
+    return String(result.stdout ?? "");
+  };
+  const runs = () => {
+    let rows; try { rows = JSON.parse(gh(["run", "list", "-R", repository, "--workflow", CI_WORKFLOW, "--branch", "main", "--event", "workflow_dispatch", "--commit", sourceSha, "--limit", "50", "--json", RUN_FIELDS])); } catch (error) { if (error instanceof QualifyError) throw error; refuse("ci: gh run list did not print JSON"); }
+    if (!Array.isArray(rows)) refuse("ci: gh run list did not print a list");
+    return rows;
+  };
+  return withDispatchLock(lockDir, { sleep, log }, async () => {
+    const before = new Set(runs().map((row) => String(row.databaseId)));
+    const dispatchedAt = (deps.now ?? (() => new Date().toISOString()))();
+    gh(ciDispatchArgs({ repository, units, allow }));
+    const earliest = Date.parse(dispatchedAt) - 60_000;
+    for (let poll = 0; poll < polls; poll += 1) {
+      await sleep(pollMs);
+      const fresh = runs().filter((row) => !before.has(String(row.databaseId)) && row.headSha === sourceSha && row.event === "workflow_dispatch" && row.headBranch === "main" && Date.parse(row.createdAt) >= earliest);
+      if (fresh.length > 1) refuse(`ci: ${fresh.length} new ${CI_WORKFLOW} runs appeared for ${sourceSha.slice(0, 12)} (${fresh.map((row) => row.databaseId).join(", ")}); this dispatch cannot be told from another one, so none is pinned; cancel the extras and rerun`);
+      if (fresh.length === 1) {
+        const [row] = fresh;
+        if (!POSITIVE.test(String(row.databaseId)) || !POSITIVE.test(String(row.workflowDatabaseId))) refuse("ci: the dispatched run has no run or workflow id");
+        const ci = { workflowId: String(row.workflowDatabaseId), runId: String(row.databaseId), sourceSha, units: [...units], dispatchedAt };
+        log(`[qualify] ci: ${CI_WORKFLOW} run ${ci.runId} (workflow ${ci.workflowId}) dispatched for ${sourceSha.slice(0, 12)}: ${units.join(" ")}`);
+        return ci;
+      }
+    }
+    refuse(`ci: the dispatched ${CI_WORKFLOW} run did not appear within ${Math.round((polls * pollMs) / 1000)}s; check \`gh run list -R ${repository} --workflow ${CI_WORKFLOW}\``);
+  });
 }
 
 // ---- driver -----------------------------------------------------------------------------------
@@ -489,46 +701,59 @@ export async function runQualify(argv, deps = {}) {
   const root = deps.root ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const git = deps.git ?? defaultGit;
   const { head, tree } = checkoutState({ git, root });
-  const plan = planUnits({ root, crates: parsed.crates, readJson: deps.readJson, readPackage: deps.readPackage, dependsOn: deps.dependsOn });
+  const config = loadQualifyConfig({ root, git, readText: deps.readText, exists: deps.exists });
+  const roots = Object.fromEntries(parsed.hosts.map((key) => [key, hostRoot({ key, flags: parsed.roots, config })]));
+  const reviewed = await (deps.loadReviewed ?? ((workspace) => loadFromRoot(workspace, "reviewed-candidate.mjs")))(root);
+  const plan = planUnits({ root, crates: parsed.crates, readJson: deps.readJson, readPackage: deps.readPackage, dependsOn: deps.dependsOn, runtimeCoverage: Object.keys(reviewed.RUNTIME_PROOF_WORKLOADS), withCi: parsed.withCi });
+  if (parsed.withCi) {
+    // The GitHub run starts from main's tip: HEAD must BE that tip, or the run would qualify other bytes than the hosts do.
+    const tip = String(git(["ls-remote", "origin", "refs/heads/main"], root) ?? "").split(/\s+/)[0];
+    if (tip !== head) refuse(`--with-ci: HEAD ${head.slice(0, 12)} is not origin/main's tip (${SHA40.test(tip) ? tip.slice(0, 12) : "unreadable"}); the GitHub run starts from main, so qualify from the tip (pull, or push first)`);
+  }
   const id = parsed.id ?? candidateIdFor({ crates: parsed.crates, version: plan.units[0].version, head });
   const outDir = path.join(parsed.outRoot, id);
   const exec = deps.exec ?? ((command, args, options) => spawnCollect(command, args, { encoding: "utf8", windowsHide: true, maxBuffer: 1024 * 1024 * 1024, timeout: HOST_TIMEOUT_MS, ...options }));
   const remoteNode = deps.remoteNode ?? process.env.RK_LOCALQ_REMOTE_NODE ?? "node";
-  log(`[qualify] ${id}: ${plan.units.map((unit) => `${unit.name}@${unit.version}`).join(", ")} at ${head.slice(0, 12)} on ${parsed.hosts.join(" + ")}`);
+  const script = deps.script ?? remoteScriptPath(root);
+  log(`[qualify] ${id}: ${plan.units.map((unit) => `${unit.name}@${unit.version}`).join(", ")} at ${head.slice(0, 12)} on ${parsed.hosts.join(" + ")} (${config.repository})`);
 
   const runHost = async (key) => {
     const host = HOSTS[key];
     const hostOut = `${key === here ? outDir : `${host.scratch}/${id}`}/${key}`;
-    const args = hostArgs({ root: parsed.roots[key], id, commit: head, crates: parsed.crates, out: hostOut, exclude: plan.units.filter((unit) => unit.excludedOn.includes(key)).map((unit) => unit.name), allowIgnoredUnits: parsed.allowIgnoredUnits, jobs: parsed.jobs, concurrency: parsed.concurrency, canonical: key === CANONICAL_HOST });
+    const args = hostArgs({ root: roots[key], id, commit: head, crates: parsed.crates, out: hostOut, exclude: plan.units.filter((unit) => unit.excludedOn.includes(key)).map((unit) => unit.name), allowIgnoredUnits: parsed.allowIgnoredUnits, jobs: parsed.jobs, concurrency: parsed.concurrency, runtimeRepeats: parsed.runtimeRepeats, waitIdleMin: parsed.waitIdleMin, canonical: key === CANONICAL_HOST, ...(config.repository === REPOSITORY ? {} : { repository: config.repository }) });
     if (key === here) {
       const options = parseHostArgs(args.slice(1));
       const { out } = await (deps.qualifyHost ?? qualifyHost)({ ...options, root }, deps.host ?? {});
       return out;
     }
-    const reach = reachArgs(here, remoteCommand({ root: parsed.roots[key], args, node: remoteNode }));
+    const reach = reachArgs(here, remoteCommand({ root: roots[key], args, node: remoteNode, script }));
     const ran = await exec(reach.command, reach.args, {});
     if (ran.error || ran.status !== 0) refuse(`${key}: remote qualification failed (${ran.error?.message ?? `exit ${ran.status}`})\n${tail(`${ran.stdout ?? ""}\n${ran.stderr ?? ""}`)}`);
-    const pull = reachArgs(here, remoteCommand({ root: parsed.roots[key], args: ["export", "--dir", hostOut], node: remoteNode }));
+    const pull = reachArgs(here, remoteCommand({ root: roots[key], args: ["export", "--dir", hostOut], node: remoteNode, script }));
     const exported = await exec(pull.command, pull.args, {});
     if (exported.error || exported.status !== 0) refuse(`${key}: cannot pull the bundle (${exported.error?.message ?? `exit ${exported.status}`})\n${tail(exported.stderr)}`);
     return importBundle(exported.stdout, path.join(outDir, key));
   };
-  // Both hosts run at once; one host failing does not hide the other's result.
-  const settled = await Promise.allSettled(parsed.hosts.map(runHost));
+  // Both hosts run at once, and under --with-ci the GitHub qualification of the same commit starts with them; one failing does
+  // not hide the others' results.
+  const hostRuns = parsed.hosts.map(runHost);
+  const ciRun = parsed.withCi ? dispatchCi({ repository: config.repository, sourceSha: head, units: plan.units.map((unit) => unit.name), allow: { hostExclusion: plan.allow.hostExclusion, ignored: parsed.allowIgnoredUnits, missingAssets: plan.allow.missingAssets }, lockDir: parsed.outRoot, deps, log }) : null;
+  const labels = [...parsed.hosts, ...(ciRun ? ["ci"] : [])];
+  const settled = await Promise.allSettled([...hostRuns, ...(ciRun ? [ciRun] : [])]);
   const failed = settled.map((row, index) => {
     if (row.status !== "rejected") return null;
     const message = String(row.reason?.message ?? row.reason);
-    return message.startsWith(`${parsed.hosts[index]}:`) ? message : `${parsed.hosts[index]}: ${message}`;
+    return message.startsWith(`${labels[index]}:`) ? message : `${labels[index]}: ${message}`;
   }).filter(Boolean);
   if (failed.length) refuse(`qualification failed:\n${failed.join("\n")}`);
   const bundles = Object.fromEntries(parsed.hosts.map((key, index) => [key, settled[index].value]));
+  const ci = ciRun ? settled[parsed.hosts.length].value : null;
   for (const dir of Object.values(bundles)) verifyBundle(dir);
   if (!(parsed.hosts.includes("win") && parsed.hosts.includes("mac"))) {
     log(`[qualify] ${id}: only ${parsed.hosts.join(", ")} ran; bundles are in ${outDir}. A candidate needs both hosts, so none is cut.`);
     return { id, outDir, bundles, candidate: null };
   }
   const upload = await (deps.loadUpload ?? ((workspace) => loadFromRoot(workspace, "upload.mjs")))(root);
-  const reviewed = await (deps.loadReviewed ?? ((workspace) => loadFromRoot(workspace, "reviewed-candidate.mjs")))(root);
   const assetsDir = path.join(outDir, "assets"); const stageDir = path.join(outDir, "stage");
   // The staged layout is the one promotion rebuilds from the release assets; the same loaders judge it before anything is uploaded.
   const stage = ({ files, receipts, allow }) => {
@@ -537,30 +762,32 @@ export async function runQualify(argv, deps = {}) {
     for (const [host, data] of Object.entries(receipts)) { fs.mkdirSync(path.join(stageDir, "receipts", host), { recursive: true }); fs.writeFileSync(path.join(stageDir, "receipts", host, `receipt-${host}.json`), data, { flag: "wx" }); }
     const staged = upload.loadSealed({ packDir: path.join(stageDir, "packed"), registry: "crates", unitsText: plan.units.map((unit) => unit.name).join(" ") });
     const problems = [...staged.problems];
-    if (staged.manifest) problems.push(...upload.checkLocalReceipts({ manifest: staged.manifest, manifestSha256: staged.manifestSha256, receiptsDir: path.join(stageDir, "receipts"), allow, candidate: { id } }));
+    // A Linux-required unit has no Linux receipt here: the pinned CI run is its Linux proof (promotion requires that run to succeed).
+    if (staged.manifest) problems.push(...upload.checkLocalReceipts({ manifest: staged.manifest, manifestSha256: staged.manifestSha256, receiptsDir: path.join(stageDir, "receipts"), allow, candidate: { id }, ...(ci ? { linuxRequired: [] } : {}) }));
     if (problems.length) refuse(`the sealed candidate would be refused at promotion:\n  - ${problems.join("\n  - ")}`);
   };
-  const sealed = sealCandidate({ id, commit: head, tree, plan, bundles, stage });
+  const sealed = sealCandidate({ id, commit: head, tree, plan, bundles, stage, repository: config.repository });
   fs.mkdirSync(assetsDir, { recursive: true });
   const names = { packed: reviewed.localAssetName(id, "packed"), windows: reviewed.localAssetName(id, "windows"), macos: reviewed.localAssetName(id, "macos") };
   const contents = { packed: sealed.zip, windows: sealed.receipts.windows, macos: sealed.receipts.macos };
   const hashes = {};
   for (const [kind, name] of Object.entries(names)) { fs.writeFileSync(path.join(assetsDir, name), contents[kind], { flag: "wx" }); hashes[kind] = sha256(contents[kind]); }
-  const document = candidateDocument({ id, commit: head, units: sealed.units, allow: sealed.allow, names, hashes });
+  const document = candidateDocument({ id, commit: head, units: sealed.units, allow: sealed.allow, names, hashes, ci });
   reviewed.validateCandidate(structuredClone(document.candidate));
   fs.writeFileSync(path.join(outDir, "candidate.json"), `${JSON.stringify(document, null, 2)}\n`, { flag: "wx" });
   if (parsed.release) {
     const tag = document.candidate.release.tag;
-    const created = (deps.spawn ?? spawnSync)("gh", ["release", "create", tag, "--repo", REPOSITORY, "--prerelease", "--target", head, "--title", `Local qualification ${id}`, "--notes", `Locally qualified candidate ${id} at ${head}. Not a release; promoted only by publish-reviewed.yml after its pins are committed.`, ...Object.values(names).map((name) => path.join(assetsDir, name))], { encoding: "utf8", windowsHide: true });
+    const created = (deps.spawn ?? spawnSync)("gh", ["release", "create", tag, "--repo", config.repository, "--prerelease", "--target", head, "--title", `Local qualification ${id}`, "--notes", `Locally qualified candidate ${id} at ${head}. Not a release; promoted only by ${config.promotionWorkflow} after its pins are committed.`, ...Object.values(names).map((name) => path.join(assetsDir, name))], { encoding: "utf8", windowsHide: true });
     if (created.error || created.status !== 0) refuse(`gh release create failed: ${tail(`${created.stdout ?? ""}\n${created.stderr ?? ""}`)}`);
-    const view = (deps.spawn ?? spawnSync)("gh", ["api", `repos/${REPOSITORY}/releases/tags/${tag}`], { encoding: "utf8", windowsHide: true });
+    const view = (deps.spawn ?? spawnSync)("gh", ["api", `repos/${config.repository}/releases/tags/${tag}`], { encoding: "utf8", windowsHide: true });
     let release; try { release = JSON.parse(view.stdout); } catch { refuse("cannot read the created prerelease back"); }
     const have = new Map((release.assets ?? []).map((asset) => [asset.name, asset.size]));
     if (release.prerelease !== true || Object.values(names).some((name) => have.get(name) !== fs.statSync(path.join(assetsDir, name)).size) || have.size !== Object.keys(names).length) refuse(`the prerelease ${tag} does not hold exactly the three assets`);
     log(`[qualify] prerelease ${tag} created and read back`);
   }
-  log(`[qualify] candidate ${id} sealed. Add this to ci/approved-artifacts.json (a reviewer sets reviewer and reviewRef, adds the two publish.test.mjs lines, commits; nothing was written for you):`);
+  log(`[qualify] candidate ${id} sealed. Add this to ${config.approvedArtifacts} (a reviewer sets reviewer and reviewRef, adds the two publish.test.mjs lines, commits; ${config.promotionWorkflow} then promotes it; nothing was written for you):`);
   log(JSON.stringify(document, null, 2));
+  if (ci) log(`[qualify] ci: run ${ci.runId} is pinned in the candidate; promotion admits it as clean-room proof when it lands (${plan.ciRequired?.length ? `its success is REQUIRED for ${plan.ciRequired.join(", ")}` : "pending proceeds on the local bytes, a failure needs allow.ciFailure"}). Watch it: gh run watch ${ci.runId} -R ${config.repository}`);
   return { id, outDir, bundles, candidate: document.candidate, document };
 }
 

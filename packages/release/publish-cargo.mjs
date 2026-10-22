@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingFeatureSets } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
+import { refuseHostUpload } from "./host-upload-refusal.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { readVerifiedArtifact, assertArtifactUnchanged } from "./publication-artifacts.mjs";
 import { verifyCargoRegistry } from "./cargo-registry-readback.mjs";
@@ -318,6 +319,8 @@ function valueAfter(argv, flag) {
 
 async function main() {
   const options = parseCargoPublishArgs(process.argv.slice(2));
+  // Every non---dry-run call (including --from-evidence) is an upload: refused on every host, with no environment override.
+  if (!options.dryRun) refuseHostUpload("right-release publish cargo");
   const result = await runCargoPublish(options);
   process.stdout.write(`[right-release] ${options.dryRun ? "validated" : "published"} ${options.crate}\n`);
   if (!options.dryRun) {

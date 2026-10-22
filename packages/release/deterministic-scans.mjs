@@ -24,7 +24,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
-import { canonicalJson, digestScanSet } from "./scan-digest.mjs";
+import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
@@ -66,18 +66,35 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 
 // canonicalJson and digestScanSet live in the dependency-free scan-digest.mjs, so credentialed CI code that verifies
 // scan receipts never loads this scanner.
-export { canonicalJson, digestScanSet };
+export { canonicalJson, digestScanSet, requiredScanIds };
 
 // ---- gate result cache --------------------------------------------------------------------------------
 // A passing class B scan is reused on a later run only when every input is identical: the key is the sha256 of the
-// canonical JSON of the scan id, its command text, the probed tool version, the environment the scan sets and an input
+// canonical JSON of the scan id, its command text, the probed tool version, the environment the scan sets, a digest of the full environment its child inherits and an input
 // digest the caller computes from the gated commit's object ids (bin/rightkit-gate.mjs). Only "pass" rows are stored
 // (never fail, deferred or not-run), and class A content scans are never cached. A changed input changes the key, so
 // there is no separate invalidation; a corrupt or foreign file is a miss.
 
-/** The cache key for one scan; `digest` is the caller's input digest. */
-export function scanCacheKey({ id, command, toolVersion, env = {}, digest }) {
-  return sha256(canonicalJson({ id: String(id), command: String(command), toolVersion: String(toolVersion), env: { ...env }, digest: String(digest) }));
+// Environment names that differ run to run and cannot change what a scan proves. Everything else the child inherits
+// (CI, RUSTFLAGS, CARGO_*, RUSTUP_TOOLCHAIN, PATH, ...) is part of the key: over-invalidation is acceptable, a stale pass is not.
+const VOLATILE_ENV_NAMES = new Set(["PWD", "OLDPWD", "SHLVL", "_", "PROMPT", "PS1", "TERM_SESSION_ID", "WT_SESSION", "SSH_AUTH_SOCK", "RANDOM"]);
+const VOLATILE_ENV_PREFIXES = ["WEZTERM_", "CLAUDE_"];
+const volatileEnvName = (name) => { const upper = String(name).toUpperCase(); return VOLATILE_ENV_NAMES.has(upper) || VOLATILE_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix)); };
+
+/** sha256 of the full environment a scan's child receives, minus the volatile names above. Pass the merged `{ ...deps.env, ...scan.env }`. */
+export function inheritedEnvDigest(env = {}) {
+  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && !volatileEnvName(name)).map(([name, value]) => [String(name), String(value)]);
+  rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
+  return sha256(canonicalJson(rows));
+}
+
+/**
+ * The cache key for one scan; `digest` is the caller's input digest, `env` the scan's own environment and `inheritedEnv`
+ * the digest of the whole environment the child receives (inheritedEnvDigest). A key without the inherited digest is refused.
+ */
+export function scanCacheKey({ id, command, toolVersion, env = {}, inheritedEnv, digest }) {
+  if (typeof inheritedEnv !== "string" || !/^[0-9a-f]{64}$/.test(inheritedEnv)) throw new TypeError("scanCacheKey: inheritedEnv must be the inheritedEnvDigest of the child environment");
+  return sha256(canonicalJson({ id: String(id), command: String(command), toolVersion: String(toolVersion), env: { ...env }, inheritedEnv, digest: String(digest) }));
 }
 
 const CACHE_KEY_SHAPE = /^[0-9a-f]{64}$/;
@@ -192,10 +209,17 @@ export function planScans({
   rustScope = null,
   // Repository-specific units for any layout: [{ name, dir, publish? }], dir repo-relative ("." for a root unit). When given they
   // replace the crates/<name> and packages/<name> layout (rightkit-gate). `cargoDir` is the Cargo workspace root the cargo scans run in.
+  // A rust unit may name its own workspace: { name, dir, cargoDir, crate, publish? } runs its scans with cwd cargoDir and `-p <crate>`;
+  // `name` is then the unit's identity in scan ids and feature config (rightkit-gate names it `<cargoDir>:<crate>` below the root), and
+  // `crateFeatures` is read by `name` first, then by `crate`. Units of different workspaces never share a lock, a deny/audit run or a
+  // `cargo metadata`; a unit that sets no cargoDir belongs to the global `cargoDir` above.
   rustUnits = null, npmUnits = null, cargoDir = ".",
   // Parsed Cargo.lock graph (lock-graph.mjs parseLock). With it, every workspace crate that depends on a crate in scope and is
   // not itself in scope gets a `check-dependent` scan, as CI's rust-check rows do. null plans none.
   rustLock = null,
+  // The same per Cargo workspace: { [cargoDir]: parsedLock }. A workspace without an entry here (and not the global `cargoDir`) plans
+  // no reverse dependents.
+  rustLocks = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rightkit", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -232,8 +256,10 @@ export function planScans({
   const A = SCAN_CLASS.A; const B = SCAN_CLASS.B;
   const refuse = (what, why) => add({ id: `path-policy:${sha256(`${what}\0${why}`).slice(0, 12)}`, class: A, internal: "refuse", detail: `${what}: ${why}; refused, never run` });
   for (const r of refusals) refuse(`changed path ${JSON.stringify(r.raw)}`, r.why);
+  // A rust unit's name may be `<cargoDir>:<crate>`; the part that reaches argv (`-p`) is the crate, and the workspace directory is
+  // checked as a plain path where the unit is registered.
   const safeUnits = (names, kind) => names.filter((n) => {
-    if (SAFE_UNIT_NAME.test(n)) return true;
+    if (SAFE_UNIT_NAME.test(kind === "crate" ? crateOf(n) : n)) return true;
     refuse(`${kind} directory name ${JSON.stringify(n)}`, "not a plain name");
     return false;
   });
@@ -242,7 +268,7 @@ export function planScans({
   const plainDir = (d) => !ABSOLUTE_PATH.test(d) && !d.split("/").includes("..") && SAFE_UNIT_DIR.test(d);
   const cargoWs = cleanDir(cargoDir);
   if (!plainDir(cargoWs)) throw new TypeError("planScans: cargoDir must be a plain repository-relative directory");
-  const cargo = (...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(cargoWs !== "." ? { cwd: cargoWs } : {}) });
+  const cargoIn = (ws, ...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args], ...(ws !== "." ? { cwd: ws } : {}) });
   const unitMap = (units, kind) => {
     if (units === null) return null;
     if (!Array.isArray(units)) throw new TypeError(`planScans: ${kind}Units must be an array of { name, dir }`);
@@ -252,11 +278,30 @@ export function planScans({
       if (map.has(u.name)) throw new TypeError(`planScans: duplicate ${kind} unit ${u.name}`);
       const dir = cleanDir(u.dir);
       if (!plainDir(dir)) { refuse(`${kind} unit ${JSON.stringify(u.name)} directory ${JSON.stringify(u.dir)}`, "not a plain repository-relative path"); continue; }
-      map.set(u.name, { dir, publish: u.publish !== false });
+      const entry = { dir, publish: u.publish !== false };
+      if (kind === "rust") {
+        if (u.crate !== undefined && typeof u.crate !== "string") throw new TypeError(`planScans: rust unit ${u.name} needs a string crate`);
+        entry.crate = u.crate ?? u.name;
+        entry.cargoDir = cargoWs;
+        if (u.cargoDir !== undefined) {
+          if (typeof u.cargoDir !== "string") throw new TypeError(`planScans: rust unit ${u.name} needs a string cargoDir`);
+          entry.cargoDir = cleanDir(u.cargoDir);
+          if (!plainDir(entry.cargoDir)) { refuse(`rust unit ${JSON.stringify(u.name)} cargoDir ${JSON.stringify(u.cargoDir)}`, "not a plain repository-relative path"); continue; }
+        }
+      }
+      map.set(u.name, entry);
     }
     return map;
   };
   const rustMap = unitMap(rustUnits, "rust"); const npmMap = unitMap(npmUnits, "npm");
+  // Units of an explicit-workspace layout (some unit names its cargoDir) get workspace-suffixed ids for the per-workspace scans.
+  const perWorkspaceIds = Array.isArray(rustUnits) && rustUnits.some((u) => u?.cargoDir !== undefined);
+  const wsIdSuffix = (ws) => (perWorkspaceIds && ws !== "." ? `:${ws}` : "");
+  const wsOf = (n) => (rustMap ? rustMap.get(n).cargoDir : cargoWs);
+  const crateOf = (n) => (rustMap?.get(n)?.crate ?? n);
+  const featuresOf = (n) => crateFeatures?.[n] ?? crateFeatures?.[crateOf(n)] ?? {};
+  const workspaces = rustMap && rustMap.size ? [...new Set([...rustMap.values()].map((u) => u.cargoDir))].sort() : [cargoWs];
+  const lockOf = (ws) => (rustLocks?.[ws] instanceof Map ? rustLocks[ws] : ws === cargoWs && rustLock instanceof Map ? rustLock : null);
   const rustDir = (n) => (rustMap ? rustMap.get(n).dir : `crates/${n}`);
   const npmDir = (n) => (npmMap ? npmMap.get(n).dir : `packages/${n}`);
   const inDir = (dir, f) => (dir === "." ? f : `${dir}/${f}`);
@@ -311,15 +356,31 @@ export function planScans({
   if (exists(path.join(contentRoot, "packages/release/rightkit-ownership.json")) && exists(path.join(contentRoot, "crates/rightkit-ownership/catalog/ownership-catalog.json"))) {
     add({ id: "ownership-catalog", class: A, internal: "ownership-catalog", files: ["packages/release/rightkit-ownership.json", "crates/rightkit-ownership/catalog/ownership-catalog.json"] });
   }
-  const wsRel = (f) => (cargoWs === "." ? f : f.startsWith(`${cargoWs}/`) ? f.slice(cargoWs.length + 1) : null);
-  const rustWide = files.some((f) => { const r = wsRel(f); return r !== null && WORKSPACE_RUST_FILE.test(r); });
+  const wsRel = (ws, f) => (ws === "." ? f : f.startsWith(`${ws}/`) ? f.slice(ws.length + 1) : null);
+  // Workspaces whose own root files (lock, manifest, toolchain, .cargo, vendor) changed: every unit of such a workspace is in scope.
+  const wideWs = new Set(workspaces.filter((ws) => files.some((f) => { const r = wsRel(ws, f); return r !== null && WORKSPACE_RUST_FILE.test(r); })));
   const jsWide = files.some((f) => WORKSPACE_JS_FILE.test(f));
-  const wideCrates = rustWide ? (rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"))).filter((n) => !rustScope || rustScope.has(n)) : [];
-  if (rustWide && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
+  const wideCrates = wideWs.size ? (rustMap ? [...rustMap.keys()].filter((n) => wideWs.has(wsOf(n))) : listDir(path.join(contentRoot, "crates"))).filter((n) => !rustScope || rustScope.has(n)) : [];
+  if (wideWs.size && rustScope) notes.push(`workspace Rust change reaches ${wideCrates.length} crate(s) through the lock graph`);
   const crateNames = safeUnits([...new Set([...(rustMap ? files.map((f) => unitOf(rustMap, f)).filter(Boolean) : under("crates/").map((f) => f.split("/")[1])), ...wideCrates])].filter((n) => exists(path.join(contentRoot, rustDir(n), "Cargo.toml"))).sort(), "crate");
-  const rustConfigChanged = files.some((f) => CONFIG_CRATE_FILE.test(f) || wsRel(f) === "deny.toml");
+  // The workspace a changed file belongs to is the deepest one that holds it (a root workspace holds only what no nested one does).
+  const wsOfFile = (f) => { let best = null; for (const ws of workspaces) if ((ws === "." || f.startsWith(`${ws}/`)) && (best === null || ws.length > best.length)) best = ws; return best; };
+  const configWs = new Set();
+  for (const f of files) {
+    const isConfig = CONFIG_CRATE_FILE.test(f); const ws = wsOfFile(f);
+    if (ws !== null) { if (isConfig || wsRel(ws, f) === "deny.toml") configWs.add(ws); }
+    else if (isConfig && workspaces.length === 1) configWs.add(workspaces[0]);
+  }
+  const rustConfigChanged = configWs.size > 0;
   const rustTouched = crateNames.length > 0 || rustConfigChanged;
-  const pkgNames = safeUnits([...new Set([...(npmMap ? files.map((f) => unitOf(npmMap, f)).filter(Boolean) : under("packages/").map((f) => f.split("/")[1])), ...(jsWide ? (npmMap ? [...npmMap.keys()] : listDir(path.join(contentRoot, "packages"))) : [])])].filter((n) => exists(path.join(contentRoot, npmDir(n), "package.json"))).sort(), "package");
+  const touchedWs = [...new Set([...crateNames.map(wsOf), ...configWs])].sort();
+  // A root npm package (dir ".") is every file's last resort, so a file inside a non-root Rust unit does not trigger it.
+  const npmOwner = (f) => {
+    const n = unitOf(npmMap, f);
+    if (n !== null && npmMap.get(n).dir === "." && rustMap) { const r = unitOf(rustMap, f); if (r !== null && rustMap.get(r).dir !== ".") return null; }
+    return n;
+  };
+  const pkgNames = safeUnits([...new Set([...(npmMap ? files.map(npmOwner).filter(Boolean) : under("packages/").map((f) => f.split("/")[1])), ...(jsWide ? (npmMap ? [...npmMap.keys()] : listDir(path.join(contentRoot, "packages"))) : [])])].filter((n) => exists(path.join(contentRoot, npmDir(n), "package.json"))).sort(), "package");
   const jsTouched = pkgNames.length > 0 || files.some((f) => JS_TOOLING_FILE.test(f));
 
   // Explicit files: the exported commit has no .git for actionlint's project discovery.
@@ -332,12 +393,12 @@ export function planScans({
   // Exceptions expire by date, not by change: checked on every run, whatever changed.
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
   if (rustTouched) {
-    add({ id: "cargo-metadata", class: A, ...cargo(...metadataArgs()) });
-    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: `cargo-package-list:${name}`, class: A, ...cargo("package", "-p", name, "--list", "--allow-dirty", "--locked") });
+    for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, ...metadataArgs()) });
+    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
-  if (rustConfigChanged) {
-    add({ id: "cargo-deny", class: A, ...cargo("deny", "check") });
-    add({ id: "cargo-audit", class: A, ...cargo("audit") });
+  for (const ws of [...configWs].sort()) {
+    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "check") });
+    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit") });
   }
   if (jsTouched) {
     // Class A runs no repository hooks: `install` accepts --ignore-pnpmfile and --ignore-scripts; `audit` accepts
@@ -347,7 +408,7 @@ export function planScans({
   }
   const crateDirs = crateNames.map(rustDir); const pkgDirs = pkgNames.map(npmDir);
   const withChangelog = crateNames.filter((n) => exists(path.join(contentRoot, rustDir(n), "CHANGELOG.md")) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")));
-  for (const name of withChangelog) add({ id: `changelog-version:${name}`, class: A, internal: "changelog-version", files: [inDir(rustDir(name), "Cargo.toml"), inDir(rustDir(name), "CHANGELOG.md")] });
+  for (const name of withChangelog) add({ id: rustScanId.changelog(name), class: A, internal: "changelog-version", files: [inDir(rustDir(name), "Cargo.toml"), inDir(rustDir(name), "CHANGELOG.md")] });
   if (crateDirs.length || pkgDirs.length) {
     add({ id: "license", class: A, internal: "license", files: [...crateDirs.map((d) => inDir(d, "Cargo.toml")), ...pkgDirs.map((d) => inDir(d, "package.json"))] });
     add({ id: "secret-scan", class: A, internal: "secret-scan", dirs: [...crateDirs, ...pkgDirs] });
@@ -371,26 +432,31 @@ export function planScans({
     // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
     // --all-features), none when a lint set already uses --all-features. Some crates' features cannot
     // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
-    const own = crateFeatures?.[name] ?? {};
-    const lintSets = Array.isArray(own.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+    const own = featuresOf(name);
+    const { lintSets, defaultCheck, checkSets } = rustCratePlan(own);
+    const ws = wsOf(name); const crate = crateOf(name);
     // `cargo clippy --all-targets` type-checks exactly what `cargo check --all-targets` does: the default
     // check runs only when no clippy set covers default features.
-    if (!lintSets.some((set) => set.length === 0)) add({ id: `check:${name}`, class: B, ...cargo(...checkArgs(name, { locked: true })) });
-    const checkSets = lintSets.some((set) => set.includes("--all-features")) ? [] : (Array.isArray(own.checkFeatureSets) ? own.checkFeatureSets : [["--all-features"]]);
-    checkSets.filter((set) => set.length).forEach((set, i) => add({ id: `check-features:${name}:${i}`, class: B, ...cargo(...checkArgs(name, { features: set, locked: true })) }));
-    lintSets.forEach((set, i) => add({ id: lintSets.length === 1 ? `clippy:${name}` : `clippy:${name}:${i}`, class: B, ...cargo(...clippyArgs(name, { features: set, locked: true })) }));
+    if (defaultCheck) add({ id: rustScanId.check(name), class: B, ...cargoIn(ws, ...checkArgs(crate, { locked: true })) });
+    checkSets.forEach((set, i) => add({ id: rustScanId.checkFeatures(name, i), class: B, ...cargoIn(ws, ...checkArgs(crate, { features: set, locked: true })) }));
+    lintSets.forEach((set, i) => add({ id: rustScanId.clippy(name, lintSets.length, i), class: B, ...cargoIn(ws, ...clippyArgs(crate, { features: set, locked: true })) }));
     // rustdoc flags go after `--` for this crate's library only: the broker owns RUSTDOCFLAGS and refuses
     // a request that sets it. A crate with no library has no API docs to check.
     if (exists(path.join(contentRoot, rustDir(name), "src", "lib.rs"))) {
-      add({ id: `doc:${name}`, class: B, ...cargo("rustdoc", "-p", name, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
+      add({ id: rustScanId.doc(name), class: B, ...cargoIn(ws, "rustdoc", "-p", crate, "--lib", ...lintSets[0], "--locked", "--", ...DOC_RUSTDOC_ARGS) });
     }
   }
   // Reverse dependents: a workspace crate that is not in scope but whose lock closure reaches one that is must still compile.
-  if (rustLock instanceof Map && crateNames.length) {
-    const inScope = new Set(crateNames); const memo = new Map();
-    const workspace = rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"));
-    const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && crateNames.some((t) => reach(rustLock, n, memo).has(t))).sort(), "crate");
-    for (const name of dependents) add({ id: `check-dependent:${name}`, class: B, ...cargo(...checkArgs(name, { locked: true })) });
+  // A unit only depends on units of its own Cargo workspace (its own lock), so each workspace is judged by its own lock.
+  const inScope = new Set(crateNames);
+  for (const ws of [...new Set(crateNames.map(wsOf))].sort()) {
+    const lock = lockOf(ws);
+    if (!lock) continue;
+    const memo = new Map();
+    const scoped = crateNames.filter((n) => wsOf(n) === ws).map(crateOf);
+    const workspace = (rustMap ? [...rustMap.keys()] : listDir(path.join(contentRoot, "crates"))).filter((n) => wsOf(n) === ws);
+    const dependents = safeUnits(workspace.filter((n) => !inScope.has(n) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")) && scoped.some((t) => reach(lock, crateOf(n), memo).has(t))).sort(), "crate");
+    for (const name of dependents) add({ id: `check-dependent:${name}`, class: B, ...cargoIn(ws, ...checkArgs(crateOf(name), { locked: true })) });
   }
   const rootLint = ROOT_LINT_FILES.some((f) => exists(path.join(liveRoot, f)));
   for (const name of pkgNames) {
@@ -405,12 +471,11 @@ export function planScans({
   if (includeTests) {
     // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them.
     for (const name of crateNames) {
-      const own = crateFeatures?.[name] ?? {};
-      const sets = Array.isArray(own.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+      const own = featuresOf(name);
+      const sets = rustCratePlan(own).lintSets;
       sets.forEach((set, i) => {
-        const suffix = sets.length === 1 ? "" : `:${i}`;
-        add({ id: `test:rust:${name}${suffix}`, class: B, ...cargo("test", "-p", name, ...set, "--locked", "--no-fail-fast") });
-        if (own.alsoSerial) add({ id: `test:rust-serial:${name}${suffix}`, class: B, ...cargo("test", "-p", name, ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
+        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast") });
+        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
       });
     }
     for (const name of pkgNames) {
@@ -443,7 +508,10 @@ export function planScans({
       } catch { return true; }
     };
     if (ciDir ? scriptsCiTouched() : (!(rustMap || npmMap) && files.some((f) => f.startsWith("scripts/")))) {
-      add({ id: "test:scripts-ci", class: B, tool: "node", args: ["--test", "scripts/ci/*.test.mjs"] });
+      // The suite is the exported commit's test files, named explicitly: an untracked WIP test in the live
+      // checkout is never run and can neither block nor pass a push.
+      const suite = listDir(path.join(contentRoot, "scripts", "ci")).filter((n) => n.endsWith(".test.mjs")).sort().map((n) => `scripts/ci/${n}`);
+      add({ id: "test:scripts-ci", class: B, tool: "node", args: ["--test", ...(suite.length ? suite : ["scripts/ci/*.test.mjs"])] });
     }
   }
 
@@ -732,11 +800,11 @@ export async function runScans(plan, options = {}) {
     const lanes = { compile: [], doc: [], serial: [] };
     bScans.forEach((s, i) => lanes[laneOf(s)].push(i));
     const drain = async (queue) => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(bScans[i]); } };
-    await Promise.all([
-      ...Array.from({ length: jobs }, () => drain(lanes.compile)),
-      drain(lanes.doc),
-      drain(lanes.serial),
-    ]);
+    // Compile and doc lanes run side by side; the serial lane (tests, repository code) starts only once they
+    // have drained, so timing-sensitive e2e tests (browser, desktop) run on an otherwise quiet machine, as
+    // CI's shards run tests after their build.
+    await Promise.all([...Array.from({ length: jobs }, () => drain(lanes.compile)), drain(lanes.doc)]);
+    await drain(lanes.serial);
     results.push(...slots);
   }
 
@@ -768,7 +836,7 @@ export async function runScans(plan, options = {}) {
           if (cache && s.class === SCAN_CLASS.B) {
             try {
               const digest = cache.digest(s);
-              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion: p.version, env: s.env ?? {}, digest });
+              if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion: p.version, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });
             } catch { cacheKey = null; }
             const hit = cacheKey ? cache.read(cacheKey) : null;
             if (hit && hit.key === cacheKey && hit.row?.status === "pass" && hit.row.id === s.id && hit.row.command === s.command) {

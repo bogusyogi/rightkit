@@ -14,7 +14,8 @@ const blobId = (text) => crypto.createHash("sha1").update(`blob ${Buffer.byteLen
 function fixture(t, { files: additions = {}, responses = {} } = {}) {
   const scratch = process.env.RUNNER_TEMP ?? (process.platform === "win32" ? "D:\\scratch" : os.tmpdir());
   fs.mkdirSync(scratch, { recursive: true });
-  const directory = fs.mkdtempSync(path.join(scratch, "candidate-source-"));
+  // macOS's tmpdir is /var/folders/..., a symlink to /private/var: the candidate root must be a real path.
+  const directory = fs.mkdtempSync(path.join(fs.realpathSync(scratch), "candidate-source-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   fs.mkdirSync(path.join(directory, ".git"));
   fs.writeFileSync(path.join(directory, ".git", "config"), "[core]\nrepositoryformatversion = 0\n");

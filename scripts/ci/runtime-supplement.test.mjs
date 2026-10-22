@@ -248,7 +248,7 @@ test("trusted computed helper descriptor binds whole source, expression, count &
     ["scripts/ci/upload.mjs", ""],
     ["scripts/ci/descriptor-transitive.mjs", ""],
   ]);
-  for (const helper of ["background-process", "managed-cargo", "execution-policy", "publication-gate", "publish-cargo", "cargo-registry-readback", "crate-graph", "rightkit-sync", "swap-helper-bundle"]) sources.set(`packages/release/${helper}.mjs`, "");
+  for (const helper of ["background-process", "managed-cargo", "execution-policy", "publication-gate", "publish-cargo", "cargo-registry-readback", "crate-graph", "rightkit-sync", "swap-helper-bundle", "host-upload-refusal"]) sources.set(`packages/release/${helper}.mjs`, "");
   mockTrustedHelperSources(t, sources);
   assert.deepEqual(trustedRuntimeHelperPaths(), [...sources.keys(), "pnpm-lock.yaml", "package.json", "packages/release/package.json"].sort());
   for (const changed of [

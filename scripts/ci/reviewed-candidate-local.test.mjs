@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sha, executeUpload, checkLocalReceipts, loadSealed, localScanShapeProblems, LOCAL_SCAN_SCHEMA, CRATES_PUBLISH_URL, buildCratePublishBody } from "./upload.mjs";
-import { validateCandidate, selectCandidate, checkLocalProvenance, localAssetName, localTag, prepareCandidate, authenticateAdmission, assertAuthenticatedContext, identifyCandidate } from "./reviewed-candidate.mjs";
+import { validateCandidate, selectCandidate, checkLocalProvenance, localAssetName, localTag, prepareCandidate, authenticateAdmission, assertAuthenticatedContext, identifyCandidate, checkCiRun, ciPolicy, ciProofFor, ciRequiredUnits, ciProofOf, localAllow, localLinuxPolicy } from "./reviewed-candidate.mjs";
 
 const SOURCE = "a".repeat(40); const PROMOTION = "b".repeat(40); const TREE = "c".repeat(40);
 const ID = "local-a-010-aaaaaa";
@@ -51,7 +51,7 @@ function fixture(t, mutate = () => {}) {
   const state = { candidate, release, ref, repository, approval, entries, assetBytes, unit, manifest, manifestSha256, rows, redirects: {}, comparison: { status: "ahead", merge_base_commit: { sha: SOURCE } }, adm: {} }; mutate(state);
   const approvedFile = path.join(temp, "approved-artifacts.json"); fs.writeFileSync(approvedFile, JSON.stringify(approval));
   const supplementalFile = path.join(temp, "supplemental-proofs.json"); fs.writeFileSync(supplementalFile, JSON.stringify({ schema: 1, supplements: [] }));
-  const admission = () => ({ schema: 1, kind: "local-admission", original: { candidateId: ID, candidateSha256: sha("sha256", JSON.stringify(state.candidate)), sourceSha: SOURCE, manifestSha256, archives: [{ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, metaFile: unit.metaFile, metaSha256: unit.metaSha256 }] }, sourceTree: TREE, sourceHashes: { "Cargo.toml": hex("d") }, verifierSha: PROMOTION, runId: "88", runAttempt: "1", receipts: { macos: state.candidate.assets.macos.sha256, windows: state.candidate.assets.windows.sha256 }, units: [{ name: unit.name, version: unit.version, archiveSha256: unit.sha256, ok: true, failures: [], policies: { macos: "required-positive-tests", windows: "required-positive-tests" }, runtimeFeatureProof: { classification: "false", listedOwner: false, required: false, status: "not-applicable", failures: [] }, evidenceSha256: hex("b") }] });
+  const admission = () => ({ schema: 1, kind: "local-admission", original: { candidateId: ID, candidateSha256: sha("sha256", JSON.stringify(state.candidate)), sourceSha: SOURCE, manifestSha256, archives: [{ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, metaFile: unit.metaFile, metaSha256: unit.metaSha256 }] }, sourceTree: TREE, sourceHashes: { "Cargo.toml": hex("d") }, verifierSha: PROMOTION, runId: "88", runAttempt: "1", receipts: { macos: state.candidate.assets.macos.sha256, windows: state.candidate.assets.windows.sha256 }, units: [{ name: unit.name, version: unit.version, archiveSha256: unit.sha256, ok: true, failures: [], policies: { macos: "required-positive-tests", windows: "required-positive-tests" }, runtimeFeatureProof: { classification: "false", listedOwner: false, required: false, status: "not-applicable", failures: [] }, evidenceSha256: hex("b") }], ...(state.candidate.ci ? { ciProof: { runId: String(state.candidate.ci.runId), runAttempt: 1, conclusion: "success", checkedAt: "2026-10-22T12:00:00Z", requiredUnits: [], failedJobs: [] } } : {}) });
   let admissionBytes = Buffer.from(JSON.stringify(state.adm.override ?? admission())); let admissionArchive = proofArchive({ "admission.json": admissionBytes });
   const artifact = { id: 400, name: "reviewed-admission-receipt", expired: false, digest: `sha256:${sha("sha256", admissionArchive)}`, workflow_run: { id: 88, head_sha: PROMOTION, head_branch: "main", repository_id: 99, head_repository_id: 99 } };
   const promotionRun = { id: 88, run_attempt: 1, repository: { id: 99, full_name: "bogusyogi/rightkit" }, head_repository: { id: 99, full_name: "bogusyogi/rightkit" }, workflow_id: 7, path: ".github/workflows/publish-reviewed.yml", event: "workflow_dispatch", head_branch: "main", head_sha: PROMOTION, status: "in_progress" };
@@ -93,7 +93,7 @@ function fixture(t, mutate = () => {}) {
     return { status: 0, stdout: args[0] === "-Z1" ? Object.keys(state.entries).join("\n") : state.entries[args[2]] };
   };
   const env = { GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_REF: "refs/heads/main", GITHUB_SHA: PROMOTION, GITHUB_RUN_ID: "88", GITHUB_RUN_ATTEMPT: "1", GITHUB_WORKFLOW_REF: "bogusyogi/rightkit/.github/workflows/publish-reviewed.yml@refs/heads/main", GITHUB_TOKEN: "github-read-fixture", RUNNER_TEMP: temp, PUBLISH_CANDIDATE_ID: ID, PUBLISH_ADMISSION_ID: "400", PUBLISH_ADMISSION_DIGEST: artifact.digest };
-  const prepareOriginal = () => prepareCandidate({ env, candidateId: ID, approvedFile, supplementalFile, fetchImpl, spawn });
+  const prepareOriginal = () => prepareCandidate({ env, candidateId: ID, approvedFile, supplementalFile, fetchImpl, spawn, linuxFile: state.linuxFile });
   const prepare = async () => { const prepared = await prepareOriginal(); await authenticateAdmission({ prepared, env, fetchImpl, spawn }); return prepared; };
   const upload = (prepared, dryRun) => executeUpload({ env: { ...env, PUBLISH_REGISTRY: "crates", PUBLISH_UNITS: "rightkit-a", ...(dryRun ? {} : { CARGO_REGISTRY_TOKEN: "registry-fixture" }) }, packDir: prepared.packDir, receiptsDir: prepared.receiptsDir, candidateContext: prepared.context, approvedFile, outDir: path.join(temp, `out-${dryRun}`), dryRun, fetchImpl, spawn, pause: 0, log: () => {} });
   const reseal = () => { admissionBytes = Buffer.from(JSON.stringify(state.adm.override ?? admission())); admissionArchive = proofArchive({ "admission.json": admissionBytes }); artifact.digest = `sha256:${sha("sha256", admissionArchive)}`; env.PUBLISH_ADMISSION_DIGEST = artifact.digest; };
@@ -225,6 +225,7 @@ test("local admission verdicts: a held runtime proof, a failed unit, wrong recei
   const f0 = fixture(t); const base = f0.admission();
   for (const [name, mutate] of Object.entries({
     "held runtime proof": (a) => { a.units[0].runtimeFeatureProof = { classification: "always-on", listedOwner: true, required: true, status: "HOLD", failures: ["authenticated isolated runtime feature/workload proof missing"] }; },
+    "qualified claim for a unit without trusted runtime coverage": (a) => { a.units[0].runtimeFeatureProof = { classification: "always-on", listedOwner: true, required: true, status: "qualified", failures: [], proof: { candidateId: ID, proofSha256: hex("1"), workloads: ["budget"] } }; },
     "failed unit": (a) => { a.units[0].ok = false; a.units[0].failures = ["x"]; }, "wrong archive": (a) => { a.units[0].archiveSha256 = hex("1"); }, "receipt hash": (a) => { a.receipts.windows = hex("1"); },
     "missing receipts host": (a) => { delete a.receipts.windows; }, "verifier": (a) => { a.verifierSha = SOURCE; }, "run": (a) => { a.runId = "1"; }, "policy": (a) => { a.units[0].policies.macos = "no-tests"; },
     "original": (a) => { a.original.sourceSha = PROMOTION; }, "extra key": (a) => { a.extra = 1; }, "kind": (a) => { a.kind = "semantic-admission"; }, "source hashes": (a) => { a.sourceHashes = {}; },
@@ -261,4 +262,176 @@ test("checkLocalProvenance and selectCandidate work on committed local candidate
   assert.throws(() => selectCandidate(f.approvedFile, "missing-id"), /not committed exactly once/);
   checkLocalProvenance({ candidate: f.candidate, repository: f.repository, release: f.release, ref: f.ref, promotionSha: PROMOTION, comparison: f.comparison });
   assert.throws(() => checkLocalProvenance({ candidate: f.candidate, repository: f.repository, release: f.release, ref: f.ref, promotionSha: SOURCE, comparison: f.comparison }), /descend/);
+});
+
+// ---- a local candidate that pins its CI run (--with-ci) ----
+const CI_RUN = "5150"; const CI_WORKFLOW_ID = "5";
+const ciPin = (over = {}) => ({ workflowId: CI_WORKFLOW_ID, runId: CI_RUN, sourceSha: SOURCE, units: ["rightkit-a"], dispatchedAt: "2026-10-22T10:00:00Z", ...over });
+const jobRow = (name, conclusion = "success", over = {}) => ({ name, status: "completed", conclusion, run_id: Number(CI_RUN), run_attempt: 1, head_sha: SOURCE, ...over });
+const goodJobs = (linux = false) => [jobRow("guard"), jobRow("scans"), jobRow("plan"), jobRow("pack"), jobRow("verify (xcode-27, a)"), jobRow("verify (windows-2025, a)"), jobRow("verify-linux", linux ? "success" : "skipped")];
+const ciRepo = { id: 99, full_name: "bogusyogi/rightkit" };
+function ciApi({ status = "completed", conclusion = "success", jobs = goodJobs(), run = {}, workflow = {} } = {}) {
+  return {
+    workflow: { id: Number(CI_WORKFLOW_ID), path: ".github/workflows/publish.yml", state: "active", ...workflow },
+    run: { id: Number(CI_RUN), run_attempt: 1, repository: ciRepo, head_repository: ciRepo, workflow_id: Number(CI_WORKFLOW_ID), path: ".github/workflows/publish.yml", event: "workflow_dispatch", head_branch: "main", head_sha: SOURCE, status, conclusion: status === "completed" ? conclusion : null, ...run },
+    jobs: { total_count: jobs.length, jobs },
+  };
+}
+const withCi = (s, pin = ciPin()) => { s.candidate.ci = pin; };
+const proofDoc = (over = {}) => ({ runId: CI_RUN, runAttempt: 1, conclusion: "success", checkedAt: "2026-10-22T12:00:00Z", requiredUnits: [], failedJobs: [], ...over });
+const heldRow = { classification: "always-on", listedOwner: true, required: true, status: "HOLD", failures: ["authenticated isolated runtime feature/workload proof missing"] };
+
+test("a local candidate may pin its CI run: exact keys, same commit and units, a real time; allow.ciFailure needs the pin and a reason for every unit", (t) => {
+  const f = fixture(t, (s) => withCi(s)); const good = validateCandidate(clone(f.candidate)); assert.deepEqual(good.ci, ciPin());
+  const refused = {
+    "extra key": (c) => { c.ci.extra = 1; }, "missing key": (c) => { delete c.ci.dispatchedAt; }, "no workflow": (c) => { delete c.ci.workflowId; },
+    "other commit": (c) => { c.ci.sourceSha = PROMOTION; }, "zero run": (c) => { c.ci.runId = "0"; }, "text run": (c) => { c.ci.runId = "latest"; }, "negative workflow": (c) => { c.ci.workflowId = "-5"; },
+    "other units": (c) => { c.ci.units = ["rightkit-b"]; }, "more units": (c) => { c.ci.units = ["rightkit-a", "rightkit-b"]; }, "no units": (c) => { c.ci.units = []; }, "duplicate units": (c) => { c.ci.units = ["rightkit-a", "rightkit-a"]; },
+    "time": (c) => { c.ci.dispatchedAt = "yesterday"; }, "time without zone": (c) => { c.ci.dispatchedAt = "2026-10-22 10:00:00"; }, "not an object": (c) => { c.ci = "5150"; }, "null": (c) => { c.ci = null; },
+    "ciFailure not a list": (c) => { c.allow.ciFailure = "rightkit-a"; }, "ciFailure empty": (c) => { c.allow.ciFailure = []; },
+    "ciFailure bare unit": (c) => { c.allow.ciFailure = ["rightkit-a"]; }, "ciFailure no reason": (c) => { c.allow.ciFailure = [{ unit: "rightkit-a" }]; }, "ciFailure short reason": (c) => { c.allow.ciFailure = [{ unit: "rightkit-a", reason: "no" }]; },
+    "ciFailure padded reason": (c) => { c.allow.ciFailure = [{ unit: "rightkit-a", reason: " flaky windows runner " }]; }, "ciFailure long reason": (c) => { c.allow.ciFailure = [{ unit: "rightkit-a", reason: "x".repeat(501) }]; },
+    "ciFailure foreign unit": (c) => { c.allow.ciFailure = [{ unit: "rightkit-b", reason: "flaky windows runner" }]; }, "ciFailure twice": (c) => { const row = { unit: "rightkit-a", reason: "flaky windows runner" }; c.allow.ciFailure = [row, row]; },
+    "ciFailure extra key": (c) => { c.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner", by: "me" }]; },
+  };
+  for (const [name, mutate] of Object.entries(refused)) { const c = clone(f.candidate); mutate(c); assert.throws(() => validateCandidate(c), /refused/, name); }
+  const allowed = clone(f.candidate); allowed.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner, rerun is green" }]; assert.equal(validateCandidate(allowed).allow.ciFailure[0].unit, "rightkit-a");
+  const noPin = clone(f.candidate); delete noPin.ci; noPin.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner" }]; assert.throws(() => validateCandidate(noPin), /needs a ci run pin/);
+  const stray = clone(f.candidate); stray.allow.other = []; assert.throws(() => validateCandidate(stray), /allowsets has unexpected/);
+  // An Actions candidate never carries one.
+  assert.throws(() => validateCandidate({ id: "cargo-a-1", sourceSha: SOURCE, runId: "7", runAttempt: "1", workflowId: "5", manifestSha256: hex("1"), registry: "crates", units: ["rightkit-a"], allow: { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] }, artifacts: {}, ci: ciPin() }), /refused/);
+  // A Linux-required unit is qualified on Linux by the pinned run, so a candidate that pins one has no Linux receipt asset; without the pin it still needs it.
+  const linuxFile = path.join(f.temp, "linux-required.json"); fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] }));
+  validateCandidate(clone(f.candidate), { linuxFile });
+  const withLinuxAsset = clone(f.candidate); withLinuxAsset.assets.linux = { name: localAssetName(ID, "linux"), sha256: hex("1") };
+  assert.throws(() => validateCandidate(withLinuxAsset, { linuxFile }), /asset pins has unexpected or missing keys/);
+  const plain = clone(f.candidate); delete plain.ci; assert.throws(() => validateCandidate(plain, { linuxFile }), /asset pins has unexpected or missing keys/);
+});
+
+test("the CI run is checked like an Actions candidate's run: pinned workflow, run, commit, branch, event and repository; pending, success and failure with the failed jobs", (t) => {
+  const f = fixture(t, (s) => withCi(s)); const base = { candidate: f.candidate, repository: f.repository };
+  const check = (api, extra = {}) => checkCiRun({ ...base, ...api, ...extra });
+  assert.deepEqual(check(ciApi()), { runId: CI_RUN, runAttempt: 1, conclusion: "success", failedJobs: [] });
+  assert.deepEqual(check(ciApi({ status: "in_progress" })), { runId: CI_RUN, runAttempt: 1, conclusion: "pending", failedJobs: [] });
+  assert.deepEqual(check(ciApi({ status: "queued" })).conclusion, "pending");
+  const red = check(ciApi({ conclusion: "failure", jobs: [...goodJobs().slice(0, 4), jobRow("verify (xcode-27, a)"), jobRow("verify (windows-2025, a)", "failure"), jobRow("verify-linux", "skipped")] }));
+  assert.deepEqual(red, { runId: CI_RUN, runAttempt: 1, conclusion: "failure", failedJobs: ["verify (windows-2025, a)"] });
+  assert.deepEqual(check(ciApi({ conclusion: "cancelled", jobs: goodJobs() })).failedJobs, ["run cancelled"], "a cancelled run with no failed job still names why");
+  assert.equal(check(ciApi({ conclusion: "timed_out" })).conclusion, "failure");
+  for (const [name, api] of Object.entries({
+    "other workflow id": ciApi({ workflow: { id: 6 } }), "workflow path": ciApi({ workflow: { path: ".github/workflows/other.yml" } }), "workflow disabled": ciApi({ workflow: { state: "disabled_manually" } }),
+    "other run": ciApi({ run: { id: 5151 } }), "other commit": ciApi({ run: { head_sha: PROMOTION } }), "other branch": ciApi({ run: { head_branch: "dev" } }), "pushed not dispatched": ciApi({ run: { event: "push" } }),
+    "foreign repository": ciApi({ run: { repository: { id: 100, full_name: "evil/rightkit" } } }), "foreign head repository": ciApi({ run: { head_repository: { id: 100, full_name: "evil/rightkit" } } }),
+    "other run workflow": ciApi({ run: { workflow_id: 6 } }), "other run path": ciApi({ run: { path: ".github/workflows/other.yml" } }),
+    "job of another commit": ciApi({ jobs: [...goodJobs().slice(0, 6), jobRow("verify-linux", "skipped", { head_sha: PROMOTION })] }), "job of another run": ciApi({ jobs: [...goodJobs().slice(0, 6), jobRow("verify-linux", "skipped", { run_id: 1 })] }),
+    "incomplete jobs": { ...ciApi(), jobs: { total_count: 9, jobs: goodJobs() } }, "no jobs listing": { ...ciApi(), jobs: null },
+    "success without the pack job": ciApi({ jobs: goodJobs().filter((job) => job.name !== "pack") }), "success with a failed verify": ciApi({ jobs: [...goodJobs().slice(0, 5), jobRow("verify (windows-2025, a)", "skipped"), goodJobs()[6]] }),
+    "success with one verify": ciApi({ jobs: goodJobs().filter((job) => !/windows/.test(job.name)) }), "success with an unplanned linux job": ciApi({ jobs: goodJobs(true) }),
+  })) assert.throws(() => check(api), /refused/, name);
+  assert.throws(() => checkCiRun({ candidate: { ...f.candidate, ci: undefined }, repository: f.repository, ...ciApi() }), /pins no ci run/);
+  assert.throws(() => check(ciApi(), { repository: { ...f.repository, default_branch: "dev" } }), /wrong repository/);
+  // A Linux-required unit's run must carry a successful Linux job, and one that was skipped is not that proof.
+  const linuxFile = path.join(f.temp, "linux-required.json"); fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] }));
+  assert.equal(check(ciApi({ jobs: goodJobs(true) }), { linuxFile }).conclusion, "success");
+  assert.throws(() => check(ciApi({ jobs: goodJobs(false) }), { linuxFile }), /Linux verify job must succeed/);
+  assert.deepEqual(ciRequiredUnits({ candidate: f.candidate, linuxFile }), ["rightkit-a"]);
+  assert.deepEqual(ciRequiredUnits({ candidate: f.candidate }), [], "no crate is Linux-required today");
+});
+
+test("the CI policy: pending proceeds on the local bytes, a failure is refused naming the failed jobs unless every unit is allowed with a reason, and a unit only CI can prove needs success", (t) => {
+  const f = fixture(t, (s) => withCi(s)); const candidate = clone(f.candidate);
+  const policy = (proof, over = {}) => ciPolicy({ candidate: over.candidate ?? candidate, proof: proofDoc(proof), requiredUnits: over.requiredUnits ?? [] });
+  policy({}); policy({ conclusion: "pending" });
+  assert.throws(() => policy({ conclusion: "failure", failedJobs: ["verify (windows-2025, a)", "pack"] }), /failed \(failed jobs: verify \(windows-2025, a\), pack\).*allow\.ciFailure/);
+  const allowed = clone(candidate); allowed.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner, rerun is green" }];
+  policy({ conclusion: "failure", failedJobs: ["pack"] }, { candidate: allowed });
+  const two = clone(allowed); two.units = ["rightkit-a", "rightkit-b"]; assert.throws(() => policy({ conclusion: "failure", failedJobs: ["pack"] }, { candidate: two }), /every unit/, "a partial allowance is not an allowance");
+  // A unit CI alone proves: success only; neither a pending run nor an allowance stands in for it.
+  policy({}, { requiredUnits: ["rightkit-a"] });
+  assert.throws(() => policy({ conclusion: "pending" }, { requiredUnits: ["rightkit-a"] }), /success is required for rightkit-a.*cannot prove/);
+  assert.throws(() => policy({ conclusion: "failure", failedJobs: ["verify-linux"] }, { requiredUnits: ["rightkit-a"], candidate: allowed }), /failed jobs: verify-linux.*success is required for rightkit-a/);
+});
+
+test("ciProofFor reads the pinned run with the promotion's token, records the verdict, and applies the policy before any admission is written", async (t) => {
+  const f = fixture(t, (s) => withCi(s)); const asked = [];
+  const rig = (api) => async (url, options) => {
+    const route = String(url).slice("https://api.github.com/repos/bogusyogi/rightkit/".length); asked.push(route);
+    assert.equal(options.headers.authorization, "Bearer github-read-fixture");
+    const docs = { "actions/workflows/publish.yml": api.workflow, [`actions/runs/${CI_RUN}`]: api.run, [`actions/runs/${CI_RUN}/attempts/1/jobs?per_page=100`]: api.jobs };
+    if (!Object.hasOwn(docs, route) || docs[route] === null) throw new Error(`unexpected API route ${route}`);
+    return { ok: true, status: 200, json: async () => docs[route] };
+  };
+  const proof = (api, over = {}) => ciProofFor({ candidate: over.candidate ?? f.candidate, repository: f.repository, env: f.env, fetchImpl: rig(api), now: () => "2026-10-22T12:30:00Z", linuxFile: over.linuxFile });
+  const ok = await proof(ciApi());
+  assert.deepEqual(ok, proofDoc({ checkedAt: "2026-10-22T12:30:00Z" })); assert.deepEqual(Object.keys(ok), ["runId", "runAttempt", "conclusion", "checkedAt", "requiredUnits", "failedJobs"]);
+  assert.deepEqual(asked, ["actions/workflows/publish.yml", `actions/runs/${CI_RUN}`, `actions/runs/${CI_RUN}/attempts/1/jobs?per_page=100`]);
+  asked.length = 0;
+  const pending = await proof({ ...ciApi({ status: "in_progress" }), jobs: null });
+  assert.equal(pending.conclusion, "pending"); assert.deepEqual(asked, ["actions/workflows/publish.yml", `actions/runs/${CI_RUN}`], "a run still in progress needs no job listing");
+  const failedJobs = [...goodJobs().slice(0, 5), jobRow("verify (windows-2025, a)", "failure"), jobRow("verify-linux", "skipped")];
+  await assert.rejects(proof(ciApi({ conclusion: "failure", jobs: failedJobs })), /ci run 5150 failed \(failed jobs: verify \(windows-2025, a\)\).*allow\.ciFailure/);
+  const allowed = clone(f.candidate); allowed.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner, rerun is green" }];
+  const red = await proof(ciApi({ conclusion: "failure", jobs: failedJobs }), { candidate: allowed });
+  assert.deepEqual([red.conclusion, red.failedJobs], ["failure", ["verify (windows-2025, a)"]]);
+  // A Linux-required unit: CI is the only Linux proof, so pending and failure are both refused, even with an allowance.
+  const linuxFile = path.join(f.temp, "linux-required.json"); fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] }));
+  await assert.rejects(proof({ ...ciApi({ status: "in_progress" }), jobs: null }, { linuxFile }), /success is required for rightkit-a/);
+  await assert.rejects(proof(ciApi({ conclusion: "failure", jobs: failedJobs }), { linuxFile, candidate: allowed }), /success is required for rightkit-a/);
+  assert.deepEqual((await proof(ciApi({ jobs: goodJobs(true) }), { linuxFile })).requiredUnits, ["rightkit-a"]);
+  await assert.rejects(proof(ciApi({ jobs: goodJobs(false) }), { linuxFile }), /Linux verify job must succeed/);
+  await assert.rejects(proof(ciApi({ run: { head_sha: PROMOTION } })), /refused/);
+});
+
+test("promotion admits a local candidate with a CI proof: pending and success proceed, the proof rides into the upload receipt, and every other shape never reaches the credentialed job", async (t) => {
+  const linuxFile = path.join(fs.mkdtempSync(path.join(process.env.RIGHTKIT_TEST_SCRATCH ?? os.tmpdir(), "rk-linux-")), "linux-required.json");
+  fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] })); t.after(() => fs.rmSync(path.dirname(linuxFile), { recursive: true, force: true }));
+  const run = async (mutateAdmission, mutateState = () => {}) => {
+    const f = fixture(t, (s) => { withCi(s); mutateState(s); });
+    const doc = clone(f.admission()); mutateAdmission(doc, f); f.setAdmission(doc);
+    const prepared = await f.prepareOriginal(); const admission = await authenticateAdmission({ prepared, env: f.env, fetchImpl: f.fetchImpl, spawn: f.spawn });
+    return { f, prepared, admission };
+  };
+  const refusedWith = async (mutateAdmission, pattern, mutateState) => assert.rejects(run(mutateAdmission, mutateState), pattern);
+  const sealed = await run(() => {});
+  assert.deepEqual(sealed.admission.ciProof, proofDoc());
+  const dry = await sealed.f.upload(sealed.prepared, true); const real = await sealed.f.upload(sealed.prepared, false);
+  assert.deepEqual(real.ciProof, proofDoc(), "the publication receipt carries the proof the admission recorded"); assert.deepEqual(dry.ciProof, real.ciProof);
+  assert.deepEqual(real.candidate.ci, ciPin()); assert.equal(sealed.f.puts.length, 1);
+  const pending = await run((a) => { a.ciProof = proofDoc({ conclusion: "pending" }); });
+  assert.equal((await pending.f.upload(pending.prepared, false)).ciProof.conclusion, "pending", "pending proceeds: the local bytes are the approved ones");
+  // A failed run: refused, naming the jobs, unless the committed candidate allows it for every unit with a reason.
+  const failure = (a) => { a.ciProof = proofDoc({ conclusion: "failure", failedJobs: ["verify (windows-2025, a)"] }); };
+  await refusedWith(failure, /ci run 5150 failed \(failed jobs: verify \(windows-2025, a\)\)/);
+  const allow = (s) => { s.candidate.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner, rerun is green" }]; };
+  const tolerated = await run(failure, allow); assert.equal((await tolerated.f.upload(tolerated.prepared, false)).ciProof.conclusion, "failure");
+  // A Linux-required unit: success or nothing, whatever the allowance says.
+  const linux = (s) => { s.linuxFile = linuxFile; };
+  const needed = (a) => { a.ciProof = proofDoc({ requiredUnits: ["rightkit-a"] }); };
+  const linuxAdmission = await run(needed, linux); assert.deepEqual(linuxAdmission.admission.ciProof.requiredUnits, ["rightkit-a"]);
+  assert.equal((await linuxAdmission.f.upload(linuxAdmission.prepared, false)).ciProof.conclusion, "success");
+  await refusedWith((a) => { needed(a); a.ciProof.conclusion = "pending"; }, /success is required for rightkit-a/, linux);
+  await refusedWith((a) => { failure(a); a.ciProof.requiredUnits = ["rightkit-a"]; }, /success is required for rightkit-a/, (s) => { linux(s); allow(s); });
+  await refusedWith(() => {}, /other required units/, linux);
+  await refusedWith((a) => { needed(a); }, /other required units/);
+  // A runtime proof is never CI's to give: a held proof is refused with or without the pin.
+  await refusedWith((a) => { a.units[0].runtimeFeatureProof = clone(heldRow); }, /local runtime feature proof failed/);
+  for (const [name, mutate] of Object.entries({
+    "no proof": (a) => { delete a.ciProof; }, "other run": (a) => { a.ciProof.runId = "5151"; }, "extra key": (a) => { a.ciProof.extra = 1; }, "missing key": (a) => { delete a.ciProof.failedJobs; },
+    "unknown conclusion": (a) => { a.ciProof.conclusion = "cancelled"; }, "no time": (a) => { a.ciProof.checkedAt = "soon"; }, "bad attempt": (a) => { a.ciProof.runAttempt = 0; },
+    "success naming failed jobs": (a) => { a.ciProof.failedJobs = ["pack"]; }, "failure naming none": (a) => { a.ciProof.conclusion = "failure"; },
+    "proof is not an object": (a) => { a.ciProof = "success"; },
+  })) await refusedWith(mutate, /refused/, undefined).catch((error) => { throw new Error(`${name}: ${error.message}`); });
+  // A candidate that pins no run has no proof to carry, and a held proof stays a refusal for it.
+  const plain = fixture(t); const doc = clone(plain.admission()); doc.ciProof = proofDoc(); plain.setAdmission(doc);
+  await assert.rejects(async () => { const prepared = await plain.prepareOriginal(); await authenticateAdmission({ prepared, env: plain.env, fetchImpl: plain.fetchImpl, spawn: plain.spawn }); }, /refused/);
+  const heldPlain = fixture(t); const heldDoc = clone(heldPlain.admission()); heldDoc.units[0].runtimeFeatureProof = clone(heldRow); heldPlain.setAdmission(heldDoc);
+  await assert.rejects(async () => { const prepared = await heldPlain.prepareOriginal(); await authenticateAdmission({ prepared, env: heldPlain.env, fetchImpl: heldPlain.fetchImpl, spawn: heldPlain.spawn }); }, /refused/);
+  const context = (await heldPlain.prepareOriginal()).context; assert.throws(() => ciProofOf(context), /semantic admission is required/);
+});
+
+test("a candidate that pins its CI run keeps the allowsets the receipts and the source loader know: ciFailure never reaches either", (t) => {
+  const f = fixture(t, (s) => { withCi(s); s.candidate.allow.ciFailure = [{ unit: "rightkit-a", reason: "flaky windows runner, rerun is green" }]; });
+  assert.deepEqual(localAllow(f.candidate), { hostExclusion: [], noTest: [], ignored: [], missingAssets: [] });
+  assert.deepEqual(localLinuxPolicy(f.candidate), { linuxRequired: [] }); assert.deepEqual(localLinuxPolicy({ ...f.candidate, ci: undefined }), {});
+  assert.equal(selectCandidate(f.approvedFile, ID).ci.runId, CI_RUN);
 });

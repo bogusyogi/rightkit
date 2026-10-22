@@ -5,8 +5,9 @@ import path from "node:path";
 import test from "node:test";
 import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
+import { spawnSync } from "./background-process.mjs";
 import {
-  buildCacheDigest, discoverNpmUnits, discoverRustUnits, globToRegExp, hookText, lockScope, main, parseWorkspaceGlobs, rustUnitOfScanId,
+  buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, parseWorkspaceGlobs, rustUnitName, rustUnitOfScanId, trampolineText,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -270,13 +271,16 @@ test("package.json ships the bin and lock-graph.mjs", () => {
 
 // ---- result cache inputs ----------------------------------------------------------------------------------------
 
+// Sources with no reach outside their crate: every member is one src/lib.rs that includes nothing.
+const plainSources = { listFiles: (dir) => [`${dir}/src/lib.rs`], readBlob: () => "pub fn f() {}\n" };
+
 test("cache digest: a cargo scan covers its lock closure and the shared build inputs, nothing else", () => {
   const lock = shipped.parseLock(lockPkg("a", "1.0.0", ["b", "serde"]) + lockPkg("b", "1.0.0") + lockPkg("c", "1.0.0") + lockPkg("serde", "1.0.0"));
   const units = [{ name: "a", dir: "crates/a" }, { name: "b", dir: "crates/b" }, { name: "c", dir: "crates/c" }];
   const ids = { "crates/a": "ta", "crates/b": "tb", "crates/c": "tc", "Cargo.lock": "lock", "Cargo.toml": "root", ".cargo": "cargo", "deny.toml": "deny", "ci/gate.config.json": "cfg", vendor: "v" };
   const digestOf = (over = {}, tree = "head") => {
     const map = { ...ids, ...over };
-    return buildCacheDigest({ objectId: (p) => map[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLock: lock });
+    return buildCacheDigest({ objectId: (p) => map[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLock: lock, ...plainSources });
   };
   const clippyA = { id: "clippy:a", class: "B" };
   const base = digestOf()(clippyA);
@@ -288,12 +292,15 @@ test("cache digest: a cargo scan covers its lock closure and the shared build in
   for (const shared of ["Cargo.lock", "Cargo.toml", ".cargo", "deny.toml", "ci/gate.config.json", "vendor"]) assert.notEqual(digestOf({ [shared]: "x" })(clippyA), base, shared);
   assert.notEqual(digestOf()({ id: "check:c", class: "B" }), base, "another crate, another digest");
   assert.equal(digestOf({ "crates/a": "ta2" })({ id: "check:c", class: "B" }), digestOf()({ id: "check:c", class: "B" }), "c does not depend on a");
-  assert.notEqual(digestOf()({ id: "test:rust:a:1", class: "B" }), null);
+  // Rust tests read run-time files no compile scan sees: with no declared testInputs they are keyed on the whole HEAD tree.
+  const testA = { id: "test:rust:a", class: "B" };
+  assert.notEqual(digestOf({}, "other-head")(testA), digestOf()(testA), "a test scan is not reused across commits");
+  assert.equal(digestOf({ "crates/c": "tc2" })(testA), digestOf()(testA), "same tree id, same key");
 });
 
 test("cache digest: class A and an unanswerable git are never cached; non-cargo scans use the whole tree", () => {
   const lock = shipped.parseLock(lockPkg("a", "1.0.0"));
-  const make = (objectId, tree = "t1") => buildCacheDigest({ objectId, headTree: tree, rustUnits: [{ name: "a", dir: "crates/a" }], cargoDir: ".", rustLock: lock });
+  const make = (objectId, tree = "t1") => buildCacheDigest({ objectId, headTree: tree, rustUnits: [{ name: "a", dir: "crates/a" }], cargoDir: ".", rustLock: lock, ...plainSources });
   assert.equal(make(() => "x")({ id: "cargo-deny", class: "A" }), null);
   assert.equal(make(() => "x")({ id: "node-check:a.mjs", class: "A" }), null);
   assert.equal(make(() => { throw new Error("git down"); })({ id: "clippy:a", class: "B" }), null);
@@ -309,4 +316,461 @@ test("rustUnitOfScanId maps every cargo scan id to its crate", () => {
   const cases = { "clippy:a": "a", "clippy:a:1": "a", "check:a": "a", "check-features:a:0": "a", "check-dependent:a": "a", "doc:a": "a", "test:rust:a": "a", "test:rust:a:2": "a", "test:rust-serial:a:1": "a" };
   for (const [id, unit] of Object.entries(cases)) assert.equal(rustUnitOfScanId(id), unit, id);
   for (const id of ["test:npm:a", "test:scripts-ci", "tsc:a", "generated-docs", "cargo-deny"]) assert.equal(rustUnitOfScanId(id), null, id);
+});
+
+// ---- result cache: inputs outside the closure --------------------------------------------------------------------------
+
+function sourceTree(files) {
+  return { listFiles: (dir) => Object.keys(files).filter((f) => f.startsWith(`${dir}/`)), readBlob: (p) => { if (!(p in files)) throw new Error(`no ${p}`); return files[p]; } };
+}
+function ownershipDigest({ ids = {}, tree = "head", files = {}, crateFeatures = {}, scanId = "test:rust:rightkit-ownership" } = {}) {
+  const lock = shipped.parseLock(lockPkg("rightkit-ownership", "1.0.0"));
+  const base = { "crates/rightkit-ownership": "own1", "Cargo.lock": "lock", "Cargo.toml": "root", "ci/gate.config.json": "cfg", "packages/release/fixtures/ownership/cases": "cases1", "packages/release/fixtures": "fx1" };
+  const map = { ...base, ...ids };
+  const src = { "crates/rightkit-ownership/src/lib.rs": "pub fn f() {}\n", ...files };
+  return buildCacheDigest({ objectId: (p) => map[p] ?? null, headTree: tree, rustUnits: [{ name: "rightkit-ownership", dir: "crates/rightkit-ownership" }], cargoDir: ".", rustLock: lock, crateFeatures, ...sourceTree(src) })({ id: scanId, class: "B" });
+}
+
+test("cache digest: the ownership_fixtures reproduction - changing the fixture cases changes the test digest, with or without testInputs", () => {
+  const cases = "packages/release/fixtures/ownership/cases";
+  // The crate directory is untouched; only the fixture directory outside it changed, and with it the HEAD tree id.
+  assert.notEqual(ownershipDigest({ ids: { [cases]: "cases2" }, tree: "head2" }), ownershipDigest(), "no testInputs: keyed on the whole tree");
+  const declared = { "rightkit-ownership": { testInputs: [cases] } };
+  const withInputs = ownershipDigest({ crateFeatures: declared });
+  assert.notEqual(ownershipDigest({ crateFeatures: declared, ids: { [cases]: "cases2" }, tree: "head2" }), withInputs, "declared testInputs: the fixture path is an input");
+  assert.equal(ownershipDigest({ crateFeatures: declared, tree: "head3", ids: { "packages/release/fixtures": "other" } }), withInputs, "declared testInputs: an unrelated tree change is not an input, so the key is reused across commits");
+  assert.notEqual(ownershipDigest({ crateFeatures: declared, ids: { "crates/rightkit-ownership": "own2" } }), withInputs, "the closure is still an input");
+  for (const bad of [[], ["../x"], ["/abs"], ["a/../b"], ["C:/x"], [""], "cases"]) {
+    assert.equal(ownershipDigest({ crateFeatures: { "rightkit-ownership": { testInputs: bad } }, tree: "head9" }), ownershipDigest({ tree: "head9" }), `an unusable testInputs ${JSON.stringify(bad)} falls back to the whole tree`);
+  }
+});
+
+test("cache digest: a compile scan also keys on a repository path the crate's sources include from outside its directory", () => {
+  const files = { "crates/rightkit-ownership/src/lib.rs": 'const SCHEMA: &str = include_str!("../../../packages/release/schema.json");\n' };
+  const clippy = ({ id = "s1", tree = "head", other = {} } = {}) => ownershipDigest({ scanId: "clippy:rightkit-ownership", files, ids: { "packages/release/schema.json": id, ...other }, tree });
+  const base = clippy();
+  assert.notEqual(clippy({ id: "s2" }), base, "the included file changed");
+  assert.equal(clippy({ tree: "head2", other: { "packages/release/fixtures": "unrelated" } }), base, "an unrelated change is not an input");
+  // The same crate with no outside reference ignores that path entirely.
+  const plain = (id) => ownershipDigest({ scanId: "clippy:rightkit-ownership", ids: { "packages/release/schema.json": id } });
+  assert.equal(plain("s2"), plain("s1"), "no reference, no dependency on the path");
+  // include_bytes! through a CARGO_MANIFEST_DIR concat resolves the same way.
+  const viaConcat = (id) => ownershipDigest({ scanId: "check:rightkit-ownership", files: { "crates/rightkit-ownership/src/lib.rs": 'static B: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/release/schema.json"));\n' }, ids: { "packages/release/schema.json": id } });
+  assert.notEqual(viaConcat("s1"), viaConcat("s2"));
+  // A "../" literal in ordinary code counts when it names an existing repository path.
+  const viaLiteral = (id) => ownershipDigest({ scanId: "doc:rightkit-ownership", files: { "crates/rightkit-ownership/tests/t.rs": 'let p = dir.join("../../packages/release/schema.json");\n' }, ids: { "packages/release/schema.json": id } });
+  assert.notEqual(viaLiteral("s1"), viaLiteral("s2"));
+});
+
+test("cache digest: a reference that cannot be resolved statically keys the scan on the whole tree", () => {
+  const differsByTree = (scanId, files, label) => assert.notEqual(ownershipDigest({ scanId, files, tree: "head-A" }), ownershipDigest({ scanId, files, tree: "head-B" }), label);
+  differsByTree("clippy:rightkit-ownership", { "crates/rightkit-ownership/src/lib.rs": "const S: &str = include_str!(path_macro!());\n" }, "a computed include path");
+  differsByTree("check:rightkit-ownership", {
+    "crates/rightkit-ownership/build.rs": 'fn main() { let root = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).parent().unwrap().to_path_buf(); let _ = std::fs::read_to_string(root.join("x")); }\n',
+  }, "a build.rs that reads files and leaves its crate");
+  differsByTree("clippy:rightkit-ownership", { "crates/rightkit-ownership/src/lib.rs": 'const S: &str = include_str!("../../../../../../etc/x");\n' }, "a path that leaves the repository");
+  const lock = shipped.parseLock(lockPkg("a", "1.0.0"));
+  const make = (tree, sources) => buildCacheDigest({ objectId: () => "x", headTree: tree, rustUnits: [{ name: "a", dir: "crates/a" }], rustLock: lock, ...sources })({ id: "clippy:a", class: "B" });
+  const unreadable = { listFiles: () => ["crates/a/src/lib.rs"], readBlob: () => { throw new Error("git down"); } };
+  assert.notEqual(make("head-A", unreadable), make("head-B", unreadable), "an unreadable source");
+  assert.notEqual(make("head-A", {}), make("head-B", {}), "no way to read the sources at all");
+});
+
+test("externalInputs: include targets resolve against the including file, build.rs rerun-if-changed targets against the crate", () => {
+  const exists = (p) => ["shared/a.json", "shared/b.txt", "shared/gen.rs", "shared/deep.txt"].includes(p);
+  const files = {
+    "crates/c/src/lib.rs": 'include_str!("../../../shared/a.json"); include!("../../../shared/gen.rs"); include_str!("local.txt");',
+    "crates/c/src/sub/mod.rs": 'include_bytes!( "../../../../shared/b.txt" )',
+    "crates/c/build.rs": 'fn main() { let _ = std::fs::read("x"); println!("cargo:rerun-if-changed=../../shared/b.txt"); }',
+    "shared/gen.rs": 'include_str!("deep.txt");',
+  };
+  const t = sourceTree(files);
+  const out = externalInputs({ dir: "crates/c", files: t.listFiles("crates/c"), readBlob: t.readBlob, exists });
+  assert.equal(out.unresolved, null);
+  assert.deepEqual(out.paths, ["shared/a.json", "shared/b.txt", "shared/deep.txt", "shared/gen.rs"]);
+});
+
+// ---- npm: the root package.json (adoption gap 4) ----------------------------------------------------------------------------
+
+const npmFixture = (workspaceYaml, extra = {}) => {
+  const files = new Map(Object.entries({
+    "package.json": '{"name":"app-root"}', "apps/web/package.json": '{"name":"web"}', "packages/ui/package.json": '{"name":"ui"}', "tools/t/package.json": '{"name":"t"}', ...extra,
+  }).map(([k, v]) => [norm(path.join("/r", k)), v]));
+  if (workspaceYaml !== null) files.set(norm("/r/pnpm-workspace.yaml"), workspaceYaml);
+  const tracked = (name) => [...files.keys()].map((k) => k.slice("/r/".length)).filter((k) => path.posix.basename(k) === name);
+  return { root: "/r", tracked, readFile: (p) => files.get(norm(p)), exists: (p) => files.has(norm(p)) };
+};
+const unitDirs = (fixture) => discoverNpmUnits(fixture).map((u) => `${u.name}=${u.dir}`);
+
+test("npmUnits: the root package.json is a unit when pnpm-workspace.yaml is absent, has no packages: or declares the root", () => {
+  assert.deepEqual(unitDirs(npmFixture(null)), ["app-root=."], "no workspace file: the root only, as before");
+  assert.deepEqual(unitDirs(npmFixture("minimumReleaseAge: 1440\nonlyBuiltDependencies:\n  - esbuild\n")), ["app-root=."], "a settings-only workspace file has no packages:");
+  assert.deepEqual(unitDirs(npmFixture("packages: []\n")), ["app-root=."], "an empty packages: list");
+  assert.deepEqual(unitDirs(npmFixture("packages:\n  - '.'\n")), ["app-root=."], "viewright: packages declares the root");
+  assert.deepEqual(unitDirs(npmFixture("packages:\n  - './'\n  - 'apps/*'\n")), ["app-root=.", "web=apps/web"], "the root and the nested globs together");
+  assert.deepEqual(unitDirs(npmFixture("packages:\n  - 'packages/*'\n  - 'apps/*'\n")), ["web=apps/web", "ui=packages/ui"], "a packages: list that does not name the root: the root is only the workspace manifest");
+  assert.deepEqual(unitDirs(npmFixture("packages:\n  - '.'\n  - '!.'\n")), [], "an explicit exclusion of the root wins");
+  assert.deepEqual(unitDirs(npmFixture("packages:\n  - '.'\n  - 'packages/*'\n", { "packages/ui/package.json": '{"name":"app-root"}' })), ["root=.", "packages-ui=packages/ui"], "a name collision falls back to directories");
+  assert.deepEqual(unitDirs({ ...npmFixture("minimumReleaseAge: 1\n"), tracked: () => ["apps/web/package.json"] }), [], "a root package.json that is not tracked is no unit");
+});
+
+// ---- rust workspaces (adoption gap 3) ---------------------------------------------------------------------------------------
+
+// A fake cargo: metadata for the directory it runs in, from a table { dir: { root, members: [[name, dir, publish?]] } }.
+function metaSpawn(root, table, calls = []) {
+  return (cmd, args, opts) => {
+    calls.push({ cmd, args, cwd: norm(path.relative(root, opts.cwd)) || "." });
+    const entry = table[norm(path.relative(root, opts.cwd)) || "."];
+    if (!entry) return no("error: could not find `Cargo.toml` here");
+    if (entry.fail) return no(entry.fail);
+    return ok(meta(root, entry.root ?? ".", entry.members.map(([name, dir, publish = null]) => [name, dir, publish])));
+  };
+}
+const discover = (root, table, manifests, extra = {}) => {
+  const calls = [];
+  const found = discoverRustWorkspaces({ root, spawn: metaSpawn(root, table, calls), cargoCommand: ["rightkit", "cargo"], tracked: () => manifests, ...extra });
+  return { found, calls };
+};
+
+test("rustWorkspaces: the root workspace and every standalone workspace below it, each read by its own cargo metadata", (t) => {
+  const root = mkRepo({}, t);
+  const table = {
+    ".": { root: ".", members: [["core", "crates/core"], ["util", "crates/util", []]] },
+    "hub/src-tauri": { root: "hub/src-tauri", members: [["app", "hub/src-tauri"]] },
+    engine: { root: "engine", members: [["eng", "engine/eng"], ["eng-cli", "engine/eng-cli"]] },
+  };
+  const manifests = ["Cargo.toml", "crates/core/Cargo.toml", "crates/util/Cargo.toml", "hub/src-tauri/Cargo.toml", "engine/Cargo.toml", "engine/eng/Cargo.toml", "engine/eng-cli/Cargo.toml"];
+  const { found, calls } = discover(root, table, manifests);
+  assert.equal(found.present, true);
+  assert.deepEqual(found.workspaces.map((w) => w.cargoDir), [".", "engine", "hub/src-tauri"]);
+  assert.deepEqual(found.units.map((u) => [u.name, u.crate, u.dir, u.cargoDir, u.publish]), [
+    ["core", "core", "crates/core", ".", true], ["util", "util", "crates/util", ".", false],
+    ["engine:eng", "eng", "engine/eng", "engine", true], ["engine:eng-cli", "eng-cli", "engine/eng-cli", "engine", true],
+    ["hub/src-tauri:app", "app", "hub/src-tauri", "hub/src-tauri", true],
+  ]);
+  assert.deepEqual(calls.map((c) => c.cwd), [".", "engine", "hub/src-tauri"], "one cargo metadata per workspace, in the workspace, shallowest first; members are not asked again");
+  for (const c of calls) { assert.equal(c.cmd, "rightkit"); assert.deepEqual(c.args, ["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"]); }
+  assert.deepEqual(found.skipped, []);
+  assert.equal(rustUnitName(".", "core"), "core"); assert.equal(rustUnitName("a/b", "c"), "a/b:c");
+});
+
+test("rustWorkspaces: a repository with no workspace at the root (nested only) and one with no Rust at all", (t) => {
+  const root = mkRepo({}, t);
+  const nested = discover(root, { "src-tauri": { root: "src-tauri", members: [["app", "src-tauri"]] } }, ["src-tauri/Cargo.toml"]).found;
+  assert.deepEqual(nested.units.map((u) => u.name), ["src-tauri:app"]);
+  assert.equal(nested.cargoDir, "src-tauri");
+  assert.deepEqual(discoverRustWorkspaces({ root, spawn: () => assert.fail("not run"), cargoCommand: ["cargo"], tracked: () => [] }), { present: false, workspaces: [], units: [], cargoDir: ".", skipped: [] });
+});
+
+test("rustWorkspaces: a manifest below a workspace is a workspace of its own when cargo reads it there (an excluded or self-contained crate), a fixture otherwise", (t) => {
+  const root = mkRepo({}, t);
+  const table = {
+    ".": { root: ".", members: [["core", "crates/core"]] },
+    "apps/demo": { root: "apps/demo", members: [["demo", "apps/demo"]] },
+    "fixtures/old": { fail: "error: current package believes it's in a workspace when it's not" },
+  };
+  const { found, calls } = discover(root, table, ["Cargo.toml", "crates/core/Cargo.toml", "apps/demo/Cargo.toml", "fixtures/old/Cargo.toml"]);
+  assert.deepEqual(found.units.map((u) => u.name), ["core", "apps/demo:demo"]);
+  assert.equal(found.skipped.length, 1);
+  assert.equal(found.skipped[0].manifest, "fixtures/old/Cargo.toml");
+  assert.match(found.skipped[0].why, /below the Cargo workspace \. but not one of its members.*believes it's in a workspace/);
+  assert.deepEqual(calls.map((c) => c.cwd), [".", "apps/demo", "fixtures/old"]);
+});
+
+test("rustWorkspaces: a manifest outside every workspace that cargo refuses stops the gate, as do a failed or malformed metadata", (t) => {
+  const root = mkRepo({}, t);
+  // "probe/x" is below the root workspace ".", so cargo's refusal skips it; a manifest outside every workspace has no such excuse.
+  const below = discover(root, { ".": { members: [["a", "a"]] }, "probe/x": { fail: "error: broken" } }, ["Cargo.toml", "a/Cargo.toml", "probe/x/Cargo.toml"]).found;
+  assert.deepEqual(below.skipped.map((k) => k.manifest), ["probe/x/Cargo.toml"]);
+  assert.throws(() => discover(root, { x: { members: [["a", "x"]], root: "x" }, y: { fail: "error: no lock" } }, ["x/Cargo.toml", "y/Cargo.toml"]), /cargo metadata failed: error: no lock \(in y\)/);
+  assert.throws(() => discover(root, {}, ["z/Cargo.toml"]), /cargo metadata failed.*\(in z\)/);
+  assert.throws(() => discoverRustWorkspaces({ root, spawn: () => ok("nope"), cargoCommand: ["cargo"], tracked: () => ["a/Cargo.toml"] }), /not JSON/);
+});
+
+test("rustWorkspaces: an untracked or ignored crate is skipped with a note, never scanned", (t) => {
+  const root = mkRepo({}, t);
+  const table = { ".": { root: ".", members: [["core", "crates/core"], ["scratchpad", "crates/scratchpad"]] } };
+  const { found } = discover(root, table, ["Cargo.toml", "crates/core/Cargo.toml"], { untracked: () => ["notes/new/Cargo.toml", "Cargo.toml"] });
+  assert.deepEqual(found.units.map((u) => u.name), ["core"], "the ignored member crates/scratchpad is not a unit");
+  assert.deepEqual(found.skipped.map((k) => k.manifest).sort(), ["crates/scratchpad/Cargo.toml", "notes/new/Cargo.toml"]);
+  assert.ok(found.skipped.every((k) => /untracked|ignored/.test(k.why)));
+});
+
+test("rustUnitOfScanId: a unit named <cargoDir>:<crate> is found among the known names, with or without the feature-set index", () => {
+  const known = new Set(["core", "engine:eng", "hub/src-tauri:app", "engine:eng:2"]);
+  const cases = {
+    "clippy:core": "core", "clippy:core:1": "core", "check-features:core:0": "core", "clippy:engine:eng": "engine:eng", "clippy:engine:eng:1": "engine:eng", "check-features:engine:eng:0": "engine:eng",
+    "check-dependent:engine:eng": "engine:eng", "doc:hub/src-tauri:app": "hub/src-tauri:app", "test:rust:hub/src-tauri:app": "hub/src-tauri:app", "test:rust-serial:hub/src-tauri:app:1": "hub/src-tauri:app",
+    "clippy:engine:eng:2": "engine:eng:2",
+  };
+  for (const [id, unit] of Object.entries(cases)) assert.equal(rustUnitOfScanId(id, known), unit, id);
+  assert.equal(rustUnitOfScanId("clippy:other", known), null, "an unknown unit is no unit");
+  assert.equal(rustUnitOfScanId("clippy:engine:eng:1"), "engine", "without the set the first segment is the name, as for a root workspace");
+  for (const id of ["test:npm:a", "tsc:a", "cargo-deny:engine", "cargo-metadata:hub/src-tauri"]) assert.equal(rustUnitOfScanId(id, known), null, id);
+});
+
+test("cache digest: each workspace keys on its own lock and members, and the root's shared inputs", () => {
+  const units = [
+    { name: "a", crate: "a", dir: "crates/a", cargoDir: "." },
+    { name: "x:b", crate: "b", dir: "x/b", cargoDir: "x" }, { name: "x:c", crate: "c", dir: "x/c", cargoDir: "x" }, { name: "y:b", crate: "b", dir: "y/b", cargoDir: "y" },
+  ];
+  const rustLocks = { ".": shipped.parseLock(lockPkg("a", "1.0.0")), x: shipped.parseLock(lockPkg("b", "1.0.0", ["c"]) + lockPkg("c", "1.0.0")), y: shipped.parseLock(lockPkg("b", "1.0.0")) };
+  const ids = { "crates/a": "ta", "x/b": "xb", "x/c": "xc", "y/b": "yb", "x/Cargo.lock": "xl", "x/Cargo.toml": "xt", ".cargo": "rc", "x/.cargo": "xc2", "Cargo.lock": "rl", "ci/gate.config.json": "cfg" };
+  const digest = (over = {}, tree = "head", crateFeatures = {}) => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLocks, crateFeatures, ...plainSources });
+  const clippyB = { id: "clippy:x:b", class: "B" };
+  const base = digest()(clippyB);
+  assert.equal(digest()(clippyB), base);
+  assert.equal(digest({}, "other-head")(clippyB), base, "a cargo scan is not keyed on the whole tree");
+  assert.notEqual(digest({ "x/b": "xb2" })(clippyB), base, "the unit changed");
+  assert.notEqual(digest({ "x/c": "xc9" })(clippyB), base, "b's closure holds c, through x's own lock");
+  assert.notEqual(digest({ "x/Cargo.lock": "other" })(clippyB), base, "x's own lock");
+  assert.notEqual(digest({ ".cargo": "other" })(clippyB), base, "cargo reads the repository root's .cargo from a nested workspace");
+  assert.equal(digest({ "crates/a": "ta2" })(clippyB), base, "another workspace's unit is not an input");
+  assert.equal(digest({ "y/b": "yb2" })(clippyB), base, "the crate b of workspace y is not the crate b of workspace x");
+  assert.equal(digest({ "Cargo.lock": "other" })(clippyB), base, "the root lock is not x's");
+  assert.notEqual(digest()({ id: "clippy:y:b", class: "B" }), base, "another unit, another key");
+  assert.notEqual(digest()({ id: "clippy:x:c", class: "B" }), base);
+  assert.equal(digest({ "x/b": "xb2" })({ id: "clippy:x:c", class: "B" }), digest()({ id: "clippy:x:c", class: "B" }), "c does not depend on b");
+  // A test scan of a nested unit is keyed on its declared testInputs, under the qualified or the plain name.
+  const testB = { id: "test:rust:x:b", class: "B" };
+  assert.notEqual(digest({}, "t2")(testB), digest({}, "t1")(testB), "no testInputs: the whole tree");
+  const withInputs = (extra) => digest({ "fixtures/x": "f1", ...extra }, "t1", { "x:b": { testInputs: ["fixtures/x"] } })(testB);
+  assert.equal(digest({ "fixtures/x": "f1" }, "t9", { b: { testInputs: ["fixtures/x"] } })(testB), withInputs(), "the plain crate name works too, and the tree id is not an input");
+  assert.notEqual(withInputs({ "fixtures/x": "f2" }), withInputs());
+  // Without a lock for the workspace the closure is unknown: the whole tree.
+  const noLock = buildCacheDigest({ objectId: () => "x", headTree: "t1", rustUnits: units, cargoDir: ".", rustLocks: { ".": rustLocks["."] }, ...plainSources });
+  assert.notEqual(noLock(clippyB), base);
+  assert.equal(noLock(clippyB), canonicalJsonOfTree("t1"));
+});
+const canonicalJsonOfTree = (tree) => `{"kind":"tree","tree":${JSON.stringify(tree)}}`;
+
+// ---- the gate with several workspaces ------------------------------------------------------------------------------------
+
+const MULTI_MANIFESTS = ["Cargo.toml", "crates/a/Cargo.toml", "hub/src-tauri/Cargo.toml", "fixtures/old/Cargo.toml"];
+function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untracked = "", tracked = MULTI_MANIFESTS } = {}) {
+  const table = { ".": { root: ".", members: [["a", "crates/a"]] }, "hub/src-tauri": { root: "hub/src-tauri", members: [["app", "hub/src-tauri"]] }, "fixtures/old": { fail: "error: not a member" } };
+  const cargo = metaSpawn(root, table, log);
+  return (cmd, args, opts = {}) => {
+    if (cmd === "rightkit" && args[1] === "metadata") return cargo(cmd, args, opts);
+    const line = args.join(" ");
+    if (cmd === "git") {
+      if (line === "rev-parse --show-toplevel") return ok(root);
+      if (line === "rev-parse HEAD") return ok(HEAD);
+      if (args[0] === "ls-files" && args.includes("--others")) return ok(untracked);
+      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${tracked.join("\0")}\0` : "");
+      if (args[0] === "diff") return ok(diff);
+    }
+    if (cmd === "where" || cmd === "which") return args[0] === "rightkit" ? ok("/bin/rightkit\n") : no();
+    return no(`unexpected ${cmd} ${line}`);
+  };
+}
+const multiGateFiles = () => gateFiles({
+  "crates/a/Cargo.toml": pkg("a"), "crates/a/src/lib.rs": "", "hub/src-tauri/Cargo.toml": pkg("app"), "hub/src-tauri/src/lib.rs": "pub fn f() {}\n", "hub/src-tauri/Cargo.lock": "version = 4\n",
+  "fixtures/old/Cargo.toml": pkg("old"),
+});
+
+test("--plan with several workspaces: each unit runs in its own workspace, the fixture is a note, and the unit names carry the workspace", async (t) => {
+  const files = multiGateFiles();
+  const root = mkRepo(files, t);
+  const log = []; const c = capture();
+  const code = await main(["--plan", "--base", "origin/main"], { ...c.io, spawn: multiSpawn(root, { log, untracked: "scratch/Cargo.toml\0" }), cwd: root, env: {} });
+  assert.equal(code, 0, c.err.join("\n"));
+  const out = c.out.join("\n");
+  assert.match(out, /rust units: a=crates\/a, hub\/src-tauri:app=hub\/src-tauri \(workspaces \., hub\/src-tauri\)/);
+  assert.match(out, /\[B\] clippy:hub\/src-tauri:app :: rightkit cargo clippy -p app --no-deps --all-targets --locked -- -D warnings/);
+  assert.match(out, /\[A\] cargo-package-list:hub\/src-tauri:app :: /);
+  assert.match(out, /\[A\] cargo-metadata:hub\/src-tauri :: /);
+  assert.doesNotMatch(out, /clippy:a\b|cargo-package-list:a\b/, "the root workspace's crate did not change");
+  assert.match(out, /note: fixtures\/old\/Cargo\.toml is skipped, not scanned: below the Cargo workspace \. but not one of its members/);
+  assert.match(out, /note: scratch\/Cargo\.toml is skipped, not scanned: untracked/);
+  const metadata = log.filter((l) => l.cwd !== undefined);
+  assert.deepEqual(metadata.map((l) => l.cwd), [".", "fixtures/old", "hub/src-tauri"], "shallowest first, by name; the member of a workspace is not asked again");
+});
+
+test("--plan: a workspace-wide change in one workspace puts only its crates in scope; no scan is planned for the others", async (t) => {
+  const files = multiGateFiles();
+  const root = mkRepo(files, t);
+  const c = capture();
+  const code = await main(["--plan"], { ...c.io, spawn: multiSpawn(root, { diff: "hub/src-tauri/Cargo.lock\n" }), cwd: root, env: {} });
+  assert.equal(code, 0, c.err.join("\n"));
+  const out = c.out.join("\n");
+  assert.match(out, /\[B\] clippy:hub\/src-tauri:app ::/);
+  assert.match(out, /\[A\] cargo-deny:hub\/src-tauri ::/);
+  assert.doesNotMatch(out, /clippy:a\b/);
+  assert.doesNotMatch(out, /\[A\] cargo-deny ::/);
+});
+
+// ---- install-hook: chaining and the binary search (adoption gaps 2 and 5) ------------------------------------------------------
+
+function hookEnv(root, state, { listed = null } = {}) {
+  return (cmd, args) => {
+    const line = args.join(" ");
+    if (cmd === "git" && line === "rev-parse --show-toplevel") return ok(root);
+    if (cmd === "git" && line === "rev-parse --git-dir") return ok(".git\n");
+    if (cmd === "git" && line === "config --get core.hooksPath") return state.hooksPath ? ok(`${state.hooksPath}\n`) : no();
+    if (cmd === "git" && args[0] === "config" && args[1] === "core.hooksPath") { state.hooksPath = args[2]; state.sets.push(args[2]); return ok(); }
+    if (cmd === "git" && args[0] === "ls-files") return listed === null ? no("not listed") : ok(listed.map((f) => `${f}\0`).join(""));
+    return no(`unexpected ${cmd} ${line}`);
+  };
+}
+const withGitHooks = (root, names) => { fs.mkdirSync(path.join(root, ".git", "hooks"), { recursive: true }); for (const n of names) fs.writeFileSync(path.join(root, ".git", "hooks", n), "#!/bin/sh\nexit 0\n"); };
+
+test("install-hook: every hook present in .git/hooks gets a trampoline, pre-push chains at run time, and it says which hooks it chained", async (t) => {
+  const root = mkRepo({ "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.5.0"}}', "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "" }, t);
+  withGitHooks(root, ["pre-commit", "commit-msg", "pre-push", "pre-commit.sample", "not-a-hook", "applypatch-msg.sample"]);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  const code = await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root });
+  assert.equal(code, 0, c.err.join("\n"));
+  assert.deepEqual(fs.readdirSync(path.join(root, ".githooks")).sort(), ["commit-msg", "pre-commit", "pre-push"], "samples and unknown names get no trampoline");
+  for (const name of ["pre-commit", "commit-msg"]) {
+    const body = fs.readFileSync(path.join(root, ".githooks", name), "utf8");
+    assert.equal(body, trampolineText(name));
+    assert.match(body, new RegExp(`"\\$\\(git rev-parse --git-dir\\)/hooks/${name}"`));
+    assert.match(body, /exec "\$hook" "\$@"/);
+    assert.ok(!body.includes(root) && !/[A-Za-z]:[\\/]/.test(body), "no absolute path in a committed hook");
+  }
+  const prePush = fs.readFileSync(path.join(root, ".githooks", "pre-push"), "utf8");
+  assert.match(prePush, /own="\$\(git rev-parse --git-dir\)\/hooks\/pre-push"/);
+  assert.ok(!prePush.includes(root) && !/[A-Za-z]:[\\/]/.test(prePush.replace(/\\\//g, "")), "no absolute path in the pre-push hook");
+  const out = c.out.join("\n");
+  assert.match(out, /chained hooks from \.git\/hooks: commit-msg, pre-commit, pre-push \(run first, then the gate\)/);
+  assert.match(out, /wrote \.githooks\/pre-commit \(runs \.git\/hooks\/pre-commit\)/);
+  assert.match(out, /git add --chmod=\+x \.githooks\/pre-push \.githooks\/commit-msg \.githooks\/pre-commit/);
+  assert.match(out, /@rightkit\/release is declared in package\.json/);
+  assert.ok(!c.err.join("\n").includes("WARNING"));
+  // Running it again changes nothing.
+  const again = capture();
+  assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0);
+  assert.ok(again.out.some((l) => /\.githooks\/pre-commit already current/.test(l)) && again.out.some((l) => /\.githooks\/pre-push already current/.test(l)));
+});
+
+test("install-hook: a different hook already in .githooks is never replaced without --force, and nothing changes then", async (t) => {
+  const root = mkRepo({ ".githooks/pre-commit": "#!/bin/sh\necho mine\n" }, t);
+  withGitHooks(root, ["pre-commit"]);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state), cwd: root }), 1);
+  assert.match(c.err.join("\n"), /\.githooks\/pre-commit already exists and differs; nothing changed/);
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), "#!/bin/sh\necho mine\n");
+  assert.equal(fs.existsSync(path.join(root, ".githooks", "pre-push")), false, "no partial install");
+  assert.deepEqual(state.sets, []);
+  const forced = capture();
+  assert.equal(await main(["install-hook", "--force"], { ...forced.io, spawn: hookEnv(root, state), cwd: root }), 0);
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), trampolineText("pre-commit"));
+  assert.deepEqual(state.sets, [".githooks"]);
+});
+
+test("install-hook: without .git/hooks files nothing is chained, and it warns when no package depends on @rightkit/release", async (t) => {
+  const root = mkRepo({ "package.json": '{"name":"app","dependencies":{"left-pad":"1.0.0"}}', "tauri-app-next/package.json": '{"name":"ui"}' }, t);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json", "tauri-app-next/package.json"] }), cwd: root }), 0);
+  assert.match(c.out.join("\n"), /chained hooks from \.git\/hooks: none; the pre-push hook still runs \.git\/hooks\/pre-push first if one appears later/);
+  assert.match(c.err.join("\n"), /WARNING: no package\.json in this repository depends on @rightkit\/release/);
+  assert.deepEqual(fs.readdirSync(path.join(root, ".githooks")), ["pre-push"]);
+  // A workspace package that declares it silences the warning, and the package itself counts.
+  const nested = mkRepo({ "tauri-app-next/package.json": '{"name":"ui","devDependencies":{"@rightkit/release":"0.5.0"}}' }, t);
+  const n = capture();
+  assert.equal(await main(["install-hook"], { ...n.io, spawn: hookEnv(nested, { hooksPath: "", sets: [] }, { listed: ["tauri-app-next/package.json"] }), cwd: nested }), 0);
+  assert.ok(!n.err.join("\n").includes("WARNING"));
+  assert.match(n.out.join("\n"), /declared in tauri-app-next\/package\.json/);
+  const self = mkRepo({ "packages/release/package.json": '{"name":"@rightkit/release"}' }, t);
+  const s = capture();
+  assert.equal(await main(["install-hook"], { ...s.io, spawn: hookEnv(self, { hooksPath: "", sets: [] }, { listed: ["packages/release/package.json"] }), cwd: self }), 0);
+  assert.ok(!s.err.join("\n").includes("WARNING"));
+});
+
+// The hook itself, run by a real sh in a real scratch git repository with stub executables.
+const SH = spawnSync("sh", ["-c", "exit 0"], { encoding: "utf8" });
+const shAvailable = !SH.error && SH.status === 0;
+function hookRepo(t, files) {
+  const root = mkRepo({}, t);
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  assert.equal(git("init", "-q").status, 0);
+  for (const [name, body] of Object.entries(files)) { const file = path.join(root, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, body); fs.chmodSync(file, 0o755); }
+  return root;
+}
+const recorder = (log, label) => `#!/bin/sh\n{ echo "${label} $*"; cat; echo "--"; } >> "${log.replaceAll("\\", "/")}"\n`;
+const runHook = (root, input, { path: extraPath = [], env = {} } = {}) => spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], {
+  cwd: root, input, encoding: "utf8", env: { ...process.env, ...env, PATH: [...extraPath, process.env.PATH].join(path.delimiter) },
+});
+
+test("the pre-push hook: runs .git/hooks/pre-push first, feeds the same stdin to it and to the gate, and stops on the first failure", { skip: !shAvailable && "no sh" }, (t) => {
+  const log = path.join(mkRepo({}, t), "calls.log");
+  const root = hookRepo(t, {
+    ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"),
+    ".git/hooks/pre-push": recorder(log, "own"),
+    "node_modules/.bin/rightkit-gate": recorder(log, "gate"),
+  });
+  const ref = `refs/heads/main ${"a".repeat(40)} refs/heads/main ${"0".repeat(40)}\n`;
+  const ran = runHook(root, ref);
+  assert.equal(ran.status, 0, ran.stderr);
+  const calls = fs.readFileSync(log, "utf8");
+  assert.equal(calls, `own origin https://example.test/r.git\n${ref}--\ngate --base origin/main\n${ref}--\n`, "own hook first with git's arguments, then the gate, same stdin");
+  assert.match(ran.stderr, /rightkit-gate: running \.git\/hooks\/pre-push/);
+  assert.match(ran.stderr, /rightkit-gate: using node_modules\/\.bin\/rightkit-gate/);
+  // A failing own hook blocks the push and the gate does not run.
+  fs.writeFileSync(path.join(root, ".git", "hooks", "pre-push"), "#!/bin/sh\ncat >/dev/null\nexit 7\n");
+  fs.rmSync(log);
+  const failed7 = runHook(root, ref);
+  assert.equal(failed7.status, 7);
+  assert.equal(fs.existsSync(log), false, "the gate never ran");
+  // A failing gate fails the push with its code, even when the own hook passed.
+  fs.writeFileSync(path.join(root, ".git", "hooks", "pre-push"), "#!/bin/sh\ncat >/dev/null\nexit 0\n");
+  fs.writeFileSync(path.join(root, "node_modules", ".bin", "rightkit-gate"), "#!/bin/sh\ncat >/dev/null\nexit 3\n");
+  assert.equal(runHook(root, ref).status, 3);
+});
+
+test("the pre-push hook: without an own hook only the gate runs; its temp file is gone afterwards", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const root = hookRepo(t, { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"), "node_modules/.bin/rightkit-gate": recorder(log, "gate") });
+  const ran = runHook(root, "x y z w\n", { env: { TMPDIR: tmp } });
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "gate --base origin/main\nx y z w\n--\n");
+  assert.deepEqual(fs.readdirSync(tmp).sort(), ["calls.log"], "the buffered stdin is removed");
+  assert.ok(!ran.stderr.includes("running"), "nothing to chain");
+});
+
+test("the pre-push hook: the gate binary is the root install, else a workspace package's (one to three levels down), else pnpm exec; it says which", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const base = { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs") };
+  // heardright / cutright / coderight: the dependency lives in tauri-app-next (or apps/*), never at the root.
+  for (const where of ["tauri-app-next", "apps/web", "packages/x/y"]) {
+    fs.rmSync(log, { force: true });
+    const root = hookRepo(t, { ...base, [`${where}/node_modules/.bin/rightkit-gate`]: recorder(log, `gate@${where}`) });
+    const ran = runHook(root, "in\n");
+    assert.equal(ran.status, 0, ran.stderr);
+    assert.equal(fs.readFileSync(log, "utf8"), `gate@${where} --base origin/main\nin\n--\n`);
+    assert.match(ran.stderr, new RegExp(`rightkit-gate: using ${where}/node_modules/\\.bin/rightkit-gate`));
+  }
+  // The root install wins over a workspace package's.
+  fs.rmSync(log, { force: true });
+  const both = hookRepo(t, { ...base, "node_modules/.bin/rightkit-gate": recorder(log, "root"), "tauri-app-next/node_modules/.bin/rightkit-gate": recorder(log, "nested") });
+  assert.equal(runHook(both, "in\n").status, 0);
+  assert.match(fs.readFileSync(log, "utf8"), /^root /);
+  // Nothing installed: pnpm exec, which is what finds a root dependency.
+  fs.rmSync(log, { force: true });
+  const bin = mkRepo({ pnpm: recorder(log, "pnpm") }, t);
+  fs.chmodSync(path.join(bin, "pnpm"), 0o755);
+  const none = hookRepo(t, base);
+  const viaPnpm = runHook(none, "in\n", { path: [bin] });
+  assert.equal(viaPnpm.status, 0, viaPnpm.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "pnpm exec rightkit-gate --base origin/main\nin\n--\n");
+  assert.match(viaPnpm.stderr, /rightkit-gate: using pnpm exec rightkit-gate/);
+});
+
+test("the trampoline hook runs the repository's own hook with its arguments and passes when there is none", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const root = hookRepo(t, { ".githooks/commit-msg": trampolineText("commit-msg"), ".git/hooks/commit-msg": recorder(log, "own") });
+  const first = spawnSync("sh", [".githooks/commit-msg", "MSG_FILE"], { cwd: root, encoding: "utf8", input: "" });
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "own MSG_FILE\n--\n");
+  fs.writeFileSync(path.join(root, ".git", "hooks", "commit-msg"), "#!/bin/sh\nexit 9\n");
+  assert.equal(spawnSync("sh", [".githooks/commit-msg", "MSG_FILE"], { cwd: root, encoding: "utf8" }).status, 9, "the own hook's failure fails the commit");
+  fs.rmSync(path.join(root, ".git", "hooks", "commit-msg"));
+  assert.equal(spawnSync("sh", [".githooks/commit-msg", "MSG_FILE"], { cwd: root, encoding: "utf8" }).status, 0, "no own hook: nothing to run");
 });

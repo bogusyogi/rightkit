@@ -110,8 +110,11 @@ pub struct StaticSchema {
     keys: Option<BTreeSet<String>>,
     max_value_bytes: usize,
     max_document_bytes: usize,
-    validator: Option<Arc<dyn Fn(&Map<String, Value>) -> Result<(), String> + Send + Sync>>,
+    validator: Option<SchemaValidator>,
 }
+
+/// A document-level check run after the per-key checks; `Err` names the rejected field or rule.
+type SchemaValidator = Arc<dyn Fn(&Map<String, Value>) -> Result<(), String> + Send + Sync>;
 
 impl StaticSchema {
     pub fn new(version: u32) -> Self {

@@ -439,7 +439,7 @@
     "rightkit-compose": "0.2.0",
     "rightkit-contracts": "0.1.7",
     "rightkit-crash": "0.3.5",
-    "rightkit-credentials": "0.4.1",
+    "rightkit-credentials": "0.4.2",
     "rightkit-crypto": "0.1.0",
     "rightkit-daemon": "0.3.1",
     "rightkit-db": "0.5.0",
@@ -465,7 +465,7 @@
     "rightkit-oauth": "0.10.0",
     "rightkit-ocr": "0.2.3",
     "rightkit-onnx": "0.2.7",
-    "rightkit-overlay": "0.1.2",
+    "rightkit-overlay": "0.2.0",
     "rightkit-ownership": "0.3.1",
     "rightkit-pdf": "0.3.3",
     "rightkit-platform-rules": "0.1.0",
@@ -522,7 +522,7 @@
       "rightkit-contracts": "0.1.7",
       "rightkit-control": "0.3.0",
       "rightkit-crash": "0.3.5",
-      "rightkit-credentials": "0.4.1",
+      "rightkit-credentials": "0.4.2",
       "rightkit-crypto": "0.1.0",
       "rightkit-daemon": "0.3.0",
       "rightkit-db": "0.5.1",
@@ -552,7 +552,7 @@
       "rightkit-ocr": "0.2.3",
       "rightkit-onnx": "0.2.6",
       "rightkit-ort": "0.2.3",
-      "rightkit-overlay": "0.1.2",
+      "rightkit-overlay": "0.2.0",
       "rightkit-ownership": "0.3.1",
       "rightkit-pdf": "0.3.3",
       "rightkit-platform-rules": "0.1.0",
@@ -591,7 +591,7 @@
     },
     "npm": {
       "@rightkit/app-shell": "0.6.2",
-      "@rightkit/app-update": "0.4.0",
+      "@rightkit/app-update": "0.4.1",
       "@rightkit/ax": "0.3.2",
       "@rightkit/ci": "0.3.0",
       "@rightkit/doc-render": "0.2.1",
@@ -601,7 +601,7 @@
       "@rightkit/legal": "0.6.1",
       "@rightkit/legal-ui": "0.4.1",
       "@rightkit/license": "0.3.0",
-      "@rightkit/logs": "0.1.5",
+      "@rightkit/logs": "0.1.6",
       "@rightkit/media-ui": "0.3.4",
       "@rightkit/onboarding": "0.6.3",
       "@rightkit/outdated": "0.2.0",
@@ -610,8 +610,8 @@
       "@rightkit/qa": "0.5.2",
       "@rightkit/qa-chrome": "0.1.10",
       "@rightkit/react-shell": "0.7.2",
-      "@rightkit/release": "0.4.0",
-      "@rightkit/settings-ui": "0.6.1",
+      "@rightkit/release": "0.4.1",
+      "@rightkit/settings-ui": "0.7.0",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.3.0",
       "@rightkit/tauri-shell": "0.1.2",
@@ -968,7 +968,8 @@
       "0.2.1"
     ],
     "rightkit-overlay": [
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ],
     "rightkit-app-settings": [
       "0.2.0",
@@ -988,7 +989,8 @@
       "0.2.0",
       "0.2.1",
       "0.3.0",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "rightkit-review": [
       "0.2.0"

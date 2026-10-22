@@ -1,4 +1,13 @@
-// CI-only runtime evidence. Harness comes from dispatched main; measured source comes from sealed candidate.
+// Runtime evidence, two producers, one trusted harness. This file owns what both prove: the trusted workloads per crate
+// (TRUSTED_COVERAGE), their pinned Cargo commands, the frozen-budget and profile rules, and the receipt validators.
+//   - Actions (qualify-runtime.yml): `measure-clean` runs the workloads on the hosted runners with plain cargo; the harness
+//     comes from dispatched main, the measured source from the sealed candidate checkout; `combine` joins both hosts.
+//   - Local (packages/release/local-runtime.mjs, docs/CI.md "Local qualification"): each native host runs the SAME trusted
+//     workloads, from the table below and never from the candidate's own list, through the RustRight broker (`rightkit
+//     cargo`), in a quiet window it records, three times each; the receipts travel inside the pinned `local-verify`
+//     receipts and are admitted by runtime-supplement.mjs verifyLocalRuntimeProof with the validators exported here.
+// Editing this file changes the hash-pinned helper closure (runtime-supplement.mjs trustedRuntimeHelperPaths): a runtime proof
+// produced before the edit no longer verifies after it. Requalify rather than edit a proof.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
