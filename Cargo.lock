@@ -6858,7 +6858,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-child-process"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "libc",
  "tokio",
@@ -6997,7 +6997,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-embed"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "objc2",
  "objc2-core-ml",
@@ -7049,7 +7049,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fsindex"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "libc",
  "memchr",
@@ -7200,7 +7200,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-models"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -7301,8 +7301,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rightkit-overlay-win"
+version = "0.1.0"
+dependencies = [
+ "rightkit-overlay",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rightkit-ownership"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "fancy-regex 0.19.2",
