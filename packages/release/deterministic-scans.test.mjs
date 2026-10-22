@@ -774,21 +774,25 @@ function memCache(digest) {
 const bRows = (r) => r.scans.filter((s) => s.class === "B");
 const spawned = (log, word) => log.filter((l) => l.some((a) => String(a).includes(word)) && !l.some((a) => String(a).includes("version"))).length;
 
-test("cache: identical inputs hit; only class B passes are stored and the hit is reported as a pass", async () => {
+test("cache: identical inputs hit; every pass with a digest is stored, class A included; the hit is reported as a pass; a null digest opts out", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
-  const cache = memCache(() => "digest-1");
+  // The caller's digest decides: here the live checks (deny, audit) opt out, everything else is cacheable.
+  const cache = memCache((s) => (/^(cargo-deny|cargo-audit)/.test(s.id) ? null : "digest-1"));
   const first = await runScans(plan, deps({ ...fs, cache }));
   assert.equal(first.ok, true, JSON.stringify(scanFailures(first)));
   assert.deepEqual(first.cacheHits, []);
-  assert.equal(cache.store.size, bRows(first).length, "one entry per class B pass, none for class A");
+  const cacheable = (r) => r.scans.filter((s) => s.status === "pass" && !s.internal && !/^(cargo-deny|cargo-audit)/.test(s.id) && plan.scans.find((p) => p.id === s.id && !p.internal));
+  assert.equal(cache.store.size, cacheable(first).length, "one entry per tool-run pass with a digest, class A included");
+  assert.ok(cacheable(first).some((s) => s.class === "A"), "class A tool scans are among them");
   const log = [];
   const second = await runScans(plan, deps({ ...fs, cache, spawn: fakeSpawn({ log }) }));
   assert.equal(second.ok, true);
-  assert.deepEqual(second.cacheHits, bRows(second).map((r) => r.id).sort());
+  assert.deepEqual(second.cacheHits, cacheable(second).map((r) => r.id).sort());
   assert.ok(bRows(second).every((r) => r.status === "pass" && r.cached === true && r.detail === "cached 2026-10-22"));
   assert.equal(spawned(log, "clippy") + spawned(log, "test"), 0, "no cached scan was spawned");
   assert.equal(second.scanSetDigest, plan.scanSetDigest);
-  assert.ok(second.scans.filter((r) => r.class === "A").every((r) => !r.cached), "class A is never cached");
+  assert.ok(second.scans.filter((r) => /^(cargo-deny|cargo-audit)/.test(r.id)).every((r) => !r.cached), "the live checks ran again");
+  assert.ok(spawned(log, "deny") > 0 && spawned(log, "audit") > 0, "deny and audit were spawned again");
 });
 
 test("cache: a changed input digest (a closure member's tree id) is a miss", async () => {
@@ -868,7 +872,7 @@ test("fileScanCache: round trip, atomic file named by key, garbage and bad keys 
 
 test("cache: the inherited environment is part of the key (CI=false then CI=true is a miss; RUSTFLAGS too); volatile names are not", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs"]);
-  const cache = memCache(() => "d");
+  const cache = memCache((s) => (s.class === "A" ? null : "d"));
   await runScans(plan, deps({ ...fs, cache, env: { CI: "false", PATH: "/bin" } }));
   const sameLog = [];
   const same = await runScans(plan, deps({ ...fs, cache, env: { PATH: "/bin", CI: "false" }, spawn: fakeSpawn({ log: sameLog }) }));
@@ -881,10 +885,14 @@ test("cache: the inherited environment is part of the key (CI=false then CI=true
   assert.deepEqual(flags.cacheHits, [], "a new RUSTFLAGS is a miss");
   const added = await runScans(plan, deps({ ...fs, cache, env: { CI: "true", PATH: "/bin" }, spawn: fakeSpawn({}) }));
   assert.deepEqual(added.cacheHits, bRows(added).map((r) => r.id).sort(), "the CI=true run itself was stored");
-  const volatile = { PWD: "/a", OLDPWD: "/b", SHLVL: "2", _: "/x", PROMPT: "p", PS1: "q", TERM_SESSION_ID: "t", WT_SESSION: "w", WEZTERM_PANE: "9", SSH_AUTH_SOCK: "/s", CLAUDE_SESSION: "z", RANDOM: "42" };
-  assert.equal(inheritedEnvDigest({ CI: "true", PATH: "/bin" }), inheritedEnvDigest({ CI: "true", PATH: "/bin", ...volatile }), "volatile names do not change the digest");
-  assert.notEqual(inheritedEnvDigest({ CI: "true" }), inheritedEnvDigest({ CI: "true", FOO: "1" }));
+  // Only build-relevant names are in the digest: a session id, a socket, a temp dir, a prompt or PATH itself never changes a verdict.
+  const noise = { PWD: "/a", OLDPWD: "/b", SHLVL: "2", _: "/x", PROMPT: "p", PS1: "q", TERM_SESSION_ID: "t", WT_SESSION: "w", WEZTERM_PANE: "9", SSH_AUTH_SOCK: "/s", CLAUDE_CODE_SESSION_ID: "z", CLAUDE_CODE_MESSAGING_SOCKET: "\\\\.\\pipe\\x", RANDOM: "42", TEMP: "C:\\t", TMPDIR: "/tmp/x", PATH: "/other", FOO: "1", RK_GATE_JOBS: "8", RUSTRIGHT_QUIET_LEASE: "q-1" };
+  assert.equal(inheritedEnvDigest({ CI: "true" }), inheritedEnvDigest({ CI: "true", ...noise }), "non-build names do not change the digest");
+  for (const [name, value] of [["RUSTFLAGS", "-C x"], ["CARGO_BUILD_JOBS", "2"], ["RUSTUP_TOOLCHAIN", "1.98.0"], ["SCCACHE_DIR", "/s"], ["RK_LOCAL_BUILD", "1"], ["RIGHTKIT_REQUIRE_DESKTOP", "1"], ["NODE_OPTIONS", "--x"], ["npm_config_registry", "r"], ["CC", "clang"], ["MACOSX_DEPLOYMENT_TARGET", "13"]]) {
+    assert.notEqual(inheritedEnvDigest({ CI: "true" }), inheritedEnvDigest({ CI: "true", [name]: value }), `${name} is a build input`);
+  }
   assert.notEqual(inheritedEnvDigest({ CI: "true" }), inheritedEnvDigest({ CI: "True" }));
+  assert.equal(inheritedEnvDigest({ rustflags: "-C x" }), inheritedEnvDigest({ RUSTFLAGS: "-C x" }), "names compare case-insensitively (Windows)");
 });
 
 // ---- requiredScanIds agrees with planScans ---------------------------------------------------------------------------

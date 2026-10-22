@@ -221,7 +221,8 @@
       "0.2.173",
       "0.2.174",
       "0.3.0",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -442,7 +443,7 @@
     "rightkit-credentials": "0.4.2",
     "rightkit-crypto": "0.1.0",
     "rightkit-daemon": "0.3.1",
-    "rightkit-db": "0.5.0",
+    "rightkit-db": "0.5.1",
     "rightkit-device": "0.3.1",
     "rightkit-docs": "0.1.1",
     "rightkit-embed": "0.6.0",

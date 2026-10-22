@@ -72,18 +72,31 @@ export { canonicalJson, digestScanSet, requiredScanIds };
 // A passing class B scan is reused on a later run only when every input is identical: the key is the sha256 of the
 // canonical JSON of the scan id, its command text, the probed tool version, the environment the scan sets, a digest of the full environment its child inherits and an input
 // digest the caller computes from the gated commit's object ids (bin/rightkit-gate.mjs). Only "pass" rows are stored
-// (never fail, deferred or not-run), and class A content scans are never cached. A changed input changes the key, so
+// (never fail, deferred or not-run). Class A scans are cached too, except the live checks whose answer depends on the day
+// (cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile: the caller's digest returns null for them). A changed input changes the key, so
 // there is no separate invalidation; a corrupt or foreign file is a miss.
 
-// Environment names that differ run to run and cannot change what a scan proves. Everything else the child inherits
-// (CI, RUSTFLAGS, CARGO_*, RUSTUP_TOOLCHAIN, PATH, ...) is part of the key: over-invalidation is acceptable, a stale pass is not.
-const VOLATILE_ENV_NAMES = new Set(["PWD", "OLDPWD", "SHLVL", "_", "PROMPT", "PS1", "TERM_SESSION_ID", "WT_SESSION", "SSH_AUTH_SOCK", "RANDOM"]);
-const VOLATILE_ENV_PREFIXES = ["WEZTERM_", "CLAUDE_"];
-const volatileEnvName = (name) => { const upper = String(name).toUpperCase(); return VOLATILE_ENV_NAMES.has(upper) || VOLATILE_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix)); };
+// The environment names that can change what a build, lint, doc or test proves: compiler and cargo configuration, the toolchain,
+// linkers and C toolchains, sccache, the RightKit/RustRight switches, CI, node and pnpm configuration. Nothing else the child
+// inherits is part of the key: a session id, a socket path, a window handle or a temp directory differs from one process to the
+// next and proves nothing, and keying on the whole environment made every cached result unreadable after a restart (2026-10-22).
+// PATH is deliberately out: which tool runs is bound by the probed tool version in the key. RK_GATE_* (jobs, cache switches) and
+// RUSTRIGHT_QUIET_LEASE (a lease id) do not change a scan's verdict.
+const BUILD_ENV_NAMES = new Set(["CI", "GITHUB_ACTIONS", "CC", "CXX", "AR", "LD", "RANLIB", "RUSTC", "RUSTDOC", "RUSTFLAGS", "RUSTDOCFLAGS", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER",
+  "RUSTUP_HOME", "RUSTUP_TOOLCHAIN", "CARGO_HOME", "CARGO", "TARGET", "HOST", "NODE_OPTIONS", "NODE_ENV", "SOURCE_DATE_EPOCH", "MACOSX_DEPLOYMENT_TARGET", "SDKROOT", "DEVELOPER_DIR",
+  "VCINSTALLDIR", "LIB", "INCLUDE", "LIBPATH", "CFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS", "PKG_CONFIG_PATH", "PKG_CONFIG_LIBDIR", "OPENSSL_DIR", "OPENSSL_LIB_DIR", "OPENSSL_INCLUDE_DIR",
+  "LIBCLANG_PATH", "LLVM_CONFIG_PATH", "ORT_LIB_LOCATION", "ORT_STRATEGY", "PROTOC", "WEBVIEW2_", "TAURI_"]);
+const BUILD_ENV_PREFIXES = ["CARGO_", "RUST", "SCCACHE_", "RK_", "RIGHTKIT_", "RUSTRIGHT_", "PNPM_", "NPM_CONFIG_", "CMAKE_", "CFLAGS_", "CXXFLAGS_", "OPENSSL_", "ORT_", "ONNX", "TAURI_", "WEBVIEW2_", "WINDOWS_SDK", "MSVC"];
+const BUILD_ENV_EXCLUDED = /^(RK_GATE_|RUSTRIGHT_QUIET_LEASE$)/;
+export const buildEnvName = (name) => {
+  const upper = String(name).toUpperCase();
+  if (BUILD_ENV_EXCLUDED.test(upper)) return false;
+  return BUILD_ENV_NAMES.has(upper) || BUILD_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix));
+};
 
-/** sha256 of the full environment a scan's child receives, minus the volatile names above. Pass the merged `{ ...deps.env, ...scan.env }`. */
+/** sha256 of the build-relevant part (buildEnvName) of the environment a scan's child receives. Pass the merged `{ ...deps.env, ...scan.env }`. */
 export function inheritedEnvDigest(env = {}) {
-  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && !volatileEnvName(name)).map(([name, value]) => [String(name), String(value)]);
+  const rows = Object.entries(env).filter(([name, value]) => value !== undefined && value !== null && buildEnvName(name)).map(([name, value]) => [String(name).toUpperCase(), String(value)]);
   rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
   return sha256(canonicalJson(rows));
 }
@@ -781,7 +794,7 @@ export async function runScans(plan, options = {}) {
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
   const toolVersions = {}; const probed = new Map();
   const results = [];
-  // options.cache = { read(key), write(key, row), digest(scan) => string | null } (null: not cacheable); never used for class A.
+  // options.cache = { read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
   const cacheHits = [];
   let classAFailed = false;
@@ -889,7 +902,7 @@ export async function runScans(plan, options = {}) {
         if (!p.ok) { status = "fail"; code = "TOOL_MISSING"; detail = `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
         else {
           let cacheKey = null;
-          if (cache && s.class === SCAN_CLASS.B) {
+          if (cache) {
             try {
               const digest = cache.digest(s);
               if (digest) cacheKey = scanCacheKey({ id: s.id, command: s.command, toolVersion: p.version, env: s.env ?? {}, inheritedEnv: inheritedEnvDigest({ ...deps.env, ...s.env }), digest });

@@ -24,29 +24,47 @@ test("every sampled source fingerprint is advisory, code-only and owned by its d
   assert.deepEqual(Object.keys(FINGERPRINT_SAMPLES).filter((id) => !sampled.some((f) => f.id === id)), [], "sample without a catalog fingerprint");
 });
 
-test("added source fingerprints find hand-written reimplementations through the real scanner", () => {
-  for (const f of sampled) for (const [index, sample] of FINGERPRINT_SAMPLES[f.id].positive.entries()) {
-    const rel = `src/positive-${index}${f.extensions[0]}`;
-    const root = repo({ [rel]: `${sample}\n` });
-    try { assert.ok(scanApp(root, catalog).some((x) => x.fingerprint === f.id && x.file === rel), `${f.id} misses: ${sample}`); } finally { rmSync(root, { recursive: true, force: true }); }
+// One repository per assertion family, every sample a file of its own: the scanner reports findings per file, so the
+// per-file checks below are the same as scanning each sample alone, at three `git init` + scans instead of several hundred.
+const slug = (id) => id.replace(/[^A-Za-z0-9]+/g, "-");
+const samplesRepo = (kind) => {
+  const files = {}; const expected = [];
+  for (const f of sampled) for (const [index, sample] of FINGERPRINT_SAMPLES[f.id][kind].entries()) {
+    const rel = `src/${kind}-${slug(f.id)}-${index}${f.extensions[0]}`;
+    files[rel] = `${sample}\n`; expected.push({ f, rel, sample });
   }
+  return { root: repo(files), expected };
+};
+
+test("added source fingerprints find hand-written reimplementations through the real scanner", () => {
+  const { root, expected } = samplesRepo("positive");
+  try {
+    const found = scanApp(root, catalog);
+    for (const { f, rel, sample } of expected) assert.ok(found.some((x) => x.fingerprint === f.id && x.file === rel), `${f.id} misses: ${sample}`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("added source fingerprints ignore normal RightKit usage, comments, literals and unrelated code", () => {
-  for (const f of sampled) for (const [index, sample] of FINGERPRINT_SAMPLES[f.id].negative.entries()) {
-    const rel = `src/negative-${index}${f.extensions[0]}`;
-    const root = repo({ [rel]: `${sample}\n` });
-    try { assert.equal(scanApp(root, catalog).filter((x) => x.fingerprint === f.id).length, 0, `${f.id} matches: ${sample}`); } finally { rmSync(root, { recursive: true, force: true }); }
-  }
+  const { root, expected } = samplesRepo("negative");
+  try {
+    const found = scanApp(root, catalog);
+    for (const { f, rel, sample } of expected) assert.equal(found.filter((x) => x.fingerprint === f.id && x.file === rel).length, 0, `${f.id} matches: ${sample}`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("source fingerprints stay quiet in extensions they do not declare", () => {
+  const files = {}; const expected = [];
   for (const f of sampled) {
     const other = [".rs", ".ts", ".swift", ".py"].find((ext) => !f.extensions.includes(ext));
     if (!other) continue;
-    const root = repo({ [`src/other${other}`]: `${FINGERPRINT_SAMPLES[f.id].positive[0]}\n` });
-    try { assert.equal(scanApp(root, catalog).filter((x) => x.fingerprint === f.id).length, 0, `${f.id} fired in ${other}`); } finally { rmSync(root, { recursive: true, force: true }); }
+    const rel = `src/other-${slug(f.id)}${other}`;
+    files[rel] = `${FINGERPRINT_SAMPLES[f.id].positive[0]}\n`; expected.push({ f, rel, other });
   }
+  const root = repo(files);
+  try {
+    const found = scanApp(root, catalog);
+    for (const { f, rel, other } of expected) assert.equal(found.filter((x) => x.fingerprint === f.id && x.file === rel).length, 0, `${f.id} fired in ${other}`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("added dependency fingerprints are found only as direct manifest dependencies", () => {

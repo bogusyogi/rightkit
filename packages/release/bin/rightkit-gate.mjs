@@ -538,11 +538,51 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  *   when declared. Without a declaration, a closure source that navigates out of its crate at run time without a literal path
  *   (externalInputs `leavesCrate`: workspace root, current_dir, a bare "..", the manifest directory's parent) keys the scan on the
  *   whole HEAD tree, since its tests may read anything.
- * - Every other class B scan (npm, node, docs) uses the whole tree. Class A is never cached.
+ * - An npm package scan (test:npm, tsc, eslint) keys on the package's workspace closure (its `workspace:` dependencies,
+ *   transitively, by package name) and the root npm inputs; test:scripts-ci on scripts/, ci/, .github/, packages/release and the
+ *   root install graph. Every other class B scan (generated-docs, swift-build) uses the whole tree.
+ * - Class A: cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile and advisory-exceptions are never cached (live answers); rustfmt,
+ *   node-check, actionlint and the parse scans key on their files' blob ids; cargo-package-list on the crate, the manifest projection
+ *   and its lock entry; the rest on the whole tree.
  */
-export function buildCacheDigest({ objectId, headTree, rustUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null }) {
+// Root npm inputs every package scan reads: the install graph and the shared tool configuration.
+const SHARED_NPM_INPUTS = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", "tsconfig.json", "tsconfig.base.json", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json", "biome.json", "vitest.config.ts", "vitest.config.mjs", "vitest.workspace.ts"];
+// The gate's own test suite reads the CI scripts, the gate config and the release package it imports from.
+const SCRIPTS_CI_INPUTS = ["scripts", "ci", ".github", "packages/release", "package.json", "pnpm-lock.yaml"];
+
+export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null }) {
   const memo = new Map(); const reachMemos = new Map(); const externalMemo = new Map();
   const idOf = (p) => { if (!memo.has(p)) memo.set(p, p === "." ? headTree : objectId(p)); return memo.get(p); };
+  // npm: a package's test, tsc and eslint scans read the package, every workspace package it depends on (package.json
+  // `workspace:` dependencies, transitively) and the root npm inputs. Package names come from the manifests themselves.
+  const npmByUnit = new Map(npmUnits.map((u) => [u.name, u]));
+  const npmManifestMemo = new Map();
+  const npmManifest = (u) => {
+    if (!npmManifestMemo.has(u.dir)) {
+      let m = null;
+      try { m = JSON.parse(String(readBlob(u.dir === "." ? "package.json" : `${u.dir}/package.json`)).replace(/^﻿/, "")); } catch { m = null; }
+      npmManifestMemo.set(u.dir, m);
+    }
+    return npmManifestMemo.get(u.dir);
+  };
+  let npmByPkgName = null;
+  const npmClosure = (unit) => {
+    if (npmByPkgName === null) { npmByPkgName = new Map(); for (const u of npmUnits) { const m = npmManifest(u); if (m?.name) npmByPkgName.set(m.name, u); } }
+    const seen = new Map([[unit.name, unit]]); const stack = [unit]; let unresolved = false;
+    while (stack.length) {
+      const u = stack.pop(); const m = npmManifest(u);
+      if (!m) { unresolved = true; continue; }
+      for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+        for (const [name, spec] of Object.entries(m[section] ?? {})) {
+          if (!/^(workspace:|link:|file:)/.test(String(spec))) continue;
+          const dep = npmByPkgName.get(name);
+          if (!dep) { unresolved = true; continue; }
+          if (!seen.has(dep.name)) { seen.set(dep.name, dep); stack.push(dep); }
+        }
+      }
+    }
+    return { members: [...seen.values()].sort((a, b) => (a.name < b.name ? -1 : 1)), unresolved };
+  };
   // A unit belongs to the Cargo workspace it names (rustUnits[].cargoDir, else the global one) and is a package of that workspace's
   // own lock under its crate name (rustUnits[].crate, else its name); its closure never crosses into another workspace.
   const wsOf = (u) => u.cargoDir ?? cargoDir;
@@ -559,11 +599,53 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], cargoDir 
     }
     return externalMemo.get(member.dir);
   };
+  // Class A: the live checks are never cached (their answer depends on the advisory databases and the registry of the day); a
+  // content scan with an explicit file list is keyed on those files' blob ids; a crate's package list on the crate, its manifest
+  // projection and its own lock entry; anything else (cargo metadata, licence, ownership catalog, secret scan) on the whole tree,
+  // so it is reused for a rerun of the same commit and nothing else.
+  const liveScan = (id) => /^(cargo-deny|cargo-audit|pnpm-audit|pnpm-lockfile|advisory-exceptions)(:|$)/.test(id);
+  const fileList = (scan) => {
+    if (Array.isArray(scan.files) && scan.files.length) return scan.files;
+    const args = Array.isArray(scan.args) ? scan.args : [];
+    if (/^rustfmt:/.test(scan.id)) return args.filter((x) => /\.rs$/.test(x));
+    if (/^node-check:/.test(scan.id)) return [scan.id.slice("node-check:".length)];
+    if (scan.id === "actionlint") return [...args.filter((x) => /\.ya?ml$/.test(x)), ".github/actionlint.yaml"];
+    return null;
+  };
   return (scan) => {
+    if (scan.class === "A") {
+      if (liveScan(scan.id)) return null;
+      try {
+        const files = fileList(scan);
+        if (files) return canonicalJson({ kind: "files", id: scan.id, files: [...new Set(files)].sort().map((p) => [p, idOf(p)]) });
+        if (/^cargo-package-list:/.test(scan.id)) {
+          const unit = scan.id.slice("cargo-package-list:".length);
+          const head = byName.get(unit);
+          const ws = head ? wsOf(head) : null; const lock = ws === null ? null : lockFor(ws);
+          if (!head || !lock || typeof readBlob !== "function") return whole();
+          const manifestPath = inWs(ws, "Cargo.toml");
+          let manifest;
+          try { manifest = manifestCompileProjection(readBlob(manifestPath)); } catch { manifest = ["raw", manifestPath, idOf(manifestPath)]; }
+          return canonicalJson({ kind: "package-list", unit, dir: [head.dir, idOf(head.dir)], manifest, lock: [[crateOf(head), lock.get(crateOf(head))?.signatures ?? []]] });
+        }
+        return whole();
+      } catch { return null; }
+    }
     if (scan.class !== "B") return null;
     try {
       const unit = rustUnitOfScanId(scan.id, known);
-      if (!unit) return whole();
+      if (!unit) {
+        if (typeof readBlob !== "function") return whole();
+        // npm package scans: the package's workspace closure plus the root npm inputs.
+        const npmMatch = /^(test:npm|tsc|eslint):(.+)$/.exec(scan.id);
+        if (npmMatch && npmByUnit.has(npmMatch[2])) {
+          const { members, unresolved } = npmClosure(npmByUnit.get(npmMatch[2]));
+          if (unresolved) return whole();
+          return canonicalJson({ kind: "npm", id: scan.id, members: members.map((m) => [m.name, m.dir, idOf(m.dir)]), shared: SHARED_NPM_INPUTS.map((p) => [p, idOf(p)]) });
+        }
+        if (scan.id === "test:scripts-ci") return canonicalJson({ kind: "dirs", id: scan.id, inputs: SCRIPTS_CI_INPUTS.map((p) => [p, idOf(p)]) });
+        return whole();
+      }
       const head = byName.get(unit);
       const ws = wsOf(head); const lock = lockFor(ws);
       if (!lock || typeof listFiles !== "function" || typeof readBlob !== "function") return whole();
@@ -937,7 +1019,7 @@ export async function main(argv, io = {}) {
             if (failed(r)) throw new Error(`git show failed: ${why(r)}`);
             return text(r);
           };
-          cache = { ...store, digest: buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob }) };
+          cache = { ...store, digest: buildCacheDigest({ objectId, headTree: treeId, rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures, listFiles, readBlob }) };
         }
       } catch { cache = null; }
     }

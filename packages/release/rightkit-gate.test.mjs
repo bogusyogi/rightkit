@@ -324,18 +324,53 @@ test("cache digest: a cargo scan covers its lock closure and the shared build in
   assert.equal(leaving("h1")(clippyA), leaving("h2")(clippyA), "its compile scan is not");
 });
 
-test("cache digest: class A and an unanswerable git are never cached; non-cargo scans use the whole tree", () => {
+test("cache digest: live class A checks and an unanswerable git are never cached; content class A scans key on their files; tree scans on the tree", () => {
   const lock = shipped.parseLock(lockPkg("a", "1.0.0"));
   const make = (objectId, tree = "t1") => buildCacheDigest({ objectId, headTree: tree, rustUnits: [{ name: "a", dir: "crates/a" }], cargoDir: ".", rustLock: lock, ...plainSources });
-  assert.equal(make(() => "x")({ id: "cargo-deny", class: "A" }), null);
-  assert.equal(make(() => "x")({ id: "node-check:a.mjs", class: "A" }), null);
+  for (const live of ["cargo-deny", "cargo-deny:x", "cargo-audit", "pnpm-audit", "pnpm-lockfile", "advisory-exceptions"]) assert.equal(make(() => "x")({ id: live, class: "A" }), null, `${live} is a live check`);
+  const byId = (ids) => (p) => ids[p] ?? null;
+  const nodeCheck = { id: "node-check:a.mjs", class: "A", args: ["--check", "a.mjs"] };
+  assert.notEqual(make(byId({ "a.mjs": "1" }))(nodeCheck), null, "node-check is cached");
+  assert.notEqual(make(byId({ "a.mjs": "1" }))(nodeCheck), make(byId({ "a.mjs": "2" }))(nodeCheck), "keyed on the file");
+  assert.equal(make(byId({ "a.mjs": "1" }), "t1")(nodeCheck), make(byId({ "a.mjs": "1" }), "t2")(nodeCheck), "not on the tree");
+  const fmt = { id: "rustfmt:2021", class: "A", args: ["--check", "--edition", "2021", "crates/a/src/lib.rs", "crates/b/src/lib.rs"] };
+  assert.notEqual(make(byId({ "crates/a/src/lib.rs": "1", "crates/b/src/lib.rs": "1" }))(fmt), make(byId({ "crates/a/src/lib.rs": "1", "crates/b/src/lib.rs": "2" }))(fmt), "rustfmt keys on the listed files");
+  const parse = { id: "toml-parse", class: "A", files: ["Cargo.toml", "crates/a/Cargo.toml"] };
+  assert.notEqual(make(byId({ "Cargo.toml": "1", "crates/a/Cargo.toml": "1" }))(parse), make(byId({ "Cargo.toml": "2", "crates/a/Cargo.toml": "1" }))(parse), "a parse scan keys on its files");
+  const pkgList = { id: "cargo-package-list:a", class: "A" };
+  assert.notEqual(make(byId({ "crates/a": "1" }))(pkgList), make(byId({ "crates/a": "2" }))(pkgList), "a package list keys on the crate");
+  assert.equal(make(byId({ "crates/a": "1" }), "t1")(pkgList), make(byId({ "crates/a": "1" }), "t2")(pkgList), "not on the tree");
+  assert.notEqual(make(() => "x")({ id: "cargo-metadata", class: "A" }), null, "metadata is cached on the tree");
   assert.equal(make(() => { throw new Error("git down"); })({ id: "clippy:a", class: "B" }), null);
   const scripts = { id: "test:scripts-ci", class: "B" };
-  assert.equal(make(() => "x")(scripts), make(() => "y")(scripts), "tree scans ignore per-path ids");
-  assert.notEqual(make(() => "x", "t1")(scripts), make(() => "x", "t2")(scripts));
+  assert.equal(make(byId({ scripts: "s1", ci: "c1" }), "t1")(scripts), make(byId({ scripts: "s1", ci: "c1" }), "t2")(scripts), "scripts-ci keys on its directories, not the tree");
+  assert.notEqual(make(byId({ scripts: "s1", ci: "c1" }))(scripts), make(byId({ scripts: "s2", ci: "c1" }))(scripts));
+  const docs = { id: "generated-docs", class: "B" };
+  assert.equal(make(() => "x")(docs), make(() => "y")(docs), "tree scans ignore per-path ids");
+  assert.notEqual(make(() => "x", "t1")(docs), make(() => "x", "t2")(docs));
   // No lock graph: the closure is unknown, so a cargo scan falls back to the whole tree rather than a guess.
   const noLock = buildCacheDigest({ objectId: () => "x", headTree: "t1", rustUnits: [{ name: "a", dir: "crates/a" }], rustLock: null });
-  assert.equal(noLock({ id: "clippy:a", class: "B" }), make(() => "x")(scripts));
+  assert.equal(noLock({ id: "clippy:a", class: "B" }), make(() => "x")(docs));
+});
+
+test("cache digest: an npm package scan keys on the package's workspace closure and the root npm inputs, never the tree", () => {
+  const manifests = {
+    "packages/release/package.json": JSON.stringify({ name: "@rightkit/release", dependencies: { "@rightkit/core": "workspace:*", express: "^4" } }),
+    "packages/core/package.json": JSON.stringify({ name: "@rightkit/core" }),
+    "packages/qa/package.json": JSON.stringify({ name: "@rightkit/qa", devDependencies: { "@rightkit/release": "workspace:^" } }),
+    "packages/lost/package.json": JSON.stringify({ name: "@rightkit/lost", dependencies: { "@rightkit/elsewhere": "workspace:*" } }),
+  };
+  const units = [{ name: "rightkit-release", dir: "packages/release" }, { name: "rightkit-core", dir: "packages/core" }, { name: "rightkit-qa", dir: "packages/qa" }, { name: "rightkit-lost", dir: "packages/lost" }];
+  const make = (ids, tree = "t1") => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: tree, rustUnits: [], npmUnits: units, listFiles: () => [], readBlob: (p) => { if (!(p in manifests)) throw new Error(`no ${p}`); return manifests[p]; } });
+  const base = { "packages/release": "r1", "packages/core": "c1", "packages/qa": "q1", "pnpm-lock.yaml": "l1", "package.json": "p1" };
+  const rel = { id: "test:npm:rightkit-release", class: "B" };
+  assert.equal(make(base, "t1")(rel), make(base, "t2")(rel), "not keyed on the tree");
+  assert.notEqual(make({ ...base, "packages/core": "c2" })(rel), make(base)(rel), "a workspace dependency changed");
+  assert.equal(make({ ...base, "packages/qa": "q2" })(rel), make(base)(rel), "a dependent (not a dependency) is not an input");
+  assert.notEqual(make({ ...base, "pnpm-lock.yaml": "l2" })(rel), make(base)(rel), "the install graph is an input");
+  assert.notEqual(make(base)({ id: "tsc:rightkit-qa", class: "B" }), make({ ...base, "packages/release": "r2" })({ id: "tsc:rightkit-qa", class: "B" }), "qa's closure holds release (transitively core)");
+  const lost = { id: "test:npm:rightkit-lost", class: "B" };
+  assert.notEqual(make(base, "t1")(lost), make(base, "t2")(lost), "an unresolvable workspace dependency falls back to the whole tree");
 });
 
 test("rustUnitOfScanId maps every cargo scan id to its crate", () => {
