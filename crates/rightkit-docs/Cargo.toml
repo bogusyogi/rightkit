@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-docs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
@@ -26,13 +26,12 @@ rightkit-pdf = { version = "0.3.2", path = "../rightkit-pdf", default-features =
 lopdf = { version = "0.45.0", default-features = false, features = ["rayon"] }
 # The one writer behind every write (temp sibling, flush, rename, directory sync).
 rightkit-fs = { version = "0.4.0", path = "../rightkit-fs", default-features = false, features = ["fs"] }
-# XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 8.x.
-calamine = "0.36.1"
-rust_xlsxwriter = "0.99.1"
+# XLSX read (typed cells, cached formula results) and XLSX create. Both pull zip 9.x.
+calamine = "0.37.0"
+rust_xlsxwriter = "0.101.0"
 # Package layer and in-place part edits. Same zip line as calamine and rust_xlsxwriter so one copy links.
 zip = { version = "9", default-features = false, features = ["deflate"] }
-# The in-house walker's own copy. calamine 0.36.1 still pulls quick-xml 0.41 for its reads, so
-# two copies link until calamine moves to 0.42.
+# The in-house walker's own copy. calamine 0.37.0 also uses quick-xml 0.42, so one copy links.
 quick-xml = "0.42.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"

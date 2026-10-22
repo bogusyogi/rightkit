@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Security: the workspace patches `citationberg` 0.7.0 with a vendored copy (`vendor/citationberg`) that requires quick-xml 0.42, fixing RUSTSEC-2026-0194 and RUSTSEC-2026-0195 for CSL parsed through `bibliography(style: bytes(...))`. Limitation: the `[patch.crates-io]` entry covers only builds from this workspace. A downstream consumer of a published `rightkit-typeset` must apply the same patch (vendor `citationberg` 0.7.0 with quick-xml >=0.41) until upstream citationberg releases with quick-xml >=0.41.
+
 ## 0.1.0 (2026-10-17)
 
 - Added `font` module (rightkit#461, re-exported at the crate root): `FontFace::parse`, `units_per_em`, `glyph_id`, `advance_units`, `measure` and `Measurement::width_px`. Reads `hmtx` advances and `cmap` formats 4 and 12 from TrueType and OpenType sfnt bytes, plus the first face of a TTC, with no new dependency. Kerning, ligatures, shaping and other cmap formats are not covered; malformed or unsupported input is `FontError`.

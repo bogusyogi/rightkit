@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 (2026-10-22)
+
+### Changed (rightkit#890, security)
+
+- calamine 0.36.1 to 0.37.0 and rust_xlsxwriter 0.99.1 to 0.101.0. Both now require zip ^9.0, so the vulnerable zip 8.6 (yanked upstream) leaves the dependency graph and one zip copy links with this crate's own `zip` 9. calamine 0.37.0 also moves to quick-xml 0.42, ending the two-copy link noted in 0.1.1.
+- Public API unchanged. No call-site changes were needed: the crate uses only `calamine::{Data, Reader, SheetType, SheetVisible, Xlsx}`, `open_workbook_from_rs`, and `rust_xlsxwriter::{Workbook, Formula}` write calls, none of which changed. rust_xlsxwriter 0.100 makes `add_worksheet_with_constant_memory` and `add_worksheet_with_low_memory` fallible; this crate calls only `add_worksheet`.
+- calamine 0.37 reads XLSX boolean cells strictly: only `0`, `1`, `false` and `true` are accepted, other values are errors rather than `true`.
+
 ## 0.1.1 (2026-10-17)
 
 ### Changed (rightkit#528, active content)

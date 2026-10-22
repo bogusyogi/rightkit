@@ -4,7 +4,7 @@ members = ["crates/*"]
 # Hook receipt directories (`.audit`) can appear under crates/ when an agent works there.
 # vendor/tauri-runtime-wry is a patched third-party crate consumed by apps as a git `[patch]` source
 # (docs/design/tauri-runtime-wry-windows-rc.md); it must never build with this workspace.
-exclude = ["crates/.audit", "vendor/tauri-runtime-wry"]
+exclude = ["crates/.audit", "vendor/tauri-runtime-wry", "vendor/citationberg"]
 
 [workspace.dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
@@ -69,3 +69,8 @@ incremental = false
 [profile.test.build-override]
 debug = false
 opt-level = 0
+
+# citationberg 0.7.0 pins quick-xml 0.38.4 (RUSTSEC-2026-0194, RUSTSEC-2026-0195). The vendored copy
+# requires quick-xml 0.42; see vendor/citationberg/VENDORED.md. Remove when upstream ships a fix.
+[patch.crates-io]
+citationberg = { path = "vendor/citationberg" }
