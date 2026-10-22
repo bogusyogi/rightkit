@@ -6,7 +6,7 @@ import test from "node:test";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sha, executeUpload, checkReceipts, authenticatedArchiveScanResolver, CRATES_PUBLISH_URL, buildCratePublishBody } from "./upload.mjs";
-import { validateCandidate, selectCandidate, selectArchiveSupplement, checkProvenance, prepareCandidate, assertAuthenticatedContext, authenticateAdmission, identifyCandidate, runReviewed } from "./reviewed-candidate.mjs";
+import { validateCandidate, selectCandidate, selectArchiveSupplement, checkProvenance, prepareCandidate, assertAuthenticatedContext, authenticateAdmission, identifyCandidate, runReviewed, runQualified, QUALIFIED_ARTIFACTS } from "./reviewed-candidate.mjs";
 import { SUPPLEMENT_WORKFLOW, SUPPLEMENT_POLICY } from "./supplemental-proof.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
@@ -749,4 +749,104 @@ test("a Linux-required candidate must pin the Linux receipt and its Linux job; a
   for (const bad of ["skipped", "failure", "cancelled", null]) assert.throws(() => checkProvenance(withLinux(bad, pinned)), /Linux verify job must succeed exactly when/, String(bad));
   const twice = withLinux("success", pinned); twice.jobs.jobs.push({ ...job("success"), id: 71 }); twice.jobs.total_count = twice.jobs.jobs.length;
   assert.throws(() => checkProvenance(twice), /Linux verify job must succeed exactly when/);
+});
+
+// ---- direct publication of a green qualification run ----------------------------------------
+const DIRECT_WORKFLOW_REF = "bogusyogi/rightkit/.github/workflows/publish-direct.yml@refs/heads/main";
+const directEnv = (f, extra = {}) => {
+  const env = { ...f.env, GITHUB_WORKFLOW_REF: DIRECT_WORKFLOW_REF, GITHUB_RUN_ID: "90", PUBLISH_QUALIFIED_RUN_ID: "77", PUBLISH_QUALIFIED_RUN_ATTEMPT: "1", PUBLISH_QUALIFIED_SHA: SOURCE, ...extra };
+  for (const key of ["PUBLISH_CANDIDATE_ID", "PUBLISH_ADMISSION_ID", "PUBLISH_ADMISSION_DIGEST"]) delete env[key];
+  return env;
+};
+function green(f) {
+  f.provenance.run.conclusion = "success";
+  f.provenance.jobs.jobs.push({ name: "qualified", conclusion: "success", run_id: 77, run_attempt: 1, status: "completed", head_sha: SOURCE });
+  f.provenance.jobs.total_count += 1;
+  for (const host of ["packed", "macos", "windows"]) f.qaListing.artifacts.push(f.artifacts[f.candidate.artifacts[host].id]);
+  f.qaListing.total_count += 3;
+  return f;
+}
+
+test("a green qualification run publishes its own sealed bytes directly: no candidate, no approval pin, no reviewed dispatch", async (t) => {
+  const f = green(fixture(t));
+  const identified = await runQualified({ env: directEnv(f), identify: true, fetchImpl: f.fetchImpl, spawn: f.spawn });
+  assert.deepEqual(identified, { registry: "crates", units: ["rightkit-a"], sourceSha: SOURCE });
+  assert.equal(f.puts.length, 0, "identification touches no registry");
+  const actual = await runQualified({ env: directEnv(f, { PUBLISH_REGISTRY: "crates", CARGO_REGISTRY_TOKEN: "registry-fixture" }), fetchImpl: f.fetchImpl, spawn: f.spawn, pause: 0, log: () => {} });
+  assert.equal(f.puts.length, 1);
+  assert.deepEqual(f.puts[0].body, buildCratePublishBody(f.metadata.toString(), f.crate));
+  assert.equal(actual.commit, SOURCE); assert.equal(actual.candidate.runId, "77"); assert.equal(actual.candidate.source, "qualified");
+  assert.ok(!f.requests.some((r) => r.url.includes("approved-artifacts") || r.url.includes("publish-reviewed")), "nothing committed is consulted");
+  assert.ok(f.requests.filter((r) => r.url.startsWith("https://api.github.com/")).every((r) => r.options.headers.authorization === "Bearer github-read-fixture"));
+  assert.ok(fs.readdirSync(path.join(f.temp, "publication-receipt")).length >= 1, "a publication receipt is written for the artifact step");
+  const roots = fs.readdirSync(f.temp).filter((name) => name.startsWith("qualified-run-"));
+  assert.equal(roots.length, 2, "one prepared root per step");
+  const approval = JSON.parse(fs.readFileSync(path.join(f.temp, roots[0], "qualified-approval.json"), "utf8"));
+  assert.deepEqual(approval.artifacts.map((row) => [row.registry, row.name, row.version, row.sha256, row.reviewer, row.reviewRef]), [["crates", "rightkit-a", "0.1.0", f.manifest.units[0].sha256, "publish.yml qualified", "https://github.com/bogusyogi/rightkit/actions/runs/77/attempts/1"]]);
+});
+
+test("direct publication refuses a run that is not green, foreign, diverged, resealed or credentialed too early", async (t) => {
+  const cases = [
+    ["run concluded failure", (g) => { g.provenance.run.conclusion = "failure"; }],
+    ["qualified job missing", (g) => { g.provenance.jobs.jobs.pop(); g.provenance.jobs.total_count -= 1; }],
+    ["qualified job failed", (g) => { g.provenance.jobs.jobs.at(-1).conclusion = "failure"; }],
+    ["a native verify job failed", (g) => { g.provenance.jobs.jobs.find((j) => j.name.startsWith("verify (windows")).conclusion = "failure"; }],
+    ["wrong workflow", () => {}, { GITHUB_WORKFLOW_REF: "bogusyogi/rightkit/.github/workflows/publish-reviewed.yml@refs/heads/main" }],
+    ["promotion diverged from the qualified commit", (g) => { g.provenance.comparison.status = "diverged"; }],
+    ["event is not a dispatch", (g) => { g.provenance.run.event = "push"; }],
+    ["run of another commit", (g) => { g.provenance.run.head_sha = PROMOTION; }],
+    ["sealed bytes changed after packing", (g) => { g.files.packed["rightkit-a-0.1.0.crate"] = Buffer.from("other bytes"); }],
+    ["receipt artifact owned by another run", (g) => { g.artifacts[g.candidate.artifacts.macos.id].workflow_run.id = 78; }],
+    ["packed artifact listed twice", (g) => { g.qaListing.artifacts.push(g.artifacts[g.candidate.artifacts.packed.id]); g.qaListing.total_count += 1; }],
+    ["receipt missing", (g) => { g.qaListing.artifacts = g.qaListing.artifacts.filter((a) => a.name !== "publish-receipt-verify-windows-2025"); g.qaListing.total_count -= 1; }],
+    ["registry credential during identification", () => {}, { CARGO_REGISTRY_TOKEN: "registry-fixture" }],
+    ["unknown run attempt", () => {}, { PUBLISH_QUALIFIED_RUN_ATTEMPT: "x" }],
+    ["promotion behind the qualified commit", (g) => { g.provenance.comparison.status = "behind"; }],
+    ["windows receipt ran with other allowsets than macOS", (g) => { const doc = JSON.parse(g.files.windows["verify-windows.json"]); doc.allowIgnored = ["rightkit-a"]; g.files.windows["verify-windows.json"] = Buffer.from(JSON.stringify(doc)); }],
+    ["sealed manifest of another commit", (g) => { const doc = JSON.parse(g.files.packed["manifest.json"]); doc.commit = PROMOTION; g.files.packed["manifest.json"] = Buffer.from(JSON.stringify(doc)); }],
+    ["runtime-proof owner on the direct route", (g) => { const doc = JSON.parse(g.files.packed["manifest.json"]); doc.units[0].name = "rightkit-daemon"; g.files.packed["manifest.json"] = Buffer.from(JSON.stringify(doc)); }],
+  ];
+  for (const [name, mutate, extra] of cases) {
+    const g = green(fixture(t)); mutate(g);
+    await assert.rejects(runQualified({ env: directEnv(g, extra), identify: true, fetchImpl: g.fetchImpl, spawn: g.spawn }), /refused/, name);
+    assert.equal(g.puts.length, 0, name);
+  }
+  const h = green(fixture(t));
+  await assert.rejects(runQualified({ env: directEnv(h, { PUBLISH_REGISTRY: "npm", NODE_AUTH_TOKEN: "npm-fixture" }), fetchImpl: h.fetchImpl, spawn: h.spawn, pause: 0, log: () => {} }), /the qualified run sealed crates/);
+  assert.equal(h.puts.length, 0);
+  const noToken = green(fixture(t));
+  await assert.rejects(runQualified({ env: directEnv(noToken, { PUBLISH_REGISTRY: "crates" }), fetchImpl: noToken.fetchImpl, spawn: noToken.spawn, pause: 0, log: () => {} }), /CARGO_REGISTRY_TOKEN is not set/);
+  assert.equal(noToken.puts.length, 0);
+  // Direct publication at the qualified commit itself (nothing pushed since): identical comparison is the legitimate case.
+  const same = green(fixture(t)); same.provenance.comparison = { status: "identical", merge_base_commit: { sha: SOURCE } };
+  assert.deepEqual(await runQualified({ env: directEnv(same, { GITHUB_SHA: SOURCE }), identify: true, fetchImpl: same.fetchImpl, spawn: same.spawn }), { registry: "crates", units: ["rightkit-a"], sourceSha: SOURCE });
+  // A Linux-required unit needs the Linux receipt and job of the same run; the fixture has neither.
+  const linux = green(fixture(t)); const linuxFile = path.join(linux.temp, "linux-required.json"); fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] }));
+  await assert.rejects(runQualified({ env: directEnv(linux), identify: true, fetchImpl: linux.fetchImpl, spawn: linux.spawn, linuxFile }), /Linux verify job must succeed exactly when/);
+});
+
+test("publish-direct workflow: fires on completed publish runs of main, identifies without credentials, then one credentialed step per registry", () => {
+  const text = fs.readFileSync(new URL("../../.github/workflows/publish-direct.yml", import.meta.url), "utf8");
+  const doc = parseYaml(text);
+  assert.deepEqual(doc.on, { workflow_run: { workflows: ["publish"], types: ["completed"], branches: ["main"] } });
+  assert.deepEqual(doc.permissions, { contents: "read" });
+  assert.deepEqual(Object.keys(doc.jobs), ["upload"]);
+  const job = doc.jobs.upload;
+  for (const clause of ["github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'workflow_dispatch'", "github.event.workflow_run.head_branch == 'main'", "github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit'", "github.ref == 'refs/heads/main'", "github.repository == 'bogusyogi/rightkit'"]) assert.ok(job.if.includes(clause), clause);
+  assert.equal(job.environment, "release");
+  assert.deepEqual(job.permissions, { contents: "read", actions: "read", "id-token": "write" });
+  const [checkout, node, identify, npm, crates, receipt] = job.steps;
+  assert.equal(job.steps.length, 6);
+  assert.equal(checkout.uses, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1");
+  assert.equal(checkout.with.ref, "${{ github.event.workflow_run.head_sha }}");
+  assert.equal(String(checkout.with["persist-credentials"]), "false");
+  assert.ok(!String(checkout.with["sparse-checkout"]).includes("approved-artifacts"), "the committed approval file is not an input of direct publication");
+  assert.equal(node.uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
+  const source = { GITHUB_TOKEN: "${{ github.token }}", PUBLISH_QUALIFIED_RUN_ID: "${{ github.event.workflow_run.id }}", PUBLISH_QUALIFIED_RUN_ATTEMPT: "${{ github.event.workflow_run.run_attempt }}", PUBLISH_QUALIFIED_SHA: "${{ github.event.workflow_run.head_sha }}" };
+  assert.equal(identify.id, "qualified"); assert.equal(identify.run, "node scripts/ci/reviewed-candidate.mjs run-qualified --identify"); assert.deepEqual(identify.env, source);
+  assert.equal(npm.if, "${{ steps.qualified.outputs.registry == 'npm' }}"); assert.deepEqual(npm.env, { ...source, PUBLISH_REGISTRY: "npm", NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }); assert.equal(npm.run, "node scripts/ci/reviewed-candidate.mjs run-qualified");
+  assert.equal(crates.if, "${{ steps.qualified.outputs.registry == 'crates' }}"); assert.deepEqual(crates.env, { ...source, PUBLISH_REGISTRY: "crates", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" }); assert.equal(crates.run, "node scripts/ci/reviewed-candidate.mjs run-qualified");
+  assert.equal(receipt.uses, "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"); assert.equal(receipt.with.path, "${{ runner.temp }}/publication-receipt");
+  assert.equal((text.match(/secrets\./g) ?? []).length, 2, "exactly the two registry tokens, one per credentialed step");
+  assert.deepEqual(Object.values(QUALIFIED_ARTIFACTS), ["publish-packed", "publish-receipt-verify-xcode-27", "publish-receipt-verify-windows-2025", "publish-receipt-verify-ubuntu-24.04"]);
 });

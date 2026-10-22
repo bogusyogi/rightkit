@@ -708,6 +708,116 @@ export async function runReviewed({ env, dryRun = false, verifyAdmission = false
   return executeUpload({ env: uploadEnv, ...prepared, candidateContext: prepared.context, approvedFile, outDir: path.join(env.RUNNER_TEMP, "publication-receipt"), dryRun: false, fetchImpl, spawn });
 }
 
+// ---- direct publication of a green qualification run --------------------------------------------
+// Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can directly push it to npm and crates."
+// publish-direct.yml runs on every completed publish.yml run of main. Its only input is that run (id, attempt, head
+// commit from the workflow_run event); registry, units and allowsets are read from the run's own sealed manifest and
+// verify receipts, never from a dispatch input, a committed candidate or ci/approved-artifacts.json. Provenance: the run
+// is a workflow_dispatch of publish.yml on main of this repository, completed and successful, with guard, plan, pack,
+// qualified, both native verify jobs and verify-linux (exactly when the plan requires Linux) successful in the named
+// attempt, and this workflow's checkout is that commit or a descendant of it on main. The packed artifact and every
+// required receipt are taken from the run's own artifact listing by name, bound to the run and commit, and re-hashed
+// after download. The approval entries the uploader requires are written from the sealed manifest itself: the
+// qualification run is the approver, and the publication receipt records its run URL as the review reference.
+export const QUALIFIED_WORKFLOW = "publish-direct.yml";
+export const QUALIFIED_ARTIFACTS = { packed: "publish-packed", macos: "publish-receipt-verify-xcode-27", windows: "publish-receipt-verify-windows-2025", linux: "publish-receipt-verify-ubuntu-24.04" };
+const UNIT_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+
+export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSync, linuxFile }) {
+  requireThat(env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === REPOSITORY && env.GITHUB_REF === "refs/heads/main" && /^[0-9a-f]{40}$/.test(env.GITHUB_SHA ?? ""), "direct publication requires trusted main of the repository");
+  requireThat(env.GITHUB_TOKEN && env.RUNNER_TEMP, "GitHub read token & runner temp are required");
+  requireThat(env.GITHUB_WORKFLOW_REF === `${REPOSITORY}/.github/workflows/${QUALIFIED_WORKFLOW}@refs/heads/main`, "wrong direct publication workflow");
+  const runId = env.PUBLISH_QUALIFIED_RUN_ID ?? "", runAttempt = env.PUBLISH_QUALIFIED_RUN_ATTEMPT ?? "", sourceSha = env.PUBLISH_QUALIFIED_SHA ?? "";
+  requireThat(POS.test(runId) && POS.test(runAttempt) && /^[0-9a-f]{40}$/.test(sourceSha), "invalid qualified run id, attempt or commit");
+  const repository = await api("", env, fetchImpl);
+  const workflow = await api("actions/workflows/publish.yml", env, fetchImpl);
+  const run = await api(`actions/runs/${runId}/attempts/${runAttempt}`, env, fetchImpl);
+  const jobs = await api(`actions/runs/${runId}/attempts/${runAttempt}/jobs?per_page=100`, env, fetchImpl);
+  const comparison = await api(`compare/${sourceSha}...${env.GITHUB_SHA}`, env, fetchImpl);
+  requireThat(repository.full_name === REPOSITORY && repository.default_branch === "main", "wrong repository/default branch");
+  requireThat(POS.test(String(workflow.id)) && workflow.path === ".github/workflows/publish.yml" && workflow.state === "active", "wrong qualification workflow");
+  requireThat(String(run.id) === runId && String(run.run_attempt) === runAttempt && String(run.workflow_id) === String(workflow.id) && run.path === workflow.path, "wrong run/attempt/workflow");
+  requireThat(run.repository?.id === repository.id && run.repository?.full_name === REPOSITORY && run.head_repository?.id === repository.id && run.head_repository?.full_name === REPOSITORY, "foreign source/head repository");
+  requireThat(run.event === "workflow_dispatch" && run.head_branch === "main" && run.head_sha === sourceSha && run.status === "completed" && run.conclusion === "success", "qualification event/ref/SHA/conclusion mismatch");
+  requireThat((env.GITHUB_SHA === sourceSha && comparison.status === "identical") || (env.GITHUB_SHA !== sourceSha && comparison.status === "ahead" && comparison.merge_base_commit?.sha === sourceSha), "direct publication must run at the qualified commit or a descendant of it on main");
+  const rows = jobs.jobs;
+  requireThat(Array.isArray(rows) && rows.length === jobs.total_count && rows.every((job) => String(job.run_id) === runId && String(job.run_attempt) === runAttempt && job.head_sha === sourceSha), "incomplete or foreign job provenance");
+  for (const name of ["guard", "plan", "pack", "qualified"]) {
+    const found = rows.filter((job) => job.name === name);
+    requireThat(found.length === 1 && found[0].status === "completed" && found[0].conclusion === "success", `${name} did not succeed in attempt ${runAttempt}`);
+  }
+  const verify = rows.filter((job) => /^verify \(/.test(job.name));
+  requireThat(verify.length === 2 && verify.every((job) => job.conclusion === "success") && verify.some((job) => /^verify \(xcode-27, /.test(job.name)) && verify.some((job) => /^verify \(windows-2025, /.test(job.name)), "both native verify jobs must succeed");
+  const listing = []; let expected;
+  for (let page = 1; page <= 10; page++) {
+    const pageDoc = await api(`actions/runs/${runId}/artifacts?per_page=100&page=${page}`, env, fetchImpl);
+    requireThat(Number.isSafeInteger(pageDoc.total_count) && pageDoc.total_count >= 0 && pageDoc.total_count <= 1000 && Array.isArray(pageDoc.artifacts) && pageDoc.artifacts.length <= 100, "invalid artifact listing");
+    expected ??= pageDoc.total_count; requireThat(pageDoc.total_count === expected, "artifact listing changed");
+    listing.push(...pageDoc.artifacts); if (listing.length >= expected) break;
+  }
+  requireThat(listing.length === expected, "artifact listing is incomplete");
+  const root = fs.mkdtempSync(path.join(env.RUNNER_TEMP, "qualified-run-"));
+  const packDir = path.join(root, "packed"); const receiptsDir = path.join(root, "receipts");
+  const artifacts = {};
+  const take = async (host) => {
+    const name = QUALIFIED_ARTIFACTS[host];
+    const found = listing.filter((artifact) => artifact?.name === name);
+    requireThat(found.length === 1 && artifactMatches(found[0], { name, runId, sourceSha, repository }), `${host} artifact must exist exactly once in run ${runId} at ${sourceSha}`);
+    const bytes = await api(`actions/artifacts/${found[0].id}/zip`, env, fetchImpl, true);
+    const digest = `sha256:${sha("sha256", bytes)}`;
+    requireThat(digest === found[0].digest, `${host} downloaded ZIP digest mismatch`);
+    const destination = host === "packed" ? packDir : path.join(receiptsDir, host);
+    const names = unpackArtifact({ bytes, zipFile: path.join(root, `${host}.zip`), destination, spawn });
+    artifacts[host] = { id: String(found[0].id), digest };
+    if (host !== "packed") {
+      requireThat(names.length === 1 && names[0].endsWith(".json"), `${host} receipt artifact is not exactly one JSON file`);
+      artifacts[host].receiptSha256 = sha("sha256", fs.readFileSync(path.join(destination, names[0])));
+    }
+  };
+  await take("packed");
+  // Registry and units are the sealed manifest's; loadSealed then re-checks every sealed byte against that manifest.
+  let plan = null;
+  try { plan = JSON.parse(fs.readFileSync(path.join(packDir, "manifest.json"), "utf8")); } catch { plan = null; }
+  requireThat(plan && ["npm", "crates"].includes(plan.registry) && Array.isArray(plan.units) && plan.units.length > 0 && plan.units.every((unit) => typeof unit?.name === "string" && UNIT_NAME.test(unit.name)), "sealed manifest names no registry or units");
+  const registry = plan.registry, units = plan.units.map((unit) => unit.name);
+  // publish.yml carries no runtime workload, so its success is no runtime proof: a runtime-proof owner stays on the
+  // reviewed route (local qualification with its runtime workload, then publish-reviewed), exactly as semantic admission demands.
+  const runtimeOwned = units.filter((name) => Object.hasOwn(RUNTIME_PROOF_WORKLOADS, name));
+  requireThat(runtimeOwned.length === 0, `${runtimeOwned.join(", ")}: a runtime-proof owner is not published by a qualification run; qualify it locally with its runtime workload and promote it through publish-reviewed`);
+  const linuxRequired = linuxRequiredFor({ registry, units, ...(linuxFile ? { file: linuxFile } : {}) });
+  requireThat(linuxRequired.problems.length === 0, linuxRequired.problems.join("; "));
+  const linuxJobs = rows.filter((job) => job.name === "verify-linux");
+  requireThat(linuxRequired.units.length > 0 ? linuxJobs.length === 1 && linuxJobs[0].conclusion === "success" : linuxJobs.every((job) => job.conclusion === "skipped"), "the Linux verify job must succeed exactly when the plan requires Linux");
+  for (const host of ["macos", "windows", ...(linuxRequired.units.length > 0 ? ["linux"] : [])]) await take(host);
+  const sealed = loadSealed({ packDir, registry, unitsText: units.join(" "), run: { runId, runAttempt } });
+  requireThat(sealed.manifest && sealed.manifest.commit === sourceSha, "sealed manifest is not bound to the qualified commit");
+  const macos = path.join(receiptsDir, "macos");
+  const receipt = JSON.parse(fs.readFileSync(path.join(macos, fs.readdirSync(macos)[0]), "utf8"));
+  const names = (list) => (Array.isArray(list) && list.every((item) => typeof item === "string" && item !== "" && !/\s/.test(item)) ? [...list] : null);
+  const allow = { hostExclusion: names(receipt.allowHostExclusion), noTest: names(receipt.allowNoTest), ignored: names(receipt.allowIgnored), missingAssets: names(receipt.allowMissingAssets) };
+  requireThat(Object.values(allow).every(Boolean), "the macOS receipt carries malformed allowsets");
+  const problems = [...sealed.problems, ...checkReceipts({ manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, receiptsDir, allow, run: { runId, runAttempt }, linuxRequired: linuxRequired.units }), ...checkUploadPayloads({ manifest: sealed.manifest, packDir, registry, spawn })];
+  requireThat(problems.length === 0, problems.join("; "));
+  const approvedFile = path.join(root, "qualified-approval.json");
+  const reviewRef = `https://github.com/${REPOSITORY}/actions/runs/${runId}/attempts/${runAttempt}`;
+  fs.writeFileSync(approvedFile, `${JSON.stringify({ schema: 1, artifacts: sealed.manifest.units.map((unit) => ({ registry, name: unit.name, version: unit.version, sha256: unit.sha256, reviewer: "publish.yml qualified", reviewRef })) }, null, 2)}\n`, { flag: "wx" });
+  const candidate = { id: `qualified-${runId}-${runAttempt}`, source: "qualified", sourceSha, runId, runAttempt, workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry, units, allow, artifacts };
+  const context = JSON.parse(JSON.stringify({ candidate })); freezeDeep(context);
+  contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, admitted: true, ciProof: null });
+  return { context, packDir, receiptsDir, approvedFile };
+}
+
+export async function runQualified({ env, identify = false, fetchImpl = fetch, spawn = spawnSync, linuxFile, pause, log }) {
+  if (identify) for (const key of ["NODE_AUTH_TOKEN", "NPM_TOKEN", "CARGO_REGISTRY_TOKEN"]) requireThat(!env[key] && !process.env[key], `${key} is present in secretless identification`);
+  const prepared = await prepareQualified({ env, fetchImpl, spawn, linuxFile });
+  const { candidate } = prepared.context;
+  if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `registry=${candidate.registry}\nunits=${candidate.units.join(" ")}\nsource_sha=${candidate.sourceSha}\n`);
+  if (identify) return { registry: candidate.registry, units: candidate.units, sourceSha: candidate.sourceSha };
+  requireThat(env.PUBLISH_REGISTRY === candidate.registry, `this credentialed step publishes to ${env.PUBLISH_REGISTRY}; the qualified run sealed ${candidate.registry}`);
+  const uploadEnv = { ...env, PUBLISH_REGISTRY: candidate.registry, PUBLISH_UNITS: candidate.units.join(" "), PUBLISH_ALLOW_HOST_EXCLUSION: candidate.allow.hostExclusion.join(" "), PUBLISH_ALLOW_NO_TEST: candidate.allow.noTest.join(" "), PUBLISH_ALLOW_IGNORED: candidate.allow.ignored.join(" "), PUBLISH_ALLOW_MISSING_ASSETS: candidate.allow.missingAssets.join(" ") };
+  return executeUpload({ env: uploadEnv, packDir: prepared.packDir, receiptsDir: prepared.receiptsDir, candidateContext: prepared.context, approvedFile: prepared.approvedFile, outDir: path.join(env.RUNNER_TEMP, "publication-receipt"), dryRun: false, fetchImpl, spawn, ...(pause === undefined ? {} : { pause }), ...(log === undefined ? {} : { log }) });
+}
+
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   // Finish module evaluation before lazy admission imports reach this module
   // again through runtime-supplement -> supplemental-proof. Top-level await here
@@ -721,8 +831,9 @@ if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(file
     process.once("beforeExit", unfinished);
     const [command, ...flags] = process.argv.slice(2);
     try {
-      requireThat((command === "identify" && flags.length === 0) || (command === "run" && flags.length <= 1 && flags.every((flag) => ["--dry-run", "--verify-admission"].includes(flag))), "usage: reviewed-candidate.mjs identify | run [--dry-run|--verify-admission]");
+      requireThat((command === "identify" && flags.length === 0) || (command === "run" && flags.length <= 1 && flags.every((flag) => ["--dry-run", "--verify-admission"].includes(flag))) || (command === "run-qualified" && flags.length <= 1 && flags.every((flag) => flag === "--identify")), "usage: reviewed-candidate.mjs identify | run [--dry-run|--verify-admission] | run-qualified [--identify]");
       if (command === "identify") await identifyCandidate({ env: process.env, candidateId: process.env.PUBLISH_CANDIDATE_ID });
+      else if (command === "run-qualified") await runQualified({ env: process.env, identify: flags.includes("--identify") });
       else await runReviewed({ env: process.env, dryRun: flags.includes("--dry-run"), verifyAdmission: flags.includes("--verify-admission") });
     } catch (error) { process.stderr.write(`${error.message}\n`); process.exitCode = 1; }
     finally { process.removeListener("beforeExit", unfinished); }

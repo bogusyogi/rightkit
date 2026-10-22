@@ -2,7 +2,8 @@
 
 RightKit CI runs in GitHub Actions on Windows & macOS. Pushes to `main` & pull requests run
 selected package qualification in independent jobs. `publish.yml` qualifies sealed archives;
-`publish-reviewed.yml` promotes committed, reviewed candidates.
+`publish-direct.yml` uploads every green qualification run's sealed bytes as soon as it completes;
+`publish-reviewed.yml` promotes committed, reviewed candidates (locally qualified bytes).
 The public-repository guard rejects private forks.
 
 ## Layout
@@ -21,6 +22,7 @@ The public-repository guard rejects private forks.
 | `ci/gate.config.json` | Per-crate feature sets, extra paths, serial runs, host limits |
 | `ci/known-red.json` | Units that are red today, per host, each with a reason |
 | `.github/workflows/publish.yml` | Manual qualification: pack once, verify sealed archives on both native hosts |
+| `.github/workflows/publish-direct.yml` | Upload a green `publish.yml` run's sealed bytes directly (`workflow_run`, no candidate or pin) |
 | `.github/workflows/publish-reviewed.yml` | Promote a committed candidate without rebuilding |
 | `scripts/ci/publish.mjs` | Qualification planning, packing, verification & receipt-ledger import |
 | `scripts/ci/reviewed-candidate.mjs`, `scripts/ci/upload.mjs` | Authenticate candidate provenance, enforce approvals & upload sealed bytes |
@@ -209,9 +211,24 @@ gate report names it under "Now green" for removal in next commit.
 
 ## Publishing
 
-Qualification is local by default (see "Local qualification", below: both native hosts through the RustRight broker, then an
-approval commit, then `publish-reviewed.yml`). The GitHub route is the fallback for what a host cannot run: two dispatches from `main`
-of public `bogusyogi/rightkit`, qualify once, then promote approved original bytes. Registry uploads exist only in Actions.
+Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist only in Actions:
+
+- **GitHub qualification publishes directly** (Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can
+  directly push it to npm and crates"). One dispatch of `publish.yml` from `main` of public `bogusyogi/rightkit`; when that run
+  completes green, `publish-direct.yml` (`workflow_run`) uploads the run's own sealed bytes. No candidate, no approval commit,
+  no second dispatch. The uploader (`reviewed-candidate.mjs run-qualified`) re-checks the run through the API (dispatch of
+  `publish.yml` on `main`, `guard`/`plan`/`pack`/`qualified` and both native `verify` jobs successful in the completed attempt,
+  `verify-linux` exactly when `ci/linux-required.json` requires it), downloads `publish-packed` and the verify receipts from
+  that run's artifact listing, re-hashes them, reads registry, units and allowsets from the sealed manifest and receipts, and
+  publishes exactly those bytes with the run URL recorded as the review reference. Its checkout is the qualified commit.
+  Runtime-proof owners (`RUNTIME_PROOF_WORKLOADS` in `scripts/ci/upload.mjs`: logs, job-queue, qa, daemon, tauri-shell)
+  are refused on this route, because `publish.yml` carries no runtime workload; they stay on the reviewed route below.
+  A `right-release qualify --with-ci` dispatch is a green `publish.yml` run like any other: its CI-built bytes publish
+  directly, and a local candidate for the same version is then redundant (`publish-reviewed` refuses other bytes of
+  a published version).
+- **Local qualification promotes reviewed candidates** (see "Local qualification", below: both native hosts through the
+  RustRight broker, an approval commit, then `publish-reviewed.yml`). This is the route for bytes GitHub did not qualify
+  and for every runtime-proof owner.
 
 ```bash
 gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa"
@@ -221,9 +238,10 @@ gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-ch
 `units` is a space-separated, dependency-first list; one registry per qualification run.
 `publish.yml` has no `dry_run` dispatch input & never uploads to a registry. It packs once,
 then Windows (`windows-2025`) & macOS (`xcode-27`) verify those sealed archives.
-Its per-run concurrency group permits independent qualifications concurrently.
+Its per-run concurrency group permits independent qualifications concurrently; `publish-direct.yml` uploads
+serially in the `publish` concurrency group, so dependency-ordered dispatches publish in order.
 
-After R8 Astra signoff on exact diff, commit both approval layers in `ci/approved-artifacts.json` (schema 2):
+The rest of this section is the reviewed route. After R8 Astra signoff on exact diff, commit both approval layers in `ci/approved-artifacts.json` (schema 2):
 
 - `artifacts`: every unit's registry, name, version & archive SHA-256, with reviewer & review reference.
 - `candidates`: immutable candidate ID, original source SHA, qualification run ID/attempt/workflow ID,

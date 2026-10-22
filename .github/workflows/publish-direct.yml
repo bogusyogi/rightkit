@@ -1,0 +1,83 @@
+name: publish-direct
+# Direct publication. Every publish.yml qualification run that completes green on main is uploaded to its registry
+# here, with no committed candidate, approval pin or publish-reviewed dispatch between qualification and upload
+# (Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can directly push it to npm and crates").
+# The uploader (scripts/ci/reviewed-candidate.mjs run-qualified) reads only that run's own sealed artifact and verify
+# receipts, re-checks the run's provenance and job conclusions through the API, and publishes the exact sealed bytes.
+# The verifier code is checked out at the qualified commit: the code that qualified the bytes is the code that uploads.
+on:
+  workflow_run:
+    workflows: [publish]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == 'bogusyogi/rightkit' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/upload.mjs
+            scripts/ci/registry-spec.mjs
+            scripts/ci/reviewed-candidate.mjs
+            scripts/ci/supplemental-proof.mjs
+            ci/linux-required.json
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - name: Identify the green qualification run without registry credentials
+        id: qualified
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node scripts/ci/reviewed-candidate.mjs run-qualified --identify
+      - name: Publish the sealed npm archives of the qualified run
+        if: ${{ steps.qualified.outputs.registry == 'npm' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_REGISTRY: npm
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node scripts/ci/reviewed-candidate.mjs run-qualified
+      - name: Publish the sealed Cargo archives of the qualified run
+        if: ${{ steps.qualified.outputs.registry == 'crates' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_QUALIFIED_RUN_ID: ${{ github.event.workflow_run.id }}
+          PUBLISH_QUALIFIED_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          PUBLISH_QUALIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+          PUBLISH_REGISTRY: crates
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: node scripts/ci/reviewed-candidate.mjs run-qualified
+      - name: Keep publication receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: publication-receipt-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/publication-receipt
+          retention-days: 90
+          if-no-files-found: ignore
