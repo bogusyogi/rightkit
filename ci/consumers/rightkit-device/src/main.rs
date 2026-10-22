@@ -20,10 +20,15 @@ fn main() {
     let hash = device_id_hash("fixture-device-0001");
     assert_eq!(hash.len(), 64, "hash is 64 hex characters");
     assert!(
-        hash.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        hash.bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
         "hash is lowercase hex"
     );
-    assert_eq!(hash, device_id_hash("fixture-device-0001"), "same raw id, same hash");
+    assert_eq!(
+        hash,
+        device_id_hash("fixture-device-0001"),
+        "same raw id, same hash"
+    );
     assert_ne!(
         hash,
         device_id_hash("fixture-device-0001 "),

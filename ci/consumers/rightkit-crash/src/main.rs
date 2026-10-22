@@ -15,7 +15,10 @@ fn main() {
     let dir: PathBuf =
         std::env::temp_dir().join(format!("rk-crash-consumer-{}", std::process::id()));
     fs::create_dir_all(&dir).expect("create consumer temp dir");
-    assert!(list_pending(&dir).is_empty(), "an empty directory has no pending reports");
+    assert!(
+        list_pending(&dir).is_empty(),
+        "an empty directory has no pending reports"
+    );
 
     for name in ["crash_1.json", "crash_2.json", "crash_3.json"] {
         fs::write(dir.join(name), format!("{{\"fixture\":\"{name}\"}}")).expect("write report");
@@ -26,7 +29,9 @@ fn main() {
     let pending = list_pending(&dir);
     assert_eq!(pending.len(), 3, "only crash_*.json files are pending");
     assert!(
-        pending.iter().all(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json")),
+        pending
+            .iter()
+            .all(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json")),
         "every pending entry is a json report"
     );
 

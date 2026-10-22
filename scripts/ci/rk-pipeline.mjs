@@ -14,10 +14,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_OUT, ROOT, readJson } from "./rk-preflight.mjs";
+import { DEFAULT_OUT, ROOT, readJson, receiptRefusal, exceptionAllowsets } from "./rk-preflight.mjs";
 
 export const REPO = "bogusyogi/rightkit";
 export const STATE_FILE = "/Volumes/D/scratch/rk-pipeline/state.json";
+import { readCrateWorkspace, crateRegistryVersions, satisfies as versionSatisfies } from "./publish.mjs";
 const GH = process.platform === "win32" ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "/opt/homebrew/bin/gh";
 const RUSTRIGHT = "rustright";
 const NODE = process.execPath;
@@ -37,91 +38,57 @@ export function parseArgs(argv) {
     else opts.units.push(...arg.split(/\s+/).filter(Boolean)); // one quoted list or many arguments, both fine
   }
   if (!["ready", "preflight", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, dispatch, watch or loop");
-  if (!["crates", "npm"].includes(opts.registry)) throw new Error("--registry must be crates or npm");
+  if (opts.registry !== "crates") throw new Error("--registry must be crates; npm needs a broker-admitted build adapter");
   if (!Number.isInteger(opts.jobs) || opts.jobs < 1) throw new Error("--jobs must be a positive integer");
+  opts.units = [...new Set(opts.units)];
   return opts;
 }
 
 // ---------- registry readiness ----------
 
-function ver(s) {
-  return s.split(".").map(Number);
-}
-
-/** Cargo caret semantics: does the published version satisfy the requirement? */
-export function satisfies(req, have) {
-  if (!have) return false;
-  const r = ver(req);
-  const h = ver(have);
-  if (r[0] === 0) return h[0] === 0 && h[1] === r[1] && (h[2] ?? 0) >= (r[2] ?? 0);
-  return h[0] === r[0] && (h[1] > r[1] || (h[1] === r[1] && (h[2] ?? 0) >= (r[2] ?? 0)));
-}
-
-/** Workspace crates: name, version, and the path dependencies with their version requirements. */
+/** Reuse publication semantics & Cargo metadata, including renamed/target/workspace dependencies. */
+export const satisfies = (req, have) => Boolean(have) && versionSatisfies(have, req, "cargo");
 export function readCrates(root = ROOT) {
-  const crates = new Map();
-  for (const dir of fs.readdirSync(path.join(root, "crates"))) {
-    const file = path.join(root, "crates", dir, "Cargo.toml");
-    if (!fs.existsSync(file)) continue;
-    const text = fs.readFileSync(file, "utf8");
-    const name = text.match(/^name\s*=\s*"([^"]+)"/m)?.[1];
-    const version = text.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-    if (!name || !version) continue;
-    const publish = !/^publish\s*=\s*false/m.test(text);
-    const deps = [];
-    for (const m of text.matchAll(/^(rightkit-[a-z0-9-]+)\s*=\s*\{([^}]*)\}/gm)) {
-      if (!/path\s*=/.test(m[2])) continue;
-      const req = m[2].match(/version\s*=\s*"([^"]+)"/)?.[1];
-      if (req) deps.push({ name: m[1], req });
-    }
-    for (const m of text.matchAll(/^\[(?:dev-|build-)?dependencies\.(rightkit-[a-z0-9-]+)\]\s*\n((?:(?!\[).*\n)*)/gm)) {
-      if (!/path\s*=/.test(m[2])) continue;
-      const req = m[2].match(/version\s*=\s*"([^"]+)"/)?.[1];
-      if (req) deps.push({ name: m[1], req });
-    }
-    crates.set(name, { name, version, publish, deps });
-  }
-  return crates;
+  return new Map([...readCrateWorkspace(root)].map(([name, c]) => [name, {
+    ...c, publish: !c.private,
+    deps: c.deps.filter((d) => !(d.dev && !d.spec)).map((d) => ({ ...d, req: d.spec })),
+  }]));
 }
-
 export async function registryVersion(name, registry, fetchImpl = fetch) {
-  try {
-    if (registry === "crates") {
-      const r = await fetchImpl(`https://crates.io/api/v1/crates/${name}`, { headers: { "User-Agent": "rk-pipeline (adrian@orthiclabs.com)" } });
-      if (!r.ok) return null;
-      return (await r.json()).crate?.max_version ?? null;
-    }
-    const r = await fetchImpl(`https://registry.npmjs.org/${name}/latest`);
-    if (!r.ok) return null;
-    return (await r.json()).version ?? null;
-  } catch {
-    return null;
-  }
+  if (registry !== "crates") throw new Error("npm publication is not implemented by this driver");
+  return crateRegistryVersions(name, fetchImpl); // Exact versions, checksums & yanks; transport failure throws.
 }
-
-/** Unpublished units in waves: a unit is ready when every unpublished dependency's requirement is met by the registry. */
+const usable = (versions, requirement) => [...versions].some(([v, meta]) => !meta.yanked && satisfies(requirement, v));
 export function waves(crates, registryVersions) {
-  const unpublished = new Set([...crates.values()].filter((c) => c.publish && registryVersions.get(c.name) !== c.version).map((c) => c.name));
+  const unpublished = new Set([...crates.values()].filter((c) => c.publish && !registryVersions.get(c.name)?.has(c.version)).map((c) => c.name));
   const blockers = new Map();
-  for (const name of unpublished) blockers.set(name, crates.get(name).deps.filter((d) => unpublished.has(d.name) && !satisfies(d.req, registryVersions.get(d.name))).map((d) => d.name));
-  const out = [];
-  const done = new Set();
+  for (const name of unpublished) {
+    const blocked = [];
+    for (const d of crates.get(name).deps) {
+      if (!crates.has(d.name) || d.name === name) continue;
+      if (!d.req || (typeof d.source === "string" && d.source.startsWith("git+"))) { blocked.push(`invalid:${d.name}`); continue; }
+      if (usable(registryVersions.get(d.name) ?? new Map(), d.req)) continue;
+      const future = crates.get(d.name);
+      blocked.push(unpublished.has(d.name) && satisfies(d.req, future.version) ? d.name : `unavailable:${d.name}`);
+    }
+    blockers.set(name, blocked);
+  }
+  const out = [], done = new Set();
   while (done.size < unpublished.size) {
     const ready = [...unpublished].filter((n) => !done.has(n) && blockers.get(n).every((b) => done.has(b))).sort();
-    if (!ready.length) {
-      out.push({ stuck: [...unpublished].filter((n) => !done.has(n)) });
-      break;
-    }
+    if (!ready.length) { out.push({ stuck: [...unpublished].filter((n) => !done.has(n)) }); break; }
     out.push(ready);
     for (const n of ready) done.add(n);
   }
   return { unpublished, blockers, waves: out };
 }
-
 async function readiness(opts) {
-  const crates = readCrates();
-  const versions = new Map();
-  await Promise.all([...crates.values()].filter((c) => c.publish).map(async (c) => versions.set(c.name, await registryVersion(c.name, opts.registry))));
+  const crates = readCrates(), versions = new Map();
+  // Bounded registry reads; errors are never interpreted as unpublished versions.
+  const queue = [...crates.values()].filter((c) => c.publish);
+  await Promise.all(Array.from({ length: Math.min(4, queue.length) }, async () => {
+    while (queue.length) { const c = queue.shift(); versions.set(c.name, await registryVersion(c.name, opts.registry)); }
+  }));
   return { crates, versions, ...waves(crates, versions) };
 }
 
@@ -132,52 +99,37 @@ export function receiptFor(unit, sha, out = DEFAULT_OUT) {
   return fs.existsSync(file) ? { file, ...readJson(file, {}) } : null;
 }
 
-/** Why a unit may not be dispatched at this commit, or null when it may. A green local receipt, or a CI-routed one whose
- * deterministic scans passed, is required; nothing else counts (Adrian: local before hosted). */
-export function dispatchRefusal(receipt, sha) {
-  if (!receipt) return "no pre-flight receipt for this commit; run rk-pipeline preflight first";
-  if (receipt.sha !== sha) return `receipt is for ${String(receipt.sha).slice(0, 12)}, HEAD is ${sha.slice(0, 12)}`;
-  if (receipt.route === "ci") return receipt.scans?.ok ? null : "routed to CI but its deterministic scans did not pass";
-  if (!receipt.ok) return `pre-flight is red at ${receipt.failedAt ?? "unknown row"}`;
-  return null;
+export function dispatchRefusal(receipt, sha, unit, registry = "crates", config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), version = readCrates().get(unit)?.version) {
+  return receiptRefusal(receipt, { sha, unit, registry, config, version });
 }
 
-/** The allowsets the hosted planner demands for these units, derived from its own refusals. */
-export async function allowsetsFor(registry, units, planFn) {
+/** Planner refusals remain refusals. Only explicit version-bound policy supplies exceptions. */
+export async function allowsetsFor(registry, units, planFn, { config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), pipeline = readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {}), crates = readCrates() } = {}) {
   const allow = { allow_host_exclusion: [], allow_no_test: [], allow_ignored: [], allow_missing_assets: [] };
-  const config = readJson(path.join(ROOT, "ci", "gate.config.json"), {});
   for (const unit of units) {
-    const entry = (registry === "crates" ? config.rust?.[unit] : config.npm?.[unit]) ?? {};
-    if (entry.allowIgnored || entry.ignoredTests) allow.allow_ignored.push(unit);
+    const policy = exceptionAllowsets(unit, crates.get(unit)?.version, config, pipeline);
+    for (const key of Object.keys(allow)) allow[key].push(...policy[key]);
   }
-  for (let round = 0; round < 3; round += 1) {
-    // planPublication throws one error listing every refusal as "  - <unit>: <reason>" lines.
-    let errors = [];
-    try {
-      await planFn({ registry, unitsText: units.join(" "), dryRun: false, allowHostExclusionText: allow.allow_host_exclusion.join(" "), allowNoTestText: allow.allow_no_test.join(" "), allowIgnoredText: allow.allow_ignored.join(" "), allowMissingAssetsText: allow.allow_missing_assets.join(" ") });
-    } catch (error) {
-      errors = String(error.message).split("\n").map((l) => l.replace(/^\s*-\s*/, "").trim()).filter((l) => l && !/^publish request refused/.test(l));
-    }
-    let changed = false;
-    for (const e of errors) {
-      const m = e.match(/^([^:]+): .*name it in (allow_host_exclusion|allow_no_test|allow_missing_assets)/);
-      if (m && !allow[m[2]].includes(m[1])) {
-        allow[m[2]].push(m[1]);
-        changed = true;
-      }
-    }
-    if (!changed) return { allow, errors };
+  try {
+    const plan = await planFn({ registry, unitsText: units.join(" "), dryRun: false, allowHostExclusionText: allow.allow_host_exclusion.join(" "), allowNoTestText: allow.allow_no_test.join(" "), allowIgnoredText: allow.allow_ignored.join(" "), allowMissingAssetsText: allow.allow_missing_assets.join(" ") });
+    return { allow, errors: [], plan };
+  } catch (error) {
+    return { allow, errors: [String(error.message)] };
   }
-  return { allow, errors: ["allowset derivation did not converge"] };
 }
-
+export const stateKey = (registry, sha, unit) => `${registry}:${sha}:${unit}`;
 export function readState() {
-  return readJson(STATE_FILE, { dispatches: {} });
+  if (!fs.existsSync(STATE_FILE)) return { dispatches: {} };
+  const state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+  if (!state.dispatches || typeof state.dispatches !== "object") throw new Error("invalid pipeline state");
+  return state;
 }
 
 export function writeState(state) {
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+  const temp = `${STATE_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, JSON.stringify(state, null, 2));
+  fs.renameSync(temp, STATE_FILE);
 }
 
 function git(...args) {
@@ -197,7 +149,7 @@ function runChild(command, args, env = process.env) {
     const child = spawn(command, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.on("data", (c) => (out += c));
     child.stderr.on("data", (c) => (out += c));
-    child.on("exit", (code) => resolve({ code: code ?? 1, out }));
+    child.on("close", (code) => resolve({ code: code ?? 1, out }));
     child.on("error", (e) => resolve({ code: 1, out: out + String(e) }));
   });
 }
@@ -208,7 +160,7 @@ async function cmdReady(opts) {
   const r = await readiness(opts);
   log(`unpublished (${r.unpublished.size}): ${[...r.unpublished].sort().join(" ")}`);
   r.waves.forEach((w, i) => log(Array.isArray(w) ? `wave ${i + 1} (${w.length}): ${w.join(" ")}` : `stuck: ${w.stuck.join(" ")}`));
-  return 0;
+  return r.waves.some((w) => !Array.isArray(w)) ? 1 : 0;
 }
 
 async function preflightMany(units, opts) {
@@ -220,7 +172,7 @@ async function preflightMany(units, opts) {
       const r = await runChild(NODE, [path.join(ROOT, "scripts", "ci", "rk-preflight.mjs"), "--registry", opts.registry, "--unit", unit]);
       const last = r.out.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "";
       results.set(unit, { code: r.code, last });
-      log(`preflight ${unit}: ${r.code === 0 ? "GREEN" : r.code === 3 ? "ROUTE-CI" : "RED"} (${last.slice(0, 140)})`);
+      log(`preflight ${unit}: ${r.code === 0 ? "GREEN" : "RED"} (${last.slice(0, 140)})`);
     }
   };
   await Promise.all(Array.from({ length: Math.min(opts.jobs, units.length) }, worker));
@@ -233,7 +185,7 @@ async function cmdPreflight(opts) {
     return 2;
   }
   const results = await preflightMany(opts.units, opts);
-  return [...results.values()].every((r) => r.code === 0 || r.code === 3) ? 0 : 1;
+  return [...results.values()].every((r) => r.code === 0) ? 0 : 1;
 }
 
 async function cmdDispatch(opts, deps = {}) {
@@ -242,6 +194,7 @@ async function cmdDispatch(opts, deps = {}) {
     return 2;
   }
   const sha = git("rev-parse", "HEAD");
+  if (git("status", "--porcelain", "--untracked-files=no")) throw new Error("tracked files changed before dispatch");
   const remote = git("ls-remote", "origin", "refs/heads/main").split(/\s+/)[0];
   if (remote !== sha) {
     fail(`HEAD ${sha.slice(0, 12)} is not origin/main ${String(remote).slice(0, 12)}; push first, the dispatcher pins the commit`);
@@ -250,21 +203,28 @@ async function cmdDispatch(opts, deps = {}) {
   const refused = [];
   const go = [];
   for (const unit of opts.units) {
-    const why = dispatchRefusal(receiptFor(unit, sha), sha);
+    const why = dispatchRefusal(receiptFor(unit, sha), sha, unit, opts.registry);
     if (why) refused.push(`${unit}: ${why}`);
     else go.push(unit);
   }
   for (const r of refused) fail(`refused ${r}`);
   if (!go.length) return 2;
   const planFn = deps.planFn ?? (await import("./publish.mjs")).planPublication;
-  const { allow, errors } = await allowsetsFor(opts.registry, go, planFn);
-  if (errors.length) {
-    for (const e of errors) fail(`plan: ${e}`);
-    return 2;
-  }
-  const state = readState();
-  let exit = 0;
+  let exit = refused.length ? 1 : 0;
   for (const unit of go) {
+    const { allow, errors, plan } = await allowsetsFor(opts.registry, [unit], planFn);
+    if (errors.length) { for (const e of errors) fail(`plan ${unit}: ${e}`); exit = 1; continue; }
+    const planned = plan.units.find((u) => u.name === unit);
+    if (!planned) { log(`${unit}: exact version already exists; no dispatch`); continue; }
+    const key = stateKey(opts.registry, sha, unit);
+    const state = readState();
+    const previous = state.dispatches[key];
+    if (previous && !(previous.status === "failed" && previous.phase === "preflight") && ["dispatched", "dispatching", "unknown", "failed", "published"].includes(previous.status)) {
+      fail(`${unit}: attempt already recorded as ${previous.status}; reconcile it before retrying`); exit = 1; continue;
+    }
+    // Persist intent before external effect. Ambiguous POST/discovery failures must never auto-retry.
+    state.dispatches[key] = { unit, registry: opts.registry, sha, version: planned.version, status: "dispatching", ownerPid: process.pid, attempts: 1, dispatchedAt: new Date().toISOString() };
+    writeState(state);
     const nonce = crypto.randomBytes(32).toString("hex");
     const args = ["run", "rightkit-dispatch", "--", "--workflow", "publish", "--registry", opts.registry, "--unit", unit, "--sha", sha];
     for (const [key, list] of Object.entries(allow)) if (list.includes(unit)) args.push(`--${key.replaceAll("_", "-")}`, unit);
@@ -279,19 +239,21 @@ async function cmdDispatch(opts, deps = {}) {
     const request = r.out.match(/^rustright: request ([0-9a-f-]{36})/m)?.[1] ?? null;
     if (r.code !== 0 || !record) {
       fail(`dispatch ${unit} failed (exit ${r.code}): ${r.out.trim().split("\n").slice(-3).join(" | ").slice(0, 300)}`);
+      const current = readState(); current.dispatches[key].status = "unknown"; writeState(current);
       exit = 1;
       continue;
     }
-    const prior = state.dispatches[unit]?.attempts ?? 0;
-    state.dispatches[unit] = { registry: opts.registry, sha, runId: record.runId, runUrl: record.runUrl, requestId: record.requestId, brokerRequest: request, nonce, attempts: prior + 1, dispatchedAt: record.dispatchedAt, status: "dispatched" };
-    writeState(state);
+    const current = readState();
+    const prior = (current.dispatches[key]?.attempts ?? 1) - 1;
+    current.dispatches[key] = { unit, version: planned.version, runAttempt: record.runAttempt, registry: opts.registry, sha, runId: record.runId, runUrl: record.runUrl, requestId: record.requestId, brokerRequest: request, nonce, attempts: prior + 1, dispatchedAt: record.dispatchedAt, status: "dispatched" };
+    writeState(current);
     log(`dispatched ${unit}: run ${record.runId} (${record.runUrl ?? "no url"}), broker request ${request}, attempt ${prior + 1}`);
   }
   return exit;
 }
 
 function runState(runId) {
-  const r = gh(["api", `repos/${REPO}/actions/runs/${runId}`, "--jq", "{status: .status, conclusion: .conclusion, head_sha: .head_sha}"]);
+  const r = gh(["api", `repos/${REPO}/actions/runs/${runId}`, "--jq", "{status, conclusion, head_sha, run_attempt, path, event, display_title}"]);
   if (!r.ok) return null;
   try {
     return JSON.parse(r.stdout);
@@ -305,32 +267,49 @@ function failedSteps(runId) {
   return r.ok ? r.stdout.trim() : "";
 }
 
-function uploadRun(sha, dispatchedAt) {
-  const r = gh(["api", `repos/${REPO}/actions/runs?event=workflow_run&head_sha=${sha}&per_page=30`, "--jq", `[.workflow_runs[] | select(.path | endswith("publish-direct.yml")) | select(.created_at >= "${dispatchedAt}") | {id, status, conclusion, created_at}]`]);
-  if (!r.ok) return [];
-  try {
-    return JSON.parse(r.stdout);
-  } catch {
-    return [];
-  }
+export function matchingUploadRuns(runs, dispatch) {
+  return runs.filter((r) => r.event === "workflow_run" && r.path === ".github/workflows/publish-direct.yml" && r.display_title === `publish-direct ${dispatch.runId} ${dispatch.runAttempt}`);
+}
+function uploadRun(dispatch) {
+  const r = gh(["api", "--paginate", "--slurp", `repos/${REPO}/actions/workflows/publish-direct.yml/runs?event=workflow_run&per_page=100`]);
+  if (!r.ok) throw new Error("upload runs are unreadable");
+  return matchingUploadRuns(JSON.parse(r.stdout).flatMap((p) => p.workflow_runs ?? []), dispatch);
 }
 
-async function cmdWatch(opts) {
-  const state = readState();
-  const open = Object.entries(state.dispatches).filter(([, d]) => d.status !== "published" && d.status !== "failed");
+export async function cmdWatch(opts, deps = {}) {
+  const load = deps.readState ?? readState;
+  const save = deps.writeState ?? writeState;
+  const inspect = deps.runState ?? runState;
+  const uploadsFor = deps.uploadRun ?? uploadRun;
+  const versionsFor = deps.registryVersion ?? registryVersion;
+  const state = load();
+  const open = Object.values(state.dispatches).filter((d) => d.status !== "published" && d.status !== "failed");
+  let hadFailure = Object.values(state.dispatches).some((d) => d.status === "failed");
   if (!open.length) {
     log("nothing dispatched is pending");
-    return 0;
+    return hadFailure ? 1 : 0;
   }
+  const timeoutMs = (readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {}).dispatch?.watchTimeoutMinutes ?? 180) * 60_000;
   for (;;) {
     let pending = 0;
-    for (const [unit, d] of open) {
+    for (const d of open) {
+      const unit = d.unit ?? "legacy-state";
+      if (d.status === "dispatching" && d.ownerPid === process.pid) { pending += 1; continue; }
+      if (!d.runId || !d.runAttempt || !d.version || !d.unit) {
+        d.status = "failed"; d.conclusion = "dispatch intent is ambiguous or legacy; reconcile by broker request before retry"; hadFailure = true; continue;
+      }
+      if (Date.now() - Date.parse(d.dispatchedAt) > timeoutMs) {
+        d.status = "failed"; d.conclusion = "watch deadline exceeded; reconcile existing run before retry"; hadFailure = true; continue;
+      }
       if (d.status === "published" || d.status === "failed") continue;
-      const run = runState(d.runId);
+      const run = inspect(d.runId);
       if (!run) {
         log(`${unit}: run ${d.runId} not readable`);
         pending += 1;
         continue;
+      }
+      if (run.head_sha !== d.sha || Number(run.run_attempt) !== Number(d.runAttempt) || run.event !== "workflow_dispatch" || run.path !== ".github/workflows/publish.yml" || !String(run.display_title).split(/\s+/).includes(d.requestId)) {
+        d.status = "failed"; d.conclusion = "qualification provenance mismatch"; hadFailure = true; continue;
       }
       if (run.status !== "completed") {
         log(`${unit}: run ${d.runId} ${run.status}`);
@@ -339,58 +318,95 @@ async function cmdWatch(opts) {
       }
       if (run.conclusion !== "success") {
         d.status = "failed";
+        hadFailure = true;
         d.conclusion = run.conclusion;
         d.failedSteps = failedSteps(d.runId);
         log(`${unit}: run ${d.runId} ${run.conclusion} <- ${d.failedSteps}`);
         continue;
       }
-      const uploads = uploadRun(d.sha, d.dispatchedAt);
+      let uploads;
+      try { uploads = uploadsFor(d); } catch { pending += 1; continue; }
+      if (uploads.length > 1) { d.status = "failed"; d.conclusion = "ambiguous upload runs"; hadFailure = true; continue; }
       const done = uploads.find((u) => u.status === "completed");
       if (!done) {
         log(`${unit}: qualification green, upload ${uploads[0]?.status ?? "not started"}`);
         pending += 1;
         continue;
       }
-      const published = await registryVersion(unit, d.registry);
-      const crate = readCrates().get(unit);
-      if (done.conclusion === "success" && crate && published === crate.version) {
-        d.status = "published";
-        d.published = published;
-        d.uploadRunId = done.id;
-        log(`${unit}: PUBLISHED ${published} (upload run ${done.id})`);
-      } else {
-        d.status = "failed";
-        d.conclusion = `upload ${done.conclusion}, registry has ${published ?? "nothing"}`;
-        d.uploadRunId = done.id;
-        log(`${unit}: upload run ${done.id} ${done.conclusion}; registry has ${published ?? "nothing"}`);
+      if (done.conclusion !== "success") {
+        d.status = "failed"; d.conclusion = `upload ${done.conclusion}`; d.uploadRunId = done.id; hadFailure = true; continue;
       }
+      let versions;
+      try { versions = await versionsFor(unit, d.registry); } catch { pending += 1; continue; }
+      const published = versions.get(d.version);
+      if (!published || published.yanked) { pending += 1; log(`${unit}: awaiting usable ${d.version} in registry`); continue; }
+      d.status = "published"; d.published = d.version; d.registryChecksum = published.cksum; d.uploadRunId = done.id;
+      log(`${unit}: PUBLISHED ${d.version} (upload run ${done.id})`);
     }
-    writeState(state);
-    if (!pending || !opts.wait) return pending ? 1 : 0;
+    const current = load();
+    for (const d of open) {
+      const key = d.unit ? stateKey(d.registry, d.sha, d.unit) : Object.keys(state.dispatches).find((k) => state.dispatches[k] === d);
+      current.dispatches[key] = d;
+    }
+    save(current);
+    if (!pending || !opts.wait) return pending || hadFailure ? 1 : 0;
     await new Promise((r) => setTimeout(r, 60_000));
   }
 }
 
-async function cmdLoop(opts) {
-  const pipeline = readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {});
-  const maxAttempts = pipeline.dispatch?.maxAttemptsPerUnit ?? 3;
-  for (let wave = 1; wave <= 12; wave += 1) {
-    const r = await readiness(opts);
-    const state = readState();
-    const ready = (Array.isArray(r.waves[0]) ? r.waves[0] : []).filter((u) => !opts.units.length || opts.units.includes(u));
-    const candidates = ready.filter((u) => state.dispatches[u]?.status !== "published" && (state.dispatches[u]?.attempts ?? 0) < maxAttempts && state.dispatches[u]?.status !== "dispatched");
-    if (!candidates.length) {
-      log(`wave ${wave}: nothing ready to dispatch (${ready.length} ready, all published, in flight, or over ${maxAttempts} attempts)`);
-      return 0;
+/** Stream ready units without a wave barrier; one attempt per SHA/unit, including local failures. */
+export async function cmdLoop(opts, deps = {}) {
+  const head = deps.head ?? (() => git("rev-parse", "HEAD"));
+  const sha = head();
+  const readyFn = deps.readiness ?? readiness;
+  const stateFn = deps.readState ?? readState;
+  const save = deps.writeState ?? writeState;
+  const watch = deps.watch ?? cmdWatch;
+  const preflight = deps.preflight ?? (async (unit) => (await preflightMany([unit], opts)).get(unit));
+  const dispatch = deps.dispatch ?? cmdDispatch;
+  const pause = deps.pause ?? (() => new Promise((r) => setTimeout(r, 15_000)));
+  const active = new Map(), attempted = new Set();
+  let dispatchTail = Promise.resolve();
+  let failed = false;
+  for (;;) {
+    if (head() !== sha) { await Promise.all(active.values()); throw new Error("HEAD moved during release; retain receipts, reconcile before continuing"); }
+    await watch({ ...opts, wait: false });
+    const r = await readyFn(opts);
+    const selected = [...r.unpublished].filter((u) => !opts.units.length || opts.units.includes(u));
+    const state = stateFn();
+    const ready = (Array.isArray(r.waves[0]) ? r.waves[0] : []).filter((u) => selected.includes(u));
+    for (const unit of ready) {
+      if (active.size >= opts.jobs) break;
+      const key = stateKey(opts.registry, sha, unit);
+      if (attempted.has(unit) || state.dispatches[key]) continue;
+      attempted.add(unit);
+      const task = (async () => {
+        const result = await preflight(unit);
+        if (result.code !== 0) {
+          failed = true;
+          const current = stateFn(); current.dispatches[key] = { unit, sha, registry: opts.registry, status: "failed", phase: "preflight", detail: result.last }; save(current);
+          return;
+        }
+        // Serialized dispatch writes, independent preflight workers.
+        const launched = dispatchTail.then(async () => {
+          if (head() !== sha) throw new Error("HEAD changed before dispatch");
+          return dispatch({ ...opts, units: [unit] });
+        });
+        dispatchTail = launched.catch(() => {});
+        if (await launched !== 0) failed = true;
+      })().catch((error) => { failed = true; fail(`${unit}: ${error.message}`); }).finally(() => active.delete(unit));
+      active.set(unit, task);
     }
-    log(`wave ${wave}: ${candidates.length} unit(s) ready: ${candidates.join(" ")}`);
-    const results = await preflightMany(candidates, opts);
-    const green = candidates.filter((u) => [0, 3].includes(results.get(u)?.code));
-    if (green.length) await cmdDispatch({ ...opts, units: green });
-    const watch = await cmdWatch({ ...opts, wait: true });
-    if (watch !== 0) log(`wave ${wave}: some units are red; fix them and run again`);
+    const current = stateFn();
+    const pending = Object.values(current.dispatches).some((d) => d.sha === sha && d.status === "dispatched");
+    if (!active.size && !pending) {
+      const remaining = await readyFn(opts);
+      const unfinished = [...remaining.unpublished].filter((u) => !opts.units.length || opts.units.includes(u));
+      if (unfinished.length) fail(`unfinished: ${unfinished.join(" ")}`);
+      return failed || unfinished.length ? 1 : 0;
+    }
+    await Promise.race([...active.values(), pause()]);
   }
-  return 0;
 }
 
 export async function main(argv) {
@@ -418,5 +434,15 @@ export async function main(argv) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exit(await main(process.argv.slice(2)));
+  const mutates = ["dispatch", "watch", "loop"].includes(process.argv[2]);
+  const lock = `${STATE_FILE}.lock`;
+  let locked = false;
+  try {
+    if (mutates) {
+      fs.mkdirSync(path.dirname(lock), { recursive: true });
+      const fd = fs.openSync(lock, "wx"); fs.writeFileSync(fd, String(process.pid)); fs.closeSync(fd); locked = true;
+    }
+    process.exitCode = await main(process.argv.slice(2));
+  } catch (error) { fail(error.message); process.exitCode = 2; }
+  finally { if (locked) fs.unlinkSync(lock); }
 }

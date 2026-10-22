@@ -2,12 +2,6 @@
   "schema": "rk-pipeline.v1",
   "tools": {
     "actionlint": "1.7.12",
-    "rustfmt": {
-      "note": "The hosted scans and verify jobs install toolchain 1.98.0 (rustfmt 1.9.0-stable 88d9e12ae1). The scan module otherwise picks the newest rustup toolchain under $HOME, which on an agent profile can be an older rustfmt whose formatting differs; the pre-flight pins this binary and exports it as RUSTFMT.",
-      "toolchain": "1.98.0",
-      "version": "rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)",
-      "darwin": { "path": "/Users/adrdsouza/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/rustfmt" }
-    },
     "shellcheck": {
       "note": "The hosted scans run on ubuntu-24.04, whose image carries shellcheck 0.9.0; actionlint silently skips shell checks when shellcheck is absent, so the local pre-flight refuses without a pinned binary. 0.9.0 has no Apple Silicon build; 0.10.0 is the closest darwin.aarch64 release.",
       "darwin": {
@@ -17,14 +11,37 @@
         "source": "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.darwin.aarch64.tar.xz",
         "archiveSha256": "bbd2f14826328eee7679da7221f2bc3afb011f6a928b848c80c321f6046ddf81"
       }
+    },
+    "rustfmt": {
+      "note": "The hosted scans and verify jobs install toolchain 1.98.0 (rustfmt 1.9.0-stable 88d9e12ae1). The scan module otherwise picks the newest rustup toolchain under $HOME, which on an agent profile can be an older rustfmt whose formatting differs; the pre-flight pins this binary and exports it as RUSTFMT.",
+      "toolchain": "1.98.0",
+      "version": "rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)",
+      "darwin": {
+        "path": "/Users/adrdsouza/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/rustfmt"
+      }
     }
   },
   "preflight": {
     "localBudgetMinutes": 15,
-    "receipts": "/Volumes/D/scratch/rk-pipeline/receipts"
+    "receipts": "/Volumes/D/scratch/rk-pipeline/receipts",
+    "note": "Budget is advisory; publication requires completed local compilation. Runtime tests execute hosted."
   },
   "dispatch": {
     "adapter": "rightkit-dispatch",
-    "maxAttemptsPerUnit": 3
+    "maxAttemptsPerUnit": 1,
+    "exceptions": {
+      "rightkit-ffmpeg": {
+        "version": "0.2.10",
+        "allow": ["allow_missing_assets"],
+        "reason": "ci/asset-gated.json: its tests need FFmpeg and ffprobe development builds the publish workflow does not provision; those tests skip hosted and the crate's own compile, clippy, doc and remaining tests still qualify it."
+      },
+      "rightkit-motion": {
+        "version": "0.2.0",
+        "allow": ["allow_missing_assets"],
+        "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
+      }
+    },
+    "watchTimeoutMinutes": 180,
+    "retryPolicy": "No automatic retry for unchanged SHA/unit. Reconcile ambiguous remote effects before any new attempt."
   }
 }

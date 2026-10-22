@@ -1,4 +1,5 @@
 name: publish-direct
+run-name: publish-direct ${{ github.event.workflow_run.id }} ${{ github.event.workflow_run.run_attempt }}
 # Direct publication. Every publish.yml qualification run that completes green on main is uploaded to its registry
 # here, with no committed candidate, approval pin or publish-reviewed dispatch between qualification and upload
 # (Adrian, 2026-10-22: "As soon as the qualification passes on GitHub, GitHub can directly push it to npm and crates").

@@ -111,6 +111,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
         with:
           components: clippy, rustfmt
+      - name: Select exactly the qualification toolchain formatter
+        run: echo "RUSTFMT=$(rustup which --toolchain 1.98.0 rustfmt)" >> "$GITHUB_ENV"
       - name: Install the pinned Cargo scan tools
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:

@@ -15,7 +15,9 @@
 // Exit 0: dispatched and discovered. Exit 2: refused (usage, main moved, no broker request id, run not found). Exit 3: gh failed.
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import crypto from "node:crypto";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const REPO = "bogusyogi/rightkit";
 export const WORKFLOWS = { ci: "ci.yml", publish: "publish.yml" };
@@ -102,6 +104,34 @@ export function matchRun(runs, query) {
   return matches.length === 1 ? matches[0] : null;
 }
 
+// Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
+const PREFLIGHT_SHA256 = "4dde478a07c80e13505f13f7ce64e9d60aa341418c55dabbd20e32ddee3139b7";
+export async function requirePreflight(opts) {
+  if (opts.workflow !== "publish" || opts.registry !== "crates") throw new Error("only scoped crates publication has local admission; general CI/npm dispatch is not admitted");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const helper = path.join(root, "scripts", "ci", "rk-preflight.mjs");
+  if (crypto.createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== PREFLIGHT_SHA256) throw new Error("preflight implementation digest changed; repin adapter with its reviewed helper");
+  const { receiptRefusal, exceptionAllowsets, DEFAULT_OUT } = await import(pathToFileURL(helper));
+  const git = (...args) => {
+    const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    if (r.status !== 0) throw new Error("cannot prove committed admission inputs");
+    return r.stdout.trim();
+  };
+  if (git("rev-parse", "HEAD") !== opts.sha || git("status", "--porcelain", "--untracked-files=no")) throw new Error("checkout changed since local admission");
+  const config = JSON.parse(git("show", `${opts.sha}:ci/gate.config.json`));
+  const pipeline = JSON.parse(git("show", `${opts.sha}:ci/rk-pipeline.json`));
+  const manifest = git("show", `${opts.sha}:crates/${opts.unit}/Cargo.toml`);
+  const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  const receipt = JSON.parse(fs.readFileSync(path.join(DEFAULT_OUT, opts.sha, `${opts.unit}.json`), "utf8"));
+  const reason = receiptRefusal(receipt, { ...opts, config, version });
+  if (reason) throw new Error(reason);
+  const policy = exceptionAllowsets(opts.unit, version, config, pipeline);
+  for (const [key, value] of Object.entries(opts.allow)) {
+    const supplied = value.split(/\s+/).filter(Boolean);
+    if (supplied.some((unit) => !policy[key]?.includes(unit))) throw new Error(`unrecorded qualification exception ${key}`);
+  }
+}
+
 export async function main(argv, deps = {}) {
   const gh = deps.gh ?? defaultGh;
   const env = deps.env ?? process.env;
@@ -136,6 +166,8 @@ export async function main(argv, deps = {}) {
     err(`rightkit-dispatch: refused, main is ${mainSha.slice(0, 12)} but this request was admitted for ${opts.sha.slice(0, 12)}`);
     return 2;
   }
+  try { await (deps.admission ?? requirePreflight)(opts); }
+  catch (error) { err(`rightkit-dispatch: preflight refused: ${error.message}`); return 2; }
   const inputs = dispatchInputs(opts, requestId);
   const fields = ["-f", "ref=main"];
   for (const [key, value] of Object.entries(inputs)) fields.push("-f", `inputs[${key}]=${value}`);
@@ -167,7 +199,7 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const run = matches[0];
-  out(JSON.stringify({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, unit: opts.unit ?? null, registry: opts.registry ?? null, allowsets: opts.allow, requestId, runId: run.id, runUrl: run.html_url ?? null, dispatchedAt: new Date(now()).toISOString() }));
+  out(JSON.stringify({ repo: REPO, workflow: WORKFLOWS[opts.workflow], sha: opts.sha, unit: opts.unit ?? null, registry: opts.registry ?? null, allowsets: opts.allow, requestId, runId: run.id, runAttempt: run.run_attempt, runUrl: run.html_url ?? null, dispatchedAt: new Date(now()).toISOString() }));
   return 0;
 }
 

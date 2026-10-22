@@ -6,6 +6,7 @@ import { GH_TIMEOUT_MS, PROBE_TIMEOUT_MS, dispatchInputs, ghEnvironment, main, m
 
 const SHA = "a".repeat(40);
 const OTHER = "b".repeat(40);
+const admitted = async () => {};
 const env = { RIGHTKIT_JOB_ID: "req-123", GH_TOKEN: "not-printed" };
 
 function fakeGh({ mainSha = SHA, runs = [], dispatchOk = true } = {}) {
@@ -21,7 +22,7 @@ function fakeGh({ mainSha = SHA, runs = [], dispatchOk = true } = {}) {
   return { gh, calls };
 }
 
-const run = (overrides = {}) => ({ id: 42, head_sha: SHA, event: "workflow_dispatch", path: ".github/workflows/publish.yml", display_title: "publish crates rightkit-daemon req-123", html_url: "https://github.com/bogusyogi/rightkit/actions/runs/42", ...overrides });
+const run = (overrides = {}) => ({ id: 42, run_attempt: 1, head_sha: SHA, event: "workflow_dispatch", path: ".github/workflows/publish.yml", display_title: "publish crates rightkit-daemon req-123", html_url: "https://github.com/bogusyogi/rightkit/actions/runs/42", ...overrides });
 
 test("argv: publish needs registry, one unit and a full sha; ci takes only sha", () => {
   assert.throws(() => parseArgs(["--workflow", "publish", "--sha", SHA]), /--registry/);
@@ -58,7 +59,7 @@ test("refuses outside the broker: no RIGHTKIT_JOB_ID", async () => {
 test("refuses when main moved after admission, before any dispatch", async () => {
   const { gh, calls } = fakeGh({ mainSha: OTHER });
   const lines = [];
-  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, stderr: (l) => lines.push(l), stdout: () => {} });
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: admitted, stderr: (l) => lines.push(l), stdout: () => {} });
   assert.equal(code, 2);
   assert.match(lines.join("\n"), /main moved|refused, main is/);
   assert.ok(!calls.some((c) => c.includes("-X")), "no dispatch was posted");
@@ -67,7 +68,7 @@ test("refuses when main moved after admission, before any dispatch", async () =>
 test("dispatches with correlation inputs and discovers the run by its run-name", async () => {
   const { gh, calls } = fakeGh({ runs: [run({ id: 7, display_title: "publish crates rightkit-daemon req-999" }), run()] });
   const out = [];
-  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, stdout: (l) => out.push(l), stderr: () => {}, sleep: async () => {}, now: () => 0 });
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: () => {}, sleep: async () => {}, now: () => 0 });
   assert.equal(code, 0);
   const post = calls.find((c) => c.includes("-X"));
   assert.ok(post.includes("inputs[request_id]=req-123") && post.includes(`inputs[expected_sha]=${SHA}`) && post.includes("inputs[units]=rightkit-daemon") && post.includes("ref=main"));
@@ -78,10 +79,10 @@ test("dispatches with correlation inputs and discovers the run by its run-name",
   assert.ok(!out.join("\n").includes("not-printed"), "no environment value is printed");
 });
 
-test("ci dispatch posts only correlation inputs and matches the ci run, not a publish run of the same commit", async () => {
+test("CI transport with injected admission posts only correlation inputs and matches the ci run, not a publish run of the same commit", async () => {
   const { gh, calls } = fakeGh({ runs: [run({ id: 1 }), run({ id: 2, path: ".github/workflows/ci.yml", display_title: "rightkit-shared-ci req-123" })] });
   const out = [];
-  const code = await main(["--workflow", "ci", "--sha", SHA], { gh, env, stdout: (l) => out.push(l), stderr: () => {}, sleep: async () => {}, now: () => 0 });
+  const code = await main(["--workflow", "ci", "--sha", SHA], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: () => {}, sleep: async () => {}, now: () => 0 });
   assert.equal(code, 0);
   const post = calls.find((c) => c.includes("-X"));
   assert.ok(post.some((f) => f.endsWith("ci.yml/dispatches")) && !post.some((f) => f.includes("inputs[units]")));
@@ -89,9 +90,9 @@ test("ci dispatch posts only correlation inputs and matches the ci run, not a pu
 });
 
 test("a dispatch GitHub refuses, and a run that never appears, are reported and non-zero", async () => {
-  assert.equal(await main(["--workflow", "ci", "--sha", SHA], { gh: fakeGh({ dispatchOk: false }).gh, env, stdout: () => {}, stderr: () => {} }), 3);
+  assert.equal(await main(["--workflow", "ci", "--sha", SHA], { gh: fakeGh({ dispatchOk: false }).gh, env, admission: admitted, stdout: () => {}, stderr: () => {} }), 3);
   let t = 0;
-  assert.equal(await main(["--workflow", "ci", "--sha", SHA], { gh: fakeGh({ runs: [] }).gh, env, stdout: () => {}, stderr: () => {}, sleep: async () => { t += 30_000; }, now: () => t }), 2);
+  assert.equal(await main(["--workflow", "ci", "--sha", SHA], { gh: fakeGh({ runs: [] }).gh, env, admission: admitted, stdout: () => {}, stderr: () => {}, sleep: async () => { t += 30_000; }, now: () => t }), 2);
 });
 
 test("matchRun needs the same file, commit, event and the request id as an exact run-name token, exactly once", () => {
@@ -110,7 +111,7 @@ test("matchRun needs the same file, commit, event and the request id as an exact
 test("an ambiguous discovery is refused with exit 2 and no run id", async () => {
   const { gh } = fakeGh({ runs: [run({ id: 1 }), run({ id: 2 })] });
   const out = [], lines = [];
-  assert.equal(await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, stdout: (l) => out.push(l), stderr: (l) => lines.push(l), sleep: async () => {}, now: () => 0 }), 2);
+  assert.equal(await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: admitted, stdout: (l) => out.push(l), stderr: (l) => lines.push(l), sleep: async () => {}, now: () => 0 }), 2);
   assert.deepEqual(out, []);
   assert.match(lines.join("\n"), /ambiguous, 2 publish.yml runs/);
 });
@@ -141,6 +142,30 @@ test("probe requires the broker marker before gh is invoked, then prints only th
 test("dispatch-path failures name the step only; gh output never reaches stderr", async () => {
   const lines = [];
   const gh = (args) => args.join(" ").includes("/commits/main") ? { ok: false, stdout: "token-ish detail" } : { ok: true, stdout: "" };
-  assert.equal(await main(["--workflow", "ci", "--sha", SHA], { gh, env, stdout: () => {}, stderr: (l) => lines.push(l) }), 3);
+  assert.equal(await main(["--workflow", "ci", "--sha", SHA], { gh, env, admission: admitted, stdout: () => {}, stderr: (l) => lines.push(l) }), 3);
   assert.deepEqual(lines, ["rightkit-dispatch: cannot read origin main through gh"]);
+});
+
+
+test("default admission refuses direct adapter use before POST when no valid local receipt exists", async () => {
+  const { gh, calls } = fakeGh();
+  const lines = [];
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, stdout: () => {}, stderr: (l) => lines.push(l) });
+  assert.equal(code, 2);
+  assert.match(lines.join("\n"), /preflight refused/);
+  assert.ok(!calls.some((c) => c.includes("-X")));
+});
+
+test("production admission refuses broad CI dispatch without scoped local proof", async () => {
+  const { gh, calls } = fakeGh();
+  const code = await main(["--workflow", "ci", "--sha", SHA], { gh, env, stdout: () => {}, stderr: () => {} });
+  assert.equal(code, 2);
+  assert.ok(!calls.some((c) => c.includes("-X")));
+});
+
+test("admission rejection never posts even when remote main matches", async () => {
+  const { gh, calls } = fakeGh();
+  const code = await main(["--workflow", "publish", "--registry", "crates", "--unit", "rightkit-daemon", "--sha", SHA], { gh, env, admission: async () => { throw new Error("missing compile row"); }, stdout: () => {}, stderr: () => {} });
+  assert.equal(code, 2);
+  assert.ok(!calls.some((c) => c.includes("-X")));
 });
