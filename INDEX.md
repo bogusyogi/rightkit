@@ -8,7 +8,7 @@ Version columns: **Source** is the manifest version. **Published** is the latest
 
 Flags: `ok` means source, published and staged agree. `staged, not yet published` is in-flight work. `private` has no registry record by design. `MISMATCH` needs a release decision.
 
-Flagged mismatches: 14.
+Flagged mismatches: 13.
 
 The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
@@ -34,7 +34,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 0.4.2 | ok | os-credential-store | Per-app OS credential storage for Right Suite apps: Keychain / Credential Manager / Linux Secret Service / Android Keystore, passive presence checks, non-interactive mode, test guards, DB-key provisioning, and migration. |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 0.1.0 | ok | crypto-primitives | Neutral crypto primitives: SHA-256, HMAC-SHA256, constant-time compare, base64/base64url, hex, BLAKE3 text hash, canonical JSON and HMAC approval tokens. |
 | `rightkit-daemon` | crates.io | 0.4.0 | 0.3.0 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | local-services | One discovery/auth convention for Right Suite local services: service.json, ranking and takeover, current-user-only Unix socket / named pipe, per-app request allowlist. |
-| `rightkit-db` | crates.io | 0.5.1 | 0.5.1 | 0.5.0 | **MISMATCH staged 0.5.0 != source 0.5.1** | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
+| `rightkit-db` | crates.io | 0.5.1 | 0.5.1 | 0.5.1 | ok | sqlite-storage | Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps. |
 | `rightkit-device` | crates.io | 0.4.0 | 0.3.1 | 0.3.1 | **MISMATCH staged 0.3.1 != source 0.4.0** | tauri-host-adapters | Native host services for Right Suite Tauri license and device adapters. |
 | `rightkit-docs` | crates.io | 0.1.2 | 0.1.1 | 0.1.1 | **MISMATCH staged 0.1.1 != source 0.1.2** | document, document-io, docx, spreadsheet, xlsx | Product-neutral DOCX, XLSX and PDF read and write: format detection from content, typed reads with caps, typed write ops through an atomic writer, honest loss receipts, hardened against hostile files |
 | `rightkit-embed` | crates.io | 0.6.0 | 0.6.0 | 0.6.0 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
