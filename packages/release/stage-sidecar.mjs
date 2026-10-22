@@ -23,7 +23,7 @@
 // metadata`) or { npm: "<pkg>/<file>" }. The wrapper form { sidecars, profiles: { dev, release } } sets the default cargo
 // profile pair; RIGHTKIT_BUILD_MODE (dev|release, default release) selects. The target `universal-apple-darwin` builds
 // both slices of a cargo-bin and lipo-creates `<name>-universal-apple-darwin`. `ffmpeg` and `onnxruntime` do the same from their
-// per-arch catalog rows (each slice staged under .right-release/slices/<triple>, then lipo-merged), a `cmake` entry builds with
+// per-arch catalog rows (each slice staged under .right-release/slices/<triple>, then lipo-merged; an onnxruntime `universal` macOS row is staged once, lipo -archs checked, no merge), a `cmake` entry builds with
 // CMAKE_OSX_ARCHITECTURES="arm64;x86_64". A `prebuilt` entry does it from per-arch host-built inputs (`from: { aarch64, x86_64 }`, or the
 // staged `<name>-<slice triple>` files), each verified against its own manifest entry and then lipo-merged. An `ffmpeg` source may be a
 // local path (`sources.ffmpeg: { path: "../vendor/ffmpeg-lgpl" }`) instead of a pinned https archive.
@@ -915,18 +915,48 @@ async function stageFfmpeg(entry, ctx) {
   }
 }
 
+/** Catalog statuses that may serve a staged library; `stale-unverified` and `planned` rows never do. */
+const SERVING_STATUS = new Set(["approved", "pinned"]);
+
+/**
+ * The one onnxruntime catalog row that serves target `t` (mirrors rightkit-onnx provision.rs select()): an approved or pinned
+ * exact-(os, arch) row wins; only when none exists does a macOS `universal` row (both Apple slices) serve an aarch64 or x86_64
+ * target. A stale-unverified or planned row is never selected. With nothing serving, the typed error names the exact-arch row's
+ * status when there is one, else the missing row.
+ */
+function selectOnnxRuntimeRow(loaded, entry, t, where) {
+  const candidates = (loaded.catalog?.libraries ?? []).filter((row) => row.library === "onnxruntime" && row.version === entry.version && row.os === t.os);
+  const serving = candidates.filter((row) => SERVING_STATUS.has(row.status));
+  const exact = serving.filter((row) => row.arch === t.arch);
+  const appleThin = t.os === "macos" && (t.arch === "aarch64" || t.arch === "x86_64");
+  const hits = exact.length ? exact : appleThin ? serving.filter((row) => row.arch === "universal") : [];
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${hits.length} ${where} rows`);
+  const unserved = candidates.filter((row) => row.arch === t.arch);
+  if (unserved.length === 0) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has no ${where} row`);
+  if (unserved.length > 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${unserved.length} ${where} rows`);
+  return fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${unserved[0].id} is ${unserved[0].status}, not approved or pinned`);
+}
+
+/**
+ * The archive member of a catalog row: archive.member when present; else, for a macOS `.zip` archive, `<archive name without
+ * .zip>/lib/<artifactFileName>` (as provision.rs derives it); else the bare artifactFileName.
+ */
+function onnxRuntimeMember(row) {
+  if (row.archive.member !== undefined) return row.archive.member;
+  const archiveName = path.posix.basename(new URL(row.archive.url).pathname);
+  if (row.os === "macos" && archiveName.endsWith(".zip")) return `${archiveName.slice(0, -".zip".length)}/lib/${row.artifactFileName}`;
+  return row.artifactFileName;
+}
+
 /**
  * Stage one architecture of onnxruntime: the approved or pinned catalog row for `t`, its archive (digest-checked), the library
  * (digest-checked) into `destDir` (default the entry's resourceDir), and the notices. Returns { row, dest, outName, notices }.
  */
 async function stageOnnxRuntimeSlice(entry, ctx, loaded, t, { destDir } = {}) {
   const { appRoot, fs } = ctx;
-  const rows = (loaded.catalog?.libraries ?? []).filter((row) => row.library === "onnxruntime" && row.version === entry.version && row.os === t.os && row.arch === t.arch);
   const where = `onnxruntime ${entry.version} ${t.os}/${t.arch}`;
-  if (rows.length === 0) fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has no ${where} row`);
-  if (rows.length > 1) fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${rows.length} ${where} rows`);
-  const [row] = rows;
-  if (!["approved", "pinned"].includes(row.status)) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} is ${row.status}, not approved or pinned`);
+  const row = selectOnnxRuntimeRow(loaded, entry, t, where);
   for (const key of ["sha256", "artifactFileName"]) if (typeof row[key] !== "string" || !row[key]) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} has no ${key}`);
   if (!SHA256.test(row.sha256) || !SHA256.test(row.archive?.sha256 ?? "") || typeof row.archive?.url !== "string") fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} lacks a valid library digest or archive url and digest`);
   if (!Array.isArray(row.noticeFiles) || !row.noticeFiles.length) fail("STAGE_SIDECAR_NOTICE_MISSING", `the ${where} row ${row.id} lists no notice files; the licence must ship with the library`);
@@ -939,7 +969,7 @@ async function stageOnnxRuntimeSlice(entry, ctx, loaded, t, { destDir } = {}) {
   for (const { source } of notices) if (!fs.existsSync(source)) fail("STAGE_SIDECAR_NOTICE_MISSING", `notice file not found: ${source}`);
 
   // The archive member is the catalog's archive.member (an archive path) when present, else the library file name; the output name never comes from it.
-  const member = row.archive.member ?? row.artifactFileName;
+  const member = onnxRuntimeMember(row);
   const memberCheck = normalizeArchiveMember(member);
   if (memberCheck.error) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} has an invalid archive member ${JSON.stringify(member)}: ${memberCheck.error}`);
   const outName = entry.as ?? row.artifactFileName;
@@ -981,7 +1011,19 @@ async function stageOnnxRuntime(entry, ctx) {
     const { row, dest, outName, notices } = await stageOnnxRuntimeSlice(entry, ctx, loaded, target);
     return [{ kind: "onnxruntime", name: outName, path: rel(ctx, dest), sha256: row.sha256, sizeBytes: fs.statSync(dest).size, changed: null, catalogRow: row.id, version: row.version, archiveSha256: row.archive.sha256, license: row.licenseSpdx ?? null, notices, externalBin: false }];
   }
-  // universal-apple-darwin: each arch row is staged thin under SLICE_ROOT, then merged into the entry's resource file.
+  // universal-apple-darwin: one macOS `universal` row serving both slices is staged once, in place, with no lipo merge.
+  const selected = SLICES.map((triple) => selectOnnxRuntimeRow(loaded, entry, parseTargetTriple(triple), `onnxruntime ${entry.version} macos/${triple.split("-")[0]}`));
+  if (selected.some((row) => row.arch === "universal")) {
+    if (selected[0] !== selected[1]) fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog mixes a universal row with exact-arch rows (${selected.map((row) => row.id).join(", ")}); universal-apple-darwin takes either one universal row or one row per arch`);
+    const staged = await stageOnnxRuntimeSlice(entry, ctx, loaded, parseTargetTriple(SLICES[0]));
+    requireUniversalFile(ctx, staged.dest, `onnxruntime ${entry.version} ${staged.row.id}`);
+    return [{
+      kind: "onnxruntime", name: staged.outName, path: rel(ctx, staged.dest), sha256: staged.row.sha256, sizeBytes: fs.statSync(staged.dest).size, changed: null, sourceSha256: staged.row.sha256,
+      catalogRow: staged.row.id, version: entry.version, archiveSha256: staged.row.archive.sha256, license: staged.row.licenseSpdx ?? null, notices: staged.notices, externalBin: false,
+      slices: SLICES.map((triple) => ({ triple, sha256: staged.row.sha256, catalogRow: staged.row.id, archiveSha256: staged.row.archive.sha256 })),
+    }];
+  }
+  // Otherwise each arch row is staged thin under SLICE_ROOT, then merged into the entry's resource file.
   const slices = [];
   for (const triple of SLICES) slices.push({ triple, ...(await stageOnnxRuntimeSlice(entry, ctx, loaded, parseTargetTriple(triple), { destDir: `${SLICE_ROOT}/${triple}` })) });
   const names = [...new Set(slices.map((slice) => slice.outName))];

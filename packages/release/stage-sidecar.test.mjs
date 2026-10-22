@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -1419,4 +1420,143 @@ test("a bare member name skips the same-named DWARF copy inside a .dSYM bundle (
   const pathed = fakeTar(listing);
   defaultExtractMember({ archive: path.resolve("/rk-cache/ort.tgz"), fileName: "onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib.dSYM/Contents/Resources/DWARF/libonnxruntime.1.24.4.dylib", destDir, run: pathed.run });
   assert.equal(pathed.extracted().length, 1, "an explicit full path can still address the dSYM copy");
+});
+
+// ---- bogusyogi/rightkit#889: a macOS `universal` onnxruntime row (a .zip) serves either Apple arch and the universal target ----
+
+const ORT_ZIP_MEMBER = "onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib";
+const ORT_REAL_CATALOG = JSON.parse(readFileSync(new URL("../../crates/rightkit-ffmpeg/catalog/native-libraries.json", import.meta.url), "utf8"));
+const ortRealRow = (id) => ORT_REAL_CATALOG.libraries.find((row) => row.id === id);
+
+/** The real 1.30.0 universal row with its library/archive digests swapped for the fixture bytes (the real ones cannot be forged). */
+function ortUniversalFixture({ library = "ort-universal-dylib", archive = "ort-universal-zip", target = MAC, version = "1.30.0", libraries, lipoArchs = "x86_64 arm64\n", extraFiles = {} } = {}) {
+  const crateDir = path.resolve("/rk-fake-crate");
+  const real = ortRealRow("onnxruntime-1.30.0-macos-universal2");
+  const row = { ...real, sha256: sha(library), archive: { ...real.archive, sha256: sha(archive) } };
+  const catalog = { libraries: libraries ? libraries(row) : ORT_REAL_CATALOG.libraries.map((entry) => (entry.id === row.id ? row : entry)) };
+  const noticeFiles = Object.fromEntries(real.noticeFiles.map((file) => [path.join(crateDir, ...file.split("/")), `notice ${file}`]));
+  const { fs, files } = fakeFs({ ...noticeFiles, ...extraFiles });
+  const calls = [];
+  const fetched = [];
+  const extracted = [];
+  const run = (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: lipoArchs, stderr: "" };
+    if (command === "lipo" && args[0] === "-create") files.set(args[args.indexOf("-output") + 1], Buffer.from("fat-ort"));
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const extractMember = ({ archive: file, fileName, destDir }) => {
+    extracted.push(fileName);
+    const out = path.join(destDir, ...fileName.split("/"));
+    files.set(out, Buffer.from(library));
+    return out;
+  };
+  const stage = () => stageSidecars({
+    appRoot: APP, target, manifest: [{ kind: "onnxruntime", version, catalog: "cat.json" }],
+    deps: deps({ fs, run, loadNativeCatalog: () => ({ catalog, crateDir }), fetchBytes: async (url) => { fetched.push(url); return Buffer.from(archive); }, extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }),
+  });
+  return { fs, files, calls, fetched, extracted, stage, row, crateDir };
+}
+
+test("the real catalog's 1.30.0 universal zip row serves an aarch64 and an x86_64 macOS target, extracted by its derived member path", async () => {
+  const real = ortRealRow("onnxruntime-1.30.0-macos-universal2");
+  assert.deepEqual([real.os, real.arch, real.status, real.archive.member], ["macos", "universal", "approved", undefined]);
+  assert.ok(real.archive.url.endsWith("/onnxruntime-osx-universal2-1.30.0.zip"));
+  for (const target of [MAC, "x86_64-apple-darwin"]) {
+    const fixture = ortUniversalFixture({ target });
+    const result = await fixture.stage();
+    assert.deepEqual(fixture.extracted, [ORT_ZIP_MEMBER], target);
+    assert.deepEqual(fixture.fetched, [real.archive.url]);
+    const [file] = result.files;
+    assert.equal(file.catalogRow, "onnxruntime-1.30.0-macos-universal2");
+    assert.equal(file.name, "libonnxruntime.dylib", "written under artifactFileName, never the member path");
+    assert.equal(fixture.fs.readFileSync(at("src-tauri", "resources", "runtime", "libonnxruntime.dylib")).toString(), "ort-universal-dylib");
+    assert.equal(file.sha256, sha("ort-universal-dylib"));
+    assert.deepEqual(file.notices.map((notice) => notice.name), ["ONNXRuntime-MIT.txt", "ONNXRuntime-1.30.0-ThirdPartyNotices.txt"], "both notice files are staged");
+    for (const notice of file.notices) assert.equal(fixture.fs.readFileSync(at("src-tauri", "resources", "runtime", "LICENSES", notice.name)).toString().startsWith("notice "), true);
+    assert.equal(fixture.calls.filter((call) => call[0] === "lipo").length, 0, "a thin target never runs lipo");
+  }
+});
+
+test("an exact-arch row is preferred over a universal row; stale-unverified rows are never selected", async () => {
+  const exact = (row, extra = {}) => ({ ...row, id: "ort-1.30.0-arm64", arch: "aarch64", artifactFileName: "libonnxruntime.1.30.0.dylib", archive: { ...row.archive, url: "https://example.test/onnxruntime-osx-arm64-1.30.0.tgz" }, ...extra });
+  const preferred = ortUniversalFixture({ libraries: (row) => [row, exact(row)] });
+  const result = await preferred.stage();
+  assert.equal(result.files[0].catalogRow, "ort-1.30.0-arm64");
+  assert.deepEqual(preferred.extracted, ["libonnxruntime.1.30.0.dylib"], "the exact tgz row keeps its bare artifactFileName member");
+  assert.deepEqual(preferred.fetched, ["https://example.test/onnxruntime-osx-arm64-1.30.0.tgz"]);
+
+  // A stale exact-arch row is skipped in favour of the universal row; the real catalog's stale 1.24.4 rows never serve.
+  const skipped = ortUniversalFixture({ libraries: (row) => [row, exact(row, { status: "stale-unverified" })] });
+  assert.equal((await skipped.stage()).files[0].catalogRow, "onnxruntime-1.30.0-macos-universal2");
+  for (const target of [MAC, "x86_64-apple-darwin"]) {
+    const stale = ortUniversalFixture({ target, version: "1.24.4" });
+    await assert.rejects(stale.stage(), (error) => error.code === "STAGE_SIDECAR_NOT_APPROVED" && /stale-unverified|no onnxruntime 1\.24\.4 macos\/x86_64 row/.test(error.message), target);
+    assert.deepEqual(stale.fetched, [], "nothing is downloaded for a stale row");
+  }
+  const staleOnly = ortUniversalFixture({ libraries: (row) => [{ ...row, status: "stale-unverified" }] });
+  await assert.rejects(staleOnly.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /no onnxruntime 1\.30\.0 macos\/aarch64 row/ });
+  const plannedOnly = ortUniversalFixture({ libraries: (row) => [{ ...row, status: "planned" }, exact(row, { status: "planned" })] });
+  await assert.rejects(plannedOnly.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /planned, not approved or pinned/ });
+  const twice = ortUniversalFixture({ libraries: (row) => [row, { ...row, id: "second-universal", status: "pinned" }] });
+  await assert.rejects(twice.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /2 onnxruntime 1\.30\.0 macos\/aarch64 rows/ });
+  // Windows rows are untouched by the universal rule: the pinned 1.24.4 row is still selected by exact (os, arch) and gets as far as its own notice files.
+  const win = ortUniversalFixture({ target: WIN, version: "1.24.4" });
+  await assert.rejects(win.stage(), { code: "STAGE_SIDECAR_NOTICE_MISSING", message: /ONNXRuntime-1\.24\.4-ThirdPartyNotices\.txt/ });
+});
+
+test("universal-apple-darwin stages one universal row once and verifies it with lipo -archs instead of merging", async () => {
+  const fixture = ortUniversalFixture({ target: UNIVERSAL });
+  const result = await fixture.stage();
+  const [file] = result.files;
+  assert.deepEqual(fixture.fetched, [fixture.row.archive.url], "the archive is downloaded once");
+  assert.deepEqual(fixture.extracted, [ORT_ZIP_MEMBER], "extracted once");
+  assert.equal(fixture.calls.filter((call) => call[0] === "lipo" && call[1] === "-create").length, 0, "no lipo -create merge");
+  assert.deepEqual(fixture.calls.filter((call) => call[0] === "lipo").map((call) => call[1]), ["-archs"]);
+  assert.equal(fixture.fs.readFileSync(at("src-tauri", "resources", "runtime", "libonnxruntime.dylib")).toString(), "ort-universal-dylib");
+  assert.equal(fixture.fs.existsSync(at(".right-release", "slices", "aarch64-apple-darwin", "libonnxruntime.dylib")), false, "no per-slice staging");
+  assert.equal(file.sha256, sha("ort-universal-dylib"), "the staged dylib is the row's sha256");
+  assert.equal(file.catalogRow, "onnxruntime-1.30.0-macos-universal2");
+  assert.deepEqual(file.slices.map((slice) => [slice.triple, slice.catalogRow]), [["aarch64-apple-darwin", file.catalogRow], ["x86_64-apple-darwin", file.catalogRow]]);
+  assert.equal(file.notices.length, 2);
+  // A thin file behind a universal row is refused; a wrong library digest stages nothing.
+  await assert.rejects(ortUniversalFixture({ target: UNIVERSAL, lipoArchs: "arm64\n" }).stage(), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+  const bad = ortUniversalFixture({ target: UNIVERSAL });
+  bad.row.sha256 = sha("other");
+  await assert.rejects(bad.stage(), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
+  assert.equal(bad.fs.existsSync(at("src-tauri", "resources", "runtime", "libonnxruntime.dylib")), false);
+});
+
+test("universal-apple-darwin keeps the per-arch lipo merge for exact rows and refuses a universal row mixed with an exact one", async () => {
+  const exactRow = (row, arch) => ({ ...row, id: `ort-1.30.0-${arch}`, arch, artifactFileName: "libonnxruntime.1.30.0.dylib", archive: { ...row.archive, url: `https://example.test/onnxruntime-osx-${arch}-1.30.0.tgz` } });
+  const both = ortUniversalFixture({ target: UNIVERSAL, libraries: (row) => [row, exactRow(row, "aarch64"), exactRow(row, "x86_64")] });
+  const result = await both.stage();
+  assert.equal(result.files[0].catalogRow, "ort-1.30.0-aarch64+ort-1.30.0-x86_64");
+  assert.equal(both.calls.filter((call) => call[0] === "lipo" && call[1] === "-create").length, 1, "exact rows are still lipo-merged");
+  const mixed = ortUniversalFixture({ target: UNIVERSAL, libraries: (row) => [row, exactRow(row, "aarch64")] });
+  await assert.rejects(mixed.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /mixes a universal row with exact-arch rows/ });
+});
+
+test("zip archive members go through the same guarded member-path logic: traversal is rejected", async () => {
+  const zipListing = ["onnxruntime-osx-universal2-1.30.0/", `${ORT_ZIP_MEMBER}`, "onnxruntime-osx-universal2-1.30.0/include/onnxruntime_c_api.h", ""].join("\n");
+  const destDir = path.resolve("/rk-extract-dest");
+  const tar = fakeTar(zipListing);
+  const out = defaultExtractMember({ archive: path.resolve("/rk-cache/onnxruntime-osx-universal2-1.30.0.zip"), fileName: ORT_ZIP_MEMBER, destDir, run: tar.run });
+  assert.deepEqual(tar.extracted(), [ORT_ZIP_MEMBER]);
+  assert.equal(out, path.join(destDir, ...ORT_ZIP_MEMBER.split("/")));
+  for (const fileName of ["../onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib", "/abs/lib/libonnxruntime.dylib", "onnxruntime-osx-universal2-1.30.0/../lib/libonnxruntime.dylib", "a\\b.dylib"]) {
+    const guarded = fakeTar(zipListing);
+    assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/x.zip"), fileName, destDir, run: guarded.run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED" }, fileName);
+    assert.equal(guarded.calls.length, 0);
+  }
+  assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/x.zip"), fileName: ORT_ZIP_MEMBER, destDir, run: fakeTar("../evil/lib/libonnxruntime.dylib\n").run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /has 0 members at the path/ });
+  assert.throws(() => defaultExtractMember({ archive: path.resolve("/rk-cache/x.zip"), fileName: "libonnxruntime.dylib", destDir, run: fakeTar("../libonnxruntime.dylib\n").run }), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /outside the extraction directory/ });
+  // A row whose declared or zip-derived member is unsafe is refused before anything is downloaded.
+  for (const member of ["../lib/libonnxruntime.dylib", "/lib/libonnxruntime.dylib"]) {
+    const fixture = ortUniversalFixture({ libraries: (row) => [{ ...row, archive: { ...row.archive, member } }] });
+    await assert.rejects(fixture.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /invalid archive member/ }, member);
+    assert.deepEqual(fixture.fetched, []);
+  }
+  const odd = ortUniversalFixture({ libraries: (row) => [{ ...row, archive: { ...row.archive, url: "https://example.test/ort*glob.zip" } }] });
+  await assert.rejects(odd.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /invalid archive member/ }, "a zip name that would not be a safe member path is refused");
 });
