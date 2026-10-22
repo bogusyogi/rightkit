@@ -438,8 +438,8 @@
     "rightkit-child-process": "0.5.4",
     "rightkit-compose": "0.2.0",
     "rightkit-contracts": "0.1.7",
-    "rightkit-crash": "0.3.4",
-    "rightkit-credentials": "0.3.1",
+    "rightkit-crash": "0.3.5",
+    "rightkit-credentials": "0.4.1",
     "rightkit-crypto": "0.1.0",
     "rightkit-daemon": "0.3.1",
     "rightkit-db": "0.5.0",
@@ -467,7 +467,7 @@
     "rightkit-onnx": "0.2.7",
     "rightkit-overlay": "0.1.2",
     "rightkit-ownership": "0.3.1",
-    "rightkit-pdf": "0.3.2",
+    "rightkit-pdf": "0.3.3",
     "rightkit-platform-rules": "0.1.0",
     "rightkit-playback": "0.3.0",
     "rightkit-qa": "0.7.1",
@@ -521,8 +521,8 @@
       "rightkit-compose": "0.2.0",
       "rightkit-contracts": "0.1.7",
       "rightkit-control": "0.3.0",
-      "rightkit-crash": "0.3.4",
-      "rightkit-credentials": "0.3.0",
+      "rightkit-crash": "0.3.5",
+      "rightkit-credentials": "0.4.1",
       "rightkit-crypto": "0.1.0",
       "rightkit-daemon": "0.3.0",
       "rightkit-db": "0.5.1",
@@ -554,9 +554,9 @@
       "rightkit-ort": "0.2.3",
       "rightkit-overlay": "0.1.2",
       "rightkit-ownership": "0.3.1",
-      "rightkit-pdf": "0.3.2",
+      "rightkit-pdf": "0.3.3",
       "rightkit-platform-rules": "0.1.0",
-      "rightkit-playback": "0.2.2",
+      "rightkit-playback": "0.3.0",
       "rightkit-process": "0.4.0",
       "rightkit-qa": "0.7.1",
       "rightkit-qa-driver": "0.6.0",
@@ -830,7 +830,8 @@
     ],
     "rightkit-pdf": [
       "0.1.0",
-      "0.3.0"
+      "0.3.0",
+      "0.3.2"
     ],
     "rightkit-speech-client": [
       "0.3.0",
@@ -846,7 +847,8 @@
       "0.2.2",
       "0.3.0",
       "0.3.2",
-      "0.3.3"
+      "0.3.3",
+      "0.3.4"
     ],
     "rightkit-qts-ggml-sys": [
       "0.1.0",
@@ -985,7 +987,8 @@
     "rightkit-credentials": [
       "0.2.0",
       "0.2.1",
-      "0.3.0"
+      "0.3.0",
+      "0.4.0"
     ],
     "rightkit-review": [
       "0.2.0"
