@@ -284,6 +284,7 @@ impl Drop for ProfileHolder {
 
 impl ProfileHolder {
     pub(super) fn create(profile: &str) -> io::Result<Self> {
+        note_mutation("profile_holder");
         let name = profile_object_name("holder", profile)?;
         let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if handle.is_null() {
@@ -328,6 +329,7 @@ impl Drop for ProfileGuard {
 impl ProfileGuard {
     /// `None` when another process kept it for longer than `wait_ms`.
     pub(super) fn acquire(profile: &str, wait_ms: u32) -> io::Result<Option<Self>> {
+        note_mutation("profile_guard");
         let name = profile_object_name("guard", profile)?;
         let handle = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
         if handle.is_null() {

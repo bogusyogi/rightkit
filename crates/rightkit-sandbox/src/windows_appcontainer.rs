@@ -560,6 +560,31 @@ fn resolve_program(program: &OsStr) -> io::Result<PathBuf> {
 // ACL grants
 // ---------------------------------------------------------------------------------------
 
+// Test seam (#887): records every first-order mutation of machine state this module makes (an
+// AppContainer profile, a profile mutex, a DACL rewrite, a named pipe, the stdio file) on the
+// calling thread, so a test can prove a refused launch performed none. Compiled out of release
+// builds; the launch path is synchronous on the caller's thread until the child exists.
+#[cfg(test)]
+thread_local! {
+    static MUTATION_LOG: std::cell::RefCell<Vec<&'static str>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn note_mutation(what: &'static str) {
+    MUTATION_LOG.with(|log| log.borrow_mut().push(what));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_mutation(_what: &'static str) {}
+
+/// Test seam: take and clear this thread's mutation log.
+#[cfg(test)]
+fn take_mutation_log() -> Vec<&'static str> {
+    MUTATION_LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+}
+
 /// `SetNamedSecurityInfoW` is a read-modify-write of the DACL, so concurrent grants in this
 /// process must serialize or they silently lose each other's ACEs.
 static ACL_GRANT_LOCK: Mutex<()> = Mutex::new(());
@@ -732,6 +757,7 @@ fn apply_sid_path_entry(
     permissions: u32,
     inheritance: u32,
 ) -> io::Result<()> {
+    note_mutation("dacl");
     let _guard = ACL_GRANT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut wide_path = wide(path);
     // SAFETY: wide_path is NUL-terminated; out-pointers are valid; every allocation is
@@ -1380,6 +1406,7 @@ impl ContainerProfile {
     /// `ALREADY_EXISTS` adopts; other failures (userenv reports a concurrent-creation race
     /// under varying HRESULTs) retry briefly and are then returned unchanged.
     fn ensure(name: &str) -> io::Result<Self> {
+        note_mutation("profile");
         let wname = wide(name);
         let display = wide("RightKit sandbox");
         let mut attempt = 0;
@@ -1707,6 +1734,7 @@ impl Drop for PipeSecurity {
 
 /// An inbound pipe: the parent reads `File`, the child writes the inheritable raw handle.
 fn output_pipe(security: &PipeSecurity) -> io::Result<(std::fs::File, RawHandle)> {
+    note_mutation("pipe");
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let name = wide(format!(
         r"\\.\pipe\rightkit-sandbox-{}-{}",
@@ -1773,6 +1801,7 @@ fn output_pipe(security: &PipeSecurity) -> io::Result<(std::fs::File, RawHandle)
 /// inheritable raw handle. The DACL admits only the user and the container, and dropping the
 /// `File` is the child's end-of-input.
 fn input_pipe(security: &PipeSecurity) -> io::Result<(std::fs::File, RawHandle)> {
+    note_mutation("pipe");
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let name = wide(format!(
         r"\\.\pipe\rightkit-sandbox-in-{}-{}",
@@ -1842,6 +1871,7 @@ fn auxiliary_pipe(
     security: &PipeSecurity,
     to_child: bool,
 ) -> io::Result<(OwnedHandle, OwnedHandle)> {
+    note_mutation("pipe");
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let name = wide(format!(
         r"\\.\pipe\rightkit-sandbox-aux-{}-{}",
@@ -2982,6 +3012,7 @@ fn validate_stdio_path(path: &Path, grants: &[(PathBuf, bool)]) -> Result<PathBu
 /// Validate and open the diagnostic stdio file: append, no other writer, never following a
 /// reparse point.
 fn open_stdio_file(path: &Path, grants: &[(PathBuf, bool)]) -> Result<std::fs::File, SandboxError> {
+    note_mutation("stdio_file");
     use std::os::windows::fs::OpenOptionsExt;
     let target = validate_stdio_path(path, grants)?;
     let file = std::fs::OpenOptions::new()
@@ -4246,6 +4277,276 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    // ---- #887 ordering proof: the deny refusal precedes every mutation ----
+
+    /// Sorted (key, count, writable) view of the lease registry rows whose key contains `filter` (the registry is process-wide and other tests share it).
+    fn lease_snapshot(filter: &str) -> Vec<(String, usize, bool)> {
+        let mut rows: Vec<(String, usize, bool)> = lease_registry()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(key, _)| key.contains(filter))
+            .map(|(key, entry)| (key.clone(), entry.count, entry.writable))
+            .collect();
+        rows.sort();
+        rows
+    }
+
+    /// Every entry point of `Sandbox` that takes a policy and reaches this backend.
+    fn deny_refusals(
+        sandbox: &crate::Sandbox,
+        policy: &SandboxPolicy,
+        command: &SandboxCommand,
+        stdio_file: &Path,
+    ) -> Vec<(&'static str, Option<SandboxError>)> {
+        vec![
+            ("spawn", sandbox.spawn(policy, command.clone()).err()),
+            (
+                "spawn_piped",
+                sandbox.spawn_piped(policy, command.clone()).err(),
+            ),
+            (
+                "spawn_with_pipe_pair",
+                sandbox
+                    .spawn_with_pipe_pair(policy, command.clone(), "--io-pipes")
+                    .err(),
+            ),
+            (
+                "spawn_with_pipe_pair_stdio_file",
+                sandbox
+                    .spawn_with_pipe_pair_stdio_file(
+                        policy,
+                        command.clone(),
+                        "--io-pipes",
+                        Some(stdio_file),
+                    )
+                    .err(),
+            ),
+        ]
+    }
+
+    #[test]
+    fn a_deny_is_refused_before_validation_reservation_and_any_mutation() {
+        let root = scratch_dir("deny-order");
+        let stdio_file = root.join("stderr.txt");
+        // A Strict authority denies every reservation with ResourceDenied, and the command and
+        // some policies below are invalid: Unsupported can only come from a refusal that runs
+        // BEFORE validation and BEFORE the reservation. If the refusal moved after either, the
+        // error type would change and this test would fail.
+        let sandbox = crate::Sandbox::new(crate::ResourceAuthority::new(
+            crate::ResourceProfile::Strict,
+        ));
+        let command = SandboxCommand::new(r"C:\rk-no-such-dir\no-such-tool.exe");
+        let invalid_command = SandboxCommand::new("").cwd(r"relative\cwd");
+        let policies = [
+            SandboxPolicy::new().allow_write(&root).deny_read(&root),
+            SandboxPolicy::new()
+                .allow_write(&root)
+                .deny_read(root.join("not-yet")),
+            // validate() would reject the relative deny path; the refusal still comes first.
+            SandboxPolicy::new()
+                .allow_write(&root)
+                .deny_read("relative"),
+            // the pipe-pair entry would reject network Allow; the refusal still comes first.
+            SandboxPolicy::new()
+                .allow_write(&root)
+                .network(NetworkPolicy::Allow)
+                .deny_read(&root),
+            // a grant that does not exist would fail canonicalization; the refusal comes first.
+            SandboxPolicy::new()
+                .allow_write(root.join("missing-grant"))
+                .deny_read(&root),
+        ];
+        let registry_before = lease_snapshot(&lexical_path_key(&root));
+        let _ = take_mutation_log();
+        for policy in &policies {
+            let name = appcontainer_profile_name_for_test(policy).ok();
+            for command in [&command, &invalid_command] {
+                for (entry, error) in deny_refusals(&sandbox, policy, command, &stdio_file) {
+                    assert!(
+                        matches!(error, Some(SandboxError::Unsupported(_))),
+                        "{entry} must refuse a deny with Unsupported before anything else, got {error:?}"
+                    );
+                }
+            }
+            if let Some(name) = name {
+                assert!(!registered(&name), "no profile may exist for {name}");
+            }
+        }
+        assert_eq!(
+            take_mutation_log(),
+            Vec::<&str>::new(),
+            "a refused deny must not create a profile or mutex, rewrite a DACL, create a pipe or open the stdio file"
+        );
+        assert_eq!(
+            lease_snapshot(&lexical_path_key(&root)),
+            registry_before,
+            "a refused deny must not create or touch a lease"
+        );
+        assert!(!stdio_file.exists(), "no stdio file may be created");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_refused_deny_leaves_every_resource_permit_available() {
+        let root = scratch_dir("deny-permits");
+        let stdio_file = root.join("stderr.txt");
+        let authority = crate::ResourceAuthority::new(crate::ResourceProfile::Expanded);
+        let sandbox = crate::Sandbox::new(authority.clone());
+        let drain = |authority: &crate::ResourceAuthority| {
+            let mut held = Vec::new();
+            while let Ok(permit) = authority.reserve(crate::ResourceKind::ChildProcess) {
+                held.push(permit);
+                assert!(held.len() <= 64, "the aggregate limit must be finite");
+            }
+            held.len()
+        };
+        let baseline = drain(&authority);
+        assert!(baseline > 1, "the Expanded profile admits several children");
+        let policy = SandboxPolicy::new().allow_write(&root).deny_read(&root);
+        let command = SandboxCommand::new(r"C:\rk-no-such-dir\no-such-tool.exe");
+        // Many refusals: a permit taken before the refusal and leaked would shrink the pool.
+        for _ in 0..(baseline + 4) {
+            for (entry, error) in deny_refusals(&sandbox, &policy, &command, &stdio_file) {
+                assert!(
+                    matches!(error, Some(SandboxError::Unsupported(_))),
+                    "{entry}: {error:?}"
+                );
+            }
+        }
+        assert_eq!(
+            drain(&authority),
+            baseline,
+            "refused spawns must not consume or release permits"
+        );
+        // And while the pool is fully held, a deny is still Unsupported, not ResourceDenied.
+        let held: Vec<_> = (0..baseline)
+            .map(|_| {
+                authority
+                    .reserve(crate::ResourceKind::ChildProcess)
+                    .unwrap()
+            })
+            .collect();
+        assert!(authority
+            .reserve(crate::ResourceKind::ChildProcess)
+            .is_err());
+        for (entry, error) in deny_refusals(&sandbox, &policy, &command, &stdio_file) {
+            assert!(
+                matches!(error, Some(SandboxError::Unsupported(_))),
+                "{entry} with an exhausted pool: {error:?}"
+            );
+        }
+        drop(held);
+        assert_eq!(drain(&authority), baseline);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_mutation_seam_sees_a_real_profile_and_dacl_write() {
+        // Positive control for the tests above: the same seam records the work a permitted
+        // policy does, so an empty log there is evidence and not a dead probe.
+        if !real_store_body("the_mutation_seam_sees_a_real_profile_and_dacl_write") {
+            return;
+        }
+        let root = scratch_dir("seam-control");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let _cleanup = Profiles(vec![appcontainer_profile_name_for_test(&policy).unwrap()]);
+        let _ = take_mutation_log();
+        let profile = AppContainerProfile::for_policy(&policy).unwrap();
+        let log = take_mutation_log();
+        for expected in ["profile_guard", "profile_holder", "profile", "dacl"] {
+            assert!(log.contains(&expected), "{expected} missing from {log:?}");
+        }
+        drop(profile);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_rejected_with_grant_changes_no_profile_grant_or_lease() {
+        if !real_store_body("a_rejected_with_grant_changes_no_profile_grant_or_lease") {
+            return;
+        }
+        let root = scratch_dir("wg-state");
+        let other = scratch_dir("wg-state-other");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let _cleanup = Profiles(vec![appcontainer_profile_name_for_test(&policy).unwrap()]);
+        let mut profile = AppContainerProfile::for_policy(&policy).unwrap();
+        let sid = LocalSid::parse(profile.sid_string()).unwrap();
+        let name = profile.name().to_string();
+        let sid_text = profile.sid_string().to_string();
+        let grants_before = profile.prepared.grants.lock().unwrap().clone();
+        let (network, loopback) = (profile.prepared.network, profile.prepared.loopback);
+        let registry_before = lease_snapshot(&sid_text);
+        let root_aces = explicit_allow_entries(&root, sid.0).unwrap().len();
+        assert!(root_aces > 0);
+        let _ = take_mutation_log();
+        // The injected deny stands for a granted tree with a protected secret inside it.
+        let cases: Vec<(&str, PathBuf)> = vec![
+            ("path that does not resolve", other.join("missing")),
+            ("filesystem root", PathBuf::from(r"C:\")),
+            ("grant that brings a deny", other.clone()),
+        ];
+        for (label, path) in cases {
+            if label == "grant that brings a deny" {
+                profile.prepared.denies.push(other.join("secret"));
+            }
+            let denies_with_case = profile.prepared.denies.clone();
+            let error = match profile.with_grant(&path, true) {
+                Err(error) => error,
+                Ok(_) => panic!("{label} must be refused"),
+            };
+            assert!(
+                matches!(
+                    error.error,
+                    SandboxError::InvalidPolicy(_) | SandboxError::Unsupported(_)
+                ),
+                "{label}: {:?}",
+                error.error
+            );
+            profile = error.profile;
+            assert_eq!(profile.name(), name, "{label}: name");
+            assert_eq!(profile.sid_string(), sid_text, "{label}: sid");
+            assert_eq!(
+                *profile.prepared.grants.lock().unwrap(),
+                grants_before,
+                "{label}: grants"
+            );
+            assert_eq!(profile.prepared.denies, denies_with_case, "{label}: denies");
+            assert_eq!(
+                (profile.prepared.network, profile.prepared.loopback),
+                (network, loopback),
+                "{label}: network flags"
+            );
+            assert_eq!(
+                lease_snapshot(&sid_text),
+                registry_before,
+                "{label}: leases"
+            );
+            assert_eq!(
+                explicit_allow_entries(&root, sid.0).unwrap().len(),
+                root_aces,
+                "{label}: the existing ACE"
+            );
+            assert!(
+                explicit_allow_entries(&other, sid.0).unwrap().is_empty(),
+                "{label}: no ACE on the refused path"
+            );
+            assert_eq!(
+                take_mutation_log(),
+                Vec::<&str>::new(),
+                "{label}: a rejected with_grant must not create a profile or rewrite a DACL"
+            );
+        }
+        assert!(registered(&name));
+        drop(profile);
+        assert!(
+            lease_snapshot(&sid_text).is_empty(),
+            "dropping the kept profile releases its leases"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
     #[test]
     fn a_policy_without_deny_read_is_not_refused_by_the_deny_rule() {
         assert!(refuse_deny_read(false).is_ok());
@@ -4343,7 +4644,7 @@ mod tests {
             "precondition: open process token to enable {name}: {}",
             io::Error::last_os_error()
         );
-        let result = (|| {
+        let result = {
             let wide_name = wide(name);
             let mut luid = Luid::default();
             // SAFETY: NUL-terminated name, null system name means local, valid out-pointer.
@@ -4400,7 +4701,7 @@ mod tests {
                 )
             };
             value
-        })();
+        };
         // SAFETY: token opened above, closed exactly once.
         unsafe { CloseHandle(token) };
         result
