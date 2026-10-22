@@ -25,9 +25,9 @@
 // State: one temp dir tree only, removed on drop. No network, no CFT,
 // no assets, no real user data. Run only by the CI consumer lane.
 use rightkit_sandbox::{
-    classify_denial, glob_matches, path_is_protected_secret, path_is_within,
-    plan_deny_read_paths, DenialCategory, DenialSource, ResourceAuthority, ResourceKind,
-    ResourceProfile, Sandbox, SandboxCommand, SandboxError, SandboxPolicy,
+    classify_denial, glob_matches, path_is_protected_secret, path_is_within, plan_deny_read_paths,
+    DenialCategory, DenialSource, ResourceAuthority, ResourceKind, ResourceProfile, Sandbox,
+    SandboxCommand, SandboxError, SandboxPolicy,
 };
 use std::path::PathBuf;
 use std::time::Duration;
@@ -42,7 +42,8 @@ impl TempDir {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock after epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("rk-sandbox-{tag}-{}-{now}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("rk-sandbox-{tag}-{}-{now}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp dir");
         TempDir(dir)
@@ -118,7 +119,9 @@ fn main() -> Result<(), Failure> {
     std::fs::create_dir_all(&rw)?;
     let ro = std::fs::canonicalize(&ro).unwrap_or(ro);
     let rw = std::fs::canonicalize(&rw).unwrap_or(rw);
-    let policy = SandboxPolicy::new().allow_read(ro.clone()).allow_write(rw.clone());
+    let policy = SandboxPolicy::new()
+        .allow_read(ro.clone())
+        .allow_write(rw.clone());
     let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Practical));
     #[cfg(windows)]
     let command = SandboxCommand::new("cmd.exe")

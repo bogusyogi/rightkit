@@ -209,7 +209,8 @@ export function planScans({
   const cargo = (...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args] });
 
   // ---- class A: content checks on the exported commit
-  const rustFiles = files.filter((f) => f.endsWith(".rs"));
+  // vendor/ holds third-party sources kept byte-identical to upstream (VENDORED.md): not reformatted.
+  const rustFiles = files.filter((f) => f.endsWith(".rs") && !f.startsWith("vendor/"));
   const byEdition = new Map();
   for (const f of rustFiles) {
     let dir = path.dirname(path.join(contentRoot, f));
@@ -252,7 +253,10 @@ export function planScans({
   const pkgNames = safeUnits([...new Set([...under("packages/").map((f) => f.split("/")[1]), ...(jsWide ? listDir(path.join(contentRoot, "packages")) : [])])].filter((n) => exists(path.join(contentRoot, "packages", n, "package.json"))).sort(), "package");
   const jsTouched = pkgNames.length > 0 || files.some((f) => JS_TOOLING_FILE.test(f));
 
-  if (files.some((f) => f.startsWith(".github/workflows/"))) add({ id: "actionlint", class: A, tool: "actionlint", args: [], root: "content" });
+  // Explicit files: the exported commit has no .git for actionlint's project discovery.
+  const workflowFiles = files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f)).sort();
+  const actionlintConfig = exists(path.join(contentRoot, ".github/actionlint.yaml")) ? ["-config-file", ".github/actionlint.yaml"] : [];
+  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", args: [...actionlintConfig, ...workflowFiles], root: "content" });
   // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
   // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 

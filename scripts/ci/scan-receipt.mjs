@@ -12,8 +12,8 @@ export const SCAN_RECEIPT_SCHEMA = "rightkit.scan-receipt/1";
 export const SCAN_RECEIPT_FILE = "scan-receipt.json";
 export const scanReceiptArtifactName = (runAttempt) => `scan-receipt-${runAttempt}`;
 // The versions publish.yml installs. The workflow contract proves the workflow pins equal these.
-export const SCAN_TOOL_PINS = Object.freeze({ "cargo-deny": "0.20.2", "cargo-audit": "0.22.2", actionlint: "1.7.7" });
-export const ACTIONLINT_SHA256 = "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757";
+export const SCAN_TOOL_PINS = Object.freeze({ "cargo-deny": "0.20.2", "cargo-audit": "0.22.2", actionlint: "1.7.12" });
+export const ACTIONLINT_SHA256 = "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8";
 // A full-tree plan always contains these (workspace Cargo.lock, deny config and workflows); a receipt without them is not evidence.
 export const REQUIRED_SCAN_IDS = Object.freeze(["cargo-metadata", "cargo-deny", "cargo-audit", "actionlint", "yaml-parse"]);
 // The scans job runs on Ubuntu and proves class A only. Class B (compile, lint) runs in the native verify jobs on their own

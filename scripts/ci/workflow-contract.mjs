@@ -217,7 +217,7 @@ export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Carg
 // and publish-reviewed.yml refuses a candidate whose scan receipt is missing. Pins mirror SCAN_TOOL_PINS in scan-receipt.mjs
 // (scan-receipt.test.mjs proves they agree) and the actionlint release checksum.
 export const SCANS_TOOLS = "cargo-deny@0.20.2,cargo-audit@0.22.2";
-export const SCANS_ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.7", ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757" };
+export const SCANS_ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.12", ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" };
 export const SCANS_RUN = 'node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"';
 export const SCANS_ENV = { SCAN_CONTENT_ROOT: "${{ github.workspace }}/source", SCAN_LIVE_ROOT: "${{ github.workspace }}/live", SCAN_OUT: `${RT}/scan-receipt` };
 export const SCANS_ARTIFACT = "scan-receipt-${{ github.run_attempt }}";

@@ -1,0 +1,11 @@
+# actionlint configuration for the deterministic scans (packages/release/deterministic-scans.mjs passes
+# it with -config-file, since the exported commit has no .git for discovery).
+self-hosted-runner:
+  # The macOS runner label this repository uses; newer than actionlint's built-in label list.
+  labels:
+    - xcode-27
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # GitHub's concurrency `queue` key is newer than actionlint 1.7.12's schema.
+      - 'unexpected key "queue" for "concurrency" section'

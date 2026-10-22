@@ -13,7 +13,7 @@ import { parseYaml } from "./workflow-yaml.mjs";
 
 export const SCAN_TOOLS_ACTION = "taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283";
 export const SCAN_TOOLS = "cargo-deny@0.20.2,cargo-audit@0.22.2";
-export const ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.7", ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757" };
+export const ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.12", ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" };
 export const SCANS_RUN = 'node scripts/ci/gate.mjs --select "$HYGIENE_TOKENS" --steps scans ${SCAN_BASE:+--base "$SCAN_BASE"}';
 export const SCANS_ENV = { HYGIENE_TOKENS: "${{ needs.plan.outputs.hygiene_tokens }}", SCAN_BASE: "${{ needs.plan.outputs.scan_base }}" };
 export const SCANS_RESULT_ENV = "${{ needs.hygiene.result }}";

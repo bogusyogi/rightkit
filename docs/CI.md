@@ -45,7 +45,7 @@ What is implemented today:
 - `publish.yml` job 0, `scans`, runs `scripts/ci/run-deterministic-scans.mjs` (class A only, the
   whole candidate, no changed-file narrowing; every planned class A scan must pass) before `plan` and
   every build lane, with `cargo-deny` 0.20.2 and `cargo-audit` 0.22.2 (SHA-pinned
-  `taiki-e/install-action`) and a checksum-verified `actionlint` 1.7.7. It runs on Ubuntu, where
+  `taiki-e/install-action`) and a checksum-verified `actionlint` 1.7.12. It runs on Ubuntu, where
   native crates do not compile, so class B (compile, lint) runs in the native `verify` jobs on their own
   hosts. `verify` and `verify-linux` `needs: scans` and pass `needs.scans.result` to `gate.mjs` as
   `RK_SCANS_JOB_RESULT`; `scans` is not a default gate step and those jobs install no scan tools. It uploads

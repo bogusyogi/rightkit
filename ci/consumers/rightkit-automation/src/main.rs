@@ -21,9 +21,9 @@
 // the input ladder, capture, focus guard, leases, and evidence journals.
 // State: one per-run temp directory under the OS temp dir, removed on drop.
 // No network, no assets, no real user data. Run only by the CI consumer lane.
+use rightkit_automation::credential_label;
 use rightkit_automation::paths::per_run_evidence_dir;
 use rightkit_automation::sensitive::sensitive_value;
-use rightkit_automation::credential_label;
 use std::path::PathBuf;
 
 fn main() {
@@ -33,7 +33,10 @@ fn main() {
         // Bound with the explicit daemon 0.4 type: a different Suite type fails to compile.
         let (suite, dir): (rightkit_daemon::Suite, PathBuf) =
             per_run_evidence_dir("rk-automation-consumer").expect("per-run evidence dir");
-        assert!(!suite.env_derived(), "a per-run temp suite is never env-derived");
+        assert!(
+            !suite.env_derived(),
+            "a per-run temp suite is never env-derived"
+        );
         root = suite.root().to_path_buf();
         assert!(root.is_absolute(), "suite root must be absolute");
         assert!(
@@ -41,17 +44,33 @@ fn main() {
             "per-run suite must live under the OS temp dir"
         );
         assert!(dir.is_absolute(), "evidence dir must be absolute");
-        assert_eq!(dir, root.join("automation"), "evidence dir is <suite>/automation");
-        assert!(dir.is_dir(), "evidence dir must exist while the suite lives");
+        assert_eq!(
+            dir,
+            root.join("automation"),
+            "evidence dir is <suite>/automation"
+        );
+        assert!(
+            dir.is_dir(),
+            "evidence dir must exist while the suite lives"
+        );
         evidence = dir;
     }
-    assert!(!evidence.exists(), "evidence dir must be removed when the suite drops");
-    assert!(!root.exists(), "per-run suite root must be removed when the suite drops");
+    assert!(
+        !evidence.exists(),
+        "evidence dir must be removed when the suite drops"
+    );
+    assert!(
+        !root.exists(),
+        "per-run suite root must be removed when the suite drops"
+    );
 
     assert!(credential_label("Password"));
     assert!(credential_label("API key"));
     assert!(!credential_label("Search"));
-    assert_eq!(sensitive_value("4111 1111 1111 1111"), Some("a card number"));
+    assert_eq!(
+        sensitive_value("4111 1111 1111 1111"),
+        Some("a card number")
+    );
     assert_eq!(sensitive_value("hello world"), None);
 
     println!("rightkit-automation 0.6.0 registry consumer passed");

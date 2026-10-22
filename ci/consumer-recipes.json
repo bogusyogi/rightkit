@@ -586,7 +586,7 @@
       "files": {
         "Cargo.toml": "c958bc6e43f493e183865827b2563fa79390d61bc1e3e067dc779668f2be5e1d",
         "README.md": "7e6256207f36119308357bc0ace7a3b0f9a696e92dcad2859597ca77188b9bbd",
-        "src/main.rs": "76e255d6574c9f3537d33a68a6e6409ed528bbbac17231a2df89084356078678"
+        "src/main.rs": "0dc6091e9811e1daac8b41a2d6fa4c2e214f11bb6b9f2227547fcc1789cc4754"
       }
     },
     "rightkit-agent-tools": {
@@ -717,7 +717,7 @@
       "files": {
         "Cargo.toml": "e4c1fead4cc4423914eefc3b7fa2f0918b58daad0218175f65974d1369264cb5",
         "README.md": "388ca08f57a2a388768bb88dc3b9f94e5686f2f8bbf9199a52c51b059945544c",
-        "src/main.rs": "104009b4371f7ba4785478937c7b476fb3ba296188572c076932df2ee3e16ca1"
+        "src/main.rs": "682329c712d2d565265b2cb63caafedd38ba75a141677d5ff79f77040f874302"
       }
     }
   }

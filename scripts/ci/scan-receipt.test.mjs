@@ -17,7 +17,7 @@ const SOURCE = "a".repeat(40);
 const LOCK = Buffer.from("lock bytes");
 const LOCK_SHA = sha256Hex(LOCK);
 const RUN = { repository: "bogusyogi/rightkit", runId: "77", runAttempt: "1" };
-const OBSERVED = { "cargo-deny": "cargo-deny 0.20.2", "cargo-audit": "cargo-audit-audit 0.22.2", actionlint: "1.7.7" };
+const OBSERVED = { "cargo-deny": "cargo-deny 0.20.2", "cargo-audit": "cargo-audit-audit 0.22.2", actionlint: "1.7.12" };
 // The scans job proves class A only: Ubuntu cannot compile the native crates, so class B runs in the native verify jobs.
 const rows = () => ["cargo-metadata", "cargo-deny", "cargo-audit", "actionlint", "yaml-parse"].map((id) => ({ id, class: "A", command: `cmd ${id}`, status: "pass" }));
 const B_ROW = { id: "clippy:rightkit-fs", class: "B", command: "cargo clippy", status: "pass" };
