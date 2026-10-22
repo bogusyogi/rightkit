@@ -1131,4 +1131,12 @@ test("quietTests: 'ci' leaves the quiet crates' test scans to the CI shards with
   assert.ok(ids(ci).includes("test:rust:bar") && ids(ci).includes("clippy:foo"), "bar's tests and foo's compile scans still are");
   assert.ok(ci.notes.some((n) => /2 quiet test scan\(s\) left to the CI shards.*test:rust:foo.*test:rust-serial:foo/.test(n)), ci.notes.join("\n"));
   assert.equal(ci.scans.filter((s) => s.quiet).length, 0);
+  // npm packages: `npm.<unit>.quietTests` defers the package's test row the same way; its tsc/eslint rows stay.
+  const pkg = { ...bar, "packages/p/package.json": '{"license":"MIT","scripts":{"test":"x"}}', "packages/p/tsconfig.json": "{}", "packages/q/package.json": '{"license":"MIT","scripts":{"test":"x"}}' };
+  const changedPkgs = ["crates/bar/src/lib.rs", "packages/p/package.json", "packages/q/package.json"];
+  const npmCi = planFor(changedPkgs, pkg, { packageFeatures: { p: { quietTests: true } }, quietTests: "ci" }).plan;
+  assert.ok(!ids(npmCi).includes("test:npm:p") && ids(npmCi).includes("tsc:p") && ids(npmCi).includes("test:npm:q"), ids(npmCi).join(" "));
+  assert.ok(npmCi.notes.some((n) => /1 quiet test scan\(s\) left to the CI shards.*test:npm:p/.test(n)), npmCi.notes.join("\n"));
+  const npmLocal = planFor(changedPkgs, pkg, { packageFeatures: { p: { quietTests: true } } }).plan;
+  assert.deepEqual(npmLocal.scans.filter((s) => s.quiet).map((s) => s.id), ["test:npm:p"]);
 });

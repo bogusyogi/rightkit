@@ -942,8 +942,8 @@ export async function main(argv, io = {}) {
     if (failed(diff)) { o.err(`${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref>`); return 2; }
     const changed = [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
 
-    let crateFeatures = {};
-    try { crateFeatures = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))).rust ?? {}; } catch { /* no config: default feature sets */ }
+    let crateFeatures = {}; let packageFeatures = {};
+    try { const gateConfig = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))); crateFeatures = gateConfig.rust ?? {}; packageFeatures = gateConfig.npm ?? {}; } catch { /* no config: default feature sets */ }
     // One lock and one lock scope per Cargo workspace. A workspace whose lock-only change reaches a subset puts only that subset's
     // units (by unit name) in scope; every other workspace keeps all of its units in scope (planScans reads the scope only for the
     // workspaces whose own root files changed).
@@ -967,7 +967,7 @@ export async function main(argv, io = {}) {
       changed, contentRoot: repo, liveRoot: root, includeTests: true, rustScope, cargoCommand,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
-      quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci",
+      quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,
       rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures,
       localCompile: o.exists(path.join(root, GRANT_FILE)),
       exists: o.exists, readFile: o.readFile, platform: o.platform,

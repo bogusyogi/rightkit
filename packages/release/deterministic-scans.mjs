@@ -240,6 +240,8 @@ export function planScans({
   listDir = (d) => { try { return fs.readdirSync(d); } catch { return []; } },
   // Per-crate feature sets, shaped like ci/gate.config.json `rust` ({ [crate]: { featureSets, checkFeatureSets } }).
   crateFeatures = {},
+  // ci/gate.config.json `npm`: per-package gate settings (`quietTests`), read by the package's unit name (packages/<dir> → rightkit-<dir>).
+  packageFeatures = {},
   // Crates a workspace-wide Rust change (Cargo.lock, vendor/) actually reaches, computed by the caller from
   // the lock graph (scripts/ci/select.mjs). null keeps every crate in scope.
   rustScope = null,
@@ -525,14 +527,19 @@ export function planScans({
         if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
       });
     }
-    if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     for (const name of pkgNames) {
       let manifest = null;
       try { manifest = JSON.parse(readFile(path.join(liveRoot, npmDir(name), "package.json"))); } catch { /* unreadable manifest: no test row */ }
+      if (!manifest?.scripts?.test) continue;
+      // `npm.<package>.quietTests: true` (ci/gate.config.json) marks a package whose tests are wall-clock bound (vitest timeouts,
+      // Chrome for Testing shutdown): under "ci" they ride the CI shards, under "local" the quiet lane, never the 4-wide test lane.
+      const own = packageFeatures?.[name] ?? {};
+      if (own.quietTests === true && quietTests === "ci") { deferredToCi.push(`test:npm:${name}`); continue; }
       // A gate proves the repository's own content: sibling checkouts beside it (RightKit's suite-contract tests read the app
       // repositories when present) are not inputs, so the package tests run as an isolated checkout, as they do in CI.
-      if (manifest?.scripts?.test) add({ id: `test:npm:${name}`, class: B, tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
+      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
     }
+    if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
     // relative path literals, followed through packages/*.mjs) changed. Where unreadable, they run.
     const ciDir = exists(path.join(liveRoot, "scripts/ci"));
