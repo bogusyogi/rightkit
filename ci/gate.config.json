@@ -75,7 +75,8 @@
           "--features",
           "host"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-license": {
       "featureSets": [
@@ -201,7 +202,8 @@
           ],
           "locked": true
         }
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-file-watch": {
       "featureSets": [
@@ -399,6 +401,9 @@
       "quietTests": true
     },
     "rightkit-overlay": {
+      "quietTests": true
+    },
+    "rightkit-llm": {
       "quietTests": true
     }
   },

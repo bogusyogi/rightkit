@@ -961,8 +961,7 @@ fn services_the_app_never_registered_refuse_every_caller() {
         let e = rig
             .host
             .service_for::<u8>(id, "any", &caller.facts())
-            .err()
-            .expect("refused");
+            .expect_err("refused");
         assert_eq!(e.code, "permission_denied", "{id}");
     }
 }
@@ -1079,15 +1078,11 @@ fn the_host_module_has_no_generic_credential_surface() {
 }
 
 // Canonical preparation is exercised through the real bridge and CAS-backed document.
+type JsonMap = serde_json::Map<String, Value>;
+/// `(current, incoming) -> prepared`, or the refusal reason.
+type PrepareFn = Box<dyn Fn(&JsonMap, &JsonMap) -> Result<JsonMap, String> + Send + Sync>;
 struct PreparingSchema {
-    prepare: Box<
-        dyn Fn(
-                &serde_json::Map<String, Value>,
-                &serde_json::Map<String, Value>,
-            ) -> Result<serde_json::Map<String, Value>, String>
-            + Send
-            + Sync,
-    >,
+    prepare: PrepareFn,
     value_limit: usize,
     document_limit: usize,
 }

@@ -801,7 +801,8 @@ mod tests {
     fn a_declaration_that_differs_from_the_manifest_is_refused_and_stores_nothing() {
         let store = Arc::new(MemoryStore::default());
         let service = service(&store, &FixedClock::at(NOW));
-        let cases: [(&str, fn(&mut Value)); 6] = [
+        type Mutation = fn(&mut Value);
+        let cases: [(&str, Mutation); 6] = [
             ("legal_version_mismatch", |v| v["version"] = json!("1")),
             ("legal_hash_mismatch", |v| {
                 v["documentsHash"] = json!("hash-1")

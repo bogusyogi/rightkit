@@ -879,14 +879,14 @@ pub fn note_visible(app: &AppHandle<Wry>) {
         let before_hidden = applied.hidden;
         let now = Instant::now();
         #[cfg(feature = "app-lock")]
-        if applied.suspended || applied.resumed_for.is_some() {
-            if !crate::host::app_lock::invalidate(
+        if (applied.suspended || applied.resumed_for.is_some())
+            && !crate::host::app_lock::invalidate(
                 &handle,
                 None,
                 crate::host::app_lock::LifecycleEvent::Resume,
-            ) {
-                return;
-            }
+            )
+        {
+            return;
         }
         match applied.resume_and_show(c, now) {
             Ok(step) => match applied.classify(before_hidden, step) {

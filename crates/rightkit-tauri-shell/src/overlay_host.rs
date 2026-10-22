@@ -195,7 +195,7 @@ impl OverlaySpec {
 }
 
 fn validate_size(size: (f64, f64)) -> Result<(), OverlayError> {
-    let ok = |v: f64| v.is_finite() && v >= 1.0 && v <= MAX_OVERLAY_EDGE;
+    let ok = |v: f64| v.is_finite() && (1.0..=MAX_OVERLAY_EDGE).contains(&v);
     if ok(size.0) && ok(size.1) {
         Ok(())
     } else {
@@ -275,11 +275,11 @@ pub fn place_overlay(
 
 /// The monitor an overlay lands on: the one containing `hint` (a point in physical pixels, for
 /// example the pointer), else the one it was last on, else the first listed (the primary).
-pub fn choose_monitor<'a>(
-    monitors: &'a [MonitorPlacement],
+pub fn choose_monitor(
+    monitors: &[MonitorPlacement],
     hint: Option<(i32, i32)>,
     last: Option<OverlayRect>,
-) -> Option<&'a MonitorPlacement> {
+) -> Option<&MonitorPlacement> {
     let by_point = |x: f64, y: f64| monitors.iter().find(|m| contains_point(m.bounds, x, y));
     hint.and_then(|(x, y)| by_point(f64::from(x), f64::from(y)))
         .or_else(|| {
@@ -844,6 +844,7 @@ impl Timers {
         self.cv.notify_all();
     }
 
+    #[cfg(test)]
     fn pending(&self) -> usize {
         lock(&self.state).deadlines.len()
     }
@@ -956,16 +957,16 @@ impl TauriSurface {
         #[cfg(windows)]
         {
             let hwnd = self.raw_hwnd().ok_or("native window handle unavailable")?;
-            return if rightkit_overlay::windows::show_noactivate(hwnd) {
+            if rightkit_overlay::windows::show_noactivate(hwnd) {
                 Ok(())
             } else {
                 Err("the window could not be shown without activation".into())
-            };
+            }
         }
         #[cfg(target_os = "macos")]
         {
             let level = self.macos_level;
-            return crate::windows::dispatch_native(&self.window, move |w| {
+            crate::windows::dispatch_native(&self.window, move |w| {
                 use objc2_app_kit::NSWindow;
                 let ptr = w.ns_window().map_err(|e| e.to_string())?;
                 if ptr.is_null() {
@@ -977,7 +978,7 @@ impl TauriSurface {
                 native.setLevel(level as isize);
                 native.orderFrontRegardless();
                 Ok(())
-            });
+            })
         }
         #[cfg(not(any(windows, target_os = "macos")))]
         {

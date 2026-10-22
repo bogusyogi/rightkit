@@ -297,13 +297,31 @@ test("cache digest: a cargo scan covers its lock closure and the shared build in
   assert.notEqual(digestOf({ "crates/b": "tb2" })(clippyA), base, "a closure member changed");
   assert.notEqual(digestOf({ "crates/a": "ta2" })(clippyA), base, "the crate itself changed");
   assert.equal(digestOf({ "crates/c": "tc2" })(clippyA), base, "a workspace crate outside the closure changed");
-  for (const shared of ["Cargo.lock", "Cargo.toml", ".cargo", "deny.toml", "ci/gate.config.json", "vendor"]) assert.notEqual(digestOf({ [shared]: "x" })(clippyA), base, shared);
+  // The shared inputs are projected to what the crate consumes (content), never the shared files' own object ids.
+  assert.equal(digestOf({ "Cargo.lock": "x", "Cargo.toml": "x", "deny.toml": "x", "ci/gate.config.json": "x", vendor: "x" })(clippyA), base, "shared file ids are not inputs");
+  const withLock = (l) => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: "head", rustUnits: units, cargoDir: ".", rustLock: l, ...plainSources })(clippyA);
+  assert.notEqual(withLock(shipped.parseLock(lockPkg("a", "1.0.0", ["b", "serde"]) + lockPkg("b", "1.0.0") + lockPkg("c", "1.0.0") + lockPkg("serde", "1.0.1"))), base, "a lock entry in the closure changed");
+  assert.equal(withLock(shipped.parseLock(lockPkg("a", "1.0.0", ["b", "serde"]) + lockPkg("b", "1.0.0") + lockPkg("c", "1.0.1") + lockPkg("serde", "1.0.0"))), base, "a lock entry outside the closure changed");
+  const withManifest = (text) => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: "head", rustUnits: units, cargoDir: ".", rustLock: lock, listFiles: plainSources.listFiles, readBlob: (p) => (p === "Cargo.toml" ? text : "pub fn f() {}\n") })(clippyA);
+  const m0 = withManifest('[workspace]\nmembers = ["crates/*"]\n\n[profile.release]\nopt-level = 3\n');
+  assert.equal(withManifest('[workspace]\nmembers = ["crates/*", "x"]\n# note\n\n[profile.release]\nopt-level = 3\n\n[patch.crates-io]\nserde = { path = "vendor/serde" }\n'), m0, "membership, comments and a patch table are lock-reflected, not manifest inputs");
+  assert.notEqual(withManifest('[workspace]\nmembers = ["crates/*"]\n\n[profile.release]\nopt-level = 2\n'), m0, "a profile change");
+  assert.notEqual(withManifest('[workspace]\nmembers = ["crates/*"]\n\n[workspace.dependencies]\nserde = { version = "1", features = ["derive"] }\n\n[profile.release]\nopt-level = 3\n'), m0, "a workspace dependency table (feature lists reach every dependent without the lock)");
+  assert.notEqual(digestOf({ "vendor/serde": "v1" })(clippyA), digestOf({ "vendor/serde": "v2" })(clippyA), "a vendored crate in the closure");
+  assert.equal(digestOf({ "vendor/c": "v1" })(clippyA), digestOf({ "vendor/c": "v2" })(clippyA), "a vendored crate outside the closure");
+  const withConfig = (cf) => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: "head", rustUnits: units, cargoDir: ".", rustLock: lock, crateFeatures: cf, ...plainSources })(clippyA);
+  assert.notEqual(withConfig({ a: { featureSets: [["--all-features"]] } }), base, "the crate's own gate config entry");
+  assert.equal(withConfig({ c: { featureSets: [["--all-features"]] } }), base, "another crate's entry");
   assert.notEqual(digestOf()({ id: "check:c", class: "B" }), base, "another crate, another digest");
   assert.equal(digestOf({ "crates/a": "ta2" })({ id: "check:c", class: "B" }), digestOf()({ id: "check:c", class: "B" }), "c does not depend on a");
-  // Rust tests read run-time files no compile scan sees: with no declared testInputs they are keyed on the whole HEAD tree.
+  // Rust tests: keyed on the closure like a compile scan when no source navigates out of the crate without a path; on the whole
+  // HEAD tree when one does (current_dir, a bare "..", the manifest directory's parent).
   const testA = { id: "test:rust:a", class: "B" };
-  assert.notEqual(digestOf({}, "other-head")(testA), digestOf()(testA), "a test scan is not reused across commits");
-  assert.equal(digestOf({ "crates/c": "tc2" })(testA), digestOf()(testA), "same tree id, same key");
+  assert.equal(digestOf({}, "other-head")(testA), digestOf()(testA), "a test of a crate whose sources name no outside path is reused across commits");
+  assert.notEqual(digestOf()(testA), base, "but a test key is not a compile key");
+  const leaving = (tree) => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLock: lock, listFiles: plainSources.listFiles, readBlob: (p) => (p === "crates/a/src/lib.rs" ? 'fn root() { let _ = std::env::current_dir(); }\n' : "pub fn f() {}\n") });
+  assert.notEqual(leaving("h1")(testA), leaving("h2")(testA), "a test whose crate navigates out at run time is keyed on the whole tree");
+  assert.equal(leaving("h1")(clippyA), leaving("h2")(clippyA), "its compile scan is not");
 });
 
 test("cache digest: class A and an unanswerable git are never cached; non-cargo scans use the whole tree", () => {
@@ -341,15 +359,21 @@ function ownershipDigest({ ids = {}, tree = "head", files = {}, crateFeatures = 
 
 test("cache digest: the ownership_fixtures reproduction - changing the fixture cases changes the test digest, with or without testInputs", () => {
   const cases = "packages/release/fixtures/ownership/cases";
-  // The crate directory is untouched; only the fixture directory outside it changed, and with it the HEAD tree id.
-  assert.notEqual(ownershipDigest({ ids: { [cases]: "cases2" }, tree: "head2" }), ownershipDigest(), "no testInputs: keyed on the whole tree");
+  // The crate directory is untouched and its sources name no outside path: the fixture directory is not an input, whatever the tree.
+  assert.equal(ownershipDigest({ ids: { [cases]: "cases2" }, tree: "head2" }), ownershipDigest(), "no reference to the fixture: not an input");
+  const viaLiteral = { "crates/rightkit-ownership/tests/cases.rs": 'let dir = Path::new("../../packages/release/fixtures/ownership/cases");\n' };
+  assert.notEqual(ownershipDigest({ files: viaLiteral, ids: { [cases]: "cases2" } }), ownershipDigest({ files: viaLiteral }), "a literal path to the fixture is an input");
+  const viaParent = { "crates/rightkit-ownership/tests/cases.rs": 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();\n' };
+  assert.notEqual(ownershipDigest({ files: viaParent, tree: "head2" }), ownershipDigest({ files: viaParent }), "tests that navigate out of the crate without a path are keyed on the whole tree");
+  assert.equal(ownershipDigest({ files: viaParent, scanId: "clippy:rightkit-ownership", tree: "head2" }), ownershipDigest({ files: viaParent, scanId: "clippy:rightkit-ownership" }), "a compile scan of the same crate is not");
   const declared = { "rightkit-ownership": { testInputs: [cases] } };
   const withInputs = ownershipDigest({ crateFeatures: declared });
   assert.notEqual(ownershipDigest({ crateFeatures: declared, ids: { [cases]: "cases2" }, tree: "head2" }), withInputs, "declared testInputs: the fixture path is an input");
   assert.equal(ownershipDigest({ crateFeatures: declared, tree: "head3", ids: { "packages/release/fixtures": "other" } }), withInputs, "declared testInputs: an unrelated tree change is not an input, so the key is reused across commits");
   assert.notEqual(ownershipDigest({ crateFeatures: declared, ids: { "crates/rightkit-ownership": "own2" } }), withInputs, "the closure is still an input");
   for (const bad of [[], ["../x"], ["/abs"], ["a/../b"], ["C:/x"], [""], "cases"]) {
-    assert.equal(ownershipDigest({ crateFeatures: { "rightkit-ownership": { testInputs: bad } }, tree: "head9" }), ownershipDigest({ tree: "head9" }), `an unusable testInputs ${JSON.stringify(bad)} falls back to the whole tree`);
+    const cf = { "rightkit-ownership": { testInputs: bad } };
+    assert.notEqual(ownershipDigest({ crateFeatures: cf, tree: "head9" }), ownershipDigest({ crateFeatures: cf, tree: "head10" }), `an unusable testInputs ${JSON.stringify(bad)} falls back to the whole tree`);
   }
 });
 
@@ -403,18 +427,23 @@ test("externalInputs: include targets resolve against the including file, build.
 test("cache digest: Rust configuration of EVERY ancestor directory of a nested workspace is an input, the intermediate ones included", () => {
   const units = [{ name: "apps/foo:foo", crate: "foo", dir: "apps/foo/foo", cargoDir: "apps/foo" }];
   const rustLocks = { "apps/foo": shipped.parseLock(lockPkg("foo", "1.0.0")) };
-  const ids = { "apps/foo/foo": "f1", "apps/foo/Cargo.lock": "l", "ci/gate.config.json": "cfg" };
-  const digest = (over = {}) => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: "head", rustUnits: units, cargoDir: ".", rustLocks, ...plainSources })({ id: "clippy:apps/foo:foo", class: "B" });
+  // Every .cargo directory holds a config.toml and an audit.toml; the ids below name the files, the digest lists the directory.
+  const cargoDirs = [".cargo", "apps/.cargo", "apps/foo/.cargo", "other/.cargo", "apps/bar/.cargo"];
+  const ids = { "apps/foo/foo": "f1", "apps/foo/Cargo.lock": "l", "ci/gate.config.json": "cfg", ...Object.fromEntries(cargoDirs.flatMap((d) => [[d, `${d}-dir`], [`${d}/config.toml`, "c1"], [`${d}/audit.toml`, "a1"]])) };
+  const cfgSources = { listFiles: (dir) => (dir.endsWith(".cargo") ? [`${dir}/config.toml`, `${dir}/audit.toml`] : [`${dir}/src/lib.rs`]), readBlob: () => "pub fn f() {}\n" };
+  const digest = (over = {}) => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: "head", rustUnits: units, cargoDir: ".", rustLocks, ...cfgSources })({ id: "clippy:apps/foo:foo", class: "B" });
   const base = digest();
   assert.equal(digest(), base);
   // The review's reproduction: apps/.cargo sits between the repository root and the workspace and was not an input.
-  assert.notEqual(digest({ "apps/.cargo": "intermediate" }), base, "apps/.cargo");
-  for (const file of [".cargo", "rust-toolchain", "rust-toolchain.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml", "deny.toml"]) {
+  assert.notEqual(digest({ "apps/.cargo/config.toml": "intermediate" }), base, "apps/.cargo/config.toml");
+  for (const file of [".cargo/config.toml", "rust-toolchain", "rust-toolchain.toml", "clippy.toml", ".clippy.toml", "rustfmt.toml", ".rustfmt.toml"]) {
     assert.notEqual(digest({ [file]: "root" }), base, `root ${file}`);
     assert.notEqual(digest({ [`apps/${file}`]: "mid" }), base, `apps/${file}`);
     assert.notEqual(digest({ [`apps/foo/${file}`]: "own" }), base, `apps/foo/${file}`);
   }
-  assert.equal(digest({ "other/.cargo": "x", "apps/bar/.cargo": "x" }), base, "a directory that is no ancestor of the workspace is no input");
+  // Advisory policy is no compile input, at any level: it feeds class A scans, which are never cached.
+  for (const policy of ["deny.toml", "apps/deny.toml", "apps/foo/deny.toml", ".cargo/audit.toml", "apps/.cargo/audit.toml", "apps/foo/.cargo/audit.toml"]) assert.equal(digest({ [policy]: "changed" }), base, policy);
+  assert.equal(digest({ "other/.cargo/config.toml": "x", "apps/bar/.cargo/config.toml": "x" }), base, "a directory that is no ancestor of the workspace is no input");
 });
 
 test("lockScope: Rust configuration of an ancestor directory keeps every crate in scope, even beside a lock-only change", () => {
@@ -629,16 +658,18 @@ test("cache digest: each workspace keys on its own lock and members, and the roo
     { name: "x:b", crate: "b", dir: "x/b", cargoDir: "x" }, { name: "x:c", crate: "c", dir: "x/c", cargoDir: "x" }, { name: "y:b", crate: "b", dir: "y/b", cargoDir: "y" },
   ];
   const rustLocks = { ".": shipped.parseLock(lockPkg("a", "1.0.0")), x: shipped.parseLock(lockPkg("b", "1.0.0", ["c"]) + lockPkg("c", "1.0.0")), y: shipped.parseLock(lockPkg("b", "1.0.0")) };
-  const ids = { "crates/a": "ta", "x/b": "xb", "x/c": "xc", "y/b": "yb", "x/Cargo.lock": "xl", "x/Cargo.toml": "xt", ".cargo": "rc", "x/.cargo": "xc2", "Cargo.lock": "rl", "ci/gate.config.json": "cfg" };
-  const digest = (over = {}, tree = "head", crateFeatures = {}) => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLocks, crateFeatures, ...plainSources });
+  const ids = { "crates/a": "ta", "x/b": "xb", "x/c": "xc", "y/b": "yb", "x/Cargo.lock": "xl", "x/Cargo.toml": "xt", ".cargo": "rc", ".cargo/config.toml": "rcf", "x/.cargo": "xc2", "x/.cargo/config.toml": "xcf", "Cargo.lock": "rl", "ci/gate.config.json": "cfg" };
+  const cfgSources = { listFiles: (dir) => (dir.endsWith(".cargo") ? [`${dir}/config.toml`] : [`${dir}/src/lib.rs`]), readBlob: () => "pub fn f() {}\n" };
+  const digest = (over = {}, tree = "head", crateFeatures = {}, locks = rustLocks) => buildCacheDigest({ objectId: (p) => ({ ...ids, ...over })[p] ?? null, headTree: tree, rustUnits: units, cargoDir: ".", rustLocks: locks, crateFeatures, ...cfgSources });
   const clippyB = { id: "clippy:x:b", class: "B" };
   const base = digest()(clippyB);
   assert.equal(digest()(clippyB), base);
   assert.equal(digest({}, "other-head")(clippyB), base, "a cargo scan is not keyed on the whole tree");
   assert.notEqual(digest({ "x/b": "xb2" })(clippyB), base, "the unit changed");
   assert.notEqual(digest({ "x/c": "xc9" })(clippyB), base, "b's closure holds c, through x's own lock");
-  assert.notEqual(digest({ "x/Cargo.lock": "other" })(clippyB), base, "x's own lock");
-  assert.notEqual(digest({ ".cargo": "other" })(clippyB), base, "cargo reads the repository root's .cargo from a nested workspace");
+  assert.notEqual(digest({}, "head", {}, { ...rustLocks, x: shipped.parseLock(lockPkg("b", "1.0.0", ["c"]) + lockPkg("c", "1.0.1")) })(clippyB), base, "x's own lock: a closure entry changed");
+  assert.equal(digest({ "x/Cargo.lock": "other" })(clippyB), base, "the lock file's own id is not an input; its closure entries are");
+  assert.notEqual(digest({ ".cargo/config.toml": "other" })(clippyB), base, "cargo reads the repository root's .cargo from a nested workspace");
   assert.equal(digest({ "crates/a": "ta2" })(clippyB), base, "another workspace's unit is not an input");
   assert.equal(digest({ "y/b": "yb2" })(clippyB), base, "the crate b of workspace y is not the crate b of workspace x");
   assert.equal(digest({ "Cargo.lock": "other" })(clippyB), base, "the root lock is not x's");
@@ -647,7 +678,7 @@ test("cache digest: each workspace keys on its own lock and members, and the roo
   assert.equal(digest({ "x/b": "xb2" })({ id: "clippy:x:c", class: "B" }), digest()({ id: "clippy:x:c", class: "B" }), "c does not depend on b");
   // A test scan of a nested unit is keyed on its declared testInputs, under the qualified or the plain name.
   const testB = { id: "test:rust:x:b", class: "B" };
-  assert.notEqual(digest({}, "t2")(testB), digest({}, "t1")(testB), "no testInputs: the whole tree");
+  assert.equal(digest({}, "t2")(testB), digest({}, "t1")(testB), "no testInputs and no outside navigation in the sources: closure-keyed, reused across trees");
   const withInputs = (extra) => digest({ "fixtures/x": "f1", ...extra }, "t1", { "x:b": { testInputs: ["fixtures/x"] } })(testB);
   assert.equal(digest({ "fixtures/x": "f1" }, "t9", { b: { testInputs: ["fixtures/x"] } })(testB), withInputs(), "the plain crate name works too, and the tree id is not an input");
   assert.notEqual(withInputs({ "fixtures/x": "f2" }), withInputs());

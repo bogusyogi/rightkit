@@ -51,6 +51,8 @@ impl World {
 struct FakeBinding {
     revision: u64,
     route: UpdateRoute,
+    // Carried like the real binding's release id; no assertion in this file reads it back.
+    #[allow(dead_code)]
     release_id: String,
 }
 
@@ -879,7 +881,7 @@ fn only_a_trusted_app_window_reaches_the_update_host() {
     let nav = NavPolicy::default();
     let app = Url::parse("tauri://localhost/").unwrap();
     let foreign = Url::parse("https://evil.example.net/").unwrap();
-    let content = vec!["viewer".to_owned()];
+    let content = ["viewer".to_owned()];
     for action in ["check", "status", "download", "install", "cancel"] {
         assert!(update_host_for(&services, action, &facts("main", &[], &app, &nav)).is_ok());
         for (label, url, content) in [

@@ -247,7 +247,7 @@ fn host_services(app: &tauri::AppHandle<Wry>, root: &Path) {
     let bridge = SettingsBridge::new(document, StaticSchema::new(1).keys(["probe"]));
     let secrets = FixtureSecrets::default();
     app.manage(secrets.clone());
-    let mut services = HostServices::builder()
+    let services = HostServices::builder()
         .secrets(
             rightkit_tauri_shell::host::SecretsService::new(
                 secrets.clone(),
@@ -265,9 +265,7 @@ fn host_services(app: &tauri::AppHandle<Wry>, root: &Path) {
         )
         .guard_shell_commands(ServiceTrust::for_labels(["main"]));
     #[cfg(feature = "logs")]
-    {
-        services = services.logs(ServiceTrust::for_labels(["main"]));
-    }
+    let services = services.logs(ServiceTrust::for_labels(["main"]));
     services
         .build()
         .expect("concrete host policy")
@@ -426,10 +424,14 @@ fn native(mode: String, idle_seconds: u64) {
     #[cfg(feature = "host-services")]
     let (shell, fixture_capability) = {
         use rightkit_tauri_shell::{ContentWebview, DevToolsPolicy};
-        assert!(
-            cfg!(feature = "content-devtools"),
-            "registered content fixture requires content-devtools"
-        );
+        // A run-time guard, not a compile-time one: the bench is built under every feature set and only runs with content-devtools.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(
+                cfg!(feature = "content-devtools"),
+                "registered content fixture requires content-devtools"
+            );
+        }
         let mut context = tauri::test::mock_context(NativeAssets);
         let capability = fixture_acl(&mut context);
         let registration =
@@ -438,7 +440,7 @@ fn native(mode: String, idle_seconds: u64) {
             rightkit_tauri_shell::devtools::build_gate(
                 DevToolsPolicy::ContentOnly,
                 "main",
-                &[registration.clone()],
+                std::slice::from_ref(&registration),
                 true
             ),
             Err(rightkit_tauri_shell::DevToolsError::AppAclManifestMissing { .. })

@@ -186,7 +186,7 @@ impl SecretsError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::SlotNotDeclared => "that credential slot is not declared by this app",
-            Self::BadValue(reason) => *reason,
+            Self::BadValue(reason) => reason,
             Self::WriteUnavailable => "this app does not accept API keys from the settings window",
             Self::Exists => "a key is already stored; replace it explicitly",
             Self::StoreUnavailable => "the credential store is not available",

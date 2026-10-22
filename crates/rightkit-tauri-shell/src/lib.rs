@@ -830,14 +830,14 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
     // when the first page has loaded.
     plugin = plugin.on_page_load(|webview, payload| {
         #[cfg(feature = "app-lock")]
-        if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
-            if !host::app_lock::invalidate(
+        if matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+            && !host::app_lock::invalidate(
                 webview.app_handle(),
                 Some(webview.label()),
                 host::app_lock::LifecycleEvent::Navigation,
-            ) {
-                return;
-            }
+            )
+        {
+            return;
         }
         if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
             if let Err(e) = devtools::verify_after_first_navigation(webview.app_handle()) {
@@ -918,14 +918,13 @@ pub(crate) fn install(cfg: ShellBuilder) -> TauriPlugin<Wry> {
                     label,
                     event: tauri::WindowEvent::Destroyed,
                     ..
-                } => {
-                    if !host::app_lock::invalidate(
-                        app,
-                        Some(label),
-                        host::app_lock::LifecycleEvent::Destruction,
-                    ) {
-                        return;
-                    }
+                } if !host::app_lock::invalidate(
+                    app,
+                    Some(label),
+                    host::app_lock::LifecycleEvent::Destruction,
+                ) =>
+                {
+                    return;
                 }
                 _ => {}
             }

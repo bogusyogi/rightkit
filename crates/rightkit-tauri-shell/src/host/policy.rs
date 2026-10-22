@@ -185,7 +185,7 @@ impl ServiceTrust {
         }
         if !self.origins.is_empty() {
             let origin = facts.url.and_then(origin_of);
-            if !origin.is_some_and(|o| self.origins.iter().any(|t| *t == o)) {
+            if !origin.is_some_and(|o| self.origins.contains(&o)) {
                 return Err(Denial::UntrustedOrigin);
             }
         }

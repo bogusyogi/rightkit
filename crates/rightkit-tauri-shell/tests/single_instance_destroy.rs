@@ -89,8 +89,11 @@ fn destroy_releases_every_claim_in_every_suite() {
     let _serial = serial();
     let a = Suite::per_run_temp("shell-single-instance-a").unwrap();
     let b = Suite::per_run_temp("shell-single-instance-b").unwrap();
-    let ga = claim(&a);
-    let gb = claim(&b);
+    // Settled primaries: a claim released before its accept thread took the first pipe instance keeps
+    // the pipe name until that thread runs (see `settled_primary`), and the immediate re-claim below
+    // would then be forwarded instead of becoming the primary (seen for `b` on Windows, gate 2026-10-22).
+    let ga = settled_primary(&a);
+    let gb = settled_primary(&b);
     assert!(ga.is_primary() && gb.is_primary());
     SingleInstance::destroy();
     assert!(claim(&a).is_primary());

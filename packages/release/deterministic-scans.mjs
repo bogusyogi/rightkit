@@ -656,7 +656,18 @@ export function laneOf(scan) {
   return scan.quiet === true ? "quiet" : "tests";
 }
 
-const tail = (r) => `${r.stdout ?? ""}${r.stderr ?? ""}`.split(/\r?\n/).filter((l) => l.trim()).slice(-8).join(" | ");
+// The lines a reader needs from a failed scan: every line that names a failure (a failed test, a panic, a compiler or tool error,
+// cargo test's `failures:` block header, pnpm's ERR_ codes), at most twelve of them, then the last four lines of stdout and of
+// stderr. cargo test writes results to stdout and "Running ..." to stderr, so a plain tail showed only harness chatter.
+const FAILURE_LINE = /(^|\s)(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)/;
+export function failureDetail(r) {
+  const lines = (text) => String(text ?? "").split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
+  const out = lines(r?.stdout); const err = lines(r?.stderr);
+  const named = [...out, ...err].filter((l) => FAILURE_LINE.test(l)).slice(0, 12);
+  const ends = [...out.slice(-4), ...err.slice(-4)];
+  return [...new Set([...named, ...ends])].join(" | ");
+}
+const tail = failureDetail;
 
 /** rustfmt: $RUSTFMT, else the newest installed rustup toolchain, else PATH (null when none). */
 export function findRustfmt({ env = process.env, exists = fs.existsSync, readdir = fs.readdirSync, platform = process.platform, home = os.homedir(), spawn = defaultSpawn } = {}) {
@@ -825,7 +836,15 @@ export async function runScans(plan, options = {}) {
   // an otherwise quiet machine, as CI's shards run tests after their build. With jobs = 1 and testJobs = 1 the order is the same.
   const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
   const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
-  for (const s of aScans) results.push(await runOne(s));
+  // Class A scans are independent content checks (and short broker calls: metadata, package list, deny, audit): they run
+  // `classAJobs` at a time (default: `jobs`); the rows keep plan order. Class B starts only once every class A row is in.
+  const aJobs = Math.max(1, Number(options.classAJobs ?? jobs) || jobs);
+  {
+    const slots = new Array(aScans.length); const queue = aScans.map((_, i) => i);
+    const drain = async () => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(aScans[i]); } };
+    await Promise.all(Array.from({ length: aJobs }, drain));
+    results.push(...slots);
+  }
   {
     const slots = new Array(bScans.length);
     const lanes = { compile: [], doc: [], tests: [], quiet: [] };

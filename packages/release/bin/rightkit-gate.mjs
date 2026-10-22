@@ -196,13 +196,16 @@ export function workspaceExcludes(readFile, root, cargoDir) {
   return [...list.matchAll(/"([^"]+)"/g)].map((m) => posix(m[1]).replace(/\/+$/, "")).map((d) => (cargoDir === "." ? d : `${cargoDir}/${d}`));
 }
 
-// The manifest tables whose every effect on a build is also written into Cargo.lock: a changed source ([patch.*]), a changed
-// workspace dependency version or features ([workspace.dependencies]: the lock records the resolved version and the member's
-// own manifest the features), and workspace membership ([workspace] members/exclude: a new member is a new lock package, a removed
-// one disappears). Anything else in the root manifest ([profile.*], [workspace.package], [workspace.lints], [workspace.metadata]
-// read by build scripts) can change what every crate compiles to without touching the lock, so it keeps every crate in scope.
-const LOCK_REFLECTED_TABLE = /^(patch\..+|workspace\.dependencies)$/;
+// The manifest tables whose every effect on a build is also written into Cargo.lock: a changed source ([patch.*]) and workspace
+// membership ([workspace] members/exclude: a new member is a new lock package, a removed one disappears). A [workspace.dependencies]
+// change is lock-reflected only when it is a version change (the lock records the resolved version): a feature list reaches every
+// `workspace = true` dependent without touching the lock. Anything else in the root manifest ([profile.*], [workspace.package],
+// [workspace.lints], [workspace.metadata] read by build scripts) can change what every crate compiles to, so it keeps every crate in scope.
+const LOCK_REFLECTED_TABLE = /^patch\..+$/;
 const WORKSPACE_MEMBERSHIP_KEYS = /^\s*(members|exclude|default-members)\s*=\s*\[[\s\S]*?\]\s*(#.*)?$/gm;
+// `serde = "1.0.2"` and `serde = { version = "1.0.2", ... }` with the version neutralised, so two dependency tables compare equal when
+// only versions differ.
+const versionNeutral = (t) => String(t ?? "").replace(/(\bversion\s*=\s*)"[^"]*"/g, '$1"*"').replace(/^(\s*[\w.-]+\s*=\s*)"[^"]*"/gm, '$1"*"');
 
 /**
  * True when every difference between two root manifests lives in a lock-reflected table (above), so the lock graph already says
@@ -218,6 +221,7 @@ export function manifestChangeIsLockReflected(before, after) {
     if (text(a.get(name)) === text(b.get(name))) continue;
     if (LOCK_REFLECTED_TABLE.test(name)) continue;
     if (name === "workspace" && strip(a.get(name)) === strip(b.get(name))) continue;
+    if (name === "workspace.dependencies" && versionNeutral(text(a.get(name))) === versionNeutral(text(b.get(name)))) continue;
     return false;
   }
   return true;
@@ -433,8 +437,12 @@ const within = (dir, p) => dir === "." || p === dir || p.startsWith(`${dir}/`);
  * include_str!, include_bytes!, `#[path = ".."]`, `mod x;` declarations of an out-of-crate file, "../" literals), whatever the
  * depth (lib.rs -> shared/one.rs -> shared/two.rs -> shared/three.rs reaches three.rs), with a visited set so cycles end.
  */
+// A source (a test, usually) that navigates out of its crate at run time without naming the path: the workspace root, the
+// current directory, a bare ".." segment, or the manifest directory's parent. Its tests may read anything in the repository.
+const TEST_LEAVES_CRATE = /CARGO_WORKSPACE_DIR|workspace_root|current_dir\s*\(|"\.\.\/?"|CARGO_MANIFEST_DIR[^;\n]{0,120}\.parent\s*\(|\.ancestors\s*\(/;
+
 export function externalInputs({ dir, files, readBlob, exists }) {
-  const paths = new Set(); let unresolved = null;
+  const paths = new Set(); let unresolved = null; let leavesCrate = null;
   const stop = (why) => { unresolved ??= why; };
   // Resolve `rel` against each base in turn; the path counts when it exists inside the repository and outside the crate. A
   // reference that leaves the repository from EVERY base is unresolvable (a path literal is tried against two bases, only
@@ -485,11 +493,30 @@ export function externalInputs({ dir, files, readBlob, exists }) {
       for (const m of text.matchAll(RERUN_LITERAL)) consider(file, [dir], m[1].trim());
       if (BUILD_LEAVES_CRATE.test(text)) stop(`${file}: a build script that reads files and navigates out of its crate`);
     }
+    if (!build && !external && leavesCrate === null && TEST_LEAVES_CRATE.test(text)) leavesCrate = file;
   };
   for (const file of files) if (file.endsWith(".rs")) enqueue(file, { build: path.posix.basename(file) === "build.rs" && path.posix.dirname(file) === dir });
   // Fixed point: an out-of-crate .rs file that is reached is itself a source, so its own references are followed, and theirs.
   while (queue.length) { const [file, options] = queue.pop(); scan(file, options); }
-  return { paths: [...paths].sort(), unresolved };
+  // `leavesCrate`: the first in-crate source that navigates out of the crate at run time without a literal path (tests key on
+  // the whole tree then, unless ci/gate.config.json testInputs names what they read). Compile scans ignore it.
+  return { paths: [...paths].sort(), unresolved, leavesCrate };
+}
+
+/**
+ * The root manifest as a compile input: every table except `[patch.*]` (a patch changes a lock package's source, which the lock
+ * projection records) and the membership arrays of `[workspace]` (a member is a lock package); comment-only lines dropped.
+ * `[workspace.dependencies]` stays whole: its feature lists reach every `workspace = true` dependent without touching the lock.
+ */
+export function manifestCompileProjection(text) {
+  const out = {};
+  const strip = (t) => String(t ?? "").split("\n").filter((l) => !/^\s*(#.*)?$/.test(l)).join("\n");
+  for (const [name, body] of manifestTables(text)) {
+    if (/^patch\./.test(name)) continue;
+    const kept = (name === "workspace" ? strip(body).replace(WORKSPACE_MEMBERSHIP_KEYS, "") : strip(body)).trim();
+    if (kept) out[name] = kept;
+  }
+  return out;
 }
 
 const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.isAbsolute(p) && !/^[A-Za-z]:/.test(p) && !p.includes("\\") && path.posix.normalize(p) === p && p !== "." && p !== ".." && !p.startsWith("../");
@@ -502,13 +529,15 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  * per-crate key: without them a crate's reach outside its own directory is unknown and the whole tree is used).
  *
  * - A compile scan (clippy, check, check-features, check-dependent, doc) of crate X digests the object ids of X and of every
- *   workspace member in X's lock closure, the shared build inputs, ci/gate.config.json and every repository path those
- *   members' sources reach outside their own directories (externalInputs). A reference that cannot be resolved statically
- *   keys the scan on the whole tree.
- * - A Rust test scan (test:rust*, test:rust-serial*) reads files at run time that no compile scan sees (a fixture directory
- *   in another package), so it is keyed on the whole HEAD tree: no reuse across commits, unless ci/gate.config.json
- *   `rust.<crate>.testInputs` lists the repository paths its tests read, in which case it is keyed on the closure, the
- *   external paths of the sources and those paths.
+ *   workspace member in X's lock closure, the shared build inputs projected to what X consumes (the lock entries of X's closure,
+ *   the root manifest without its [patch] tables and membership arrays, the `.cargo` files except audit.toml, the toolchain,
+ *   clippy and rustfmt files of the workspace and every ancestor, the vendored crates in the closure, X's own ci/gate.config.json
+ *   entry) and every repository path those members' sources reach outside their own directories (externalInputs). A reference
+ *   that cannot be resolved statically keys the scan on the whole tree. deny.toml is no compile input (it feeds class A, never cached).
+ * - A Rust test scan (test:rust*, test:rust-serial*) is keyed the same way, plus ci/gate.config.json `rust.<crate>.testInputs`
+ *   when declared. Without a declaration, a closure source that navigates out of its crate at run time without a literal path
+ *   (externalInputs `leavesCrate`: workspace root, current_dir, a bare "..", the manifest directory's parent) keys the scan on the
+ *   whole HEAD tree, since its tests may read anything.
  * - Every other class B scan (npm, node, docs) uses the whole tree. Class A is never cached.
  */
 export function buildCacheDigest({ objectId, headTree, rustUnits = [], cargoDir = ".", rustLock = null, rustLocks = null, crateFeatures = {}, listFiles = null, readBlob = null }) {
@@ -539,28 +568,46 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], cargoDir 
       const ws = wsOf(head); const lock = lockFor(ws);
       if (!lock || typeof listFiles !== "function" || typeof readBlob !== "function") return whole();
       const testScan = /^test:rust(?:-serial)?:/.test(scan.id);
-      let testInputs = [];
+      const ownConfig = crateFeatures?.[unit] ?? crateFeatures?.[crateOf(head)] ?? null;
+      let testInputs = []; let declaredInputs = false;
       if (testScan) {
-        const declared = (crateFeatures?.[unit] ?? crateFeatures?.[crateOf(head)])?.testInputs;
-        if (!Array.isArray(declared) || declared.length === 0 || !declared.every(plainRelative)) return whole();
-        testInputs = [...new Set(declared)].sort();
+        const declared = ownConfig?.testInputs;
+        if (declared !== undefined) {
+          if (!Array.isArray(declared) || declared.length === 0 || !declared.every(plainRelative)) return whole();
+          testInputs = [...new Set(declared)].sort(); declaredInputs = true;
+        }
       } else if (!COMPILE_SCAN_PREFIXES.has(String(scan.id).split(":")[0])) return whole();
       if (!reachMemos.has(ws)) reachMemos.set(ws, new Map());
-      const closure = [head, ...[...reach(lock, crateOf(head), reachMemos.get(ws))].map((n) => byCrate.get(`${ws}\0${n}`)).filter(Boolean)].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      const reached = [...reach(lock, crateOf(head), reachMemos.get(ws))];
+      const closure = [head, ...reached.map((n) => byCrate.get(`${ws}\0${n}`)).filter(Boolean)].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       const extra = new Set(testInputs);
       for (const member of closure) {
         const found = externalOf(member);
         if (found.unresolved) return whole();
+        if (testScan && !declaredInputs && found.leavesCrate) return whole();
         for (const p of found.paths) extra.add(p);
       }
-      // cargo also reads .cargo and the toolchain files of every ancestor directory, so a nested workspace keys on those of the
-      // repository root AND of each directory between the root and the workspace (apps/.cargo for apps/foo).
-      const ancestors = ancestorDirsOf(ws).filter((dir) => dir !== ws);
-      const shared = new Set([...SHARED_RUST_INPUTS.map((p) => inWs(ws, p)), ...ancestors.flatMap((dir) => ANCESTOR_RUST_INPUTS.map((p) => inWs(dir, p))), GATE_CONFIG]);
+      // The shared inputs, projected to what this crate consumes.
+      const dirs = ancestorDirsOf(ws);
+      const ancestors = dirs.filter((dir) => dir !== ws);
+      const lockNames = [crateOf(head), ...reached].sort();
+      const lockEntries = lockNames.map((n) => [n, lock.get(n)?.signatures ?? []]);
+      const vendored = lockNames.map((n) => `vendor/${n}`).filter((p) => idOf(p) !== null && idOf(p) !== undefined).map((p) => [p, idOf(p)]);
+      const manifestPath = inWs(ws, "Cargo.toml");
+      let manifest;
+      try { manifest = manifestCompileProjection(readBlob(manifestPath)); } catch { manifest = ["raw", manifestPath, idOf(manifestPath)]; }
+      const cargoConfig = dirs.flatMap((dir) => {
+        const cfg = inWs(dir, ".cargo");
+        if (idOf(cfg) === null || idOf(cfg) === undefined) return [];
+        try { return listFiles(cfg).filter((f) => !f.endsWith("/audit.toml")).sort().map((f) => [f, idOf(f)]); } catch { return [[cfg, idOf(cfg)]]; }
+      });
+      const toolFiles = [...SHARED_RUST_INPUTS.filter((p) => !["Cargo.lock", "Cargo.toml", ".cargo", "deny.toml", "vendor"].includes(p)).map((p) => inWs(ws, p)),
+        ...ancestors.flatMap((dir) => ANCESTOR_RUST_INPUTS.filter((p) => ![".cargo", "deny.toml"].includes(p)).map((p) => inWs(dir, p)))];
       return canonicalJson({
         kind: testScan ? "rust-test" : "rust", unit, cargoDir: ws,
         members: closure.map((m) => [m.name, m.dir, idOf(m.dir)]),
-        shared: [...shared].sort().map((p) => [p, idOf(p)]),
+        lock: lockEntries, manifest, cargoConfig, vendored, config: ownConfig,
+        shared: [...new Set(toolFiles)].sort().map((p) => [p, idOf(p)]),
         external: [...extra].sort().map((p) => [p, idOf(p)]),
       });
     } catch { return null; }

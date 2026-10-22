@@ -1,8 +1,9 @@
 //! Native HostServices adapter. IPC carries no owner, challenge, PIN or success proof.
 use super::{HostError, HostServices};
+#[cfg(any(feature = "engine", test))]
+use crate::app_lock::EngineLockError;
 use crate::app_lock::{
-    self, AppLockService, EngineLock, EngineLockError, LockError, OwnerSession, Status,
-    UnlockChallenge,
+    self, AppLockService, EngineLock, LockError, OwnerSession, Status, UnlockChallenge,
 };
 use rightkit_credentials::os_auth::Request;
 use std::{
@@ -257,7 +258,6 @@ pub async fn rightkit_app_lock_complete_unlock(webview: Webview<Wry>) -> Result<
             ))
         })?
         .0 as isize;
-    drop(host);
     super::blocking(move || {
         let request = Request::new(&native.reason).timeout(native.timeout);
         #[cfg(target_os = "windows")]
