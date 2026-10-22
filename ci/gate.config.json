@@ -290,7 +290,8 @@
           "remote-loopback"
         ]
       ],
-      "quietTests": true
+      "quietTests": true,
+      "allowIgnored": "crates/rightkit-daemon/src/peer.rs::peer::tests::unix_tests::cross_user_socket_is_rejected is #[ignore] on purpose: proving that a socket owned by another user is rejected needs a second OS account on the host, which no runner has; it is counted once per feature row (4 ignored per default run on macOS across the four feature rows, 0 on Windows where the module is cfg(unix)); every other peer test runs and asserts on every default run"
     },
     "rightkit-pdfium": {
       "featureSets": [

@@ -221,6 +221,21 @@ export function verifyAttestation(requestId, { nonce, argv, pins, spawnFn = spaw
   return { verified: true, signatureVerified: true, requestId, nonce, keyId: pins.keyId, brokerDigest: pins.brokerDigest, requestDigest: payload.requestDigest, manifestDigest: request.manifestDigest ?? null, inputBoundary: receipt.inputBoundary?.status ?? "unrequested" };
 }
 
+/** `#[ignore]` attributes under a crate's src, tests, benches and examples, by static scan (no compile, no execution). */
+export function countIgnoredTests(crateDir) {
+  let count = 0;
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (ent.isFile() && ent.name.endsWith(".rs")) count += (fs.readFileSync(full, "utf8").match(/^\s*#\[ignore\b/gm) ?? []).length;
+    }
+  };
+  for (const sub of ["src", "tests", "benches", "examples"]) walk(path.join(crateDir, sub));
+  return count;
+}
+
 function run(command, args, { cwd, env, timeoutMinutes, logFile }) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -344,6 +359,14 @@ export async function main(argv, deps = {}) {
         failed = { index: i + 1, command: `node ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, lines: r.out.split("\n").filter((l) => /^not ok|error:|refused/.test(l.trim())).slice(0, 8) };
         break;
       }
+    }
+    // Ignored tests are not passes on the hosted verify hosts: a unit that carries any #[ignore] needs the reviewed
+    // allowIgnored policy entry in ci/gate.config.json (the dispatcher then names it in allow_ignored). Static, no compile.
+    if (!failed && opts.registry === "crates") {
+      const ignored = countIgnoredTests(path.join(root, "crates", opts.unit));
+      const allowed = Boolean(config.rust?.[opts.unit]?.allowIgnored);
+      receipt.ignoredTests = { count: ignored, allowed };
+      if (ignored > 0 && !allowed) failed = { index: planCommands.length + 1, command: "ignored-tests policy", exit: 1, timedOut: false, lines: [`${ignored} #[ignore] attribute(s) under crates/${opts.unit} and no reviewed allowIgnored entry in ci/gate.config.json; the hosted verify refuses ignored tests without one`] };
     }
     receipt.planChecks = { ok: !failed && unchanged(), exit: failed ? failed.exit : 0, timedOut: Boolean(failed?.timedOut), seconds: Math.round((Date.now() - started) / 1000), commands: planCommands.length, failed };
     out(`${receipt.planChecks.ok ? "PASS" : "FAIL"} plan-checks (${receipt.planChecks.seconds}s)`);

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import test from "node:test";
-import { verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
+import { countIgnoredTests, verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
 
 const sha = "a".repeat(40), unit = "rightkit-example", version = "1.0.0", config = {};
 const expected = { sha, registry: "crates", unit, version, config };
@@ -84,4 +86,16 @@ test("per-row attestation: broker status fields must match, then the envelope si
   assert.equal(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(unsigned) }).reason, "no signed provenance envelope");
   assert.equal(verifyAttestation(job, { nonce, argv: [], pins: {} }).reason, "no enrollment pins for this host");
   assert.equal(verifyAttestation(null, { nonce, argv: [], pins }).reason, "no broker request or nonce");
+});
+
+
+test("ignored-test policy: #[ignore] attributes are counted statically across src, tests, benches and examples", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-ignored-"));
+  fs.mkdirSync(path.join(dir, "src")); fs.mkdirSync(path.join(dir, "tests", "nested"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "src", "lib.rs"), "#[cfg(test)]\nmod t {\n    #[test]\n    #[ignore = \"needs a second account\"]\n    fn a() {}\n    #[test]\n    fn b() {}\n}\n");
+  fs.writeFileSync(path.join(dir, "tests", "nested", "x.rs"), "#[test]\n#[ignore]\nfn c() {}\n// #[ignore] in a comment does not count\n");
+  fs.writeFileSync(path.join(dir, "tests", "notes.md"), "#[ignore]\n");
+  assert.equal(countIgnoredTests(dir), 2);
+  assert.equal(countIgnoredTests(path.join(dir, "missing")), 0);
 });
