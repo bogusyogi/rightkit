@@ -3,6 +3,7 @@
 // Diagnostic shortcuts & scan-only CI routing cannot produce publication receipts.
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -179,6 +180,47 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
   return { observed, problems };
 }
 
+/** The broker's own, signed account of one row. `rustright status <id>` (local broker socket) must return a provenance
+ * envelope whose payload binds the row's fresh nonce, its job id, the exact cargo argv and a successful exit; then the
+ * envelope's signature bytes are verified by `rustright verify-receipt` against this host's ENROLLED public key, key id
+ * and broker digest from ci/rk-pipeline.json (never taken from the receipt). The request digest is passed from the
+ * receipt, so that one check is not independent yet; the signature over the canonical payload is. */
+export function verifyAttestation(requestId, { nonce, argv, pins, spawnFn = spawnSync, tmpDir = os.tmpdir() }) {
+  if (!requestId || !nonce) return { verified: false, requestId: requestId ?? null, nonce: nonce ?? null, reason: "no broker request or nonce" };
+  if (!pins?.publicKey || !pins.keyId || !pins.host || !pins.brokerDigest) return { verified: false, requestId, nonce, reason: "no enrollment pins for this host" };
+  const r = spawnFn("rustright", ["status", requestId], { encoding: "utf8", timeout: 60_000 });
+  if (r.error || r.status !== 0) return { verified: false, requestId, nonce, reason: "broker status unavailable" };
+  let doc;
+  try {
+    doc = JSON.parse(r.stdout);
+  } catch {
+    return { verified: false, requestId, nonce, reason: "unreadable broker status" };
+  }
+  const receipt = doc.receipt ?? doc;
+  const p = receipt.provenance;
+  const payload = p?.payload ?? {};
+  const request = payload.request ?? {};
+  const checks = [
+    [p?.schema === "rustright.provenance.v1", "no signed provenance envelope"],
+    [p?.signature?.alg === "ES256" && p?.signature?.keyId === pins.keyId, "signature key is not the enrolled key"],
+    [payload.host === pins.host && payload.broker?.brokerDigest === pins.brokerDigest, "host or broker digest is not the enrolled one"],
+    [payload.nonce === nonce, "nonce mismatch"],
+    [payload.jobId === requestId, "job id mismatch"],
+    [request.kind === "cargo", "not a cargo job"],
+    [JSON.stringify(request.requestedArgv ?? []) === JSON.stringify(argv), "argv mismatch"],
+    [receipt.state === "SUCCEEDED" && receipt.exitCode === 0, "job did not succeed"],
+    [/^[0-9a-f]{64}$/.test(payload.requestDigest ?? ""), "no request digest"],
+  ];
+  const failed = checks.find(([ok]) => !ok);
+  if (failed) return { verified: false, requestId, nonce, reason: failed[1] };
+  const file = path.join(tmpDir, `rk-receipt-${requestId}.json`);
+  fs.writeFileSync(file, JSON.stringify(receipt));
+  const v = spawnFn("rustright", ["verify-receipt", "--receipt", file, "--public-key", pins.publicKey, "--key-id", pins.keyId, "--host", pins.host, "--broker-digest", pins.brokerDigest, "--nonce", nonce, "--request-digest", payload.requestDigest, "--job-id", requestId], { encoding: "utf8", timeout: 60_000 });
+  fs.rmSync(file, { force: true });
+  if (v.error || v.status !== 0) return { verified: false, requestId, nonce, reason: "signature verification failed" };
+  return { verified: true, signatureVerified: true, requestId, nonce, keyId: pins.keyId, brokerDigest: pins.brokerDigest, requestDigest: payload.requestDigest, manifestDigest: request.manifestDigest ?? null, inputBoundary: receipt.inputBoundary?.status ?? "unrequested" };
+}
+
 function run(command, args, { cwd, env, timeoutMinutes, logFile }) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -294,10 +336,13 @@ export async function main(argv, deps = {}) {
     const command = row.command ?? "rustright";
     const args = row.command ? row.args : ["cargo", ...row.args];
     const logFile = path.join(logDir, `${row.id.replace(/[^a-z0-9.-]+/gi, "_")}.log`);
-    const r = await run(command, args, { cwd: root, env: rowEnv, timeoutMinutes: row.timeoutMinutes, logFile });
+    const nonce = crypto.randomBytes(32).toString("hex");
+    const r = await run(command, args, { cwd: root, env: { ...rowEnv, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
     const warnings = row.denyWarnings ? countDocWarnings(r.out) : 0;
-    const ok = r.code === 0 && !r.timedOut && warnings === 0 && brokerRequestIds(r.out).length > 0 && unchanged();
-    const entry = { id: row.id, kind: row.kind, command: `${command} ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, warnings, brokerRequests: brokerRequestIds(r.out), log: logFile, ok };
+    const ids = brokerRequestIds(r.out);
+    const attestation = ids.length === 1 ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins: pipeline.attestation?.[process.platform] }) : { verified: false, requestId: null, nonce, reason: ids.length ? "one row produced several broker requests" : "no broker request" };
+    const ok = r.code === 0 && !r.timedOut && warnings === 0 && attestation.verified === true && unchanged();
+    const entry = { id: row.id, kind: row.kind, command: `${command} ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, warnings, brokerRequests: ids, attestation, log: logFile, ok };
     receipt.rows.push(entry);
     out(`${ok ? "PASS" : "FAIL"} ${row.id} (${r.seconds}s${warnings ? `, ${warnings} doc warning(s)` : ""}${r.timedOut ? ", timed out" : ""})`);
     save();
@@ -305,6 +350,7 @@ export async function main(argv, deps = {}) {
       receipt.failedAt = row.id;
       receipt.finishedAt = new Date().toISOString();
       save();
+      if (!attestation.verified) err(`  attestation: ${attestation.reason}`);
       for (const line of r.out.split("\n").filter((l) => /^(error|warning)(\[|:)/.test(l)).slice(0, 12)) err(`  ${line}`);
       return 1;
     }
@@ -331,7 +377,7 @@ export function receiptRefusal(receipt, { sha, registry, unit, config, version }
   if (!Array.isArray(receipt.rows) || receipt.rows.length !== expected.length || !expected.length) return "missing or extra compile rows";
   for (const [i, row] of expected.entries()) {
     const got = receipt.rows[i];
-    if (got.id !== row.id || got.command !== `rustright cargo ${row.args.join(" ")}` || got.ok !== true || got.exit !== 0 || got.timedOut !== false || got.warnings !== 0 || !got.brokerRequests?.length || !got.brokerRequests.every((id) => /^[0-9a-f-]{36}$/.test(id))) return `unproven compile row ${row.id}`;
+    if (got.id !== row.id || got.command !== `rustright cargo ${row.args.join(" ")}` || got.ok !== true || got.exit !== 0 || got.timedOut !== false || got.warnings !== 0 || !got.brokerRequests?.length || !got.brokerRequests.every((id) => /^[0-9a-f-]{36}$/.test(id)) || got.attestation?.verified !== true || got.attestation.signatureVerified !== true || typeof got.attestation.nonce !== "string" || got.attestation.nonce.length !== 64 || got.attestation.requestId !== got.brokerRequests[0]) return `unproven compile row ${row.id}`;
   }
   return null;
 }

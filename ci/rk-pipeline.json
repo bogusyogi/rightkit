@@ -32,16 +32,29 @@
     "exceptions": {
       "rightkit-ffmpeg": {
         "version": "0.2.10",
-        "allow": ["allow_missing_assets"],
+        "allow": [
+          "allow_missing_assets"
+        ],
         "reason": "ci/asset-gated.json: its tests need FFmpeg and ffprobe development builds the publish workflow does not provision; those tests skip hosted and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-motion": {
         "version": "0.2.0",
-        "allow": ["allow_missing_assets"],
+        "allow": [
+          "allow_missing_assets"
+        ],
         "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
       }
     },
     "watchTimeoutMinutes": 180,
     "retryPolicy": "No automatic retry for unchanged SHA/unit. Reconcile ambiguous remote effects before any new attempt."
+  },
+  "attestation": {
+    "darwin": {
+      "host": "Adrians-Mac-Mini.local",
+      "keyId": "a9eb1ceeaa6b1cec899a7e5d01a97a084308a585c3e2c409510d02774ef7134f",
+      "publicKey": "04248e98a439add3f13756be789c4091a5e9735fbe4e85768d394eedbffc685f63ae4ad3e1a68dfee87008955b308dcdf5d142b1a760bf45e4ea0b2d3430c22dcb",
+      "brokerDigest": "fe179004769e710d7fe9c15a17a857be1eafb7e5b5249e18807126fba4ac4344",
+      "note": "Enrollment of this host's installed broker for receipt verification (attested-runs.md 'Verifying a receipt'): public key, key id and broker digest read from the control root and runtime manifest, never from a receipt."
+    }
   }
 }
