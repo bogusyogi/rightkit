@@ -1,0 +1,38 @@
+{
+  "package": "rightkit-overlay-win",
+  "capabilities": [
+    {
+      "capability": "windows-native-overlay-renderer",
+      "summary": "Native Windows overlay renderer (Win32 layered window, GDI software canvas, DWM pacing; no WebView2) for Right Suite pills and notches, consuming rightkit-overlay's state, hit testing and placement",
+      "fingerprints": [
+        {
+          "id": "overlay-win.api.update-layered-window",
+          "type": "source",
+          "pattern": "\\bUpdateLayeredWindow\\s*\\(",
+          "codeOnly": true,
+          "extensions": [
+            ".rs",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".h",
+            ".cs"
+          ],
+          "tier": "advise",
+          "usageContext": {
+            "hosts": [
+              "windows"
+            ],
+            "scope": "Executable code only; authenticated owner provenance required for exclusions"
+          },
+          "tierReason": "No recorded published-version qualification: the crate is imported from HeardRight (bogusyogi/rightkit#896) and not yet published."
+        }
+      ],
+      "detection": "fingerprinted",
+      "policyNotes": [
+        "Package contract retained; dependency declarations do not verify integration.",
+        "Visual design and the app's state machine stay per-app; the renderer, window ownership thread and layered-window presentation are shared (bogusyogi/rightkit#896)."
+      ]
+    }
+  ]
+}

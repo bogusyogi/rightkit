@@ -89,6 +89,9 @@
       ],
       "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)"
     },
+    "rightkit-overlay-win": {
+      "allowIgnored": "tests/windows_smoke.rs::create_show_animate_hide_close and tests/windows_gdi_handles.rs (GDI handle-count soak) are #[ignore] on purpose: both need an interactive Windows desktop (real layered windows, 30 cycles / 3 overlapping overlays / 400 resizes) and run by hand with --ignored on a workstation; the unit tests in src/ run and assert on every default run (2 ignored per default run on Windows; both files are cfg(windows) and compile empty elsewhere)"
+    },
     "rightkit-child-process": {
       "alsoSerial": true,
       "allowIgnored": "tests/handle_inheritance.rs::inheritance_child is #[ignore] on purpose: it is the re-exec helper body that assert_inheritance spawns with --ignored, not a test of its own (1 ignored per run, 2 with alsoSerial); the tests that spawn it run and assert"

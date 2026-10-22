@@ -1,0 +1,27 @@
+rightkit-overlay-win: provenance of lifted and adapted work
+
+This crate was written for Right Suite from two Orthic Labs sources. Neither is a third-party
+work; the notices record where the techniques came from.
+
+1. Pulse for Windows, `windows/src/canvas.rs` and `windows/src/surface.rs` (Orthic Labs, in the
+   Pulse repository). The software rasteriser follows that canvas: premultiplied 0xAARRGGBB
+   composition, signed-distance rounded rectangles, the clockwise ring-arc stroke with round caps,
+   the sub-scanline polygon fill with exact horizontal coverage, the distance-field polyline
+   stroke, and the top-down 32-bit DIB section presented with `UpdateLayeredWindow` and
+   `AC_SRC_ALPHA`. The GDI grey-coverage text mask approach is from `surface.rs`. The continuous
+   (squircle) corner (`Continuous`: Apple's three cubic Beziers per corner, a curve lookup table
+   and sub-sampled edge coverage) and the bilinear premultiplied image blit (`draw_image`) from
+   `canvas.rs` are carried over as `PaintCtx::fill_squircle`, `stroke_squircle`, `blit_rgba` and
+   `blit_premultiplied`.
+
+2. HeardRight native pill renderer, `tauri-app-next/src-tauri/src/pill_native.rs` as of commit
+   a1361a06^ (Orthic Labs, in the HeardRight repository). The layered-window owner thread, the
+   WM_MOUSELEAVE hover subscription, press/release click matching, the box-blur glass layer
+   cache and the SVG path-data icon parser (arc-to-cubic conversion) come from it, re-expressed
+   without tiny-skia or ab_glyph.
+
+Adapted from Pulse for Windows (Orthic Labs), windows/src/canvas.rs and windows/src/surface.rs,
+relicensed by Orthic Labs under MIT OR Apache-2.0 on 2026-10-22 on Adrian D'souza's instruction;
+the rest of Pulse remains all rights reserved. Nothing else from Pulse (raii.rs, glyphs.rs,
+motion.rs) is used here. The HeardRight source above is Orthic Labs' own and is published under
+the same terms. This crate is cleared for the public registry under MIT OR Apache-2.0.
