@@ -149,3 +149,29 @@ test("hosts without a protected trust location load as pending and trust-absent"
     Object.defineProperty(process, "platform", original);
   }
 });
+
+test("win32 trust audit: ACL answers are memoised per runner for the TTL, a failure is not, and the memo never crosses runners", () => {
+  const ok = (sid) => ({ status: 0, stdout: JSON.stringify({ ownerSID: sid, ownerName: "x", attributes: "Directory", directory: true, nonempty: true, elevated: false, access: [] }) });
+  const file = path.join("C:\\", "a", "b", "trust.json");
+  let clock = 1_000_000;
+  const calls = [];
+  const runner = (cmd, args, options) => { calls.push(options.env.RK_TRUST_CHECK_TARGET); return ok("S-1-5-18"); };
+  const inspect = () => ({ isSymbolicLink: () => false });
+  const opts = { runner, inspect, stat: () => ({}), now: () => clock };
+  __testOnly.protectedLocation(file, "win32", opts);
+  const first = calls.length;
+  assert.equal(first, 4, "C:\, C:\a, C:\a\b and the file");
+  __testOnly.protectedLocation(file, "win32", opts);
+  assert.equal(calls.length, first, "within the TTL every answer is reused");
+  __testOnly.protectedLocation(path.join("C:\\", "a", "other.json"), "win32", opts);
+  assert.equal(calls.length, first + 1, "only the new path is looked up; shared ancestors are reused");
+  clock += 30_001;
+  __testOnly.protectedLocation(file, "win32", opts);
+  assert.equal(calls.length, first + 1 + 4, "after the TTL everything is looked up again");
+  const failing = (cmd, args, options) => { calls.push(`fail:${options.env.RK_TRUST_CHECK_TARGET}`); return { status: 1, stdout: "", stderr: "denied" }; };
+  const failOpts = { ...opts, runner: failing };
+  const before = calls.length;
+  assert.equal(__testOnly.protectedLocation(file, "win32", failOpts).ok, false);
+  __testOnly.protectedLocation(file, "win32", failOpts);
+  assert.equal(calls.length, before + 8, "a failed lookup is never cached, and another runner has its own memo");
+});

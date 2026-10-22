@@ -302,7 +302,23 @@ export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, 
   if (trust.policyBundle?.digest && policyBundleDigest !== undefined && trust.policyBundle.digest !== policyBundleDigest) warnings.push(POLICY_BUNDLE_DRIFT_WARNING);
   return { ok: problems.length === 0, problems, warnings };
 }
-function protectedLocation(file, platform, { runner = spawnSync, inspect = lstatSync, stat = statSync, requireNonElevated = true } = {}) {
+// Windows ACL answers, per runner, for a short window: every trust check walks the same ancestor directories (C:\, C:\Users, ...)
+// and each answer costs a Windows PowerShell start (~2 s), so a scan of many files repeated the same lookups hundreds of times
+// (the fingerprint-samples test: 187 scanner runs, ~8 ancestors each). An ACL that changes within the window is caught on the
+// next check after it; a failed lookup is never cached.
+const WINDOWS_ACL_MEMO = new WeakMap();
+export const WINDOWS_ACL_MEMO_TTL_MS = 30_000;
+function windowsAclLookup(runner, target, script, now) {
+  let memo = WINDOWS_ACL_MEMO.get(runner);
+  if (!memo) { memo = new Map(); WINDOWS_ACL_MEMO.set(runner, memo); }
+  const hit = memo.get(target);
+  if (hit && now - hit.at < WINDOWS_ACL_MEMO_TTL_MS) return hit.r;
+  const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnvironment({ RK_TRUST_CHECK_TARGET: target }) });
+  if (r && r.status === 0) memo.set(target, { at: now, r }); else memo.delete(target);
+  return r;
+}
+
+function protectedLocation(file, platform, { runner = spawnSync, inspect = lstatSync, stat = statSync, requireNonElevated = true, now = Date.now } = {}) {
   const problems = [];
   if (platform === "win32") {
     const dirs = [];
@@ -316,8 +332,8 @@ function protectedLocation(file, platform, { runner = spawnSync, inspect = lstat
     for (const target of dirs) {
       try { if (inspect(target).isSymbolicLink()) problems.push(`trust path contains a reparse/symlink: ${target}`); } catch { problems.push(`cannot inspect trust path: ${target}`); continue; }
       const script = "$ErrorActionPreference='Stop'; $a=Get-Acl -LiteralPath $env:RK_TRUST_CHECK_TARGET; $item=Get-Item -Force -LiteralPath $env:RK_TRUST_CHECK_TARGET; $id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id); $ownerSid=$a.GetOwner([Security.Principal.SecurityIdentifier]).Value; $ownerName=$a.Owner; $out=[ordered]@{ownerSID=$ownerSid;ownerName=$ownerName;attributes=$item.Attributes.ToString();directory=[bool]$item.PSIsContainer;nonempty=(!$item.PSIsContainer -or [System.IO.Directory]::EnumerateFileSystemEntries($item.FullName).GetEnumerator().MoveNext());elevated=$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);access=@($a.Access | ForEach-Object { [ordered]@{identitySID=$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value;type=$_.AccessControlType.ToString();mask=[int64]$_.FileSystemRights.value__;propagationFlags=[int]$_.PropagationFlags} })}; $out | ConvertTo-Json -Compress -Depth 5";
-      const r = runner("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: windowsPowerShellEnvironment({ RK_TRUST_CHECK_TARGET: target }) });
-      if (r.status !== 0) { problems.push(`cannot inspect trust ACL: ${target}`); continue; }
+      const r = windowsAclLookup(runner, target, script, now());
+      if (!r || r.status !== 0) { problems.push(`cannot inspect trust ACL: ${target}`); continue; }
       try {
         const acl = JSON.parse(r.stdout.trim());
         const result = evaluateWindowsAcl(acl, { target, requireNonElevated });
