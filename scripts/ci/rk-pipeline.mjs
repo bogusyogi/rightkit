@@ -34,7 +34,7 @@ export function parseArgs(argv) {
     else if (arg === "--jobs") opts.jobs = Number(rest[++i]);
     else if (arg === "--wait") opts.wait = true;
     else if (arg.startsWith("--")) throw new Error(`unknown argument ${arg}`);
-    else opts.units.push(arg);
+    else opts.units.push(...arg.split(/\s+/).filter(Boolean)); // one quoted list or many arguments, both fine
   }
   if (!["ready", "preflight", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, dispatch, watch or loop");
   if (!["crates", "npm"].includes(opts.registry)) throw new Error("--registry must be crates or npm");

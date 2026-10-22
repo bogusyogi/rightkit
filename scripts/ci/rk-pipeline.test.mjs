@@ -10,6 +10,7 @@ test("argv: command, units, registry and jobs", () => {
   assert.throws(() => parseArgs(["preflight", "x", "--jobs", "0"]), /positive integer/);
   const opts = parseArgs(["dispatch", "rightkit-daemon", "rightkit-crash", "--jobs", "3"]);
   assert.deepEqual(opts.units, ["rightkit-daemon", "rightkit-crash"]);
+  assert.deepEqual(parseArgs(["preflight", "rightkit-daemon rightkit-crash "]).units, ["rightkit-daemon", "rightkit-crash"], "a single space-joined argument is split");
   assert.equal(opts.jobs, 3);
   assert.equal(opts.registry, "crates");
 });
