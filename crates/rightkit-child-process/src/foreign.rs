@@ -546,7 +546,7 @@ pub(crate) fn session_groups(sid: NonZeroU32) -> io::Result<Vec<libc::pid_t>> {
     Ok(groups)
 }
 
-/// Sends `signal` to every process group in session `sid` (see [`session_groups`]). Returns
+/// Sends `signal` to every process group in session `sid` (see `session_groups`). Returns
 /// `true` when at least one group was found and reached. Unix only. Best effort: the groups are
 /// found by a process-table scan and signalled by group id, so a group that exits and whose id
 /// is reused between the scan and the signal can be hit. Use it for a session the caller

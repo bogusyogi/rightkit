@@ -36,12 +36,17 @@ test("doc warnings count every warning line except cargo's summary; broker reque
 });
 
 test("tool parity refuses a missing or wrong-digest shellcheck and an unpinned actionlint version", () => {
-  const pins = { actionlint: "1.7.12", shellcheck: { darwin: { path: "/tools/shellcheck", sha256: "aa" } } };
-  const spawnFn = (cmd, args) => ({ status: 0, stdout: cmd === "actionlint" ? "1.7.12\n" : cmd === "rustfmt" ? "rustfmt 1.8.0\n" : "ShellCheck - shell script analysis tool\nversion: 0.10.0\n" });
+  const pins = { actionlint: "1.7.12", rustfmt: { toolchain: "1.98.0", version: "rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)", darwin: { path: "/tc/1.98.0/bin/rustfmt" } }, shellcheck: { darwin: { path: "/tools/shellcheck", sha256: "aa" } } };
+  const spawnFn = (cmd, args) => ({ status: 0, stdout: cmd === "actionlint" ? "1.7.12\n" : cmd.endsWith("rustfmt") ? "rustfmt 1.9.0-stable (88d9e12ae1 2026-08-18)\n" : "ShellCheck - shell script analysis tool\nversion: 0.10.0\n" });
   const base = { pins, spawnFn, exists: () => true, digest: () => "aa", platform: "darwin" };
   const good = checkTools(base);
   assert.deepEqual(good.problems, []);
   assert.equal(good.observed.shellcheck.sha256, "aa");
+  assert.equal(good.observed.rustfmt.path, "/tc/1.98.0/bin/rustfmt", "the pinned toolchain's rustfmt, never PATH's");
+  const oldFmt = checkTools({ ...base, spawnFn: (cmd, args) => (cmd.endsWith("rustfmt") ? { status: 0, stdout: "rustfmt 1.8.0-stable (4a4ef493e3 2026-03-02)\n" } : spawnFn(cmd, args)) });
+  assert.match(oldFmt.problems.join("\n"), /rustfmt at \/tc\/1.98.0\/bin\/rustfmt is "rustfmt 1.8.0-stable .*", pinned "rustfmt 1.9.0-stable/);
+  const noFmt = checkTools({ ...base, exists: (p) => p !== "/tc/1.98.0/bin/rustfmt" });
+  assert.match(noFmt.problems.join("\n"), /pinned rustfmt is missing/);
   const missing = checkTools({ ...base, exists: () => false });
   assert.match(missing.problems.join("\n"), /pinned shellcheck is missing/);
   const unpinned = checkTools({ ...base, platform: "win32" });

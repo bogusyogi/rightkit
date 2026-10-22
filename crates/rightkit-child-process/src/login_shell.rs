@@ -4,7 +4,7 @@
 //!
 //! The shell is `$SHELL` when it is an absolute, existing file, else `/bin/zsh`, else `/bin/sh`.
 //! It runs as `shell -lic <script>` (login and interactive, so the profile files are read) under
-//! [`run`](crate::run) with stdin closed, a hard deadline (the whole tree is killed at the
+//! [`crate::run`] with stdin closed, a hard deadline (the whole tree is killed at the
 //! deadline, so a profile that waits for a terminal cannot hang the caller) and a capped output.
 //! A timeout, a failure to start, truncated output, or a missing marker returns nothing.
 //!

@@ -111,8 +111,14 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
     observed.shellcheck = { path: sc.path, sha256: d, version: probe(sc.path, ["--version"]) };
     if (sc.sha256 && d !== sc.sha256) problems.push(`shellcheck at ${sc.path} has sha256 ${d}, pinned ${sc.sha256}`);
   }
-  observed.rustfmt = probe("rustfmt", ["--version"]);
-  if (!observed.rustfmt) problems.push("rustfmt is not on PATH");
+  // rustfmt: the exact binary the hosted jobs use (pinned toolchain), never "whatever is newest under $HOME".
+  const fmt = pins.rustfmt ?? {};
+  const fmtPath = fmt[platform]?.path;
+  if (!fmtPath || !exists(fmtPath)) problems.push(`pinned rustfmt is missing at ${fmtPath ?? `(no ${platform} path pinned in ci/rk-pipeline.json)`}`);
+  else {
+    observed.rustfmt = { path: fmtPath, version: probe(fmtPath, ["--version"]) };
+    if (fmt.version && observed.rustfmt.version !== fmt.version) problems.push(`rustfmt at ${fmtPath} is "${observed.rustfmt.version}", pinned "${fmt.version}" (toolchain ${fmt.toolchain ?? "?"})`);
+  }
   observed.node = process.version;
   return { observed, problems };
 }
@@ -189,7 +195,7 @@ export async function main(argv, deps = {}) {
     return 2;
   }
   const scPath = path.dirname(pipeline.tools.shellcheck[process.platform].path);
-  const env = { ...process.env, PATH: `${scPath}${path.delimiter}${process.env.PATH ?? ""}`, CARGO_TERM_COLOR: "never" };
+  const env = { ...process.env, PATH: `${scPath}${path.delimiter}${process.env.PATH ?? ""}`, CARGO_TERM_COLOR: "never", RUSTFMT: pipeline.tools.rustfmt[process.platform].path };
 
   // 2. Deterministic scans, the hosted `scans` job on the same module with the same unit scope.
   if (!opts.rowsOnly) {
