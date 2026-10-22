@@ -835,7 +835,8 @@ export async function runScans(plan, options = {}) {
     await Promise.all(Array.from({ length: testJobs }, () => drain(lanes.tests)));
     if (lanes.quiet.length) {
       let lease = null;
-      if (quietLane && !signal?.aborted) { try { lease = (await quietLane.acquire()) ?? null; } catch { lease = null; } }
+      // No lease when the lane cannot run anyway (class A failed or was not supplied): its rows are not-run without one.
+      if (quietLane && !signal?.aborted && !classAFailed && !classBBlocked) { try { lease = (await quietLane.acquire()) ?? null; } catch { lease = null; } }
       try { await drain(lanes.quiet, lease?.env ?? null); } finally {
         if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* the lease expires on its own */ } }
       }

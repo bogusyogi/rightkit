@@ -140,7 +140,7 @@ importers:
   packages/legal:
     dependencies:
       '@rightkit/release':
-        specifier: ^0.4.1
+        specifier: ^0.4.1 || ^0.5.0
         version: link:../release
     devDependencies:
       '@types/node':
