@@ -1120,3 +1120,15 @@ test("lanes: tests run testJobs at a time after the compile lanes; quiet test sc
   assert.equal(bare.ok, true);
   assert.ok(seen.filter((s) => / test /.test(s.id)).every((s) => s.lease === null));
 });
+
+test("quietTests: 'ci' leaves the quiet crates' test scans to the CI shards with a note naming them; 'local' (default) plans them for the quiet lane", () => {
+  const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
+  const features = { foo: { quietTests: true, alsoSerial: true } };
+  const local = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar, { crateFeatures: features }).plan;
+  assert.ok(ids(local).includes("test:rust:foo") && ids(local).includes("test:rust-serial:foo") && ids(local).includes("test:rust:bar"));
+  const ci = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar, { crateFeatures: features, quietTests: "ci" }).plan;
+  assert.ok(!ids(ci).includes("test:rust:foo") && !ids(ci).includes("test:rust-serial:foo"), "foo's tests are not planned locally");
+  assert.ok(ids(ci).includes("test:rust:bar") && ids(ci).includes("clippy:foo"), "bar's tests and foo's compile scans still are");
+  assert.ok(ci.notes.some((n) => /2 quiet test scan\(s\) left to the CI shards.*test:rust:foo.*test:rust-serial:foo/.test(n)), ci.notes.join("\n"));
+  assert.equal(ci.scans.filter((s) => s.quiet).length, 0);
+});

@@ -965,6 +965,9 @@ export async function main(argv, io = {}) {
 
     const plan = planScans({
       changed, contentRoot: repo, liveRoot: root, includeTests: true, rustScope, cargoCommand,
+      // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
+      // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
+      quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci",
       rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures,
       localCompile: o.exists(path.join(root, GRANT_FILE)),
       exists: o.exists, readFile: o.readFile, platform: o.platform,
@@ -982,6 +985,7 @@ export async function main(argv, io = {}) {
       return 0;
     }
 
+    for (const n of plan.notes) o.out(`${tag} note: ${n}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
     o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time, tests ${testJobs} at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;

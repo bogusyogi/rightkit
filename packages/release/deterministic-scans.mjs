@@ -226,6 +226,10 @@ function commandText(d) {
 export function planScans({
   changed = [], contentRoot, liveRoot = contentRoot, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
   platform = process.platform, includeTests = true, localCompile = true,
+  // Where the quiet test scans (ci/gate.config.json `quietTests`) run: "local" plans them for the quiet lane; "ci" leaves them to the
+  // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
+  // and records a note naming them (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).
+  quietTests = "local",
   // The command prefix every cargo scan runs through: `rightkit cargo` on a managed host, plain `cargo` in CI.
   cargoCommand = ["rightkit", "cargo"],
   // Physical containment: a changed path whose real path leaves the real content root (a symlink) is refused.
@@ -505,17 +509,23 @@ export function planScans({
     else notes.push("swift files changed; `swift build` is required on the Mac host before its push");
   }
   if (includeTests) {
+    const deferredToCi = [];
     // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them. `quietTests: true` marks
     // every test scan of the crate for the quiet lane (laneOf): run alone, under the broker's quiet lease.
     for (const name of crateNames) {
       const own = featuresOf(name);
       const sets = rustCratePlan(own).lintSets;
       const quiet = own.quietTests === true ? { quiet: true } : {};
+      if (own.quietTests === true && quietTests === "ci") {
+        deferredToCi.push(...sets.map((set, i) => rustScanId.testRust(name, sets.length, i)), ...(own.alsoSerial ? sets.map((set, i) => rustScanId.testRustSerial(name, sets.length, i)) : []));
+        continue;
+      }
       sets.forEach((set, i) => {
         add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast") });
         if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
       });
     }
+    if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     for (const name of pkgNames) {
       let manifest = null;
       try { manifest = JSON.parse(readFile(path.join(liveRoot, npmDir(name), "package.json"))); } catch { /* unreadable manifest: no test row */ }
