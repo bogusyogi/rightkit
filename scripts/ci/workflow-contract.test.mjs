@@ -25,7 +25,7 @@ import {
 // the workflow must carry exactly. The live proof (assertPublishDoc plus the
 // mutation run) belongs to the integration owner, who runs the checks.
 test("the qualification job list gains exactly the two credentials jobs", () => {
-  assert.deepEqual(ALL_JOBS, ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"]);
+  assert.deepEqual(ALL_JOBS, ["guard", "scans", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"]);
 });
 
 test("credentials gating covers crates rightkit-credentials runs only", () => {

@@ -11,11 +11,12 @@
 //
 // Sharded CI (.github/workflows/ci.yml): scripts/ci/ci-plan.mjs plans the run (`--plan --host <windows|macos|linux>` answers for
 // another runner OS) and every job names its own units, so independent crates and packages run in parallel jobs:
-//   gate.mjs --select "<tokens>" [--steps lock,fmt,test,closure] [--base <sha>]
+//   gate.mjs --select "<tokens>" [--steps lock,fmt,test,closure,scans] [--base <sha>]
 // Tokens: rust:<crate> (tests, clippy and every feature row of a crate), rust-check:<crate> (a dependent that must still compile),
 // npm:<dir>, root:<suite id>, swift:<package id>. The diff and the last-green marker are not read: the plan already applied them.
 // `--steps` picks what runs (default: all): lock = Cargo.lock check, fmt = rustfmt, test = tests/clippy/feature rows/npm/root/Swift,
-// closure = compile the rust-check dependents. Known-red and the pass/fail report work exactly as in a diff run.
+// closure = compile the rust-check dependents, scans = the class A deterministic scans over the changed paths (every tracked
+// file without a --base). A job without the scans step needs RK_SCANS_JOB_RESULT=success from the hygiene job. Known-red and the pass/fail report work exactly as in a diff run.
 //
 // Publish verification (.github/workflows/publish.yml) names its units explicitly:
 //   gate.mjs --registry npm|crates --units "<names>" [--allow-host-exclusion "<names>"] [--allow-no-test "<names>"]
@@ -35,7 +36,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkArgs, clippyArgs, deterministicScansEnabled, planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
+import { checkArgs, clippyArgs, planScans, runScans, scanDeferrals, scanFailures } from "../../packages/release/deterministic-scans.mjs";
+import { scanGatePassed } from "./scan-receipt.mjs";
 import { judgeUnit, mergeCounts, ResultScanner, TEST_COMMAND } from "./test-results.mjs";
 import { dependentClosureEvidence } from "./gate-evidence.mjs";
 import { needsChrome, provisionForTests } from "./provision-chrome.mjs";
@@ -464,6 +466,8 @@ function scanPaths(selection) {
       ? git("ls-files").stdout.split("\n").filter(Boolean)
       : git("diff", "--name-only", "--diff-filter=ACMR", selection.base, "HEAD").stdout.split("\n").filter(Boolean);
   }
+  // A sharded run with no changed-path base cannot say what changed, so the scans cover every tracked file (Rust, npm, workflow, scripts, docs).
+  if (!selection.base && !UNIT_MODE) return git("ls-files").stdout.split("\n").filter(Boolean);
   const paths = new Set();
   if (selection.base) for (const f of git("diff", "--name-only", "--diff-filter=ACMR", selection.base, "HEAD").stdout.split("\n").filter(Boolean)) paths.add(f);
   const crateDirs = new Map(rustMembers(selection.config).map((m) => [m.name, m.dir]));
@@ -492,7 +496,8 @@ async function scansGate(selection) {
   const seconds = Math.round((Date.now() - started) / 1000);
   for (const row of result.scans) results.push({ unit: "scans", command: `scan ${row.id}`, ok: row.status === "pass", code: row.status === "pass" ? 0 : 1, seconds: 0 });
   if (!result.scans.length) results.push({ unit: "scans", command: "scan (none selected)", ok: true, code: 0, seconds });
-  return failures.length === 0 && result.ok;
+  // Success means every planned class A scan ran and passed: a deferred, not-run, failed or missing scan is not success.
+  return scanGatePassed(plan.scans.filter((x) => x.class === "A"), result) && failures.length === 0;
 }
 
 async function npmGate(selection) {
@@ -665,13 +670,15 @@ if (process.env.GITHUB_ACTIONS !== "true") {
 }
 console.log(`Selection: ${JSON.stringify({ base: selection.base, all: selection.all, rust: selection.rust, npm: selection.npm.test, root: selection.root, swift: selection.swift })}`);
 // Class A scans run once per CI run, in the hygiene job (step lock), before any compile or test work (class B).
-// DORMANT by default: only ci/gate.config.json deterministicScans.enabled === true runs them. Disabled is never counted as success.
-let scansPassed = true;
-if (STEPS.has("lock")) {
-  if (deterministicScansEnabled(selection.config)) scansPassed = await scansGate(selection);
-  else console.log("deterministic scans: disabled (not run)");
-}
-if (!scansPassed) console.log("class A scans failed: class B (compile, lint and test steps) is not run");
+// ON by default in CI (rightkit#888, Astra policy C): there is no config switch. scansPassed starts false and is true only when
+// this job ran the `scans` step and every planned scan passed, or when the workflow's `needs:` handed this job the hygiene
+// job's success (RK_SCANS_JOB_RESULT=success; ci.yml makes every shard and closure job need hygiene). Nothing else is proof.
+let scansPassed = false;
+if (STEPS.has("scans")) scansPassed = await scansGate(selection);
+else if (process.env.RK_SCANS_JOB_RESULT === "success") scansPassed = true;
+else if (!STEPS.has("test") && !STEPS.has("closure")) scansPassed = true; // lock/fmt only: no class B work is gated here
+else results.push({ unit: "scans", command: "class A scans: no scans step here and no successful hygiene result (RK_SCANS_JOB_RESULT)", ok: false, code: 1, seconds: 0 });
+if (!scansPassed) console.log("class A scans did not pass: class B (compile, lint and test steps) is not run");
 else {
   if (STEPS.has("test")) await chromeGate(selection);
   await rustGate(selection, selection.config, consumers);

@@ -33,19 +33,33 @@ What is implemented today:
   and run no repository code; class B scans (clippy, check, doc, tsc, tests, the repository's docs
   generator) start only after class A passes. Content scans run on the exported HEAD. A required
   tool that is missing fails the scan.
-- `scripts/local-gate.mjs` (the pre-push hook) runs the module. RightKit has no local compile grant,
-  so the class B scans that compile or run tests are reported as deferred by name and are not
-  counted as passed; class A cargo scans run plain `cargo`.
-- `scripts/ci/gate.mjs` carries the class A scan step through the same runner (planner option
-  `cargoCommand: ["cargo"]`, plain tool in CI) in the hygiene job (step `lock`), before any compile
-  or test step; a failed scan stops them. It ships DORMANT: it runs only when
-  `ci/gate.config.json` has `deterministicScans.enabled === true` (absent or false is off). When off the gate
-  prints `deterministic scans: disabled (not run)`, which is never scan success or qualification evidence.
-  Class B stays in the shard jobs.
-- `deferredBeforeEnable` (these gate ENABLING the step, not shipping the dormant code): deferred `doc:*`
-  scans have no CI path yet; changed-path and base coverage for workflow-only and package-only changes in
-  `ci.yml` (the hygiene job passes no `--base`); pinned provisioning of `cargo-deny`, `cargo-audit` and
-  `actionlint` via right-git; class B wiring through the shared runner.
+- `scripts/local-gate.mjs` (the pre-push hook) runs the module, classes A and B with the changed
+  units' tests, before any push or CI build (Adrian 2026-10-22, #888). It needs the committed local
+  compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rightkit cargo`, or
+  the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate,
+  and so does a checkout that differs from HEAD where the broker scans read it. A change to a root
+  workspace file (`Cargo.lock`, `Cargo.toml`, toolchain, `.cargo/`, pnpm lock or workspace) puts every
+  crate or package in scope.
+- The scans are always on in CI: there is no enable switch and no `deterministicScans` config key.
+  A missing tool, a deferred scan or a failed scan fails the job; none of them is ever scan success.
+- `publish.yml` job 0, `scans`, runs `scripts/ci/run-deterministic-scans.mjs` (class A only, the
+  whole candidate, no changed-file narrowing; every planned class A scan must pass) before `plan` and
+  every build lane, with `cargo-deny` 0.20.2 and `cargo-audit` 0.22.2 (SHA-pinned
+  `taiki-e/install-action`) and a checksum-verified `actionlint` 1.7.7. It runs on Ubuntu, where
+  native crates do not compile, so class B (compile, lint) runs in the native `verify` jobs on their own
+  hosts. `verify` and `verify-linux` `needs: scans` and pass `needs.scans.result` to `gate.mjs` as
+  `RK_SCANS_JOB_RESULT`; `scans` is not a default gate step and those jobs install no scan tools. It uploads
+  the scan receipt (classes `["A"]`), which `publish-reviewed.yml` verifies against the original run (commit,
+  `Cargo.lock` digest, tool versions, every scan passed) before any upload.
+- `ci.yml` runs the class A scans in the `hygiene` job (`gate.mjs --steps scans`) with the same pinned
+  tools, before any compile or test step, for every change: Rust, npm, workflow, scripts and docs. The
+  plan job passes `scan_base`, the oldest changed-path base of the runners; without a base (a full
+  run) every tracked file is scanned. Shard and closure jobs `needs: hygiene`, so they start only after
+  it succeeds, and receive its result as `RK_SCANS_JOB_RESULT`. A gate job that neither ran the scans
+  step nor received that success runs no class B work and fails.
+  `scripts/ci/ci-scans-contract.mjs` asserts these rules on the parsed `ci.yml` and proves them by mutation.
+- Still open: deferred `doc:*` scans have no CI path in `ci.yml` yet; class B in the shard jobs does not
+  run through the shared runner (clippy and check command lines are shared, execution is not).
 - Class A evidence for class B binds to the input content (`inputDigest` of the changed files), the class A
   scan set and a run that included class A; excluding every class A scan, or a plan with none, needs explicit
   prior evidence. Changed paths are checked lexically and by real path (symlinks). Class A pnpm scans run with

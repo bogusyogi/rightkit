@@ -58,8 +58,76 @@ jobs:
             exit 1
           fi
 
-  plan:
+  # Job 0 (rightkit#888): the shared deterministic scans (class A only, whole candidate, no deferral) run before
+  # plan and before every build lane; publish-reviewed.yml refuses a candidate without this job's receipt. Class B
+  # (compile, lint) runs in the native verify jobs on their own hosts, never here: native crates do not build on Ubuntu.
+  # verify and verify-linux need scans and pass its result to gate.mjs (RK_SCANS_JOB_RESULT); they install no scan tools.
+  scans:
     needs: [guard]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+          submodules: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: live
+          persist-credentials: false
+          submodules: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26.8.1"
+          package-manager-cache: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.24.0
+          run_install: false
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
+        with:
+          components: clippy, rustfmt
+      - name: Install the pinned Cargo scan tools
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2
+      - name: Install the pinned workflow linter
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --output "$archive" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/actionlint-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint-bin" actionlint
+          echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      - name: Install workspace dependencies without lifecycle scripts for the class B type and lint scans
+        working-directory: live
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run the shared deterministic scans over the whole candidate
+        env:
+          SCAN_CONTENT_ROOT: ${{ github.workspace }}/source
+          SCAN_LIVE_ROOT: ${{ github.workspace }}/live
+          SCAN_OUT: ${{ runner.temp }}/scan-receipt
+        run: node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"
+      - name: Keep the scan receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: scan-receipt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/scan-receipt
+          retention-days: 90
+          overwrite: false
+          if-no-files-found: error
+
+  plan:
+    needs: [guard, scans]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -83,7 +151,7 @@ jobs:
       - name: Check the publish route's own contract
         run: |
           node scripts/ci/workflow-contract.mjs .github/workflows/publish.yml
-          node --test scripts/ci/publish.test.mjs scripts/ci/select.test.mjs scripts/ci/test-results.test.mjs
+          node --test scripts/ci/publish.test.mjs scripts/ci/select.test.mjs scripts/ci/test-results.test.mjs scripts/ci/scan-receipt.test.mjs
           node scripts/ci/reviewed-workflow-contract.mjs
           node --test scripts/ci/reviewed-candidate.test.mjs scripts/ci/registry-consumer.test.mjs scripts/ci/workflow-contract-portability.test.mjs
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0
@@ -111,7 +179,7 @@ jobs:
         run: cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses
 
   build-swap:
-    needs: [guard, plan]
+    needs: [guard, scans, plan]
     if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'npm' && contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/release ') }}
     runs-on: xcode-27
     timeout-minutes: 60
@@ -242,7 +310,7 @@ jobs:
   # and Developer ID signs it. macOS verify downloads the same-run signed artifact for the
   # rightkit-credentials native-helper run.
   build-credentials-helper:
-    needs: [guard, plan]
+    needs: [guard, scans, plan]
     if: ${{ needs.plan.outputs.count != '0' && needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') }}
     runs-on: xcode-27
     timeout-minutes: 60
@@ -529,7 +597,7 @@ jobs:
           if-no-files-found: error
 
   verify:
-    needs: [guard, plan, pack, build-credentials-helper, sign-credentials-helper]
+    needs: [guard, scans, plan, pack, build-credentials-helper, sign-credentials-helper]
     if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' && ((needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ') && needs.build-credentials-helper.result == 'success' && needs.sign-credentials-helper.result == 'success') || ((needs.plan.outputs.registry != 'crates' || !contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-credentials ')) && needs.build-credentials-helper.result == 'skipped' && needs.sign-credentials-helper.result == 'skipped')) }}
     strategy:
       fail-fast: false
@@ -637,6 +705,7 @@ jobs:
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
+          RK_SCANS_JOB_RESULT: ${{ needs.scans.result }}
           RK_R2_CFT_ROOT: ${{ env.RK_R2_CFT_ROOT }}
           RK_R2_CFT_SHA256: ${{ env.RK_R2_CFT_SHA256 }}
           RK_R2_HEADLESS_SHELL_SHA256: ${{ env.RK_R2_HEADLESS_SHELL_SHA256 }}
@@ -688,7 +757,7 @@ jobs:
   # and only when the request names one. It runs those units through the same gate and writes the same receipt
   # (publish-receipt-verify-ubuntu-24.04); upload.mjs checkReceipts then requires that receipt for exactly that set.
   verify-linux:
-    needs: [guard, plan, pack]
+    needs: [guard, scans, plan, pack]
     if: ${{ !cancelled() && needs.guard.result == 'success' && needs.plan.result == 'success' && needs.pack.result == 'success' && needs.plan.outputs.count != '0' && needs.plan.outputs.linux_count != '0' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -748,6 +817,7 @@ jobs:
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
+          RK_SCANS_JOB_RESULT: ${{ needs.scans.result }}
         run: node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"
       - name: Verify the sealed bytes and write this host's receipt
         shell: bash

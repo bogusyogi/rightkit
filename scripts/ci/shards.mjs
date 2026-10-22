@@ -36,7 +36,11 @@ export const DEFAULT_SHARDS = Object.freeze({
 });
 
 export const HOSTS = Object.freeze(["windows", "macos", "linux"]);
+// `scans` = the class A deterministic scans (rightkit#888). It is NOT in the default step list: a job runs it only when it
+// passes `--steps scans` (ci.yml hygiene). Every other job that runs test or closure must be told by workflow `needs:` that a
+// scans job succeeded (RK_SCANS_JOB_RESULT), because those jobs do not install cargo-deny or cargo-audit.
 export const STEPS = Object.freeze(["lock", "fmt", "test", "closure"]);
+export const KNOWN_STEPS = Object.freeze([...STEPS, "scans"]);
 export const SWIFT_ROOT_MANIFEST = "swift/root-manifest";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -186,6 +190,24 @@ export function planHygiene(selections) {
 }
 
 /**
+ * The changed-path base of the hygiene scans: the oldest base any runner's diff starts at (their merge base), so workflow,
+ * package, scripts and docs changes of every runner are covered. Empty means "scan every tracked file": a runner with a
+ * full run or no base, or a merge base that cannot be resolved. `gitRun(...args)` returns { status, stdout }.
+ */
+export function scanBase(selections, gitRun) {
+  const isSha = (value) => /^[0-9a-f]{40}$/i.test(value ?? "");
+  if (!selections.length || selections.some((s) => s.all || !isSha(s.base))) return "";
+  let merged = selections[0].base;
+  for (const { base } of selections.slice(1)) {
+    if (base === merged) continue;
+    const r = gitRun("merge-base", merged, base);
+    merged = r?.status === 0 ? String(r.stdout).trim() : "";
+    if (!isSha(merged)) return "";
+  }
+  return merged;
+}
+
+/**
  * Parse the gate's `--select` list. Tokens (space separated):
  *   rust:<crate>        test, clippy and feature rows of a crate        rust-check:<crate>   compile a dependent
  *   npm:<dir>           npm package tests (dir as in packages/<name>)    root:<suite id>      root node suites
@@ -216,12 +238,12 @@ export function parseSelectTokens(text, known) {
   return selection;
 }
 
-/** Parse `--steps` ("lock,fmt,test,closure"); default is every step. */
+/** Parse `--steps` ("lock,fmt,test,closure,scans"); the default is lock, fmt, test and closure: `scans` runs only when named. */
 export function parseSteps(text) {
   if (text === undefined || text === "") return new Set(STEPS);
   const steps = String(text).split(/[\s,]+/).filter(Boolean);
-  const bad = steps.filter((s) => !STEPS.includes(s));
-  if (bad.length || steps.length === 0) throw new Error(`unknown step(s) ${bad.map((s) => JSON.stringify(s)).join(", ") || "(none)"}; steps are ${STEPS.join(", ")}`);
+  const bad = steps.filter((s) => !KNOWN_STEPS.includes(s));
+  if (bad.length || steps.length === 0) throw new Error(`unknown step(s) ${bad.map((s) => JSON.stringify(s)).join(", ") || "(none)"}; steps are ${KNOWN_STEPS.join(", ")}`);
   return new Set(steps);
 }
 

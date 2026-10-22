@@ -42,7 +42,7 @@ export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
   PUBLISH_ALLOW_NO_TEST: PLAN_OUT("allow_no_test"), PUBLISH_ALLOW_IGNORED: PLAN_OUT("allow_ignored"), PUBLISH_ALLOW_MISSING_ASSETS: PLAN_OUT("allow_missing_assets"),
 };
-export const ALL_JOBS = ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"];
+export const ALL_JOBS = ["guard", "scans", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"];
 export const QUALIFIED_RUN = 'test "$GUARD_RESULT" = success\ntest "$PLAN_RESULT" = success\ntest "$PACK_RESULT" = success\ntest "$VERIFY_RESULT" = success\ntest "$UNIT_COUNT" -gt 0\ntest "$LINUX_COUNT" -ge 0\ntest "$VERIFY_LINUX_RESULT" = "$LINUX_EXPECTED_RESULT"\n';
 export const QUALIFIED_ENV = { GUARD_RESULT: "${{ needs.guard.result }}", PLAN_RESULT: "${{ needs.plan.result }}", PACK_RESULT: "${{ needs.pack.result }}", VERIFY_RESULT: "${{ needs.verify.result }}", VERIFY_LINUX_RESULT: "${{ needs.verify-linux.result }}", UNIT_COUNT: "${{ needs.plan.outputs.count }}", LINUX_COUNT: "${{ needs.plan.outputs.linux_count }}", LINUX_EXPECTED_RESULT: "${{ needs.plan.outputs.linux_count != '0' && 'success' || 'skipped' }}" };
 // sign-swap signs one binary (rightkit-swap) for @rightkit/release. It is the only qualification job that may use an
@@ -213,6 +213,18 @@ export const SIGN_CREDENTIALS_ARTIFACT = "rightkit-credentials-helper-signed";
 export const DENY_IF = "${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}";
 export const DENY_TOOL = "cargo-deny@0.20.2";
 export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses";
+// Job 0 (rightkit#888): the shared deterministic scans run over the whole candidate before plan and every build lane,
+// and publish-reviewed.yml refuses a candidate whose scan receipt is missing. Pins mirror SCAN_TOOL_PINS in scan-receipt.mjs
+// (scan-receipt.test.mjs proves they agree) and the actionlint release checksum.
+export const SCANS_TOOLS = "cargo-deny@0.20.2,cargo-audit@0.22.2";
+export const SCANS_ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.7", ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757" };
+export const SCANS_RUN = 'node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"';
+export const SCANS_ENV = { SCAN_CONTENT_ROOT: "${{ github.workspace }}/source", SCAN_LIVE_ROOT: "${{ github.workspace }}/live", SCAN_OUT: `${RT}/scan-receipt` };
+export const SCANS_ARTIFACT = "scan-receipt-${{ github.run_attempt }}";
+// The scans job proves class A only (it runs on Ubuntu, where native crates do not compile). The native verify jobs run class B
+// (compile, lint, test) on their own hosts and carry no scan tools, so each gate.mjs step there receives the scans job result
+// and gate.mjs accepts it as the class A proof (RK_SCANS_JOB_RESULT=success). scans is not a default gate step.
+export const SCANS_RESULT_ENV = "${{ needs.scans.result }}";
 const PLAN_ALLOWED_ACTIONS = ["actions/checkout@", "actions/setup-node@", "dtolnay/rust-toolchain@", "taiki-e/install-action@"];
 // Native Windows OpenSSL for the SQLCipher system-crypto dependent checks of a crates run (rightkit-db,
 // rightkit-credentials). verify runs the same committed scripts rk-setup runs for shared CI, only for crates on
@@ -311,6 +323,27 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(/if \[ "\$PRIVATE" != "false" \]; then\s+echo [^\n]*\s+exit 1\s+fi/.test(guardStep?.run ?? ""), "guard must exit 1 unless the repository is public");
   const reaches = (job, target, seen = new Set()) => needsOf(jobs[job]).some((n) => n === target || (!seen.has(n) && seen.add(n) && reaches(n, target, seen)));
   for (const job of ALL_JOBS.filter((j) => j !== "guard")) check(reaches(job, "guard"), `${job} must run only after guard`);
+
+  // Job 0: deterministic scans. Every other job, build lanes included, must transitively need scans; plan and each build-* lane directly.
+  const scans = jobs.scans;
+  for (const job of Object.keys(jobs).filter((j) => j !== "guard" && j !== "scans")) check(reaches(job, "scans"), `${job} must run only after scans`);
+  check(same(needsOf(plan), ["guard", "scans"]), "plan must need exactly guard & scans");
+  for (const job of Object.keys(jobs).filter((j) => j.startsWith("build-"))) check(needsOf(jobs[job]).includes("scans"), `${job} must need scans directly`);
+  check(scans && same(needsOf(scans), ["guard"]) && scans.if === undefined && scans["runs-on"] === "ubuntu-24.04" && same(sorted(Object.keys(scans)), ["needs", "permissions", "runs-on", "steps", "timeout-minutes"]), "scans must be a closed unconditional ubuntu job behind guard alone");
+  const scanSteps = stepsOf(scans);
+  const scanCheckouts = scanSteps.filter((s) => /^actions\/checkout@/.test(s.uses ?? ""));
+  check(scanCheckouts.length === 2 && scanCheckouts.every((s) => s.with?.ref === "${{ github.sha }}" && s.with?.submodules === "false") && same(sorted(scanCheckouts.map((s) => s.with?.path)), ["live", "source"]), "scans must check out the exact dispatched commit twice (source & live), without submodules");
+  const scanInstall = scanSteps.filter((s) => (s.uses ?? "").startsWith("taiki-e/install-action@"));
+  check(scanInstall.length === 1 && same(Object.keys(scanInstall[0].with ?? {}), ["tool"]) && scanInstall[0].with.tool === SCANS_TOOLS && scanInstall[0].if === undefined && scanInstall[0].env === undefined, `scans must install exactly ${SCANS_TOOLS} (pinned action, only the tool input, unconditional)`);
+  const lintInstall = scanSteps.filter((s) => /actionlint/.test(s.run ?? "") && /sha256sum --check --strict/.test(s.run ?? ""));
+  check(lintInstall.length === 1 && same(lintInstall[0].env, SCANS_ACTIONLINT_ENV) && lintInstall[0].if === undefined && /releases\/download\/v\$\{ACTIONLINT_VERSION\}\//.test(lintInstall[0].run), "scans must install the checksum-verified pinned actionlint, unconditionally");
+  const scanRunAt = scanSteps.findIndex((s) => s.run?.trim() === SCANS_RUN);
+  const scanDepsAt = scanSteps.findIndex((s) => /pnpm install/.test(s.run ?? ""));
+  check(scanSteps.filter((s) => /run-deterministic-scans\.mjs/.test(s.run ?? "")).length === 1 && scanRunAt >= 0 && same(scanSteps[scanRunAt].env, SCANS_ENV) && scanSteps[scanRunAt].if === undefined && scanSteps[scanRunAt].shell === undefined, "scans must run run-deterministic-scans.mjs exactly once, unconditionally, with the fixed roots & output");
+  check(scanDepsAt >= 0 && scanRunAt > scanDepsAt && scanRunAt > scanSteps.indexOf(scanInstall[0]) && scanRunAt > scanSteps.indexOf(lintInstall[0]), "scans must install tools & dependencies before running the scans");
+  check(!scanSteps.some((s) => /pnpm install/.test(s.run ?? "") && !/--frozen-lockfile --ignore-scripts/.test(s.run ?? "")), "scans must install dependencies frozen & without lifecycle scripts");
+  const scanUpload = scanSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
+  check(scanUpload.length === 1 && scanSteps.indexOf(scanUpload[0]) === scanSteps.length - 1 && scanSteps.indexOf(scanUpload[0]) > scanRunAt && scanUpload[0].if === undefined && scanUpload[0].with?.name === SCANS_ARTIFACT && scanUpload[0].with?.path === `${RT}/scan-receipt` && scanUpload[0].with?.["if-no-files-found"] === "error" && scanUpload[0].with?.["retention-days"] === "90" && scanUpload[0].with?.overwrite === "false", "scans must upload its receipt as its last step, only after a passing scan run, retained 90 days");
   for (const [jobName, job] of Object.entries(jobs)) {
     check((job["timeout-minutes"] ?? "") !== "", `${jobName} must set timeout-minutes`);
   }
@@ -320,7 +353,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(verify?.strategy?.matrix && !("exclude" in verify.strategy.matrix) && !("include" in verify.strategy.matrix), "verify matrix must not exclude or include legs");
   check(verify?.["runs-on"] === "${{ matrix.os }}", "verify must run on the matrix host");
   for (const needed of ["guard", "plan", "build-swap", "sign-swap"]) check(needsOf(pack).includes(needed), `pack must need ${needed}`);
-  for (const needed of ["guard", "plan", "pack", "build-credentials-helper", "sign-credentials-helper"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
+  for (const needed of ["guard", "scans", "plan", "pack", "build-credentials-helper", "sign-credentials-helper"]) check(needsOf(verify).includes(needed), `verify must need ${needed}`);
   check(typeof verify?.if === "string" && verify.if.trim() === VERIFY_IF, `verify's condition must be exactly ${VERIFY_IF}`);
   // pack runs after sign-swap succeeded or was skipped (a crates run, or a run without @rightkit/release), never after it failed.
   check(typeof pack?.if === "string" && pack.if.trim() === PACK_IF, `pack's condition must be exactly ${PACK_IF}`);
@@ -328,6 +361,8 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const gateAt = verifyRuns.findIndex((r) => /node scripts\/ci\/gate\.mjs --registry /.test(r) && /--allow-host-exclusion/.test(r) && /--allow-no-test/.test(r));
   const receiptAt = verifyRuns.findIndex((r) => /node scripts\/ci\/publish\.mjs verify/.test(r));
   check(gateAt >= 0 && receiptAt > gateAt, "verify must run the unit gate, then publish.mjs verify, on every host");
+  check(verifyRuns.filter((r) => /node scripts\/ci\/gate\.mjs/.test(r)).length === 1 && !/--steps/.test(verifyRuns[gateAt] ?? ""), "verify must run exactly one gate.mjs step, with the default steps (no --steps, so no scan tools are needed)");
+  check(stepsOf(verify)[gateAt]?.env?.RK_SCANS_JOB_RESULT === SCANS_RESULT_ENV, `verify's gate step must receive the scans job result as RK_SCANS_JOB_RESULT: ${SCANS_RESULT_ENV}`);
   check(stepsOf(verify)[receiptAt]?.env?.RIGHTKIT_CHROME_FOR_TESTING_ROOT === `${RT}/chrome-for-testing`, "verify receipt must use the provisioned managed Chrome root");
   const winAt = WIN_OPENSSL_STEPS.map(([name]) => stepsOf(verify).findIndex((s) => s.name === name));
   WIN_OPENSSL_STEPS.forEach(([name, run], i) => {
@@ -368,13 +403,14 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   // Linux verification: only the units the plan requires on Linux, only when there are any, through the same gate and receipt.
   check(verifyLinux && !("strategy" in verifyLinux) && verifyLinux?.["runs-on"] === LINUX_HOST_LABEL, `verify-linux must run on ${LINUX_HOST_LABEL} with no matrix`);
   check(same(sorted(Object.keys(verifyLinux ?? {})), ["if", "needs", "permissions", "runs-on", "steps", "timeout-minutes"]), "verify-linux job is closed against containers, env & defaults");
-  check(same(needsOf(verifyLinux), ["guard", "plan", "pack"]), "verify-linux must need exactly guard, plan & pack");
+  check(same(needsOf(verifyLinux), ["guard", "scans", "plan", "pack"]), "verify-linux must need exactly guard, scans, plan & pack");
   check(typeof verifyLinux?.if === "string" && verifyLinux.if.trim() === LINUX_IF, `verify-linux's condition must be exactly ${LINUX_IF}`);
   const linuxSteps = stepsOf(verifyLinux);
   const linuxGateAt = linuxSteps.findIndex((s) => /node scripts\/ci\/gate\.mjs /.test(s.run ?? ""));
   const linuxVerifyAt = linuxSteps.findIndex((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? ""));
   check(linuxSteps.filter((s) => /node scripts\/ci\/gate\.mjs /.test(s.run ?? "")).length === 1 && linuxSteps[linuxGateAt]?.run?.trim() === 'node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"', "verify-linux must gate exactly the Linux-required units, with no allowance flag");
   check(linuxGateAt >= 0 && linuxSteps[linuxGateAt].env?.PUBLISH_LINUX_UNITS === PLAN_OUT("linux_units") && linuxSteps[linuxGateAt].env?.PUBLISH_REGISTRY === PLAN_OUT("registry") && linuxSteps[linuxGateAt].if === undefined, "the Linux gate must read the plan's registry and linux_units unconditionally");
+  check(linuxGateAt >= 0 && linuxSteps[linuxGateAt].env?.RK_SCANS_JOB_RESULT === SCANS_RESULT_ENV, `the Linux gate must receive the scans job result as RK_SCANS_JOB_RESULT: ${SCANS_RESULT_ENV}`);
   check(linuxSteps.filter((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? "")).length === 1 && linuxVerifyAt > linuxGateAt && linuxGateAt >= 0 && linuxSteps[linuxVerifyAt].run?.trim() === "node scripts/ci/publish.mjs verify" && linuxSteps[linuxVerifyAt].if === undefined && same(linuxSteps[linuxVerifyAt].env, { RIGHTKIT_CHROME_FOR_TESTING_ROOT: `${RT}/chrome-for-testing`, ...PUBLISH_ENV, PUBLISH_LINUX_UNITS: PLAN_OUT("linux_units") }), "verify-linux must gate, then write the Linux receipt with the plan's exact request");
   const linuxChromeCache = linuxSteps.find((s) => s.name === "Cache the pinned Chrome for Testing");
   const linuxChrome = linuxSteps.find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
@@ -408,13 +444,13 @@ export function assertPublishDoc(doc, name = "publish.yml") {
 
   // Isolated native builder emits only sealed bytes; fresh signer has no source checkout or build process.
   const buildSwap = jobs["build-swap"]; const buildSteps = stepsOf(buildSwap);
-  check(buildSwap?.if === BUILD_SWAP_IF && same(needsOf(buildSwap), ["guard", "plan"]) && buildSwap?.["runs-on"] === "xcode-27", "build-swap must be the native secretless build behind guard & plan");
+  check(buildSwap?.if === BUILD_SWAP_IF && same(needsOf(buildSwap), ["guard", "scans", "plan"]) && buildSwap?.["runs-on"] === "xcode-27", "build-swap must be the native secretless build behind guard, scans & plan");
   check(same(sorted(Object.keys(buildSwap ?? {})), ["if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"]) && same(buildSwap?.outputs, { sha256: "${{ steps.seal.outputs.sha256 }}" }), "build-swap must expose only its sealed helper hash");
   check(buildSteps.length === 5 && buildSteps[2]?.run === "cargo build --release --locked -p rightkit-fs --bin rightkit-swap --features fs" && buildSteps[2]?.env === undefined && buildSteps[3]?.run === UNSIGNED_SEAL_RUN && buildSteps[3]?.id === "seal" && buildSteps[3]?.shell === "bash" && buildSteps[3]?.env === undefined && buildSteps[3]?.if === undefined, "build-swap must build & seal with exact source/run/hash receipt before artifact transfer");
   check(buildSteps[0]?.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" && buildSteps[1]?.uses === "dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0", "build-swap uses pinned checkout & native toolchain");
   check(buildSteps[4]?.uses === "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" && same(buildSteps[4]?.with, { name: UNSIGNED_ARTIFACT, path: `${RT}/swap-unsigned`, "retention-days": "90", overwrite: "false", "if-no-files-found": "error" }) && buildSteps[4]?.if === undefined, "build-swap must retain immutable unsigned helper artifact");
   const buildCreds = jobs["build-credentials-helper"]; const buildCredsSteps = stepsOf(buildCreds);
-  check(buildCreds?.if === BUILD_CREDENTIALS_IF && same(needsOf(buildCreds), ["guard", "plan"]) && buildCreds?.["runs-on"] === "xcode-27", "build-credentials-helper must be the native secretless build behind guard & plan");
+  check(buildCreds?.if === BUILD_CREDENTIALS_IF && same(needsOf(buildCreds), ["guard", "scans", "plan"]) && buildCreds?.["runs-on"] === "xcode-27", "build-credentials-helper must be the native secretless build behind guard, scans & plan");
   check(same(sorted(Object.keys(buildCreds ?? {})), ["if", "needs", "outputs", "permissions", "runs-on", "steps", "timeout-minutes"]) && same(buildCreds?.outputs, { sha256: "${{ steps.seal.outputs.sha256 }}" }), "build-credentials-helper must expose only its sealed helper hash");
   check(buildCredsSteps.length === 4 && buildCredsSteps[1]?.name === "Build the unsigned qualification helper from pinned sources" && buildCredsSteps[1]?.run === CREDENTIALS_BUILD_RUN && buildCredsSteps[1]?.env === undefined && buildCredsSteps[1]?.shell === "bash" && buildCredsSteps[1]?.if === undefined && buildCredsSteps[2]?.id === "seal" && buildCredsSteps[2]?.run === CREDENTIALS_SEAL_RUN && buildCredsSteps[2]?.shell === "bash" && buildCredsSteps[2]?.env === undefined && buildCredsSteps[2]?.if === undefined, "build-credentials-helper must build from pinned sources & seal with exact source/hash receipt before artifact transfer");
   check(buildCredsSteps[0]?.uses === "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" && same(buildCredsSteps[0]?.with, { "persist-credentials": "false", "fetch-depth": "0" }), "build-credentials-helper checks out the dispatched commit with full history for pinned-blob access and no credentials");
@@ -562,6 +598,64 @@ const LINUX_MUTATIONS = [
   ["verify-linux uses an unpinned action", edit((j) => { j["verify-linux"].steps[0].uses = "actions/checkout@v7"; })],
   ["verify-linux checkout keeps credentials", edit((j) => { j["verify-linux"].steps[0].with["persist-credentials"] = "true"; })],
   ["verify-linux stops downloading the sealed bytes", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => s.with?.name !== "publish-packed"); })],
+];
+
+const scanStep = (j, test) => j.scans.steps.find(test);
+const SCAN_INSTALL = (s) => (s.uses ?? "").startsWith("taiki-e/install-action@");
+const SCAN_LINT = (s) => /actionlint/.test(s.run ?? "");
+const SCAN_RUNNER = (s) => /run-deterministic-scans/.test(s.run ?? "");
+const SCAN_UPLOAD = (s) => /^actions\/upload-artifact@/.test(s.uses ?? "");
+const buildLane = (needs) => ({ needs, "runs-on": "ubuntu-24.04", "timeout-minutes": 5, steps: [{ run: "echo build" }] });
+/** Scan ordering and receipt mutations: each must be rejected (rightkit#888). */
+export const SCANS_MUTATIONS = [
+  ["scans job is removed", edit((j) => { delete j.scans; })],
+  ["plan stops needing scans", edit((j) => { j.plan.needs = ["guard"]; })],
+  ["build-swap stops needing scans", edit((j) => { j["build-swap"].needs = ["guard", "plan"]; })],
+  ["build-credentials-helper stops needing scans", edit((j) => { j["build-credentials-helper"].needs = ["guard", "plan"]; })],
+  ["a new build lane has no scans dependency", edit((j) => { j["build-extra"] = buildLane(["guard"]); })],
+  ["a new build lane needs plan but is not direct on scans", edit((j) => { j["build-extra"] = buildLane(["guard", "plan"]); })],
+  ["pack is detached from plan and so from scans", edit((j) => { j.pack.needs = ["guard", "build-swap", "sign-swap"]; })],
+  ["verify is detached from every scan-bound job", edit((j) => { j.verify.needs = ["guard"]; })],
+  ["verify-linux is detached from every scan-bound job", edit((j) => { j["verify-linux"].needs = ["guard"]; })],
+  // The native verify jobs carry no scan tools: they need scans and hand its result to gate.mjs as the class A proof.
+  ["verify stops needing scans", edit((j) => { j.verify.needs = j.verify.needs.filter((n) => n !== "scans"); })],
+  ["verify-linux stops needing scans", edit((j) => { j["verify-linux"].needs = j["verify-linux"].needs.filter((n) => n !== "scans"); })],
+  ["verify gate loses RK_SCANS_JOB_RESULT", edit((j) => { delete j.verify.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT; })],
+  ["verify-linux gate loses RK_SCANS_JOB_RESULT", edit((j) => { delete j["verify-linux"].steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT; })],
+  ["verify gate reads another job's result as the scans proof", edit((j) => { j.verify.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT = "${{ needs.plan.result }}"; })],
+  ["verify-linux gate reads another job's result as the scans proof", edit((j) => { j["verify-linux"].steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT = "${{ needs.plan.result }}"; })],
+  ["verify gate hard-codes the scans proof", edit((j) => { j.verify.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT = "success"; })],
+  ["verify-linux gate hard-codes the scans proof", edit((j) => { j["verify-linux"].steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT = "success"; })],
+  ["verify gate runs the scans step itself without the tools", edit((j) => { const s = j.verify.steps.find((x) => /gate\.mjs/.test(x.run ?? "")); s.run = `${s.run.trim()} --steps scans`; })],
+  ["verify-linux gate runs the scans step itself without the tools", edit((j) => { const s = j["verify-linux"].steps.find((x) => /gate\.mjs/.test(x.run ?? "")); s.run = `${s.run.trim()} --steps scans`; })],
+  ["scans no longer needs guard", edit((j) => { j.scans.needs = []; })],
+  ["scans is made conditional", edit((j) => { j.scans.if = "${{ inputs.registry == 'crates' }}"; })],
+  ["scans checks out a different ref", edit((j) => { j.scans.steps[0].with.ref = "${{ inputs.units }}"; })],
+  ["scans checks out submodules", edit((j) => { j.scans.steps[1].with.submodules = "recursive"; })],
+  ["scans keeps credentials", edit((j) => { j.scans.steps[0].with["persist-credentials"] = "true"; })],
+  ["scans uses an unpinned action", edit((j) => { j.scans.steps[0].uses = "actions/checkout@v7"; })],
+  ["scans installs an unpinned cargo-deny", edit((j) => { scanStep(j, SCAN_INSTALL).with.tool = "cargo-deny,cargo-audit@0.22.2"; })],
+  ["scans installs no cargo-audit", edit((j) => { scanStep(j, SCAN_INSTALL).with.tool = "cargo-deny@0.20.2"; })],
+  ["scans installs another cargo-deny version", edit((j) => { scanStep(j, SCAN_INSTALL).with.tool = "cargo-deny@0.19.0,cargo-audit@0.22.2"; })],
+  ["scans installs its tools only sometimes", edit((j) => { scanStep(j, SCAN_INSTALL).if = "${{ always() }}"; })],
+  ["scans actionlint loses its checksum", edit((j) => { const s = scanStep(j, SCAN_LINT); s.run = s.run.replace(/^.*sha256sum.*\n/m, ""); })],
+  ["scans actionlint pins another checksum", edit((j) => { scanStep(j, SCAN_LINT).env.ACTIONLINT_SHA256 = "0".repeat(64); })],
+  ["scans actionlint floats", edit((j) => { scanStep(j, SCAN_LINT).env.ACTIONLINT_VERSION = "latest"; })],
+  ["scans install runs lifecycle scripts", edit((j) => { const s = scanStep(j, (x) => /pnpm install/.test(x.run ?? "")); s.run = s.run.replace(" --ignore-scripts", ""); })],
+  ["scans runs no scan script", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => !SCAN_RUNNER(s)); })],
+  ["scans script failure is ignored", edit((j) => { const s = scanStep(j, SCAN_RUNNER); s.run = `${s.run} || true`; })],
+  ["scans script failure does not fail the job", edit((j) => { scanStep(j, SCAN_RUNNER)["continue-on-error"] = "true"; })],
+  ["scans script is conditional", edit((j) => { scanStep(j, SCAN_RUNNER).if = "${{ inputs.registry == 'npm' }}"; })],
+  ["scans script narrows to a diff", edit((j) => { scanStep(j, SCAN_RUNNER).run += " --base HEAD~1"; })],
+  ["scans script allows deferral", edit((j) => { scanStep(j, SCAN_RUNNER).run += " --allow-deferred"; })],
+  ["scans script scans another root", edit((j) => { scanStep(j, SCAN_RUNNER).env.SCAN_CONTENT_ROOT = "${{ github.workspace }}/other"; })],
+  ["scans runs before its tools are installed", edit((j) => { const i = j.scans.steps.findIndex(SCAN_RUNNER); const [step] = j.scans.steps.splice(i, 1); j.scans.steps.splice(2, 0, step); })],
+  ["scans keeps no receipt", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => !SCAN_UPLOAD(s)); })],
+  ["scans receipt is uploaded even after a failed scan", edit((j) => { scanStep(j, SCAN_UPLOAD).if = "${{ always() }}"; })],
+  ["scans receipt has another name", edit((j) => { scanStep(j, SCAN_UPLOAD).with.name = "scan-receipt"; })],
+  ["scans receipt may be empty", edit((j) => { scanStep(j, SCAN_UPLOAD).with["if-no-files-found"] = "ignore"; })],
+  ["scans reads a secret", edit((j) => { scanStep(j, SCAN_RUNNER).env.T = "${{ secrets.NPM_TOKEN }}"; })],
+  ["scans gains a step after the receipt", edit((j) => { j.scans.steps.push({ run: "echo extra" }); })],
 ];
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
@@ -756,6 +850,7 @@ export const MUTATIONS = [
   ["the deny checker version floats", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.tool = "cargo-deny"; })],
   ["the deny install gains a token", edit((j) => { j.plan.steps.find((s) => (s.uses ?? "").startsWith("taiki-e/install-action@")).with.token = "${{ secrets.NPM_TOKEN }}"; })],
   ["plan uses an unlisted action", edit((j) => { j.plan.steps.push(actionStep("pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86")); })],
+  ...SCANS_MUTATIONS,
   ...CONDITION_MUTATIONS,
   ...LINUX_MUTATIONS,
 ];

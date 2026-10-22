@@ -1288,7 +1288,7 @@ const realDoc = () => parseYaml(fs.readFileSync(new URL("../../.github/workflows
 test("qualification packs once, retains both native receipts & has no publication privilege or dispatch dry-run", { skip: realWorkflowSkip }, () => {
   const doc = realDoc();
   assert.equal(assertPublishDoc(doc), true);
-  assert.deepEqual(Object.keys(doc.jobs), ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"]);
+  assert.deepEqual(Object.keys(doc.jobs), ["guard", "scans", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "verify-linux", "qualified"]);
   assert.deepEqual([...doc.jobs.verify.strategy.matrix.os].sort(), ["windows-2025", "xcode-27"]);
   assert.equal(doc.on.workflow_dispatch.inputs.dry_run, undefined);
   assert.equal(doc.jobs.plan.outputs.dry_run, undefined);
@@ -1440,7 +1440,7 @@ test("qualification contract finds every secret expression & exact-condition byp
   assert.throws(broken((d) => { d.jobs.verify.if = d.jobs.verify.if.replace(" }}", " || true }}"); }), /condition must be exactly/);
   assert.doesNotThrow(broken((d) => { d.jobs.verify.if = `  ${d.jobs.verify.if}  `; }));
   for (const form of ["${{ secrets.X }}", "${{ secrets['X'] }}", '${{ secrets["X"] }}', "${{ toJSON(secrets) }}", "${{ secrets }}", "${{ SECRETS.X }}", "${{ format('{0}', secrets.X) }}"]) {
-    for (const job of ["guard", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "qualified"]) {
+    for (const job of ["guard", "scans", "plan", "build-swap", "sign-swap", "build-credentials-helper", "sign-credentials-helper", "pack", "verify", "qualified"]) {
       assert.throws(broken((d) => { const step = d.jobs[job].steps.at(-1); step.env = { ...(step.env ?? {}), T: form }; }), /secrets context|secret/, `${job}: ${form}`);
     }
   }
@@ -1894,7 +1894,10 @@ test("the plan exposes the Linux-required units to the workflow and refuses an u
   assert.equal(linux["runs-on"], "ubuntu-24.04");
   assert.equal(linux.strategy, undefined);
   assert.equal(linux.if.trim(), LINUX_IF);
-  assert.deepEqual(linux.needs, ["guard", "plan", "pack"]);
+  assert.deepEqual(linux.needs, ["guard", "scans", "plan", "pack"]);
+  assert.equal(linux.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT, "${{ needs.scans.result }}");
+  assert.ok(doc.jobs.verify.needs.includes("scans"));
+  assert.equal(doc.jobs.verify.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).env.RK_SCANS_JOB_RESULT, "${{ needs.scans.result }}");
   assert.equal(linux.steps.find((s) => /gate\.mjs/.test(s.run ?? "")).run.trim(), 'node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"');
   for (const name of ["Cache the pinned Chrome for Testing", "Provision the pinned Chrome for Testing"]) assert.equal(linux.steps.find((s) => s.name === name).if.trim(), LINUX_CHROME_IF);
   assert.match(LINUX_CHROME_IF, /needs\.plan\.outputs\.linux_units\), ' @rightkit\/qa-chrome '/);

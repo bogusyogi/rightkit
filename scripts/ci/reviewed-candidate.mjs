@@ -121,7 +121,7 @@ export function checkProvenance({ candidate, repository, workflow, run, jobs, pr
   requireThat(rows.every((job) => String(job.run_id) === String(candidate.runId) && String(job.run_attempt) === String(candidate.runAttempt) && job.head_sha === candidate.sourceSha), "job provenance mismatch");
 }
 
-async function api(route, env, fetchImpl, binary = false) {
+export async function api(route, env, fetchImpl, binary = false) {
   const response = await fetchImpl(`https://api.github.com/repos/${REPOSITORY}${route ? `/${route}` : ""}`, { headers: { authorization: `Bearer ${env.GITHUB_TOKEN}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" }, redirect: "manual", signal: AbortSignal.timeout(60_000) });
   if (binary && response.status === 302) {
     const url = new URL(response.headers.get("location"));
@@ -256,7 +256,7 @@ function proofZip(bytes, zipFile, wanted, spawn) {
   return { proofs, names: [...entries.keys()] };
 }
 
-const artifactMatches = (artifact, { id, digest, name, runId, sourceSha, repository }) =>
+export const artifactMatches = (artifact, { id, digest, name, runId, sourceSha, repository }) =>
   POS.test(String(artifact?.id)) && (!id || String(artifact.id) === String(id)) && /^sha256:[0-9a-f]{64}$/.test(artifact.digest ?? "") && (!digest || artifact.digest === digest) && artifact.name === name && artifact.expired === false && String(artifact.workflow_run?.id) === String(runId) && artifact.workflow_run?.head_sha === sourceSha && artifact.workflow_run?.head_branch === "main" && artifact.workflow_run?.repository_id === repository.id && artifact.workflow_run?.head_repository_id === repository.id;
 
 async function originalQa({ prepared, env, fetchImpl, spawn }) {

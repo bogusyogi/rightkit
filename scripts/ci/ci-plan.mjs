@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { planHost, planHygiene, requiredShardCommands, shardsConfig } from "./shards.mjs";
+import { planHost, planHygiene, requiredShardCommands, scanBase, shardsConfig } from "./shards.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RUNNERS = [
@@ -80,6 +80,7 @@ function main() {
   const hygiene = planHygiene(selections);
   output.evidence = JSON.stringify(evidence);
   output.hygiene_tokens = hygiene.tokens;
+  output.scan_base = scanBase(selections, (...args) => git(...args));
   output.scan_crates = hygiene.crates.join(" ");
   output.scan_packages = hygiene.packages.join(" ");
 

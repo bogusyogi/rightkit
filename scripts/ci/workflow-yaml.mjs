@@ -5,7 +5,7 @@
 // instead of guessing, so an unparsed construct can never pass as "absent" and no scalar can mean
 // something different to GitHub than to the contract: tabs anywhere, folded scalars (`>`) in any
 // form, block scalars with an indentation indicator or `+` chomping, anchors, aliases, tags, merge
-// keys, explicit keys, document markers, flow mappings, flow collections that span lines, multi-line
+// keys, explicit keys, document markers, flow mappings (except the empty `{}`), flow collections that span lines, multi-line
 // scalars, duplicate keys. Every scalar is returned as a string. Literal block scalars follow the
 // spec: `|` keeps one trailing newline, `|-` none.
 
@@ -28,6 +28,8 @@ function scalar(raw, no) {
   if (/^[&*!]/.test(text)) fail(no, `anchors, aliases and tags are not supported: ${text.slice(0, 40)}`);
   if (/^[|>]/.test(text)) fail(no, `block scalar header ${JSON.stringify(text.slice(0, 12))} is not supported here (only "|" and "|-" after a mapping key)`);
   if (/^(?:[-?:](?:\s|$)|[%@`])/.test(text)) fail(no, `YAML indicator at the start of a plain scalar is not supported: ${text.slice(0, 40)}`);
+  // The empty flow mapping alone (`permissions: {}`) is unambiguous; any other flow mapping is refused.
+  if (text === "{}") return {};
   if (text.startsWith("{")) fail(no, "flow mappings are not supported");
   if (text.startsWith('"')) {
     if (!/^"(?:[^"\\]|\\.)*"$/.test(text)) fail(no, `unterminated or trailing text after a quoted scalar: ${text.slice(0, 40)}`);

@@ -26,6 +26,11 @@ const crateFiles = {
   "crates/foo/Cargo.toml": 'edition = "2024"\nversion = "1.2.3"\nlicense = "MIT"\n',
   "crates/foo/CHANGELOG.md": "## 1.2.3\n- x\n",
   "crates/foo/src/lib.rs": "pub fn f() {}\n",
+  // A valid, empty advisory-exception set (packages/release/advisory-exceptions.mjs).
+  "ci/advisory-exceptions.json": JSON.stringify({ schema: 1, exceptions: [] }),
+  "deny.toml": '[advisories]\nunmaintained = "workspace"\nyanked = "deny"\nignore = []\n',
+  ".cargo/audit.toml": "[advisories]\nignore = []\n",
+  "Cargo.lock": "version = 4\n",
 };
 const planFor = (changed, extra = {}, opts = {}) => {
   const fs = fakeFs({ ...crateFiles, ...extra }, { ...crateFiles, ...extra });
@@ -37,7 +42,7 @@ test("plan: a changed crate selects class A and class B scans, through rightkit 
   const { plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const a = ids(plan, "A"); const b = ids(plan, "B");
   for (const id of ["rustfmt:2024", "toml-parse", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "changelog-version:foo", "license", "secret-scan"]) assert.ok(a.includes(id), `class A has ${id}`);
-  for (const id of ["check:foo", "check-all-features:foo", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
+  for (const id of ["check:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
   for (const s of plan.scans.filter((s) => s.tool === "rightkit")) assert.equal(s.args[0], "cargo", `${s.id} runs through rightkit cargo`);
   const doc = plan.scans.find((s) => s.id === "doc:foo");
   assert.equal(doc.env.RUSTDOCFLAGS, "-D warnings");
@@ -195,22 +200,36 @@ test("internal checks: JSON, changelog heading, license, ownership catalog and s
 
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { localCompile: false });
-  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check:foo", "check-all-features:foo", "clippy:foo", "doc:foo", "test:rust:foo"];
+  const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];
   assert.deepEqual([...plan.deferred].sort(), [...broker].sort());
   for (const id of broker) assert.ok(plan.scans.find((x) => x.id === id)?.deferred, `${id} stays in the plan, deferred`);
   const log = [];
   const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
   assert.equal(result.ok, false, "a deferred scan is not a pass");
   assert.equal(result.complete, false);
-  for (const id of plan.deferred) assert.equal(result.scans.find((s) => s.id === id).status, "deferred");
-  assert.ok(!log.some((c) => /cargo/.test(c)), "no cargo runs outside the broker");
-  assert.equal(scanFailures(result).length, 0, "deferral is reported by scanDeferrals; a local gate fails on it");
+  const classA = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo"];
+  for (const id of classA) assert.equal(result.scans.find((s) => s.id === id).status, "deferred");
+  // A deferred class A scan is not a class A pass: no class B scan runs after it.
+  for (const s of result.scans.filter((x) => x.class === "B")) assert.equal(s.status, "not-run", s.id);
+  assert.ok(!log.some((c) => /\bcargo\b/.test(c)), "no cargo runs outside the broker");
   const lines = scanDeferrals(result);
-  assert.equal(lines.length, plan.deferred.length);
-  for (const id of plan.deferred) assert.ok(lines.some((l) => l.startsWith(`${id}: deferred, not passed`)));
+  assert.equal(lines.length, classA.length);
+  for (const id of classA) assert.ok(lines.some((l) => l.startsWith(`${id}: deferred, not passed`)));
   assert.ok(plan.notes.some((n) => /deferred, not passed/.test(n) && n.includes("clippy:foo")));
   // With a grant nothing is deferred.
   assert.deepEqual(planFor(["crates/foo/Cargo.toml"]).plan.deferred, []);
+});
+
+test("a workspace Cargo.lock or toolchain change puts every crate in scope", () => {
+  for (const changed of [["Cargo.lock"], ["Cargo.toml"], ["rust-toolchain.toml"], [".cargo/config.toml"]]) {
+    const extra = { "Cargo.lock": "version = 4\n", "Cargo.toml": "[workspace]\n", "rust-toolchain.toml": "[toolchain]\n", ".cargo/config.toml": "[build]\n", "crates/bar/Cargo.toml": crateFiles["crates/foo/Cargo.toml"] };
+    const { plan } = planFor(changed, extra, { listDir: () => ["foo", "bar"] });
+    for (const name of ["foo", "bar"]) {
+      for (const kind of ["check", "clippy", "doc", "test:rust"]) {
+        assert.ok(plan.scans.some((s) => s.id === `${kind}:${name}`), `${changed[0]} plans ${kind}:${name}`);
+      }
+    }
+  }
 });
 
 test("content scans run on the exported commit; generated-docs (repository code) is class B", () => {
@@ -431,7 +450,9 @@ test("class B evidence binds to the input content and to a real class A run", as
   const excluded = await runScans(plan, deps({ ...fs, exclude: (s) => s.class === "A" }));
   assert.ok(excluded.scans.filter((s) => s.class === "B").every((s) => s.code === "CLASS_A_REQUIRED"));
   // A plan with zero class A scans needs explicit prior evidence.
-  const swift = planFor(["swift/a.swift"], { "swift/a.swift": "" }, { platform: "darwin" }).plan;
+  // (No advisory-exception set in this tree: that scan is the one class A scan every run plans.)
+  const swiftOnly = fakeFs({ "swift/a.swift": "" }, { "swift/a.swift": "" });
+  const swift = planScans({ changed: ["swift/a.swift"], contentRoot: CONTENT, liveRoot: LIVE, ...swiftOnly, platform: "darwin" });
   assert.equal(swift.scans.filter((s) => s.class === "A").length, 0);
   const swiftFs = fakeFs({ ...crateFiles, "swift/a.swift": "" }, {});
   const bare = await runScans(swift, deps({ ...swiftFs }));
@@ -469,15 +490,28 @@ test("path containment is physical: a symlink whose real path leaves the content
   assert.ok(broken.scans.some((s) => s.id.startsWith("path-policy:")) && !broken.scans.some((s) => s.id.startsWith("node-check:")));
 });
 
-test("CI rollout switch: deterministic scans are OFF unless config says enabled === true", () => {
-  for (const config of [undefined, null, {}, { deterministicScans: {} }, { deterministicScans: { enabled: false } }, { deterministicScans: { enabled: "true" } }, { deterministicScans: { enabled: 1 } }]) {
-    assert.equal(deterministicScansEnabled(config), false, JSON.stringify(config));
-  }
-  assert.equal(deterministicScansEnabled({ deterministicScans: { enabled: true } }), true);
-  // The shipped CI config does not enable it, and the gate prints the explicit disabled line.
-  const config = JSON.parse(readFileSync(new URL("../../ci/gate.config.json", import.meta.url), "utf8"));
-  assert.equal(deterministicScansEnabled(config), false);
+test("CI runs the deterministic scans on every lock step, with no off switch (#888)", () => {
   const gate = readFileSync(new URL("../../scripts/ci/gate.mjs", import.meta.url), "utf8");
-  assert.match(gate, /deterministic scans: disabled \(not run\)/);
-  assert.match(gate, /deterministicScansEnabled\(selection\.config\)/);
+  assert.match(gate, /let scansPassed = false;/);
+  assert.match(gate, /if \(STEPS\.has\("scans"\)\) scansPassed = await scansGate\(selection\);/);
+  assert.doesNotMatch(gate, /deterministicScansEnabled\(selection\.config\)/);
+  assert.doesNotMatch(gate, /deterministic scans: disabled \(not run\)/);
+  assert.match(gate, /scanGatePassed\(/);
+});
+
+test("feature sets follow CI's gate: featureSets and checkFeatureSets apply independently", () => {
+  const crateFeatures = {
+    foo: { checkFeatureSets: [["--features", "wv2-0_38"], ["--no-default-features", "--features", "wv2-0_39"]] },
+  };
+  const { plan } = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures });
+  const args = (id) => plan.scans.find((s) => s.id === id)?.args ?? [];
+  assert.ok(!plan.scans.some((s) => s.args.includes("--all-features")), "no --all-features when the crate declares its check sets");
+  assert.ok(args("check-features:foo:0").includes("wv2-0_38"));
+  assert.ok(args("check-features:foo:1").includes("wv2-0_39"));
+  assert.ok(plan.scans.some((s) => s.id === "clippy:foo"), "clippy with default features when no featureSets");
+  const db = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures: { foo: { featureSets: [["--features", "a"], ["--features", "b"]], checkFeatureSets: [["--features", "c"]] } } }).plan;
+  for (const id of ["clippy:foo:0", "clippy:foo:1", "check-features:foo:0"]) assert.ok(db.scans.some((s) => s.id === id), id);
+  assert.ok(!db.scans.some((s) => s.args.includes("--all-features")));
+  const all = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures: { foo: { featureSets: [["--all-features"]] } } }).plan;
+  assert.ok(!all.scans.some((s) => s.id.startsWith("check-features:foo")), "an --all-features lint set needs no separate check");
 });

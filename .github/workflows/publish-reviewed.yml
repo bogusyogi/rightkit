@@ -66,6 +66,13 @@ jobs:
           PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
           PUBLISH_SOURCE_DIR: ${{ github.workspace }}/candidate
         run: node verifier/scripts/ci/reviewed-candidate.mjs run --dry-run
+      - name: Require the original run's passed deterministic-scan receipt bound to the candidate source & Cargo.lock
+        id: scans
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PUBLISH_CANDIDATE_ID: ${{ inputs.candidate_id }}
+          PUBLISH_SOURCE_DIR: ${{ github.workspace }}/candidate
+        run: node verifier/scripts/ci/scan-receipt.mjs verify
       - name: Keep admission receipt
         id: admission
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

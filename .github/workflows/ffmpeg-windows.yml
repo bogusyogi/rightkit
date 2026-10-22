@@ -60,8 +60,7 @@ jobs:
         with:
           msystem: MINGW64
           update: false
-          install: >-
-            mingw-w64-x86_64-gcc make nasm diffutils autoconf automake libtool
+          install: mingw-w64-x86_64-gcc make nasm diffutils autoconf automake libtool
 
       - name: Fetch pinned sources and build
         shell: msys2 {0}

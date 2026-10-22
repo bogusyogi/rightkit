@@ -6,6 +6,7 @@ import { parseYaml } from "./workflow-yaml.mjs";
 const CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
 const NODE = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020";
 const ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
+export const SCAN_RECEIPT_RUN = "node verifier/scripts/ci/scan-receipt.mjs verify";
 export const REVIEWED_CONCURRENCY = "publish";
 export const MAIN_GUARD = "${{ github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
 export const REVIEWED_UPLOAD_IF = "${{ needs.seal-check.result == 'success' && github.ref == 'refs/heads/main' && github.repository == 'bogusyogi/rightkit' }}";
@@ -58,7 +59,7 @@ export function assertReviewedDoc(doc) {
     admission_id: "${{ steps.admission.outputs.artifact-id }}",
     admission_digest: "${{ steps.admission.outputs.artifact-digest }}",
   });
-  assert.equal(check.steps.length, 8); assert.equal(upload.steps.length, 7);
+  assert.equal(check.steps.length, 9); assert.equal(upload.steps.length, 7);
   for (const job of [check, upload]) {
     assert.equal(job["runs-on"], "ubuntu-24.04"); assert.ok(Number(job["timeout-minutes"]) > 0);
     assert.deepEqual(job.steps[1], { uses: NODE, with: { "node-version": "26.8.1", "package-manager-cache": "false" } });
@@ -80,6 +81,10 @@ export function assertReviewedDoc(doc) {
   keys(check.steps[6], ["name", "id", "env", "run"]);
   assert.equal(check.steps[6].id, "check"); assert.deepEqual(check.steps[6].env, { ...baseEnv, PUBLISH_SOURCE_DIR: "${{ github.workspace }}/candidate" });
   assert.equal(check.steps[6].run, "node verifier/scripts/ci/reviewed-candidate.mjs run --dry-run");
+  // Scan receipt (rightkit#888): the trusted verifier checks the original run's receipt against the candidate source & Cargo.lock; failure fails seal-check, so upload never starts.
+  keys(check.steps[7], ["name", "id", "env", "run"]);
+  assert.equal(check.steps[7].id, "scans"); assert.deepEqual(check.steps[7].env, { ...baseEnv, PUBLISH_SOURCE_DIR: "${{ github.workspace }}/candidate" });
+  assert.equal(check.steps[7].run, SCAN_RECEIPT_RUN);
   const transferEnv = { ...baseEnv, PUBLISH_ADMISSION_ID: "${{ needs.seal-check.outputs.admission_id }}", PUBLISH_ADMISSION_DIGEST: "${{ needs.seal-check.outputs.admission_digest }}" };
   keys(upload.steps[2], ["name", "env", "run"]);
   assert.deepEqual(upload.steps[2].env, transferEnv);
@@ -91,7 +96,7 @@ export function assertReviewedDoc(doc) {
     assert.equal(step.run, "node scripts/ci/reviewed-candidate.mjs run");
   }
   for (const [step, name, directory, condition] of [
-    [check.steps[7], "reviewed-admission-receipt", "publication-admission", null],
+    [check.steps[8], "reviewed-admission-receipt", "publication-admission", null],
     [upload.steps[5], "reviewed-admission-transfer", "publication-admission-transfer", "always()"],
     [upload.steps[6], "publication-receipt", "publication-receipt", "${{ always() && !inputs.dry_run }}"],
   ]) {
@@ -140,6 +145,17 @@ export const REVIEWED_MUTATIONS = [
   ["publication artifact required on dry run", (d) => { d.jobs.upload.steps[6].if = "always()"; }],
   ["publication artifact includes transfer directory", (d) => { d.jobs.upload.steps[6].with.path = "${{ runner.temp }}"; }],
   ["transfer replaces publication artifact identity", (d) => { d.jobs.upload.steps[5].with.name = "publication-receipt"; }],
+  ["scan receipt verification removed", (d) => { d.jobs["seal-check"].steps.splice(7, 1); }],
+  ["scan receipt verification replaced by a no-op", (d) => { d.jobs["seal-check"].steps[7].run = "echo ok"; }],
+  ["scan receipt verification failure ignored", (d) => { d.jobs["seal-check"].steps[7].run += " || true"; }],
+  ["scan receipt verification non-fatal", (d) => { d.jobs["seal-check"].steps[7]["continue-on-error"] = "true"; }],
+  ["scan receipt verification conditional", (d) => { d.jobs["seal-check"].steps[7].if = "${{ inputs.dry_run }}"; }],
+  ["scan receipt verified by candidate code", (d) => { d.jobs["seal-check"].steps[7].run = "node candidate/scripts/ci/scan-receipt.mjs verify"; }],
+  ["scan receipt not bound to the candidate source", (d) => { delete d.jobs["seal-check"].steps[7].env.PUBLISH_SOURCE_DIR; }],
+  ["scan receipt bound to the trusted verifier checkout", (d) => { d.jobs["seal-check"].steps[7].env.PUBLISH_SOURCE_DIR = "${{ github.workspace }}/verifier"; }],
+  ["scan receipt verified for a dispatch-chosen candidate path", (d) => { d.jobs["seal-check"].steps[7].env.PUBLISH_SOURCE_DIR = "${{ inputs.candidate_id }}"; }],
+  ["scan receipt verification after admission is kept", (d) => { const steps = d.jobs["seal-check"].steps; [steps[7], steps[8]] = [steps[8], steps[7]]; }],
+  ["scan receipt verification moved to the upload job", (d) => { const [step] = d.jobs["seal-check"].steps.splice(7, 1); d.jobs.upload.steps.splice(3, 0, step); }],
   ["semantic dependencies under credentials", (d) => { d.jobs.upload.steps[0].with["sparse-checkout"] += "scripts/ci/semantic-admission.mjs\npackages/release\n"; }],
 ];
 

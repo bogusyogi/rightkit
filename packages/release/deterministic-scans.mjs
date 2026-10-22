@@ -11,7 +11,7 @@
 // pass (result.ok and result.complete are false while any scan is deferred) and cannot become a SCAN_B receipt.
 // Content scans run on the exported HEAD (contentRoot). Only a scan that inherently needs the live
 // checkout uses liveRoot: `rightkit cargo` scans (the broker binds to the registered checkout), the
-// right-git drift check (needs .git), and tsc, eslint and package tests (need installed node_modules).
+// tsc, eslint and package tests (need installed node_modules).
 // Class B runs only when every selected class A scan passed (SCAN_B is distinct from SCAN_A and
 // follows it). Rust commands go through `rightkit cargo`, JavaScript tools through `pnpm exec`.
 // The runner takes injectable spawn/exists/readFile/readdir so tests execute nothing real. The
@@ -22,7 +22,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./background-process.mjs";
+import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
@@ -31,10 +32,10 @@ export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
   "actionlint", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
-  "changelog-version", "license", "secret-scan", "right-git-drift", "path-policy",
+  "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions",
 ]);
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
-  "clippy", "check", "check-all-features", "doc", "tsc", "eslint", "swift-build", "test", "generated-docs",
+  "clippy", "check", "check-all-features", "check-features", "doc", "tsc", "eslint", "swift-build", "test", "generated-docs",
 ]);
 
 /**
@@ -129,6 +130,10 @@ function containedPath(raw, contentRoot) {
 const PNPM_NO_HOOKS_ENV = Object.freeze({ npm_config_ignore_pnpmfile: "true", npm_config_ignore_scripts: "true", pnpm_config_ignore_pnpmfile: "true", pnpm_config_ignore_scripts: "true" });
 const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
+// Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
+// so a dependency or toolchain update never reaches a push without local qualification.
+const WORKSPACE_RUST_FILE = /^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|clippy\.toml|rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/;
+const WORKSPACE_JS_FILE = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$/;
 const ESLINT_FILES = ["eslint.config.js", "eslint.config.mjs", ".eslintrc.json"];
 const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
 const PROBES = Object.freeze({
@@ -156,6 +161,10 @@ export function planScans({
   realpath = (p) => fs.realpathSync(p),
   // Bytes of a changed file for the input digest (defaults to readFile; the gates pass the raw reader).
   readBytes = readFile,
+  // Directory listing, for the every-unit scope a workspace file change brings in.
+  listDir = (d) => { try { return fs.readdirSync(d); } catch { return []; } },
+  // Per-crate feature sets, shaped like ci/gate.config.json `rust` ({ [crate]: { featureSets, checkFeatureSets } }).
+  crateFeatures = {},
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rightkit", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -235,15 +244,20 @@ export function planScans({
   if (exists(path.join(contentRoot, "packages/release/rightkit-ownership.json")) && exists(path.join(contentRoot, "crates/rightkit-ownership/catalog/ownership-catalog.json"))) {
     add({ id: "ownership-catalog", class: A, internal: "ownership-catalog", files: ["packages/release/rightkit-ownership.json", "crates/rightkit-ownership/catalog/ownership-catalog.json"] });
   }
-  const crateNames = safeUnits([...new Set(under("crates/").map((f) => f.split("/")[1]))].filter((n) => exists(path.join(contentRoot, "crates", n, "Cargo.toml"))).sort(), "crate");
+  const rustWide = files.some((f) => WORKSPACE_RUST_FILE.test(f));
+  const jsWide = files.some((f) => WORKSPACE_JS_FILE.test(f));
+  const crateNames = safeUnits([...new Set([...under("crates/").map((f) => f.split("/")[1]), ...(rustWide ? listDir(path.join(contentRoot, "crates")) : [])])].filter((n) => exists(path.join(contentRoot, "crates", n, "Cargo.toml"))).sort(), "crate");
   const rustConfigChanged = files.some((f) => CONFIG_CRATE_FILE.test(f) || f === "deny.toml");
   const rustTouched = crateNames.length > 0 || rustConfigChanged;
-  const pkgNames = safeUnits([...new Set(under("packages/").map((f) => f.split("/")[1]))].filter((n) => exists(path.join(contentRoot, "packages", n, "package.json"))).sort(), "package");
+  const pkgNames = safeUnits([...new Set([...under("packages/").map((f) => f.split("/")[1]), ...(jsWide ? listDir(path.join(contentRoot, "packages")) : [])])].filter((n) => exists(path.join(contentRoot, "packages", n, "package.json"))).sort(), "package");
   const jsTouched = pkgNames.length > 0 || files.some((f) => JS_TOOLING_FILE.test(f));
 
   if (files.some((f) => f.startsWith(".github/workflows/"))) add({ id: "actionlint", class: A, tool: "actionlint", args: [], root: "content" });
-  if (files.includes(".rightgit.json")) add({ id: "right-git-drift", class: A, tool: "right-git", args: ["sync", "--check"] }); // live: needs the checkout's .git
+  // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
+  // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 
+  // Exceptions expire by date, not by change: checked on every run, whatever changed.
+  if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
   if (rustTouched) {
     add({ id: "cargo-metadata", class: A, ...cargo(...metadataArgs()) });
     for (const name of crateNames) add({ id: `cargo-package-list:${name}`, class: A, ...cargo("package", "-p", name, "--list", "--allow-dirty", "--locked") });
@@ -280,9 +294,16 @@ export function planScans({
   }
   for (const name of crateNames) {
     add({ id: `check:${name}`, class: B, ...cargo(...checkArgs(name, { locked: true })) });
-    add({ id: `check-all-features:${name}`, class: B, ...cargo(...checkArgs(name, { features: ["--all-features"], locked: true })) });
-    add({ id: `clippy:${name}`, class: B, ...cargo(...clippyArgs(name, { features: ["--all-features"], locked: true })) });
-    add({ id: `doc:${name}`, class: B, ...cargo(...docArgs(name)), env: { RUSTDOCFLAGS: DOC_RUSTDOCFLAGS } });
+    // Feature sets exactly as CI's gate runs them (scripts/ci/gate.mjs, ci/gate.config.json rust.<crate>):
+    // clippy per `featureSets` (default features when absent); check per `checkFeatureSets` (default
+    // --all-features), none when a lint set already uses --all-features. Some crates' features cannot
+    // all be on together (rightkit-db sqlcipher vs sqlcipher-system; qa-driver wv2 generations).
+    const own = crateFeatures?.[name] ?? {};
+    const lintSets = Array.isArray(own.featureSets) && own.featureSets.length ? own.featureSets : [[]];
+    const checkSets = lintSets.some((set) => set.includes("--all-features")) ? [] : (Array.isArray(own.checkFeatureSets) ? own.checkFeatureSets : [["--all-features"]]);
+    checkSets.filter((set) => set.length).forEach((set, i) => add({ id: `check-features:${name}:${i}`, class: B, ...cargo(...checkArgs(name, { features: set, locked: true })) }));
+    lintSets.forEach((set, i) => add({ id: lintSets.length === 1 ? `clippy:${name}` : `clippy:${name}:${i}`, class: B, ...cargo(...clippyArgs(name, { features: set, locked: true })) }));
+    add({ id: `doc:${name}`, class: B, ...cargo("doc", "-p", name, "--no-deps", ...lintSets[0], "--locked"), env: { RUSTDOCFLAGS: DOC_RUSTDOCFLAGS } });
   }
   const rootLint = ROOT_LINT_FILES.some((f) => exists(path.join(liveRoot, f)));
   for (const name of pkgNames) {
@@ -425,6 +446,9 @@ const INTERNAL = {
     return bad;
   },
   refuse: (s) => [s.detail],
+  // Every RustSec exception is dated, scoped to the locked versions and identical in deny.toml and
+  // .cargo/audit.toml (ci/advisory-exceptions.json; Astra 2026-10-22). Expiry fails every run.
+  "advisory-exceptions": (s, ctx) => checkAdvisoryExceptions({ root: ctx.contentRoot, readFile: ctx.read }),
   "ownership-catalog": (s, ctx) => (ctx.read(s.files[0]) === ctx.read(s.files[1]) ? [] : ["copy packages/release/rightkit-ownership.json to crates/rightkit-ownership/catalog/ownership-catalog.json"]),
   "changelog-version": (s, ctx) => {
     const version = (ctx.read(s.files[0]).match(/^version\s*=\s*"([^"]+)"/m) || [])[1];
@@ -522,6 +546,8 @@ export async function runScans(plan, options = {}) {
     let status = "pass"; let detail = ""; let code;
     if (s.deferred) {
       results.push({ ...row, status: "deferred", detail: s.deferred });
+      // A class A scan that did not run is not a class A pass: class B waits.
+      if (s.class === SCAN_CLASS.A) classAFailed = true;
       continue;
     }
     try {

@@ -42,6 +42,7 @@ jobs:
       macos_closure_count: ${{ steps.plan.outputs.macos_closure_count }}
       macos_base: ${{ steps.plan.outputs.macos_base }}
       hygiene_tokens: ${{ steps.plan.outputs.hygiene_tokens }}
+      scan_base: ${{ steps.plan.outputs.scan_base }}
       scan_crates: ${{ steps.plan.outputs.scan_crates }}
       scan_packages: ${{ steps.plan.outputs.scan_packages }}
       evidence: ${{ steps.plan.outputs.evidence }}
@@ -92,6 +93,7 @@ jobs:
         env:
           SHARD_TOKENS: ${{ matrix.tokens }}
           SHARD_BASE: ${{ needs.plan.outputs.windows_base }}
+          RK_SCANS_JOB_RESULT: ${{ needs.hygiene.result }}
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
@@ -134,6 +136,7 @@ jobs:
         env:
           SHARD_TOKENS: ${{ matrix.tokens }}
           SHARD_BASE: ${{ needs.plan.outputs.macos_base }}
+          RK_SCANS_JOB_RESULT: ${{ needs.hygiene.result }}
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
@@ -176,6 +179,7 @@ jobs:
         env:
           SHARD_TOKENS: ${{ matrix.tokens }}
           SHARD_BASE: ${{ needs.plan.outputs.windows_base }}
+          RK_SCANS_JOB_RESULT: ${{ needs.hygiene.result }}
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
@@ -216,6 +220,7 @@ jobs:
         env:
           SHARD_TOKENS: ${{ matrix.tokens }}
           SHARD_BASE: ${{ needs.plan.outputs.macos_base }}
+          RK_SCANS_JOB_RESULT: ${{ needs.hygiene.result }}
           CARGO_INCREMENTAL: "1"
           CARGO_PROFILE_DEV_DEBUG: "0"
           CARGO_PROFILE_TEST_DEBUG: "0"
@@ -248,6 +253,30 @@ jobs:
           ignore-install-scripts: "true"
           cache-key: rk-ubuntu-hygiene
           save-cache: ${{ github.event_name != 'pull_request' }}
+      - name: Install the pinned Cargo scan tools
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2
+      - name: Install the pinned workflow linter
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location --output "$archive" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  ${archive}" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/actionlint-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/actionlint-bin" actionlint
+          echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
+      # Class A scans run for EVERY change (Rust, npm, workflow, scripts, docs), never only for crates: with no base they
+      # cover every tracked file. Shard and closure jobs need this job and receive its result (RK_SCANS_JOB_RESULT).
+      - name: Class A deterministic scans (every change)
+        shell: bash
+        env:
+          HYGIENE_TOKENS: ${{ needs.plan.outputs.hygiene_tokens }}
+          SCAN_BASE: ${{ needs.plan.outputs.scan_base }}
+        run: node scripts/ci/gate.mjs --select "$HYGIENE_TOKENS" --steps scans ${SCAN_BASE:+--base "$SCAN_BASE"}
       - name: Cargo.lock and rustfmt (selected crates)
         if: ${{ !cancelled() && needs.plan.outputs.hygiene_tokens != '' }}
         shell: bash

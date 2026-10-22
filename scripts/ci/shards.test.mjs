@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, SWIFT_ROOT_MANIFEST, swiftXcodebuilds } from "./shards.mjs";
+import { appliesOn, groupUnits, parseSelectTokens, parseSteps, planHost, planHygiene, rustWeight, sanitizeId, shardsConfig, summaryVerdict, evidenceVerdict, requiredConsumerLockCommands, requiredShardCommands, scanBase, SWIFT_ROOT_MANIFEST, swiftXcodebuilds } from "./shards.mjs";
 import { scanTargets } from "./secret-scan.mjs";
 
 const crates = ["rightkit-a", "rightkit-b", "rightkit-c", "rightkit-d", "rightkit-e", "rightkit-heavy", "rightkit-win"];
@@ -137,7 +137,10 @@ test("--select tokens select exactly the named units and reject everything else"
 });
 
 test("--steps names what runs; the default is everything", () => {
-  assert.deepEqual([...parseSteps(undefined)].sort(), ["closure", "fmt", "lock", "test"]);
+  assert.deepEqual([...parseSteps(undefined)].sort(), ["closure", "fmt", "lock", "test"], "scans is never a default step: only a job that names it runs it");
+  assert.ok(!parseSteps("").has("scans"));
+  assert.deepEqual([...parseSteps("lock,scans")], ["lock", "scans"]);
+  assert.deepEqual([...parseSteps("scans")], ["scans"]);
   assert.deepEqual([...parseSteps("lock,fmt")], ["lock", "fmt"]);
   assert.deepEqual([...parseSteps("test closure")], ["test", "closure"]);
   assert.throws(() => parseSteps("lock,build"), /unknown step/);
@@ -331,4 +334,16 @@ test("consumer lock repair emits patch while retaining failed locked proof", asy
   assert.equal(actual.find((step) => step.args.includes(manifestPath) && step.args.includes("--locked")).ok, false);
   assert.deepEqual(actual.at(-1).args, ["update", "--manifest-path", manifestPath, "--workspace"]);
   assert.deepEqual(patches, [{ name: "ci-consumers-native-Cargo.lock.patch", files: ["ci/consumers/native/Cargo.lock"] }]);
+});
+
+test("scanBase is the oldest runner base, and empty (scan everything) whenever any runner has no base", () => {
+  const a = "a".repeat(40); const b = "b".repeat(40); const m = "c".repeat(40);
+  const git = (...args) => (args[0] === "merge-base" && args[1] === a && args[2] === b ? { status: 0, stdout: `${m}\n` } : { status: 1, stdout: "" });
+  assert.equal(scanBase([{ base: a, all: false }], git), a);
+  assert.equal(scanBase([{ base: a, all: false }, { base: a, all: false }], git), a);
+  assert.equal(scanBase([{ base: a, all: false }, { base: b, all: false }], git), m);
+  assert.equal(scanBase([{ base: a, all: false }, { base: null, all: true }], git), "", "a full run scans every file");
+  assert.equal(scanBase([{ base: a, all: true }], git), "", "--all wins over a resolved base");
+  assert.equal(scanBase([{ base: b, all: false }, { base: a, all: false }], git), "", "an unresolvable merge base scans every file");
+  assert.equal(scanBase([], git), "");
 });

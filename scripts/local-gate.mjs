@@ -59,12 +59,49 @@ const changed = [...new Set(diff.stdout.split(/\r?\n/).map((f) => f.trim()).filt
 // on the export of HEAD. Tests of the changed crates and packages, and scripts/ci, run here too.
 // Every scan runs here, before any push or CI build (Adrian 2026-10-22, #888): class B too, through
 // the broker, under the committed local compile grant. A deferred scan is a failure, never a pass.
-const onPath = (cmd) => run(process.platform === "win32" ? "where" : "which", [cmd]).status === 0;
+//
+// Broker scans (cargo, pnpm, scripts/ci tests) read the live checkout, so it must equal HEAD there:
+// an uncommitted fix could otherwise hide a committed failure. Any change or untracked file under the
+// paths they read blocks the gate.
+const LIVE_INPUTS = ["crates", "packages", "scripts", "vendor", "ci", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "deny.toml",
+  "clippy.toml", "rustfmt.toml", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc"];
+const dirty = run("git", ["status", "--porcelain", "--untracked-files=all", "--", ...LIVE_INPUTS]);
+const dirtyFiles = dirty.status === 0
+  ? dirty.stdout.split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules"))
+  : [`git status failed: ${dirty.stderr.trim()}`];
+if (dirtyFiles.length) {
+  console.error("local-gate: BLOCKED: the checkout differs from HEAD where broker scans read it; commit or stash first:");
+  for (const l of dirtyFiles.slice(0, 20)) console.error(`  ${l}`);
+  cleanup();
+  process.exit(1);
+}
+
+// Cargo only through the broker: `rightkit cargo`, or a `cargo` on PATH that is the managed shim
+// (it runs packages/release/cargo-guard.mjs). Any other cargo would bypass the broker: refused.
+const which = (cmd) => {
+  const r = run(process.platform === "win32" ? "where" : "which", [cmd]);
+  return r.status === 0 ? r.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) : [];
+};
+const isManagedShim = (file) => {
+  try { return readFileSync(file, "utf8").includes("cargo-guard.mjs"); } catch { return false; }
+};
+let cargoCommand = null;
+if (which("rightkit").length) cargoCommand = ["rightkit", "cargo"];
+else {
+  const first = which("cargo")[0];
+  if (first && isManagedShim(first)) cargoCommand = ["cargo"];
+}
+if (!cargoCommand) {
+  console.error("local-gate: BLOCKED: neither `rightkit` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used");
+  cleanup();
+  process.exit(1);
+}
 const plan = planScans({
   changed, contentRoot: repo, liveRoot: live, includeTests: true,
   localCompile: existsSync(path.join(live, ".rightkit-local-build.json")),
-  // `rightkit cargo` where installed; otherwise the `cargo` shim, which routes to the same broker.
-  cargoCommand: onPath("rightkit") ? ["rightkit", "cargo"] : ["cargo"],
+  cargoCommand,
+  // The same per-crate feature sets CI uses (crates whose features cannot all be on together).
+  crateFeatures: (() => { try { return JSON.parse(readFileSync(path.join(repo, "ci/gate.config.json"), "utf8")).rust ?? {}; } catch { return {}; } })(),
 });
 const scanResult = await runScans(plan, { classes: ["A", "B"] });
 for (const line of scanFailures(scanResult)) failures.push(line);
