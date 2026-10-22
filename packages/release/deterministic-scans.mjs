@@ -168,15 +168,16 @@ const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 // Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
 // so a dependency or toolchain update never reaches a push without local qualification.
-export const WORKSPACE_RUST_FILE = /^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|\.cargo\/.+|vendor\/.+)$/;
+// `.cargo/audit.toml` is cargo-audit policy (an advisory ignore list), read by no compiler: it is ANCESTOR_DENY_FILE below.
+export const WORKSPACE_RUST_FILE = /^(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|\.cargo\/(?!audit\.toml$).+|vendor\/.+)$/;
 // What cargo, clippy, rustfmt and cargo-deny read from EVERY ancestor directory of a workspace (cargo merges `.cargo/config*` and
 // finds the toolchain file, clippy and rustfmt search upward): a change to one at any ancestor of a workspace, the workspace's own
 // root included, puts that workspace's whole crate set in scope. Patterns are relative to the ancestor directory.
-export const ANCESTOR_RUST_CONFIG_FILE = /^(rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|\.cargo\/.+)$/;
-// cargo-deny reads deny.toml from the workspace root and its ancestors, but it changes no compilation: a change anywhere above a
-// workspace runs that workspace's metadata, cargo-deny and cargo-audit scans (the deny scan covers the workspace's whole crate set),
-// not its compile or test scans.
-export const ANCESTOR_DENY_FILE = /^deny\.toml$/;
+export const ANCESTOR_RUST_CONFIG_FILE = /^(rust-toolchain(\.toml)?|\.?clippy\.toml|\.?rustfmt\.toml|\.cargo\/(?!audit\.toml$).+)$/;
+// cargo-deny reads deny.toml and cargo-audit reads .cargo/audit.toml from the workspace root and its ancestors, but neither changes
+// compilation: a change anywhere above a workspace runs that workspace's metadata, cargo-deny and cargo-audit scans (the deny scan
+// covers the workspace's whole crate set), not its compile or test scans.
+export const ANCESTOR_DENY_FILE = /^(deny\.toml|\.cargo\/audit\.toml)$/;
 /** The directories whose Rust configuration reaches workspace `ws`: "." (the repository root), every directory between, and `ws` itself. */
 export const ancestorDirsOf = (ws) => {
   const parts = ws === "." ? [] : String(ws).split("/").filter(Boolean);
@@ -388,7 +389,7 @@ export function planScans({
   const configWs = new Set();
   for (const f of files) {
     const isConfig = CONFIG_CRATE_FILE.test(f); const ws = wsOfFile(f);
-    if (ws !== null) { if (isConfig || wsRel(ws, f) === "deny.toml") configWs.add(ws); }
+    if (ws !== null) { if (isConfig || ANCESTOR_DENY_FILE.test(wsRel(ws, f) ?? "")) configWs.add(ws); }
     else if (isConfig && workspaces.length === 1) configWs.add(workspaces[0]);
   }
   // Ancestor configuration is configuration of the workspace too: its metadata, cargo-deny and cargo-audit scans run as well.

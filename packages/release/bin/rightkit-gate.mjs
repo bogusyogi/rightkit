@@ -170,6 +170,58 @@ export function discoverRustUnits({ root, spawn, cargoCommand, tracked, readFile
 export const rustUnitName = (cargoDir, crate) => (cargoDir === "." ? crate : `${cargoDir}:${crate}`);
 
 /**
+ * The top-level TOML tables of a Cargo manifest: name -> body text (the lines under `[name]` up to the next header, trimmed).
+ * `preamble` holds the lines before the first header. Enough to compare manifests table by table; no value parsing.
+ */
+export function manifestTables(text) {
+  const tables = new Map(); let current = "preamble"; let body = [];
+  const flush = () => { tables.set(current, (tables.get(current) ?? "") + body.join("\n").trim()); body = []; };
+  for (const line of String(text ?? "").replace(/\r\n/g, "\n").split("\n")) {
+    const header = /^\s*\[\[?([^\]]+)\]\]?\s*(#.*)?$/.exec(line);
+    if (header) { flush(); current = header[1].trim(); continue; }
+    body.push(line);
+  }
+  flush();
+  return tables;
+}
+
+/** The repository-relative directories a workspace manifest `exclude`s (`[workspace] exclude = [...]`); [] when none or unreadable. */
+export function workspaceExcludes(readFile, root, cargoDir) {
+  let text;
+  try { text = readFile(path.join(root, cargoDir === "." ? "Cargo.toml" : `${cargoDir}/Cargo.toml`)); } catch { return []; }
+  const body = manifestTables(text).get("workspace") ?? "";
+  const list = /^\s*exclude\s*=\s*\[([\s\S]*?)\]/m.exec(body)?.[1] ?? "";
+  return [...list.matchAll(/"([^"]+)"/g)].map((m) => posix(m[1]).replace(/\/+$/, "")).map((d) => (cargoDir === "." ? d : `${cargoDir}/${d}`));
+}
+
+// The manifest tables whose every effect on a build is also written into Cargo.lock: a changed source ([patch.*]), a changed
+// workspace dependency version or features ([workspace.dependencies]: the lock records the resolved version and the member's
+// own manifest the features), and workspace membership ([workspace] members/exclude: a new member is a new lock package, a removed
+// one disappears). Anything else in the root manifest ([profile.*], [workspace.package], [workspace.lints], [workspace.metadata]
+// read by build scripts) can change what every crate compiles to without touching the lock, so it keeps every crate in scope.
+const LOCK_REFLECTED_TABLE = /^(patch\..+|workspace\.dependencies)$/;
+const WORKSPACE_MEMBERSHIP_KEYS = /^\s*(members|exclude|default-members)\s*=\s*\[[\s\S]*?\]\s*(#.*)?$/gm;
+
+/**
+ * True when every difference between two root manifests lives in a lock-reflected table (above), so the lock graph already says
+ * which crates the change reaches. False for any other difference, a malformed manifest, or no difference at all.
+ */
+export function manifestChangeIsLockReflected(before, after) {
+  if (typeof before !== "string" || typeof after !== "string" || before === after) return false;
+  const a = manifestTables(before); const b = manifestTables(after);
+  // A comment-only line and trailing blank lines change no build; a trailing `# ...` on a value line is kept (a `#` may sit in a string).
+  const text = (t) => String(t ?? "").split("\n").filter((l) => !/^\s*(#.*)?$/.test(l)).join("\n");
+  const strip = (t) => text(t).replace(WORKSPACE_MEMBERSHIP_KEYS, "").trim();
+  for (const name of new Set([...a.keys(), ...b.keys()])) {
+    if (text(a.get(name)) === text(b.get(name))) continue;
+    if (LOCK_REFLECTED_TABLE.test(name)) continue;
+    if (name === "workspace" && strip(a.get(name)) === strip(b.get(name))) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
  * Every Cargo workspace of the repository. A tracked Cargo.toml is a workspace root, or a standalone package not inside another
  * workspace, unless an earlier (shallower) workspace already lists it as a member; each root is read with its own
  * `cargo metadata --no-deps --locked` (cwd = its directory, through the broker). A manifest below another workspace that is not
@@ -179,17 +231,33 @@ export const rustUnitName = (cargoDir, crate) => (cargoDir === "." ? crate : `${
  * Returns { present, workspaces: [{ cargoDir, units }], units, cargoDir, skipped: [{ manifest, why }] }; `units` is every workspace's
  * [{ name, crate, dir, publish, cargoDir }] and `cargoDir` the first workspace's (the repository root's when it has one).
  */
-export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, untracked = () => [], realpath = fs.realpathSync }) {
+export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, untracked = () => [], realpath = fs.realpathSync, fixtures = [], readFile = (f) => fs.readFileSync(f, "utf8") }) {
   const manifests = tracked("Cargo.toml");
   const trackedSet = new Set(manifests);
+  const locks = new Set(tracked("Cargo.lock"));
   const skipped = [];
   for (const m of untracked()) if (!trackedSet.has(m)) skipped.push({ manifest: m, why: "untracked (not committed, so not part of the gated commit)" });
   if (!manifests.length) return { present: false, workspaces: [], units: [], cargoDir: ".", skipped };
+  const fixtureDirs = fixtures.map((d) => posix(String(d)).replace(/\/+$/, "")).filter(Boolean);
+  const underFixture = (dir) => fixtureDirs.find((f) => dir === f || dir.startsWith(`${f}/`));
   const workspaces = []; const covered = new Set();
   for (const m of [...manifests].sort(byDepthThenName)) {
     if (covered.has(m)) continue;
     const dir = dirOfManifest(m);
     const parent = workspaces.find((w) => w.cargoDir === "." || dir === w.cargoDir || dir.startsWith(`${w.cargoDir}/`));
+    // A manifest under a declared fixture directory (ci/gate.config.json `fixtures`) is a consumer or sample crate: it is gated by the
+    // consumer rows of the crate it exercises, never as a unit of its own. Nothing under it is asked of cargo.
+    const fixture = underFixture(dir);
+    if (fixture) { skipped.push({ manifest: m, why: `under the fixture directory ${fixture} (ci/gate.config.json fixtures); gated through the consumer rows of the crate it exercises` }); continue; }
+    // A manifest the parent workspace's own manifest `exclude`s (a vendored or patched crate) is compiled only as a dependency of the
+    // parent's members: the parent's lock closure gates it, so it is no unit of its own.
+    if (parent) {
+      const excluded = workspaceExcludes(readFile, root, parent.cargoDir).find((x) => dir === x || dir.startsWith(`${x}/`));
+      if (excluded) { skipped.push({ manifest: m, why: `excluded from the Cargo workspace ${parent.cargoDir} by its manifest (${excluded}); it compiles only inside that workspace's lock closure, which gates it` }); continue; }
+      // A nested manifest with no committed Cargo.lock has no reproducible build to gate: its dependency resolution is whatever the
+      // registry answers today. It is a fixture or sample; the crate it exercises carries the consumer row that compiles it.
+      if (!locks.has(`${dir}/Cargo.lock`)) { skipped.push({ manifest: m, why: `below the Cargo workspace ${parent.cargoDir} with no committed Cargo.lock, so its build is not reproducible; gated through the consumer rows of the crate it exercises` }); continue; }
+    }
     let found;
     try { found = workspaceMetadata({ root, spawn, cargoCommand, dir, realpath }); } catch (e) {
       if (!parent) throw e;
@@ -215,22 +283,33 @@ export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, unt
 }
 
 /**
- * The crates a lock-only workspace change reaches (the lock graph CI's selection uses), or null when any other workspace Rust
- * file changed or the base has no lock: every crate stays in scope.
+ * The crates a lock-reflected workspace change reaches (the lock graph CI's selection uses): a Cargo.lock change, a vendor/ change
+ * (the vendored crate is a lock package), and a workspace manifest change confined to the tables the lock also records
+ * (manifestChangeIsLockReflected: [patch.*], [workspace.dependencies], membership). null when any other workspace Rust file or
+ * manifest table changed or the base has no lock: every crate stays in scope. `readManifest` reads the gated commit's manifest.
  */
-export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLock }) {
+export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLock, readManifest = null }) {
   // Rust configuration of any ancestor directory (repository .cargo, intermediate .cargo, toolchain, clippy, rustfmt) reaches
   // every crate of the workspace, whatever the lock graph says.
   if (ancestorConfigChanged(cargoDir, changed)) return null;
   const rel = (f) => (cargoDir === "." ? f : f.startsWith(`${cargoDir}/`) ? f.slice(cargoDir.length + 1) : null);
   const wide = changed.map((f) => [f, rel(f)]).filter(([, r]) => r !== null && WORKSPACE_RUST_FILE.test(r));
-  if (!wide.length || wide.some(([, r]) => r !== "Cargo.lock" && !r.startsWith("vendor/"))) return null;
-  const before = showBase(cargoDir === "." ? "Cargo.lock" : `${cargoDir}/Cargo.lock`);
+  if (!wide.length || wide.some(([, r]) => r !== "Cargo.lock" && r !== "Cargo.toml" && !r.startsWith("vendor/"))) return null;
+  const inWs = (f) => (cargoDir === "." ? f : `${cargoDir}/${f}`);
+  if (wide.some(([, r]) => r === "Cargo.toml")) {
+    if (typeof readManifest !== "function") return null;
+    let after;
+    try { after = readManifest(); } catch { return null; }
+    if (!manifestChangeIsLockReflected(showBase(inWs("Cargo.toml")), after)) return null;
+  }
+  const before = showBase(inWs("Cargo.lock"));
   if (before === null) return null;
   let nextText;
   try { nextText = readLock(); } catch { return null; }
   const next = parseLock(nextText);
   const touched = changedLockNames(parseLock(before), next);
+  // A member the lock no longer lists was removed: nothing left to scan for it. A package present before and absent now reaches
+  // nothing; a package new now is in `touched` already.
   for (const [, r] of wide) if (r.startsWith("vendor/")) touched.add(r.split("/")[1]);
   const memo = new Map(); const scope = new Set();
   for (const [name] of next) {
@@ -652,7 +731,11 @@ export async function main(argv, io = {}) {
       const r = git("ls-files", "-z", "--others", "--exclude-standard", "--", ":(glob)**/Cargo.toml");
       return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
     };
-    rust = discoverRustWorkspaces({ root, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked });
+    // ci/gate.config.json `fixtures` (optional): directories whose manifests are consumer or sample crates, gated through the
+    // consumer rows of the crates they exercise (CI treats them the same: scripts/ci/gate.mjs consumerRowInvocations), never as units.
+    let fixtures = [];
+    try { const f = JSON.parse(o.readFile(path.join(root, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
+    rust = discoverRustWorkspaces({ root, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readLive });
     npm = discoverNpmUnits({ root, tracked, readFile: readLive, exists: o.exists });
   } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
   for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
@@ -703,6 +786,7 @@ export async function main(argv, io = {}) {
         changed, cargoDir: ws.cargoDir, unitNames: new Set(nameOf.keys()),
         showBase: (f) => { const r = git("show", `${base}:${f}`); return failed(r) ? null : text(r); },
         readLock: () => o.readFile(path.join(repo, lockPath)),
+        readManifest: () => o.readFile(path.join(repo, ws.cargoDir === "." ? "Cargo.toml" : `${ws.cargoDir}/Cargo.toml`)),
       }) : null;
       if (scope === null) for (const u of ws.units) scopeNames.add(u.name);
       else { restricted = true; for (const crate of scope) if (nameOf.has(crate)) scopeNames.add(nameOf.get(crate)); }

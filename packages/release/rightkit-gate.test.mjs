@@ -7,7 +7,7 @@ import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import {
-  EXTERNAL_INPUT_FILE_LIMIT, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, parseWorkspaceGlobs, rustUnitName, rustUnitOfScanId, trampolineText,
+  EXTERNAL_INPUT_FILE_LIMIT, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -117,7 +117,15 @@ test("lockScope: a lock-only change reaches the crates whose closure holds a cha
   const after = lockPkg("serde", "1.0.1") + lockPkg("foo", "1.0.0", ["serde"]) + lockPkg("bar", "1.0.0", ["foo"]) + lockPkg("baz", "1.0.0");
   const base = { unitNames: new Set(["foo", "bar", "baz"]), showBase: () => before, readLock: () => after };
   assert.deepEqual([...lockScope({ ...base, changed: ["Cargo.lock"] })].sort(), ["bar", "foo"]);
-  assert.equal(lockScope({ ...base, changed: ["Cargo.lock", "Cargo.toml"] }), null);
+  assert.equal(lockScope({ ...base, changed: ["Cargo.lock", "Cargo.toml"] }), null, "a manifest change with no manifest reader keeps every crate");
+  // A root manifest change confined to lock-reflected tables ([patch.*], [workspace.dependencies], membership) narrows by the lock graph.
+  const manifestBefore = '[workspace]\nmembers = ["crates/*"]\n\n[workspace.dependencies]\nserde = "1.0.0"\n';
+  const showBoth = (f) => (f === "Cargo.toml" ? manifestBefore : before);
+  assert.deepEqual([...lockScope({ ...base, changed: ["Cargo.lock", "Cargo.toml"], showBase: showBoth, readManifest: () => manifestBefore.replace('serde = "1.0.0"', 'serde = "1.0.1"') })].sort(), ["bar", "foo"], "a workspace dependency bump");
+  assert.deepEqual([...lockScope({ ...base, changed: ["Cargo.lock", "Cargo.toml"], showBase: showBoth, readManifest: () => `${manifestBefore}\n[patch.crates-io]\nserde = { path = "vendor/serde" }\n` })].sort(), ["bar", "foo"], "a patch");
+  assert.equal(lockScope({ ...base, changed: ["Cargo.lock", "Cargo.toml"], showBase: showBoth, readManifest: () => `${manifestBefore}\n[profile.release]\nopt-level = 2\n` }), null, "a profile change keeps every crate");
+  assert.equal(lockScope({ ...base, changed: ["Cargo.lock", "Cargo.toml"], showBase: showBoth, readManifest: () => { throw new Error("unreadable"); } }), null);
+  assert.equal(lockScope({ ...base, changed: ["Cargo.toml"], showBase: showBoth, readManifest: () => manifestBefore }), null, "an unchanged manifest text with no lock change is no narrowing");
   assert.equal(lockScope({ ...base, changed: ["src/a.rs"] }), null);
   assert.equal(lockScope({ ...base, changed: ["Cargo.lock"], showBase: () => null }), null, "no lock at the base");
   assert.deepEqual([...lockScope({ ...base, changed: ["Cargo.lock", "vendor/baz/src/lib.rs"] })].sort(), ["bar", "baz", "foo"]);
@@ -415,6 +423,7 @@ test("lockScope: Rust configuration of an ancestor directory keeps every crate i
   assert.ok(lockScope({ ...base, changed: ["apps/foo/Cargo.lock"] }) instanceof Set, "a lock-only change is scoped by the lock graph");
   for (const file of [".cargo/config.toml", "apps/.cargo/config.toml", "rust-toolchain.toml", "apps/clippy.toml", "rustfmt.toml"]) assert.equal(lockScope({ ...base, changed: ["apps/foo/Cargo.lock", file] }), null, file);
   assert.ok(lockScope({ ...base, changed: ["apps/foo/Cargo.lock", "docs/.cargo/config.toml"] }) instanceof Set, "a directory that is no ancestor changes nothing");
+  for (const policy of [".cargo/audit.toml", "apps/.cargo/audit.toml", "deny.toml"]) assert.ok(lockScope({ ...base, changed: ["apps/foo/Cargo.lock", policy] }) instanceof Set, `${policy} is advisory policy: it changes no compilation`);
   assert.ok(lock);
 });
 
@@ -489,11 +498,53 @@ function metaSpawn(root, table, calls = []) {
     return ok(meta(root, entry.root ?? ".", entry.members.map(([name, dir, publish = null]) => [name, dir, publish])));
   };
 }
-const discover = (root, table, manifests, extra = {}) => {
+// Every manifest's directory has a committed Cargo.lock unless `locks` names the ones that do (a workspace with none is a fixture).
+const discover = (root, table, manifests, { locks = null, ...extra } = {}) => {
   const calls = [];
-  const found = discoverRustWorkspaces({ root, spawn: metaSpawn(root, table, calls), cargoCommand: ["rightkit", "cargo"], tracked: () => manifests, ...extra });
+  const lockFiles = locks ?? manifests.map((m) => m.replace(/Cargo\.toml$/, "Cargo.lock"));
+  const tracked = (name) => (name === "Cargo.lock" ? lockFiles : manifests);
+  const found = discoverRustWorkspaces({ root, spawn: metaSpawn(root, table, calls), cargoCommand: ["rightkit", "cargo"], tracked, ...extra });
   return { found, calls };
 };
+
+test("rustWorkspaces: a fixture directory, a parent-excluded crate and a lockless nested manifest are skipped with a reason, never asked of cargo", (t) => {
+  const root = mkRepo({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = ["vendor/patched", "crates/.audit"]\n\n[patch.crates-io]\npatched = { path = "vendor/patched" }\n' }, t);
+  const table = {
+    ".": { root: ".", members: [["core", "crates/core"]] },
+    "apps/demo": { root: "apps/demo", members: [["demo", "apps/demo"]] },
+  };
+  const manifests = ["Cargo.toml", "crates/core/Cargo.toml", "apps/demo/Cargo.toml", "vendor/patched/Cargo.toml", "ci/consumers/core-user/Cargo.toml", "spikes/try/Cargo.toml"];
+  const { found, calls } = discover(root, table, manifests, { fixtures: ["ci/consumers"], locks: ["Cargo.lock", "apps/demo/Cargo.lock", "vendor/patched/Cargo.lock"] });
+  assert.deepEqual(found.units.map((u) => u.name), ["core", "apps/demo:demo"]);
+  assert.deepEqual(calls.map((c) => c.cwd), [".", "apps/demo"], "cargo is asked only for the workspaces that are gated");
+  const why = Object.fromEntries(found.skipped.map((k) => [k.manifest, k.why]));
+  assert.match(why["ci/consumers/core-user/Cargo.toml"], /fixture directory ci\/consumers.*consumer rows/);
+  assert.match(why["vendor/patched/Cargo.toml"], /excluded from the Cargo workspace \. by its manifest \(vendor\/patched\).*lock closure/);
+  assert.match(why["spikes/try/Cargo.toml"], /no committed Cargo\.lock.*not reproducible/);
+  assert.equal(Object.keys(why).length, 3);
+  assert.deepEqual(workspaceExcludes((f) => fs.readFileSync(f, "utf8"), root, "."), ["vendor/patched", "crates/.audit"]);
+  assert.deepEqual(workspaceExcludes(() => { throw new Error("none"); }, root, "x"), []);
+});
+
+test("manifestChangeIsLockReflected: patch, workspace dependency and membership changes are in the lock; profile, package and lint changes are not", () => {
+  const base = '[workspace]\nmembers = ["crates/*"]\nexclude = ["vendor/a"]\nresolver = "2"\n\n[workspace.package]\nedition = "2021"\n\n[workspace.dependencies]\nserde = "1.0.0"\n\n[profile.release]\nopt-level = 3\n';
+  const edit = (from, to) => { assert.ok(base.includes(from), from); return base.replace(from, to); };
+  assert.equal(manifestChangeIsLockReflected(base, base), false, "no change narrows nothing");
+  assert.equal(manifestChangeIsLockReflected(null, base), false);
+  assert.equal(manifestChangeIsLockReflected(base, `${base}\n[patch.crates-io]\nquick-xml = { path = "vendor/quick-xml" }\n`), true, "a new patch table");
+  assert.equal(manifestChangeIsLockReflected(base, edit('serde = "1.0.0"', 'serde = "1.0.200"')), true, "a workspace dependency bump");
+  assert.equal(manifestChangeIsLockReflected(base, edit('exclude = ["vendor/a"]', 'exclude = ["vendor/a", "vendor/b"]')), true, "membership");
+  assert.equal(manifestChangeIsLockReflected(base, edit('members = ["crates/*"]', 'members = ["crates/*", "apps/*"]')), true, "members");
+  assert.equal(manifestChangeIsLockReflected(base, edit('resolver = "2"', 'resolver = "3"')), false, "the resolver is not in the lock");
+  assert.equal(manifestChangeIsLockReflected(base, edit('edition = "2021"', 'edition = "2024"')), false, "workspace.package");
+  assert.equal(manifestChangeIsLockReflected(base, edit("opt-level = 3", "opt-level = 2")), false, "a profile");
+  assert.equal(manifestChangeIsLockReflected(base, `${base}\n[workspace.lints.rust]\nunsafe_code = "forbid"\n`), false, "lints");
+  assert.equal(manifestChangeIsLockReflected(base, `${base}\n# why the patch below exists\n[patch.crates-io]\nx = { path = "vendor/x" }\n`), true, "a comment-only line before a new patch table lands in the previous table and changes no build");
+  assert.equal(manifestChangeIsLockReflected(base, `${base}# a trailing comment\n`), true, "a comment alone changes no build: the lock graph (unchanged) then reaches no crate");
+  assert.equal(manifestChangeIsLockReflected(base, edit("opt-level = 3", "opt-level = 3 # tuned")), false, "a trailing comment on a value line is kept: a # may sit inside a string");
+  const tables = manifestTables(base);
+  assert.deepEqual([...tables.keys()], ["preamble", "workspace", "workspace.package", "workspace.dependencies", "profile.release"]);
+});
 
 test("rustWorkspaces: the root workspace and every standalone workspace below it, each read by its own cargo metadata", (t) => {
   const root = mkRepo({}, t);
@@ -610,7 +661,9 @@ const canonicalJsonOfTree = (tree) => `{"kind":"tree","tree":${JSON.stringify(tr
 // ---- the gate with several workspaces ------------------------------------------------------------------------------------
 
 const MULTI_MANIFESTS = ["Cargo.toml", "crates/a/Cargo.toml", "hub/src-tauri/Cargo.toml", "fixtures/old/Cargo.toml"];
-function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untracked = "", tracked = MULTI_MANIFESTS } = {}) {
+// fixtures/old has a committed lock so that cargo is asked about it (and refuses it); a lockless nested manifest is skipped before cargo.
+const MULTI_LOCKS = ["Cargo.lock", "hub/src-tauri/Cargo.lock", "fixtures/old/Cargo.lock"];
+function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untracked = "", tracked = MULTI_MANIFESTS, locks = MULTI_LOCKS } = {}) {
   const table = { ".": { root: ".", members: [["a", "crates/a"]] }, "hub/src-tauri": { root: "hub/src-tauri", members: [["app", "hub/src-tauri"]] }, "fixtures/old": { fail: "error: not a member" } };
   const cargo = metaSpawn(root, table, log);
   return (cmd, args, opts = {}) => {
@@ -620,7 +673,7 @@ function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untra
       if (line === "rev-parse --show-toplevel") return ok(root);
       if (line === "rev-parse HEAD") return ok(HEAD);
       if (args[0] === "ls-files" && args.includes("--others")) return ok(untracked);
-      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${tracked.join("\0")}\0` : "");
+      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${tracked.join("\0")}\0` : args.at(-1).endsWith("Cargo.lock") ? `${locks.join("\0")}\0` : "");
       if (args[0] === "diff") return ok(diff);
     }
     if (cmd === "where" || cmd === "which") return args[0] === "rightkit" ? ok("/bin/rightkit\n") : no();
