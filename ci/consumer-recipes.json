@@ -669,16 +669,16 @@
     "rightkit-child-process": {
       "pkId": "PK02",
       "id": "ci/consumers/rightkit-child-process/src/main.rs",
-      "dependency": "rightkit-child-process = { version = \"=0.5.4\" }",
+      "dependency": "rightkit-child-process = { version = \"=0.5.5\" }",
       "extraDependencies": [],
       "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
-      "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216)",
+      "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
       "files": {
-        "Cargo.toml": "7b75d3352f146157882afbb707706501e422840fde26ceb817c03e83c08e0d59",
-        "README.md": "fc30937e76a006b428fd44bd8db9ceb0afcb1ee860ae3e0b132f7cbec9b99380",
-        "src/main.rs": "cf03627f44f7f276cd432a51767ced5ee6f5246e923d89d3dd1f4aca532993e4"
+        "Cargo.toml": "9094bfcf7129df9212f9083568d15b1e73de66d6dd12c866920e9979f28096cf",
+        "README.md": "32f28f7d77462a21e5b404a41b07529279ac75d191aea1784351aab4dedd3923",
+        "src/main.rs": "7eab290d9a82e2d230f865eeff949ece32c222d3a542d44197dd83ad837f0c25"
       },
-      "aggregateSha256": "1d451f2dbee538ba3031e83ccfc4bca9e9fc852f4d4d35dfd7068b43238c4bd1"
+      "aggregateSha256": "e46f1b991e40ba6bc2988e6eaea8483fe53eba08eb484d07047af295f2348ffb"
     },
     "rightkit-daemon": {
       "pkId": "PK07",
@@ -720,6 +720,64 @@
         "README.md": "388ca08f57a2a388768bb88dc3b9f94e5686f2f8bbf9199a52c51b059945544c",
         "src/main.rs": "682329c712d2d565265b2cb63caafedd38ba75a141677d5ff79f77040f874302"
       }
+    },
+    "rightkit-embed": {
+      "pkId": "PK12",
+      "id": "ci/consumers/rightkit-embed/src/main.rs",
+      "dependency": "rightkit-embed = { version = \"=0.6.1\" }",
+      "extraDependencies": [],
+      "gateEvidence": "model-free public API only: no model directory, tokenizer or ONNX Runtime library is read or loaded; Embedder::load is exercised only through its typed refusals (missing directory, invalid dimension) before any model access; VectorStore is not used; default features stay on; one empty temp directory removed at the end",
+      "consumes": "PK12 local-inference consumers (PK12 proposal; reviewed recipe, named product consumers not re-read here); rightkit-embed public items used: reciprocal_rank_fusion and RRF_K (src/fusion.rs), cosine_similarity (src/vector.rs), truncate_and_normalize, installed_model_dir, bundle_files, EmbedderConfig builders, ExecutionProvider, EmbedError and Embedder::load refusals (src/embedder.rs)",
+      "files": {
+        "Cargo.toml": "b78bcee34656829916861f0b15a8a6d6a4a97078ef1538c3e960e4a5f80823ab",
+        "README.md": "e15d8bc2963ba4feba16751a39f89510d2530ca7611d08826b29f14952ad057f",
+        "src/main.rs": "9ea876727b5ddb0582a9b277c3f042a6427124f6b7dab31a1718fed78dd7a91a"
+      },
+      "aggregateSha256": "8e545f4ce244dbb268abdd9954cb331cc3236fe4b26db29ede41889e1a3e9fcb"
+    },
+    "rightkit-fsindex": {
+      "pkId": "PK01",
+      "id": "ci/consumers/rightkit-fsindex/src/main.rs",
+      "dependency": "rightkit-fsindex = { version = \"=0.5.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no state directory, no watcher, no home directories, no network; macOS opens an Index over a temp tree of three small files, other hosts exercise only pure helpers and typed Unsupported refusals; the Windows live backends (Windows Search, USN journal) are not opened; content feature stays off",
+      "consumes": "PK01 filesystem-family consumer (reviewed recipe, named product consumers not re-read here); rightkit-fsindex public items used: Config::new, WriteBudgetConfig::new and with_max_footprint (src/config.rs), Index::open, open_with_backend, search, folder_size, children_sorted_by_size, write_budget_status, would_exceed_write_budget (src/index.rs), escape_sql_literal and like_pattern (src/backend/windows_search.rs), parse_usn_records (src/backend/windows_usn.rs), UnsupportedBackend (src/backend/windows_stub.rs)",
+      "files": {
+        "Cargo.toml": "9920b6571e14c13ae6c4dfe51942ca1f81334b836553cdc36ff956b0babb351e",
+        "README.md": "0d702b13a0d3ad250420bf7f71af80ea568575fd5bcf0fe33fd966fa880affeb",
+        "src/main.rs": "9dd93635a7ce30e5929a340e7a284ac655967fd27880549b11dc32e27f7e1b26"
+      },
+      "aggregateSha256": "527ea042fa844af31fa768968f853917f9df6dbbc55f3f687df0f6b342b2db25"
+    },
+    "rightkit-ownership": {
+      "pkId": "PK14",
+      "id": "ci/consumers/rightkit-ownership/src/main.rs",
+      "dependency": "rightkit-ownership = { version = \"=0.4.0\" }",
+      "extraDependencies": [
+        "serde_json = \"1\""
+      ],
+      "gateEvidence": "embedded catalog only; in-memory trust loader with an unavailable checkpoint authority, so no protected trust file, key, git remote or signature is used; scans one temp directory holding one file, removed at the end; no network",
+      "consumes": "PK14 quality-gate consumer (reviewed recipe, named product consumers not re-read here); rightkit-ownership public items used: catalog, catalog_value, scanner_policy_digest, SCANNER_VERSION, ownership_verdict, ownership_cache_key, is_blocking_finding, codes, canonical_repository_identity, Scanner::with_embedded_catalog (inputs, scan), ScanContext, ManualClock, keyauth::AuthorityEnv",
+      "files": {
+        "Cargo.toml": "952aff65af6b5dc0699b9ffed406491788baf87d43f0b9d670db2ef2b547e2f7",
+        "README.md": "6ff521d90f53d935785f3a6ea4ee730c1debe671736a38f47c5e9d4d13b914b2",
+        "src/main.rs": "d5e86f547445f580c832b581fd74476ffcfd7bd032b97920ae21d2a626ec5f0e"
+      },
+      "aggregateSha256": "d8f21200898579b9503a352d3ca62d64790b10cf0af0f8d628e73887af425535"
+    },
+    "rightkit-overlay-win": {
+      "pkId": "PK08",
+      "id": "ci/consumers/rightkit-overlay-win/src/main.rs",
+      "dependency": "rightkit-overlay-win = { version = \"=0.1.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; pure geometry, animation, colour, path and offscreen painting only, so it builds and runs on the macOS runner; no window, HWND, owner thread, DWM call, timer or file on any host (OverlayWindow::create is only refused: InvalidConfig everywhere, Unsupported off Windows)",
+      "consumes": "PK08 overlay consumers (same family as rightkit-overlay; reviewed recipe, named product consumers not re-read here); rightkit-overlay-win public items used: Easing and Animation (src/anim.rs), Rgba (src/color.rs), scale_for_dpi, device_size, client_to_logical, hit_test, device_regions, HitRegion (src/geometry.rs), rounded_rect_path, parse_svg_path, transform_path (src/path.rs), bar_rects and BarStyle, PaintCtx::offscreen (src/paint.rs), OverlayWindow::create and OverlayConfig (src/window.rs)",
+      "files": {
+        "Cargo.toml": "d7eafe9369d53cbe84e0e7fe6795968eec2c7ca3b5233f711ba9aa5d5af7ddc3",
+        "README.md": "fdfb60ba5d3fdcef8473ca74e2d0797d6e44e9639f7c95dc97ce6bec6ddb0f18",
+        "src/main.rs": "78722edda894a6fd6d43cdc92177c05233bb376402a2acfa5435faf68d37c417"
+      },
+      "aggregateSha256": "ada1d6084c05d5944081baff49cc14f99a7dedb00a1e6659baddf1c5aa362548"
     }
   }
 }

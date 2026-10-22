@@ -1,10 +1,12 @@
-// rightkit-child-process 0.5.4 registry consumer, outside the workspace.
+// rightkit-child-process 0.5.5 registry consumer, outside the workspace.
 //
 // The child is this same executable, started through std::env::current_exe with a `--child <mode>`
 // argument, so it exists on every runner without a shell, a network fetch or a second binary.
 // Exercises run (exit status, bounded stdout and stderr), run_with_stdin (stdin delivered to the
 // child), run_command (configured OwnedCommand with stdin), run_command_capture (first-N capture with
 // truncation counts) and an execution deadline that terminates the child (timed_out).
+// Also checks the 0.5.5 descriptor policy surface: the inherit_all_descriptors opt-out still runs a child,
+// and (Unix) naming a descriptor with inherit_fd while opting out is refused as InvalidInput.
 // Not covered: the strict incomplete-capture Err path; it is not deterministic on a trivial child.
 // State: no files, no network, no real user data.
 use rightkit_child_process::{
@@ -101,6 +103,21 @@ fn main() -> Result<(), Failure> {
     let timed = run(&exe, ["--child", "sleep"], &RunOptions::new(Duration::from_secs(1)))?;
     assert!(timed.timed_out, "a child past its deadline must be reported as timed out");
 
-    println!("rightkit-child-process 0.5.4 registry consumer passed");
+    // Descriptor policy (0.5.5): the opt-out is accepted and the child still runs.
+    let mut opted_out = command(&exe, "ok");
+    opted_out.inherit_all_descriptors(true);
+    let opted = run_command(opted_out, None, &RunOptions::new(deadline))?;
+    assert_eq!(opted.stdout.bytes, b"child-ok\n".to_vec());
+
+    // Unix: naming a descriptor while opting out of sanitation conflicts and is refused before spawn.
+    #[cfg(unix)]
+    {
+        let mut conflicting = command(&exe, "ok");
+        conflicting.inherit_all_descriptors(true).inherit_fd(2);
+        let refused = run_command(conflicting, None, &RunOptions::new(deadline));
+        assert!(refused.is_err(), "inherit_fd with the opt-out must be refused");
+    }
+
+    println!("rightkit-child-process 0.5.5 registry consumer passed");
     Ok(())
 }

@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-overlay-win-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-overlay-win = { version = "=0.1.0" }
