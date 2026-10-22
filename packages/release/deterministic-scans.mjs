@@ -492,13 +492,15 @@ export function planScans({
     else notes.push("swift files changed; `swift build` is required on the Mac host before its push");
   }
   if (includeTests) {
-    // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them.
+    // Tests per declared feature set, serially too where the crate asks for it, as CI's gate runs them. `quietTests: true` marks
+    // every test scan of the crate for the quiet lane (laneOf): run alone, under the broker's quiet lease.
     for (const name of crateNames) {
       const own = featuresOf(name);
       const sets = rustCratePlan(own).lintSets;
+      const quiet = own.quietTests === true ? { quiet: true } : {};
       sets.forEach((set, i) => {
-        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast") });
-        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
+        add({ id: rustScanId.testRust(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast") });
+        if (own.alsoSerial) add({ id: rustScanId.testRustSerial(name, sets.length, i), class: B, ...quiet, ...cargoIn(wsOf(name), "test", "-p", crateOf(name), ...set, "--locked", "--no-fail-fast", "--", "--test-threads=1") });
       });
     }
     for (const name of pkgNames) {
@@ -644,12 +646,14 @@ export function defaultSpawnAsync(command, args, options = {}) {
 }
 
 // Lanes for concurrent class B runs. The broker admits check and clippy side by side; rustdoc and
-// package are serialized by the broker anyway; tests and repository code share files, ports and
-// devices, so they run one at a time, as on a CI runner.
+// package are serialized by the broker anyway. Tests and repository code run after the compile lanes drain, `testJobs` at a
+// time; a test scan marked `quiet` (ci/gate.config.json `rust.<crate>.quietTests`: the crate's tests share ports, devices,
+// wall-clock budgets or the broker's own queue, so they fail under load) runs last, one at a time, under the broker's quiet
+// lease when the gate can take one (runScans `quietLane`).
 export function laneOf(scan) {
   if (/^(clippy|check|check-features|check-dependent):/.test(scan.id)) return "compile";
   if (/^doc:/.test(scan.id)) return "doc";
-  return "serial";
+  return scan.quiet === true ? "quiet" : "tests";
 }
 
 const tail = (r) => `${r.stdout ?? ""}${r.stderr ?? ""}`.split(/\r?\n/).filter((l) => l.trim()).slice(-8).join(" | ");
@@ -802,36 +806,45 @@ export async function runScans(plan, options = {}) {
   }
 
   const jobs = Math.max(1, Number(options.jobs ?? 1) || 1);
+  const testJobs = Math.max(1, Number(options.testJobs ?? jobs) || jobs);
+  // { acquire: async () => ({ id, env }) | null, release: async (id) => {} }: the broker's quiet lease around the quiet lane. A
+  // failed acquire runs the lane without one (the caller reports it); the lease is released however the lane ends.
+  const quietLane = options.quietLane && typeof options.quietLane.acquire === "function" ? options.quietLane : null;
   const onResult = typeof options.onResult === "function" ? options.onResult : () => {};
   const total = ordered.length; let done = 0;
-  async function runOne(s) {
+  async function runOne(s, extraEnv = null) {
     if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
     const started = Date.now();
-    const row = await scanRow(s);
+    const row = await scanRow(s, extraEnv);
     done += 1;
     try { onResult(row, { done, total, seconds: Math.round((Date.now() - started) / 1000) }); } catch { /* reporting never fails a scan */ }
     return row;
   }
-  // Class A in order (a failure stops class B); then class B, concurrently by lane when jobs > 1.
+  // Class A in order (a failure stops class B); then class B by lane: compile lanes (`jobs`) beside the doc lane, then the test
+  // lane (`testJobs`), then the quiet lane one at a time under the broker's quiet lease, so the tests that fail under load run on
+  // an otherwise quiet machine, as CI's shards run tests after their build. With jobs = 1 and testJobs = 1 the order is the same.
   const aScans = ordered.filter((s) => s.class === SCAN_CLASS.A);
   const bScans = ordered.filter((s) => s.class === SCAN_CLASS.B);
   for (const s of aScans) results.push(await runOne(s));
-  if (jobs === 1) {
-    for (const s of bScans) results.push(await runOne(s));
-  } else {
+  {
     const slots = new Array(bScans.length);
-    const lanes = { compile: [], doc: [], serial: [] };
+    const lanes = { compile: [], doc: [], tests: [], quiet: [] };
     bScans.forEach((s, i) => lanes[laneOf(s)].push(i));
-    const drain = async (queue) => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(bScans[i]); } };
-    // Compile and doc lanes run side by side; the serial lane (tests, repository code) starts only once they
-    // have drained, so timing-sensitive e2e tests (browser, desktop) run on an otherwise quiet machine, as
-    // CI's shards run tests after their build.
+    const drain = async (queue, extraEnv = null) => { while (queue.length) { const i = queue.shift(); slots[i] = await runOne(bScans[i], extraEnv); } };
     await Promise.all([...Array.from({ length: jobs }, () => drain(lanes.compile)), drain(lanes.doc)]);
-    await drain(lanes.serial);
+    await Promise.all(Array.from({ length: testJobs }, () => drain(lanes.tests)));
+    if (lanes.quiet.length) {
+      let lease = null;
+      if (quietLane && !signal?.aborted) { try { lease = (await quietLane.acquire()) ?? null; } catch { lease = null; } }
+      try { await drain(lanes.quiet, lease?.env ?? null); } finally {
+        if (lease && typeof quietLane.release === "function") { try { await quietLane.release(lease.id); } catch { /* the lease expires on its own */ } }
+      }
+    }
     results.push(...slots);
   }
 
-  async function scanRow(s) {
+  // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
+  async function scanRow(s, extraEnv = null) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
     if (s.class === SCAN_CLASS.B && classBBlocked) {
       return { ...row, status: "not-run", code: "CLASS_A_REQUIRED", detail: "class B refused: class A did not run in this call and no valid prior class A evidence for the same scan set was supplied" };
@@ -867,7 +880,7 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
             }
           }
-          const r = await deps.spawn(p.command, s.args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, ...sig });
+          const r = await deps.spawn(p.command, s.args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig });
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }

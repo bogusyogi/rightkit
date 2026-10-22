@@ -7,7 +7,7 @@ import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import {
-  EXTERNAL_INPUT_FILE_LIMIT, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
+  EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, quietLeaseLane, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -901,4 +901,38 @@ test("the trampoline hook runs the repository's own hook with its arguments and 
   assert.equal(spawnSync("sh", [".githooks/commit-msg", "MSG_FILE"], { cwd: root, encoding: "utf8" }).status, 9, "the own hook's failure fails the commit");
   fs.rmSync(path.join(root, ".git", "hooks", "commit-msg"));
   assert.equal(spawnSync("sh", [".githooks/commit-msg", "MSG_FILE"], { cwd: root, encoding: "utf8" }).status, 0, "no own hook: nothing to run");
+});
+
+// ---- quiet lease lane --------------------------------------------------------------------------------------------
+
+test("quietLeaseLane: acquires through rustright with the gate pid, hands the lease id to the lane as RUSTRIGHT_QUIET_LEASE, releases it; no rustright or a refusal runs the lane without one", async () => {
+  const calls = []; const out = [];
+  const spawnWith = (answers) => (cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (cmd === "where" || cmd === "which") return answers.present ? ok("D:\bin\rustright.cmd\n") : no();
+    if (cmd === "rustright" && args[1] === "acquire") return answers.acquire;
+    if (cmd === "rustright" && args[1] === "release") return answers.release ?? ok("");
+    return no(`unexpected ${cmd}`);
+  };
+  const o = (answers, platform = "win32") => ({ spawn: spawnWith(answers), out: (m) => out.push(m), platform });
+  const held = quietLeaseLane(o({ present: true, acquire: ok(JSON.stringify({ type: "QUIET_LEASE", granted: true, state: "HELD", id: "q-abc" })) }), { reason: "gate test", pid: 4242 });
+  const lease = await held.acquire();
+  assert.deepEqual(lease.env, { RUSTRIGHT_QUIET_LEASE: "q-abc" });
+  assert.equal(lease.id, "q-abc");
+  const acquire = calls.find((c) => c[0] === "rustright" && c[2] === "acquire");
+  assert.deepEqual(acquire.slice(3), ["--ttl-ms", String(QUIET_LEASE_TTL_MS), "--reason", "gate test", "--wait-drain-ms", String(QUIET_LEASE_WAIT_DRAIN_MS), "--holder-pid", "4242", "--json"]);
+  await held.release(lease.id);
+  assert.deepEqual(calls.at(-1), ["rustright", "quiet", "release", "q-abc"]);
+  assert.ok(out.some((m) => /quiet lease q-abc held/.test(m)) && out.some((m) => /quiet lease q-abc released/.test(m)));
+  // Refused by the broker (non-zero exit with the typed event), granted:false, no id, and no rustright at all: null, with a note each.
+  for (const [label, answers] of [
+    ["refused", { present: true, acquire: no('{"type":"QUIET_LEASE","granted":false,"state":"DRAIN_TIMEOUT","code":"LEASE_TIMEOUT","error":"the host did not go quiet"}') }],
+    ["granted:false", { present: true, acquire: ok('{"type":"QUIET_LEASE","granted":false}') }],
+    ["no id", { present: true, acquire: ok("{}") }],
+    ["absent", { present: false }],
+  ]) {
+    out.length = 0;
+    assert.equal(await quietLeaseLane(o(answers)).acquire(), null, label);
+    assert.ok(out.some((m) => /without a (broker )?lease/.test(m)), `${label} is reported`);
+  }
 });

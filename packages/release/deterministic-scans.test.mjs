@@ -1074,3 +1074,41 @@ test("root npm package: it is a unit like any other, but a file inside a nested 
   const both = planFor(["apps/web/src/a.ts", "src/main.ts"], nested, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }, { name: "web", dir: "apps/web" }] }).plan;
   assert.ok(ids(both).includes("tsc:app") && ids(both).includes("tsc:web"));
 });
+
+test("lanes: tests run testJobs at a time after the compile lanes; quiet test scans run last, alone, with the lease env and never in the cache key", async () => {
+  const bar = { "crates/bar/Cargo.toml": 'edition = "2024"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/bar/CHANGELOG.md": "## 1.0.0\n- x\n", "crates/bar/src/lib.rs": "" };
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/bar/src/lib.rs"], bar, { crateFeatures: { foo: { quietTests: true } } });
+  assert.equal(plan.scans.find((s) => s.id === "test:rust:foo").quiet, true);
+  assert.equal(plan.scans.find((s) => s.id === "test:rust:bar").quiet, undefined);
+  assert.equal(laneOf({ id: "test:rust:foo", quiet: true }), "quiet");
+  assert.equal(laneOf({ id: "test:rust:bar" }), "tests");
+  assert.equal(laneOf({ id: "tsc:x" }), "tests");
+  const seen = []; let running = 0; let peakTests = 0;
+  const spawn = async (command, args, options) => {
+    const id = args.join(" ");
+    if (/ test /.test(id)) {
+      running += 1; peakTests = Math.max(peakTests, running);
+      await new Promise((r) => setTimeout(r, 15));
+      running -= 1;
+    }
+    seen.push({ id, lease: options?.env?.RUSTRIGHT_QUIET_LEASE ?? null });
+    return fakeSpawn()(command, args);
+  };
+  const events = [];
+  const quietLane = { acquire: async () => { events.push("acquire"); return { id: "q-1", env: { RUSTRIGHT_QUIET_LEASE: "q-1" } }; }, release: async (id) => events.push(`release ${id}`) };
+  const result = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, testJobs: 2, quietLane });
+  assert.equal(result.ok, true, scanFailures(result).join("\n"));
+  const tests = seen.filter((s) => / test /.test(s.id));
+  assert.ok(tests.length >= 2);
+  assert.equal(tests.at(-1).id.includes("-p foo"), true, "the quiet crate's tests are the last scans");
+  assert.equal(tests.at(-1).lease, "q-1", "quiet scans carry the lease id");
+  assert.ok(tests.filter((t) => t.id.includes("-p bar")).every((t) => t.lease === null), "other tests never see the lease");
+  assert.deepEqual(events, ["acquire", "release q-1"], "one lease around the quiet lane");
+  const firstTestAt = seen.findIndex((s) => / test /.test(s.id));
+  assert.ok(seen.slice(0, firstTestAt).every((s) => !/ test /.test(s.id)) && seen.slice(0, firstTestAt).some((s) => /clippy|check/.test(s.id)), "compile scans finish before any test starts");
+  // No quietLane, or an acquire that throws: the lane still runs, without the env.
+  seen.length = 0;
+  const bare = await runScans(plan, { ...deps({ ...fs, spawn }), jobs: 2, quietLane: { acquire: async () => { throw new Error("broker down"); }, release: async () => assert.fail("nothing to release") } });
+  assert.equal(bare.ok, true);
+  assert.ok(seen.filter((s) => / test /.test(s.id)).every((s) => s.lease === null));
+});

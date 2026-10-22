@@ -39,7 +39,9 @@
 // rust.<crate>.testInputs lists the paths they read, for npm, node and docs scans, and whenever a reference cannot be resolved
 // statically) are all identical. Stored in <git common dir>/rightkit-gate-cache; a hit prints
 // `cached` and is listed in the result's cacheHits. Failures, deferrals and class A scans are never cached.
-// RK_GATE_JOBS (default 4) sets how many compile scans run side by side; tests stay one at a time.
+// RK_GATE_JOBS (default 4) sets how many compile scans run side by side; RK_GATE_TEST_JOBS (default RK_GATE_JOBS) how many test
+// scans, after the compile lanes drain. A crate whose ci/gate.config.json entry says `quietTests: true` has its test scans run last,
+// one at a time, under the RustRight quiet lease (`rustright quiet acquire`, RUSTRIGHT_QUIET_LEASE in their environment).
 // SIGINT/SIGTERM stop scheduling, kill every running scan's process tree and exit non-zero listing the scans not run.
 import fs from "node:fs";
 import os from "node:os";
@@ -565,6 +567,45 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], cargoDir 
   };
 }
 
+// ---- quiet lease ------------------------------------------------------------------------------------------------
+
+// The broker's quiet lease TTL ceiling is 30 minutes (RustRight, monotonic clock); an expired lease is not refused, the lane just
+// loses its protection, so a quiet lane longer than this is reported by the gate when it happens, never hidden.
+export const QUIET_LEASE_TTL_MS = 30 * 60 * 1000;
+export const QUIET_LEASE_WAIT_DRAIN_MS = 2 * 60 * 1000;
+
+/**
+ * The runScans `quietLane` for a host with RustRight (the reason carries no spaces: a .cmd shim on Windows re-splits its arguments): `rustright quiet acquire` before the quiet test scans (waits up to two
+ * minutes for running broker jobs to drain), `RUSTRIGHT_QUIET_LEASE=<id>` in their environment, `rustright quiet release` after.
+ * Without `rustright` on PATH, or when the broker refuses, the lane runs without a lease and the gate says so: the tests still run,
+ * their verdict is simply taken on a possibly busy host. `o.spawn` is the gate's synchronous spawner.
+ */
+export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-gate-quiet-tests", ttlMs = QUIET_LEASE_TTL_MS, waitDrainMs = QUIET_LEASE_WAIT_DRAIN_MS, pid = process.pid } = {}) {
+  const which = (cmd) => {
+    const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
+    return failed(r) ? null : (text(r).split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? null);
+  };
+  return {
+    acquire: async () => {
+      if (!which("rustright")) { o.out(`${tag} note: no rustright on PATH; quiet test scans run without a broker lease`); return null; }
+      const started = Date.now();
+      const r = o.spawn("rustright", ["quiet", "acquire", "--ttl-ms", String(ttlMs), "--reason", reason, "--wait-drain-ms", String(waitDrainMs), "--holder-pid", String(pid), "--json"]);
+      if (failed(r)) { o.out(`${tag} note: broker quiet lease refused (${(why(r) || `exit ${r?.status}`).slice(0, 200)}); quiet test scans run without a lease`); return null; }
+      let id = null;
+      // The CLI prints the broker's QUIET_LEASE event: { type, granted, state, id } when held; a refusal exits non-zero above.
+      try { const j = JSON.parse(text(r)); id = j?.granted === false ? null : (j?.id ?? j?.lease?.id ?? null); } catch { id = null; }
+      if (typeof id !== "string" || !id) { o.out(`${tag} note: broker quiet lease answer has no lease id (${text(r).trim().slice(0, 200)}); quiet test scans run without a lease`); return null; }
+      o.out(`${tag} broker quiet lease ${id} held (ttl ${Math.round(ttlMs / 60000)} min; waited ${Math.round((Date.now() - started) / 1000)} s for the broker to drain)`);
+      return { id, env: { RUSTRIGHT_QUIET_LEASE: id }, at: Date.now() };
+    },
+    release: async (id) => {
+      const r = o.spawn("rustright", ["quiet", "release", String(id)]);
+      if (failed(r)) o.out(`${tag} note: broker quiet lease ${id} release failed (${(why(r) || `exit ${r?.status}`).slice(0, 200)}); it expires on its own`);
+      else o.out(`${tag} broker quiet lease ${id} released`);
+    },
+  };
+}
+
 // ---- command resolution -------------------------------------------------------------------------------------
 
 // Cargo only through the broker: `rightkit cargo`, or a `cargo` on PATH that is the managed shim (it runs cargo-guard.mjs).
@@ -800,6 +841,7 @@ export async function main(argv, io = {}) {
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
+    const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
 
     if (planOnly) {
       o.out(`${tag} plan: ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)} (reads the working tree; nothing runs)`);
@@ -811,7 +853,8 @@ export async function main(argv, io = {}) {
       return 0;
     }
 
-    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time`);
+    const quietCount = plan.scans.filter((s) => s.quiet === true).length;
+    o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time, tests ${testJobs} at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;
     for (const sig of ["SIGINT", "SIGTERM"]) {
       const handler = () => {
@@ -852,7 +895,8 @@ export async function main(argv, io = {}) {
       } catch { cache = null; }
     }
     const scanResult = await runScans(plan, {
-      classes: ["A", "B"], jobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
     });
     if (ac.signal.aborted) {

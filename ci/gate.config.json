@@ -34,7 +34,8 @@
           "--features",
           "gzip,untrusted"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-job-queue": {
       "featureSets": [
@@ -60,7 +61,8 @@
           "service"
         ]
       ],
-      "alsoSerial": true
+      "alsoSerial": true,
+      "quietTests": true
     },
     "rightkit-pdf": {
       "featureSets": [
@@ -87,7 +89,8 @@
           "client-testing,update-auth"
         ]
       ],
-      "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)"
+      "allowIgnored": "tests/dalek_parity.rs::record_dalek_parity_vectors is an opt-in dependency-migration vector generator, not validation; recorded_outcomes_are_unchanged validates the checked-in parity vectors every run (1 ignored per default run)",
+      "quietTests": true
     },
     "rightkit-overlay-win": {
       "allowIgnored": "tests/windows_smoke.rs::create_show_animate_hide_close and tests/windows_gdi_handles.rs (GDI handle-count soak) are #[ignore] on purpose: both need an interactive Windows desktop (real layered windows, 30 cycles / 3 overlapping overlays / 400 resizes) and run by hand with --ignored on a workstation; the unit tests in src/ run and assert on every default run (2 ignored per default run on Windows; both files are cfg(windows) and compile empty elsewhere)"
@@ -284,7 +287,8 @@
           "--features",
           "remote-loopback"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-pdfium": {
       "featureSets": [
@@ -306,7 +310,8 @@
           "--features",
           "testing"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-crash": {
       "featureSets": [
@@ -315,7 +320,8 @@
           "--features",
           "window-errors"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-browser": {
       "featureSets": [
@@ -324,7 +330,8 @@
           "--features",
           "cookie-export"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-models": {
       "featureSets": [
@@ -342,7 +349,8 @@
         [
           "--all-features"
         ]
-      ]
+      ],
+      "quietTests": true
     },
     "rightkit-agent-tools": {
       "featureSets": [
@@ -386,6 +394,12 @@
     },
     "rightkit-ffmpeg": {
       "allowIgnored": "tests/native_catalog_e2e.rs::real_local_artifacts_and_locks_match_their_catalog_records is #[ignore] on purpose: it is an opt-in workstation audit that hashes ignored native binaries in sibling app checkouts (heardright, genright, cutright), not validation of this crate, and it runs only with an explicit --ignored run on a host that has those artifacts; the other 7 tests in the file run and assert on every default run (1 ignored per default run)"
+    },
+    "rightkit-onnx": {
+      "quietTests": true
+    },
+    "rightkit-overlay": {
+      "quietTests": true
     }
   },
   "fixtures": [
