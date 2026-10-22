@@ -1,7 +1,18 @@
 # Hand-owned: this workflow is no longer rendered by right-git (the rust-hybrid ci template runs the whole gate
 # in one job per OS, which cannot fan out). Edit it here; docs/CI.md "Sharded CI" describes the design.
 name: rightkit-shared-ci
+run-name: rightkit-shared-ci ${{ inputs.request_id || github.event_name }}
 on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Broker request correlation ID (not signed authority)
+        type: string
+        required: true
+      expected_sha:
+        description: Full commit SHA admitted by broker
+        type: string
+        required: true
   pull_request:
   push:
     branches: [main]
@@ -18,6 +29,17 @@ jobs:
   private-repo-guard:
     runs-on: ubuntu-24.04
     steps:
+      - name: Validate broker dispatch correlation
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        env:
+          RK_REQUEST_ID: ${{ inputs.request_id }}
+          RK_EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          [[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: exit 1
@@ -69,7 +91,7 @@ jobs:
   # max-parallel bounds this matrix; GitHub admits jobs under account-wide concurrency.
   shards-windows:
     needs: [plan, hygiene]
-    if: ${{ needs.plan.outputs.windows_shard_count != '0' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.plan.outputs.windows_shard_count != '0' }}
     name: windows ${{ matrix.id }}
     runs-on: windows-2025
     timeout-minutes: 150
@@ -111,7 +133,7 @@ jobs:
   # Offer all five standard macOS slots; GitHub controls account-wide admission, including closure jobs.
   shards-macos:
     needs: [plan, hygiene]
-    if: ${{ needs.plan.outputs.macos_shard_count != '0' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.plan.outputs.macos_shard_count != '0' }}
     name: macos ${{ matrix.id }}
     runs-on: xcode-27
     timeout-minutes: 150
@@ -155,7 +177,7 @@ jobs:
   # rows (all features unless ci/gate.config.json says otherwise). Separate from the crates' own test jobs.
   closure-windows:
     needs: [plan, hygiene]
-    if: ${{ needs.plan.outputs.windows_closure_count != '0' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.plan.outputs.windows_closure_count != '0' }}
     name: windows ${{ matrix.id }}
     runs-on: windows-2025
     timeout-minutes: 90
@@ -196,7 +218,7 @@ jobs:
 
   closure-macos:
     needs: [plan, hygiene]
-    if: ${{ needs.plan.outputs.macos_closure_count != '0' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.plan.outputs.macos_closure_count != '0' }}
     name: macos ${{ matrix.id }}
     runs-on: xcode-27
     timeout-minutes: 90
@@ -313,6 +335,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           rust: "false"
+          ignore-install-scripts: "true"
       - name: RightKit ownership (protected registry roots)
         shell: bash
         run: test "$(git rev-parse HEAD)" = "${{ github.sha }}" && pnpm exec right-release ownership --app .
@@ -326,7 +349,7 @@ jobs:
   # Known-red failures & missing reports block markers. Ownership still blocks overall summary.
   mark-green-windows:
     needs: [private-repo-guard, plan, hygiene, shards-windows, closure-windows, summary]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.windows_green == 'true' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.windows_green == 'true' && (needs.shards-windows.result == 'success' || needs.closure-windows.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -335,7 +358,7 @@ jobs:
 
   mark-green-macos:
     needs: [private-repo-guard, plan, hygiene, shards-macos, closure-macos, summary]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.macos_green == 'true' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.private-repo-guard.result == 'success' && needs.plan.result == 'success' && needs.hygiene.result == 'success' && needs.summary.outputs.macos_green == 'true' && (needs.shards-macos.result == 'success' || needs.closure-macos.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -359,12 +382,21 @@ jobs:
           sparse-checkout: scripts/ci
           sparse-checkout-cone-mode: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         with:
           pattern: qa-evidence-*
           path: ci-evidence
       - name: Verdict
         id: verdict
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: node scripts/ci/ci-summary.mjs
+      - name: Static validation verdict
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module -e 'const needs = JSON.parse(process.env.NEEDS); for (const name of ["private-repo-guard", "plan", "hygiene", "ownership"]) { if (needs[name]?.result !== "success") throw new Error(`${name} did not pass`); } for (const name of ["shards-windows", "closure-windows", "shards-macos", "closure-macos"]) { if (needs[name]?.result !== "skipped") throw new Error(`${name} unexpectedly ran`); } console.log("Static validation passed; native qualification requires broker dispatch.");'

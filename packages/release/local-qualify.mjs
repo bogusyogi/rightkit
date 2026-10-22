@@ -12,11 +12,8 @@
 //   4. A prerelease `candidate-<id>` gets the three assets; the driver prints the candidate JSON and the approval entry for
 //      ci/approved-artifacts.json. It never writes the approval: a reviewer commits that, and publish-reviewed.yml then
 //      uploads exactly the pinned bytes (docs/CI.md "Local qualification").
-// Hosts that cannot run a unit (Linux-only units) stay on the GitHub qualification fallback (publish.yml), or ride with the local
-// run under --with-ci: the same publish.yml qualification is dispatched for the same commit when the hosts start, its run is pinned
-// in the candidate (`ci`), and promotion admits it as clean-room proof (docs/CI.md "Local qualification"). A unit local qualification
-// cannot prove (a Linux-required unit) is planned only under --with-ci and then needs that run to have succeeded. A runtime owner no
-// local workload covers stays refused: publish.yml carries no runtime workload, so its success is no runtime proof.
+// CI qualification enters through RustRight's rightkit-dispatch publish workflow. Run local qualification separately;
+// legacy --with-ci refuses before effects. A runtime owner without trusted runtime coverage still refuses locally.
 //
 // Any repository that publishes crates this way, not only RightKit: the repository (owner/name) is read from `git remote get-url
 // origin`, and the host checkout roots, the approvals file and the promotion workflow come from a committed `.rightkit-gate.json`
@@ -45,6 +42,7 @@ export class QualifyError extends Error {
   constructor(message) { super(message); this.name = "QualifyError"; }
 }
 const refuse = (message) => { throw new QualifyError(message); };
+const CI_DISPATCH_REFUSAL = "--with-ci raw GitHub dispatch is retired; use RustRight broker rightkit-dispatch publish workflow with request_id & expected_sha; run local qualification separately without --with-ci";
 
 // Host table. `reach` is how the OTHER host reaches this one: the Dell runs `ssh mac "<cmd>"`, the Mac runs `win "<cmd>"`. The `root`
 // values are RightKit's own checkout locations, the defaults of the config below only when the origin is bogusyogi/rightkit.
@@ -147,11 +145,12 @@ export const otherHostKey = (key) => (key === "win" ? "mac" : "win");
 
 // ---- arguments --------------------------------------------------------------------------------
 
-/** `qualify cargo --crates a,b [--hosts win,mac] [--id <id>] [--allow-ignored-units a] [--jobs n] [--concurrency n] [--out <dir>] [--win-root <dir>] [--mac-root <dir>] [--no-release] [--with-ci]` */
+/** `qualify cargo --crates a,b [--hosts win,mac] [--id <id>] [--allow-ignored-units a] [--jobs n] [--concurrency n] [--out <dir>] [--win-root <dir>] [--mac-root <dir>] [--no-release]` */
 export function parseQualifyArgs(argv, platform = process.platform) {
+  if (argv.includes("--with-ci")) refuse(CI_DISPATCH_REFUSAL);
   const [kind, ...rest] = argv;
   if (kind === "npm") refuse("npm has no local qualification: publish cargo --local --qualify-only is cargo only; qualify npm packages with publish.yml");
-  if (kind !== "cargo") refuse("usage: right-release qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <n>] [--concurrency <n>] [--out <dir>] [--no-release] [--with-ci]");
+  if (kind !== "cargo") refuse("usage: right-release qualify cargo --crates <a,b> [--hosts win,mac] [--id <id>] [--allow-ignored-units <a,b>] [--jobs <n>] [--concurrency <n>] [--out <dir>] [--no-release]");
   // `roots` holds only the checkout roots given on the command line; runQualify fills the rest from .rightkit-gate.json (hostRoot).
   const out = { kind, crates: [], hosts: ["win", "mac"], id: undefined, allowIgnoredUnits: [], jobs: undefined, concurrency: 2, runtimeRepeats: 3, waitIdleMin: 30, outRoot: undefined, roots: {}, release: true, withCi: false };
   for (let i = 0; i < rest.length; i += 1) {
@@ -170,14 +169,12 @@ export function parseQualifyArgs(argv, platform = process.platform) {
     else if (arg === "--win-root") out.roots.win = rest[++i];
     else if (arg === "--mac-root") out.roots.mac = rest[++i];
     else if (arg === "--no-release") out.release = false;
-    else if (arg === "--with-ci") out.withCi = true;
     else refuse(`unknown qualify option: ${arg}`);
   }
   if (!out.crates.length) refuse("qualify cargo requires --crates <a,b>");
   if (new Set(out.crates).size !== out.crates.length) refuse("--crates names a crate more than once");
   for (const name of out.allowIgnoredUnits) if (!out.crates.includes(name)) refuse(`--allow-ignored-units names ${name}, which is not in --crates`);
   if (out.id !== undefined && !ID.test(out.id)) refuse("--id must match [a-z0-9][a-z0-9-]{0,79}");
-  if (out.withCi && !(out.hosts.includes("win") && out.hosts.includes("mac"))) refuse("--with-ci rides with a candidate, which needs both hosts; drop --hosts or name win,mac");
   for (const [key, value] of Object.entries(out.roots)) if (typeof value !== "string" || !SAFE_TOKEN.test(value)) refuse(`--${key}-root must be a plain path`);
   out.outRoot = out.outRoot ?? HOSTS[localHostKey(platform)].scratch;
   return out;
@@ -261,8 +258,8 @@ export function checkoutState({ git, root }) {
 /**
  * Units, dependency-first, with the allowsets this request implies. A unit gate.config.json restricts away from Windows is a
  * host exclusion; one restricted away from macOS cannot be qualified locally and refuses. A unit that needs a Linux row has proof
- * only a GitHub run can give: it refuses unless `withCi` (--with-ci) rides that run with the local one, and then it is listed in
- * `ciRequired` (the run must succeed for it). A runtime owner with no trusted runtime coverage refuses either way.
+ * only a broker-dispatched GitHub run can give. The legacy pure planner's `withCi` option still describes that requirement in
+ * `ciRequired`; the local driver no longer dispatches CI. A runtime owner with no trusted runtime coverage refuses either way.
  */
 export function planUnits({ root, crates, readJson = defaultReadJson, readPackage = readCargoPackage, dependsOn, runtimeCoverage = [], withCi = false }) {
   const gateConfig = readJson(path.join(root, "ci", "gate.config.json")) ?? {};
@@ -279,7 +276,7 @@ export function planUnits({ root, crates, readJson = defaultReadJson, readPackag
     if (pkg.name !== name) refuse(`Cargo.toml [package].name ${JSON.stringify(pkg.name)} differs from --crates entry ${name}`);
     if (typeof pkg.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(pkg.version)) refuse(`${name}: version ${JSON.stringify(pkg.version)} is not a plain x.y.z release version`);
     if (linux.crates.includes(name)) {
-      if (!withCi) refuse(`${name} requires a Linux receipt, which local qualification cannot produce; qualify it with publish.yml, or pass --with-ci so its GitHub run, which has the Linux job, is its proof`);
+      if (!withCi) refuse(`${name} requires a Linux receipt, which local qualification cannot produce; qualify it through RustRight broker rightkit-dispatch publish workflow (--with-ci is retired)`);
       ciOnly.add(name);
     }
     // A continuous runtime owner is qualified locally with a runtime proof on each host (local-runtime.mjs). That needs trusted
@@ -614,78 +611,12 @@ export function candidateDocument({ id, commit, units, allow, names, hashes, ci 
   return { candidate, approval: { candidates: [candidate], artifacts } };
 }
 
-// ---- the GitHub qualification that rides with the local one (--with-ci) -------------------------
+// ---- retired raw GitHub dispatch --------------------------------------------------------------
 
 export const CI_WORKFLOW = "publish.yml";
-const RUN_FIELDS = "databaseId,headSha,headBranch,event,createdAt,workflowDatabaseId,status";
-const POSITIVE = /^[1-9][0-9]*$/;
-const LOCK_STALE_MS = 5 * 60 * 1000;
-
-/** The `gh` arguments that start the qualification workflow for exactly these units, with the allowsets the local plan carries. */
-export function ciDispatchArgs({ repository, units, allow = {} }) {
-  const args = ["workflow", "run", CI_WORKFLOW, "-R", repository, "--ref", "main", "-f", "registry=crates", "-f", `units=${units.join(" ")}`];
-  for (const [input, names] of [["allow_host_exclusion", allow.hostExclusion], ["allow_ignored", allow.ignored], ["allow_missing_assets", allow.missingAssets]]) if (names?.length) args.push("-f", `${input}=${names.join(" ")}`);
-  return args;
-}
-
-/** The dispatch-and-capture window of one process at a time on this machine: another batch's new run must not be mistaken for ours. */
-async function withDispatchLock(dir, { sleep, log }, fn) {
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, ".ci-dispatch.lock");
-  let fd;
-  for (let tries = 0; fd === undefined; tries += 1) {
-    try { fd = fs.openSync(file, "wx"); } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      let age = 0; try { age = Date.now() - fs.statSync(file).mtimeMs; } catch { continue; }
-      if (age > LOCK_STALE_MS) { try { fs.unlinkSync(file); } catch { /* another process took it */ } continue; }
-      if (tries >= 120) refuse(`ci: another qualification has held ${file} for two minutes; remove it if that process is gone`);
-      if (tries === 0) log(`[qualify] ci: waiting for another dispatch on this machine to be captured`);
-      await sleep(1000);
-    }
-  }
-  try { fs.writeSync(fd, `${process.pid} ${new Date().toISOString()}\n`); return await fn(); } finally { try { fs.closeSync(fd); } catch { /* closed */ } try { fs.unlinkSync(file); } catch { /* gone */ } }
-}
-
-/**
- * Start the publish.yml qualification for the commit the hosts qualify and capture the run it created: { workflowId, runId,
- * sourceSha, units, dispatchedAt }, the `ci` block of the candidate. Only a run that did not exist before the dispatch, on main, by
- * hand, at this commit, and created after the dispatch is taken; one such run is ours, any other count refuses (never a guess).
- * Several batches may be in flight: only this capture window is serialised, never the runs themselves.
- */
-export async function dispatchCi({ repository, sourceSha, units, allow = {}, lockDir, deps = {}, log }) {
-  const spawn = deps.spawn ?? spawnSync;
-  const sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const pollMs = deps.ciPollMs ?? 3000; const polls = deps.ciPolls ?? 20;
-  const gh = (args) => {
-    const result = spawn("gh", args, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
-    if (result.error || result.status !== 0) refuse(`ci: gh ${args.slice(0, 2).join(" ")} failed: ${tail(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)}`);
-    return String(result.stdout ?? "");
-  };
-  const runs = () => {
-    let rows; try { rows = JSON.parse(gh(["run", "list", "-R", repository, "--workflow", CI_WORKFLOW, "--branch", "main", "--event", "workflow_dispatch", "--commit", sourceSha, "--limit", "50", "--json", RUN_FIELDS])); } catch (error) { if (error instanceof QualifyError) throw error; refuse("ci: gh run list did not print JSON"); }
-    if (!Array.isArray(rows)) refuse("ci: gh run list did not print a list");
-    return rows;
-  };
-  return withDispatchLock(lockDir, { sleep, log }, async () => {
-    const before = new Set(runs().map((row) => String(row.databaseId)));
-    const dispatchedAt = (deps.now ?? (() => new Date().toISOString()))();
-    gh(ciDispatchArgs({ repository, units, allow }));
-    const earliest = Date.parse(dispatchedAt) - 60_000;
-    for (let poll = 0; poll < polls; poll += 1) {
-      await sleep(pollMs);
-      const fresh = runs().filter((row) => !before.has(String(row.databaseId)) && row.headSha === sourceSha && row.event === "workflow_dispatch" && row.headBranch === "main" && Date.parse(row.createdAt) >= earliest);
-      if (fresh.length > 1) refuse(`ci: ${fresh.length} new ${CI_WORKFLOW} runs appeared for ${sourceSha.slice(0, 12)} (${fresh.map((row) => row.databaseId).join(", ")}); this dispatch cannot be told from another one, so none is pinned; cancel the extras and rerun`);
-      if (fresh.length === 1) {
-        const [row] = fresh;
-        if (!POSITIVE.test(String(row.databaseId)) || !POSITIVE.test(String(row.workflowDatabaseId))) refuse("ci: the dispatched run has no run or workflow id");
-        const ci = { workflowId: String(row.workflowDatabaseId), runId: String(row.databaseId), sourceSha, units: [...units], dispatchedAt };
-        log(`[qualify] ci: ${CI_WORKFLOW} run ${ci.runId} (workflow ${ci.workflowId}) dispatched for ${sourceSha.slice(0, 12)}: ${units.join(" ")}`);
-        return ci;
-      }
-    }
-    refuse(`ci: the dispatched ${CI_WORKFLOW} run did not appear within ${Math.round((polls * pollMs) / 1000)}s; check \`gh run list -R ${repository} --workflow ${CI_WORKFLOW}\``);
-  });
-}
+/** Compatibility exports refuse rather than bypass RustRight's CI entry. */
+export function ciDispatchArgs() { refuse(CI_DISPATCH_REFUSAL); }
+export async function dispatchCi() { refuse(CI_DISPATCH_REFUSAL); }
 
 // ---- driver -----------------------------------------------------------------------------------
 
@@ -694,6 +625,7 @@ export async function dispatchCi({ repository, sourceSha, units, allow = {}, loc
  * observe the plan: which commands run on which host, that both hosts start before either finishes, what the release gets.
  */
 export async function runQualify(argv, deps = {}) {
+  if (argv.includes("--with-ci")) refuse(CI_DISPATCH_REFUSAL);
   const log = deps.log ?? ((line) => process.stdout.write(`${line}\n`));
   const platform = deps.platform ?? process.platform;
   const parsed = parseQualifyArgs(argv, platform);
@@ -705,11 +637,6 @@ export async function runQualify(argv, deps = {}) {
   const roots = Object.fromEntries(parsed.hosts.map((key) => [key, hostRoot({ key, flags: parsed.roots, config })]));
   const reviewed = await (deps.loadReviewed ?? ((workspace) => loadFromRoot(workspace, "reviewed-candidate.mjs")))(root);
   const plan = planUnits({ root, crates: parsed.crates, readJson: deps.readJson, readPackage: deps.readPackage, dependsOn: deps.dependsOn, runtimeCoverage: Object.keys(reviewed.RUNTIME_PROOF_WORKLOADS), withCi: parsed.withCi });
-  if (parsed.withCi) {
-    // The GitHub run starts from main's tip: HEAD must BE that tip, or the run would qualify other bytes than the hosts do.
-    const tip = String(git(["ls-remote", "origin", "refs/heads/main"], root) ?? "").split(/\s+/)[0];
-    if (tip !== head) refuse(`--with-ci: HEAD ${head.slice(0, 12)} is not origin/main's tip (${SHA40.test(tip) ? tip.slice(0, 12) : "unreadable"}); the GitHub run starts from main, so qualify from the tip (pull, or push first)`);
-  }
   const id = parsed.id ?? candidateIdFor({ crates: parsed.crates, version: plan.units[0].version, head });
   const outDir = path.join(parsed.outRoot, id);
   const exec = deps.exec ?? ((command, args, options) => spawnCollect(command, args, { encoding: "utf8", windowsHide: true, maxBuffer: 1024 * 1024 * 1024, timeout: HOST_TIMEOUT_MS, ...options }));
@@ -734,12 +661,10 @@ export async function runQualify(argv, deps = {}) {
     if (exported.error || exported.status !== 0) refuse(`${key}: cannot pull the bundle (${exported.error?.message ?? `exit ${exported.status}`})\n${tail(exported.stderr)}`);
     return importBundle(exported.stdout, path.join(outDir, key));
   };
-  // Both hosts run at once, and under --with-ci the GitHub qualification of the same commit starts with them; one failing does
-  // not hide the others' results.
+  // Both hosts run at once; one failing does not hide the other's result.
   const hostRuns = parsed.hosts.map(runHost);
-  const ciRun = parsed.withCi ? dispatchCi({ repository: config.repository, sourceSha: head, units: plan.units.map((unit) => unit.name), allow: { hostExclusion: plan.allow.hostExclusion, ignored: parsed.allowIgnoredUnits, missingAssets: plan.allow.missingAssets }, lockDir: parsed.outRoot, deps, log }) : null;
-  const labels = [...parsed.hosts, ...(ciRun ? ["ci"] : [])];
-  const settled = await Promise.allSettled([...hostRuns, ...(ciRun ? [ciRun] : [])]);
+  const labels = parsed.hosts;
+  const settled = await Promise.allSettled(hostRuns);
   const failed = settled.map((row, index) => {
     if (row.status !== "rejected") return null;
     const message = String(row.reason?.message ?? row.reason);
@@ -747,7 +672,7 @@ export async function runQualify(argv, deps = {}) {
   }).filter(Boolean);
   if (failed.length) refuse(`qualification failed:\n${failed.join("\n")}`);
   const bundles = Object.fromEntries(parsed.hosts.map((key, index) => [key, settled[index].value]));
-  const ci = ciRun ? settled[parsed.hosts.length].value : null;
+  const ci = null;
   for (const dir of Object.values(bundles)) verifyBundle(dir);
   if (!(parsed.hosts.includes("win") && parsed.hosts.includes("mac"))) {
     log(`[qualify] ${id}: only ${parsed.hosts.join(", ")} ran; bundles are in ${outDir}. A candidate needs both hosts, so none is cut.`);

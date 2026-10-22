@@ -79,9 +79,10 @@ export function sanitizeId(text) {
 export function rustWeight(entry = {}) {
   const featureSets = entry.featureSets ?? [[]];
   const tests = featureSets.length * (entry.alsoSerial ? 2 : 1);
-  const checks = featureSets.some((features) => features.includes("--all-features")) ? 0 : (entry.checkFeatureSets ?? [["--all-features"]]).length;
+  const checkSets = featureSets.some((features) => features.includes("--all-features")) ? [] : (entry.checkFeatureSets ?? [["--all-features"]]);
+  const docs = new Set([...featureSets, ...checkSets].map((features) => JSON.stringify(features))).size;
   const consumers = (entry.consumerRows ?? []).reduce((count, row) => count + (row.targets?.length || 1), 0);
-  return tests + featureSets.length + checks + consumers;
+  return tests + featureSets.length + checkSets.length + docs + consumers;
 }
 
 /**
@@ -286,12 +287,15 @@ export function requiredShardCommands(tokens, { config = {}, packages = [], swif
     if (kind === "rust") {
       const sets = entry.featureSets ?? [[]];
       if (!sets.length) throw new Error(`${name}: empty featureSets`);
+      const checkSets = sets.some((features) => features.includes("--all-features")) ? [] : entry.checkFeatureSets ?? [["--all-features"]];
+      for (const features of sets) add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"]);
+      for (const features of checkSets) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
+      const docSets = [...new Map([...sets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
+      for (const features of docSets) add(unit, "cargo", ["doc", "-p", name, "--no-deps", ...features]);
       for (const features of sets) {
         add(unit, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"]);
         if (entry.alsoSerial) add(unit, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"]);
       }
-      for (const features of sets) add(unit, "cargo", ["clippy", "-p", name, "--no-deps", "--all-targets", ...features, "--", "-D", "warnings"]);
-      for (const features of sets.some((features) => features.includes("--all-features")) ? [] : entry.checkFeatureSets ?? [["--all-features"]]) add(unit, "cargo", ["check", "-p", name, "--all-targets", ...features]);
     } else if (kind === "rust-check") {
       add(unit, "cargo", ["check", "-p", name, "--all-targets"]);
       // An empty checkFeatureSets row is the default check above; never run it twice.

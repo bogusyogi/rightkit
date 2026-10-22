@@ -3,11 +3,19 @@
 # checked even when an earlier one fails, and the failing crates are named in the summary.
 # Pins come from crates/rightkit-android/scripts/toolchain.versions.
 name: android-compile
+run-name: android-compile ${{ inputs.request_id }}
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Broker request correlation ID (not signed authority)
+        type: string
+        required: true
+      expected_sha:
+        description: Full commit SHA admitted by broker
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -20,6 +28,16 @@ jobs:
   cargo-ndk-check:
     runs-on: ubuntu-24.04
     steps:
+      - name: Validate broker dispatch correlation
+        shell: bash
+        env:
+          RK_REQUEST_ID: ${{ inputs.request_id }}
+          RK_EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          [[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

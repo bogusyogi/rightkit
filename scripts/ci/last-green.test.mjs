@@ -36,6 +36,14 @@ test("per-runner success proves baseline even when whole workflow failed", () =>
   assert.equal(result.provenance.evidenceFingerprint, stable.evidence);
 });
 
+test("dispatch baselines require exact successful native marker; static pushes cannot qualify", () => {
+  assert.equal(selectLastGreenCandidate(request({ runs: [run({ event: "workflow_dispatch" })] })).base, oldSha);
+  for (const event of ["push", "workflow_dispatch"]) {
+    const input = request({ runs: [run({ event })], attempts: [{ runId: 394099, runAttempt: 2, jobs: [marker({ conclusion: "skipped" })] }] });
+    assert.equal(selectLastGreenCandidate(input).base, "");
+  }
+});
+
 test("missing, failed, skipped, forged, or wrong-attempt marker evidence falls back", () => {
   for (const job of [
     { ...marker(), conclusion: "failure" },
@@ -146,13 +154,30 @@ test("Actions client uses fixed read-only endpoints and exact run attempt pagina
   });
   assert.equal((await client.listRuns())[0].id, 394099);
   assert.equal((await client.listAttemptJobs(394099, 2)).length, 101);
-  assert.equal(calls.length, 3);
-  assert.ok(calls[0].url.endsWith("/repos/Orthic-Labs/rightkit/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=40&page=1"));
-  assert.ok(calls[1].url.endsWith("/repos/Orthic-Labs/rightkit/actions/runs/394099/attempts/2/jobs?per_page=100&page=1"));
+  assert.equal(calls.length, 4);
+  assert.ok(calls[0].url.endsWith("/repos/Orthic-Labs/rightkit/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=40&page=1"));
+  assert.ok(calls[1].url.endsWith("/repos/Orthic-Labs/rightkit/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=40&page=1"));
+  assert.ok(calls[2].url.endsWith("/repos/Orthic-Labs/rightkit/actions/runs/394099/attempts/2/jobs?per_page=100&page=1"));
   assert.equal(calls[0].options.method, "GET");
   assert.equal(calls[0].options.redirect, "error");
   assert.equal(calls[0].options.headers.Authorization, "Bearer secret-fixture");
   assert.ok(calls.every(({ url }) => !url.includes("secret-fixture")));
+});
+
+test("forty newer static pushes cannot hide native dispatch baseline", async () => {
+  const dispatch = run({ event: "workflow_dispatch" });
+  const pushes = Array.from({ length: 40 }, (_, index) => run({ id: 400000 + index, run_number: 900 + index }));
+  const client = createGitHubActionsClient({ token: "fixture", repository: repo, fetchImpl: async (url) => {
+    const event = new URL(url).searchParams.get("event");
+    assert.ok(["workflow_dispatch", "push"].includes(event));
+    const rows = event === "workflow_dispatch" ? [dispatch] : pushes;
+    return { ok: true, json: async () => ({ total_count: rows.length, workflow_runs: rows }) };
+  } });
+  const runs = await client.listRuns();
+  assert.equal(runs.length, 41);
+  assert.equal(runs[0].run_number, 939);
+  assert.equal(runs.at(-1).id, dispatch.id);
+  assert.equal(selectLastGreenCandidate(request({ runs })).base, oldSha);
 });
 
 test("Actions API errors expose no credential and require full baseline", async () => {

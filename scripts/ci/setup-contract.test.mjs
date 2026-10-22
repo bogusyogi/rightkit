@@ -12,6 +12,46 @@ const ACTION = readYaml("../../.github/actions/rk-setup/action.yml");
 const WORKFLOW = readYaml("../../.github/workflows/ci.yml");
 const setup = (job) => job.steps.find((step) => step.uses === "./.github/actions/rk-setup");
 
+test("native CI requires correlated dispatch while push & PR remain static", () => {
+  assert.ok(Object.hasOwn(WORKFLOW.on, "push"));
+  assert.ok(Object.hasOwn(WORKFLOW.on, "pull_request"));
+  for (const input of ["request_id", "expected_sha"]) {
+    assert.equal(WORKFLOW.on.workflow_dispatch.inputs[input].required, "true");
+    assert.equal(WORKFLOW.on.workflow_dispatch.inputs[input].type, "string");
+  }
+  assert.match(WORKFLOW["run-name"], /inputs.request_id/);
+  const guard = WORKFLOW.jobs["private-repo-guard"].steps[0];
+  assert.equal(guard.if, "${{ github.event_name == 'workflow_dispatch' }}");
+  assert.deepEqual(guard.env, { RK_REQUEST_ID: "${{ inputs.request_id }}", RK_EXPECTED_SHA: "${{ inputs.expected_sha }}" });
+  assert.match(guard.run, /test "\$RK_EXPECTED_SHA" = "\$GITHUB_SHA"/);
+  assert.doesNotMatch(guard.run, /\$\{\{/);
+  for (const name of ["shards-windows", "shards-macos", "closure-windows", "closure-macos", "mark-green-windows", "mark-green-macos"]) assert.match(WORKFLOW.jobs[name].if, /github.event_name == 'workflow_dispatch'/);
+  assert.equal(setup(WORKFLOW.jobs.ownership).with["ignore-install-scripts"], "true");
+  assert.equal(WORKFLOW.jobs.summary.steps.find((step) => step.id === "verdict").if, "${{ github.event_name == 'workflow_dispatch' }}");
+});
+
+test("static summary requires all static jobs & refuses unexpected native execution", () => {
+  const step = WORKFLOW.jobs.summary.steps.find((step) => step.name === "Static validation verdict");
+  assert.equal(step.if, "${{ github.event_name != 'workflow_dispatch' }}");
+  const code = step.run.match(/-e '([\s\S]+)'\s*$/)[1];
+  const needs = Object.fromEntries(["private-repo-guard", "plan", "hygiene", "ownership"].map((name) => [name, { result: "success" }]));
+  for (const name of ["shards-windows", "closure-windows", "shards-macos", "closure-macos"]) needs[name] = { result: "skipped" };
+  const run = (input) => spawnSync(process.execPath, ["--input-type=module", "-e", code], { env: { ...process.env, NEEDS: JSON.stringify(input) }, encoding: "utf8" });
+  assert.equal(run(needs).status, 0);
+  assert.notEqual(run({ ...needs, hygiene: { result: "failure" } }).status, 0);
+  assert.notEqual(run({ ...needs, "shards-windows": { result: "success" } }).status, 0);
+});
+
+test("Android compilation has no automatic trigger & validates correlation before setup", () => {
+  const android = readYaml("../../.github/workflows/android.yml");
+  assert.deepEqual(Object.keys(android.on), ["workflow_dispatch"]);
+  for (const input of ["request_id", "expected_sha"]) assert.equal(android.on.workflow_dispatch.inputs[input].required, "true");
+  const guard = android.jobs["cargo-ndk-check"].steps[0];
+  assert.equal(guard.env.RK_EXPECTED_SHA, "${{ inputs.expected_sha }}");
+  assert.match(guard.run, /test "\$RK_EXPECTED_SHA" = "\$GITHUB_SHA"/);
+  assert.doesNotMatch(guard.run, /\$\{\{/);
+});
+
 test("shared setup keeps install enabled by default and caches only pnpm store", () => {
   assert.equal(ACTION.inputs["install-dependencies"].default, "true");
   assert.equal(ACTION.inputs["install-filter"].default, "");
@@ -81,6 +121,7 @@ test("main can finish while PRs coalesce; ownership stays required outside compi
     assert.doesNotMatch(marker.if, /needs\.ownership/);
     for (const prerequisite of ["private-repo-guard", "plan", "hygiene", "summary", `shards-${host}`, `closure-${host}`]) assert.ok(marker.needs.includes(prerequisite));
     assert.ok(marker.if.includes(`needs.summary.outputs.${host}_green == 'true'`));
+    assert.ok(marker.if.includes(`(needs.shards-${host}.result == 'success' || needs.closure-${host}.result == 'success')`));
     for (const prerequisite of ["private-repo-guard", "plan", "hygiene"]) assert.ok(marker.if.includes(`needs.${prerequisite}.result == 'success'`));
   }
   const scan = jobs.hygiene.steps.find((step) => step.name === "Secret scan (selected crates & packages)");

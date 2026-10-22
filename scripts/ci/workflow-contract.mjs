@@ -316,8 +316,13 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   }
 
   // The main-only, public-only guard, and every job behind it.
-  const guardStep = stepsOf(guard)[0];
-  check(guard && stepsOf(guard).length === 1 && guard.if === undefined && guardStep?.if === undefined, "guard must be one unconditional step");
+  const admissionStep = stepsOf(guard)[0];
+  const guardStep = stepsOf(guard)[1];
+  check(guard && stepsOf(guard).length === 2 && guard.if === undefined && admissionStep?.if === undefined && guardStep?.if === undefined, "guard must have unconditional correlation then repository steps");
+  check(admissionStep?.env?.RK_REQUEST_ID === "${{ inputs.request_id }}" && admissionStep?.env?.RK_EXPECTED_SHA === "${{ inputs.expected_sha }}", "guard must read correlation inputs through env");
+  check(admissionStep?.run === 'set -euo pipefail\n[[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]\n[[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]\ntest "$RK_EXPECTED_SHA" = "$GITHUB_SHA"\n', "guard must validate request ID and match exact dispatch SHA before work");
+  for (const input of ["request_id", "expected_sha"]) check(doc?.on?.workflow_dispatch?.inputs?.[input]?.required === "true" && doc.on.workflow_dispatch.inputs[input].type === "string", `${input} must be a required string`);
+  check(doc?.["run-name"] === "publish ${{ inputs.request_id }}", "qualification run name must correlate request ID");
   check(guardStep?.env?.REF === "${{ github.ref }}" && guardStep?.env?.PRIVATE === "${{ github.event.repository.private }}", "guard must read the ref and repository visibility from the event");
   check(/if \[ "\$REF" != "refs\/heads\/main" \]; then\s+echo [^\n]*\s+exit 1\s+fi/.test(guardStep?.run ?? ""), "guard must exit 1 unless the ref is refs/heads/main");
   check(/if \[ "\$PRIVATE" != "false" \]; then\s+echo [^\n]*\s+exit 1\s+fi/.test(guardStep?.run ?? ""), "guard must exit 1 unless the repository is public");
@@ -769,9 +774,12 @@ export const MUTATIONS = [
   ["exclude a verify leg", edit((j) => { j.verify.strategy.matrix.exclude = [{ os: "windows-2025" }]; })],
   ["continue-on-error on a job", edit((j) => { j.verify["continue-on-error"] = "true"; })],
   ["continue-on-error on a step", edit((j) => { j.verify.steps[0]["continue-on-error"] = "true"; })],
-  ["guard allows another branch", edit((j) => { j.guard.steps[0].run = j.guard.steps[0].run.replace('"$REF" != "refs/heads/main"', '"$REF" != "refs/heads/dev"'); })],
-  ["guard accepts a private repository", edit((j) => { j.guard.steps[0].run = j.guard.steps[0].run.replace('"$PRIVATE" != "false"', '"$PRIVATE" != "maybe"'); })],
-  ["guard no longer exits", edit((j) => { j.guard.steps[0].run = j.guard.steps[0].run.replaceAll("exit 1", "true"); })],
+  ["correlation guard is removed", edit((j) => { j.guard.steps.shift(); })],
+  ["correlation guard permits SHA mismatch", edit((j) => { j.guard.steps[0].run = j.guard.steps[0].run.replace('test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"', 'true'); })],
+  ["correlation input becomes optional", edit((_, d) => { d.on.workflow_dispatch.inputs.expected_sha.required = "false"; })],
+  ["guard allows another branch", edit((j) => { j.guard.steps[1].run = j.guard.steps[1].run.replace('"$REF" != "refs/heads/main"', '"$REF" != "refs/heads/dev"'); })],
+  ["guard accepts a private repository", edit((j) => { j.guard.steps[1].run = j.guard.steps[1].run.replace('"$PRIVATE" != "false"', '"$PRIVATE" != "maybe"'); })],
+  ["guard no longer exits", edit((j) => { j.guard.steps[1].run = j.guard.steps[1].run.replaceAll("exit 1", "true"); })],
   ["plan escapes the guard", edit((j) => { j.plan.needs = []; })],
   ["verify requests id-token", edit((j) => { j.verify.permissions = { contents: "read", "id-token": "write" }; })],
   ["pack reads a secret", edit((j) => { j.pack.steps.at(-2).env = { ...(j.pack.steps.at(-2).env ?? {}), NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }; })],

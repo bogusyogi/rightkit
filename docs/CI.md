@@ -1,7 +1,7 @@
 # RightKit CI
 
-RightKit CI runs in GitHub Actions on Windows & macOS. Pushes to `main` & pull requests run
-selected package qualification in independent jobs. `publish.yml` qualifies sealed archives;
+Pushes to `main` & pull requests run static validation. Native Windows & macOS qualification
+starts through broker-admitted `workflow_dispatch` requests. `publish.yml` qualifies sealed archives;
 `publish-direct.yml` uploads every green qualification run's sealed bytes as soon as it completes;
 `publish-reviewed.yml` promotes committed, reviewed candidates (locally qualified bytes).
 The public-repository guard rejects private forks.
@@ -137,21 +137,28 @@ Not covered yet: `desktop-app-template`, `swift/ios-app-template`, `spikes`.
 
 ## Sharded CI
 
-`ci.yml` runs independent jobs instead of one serial gate per OS:
+`ci.yml` retains static validation on push/PR; native shard & closure jobs run only on dispatch.
+Both `ci.yml` & `publish.yml` require `request_id` & full `expected_sha`; first guard checks ID syntax
+& SHA equality before planning or native work. Run names carry request correlation. These inputs
+are correlation & commit binding, not signed authority; repository access remains unchanged.
+Android compilation is dispatch-only with identical correlation checks; broker adapter allowlisting
+for Android remains pending. Sources: `.github/workflows/ci.yml:4`, `publish.yml:4`, `android.yml:5`.
+
+`ci.yml` runs independent jobs:
 
 | Job | Runs on | What it does |
 |---|---|---|
 | `private-repo-guard` | Linux | Refuses a private repository |
 | `plan` | Linux | `scripts/ci/ci-plan.mjs`: asks `gate.mjs --plan --host <os>` what Windows and macOS each have to verify (each OS against its own last-green marker; a pull request against its merge base), then cuts that into the jobs below |
-| `shards-windows`, `shards-macos` | one job per shard | `gate.mjs --select "<tokens>" --steps test`: tests, clippy and every feature row of the selected crates; npm package tests; root suites; each Swift package. `fail-fast: false`, so one red shard never hides another |
+| `shards-windows`, `shards-macos` | one job per shard | `gate.mjs --select "<tokens>" --steps test`: clippy, feature checks & rustdoc before selected crate tests; failed preflight skips that unit’s tests & consumers while independent units continue; npm package tests; root suites; each Swift package. `fail-fast: false`, so one red shard never hides another |
 | `closure-windows`, `closure-macos` | up to 4 jobs per OS | `--steps closure`: every dependent of a changed crate is compiled with default features and with its `checkFeatureSets` rows (all features unless the config says otherwise) |
 | `hygiene` | Linux | Required `--steps lock,fmt` for selected crates & shared secret scan of selected crate/package sources; installs frozen release dependency closure with lifecycle scripts disabled |
 | `ownership` | Linux | Independent required ownership validation; advisory dependency graphs follow without delaying native qualification |
-| `mark-green-windows`, `mark-green-macos` | Linux | Advance that OS's compilation baseline when guard, plan, hygiene & exact host command proof pass; overall ownership remains required independently |
-| `summary` | Linux | The one required check: fails unless guard, plan, hygiene & ownership pass and every other job passed or was skipped because the plan needed none of it |
+| `mark-green-windows`, `mark-green-macos` | Linux | Dispatch only: advance that OS's compilation baseline when guard, plan, hygiene & exact host command proof pass; overall ownership remains required independently |
+| `summary` | Linux | Required check: push/PR proves static jobs passed & native jobs stayed skipped; dispatch additionally requires planned native reports |
 
 How units are cut: a crate is never split, so all of its feature rows share one job and one target directory. Crates are packed
-into groups of about 12 build commands (`rustWeight` in `shards.mjs`: test rows, doubled for a serial rerun, plus clippy and the
+into groups of about 12 build commands (`rustWeight` in `shards.mjs`: test rows, doubled for a serial rerun, plus clippy, rustdoc &
 feature-check rows); a crate that weighs that much alone runs alone. Groups are computed from every crate that applies on the OS,
 never from the selection, so a crate always lands in the same job and the same Rust cache key (`rk-<runner>-rust-<anchor crate>`).
 npm packages are grouped six to a job; each job builds only its packages' workspace dependency closure. The root suites and the
@@ -162,7 +169,7 @@ Concurrency: Windows matrices cap shard jobs at 12 & closure jobs at 4; macOS ca
 GitHub admits jobs under account-wide runner limits; these caps do not reserve capacity for other workflows.
 
 Each OS uses authenticated successful `mark-green-<os>` job history, resolved by `last-green.mjs`.
-Resolver checks repository, workflow, main push, exact attempt, full commit ancestry & compatible
+Resolver checks repository, workflow, main dispatch (or earlier push with successful native marker), exact attempt, full commit ancestry & compatible
 shared harness/toolchain inputs. Missing or uncertain history selects full coverage; cache entries
 never prove green. A red run repeats required units until they pass. Known-red labels remain visible;
 aggregate command proof still requires successful results.
@@ -229,17 +236,15 @@ Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist o
   publish on this route too (Adrian 2026-10-22: "those can have exceptions"); `publish.yml` carries no runtime workload, so
   their resource budgets are a separate, non-blocking report (local-runtime or `qualify-runtime.yml`), named in the
   publication receipt's candidate as `runtimeBudgetUnproven`.
-  A `right-release qualify --with-ci` dispatch is a green `publish.yml` run like any other: its CI-built bytes publish
-  directly, and a local candidate for the same version is then redundant (`publish-reviewed` refuses other bytes of
-  a published version).
+  Hosted qualification enters through RustRight broker `rightkit-dispatch` for `publish.yml`; local warm-cache
+  feedback runs separately. `--with-ci` is retired & refuses before effects. A green hosted run publishes its own
+  sealed bytes directly; a local candidate cannot replace bytes of an already published version.
 - **Local qualification promotes reviewed candidates** (see "Local qualification", below: both native hosts through the
   RustRight broker, an approval commit, then `publish-reviewed.yml`). This is the route for bytes GitHub did not qualify
   and for every runtime-proof owner.
 
-```bash
-gh workflow run publish.yml -f registry=npm -f units="@rightkit/logs @rightkit/qa"
-gh workflow run publish.yml -f registry=crates -f units="rightkit-fs rightkit-child-process"
-```
+Dispatch `publish.yml` through broker adapter with registry, units, broker request ID & admitted full SHA.
+Guard rejects missing correlation or mismatched commit before scans; direct sealed-byte publication stays unchanged.
 
 `units` is a space-separated, dependency-first list; one registry per qualification run.
 `publish.yml` has no `dry_run` dispatch input & never uploads to a registry. It packs once,
@@ -286,7 +291,7 @@ right-release qualify cargo --crates rightkit-fs,rightkit-child-process
 
 `--hosts win,mac` is the default and the only set that cuts a candidate (one host alone writes its bundle and stops);
 `--id`, `--allow-ignored-units`, `--jobs`, `--concurrency`, `--runtime-repeats`, `--wait-idle-min`, `--out`, `--win-root`,
-`--mac-root`, `--no-release` and `--with-ci` ("`--with-ci`", below) are the other options (the two runtime options: "Runtime proof (local)", below). Crates only: `publish cargo --local --qualify-only` is cargo only, so npm packages use `publish.yml`.
+`--mac-root` & `--no-release` are the other options (the two runtime options: "Runtime proof (local)", below). Crates only: `publish cargo --local --qualify-only` is cargo only, so npm packages use `publish.yml`.
 
 Any repository that publishes crates this way, not only RightKit: the repository (owner/name) is the `origin` remote, and the host
 checkout roots, the approvals file and the promotion workflow come from a committed `.rightkit-gate.json`:
@@ -328,7 +333,7 @@ The printed candidate (`source: "local"`) has this shape; every key is required 
               "macos": { "name": "local-receipt-macos-<id>.json", "sha256": "<64 hex>" } } }
 ```
 
-Under `--with-ci` the candidate has one more key, `ci`, as described below.
+Compatibility only: older combined candidates may contain `ci`; new local qualification does not dispatch hosted work.
 
 The `artifacts` rows come with `reviewer` and `reviewRef` set to `null`, which the approval loader refuses until a reviewer
 fills them. After the R8 review, one commit adds the candidate to `candidates`, the filled rows to `artifacts` and the two
@@ -351,33 +356,21 @@ unit, the archive secret scan, a scan record (classes A and B, nothing deferred,
 owner, its runtime proof (below). Admission also requires each packed file to equal the blob at `sourceSha` and
 `.cargo_vcs_info.json` to name it.
 
-**`--with-ci`: the GitHub qualification rides along (Adrian 2026-10-22).** Local qualification (warm caches on both hosts) and a GitHub
-qualification (fresh VMs) of the same commit can start together, and promotion does not wait for the second. With
-`right-release qualify cargo --crates a,b --with-ci` the driver refuses unless HEAD is `origin/main`'s tip (the run starts from
-main) and, when the hosts start, dispatches `gh workflow run publish.yml -R <owner/repo> --ref main -f registry=crates -f units="a b"`
-(plus `allow_host_exclusion`, `allow_ignored` and `allow_missing_assets` when the plan carries them) for that commit. It pins only a run
-that is new since before the dispatch, on main, started by hand, at that commit, and refuses rather than guess when two such runs
-appear; the dispatch-and-capture window of batches on the same machine takes turns on a lock file under `--out` (seconds), the runs
-never wait on each other, and several batches may be in flight. The candidate then carries
-`"ci": { "workflowId", "runId", "sourceSha", "units", "dispatchedAt" }` (all required; `sourceSha` and `units` equal the candidate's), so
-the committed approval names exactly one run. Promotion proceeds on the locally qualified, hash-approved bytes. The secretless
-admission reads the run through the Actions API with the checks an Actions candidate's run passes (run and workflow id, workflow path,
-`head_sha` equal to `sourceSha`, branch main, hand dispatch, repository ids, and for a finished run its required jobs) and writes
-`ciProof: { runId, runAttempt, conclusion, checkedAt, requiredUnits, failedJobs }` into the hashed admission; the credential job
-re-validates it and copies it into the publication receipt. `conclusion` is `pending` while the run is in progress (promotion
-proceeds; the run is attached as clean-room proof when it lands), `success` only when the run and its required jobs succeeded, and
-otherwise `failure`: promotion is then REFUSED naming the failed jobs, unless the committed candidate's `allow.ciFailure` lists every
-unit with a reason (`[{ "unit": "rightkit-fs", "reason": "..." }]`, a reviewer's decision, valid only beside `ci`). A Linux-required unit
-(`ci/linux-required.json`) is planned only with `--with-ci`: the run is its Linux proof, the candidate pins no local Linux receipt, and
-promotion requires `conclusion` `success` (pending and failure are refused, and `allow.ciFailure` cannot waive it). A continuous
-runtime owner without trusted runtime coverage still refuses with or without `--with-ci`: `publish.yml` has no runtime workload, so
-its success is no runtime proof.
+**Separate local feedback & hosted qualification.** `--with-ci` is retired: argument parsing, driver & exported
+legacy dispatch helpers refuse before effects (source: `packages/release/local-qualify.mjs:150`, `:618`, `:628`).
+Run local qualification without that option for warm-cache feedback; submit hosted `publish.yml` qualification
+through RustRight broker `rightkit-dispatch`, carrying broker request ID & admitted full SHA. Local feedback
+& hosted qualification produce separate evidence; hosted direct publication uploads its own sealed archives.
 
-Fall back to `publish.yml` for a unit that: needs a Linux row (`ci/linux-required.json`) and `--with-ci` is not used; is restricted away from macOS or
-Windows while being a runtime owner; is a runtime owner (`packages/release/runtime-budget-crates.mjs`) with no trusted
-runtime coverage in `scripts/ci/runtime-qualify.mjs` (`fsindex`, `file-watch`, `cache`, `sync`, `send` today: there is no
-workload to run, so no host and no runner can prove them); packs different bytes on the two hosts; or whose scan tools are
-missing on a host. The refusal says which.
+Compatibility only: existing candidates may retain
+`ci: { workflowId, runId, sourceSha, units, dispatchedAt }`, with matching source & units. Existing admission
+continues validating that pinned run & writing `ciProof`; historical `allow.ciFailure` cannot waive required Linux
+proof. This schema support does not restore combined dispatch or create new candidates with hosted proof.
+
+Use broker-dispatched `publish.yml` when local qualification cannot produce required Linux evidence
+(`ci/linux-required.json`), hosts pack different bytes, or required local scan tools are unavailable.
+Runtime owners without trusted workload coverage remain unproven locally; hosted qualification does not
+supply runtime proof. Direct publication records that separate runtime-budget status as described above.
 
 Not covered by a local candidate: the R2a sealed-registry consumer recipe and the original-run QA artifacts.
 `reviewed-registry-readback.yml` and `supplement-archive-scan.yml` read Actions-run fields and do not accept a local

@@ -1,10 +1,19 @@
 # Qualification only: pack once, verify exact archives on Windows & macOS (and on Linux for units whose plan requires it, ci/linux-required.json), retain provenance.
 # publish-reviewed.yml alone promotes approved archives without rebuilding.
 name: publish
+run-name: publish ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: Broker request correlation ID (not signed authority)
+        type: string
+        required: true
+      expected_sha:
+        description: Full commit SHA admitted by broker
+        type: string
+        required: true
       registry:
         description: Registry to publish to
         type: choice
@@ -44,6 +53,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Validate broker dispatch correlation
+        shell: bash
+        env:
+          RK_REQUEST_ID: ${{ inputs.request_id }}
+          RK_EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RK_REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          [[ "$RK_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$RK_EXPECTED_SHA" = "$GITHUB_SHA"
       - name: Refuse anything but main of a public repository
         env:
           REF: ${{ github.ref }}

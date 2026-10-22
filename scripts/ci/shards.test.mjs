@@ -19,11 +19,11 @@ const empty = { rust: { all: false, test: [], check: [] }, npm: { all: false, te
 const plan = (selection, host = "windows", shards = {}) => planHost({ host, label: host === "macos" ? "xcode-27" : "windows-2025", universe, selection: { ...empty, ...selection }, config, shards });
 
 test("rustWeight counts the cargo commands a crate runs", () => {
-  assert.equal(rustWeight(), 3); // one test run, clippy, the default all-features check
-  assert.equal(rustWeight({ checkFeatureSets: [] }), 2);
-  assert.equal(rustWeight({ featureSets: [["--all-features"], []], alsoSerial: true }), 6); // 4 tests + 2 clippy, no extra check
-  assert.equal(rustWeight({ featureSets: [[], ["--features", "x"]], checkFeatureSets: [["--features", "a"], ["--features", "b"]] }), 6);
-  assert.equal(rustWeight({ consumerRows: [{ manifestPath: "ci/consumers/host/Cargo.toml" }, { manifestPath: "ci/consumers/cross/Cargo.toml", targets: ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"] }] }), 6);
+  assert.equal(rustWeight(), 5); // test, clippy, all-features check & two rustdoc rows
+  assert.equal(rustWeight({ checkFeatureSets: [] }), 3);
+  assert.equal(rustWeight({ featureSets: [["--all-features"], []], alsoSerial: true }), 8); // 4 tests + 2 clippy + 2 rustdoc
+  assert.equal(rustWeight({ featureSets: [[], ["--features", "x"]], checkFeatureSets: [["--features", "a"], ["--features", "b"]] }), 10);
+  assert.equal(rustWeight({ consumerRows: [{ manifestPath: "ci/consumers/host/Cargo.toml" }, { manifestPath: "ci/consumers/cross/Cargo.toml", targets: ["x86_64-pc-windows-msvc", "aarch64-apple-darwin"] }] }), 8);
 });
 
 test("groupUnits is deterministic, keeps heavy and solo units alone and never exceeds the target", () => {
@@ -162,16 +162,20 @@ test("summary requires every prerequisite & permits only explicitly empty matrix
 test("required evidence freezes every Rust feature, serial, clippy & check command", () => {
   const commands = requiredShardCommands("rust:rightkit-a", { config: { rust: { "rightkit-a": { featureSets: [[], ["--features", "native"]], alsoSerial: true, checkFeatureSets: [["--all-features"], ["--no-default-features"]] } } } });
   assert.deepEqual(commands.map((row) => row.command), [
-    "cargo test -p rightkit-a --no-fail-fast -- --show-output",
-    "cargo test -p rightkit-a --no-fail-fast -- --test-threads=1 --show-output",
-    "cargo test -p rightkit-a --features native --no-fail-fast -- --show-output",
-    "cargo test -p rightkit-a --features native --no-fail-fast -- --test-threads=1 --show-output",
     "cargo clippy -p rightkit-a --no-deps --all-targets -- -D warnings",
     "cargo clippy -p rightkit-a --no-deps --all-targets --features native -- -D warnings",
     "cargo check -p rightkit-a --all-targets --all-features",
     "cargo check -p rightkit-a --all-targets --no-default-features",
+    "cargo doc -p rightkit-a --no-deps",
+    "cargo doc -p rightkit-a --no-deps --features native",
+    "cargo doc -p rightkit-a --no-deps --all-features",
+    "cargo doc -p rightkit-a --no-deps --no-default-features",
+    "cargo test -p rightkit-a --no-fail-fast -- --show-output",
+    "cargo test -p rightkit-a --no-fail-fast -- --test-threads=1 --show-output",
+    "cargo test -p rightkit-a --features native --no-fail-fast -- --show-output",
+    "cargo test -p rightkit-a --features native --no-fail-fast -- --test-threads=1 --show-output",
   ]);
-  assert.equal(requiredShardCommands("rust:rightkit-a", { config: { rust: { "rightkit-a": { featureSets: [["--all-features"]] } } } }).length, 2);
+  assert.equal(requiredShardCommands("rust:rightkit-a", { config: { rust: { "rightkit-a": { featureSets: [["--all-features"]] } } } }).length, 3);
   assert.deepEqual(requiredShardCommands("rust-check:rightkit-a").map((row) => row.command), ["cargo check -p rightkit-a --all-targets", "cargo check -p rightkit-a --all-targets --all-features"]);
 });
 
@@ -182,6 +186,19 @@ test("required evidence includes npm build prerequisites, root & Swift command c
     { unit: "npm:packages/p1", command: "pnpm --dir packages/p1 run test" },
   ]);
   assert.deepEqual(requiredShardCommands("root:scripts root:test:characterization swift:swift/root-manifest swift:swift/RightKitSwift", { swiftTests: ["swift/RightKitSwift"] }).map((row) => row.command), ["node --test scripts/**/*.test.mjs", "pnpm run test:characterization", "swift package describe --type json", "swift build", "swift test", "xcodebuild build -scheme RightKitSwift-Package -destination generic/platform=iOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO", "xcodebuild build -scheme RightKitSwift-Package -destination generic/platform=watchOS -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO"]);
+});
+
+test("Rust shard proof requires each distinct rustdoc feature row exactly once", () => {
+  const commands = requiredShardCommands("rust:rightkit-a", { config: { rust: { "rightkit-a": { featureSets: [[], ["--features", "native"]], checkFeatureSets: [[], ["--features", "native"]] } } } });
+  const docs = commands.filter((row) => row.command.startsWith("cargo doc "));
+  assert.deepEqual(docs.map((row) => row.command), ["cargo doc -p rightkit-a --no-deps", "cargo doc -p rightkit-a --no-deps --features native"]);
+  const job = { artifact: "qa-evidence-docs", host: "windows", tokens: "rust:rightkit-a", steps: "test", commands };
+  const rows = commands.map((row) => ({ ...row, ok: true, code: 0, timedOut: false, seconds: 1, isTest: row.command.startsWith("cargo test "), executed: row.command.startsWith("cargo test ") ? 1 : 0, failed: 0, ignored: 0, skipped: 0, binaries: row.command.startsWith("cargo test ") ? 1 : 0 }));
+  const complete = { sha: "a".repeat(40), host: "windows", selection: job.tokens, steps: "test", rows: [{ id: "rust:rightkit-a", ok: true, seconds: rows.length, skipped: 0, failed: [], known: false }] };
+  const check = (results) => evidenceVerdict([job], { [job.artifact]: { ...complete, results } }, "a".repeat(40));
+  assert.equal(check(rows).ok, true);
+  assert.equal(check(rows.filter((row) => !row.command.startsWith("cargo doc "))).ok, false);
+  assert.equal(check([...rows, rows.find((row) => row.command.startsWith("cargo doc "))]).ok, false);
 });
 
 test("swift packages owe a generic iOS and watchOS build per declared platform; undeclared platforms are skipped", () => {
@@ -209,7 +226,7 @@ test("consumer rows freeze each target after per-set lint & feature checks; miss
     "cargo check --manifest-path ci/consumers/cross/Cargo.toml --locked --target x86_64-pc-windows-msvc --all-features",
     "cargo check --manifest-path ci/consumers/cross/Cargo.toml --locked --target aarch64-apple-darwin --all-features",
   ]);
-  assert.equal(commands.at(-4).command, "cargo check -p rightkit-a --all-targets --all-features");
+  assert.equal(commands.at(-4).command, "cargo test -p rightkit-a --features native --no-fail-fast -- --show-output");
   assert.ok(commands.every((row) => row.unit === "rust:rightkit-a"));
   assert.equal(commands.length, rustWeight(entry));
   const closure = requiredShardCommands("rust-check:rightkit-a", options);

@@ -428,11 +428,8 @@ async function rustGate(selection, config, consumers = new Map()) {
     const entry = config.rust?.[name] ?? {};
     const featureSets = entry.featureSets ?? [[]];
     const timeoutMinutes = entry.timeoutMinutes ?? 25;
-    const env = { ...assetEnv(selection, name), ...(await ortEnvFor(name)) };
-    for (const features of featureSets) {
-      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });
-      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
-    }
+    let env = assetEnv(selection, name);
+    const preflightStart = results.length;
     // Keep every tested feature set linted, matching local publication & the frozen shard command plan.
     // The clippy and check command lines come from the one scan module (packages/release/deterministic-scans.mjs).
     for (const features of featureSets) await run(`rust:${name}`, "cargo", clippyArgs(name, { features }), { timeoutMinutes });
@@ -443,6 +440,13 @@ async function rustGate(selection, config, consumers = new Map()) {
     // rather than blanket all-features: several crates have mutually exclusive feature families.
     const docSets = [...new Map([...featureSets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
     for (const features of docSets) await run(`rust:${name}`, "cargo", ["doc", "-p", name, "--no-deps", ...features], { timeoutMinutes, env: { ...env, RUSTDOCFLAGS: `${process.env.RUSTDOCFLAGS ?? ""} -D warnings`.trim() } });
+    // Failed preflight keeps its red result; unrelated units still run.
+    if (results.slice(preflightStart).some((result) => !result.ok)) continue;
+    env = { ...env, ...(await ortEnvFor(name)) };
+    for (const features of featureSets) {
+      await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });
+      if (entry.alsoSerial) await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--test-threads=1", "--show-output"], { timeoutMinutes, env });
+    }
     // Consumer compile checks belong to either the test shard or the closure shard of their owner.
     for (const row of consumers.get(name) ?? []) {
       for (const step of consumerRowInvocations(row)) await run(`rust:${name}`, step.command, step.args, { timeoutMinutes, env });

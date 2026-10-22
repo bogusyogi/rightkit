@@ -1445,7 +1445,7 @@ test("qualification contract finds every secret expression & exact-condition byp
     }
   }
   assert.throws(broken((d) => { d.jobs.verify.secrets = "inherit"; }), /secrets/);
-  assert.match(realDoc().jobs.guard.steps[0].run, /exit 1\nfi\n$/);
+  assert.match(realDoc().jobs.guard.steps[1].run, /exit 1\nfi\n$/);
 });
 
 test("reviewed promotion needs one dispatch, secretless admission & original-byte upload with exact approvals", () => {

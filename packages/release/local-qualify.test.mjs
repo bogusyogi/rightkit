@@ -542,38 +542,26 @@ test("a host measures the runtime proof for the repository the driver names, els
   await rejected(qualifyHost(lost.options, lost.deps), /cannot derive owner\/name from the origin remote; pass --repository owner\/name/);
 });
 
-// ---- --with-ci: the GitHub qualification that rides with the local one ----
-const CI_RUN_ID = 7001; const CI_WORKFLOW_ID = 4242;
-/** A fake `gh`: records every call, answers `run list` from a state the dispatch changes, and answers the rest like the release rig. */
-function ghFake({ before = [], created = "2026-10-22T10:00:05Z", delayPolls = 0, extra = [], failDispatch = false, failList = false, headSha = COMMIT, branch = "main", event = "workflow_dispatch", log = [] } = {}) {
-  const state = { dispatched: false, polls: 0, calls: [] };
-  const rows = (list) => JSON.stringify(list);
-  const spawn = (command, argv) => {
-    state.calls.push([command, ...argv]);
-    if (command === "gh" && argv[0] === "run" && argv[1] === "list") {
-      if (failList) return { status: 1, stdout: "", stderr: "HTTP 502" };
-      const old = before.map((databaseId) => ({ databaseId, headSha: COMMIT, headBranch: "main", event: "workflow_dispatch", createdAt: "2026-10-21T00:00:00Z", workflowDatabaseId: CI_WORKFLOW_ID, status: "completed" }));
-      if (!state.dispatched) return { status: 0, stdout: rows(old), stderr: "" };
-      state.polls += 1;
-      if (state.polls <= delayPolls) return { status: 0, stdout: rows(old), stderr: "" };
-      const fresh = [{ databaseId: CI_RUN_ID, headSha, headBranch: branch, event, createdAt: created, workflowDatabaseId: CI_WORKFLOW_ID, status: "queued" }, ...extra];
-      return { status: 0, stdout: rows([...fresh, ...old]), stderr: "" };
-    }
-    if (command === "gh" && argv[0] === "workflow" && argv[1] === "run") {
-      if (failDispatch) return { status: 1, stdout: "", stderr: "HTTP 422: Workflow does not have 'workflow_dispatch' trigger" };
-      state.dispatched = true; log.push("ci dispatched"); return { status: 0, stdout: "", stderr: "" };
-    }
-    return undefined;
-  };
-  return { spawn, state };
-}
-const noSleep = async () => {}; const NOW = "2026-10-22T10:00:00Z";
+// ---- retired raw CI dispatch ----
 
-test("--with-ci is a flag of the driver only, and it needs both hosts because the pin rides in a candidate", () => {
-  assert.equal(parseQualifyArgs(["cargo", "--crates", "rightkit-a", "--with-ci"], "win32").withCi, true);
+test("--with-ci refuses immediately on either host, before local or remote effects", async () => {
+  const pattern = /--with-ci raw GitHub dispatch is retired; use RustRight broker rightkit-dispatch publish workflow with request_id & expected_sha; run local qualification separately/;
+  for (const platform of ["win32", "darwin"]) {
+    refused(() => parseQualifyArgs(["cargo", "--with-ci"], platform), pattern);
+    const effects = [];
+    const deps = new Proxy({}, { get(_target, key) { effects.push(key); throw new Error(`unexpected effect: ${String(key)}`); } });
+    await rejected(runQualify(["cargo", "--crates", "rightkit-a", "--with-ci"], deps), pattern);
+    assert.deepEqual(effects, [], "no dependency is accessed before refusal");
+  }
   assert.equal(parseQualifyArgs(["cargo", "--crates", "rightkit-a"], "win32").withCi, false);
-  refused(() => parseQualifyArgs(["cargo", "--crates", "rightkit-a", "--with-ci", "--hosts", "win"], "win32"), /--with-ci rides with a candidate, which needs both hosts/);
-  assert.equal(parseQualifyArgs(["cargo", "--crates", "rightkit-a", "--with-ci", "--hosts", "mac,win"], "win32").withCi, true);
+});
+
+test("exported legacy dispatch helpers refuse without spawning, sleeping or creating capture locks", async () => {
+  const effects = [];
+  const input = new Proxy({}, { get(_target, key) { effects.push(key); throw new Error(`unexpected dispatch access: ${String(key)}`); } });
+  refused(() => ciDispatchArgs(input), /raw GitHub dispatch is retired.*RustRight broker rightkit-dispatch publish workflow/);
+  await rejected(dispatchCi(input), /raw GitHub dispatch is retired.*RustRight broker rightkit-dispatch publish workflow/);
+  assert.deepEqual(effects, []);
 });
 
 test("a Linux-required unit is planned only under --with-ci, and nothing else is relaxed by it", (t) => {
@@ -595,112 +583,4 @@ test("a Linux-required unit is planned only under --with-ci, and nothing else is
   // Nothing else relaxes: a unit packed away from macOS still refuses.
   const winOnly = workspace(t, { gate: { "rightkit-a": { os: ["windows"] } } });
   refused(() => planUnits({ root: winOnly.root, crates: ["rightkit-a"], readJson: winOnly.readJson, readPackage: winOnly.readPackage, dependsOn: () => [], withCi: true }), /crates are packed on macOS/);
-});
-
-test("the dispatch starts publish.yml for exactly these units on main and pins the run that appeared after it", async (t) => {
-  const lockDir = temp(t); const log = []; const gh = ghFake({ before: [6000, 6001], delayPolls: 2 });
-  const slept = []; const ci = await dispatchCi({ repository: "bogusyogi/rightkit", sourceSha: COMMIT, units: ["rightkit-a", "rightkit-b"], allow: { hostExclusion: ["rightkit-b"], ignored: ["rightkit-a"], missingAssets: [] }, lockDir, deps: { spawn: gh.spawn, sleep: async (ms) => { slept.push(ms); }, ciPollMs: 10, now: () => NOW }, log: (line) => log.push(line) });
-  assert.deepEqual(ci, { workflowId: String(CI_WORKFLOW_ID), runId: String(CI_RUN_ID), sourceSha: COMMIT, units: ["rightkit-a", "rightkit-b"], dispatchedAt: "2026-10-22T10:00:00Z" });
-  const dispatch = gh.state.calls.find((call) => call[1] === "workflow");
-  assert.deepEqual(dispatch, ["gh", "workflow", "run", "publish.yml", "-R", "bogusyogi/rightkit", "--ref", "main", "-f", "registry=crates", "-f", "units=rightkit-a rightkit-b", "-f", "allow_host_exclusion=rightkit-b", "-f", "allow_ignored=rightkit-a"]);
-  assert.deepEqual(ciDispatchArgs({ repository: "o/r", units: ["rightkit-a"] }), ["workflow", "run", "publish.yml", "-R", "o/r", "--ref", "main", "-f", "registry=crates", "-f", "units=rightkit-a"]);
-  const lists = gh.state.calls.filter((call) => call[1] === "run");
-  assert.ok(lists.length >= 3 && lists.every((call) => call.includes("--commit") && call[call.indexOf("--commit") + 1] === COMMIT && call.includes("--branch") && call.includes("workflow_dispatch")), "runs are looked up by workflow, branch, event and commit");
-  assert.equal(gh.state.calls.indexOf(dispatch), 1, "the baseline listing comes before the dispatch");
-  assert.deepEqual(slept, [10, 10, 10], "the poll is bounded and waits between listings");
-  assert.match(log.join("\n"), /ci: publish\.yml run 7001 \(workflow 4242\) dispatched for aaaaaaaaaaaa: rightkit-a rightkit-b/);
-  assert.equal(fs.existsSync(path.join(lockDir, ".ci-dispatch.lock")), false, "the capture lock is released");
-  reviewed.validateCandidate(clone({ id: "local-a-aaaaaa", source: "local", sourceSha: COMMIT, registry: "crates", units: ["rightkit-a", "rightkit-b"], allow: { hostExclusion: ["rightkit-b"], noTest: [], ignored: ["rightkit-a"], missingAssets: [] }, release: { tag: "candidate-local-a-aaaaaa" }, assets: Object.fromEntries(["packed", "macos", "windows"].map((kind) => [kind, { name: reviewed.localAssetName("local-a-aaaaaa", kind), sha256: "1".repeat(64) }])), ci }));
-});
-
-test("the dispatch never guesses: an unrelated, older, foreign-branch or other-commit run is not ours, two new runs are ambiguous, and a run that never appears is a bounded refusal", async (t) => {
-  const run = (over, deps = {}) => dispatchCi({ repository: "bogusyogi/rightkit", sourceSha: COMMIT, units: ["rightkit-a"], lockDir: temp(t), deps: { sleep: noSleep, ciPollMs: 1, ciPolls: 3, now: () => NOW, ...ghFake(over), ...deps }, log: () => {} });
-  const ours = await run({}); assert.equal(ours.runId, String(CI_RUN_ID));
-  await rejected(run({ created: "2026-10-01T00:00:00Z" }), /did not appear within/);
-  await rejected(run({ branch: "dev" }), /did not appear within/);
-  await rejected(run({ headSha: "b".repeat(40) }), /did not appear within/);
-  await rejected(run({ event: "push" }), /did not appear within/);
-  await rejected(run({ delayPolls: 99 }), /did not appear within 0s/);
-  await rejected(run({ extra: [{ databaseId: 7002, headSha: COMMIT, headBranch: "main", event: "workflow_dispatch", createdAt: "2026-10-22T10:00:06Z", workflowDatabaseId: CI_WORKFLOW_ID, status: "queued" }] }), /2 new publish\.yml runs appeared for aaaaaaaaaaaa \(7001, 7002\).*cancel the extras/);
-  await rejected(run({ failDispatch: true }), /ci: gh workflow run failed:.*workflow_dispatch/s);
-  await rejected(run({ failList: true }), /ci: gh run list failed:.*502/s);
-  const text = ghFake({}); await rejected(dispatchCi({ repository: "o/r", sourceSha: COMMIT, units: ["rightkit-a"], lockDir: temp(t), deps: { sleep: noSleep, now: () => NOW, spawn: (command, argv) => (argv[1] === "list" ? { status: 0, stdout: "not json", stderr: "" } : text.spawn(command, argv)) }, log: () => {} }), /did not print JSON/);
-  const noId = ghFake({}); const noIdSpawn = (command, argv) => { const out = noId.spawn(command, argv); return argv[1] === "list" ? { ...out, stdout: out.stdout.replaceAll(`"workflowDatabaseId":${CI_WORKFLOW_ID}`, '"workflowDatabaseId":null') } : out; };
-  await rejected(dispatchCi({ repository: "o/r", sourceSha: COMMIT, units: ["rightkit-a"], lockDir: temp(t), deps: { sleep: noSleep, now: () => NOW, spawn: noIdSpawn, ciPollMs: 1, ciPolls: 3 }, log: () => {} }), /no run or workflow id/);
-});
-
-test("batches in flight on one machine take turns only for the capture window: a held lock waits, a stale one is taken over, and the runs themselves are never serialised", async (t) => {
-  const lockDir = temp(t); const lock = path.join(lockDir, ".ci-dispatch.lock"); fs.writeFileSync(lock, "999 held\n");
-  let waits = 0; const gh = ghFake({});
-  const sleep = async () => { waits += 1; if (waits === 2) fs.unlinkSync(lock); };
-  const ci = await dispatchCi({ repository: "bogusyogi/rightkit", sourceSha: COMMIT, units: ["rightkit-a"], lockDir, deps: { spawn: gh.spawn, sleep, ciPollMs: 1, now: () => NOW }, log: () => {} });
-  assert.equal(ci.runId, String(CI_RUN_ID)); assert.ok(waits >= 2, "waited for the holder"); assert.equal(fs.existsSync(lock), false);
-  fs.writeFileSync(lock, "999 stale\n"); const old = new Date(Date.now() - 10 * 60 * 1000); fs.utimesSync(lock, old, old);
-  const again = await dispatchCi({ repository: "bogusyogi/rightkit", sourceSha: COMMIT, units: ["rightkit-a"], lockDir, deps: { ...ghFake({}), sleep: noSleep, ciPollMs: 1, now: () => NOW }, log: () => {} });
-  assert.equal(again.runId, String(CI_RUN_ID)); assert.equal(fs.existsSync(lock), false);
-  fs.writeFileSync(lock, "999 held\n"); let tries = 0;
-  await rejected(dispatchCi({ repository: "o/r", sourceSha: COMMIT, units: ["rightkit-a"], lockDir, deps: { ...ghFake({}), now: () => NOW, sleep: async () => { tries += 1; } }, log: () => {} }), /held .*ci-dispatch\.lock for two minutes/);
-  assert.equal(tries, 120); assert.equal(fs.existsSync(lock), true, "a lock this process did not take is never removed");
-  // The lock is released on failure too.
-  fs.unlinkSync(lock);
-  await rejected(dispatchCi({ repository: "o/r", sourceSha: COMMIT, units: ["rightkit-a"], lockDir, deps: { ...ghFake({ failDispatch: true }), now: () => NOW, sleep: noSleep }, log: () => {} }), /ci: gh workflow run failed/);
-  assert.equal(fs.existsSync(lock), false);
-});
-
-// The driver with --with-ci: the release rig plus a fake gh for the run list and the dispatch.
-function ciRig(t, { platform = "win32", extra = [], over = {}, gh = {}, linux = [], ci = true } = {}) {
-  const rig = driverRig(t, { platform, extra: [...(ci ? ["--with-ci"] : []), ...extra], over });
-  const fake = ghFake({ ...gh, log: rig.log }); const releaseSpawn = rig.deps.spawn; rig.deps.spawn = (command, argv) => fake.spawn(command, argv) ?? releaseSpawn(command, argv);
-  rig.deps.sleep = noSleep; rig.deps.ciPollMs = 1; rig.deps.now = () => NOW;
-  const readJson = rig.deps.readJson; rig.deps.readJson = (file) => (/linux-required\.json$/.test(file) ? { schema: 1, npm: [], crates: linux } : readJson(file));
-  return { ...rig, gh: fake };
-}
-
-test("driver --with-ci: both hosts and the GitHub run start together, the run is pinned in the candidate, and nothing else about the candidate changes", async (t) => {
-  const rig = ciRig(t); const result = await runQualify(rig.args, rig.deps);
-  const first = rig.log.indexOf("ci dispatched"); assert.ok(first >= 0 && first < rig.log.indexOf("win end") && first < rig.log.indexOf("mac end"), "the run is dispatched before either host finishes");
-  assert.deepEqual(new Set(rig.log.filter((line) => /start$/.test(line))), new Set(["win start", "mac start"]));
-  const dispatch = rig.gh.state.calls.find((call) => call[1] === "workflow");
-  assert.deepEqual(dispatch, ["gh", "workflow", "run", "publish.yml", "-R", "bogusyogi/rightkit", "--ref", "main", "-f", "registry=crates", "-f", "units=rightkit-a rightkit-b"]);
-  assert.deepEqual(result.candidate.ci, { workflowId: String(CI_WORKFLOW_ID), runId: String(CI_RUN_ID), sourceSha: COMMIT, units: ["rightkit-a", "rightkit-b"], dispatchedAt: "2026-10-22T10:00:00Z" });
-  assert.deepEqual(Object.keys(result.candidate), ["id", "source", "sourceSha", "registry", "units", "allow", "release", "assets", "ci"]);
-  reviewed.validateCandidate(clone(result.candidate)); assert.deepEqual(result.document.approval.candidates[0].ci, result.candidate.ci);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(rig.outRoot, rig.id, "candidate.json"), "utf8")).candidate.ci.runId, "7001");
-  assert.match(rig.printed.join("\n"), /ci: run 7001 is pinned in the candidate; promotion admits it as clean-room proof when it lands \(pending proceeds on the local bytes, a failure needs allow\.ciFailure\)\. Watch it: gh run watch 7001 -R bogusyogi\/rightkit/);
-  assert.ok(rig.spawns.some((call) => call[1] === "release" && call[2] === "create"), "the prerelease is still created and read back");
-  assert.equal(rig.execs.length, 2, "the other host is driven exactly as without --with-ci");
-  // Without the flag nothing about GitHub runs is touched and the candidate has no pin.
-  const plain = ciRig(t, { ci: false }); const plainResult = await runQualify(plain.args, plain.deps);
-  assert.equal(plain.gh.state.calls.filter((call) => call[1] === "workflow" || call[1] === "run").length, 0, "no GitHub run is listed or dispatched without the flag"); assert.equal(Object.hasOwn(plainResult.candidate, "ci"), false);
-});
-
-test("driver --with-ci on the Mac: the same pin, and the dispatch comes from the Mac's own gh", async (t) => {
-  const rig = ciRig(t, { platform: "darwin" }); const result = await runQualify(rig.args, rig.deps);
-  assert.equal(result.candidate.ci.runId, String(CI_RUN_ID)); assert.equal(rig.execs[0].command, "win"); assert.ok(rig.gh.state.calls.some((call) => call[1] === "workflow"));
-});
-
-test("driver --with-ci: a Linux-required unit is qualified only with the run, which becomes its Linux proof; the allowsets the plan carries ride in the dispatch", async (t) => {
-  const refusedRig = ciRig(t, { ci: false, linux: ["rightkit-a"] }); await rejected(runQualify(refusedRig.args, refusedRig.deps), /rightkit-a requires a Linux receipt.*--with-ci/);
-  assert.equal(refusedRig.execs.length, 0); assert.equal(refusedRig.gh.state.calls.length, 0);
-  const rig = ciRig(t, { linux: ["rightkit-a"], extra: ["--allow-ignored-units", "rightkit-b"] });
-  const result = await runQualify(rig.args, rig.deps);
-  assert.deepEqual(rig.gh.state.calls.find((call) => call[1] === "workflow").slice(-4), ["-f", "units=rightkit-a rightkit-b", "-f", "allow_ignored=rightkit-b"]);
-  assert.equal(result.candidate.ci.units.length, 2); assert.equal(Object.hasOwn(result.candidate.assets, "linux"), false, "no local Linux receipt exists to pin");
-  assert.match(rig.printed.join("\n"), /its success is REQUIRED for rightkit-a/);
-  // The checkout's own promotion code accepts it only with the pin: the same candidate without `ci` needs a Linux receipt it cannot have.
-  const linuxFile = path.join(temp(t), "linux-required.json"); fs.writeFileSync(linuxFile, JSON.stringify({ schema: 1, npm: [], crates: ["rightkit-a"] }));
-  reviewed.validateCandidate(clone(result.candidate), { linuxFile });
-  const stripped = clone(result.candidate); delete stripped.ci; assert.throws(() => reviewed.validateCandidate(stripped, { linuxFile }), /refused/);
-});
-
-test("driver --with-ci refusals: HEAD behind origin/main, a failed dispatch, an ambiguous run and a failed host all stop before a candidate exists", async (t) => {
-  const behind = ciRig(t); behind.deps.git = gitFake({ remote: "b".repeat(40) }); await rejected(runQualify(behind.args, behind.deps), /--with-ci: HEAD aaaaaaaaaaaa is not origin\/main's tip \(bbbbbbbbbbbb\).*qualify from the tip/);
-  assert.equal(behind.execs.length, 0); assert.equal(behind.gh.state.calls.length, 0, "no run is started for other bytes than the hosts qualify");
-  const failing = ciRig(t, { gh: { failDispatch: true } }); await rejected(runQualify(failing.args, failing.deps), /qualification failed:\nci: gh workflow run failed/);
-  assert.equal(failing.spawns.filter((call) => call[1] === "release").length, 0, "no prerelease without the run it pins");
-  const ambiguous = ciRig(t, { gh: { extra: [{ databaseId: 7002, headSha: COMMIT, headBranch: "main", event: "workflow_dispatch", createdAt: "2026-10-22T10:00:06Z", workflowDatabaseId: CI_WORKFLOW_ID, status: "queued" }] } });
-  await rejected(runQualify(ambiguous.args, ambiguous.deps), /2 new publish\.yml runs appeared/);
-  const hostFails = ciRig(t, { over: { remoteFail: true } }); await rejected(runQualify(hostFails.args, hostFails.deps), /qualification failed:\nmac: remote qualification failed/);
-  assert.ok(hostFails.log.includes("ci dispatched"), "the run was already started; it is logged with its id so it can be cancelled");
-  assert.equal(hostFails.spawns.filter((call) => call[1] === "release").length, 0);
 });

@@ -63,7 +63,7 @@ function runProblems(run, { repository, runner }) {
   if (!run || !safeId(run.id) || !safeId(run.run_number) || !safeId(run.run_attempt)) problems.push("run identity or attempt is malformed");
   if (run?.path !== WORKFLOW_PATH) problems.push("workflow path is not the shared CI workflow");
   if (run?.repository?.full_name !== repository || run?.head_repository?.full_name !== repository) problems.push("run repository or head repository differs");
-  if (run?.head_branch !== "main" || run?.event !== "push") problems.push("run is not a push to main");
+  if (run?.head_branch !== "main" || !["push", "workflow_dispatch"].includes(run?.event)) problems.push("run is not a push or dispatch to main");
   if (!FULL_SHA.test(run?.head_sha ?? "")) problems.push("run commit is not a full SHA");
   if (run?.status !== "completed") problems.push("workflow run is not completed");
   if (run?.conclusion === "cancelled") problems.push("workflow run was cancelled");
@@ -141,11 +141,11 @@ export function selectLastGreenCandidate({
         reason: `eligible ${jobName} passed on ${run.head_sha}`,
       };
     }
-    if (run?.path === WORKFLOW_PATH && run?.head_branch === "main" && run?.event === "push") {
+    if (run?.path === WORKFLOW_PATH && run?.head_branch === "main" && ["push", "workflow_dispatch"].includes(run?.event)) {
       rejections.push(`run ${run?.id ?? "?"}: ${[...new Set(problems)].join(", ")}`);
     }
   }
-  const detail = rejections[0] ?? "no matching shared CI push run";
+  const detail = rejections[0] ?? "no matching shared CI push or dispatch run";
   return { base: "", provenance: null, reason: `full baseline: ${detail}` };
 }
 
@@ -215,9 +215,13 @@ export function createGitHubActionsClient({ token, repository, fetchImpl = globa
 
   return Object.freeze({
     async listRuns() {
-      const data = await get(`/repos/${repository}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=${MAX_RUNS}&page=1`);
-      if (!Number.isSafeInteger(data?.total_count) || data.total_count < 0 || !Array.isArray(data?.workflow_runs) || data.workflow_runs.length > MAX_RUNS || (data.total_count > 0 && data.workflow_runs.length === 0)) throw new Error("GitHub API runs response was invalid; full baseline required");
-      return data.workflow_runs.slice(0, MAX_RUNS);
+      // Static pushes cannot crowd a native dispatch out of its own bounded history.
+      const histories = await Promise.all(["workflow_dispatch", "push"].map(async (event) => {
+        const data = await get(`/repos/${repository}/actions/workflows/ci.yml/runs?branch=main&event=${event}&per_page=${MAX_RUNS}&page=1`);
+        if (!Number.isSafeInteger(data?.total_count) || data.total_count < 0 || !Array.isArray(data?.workflow_runs) || data.workflow_runs.length > MAX_RUNS || (data.total_count > 0 && data.workflow_runs.length === 0)) throw new Error("GitHub API runs response was invalid; full baseline required");
+        return data.workflow_runs.slice(0, MAX_RUNS);
+      }));
+      return [...new Map(histories.flat().map((run) => [String(run.id), run])).values()].sort(runOrder);
     },
     async listAttemptJobs(runId, runAttempt) {
       if (!safeId(runId) || !safeId(runAttempt)) throw new Error("run attempt identity is invalid; full baseline required");

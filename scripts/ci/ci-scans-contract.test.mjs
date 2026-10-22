@@ -47,6 +47,24 @@ test("CI qualification retains warnings-denied rustdoc for configured feature ro
   assert.match(rustGate, /RUSTDOCFLAGS: `\$\{process\.env\.RUSTDOCFLAGS \?\? ""\} -D warnings`/);
 });
 
+test("Rust preflight precedes tests & isolates failed units", async () => {
+  const source = fs.readFileSync(new URL("./gate.mjs", import.meta.url), "utf8");
+  const start = source.indexOf("async function rustGate(");
+  const body = source.slice(start, source.indexOf("\n}\n", start) + 2);
+  const results = []; const calls = [];
+  const run = async (unit, command, args) => {
+    calls.push([unit, args[0]]);
+    const ok = !(unit === "rust:bad" && args[0] === "clippy");
+    results.push({ unit, ok });
+    return ok;
+  };
+  const invoke = new (Object.getPrototypeOf(async function () {}).constructor)("selection", "config", "consumers", "STEPS", "HOST", "results", "run", "assetEnv", "ortEnvFor", "clippyArgs", "checkArgs", "consumerRowInvocations", `${body}; return rustGate(selection, config, consumers);`);
+  await invoke({ rust: { test: ["bad", "good"], check: [] } }, {}, new Map([["bad", [{}]], ["good", [{}]]]), new Set(["test"]), "windows", results, run, () => ({}), async () => ({}), (name) => ["clippy", "-p", name], (name) => ["check", "-p", name], () => [{ command: "cargo", args: ["consumer"] }]);
+  assert.deepEqual(calls.filter(([unit]) => unit === "rust:bad").map(([, step]) => step), ["clippy", "check", "doc", "doc"]);
+  assert.deepEqual(calls.filter(([unit]) => unit === "rust:good").map(([, step]) => step), ["clippy", "check", "doc", "doc", "test", "consumer"]);
+  assert.ok(results.some((result) => !result.ok));
+});
+
 test("workflow YAML: the empty flow mapping parses; any other flow mapping is refused; every workflow parses", () => {
   assert.deepEqual(parseYaml("permissions: {}\n"), { permissions: {} });
   assert.throws(() => parseYaml("permissions: { contents: read }\n"), /flow mappings are not supported/);
