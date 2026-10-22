@@ -222,7 +222,9 @@ Two routes, one uploader (`scripts/ci/upload.mjs`), and registry uploads exist o
   that run's artifact listing, re-hashes them, reads registry, units and allowsets from the sealed manifest and receipts, and
   publishes exactly those bytes with the run URL recorded as the review reference. Its checkout is the qualified commit.
   Runtime-proof owners (`RUNTIME_PROOF_WORKLOADS` in `scripts/ci/upload.mjs`: logs, job-queue, qa, daemon, tauri-shell)
-  are refused on this route, because `publish.yml` carries no runtime workload; they stay on the reviewed route below.
+  publish on this route too (Adrian 2026-10-22: "those can have exceptions"); `publish.yml` carries no runtime workload, so
+  their resource budgets are a separate, non-blocking report (local-runtime or `qualify-runtime.yml`), named in the
+  publication receipt's candidate as `runtimeBudgetUnproven`.
   A `right-release qualify --with-ci` dispatch is a green `publish.yml` run like any other: its CI-built bytes publish
   directly, and a local candidate for the same version is then redundant (`publish-reviewed` refuses other bytes of
   a published version).

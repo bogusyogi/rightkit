@@ -776,6 +776,7 @@ test("a green qualification run publishes its own sealed bytes directly: no cand
   assert.equal(f.puts.length, 1);
   assert.deepEqual(f.puts[0].body, buildCratePublishBody(f.metadata.toString(), f.crate));
   assert.equal(actual.commit, SOURCE); assert.equal(actual.candidate.runId, "77"); assert.equal(actual.candidate.source, "qualified");
+  assert.deepEqual(actual.candidate.runtimeBudgetUnproven, [], "rightkit-a owns no runtime workload");
   assert.ok(!f.requests.some((r) => r.url.includes("approved-artifacts") || r.url.includes("publish-reviewed")), "nothing committed is consulted");
   assert.ok(f.requests.filter((r) => r.url.startsWith("https://api.github.com/")).every((r) => r.options.headers.authorization === "Bearer github-read-fixture"));
   assert.ok(fs.readdirSync(path.join(f.temp, "publication-receipt")).length >= 1, "a publication receipt is written for the artifact step");
@@ -804,7 +805,6 @@ test("direct publication refuses a run that is not green, foreign, diverged, res
     ["promotion behind the qualified commit", (g) => { g.provenance.comparison.status = "behind"; }],
     ["windows receipt ran with other allowsets than macOS", (g) => { const doc = JSON.parse(g.files.windows["verify-windows.json"]); doc.allowIgnored = ["rightkit-a"]; g.files.windows["verify-windows.json"] = Buffer.from(JSON.stringify(doc)); }],
     ["sealed manifest of another commit", (g) => { const doc = JSON.parse(g.files.packed["manifest.json"]); doc.commit = PROMOTION; g.files.packed["manifest.json"] = Buffer.from(JSON.stringify(doc)); }],
-    ["runtime-proof owner on the direct route", (g) => { const doc = JSON.parse(g.files.packed["manifest.json"]); doc.units[0].name = "rightkit-daemon"; g.files.packed["manifest.json"] = Buffer.from(JSON.stringify(doc)); }],
   ];
   for (const [name, mutate, extra] of cases) {
     const g = green(fixture(t)); mutate(g);

@@ -780,10 +780,10 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   try { plan = JSON.parse(fs.readFileSync(path.join(packDir, "manifest.json"), "utf8")); } catch { plan = null; }
   requireThat(plan && ["npm", "crates"].includes(plan.registry) && Array.isArray(plan.units) && plan.units.length > 0 && plan.units.every((unit) => typeof unit?.name === "string" && UNIT_NAME.test(unit.name)), "sealed manifest names no registry or units");
   const registry = plan.registry, units = plan.units.map((unit) => unit.name);
-  // publish.yml carries no runtime workload, so its success is no runtime proof: a runtime-proof owner stays on the
-  // reviewed route (local qualification with its runtime workload, then publish-reviewed), exactly as semantic admission demands.
+  // Runtime-proof owners (RUNTIME_PROOF_WORKLOADS) publish on CI green like every other unit. publish.yml carries no runtime
+  // workload, so their resource budgets are not proven by this route; Adrian 2026-10-22 ("those can have exceptions"): the
+  // budget measurement is a separate, non-blocking report (local-runtime or qualify-runtime.yml), not a publication gate.
   const runtimeOwned = units.filter((name) => Object.hasOwn(RUNTIME_PROOF_WORKLOADS, name));
-  requireThat(runtimeOwned.length === 0, `${runtimeOwned.join(", ")}: a runtime-proof owner is not published by a qualification run; qualify it locally with its runtime workload and promote it through publish-reviewed`);
   const linuxRequired = linuxRequiredFor({ registry, units, ...(linuxFile ? { file: linuxFile } : {}) });
   requireThat(linuxRequired.problems.length === 0, linuxRequired.problems.join("; "));
   const linuxJobs = rows.filter((job) => job.name === "verify-linux");
@@ -801,7 +801,7 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   const approvedFile = path.join(root, "qualified-approval.json");
   const reviewRef = `https://github.com/${REPOSITORY}/actions/runs/${runId}/attempts/${runAttempt}`;
   fs.writeFileSync(approvedFile, `${JSON.stringify({ schema: 1, artifacts: sealed.manifest.units.map((unit) => ({ registry, name: unit.name, version: unit.version, sha256: unit.sha256, reviewer: "publish.yml qualified", reviewRef })) }, null, 2)}\n`, { flag: "wx" });
-  const candidate = { id: `qualified-${runId}-${runAttempt}`, source: "qualified", sourceSha, runId, runAttempt, workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry, units, allow, artifacts };
+  const candidate = { id: `qualified-${runId}-${runAttempt}`, source: "qualified", sourceSha, runId, runAttempt, workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry, units, allow, artifacts, runtimeBudgetUnproven: runtimeOwned };
   const context = JSON.parse(JSON.stringify({ candidate })); freezeDeep(context);
   contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, admitted: true, ciProof: null });
   return { context, packDir, receiptsDir, approvedFile };
