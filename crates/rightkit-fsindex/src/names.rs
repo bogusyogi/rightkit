@@ -356,6 +356,8 @@ impl NameStore {
     }
 
     fn rebuild_heads(&mut self, buckets: usize) -> io::Result<()> {
+        // The new heads file truncates the old one: unmap the old view first (Windows error 1224).
+        self.heads.release()?;
         self.heads = Col::create(self.dir.as_deref(), "names-heads.col", buckets)?;
         let mask = self.heads.cap() as u64 - 1;
         for id in 0..self.count {

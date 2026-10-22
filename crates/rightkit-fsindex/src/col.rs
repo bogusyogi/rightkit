@@ -225,6 +225,12 @@ impl<T: Copy> Col<T> {
         Ok(())
     }
 
+    /// Unmap this column before its file is recreated or resized by another handle (Windows
+    /// refuses both while a view is mapped, error 1224); the column is unusable until replaced.
+    pub(crate) fn release(&mut self) -> io::Result<()> {
+        release_map(&mut self.map)
+    }
+
     /// Drop this mapping's resident pages by remapping the file (data stays in the page cache and the file;
     /// madvise(DONTNEED) does not shrink the resident set on macOS, a fresh mapping does).
     pub fn trim(&mut self) {
