@@ -108,8 +108,11 @@ export function matchRun(runs, query) {
 const PREFLIGHT_SHA256 = "53dfed1efd26fe091e03aa1347f81835f4f3d20ce083eb08c92103dc9b9c6aee";
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || opts.registry !== "crates") throw new Error("only scoped crates publication has local admission; general CI/npm dispatch is not admitted");
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  // The broker runs the digest-pinned copy of this file from its policy directory, so the repository is the adapter's
+  // working directory (the request's workspace), never a path relative to this file.
+  const root = process.cwd();
   const helper = path.join(root, "scripts", "ci", "rk-preflight.mjs");
+  if (!fs.existsSync(helper) || !fs.existsSync(path.join(root, ".git"))) throw new Error(`working directory ${root} is not the RightKit checkout`);
   if (crypto.createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== PREFLIGHT_SHA256) throw new Error("preflight implementation digest changed; repin adapter with its reviewed helper");
   const { receiptRefusal, exceptionAllowsets, crateRows, verifyAttestation, DEFAULT_OUT } = await import(pathToFileURL(helper));
   const git = (...args) => {
