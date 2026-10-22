@@ -1583,7 +1583,7 @@ pub fn base_catalog() -> Vec<ModelSpec> {
 
 /// Optional downloads, each offered on demand and never part of setup: the entitlement-gated
 /// Whisper large-v3-turbo, and on macOS the EmbeddingGemma 2 Core ML text encoder
-/// ([`embedding_gemma2_coreml_spec`], public-read, no entitlement). The app that needs an
+/// (`embedding_gemma2_coreml_spec`, macOS only, public-read, no entitlement). The app that needs an
 /// add-on ensures it on demand; an add-on is never in [`base_catalog`], so a base install does
 /// not download it.
 pub fn add_ons() -> Vec<ModelSpec> {

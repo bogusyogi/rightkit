@@ -7,7 +7,7 @@
 //!
 //! * **Bind time** ([`crate::configure_runtime_with_options`], and so [`crate::configure_runtime`]
 //!   and [`crate::configure_runtime_verified`]): on a macOS arm64 host whose
-//!   `hw.optional.arm.FEAT_SME2` sysctl is 1, a runtime older than [`MIN_SAFE_ORT_VERSION`] is
+//!   `hw.optional.arm.FEAT_SME2` sysctl is 1, a runtime older than [`crate::kleidiai::MIN_SAFE_ORT_VERSION`] is
 //!   refused with [`crate::RuntimeError::KnownBadRuntime`]. The version is read from the library
 //!   file actually being bound (ONNX Runtime's own `OrtGetApiBase().GetVersionString()`), never
 //!   from a catalog pin. [`crate::RuntimeBindingOptions::allow_known_bad_runtime`] is the explicit
