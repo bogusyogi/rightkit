@@ -25,7 +25,16 @@ fn embeddinggemma_real_model_ranks_related_text_and_persists_vector() {
         eprintln!("CodeRight model resources unavailable; real-model gate skipped");
         return;
     }
-    let embedder = Embedder::load(EmbedderConfig::new(model_dir, runtime)).unwrap();
+    // QA opt-out (bogusyogi/rightkit#889): CodeRight bundles ONNX Runtime 1.26.0, which the
+    // rightkit-onnx 0.2.7 bind-time guard refuses on an SME2 host (M4 and newer). This gate checks
+    // ranking and persistence on the real model, not the Conv leak, so bind it explicitly.
+    let binding = rightkit_onnx::RuntimeBindingOptions {
+        allow_known_bad_runtime: true,
+        ..Default::default()
+    };
+    let embedder =
+        Embedder::load(EmbedderConfig::new(model_dir, runtime).with_runtime_binding(binding))
+            .unwrap();
     assert_eq!(embedder.model_id(), EMBEDDINGGEMMA_MODEL_ID);
     assert_eq!(embedder.dimension(), 256);
     let query = embedder.embed_query("budget meeting forecast").unwrap();

@@ -12,8 +12,8 @@ use crate::e40::{self, E40Engine, E40SessionProfile};
 use crate::parity_cache;
 use rightkit_onnx::ort::session::Session;
 use rightkit_onnx::{
-    configure_runtime, init_environment, CandidateSource, EnvironmentOptions, GlobalPool,
-    RuntimeCandidate, SessionOptions,
+    configure_runtime_with_options, init_environment, CandidateSource, EnvironmentOptions,
+    GlobalPool, RuntimeBindingOptions, RuntimeCandidate, SessionOptions,
 };
 use thiserror::Error;
 use tokenizers::{EncodeInput, Tokenizer};
@@ -279,6 +279,8 @@ pub struct EmbedderConfig {
     pub coreml_units: Option<CoreMlUnits>,
     /// E40 session options override; `None` is the shipped profile. Benchmark use only.
     pub(crate) e40_session_profile: Option<E40SessionProfile>,
+    /// ONNX Runtime binding policy (see [`Self::with_runtime_binding`]). Default is strict.
+    pub(crate) runtime_binding: RuntimeBindingOptions,
 }
 
 impl EmbedderConfig {
@@ -298,6 +300,7 @@ impl EmbedderConfig {
             prewarm: None,
             coreml_units: None,
             e40_session_profile: None,
+            runtime_binding: RuntimeBindingOptions::default(),
         }
     }
 
@@ -334,6 +337,16 @@ impl EmbedderConfig {
     #[cfg(feature = "bench-internals")]
     pub fn with_e40_session_profile(mut self, profile: E40SessionProfile) -> Self {
         self.e40_session_profile = Some(profile);
+        self
+    }
+
+    /// ONNX Runtime binding options passed to `rightkit_onnx::configure_runtime_with_options`.
+    /// The default is strict. QA only: `RuntimeBindingOptions { allow_known_bad_runtime: true, .. }`
+    /// binds an ONNX Runtime older than 1.27.0 on an SME2 host, which the bind-time guard
+    /// refuses because it leaks memory in Conv (bogusyogi/rightkit#889). Production code must not
+    /// set it.
+    pub fn with_runtime_binding(mut self, options: RuntimeBindingOptions) -> Self {
+        self.runtime_binding = options;
         self
     }
 
@@ -514,10 +527,14 @@ impl Embedder {
         let tokenizer_started = Instant::now();
         let (tokenizer, pad_id) = load_tokenizer(&config.model_dir)?;
         let tokenizer_load = tokenizer_started.elapsed();
-        let selection = configure_runtime([RuntimeCandidate::new(
-            config.runtime_path.clone(),
-            CandidateSource::Explicit,
-        )])
+        let selection = configure_runtime_with_options(
+            [RuntimeCandidate::new(
+                config.runtime_path.clone(),
+                CandidateSource::Explicit,
+            )],
+            &config.runtime_binding,
+        )
+        .map(|binding| binding.selection)
         .map_err(|e| EmbedError::Runtime(e.to_string()))?;
         init_environment(
             &selection,
@@ -1323,7 +1340,10 @@ impl Embedder {
                 ],
             };
             for name in names {
-                files.push((*name, hash_file(&self.model_dir.join(name))?));
+                files.push((
+                    e40::pipeline_name(name),
+                    hash_file(&self.model_dir.join(name))?,
+                ));
             }
             Ok(pipeline_fingerprint(&PipelineParts {
                 model_id: &self.model_id,
@@ -2442,6 +2462,17 @@ mod tests {
     #[test]
     fn config_defaults_and_builders() {
         let c = EmbedderConfig::new("m", "r");
+        assert!(!c.runtime_binding.allow_known_bad_runtime);
+        let qa = c.clone().with_runtime_binding(RuntimeBindingOptions {
+            allow_known_bad_runtime: true,
+            ..Default::default()
+        });
+        assert!(qa.runtime_binding.allow_known_bad_runtime);
+        assert!(
+            !EmbedderConfig::new("m", "r")
+                .runtime_binding
+                .allow_known_bad_runtime
+        );
         assert_eq!((c.max_batch, c.intra_threads), (16, 1));
         assert_eq!(c.ingest_batch, 8);
         assert_eq!(c.clone().with_ingest_batch(4).ingest_batch, 4);
@@ -2456,6 +2487,7 @@ mod tests {
             .with_provider(ExecutionProvider::Auto);
         assert_eq!((c.max_batch, c.intra_threads), (4, 3));
         assert_eq!(c.provider, ExecutionProvider::Auto);
+        assert!(!c.runtime_binding.allow_known_bad_runtime);
         let legacy =
             EmbedderConfig::new("m", "r").with_provider(rightkit_onnx::ExecutionProvider::DirectMl);
         assert_eq!(legacy.provider, ExecutionProvider::DirectMl);

@@ -1,11 +1,17 @@
 # Changelog
 
+## 0.6.1 — unpublished staging
+
+- **QA-only runtime binding opt-out (bogusyogi/rightkit#889).** New `EmbedderConfig::with_runtime_binding(rightkit_onnx::RuntimeBindingOptions)` (crate-private field `runtime_binding`, default strict) passed to `configure_runtime_with_options` in `Embedder::load`. Setting `allow_known_bad_runtime: true` binds an ONNX Runtime older than 1.27.0 on an SME2 host (rightkit-onnx 0.2.7 refuses it otherwise). QA reproductions only; production code must not set it. Used by `tests/real_model_e2e.rs`, which runs the real CodeRight model against the bundled ONNX Runtime 1.26.0.
+- Depends on `rightkit-db` 0.5.0 (was 0.4.3 on crates.io 0.6.0); no code change (bogusyogi/rightkit#817).
+- **Bundle manifest name (bogusyogi/rightkit#224).** The E40/E43 loader reads the schema-2 bundle manifest from `embed-manifest.json` when that file exists and falls back to `manifest.json` (`e40::manifest_name_in`, `Layout::load`); `bundle_files`, `artifacts()` and the required-artifact list name the file that was read, and a store entry that holds both uses `embed-manifest.json` (its `manifest.json` is then the suite store's own entry record, never parsed). Reason: the suite store writes its entry record to `<entry>/manifest.json`, which replaced the E43 bundle's manifest of that name after an install. The pipeline id counts the two names as one file (`e40::pipeline_name`), so the same bytes under either name give the same id. Adopt-only Q4 and flat E40 directories are unchanged. Not compiled locally; CI is the compiler. Tests: four unit tests in `src/e40.rs` (embed manifest only, plain fallback, both present, none / name mapping).
+
 ## 0.6.0 (2026-10-17)
 
 - **Resident int8 vector index.** New `ResidentIndex` (`src/resident.rs`) and `VectorStore::resident_index(model_id)`: one read of a model's vectors into memory, each row quantised to `i8` with one `f32` scale (`absmax / 127`). `ResidentIndex::nearest(query, limit)` scores by cosine on the dequantised rows and orders ties by key, like `VectorStore::nearest`, without a SQLite scan per query. It is a snapshot: later writes are not seen. Written, unverified: not compiled or run.
 - **Reciprocal-rank fusion.** New `reciprocal_rank_fusion(&[&[K]], k)` and `RRF_K` (60) in `src/fusion.rs`: sums `1 / (k + rank)` per item over ranked lists, returns best first, ties in first-appearance order. No feature gate and no dependency. Written, unverified.
 - **Model bundle files.** New `bundle_files(dir) -> Result<Option<Vec<String>>, EmbedError>` lists the files the Core ML, E40 or Q4 layout requires and checks each exists (`MissingArtifact` otherwise); `None` when `dir` is none of them. Written, unverified.
-- **Installed model directory.** New `installed_model_dir(exe, subdir) -> Option<PathBuf>`: the resources directory of `rightkit_onnx::installed_resource_dir(exe)` joined with a single plain `subdir` name. Returns the candidate without an existence check. Requires `rightkit-onnx` 0.2.6 (see the crate's `Cargo.toml`, whose requirement is still `0.2.2`). Written, unverified.
+- **Installed model directory.** New `installed_model_dir(exe, subdir) -> Option<PathBuf>`: the resources directory of `rightkit_onnx::installed_resource_dir(exe)` joined with a single plain `subdir` name. Returns the candidate without an existence check. Requires `rightkit-onnx` 0.2.6 (see the crate's `Cargo.toml`, whose requirement is `0.2.6`). Written, unverified.
 - No change to existing behaviour or public types.
 
 ## 0.6.0

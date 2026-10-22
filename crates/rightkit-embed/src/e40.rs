@@ -2,7 +2,8 @@
 //! never copied), plus the token-embedding table that is looked up on the host. Export and
 //! contract: `scripts/embed-export/eg2-directml/README.md`.
 //!
-//! A bundle with a top-level `manifest.json` (schema 2) names everything: `graphs.query` (batch 1,
+//! A bundle with a top-level `embed-manifest.json` (or, in older bundles, `manifest.json`; the
+//! first wins when both exist) (schema 2) names everything: `graphs.query` (batch 1,
 //! ascending lengths, a `file` template with `{L}`), `graphs.ingest` (entries of batch 4 and 8,
 //! each with its own lengths and template, e.g. `ingest-b8_{L}.onnx`), `weights` and `token_table`
 //! (`int8-rowwise` with `table` and `scales`, or `fp16`; a missing `token_table` is fp16). It is
@@ -56,8 +57,33 @@ pub(crate) const TABLE_FILE: &str = "embed_tokens.f16.npy";
 pub(crate) const TABLE_I8_FILE: &str = "embed_tokens.i8.npy";
 /// Default name of the shared fp16 weights (ONNX external data) of a legacy bundle; a manifest names it.
 pub(crate) const DATA_FILE: &str = "model.onnx_data";
-/// Bundle manifest (schema 2): graph files, shared weights and token table.
+/// Bundle manifest (schema 2): graph files, shared weights and token table. The name of older
+/// bundles and of the adopt-only flat directories.
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
+/// The same schema-2 bundle manifest under the name the suite-store-installed E43 bundle uses:
+/// the store writes its own entry record to `manifest.json` in every entry directory, which
+/// would replace a bundle manifest of that name (bogusyogi/rightkit#224). Preferred over
+/// [`MANIFEST_FILE`] when both exist.
+pub(crate) const EMBED_MANIFEST_FILE: &str = "embed-manifest.json";
+
+/// The bundle manifest present in `dir`: [`EMBED_MANIFEST_FILE`] when it exists, else
+/// [`MANIFEST_FILE`], else `None` (the legacy layout). Both may exist in a store entry, where
+/// `manifest.json` is the store's own record, and the embed manifest then wins.
+pub(crate) fn manifest_name_in(dir: &Path) -> Option<&'static str> {
+    [EMBED_MANIFEST_FILE, MANIFEST_FILE]
+        .into_iter()
+        .find(|name| dir.join(name).is_file())
+}
+
+/// The name a bundle file contributes to the pipeline id: the two manifest names are the same
+/// file, so a rename never changes the id of the same bytes.
+pub(crate) fn pipeline_name(name: &str) -> &str {
+    if name == EMBED_MANIFEST_FILE {
+        MANIFEST_FILE
+    } else {
+        name
+    }
+}
 /// Default ingest batch: 176 docs/s against 166 (batch 4) and 100 (batch 1), measured.
 pub(crate) const DEFAULT_INGEST_BATCH: usize = 8;
 
@@ -113,12 +139,14 @@ impl GraphSet {
 }
 
 /// What a bundle directory holds: the batch-1 query graphs, the optional ingest graphs, the
-/// shared weights file and the token table. Read from the bundle's `manifest.json` (schema 2),
-/// or the legacy fixed layout when there is none.
+/// shared weights file and the token table. Read from the bundle's `embed-manifest.json` or
+/// `manifest.json` (schema 2), or the legacy fixed layout when there is none.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Layout {
     /// True when read from a manifest; the manifest then belongs to the pipeline fingerprint.
     pub(crate) from_manifest: bool,
+    /// Which manifest file it was read from (`manifest.json` for the legacy layout, unused).
+    pub(crate) manifest_file: &'static str,
     pub(crate) weights: String,
     pub(crate) query: GraphSet,
     pub(crate) ingest: Vec<GraphSet>,
@@ -206,6 +234,7 @@ impl Layout {
     pub(crate) fn legacy() -> Self {
         Self {
             from_manifest: false,
+            manifest_file: MANIFEST_FILE,
             weights: DATA_FILE.to_owned(),
             query: GraphSet {
                 batch: 1,
@@ -301,6 +330,7 @@ impl Layout {
         };
         Ok(Self {
             from_manifest: true,
+            manifest_file: MANIFEST_FILE,
             weights,
             query,
             ingest,
@@ -308,16 +338,20 @@ impl Layout {
         })
     }
 
-    /// The layout of the bundle in `dir`: its `manifest.json`, or the legacy layout when there
-    /// is none. Every file the layout names must exist.
+    /// The layout of the bundle in `dir`: its `embed-manifest.json`, else its `manifest.json`,
+    /// or the legacy layout when there is neither. Every file the layout names, the manifest
+    /// that was read included, must exist.
     pub(crate) fn load(dir: &Path) -> Result<Self, EmbedError> {
-        let path = dir.join(MANIFEST_FILE);
-        let layout = if path.is_file() {
-            let json = std::fs::read_to_string(&path)
-                .map_err(|e| EmbedError::InvalidConfig(format!("{}: {e}", path.display())))?;
-            Self::parse(&json)?
-        } else {
-            Self::legacy()
+        let layout = match manifest_name_in(dir) {
+            Some(name) => {
+                let path = dir.join(name);
+                let json = std::fs::read_to_string(&path)
+                    .map_err(|e| EmbedError::InvalidConfig(format!("{}: {e}", path.display())))?;
+                let mut layout = Self::parse(&json)?;
+                layout.manifest_file = name;
+                layout
+            }
+            None => Self::legacy(),
         };
         for name in layout.files() {
             let file = dir.join(&name);
@@ -343,12 +377,12 @@ impl Layout {
     }
 
     /// Every file of the bundle that the layout names and the pipeline id covers: the manifest
-    /// (when there is one), the shared weights, every query and ingest graph, the token table
+    /// it was read from (when there is one), the shared weights, every query and ingest graph, the token table
     /// files and the tokenizer.
     pub(crate) fn files(&self) -> Vec<String> {
         let mut files = Vec::new();
         if self.from_manifest {
-            files.push(MANIFEST_FILE.to_owned());
+            files.push(self.manifest_file.to_owned());
         }
         files.extend(self.query.file_names());
         for set in &self.ingest {
@@ -1491,6 +1525,83 @@ mod tests {
             Layout::load(&dir),
             Err(EmbedError::MissingArtifact(_))
         ));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A scratch bundle directory holding every file the E43 `MANIFEST` names except the
+    /// manifest itself.
+    fn bundle_without_manifest(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("rk-e40-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let layout = Layout::parse(MANIFEST).unwrap();
+        for name in layout.files().into_iter().filter(|n| n != MANIFEST_FILE) {
+            std::fs::write(dir.join(name), b"x").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn the_embed_manifest_is_read_and_listed_when_it_is_the_one_present() {
+        let dir = bundle_without_manifest("embed-manifest");
+        std::fs::write(dir.join(EMBED_MANIFEST_FILE), MANIFEST).unwrap();
+        assert_eq!(manifest_name_in(&dir), Some(EMBED_MANIFEST_FILE));
+        let layout = Layout::load(&dir).unwrap();
+        assert_eq!(layout.manifest_file, EMBED_MANIFEST_FILE);
+        let files = artifacts(&dir).unwrap();
+        assert!(files.contains(&EMBED_MANIFEST_FILE.to_owned()));
+        assert!(!files.contains(&MANIFEST_FILE.to_owned()));
+        assert!(is_bundle(&dir));
+        // The listed manifest is required: remove it and no manifest name is present.
+        std::fs::remove_file(dir.join(EMBED_MANIFEST_FILE)).unwrap();
+        assert_eq!(manifest_name_in(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_plain_manifest_name_still_loads_as_a_fallback() {
+        let dir = bundle_without_manifest("plain-manifest");
+        std::fs::write(dir.join(MANIFEST_FILE), MANIFEST).unwrap();
+        assert_eq!(manifest_name_in(&dir), Some(MANIFEST_FILE));
+        let layout = Layout::load(&dir).unwrap();
+        assert_eq!(layout.manifest_file, MANIFEST_FILE);
+        assert_eq!(layout, Layout::parse(MANIFEST).unwrap());
+        let files = artifacts(&dir).unwrap();
+        assert!(files.contains(&MANIFEST_FILE.to_owned()));
+        assert!(!files.contains(&EMBED_MANIFEST_FILE.to_owned()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_embed_manifest_wins_over_a_store_record_named_manifest_json() {
+        let dir = bundle_without_manifest("both-manifests");
+        std::fs::write(dir.join(EMBED_MANIFEST_FILE), MANIFEST).unwrap();
+        // The suite store's own entry record: not a schema-2 manifest, and never read here.
+        std::fs::write(
+            dir.join(MANIFEST_FILE),
+            br#"{"id":"e43","version":"v","files":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(manifest_name_in(&dir), Some(EMBED_MANIFEST_FILE));
+        let layout = Layout::load(&dir).unwrap();
+        assert_eq!(layout.manifest_file, EMBED_MANIFEST_FILE);
+        assert!(artifacts(&dir)
+            .unwrap()
+            .contains(&EMBED_MANIFEST_FILE.to_owned()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_manifest_is_the_legacy_layout_and_both_names_share_one_pipeline_name() {
+        let dir = std::env::temp_dir().join(format!("rk-e40-no-manifest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(manifest_name_in(&dir), None);
+        assert!(!Layout::legacy().from_manifest);
+        // The pipeline id sees one manifest name, whichever file carries it.
+        assert_eq!(pipeline_name(EMBED_MANIFEST_FILE), MANIFEST_FILE);
+        assert_eq!(pipeline_name(MANIFEST_FILE), MANIFEST_FILE);
+        assert_eq!(pipeline_name("model_32.onnx"), "model_32.onnx");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
