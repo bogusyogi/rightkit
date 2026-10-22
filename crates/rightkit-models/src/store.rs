@@ -575,6 +575,19 @@ impl Store {
             .map_err(|e| Error::new(ErrorCode::Io, e))
     }
 
+    /// Release `app`'s references to the listed model `ids` only (its other references stay) and
+    /// return the listed ids no app references any more, sorted. Idempotent: an id the app does
+    /// not hold, or one already released, changes nothing. An invalid id is `InvalidSpec` and a
+    /// corrupt ref file is `Io`; neither changes anything. Nothing is deleted: removing an
+    /// unreferenced model is [`Store::gc`] or [`Store::uninstall_unreferenced`].
+    pub fn release_app_model(&self, app: &str, ids: &[&str]) -> Result<Vec<String>> {
+        for id in ids {
+            ModelId::parse(id)?;
+        }
+        crate::suite::refs::release(&self.refs_dir(), app, ids)
+            .map_err(|e| Error::new(ErrorCode::Io, e))
+    }
+
     /// Drop `app`'s references; returns model ids no app references any more.
     /// A corrupt ref file aborts without changing anything.
     /// Also drops `app`'s shared-runtime references

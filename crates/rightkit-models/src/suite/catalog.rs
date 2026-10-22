@@ -88,8 +88,11 @@ pub struct ModelSpec {
     /// Historical paths checked during migration; only byte-identical
     /// duplicate directories are removed after verifying current payload.
     pub retired_legacy_paths: &'static [&'static str],
-    /// Store-side entry ids superseded by this spec (older shared-store ids;
-    /// their dirs are pruned only when byte-identical to this verified spec).
+    /// Store-side entry ids superseded by this spec (older shared-store ids). Once this spec
+    /// is Ready, an ensure by an app removes each such entry unless an app OTHER than that
+    /// one still references it, whether or not the old payload matches this spec's bytes
+    /// (a real model change never does); the app's own ref to it is dropped. An install in
+    /// progress, a held entry lock or an active runtime-family lease leaves it for later.
     pub retired_store_ids: &'static [&'static str],
 }
 
@@ -389,6 +392,390 @@ pub fn parakeet_spec() -> ModelSpec {
 }
 
 // ---------------------------------------------------------------------------
+// Parakeet Ultra — moondream/parakeet-ultra weights on the Parakeet TDT v3 graphs
+// (Orthic-Labs/rightkit#897; CC-BY-4.0, based on NVIDIA parakeet-tdt-0.6b-v3).
+// Additive: `parakeet_spec()` is unchanged. Ultra is reached only through
+// `parakeet_ultra_spec()`, and only on a platform whose pins are recorded below.
+// ---------------------------------------------------------------------------
+
+/// Store id of the Windows Ultra entry (and its archive's top directory).
+pub const PARAKEET_ULTRA_WINDOWS_ID: &str = "parakeet_tdt_ultra_static1500_fp16int4_20261022";
+
+/// Store id of the macOS Ultra entry (and its archive's top directory).
+pub const PARAKEET_ULTRA_MACOS_ID: &str = "parakeet-tdt-ultra";
+
+/// Store id of the Ultra entry on this platform.
+#[cfg(target_os = "macos")]
+pub const PARAKEET_ULTRA_ID: &str = PARAKEET_ULTRA_MACOS_ID;
+/// Store id of the Ultra entry on this platform.
+#[cfg(not(target_os = "macos"))]
+pub const PARAKEET_ULTRA_ID: &str = PARAKEET_ULTRA_WINDOWS_ID;
+
+/// Worker route of the Windows Ultra archive. The live worker serves fixed routes, not
+/// `<id>.tar.gz`; the existing `/parakeet/windows/tdt.tar.gz` route is unchanged.
+pub const PARAKEET_ULTRA_WINDOWS_ROUTE: &str = "/parakeet/windows/ultra.tar.gz";
+
+/// Worker route of the macOS Ultra archive.
+pub const PARAKEET_ULTRA_MACOS_ROUTE: &str = "/parakeet/macos/ultra.tar.gz";
+
+/// Full Windows archive URL: [`MODEL_DOWNLOAD_BASE`] plus [`PARAKEET_ULTRA_WINDOWS_ROUTE`].
+pub const PARAKEET_ULTRA_WINDOWS_URL: &str = concat!(
+    "https://heardright-models.adrdsouza.workers.dev",
+    "/parakeet/windows/ultra.tar.gz"
+);
+
+/// Full macOS archive URL: [`MODEL_DOWNLOAD_BASE`] plus [`PARAKEET_ULTRA_MACOS_ROUTE`].
+pub const PARAKEET_ULTRA_MACOS_URL: &str = concat!(
+    "https://heardright-models.adrdsouza.workers.dev",
+    "/parakeet/macos/ultra.tar.gz"
+);
+
+/// The attribution line the archive's `NOTICE.txt` carries (the file holds more; its own
+/// size and SHA-256 are pinned like any other file, this text is not a pin).
+pub const PARAKEET_ULTRA_NOTICE: &str =
+    "moondream/parakeet-ultra, CC-BY-4.0, based on NVIDIA parakeet-tdt-0.6b-v3";
+
+/// The store ids Ultra supersedes: the Parakeet TDT v3 entries of both platforms. Ultra is not in
+/// [`all_models`], so the store reads this list directly when it prunes after a release.
+pub const PARAKEET_ULTRA_RETIRED_STORE_IDS: &[&str] = &[
+    "parakeet_tdt_v3_static1500_qint8_20260722",
+    "parakeet-tdt-v3-coreml-compiled-5f8888117f47",
+];
+
+/// Files the Ultra entry must hold on this platform: exactly what a pins table must list, no
+/// more and no fewer. (An archive may carry extras such as a `manifest.json`; they are never
+/// listed, so they are never verified, and the store writes its own `manifest.json` over any
+/// that the archive carries.)
+#[cfg(not(target_os = "macos"))]
+pub const PARAKEET_ULTRA_REQUIRED_PATHS: &[&str] = &[
+    "config.json",
+    "encoder-model.onnx",
+    "decoder_joint-model.onnx",
+    "mel_nemo.onnx",
+    "mel_nemo.onnx.data",
+    "vocab.txt",
+    "NOTICE.txt",
+];
+
+/// Files the Ultra entry must hold on this platform: exactly what a pins table must list, no
+/// more and no fewer. Root metadata, then each compiled stage bundle's IR, `metadata.json`,
+/// `coremldata.bin`, weights and analytics. The archive's own `manifest.json` is deliberately not
+/// listed (the store writes its own `<entry>/manifest.json` record over it), as on Windows.
+#[cfg(target_os = "macos")]
+pub const PARAKEET_ULTRA_REQUIRED_PATHS: &[&str] = &[
+    "vocab.txt",
+    "pipeline.json",
+    "NOTICE.txt",
+    "MelSpectrogram.mlmodelc/model.mil",
+    "MelSpectrogram.mlmodelc/metadata.json",
+    "MelSpectrogram.mlmodelc/coremldata.bin",
+    "MelSpectrogram.mlmodelc/weights/weight.bin",
+    "MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+    "AudioEncoder.mlmodelc/model.mil",
+    "AudioEncoder.mlmodelc/metadata.json",
+    "AudioEncoder.mlmodelc/coremldata.bin",
+    "AudioEncoder.mlmodelc/weights/weight.bin",
+    "AudioEncoder.mlmodelc/analytics/coremldata.bin",
+    "TextDecoder.mlmodelc/model.mil",
+    "TextDecoder.mlmodelc/metadata.json",
+    "TextDecoder.mlmodelc/coremldata.bin",
+    "TextDecoder.mlmodelc/weights/weight.bin",
+    "TextDecoder.mlmodelc/analytics/coremldata.bin",
+    "Joint.mlmodelc/model.mil",
+    "Joint.mlmodelc/metadata.json",
+    "Joint.mlmodelc/coremldata.bin",
+    "Joint.mlmodelc/weights/weight.bin",
+    "Joint.mlmodelc/analytics/coremldata.bin",
+];
+
+/// Every pin the Ultra archive spec needs, all required. There is deliberately no `Default` and
+/// no optional field: a partial pin cannot be built.
+#[derive(Debug, Clone, Copy)]
+pub struct ParakeetUltraPins {
+    /// Lowercase-hex SHA-256 of the whole `.tar.gz` (the bytes the worker serves).
+    pub archive_sha256: &'static str,
+    /// Size of the whole `.tar.gz` in bytes; the download is capped at it and checked exactly.
+    pub archive_size: u64,
+    /// Per-file size and SHA-256 of the extracted entry: exactly
+    /// [`PARAKEET_ULTRA_REQUIRED_PATHS`] for the platform. Each entry must carry both pins.
+    pub files: &'static [SpecFile],
+    /// Installed size in bytes: the sum of `files`' sizes.
+    pub installed_size_bytes: u64,
+}
+
+const PARAKEET_ULTRA_WINDOWS_FILES: &[SpecFile] = &[
+    SpecFile {
+        path: "config.json",
+        sha256: Some("0cfca69c4ae6930ecfa1ccc863f846a3e5a40e120d858161c31ece009dbe9734"),
+        size: Some(125),
+    },
+    SpecFile {
+        path: "encoder-model.onnx",
+        sha256: Some("e722a24615f5467496eea50a3f1cbb43636b7a0ec01999a1bfbe1656aaf5fd7b"),
+        size: Some(343_814_723),
+    },
+    SpecFile {
+        path: "decoder_joint-model.onnx",
+        sha256: Some("f974081fc490ad54bd0f18e6be4f1963b174a0763204481fb2da062d2bdf83cb"),
+        size: Some(18_201_991),
+    },
+    SpecFile {
+        path: "mel_nemo.onnx",
+        sha256: Some("f3beb3d21b4143cc7d1471815bd90687110a75a63984b89c86306e9284563881"),
+        size: Some(22_185),
+    },
+    SpecFile {
+        path: "mel_nemo.onnx.data",
+        sha256: Some("9e04389b417c35a888c7a85ae525b733dd6ab8d3d1592c7fa66ef9d26d076a19"),
+        size: Some(1_188_352),
+    },
+    SpecFile {
+        path: "vocab.txt",
+        sha256: Some("d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"),
+        size: Some(93_939),
+    },
+    SpecFile {
+        path: "NOTICE.txt",
+        sha256: Some("4468170d6241441b36b964ec096602b8d6920e70cdbc7c334bd2843c1c1b67d8"),
+        size: Some(688),
+    },
+];
+
+/// Windows Ultra pins: `parakeet_tdt_ultra_static1500_fp16int4_20261022.tar.gz`, sealed by the
+/// archive owner 2026-10-22 (issue #897), top directory
+/// `parakeet_tdt_ultra_static1500_fp16int4_20261022/`. The archive also carries a
+/// 1,252-byte `manifest.json` that is deliberately not listed (the store writes its own).
+pub const PARAKEET_ULTRA_WINDOWS_PINS: Option<ParakeetUltraPins> = Some(ParakeetUltraPins {
+    archive_sha256: "0ad7f5a2a6911ccb5315c53602f2ab14a37aa9ffd8446b2e69d20a73745d59b9",
+    archive_size: 316_610_098,
+    files: PARAKEET_ULTRA_WINDOWS_FILES,
+    installed_size_bytes: 363_322_003,
+});
+
+const PARAKEET_ULTRA_MACOS_FILES: &[SpecFile] = &[
+    SpecFile {
+        path: "vocab.txt",
+        sha256: Some("5b133ab19bf7bf03e06e61a193d2dedb96f72677850a670231bb7344c2e09d4c"),
+        size: Some(54_078),
+    },
+    SpecFile {
+        path: "pipeline.json",
+        sha256: Some("df6edfe91891d0516761ab72ad6b4f27ddf4ee23d5c867b2d6132b30129cacb5"),
+        size: Some(908),
+    },
+    SpecFile {
+        path: "NOTICE.txt",
+        sha256: Some("5dad4bacd0bfdd19a4bbe88a82b5c176bed8dd53669811b3c895a2216d91f1c3"),
+        size: Some(700),
+    },
+    SpecFile {
+        path: "MelSpectrogram.mlmodelc/model.mil",
+        sha256: Some("044cf490cb442ba79d446505a13d180082248bf239d58140e451c8d6f314e682"),
+        size: Some(1_835_964),
+    },
+    SpecFile {
+        path: "MelSpectrogram.mlmodelc/metadata.json",
+        sha256: Some("223a3cb0060d72cf86356712811d3e96bdd50dcecde76d0bc72471f507b25732"),
+        size: Some(2_512),
+    },
+    SpecFile {
+        path: "MelSpectrogram.mlmodelc/coremldata.bin",
+        sha256: Some("67f852ced7415e6aded98a18a8edb5409d0f7753f72c9cd3e6edd744f16d95d8"),
+        size: Some(401),
+    },
+    SpecFile {
+        path: "MelSpectrogram.mlmodelc/weights/weight.bin",
+        sha256: Some("f3c3d600f5fc6311ceff6406c10aeb4285a7f0fda4de6ac86b5bee3e76f80e32"),
+        size: Some(976_704),
+    },
+    SpecFile {
+        path: "MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+        sha256: Some("837a25d437aff742e4b07b0dd8bb569bceaa9ed3159cc6d55a967d091aa63d17"),
+        size: Some(243),
+    },
+    SpecFile {
+        path: "AudioEncoder.mlmodelc/model.mil",
+        sha256: Some("35e76d58412c18ff20f8fc946f751f8caaec191a7d17d81f052eb2093b604930"),
+        size: Some(978_977),
+    },
+    SpecFile {
+        path: "AudioEncoder.mlmodelc/metadata.json",
+        sha256: Some("38231e5437b91ae01ae151871f7f0b34f5bf5f8a66b2ad30a6bcc90b74abc283"),
+        size: Some(2_499),
+    },
+    SpecFile {
+        path: "AudioEncoder.mlmodelc/coremldata.bin",
+        sha256: Some("27b5f9420e60909b6fd15d4858b38ac892268368b90a8af0407326f0b85e8390"),
+        size: Some(351),
+    },
+    SpecFile {
+        path: "AudioEncoder.mlmodelc/weights/weight.bin",
+        sha256: Some("7ef6926571fbc9f812034f5b3fac5d05a41871eb35c702f671a117781fb46f25"),
+        size: Some(410_797_632),
+    },
+    SpecFile {
+        path: "AudioEncoder.mlmodelc/analytics/coremldata.bin",
+        sha256: Some("ed68cea24c04219b2f441d5975bdfb65a56cae7675ffdf6dab1739f600a747cc"),
+        size: Some(243),
+    },
+    SpecFile {
+        path: "TextDecoder.mlmodelc/model.mil",
+        sha256: Some("b312e8f9550241072894d077b98a1f7bbacd55ee915d539013f44df0be4c00e7"),
+        size: Some(15_692),
+    },
+    SpecFile {
+        path: "TextDecoder.mlmodelc/metadata.json",
+        sha256: Some("af0378a73304f3e2294132b8871c033106c214a6740a0dde1ae1e03f2dccc72f"),
+        size: Some(3_006),
+    },
+    SpecFile {
+        path: "TextDecoder.mlmodelc/coremldata.bin",
+        sha256: Some("cde46f5fe167ca24c131e66fe847b20c211b502d57f1ba6f5bcfce3a87bec3e2"),
+        size: Some(418),
+    },
+    SpecFile {
+        path: "TextDecoder.mlmodelc/weights/weight.bin",
+        sha256: Some("a98cb2eb85da7d2a1e1e7d298e1769f27998bfba2c67b2281714b7aa5f70dd08"),
+        size: Some(11_856_064),
+    },
+    SpecFile {
+        path: "TextDecoder.mlmodelc/analytics/coremldata.bin",
+        sha256: Some("a1c4716bcccb2a9f9da122247ccaef2ccc56786c7b364f6c0b5c19dd1a755626"),
+        size: Some(243),
+    },
+    SpecFile {
+        path: "Joint.mlmodelc/model.mil",
+        sha256: Some("83a75420a420b00c34da8be7a8d332ab89b66d705669f918faec4465c9a13096"),
+        size: Some(5_740),
+    },
+    SpecFile {
+        path: "Joint.mlmodelc/metadata.json",
+        sha256: Some("7daea82237542055e477003acac31d94f6a5a8649c48c766e30431c93f1ea906"),
+        size: Some(2_020),
+    },
+    SpecFile {
+        path: "Joint.mlmodelc/coremldata.bin",
+        sha256: Some("5a2ce6cefb422f1b9fd2af733af462c84ec7257bc6162d632370dd457ba42bb4"),
+        size: Some(346),
+    },
+    SpecFile {
+        path: "Joint.mlmodelc/weights/weight.bin",
+        sha256: Some("003db529d2952645b0b36670e8b3fcc1e38f72e5b3885e96e5361520dc574158"),
+        size: Some(6_359_308),
+    },
+    SpecFile {
+        path: "Joint.mlmodelc/analytics/coremldata.bin",
+        sha256: Some("04360f333e3a4cd45d8a69f98f41a3b013e50e1fefc225ff8e023bc9c036723f"),
+        size: Some(243),
+    },
+];
+
+/// macOS Ultra pins: `parakeet-tdt-ultra.tar.gz`, sealed 2026-10-22 (issue #897), top directory
+/// `parakeet-tdt-ultra/`, 24 members. The archive's 3,977-byte `manifest.json` is deliberately
+/// not listed (the store writes its own `<entry>/manifest.json` record), leaving the 23 files of
+/// [`PARAKEET_ULTRA_REQUIRED_PATHS`].
+pub const PARAKEET_ULTRA_MACOS_PINS: Option<ParakeetUltraPins> = Some(ParakeetUltraPins {
+    archive_sha256: "23610964221771e5a608c76d87d57802aecdacb549e27127c4d03b8feac2d4ee",
+    archive_size: 391_192_167,
+    files: PARAKEET_ULTRA_MACOS_FILES,
+    installed_size_bytes: 432_894_292,
+});
+
+/// The Ultra pins for this platform: [`PARAKEET_ULTRA_MACOS_PINS`] on macOS,
+/// [`PARAKEET_ULTRA_WINDOWS_PINS`] on Windows, `None` elsewhere (no Ultra route exists).
+#[cfg(target_os = "macos")]
+pub const PARAKEET_ULTRA_PINS: Option<ParakeetUltraPins> = PARAKEET_ULTRA_MACOS_PINS;
+/// The Ultra pins for this platform: [`PARAKEET_ULTRA_MACOS_PINS`] on macOS,
+/// [`PARAKEET_ULTRA_WINDOWS_PINS`] on Windows, `None` elsewhere (no Ultra route exists).
+#[cfg(windows)]
+pub const PARAKEET_ULTRA_PINS: Option<ParakeetUltraPins> = PARAKEET_ULTRA_WINDOWS_PINS;
+/// The Ultra pins for this platform: [`PARAKEET_ULTRA_MACOS_PINS`] on macOS,
+/// [`PARAKEET_ULTRA_WINDOWS_PINS`] on Windows, `None` elsewhere (no Ultra route exists).
+#[cfg(not(any(target_os = "macos", windows)))]
+pub const PARAKEET_ULTRA_PINS: Option<ParakeetUltraPins> = None;
+
+#[cfg(target_os = "macos")]
+const PARAKEET_ULTRA_URL: Option<&str> = Some(PARAKEET_ULTRA_MACOS_URL);
+#[cfg(windows)]
+const PARAKEET_ULTRA_URL: Option<&str> = Some(PARAKEET_ULTRA_WINDOWS_URL);
+#[cfg(not(any(target_os = "macos", windows)))]
+const PARAKEET_ULTRA_URL: Option<&str> = None;
+
+/// The Parakeet Ultra pins for this platform are not in the repository.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingParakeetUltraPins;
+
+impl std::fmt::Display for MissingParakeetUltraPins {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "the Parakeet Ultra archive SHA-256, size and file pins are not recorded for this platform (Orthic-Labs/rightkit#897)",
+        )
+    }
+}
+
+impl std::error::Error for MissingParakeetUltraPins {}
+
+fn ultra_pins_are_well_formed(pins: &ParakeetUltraPins) -> bool {
+    let hex = |s: &str| s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    let mut paths: Vec<&str> = pins.files.iter().map(|f| f.path).collect();
+    paths.sort_unstable();
+    let mut required: Vec<&str> = PARAKEET_ULTRA_REQUIRED_PATHS.to_vec();
+    required.sort_unstable();
+    hex(pins.archive_sha256)
+        && pins.archive_size > 0
+        // Exactly the required layout: a missing file, an extra file or a duplicate is refused.
+        && paths == required
+        && pins
+            .files
+            .iter()
+            .all(|f| f.sha256.is_some_and(hex) && f.size.is_some_and(|n| n > 0))
+        && pins.files.iter().filter_map(|f| f.size).sum::<u64>() == pins.installed_size_bytes
+}
+
+/// The Parakeet Ultra shared-store spec built from explicit pins: one grant-gated archive,
+/// whole-archive SHA-256 and size checked by the download before extraction, no legacy
+/// directories, retiring [`PARAKEET_ULTRA_RETIRED_STORE_IDS`]. Returns
+/// [`MissingParakeetUltraPins`] when the pins are malformed (not 64 lowercase hex, a zero size,
+/// a file without both pins, a file set that is not exactly [`PARAKEET_ULTRA_REQUIRED_PATHS`],
+/// or an installed size that is not the sum of the file sizes). Not in [`base_catalog`] or
+/// [`all_models`].
+pub fn parakeet_ultra_spec_with(
+    pins: ParakeetUltraPins,
+) -> Result<ModelSpec, MissingParakeetUltraPins> {
+    if !ultra_pins_are_well_formed(&pins) {
+        return Err(MissingParakeetUltraPins);
+    }
+    Ok(ModelSpec {
+        id: PARAKEET_ULTRA_ID,
+        label: "Parakeet Ultra speech model",
+        tier: ModelTier::Base,
+        entitlement: false,
+        version: pins.archive_sha256,
+        size_hint_bytes: pins.installed_size_bytes,
+        files: pins.files,
+        source: SpecSource::Archive {
+            url: PARAKEET_ULTRA_URL,
+            sha256: Some(pins.archive_sha256),
+            size: Some(pins.archive_size),
+            requires_auth: true,
+        },
+        legacy_dirs: &[],
+        retired_legacy_paths: &[],
+        retired_store_ids: PARAKEET_ULTRA_RETIRED_STORE_IDS,
+    })
+}
+
+/// The Parakeet Ultra spec from [`PARAKEET_ULTRA_PINS`]. `Err(MissingParakeetUltraPins)` on a
+/// platform whose pins are `None` (Linux; both macOS and Windows are pinned),
+/// so no caller can download an unpinned archive. `parakeet_spec` is unchanged.
+pub fn parakeet_ultra_spec() -> Result<ModelSpec, MissingParakeetUltraPins> {
+    match PARAKEET_ULTRA_PINS {
+        Some(pins) => parakeet_ultra_spec_with(pins),
+        None => Err(MissingParakeetUltraPins),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PP-OCRv6 — Windows-only OCR fallback (macOS uses Apple Vision).
 // ---------------------------------------------------------------------------
 
@@ -681,8 +1068,8 @@ const EMBEDDINGGEMMA2_Q4_REMOTE_FILES: &[RemoteFile] = &[
 
 /// EmbeddingGemma 2 Q4 shared-store spec (MailRight's local embedder).
 ///
-/// Not in [`base_catalog`] (not every install needs it) and not in [`add_ons`] (that list
-/// asserts entitlement gating, and this bundle has none). Reach it with this function.
+/// Not in [`base_catalog`] (not every install needs it) and not in [`add_ons`] (adopt-only: no
+/// route is served, so there is nothing to offer for download). Reach it with this function.
 pub fn embedding_gemma_q4_spec() -> ModelSpec {
     ModelSpec {
         id: EMBEDDINGGEMMA2_Q4_ID,
@@ -700,8 +1087,9 @@ pub fn embedding_gemma_q4_spec() -> ModelSpec {
 }
 
 // ---------------------------------------------------------------------------
-// EmbeddingGemma 2, suite model: Core ML build (macOS) and E40 fp16 DirectML
-// export (Windows). Both are per-file bundles pinned by size and SHA-256.
+// EmbeddingGemma 2, suite model: Core ML build (macOS, an add-on) and E40 fp16 DirectML
+// export (Windows, reached only by its own function). Both are per-file bundles pinned by
+// size and SHA-256.
 // ---------------------------------------------------------------------------
 
 /// Expands one table of `(path, url, sha256, bytes)` rows into the matching
@@ -786,8 +1174,9 @@ pinned_files! {
 pub const EMBEDDINGGEMMA2_COREML_SIZE: u64 = 584_748_275;
 
 /// EmbeddingGemma 2 Core ML shared-store spec (text encoder, macOS only; Apache-2.0 per the
-/// repository card). Reach it with this function: not in [`base_catalog`] or [`add_ons`].
-/// Download URLs are live (Hugging Face, pinned to a commit). Running the model needs a Core ML
+/// repository card). An add-on: in [`add_ons`] and [`all_models`] on macOS (so it is reachable
+/// by id through [`spec_by_id`] and `ModelStore::ensure_by_id`), never in [`base_catalog`]; the
+/// app that needs it ensures it on demand. Download URLs are live (Hugging Face, pinned to a commit). Running the model needs a Core ML
 /// binding that `rightkit-embed` does not have yet (see its README), so this entry only
 /// stages the files.
 #[cfg(target_os = "macos")]
@@ -920,11 +1309,12 @@ pub fn embedding_gemma2_e40_dml_spec() -> ModelSpec {
 // (Orthic-Labs/rightkit#224). The model choice is E43 with the int8 table (H01/H02, #288);
 // `rightkit-embed` 0.6.0 reads this layout (`recipe: "E43"` manifest, see its `e40.rs`).
 //
-// The bundle is a single `.tar.gz`, so the grant and the download verify ONE whole-archive
-// SHA-256 before any byte is extracted. That digest, the archive size and the per-file pins
-// of the real E43 export are NOT in this repository: they are the typed required field
-// [`EmbeddingGemma2E43Pins`], `None` in [`EMBEDDINGGEMMA2_E43_DML_PINS`] until the owner of
-// the built archive supplies them. Nothing here invents a digest.
+// The bundle is a single `.tar.gz` with ONE top-level wrapper directory
+// (`embeddinggemma2-e43-dml/`, stripped on install), so the grant and the download verify ONE
+// whole-archive SHA-256 and size before any byte is extracted. The 21 per-file pins below are
+// final (archive owner, 2026-10-22, #224), `tokenizer.json` included, with the bundle manifest
+// named `embed-manifest.json` so the store's own `manifest.json` record cannot replace it. The
+// archive digest and size of the resealed `.tar.gz` are pending, so the pins stay `None`.
 // ---------------------------------------------------------------------------
 
 /// Store id and entry dir name of the E43 DirectML bundle. Equal to the id `rightkit-embed`
@@ -965,12 +1355,139 @@ pub struct EmbeddingGemma2E43Pins {
     pub installed_size_bytes: u64,
 }
 
-/// The pins of the real E43 archive. `None` until the built archive's digest, size and file
-/// table exist in the repository: REQUIRED INPUT, see #224. [`embedding_gemma2_e43_dml_spec`]
-/// returns [`MissingE43Pins`] while this is `None`.
-pub const EMBEDDINGGEMMA2_E43_DML_PINS: Option<EmbeddingGemma2E43Pins> = None;
+/// The 21 per-file pins of the E43 bundle (the resealed layout, archive owner 2026-10-22, #224),
+/// exactly what `rightkit-embed` reads: ten query graphs, six batch-4/8 ingest graphs,
+/// `model.onnx_data`, the int8 table with its scales, `tokenizer.json`, and the schema-2 bundle
+/// manifest under the name `embed-manifest.json` (the suite store writes its own entry record to
+/// `manifest.json`, which would replace a bundle manifest of that name; `rightkit-embed` 0.6.1
+/// reads `embed-manifest.json` first). Sorted by path; 494,393,592 bytes in all
+/// ([`EMBEDDINGGEMMA2_E43_DML_INSTALLED_SIZE`]).
+pub const EMBEDDINGGEMMA2_E43_DML_FILES: &[SpecFile] = &[
+    SpecFile {
+        path: "embed_scales.f16.npy",
+        sha256: Some("02054cb67b74594d34376066082ba799d479153f3c8aa81819754f3821621a54"),
+        size: Some(524_416),
+    },
+    SpecFile {
+        path: "embed_tokens.i8.npy",
+        sha256: Some("20552c4c9ac12e97024df2d0e4f045169d53b630f3314e59577291174c4f8398"),
+        size: Some(134_217_856),
+    },
+    SpecFile {
+        path: "ingest-b4_128.onnx",
+        sha256: Some("063d2f26f9147028127d6222b1717fd1bf55503d4490de516da0fb00526cc3d4"),
+        size: Some(417_636),
+    },
+    SpecFile {
+        path: "ingest-b4_32.onnx",
+        sha256: Some("eb4d33be7ba1eedd52978441f5f237781b4779eac13af07ddc78729b0ae35fe4"),
+        size: Some(940_858),
+    },
+    SpecFile {
+        path: "ingest-b4_512.onnx",
+        sha256: Some("37d8cc88427a66a6dcf042300ba0e1302e93f16da9abfcd8b595a9a4175b3708"),
+        size: Some(9_067_836),
+    },
+    SpecFile {
+        path: "ingest-b8_128.onnx",
+        sha256: Some("9cfdc7e9c90fc2ab45764c19187e97993e40f9cf7dc10ab3f917a9f71aba4436"),
+        size: Some(417_636),
+    },
+    SpecFile {
+        path: "ingest-b8_32.onnx",
+        sha256: Some("a669dee404d8c0b7e12026ee781bc6ddbf562cb9a9a8c4776a78ca84da1d82cc"),
+        size: Some(940_858),
+    },
+    SpecFile {
+        path: "ingest-b8_512.onnx",
+        sha256: Some("8aca9485b1ecf1ee3c21438f63f3db2d90604049772da0cecd7225e7ce4915f6"),
+        size: Some(9_067_836),
+    },
+    SpecFile {
+        path: "embed-manifest.json",
+        sha256: Some("6b6c02a1d78c006d9632710432b34bf7a853a1a9b9d8874677c799c462c7c509"),
+        size: Some(1_041),
+    },
+    SpecFile {
+        path: "model.onnx_data",
+        sha256: Some("ea5d1697d42f9f1020fb7a728fc6c207a168d568e4f637c431fec97b4c70ee08"),
+        size: Some(302_458_112),
+    },
+    SpecFile {
+        path: "model_128.onnx",
+        sha256: Some("bb94a188d8c07cb8a7f07c5c260cc1ca9d3318e308a12e40f8c71eefc51a6bb1"),
+        size: Some(417_636),
+    },
+    SpecFile {
+        path: "model_16.onnx",
+        sha256: Some("40baf986d261f1352b984a8c45c3c19c77262f30de685419ddb6533bb412f312"),
+        size: Some(416_255),
+    },
+    SpecFile {
+        path: "model_192.onnx",
+        sha256: Some("121d8df8279c4b59bae92d73566161bb9a4b6964771f3d07fd091e26187ee4eb"),
+        size: Some(417_636),
+    },
+    SpecFile {
+        path: "model_256.onnx",
+        sha256: Some("5c8cf7ecf8ac1a91f7627e6c69c40a7b4c6c74b0d4348ba9eeec47142491ecf0"),
+        size: Some(417_638),
+    },
+    SpecFile {
+        path: "model_32.onnx",
+        sha256: Some("09d60eb1cf60102735f1c3acba42babe9bc1bf8ee10dcebbed319fd38870e688"),
+        size: Some(416_097),
+    },
+    SpecFile {
+        path: "model_384.onnx",
+        sha256: Some("6499768325ec5b5e8f307eb1bbd24d1888667707b928955b36dbabd159448203"),
+        size: Some(417_639),
+    },
+    SpecFile {
+        path: "model_48.onnx",
+        sha256: Some("38f705fcaabf58596f379337b4af95a14354022612163d2dbb9b499af0068def"),
+        size: Some(416_097),
+    },
+    SpecFile {
+        path: "model_512.onnx",
+        sha256: Some("3b3ea55e35030ba6d9f35e32384df4f3c3505b0a302da8d7892ac1fac88357da"),
+        size: Some(417_641),
+    },
+    SpecFile {
+        path: "model_64.onnx",
+        sha256: Some("d424b335a5bc7fa84e16b8182424b82f2d0204f726822ac4c934c5e9ca777ee8"),
+        size: Some(416_179),
+    },
+    SpecFile {
+        path: "model_96.onnx",
+        sha256: Some("8aa8597ddaf2872a6a559289fe4ad53881d4269b0a60ac86b34d2ccba58ea27a"),
+        size: Some(416_179),
+    },
+    SpecFile {
+        path: "tokenizer.json",
+        sha256: Some("4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"),
+        size: Some(32_170_510),
+    },
+];
 
-/// The E43 archive pins are not in the repository yet.
+/// Sum of the sizes of [`EMBEDDINGGEMMA2_E43_DML_FILES`] (the installed size).
+pub const EMBEDDINGGEMMA2_E43_DML_INSTALLED_SIZE: u64 = 494_393_592;
+
+/// The pins of the E43 archive `embeddinggemma2-e43-dml.tar.gz` as sealed by the archive owner on
+/// 2026-10-22 (bogusyogi/rightkit#224): one wrapper directory `embeddinggemma2-e43-dml/`, the 21
+/// files of [`EMBEDDINGGEMMA2_E43_DML_FILES`] with `embed-manifest.json` as the bundle manifest,
+/// deterministic tar. The earlier archives (the plain `.tar` `c8ad75d9…`, the flat `.tar.gz`
+/// `9b892851…` and the `manifest.json` `.tar.gz` `54f32f8e…`) are superseded and must not be
+/// served at the route.
+pub const EMBEDDINGGEMMA2_E43_DML_PINS: Option<EmbeddingGemma2E43Pins> =
+    Some(EmbeddingGemma2E43Pins {
+        archive_sha256: "b181f45c201be7068d5b1c011da6a5350c14c343a3b75707931ad8baadf2d128",
+        archive_size: 370_860_871,
+        files: EMBEDDINGGEMMA2_E43_DML_FILES,
+        installed_size_bytes: EMBEDDINGGEMMA2_E43_DML_INSTALLED_SIZE,
+    });
+
+/// The E43 archive pins are missing or malformed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MissingE43Pins;
 
@@ -1064,10 +1581,25 @@ pub fn base_catalog() -> Vec<ModelSpec> {
     specs
 }
 
-/// Optional downloads, each offered on demand and never part of setup. Currently the
-/// entitlement-gated Whisper large-v3-turbo.
+/// Optional downloads, each offered on demand and never part of setup: the entitlement-gated
+/// Whisper large-v3-turbo, and on macOS the EmbeddingGemma 2 Core ML text encoder
+/// ([`embedding_gemma2_coreml_spec`], public-read, no entitlement). The app that needs an
+/// add-on ensures it on demand; an add-on is never in [`base_catalog`], so a base install does
+/// not download it.
 pub fn add_ons() -> Vec<ModelSpec> {
-    vec![whisper_turbo_ggml_spec()]
+    #[allow(unused_mut)]
+    let mut specs = vec![whisper_turbo_ggml_spec()];
+    #[cfg(target_os = "macos")]
+    specs.push(embedding_gemma2_coreml_spec());
+    specs
+}
+
+/// The spec in [`all_models`] with store id `id` (for example [`EMBEDDINGGEMMA2_COREML_ID`] on
+/// macOS), or `None`. Specs that are reached only through their own pin-gated function
+/// ([`parakeet_ultra_spec`], the E43 and Q4 EmbeddingGemma specs) are not in `all_models` and
+/// are not found here.
+pub fn spec_by_id(id: &str) -> Option<ModelSpec> {
+    all_models().into_iter().find(|spec| spec.id == id)
 }
 
 /// Base set followed by the add-ons: every model the crate knows, for code that manages the

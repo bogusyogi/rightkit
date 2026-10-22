@@ -8,12 +8,15 @@ use std::path::{Path, PathBuf};
 
 use crate::download::{FailureSlot, LastFailure};
 use crate::http::ModelHttp;
-use crate::suite::catalog::{parakeet_spec, ModelSpec};
+use crate::suite::catalog::{
+    parakeet_spec, parakeet_ultra_spec, spec_by_id, MissingParakeetUltraPins, ModelSpec,
+};
 use crate::suite::grant::GrantError;
 use crate::suite::install::{ensure_with_grant, ensure_with_grant_via, GrantConfig};
 use crate::suite::manifest::VerifyMode;
 use crate::suite::store::{
-    ensure_ready_recorded, status_at, status_in, EnsureOptions, EntryState, ModelStatus, Progress,
+    ensure_ready_recorded, prune_retired, release_models, status_at, status_in, EnsureOptions,
+    EntryState, ModelStatus, Progress, ReleaseReport, RetiredPruneReport,
 };
 use crate::suite::{paths, refs};
 
@@ -197,6 +200,20 @@ impl ModelStore {
         parakeet_spec()
     }
 
+    /// The Parakeet Ultra spec for this platform (moondream/parakeet-ultra weights, CC-BY-4.0).
+    /// `Err` on a platform whose archive pins are not recorded, so nothing downloads unpinned
+    /// bytes. [`ModelStore::parakeet_spec`] is unchanged.
+    pub fn parakeet_ultra_spec(&self) -> Result<ModelSpec, MissingParakeetUltraPins> {
+        parakeet_ultra_spec()
+    }
+
+    /// The spec with store id `id` among every model the catalog knows (base set and add-ons,
+    /// see [`crate::suite::catalog::all_models`]), for example
+    /// [`crate::suite::catalog::EMBEDDINGGEMMA2_COREML_ID`] on macOS.
+    pub fn spec_by_id(&self, id: &str) -> Option<ModelSpec> {
+        spec_by_id(id)
+    }
+
     /// Live readiness (never cached): identity matches the trusted catalog
     /// manifest AND every pinned file is present with the pinned size. `Full`
     /// additionally re-hashes every file.
@@ -267,6 +284,58 @@ impl ModelStore {
 
     pub fn resolve_parakeet(&self) -> Result<ResolvedModel, String> {
         self.resolve(&parakeet_spec(), &sibling_parakeet_dirs())
+    }
+
+    /// [`ModelStore::resolve`] for Parakeet Ultra. There are no sibling copies to adopt (Ultra
+    /// has no legacy app directories), so only this store is read.
+    pub fn resolve_parakeet_ultra(&self) -> Result<ResolvedModel, String> {
+        let spec = parakeet_ultra_spec().map_err(|error| error.to_string())?;
+        self.resolve(&spec, &[])
+    }
+
+    /// [`ModelStore::resolve`] for the catalog model with store id `id`. An unknown id is an
+    /// error.
+    pub fn resolve_by_id(&self, id: &str, siblings: &[PathBuf]) -> Result<ResolvedModel, String> {
+        let spec = spec_by_id(id).ok_or_else(|| format!("unknown model id {id:?}"))?;
+        self.resolve(&spec, siblings)
+    }
+
+    /// [`ModelStore::ensure`] for the catalog model with store id `id`, for example the macOS
+    /// EmbeddingGemma 2 Core ML add-on. An unknown id is an error. An entitlement-gated model
+    /// is refused here as in [`ModelStore::ensure`]; use [`ModelStore::ensure_entitled`] with
+    /// [`ModelStore::spec_by_id`].
+    pub fn ensure_by_id(
+        &self,
+        id: &str,
+        grant: Option<&GrantConfig>,
+        cancelled: &dyn Fn() -> bool,
+        progress: impl FnMut(Progress),
+    ) -> Result<ModelStatus, String> {
+        let spec = spec_by_id(id).ok_or_else(|| format!("unknown model id {id:?}"))?;
+        self.ensure(&spec, grant, cancelled, progress)
+    }
+
+    /// Drop this app's refs to `ids` and return the ids no app references any more (sorted).
+    /// Idempotent; an invalid id or a corrupt ref is an error and releases nothing. Of the
+    /// unreferenced ids, those a catalog spec retires (the Parakeet TDT v3 entries Ultra
+    /// replaces, for example) are then pruned from disk, honouring install-in-progress, entry
+    /// locks and runtime leases; a removal that fails is left for the next ensure, release or
+    /// GC. Ids nothing retires are never deleted here. Use [`ModelStore::release_with_report`]
+    /// to see what was pruned or failed.
+    pub fn release(&self, ids: &[&str]) -> Result<Vec<String>, String> {
+        self.release_with_report(ids).map(|r| r.unreferenced)
+    }
+
+    /// As [`ModelStore::release`], with the prune report.
+    pub fn release_with_report(&self, ids: &[&str]) -> Result<ReleaseReport, String> {
+        release_models(&self.models_root, &self.app_id, ids)
+    }
+
+    /// Prune the entries `spec` retires on behalf of this app and report the outcome. The same
+    /// prune runs best-effort after every ensure that leaves `spec` Ready; call this to read its
+    /// report or retry after a failure. A no-op unless `spec` is Ready here.
+    pub fn prune_retired(&self, spec: &ModelSpec) -> Result<RetiredPruneReport, String> {
+        prune_retired(&self.models_root, spec, &self.app_id)
     }
 
     /// Download an entitlement-gated add-on (verified, resumable). `bearer` is the full

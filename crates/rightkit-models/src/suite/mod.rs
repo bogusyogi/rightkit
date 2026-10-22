@@ -44,8 +44,8 @@ pub mod whisper;
 
 pub use crate::lock;
 pub use catalog::{
-    add_ons, all_models, base_catalog, catalog, ModelSpec, ModelTier, RemoteFile, SpecFile,
-    SpecSource,
+    add_ons, all_models, base_catalog, catalog, spec_by_id, ModelSpec, ModelTier, RemoteFile,
+    SpecFile, SpecSource,
 };
 #[allow(deprecated)]
 pub use grant::{acquire_grant, acquire_model_grant};
@@ -68,9 +68,10 @@ pub use refs::{
 pub use store::http_agent;
 pub use store::{
     base_size_hint_bytes, base_status_at, ensure_ready, ensure_ready_cancellable, migrate_legacy,
-    migrate_legacy_checked, migrate_source_checked, prune_unref_entries, prune_unref_entries_with,
-    register_ref, resolve_ready_dir, set_status_at, size_hint_bytes, status_at, status_in,
-    EnsureOptions, EntryState, MigrateOutcome, ModelStatus, Progress, SetStatus,
+    migrate_legacy_checked, migrate_source_checked, prune_retired, prune_unref_entries,
+    prune_unref_entries_with, register_ref, release_models, resolve_ready_dir, set_status_at,
+    size_hint_bytes, status_at, status_in, EnsureOptions, EntryState, MigrateOutcome, ModelStatus,
+    Progress, ReleaseReport, RetiredPruneReport, SetStatus,
 };
 pub use variant::{parakeet_variant_descriptor, VariantDescriptor};
 pub use whisper::{

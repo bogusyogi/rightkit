@@ -164,12 +164,59 @@ fn e40_urls_follow_the_parakeet_worker_layout_and_match_the_pins() {
 }
 
 #[test]
-fn neither_bundle_is_in_the_base_or_add_on_lists() {
+fn no_embedding_bundle_is_in_the_base_catalog_and_e40_is_in_no_list() {
     for id in [EMBEDDINGGEMMA2_COREML_ID, EMBEDDINGGEMMA2_E40_DML_ID] {
         assert!(!base_catalog().iter().any(|s| s.id == id));
-        assert!(!add_ons().iter().any(|s| s.id == id));
-        assert!(!all_models().iter().any(|s| s.id == id));
     }
+    // The Windows E40 export is reached only by its own function.
+    assert!(!add_ons().iter().any(|s| s.id == EMBEDDINGGEMMA2_E40_DML_ID));
+    assert!(!all_models()
+        .iter()
+        .any(|s| s.id == EMBEDDINGGEMMA2_E40_DML_ID));
+}
+
+/// The Core ML bundle is an add-on on macOS (Pulse ensures it on demand), never base, and is
+/// not a model at all elsewhere.
+#[test]
+fn the_coreml_bundle_is_a_macos_add_on_only() {
+    let in_add_ons = add_ons().iter().any(|s| s.id == EMBEDDINGGEMMA2_COREML_ID);
+    let in_all = all_models()
+        .iter()
+        .any(|s| s.id == EMBEDDINGGEMMA2_COREML_ID);
+    assert_eq!(in_add_ons, cfg!(target_os = "macos"));
+    assert_eq!(in_all, cfg!(target_os = "macos"));
+    assert_eq!(
+        rightkit_models::suite::catalog::spec_by_id(EMBEDDINGGEMMA2_COREML_ID).is_some(),
+        cfg!(target_os = "macos")
+    );
+}
+
+/// A caller can resolve and ensure the add-on by id through `ModelStore`; nothing else on the
+/// way needs the spec function.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_store_finds_the_coreml_add_on_by_id() {
+    use rightkit_models::suite::catalog::{embedding_gemma2_coreml_spec, ModelTier};
+    let root = tempfile::tempdir().unwrap();
+    let store = rightkit_models::suite::ModelStore::at_models_root(root.path(), "pulse");
+    let spec = store.spec_by_id(EMBEDDINGGEMMA2_COREML_ID).unwrap();
+    assert_eq!(spec.id, embedding_gemma2_coreml_spec().id);
+    assert_eq!(spec.tier, ModelTier::AddOn);
+    assert!(store.spec_by_id("no-such-model").is_none());
+    // Not installed: the status read through the id-found spec says so.
+    assert_eq!(
+        store
+            .status(&spec, rightkit_models::suite::VerifyMode::Size)
+            .state,
+        rightkit_models::suite::EntryState::Missing
+    );
+    // An unknown id is its own error.
+    let err = store.resolve_by_id("no-such-model", &[]).unwrap_err();
+    assert!(err.contains("unknown model id"), "{err}");
+    let err = store
+        .ensure_by_id("no-such-model", None, &|| false, |_| {})
+        .unwrap_err();
+    assert!(err.contains("unknown model id"), "{err}");
 }
 
 #[cfg(target_os = "macos")]

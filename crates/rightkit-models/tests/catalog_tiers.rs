@@ -34,15 +34,27 @@ fn add_ons_are_marked_entitlement_gated_and_all_models_is_base_then_add_ons() {
     assert!(!add.is_empty());
     for spec in &add {
         assert_eq!(spec.tier, ModelTier::AddOn);
-        assert!(spec.requires_entitlement(), "{}", spec.id);
-        assert!(
-            spec.requires_auth() && !spec.requires_grant(),
-            "{}",
-            spec.id
-        );
         assert!(spec.display_label().ends_with("(optional)"));
         assert_eq!(spec.missing_status_label(), "Optional, not installed");
+        if spec.entitlement {
+            assert!(spec.requires_entitlement(), "{}", spec.id);
+            assert!(
+                spec.requires_auth() && !spec.requires_grant(),
+                "{}",
+                spec.id
+            );
+        } else {
+            // A public-read add-on (the macOS EmbeddingGemma 2 Core ML bundle): no bearer.
+            assert!(
+                !spec.requires_auth() && !spec.requires_entitlement(),
+                "{}",
+                spec.id
+            );
+        }
     }
+    // Whisper stays first and entitlement-gated.
+    assert_eq!(add[0].id, "whisper-turbo");
+    assert!(add[0].requires_entitlement());
     let mut expected = ids(&base_catalog());
     expected.extend(ids(&add));
     assert_eq!(ids(&all_models()), expected);

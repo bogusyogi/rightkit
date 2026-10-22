@@ -85,6 +85,94 @@ fn javascript_signer_vector_verifies_and_rejects_tampering() {
     }
 }
 
+/// Lane/bucket contract (#903). private-r2 admits exactly {rightsites-updates, rightapps-updates}; public-r2 admits
+/// exactly {rightsites-downloads, rightapps-downloads}; the manifest names the real bucket. Mirrors the matrix in
+/// `packages/release/runtime-artifact-manifest.test.mjs` (same cases, same expected outcomes).
+#[test]
+fn lane_bucket_contract_admits_current_and_legacy_buckets_only() {
+    let client = RuntimeArtifactClient::new("https://api.example.invalid", public_key()).unwrap();
+    let value = vectors();
+    let lanes = &value["lanes"];
+    // The legacy private vector is the original one, byte for byte.
+    assert_eq!(lanes["legacyPrivate"], value["envelope"]);
+    // (vector, delivery, tier, bucket): all four admitted cases, signed by the JS signer.
+    for (name, delivery, tier, bucket) in [
+        ("legacyPrivate", "private-r2", "pro", "rightapps-updates"),
+        ("legacyPublic", "public-r2", "public", "rightapps-downloads"),
+        (
+            "rightsitesPrivate",
+            "private-r2",
+            "pro",
+            "rightsites-updates",
+        ),
+        (
+            "rightsitesPublic",
+            "public-r2",
+            "public",
+            "rightsites-downloads",
+        ),
+    ] {
+        let m = client.verify_envelope(&lanes[name]).unwrap().manifest;
+        assert_eq!(m.distribution.delivery, delivery, "{name}");
+        assert_eq!(m.entitlement.tier, tier, "{name}");
+        assert_eq!(m.distribution.bucket.as_deref(), Some(bucket), "{name}");
+    }
+    // Correctly signed over their canonical bytes but outside the contract: only the lane check can refuse them.
+    for name in [
+        "unknownBucket",
+        "privateNamesRightsitesDownloads",
+        "privateNamesLegacyDownloads",
+        "publicNamesRightsitesUpdates",
+        "publicNamesLegacyUpdates",
+        "privateNullBucket",
+    ] {
+        assert!(
+            matches!(
+                client.verify_envelope(&lanes["refused"][name]),
+                Err(RuntimeArtifactError::InvalidManifest)
+            ),
+            "{name}"
+        );
+    }
+    // The same refusals by editing an admitted vector: the lane check runs before the signature check.
+    for (base, bucket) in [
+        ("rightsitesPrivate", json!("other-updates")),
+        ("rightsitesPrivate", json!("rightsites-downloads")),
+        ("legacyPrivate", json!("rightapps-downloads")),
+        ("rightsitesPublic", json!("rightsites-updates")),
+        ("legacyPublic", json!("rightapps-updates")),
+        ("rightsitesPublic", json!("")),
+        ("legacyPrivate", json!(null)),
+    ] {
+        let mut edited = lanes[base].clone();
+        edited["manifest"]["distribution"]["bucket"] = bucket.clone();
+        assert!(
+            matches!(
+                client.verify_envelope(&edited),
+                Err(RuntimeArtifactError::InvalidManifest)
+            ),
+            "{base} -> {bucket}"
+        );
+    }
+    // An admitted bucket is still signed: moving a vector to the other admitted bucket breaks the signature.
+    for (base, bucket) in [
+        ("legacyPrivate", "rightsites-updates"),
+        ("rightsitesPrivate", "rightapps-updates"),
+        ("legacyPublic", "rightsites-downloads"),
+        ("rightsitesPublic", "rightapps-downloads"),
+    ] {
+        let mut edited = lanes[base].clone();
+        edited["manifest"]["distribution"]["bucket"] = json!(bucket);
+        assert!(
+            matches!(
+                client.verify_envelope(&edited),
+                Err(RuntimeArtifactError::SignatureMismatch)
+            ),
+            "{base} -> {bucket}"
+        );
+    }
+}
+
 #[test]
 fn artifact_ids_are_signed_independently_and_legacy_serialization_is_stable() {
     let client = RuntimeArtifactClient::new("https://api.example.invalid", public_key()).unwrap();

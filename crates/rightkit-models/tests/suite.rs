@@ -1419,10 +1419,74 @@ fn root_ref_migration_merges_notes_maps_ids_and_unregister_spans_both_roots() {
     assert!(new_refs.join("scraperight.json").exists());
 }
 
+/// A retired entry on disk with arbitrary bytes (a real model change is never byte-identical).
+fn retired_entry(lay: &Layout, id: &str, bytes: &[u8]) -> PathBuf {
+    let d = lay.models.join(id);
+    fs::create_dir_all(d.join("sub")).unwrap();
+    fs::write(d.join("weights.bin"), bytes).unwrap();
+    fs::write(d.join("sub/vocab.txt"), VOCAB).unwrap();
+    d
+}
+
+/// The model ids `app` holds in the registry of `lay`.
+fn held_by(lay: &Layout, app: &str) -> BTreeSet<String> {
+    refs::read_ref(&paths::model_refs_dir_at(&lay.models), app)
+        .unwrap()
+        .map(|rf| rf.models)
+        .unwrap_or_default()
+}
+
+fn set_of(ids: &[&str]) -> BTreeSet<String> {
+    ids.iter().map(|id| id.to_string()).collect()
+}
+
 #[test]
-fn ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical() {
+fn ensure_preserves_retired_ids_referenced_by_any_app() {
+    isolated("ensure_preserves_retired_ids_referenced_by_any_app", || {
+        let lay = layout();
+        let archive = tar_gz(
+            "wrap",
+            &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+        );
+        let server = serve(Config::new(vec![("/m/new.tar.gz", archive.clone())]));
+        let mut spec = archive_spec(
+            "new-id",
+            Some(leak(format!("{}/m/new.tar.gz", server.base))),
+            &archive,
+            false,
+        );
+        spec.retired_store_ids = &["old-same", "old-diff", "old-ref", "old-own"];
+        retired_entry(&lay, "old-same", WEIGHTS);
+        retired_entry(&lay, "old-diff", b"different-bytes");
+        retired_entry(&lay, "old-ref", WEIGHTS);
+        retired_entry(&lay, "old-own", b"own-bytes");
+        store::register_ref(&lay.models, "scraperight", "old-ref").unwrap();
+        // This app's reference is live until explicitly released.
+        store::register_ref(&lay.models, "heardright", "old-own").unwrap();
+        store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
+        assert!(!lay.models.join("old-same").exists(), "unreferenced");
+        assert!(
+            !lay.models.join("old-diff").exists(),
+            "a distinct payload is reclaimed too: no byte-identical requirement"
+        );
+        assert!(
+            lay.models.join("old-own").exists(),
+            "this app owns a live reference"
+        );
+        assert!(
+            lay.models.join("old-ref").exists(),
+            "still referenced by another app"
+        );
+        // Both apps retain their references.
+        assert_eq!(held_by(&lay, "heardright"), set_of(&["new-id", "old-own"]));
+        assert_eq!(held_by(&lay, "scraperight"), set_of(&["old-ref"]));
+    });
+}
+
+#[test]
+fn ensure_prunes_on_the_ready_path_without_downloading_again() {
     isolated(
-        "ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical",
+        "ensure_prunes_on_the_ready_path_without_downloading_again",
         || {
             let lay = layout();
             let archive = tar_gz(
@@ -1436,31 +1500,230 @@ fn ensure_prunes_retired_store_ids_only_when_unreferenced_and_identical() {
                 &archive,
                 false,
             );
-            spec.retired_store_ids = &["old-same", "old-diff", "old-ref"];
-            for (id, bytes) in [
-                ("old-same", WEIGHTS),
-                ("old-diff", b"different-bytes".as_slice()),
-                ("old-ref", WEIGHTS),
-            ] {
-                let d = lay.models.join(id);
-                fs::create_dir_all(d.join("sub")).unwrap();
-                fs::write(d.join("weights.bin"), bytes).unwrap();
-                fs::write(d.join("sub/vocab.txt"), VOCAB).unwrap();
-            }
-            store::register_ref(&lay.models, "scraperight", "old-ref").unwrap();
             store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
-            assert!(
-                !lay.models.join("old-same").exists(),
-                "identical + unreferenced: reclaimed"
+            assert_eq!(server.requests("GET /m/new.tar.gz").len(), 1);
+
+            // The app later learns the id is retired; the entry is already Ready.
+            spec.retired_store_ids = &["old-late"];
+            retired_entry(&lay, "old-late", b"late-bytes");
+            store::register_ref(&lay.models, "heardright", "old-late").unwrap();
+            store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
+            assert!(lay.models.join("old-late").exists());
+            refs::release(
+                &paths::model_refs_dir_at(&lay.models),
+                "heardright",
+                &["old-late"],
+            )
+            .unwrap();
+            store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
+            assert!(!lay.models.join("old-late").exists());
+            assert_eq!(held_by(&lay, "heardright"), set_of(&["new-id"]));
+            assert_eq!(
+                server.requests("GET /m/new.tar.gz").len(),
+                1,
+                "the Ready path did not download"
             );
-            assert!(
-                lay.models.join("old-diff").exists(),
-                "distinct payload preserved"
+        },
+    );
+}
+
+#[test]
+fn a_locked_retired_entry_survives_and_prune_retired_reports_then_retries() {
+    isolated(
+        "a_locked_retired_entry_survives_and_prune_retired_reports_then_retries",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
             );
-            assert!(
-                lay.models.join("old-ref").exists(),
-                "still referenced by another app"
+            let server = serve(Config::new(vec![("/m/new.tar.gz", archive.clone())]));
+            let mut spec = archive_spec(
+                "new-id",
+                Some(leak(format!("{}/m/new.tar.gz", server.base))),
+                &archive,
+                false,
             );
+            spec.retired_store_ids = &["old-locked"];
+            let dir = retired_entry(&lay, "old-locked", b"locked-bytes");
+            let held = rightkit_models::lock::try_lock(&dir, "installer")
+                .unwrap()
+                .expect("lock");
+            // The ensure still succeeds; the live lock keeps the entry.
+            store::ensure_ready(&http(), &lay.models, &spec, &opts("heardright"), |_| {}).unwrap();
+            assert!(dir.exists());
+            let report = store::prune_retired(&lay.models, &spec, "heardright").unwrap();
+            assert_eq!(report.kept, vec!["old-locked".to_string()]);
+            assert!(report.removed.is_empty() && report.failed.is_empty());
+            drop(held);
+            let report = store::prune_retired(&lay.models, &spec, "heardright").unwrap();
+            assert_eq!(report.removed, vec!["old-locked".to_string()]);
+            assert!(!dir.exists());
+            // Idempotent once gone.
+            let report = store::prune_retired(&lay.models, &spec, "heardright").unwrap();
+            assert_eq!(report, store::RetiredPruneReport::default());
+        },
+    );
+}
+
+#[test]
+fn prune_retired_does_nothing_while_the_superseding_spec_is_not_ready() {
+    isolated(
+        "prune_retired_does_nothing_while_the_superseding_spec_is_not_ready",
+        || {
+            let lay = layout();
+            let archive = tar_gz(
+                "wrap",
+                &[("weights.bin", WEIGHTS), ("sub/vocab.txt", VOCAB)],
+            );
+            let mut spec = archive_spec("never-installed", None, &archive, false);
+            spec.retired_store_ids = &["old-keep"];
+            let dir = retired_entry(&lay, "old-keep", WEIGHTS);
+            let report = store::prune_retired(&lay.models, &spec, "heardright").unwrap();
+            assert_eq!(report, store::RetiredPruneReport::default());
+            assert!(dir.exists());
+        },
+    );
+}
+
+// ===================================================================
+// Release API (Orthic-Labs/rightkit#898)
+// ===================================================================
+
+#[test]
+fn release_drops_only_this_apps_refs_and_returns_ids_nobody_holds() {
+    isolated(
+        "release_drops_only_this_apps_refs_and_returns_ids_nobody_holds",
+        || {
+            let lay = layout();
+            let dir = lay.models.join("refs");
+            store::register_ref(&lay.models, "a", "x").unwrap();
+            store::register_ref(&lay.models, "b", "x").unwrap();
+            store::register_ref(&lay.models, "a", "y").unwrap();
+
+            // A releases X: B still holds it, so nothing is free; A's other ref stays.
+            assert!(refs::release(&dir, "a", &["x"]).unwrap().is_empty());
+            assert_eq!(held_by(&lay, "a"), set_of(&["y"]));
+            // Idempotent.
+            assert!(refs::release(&dir, "a", &["x"]).unwrap().is_empty());
+            assert_eq!(held_by(&lay, "b"), set_of(&["x"]));
+
+            // B releases X: now nobody holds it. Repeating gives the same answer.
+            assert_eq!(
+                refs::release(&dir, "b", &["x"]).unwrap(),
+                vec!["x".to_string()]
+            );
+            assert_eq!(
+                refs::release(&dir, "b", &["x"]).unwrap(),
+                vec!["x".to_string()]
+            );
+            assert!(!refs::referenced_ids_checked(&dir).unwrap().contains("x"));
+            assert_eq!(held_by(&lay, "a"), set_of(&["y"]));
+
+            // An unknown app is a no-op; duplicates are folded; a held id is not returned.
+            assert_eq!(
+                refs::release(&dir, "nobody", &["x", "x", "y"]).unwrap(),
+                vec!["x".to_string()]
+            );
+
+            // An invalid id is refused and changes nothing.
+            assert!(refs::release(&dir, "a", &["y", "../escape"]).is_err());
+            assert_eq!(held_by(&lay, "a"), set_of(&["y"]));
+            // A corrupt ref blocks the release and changes nothing.
+            fs::write(dir.join("bad.json"), b"{nope").unwrap();
+            assert!(refs::release(&dir, "a", &["y"]).is_err());
+            assert!(fs::read_to_string(dir.join("a.json"))
+                .unwrap()
+                .contains("\"y\""));
+        },
+    );
+}
+
+#[test]
+fn model_store_release_frees_retired_entries_only_when_the_last_app_lets_go() {
+    isolated(
+        "model_store_release_frees_retired_entries_only_when_the_last_app_lets_go",
+        || {
+            // The Windows and macOS Parakeet TDT v3 ids that Parakeet Ultra retires.
+            let retired = "parakeet_tdt_v3_static1500_qint8_20260722";
+            let lay = layout();
+            let old = retired_entry(&lay, retired, b"v3-bytes");
+            let other = retired_entry(&lay, "not-retired-by-anything", b"o");
+            for (app, id) in [
+                ("a", retired),
+                ("b", retired),
+                ("a", "not-retired-by-anything"),
+            ] {
+                store::register_ref(&lay.models, app, id).unwrap();
+            }
+            let a = ModelStore::at_models_root(&lay.models, "a");
+            let b = ModelStore::at_models_root(&lay.models, "b");
+
+            // A releases both. The retired entry stays (B holds it); the plain unreferenced
+            // one is reported but never deleted by release.
+            let report = a
+                .release_with_report(&[retired, "not-retired-by-anything"])
+                .unwrap();
+            assert_eq!(
+                report.unreferenced,
+                vec!["not-retired-by-anything".to_string()]
+            );
+            assert!(report.pruned.removed.is_empty());
+            assert!(old.exists() && other.exists());
+            // Idempotent.
+            assert_eq!(
+                a.release(&[retired, "not-retired-by-anything"]).unwrap(),
+                vec!["not-retired-by-anything".to_string()]
+            );
+
+            // B releases the retired id: free, and pruned from disk.
+            let report = b.release_with_report(&[retired]).unwrap();
+            assert_eq!(report.unreferenced, vec![retired.to_string()]);
+            assert_eq!(report.pruned.removed, vec![retired.to_string()]);
+            assert!(!old.exists());
+            assert!(other.exists(), "release never deletes what nothing retires");
+            assert!(!refs::referenced_ids_checked(&lay.models.join("refs"))
+                .unwrap()
+                .contains(retired));
+            // And again: nothing left to do, same answer.
+            assert_eq!(b.release(&[retired]).unwrap(), vec![retired.to_string()]);
+
+            // A live entry lock keeps a freed retired entry for a later prune.
+            let again = retired_entry(&lay, retired, b"v3-bytes");
+            let held = rightkit_models::lock::try_lock(&again, "installer")
+                .unwrap()
+                .expect("lock");
+            let report = b.release_with_report(&[retired]).unwrap();
+            assert_eq!(report.pruned.kept, vec![retired.to_string()]);
+            assert!(again.exists());
+            drop(held);
+
+            // An invalid id is an error.
+            assert!(a.release(&["../x"]).is_err());
+        },
+    );
+}
+
+#[test]
+fn store_release_app_model_mirrors_the_registry_release() {
+    isolated(
+        "store_release_app_model_mirrors_the_registry_release",
+        || {
+            let lay = layout();
+            let store = rightkit_models::Store::new(&lay.models, "a");
+            store.register_app("a", "m1").unwrap();
+            store.register_app("b", "m1").unwrap();
+            store.register_app("a", "m2").unwrap();
+            assert!(store.release_app_model("a", &["m1"]).unwrap().is_empty());
+            assert!(store.release_app_model("a", &["m1"]).unwrap().is_empty());
+            assert_eq!(
+                store.release_app_model("b", &["m1"]).unwrap(),
+                vec!["m1".to_string()]
+            );
+            assert_eq!(held_by(&lay, "a"), set_of(&["m2"]));
+            let err = store.release_app_model("a", &["../bad"]).unwrap_err();
+            assert_eq!(err.code, rightkit_models::ErrorCode::InvalidSpec);
+            assert_eq!(held_by(&lay, "a"), set_of(&["m2"]));
         },
     );
 }

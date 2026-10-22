@@ -593,5 +593,509 @@
       "keyId": "rightkit-runtime-artifacts-2026-07",
       "value": "ICXDanzxswEnSz-PpjXTkmVmyg_w-XBMF5hZRfmQ33UeQxQAxbNVFSJQqu0BpkL1SnSC0Z8rarUOj2KL3QLwCg"
     }
+  },
+  "lanes": {
+    "legacyPrivate": {
+      "manifest": {
+        "schema": 1,
+        "artifactKind": "tts-model",
+        "entitlement": {
+          "appKey": "genright",
+          "tier": "pro"
+        },
+        "distribution": {
+          "delivery": "private-r2",
+          "bucket": "rightapps-updates"
+        },
+        "target": {
+          "os": "any",
+          "arch": "any"
+        },
+        "object": {
+          "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/qwen.gguf",
+          "filename": "qwen.gguf",
+          "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+          "sizeBytes": 2000000
+        },
+        "pointerKey": "genright/runtime-artifacts/tts-model/any/any/current/manifest.json",
+        "versions": {
+          "runtime": "qts-1",
+          "model": "Qwen3-1.7B",
+          "tokenizer": "v1",
+          "preprocessing": "v1",
+          "license": "Apache-2.0",
+          "provenance": "测试-é-🎙"
+        },
+        "provenance": {
+          "source": "https://example.invalid/qwen",
+          "sourceRevision": "test",
+          "licenseId": "Apache-2.0",
+          "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "promotion": {
+          "authorityAppKey": "genright",
+          "promotionId": "test-only",
+          "promotedAt": "2026-10-08T00:00:00.000Z",
+          "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "signature": {
+        "algorithm": "Ed25519",
+        "keyId": "rightkit-runtime-artifacts-2026-07",
+        "value": "NPnGyPyQ3_zmH6Oi929r5UcA0CR3pR-TSHRjBDBuaa5mgMZyOIGzrFES6e_Y8OnqzKK6XeM24gfPecWKu-dcCA"
+      }
+    },
+    "legacyPublic": {
+      "manifest": {
+        "schema": 1,
+        "artifactKind": "media-runtime",
+        "entitlement": {
+          "appKey": "genright",
+          "tier": "public"
+        },
+        "distribution": {
+          "delivery": "public-r2",
+          "bucket": "rightapps-downloads"
+        },
+        "target": {
+          "os": "any",
+          "arch": "any"
+        },
+        "object": {
+          "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/media.bin",
+          "filename": "media.bin",
+          "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+          "sizeBytes": 2000000
+        },
+        "pointerKey": "genright/runtime-artifacts/media-runtime/any/any/current/manifest.json",
+        "versions": {
+          "runtime": "qts-1",
+          "model": "Qwen3-1.7B",
+          "tokenizer": "v1",
+          "preprocessing": "v1",
+          "license": "Apache-2.0",
+          "provenance": "测试-é-🎙"
+        },
+        "provenance": {
+          "source": "https://example.invalid/qwen",
+          "sourceRevision": "test",
+          "licenseId": "Apache-2.0",
+          "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "promotion": {
+          "authorityAppKey": "genright",
+          "promotionId": "test-only",
+          "promotedAt": "2026-10-08T00:00:00.000Z",
+          "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "signature": {
+        "algorithm": "Ed25519",
+        "keyId": "rightkit-runtime-artifacts-2026-07",
+        "value": "LTcH46o2gtuxK62svfMTke94cPlQfH0gd5ogbWhGEPTOVSOQRQ9iBqeM5m2P0nBeonK7B8xJTQJhLp5mujeoAA"
+      }
+    },
+    "rightsitesPrivate": {
+      "manifest": {
+        "schema": 1,
+        "artifactKind": "tts-model",
+        "entitlement": {
+          "appKey": "genright",
+          "tier": "pro"
+        },
+        "distribution": {
+          "delivery": "private-r2",
+          "bucket": "rightsites-updates"
+        },
+        "target": {
+          "os": "any",
+          "arch": "any"
+        },
+        "object": {
+          "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/qwen.gguf",
+          "filename": "qwen.gguf",
+          "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+          "sizeBytes": 2000000
+        },
+        "pointerKey": "genright/runtime-artifacts/tts-model/any/any/current/manifest.json",
+        "versions": {
+          "runtime": "qts-1",
+          "model": "Qwen3-1.7B",
+          "tokenizer": "v1",
+          "preprocessing": "v1",
+          "license": "Apache-2.0",
+          "provenance": "测试-é-🎙"
+        },
+        "provenance": {
+          "source": "https://example.invalid/qwen",
+          "sourceRevision": "test",
+          "licenseId": "Apache-2.0",
+          "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "promotion": {
+          "authorityAppKey": "genright",
+          "promotionId": "test-only",
+          "promotedAt": "2026-10-08T00:00:00.000Z",
+          "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "signature": {
+        "algorithm": "Ed25519",
+        "keyId": "rightkit-runtime-artifacts-2026-07",
+        "value": "aagWSSstkZtz0pfCveKCKW4fEoTBCZyhYozVvEgTgBgxotiUMM4fizPLNoRacl4jlK8vZI7Hpa34calKkmgyCA"
+      }
+    },
+    "rightsitesPublic": {
+      "manifest": {
+        "schema": 1,
+        "artifactKind": "media-runtime",
+        "entitlement": {
+          "appKey": "genright",
+          "tier": "public"
+        },
+        "distribution": {
+          "delivery": "public-r2",
+          "bucket": "rightsites-downloads"
+        },
+        "target": {
+          "os": "any",
+          "arch": "any"
+        },
+        "object": {
+          "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/media.bin",
+          "filename": "media.bin",
+          "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+          "sizeBytes": 2000000
+        },
+        "pointerKey": "genright/runtime-artifacts/media-runtime/any/any/current/manifest.json",
+        "versions": {
+          "runtime": "qts-1",
+          "model": "Qwen3-1.7B",
+          "tokenizer": "v1",
+          "preprocessing": "v1",
+          "license": "Apache-2.0",
+          "provenance": "测试-é-🎙"
+        },
+        "provenance": {
+          "source": "https://example.invalid/qwen",
+          "sourceRevision": "test",
+          "licenseId": "Apache-2.0",
+          "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "promotion": {
+          "authorityAppKey": "genright",
+          "promotionId": "test-only",
+          "promotedAt": "2026-10-08T00:00:00.000Z",
+          "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "signature": {
+        "algorithm": "Ed25519",
+        "keyId": "rightkit-runtime-artifacts-2026-07",
+        "value": "Isd18L7PyyEnXQaTmHgYySC8_0q8joF3n8lzX7ICQ41pnKVe2vx1Hg-Jgp4KzKxOlnEnqOcEpT0Ax4hkUinrAw"
+      }
+    },
+    "refused": {
+      "unknownBucket": {
+        "manifest": {
+          "schema": 1,
+          "artifactKind": "tts-model",
+          "entitlement": {
+            "appKey": "genright",
+            "tier": "pro"
+          },
+          "distribution": {
+            "delivery": "private-r2",
+            "bucket": "other-updates"
+          },
+          "target": {
+            "os": "any",
+            "arch": "any"
+          },
+          "object": {
+            "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/qwen.gguf",
+            "filename": "qwen.gguf",
+            "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+            "sizeBytes": 2000000
+          },
+          "pointerKey": "genright/runtime-artifacts/tts-model/any/any/current/manifest.json",
+          "versions": {
+            "runtime": "qts-1",
+            "model": "Qwen3-1.7B",
+            "tokenizer": "v1",
+            "preprocessing": "v1",
+            "license": "Apache-2.0",
+            "provenance": "测试-é-🎙"
+          },
+          "provenance": {
+            "source": "https://example.invalid/qwen",
+            "sourceRevision": "test",
+            "licenseId": "Apache-2.0",
+            "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "promotion": {
+            "authorityAppKey": "genright",
+            "promotionId": "test-only",
+            "promotedAt": "2026-10-08T00:00:00.000Z",
+            "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "signature": {
+          "algorithm": "Ed25519",
+          "keyId": "rightkit-runtime-artifacts-2026-07",
+          "value": "Wd-Ur_oPNsvgvJzxtdXk2b3PxCofhSNiVC3IeOH9JvCarqcwqCUBWmP7m_S73FW3O2vI8mJAw_GX-177g_RzCQ"
+        }
+      },
+      "privateNamesRightsitesDownloads": {
+        "manifest": {
+          "schema": 1,
+          "artifactKind": "tts-model",
+          "entitlement": {
+            "appKey": "genright",
+            "tier": "pro"
+          },
+          "distribution": {
+            "delivery": "private-r2",
+            "bucket": "rightsites-downloads"
+          },
+          "target": {
+            "os": "any",
+            "arch": "any"
+          },
+          "object": {
+            "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/qwen.gguf",
+            "filename": "qwen.gguf",
+            "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+            "sizeBytes": 2000000
+          },
+          "pointerKey": "genright/runtime-artifacts/tts-model/any/any/current/manifest.json",
+          "versions": {
+            "runtime": "qts-1",
+            "model": "Qwen3-1.7B",
+            "tokenizer": "v1",
+            "preprocessing": "v1",
+            "license": "Apache-2.0",
+            "provenance": "测试-é-🎙"
+          },
+          "provenance": {
+            "source": "https://example.invalid/qwen",
+            "sourceRevision": "test",
+            "licenseId": "Apache-2.0",
+            "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "promotion": {
+            "authorityAppKey": "genright",
+            "promotionId": "test-only",
+            "promotedAt": "2026-10-08T00:00:00.000Z",
+            "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "signature": {
+          "algorithm": "Ed25519",
+          "keyId": "rightkit-runtime-artifacts-2026-07",
+          "value": "fh4BcKOiZVuB0HI6JOs4bN324bgTWuDAo9Ms0xSuZbGqhzuQlkoyaxE1S5ppCu4GPGDruti20xD3JNtB4yNJBQ"
+        }
+      },
+      "privateNamesLegacyDownloads": {
+        "manifest": {
+          "schema": 1,
+          "artifactKind": "tts-model",
+          "entitlement": {
+            "appKey": "genright",
+            "tier": "pro"
+          },
+          "distribution": {
+            "delivery": "private-r2",
+            "bucket": "rightapps-downloads"
+          },
+          "target": {
+            "os": "any",
+            "arch": "any"
+          },
+          "object": {
+            "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/qwen.gguf",
+            "filename": "qwen.gguf",
+            "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+            "sizeBytes": 2000000
+          },
+          "pointerKey": "genright/runtime-artifacts/tts-model/any/any/current/manifest.json",
+          "versions": {
+            "runtime": "qts-1",
+            "model": "Qwen3-1.7B",
+            "tokenizer": "v1",
+            "preprocessing": "v1",
+            "license": "Apache-2.0",
+            "provenance": "测试-é-🎙"
+          },
+          "provenance": {
+            "source": "https://example.invalid/qwen",
+            "sourceRevision": "test",
+            "licenseId": "Apache-2.0",
+            "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "promotion": {
+            "authorityAppKey": "genright",
+            "promotionId": "test-only",
+            "promotedAt": "2026-10-08T00:00:00.000Z",
+            "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "signature": {
+          "algorithm": "Ed25519",
+          "keyId": "rightkit-runtime-artifacts-2026-07",
+          "value": "1PpY9CLi8F_Lo18vOcx1n2MlUyeJKm_J_f10ila0ktSK2QtLBdKAMJ5aia06BJlidM8lQriDq-YCZkBqROsUDw"
+        }
+      },
+      "publicNamesRightsitesUpdates": {
+        "manifest": {
+          "schema": 1,
+          "artifactKind": "media-runtime",
+          "entitlement": {
+            "appKey": "genright",
+            "tier": "public"
+          },
+          "distribution": {
+            "delivery": "public-r2",
+            "bucket": "rightsites-updates"
+          },
+          "target": {
+            "os": "any",
+            "arch": "any"
+          },
+          "object": {
+            "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/media.bin",
+            "filename": "media.bin",
+            "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+            "sizeBytes": 2000000
+          },
+          "pointerKey": "genright/runtime-artifacts/media-runtime/any/any/current/manifest.json",
+          "versions": {
+            "runtime": "qts-1",
+            "model": "Qwen3-1.7B",
+            "tokenizer": "v1",
+            "preprocessing": "v1",
+            "license": "Apache-2.0",
+            "provenance": "测试-é-🎙"
+          },
+          "provenance": {
+            "source": "https://example.invalid/qwen",
+            "sourceRevision": "test",
+            "licenseId": "Apache-2.0",
+            "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "promotion": {
+            "authorityAppKey": "genright",
+            "promotionId": "test-only",
+            "promotedAt": "2026-10-08T00:00:00.000Z",
+            "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "signature": {
+          "algorithm": "Ed25519",
+          "keyId": "rightkit-runtime-artifacts-2026-07",
+          "value": "yICX9vEeNJM_7qGhid0z_2D3MIjEjNJ-rNgJJgi87SzkFOvID9vG_oUb3BGsQ4aZOpcCQUoLGW3oN14WPaveAg"
+        }
+      },
+      "publicNamesLegacyUpdates": {
+        "manifest": {
+          "schema": 1,
+          "artifactKind": "media-runtime",
+          "entitlement": {
+            "appKey": "genright",
+            "tier": "public"
+          },
+          "distribution": {
+            "delivery": "public-r2",
+            "bucket": "rightapps-updates"
+          },
+          "target": {
+            "os": "any",
+            "arch": "any"
+          },
+          "object": {
+            "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/media.bin",
+            "filename": "media.bin",
+            "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+            "sizeBytes": 2000000
+          },
+          "pointerKey": "genright/runtime-artifacts/media-runtime/any/any/current/manifest.json",
+          "versions": {
+            "runtime": "qts-1",
+            "model": "Qwen3-1.7B",
+            "tokenizer": "v1",
+            "preprocessing": "v1",
+            "license": "Apache-2.0",
+            "provenance": "测试-é-🎙"
+          },
+          "provenance": {
+            "source": "https://example.invalid/qwen",
+            "sourceRevision": "test",
+            "licenseId": "Apache-2.0",
+            "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "promotion": {
+            "authorityAppKey": "genright",
+            "promotionId": "test-only",
+            "promotedAt": "2026-10-08T00:00:00.000Z",
+            "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "signature": {
+          "algorithm": "Ed25519",
+          "keyId": "rightkit-runtime-artifacts-2026-07",
+          "value": "HtQDRPDj8vaEke1VAGHnDd0pvW-a1lNNpOCSSAfgJQ6vfeN_FoSF69WUZ74A0q61y2akE5eUrne527hkkt0hAQ"
+        }
+      },
+      "privateNullBucket": {
+        "manifest": {
+          "schema": 1,
+          "artifactKind": "tts-model",
+          "entitlement": {
+            "appKey": "genright",
+            "tier": "pro"
+          },
+          "distribution": {
+            "delivery": "private-r2",
+            "bucket": null
+          },
+          "target": {
+            "os": "any",
+            "arch": "any"
+          },
+          "object": {
+            "r2Key": "genright/runtime-artifacts/objects/sha256/82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840/qwen.gguf",
+            "filename": "qwen.gguf",
+            "sha256": "82fa05417c03925cb7e8fd2bc2e9f2e2a1c8c421427ccdba1ab0091261e3a840",
+            "sizeBytes": 2000000
+          },
+          "pointerKey": "genright/runtime-artifacts/tts-model/any/any/current/manifest.json",
+          "versions": {
+            "runtime": "qts-1",
+            "model": "Qwen3-1.7B",
+            "tokenizer": "v1",
+            "preprocessing": "v1",
+            "license": "Apache-2.0",
+            "provenance": "测试-é-🎙"
+          },
+          "provenance": {
+            "source": "https://example.invalid/qwen",
+            "sourceRevision": "test",
+            "licenseId": "Apache-2.0",
+            "noticeSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "promotion": {
+            "authorityAppKey": "genright",
+            "promotionId": "test-only",
+            "promotedAt": "2026-10-08T00:00:00.000Z",
+            "evidenceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "signature": {
+          "algorithm": "Ed25519",
+          "keyId": "rightkit-runtime-artifacts-2026-07",
+          "value": "I06tanSkz95lYZGXmeIlslpi_Z7sEOx4BO6OzVjOGg1YljH8qAC-YbEumQjDJru3z3dWj9VJgs3gGtVMMPUnBA"
+        }
+      }
+    }
   }
 }

@@ -294,6 +294,7 @@ pub(crate) fn ensure_ready_recorded(
     let status = status_at(models_root, spec, VerifyMode::Full);
     if status.state == EntryState::Ready {
         refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+        prune_retired_after_ensure(models_root, spec, &ref_dirs, opts.app_id);
         return Ok(status);
     }
     let entry_dir = paths::model_dir_at(models_root, spec.id);
@@ -304,6 +305,7 @@ pub(crate) fn ensure_ready_recorded(
     let status = status_at(models_root, spec, VerifyMode::Full);
     if status.state == EntryState::Ready {
         refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+        prune_retired_after_ensure(models_root, spec, &ref_dirs, opts.app_id);
         return Ok(status);
     }
 
@@ -313,6 +315,7 @@ pub(crate) fn ensure_ready_recorded(
     if manifest::verify_dir(&entry_dir, &spec.expected_manifest(), VerifyMode::Full).is_ready() {
         manifest::write_manifest(&entry_dir, &spec.expected_manifest())?;
         refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
+        prune_retired_after_ensure(models_root, spec, &ref_dirs, opts.app_id);
         progress(Progress::Done);
         return Ok(status_at(models_root, spec, VerifyMode::Full));
     }
@@ -380,11 +383,7 @@ pub(crate) fn ensure_ready_recorded(
     }
     manifest::write_manifest(&entry_dir, &manifest)?;
     refs::register_locked(&refs_dir, opts.app_id, spec.id)?;
-    let mut referenced = BTreeSet::new();
-    for refs_dir in &ref_dirs {
-        referenced.extend(refs::referenced_ids_locked(refs_dir)?);
-    }
-    prune_retired_store_ids(models_root, spec, &referenced)?;
+    prune_retired_after_ensure(models_root, spec, &ref_dirs, opts.app_id);
     cleanup_incoming(models_root, spec.id);
     progress(Progress::Done);
     // Release before the status read: our own live lock would otherwise
@@ -531,9 +530,9 @@ fn download_files(
     Ok(())
 }
 
-/// Remove store entries superseded by this spec — but only entries that are
-/// unreferenced or referenced only by this app, and never while another
-/// process holds their lock.
+/// True when both directories hold the same files with identical sizes and SHA-256
+/// hashes (migration and backup retirement use this; retired store ids no longer
+/// do, see [`prune_retired_store_ids`]).
 fn identical_payloads(left: &Path, right: &Path) -> bool {
     let (Ok(left), Ok(right)) = (
         manifest::manifest_from_dir(left, "compare", "compare"),
@@ -552,33 +551,285 @@ fn directories_byte_identical(left: &Path, right: &Path) -> bool {
     identical_payloads(left, right)
 }
 
+/// What one retired-id prune did. Failures are data, never an error: a removal that fails
+/// before rename leaves the live entry intact; after rename it leaves only a hidden retirement
+/// directory for a later prune to sweep. References are changed only by explicit release.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RetiredPruneReport {
+    /// Retired ids whose entry directory was removed.
+    pub removed: Vec<String>,
+    /// Retired ids whose entry directory exists and was left: any app still references it,
+    /// an install or entry lock is live, or a runtime-family lease is held.
+    pub kept: Vec<String>,
+    /// `(id, reason)` for each id that could not be handled (removal failed, corrupt refs, lease
+    /// error).
+    pub failed: Vec<(String, String)>,
+}
+
+/// The refs registries a store at `models_root` answers to: its own, plus the legacy suite root's
+/// when this is the machine-wide store.
+fn registry_dirs(models_root: &Path) -> Vec<PathBuf> {
+    let mut ref_dirs = vec![paths::model_refs_dir_at(models_root)];
+    let legacy_models = paths::legacy_suite_root().join("models");
+    if models_root == paths::models_root() && legacy_models != *models_root {
+        ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
+    }
+    ref_dirs
+}
+
+/// Prune only IDs unreferenced by every app, including the caller. The caller holds all
+/// registry guards. Runtime leases, install markers & entry locks remain authoritative.
+/// References are dropped only through explicit release after a replacement is Ready.
 fn prune_retired_store_ids(
     models_root: &Path,
-    spec: &ModelSpec,
-    referenced: &BTreeSet<String>,
-) -> Result<(), String> {
-    let suite_root = models_root.parent().unwrap_or(models_root);
-    let Some(_lease_guard) = crate::suite::lease::try_acquire_for_gc(suite_root, "model-store")?
-    else {
-        return Ok(());
+    ref_dirs: &[PathBuf],
+    _app_id: &str,
+    ids: &[&str],
+    protected_id: Option<&str>,
+) -> RetiredPruneReport {
+    let mut report = RetiredPruneReport::default();
+    if ids.is_empty() {
+        return report;
+    }
+    let fail_all = |report: &mut RetiredPruneReport, reason: String| {
+        for id in ids {
+            report.failed.push(((*id).to_string(), reason.clone()));
+        }
     };
-    for id in spec.retired_store_ids {
-        if referenced.contains(*id) {
-            continue;
+    // ModelSpec is caller-constructible. Validate every deletion target before touching any
+    // entry or ref; ref-id validation alone permits reserved names such as `refs`.
+    for id in ids {
+        if let Err(error) = crate::ids::ModelId::parse(id) {
+            fail_all(&mut report, error.to_string());
+            return report;
         }
-        let dir = paths::model_dir_at(models_root, id);
-        if lock::install_in_progress(&dir) {
-            continue;
+        if id.eq_ignore_ascii_case("refs")
+            || protected_id.is_some_and(|current| id.eq_ignore_ascii_case(current))
+        {
+            fail_all(
+                &mut report,
+                format!("refusing to retire protected entry {id:?}"),
+            );
+            return report;
         }
-        let Some(_entry_guard) = lock::try_lock(&dir, "model-store")? else {
+    }
+    let mut others = BTreeSet::new();
+    for refs_dir in ref_dirs {
+        match refs::referenced_ids_locked(refs_dir) {
+            Ok(found) => others.extend(found),
+            // A corrupt or unreadable ref blocks every deletion.
+            Err(error) => {
+                fail_all(&mut report, error);
+                return report;
+            }
+        }
+    }
+    let suite_root = models_root.parent().unwrap_or(models_root);
+    match crate::suite::lease::try_acquire_for_gc(suite_root, "model-store") {
+        Err(error) => fail_all(&mut report, error),
+        Ok(None) => report.kept.extend(
+            ids.iter()
+                .filter(|id| models_root.join(id).exists())
+                .map(|id| (*id).to_string()),
+        ),
+        Ok(Some(_lease_guard)) => {
+            for id in ids {
+                let dir = paths::model_dir_at(models_root, id);
+                if others.iter().any(|other| id.eq_ignore_ascii_case(other))
+                    || lock::install_in_progress(&dir)
+                {
+                    if dir.exists() {
+                        report.kept.push((*id).to_string());
+                    }
+                    continue;
+                }
+                let _entry_guard = match lock::try_lock(&dir, "model-store") {
+                    Ok(Some(guard)) => guard,
+                    Ok(None) => {
+                        report.kept.push((*id).to_string());
+                        continue;
+                    }
+                    Err(error) => {
+                        report.failed.push(((*id).to_string(), error));
+                        continue;
+                    }
+                };
+                if let Err(error) = sweep_retiring(models_root, id) {
+                    report.failed.push(((*id).to_string(), error.to_string()));
+                }
+                match retire_entry_with(&dir, |path| fs::remove_dir_all(path)) {
+                    Ok(true) => report.removed.push((*id).to_string()),
+                    Ok(false) => {}
+                    Err(error) => report.failed.push((
+                        (*id).to_string(),
+                        format!("retire {}: {error}", dir.display()),
+                    )),
+                }
+            }
+        }
+    }
+    report
+}
+
+// Hidden names are outside ModelId's alphabet, so partially deleted payloads cannot resolve
+// as live model entries. The registry, lease & original-entry guards cover rename and sweep.
+fn retire_entry_with(
+    dir: &Path,
+    remove: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<bool> {
+    if !dir.try_exists()? {
+        return Ok(false);
+    }
+    let id = dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| std::io::Error::other("invalid retirement path"))?;
+    let retired = dir.with_file_name(format!(".{id}.retiring-{:x}", migration_nonce()));
+    if retired.try_exists()? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "retirement collision",
+        ));
+    }
+    fs::rename(dir, &retired)?;
+    remove(&retired)?;
+    Ok(true)
+}
+
+fn sweep_retiring(root: &Path, id: &str) -> std::io::Result<()> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let prefix = format!(".{id}.retiring-");
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(suffix) = name.to_str().and_then(|name| name.strip_prefix(&prefix)) else {
             continue;
         };
-        if identical_payloads(&dir, &paths::model_dir_at(models_root, spec.id)) {
-            fs::remove_dir_all(&dir)
-                .map_err(|e| format!("remove retired model {}: {e}", dir.display()))?;
+        if !suffix.is_empty()
+            && suffix.bytes().all(|b| b.is_ascii_hexdigit())
+            && entry.file_type()?.is_dir()
+        {
+            fs::remove_dir_all(entry.path())?;
         }
     }
     Ok(())
+}
+
+/// Best-effort prune after an ensure that left `spec` Ready (download, adoption, or already
+/// Ready). Never fails the ensure; use [`prune_retired`] to read the report.
+fn prune_retired_after_ensure(
+    models_root: &Path,
+    spec: &ModelSpec,
+    ref_dirs: &[PathBuf],
+    app_id: &str,
+) {
+    let _ = prune_retired_store_ids(
+        models_root,
+        ref_dirs,
+        app_id,
+        spec.retired_store_ids,
+        Some(spec.id),
+    );
+}
+
+/// Prune the store entries `spec` retires on behalf of `app_id`, and return what happened. The
+/// same prune runs best-effort after every [`ensure_ready`] that leaves `spec` Ready; call this
+/// to read its report or to retry after a failure. A no-op unless `spec` is Ready in the store
+/// (a retired entry is never removed in favour of a superseding model that is not installed).
+pub fn prune_retired(
+    models_root: &Path,
+    spec: &ModelSpec,
+    app_id: &str,
+) -> Result<RetiredPruneReport, String> {
+    let ref_dirs = registry_dirs(models_root);
+    let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+    let (_guard_paths, _guards) = refs::acquire_registries(&ref_dir_refs)?;
+    if status_at(models_root, spec, VerifyMode::Size).state != EntryState::Ready {
+        return Ok(RetiredPruneReport::default());
+    }
+    Ok(prune_retired_store_ids(
+        models_root,
+        &ref_dirs,
+        app_id,
+        spec.retired_store_ids,
+        Some(spec.id),
+    ))
+}
+
+/// Every store id any built-in spec retires, plus the ids Parakeet Ultra retires (that spec is
+/// pin-gated and not in [`crate::suite::catalog::all_models`]).
+fn known_retired_store_ids() -> BTreeSet<&'static str> {
+    let mut ids: BTreeSet<&'static str> = crate::suite::catalog::all_models()
+        .iter()
+        .flat_map(|spec| spec.retired_store_ids.iter().copied())
+        .collect();
+    ids.extend(
+        crate::suite::catalog::PARAKEET_ULTRA_RETIRED_STORE_IDS
+            .iter()
+            .copied(),
+    );
+    ids
+}
+
+/// Result of [`release_models`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReleaseReport {
+    /// The requested ids no app references any more (sorted). Includes ids that were never
+    /// referenced by anyone.
+    pub unreferenced: Vec<String>,
+    /// What pruning did with those of `unreferenced` that a built-in spec retires.
+    pub pruned: RetiredPruneReport,
+}
+
+/// Drop `ids` from `app_id`'s refs in every registry this store answers to, under every registry
+/// guard, and return the ids no app references any more. Of those, the ones a built-in spec
+/// retires (superseded entries such as the Parakeet TDT v3 entries Ultra replaces) are then
+/// pruned with the same checks as [`prune_retired`]: nothing is removed while an install is in
+/// progress, an entry lock is held or a runtime-family lease is active. Ids that nothing
+/// retires are only reported, never deleted (that stays [`prune_unref_entries`]'s decision).
+///
+/// Idempotent. Every id is validated and every ref read before anything changes; a corrupt
+/// ref or an invalid id is an error and nothing is released.
+pub fn release_models(
+    models_root: &Path,
+    app_id: &str,
+    ids: &[&str],
+) -> Result<ReleaseReport, String> {
+    let ref_dirs = registry_dirs(models_root);
+    let ref_dir_refs: Vec<&Path> = ref_dirs.iter().map(PathBuf::as_path).collect();
+    let (_guard_paths, _guards) = refs::acquire_registries(&ref_dir_refs)?;
+    // Validate everything first so a bad id or corrupt ref in a later registry changes nothing.
+    refs::validate_model_ids(ids)?;
+    for refs_dir in &ref_dirs {
+        let _ = refs::referenced_ids_locked(refs_dir)?;
+    }
+    for refs_dir in &ref_dirs {
+        refs::release_locked(refs_dir, app_id, ids)?;
+    }
+    let mut referenced = BTreeSet::new();
+    for refs_dir in &ref_dirs {
+        referenced.extend(refs::referenced_ids_locked(refs_dir)?);
+    }
+    let unreferenced: BTreeSet<&str> = ids
+        .iter()
+        .copied()
+        .filter(|id| !referenced.contains(*id))
+        .collect();
+    let retired = known_retired_store_ids();
+    let prunable: Vec<&str> = unreferenced
+        .iter()
+        .copied()
+        .filter(|id| retired.contains(*id))
+        .collect();
+    let pruned = prune_retired_store_ids(models_root, &ref_dirs, app_id, &prunable, None);
+    Ok(ReleaseReport {
+        unreferenced: unreferenced.into_iter().map(str::to_string).collect(),
+        pruned,
+    })
 }
 
 fn cleanup_incoming(models_root: &Path, id: &str) {
@@ -1490,4 +1741,118 @@ fn dir_size(dir: &Path) -> u64 {
 #[allow(deprecated)]
 pub fn http_agent() -> ureq::Agent {
     crate::download::http_agent()
+}
+
+#[cfg(test)]
+mod retired_target_tests {
+    use super::*;
+
+    #[test]
+    fn partial_removal_is_hidden_and_later_prune_sweeps_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let models = temp.path().join("models");
+        let old = models.join("old");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("a"), b"a").unwrap();
+        fs::write(old.join("b"), b"b").unwrap();
+        let result = retire_entry_with(&old, |retired| {
+            assert!(!old.exists(), "rename must precede every removal");
+            fs::remove_file(retired.join("a"))?;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "simulated loaded file",
+            ))
+        });
+        assert!(result.is_err());
+        assert!(!old.exists());
+        let leftover = fs::read_dir(&models)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        assert_eq!(fs::read(leftover.join("b")).unwrap(), b"b");
+        let refs_dir = models.join("refs");
+        let (_paths, _guards) = refs::acquire_registries(&[&refs_dir]).unwrap();
+        let report =
+            prune_retired_store_ids(&models, &[refs_dir], "app", &["old"], Some("current"));
+        assert!(report.failed.is_empty());
+        assert!(!leftover.exists());
+    }
+
+    #[test]
+    fn missing_retirement_is_idempotent() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing");
+        assert!(!retire_entry_with(&missing, |_| panic!("must not remove")).unwrap());
+        // A deterministic injected removal error covers the post-rename failure separately.
+    }
+
+    #[test]
+    fn another_apps_case_variant_ref_preserves_retired_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let models = temp.path().join("models");
+        let refs_dir = models.join("refs");
+        let old = models.join("old");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("payload"), b"keep").unwrap();
+        refs::register(&refs_dir, "other-app", "OLD").unwrap();
+        let (_paths, _guards) = refs::acquire_registries(&[&refs_dir]).unwrap();
+        let report = prune_retired_store_ids(
+            &models,
+            std::slice::from_ref(&refs_dir),
+            "review-app",
+            &["old"],
+            Some("current"),
+        );
+        assert_eq!(report.kept, ["old"]);
+        assert!(report.removed.is_empty());
+        assert_eq!(fs::read(old.join("payload")).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn unsafe_retirement_targets_preserve_every_entry_and_ref() {
+        let temp = tempfile::tempdir().unwrap();
+        let models = temp.path().join("models");
+        let refs_dir = models.join("refs");
+        for dir in [
+            models.join("old"),
+            models.join("current"),
+            temp.path().join("escape"),
+        ] {
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("payload"), b"keep").unwrap();
+        }
+        refs::register(&refs_dir, "review-app", "old").unwrap();
+        let (_paths, _guards) = refs::acquire_registries(&[&refs_dir]).unwrap();
+        let before = refs::referenced_ids_locked(&refs_dir).unwrap();
+        let absolute = temp.path().join("escape");
+        for target in [
+            "../escape",
+            ".",
+            "refs",
+            "ReFs",
+            "current",
+            "CURRENT",
+            absolute.to_str().unwrap(),
+        ] {
+            let report = prune_retired_store_ids(
+                &models,
+                std::slice::from_ref(&refs_dir),
+                "review-app",
+                &["old", target],
+                Some("current"),
+            );
+            assert_eq!(report.failed.len(), 2, "{target}");
+            assert!(report.removed.is_empty(), "{target}");
+            assert_eq!(refs::referenced_ids_locked(&refs_dir).unwrap(), before);
+            for dir in [
+                models.join("old"),
+                models.join("current"),
+                temp.path().join("escape"),
+            ] {
+                assert_eq!(fs::read(dir.join("payload")).unwrap(), b"keep");
+            }
+        }
+    }
 }

@@ -196,19 +196,40 @@ and SHA-256 (`catalog.rs`, `EMBEDDINGGEMMA2_Q4_FILES`). `rightkit-embed` reads `
   and SHA-256 against the pins, writes the manifest, and registers the ref. A seed-dir copy
   would not work for this spec, because `download_files` (the only caller of the seed branch) runs
   only when some file has a URL. This adoption path is unexercised: the test covers the spec only.
-- **Placement.** Not in `base_catalog()` (not every install needs it), not in `add_ons()` (that
-  list asserts entitlement gating, and this bundle has none), and so not in `all_models()`.
-  Reach it with `embedding_gemma_q4_spec()`.
+- **Placement.** Not in `base_catalog()` (not every install needs it), not in `add_ons()`
+  (adopt-only: no route is served, so there is nothing to offer for download), and so not in
+  `all_models()`. Reach it with `embedding_gemma_q4_spec()`.
 - **Licence.** To be confirmed. The existing specs in this catalog carry no licence field, and
   none was sourced for this bundle.
 
-## EmbeddingGemma 2 E43 archive (route defined, pins required)
+## EmbeddingGemma 2 E43 archive (pins wired)
 
-E43 (int8 token table, batched ingest graphs; read by `rightkit-embed` 0.6.0) ships as one worker-served `.tar.gz` at `EMBEDDINGGEMMA2_E43_DML_URL`, verified against a whole-archive SHA-256 and size before extraction. The real digest and the per-file pins are not recorded in this repository, so `EMBEDDINGGEMMA2_E43_DML_PINS` is `None` and `embedding_gemma2_e43_dml_spec()` returns `Err(MissingE43Pins)`: nothing downloads an unpinned archive. Once the owner of the built archive supplies the pins, record them in `EMBEDDINGGEMMA2_E43_DML_PINS` (or build the spec with `embedding_gemma2_e43_dml_spec_with(EmbeddingGemma2E43Pins { .. })`). See bogusyogi/rightkit#224.
+E43 (int8 token table, batched ingest graphs; read by `rightkit-embed` 0.6.1) ships as one worker-served `.tar.gz` at `EMBEDDINGGEMMA2_E43_DML_URL` (one top-level wrapper directory `embeddinggemma2-e43-dml/`), verified against a whole-archive SHA-256 and size before extraction. The 21 per-file pins are final (`EMBEDDINGGEMMA2_E43_DML_FILES`, archive owner 2026-10-22, bogusyogi/rightkit#224; 494,393,592 bytes installed, `EMBEDDINGGEMMA2_E43_DML_INSTALLED_SIZE`): the ten query graphs `model_{16,32,48,64,96,128,192,256,384,512}.onnx`, the six ingest graphs `ingest-b{4,8}_{32,128,512}.onnx`, `model.onnx_data`, `embed_tokens.i8.npy`, `embed_scales.f16.npy`, `tokenizer.json` and the schema-2 bundle manifest `embed-manifest.json`, which is exactly the layout `rightkit-embed` reads. The archive itself is pinned in `EMBEDDINGGEMMA2_E43_DML_PINS` (SHA-256 `b181f45c…`, 370,860,871 bytes, sealed 2026-10-22), so `embedding_gemma2_e43_dml_spec()` returns `Ok`; the download verifies the whole archive against that pin before extraction and the per-file pins after. The spec is public-read (no bearer) and not in `base_catalog()`, `add_ons()` or `all_models()`. The worker `MODEL_SPECS` entry and the upload at the route are the worker owner's part.
+
+**Why `embed-manifest.json`.** The suite store writes its own entry record to `<entry>/manifest.json` in every entry directory (the shared layout, unchanged). A bundle manifest of that name would be replaced by the store's record after an install, leaving the entry `Partial` and `rightkit-embed` without a schema-2 manifest. The bundle manifest is therefore sealed as `embed-manifest.json` (same bytes as before, same SHA-256 `6b6c02a1...c509`, 1,041 bytes), and `rightkit-embed` 0.6.1 reads `embed-manifest.json` first and falls back to `manifest.json` (older bundles, adopt-only directories).
+
+## Parakeet Ultra (`parakeet_ultra_spec`, additive)
+
+moondream/parakeet-ultra weights on the Parakeet TDT v3 graphs (CC-BY-4.0, based on NVIDIA parakeet-tdt-0.6b-v3; bogusyogi/rightkit#897). `parakeet_spec()` is unchanged. `parakeet_ultra_spec()` returns `Err(MissingParakeetUltraPins)` on a platform whose pins are `None` (Linux only; Windows and macOS are both live), so nothing downloads unpinned bytes.
+
+| | Windows | macOS |
+|---|---|---|
+| Store id | `parakeet_tdt_ultra_static1500_fp16int4_20261022` | `parakeet-tdt-ultra` |
+| Route | `/parakeet/windows/ultra.tar.gz` | `/parakeet/macos/ultra.tar.gz` |
+| Pins | `PARAKEET_ULTRA_WINDOWS_PINS` (sealed 2026-10-22) | `PARAKEET_ULTRA_MACOS_PINS` (sealed 2026-10-22; archive `23610964...d4ee`, 391,192,167 bytes, installed 432,894,292 bytes) |
+| Files | `config.json`, `encoder-model.onnx`, `decoder_joint-model.onnx`, `mel_nemo.onnx`, `mel_nemo.onnx.data`, `vocab.txt`, `NOTICE.txt` | `pipeline.json`, `vocab.txt`, `NOTICE.txt` and the four `.mlmodelc` stage bundles (IR, `metadata.json`, `coremldata.bin`, weights, analytics): 23 files |
+
+The archive SHA-256 and size are pinned (the download is capped at the size and checked exactly); `legacy_dirs` is empty; `retired_store_ids` names the two Parakeet TDT v3 ids (`PARAKEET_ULTRA_RETIRED_STORE_IDS`). Ultra is not in `base_catalog()` or `all_models()` (promotion is the release owner's call). `ModelStore::parakeet_ultra_spec()` and `resolve_parakeet_ultra()` sit beside the v3 accessors. Each archive's own `manifest.json` is deliberately unpinned and unlisted on both platforms: the suite store writes its own `<entry>/manifest.json` record to the same path, so a pinned archive manifest would collide with it. The builder refuses a file set that is not exactly `PARAKEET_ULTRA_REQUIRED_PATHS` and an installed size that is not the sum of the file sizes. The grant worker model name for Ultra is the caller's `GrantConfig::model`; this crate does not choose it.
+
+## Releasing models and retired-entry pruning
+
+- `suite::refs::release(refs_dir, app, ids)`, `ModelStore::release(ids)` and `Store::release_app_model(app, ids)` drop one app's refs to the listed ids only and return the listed ids no app references any more (sorted). Idempotent; an invalid id or a corrupt ref file is an error and changes nothing. Release itself deletes nothing.
+- `ModelStore::release` then prunes, from the freed ids, the ones a spec retires (`retired_store_ids` of every catalog spec plus Ultra's), skipping any entry with an install in progress or a held entry lock, and everything while a runtime-family lease is active. `ModelStore::release_with_report(ids)` returns what was removed, kept and failed. Ids nothing retires stay for `gc`.
+- Retired-id pruning after an ensure (`ensure_ready`, `ModelStore::ensure`, ...) counts every app's refs, including this app's own: referenced ids are never pruned. Call `release` explicitly after the replacement is Ready. The old entry need not be byte-identical to the new one. It runs on every ensure that leaves the spec Ready (already Ready, adopted, or downloaded), is best-effort (a failed removal, for example a file loaded on Windows, never fails the ensure). Entries are renamed to hidden retirement directories before removal; later prunes sweep leftovers. `ModelStore::prune_retired(spec)` returns its report or retries it.
 
 ## EmbeddingGemma 2 accelerator bundles (Core ML on macOS, E40 on Windows)
 
-The suite embedding model is EmbeddingGemma 2. Two platform bundles are described, both per-file, pinned by size and SHA-256, and reached only by their own functions (not in `base_catalog()`, `add_ons()` or `all_models()`). The pin tables exist on every platform; `embedding_gemma2_platform_specs()` returns the one for this platform.
+The suite embedding model is EmbeddingGemma 2. Two platform bundles are described, both per-file and pinned by size and SHA-256. The macOS Core ML bundle is an add-on: it is in `add_ons()` and `all_models()` on macOS (never `base_catalog()`), found by `spec_by_id(EMBEDDINGGEMMA2_COREML_ID)` and ensured on demand with `ModelStore::ensure_by_id` (public-read, no bearer). The Windows E40 export is reached only by its own function (not in `base_catalog()`, `add_ons()` or `all_models()`). The pin tables exist on every platform; `embedding_gemma2_platform_specs()` returns the one for this platform.
 
 | | macOS | Windows |
 |---|---|---|
@@ -329,6 +350,14 @@ bind digest & filename. Artifact IDs use lowercase slug syntax
 `^[a-z0-9]+(?:-[a-z0-9]+)*$` with a 128-byte limit. A pointer explicitly names
 its promotion slot; resolution never substitutes a different pointer. Legacy
 manifests omit `artifactId` & retain their original signed JSON.
+
+`distribution.bucket` names the real bucket and each lane admits two: `private-r2`
+accepts `rightsites-updates` or `rightapps-updates`, `public-r2` accepts
+`rightsites-downloads` or `rightapps-downloads`, and `bundled` takes none. Any
+other bucket, a lane naming the other lane's bucket, or a null R2 bucket is
+`InvalidManifest`. Additive from 0.5.1 (#903): the legacy `rightapps-*` names
+still verify, so existing signed manifests are unaffected, but a client older
+than 0.5.1 refuses a manifest that names a `rightsites-*` bucket.
 
 Enable with `features = ["rightapps"]`.
 

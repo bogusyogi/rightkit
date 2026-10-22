@@ -152,6 +152,63 @@ pub fn unregister(refs_dir: &Path, app_id: &str) -> Result<Vec<String>, String> 
     })
 }
 
+/// Drop `ids` from `app_id`'s refs (only those ids; the app's other refs stay) and return the
+/// requested ids that no app references any more, sorted. Idempotent: ids the app does not hold,
+/// or that were already released, change nothing, and an unknown app is a no-op. Every id is
+/// validated before anything changes (an invalid id is an error and leaves the registry as it
+/// was), and every ref is validated too, so corruption surfaces instead of looking like "free".
+/// Nothing is deleted from the store: whether an unreferenced entry goes is the store's prune or
+/// GC decision.
+pub fn release(refs_dir: &Path, app_id: &str, ids: &[&str]) -> Result<Vec<String>, String> {
+    with_registry(refs_dir, || release_locked(refs_dir, app_id, ids))
+}
+
+/// Refuse the first id that is not a valid ref id (no path characters, no empty or dot names).
+pub fn validate_model_ids(ids: &[&str]) -> Result<(), String> {
+    match ids.iter().find(|id| !valid_model_id(id)) {
+        Some(bad) => Err(format!("invalid model id for refs: {bad:?}")),
+        None => Ok(()),
+    }
+}
+
+/// [`release`] while the caller already holds the registry guard.
+pub fn release_locked(refs_dir: &Path, app_id: &str, ids: &[&str]) -> Result<Vec<String>, String> {
+    validate_model_ids(ids)?;
+    // Validate every ref before changing one.
+    let _ = referenced_ids_unlocked(refs_dir)?;
+    if let Some(mut rf) = read_ref_unlocked(refs_dir, app_id)? {
+        let held = rf.models.len();
+        for id in ids {
+            rf.models.remove(*id);
+        }
+        if rf.models.len() != held {
+            write_ref_unlocked(refs_dir, app_id, &rf)?;
+        }
+    }
+    let still_referenced = referenced_ids_unlocked(refs_dir)?;
+    let freed: BTreeSet<String> = ids
+        .iter()
+        .filter(|id| !still_referenced.contains(**id))
+        .map(|id| (*id).to_string())
+        .collect();
+    Ok(freed.into_iter().collect())
+}
+
+/// Every model id referenced by an app other than `app_id`, while the caller holds the registry
+/// guard. A corrupt ref is an error (deletion callers must not proceed).
+pub fn referenced_ids_excluding_locked(
+    refs_dir: &Path,
+    app_id: &str,
+) -> Result<BTreeSet<String>, String> {
+    let mut ids = BTreeSet::new();
+    for rf in ref_files_unlocked(refs_dir)? {
+        if rf.app != app_id {
+            ids.extend(rf.models);
+        }
+    }
+    Ok(ids)
+}
+
 fn referenced_ids_unlocked(refs_dir: &Path) -> Result<BTreeSet<String>, String> {
     let mut ids = BTreeSet::new();
     for rf in ref_files_unlocked(refs_dir)? {

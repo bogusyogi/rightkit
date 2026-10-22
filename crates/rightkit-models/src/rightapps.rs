@@ -409,6 +409,11 @@ impl RuntimeArtifactClient {
     }
 }
 
+/// Buckets a `private-r2` manifest may name: current first, then legacy.
+const PRIVATE_R2_BUCKETS: &[&str] = &["rightsites-updates", "rightapps-updates"];
+/// Buckets a `public-r2` manifest may name: current first, then legacy.
+const PUBLIC_R2_BUCKETS: &[&str] = &["rightsites-downloads", "rightapps-downloads"];
+
 fn validate_manifest(m: &RuntimeArtifactManifest) -> Result<()> {
     let fail = || RuntimeArtifactError::InvalidManifest;
     if m.schema != 1
@@ -419,13 +424,20 @@ fn validate_manifest(m: &RuntimeArtifactManifest) -> Result<()> {
     {
         return Err(fail());
     }
-    let lane = match m.distribution.delivery.as_str() {
-        "private-r2" => ("pro", Some("rightapps-updates")),
-        "public-r2" => ("public", Some("rightapps-downloads")),
-        "bundled" => ("bundled", None),
+    // The manifest names the real bucket its objects live in (no label/upload
+    // split). Each lane admits the current `rightsites-*` bucket and the legacy
+    // `rightapps-*` one that shipped clients still read (#903).
+    let lane: (&str, &[&str]) = match m.distribution.delivery.as_str() {
+        "private-r2" => ("pro", PRIVATE_R2_BUCKETS),
+        "public-r2" => ("public", PUBLIC_R2_BUCKETS),
+        "bundled" => ("bundled", &[][..]),
         _ => return Err(fail()),
     };
-    if m.entitlement.tier != lane.0 || m.distribution.bucket.as_deref() != lane.1 {
+    let bucket_admitted = match m.distribution.bucket.as_deref() {
+        Some(bucket) => lane.1.contains(&bucket),
+        None => lane.1.is_empty(),
+    };
+    if m.entitlement.tier != lane.0 || !bucket_admitted {
         return Err(fail());
     }
     if ["asr-model", "tts-model", "ocr-model", "tokenizer"].contains(&m.artifact_kind.as_str())
