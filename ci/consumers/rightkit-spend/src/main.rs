@@ -31,7 +31,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Hold path as the GenRight hook takes it: reserve_on on the ledger's own connection,
     // inside a transaction the caller opened, against a caller budget of 2.00 USD.
     let budget = Budget::new("demo-project", micro_from_units(2.0)?)?;
-    let opts = ReserveOptions::default().currency("USD").caller_budget(budget);
+    let opts = ReserveOptions::default()
+        .currency("USD")
+        .caller_budget(budget);
     let hold = {
         let conn = ledger.connection();
         conn.execute_batch("BEGIN IMMEDIATE")?;
@@ -61,7 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         conn.execute_batch("COMMIT")?;
         assert_eq!(settled.reservation.state, ReservationState::Committed);
         assert_eq!(settled.reservation.committed_micro, Some(750_000));
-        assert!(!settled.reservation.over_reservation, "actual below estimate is no overrun");
+        assert!(
+            !settled.reservation.over_reservation,
+            "actual below estimate is no overrun"
+        );
     }
 
     // Provider figure and invoice reconciliation, as GenRight's ledger.rs:1541 and :1665 use them.
@@ -70,12 +75,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut invoice = InvoiceInput::new("demo", DAY_FROM, DAY_TO, 750_000);
     invoice.invoice_ref = Some("inv-demo-2026-10-20".to_owned());
-    invoice.lines.push(InvoiceLine::by_reservation(rid.clone(), 750_000));
+    invoice
+        .lines
+        .push(InvoiceLine::by_reservation(rid.clone(), 750_000));
     let reconciled = ledger.reconcile_invoice(&invoice)?;
     assert!(!reconciled.already_recorded, "invoice is new");
     assert_eq!(reconciled.invoice.invoice_ref, "inv-demo-2026-10-20");
-    assert_eq!(reconciled.matched.len(), 1, "the committed line matches its reservation");
-    assert!(reconciled.unmatched_lines.is_empty(), "no unmatched invoice lines");
+    assert_eq!(
+        reconciled.matched.len(),
+        1,
+        "the committed line matches its reservation"
+    );
+    assert!(
+        reconciled.unmatched_lines.is_empty(),
+        "no unmatched invoice lines"
+    );
 
     // Caller budget refusal: 0.75 committed plus 1.50 requested is over the 2.00 budget.
     let refused = ledger.reserve_with(

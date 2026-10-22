@@ -1,4 +1,4 @@
-//! The macOS side of the [`Backend`] seam: [`MacBackend`] is a [`ProcessBackend`] over the
+//! The macOS side of the [`Backend`] seam: `MacBackend` is a [`ProcessBackend`] over the
 //! `rightkit-record-macos-helper` binary, launched and reaped through `rightkit-child-process`.
 //!
 //! The helper is a signed Swift binary owned by this crate (`helpers/macos`, a SwiftPM
@@ -16,7 +16,7 @@
 //! Building and signing for tests: `helpers/macos/build.sh` (release build, ad-hoc signature).
 //! Production signing and notarization are done by the release tooling, not here.
 //!
-//! Locating the helper: [`MacBackend::helper_path`] reads `RIGHTKIT_RECORD_MACOS_HELPER`, then
+//! Locating the helper: `MacBackend::helper_path` reads `RIGHTKIT_RECORD_MACOS_HELPER`, then
 //! looks for `rightkit-record-macos-helper` next to the running executable.
 
 use std::env;

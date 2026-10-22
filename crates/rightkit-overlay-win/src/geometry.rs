@@ -49,7 +49,7 @@ pub struct Placement {
     pub monitor: Option<[i32; 4]>,
 }
 
-/// Logical length to device pixels, at least 1 and at most [`MAX_SURFACE_SIDE`].
+/// Logical length to device pixels, at least 1 and at most `MAX_SURFACE_SIDE`.
 pub fn device_size(logical: f64, scale: f64) -> i32 {
     ((logical * scale).round() as i64).clamp(1, i64::from(MAX_SURFACE_SIDE)) as i32
 }
