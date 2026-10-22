@@ -5,20 +5,28 @@
     {
       "id": "RUSTSEC-2023-0071",
       "crate": "rsa",
-      "affectedVersions": ["0.9.10"],
-      "dependents": ["rightkit-ownership 0.3.1"],
+      "affectedVersions": [
+        "0.9.10"
+      ],
+      "dependents": [
+        "rightkit-ownership 0.4.0"
+      ],
       "path": "rightkit-ownership -> rsa",
       "owner": "RK Fable",
       "rationale": "Marvin timing attack applies to RSA private-key operations; rightkit-ownership only parses and exports public keys and verifies signatures, and no RustCrypto RSA private-key operation exists in the workspace.",
       "evidence": "crates/rightkit-ownership/src/keylog.rs:11-25",
       "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md"
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md; rightkit-ownership 0.4.0 re-checked by RK Fable 2026-10-22: rsa use unchanged (crates/rightkit-ownership/src/keylog.rs public-key parse, size/exponent check and PSS/PKCS1v15 verify only; no private-key operation in the crate)"
     },
     {
       "id": "RUSTSEC-2026-0235",
       "crate": "rkyv",
-      "affectedVersions": ["0.7.46"],
-      "dependents": ["mitex-spec 0.2.4"],
+      "affectedVersions": [
+        "0.7.46"
+      ],
+      "dependents": [
+        "mitex-spec 0.2.4"
+      ],
       "path": "rightkit-typeset -> mitex -> mitex-parser -> mitex-spec -> rkyv",
       "owner": "RK Fable",
       "rationale": "Scope is the mitex DEFAULT_SPEC path only: the typeset wrapper passes None, so mitex deserializes its embedded include_bytes data and user LaTeX never becomes archive bytes.",
@@ -29,8 +37,23 @@
     {
       "id": "RUSTSEC-2024-0429",
       "crate": "glib",
-      "affectedVersions": ["0.18.5"],
-      "dependents": ["atk 0.18.2", "cairo-rs 0.18.5", "gdk 0.18.2", "gdk-pixbuf 0.18.5", "gdkx11 0.18.2", "gio 0.18.4", "gtk 0.18.2", "javascriptcore-rs 1.1.2", "libappindicator 0.9.0", "pango 0.18.3", "soup3 0.5.0", "webkit2gtk 2.0.2"],
+      "affectedVersions": [
+        "0.18.5"
+      ],
+      "dependents": [
+        "atk 0.18.2",
+        "cairo-rs 0.18.5",
+        "gdk 0.18.2",
+        "gdk-pixbuf 0.18.5",
+        "gdkx11 0.18.2",
+        "gio 0.18.4",
+        "gtk 0.18.2",
+        "javascriptcore-rs 1.1.2",
+        "libappindicator 0.9.0",
+        "pango 0.18.3",
+        "soup3 0.5.0",
+        "webkit2gtk 2.0.2"
+      ],
       "path": "tauri -> gtk -> glib",
       "owner": "RK Fable",
       "rationale": "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships.",
@@ -41,8 +64,21 @@
     {
       "id": "RUSTSEC-2026-0192",
       "crate": "ttf-parser",
-      "affectedVersions": ["0.25.1"],
-      "dependents": ["fontdb 0.23.0", "lopdf 0.42.0", "pixglyph 0.6.1", "rightkit-pdf 0.3.3", "rustybuzz 0.20.1", "typst-layout 0.15.1", "typst-library 0.15.1", "typst-render 0.15.1", "typst-svg 0.15.1", "usvg 0.47.0"],
+      "affectedVersions": [
+        "0.25.1"
+      ],
+      "dependents": [
+        "fontdb 0.23.0",
+        "lopdf 0.42.0",
+        "pixglyph 0.6.1",
+        "rightkit-pdf 0.3.3",
+        "rustybuzz 0.20.1",
+        "typst-layout 0.15.1",
+        "typst-library 0.15.1",
+        "typst-render 0.15.1",
+        "typst-svg 0.15.1",
+        "usvg 0.47.0"
+      ],
       "path": "rightkit-pdf -> ttf-parser",
       "owner": "RK Fable",
       "rationale": "ttf-parser is unmaintained (a maintenance notice, no vulnerability). It is a direct dependency of rightkit-pdf and also arrives through the typst and font stack (fontdb, lopdf, pixglyph, rustybuzz, typst-layout, typst-library, typst-render, typst-svg, usvg); the dependents set is pinned. Migration to skrifa is tracked in rightkit#890.",
@@ -53,9 +89,15 @@
     {
       "id": "RUSTSEC-2026-0367",
       "crate": "zip",
-      "affectedVersions": ["4.6.1"],
-      "dependents": ["tauri-plugin-updater 2.10.1"],
-      "unaffectedVersions": ["9.0.4"],
+      "affectedVersions": [
+        "4.6.1"
+      ],
+      "dependents": [
+        "tauri-plugin-updater 2.10.1"
+      ],
+      "unaffectedVersions": [
+        "9.0.4"
+      ],
       "path": "rightkit-tauri-shell -> tauri-plugin-updater 2.10.1 -> zip 4.6.1",
       "owner": "RK Fable",
       "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
@@ -66,9 +108,15 @@
     {
       "id": "RUSTSEC-2026-0368",
       "crate": "zip",
-      "affectedVersions": ["4.6.1"],
-      "dependents": ["tauri-plugin-updater 2.10.1"],
-      "unaffectedVersions": ["9.0.4"],
+      "affectedVersions": [
+        "4.6.1"
+      ],
+      "dependents": [
+        "tauri-plugin-updater 2.10.1"
+      ],
+      "unaffectedVersions": [
+        "9.0.4"
+      ],
       "path": "rightkit-tauri-shell -> tauri-plugin-updater 2.10.1 -> zip 4.6.1",
       "owner": "RK Fable",
       "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
@@ -79,9 +127,15 @@
     {
       "id": "RUSTSEC-2026-0369",
       "crate": "zip",
-      "affectedVersions": ["4.6.1"],
-      "dependents": ["tauri-plugin-updater 2.10.1"],
-      "unaffectedVersions": ["9.0.4"],
+      "affectedVersions": [
+        "4.6.1"
+      ],
+      "dependents": [
+        "tauri-plugin-updater 2.10.1"
+      ],
+      "unaffectedVersions": [
+        "9.0.4"
+      ],
       "path": "rightkit-tauri-shell -> tauri-plugin-updater 2.10.1 -> zip 4.6.1",
       "owner": "RK Fable",
       "rationale": "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted.",
