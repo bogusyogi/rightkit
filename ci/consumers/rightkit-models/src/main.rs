@@ -1,4 +1,4 @@
-// rightkit-models 0.5.0 consumed by exact registry pin, outside the workspace.
+// rightkit-models 0.5.1 consumed by exact registry pin, outside the workspace.
 //
 // Proves sha256_file, the lowercase hex digest a model install checks an artifact against: the
 // FIPS 180-4 vector for "abc" is returned exactly, changed bytes give a different digest, and a
@@ -31,5 +31,5 @@ fn main() {
     assert!(sha256_file(&dir.join("missing.bin")).is_err(), "missing file is refused");
 
     fs::remove_dir_all(&dir).expect("remove consumer temp dir");
-    println!("OK rightkit-models 0.5.0 (registry consumer)");
+    println!("OK rightkit-models 0.5.1 (registry consumer)");
 }
