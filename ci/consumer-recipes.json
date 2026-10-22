@@ -361,13 +361,13 @@
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
         "Cargo.toml": "54757e5ba07a63c5bc228223a2cfde6bb8bb5465e10af431fbb2511975181301",
-        "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
-        "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
-        "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
-        "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
-        "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
         "README.md": "8aae0e4630500f529171dd6399138807955ff55df50239cc749f277d5c26b32b",
-        "src/main.rs": "63aee69cadbee0d1b5b12089cf597258d894033bb90c8f624b35a81e47df315a"
+        "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
+        "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
+        "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
+        "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
+        "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
+        "src/main.rs": "3732cd23cced5c6490d0caa2d45f478e94ecb54338090f883465e9004f18b577"
       },
       "runs": [
         {
@@ -448,7 +448,7 @@
       "files": {
         "Cargo.toml": "295d7b0c23995a5f882eee2561b869f01b8fb125c20647108c7cfe26b4a64d5d",
         "README.md": "90cb5179447ec026176499498d2eea51b7b7424dd0d14d8ae48a14f570443066",
-        "src/main.rs": "01118c48fe2c97e388ddf929b285836a879f5874812f81c1231277695ad0ee13"
+        "src/main.rs": "5b4178fe3400a0f5dcc27525f66dafee1b971c9a40bccabe4474d0ad4d51654c"
       },
       "aggregateSha256": "40d390635dccc7c1e5ce4b5bed08dfe6d8977721641f3673461b8a1f339b88d2"
     },
@@ -542,7 +542,7 @@
       "files": {
         "Cargo.toml": "d76c01b13306f292ba08b6351a408af94c0e2d261f42d295ab1d4248ab0b084b",
         "README.md": "5e34d2ab7752e36c863d81e788b7cd795ef60b85fc135741b580c51844ba5f03",
-        "src/main.rs": "04ce0de0c7b2a7442509027c9838c6e0782f421f1724197364e2c917fad419df"
+        "src/main.rs": "24a8d0ad3a59f612d938ff7708687b6c44bac0e8c8a8f8e235fad9900b02f8de"
       }
     },
     "rightkit-app-settings": {
@@ -560,7 +560,7 @@
       "files": {
         "Cargo.toml": "7474a92fa11fc1ec26711ba30b3d33842ad76df51499ce9199dc95cc42e3e9b8",
         "README.md": "8d07eb390d19d32634bee0b6027c909af54e2899452222bb981a91a3ebcb6848",
-        "src/main.rs": "5e435b1d8f81d0bcd3b6d4c045b21b05388b263ae88bc5470c92d166b1a0f0bc"
+        "src/main.rs": "bb1481683ba82e62333fed195b1ce4d3ee968dda19b4d757b0187898774db8cd"
       }
     },
     "rightkit-http": {

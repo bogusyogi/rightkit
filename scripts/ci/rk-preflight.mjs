@@ -327,6 +327,35 @@ export async function main(argv, deps = {}) {
     }
   }
 
+  // The hosted plan job's own contract checks, exactly as publish.yml runs them (job `plan`, step "Check the publish
+  // route's own contract"): a dispatch that would die there is refused here first. Deterministic, no compile.
+  if (!opts.rowsOnly) {
+    const planCommands = [
+      [process.execPath, ["scripts/ci/workflow-contract.mjs", ".github/workflows/publish.yml"]],
+      [process.execPath, ["--test", "scripts/ci/publish.test.mjs", "scripts/ci/select.test.mjs", "scripts/ci/test-results.test.mjs", "scripts/ci/scan-receipt.test.mjs"]],
+      [process.execPath, ["scripts/ci/reviewed-workflow-contract.mjs"]],
+      [process.execPath, ["--test", "scripts/ci/reviewed-candidate.test.mjs", "scripts/ci/registry-consumer.test.mjs", "scripts/ci/workflow-contract-portability.test.mjs"]],
+    ];
+    const started = Date.now();
+    let failed = null;
+    for (const [i, [command, args]] of planCommands.entries()) {
+      const r = await run(command, args, { cwd: root, env, timeoutMinutes: 20, logFile: path.join(logDir, `plan-check-${i + 1}.log`) });
+      if (r.code !== 0 || r.timedOut) {
+        failed = { index: i + 1, command: `node ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, lines: r.out.split("\n").filter((l) => /^not ok|error:|refused/.test(l.trim())).slice(0, 8) };
+        break;
+      }
+    }
+    receipt.planChecks = { ok: !failed && unchanged(), exit: failed ? failed.exit : 0, timedOut: Boolean(failed?.timedOut), seconds: Math.round((Date.now() - started) / 1000), commands: planCommands.length, failed };
+    out(`${receipt.planChecks.ok ? "PASS" : "FAIL"} plan-checks (${receipt.planChecks.seconds}s)`);
+    if (!receipt.planChecks.ok) {
+      receipt.failedAt = "plan-checks";
+      receipt.finishedAt = new Date().toISOString();
+      save();
+      if (failed) { err(`  ${failed.command}`); for (const line of failed.lines) err(`  ${line}`); }
+      return 1;
+    }
+  }
+
   // Compile only. Runtime tests & OS qualification belong on hosted runners.
   const rowEnv = { ...env, RIGHTKIT_REQUIRE_ASSETS: "1" };
   for (const row of rows) {
@@ -373,6 +402,7 @@ export function receiptRefusal(receipt, { sha, registry, unit, config, version }
   if (receipt.registry !== registry || receipt.unit !== unit || receipt.version !== version) return "receipt unit/registry/version mismatch";
   if (receipt.route !== "local" || receipt.ok !== true || !receipt.finishedAt || receipt.failedAt) return "local compilation is incomplete or red";
   if (receipt.scans?.ok !== true || receipt.scans.exit !== 0 || receipt.scans.timedOut !== false) return "deterministic scans did not pass";
+  if (receipt.planChecks?.ok !== true || receipt.planChecks.exit !== 0 || receipt.planChecks.timedOut !== false) return "the hosted plan job's contract checks did not pass locally";
   const expected = crateRows(unit, config);
   if (!Array.isArray(receipt.rows) || receipt.rows.length !== expected.length || !expected.length) return "missing or extra compile rows";
   for (const [i, row] of expected.entries()) {

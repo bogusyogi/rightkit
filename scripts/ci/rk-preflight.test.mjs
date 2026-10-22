@@ -5,7 +5,7 @@ import { verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crat
 const sha = "a".repeat(40), unit = "rightkit-example", version = "1.0.0", config = {};
 const expected = { sha, registry: "crates", unit, version, config };
 export function greenReceipt() {
-  return { schema: SCHEMA, mode: "local-compile", sha, registry: "crates", unit, version, route: "local", ok: true, finishedAt: new Date().toISOString(), scans: { ok: true, exit: 0, timedOut: false }, rows: crateRows(unit, config).map((r) => ({ attestation: { verified: true, signatureVerified: true, nonce: "f".repeat(64), requestId: "11111111-1111-4111-8111-111111111111" }, id: r.id, command: `rustright cargo ${r.args.join(" ")}`, exit: 0, timedOut: false, warnings: 0, brokerRequests: ["11111111-1111-4111-8111-111111111111"], ok: true })) };
+  return { schema: SCHEMA, mode: "local-compile", sha, registry: "crates", unit, version, route: "local", ok: true, finishedAt: new Date().toISOString(), scans: { ok: true, exit: 0, timedOut: false }, planChecks: { ok: true, exit: 0, timedOut: false }, rows: crateRows(unit, config).map((r) => ({ attestation: { verified: true, signatureVerified: true, nonce: "f".repeat(64), requestId: "11111111-1111-4111-8111-111111111111" }, id: r.id, command: `rustright cargo ${r.args.join(" ")}`, exit: 0, timedOut: false, warnings: 0, brokerRequests: ["11111111-1111-4111-8111-111111111111"], ok: true })) };
 }
 
 test("publication preflight refuses scan/compile shortcuts & unbrokered npm", () => {
@@ -33,6 +33,7 @@ test("admission rejects forged shapes, stale identity, absent scans, omitted row
     (r) => { r.sha = "b".repeat(40); }, (r) => { r.unit = "rightkit-other"; },
     (r) => { r.registry = "npm"; }, (r) => { r.version = "1.0.1"; },
     (r) => { r.scans = null; }, (r) => { r.scans.timedOut = true; },
+    (r) => { r.planChecks = null; }, (r) => { r.planChecks.exit = 1; },
     (r) => { r.rows.pop(); }, (r) => { r.rows[0].brokerRequests = []; },
     (r) => { r.rows[0].command = "cargo check"; }, (r) => { delete r.finishedAt; },
     (r) => { r.rows[0].attestation.verified = false; }, (r) => { r.rows[0].attestation.signatureVerified = false; }, (r) => { r.rows[0].attestation.requestId = "22222222-2222-4222-8222-222222222222"; }, (r) => { delete r.rows[0].attestation; },
