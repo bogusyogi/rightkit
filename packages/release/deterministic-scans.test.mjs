@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -514,4 +515,16 @@ test("feature sets follow CI's gate: featureSets and checkFeatureSets apply inde
   assert.ok(!db.scans.some((s) => s.args.includes("--all-features")));
   const all = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures: { foo: { featureSets: [["--all-features"]] } } }).plan;
   assert.ok(!all.scans.some((s) => s.id.startsWith("check-features:foo")), "an --all-features lint set needs no separate check");
+});
+
+test("vendor/ keeps upstream formatting only for files recorded verbatim in vendor/upstream-files.json", () => {
+  const body = "fn  upstream_style() {}\n";
+  const digest = crypto.createHash("sha256").update(body).digest("hex");
+  const manifest = JSON.stringify({ files: { "vendor/up/src/lib.rs": digest, "vendor/up/src/patched.rs": digest } });
+  const extra = { "vendor/upstream-files.json": manifest, "vendor/up/src/lib.rs": body, "vendor/up/src/patched.rs": "fn patched() {}\n", "vendor/up/src/new.rs": body };
+  const { plan } = planFor(["vendor/up/src/lib.rs", "vendor/up/src/patched.rs", "vendor/up/src/new.rs"], extra);
+  const checked = plan.scans.filter((s) => s.id.startsWith("rustfmt:")).flatMap((s) => s.args);
+  assert.ok(!checked.includes("vendor/up/src/lib.rs"), "a verbatim upstream file is exempt");
+  assert.ok(checked.includes("vendor/up/src/patched.rs"), "a file whose bytes differ from upstream is checked");
+  assert.ok(checked.includes("vendor/up/src/new.rs"), "a file not in the manifest is checked");
 });

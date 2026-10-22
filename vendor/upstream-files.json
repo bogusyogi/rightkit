@@ -1,0 +1,9 @@
+{
+  "_comment": "Rust files under vendor/ that are byte-identical to their upstream release (verified against the published crate). Only these keep upstream formatting; any other vendor/ .rs file, or one whose bytes differ, is checked by rustfmt like first-party code (packages/release/deterministic-scans.mjs).",
+  "files": {
+    "vendor/citationberg/src/json.rs": "165d98428083ea90ddbb6bf09390db004367126894e6329a64c05fb98d434b08",
+    "vendor/citationberg/src/lib.rs": "5a629461bd9f5cb86f348e6e37e88b968f6452971831d9002b190d3b7637eeb0",
+    "vendor/citationberg/src/taxonomy.rs": "9fd79e4130829a452dc9407485f7f678433d99099b9e472cf1294f08bb5d5f03",
+    "vendor/citationberg/src/util.rs": "5ba785ff6b1bb9b1d04966e12b597bdcfe9d6f9ca538f2182298d383c55b8af1"
+  }
+}

@@ -209,8 +209,12 @@ export function planScans({
   const cargo = (...args) => ({ tool: cargoCommand[0], args: [...cargoCommand.slice(1), ...args] });
 
   // ---- class A: content checks on the exported commit
-  // vendor/ holds third-party sources kept byte-identical to upstream (VENDORED.md): not reformatted.
-  const rustFiles = files.filter((f) => f.endsWith(".rs") && !f.startsWith("vendor/"));
+  // A vendor/ file keeps upstream formatting only when vendor/upstream-files.json records it and its
+  // bytes still match that upstream digest; any other vendor/ .rs (new, patched) is rustfmt-checked.
+  let upstream = {};
+  try { upstream = JSON.parse(readFile(path.join(contentRoot, "vendor/upstream-files.json"))).files ?? {}; } catch { /* no manifest: nothing exempt */ }
+  const verbatimUpstream = (f) => f.startsWith("vendor/") && typeof upstream[f] === "string" && bytesDigest(f) === upstream[f];
+  const rustFiles = files.filter((f) => f.endsWith(".rs") && !verbatimUpstream(f));
   const byEdition = new Map();
   for (const f of rustFiles) {
     let dir = path.dirname(path.join(contentRoot, f));

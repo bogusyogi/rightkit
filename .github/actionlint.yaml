@@ -5,7 +5,11 @@ self-hosted-runner:
   labels:
     - xcode-27
 paths:
-  .github/workflows/**/*.{yml,yaml}:
+  # GitHub's concurrency `queue` key (single | max) is newer than actionlint 1.7.12's schema. Ignored only in
+  # the two workflows that use it, where their contracts pin `queue: max` with `cancel-in-progress: false`.
+  .github/workflows/publish-reviewed.yml:
     ignore:
-      # GitHub's concurrency `queue` key is newer than actionlint 1.7.12's schema.
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/publish-swift.yml:
+    ignore:
       - 'unexpected key "queue" for "concurrency" section'
