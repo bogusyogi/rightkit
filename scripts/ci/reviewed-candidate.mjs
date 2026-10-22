@@ -802,6 +802,8 @@ export async function prepareQualified({ env, fetchImpl = fetch, spawn = spawnSy
   const reviewRef = `https://github.com/${REPOSITORY}/actions/runs/${runId}/attempts/${runAttempt}`;
   fs.writeFileSync(approvedFile, `${JSON.stringify({ schema: 1, artifacts: sealed.manifest.units.map((unit) => ({ registry, name: unit.name, version: unit.version, sha256: unit.sha256, reviewer: "publish.yml qualified", reviewRef })) }, null, 2)}\n`, { flag: "wx" });
   const candidate = { id: `qualified-${runId}-${runAttempt}`, source: "qualified", sourceSha, runId, runAttempt, workflowId: String(workflow.id), manifestSha256: sealed.manifestSha256, registry, units, allow, artifacts, runtimeBudgetUnproven: runtimeOwned };
+  const { verifyOriginalScanReceipt } = await import("./scan-receipt.mjs");
+  await verifyOriginalScanReceipt({ candidate, repository, env, candidateDir: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."), fetchImpl, workDir: root, api, artifactMatches, unpack: (options) => unpackArtifact({ ...options, spawn }) });
   const context = JSON.parse(JSON.stringify({ candidate })); freezeDeep(context);
   contexts.set(context, { env: { ...env }, packDir, receiptsDir, approvedFile, manifest: sealed.manifest, manifestSha256: sealed.manifestSha256, repository, admitted: true, ciProof: null });
   return { context, packDir, receiptsDir, approvedFile };

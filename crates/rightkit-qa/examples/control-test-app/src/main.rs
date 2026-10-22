@@ -35,7 +35,10 @@ fn window_state(app: &tauri::AppHandle) -> Result<String, String> {
         let f = frame(window, sel_registerName(c"frame".as_ptr()));
         let _ = tx.send(Ok(format!(
             "{{\"frame\":[{},{},{},{}],\"key\":{},\"visible\":{},\"occlusion\":{}}}",
-            f.0, f.1, f.2, f.3,
+            f.0,
+            f.1,
+            f.2,
+            f.3,
             get_bool(window, sel_registerName(c"isKeyWindow".as_ptr())),
             get_bool(window, sel_registerName(c"isVisible".as_ptr())),
             occlusion(window, sel_registerName(c"occlusionState".as_ptr()))

@@ -114,18 +114,25 @@ fn main() {
     .expect("client record is valid")
     .expect("M22 record is present");
     assert_eq!(client.role, AgentRole::Client, "role parses as client");
-    assert!(client.has_agent_surface(), "a client declares an agent surface");
+    assert!(
+        client.has_agent_surface(),
+        "a client declares an agent surface"
+    );
     assert_eq!(
         client.entrypoints,
         vec!["src/agent.rs#register_tools".to_string()],
         "entrypoint is kept"
     );
 
-    let absent = ApplicabilityRecord::from_manifest(r#"{"M22":{"role":"absent","entrypoints":[]}}"#)
-        .expect("absent record is valid")
-        .expect("M22 record is present");
+    let absent =
+        ApplicabilityRecord::from_manifest(r#"{"M22":{"role":"absent","entrypoints":[]}}"#)
+            .expect("absent record is valid")
+            .expect("M22 record is present");
     assert_eq!(absent.role, AgentRole::Absent, "role parses as absent");
-    assert!(!absent.has_agent_surface(), "an absent app declares no agent surface");
+    assert!(
+        !absent.has_agent_surface(),
+        "an absent app declares no agent surface"
+    );
 
     assert!(
         ApplicabilityRecord::from_manifest("{}")

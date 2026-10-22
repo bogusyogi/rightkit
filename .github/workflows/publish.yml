@@ -77,7 +77,7 @@ jobs:
             exit 1
           fi
 
-  # Job 0 (rightkit#888): the shared deterministic scans (class A only, whole candidate, no deferral) run before
+  # Job 0 (rightkit#888): the shared deterministic scans (class A only, full requested units & shared inputs, no deferral) run before
   # plan and before every build lane; publish-reviewed.yml refuses a candidate without this job's receipt. Class B
   # (compile, lint) runs in the native verify jobs on their own hosts, never here: native crates do not build on Ubuntu.
   # verify and verify-linux need scans and pass its result to gate.mjs (RK_SCANS_JOB_RESULT); they install no scan tools.
@@ -130,11 +130,13 @@ jobs:
       - name: Install workspace dependencies without lifecycle scripts for the class B type and lint scans
         working-directory: live
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Run the shared deterministic scans over the whole candidate
+      - name: Run deterministic scans over requested units & shared inputs
         env:
           SCAN_CONTENT_ROOT: ${{ github.workspace }}/source
           SCAN_LIVE_ROOT: ${{ github.workspace }}/live
           SCAN_OUT: ${{ runner.temp }}/scan-receipt
+          PUBLISH_REGISTRY: ${{ inputs.registry }}
+          PUBLISH_UNITS: ${{ inputs.units }}
         run: node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"
       - name: Keep the scan receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -710,7 +712,7 @@ jobs:
           FS_NATIVE_OUT: ${{ runner.temp }}/rightkit-ci/fs-native
         run: |
           node scripts/ci/fs-native-fixtures.mjs setup
-          node --input-type=module -e 'import fs from "node:fs"; import path from "node:path"; const plan = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, "rk-fs-native-state.json"), "utf8")); fs.appendFileSync(process.env.GITHUB_ENV, `RIGHTKIT_FS_TEST_OTHER_VOLUME=${plan.other}\n`);'
+          node --input-type=module -e 'import fs from "node:fs"; import path from "node:path"; const plan = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, "rk-fs-native-state.json"), "utf8")); fs.appendFileSync(process.env.GITHUB_ENV, "RIGHTKIT_FS_TEST_OTHER_VOLUME=" + plan.other + "\n");'
       - name: Build and test exactly the planned units
         shell: bash
         env:

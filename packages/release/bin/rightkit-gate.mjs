@@ -453,7 +453,7 @@ const within = (dir, p) => dir === "." || p === dir || p.startsWith(`${dir}/`);
 // current directory, a bare ".." segment, or the manifest directory's parent. Its tests may read anything in the repository.
 const TEST_LEAVES_CRATE = /CARGO_WORKSPACE_DIR|workspace_root|current_dir\s*\(|"\.\.\/?"|CARGO_MANIFEST_DIR[^;\n]{0,120}\.parent\s*\(|\.ancestors\s*\(/;
 
-export function externalInputs({ dir, files, readBlob, exists }) {
+export function externalInputs({ dir, files, readBlob, exists, includeRuntimePaths = true }) {
   const paths = new Set(); let unresolved = null; let leavesCrate = null;
   const stop = (why) => { unresolved ??= why; };
   // Resolve `rel` against each base in turn; the path counts when it exists inside the repository and outside the crate. A
@@ -490,7 +490,8 @@ export function externalInputs({ dir, files, readBlob, exists }) {
       else if (INCLUDE_OUT_DIR.test(rest)) continue;
       else stop(`${file}: include macro with a computed path`);
     }
-    for (const m of text.matchAll(PARENT_PATH)) {
+    // Publication content follows compile inputs; cache callers also retain conservative runtime-path reach.
+    if (includeRuntimePaths || build) for (const m of text.matchAll(PARENT_PATH)) {
       consider(file, [fileDir, dir], m[0]);
     }
     // A module attribute names its file relative to the including file's directory (tried against the crate directory too).
@@ -505,7 +506,7 @@ export function externalInputs({ dir, files, readBlob, exists }) {
       for (const m of text.matchAll(RERUN_LITERAL)) consider(file, [dir], m[1].trim());
       if (BUILD_LEAVES_CRATE.test(text)) stop(`${file}: a build script that reads files and navigates out of its crate`);
     }
-    if (!build && !external && leavesCrate === null && TEST_LEAVES_CRATE.test(text)) leavesCrate = file;
+    if (includeRuntimePaths && !build && !external && leavesCrate === null && TEST_LEAVES_CRATE.test(text)) leavesCrate = file;
   };
   for (const file of files) if (file.endsWith(".rs")) enqueue(file, { build: path.posix.basename(file) === "build.rs" && path.posix.dirname(file) === dir });
   // Fixed point: an out-of-crate .rs file that is reached is itself a source, so its own references are followed, and theirs.

@@ -10,6 +10,7 @@ import { validateCandidate, selectCandidate, selectArchiveSupplement, checkProve
 import { SUPPLEMENT_WORKFLOW, SUPPLEMENT_POLICY } from "./supplemental-proof.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
+import { buildScanReceipt, REQUIRED_SCAN_IDS, SCAN_RECEIPT_FILE, SCAN_TOOL_PINS } from "./scan-receipt.mjs";
 
 const SOURCE = "a".repeat(40); const PROMOTION = "b".repeat(40);
 const clone = (x) => structuredClone(x);
@@ -94,12 +95,13 @@ function fixture(t, mutate = () => {}, supplemental = false) {
       else if (route === "actions/runs/99/attempts/1") doc = state.supplementRun;
       else if (route === "actions/runs/99/attempts/1/jobs?per_page=100") doc = state.supplementJobs;
       else if (route === "actions/runs/77/artifacts?per_page=100&page=1") doc = qaListing;
+      else if (route === "actions/runs/77/artifacts?name=scan-receipt-1&per_page=100") doc = { total_count: artifacts[500] ? 1 : 0, artifacts: artifacts[500] ? [artifacts[500]] : [] };
       else if (route === "actions/runs/77/attempts/1") doc = provenance.run;
       else if (route === "actions/runs/77/attempts/1/jobs?per_page=100") doc = provenance.jobs;
       else if (route === `compare/${PROMOTION}...${PROMOTION}`) doc = { status: "identical", merge_base_commit: { sha: PROMOTION } };
       else if (route.startsWith("compare/")) doc = provenance.comparison;
       else if (/^actions\/artifacts\/\d+$/.test(route)) doc = artifacts[route.split("/")[2]];
-      else if (/^actions\/artifacts\/\d+\/zip$/.test(route)) { const host = route.includes("/300/") ? "qa-macos" : route.includes("/301/") ? "qa-windows" : route.includes("/400/") ? "admission" : route.includes("/200/") ? "supplement" : Object.keys(candidate.artifacts).find((h) => candidate.artifacts[h].id === route.split("/")[2]); return { ok: true, status: 200, arrayBuffer: async () => archives[host] }; }
+      else if (/^actions\/artifacts\/\d+\/zip$/.test(route)) { const host = route.includes("/500/") ? "scan-receipt" : route.includes("/300/") ? "qa-macos" : route.includes("/301/") ? "qa-windows" : route.includes("/400/") ? "admission" : route.includes("/200/") ? "supplement" : Object.keys(candidate.artifacts).find((h) => candidate.artifacts[h].id === route.split("/")[2]); return { ok: true, status: 200, arrayBuffer: async () => archives[host] }; }
       else throw new Error(`unexpected API route ${route}`);
       return { ok: true, status: 200, json: async () => doc };
     }
@@ -600,6 +602,23 @@ test("actual workflow identify command fails without output on malformed or unau
   }
 });
 
+test("legacy reviewed sparse checkout imports without direct-publication scan dependencies", async (t) => {
+  const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
+  const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(scratch, "rk-reviewed-sparse-")));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const workflow = parseYaml(fs.readFileSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url), "utf8"));
+  const checkout = Object.values(workflow.jobs).flatMap((job) => job.steps ?? []).find((step) => step.with?.["sparse-checkout"]);
+  for (const name of String(checkout.with["sparse-checkout"]).trim().split(/\s+/)) {
+    const destination = path.join(temp, name);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(new URL(`../../${name}`, import.meta.url), destination);
+  }
+  assert.equal(fs.existsSync(path.join(temp, "scripts/ci/scan-receipt.mjs")), false);
+  assert.equal(fs.existsSync(path.join(temp, "packages/release/scan-digest.mjs")), false);
+  const imported = await import(pathToFileURL(path.join(temp, "scripts/ci/reviewed-candidate.mjs")).href);
+  assert.equal(typeof imported.runReviewed, "function");
+});
+
 test("CLI dispatch settles a fresh dynamic admission backedge & fails closed on unfinished work", (t) => {
   const scratch = process.env.RIGHTKIT_TEST_SCRATCH ?? process.env.RUNNER_TEMP ?? os.tmpdir();
   const temp = fs.realpathSync.native(fs.mkdtempSync(path.join(scratch, "rk-reviewed-entry-")));
@@ -759,6 +778,13 @@ const directEnv = (f, extra = {}) => {
   return env;
 };
 function green(f) {
+  const scans = REQUIRED_SCAN_IDS.map((id) => ({ id, class: "A", command: `cmd ${id}`, status: "pass" }));
+  const scanReceipt = buildScanReceipt({ result: { ok: true, complete: true, classes: ["A"], deferred: [], scans }, plannedClassA: scans, sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: sha("sha256", fs.readFileSync(new URL("../../Cargo.lock", import.meta.url))), observedTools: SCAN_TOOL_PINS, run: { repository: "bogusyogi/rightkit", runId: "77", runAttempt: "1" }, scope: { registry: "crates", units: ["rightkit-a"] } });
+  f.files["scan-receipt"] = { [SCAN_RECEIPT_FILE]: Buffer.from(JSON.stringify(scanReceipt)) };
+  f.archives["scan-receipt"] = proofArchive(f.files["scan-receipt"]);
+  f.artifacts[500] = { id: 500, name: "scan-receipt-1", expired: false, digest: `sha256:${sha("sha256", f.archives["scan-receipt"])}`, workflow_run: { id: 77, head_sha: SOURCE, head_branch: "main", repository_id: 99, head_repository_id: 99 } };
+  f.provenance.jobs.jobs.push({ name: "scans", conclusion: "success", run_id: 77, run_attempt: 1, status: "completed", head_sha: SOURCE });
+  f.provenance.jobs.total_count += 1;
   f.provenance.run.conclusion = "success";
   f.provenance.jobs.jobs.push({ name: "qualified", conclusion: "success", run_id: 77, run_attempt: 1, status: "completed", head_sha: SOURCE });
   f.provenance.jobs.total_count += 1;
@@ -766,6 +792,24 @@ function green(f) {
   f.qaListing.total_count += 3;
   return f;
 }
+
+test("direct publication refuses missing, failed or differently scoped deterministic proof before registry access", async (t) => {
+  for (const change of [
+    (f) => { delete f.artifacts[500]; },
+    (f) => { f.provenance.jobs.jobs.find((job) => job.name === "scans").conclusion = "failure"; },
+    (f) => {
+      const doc = JSON.parse(f.files["scan-receipt"][SCAN_RECEIPT_FILE]);
+      doc.scope.units = ["rightkit-other"];
+      f.files["scan-receipt"][SCAN_RECEIPT_FILE] = Buffer.from(JSON.stringify(doc));
+      f.archives["scan-receipt"] = proofArchive(f.files["scan-receipt"]);
+      f.artifacts[500].digest = `sha256:${sha("sha256", f.archives["scan-receipt"])}`;
+    },
+  ]) {
+    const f = green(fixture(t)); change(f);
+    await assert.rejects(runQualified({ env: directEnv(f), identify: true, fetchImpl: f.fetchImpl, spawn: f.spawn }), /scan receipt refused/);
+    assert.equal(f.puts.length, 0);
+  }
+});
 
 test("a green qualification run publishes its own sealed bytes directly: no candidate, no approval pin, no reviewed dispatch", async (t) => {
   const f = green(fixture(t));
@@ -840,6 +884,7 @@ test("publish-direct workflow: fires on completed publish runs of main, identifi
   assert.equal(checkout.uses, "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1");
   assert.equal(checkout.with.ref, "${{ github.event.workflow_run.head_sha }}");
   assert.equal(String(checkout.with["persist-credentials"]), "false");
+  for (const input of ["Cargo.lock", "packages/release/scan-digest.mjs", "scripts/ci/scan-receipt.mjs"]) assert.ok(String(checkout.with["sparse-checkout"]).split("\n").includes(input), input);
   assert.ok(!String(checkout.with["sparse-checkout"]).includes("approved-artifacts"), "the committed approval file is not an input of direct publication");
   assert.equal(node.uses, "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020");
   const source = { GITHUB_TOKEN: "${{ github.token }}", PUBLISH_QUALIFIED_RUN_ID: "${{ github.event.workflow_run.id }}", PUBLISH_QUALIFIED_RUN_ATTEMPT: "${{ github.event.workflow_run.run_attempt }}", PUBLISH_QUALIFIED_SHA: "${{ github.event.workflow_run.head_sha }}" };

@@ -48,13 +48,17 @@ What is implemented today:
 - The scans are always on in CI: there is no enable switch and no `deterministicScans` config key.
   A missing tool, a deferred scan or a failed scan fails the job; none of them is ever scan success.
 - `publish.yml` job 0, `scans`, runs `scripts/ci/run-deterministic-scans.mjs` (class A only, the
-  whole candidate, no changed-file narrowing; every planned class A scan must pass) before `plan` and
+  full requested units & shared qualification inputs, never a diff; every planned class A scan must pass) before `plan` and
   every build lane, with `cargo-deny` 0.20.2 and `cargo-audit` 0.22.2 (SHA-pinned
   `taiki-e/install-action`) and a checksum-verified `actionlint` 1.7.12. It runs on Ubuntu, where
   native crates do not compile, so class B (compile, lint) runs in the native `verify` jobs on their own
   hosts. `verify` and `verify-linux` `needs: scans` and pass `needs.scans.result` to `gate.mjs` as
-  `RK_SCANS_JOB_RESULT`; `scans` is not a default gate step and those jobs install no scan tools. It uploads
-  the scan receipt (classes `["A"]`), which `publish-reviewed.yml` verifies against the original run (commit,
+  `RK_SCANS_JOB_RESULT`; `scans` is not a default gate step and those jobs install no scan tools.
+  Selected content includes complete requested package directories, crate consumers, referenced external Rust inputs,
+  shared CI/release tooling, workflows & root configuration. All Cargo manifests remain metadata inputs; unrelated
+  crate/template/vendor Rust is excluded from formatting. Unresolved external source inputs refuse qualification
+  (`scripts/ci/run-deterministic-scans.mjs`, `publicationContent`). The receipt binds registry & requested units.
+  It uploads the scan receipt (classes `["A"]`), which `publish-reviewed.yml` verifies against the original run (commit,
   `Cargo.lock` digest, tool versions, every scan passed) before any upload.
 - `ci.yml` runs the class A scans in the `hygiene` job (`gate.mjs --steps scans`) with the same pinned
   tools, before any compile or test step, for every change: Rust, npm, workflow, scripts and docs. The

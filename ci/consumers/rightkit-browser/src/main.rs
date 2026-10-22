@@ -2,8 +2,8 @@ use rightkit_browser::{
     actions_digest, chrome_for_testing_path, parse_netscape, BrowserError, BrowserSession,
     ClearOutcome, CookieExport, CookieExportError, FixtureAction, FixtureAttestation,
     FixtureBundle, FixtureCancellation, FixtureConfinementBackend, FixtureError, FixtureFile,
-    FixtureIntent, FixtureOutcomeStatus, FixtureServer, FixtureSession, LaunchOptions,
-    ManagedRoot, NetscapeCookie, FIXTURE_SCHEMA,
+    FixtureIntent, FixtureOutcomeStatus, FixtureServer, FixtureSession, LaunchOptions, ManagedRoot,
+    NetscapeCookie, FIXTURE_SCHEMA,
 };
 use sha2::{Digest, Sha256};
 use std::error::Error;
@@ -25,7 +25,10 @@ fn require(condition: bool, message: &str) -> Result<()> {
 
 fn required_env(key: &str) -> Result<String> {
     let value = std::env::var(key)?;
-    require(!value.trim().is_empty(), "required qualification input is empty")?;
+    require(
+        !value.trim().is_empty(),
+        "required qualification input is empty",
+    )?;
     Ok(value)
 }
 
@@ -53,10 +56,16 @@ fn hash_matches(path: &Path, expected: &str) -> Result<()> {
 /// Run before creating runtime threads. No fallback to user Chrome, caches or downloads.
 fn bind_managed_assets() -> Result<PathBuf> {
     let root = ManagedRoot::at(PathBuf::from(required_env("RK_R2_CFT_ROOT")?));
-    require(root.path().is_absolute(), "managed CFT root must be absolute")?;
+    require(
+        root.path().is_absolute(),
+        "managed CFT root must be absolute",
+    )?;
     let current = fs::canonicalize(root.current())?;
     let executable = fs::canonicalize(root.executable())?;
-    require(executable.starts_with(&current), "CFT executable escapes managed current")?;
+    require(
+        executable.starts_with(&current),
+        "CFT executable escapes managed current",
+    )?;
     hash_matches(&executable, &required_env("RK_R2_CFT_SHA256")?)?;
     std::env::set_var("RIGHTKIT_CHROME_FOR_TESTING_ROOT", root.path());
     std::env::set_var("RIGHTKIT_CHROME_FOR_TESTING", &executable);
@@ -67,7 +76,10 @@ fn bind_managed_assets() -> Result<PathBuf> {
             root.current()
                 .join("chrome-headless-shell-win64/chrome-headless-shell.exe"),
         )?;
-        require(shell.starts_with(&current), "headless shell escapes managed current")?;
+        require(
+            shell.starts_with(&current),
+            "headless shell escapes managed current",
+        )?;
         hash_matches(&shell, &required_env("RK_R2_HEADLESS_SHELL_SHA256")?)?;
         std::env::set_var("RIGHTKIT_CHROME_HEADLESS_SHELL", shell);
     }
@@ -103,18 +115,21 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
     options.chrome_path = Some(executable.to_path_buf());
     options.launch_timeout = Duration::from_secs(30);
     options.request_timeout = Duration::from_secs(5);
-    let session = tokio::time::timeout(
-        Duration::from_secs(45),
-        BrowserSession::launch(options),
-    )
-    .await??;
+    let session =
+        tokio::time::timeout(Duration::from_secs(45), BrowserSession::launch(options)).await??;
     let profile = session.profile_dir().to_path_buf();
     let operation = tokio::time::timeout(Duration::from_secs(30), async {
         let first = session.new_page("about:blank").await?;
         let second = session.new_page("about:blank").await?;
-        require(first.id() != second.id(), "tabs must have distinct identities")?;
+        require(
+            first.id() != second.id(),
+            "tabs must have distinct identities",
+        )?;
         session.select_page(first.id()).await?;
-        require(session.current()?.id() == first.id(), "tab selection failed")?;
+        require(
+            session.current()?.id() == first.id(),
+            "tab selection failed",
+        )?;
         session.close_page(second.id()).await?;
         require(
             matches!(session.page(second.id()), Err(BrowserError::UnknownPage(_))),
@@ -125,17 +140,22 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
             NetscapeCookie::new(".example.test", "sid", "r2-session-value")?
                 .with_secure(true)
                 .with_http_only(true),
-            NetscapeCookie::new("sub.example.test", "pref", "r2-preference")?
-                .with_path("/app")?,
+            NetscapeCookie::new("sub.example.test", "pref", "r2-preference")?.with_path("/app")?,
             NetscapeCookie::new("unrelated.example", "outside", "r2-outside")?,
         ];
-        require(first.import_cookies(&seed).await? == seed.len(), "cookie import count")?;
+        require(
+            first.import_cookies(&seed).await? == seed.len(),
+            "cookie import count",
+        )?;
         let stored = first.raw().get_cookies().await?;
         let mut observed = Vec::new();
         for cookie in stored {
             // These are session-cookie vectors. Refuse an unexpected persistent cookie
             // rather than silently discarding its expiry during conversion.
-            require(cookie.session, "unexpected persistent cookie in isolated profile")?;
+            require(
+                cookie.session,
+                "unexpected persistent cookie in isolated profile",
+            )?;
             observed.push(
                 NetscapeCookie::new(&cookie.domain, &cookie.name, &cookie.value)?
                     .with_path(&cookie.path)?
@@ -143,10 +163,16 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
                     .with_http_only(cookie.http_only),
             );
         }
-        require(observed.len() == seed.len(), "browser did not retain imported cookies")?;
+        require(
+            observed.len() == seed.len(),
+            "browser did not retain imported cookies",
+        )?;
         export_contract(scratch, &observed)?;
         session.close_page(first.id()).await?;
-        require(session.pages().is_empty(), "tab registry not empty after close")?;
+        require(
+            session.pages().is_empty(),
+            "tab registry not empty after close",
+        )?;
         println!("proof real_tabs_import_close=pass");
         Ok::<(), Box<dyn Error + Send + Sync>>(())
     })
@@ -159,7 +185,10 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
         tokio::time::timeout(Duration::from_secs(15), session.cancel()).await?;
     }
     drop(session);
-    require(!profile.exists(), "owned browser profile remained after shutdown")?;
+    require(
+        !profile.exists(),
+        "owned browser profile remained after shutdown",
+    )?;
     println!("proof browser_owned_shutdown_profile_removed=pass");
     operation??;
     Ok(())
@@ -169,7 +198,10 @@ fn export_contract(scratch: &Path, observed: &[NetscapeCookie]) -> Result<()> {
     let path = scratch.join("auth/cookies.txt");
     let export = CookieExport::new(["example.test"])?.mark_http_only(true);
     let report = export.export_to(&path, observed)?;
-    require(report.exported == 2 && report.out_of_scope == 1, "declared-domain subset count")?;
+    require(
+        report.exported == 2 && report.out_of_scope == 1,
+        "declared-domain subset count",
+    )?;
     let old = fs::read(&path)?;
     let parsed = parse_netscape(std::str::from_utf8(&old)?)?;
     require(parsed.len() == 2, "Netscape round-trip count")?;
@@ -178,12 +210,15 @@ fn export_contract(scratch: &Path, observed: &[NetscapeCookie]) -> Result<()> {
         "out-of-scope cookie escaped export filter",
     )?;
     require(
-        parsed.iter().any(|cookie| cookie.name == "sid"
-            && cookie.secure && cookie.http_only && cookie.include_subdomains),
+        parsed.iter().any(|cookie| {
+            cookie.name == "sid" && cookie.secure && cookie.http_only && cookie.include_subdomains
+        }),
         "secure, HttpOnly or domain field lost",
     )?;
     require(
-        parsed.iter().any(|cookie| cookie.name == "pref" && cookie.path == "/app"),
+        parsed
+            .iter()
+            .any(|cookie| cookie.name == "pref" && cookie.path == "/app"),
         "cookie path lost",
     )?;
     rightkit_fs::private::verify_owner_only(&path)?;
@@ -211,21 +246,36 @@ fn export_contract(scratch: &Path, observed: &[NetscapeCookie]) -> Result<()> {
         matches!(empty, Err(CookieExportError::NothingToExport { .. })),
         "empty export was not refused",
     )?;
-    require(fs::read(&path)? == old, "empty export replaced old artifact")?;
+    require(
+        fs::read(&path)? == old,
+        "empty export replaced old artifact",
+    )?;
     let mut invalid = NetscapeCookie::new("example.test", "invalid", "r2-invalid")?;
     invalid.path = "relative".into();
     require(
-        matches!(export.export_to(&path, &[invalid]), Err(CookieExportError::InvalidCookie { .. })),
+        matches!(
+            export.export_to(&path, &[invalid]),
+            Err(CookieExportError::InvalidCookie { .. })
+        ),
         "invalid export was not refused",
     )?;
-    require(fs::read(&path)? == old, "invalid export replaced old artifact")?;
+    require(
+        fs::read(&path)? == old,
+        "invalid export replaced old artifact",
+    )?;
     let mut engine_snapshot = Some(parsed);
     let cleared = CookieExport::clear_with(&path, |_| engine_snapshot = None)?;
-    require(cleared == ClearOutcome::Removed && engine_snapshot.is_none(), "snapshot invalidation failed")?;
+    require(
+        cleared == ClearOutcome::Removed && engine_snapshot.is_none(),
+        "snapshot invalidation failed",
+    )?;
     require(!path.exists(), "cleared cookie artifact remains")?;
     let mut absent_callback = false;
     let absent = CookieExport::clear_with(&path, |_| absent_callback = true)?;
-    require(absent == ClearOutcome::Absent && absent_callback, "absent artifact did not invalidate snapshot")?;
+    require(
+        absent == ClearOutcome::Absent && absent_callback,
+        "absent artifact did not invalidate snapshot",
+    )?;
     println!("proof cookie_export_scope_netscape_private_preservation_clear=pass");
     Ok(())
 }
@@ -237,14 +287,16 @@ fn fixture_files() -> Vec<FixtureFile> {
             content_type: "text/html; charset=utf-8".into(),
             body: br#"<!doctype html><meta charset="utf-8"><title>R2 fixture</title>
 <link rel="icon" href="data:,"><button id="commit">Commit</button>
-<p id="result">pending</p><script src="/fixture.js"></script>"#.to_vec(),
+<p id="result">pending</p><script src="/fixture.js"></script>"#
+                .to_vec(),
         },
         FixtureFile {
             path: "/fixture.js".into(),
             content_type: "application/javascript; charset=utf-8".into(),
             body: br#"document.getElementById('commit').addEventListener('click', event => {
 document.getElementById('result').innerText = event.isTrusted ? 'trusted' : 'untrusted';
-});"#.to_vec(),
+});"#
+                .to_vec(),
         },
     ]
 }
@@ -255,11 +307,19 @@ async fn fixture_case(cancel: bool) -> Result<()> {
     let bundle = FixtureBundle::verify("r2-consumer", &digest, files)?;
     let server = FixtureServer::prepare(bundle).await?;
     let actions = if cancel {
-        vec![FixtureAction::AssertVisible { selector: "#never-created".into(), timeout: Some(5_000) }]
+        vec![FixtureAction::AssertVisible {
+            selector: "#never-created".into(),
+            timeout: Some(5_000),
+        }]
     } else {
         vec![
-            FixtureAction::Click { selector: "#commit".into() },
-            FixtureAction::AssertText { selector: "#result".into(), text: "trusted".into() },
+            FixtureAction::Click {
+                selector: "#commit".into(),
+            },
+            FixtureAction::AssertText {
+                selector: "#result".into(),
+                text: "trusted".into(),
+            },
         ]
     };
     let expected_actions = actions.len();
@@ -274,8 +334,10 @@ async fn fixture_case(cancel: bool) -> Result<()> {
         expires_after_ms: 30_000,
     };
     let launched = tokio::time::timeout(
-        Duration::from_secs(45), FixtureSession::launch(server, intent),
-    ).await?;
+        Duration::from_secs(45),
+        FixtureSession::launch(server, intent),
+    )
+    .await?;
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         return match launched {
@@ -283,7 +345,9 @@ async fn fixture_case(cancel: bool) -> Result<()> {
                 eprintln!("proof fixture_native=unsupported typed=ConfinementUnsupported");
                 Err(io::Error::new(io::ErrorKind::Unsupported, detail).into())
             }
-            _ => Err(io::Error::other("unsupported native target did not return typed refusal").into()),
+            _ => Err(
+                io::Error::other("unsupported native target did not return typed refusal").into(),
+            ),
         };
     }
     #[cfg(any(windows, target_os = "macos"))]
@@ -307,12 +371,17 @@ async fn fixture_case(cancel: bool) -> Result<()> {
                 Ok(result) => result,
                 Err(_) => {
                     cancel_signal.cancel();
-                    let result = tokio::time::timeout(Duration::from_secs(45), &mut execution).await?;
+                    let result =
+                        tokio::time::timeout(Duration::from_secs(45), &mut execution).await?;
                     match &result {
                         Ok(outcome) => assert_terminal(&initial, &outcome.attestation).await?,
                         Err(failure) => assert_terminal(&initial, &failure.attestation).await?,
                     }
-                    return Err(io::Error::new(io::ErrorKind::TimedOut, "fixture exceeded normal run bound").into());
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "fixture exceeded normal run bound",
+                    )
+                    .into());
                 }
             }
         };
@@ -320,23 +389,43 @@ async fn fixture_case(cancel: bool) -> Result<()> {
             Ok(outcome) => {
                 assert_terminal(&initial, &outcome.attestation).await?;
                 require(!cancel, "cancellation fixture unexpectedly passed")?;
-                require(outcome.status == FixtureOutcomeStatus::Passed && outcome.cleanup_complete,
-                    "fixture outcome did not pass with cleanup")?;
-                require(outcome.completed_actions == expected_actions, "fixture actions not completed")?;
+                require(
+                    outcome.status == FixtureOutcomeStatus::Passed && outcome.cleanup_complete,
+                    "fixture outcome did not pass with cleanup",
+                )?;
+                require(
+                    outcome.completed_actions == expected_actions,
+                    "fixture actions not completed",
+                )?;
             }
             Err(failure) => {
                 assert_terminal(&initial, &failure.attestation).await?;
-                require(failure.cleanup_complete && failure.cleanup_error.is_none(), "fixture failure lacks cleanup proof")?;
-                require(cancel && matches!(failure.cause, FixtureError::Cancelled(_)), "unexpected fixture failure class")?;
-                require(failure.completed_actions == 0, "cancelled missing action completed")?;
+                require(
+                    failure.cleanup_complete && failure.cleanup_error.is_none(),
+                    "fixture failure lacks cleanup proof",
+                )?;
+                require(
+                    cancel && matches!(failure.cause, FixtureError::Cancelled(_)),
+                    "unexpected fixture failure class",
+                )?;
+                require(
+                    failure.completed_actions == 0,
+                    "cancelled missing action completed",
+                )?;
             }
         }
-        println!("proof fixture_{}=pass terminal_identity_cleanup=verified", if cancel { "cancel" } else { "trusted_action" });
+        println!(
+            "proof fixture_{}=pass terminal_identity_cleanup=verified",
+            if cancel { "cancel" } else { "trusted_action" }
+        );
         Ok(())
     }
 }
 
-async fn assert_terminal(initial: &FixtureAttestation, terminal: &FixtureAttestation) -> Result<()> {
+async fn assert_terminal(
+    initial: &FixtureAttestation,
+    terminal: &FixtureAttestation,
+) -> Result<()> {
     require(
         initial.browser_process_instance == terminal.browser_process_instance
             && initial.browser_session_id == terminal.browser_session_id
@@ -357,22 +446,41 @@ async fn assert_terminal(initial: &FixtureAttestation, terminal: &FixtureAttesta
         "terminal evidence changed owned fixture identity",
     )?;
     #[cfg(windows)]
-    require(terminal.confinement_backend == FixtureConfinementBackend::WindowsAppcontainerPipeFulfillment,
-        "Windows fixture did not attest AppContainer backend")?;
+    require(
+        terminal.confinement_backend
+            == FixtureConfinementBackend::WindowsAppcontainerPipeFulfillment,
+        "Windows fixture did not attest AppContainer backend",
+    )?;
     #[cfg(target_os = "macos")]
-    require(terminal.confinement_backend == FixtureConfinementBackend::MacosSeatbeltProxy,
-        "macOS fixture did not attest Seatbelt backend")?;
+    require(
+        terminal.confinement_backend == FixtureConfinementBackend::MacosSeatbeltProxy,
+        "macOS fixture did not attest Seatbelt backend",
+    )?;
     let cleanup = &terminal.output_cleanup;
-    require(cleanup.browser_stopped && cleanup.transport_stopped && cleanup.proxy_stopped
-        && cleanup.server_stopped && cleanup.profile_removed, "terminal cleanup evidence incomplete")?;
-    require(!Path::new(&terminal.profile_identity).exists(), "fixture profile remained")?;
+    require(
+        cleanup.browser_stopped
+            && cleanup.transport_stopped
+            && cleanup.proxy_stopped
+            && cleanup.server_stopped
+            && cleanup.profile_removed,
+        "terminal cleanup evidence incomplete",
+    )?;
+    require(
+        !Path::new(&terminal.profile_identity).exists(),
+        "fixture profile remained",
+    )?;
     let endpoint: SocketAddr = terminal.server_endpoint.parse()?;
-    require(TcpStream::connect_timeout(&endpoint, Duration::from_millis(300)).is_err(),
-        "fixture server still accepts connections")?;
+    require(
+        TcpStream::connect_timeout(&endpoint, Duration::from_millis(300)).is_err(),
+        "fixture server still accepts connections",
+    )?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
         match TcpListener::bind(endpoint) {
-            Ok(listener) => { drop(listener); break; }
+            Ok(listener) => {
+                drop(listener);
+                break;
+            }
             Err(_) if tokio::time::Instant::now() < deadline => {
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }

@@ -11,10 +11,15 @@ use std::time::Duration;
 fn engine() {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
-    writeln!(out, "{}", json!({
-        "type": "hello", "engine": "pk06-consumer", "version": "1",
-        "contract_version": 1
-    })).unwrap();
+    writeln!(
+        out,
+        "{}",
+        json!({
+            "type": "hello", "engine": "pk06-consumer", "version": "1",
+            "contract_version": 1
+        })
+    )
+    .unwrap();
     out.flush().unwrap();
     let mut initialized = false;
     let mut calls = Vec::new();
@@ -32,9 +37,14 @@ fn engine() {
             "shutdown" => json!({}),
             other => panic!("unexpected method: {other}"),
         };
-        writeln!(out, "{}", json!({
-            "type": "response", "id": request["id"], "ok": true, "result": result
-        })).unwrap();
+        writeln!(
+            out,
+            "{}",
+            json!({
+                "type": "response", "id": request["id"], "ok": true, "result": result
+            })
+        )
+        .unwrap();
         out.flush().unwrap();
         if method == "shutdown" {
             return;
@@ -48,15 +58,23 @@ fn main() {
         return;
     }
     let registry = ActivityRegistry::new();
-    let (export, flag) = registry.register_with(
-        "export", ActivityOptions::new().label("Export").progress(0.25)
-    ).unwrap();
-    let (index, _) = registry.register_with(
-        "index", ActivityOptions::new().label("Index")
-    ).unwrap();
+    let (export, flag) = registry
+        .register_with(
+            "export",
+            ActivityOptions::new().label("Export").progress(0.25),
+        )
+        .unwrap();
+    let (index, _) = registry
+        .register_with("index", ActivityOptions::new().label("Index"))
+        .unwrap();
     let listed = registry.list();
-    assert_eq!(listed.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
-        vec!["export", "index"]);
+    assert_eq!(
+        listed
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["export", "index"]
+    );
     assert!(listed[0].seq < listed[1].seq);
     export.report(Some(0.75), Some("encoding"));
     assert_eq!(registry.get("export").unwrap().progress, Some(0.75));

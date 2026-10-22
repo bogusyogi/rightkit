@@ -35,6 +35,9 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
           sparse-checkout: |
+            Cargo.lock
+            packages/release/scan-digest.mjs
+            scripts/ci/scan-receipt.mjs
             scripts/ci/upload.mjs
             scripts/ci/registry-spec.mjs
             scripts/ci/reviewed-candidate.mjs

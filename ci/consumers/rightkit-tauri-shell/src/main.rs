@@ -22,13 +22,22 @@ use rightkit_tauri_shell::preview::{PreviewStore, TOKEN_HEX_LEN};
 use rightkit_tauri_shell::webview2_env::{plan, ProfileEnv, ENV_ADDITIONAL_BROWSER_ARGUMENTS};
 
 fn main() {
-    assert!(external_scheme_allowed("https://example.test/guide"), "https is external");
+    assert!(
+        external_scheme_allowed("https://example.test/guide"),
+        "https is external"
+    );
     assert!(
         external_scheme_allowed("  mailto:support@example.test"),
         "leading space is trimmed and mailto is external"
     );
-    assert!(!external_scheme_allowed("javascript:alert(1)"), "javascript is never external");
-    assert!(!external_scheme_allowed("file:///fixture/readme.txt"), "file is never external");
+    assert!(
+        !external_scheme_allowed("javascript:alert(1)"),
+        "javascript is never external"
+    );
+    assert!(
+        !external_scheme_allowed("file:///fixture/readme.txt"),
+        "file is never external"
+    );
     assert!(
         !external_scheme_allowed("https://example.test/\u{7}"),
         "control characters are refused"
@@ -39,25 +48,56 @@ fn main() {
         Ok("app-shell".to_string()),
         "a well-formed scheme is lowercased"
     );
-    assert!(validate_internal_scheme("https").is_err(), "https cannot be internal");
-    assert!(validate_internal_scheme("javascript").is_err(), "javascript cannot be internal");
-    assert!(validate_internal_scheme("1scheme").is_err(), "a scheme starts with a letter");
+    assert!(
+        validate_internal_scheme("https").is_err(),
+        "https cannot be internal"
+    );
+    assert!(
+        validate_internal_scheme("javascript").is_err(),
+        "javascript cannot be internal"
+    );
+    assert!(
+        validate_internal_scheme("1scheme").is_err(),
+        "a scheme starts with a letter"
+    );
 
     let content = vec!["html-content".to_string(), "doc-*".to_string()];
-    assert!(is_content_label(&content, "html-content"), "exact content label matches");
-    assert!(is_content_label(&content, "doc-1"), "prefix content pattern matches");
-    assert!(!is_content_label(&content, "main"), "the app window is not content");
-    assert!(!is_content_label(&content, "settings"), "a trusted window is not content");
-    assert!(!is_content_label(&[], "doc-1"), "no registered content labels, no match");
+    assert!(
+        is_content_label(&content, "html-content"),
+        "exact content label matches"
+    );
+    assert!(
+        is_content_label(&content, "doc-1"),
+        "prefix content pattern matches"
+    );
+    assert!(
+        !is_content_label(&content, "main"),
+        "the app window is not content"
+    );
+    assert!(
+        !is_content_label(&content, "settings"),
+        "a trusted window is not content"
+    );
+    assert!(
+        !is_content_label(&[], "doc-1"),
+        "no registered content labels, no match"
+    );
 
-    for refused in ["--remote-debugging-port=9222", "--REMOTE-DEBUGGING-PIPE", "--no-sandbox"] {
+    for refused in [
+        "--remote-debugging-port=9222",
+        "--REMOTE-DEBUGGING-PIPE",
+        "--no-sandbox",
+    ] {
         assert!(
             plan(&ProfileEnv::new().arg(refused)).is_err(),
             "shell policy refuses {refused}"
         );
     }
     let planned = plan(&ProfileEnv::new().arg("--lang=en-GB")).expect("a benign argument plans");
-    assert_eq!(planned, vec![(ENV_ADDITIONAL_BROWSER_ARGUMENTS, "--lang=en-GB".to_string())]);
+    assert_eq!(
+        planned,
+        vec![(ENV_ADDITIONAL_BROWSER_ARGUMENTS, "--lang=en-GB".to_string())]
+    );
 
     let store = PreviewStore::new([("html", "default-src 'none'; img-src data:")])
         .expect("a declared preview kind builds a store");

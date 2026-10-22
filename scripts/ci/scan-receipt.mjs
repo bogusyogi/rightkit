@@ -73,7 +73,17 @@ export function resultProblems(result, plannedClassA) {
   return problems;
 }
 
-export function buildScanReceipt({ result, plannedClassA, sourceCommit, headCommit, cargoLockSha256, observedTools, run }) {
+const UNIT_NAME = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+function validScope(scope) {
+  return scope && typeof scope === "object" && !Array.isArray(scope) &&
+    JSON.stringify(Object.keys(scope).sort()) === JSON.stringify(["registry", "units"]) &&
+    ["npm", "crates"].includes(scope.registry) && Array.isArray(scope.units) && scope.units.length > 0 &&
+    scope.units.every((name) => typeof name === "string" && UNIT_NAME.test(name)) &&
+    JSON.stringify(scope.units) === JSON.stringify([...new Set(scope.units)].sort());
+}
+
+export function buildScanReceipt({ result, plannedClassA, sourceCommit, headCommit, cargoLockSha256, observedTools, run, scope }) {
+  if (scope !== undefined) requireThat(validScope(scope), "malformed scan scope");
   const problems = [...resultProblems(result, plannedClassA), ...toolVersionProblems(observedTools)];
   const rows = (result?.scans ?? []).map(({ id, class: cls, command, status }) => ({ id, class: cls, command, status }));
   return {
@@ -81,6 +91,7 @@ export function buildScanReceipt({ result, plannedClassA, sourceCommit, headComm
     passed: problems.length === 0,
     problems,
     sourceCommit, headCommit, cargoLockSha256,
+    ...(scope === undefined ? {} : { scope: { registry: scope.registry, units: [...scope.units] } }),
     repository: run.repository, runId: String(run.runId), runAttempt: String(run.runAttempt),
     tools: { pinned: { ...SCAN_TOOL_PINS }, observed: { ...observedTools }, scanned: { ...(result?.toolVersions ?? {}) } },
     classes: [...SCAN_RECEIPT_CLASSES],
@@ -93,9 +104,13 @@ export function buildScanReceipt({ result, plannedClassA, sourceCommit, headComm
 }
 
 /** Throws unless the receipt shows a complete, passed scan of exactly this source commit and lockfile. */
-export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, runAttempt, repository }) {
+export function verifyScanReceipt(receipt, { sourceSha, cargoLockSha256, runId, runAttempt, repository, registry, units }) {
   requireThat(receipt && typeof receipt === "object" && !Array.isArray(receipt), "receipt is not an object");
   requireThat(receipt.schema === SCAN_RECEIPT_SCHEMA, "unknown receipt schema");
+  if (Object.hasOwn(receipt, "scope")) {
+    requireThat(validScope(receipt.scope), "malformed scan scope");
+    requireThat(receipt.scope.registry === registry && Array.isArray(units) && units.length > 0 && units.every((name) => typeof name === "string" && UNIT_NAME.test(name) && receipt.scope.units.includes(name)), "scan scope does not cover the candidate registry and units");
+  }
   requireThat(receipt.passed === true && Array.isArray(receipt.problems) && receipt.problems.length === 0, "receipt does not show a passed scan");
   requireThat(HEX40.test(sourceSha ?? "") && receipt.sourceCommit === sourceSha && receipt.headCommit === sourceSha, "receipt is not bound to the candidate source commit");
   requireThat(HEX64.test(cargoLockSha256 ?? "") && receipt.cargoLockSha256 === cargoLockSha256, "receipt is not bound to the candidate Cargo.lock hash");
@@ -225,7 +240,7 @@ export async function verifyOriginalScanReceipt({ candidate, repository, env, ca
   try { receipt = JSON.parse(fs.readFileSync(path.join(destination, SCAN_RECEIPT_FILE), "utf8")); } catch { refuse("scan receipt is not valid JSON"); }
   const lock = path.join(candidateDir, "Cargo.lock");
   requireThat(fs.existsSync(lock), "candidate has no Cargo.lock to bind");
-  verifyScanReceipt(receipt, { sourceSha: candidate.sourceSha, cargoLockSha256: sha256Hex(fs.readFileSync(lock)), runId: candidate.runId, runAttempt: candidate.runAttempt, repository: repository.full_name });
+  verifyScanReceipt(receipt, { sourceSha: candidate.sourceSha, cargoLockSha256: sha256Hex(fs.readFileSync(lock)), runId: candidate.runId, runAttempt: candidate.runAttempt, repository: repository.full_name, registry: candidate.registry, units: candidate.units });
   return receipt;
 }
 

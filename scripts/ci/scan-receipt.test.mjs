@@ -35,6 +35,22 @@ test("a complete, passed, bound receipt verifies", () => {
   assert.equal(verifyScanReceipt(receipt(), expectation), true);
 });
 
+test("scoped receipts bind registry and cover candidates, including a subset after already-live units are skipped", () => {
+  const scope = { registry: "crates", units: ["rightkit-a", "rightkit-b"] };
+  const expected = { ...expectation, registry: "crates", units: ["rightkit-b"] };
+  assert.equal(verifyScanReceipt(receipt({ scope }), expected), true);
+  assert.equal(verifyScanReceipt(receipt(), expected), true, "legacy full-tree receipts remain valid");
+  for (const bad of [null, {}, { registry: "cargo", units: scope.units }, { registry: "crates", units: [] }, { registry: "crates", units: ["rightkit-b", "rightkit-a"] }, { registry: "crates", units: ["rightkit-a", "rightkit-a"] }, { registry: "crates", units: ["../escape"] }]) {
+    assert.throws(() => verifyScanReceipt(receipt({ scope: bad }), expected), /malformed scan scope/);
+  }
+  for (const mismatch of [{ registry: "npm", units: ["rightkit-b"] }, { registry: "crates", units: ["rightkit-c"] }, { registry: "crates", units: [] }]) {
+    assert.throws(() => verifyScanReceipt(receipt({ scope }), { ...expectation, ...mismatch }), /scan scope does not cover/);
+  }
+  const built = buildScanReceipt({ result: resultOf(), plannedClassA: rows(), sourceCommit: SOURCE, headCommit: SOURCE, cargoLockSha256: LOCK_SHA, observedTools: OBSERVED, run: RUN, scope });
+  assert.deepEqual(built.scope, scope);
+  assert.notEqual(built.scope.units, scope.units);
+});
+
 test("a receipt is refused unless passed and bound to the candidate source, lockfile and run", () => {
   const bad = {
     "not passed": (r) => { r.passed = false; },

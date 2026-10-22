@@ -18,10 +18,9 @@
 use rightkit_daemon::contract::{MethodPolicy, MethodTable};
 use rightkit_daemon::{
     valid_app_name, Allowlist, CallContext, Client, ClientConfig, ConnectError, CutoverError,
-    CutoverParticipant, CutoverPhase, Emit, FsMove, Handler, HostExpectation,
-    HostIdentityReason, HostOptions, MigrateOptions, RecoverOutcome, RetireMode, RootCutover,
-    RootSelection, Service, ServiceConfig, ServiceError, Suite, CUTOVER_RECORD,
-    ERROR_NOT_ALLOWED, ERROR_RATE_LIMITED,
+    CutoverParticipant, CutoverPhase, Emit, FsMove, Handler, HostExpectation, HostIdentityReason,
+    HostOptions, MigrateOptions, RecoverOutcome, RetireMode, RootCutover, RootSelection, Service,
+    ServiceConfig, ServiceError, Suite, CUTOVER_RECORD, ERROR_NOT_ALLOWED, ERROR_RATE_LIMITED,
 };
 use serde_json::{json, Value};
 use std::error::Error;
@@ -71,7 +70,10 @@ fn service_r2() -> Result<(), Box<dyn Error>> {
         json!({ "echo": { "n": 1 }, "app": "alpha" })
     );
     assert_eq!(
-        client.call("not_in_table", json!({})).expect_err("method outside table").code,
+        client
+            .call("not_in_table", json!({}))
+            .expect_err("method outside table")
+            .code,
         ERROR_NOT_ALLOWED
     );
     let other = suite.root().join("some-other-host-binary");
@@ -80,9 +82,14 @@ fn service_r2() -> Result<(), Box<dyn Error>> {
             assert_eq!(e.reason, HostIdentityReason::ExecutableMismatch);
             assert_eq!(e.found_pid, Some(std::process::id()));
         }
-        other => panic!("different executable must be refused, got {:?}", other.map(|_| ())),
+        other => panic!(
+            "different executable must be refused, got {:?}",
+            other.map(|_| ())
+        ),
     }
-    let ghost = Client::connect(&suite, "rkconsumer", "ghost").err().expect("unlisted app");
+    let ghost = Client::connect(&suite, "rkconsumer", "ghost")
+        .err()
+        .expect("unlisted app");
     assert_eq!(ghost.code, ERROR_NOT_ALLOWED);
     assert_eq!(ERROR_RATE_LIMITED, "rate_limited");
     drop(client);
@@ -109,7 +116,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(old.join("sub"))?;
     fs::write(old.join("a.txt"), b"alpha")?;
     fs::write(old.join("sub").join("b.txt"), b"beta")?;
-    assert!(RootCutover::status(&app)?.is_none(), "no record before the first cutover");
+    assert!(
+        RootCutover::status(&app)?.is_none(),
+        "no record before the first cutover"
+    );
 
     // A relative old root is refused before anything is copied or switched.
     let mut refused = RootCutover::new(app.clone(), "relative-old");
@@ -126,11 +136,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(report.generation, 1);
     assert!(!report.resumed, "the first run is not a resume");
     assert!(!report.already_completed, "the first run is not a rerun");
-    let migration = report.migration.as_ref().expect("a tree move reports its migration");
+    let migration = report
+        .migration
+        .as_ref()
+        .expect("a tree move reports its migration");
     assert!(migration.complete(), "the tree migration completed");
     assert_eq!(fs::read(app.root().join("a.txt"))?, b"alpha");
     assert_eq!(fs::read(app.root().join("sub").join("b.txt"))?, b"beta");
-    assert_eq!(fs::read(old.join("a.txt"))?, b"alpha", "the old root stays complete");
+    assert_eq!(
+        fs::read(old.join("a.txt"))?,
+        b"alpha",
+        "the old root stays complete"
+    );
 
     let status = RootCutover::status(&app)?.expect("a record exists after the cutover");
     assert_eq!(status.phase, CutoverPhase::Completed);
@@ -142,7 +159,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // A completed cutover reruns as a no-op, and recovery of a completed cutover is a no-op too.
     let again = cutover.run()?;
-    assert!(again.already_completed, "a completed cutover reruns as a no-op");
+    assert!(
+        again.already_completed,
+        "a completed cutover reruns as a no-op"
+    );
     let mut recovering = RootCutover::new(app.clone(), old.clone()).participant(NoOp);
     assert!(
         matches!(recovering.recover()?, RecoverOutcome::Completed),
@@ -155,7 +175,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(!old.exists(), "the old root was renamed aside");
     assert_eq!(fs::read(retired.path.join("a.txt"))?, b"alpha");
     let repeat = RootCutover::retire_old_root(&app, RetireMode::RenameAside)?;
-    assert!(repeat.already, "a second retirement reports the retired root");
+    assert!(
+        repeat.already,
+        "a second retirement reports the retired root"
+    );
 
     service_r2()?;
 

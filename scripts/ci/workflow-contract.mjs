@@ -213,13 +213,13 @@ export const SIGN_CREDENTIALS_ARTIFACT = "rightkit-credentials-helper-signed";
 export const DENY_IF = "${{ inputs.registry == 'crates' && contains(format(' {0} ', steps.plan.outputs.units), ' rightkit-typeset ') }}";
 export const DENY_TOOL = "cargo-deny@0.20.2";
 export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Cargo.toml check --config deny.toml licenses";
-// Job 0 (rightkit#888): the shared deterministic scans run over the whole candidate before plan and every build lane,
+// Job 0 (rightkit#888): the shared deterministic scans run over requested publication units & shared inputs before plan and every build lane,
 // and publish-reviewed.yml refuses a candidate whose scan receipt is missing. Pins mirror SCAN_TOOL_PINS in scan-receipt.mjs
 // (scan-receipt.test.mjs proves they agree) and the actionlint release checksum.
 export const SCANS_TOOLS = "cargo-deny@0.20.2,cargo-audit@0.22.2";
 export const SCANS_ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.12", ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" };
 export const SCANS_RUN = 'node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"';
-export const SCANS_ENV = { SCAN_CONTENT_ROOT: "${{ github.workspace }}/source", SCAN_LIVE_ROOT: "${{ github.workspace }}/live", SCAN_OUT: `${RT}/scan-receipt` };
+export const SCANS_ENV = { SCAN_CONTENT_ROOT: "${{ github.workspace }}/source", SCAN_LIVE_ROOT: "${{ github.workspace }}/live", SCAN_OUT: `${RT}/scan-receipt`, PUBLISH_REGISTRY: "${{ inputs.registry }}", PUBLISH_UNITS: "${{ inputs.units }}" };
 export const SCANS_ARTIFACT = "scan-receipt-${{ github.run_attempt }}";
 // The scans job proves class A only (it runs on Ubuntu, where native crates do not compile). The native verify jobs run class B
 // (compile, lint, test) on their own hosts and carry no scan tools, so each gate.mjs step there receives the scans job result
@@ -344,7 +344,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(lintInstall.length === 1 && same(lintInstall[0].env, SCANS_ACTIONLINT_ENV) && lintInstall[0].if === undefined && /releases\/download\/v\$\{ACTIONLINT_VERSION\}\//.test(lintInstall[0].run), "scans must install the checksum-verified pinned actionlint, unconditionally");
   const scanRunAt = scanSteps.findIndex((s) => s.run?.trim() === SCANS_RUN);
   const scanDepsAt = scanSteps.findIndex((s) => /pnpm install/.test(s.run ?? ""));
-  check(scanSteps.filter((s) => /run-deterministic-scans\.mjs/.test(s.run ?? "")).length === 1 && scanRunAt >= 0 && same(scanSteps[scanRunAt].env, SCANS_ENV) && scanSteps[scanRunAt].if === undefined && scanSteps[scanRunAt].shell === undefined, "scans must run run-deterministic-scans.mjs exactly once, unconditionally, with the fixed roots & output");
+  check(scanSteps.filter((s) => /run-deterministic-scans\.mjs/.test(s.run ?? "")).length === 1 && scanRunAt >= 0 && same(scanSteps[scanRunAt].env, SCANS_ENV) && scanSteps[scanRunAt].if === undefined && scanSteps[scanRunAt].shell === undefined, "scans must run run-deterministic-scans.mjs exactly once, unconditionally, with fixed roots, output & requested registry/units");
   check(scanDepsAt >= 0 && scanRunAt > scanDepsAt && scanRunAt > scanSteps.indexOf(scanInstall[0]) && scanRunAt > scanSteps.indexOf(lintInstall[0]), "scans must install tools & dependencies before running the scans");
   check(!scanSteps.some((s) => /pnpm install/.test(s.run ?? "") && !/--frozen-lockfile --ignore-scripts/.test(s.run ?? "")), "scans must install dependencies frozen & without lifecycle scripts");
   const scanUpload = scanSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
@@ -382,7 +382,7 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   const fsCleanupAt = verifyRuns.findIndex(r => r.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup");
   const fsSetup = stepsOf(verify)[fsSetupAt]; const fsCleanup = stepsOf(verify)[fsCleanupAt];
   check(fsSetupAt >= 0 && fsSetupAt < gateAt && fsCleanupAt > receiptAt && fsSetup?.if === fsIf && fsCleanup?.if === fsCleanupIf, "FS verification must mount native fixtures before gate & always clean up after archive consumer verification");
-  check(fsSetup?.run?.includes('path.join(process.env.RUNNER_TEMP, "rk-fs-native-state.json")') && fsSetup?.run?.includes('fs.appendFileSync(process.env.GITHUB_ENV, `RIGHTKIT_FS_TEST_OTHER_VOLUME=${plan.other}\\n`)') && fsSetup?.env?.FS_NATIVE_OUT === `${RT}/rightkit-ci/fs-native` && fsCleanup?.env?.FS_NATIVE_OUT === `${RT}/rightkit-ci/fs-native`, "FS gate must use mounted plan.other volume & retain fixture cleanup evidence");
+  check(fsSetup?.run?.includes('path.join(process.env.RUNNER_TEMP, "rk-fs-native-state.json")') && fsSetup?.run?.includes('fs.appendFileSync(process.env.GITHUB_ENV, "RIGHTKIT_FS_TEST_OTHER_VOLUME=" + plan.other + "\\n")') && fsSetup?.env?.FS_NATIVE_OUT === `${RT}/rightkit-ci/fs-native` && fsCleanup?.env?.FS_NATIVE_OUT === `${RT}/rightkit-ci/fs-native`, "FS gate must use mounted plan.other volume & retain fixture cleanup evidence");
   check(!verifyRuns.some(r => /node scripts\/ci\/registry-consumer\.mjs/.test(r)), "publish.mjs verify owns selected PK consumers without duplicate standalone Cargo consumers");
   const chromeStep = stepsOf(verify).find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
   check(chromeStep?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && chromeStep?.env?.PUBLISH_DRY_RUN === "false", "the Chrome pin step must require pinned downloads with PUBLISH_DRY_RUN false");
@@ -653,6 +653,8 @@ export const SCANS_MUTATIONS = [
   ["scans script is conditional", edit((j) => { scanStep(j, SCAN_RUNNER).if = "${{ inputs.registry == 'npm' }}"; })],
   ["scans script narrows to a diff", edit((j) => { scanStep(j, SCAN_RUNNER).run += " --base HEAD~1"; })],
   ["scans script allows deferral", edit((j) => { scanStep(j, SCAN_RUNNER).run += " --allow-deferred"; })],
+  ["scans script uses another registry", edit((j) => { scanStep(j, SCAN_RUNNER).env.PUBLISH_REGISTRY = "npm"; })],
+  ["scans script uses other units", edit((j) => { scanStep(j, SCAN_RUNNER).env.PUBLISH_UNITS = "rightkit-other"; })],
   ["scans script scans another root", edit((j) => { scanStep(j, SCAN_RUNNER).env.SCAN_CONTENT_ROOT = "${{ github.workspace }}/other"; })],
   ["scans runs before its tools are installed", edit((j) => { const i = j.scans.steps.findIndex(SCAN_RUNNER); const [step] = j.scans.steps.splice(i, 1); j.scans.steps.splice(2, 0, step); })],
   ["scans keeps no receipt", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => !SCAN_UPLOAD(s)); })],
@@ -684,7 +686,7 @@ export const MUTATIONS = [
   ["Chrome provision drops qa-chrome coverage", edit(j => { const s = j.verify.steps.find(s => /provision-chrome\.mjs/.test(s.run ?? "")); s.if = s.if.replace(" || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ')", ""); })],
   ["FS verification loses mounted fixture setup", edit(j => { j.verify.steps = j.verify.steps.filter(s => !s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); })],
   ["FS cleanup skips failed verification", edit(j => { j.verify.steps.find(s => s.run?.trim() === "node scripts/ci/fs-native-fixtures.mjs cleanup").if = "${{ success() }}"; })],
-  ["FS gate uses scratch instead of distinct mounted volume", edit(j => { const s = j.verify.steps.find(s => s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); s.run = s.run.replace("${plan.other}", "${plan.scratch}"); })],
+  ["FS gate uses scratch instead of distinct mounted volume", edit(j => { const s = j.verify.steps.find(s => s.run?.includes("node scripts/ci/fs-native-fixtures.mjs setup")); s.run = s.run.replace("+ plan.other +", "+ plan.scratch +"); })],
   ["signer permits unexpected artifact entries", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('test "${#files[@]}" -eq 3', 'true'); })],
   ["signer permits artifact symlinks", edit((j) => { j["sign-swap"].steps[1].run = j["sign-swap"].steps[1].run.replace('  test ! -L "$in/$file"', '  true'); })],
   ["pack loses unsigned build dependency", edit((j) => { j.pack.needs = j.pack.needs.filter((n) => n !== "build-swap"); })],

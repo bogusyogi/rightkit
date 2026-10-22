@@ -35,9 +35,15 @@ fn main() -> Result<(), Failure> {
     // Roles: rank order shell < headless < scrape < cut; wire names round-trip.
     assert!(HostRole::HeardRightShell.outranks(HostRole::CutRight));
     assert!(!HostRole::CutRight.outranks(HostRole::HeardRightShell));
-    assert_eq!(HostRole::from_wire("heard_right_shell"), Some(HostRole::HeardRightShell));
+    assert_eq!(
+        HostRole::from_wire("heard_right_shell"),
+        Some(HostRole::HeardRightShell)
+    );
     assert_eq!(HostRole::from_wire("bogus"), None);
-    assert_eq!(HostRole::parse_env("heardright"), Some(HostRole::HeardRightShell));
+    assert_eq!(
+        HostRole::parse_env("heardright"),
+        Some(HostRole::HeardRightShell)
+    );
     assert_eq!(HostRole::ScrapeRight.as_str(), "scrape_right");
     assert_eq!(HostRole::rank_table()["cut_right"], 3);
 
@@ -46,7 +52,10 @@ fn main() -> Result<(), Failure> {
     let endpoint = endpoint_for(&root, "qa-user");
     assert!(endpoint.contains("qa-user"), "endpoint names the user tag");
     assert!(installed_heardright_path(&root).starts_with(&root));
-    assert!(read_live_record(&root).is_none(), "empty root has no live record");
+    assert!(
+        read_live_record(&root).is_none(),
+        "empty root has no live record"
+    );
     assert!(pid_alive(std::process::id()), "own pid is alive");
 
     // Empty-root admission: a CutRight caller hosts itself; nothing is launched.
@@ -61,11 +70,24 @@ fn main() -> Result<(), Failure> {
         endpoint: endpoint.clone(),
         engine_version: "0.4.0".into(),
     };
-    assert!(should_request_takeover(HostRole::HeardRightShell, Some(&other)));
+    assert!(should_request_takeover(
+        HostRole::HeardRightShell,
+        Some(&other)
+    ));
     assert!(!should_request_takeover(HostRole::CutRight, Some(&other)));
     let me = std::process::id();
-    assert!(takeover_obliges_yield(HostRole::CutRight, Some((0, me.wrapping_add(1))), me, &pid_alive));
-    assert!(!takeover_obliges_yield(HostRole::HeardRightShell, Some((3, me.wrapping_add(1))), me, &pid_alive));
+    assert!(takeover_obliges_yield(
+        HostRole::CutRight,
+        Some((0, me.wrapping_add(1))),
+        me,
+        &pid_alive
+    ));
+    assert!(!takeover_obliges_yield(
+        HostRole::HeardRightShell,
+        Some((3, me.wrapping_add(1))),
+        me,
+        &pid_alive
+    ));
     request_takeover(&root, HostRole::ScrapeRight)?;
     let pending = read_takeover(&root).expect("takeover readable");
     assert_eq!(pending.role, HostRole::ScrapeRight);
@@ -122,7 +144,10 @@ fn main() -> Result<(), Failure> {
     assert_eq!(legacy.words, vec![TimedWord::new("hi", 0, 400)]);
     assert_eq!(legacy.words[0].source_ms, None);
     let wire = serde_json::to_value(&legacy)?;
-    assert_eq!(wire["words"][0], json!({"text": "hi", "start_ms": 0, "end_ms": 400}));
+    assert_eq!(
+        wire["words"][0],
+        json!({"text": "hi", "start_ms": 0, "end_ms": 400})
+    );
     let mut mapped = TimedWord::new("hi", 100, 300);
     mapped.source_ms = Some((1000, 1200));
     let value = serde_json::to_value(&mapped)?;
@@ -158,18 +183,33 @@ fn main() -> Result<(), Failure> {
     // Capture: dictation preempts batch, a meeting holds without confirmation.
     use rightkit_speech_client::CaptureDecision;
     assert_eq!(
-        decide_capture(Some(CaptureRole::Batch), CaptureRole::HeardRightDictation, false),
+        decide_capture(
+            Some(CaptureRole::Batch),
+            CaptureRole::HeardRightDictation,
+            false
+        ),
         CaptureDecision::Preempt
     );
     assert_eq!(
-        decide_capture(Some(CaptureRole::Meeting), CaptureRole::HeardRightDictation, false),
+        decide_capture(
+            Some(CaptureRole::Meeting),
+            CaptureRole::HeardRightDictation,
+            false
+        ),
         CaptureDecision::ConfirmRequired
     );
     assert_eq!(
-        decide_capture(Some(CaptureRole::Meeting), CaptureRole::HeardRightDictation, true),
+        decide_capture(
+            Some(CaptureRole::Meeting),
+            CaptureRole::HeardRightDictation,
+            true
+        ),
         CaptureDecision::Preempt
     );
-    assert_eq!(decide_capture(None, CaptureRole::Batch, false), CaptureDecision::Free);
+    assert_eq!(
+        decide_capture(None, CaptureRole::Batch, false),
+        CaptureDecision::Free
+    );
 
     std::fs::remove_dir_all(&root).ok();
     println!("speech-client 0.4.0 consumer assertions passed");

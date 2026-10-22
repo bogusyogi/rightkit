@@ -413,7 +413,7 @@
       "id": "ci/consumers/rightkit-job-queue/src/main.rs",
       "files": {
         "Cargo.toml": "cae9c1f704c687cf4224c130a526d89e66508506697a92e1a8ff59ca1f9c0b79",
-        "src/main.rs": "78ef1b2c0dcf8a9ddc102fb7796175c7cc3dfd5a38a00b1223315aa00f885820"
+        "src/main.rs": "81b25e5b25c8eeaa7fb961b257c3810001bfed9dc7c0c1897ad82963068b532b"
       }
     },
     "rightkit-browser": {
@@ -422,7 +422,7 @@
       "files": {
         "Cargo.toml": "32d8c1be1eed3f9ac67506500c64bfb7536b9aa857aa9d0aa949dbd8bb37820d",
         "README.md": "f8f8d5ecd0d7a1ca131e1dd5c05c0d7a3bee05cdffb5a9b9214e9d057b7e35b8",
-        "src/main.rs": "34683521bd5e58ac1bbad2251731492b415600fe6b6c9f67a8eb8290a57b9b8c"
+        "src/main.rs": "696e8033a3e117b62adc0da1eca80f68404232afa074ad917f33fa0b735b6202"
       },
       "runs": [
         {
@@ -523,9 +523,9 @@
       "files": {
         "Cargo.toml": "25c593f4ceff4450caaa38e6094fedc83a1037324bbe3aeb9711ca279c90a1a7",
         "README.md": "6c8c8889252efa82ac7ee302918bb288591aac87b52e9ca808910e699ac42dfd",
-        "src/main.rs": "8bfa7fc9fea71457e426f4fa469d9dfafcb665ec98a485079e998c47cb2dab8e"
+        "src/main.rs": "fcd2cf237f28083e92e235c0682df4a8cabe260a57df6320c65e707c2da38820"
       },
-      "aggregateSha256": "66e5b4afae2ea42ca3e946e2485a49bc1add1bdb8f0c7b48ef989586e76c2b13"
+      "aggregateSha256": "2e5d88787357221450c0a1d764e24d8fcc0727dcffea2f9080c15e4a241f5219"
     },
     "rightkit-sidecar": {
       "pkId": "PK06",
@@ -596,7 +596,7 @@
       "files": {
         "Cargo.toml": "562631dda63fc2dd42a576cdbaf3f0654e6e2c9d680fe7739510e9593f2c3669",
         "README.md": "aa7dbfb189d496b1407d4cac1a2404fcb167103e60f6fc5c1a3e22ab7c89fb3b",
-        "src/main.rs": "26ca5069dbbb486e0a0c2f871911851b1f9ee0e04d23a330f2343f034d85c0ac"
+        "src/main.rs": "246ff9cedf046c152af85101359688c37e1152696985b24b2f7b094963137c2d"
       }
     },
     "rightkit-tauri-shell": {
@@ -605,7 +605,7 @@
       "files": {
         "Cargo.toml": "53c330dd2bc5d4d98c3221ab8aecb60bb736c0bd8dae3c0621f8b6d4d7690ecd",
         "README.md": "18a838ad228795a3fe6a34d9aab27e33763ef2b310b1c885efaca0ce46f8e242",
-        "src/main.rs": "ca6930520624872d500a042c93e470b98d8621f7987cfc9195b6532204e45b58"
+        "src/main.rs": "513c39f4fc2750ec09b2d923c81edf13d5c306e04df7ca02fcc33b00660b1bd4"
       }
     },
     "rightkit-oauth": {
@@ -692,9 +692,9 @@
       "files": {
         "Cargo.toml": "613e0506819f53d190b3353508dfaedf93c3123d249fe9c155f7dc6d5e7b4670",
         "README.md": "c8089bb550515c35b36ec6d5c496a0ad1e889add6111ae86ea1adcb7b6d55fff",
-        "src/main.rs": "d730da13e7bf3eb6fd1b2e3bbd96081e5e145d8a5ae56179b04a97e09847659a"
+        "src/main.rs": "120b5b7a5d097644a630f3ba038140f2e9a9442556f6a8235918dbe8be979827"
       },
-      "aggregateSha256": "32d8c0b5da714ee07e195fd9bb5839138bac038cc6d4e732ce5852f99600c0fb"
+      "aggregateSha256": "efd4060a9205c3e68bb43a88c4d2490e16750bf76ac546bf0c87a5bc61a614df"
     },
     "rightkit-qa": {
       "pkId": "PK14",
@@ -708,9 +708,9 @@
       "files": {
         "Cargo.toml": "b5204cb6331bb49b08caedcc59c0220503dd3e324983370bf2f62a03070e3990",
         "README.md": "0ab46afbb7fafe2120f98250a1d95f8b2998669ce0abe86a7e90876ce8456863",
-        "src/main.rs": "07d122389195670f78149d7eafa72929f7f6cf826d450af986500a3ade38ec64"
+        "src/main.rs": "68e904af5d9651f746f82072dc5acecc01d1b277603ea9daa482fbd38066617d"
       },
-      "aggregateSha256": "3a6033b298bf8e52ab257af0058f1551e87af138b2c66775d01232ab0d5f1b02"
+      "aggregateSha256": "d404c09b61a89b787228a4175128558134445c485e8ad90feabf197d2333ad69"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",

@@ -39,11 +39,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(RunKind::parse(" visual ")?, RunKind::Visual);
     assert_eq!(RunKind::parse("functional")?.as_str(), "functional");
     assert_eq!(RunKind::Visual.to_string(), "visual");
-    assert!(RunKind::parse("screenshot").is_err(), "an unknown run kind is refused");
+    assert!(
+        RunKind::parse("screenshot").is_err(),
+        "an unknown run kind is refused"
+    );
 
     // Scenario rules: a visual scenario cannot run inside a functional run, and captures need
     // a visual kind.
-    assert_eq!(scenario_kind(RunKind::Visual, None, "login")?, RunKind::Visual);
+    assert_eq!(
+        scenario_kind(RunKind::Visual, None, "login")?,
+        RunKind::Visual
+    );
     assert_eq!(
         scenario_kind(RunKind::Visual, Some(RunKind::Functional), "login")?,
         RunKind::Functional
@@ -61,7 +67,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(!tier_selected("paid", "fast"));
     assert!(tier_selected("local-models", "all"));
     validate_tier_list("fast,paid")?;
-    assert!(validate_tier_list("gold").is_err(), "an unknown tier is refused");
+    assert!(
+        validate_tier_list("gold").is_err(),
+        "an unknown tier is refused"
+    );
 
     // Configuration parsing: the committed sample parses; an uppercase app key is refused.
     let config = QaConfig::parse(SAMPLE, Path::new("/tmp/x/rightkit-qa.toml"))?;
@@ -78,7 +87,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         Settings::parse("# qa settings\nexport RK_RECIPE_QA_KEY=abc\nRK_RECIPE_QA_RUNS=42\n")?;
     assert_eq!(settings.get("RK_RECIPE_QA_KEY").as_deref(), Some("abc"));
     assert_eq!(settings.get_u64("RK_RECIPE_QA_RUNS")?, Some(42));
-    assert!(Settings::parse("no equals sign here").is_err(), "a line without '=' is refused");
+    assert!(
+        Settings::parse("no equals sign here").is_err(),
+        "a line without '=' is refused"
+    );
     let pairs = Settings::from_pairs([("RK_RECIPE_QA_MODE", "fast")]);
     assert_eq!(pairs.get_or("RK_RECIPE_QA_MODE", "paid"), "fast");
     assert_eq!(pairs.get_or("RK_RECIPE_QA_ABSENT", "paid"), "paid");
@@ -87,16 +99,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = json!({ "status": "ok", "count": 3, "items": ["a", "b"] });
     check(
         &result,
-        &Expect { path: Some("status".into()), eq: Some(json!("ok")), ..Default::default() },
+        &Expect {
+            path: Some("status".into()),
+            eq: Some(json!("ok")),
+            ..Default::default()
+        },
     )?;
     check(
         &result,
-        &Expect { path: Some("items".into()), len_eq: Some(2), ..Default::default() },
+        &Expect {
+            path: Some("items".into()),
+            len_eq: Some(2),
+            ..Default::default()
+        },
     )?;
     assert!(
         check(
             &result,
-            &Expect { path: Some("count".into()), gte: Some(4.0), ..Default::default() },
+            &Expect {
+                path: Some("count".into()),
+                gte: Some(4.0),
+                ..Default::default()
+            },
         )
         .is_err(),
         "a count below the bound fails the check"
@@ -109,8 +133,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     assert_eq!(base64_encode(b"qa"), "cWE=");
     assert_eq!(base64_decode("cWE="), Some(b"qa".to_vec()));
-    assert!(!secret_leaks(b"token=abc123 end", "abc123").is_empty(), "a raw secret is found");
-    assert!(secret_leaks(b"nothing to see", "abc123").is_empty(), "a clean output has no leak");
+    assert!(
+        !secret_leaks(b"token=abc123 end", "abc123").is_empty(),
+        "a raw secret is found"
+    );
+    assert!(
+        secret_leaks(b"nothing to see", "abc123").is_empty(),
+        "a clean output has no leak"
+    );
 
     println!("OK rightkit-qa 0.8.0 (registry consumer, pure public API)");
     Ok(())

@@ -31,8 +31,20 @@ fn main() -> Result<(), String> {
     assert_eq!(
         wav,
         os(&[
-            "-y", "-hide_banner", "-loglevel", "error", "-i", "in.mp4", "-vn", "-ac", "1", "-ar",
-            "16000", "-c:a", "pcm_s16le", "out.wav",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "in.mp4",
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            "out.wav",
         ])
     );
 
@@ -65,9 +77,12 @@ fn main() -> Result<(), String> {
     );
     assert_eq!(
         clip,
-        os(&[
-            "-y", "-ss", "1.500000", "-i", "in.mp4", "-t", "2.000000", "-c", "copy", "clip.mp4",
-        ])
+        os(
+            &[
+                "-y", "-ss", "1.500000", "-i", "in.mp4", "-t", "2.000000", "-c", "copy",
+                "clip.mp4",
+            ]
+        )
     );
 
     // Encoder listing: video rows only (V-flags); the legend and header rows are skipped.
