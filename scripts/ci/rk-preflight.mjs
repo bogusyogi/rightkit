@@ -7,6 +7,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseYaml } from "./workflow-yaml.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_OUT = "/Volumes/D/scratch/rk-pipeline/receipts";
@@ -236,6 +237,22 @@ export function countIgnoredTests(crateDir) {
   return count;
 }
 
+/** The hosted plan job's contract commands, read from publish.yml itself (job `plan`, the step named below), so the
+ * local stage can never drift from a copied list. Every line must be a `node ...` command; anything else refuses. */
+export const PLAN_CONTRACT_STEP = "Check the publish route's own contract";
+export function planCommandsFromWorkflow(root, { readFile = (f) => fs.readFileSync(f, "utf8"), execPath = process.execPath } = {}) {
+  const doc = parseYaml(readFile(path.join(root, ".github", "workflows", "publish.yml")));
+  const step = (doc?.jobs?.plan?.steps ?? []).find((s) => s?.name === PLAN_CONTRACT_STEP);
+  if (!step || typeof step.run !== "string") throw new Error(`publish.yml has no plan step named "${PLAN_CONTRACT_STEP}" with a run block`);
+  const lines = step.run.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) throw new Error(`"${PLAN_CONTRACT_STEP}" runs nothing`);
+  return lines.map((line) => {
+    const words = line.split(/\s+/);
+    if (words[0] !== "node" || words.some((w) => /[;&|<>$`'"\\]/.test(w))) throw new Error(`"${PLAN_CONTRACT_STEP}" line is not a plain node command: ${line}`);
+    return [execPath, words.slice(1)];
+  });
+}
+
 function run(command, args, { cwd, env, timeoutMinutes, logFile }) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -345,12 +362,7 @@ export async function main(argv, deps = {}) {
   // The hosted plan job's own contract checks, exactly as publish.yml runs them (job `plan`, step "Check the publish
   // route's own contract"): a dispatch that would die there is refused here first. Deterministic, no compile.
   if (!opts.rowsOnly) {
-    const planCommands = [
-      [process.execPath, ["scripts/ci/workflow-contract.mjs", ".github/workflows/publish.yml"]],
-      [process.execPath, ["--test", "scripts/ci/publish.test.mjs", "scripts/ci/select.test.mjs", "scripts/ci/test-results.test.mjs", "scripts/ci/scan-receipt.test.mjs"]],
-      [process.execPath, ["scripts/ci/reviewed-workflow-contract.mjs"]],
-      [process.execPath, ["--test", "scripts/ci/reviewed-candidate.test.mjs", "scripts/ci/registry-consumer.test.mjs", "scripts/ci/workflow-contract-portability.test.mjs"]],
-    ];
+    const planCommands = planCommandsFromWorkflow(root);
     const started = Date.now();
     let failed = null;
     for (const [i, [command, args]] of planCommands.entries()) {

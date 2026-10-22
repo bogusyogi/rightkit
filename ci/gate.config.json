@@ -406,6 +406,18 @@
     },
     "rightkit-llm": {
       "quietTests": true
+    },
+    "rightkit-embed": {
+      "allowIgnored": "tests/coreml_real_model_e2e.rs (3 tests: coreml_is_admitted_and_matches_cpu_only_on_every_function_length, coreml_ranks_the_relevant_document_first, explicit_core_ml_is_admitted_or_errors_never_falls_back), tests/e40_real_model_e2e.rs::e40_is_admitted_on_directml_and_matches_cpu_on_every_graph, tests/e40_resident_bench.rs::e40_resident_w12_w14 and tests/e40_token_dump.rs::e40_token_dump are #[ignore] on purpose: they load the real EmbeddingGemma packages, need a DirectML GPU or the Neural Engine, take minutes on first run, or are a benchmark/dump that writes a file; they run by hand with --ignored on a workstation that has the bundles (6 ignored per default run on every host); the unit tests in src/ and the other integration tests run and assert on every default run"
+    },
+    "rightkit-motion": {
+      "allowIgnored": "tests/encode_e2e.rs (4 tests: the_inventory_probe_lists_encoders, an_opaque_render_produces_a_decodable_mp4_and_a_poster, prores_4444_keeps_the_alpha_plane, vp9_alpha_marks_the_stream_as_having_alpha) are #[ignore] on purpose: they need an ffmpeg binary with prores_ks and libvpx-vp9 encoders (RIGHTKIT_FFMPEG or a catalog build) that no runner provisions, and run by hand with --ignored (4 ignored per default run on every host; ci/asset-gated.json records the same dependency); every other test runs and asserts on every default run"
+    },
+    "rightkit-sandbox": {
+      "allowIgnored": "src/windows_ancestor_tests.rs::real_profile_best_effort_lease_is_fast_and_cleans_up is #[ignore] on purpose: it takes a best-effort lease on the real Windows user profile and is run by hand with --ignored on a workstation (1 ignored per default run on Windows; the file is cfg(windows) and compiles empty elsewhere); every other sandbox test runs and asserts on every default run"
+    },
+    "rightkit-record": {
+      "allowIgnored": "src/macos/tests/live.rs (8 tests: hello_reports_the_identity_without_prompting, without_permission_start_is_refused_and_nothing_is_written, an_unknown_window_is_not_found_and_nothing_is_written, an_unsupported_plan_is_refused_before_capture, the_target_exiting_mid_take_is_reported_and_the_media_is_kept, a_short_hevc_take_seals_and_verifies, a_live_capture_of_the_off_screen_fixture_seals_a_verified_bundle, a_sigkilled_helper_leaves_quarantined_media_that_decodes) and src/windows/tests/live.rs::a_terminated_helper_leaves_quarantined_media_that_decodes are #[ignore] on purpose: they need the built capture helper, Screen Recording permission (macOS) or the rk2 target (Windows), and ffmpeg/ffprobe, none of which a runner has; they run by hand with --ignored per the module docs (8 ignored per default run on macOS, 1 on Windows); the golden-file and unit tests run and assert on every default run"
     }
   },
   "fixtures": [

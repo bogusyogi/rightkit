@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
-import { countIgnoredTests, verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
+import { planCommandsFromWorkflow, PLAN_CONTRACT_STEP, countIgnoredTests, verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
 
 const sha = "a".repeat(40), unit = "rightkit-example", version = "1.0.0", config = {};
 const expected = { sha, registry: "crates", unit, version, config };
@@ -98,4 +98,19 @@ test("ignored-test policy: #[ignore] attributes are counted statically across sr
   fs.writeFileSync(path.join(dir, "tests", "notes.md"), "#[ignore]\n");
   assert.equal(countIgnoredTests(dir), 2);
   assert.equal(countIgnoredTests(path.join(dir, "missing")), 0);
+});
+
+
+test("the plan-job contract commands come from publish.yml itself, never from a copied list", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+  const commands = planCommandsFromWorkflow(root, { execPath: "NODE" });
+  assert.ok(commands.length >= 4, "the real workflow step runs at least four commands");
+  assert.ok(commands.every(([exe, args]) => exe === "NODE" && args.length >= 1 && args.every((a) => /^[A-Za-z0-9_./@-]+$/.test(a))));
+  assert.ok(commands.some(([, args]) => args.join(" ") === "scripts/ci/workflow-contract.mjs .github/workflows/publish.yml"));
+  const real = fs.readFileSync(path.join(root, ".github", "workflows", "publish.yml"), "utf8");
+  const renamed = real.replace(PLAN_CONTRACT_STEP, "Something else");
+  assert.throws(() => planCommandsFromWorkflow(root, { readFile: () => renamed }), /no plan step named/);
+  const shelly = real.replace("node scripts/ci/reviewed-workflow-contract.mjs", "node scripts/ci/reviewed-workflow-contract.mjs && rm -rf /");
+  assert.throws(() => planCommandsFromWorkflow(root, { readFile: () => shelly }), /not a plain node command/);
 });

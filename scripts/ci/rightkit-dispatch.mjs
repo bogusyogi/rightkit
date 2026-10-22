@@ -105,7 +105,7 @@ export function matchRun(runs, query) {
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "4a39c5296ef804c88e95887a6285b3d0fcaab98c0d30cbc211a76d0100dd8f5b";
+const PREFLIGHT_SHA256 = "5e11baf31eae33f34a774af6b0e319d9d02fc54a14e627e5092bf4b3e6d22266";
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || opts.registry !== "crates") throw new Error("only scoped crates publication has local admission; general CI/npm dispatch is not admitted");
   // The broker runs the digest-pinned copy of this file from its policy directory, so the repository is the adapter's
