@@ -399,4 +399,4 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          node --input-type=module -e 'const needs = JSON.parse(process.env.NEEDS); for (const name of ["private-repo-guard", "plan", "hygiene", "ownership"]) { if (needs[name]?.result !== "success") throw new Error(`${name} did not pass`); } for (const name of ["shards-windows", "closure-windows", "shards-macos", "closure-macos"]) { if (needs[name]?.result !== "skipped") throw new Error(`${name} unexpectedly ran`); } console.log("Static validation passed; native qualification requires broker dispatch.");'
+          node --input-type=module -e 'const needs = JSON.parse(process.env.NEEDS); for (const name of ["private-repo-guard", "plan", "hygiene", "ownership"]) { if (needs[name]?.result !== "success") throw new Error(name + " did not pass"); } for (const name of ["shards-windows", "closure-windows", "shards-macos", "closure-macos"]) { if (needs[name]?.result !== "skipped") throw new Error(name + " unexpectedly ran"); } console.log("Static validation passed; native qualification requires broker dispatch.");'
