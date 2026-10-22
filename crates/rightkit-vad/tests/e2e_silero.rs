@@ -3,7 +3,7 @@
 //! Gate: needs `silero_vad_16k_op15.onnx` (2 MB, MIT). Set `RIGHTKIT_VAD_MODEL`
 //! to its path. When the variable is unset each test prints a SKIP line and
 //! returns; when it names a missing file the test panics. The macOS tests also
-//! need an ONNX Runtime 1.24.4 dylib, named by `RIGHTKIT_ORT_TEST_DYLIB` or found
+//! need an ONNX Runtime 1.30.0 dylib, named by `RIGHTKIT_ORT_TEST_DYLIB` or found
 //! in the genright download cache. A missing dylib is a SKIP too. Under
 //! `RIGHTKIT_REQUIRE_ASSETS=1` every missing asset panics instead.
 mod common;
@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::sync::OnceLock;
 
-/// The approved ONNX Runtime 1.24.4 dylib on macOS: `RIGHTKIT_ORT_TEST_DYLIB` when set (even
+/// The approved ONNX Runtime 1.30.0 dylib on macOS: `RIGHTKIT_ORT_TEST_DYLIB` when set (even
 /// when it names a missing file, which then fails loudly), else the genright download cache. The
 /// cache's place relative to this crate differs between the main checkout and the build mirrors,
 /// so search the ancestors for `genright/...` and `claude/genright/...`.
@@ -22,7 +22,7 @@ fn ort_runtime_path() -> Option<PathBuf> {
     if let Some(explicit) = std::env::var_os("RIGHTKIT_ORT_TEST_DYLIB") {
         return Some(PathBuf::from(explicit));
     }
-    let cached = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
+    let cached = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib";
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .flat_map(|a| [a.join(cached), a.join("claude").join(cached)])
@@ -61,7 +61,7 @@ fn init_ort_runtime() {
                 ort_runtime_path().expect("tests check the ONNX Runtime before loading it");
             assert!(
                 runtime.is_file(),
-                "no approved ONNX Runtime 1.24.4 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB",
+                "no approved ONNX Runtime 1.30.0 dylib at {}; set RIGHTKIT_ORT_TEST_DYLIB",
                 runtime.display()
             );
             let staged_dir =
@@ -74,7 +74,8 @@ fn init_ort_runtime() {
             let record = catalog
                 .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
                 .unwrap();
-            assert_eq!(record.version, "1.24.4");
+            assert_eq!(record.id, "onnxruntime-1.30.0-macos-universal2");
+            assert_eq!(record.version, "1.30.0");
             record
                 .verify_file(&staged)
                 .expect("ORT dylib must match approved catalog");
@@ -121,8 +122,8 @@ macro_rules! need_ort {
     () => {
         if ort_runtime_missing() {
             common::skip_missing(
-                "approved ONNX Runtime 1.24.4 (macOS dylib, or the file ORT_DYLIB_PATH names elsewhere)",
-                "RIGHTKIT_ORT_TEST_DYLIB or genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib",
+                "approved ONNX Runtime 1.30.0 (macOS dylib, or the file ORT_DYLIB_PATH names elsewhere)",
+                "RIGHTKIT_ORT_TEST_DYLIB or genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib",
             );
             return;
         }

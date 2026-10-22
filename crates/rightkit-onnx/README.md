@@ -26,7 +26,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 
 - Apple targets: CoreML provider enabled by the crate (`cfg(target_vendor = "apple")`).
 - Windows: DirectML provider enabled by the crate (`cfg(target_os = "windows")`), plus `windows-sys` as a Windows-only dependency.
-- The approved ONNX Runtime shared library for macOS arm64 is `1.24.4`. It is recorded in `rightkit-ffmpeg`'s `catalog/native-libraries.json`, not in this crate. Runtime upgrades need a catalog row and real native-host verification.
+- The approved ONNX Runtime shared library for macOS is `1.30.0` universal2 (`onnxruntime-1.30.0-macos-universal2`, both Apple slices); for Windows it is the DirectML `1.24.4` build. Both are recorded in `rightkit-ffmpeg`'s `catalog/native-libraries.json`, not in this crate, which pins one version per OS until RightKit CI builds its own universal2 runtime (bogusyogi/rightkit#889). Runtime upgrades need a catalog row and real native-host verification.
 
 Published version: see `INDEX.md` at the repository root. Release notes are in `CHANGELOG.md`.
 
@@ -67,7 +67,7 @@ let binding = configure_runtime_with_options(
         RuntimeCandidate::new(runtime_path, CandidateSource::Bundled),
         legacy_runtime_candidate(workspace_root)?,
     ],
-    &RuntimeBindingOptions { force_replace: true, allow_missing: true },
+    &RuntimeBindingOptions { force_replace: true, allow_missing: true, ..Default::default() },
 )?;
 if binding.status == RuntimeBindingStatus::Missing {
     // The app decides what to do when no runtime is available.
@@ -179,7 +179,7 @@ Enable the `provision` feature as a **build-dependency** so the app itself pulls
 | Target | Files written to the bundle directory | Catalog rows |
 |---|---|---|
 | `windows-x64` | `onnxruntime.dll`, `DirectML.dll` | `onnxruntime` + `directml`, windows / x86_64 |
-| `macos-arm64` | `libonnxruntime.dylib` (the versioned dylib, renamed) | `onnxruntime`, macos / aarch64 |
+| `macos-arm64` | `libonnxruntime.dylib` (from the catalog zip or tgz; a `universal` row such as `onnxruntime-1.30.0-macos-universal2` serves it) | `onnxruntime`, macos / aarch64 or universal |
 | `android-arm64` | `libonnxruntime.so` (member `jni/arm64-v8a/libonnxruntime.so` of the `.aar`) | `onnxruntime`, android / aarch64. **No such catalog row ships yet**, so this target returns a `Row` error until one is added; UNVERIFIED against a real AAR. |
 
 `Cargo.toml` of the app:
@@ -228,10 +228,37 @@ API 24 enabled in `Cargo.toml`. Upstream `ort` declares `links = "onnxruntime"`,
 build must agree; this repository does not check that upstream metadata. Do not enable `ort/default`; this crate's
 `Cargo.toml` sets `api-24` on its `ort` dependency. rc.14 targets ONNX Runtime 1.31 and its own default is
 `api-31` (runtime 1.31 or newer); the suite stays on `api-24`, which accepts any runtime from 1.24 up, so the approved
-runtime below is unchanged by the rc.14 move. The upstream default API floor is not checked here. The approved macOS arm64 ONNX Runtime shared library is
-`1.24.4`, recorded in `rightkit-ffmpeg`'s native catalog. Runtime upgrades need
+runtime below is unchanged by the rc.14 move. The upstream default API floor is not checked here. The approved macOS ONNX Runtime shared library is
+`1.30.0` universal2 and the Windows one is `1.24.4`, recorded in `rightkit-ffmpeg`'s native catalog. Runtime upgrades need
 one catalog row, real native-host verification, and coordinated app migration;
 this crate does not download or silently select a different runtime.
+
+## Known-bad runtime guard: Apple SME2 KleidiAI leak (bogusyogi/rightkit#889)
+
+ONNX Runtime 1.26.0 and older leak about 92 KB per Conv run through the KleidiAI SME2 Conv cache on
+Apple silicon with `FEAT_SME2` (M4 and newer). Upstream fixed it in 1.27.0
+(microsoft/onnxruntime#28363). Nothing here touches Windows or x86_64.
+
+- **Bind-time refusal.** `configure_runtime_with_options` (and so `configure_runtime` and
+  `configure_runtime_verified`) reads the version from the library file it is about to bind,
+  through ONNX Runtime's own `OrtGetApiBase().GetVersionString()`, never from the catalog pin. On a
+  macOS arm64 host where `sysctl hw.optional.arm.FEAT_SME2` is 1, a runtime older than 1.27.0 fails
+  with `RuntimeError::KnownBadRuntime { path, version, host_feature, issue }` and the environment
+  stays untouched. A missing-mode binding has no library to read and is not checked. An unreadable or unparseable version also fails closed on SME2; the explicit
+  opt-out permits it only with KleidiAI forced off. Probe handles close on refusal or errors;
+  only successful bindings retain a handle. A runtime bound without this crate (an `ORT_DYLIB_PATH` the app set itself, then
+  `init_environment_default_loader`) is not guarded.
+- **Documented opt-out, QA reproductions only.** `RuntimeBindingOptions { allow_known_bad_runtime: true, .. }`
+  binds the old runtime anyway. Every session built through `SessionOptions` then sets
+  `mlas.disable_kleidiai = 1` for the rest of the process, and `with_kleidiai(true)` cannot override
+  it (`rightkit_onnx::kleidiai::forced_off()` reports it).
+- **`SessionOptions::with_kleidiai(enabled)`.** Default `true`: KleidiAI stays on for ONNX Runtime
+  1.27.0 and newer (its fast Conv path). `with_kleidiai(false)` sets `mlas.disable_kleidiai = 1`
+  (session config key `kOrtSessionOptionsMlasDisableKleidiAi`, present since 1.26) on aarch64
+  targets, on any runtime. Session-config forwarding through sherpa-onnx is the app's bundle choice.
+- **The fix is the runtime.** To stop the leak, bind ONNX Runtime 1.27.0 or newer: the catalog's
+  macOS pin is `onnxruntime-1.30.0-macos-universal2` (provisioning handles its `.zip` archive and
+  the `universal` architecture).
 
 ## Execution providers
 

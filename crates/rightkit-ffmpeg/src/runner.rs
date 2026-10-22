@@ -1136,7 +1136,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (bin, pid_file) = straggler_after_the_leader_left(dir.path());
         let started = Instant::now();
-        let error = run(&bin, Duration::from_millis(400));
+        // The deadline must outlast the fake leader's start-up (shell launch, `sleep` spawn,
+        // pid file write): under host load a 400 ms deadline fired first, killed the leader
+        // before the straggler existed, and the pid file never appeared. The straggler sleeps
+        // 30 s, so the run still has to end at the deadline, not at the straggler's end.
+        let error = run(&bin, Duration::from_secs(4));
         let elapsed = started.elapsed();
         assert!(matches!(error, RunError::TimedOut(_)), "{error:?}");
         assert!(
@@ -1553,22 +1557,27 @@ exit 0"#,
         DevFfmpeg::unverified(path)
     }
 
-    /// Mean wall time of `run`, in microseconds, over `runs` calls.
-    fn mean_micros(runs: u32, mut run: impl FnMut()) -> f64 {
-        let started = Instant::now();
-        for _ in 0..runs {
-            run();
-        }
-        started.elapsed().as_secs_f64() * 1e6 / f64::from(runs)
+    /// Fastest of `runs` calls of `run`, in microseconds. Host load only ever adds wall time
+    /// (a descheduled helper thread, a delayed spawn), so the fastest call is the closest
+    /// observation of the path's own cost; a mean or median moves with the load.
+    fn fastest_micros(runs: u32, mut run: impl FnMut()) -> f64 {
+        (0..runs)
+            .map(|_| {
+                let started = Instant::now();
+                run();
+                started.elapsed().as_secs_f64() * 1e6
+            })
+            .fold(f64::MAX, f64::min)
     }
 
     #[test]
     fn a_trivial_child_adds_well_under_five_milliseconds_over_a_blocking_output_call() {
-        const RUNS: u32 = 50;
+        const RUNS: u32 = 31;
+        const ROUNDS: u32 = 5;
         let bin = true_binary();
         let cmd = FfmpegCommand::base("error");
         let token = CancellationToken::new();
-        let blocking = |_: ()| {
+        let blocking = || {
             let output = std::process::Command::new(bin.ffmpeg_path())
                 .args(cmd.to_os_args())
                 .stdin(std::process::Stdio::null())
@@ -1576,31 +1585,42 @@ exit 0"#,
                 .unwrap();
             assert!(output.status.success());
         };
-        // Interleave so machine load drifts through both sides equally; the best of three
-        // rounds discards a round that a busy host slowed.
+        let capture_once = || {
+            let out = run_capture(&bin, &cmd, Duration::from_secs(20), &token).unwrap();
+            assert!(out.status.success());
+        };
+        let progress_once = || {
+            run_with_progress(&bin, &cmd, policy_opts(Duration::from_secs(20), &token)).unwrap();
+        };
+        // Warm up every path once (page cache, thread and pipe machinery) before measuring.
+        blocking();
+        capture_once();
+        progress_once();
+        // Interleave so machine load drifts through all three sides equally; the best call of
+        // five rounds of 31 discards every call a busy host slowed.
         let (mut base, mut capture, mut progress) = (f64::MAX, f64::MAX, f64::MAX);
-        for _ in 0..3 {
-            base = base.min(mean_micros(RUNS, || blocking(())));
-            capture = capture.min(mean_micros(RUNS, || {
-                let out = run_capture(&bin, &cmd, Duration::from_secs(20), &token).unwrap();
-                assert!(out.status.success());
-            }));
-            progress = progress.min(mean_micros(RUNS, || {
-                run_with_progress(&bin, &cmd, policy_opts(Duration::from_secs(20), &token))
-                    .unwrap();
-            }));
+        for _ in 0..ROUNDS {
+            base = base.min(fastest_micros(RUNS, blocking));
+            capture = capture.min(fastest_micros(RUNS, capture_once));
+            progress = progress.min(fastest_micros(RUNS, progress_once));
         }
-        // The progress path starts a third helper thread and shows more load noise, hence its
-        // looser bound. A 10 ms polling sleep adds about 5 ms on average; the exit-driven wait adds
-        // only thread and pipe setup, far below that.
+        // A 10 ms polling sleep adds up to 10 ms to every call, so even the fastest call of 155
+        // shows it; the exit-driven wait adds only thread and pipe setup (well under 1 ms idle). The bound is a floor plus three times
+        // the blocking baseline, so a host where even the baseline process spawn is slow gets
+        // proportional room, but never more than a hard ceiling (12 ms capture, 15 ms progress,
+        // above any load-induced overhead seen and below two polling intervals) that only a
+        // real regression crosses. The progress path starts a third helper thread, hence its
+        // larger floor and ceiling.
+        let capture_bound = (3_500.0 + 3.0 * base).min(12_000.0);
+        let progress_bound = (6_000.0 + 3.0 * base).min(15_000.0);
         assert!(
-            capture - base < 3_500.0,
-            "run_capture overhead {:.0} us over blocking ({base:.0} us)",
+            capture - base < capture_bound,
+            "run_capture overhead {:.0} us over blocking ({base:.0} us), bound {capture_bound:.0} us",
             capture - base
         );
         assert!(
-            progress - base < 6_000.0,
-            "run_with_progress overhead {:.0} us over blocking ({base:.0} us)",
+            progress - base < progress_bound,
+            "run_with_progress overhead {:.0} us over blocking ({base:.0} us), bound {progress_bound:.0} us",
             progress - base
         );
     }

@@ -2,12 +2,37 @@
   "schemaVersion": 1,
   "libraries": [
     {
+      "id": "onnxruntime-1.30.0-macos-universal2",
+      "library": "onnxruntime",
+      "version": "1.30.0",
+      "os": "macos",
+      "arch": "universal",
+      "status": "approved",
+      "linkage": "dynamic-library",
+      "artifactFileName": "libonnxruntime.dylib",
+      "sha256": "4b2fb26f1d4f78ef8492e2f5dadfe77d810e6cbe1364465ff33c44d189e93110",
+      "archive": {
+        "url": "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.30.0/onnxruntime-osx-universal2-1.30.0.zip",
+        "sha256": "826f3a5f157b5cba769249b2c7f2215bb430c4fc8d0b31e29c9c573becad10b2"
+      },
+      "sourceUrl": "https://github.com/csukuangfj/onnxruntime-libs/releases/tag/v1.30.0",
+      "licenseSpdx": "MIT",
+      "noticeFiles": [
+        "third-party/ONNXRuntime-MIT.txt",
+        "third-party/ONNXRuntime-1.30.0-ThirdPartyNotices.txt"
+      ],
+      "verification": {
+        "method": "file-sha256",
+        "evidence": "release asset sha256 measured 2026-10-22; lipo x86_64 arm64; leak fix verified by HeardRight on 1.28.3 against the KWS corpus (heardright#292); 1.30.0 verified by HeardRight on a Mac M6 on 2026-10-22 against this exact dylib: kws_idle_memory flat at 71-73 MB over 900 s (1.26.0: 114 to 356 MB), locked KWS corpus 14/14 positives, 238 negatives, 0 false actions (heardright#292)"
+      }
+    },
+    {
       "id": "onnxruntime-1.24.4-macos-arm64",
       "library": "onnxruntime",
       "version": "1.24.4",
       "os": "macos",
       "arch": "aarch64",
-      "status": "approved",
+      "status": "stale-unverified",
       "linkage": "dynamic-library",
       "artifactFileName": "libonnxruntime.1.24.4.dylib",
       "sha256": "872533f130f1839a5bc01788ddb4f75c83a189763441ba1178788ed965449289",
@@ -29,7 +54,7 @@
       "version": "1.24.4",
       "os": "macos",
       "arch": "x86_64",
-      "status": "planned",
+      "status": "stale-unverified",
       "linkage": "dynamic-library",
       "sourceUrl": "https://github.com/microsoft/onnxruntime/releases/tag/v1.24.4",
       "licenseSpdx": "MIT",

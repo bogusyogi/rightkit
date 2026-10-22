@@ -143,7 +143,8 @@ fn real_dylib_matches_approved_catalog_and_loads_with_expected_version() {
     let record = catalog
         .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
         .unwrap();
-    assert_eq!(record.version, "1.24.4");
+    assert_eq!(record.id, "onnxruntime-1.30.0-macos-universal2");
+    assert_eq!(record.version, "1.30.0");
     let (_, staged) = staged_app();
     record
         .verify_file(staged)

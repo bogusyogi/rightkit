@@ -158,6 +158,12 @@ fn configured_runtime_tracks_successful_bindings_and_preserves_failed_binding_st
         Some(PathBuf::from("inherited-runtime"))
     );
 
+    // These fixtures contain arbitrary bytes, not loadable ORT. Binding-state checks
+    // explicitly opt out of the SME2 version guard; guard refusal is tested separately.
+    let fixture_options = RuntimeBindingOptions {
+        allow_known_bad_runtime: true,
+        ..Default::default()
+    };
     let fixture = Fixture::new();
     let first = fixture.file("first");
     let second = fixture.file("second");
@@ -173,11 +179,11 @@ fn configured_runtime_tracks_successful_bindings_and_preserves_failed_binding_st
     // An already matching inherited path is recorded without rewriting it.
     env.set(&first.path);
     let inherited = std::env::var_os(ORT_PATH);
-    configure_runtime([first]).unwrap();
+    configure_runtime_with_options([first], &fixture_options).unwrap();
     assert_eq!(configured_runtime(), Some(first_path.clone()));
     assert_eq!(std::env::var_os(ORT_PATH), inherited);
     assert!(matches!(
-        configure_runtime([second.clone()]),
+        configure_runtime_with_options([second.clone()], &fixture_options),
         Err(RuntimeError::AlreadyConfigured { .. })
     ));
     assert_eq!(configured_runtime(), Some(first_path.clone()));
@@ -190,7 +196,7 @@ fn configured_runtime_tracks_successful_bindings_and_preserves_failed_binding_st
     );
     env.remove();
     assert_eq!(configured_runtime(), Some(first_path));
-    configure_runtime([second]).unwrap();
+    configure_runtime_with_options([second], &fixture_options).unwrap();
     assert_eq!(configured_runtime(), Some(second_path.clone()));
     assert_eq!(
         std::env::var_os(ORT_PATH),
@@ -204,6 +210,7 @@ fn configured_runtime_tracks_successful_bindings_and_preserves_failed_binding_st
         &RuntimeBindingOptions {
             force_replace: true,
             allow_missing: true,
+            ..Default::default()
         },
     )
     .unwrap();

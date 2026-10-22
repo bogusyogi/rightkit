@@ -36,6 +36,8 @@ pub use ndarray;
 
 #[cfg(feature = "session")]
 pub mod environment;
+/// Known-bad ONNX Runtime guard for Apple SME2 hosts (bogusyogi/rightkit#889).
+pub mod kleidiai;
 #[cfg(feature = "session")]
 pub mod probe;
 /// Build-time download, verification and extraction of the catalog runtime (`provision` feature).
@@ -180,6 +182,12 @@ pub struct RuntimeBindingOptions {
     /// If no regular file resolves, bind the first missing candidate. Existing
     /// directories, invalid filenames & unsafe paths remain errors.
     pub allow_missing: bool,
+    /// QA reproductions only. On a macOS arm64 host with `FEAT_SME2` (M4 and newer), binding an
+    /// ONNX Runtime older than 1.27.0 is refused with [`RuntimeError::KnownBadRuntime`] because it
+    /// leaks about 92 KB per Conv run (bogusyogi/rightkit#889). Setting this binds it anyway; every
+    /// session built through `SessionOptions` then sets `mlas.disable_kleidiai = 1`, and
+    /// `SessionOptions::with_kleidiai(true)` cannot override that. See [`kleidiai`].
+    pub allow_known_bad_runtime: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,6 +269,17 @@ pub enum RuntimeError {
         path: PathBuf,
         message: String,
     },
+    /// The selected library is an ONNX Runtime older than 1.27.0 on a macOS arm64 host with
+    /// `hw.optional.arm.FEAT_SME2`, where its KleidiAI Conv cache leaks memory
+    /// (bogusyogi/rightkit#889). `version` is read from the library file itself. Bind
+    /// ONNX Runtime 1.27.0 or newer, or set [`RuntimeBindingOptions::allow_known_bad_runtime`]
+    /// for a QA reproduction.
+    KnownBadRuntime {
+        path: PathBuf,
+        version: String,
+        host_feature: &'static str,
+        issue: &'static str,
+    },
 }
 
 impl fmt::Display for RuntimeError {
@@ -341,6 +360,19 @@ impl fmt::Display for RuntimeError {
                     path.display()
                 )
             }
+            Self::KnownBadRuntime {
+                path,
+                version,
+                host_feature,
+                issue,
+            } => write!(
+                f,
+                "runtime {} is ONNX Runtime {version}, which leaks memory in Conv on a host with \
+                 {host_feature} ({issue}); bind ONNX Runtime {} or newer, or set \
+                 RuntimeBindingOptions::allow_known_bad_runtime for a QA reproduction",
+                path.display(),
+                kleidiai::MIN_SAFE_ORT_VERSION
+            ),
         }
     }
 }
@@ -586,12 +618,23 @@ pub fn configure_runtime_with_options(
     candidates: impl IntoIterator<Item = RuntimeCandidate>,
     options: &RuntimeBindingOptions,
 ) -> Result<RuntimeBinding, RuntimeError> {
-    let binding = configure_runtime_with_env(
+    let mut runtime_check = None;
+    let binding = configure_runtime_checked(
         candidates,
         options,
         nonempty_env_path("ORT_DYLIB_PATH"),
         |path| std::env::set_var("ORT_DYLIB_PATH", path),
+        |selection| {
+            runtime_check = Some(kleidiai::check_bind(
+                &selection.path,
+                options.allow_known_bad_runtime,
+            )?);
+            Ok(())
+        },
     )?;
+    if let Some(check) = runtime_check {
+        check.commit();
+    }
     *CONFIGURED_RUNTIME
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(binding.selection.path.clone());
@@ -599,11 +642,24 @@ pub fn configure_runtime_with_options(
 }
 
 // Injected environment writer avoids process-global mutation in unit tests.
+#[cfg(test)]
 fn configure_runtime_with_env(
     candidates: impl IntoIterator<Item = RuntimeCandidate>,
     options: &RuntimeBindingOptions,
     configured: Option<PathBuf>,
     set_path: impl FnOnce(&Path),
+) -> Result<RuntimeBinding, RuntimeError> {
+    configure_runtime_checked(candidates, options, configured, set_path, |_| Ok(()))
+}
+
+// `check` sees the resolved selection of an existing file (not a missing-mode binding) before
+// any conflict test or environment write, so a refused runtime leaves the environment untouched.
+fn configure_runtime_checked(
+    candidates: impl IntoIterator<Item = RuntimeCandidate>,
+    options: &RuntimeBindingOptions,
+    configured: Option<PathBuf>,
+    set_path: impl FnOnce(&Path),
+    check: impl FnOnce(&RuntimeSelection) -> Result<(), RuntimeError>,
 ) -> Result<RuntimeBinding, RuntimeError> {
     let binding = match resolve_runtime(candidates) {
         Ok(selection) => RuntimeBinding {
@@ -625,6 +681,9 @@ fn configure_runtime_with_env(
         }
         Err(error) => return Err(error),
     };
+    if binding.status == RuntimeBindingStatus::Ready {
+        check(&binding.selection)?;
+    }
     if let Some(configured) = configured.filter(|_| !options.force_replace) {
         if options.allow_missing && configured == binding.selection.path {
             return Ok(binding);
@@ -879,6 +938,82 @@ mod binding_tests {
         }
     }
 
+    fn known_bad() -> RuntimeError {
+        RuntimeError::KnownBadRuntime {
+            path: PathBuf::from("/app/runtime/libonnxruntime.dylib"),
+            version: "1.26.0".into(),
+            host_feature: kleidiai::HOST_FEATURE,
+            issue: kleidiai::ISSUE,
+        }
+    }
+
+    #[test]
+    fn a_refused_runtime_never_touches_the_environment() {
+        let fixture = Fixture::new();
+        let selected = fixture.candidate("bad", true);
+        let error = configure_runtime_checked(
+            [selected.clone()],
+            &RuntimeBindingOptions::default(),
+            None,
+            |_| panic!("a refused runtime must not be bound"),
+            |_| Err(known_bad()),
+        )
+        .unwrap_err();
+        assert!(matches!(error, RuntimeError::KnownBadRuntime { .. }));
+        // The refusal also wins over an existing identical configuration.
+        let error = configure_runtime_checked(
+            [selected.clone()],
+            &RuntimeBindingOptions::default(),
+            Some(selected.path.clone()),
+            |_| panic!("a refused runtime must not be bound"),
+            |_| Err(known_bad()),
+        )
+        .unwrap_err();
+        assert!(matches!(error, RuntimeError::KnownBadRuntime { .. }));
+    }
+
+    #[test]
+    fn the_runtime_check_sees_the_resolved_file_and_skips_missing_mode() {
+        let fixture = Fixture::new();
+        let present = fixture.candidate("present", true);
+        let mut seen = None;
+        let mut written = None;
+        configure_runtime_checked(
+            [present.clone()],
+            &RuntimeBindingOptions::default(),
+            None,
+            |path| written = Some(path.to_path_buf()),
+            |selection| {
+                seen = Some(selection.path.clone());
+                Ok(())
+            },
+        )
+        .unwrap();
+        let expected = present.path.canonicalize().unwrap();
+        assert_eq!(seen, Some(expected.clone()));
+        assert_eq!(written, Some(expected));
+
+        // A missing-mode binding has no library to read, so nothing is checked.
+        let absent = fixture.candidate("absent", false);
+        let binding = configure_runtime_checked(
+            [absent],
+            &RuntimeBindingOptions {
+                allow_missing: true,
+                ..Default::default()
+            },
+            None,
+            |_| {},
+            |_| panic!("no check without a library file"),
+        )
+        .unwrap();
+        assert_eq!(binding.status, RuntimeBindingStatus::Missing);
+    }
+
+    #[test]
+    fn the_opt_out_is_off_by_default() {
+        assert!(!RuntimeBindingOptions::default().allow_known_bad_runtime);
+    }
+
     #[test]
     fn missing_mode_binds_records_and_reuses_first_absent_candidate() {
         let fixture = Fixture::new();
@@ -950,6 +1085,7 @@ mod binding_tests {
             &RuntimeBindingOptions {
                 force_replace: true,
                 allow_missing: true,
+                ..Default::default()
             },
             Some(previous.path),
             |path| written = Some(path.to_path_buf()),
@@ -965,6 +1101,7 @@ mod binding_tests {
         let options = RuntimeBindingOptions {
             force_replace: true,
             allow_missing: true,
+            ..Default::default()
         };
         for (candidate, expected) in [
             (

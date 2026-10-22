@@ -286,3 +286,107 @@ fn planned_rows_are_refused() {
     );
     assert!(fetches.is_empty());
 }
+
+/// A catalog whose only macOS row is a `universal` zip, like the 1.30.0 universal2 release asset:
+/// the member sits under a directory named after the archive without `.zip`.
+fn universal_zip_fixture(extra_thin_row: bool) -> Fixture {
+    let lib: &[u8] = b"fixture universal2 libonnxruntime dylib";
+    let zip = zip_with(&[
+        (
+            "onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib",
+            lib,
+        ),
+        ("onnxruntime-osx-universal2-1.30.0/LICENSE", b"license"),
+    ]);
+    let mut libraries = vec![record(
+        "onnxruntime-fixture-macos-universal2",
+        "onnxruntime",
+        "macos",
+        "universal",
+        "approved",
+        "libonnxruntime.dylib",
+        "https://example.test/onnxruntime-osx-universal2-1.30.0.zip",
+        lib,
+        &zip,
+        "MIT",
+    )];
+    let mut archives = vec![("onnxruntime-osx-universal2-1.30.0.zip".to_owned(), zip)];
+    if extra_thin_row {
+        let thin: &[u8] = b"fixture thin dylib";
+        let tgz = tgz_with(&[(
+            "onnxruntime-osx-arm64-1.30.0/lib/libonnxruntime.dylib",
+            thin,
+        )]);
+        libraries.push(record(
+            "onnxruntime-fixture-macos-arm64",
+            "onnxruntime",
+            "macos",
+            "aarch64",
+            "approved",
+            "libonnxruntime.dylib",
+            "https://example.test/onnxruntime-osx-arm64-1.30.0.tgz",
+            thin,
+            &tgz,
+            "MIT",
+        ));
+        archives.push(("onnxruntime-osx-arm64-1.30.0.tgz".to_owned(), tgz));
+    }
+    let text = json!({ "schemaVersion": 1, "libraries": libraries }).to_string();
+    Fixture {
+        catalog: NativeCatalog::parse_native_only(&text).unwrap(),
+        archives,
+    }
+}
+
+#[test]
+fn intel_macos_public_target_provisions_universal_zip() {
+    let f = universal_zip_fixture(false);
+    let (_root, dest, cache) = dirs();
+    let target = ProvisionTarget::parse("macos-x64").unwrap();
+    assert_eq!(target, ProvisionTarget::MacosX64);
+    let outcome = run(&f, target, &dest, &cache, &mut Vec::new()).unwrap();
+    assert_eq!(outcome.runtime.platform, "macos-x64");
+    assert_eq!(
+        outcome.runtime.onnxruntime.catalog_row,
+        "onnxruntime-fixture-macos-universal2"
+    );
+}
+
+#[test]
+fn macos_provisions_a_universal_zip_row_and_round_trips() {
+    let f = universal_zip_fixture(false);
+    let (_root, dest, cache) = dirs();
+    let mut fetches = Vec::new();
+    let outcome = run(&f, ProvisionTarget::MacosArm64, &dest, &cache, &mut fetches).unwrap();
+    assert_eq!(fetches.len(), 1);
+    assert!(fetches[0].ends_with("onnxruntime-osx-universal2-1.30.0.zip"));
+    assert_eq!(outcome.runtime.platform, "macos-arm64");
+    assert_eq!(
+        outcome.runtime.onnxruntime.catalog_row,
+        "onnxruntime-fixture-macos-universal2"
+    );
+    assert_eq!(outcome.runtime.files.len(), 1);
+    assert_eq!(
+        std::fs::read(dest.join("libonnxruntime.dylib")).unwrap(),
+        b"fixture universal2 libonnxruntime dylib"
+    );
+    assert_eq!(verify_runtime_manifest(&dest).unwrap(), outcome.runtime);
+}
+
+#[test]
+fn an_exact_arch_macos_row_wins_over_a_universal_row() {
+    let f = universal_zip_fixture(true);
+    let (_root, dest, cache) = dirs();
+    let outcome = run(
+        &f,
+        ProvisionTarget::MacosArm64,
+        &dest,
+        &cache,
+        &mut Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(
+        outcome.runtime.onnxruntime.catalog_row,
+        "onnxruntime-fixture-macos-arm64"
+    );
+}

@@ -30,11 +30,12 @@ pub fn workspace_asset(rel: &str) -> Option<PathBuf> {
         .find(|path| path.exists())
 }
 
-/// The approved 1.24.4 dylib in the genright download cache, found by walking up from this crate.
+/// The approved 1.30.0 universal2 dylib (the unzipped `onnxruntime-osx-universal2-1.30.0.zip`) in the
+/// genright download cache, found by walking up from this crate.
 #[cfg(target_os = "macos")]
-const MACOS_RUNTIME: &str = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
+const MACOS_RUNTIME: &str = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib";
 
-/// The approved 1.24.4 file: `RIGHTKIT_ORT_TEST_DYLIB` when it names a file, else the cache.
+/// The approved 1.30.0 file: `RIGHTKIT_ORT_TEST_DYLIB` when it names a file, else the cache.
 #[cfg(target_os = "macos")]
 fn find_real_runtime() -> Option<PathBuf> {
     std::env::var_os("RK_ORT_TEST_DYLIB")
@@ -44,11 +45,11 @@ fn find_real_runtime() -> Option<PathBuf> {
         .or_else(|| workspace_asset(MACOS_RUNTIME).filter(|p| p.is_file()))
 }
 
-/// The approved 1.24.4 file. Tests call [`runtime_or_skip`] first.
+/// The approved 1.30.0 file. Tests call [`runtime_or_skip`] first.
 #[cfg(target_os = "macos")]
 pub fn real_runtime_file() -> PathBuf {
     find_real_runtime()
-        .expect("no real ONNX Runtime 1.24.4 macOS dylib found; set RIGHTKIT_ORT_TEST_DYLIB")
+        .expect("no real ONNX Runtime 1.30.0 macOS dylib found; set RIGHTKIT_ORT_TEST_DYLIB")
 }
 
 /// Asset gate for the macOS real-runtime tests: `true` when the approved dylib is present.
@@ -59,7 +60,7 @@ pub fn runtime_or_skip() -> bool {
         return true;
     }
     skip_missing(
-        "approved ONNX Runtime 1.24.4 macOS dylib",
+        "approved ONNX Runtime 1.30.0 macOS dylib",
         &format!("RIGHTKIT_ORT_TEST_DYLIB or {MACOS_RUNTIME} found by walking up from crates/rightkit-onnx"),
     );
     false

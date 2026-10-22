@@ -101,6 +101,14 @@ pub struct SessionOptions {
     /// Threads for XNNPACK's own pool. `None` uses `threads`, else the `GlobalPool::from_budget`
     /// thread budget. Ignored unless `xnnpack` is set.
     pub xnnpack_threads: Option<usize>,
+    /// Set `mlas.disable_kleidiai = 1` on the session (arm64 targets), turning the KleidiAI
+    /// kernels off on any runtime. Off by default: ONNX Runtime 1.27.0 and newer keep KleidiAI
+    /// (its fast Conv path), and an older runtime on an SME2 Mac is refused at bind time instead
+    /// (see [`crate::kleidiai`], bogusyogi/rightkit#889). Set it through [`Self::with_kleidiai`].
+    /// A runtime that was bound on an SME2 host through
+    /// `RuntimeBindingOptions::allow_known_bad_runtime` forces the entry on every session
+    /// whatever this says.
+    pub disable_kleidiai: bool,
 }
 
 /// Session-builder calls that DirectML needs, derived from [`SessionOptions`].
@@ -165,6 +173,21 @@ impl SessionOptions {
     pub fn with_xnnpack_threads(mut self, threads: Option<usize>) -> Self {
         self.xnnpack_threads = threads;
         self
+    }
+
+    /// `with_kleidiai(false)` sets `mlas.disable_kleidiai = 1` on arm64 targets, whatever the
+    /// runtime version; `with_kleidiai(true)` (the default) leaves the runtime's own behaviour.
+    /// It cannot re-enable KleidiAI for a known-bad runtime bound through
+    /// `RuntimeBindingOptions::allow_known_bad_runtime` on an SME2 Mac.
+    pub fn with_kleidiai(mut self, enabled: bool) -> Self {
+        self.disable_kleidiai = !enabled;
+        self
+    }
+
+    /// Whether this session sets [`crate::kleidiai::CONFIG_KEY_DISABLE`]. Pure: the arm64 and
+    /// forced flags are passed in so the rule is testable on any host.
+    fn kleidiai_disabled(&self, aarch64: bool, forced: bool) -> bool {
+        crate::kleidiai::session_disables(self.disable_kleidiai, aarch64, forced)
     }
 
     /// Refuse an XNNPACK request this build or provider cannot serve. Pure: `android` is passed
@@ -349,6 +372,11 @@ impl SessionOptions {
                 .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level1)
                 .map_err(|e| map_ort_error("optimization level", e))?;
         }
+        if self.kleidiai_disabled(cfg!(target_arch = "aarch64"), crate::kleidiai::forced_off()) {
+            builder = builder
+                .with_config_entry(crate::kleidiai::CONFIG_KEY_DISABLE, "1")
+                .map_err(|e| map_ort_error("disable_kleidiai", e))?;
+        }
         builder = self.register_provider(builder)?;
         commit(&mut builder).map_err(|e| SessionError::Runtime(format!("load {what}: {e}")))
     }
@@ -471,6 +499,31 @@ mod tests {
         assert_eq!(zero.xnnpack_pool_threads(), 1);
         let unset = SessionOptions::new(ExecutionProvider::Cpu).with_xnnpack(true);
         assert!(unset.xnnpack_pool_threads() >= 1);
+    }
+
+    #[test]
+    fn kleidiai_stays_on_by_default_and_with_kleidiai_false_turns_it_off() {
+        let options = SessionOptions::new(ExecutionProvider::Cpu);
+        assert!(!options.disable_kleidiai);
+        assert!(!options.kleidiai_disabled(true, false));
+        assert!(!options.kleidiai_disabled(false, false));
+        let off = options.clone().with_kleidiai(false);
+        assert!(off.disable_kleidiai);
+        assert!(off.kleidiai_disabled(true, false));
+        assert!(!off.kleidiai_disabled(false, false), "x86_64 is untouched");
+        let on = off.with_kleidiai(true);
+        assert!(!on.disable_kleidiai);
+        assert!(!on.kleidiai_disabled(true, false));
+    }
+
+    #[test]
+    fn a_forced_runtime_cannot_be_re_enabled_by_a_session() {
+        let on = SessionOptions::new(ExecutionProvider::CoreMl).with_kleidiai(true);
+        assert!(on.kleidiai_disabled(true, true));
+        assert!(on.cpu_for_stage().kleidiai_disabled(true, true));
+        // The stage fallback keeps an explicit disable.
+        let off = SessionOptions::new(ExecutionProvider::CoreMl).with_kleidiai(false);
+        assert!(off.cpu_for_stage().disable_kleidiai);
     }
 
     #[test]

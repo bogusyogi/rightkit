@@ -71,7 +71,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11"
 # `provision` only. The native-library catalog, and the vetted download and archive extraction.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.6", optional = true }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.10", optional = true }
 rightkit-models = { path = "../rightkit-models", version = "0.5.0", optional = true, default-features = false }
 
 # Platform accelerators. ort rc.14 compiles an execution provider only when its
@@ -102,7 +102,7 @@ required-features = ["provision"]
 
 [dev-dependencies]
 # E2E checks the real runtime file against the approved native-library catalog.
-rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.3" }
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.10" }
 # `provision` test fixtures: a tiny zip and tar.gz built in the test, and a scratch directory.
 tempfile = "3"
 tar = "0.4"
@@ -127,6 +127,22 @@ holds = ["memory"]
 scale = "one Option<PathBuf> naming the selected runtime library; a few hundred bytes"
 release = "process exit"
 static_note = "CONFIGURED_RUNTIME is one Mutex<Option<PathBuf>> set once when the runtime is selected; it holds no thread and cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "kleidiai_forced_off"
+file = "src/kleidiai.rs"
+holds = ["memory"]
+scale = "one AtomicBool recording that a known-bad runtime was bound through the documented opt-out; one byte"
+release = "process exit"
+static_note = "FORCED_OFF is one AtomicBool set at most to true; it holds no thread and cannot grow"
+
+[[package.metadata.rightkit.resources]]
+api = "kleidiai::read_runtime_version"
+file = "src/kleidiai.rs"
+holds = ["memory"]
+scale = "one dlopen handle per bind of an existing runtime file on an SME2 Mac; the same library ort maps right after, so the file is mapped once"
+release = "process exit (the handle is deliberately never closed: this crate does not unload ONNX Runtime)"
+static_note = "no static: the handle is a local that is leaked on purpose, bounded by the number of runtime binds, which is one per process in practice"
 
 [[package.metadata.rightkit.resources]]
 api = "SessionOptions::build_from_file"

@@ -7,12 +7,14 @@
 //! or creates a session, and nothing runs at app run time.
 //!
 //! Catalog rows come from the suite native-library catalog in `rightkit-ffmpeg`. Only rows whose
-//! status is `approved` or `pinned` are used; `planned` and stale rows are refused. Per target:
+//! status is `approved` or `pinned` are used; `planned` and stale rows are refused. A row whose
+//! `arch` is `universal` (both Apple slices) serves a macOS target of either architecture, and an
+//! exact-architecture row wins when both exist. Per target:
 //!
 //! | target | archive | files written to the bundle |
 //! |---|---|---|
 //! | `windows-x64` | NuGet `Microsoft.ML.OnnxRuntime.DirectML` and `Microsoft.AI.DirectML` (zip) | `onnxruntime.dll`, `DirectML.dll` |
-//! | `macos-arm64` | `onnxruntime-osx-arm64-<version>.tgz` | `libonnxruntime.dylib` |
+//! | `macos-arm64` | the catalog archive, a `.tgz` (thin `onnxruntime-osx-arm64-<version>.tgz`) or a `.zip` (`onnxruntime-osx-universal2-<version>.zip`, a `universal` row serving both Apple architectures); the member is `<archive name without extension>/lib/<artifactFileName>` | `libonnxruntime.dylib` |
 //! | `android-arm64` | `onnxruntime-android-<version>.aar` (zip), member `jni/arm64-v8a/libonnxruntime.so` | `libonnxruntime.so` |
 //!
 //! `android-arm64` needs an approved or pinned catalog row (`os` `android`, `arch` `aarch64`,
@@ -44,17 +46,20 @@ pub enum ProvisionTarget {
     WindowsX64,
     /// ONNX Runtime for Apple silicon (CPU and CoreML in one dylib).
     MacosArm64,
+    /// ONNX Runtime for Intel Macs, including universal archives.
+    MacosX64,
     /// ONNX Runtime for Android arm64-v8a, taken from the Maven AAR (UNVERIFIED: no catalog row
     /// and no real AAR checked yet).
     AndroidArm64,
 }
 
 impl ProvisionTarget {
-    /// Parse `windows-x64`, `macos-arm64` or `android-arm64`.
+    /// Parse `windows-x64`, `macos-arm64`, `macos-x64` or `android-arm64`.
     pub fn parse(text: &str) -> Option<Self> {
         match text {
             "windows-x64" => Some(Self::WindowsX64),
             "macos-arm64" => Some(Self::MacosArm64),
+            "macos-x64" => Some(Self::MacosX64),
             "android-arm64" => Some(Self::AndroidArm64),
             _ => None,
         }
@@ -68,6 +73,7 @@ impl ProvisionTarget {
         match (os.as_str(), arch.as_str()) {
             ("windows", "x86_64") => Some(Self::WindowsX64),
             ("macos", "aarch64") => Some(Self::MacosArm64),
+            ("macos", "x86_64") => Some(Self::MacosX64),
             ("android", "aarch64") => Some(Self::AndroidArm64),
             _ => None,
         }
@@ -78,6 +84,7 @@ impl ProvisionTarget {
         match (std::env::consts::OS, std::env::consts::ARCH) {
             ("windows", "x86_64") => Some(Self::WindowsX64),
             ("macos", "aarch64") => Some(Self::MacosArm64),
+            ("macos", "x86_64") => Some(Self::MacosX64),
             ("android", "aarch64") => Some(Self::AndroidArm64),
             _ => None,
         }
@@ -88,6 +95,7 @@ impl ProvisionTarget {
         match self {
             Self::WindowsX64 => "windows-x64",
             Self::MacosArm64 => "macos-arm64",
+            Self::MacosX64 => "macos-x64",
             Self::AndroidArm64 => "android-arm64",
         }
     }
@@ -96,6 +104,7 @@ impl ProvisionTarget {
         match self {
             Self::WindowsX64 => ("windows", "x86_64"),
             Self::MacosArm64 => ("macos", "aarch64"),
+            Self::MacosX64 => ("macos", "x86_64"),
             Self::AndroidArm64 => ("android", "aarch64"),
         }
     }
@@ -104,7 +113,7 @@ impl ProvisionTarget {
     fn variant(self) -> &'static str {
         match self {
             Self::WindowsX64 => "directml",
-            Self::MacosArm64 => "coreml",
+            Self::MacosArm64 | Self::MacosX64 => "coreml",
             // Claims no accelerator: which providers the AAR build contains is checked at run time.
             Self::AndroidArm64 => "cpu",
         }
@@ -477,7 +486,7 @@ fn plan(catalog: &NativeCatalog, target: ProvisionTarget) -> Result<Vec<Planned>
                 "DirectML.dll",
             )?);
         }
-        ProvisionTarget::MacosArm64 => {
+        ProvisionTarget::MacosArm64 | ProvisionTarget::MacosX64 => {
             let file = onnx.artifact_file_name.clone().unwrap_or_default();
             if !(file.starts_with("libonnxruntime") && file.ends_with(".dylib")) {
                 return Err(row(
@@ -485,15 +494,15 @@ fn plan(catalog: &NativeCatalog, target: ProvisionTarget) -> Result<Vec<Planned>
                     format!("artifactFileName {file:?} is not a libonnxruntime dylib"),
                 ));
             }
-            // The upstream tarball unpacks under a directory named after the archive file.
+            // The upstream tarball or zip unpacks under a directory named after the archive file.
             let archive_name = file_name_of(&onnx_url.0);
-            let wrapper = archive_name
-                .strip_suffix(".tgz")
-                .or_else(|| archive_name.strip_suffix(".tar.gz"))
+            let wrapper = [".tgz", ".tar.gz", ".zip"]
+                .iter()
+                .find_map(|extension| archive_name.strip_suffix(extension))
                 .ok_or_else(|| {
                     row(
                         "onnxruntime",
-                        format!("archive {archive_name:?} is not a .tgz"),
+                        format!("archive {archive_name:?} is not a .tgz, .tar.gz or .zip"),
                     )
                 })?
                 .to_owned();
@@ -537,7 +546,9 @@ fn planned(
     })
 }
 
-/// Exactly one `approved` or `pinned` record for the library on the target.
+/// Exactly one `approved` or `pinned` record for the library on the target. A macOS `universal`
+/// row (both Apple slices) matches an `aarch64` or `x86_64` target; an exact-architecture row is
+/// preferred when both exist.
 fn select(
     catalog: &NativeCatalog,
     library: NativeLibrary,
@@ -545,27 +556,52 @@ fn select(
     target: ProvisionTarget,
 ) -> Result<NativeRecord, ProvisionError> {
     let (os, arch) = target.os_arch();
-    let mut hits = catalog.records(library).filter(|r| {
-        matches!(r.status, NativeStatus::Approved | NativeStatus::Pinned)
-            && r.os.eq_ignore_ascii_case(os)
-            && r.arch.eq_ignore_ascii_case(arch)
-    });
-    let first = hits.next().ok_or_else(|| {
-        row(
+    select_for(catalog, library, label, os, arch, target.platform())
+}
+
+fn select_for(
+    catalog: &NativeCatalog,
+    library: NativeLibrary,
+    label: &'static str,
+    os: &str,
+    arch: &str,
+    platform: &str,
+) -> Result<NativeRecord, ProvisionError> {
+    let usable: Vec<&NativeRecord> = catalog
+        .records(library)
+        .filter(|r| {
+            matches!(r.status, NativeStatus::Approved | NativeStatus::Pinned)
+                && r.os.eq_ignore_ascii_case(os)
+        })
+        .collect();
+    let exact: Vec<&NativeRecord> = usable
+        .iter()
+        .copied()
+        .filter(|r| r.arch.eq_ignore_ascii_case(arch))
+        .collect();
+    let hits = if exact.is_empty() {
+        usable
+            .into_iter()
+            .filter(|r| {
+                r.arch == "universal"
+                    && os.eq_ignore_ascii_case("macos")
+                    && (arch.eq_ignore_ascii_case("aarch64") || arch.eq_ignore_ascii_case("x86_64"))
+            })
+            .collect()
+    } else {
+        exact
+    };
+    match hits.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err(row(
             label,
-            format!("no approved or pinned row for {}", target.platform()),
-        )
-    })?;
-    if hits.next().is_some() {
-        return Err(row(
+            format!("no approved or pinned row for {platform}"),
+        )),
+        _ => Err(row(
             label,
-            format!(
-                "more than one approved or pinned row for {}",
-                target.platform()
-            ),
-        ));
+            format!("more than one approved or pinned row for {platform}"),
+        )),
     }
-    Ok(first.clone())
 }
 
 fn archive_of(
@@ -666,6 +702,84 @@ pub fn http_fetch(url: &str, sha256: &str, dest: &Path) -> Result<(), String> {
     )
     .map(|_| ())
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::*;
+
+    fn catalog(rows: &[(&str, &str, &str, &str)]) -> NativeCatalog {
+        let libraries: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(id, os, arch, status)| {
+                serde_json::json!({
+                    "id": id, "library": "onnxruntime", "version": "1.30.0", "os": os,
+                    "arch": arch, "status": status, "linkage": "dynamic-library",
+                    "artifactFileName": "libonnxruntime.dylib",
+                    "sha256": "0".repeat(64),
+                    "archive": { "url": "https://example.test/a.zip", "sha256": "1".repeat(64) },
+                    "sourceUrl": "https://example.test/source", "licenseSpdx": "MIT",
+                    "noticeFiles": ["third-party/NOTICE.txt"],
+                    "verification": { "method": "file-sha256", "evidence": "fixture" }
+                })
+            })
+            .collect();
+        NativeCatalog::parse_native_only(
+            &serde_json::json!({ "schemaVersion": 1, "libraries": libraries }).to_string(),
+        )
+        .unwrap()
+    }
+
+    fn pick(catalog: &NativeCatalog, os: &str, arch: &str) -> Result<String, String> {
+        select_for(
+            catalog,
+            NativeLibrary::Onnxruntime,
+            "onnxruntime",
+            os,
+            arch,
+            "test",
+        )
+        .map(|r| r.id)
+        .map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_universal_macos_row_serves_both_apple_architectures() {
+        let c = catalog(&[("u", "macos", "universal", "approved")]);
+        assert_eq!(pick(&c, "macos", "aarch64").unwrap(), "u");
+        assert_eq!(pick(&c, "macos", "x86_64").unwrap(), "u");
+        // Not for another OS or architecture.
+        assert!(pick(&c, "windows", "x86_64").is_err());
+        assert!(pick(&c, "macos", "riscv64").is_err());
+    }
+
+    #[test]
+    fn an_exact_arch_row_is_preferred_over_a_universal_one() {
+        let c = catalog(&[
+            ("u", "macos", "universal", "approved"),
+            ("thin", "macos", "aarch64", "approved"),
+        ]);
+        assert_eq!(pick(&c, "macos", "aarch64").unwrap(), "thin");
+        assert_eq!(pick(&c, "macos", "x86_64").unwrap(), "u");
+    }
+
+    #[test]
+    fn stale_and_planned_rows_never_serve_and_duplicates_stay_ambiguous() {
+        let c = catalog(&[
+            ("old", "macos", "aarch64", "stale-unverified"),
+            ("later", "macos", "x86_64", "planned"),
+            ("u", "macos", "universal", "approved"),
+        ]);
+        assert_eq!(pick(&c, "macos", "aarch64").unwrap(), "u");
+        assert_eq!(pick(&c, "macos", "x86_64").unwrap(), "u");
+        let twice = catalog(&[
+            ("a", "macos", "universal", "approved"),
+            ("b", "macos", "universal", "pinned"),
+        ]);
+        assert!(pick(&twice, "macos", "aarch64")
+            .unwrap_err()
+            .contains("more than one"));
+    }
 }
 
 #[cfg(test)]

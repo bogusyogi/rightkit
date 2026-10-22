@@ -3,7 +3,7 @@
 //! Generalises the FFmpeg artifact catalog ([`crate::ArtifactCatalog`], which
 //! stays untouched) to every native dependency apps may bundle or link:
 //! FFmpeg, ONNX Runtime, PDFium, sqlite-vec, libgit2, GGML, whisper.cpp and
-//! sherpa-onnx. Every record pins ONE version per library for the suite,
+//! sherpa-onnx. Every record pins ONE version per library and OS for the suite,
 //! carries digests, SPDX licence, notices, platforms and a verification
 //! method, and is checked fail-closed.
 //!
@@ -194,7 +194,7 @@ impl fmt::Display for NativeCatalogError {
             Self::MixedVersions { library, versions } => {
                 write!(
                     f,
-                    "{library:?} pins more than one suite version: {versions:?}"
+                    "{library:?} pins more than one suite version for one OS: {versions:?}"
                 )
             }
             Self::NoApproved { library, os, arch } => {
@@ -526,13 +526,22 @@ impl NativeCatalog {
                 return Err(invalid(&r.id, "duplicate id"));
             }
         }
-        // One version per library across the suite (stale records excluded).
-        let libs: BTreeSet<_> = self.libraries.iter().map(|r| r.library).collect();
-        for library in libs {
+        // One version per library and OS across the suite (stale records excluded). The rule is
+        // per OS, not suite-wide, because ONNX Runtime diverges by OS (macOS 1.30.0, Windows
+        // 1.24.4) until RightKit CI builds its own universal2 ORT: bogusyogi/rightkit#889.
+        let pins: BTreeSet<(NativeLibrary, &str)> = self
+            .libraries
+            .iter()
+            .filter(|r| r.status != NativeStatus::StaleUnverified)
+            .map(|r| (r.library, r.os.as_str()))
+            .collect();
+        for (library, os) in pins {
             let versions: BTreeSet<String> = self
                 .libraries
                 .iter()
-                .filter(|r| r.library == library && r.status != NativeStatus::StaleUnverified)
+                .filter(|r| {
+                    r.library == library && r.os == os && r.status != NativeStatus::StaleUnverified
+                })
                 .map(|r| r.version.clone())
                 .collect();
             if versions.len() > 1 {
@@ -549,10 +558,19 @@ impl NativeCatalog {
         self.libraries.iter().filter(move |r| r.library == library)
     }
 
-    /// The single suite version for `library` (stale records ignored).
+    /// The suite version of the first non-stale record for `library` (stale records ignored).
+    /// ONNX Runtime pins a different version per OS (bogusyogi/rightkit#889); use
+    /// [`Self::suite_version_for`] when the OS matters.
     pub fn suite_version(&self, library: NativeLibrary) -> Option<&str> {
         self.records(library)
             .find(|r| r.status != NativeStatus::StaleUnverified)
+            .map(|r| r.version.as_str())
+    }
+
+    /// The suite version for `library` on `os` (stale records ignored).
+    pub fn suite_version_for(&self, library: NativeLibrary, os: &str) -> Option<&str> {
+        self.records(library)
+            .find(|r| r.status != NativeStatus::StaleUnverified && r.os.eq_ignore_ascii_case(os))
             .map(|r| r.version.as_str())
     }
 
@@ -564,22 +582,25 @@ impl NativeCatalog {
         arch: &str,
     ) -> Result<&NativeRecord, NativeCatalogError> {
         self.validate()?;
-        let mut hits = self
-            .records(library)
-            .filter(|r| r.status == NativeStatus::Approved && r.matches_platform(os, arch));
-        let first = hits.next().ok_or_else(|| NativeCatalogError::NoApproved {
-            library,
-            os: os.to_owned(),
-            arch: arch.to_owned(),
-        })?;
-        if hits.next().is_some() {
-            return Err(NativeCatalogError::Ambiguous {
+        let hits = prefer_exact_arch(
+            self.records(library)
+                .filter(|r| r.status == NativeStatus::Approved && r.matches_platform(os, arch))
+                .collect(),
+            arch,
+        );
+        match hits.as_slice() {
+            [one] => Ok(*one),
+            [] => Err(NativeCatalogError::NoApproved {
                 library,
                 os: os.to_owned(),
                 arch: arch.to_owned(),
-            });
+            }),
+            _ => Err(NativeCatalogError::Ambiguous {
+                library,
+                os: os.to_owned(),
+                arch: arch.to_owned(),
+            }),
         }
-        Ok(first)
     }
 
     /// The single approved record of a multi-file library (for example the ggml dylibs)
@@ -593,24 +614,48 @@ impl NativeCatalog {
         file_name: &str,
     ) -> Result<&NativeRecord, NativeCatalogError> {
         self.validate()?;
-        let mut hits = self.records(library).filter(|r| {
-            r.status == NativeStatus::Approved
-                && r.matches_platform(os, arch)
-                && r.artifact_file_name.as_deref() == Some(file_name)
-        });
-        let first = hits.next().ok_or_else(|| NativeCatalogError::NoApproved {
-            library,
-            os: os.to_owned(),
-            arch: arch.to_owned(),
-        })?;
-        if hits.next().is_some() {
-            return Err(NativeCatalogError::Ambiguous {
+        let hits = prefer_exact_arch(
+            self.records(library)
+                .filter(|r| {
+                    r.status == NativeStatus::Approved
+                        && r.matches_platform(os, arch)
+                        && r.artifact_file_name.as_deref() == Some(file_name)
+                })
+                .collect(),
+            arch,
+        );
+        match hits.as_slice() {
+            [one] => Ok(*one),
+            [] => Err(NativeCatalogError::NoApproved {
                 library,
                 os: os.to_owned(),
                 arch: arch.to_owned(),
-            });
+            }),
+            _ => Err(NativeCatalogError::Ambiguous {
+                library,
+                os: os.to_owned(),
+                arch: arch.to_owned(),
+            }),
         }
-        Ok(first)
+    }
+}
+
+/// When several approved records match a platform, an exact-architecture record wins over a
+/// `universal` or `any` one (a universal2 row and a thin row for the same arch are not ambiguous).
+/// Two records of the same exact architecture stay ambiguous.
+fn prefer_exact_arch<'a>(hits: Vec<&'a NativeRecord>, arch: &str) -> Vec<&'a NativeRecord> {
+    if hits.len() < 2 {
+        return hits;
+    }
+    let exact: Vec<&'a NativeRecord> = hits
+        .iter()
+        .copied()
+        .filter(|r| r.arch.eq_ignore_ascii_case(arch))
+        .collect();
+    if exact.is_empty() {
+        hits
+    } else {
+        exact
     }
 }
 

@@ -35,8 +35,18 @@ fn embedded_catalog_pins_one_version_per_library_and_covers_all_eight_libraries(
         );
     }
     assert_eq!(catalog.suite_version(NativeLibrary::Ffmpeg), Some("7.1.5"));
+    // ONNX Runtime pins one version per OS (bogusyogi/rightkit#889): macOS universal2 1.30.0,
+    // Windows DirectML 1.24.4.
     assert_eq!(
         catalog.suite_version(NativeLibrary::Onnxruntime),
+        Some("1.30.0")
+    );
+    assert_eq!(
+        catalog.suite_version_for(NativeLibrary::Onnxruntime, "macos"),
+        Some("1.30.0")
+    );
+    assert_eq!(
+        catalog.suite_version_for(NativeLibrary::Onnxruntime, "windows"),
         Some("1.24.4")
     );
     // FFmpeg is derived from the legacy catalog: same ids and digests.
@@ -97,6 +107,116 @@ fn ffmpeg_licence_admits_only_toolchain_runtime_terms_after_lgpl() {
         record.license_spdx = refused.into();
         assert!(record.validate().is_err(), "{refused}");
     }
+}
+
+/// The one-version rule is per (library, OS): ONNX Runtime may differ between macOS and Windows,
+/// never within one OS, and a stale record never counts.
+#[test]
+fn onnxruntime_versions_may_diverge_by_os_but_not_within_one() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    catalog.validate().unwrap();
+
+    let mut value: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
+    let libs = value["libraries"].as_array_mut().unwrap();
+    // A second live Windows version is refused.
+    let mut windows = libs
+        .iter()
+        .find(|r| r["id"] == "onnxruntime-1.24.4-windows-x64-directml")
+        .unwrap()
+        .clone();
+    windows["id"] = "onnxruntime-9-windows".into();
+    windows["version"] = "9.9.9".into();
+    libs.push(windows.clone());
+    let refused = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
+    assert!(matches!(
+        refused.validate(),
+        Err(NativeCatalogError::MixedVersions { ref versions, .. })
+            if versions.len() == 2
+    ));
+    // The same record marked stale is history and is ignored.
+    let libs = value["libraries"].as_array_mut().unwrap();
+    libs.pop();
+    windows["status"] = "stale-unverified".into();
+    libs.push(windows);
+    NativeCatalog::parse_native_only(&value.to_string())
+        .unwrap()
+        .validate()
+        .unwrap();
+}
+
+/// The macOS ONNX Runtime pin is one universal2 record that resolves for both Apple architectures,
+/// while the 1.24.4 thin records stay in the catalog as history and never resolve.
+#[test]
+fn the_macos_onnxruntime_pin_is_one_universal2_record_and_the_old_rows_are_stale() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    for arch in ["aarch64", "x86_64"] {
+        let record = catalog
+            .approved(NativeLibrary::Onnxruntime, "macos", arch)
+            .unwrap();
+        assert_eq!(record.id, "onnxruntime-1.30.0-macos-universal2");
+        assert_eq!(record.version, "1.30.0");
+        assert_eq!(record.arch, "universal");
+        assert_eq!(
+            record.artifact_file_name.as_deref(),
+            Some("libonnxruntime.dylib")
+        );
+        assert!(record
+            .archive
+            .as_ref()
+            .unwrap()
+            .url
+            .ends_with("/v1.30.0/onnxruntime-osx-universal2-1.30.0.zip"));
+        // Both the MIT text and the 1.30.0 third-party notices ship with the crate.
+        assert!(record
+            .notice_files
+            .iter()
+            .any(|n| n == "third-party/ONNXRuntime-1.30.0-ThirdPartyNotices.txt"));
+    }
+    for id in [
+        "onnxruntime-1.24.4-macos-arm64",
+        "onnxruntime-1.24.4-macos-x86_64",
+    ] {
+        let old = catalog
+            .records(NativeLibrary::Onnxruntime)
+            .find(|r| r.id == id)
+            .unwrap_or_else(|| panic!("{id} is kept as history"));
+        assert_eq!(old.status, NativeStatus::StaleUnverified, "{id}");
+    }
+}
+
+/// An exact-architecture approved record wins over a universal one; two exact ones stay ambiguous.
+#[test]
+fn an_exact_arch_record_is_preferred_over_a_universal_one() {
+    let mut value: serde_json::Value = serde_json::from_str(NATIVE_CATALOG_JSON).unwrap();
+    let libs = value["libraries"].as_array_mut().unwrap();
+    let mut thin = libs[0].clone();
+    thin["id"] = "onnxruntime-1.30.0-macos-arm64".into();
+    thin["arch"] = "aarch64".into();
+    libs.push(thin.clone());
+    let catalog = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
+    assert_eq!(
+        catalog
+            .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+            .unwrap()
+            .id,
+        "onnxruntime-1.30.0-macos-arm64"
+    );
+    // x86_64 still resolves to the universal record.
+    assert_eq!(
+        catalog
+            .approved(NativeLibrary::Onnxruntime, "macos", "x86_64")
+            .unwrap()
+            .id,
+        "onnxruntime-1.30.0-macos-universal2"
+    );
+    // A second thin record for the same arch is ambiguous.
+    thin["id"] = "onnxruntime-1.30.0-macos-arm64-b".into();
+    value["libraries"].as_array_mut().unwrap().push(thin);
+    let twice = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
+    assert!(matches!(
+        twice.approved(NativeLibrary::Onnxruntime, "macos", "aarch64"),
+        Err(NativeCatalogError::Ambiguous { .. })
+    ));
 }
 
 #[test]
@@ -211,10 +331,19 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
     let root = root();
     let mut verified = Vec::new();
 
-    let files: [(NativeLibrary, &str, &str, &str); 3] = [
-        (NativeLibrary::Ffmpeg, "macos", "aarch64", "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg"),
-        (NativeLibrary::Onnxruntime, "macos", "aarch64", "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib"),
-        (NativeLibrary::SherpaOnnx, "macos", "aarch64", "cutright/runtime/packs/speech/bin/libsherpa-onnx-c-api.dylib"),
+    let files: [(NativeLibrary, &str, &str, &str); 2] = [
+        (
+            NativeLibrary::Ffmpeg,
+            "macos",
+            "aarch64",
+            "heardright/tauri-app-next/src-tauri/resources/runtime/ffmpeg",
+        ),
+        (
+            NativeLibrary::SherpaOnnx,
+            "macos",
+            "aarch64",
+            "cutright/runtime/packs/speech/bin/libsherpa-onnx-c-api.dylib",
+        ),
     ];
     for (lib, os, arch, rel) in files {
         let path = root.join(rel);
@@ -230,14 +359,23 @@ fn real_local_artifacts_and_locks_match_their_catalog_records() {
         verified.push(format!("{lib:?}"));
     }
 
-    // Upstream archive digest for ONNX Runtime.
+    // ONNX Runtime 1.24.4 (macOS arm64) is kept as a stale history record; its cached files still
+    // hash to it. The approved macOS record is 1.30.0 universal2 (no workstation copy is known).
+    let old_ort = catalog
+        .records(NativeLibrary::Onnxruntime)
+        .find(|r| r.id == "onnxruntime-1.24.4-macos-arm64")
+        .unwrap();
+    let dylib = "genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4/lib/libonnxruntime.1.24.4.dylib";
+    if root.join(dylib).is_file() {
+        old_ort.verify_file(&root.join(dylib)).unwrap();
+        verified.push("Onnxruntime".into());
+    } else {
+        common::skip_missing("Onnxruntime artifact", dylib);
+    }
+    // Upstream archive digest for ONNX Runtime 1.24.4.
     let tgz = root.join("genright/.cache/devin-completion-20261006/batch5/voice/dl/onnxruntime-osx-arm64-1.24.4.tgz");
     if tgz.is_file() {
-        catalog
-            .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
-            .unwrap()
-            .verify_archive(&tgz)
-            .unwrap();
+        old_ort.verify_archive(&tgz).unwrap();
         verified.push("Onnxruntime-archive".into());
     }
 

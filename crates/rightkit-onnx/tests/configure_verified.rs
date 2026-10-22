@@ -66,12 +66,20 @@ fn configure_verified_binds_only_a_digest_checked_library() {
         serde_json::to_vec(&manifest(sha256_hex(bytes))).unwrap(),
     )
     .unwrap();
-    let selection = configure_runtime_verified([candidate(&lib)]).expect("verified library binds");
-    assert_eq!(selection.path, lib.canonicalize().unwrap());
-    assert_eq!(
-        PathBuf::from(std::env::var_os("ORT_DYLIB_PATH").unwrap()),
-        selection.path
-    );
+    let result = configure_runtime_verified([candidate(&lib)]);
+    if rightkit_onnx::kleidiai::Host::detect().affected() {
+        // Hash verification does not establish an ORT version: arbitrary fixture bytes
+        // must still fail closed on SME2, without publishing a runtime binding.
+        assert!(matches!(result, Err(RuntimeError::KnownBadRuntime { .. })));
+        assert!(std::env::var_os("ORT_DYLIB_PATH").is_none());
+    } else {
+        let selection = result.expect("verified library binds on an unaffected host");
+        assert_eq!(selection.path, lib.canonicalize().unwrap());
+        assert_eq!(
+            PathBuf::from(std::env::var_os("ORT_DYLIB_PATH").unwrap()),
+            selection.path
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&dir);
 }
