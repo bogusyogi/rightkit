@@ -870,6 +870,42 @@
           "receiptSha256": "6da59319d46d5cad0ff00750dd35ec6890a56c690368cdb181b8ae6eb89f0a6a"
         }
       }
+    },
+    {
+      "id": "cargo-credentials-042-0303",
+      "sourceSha": "0303c537711ae6d6f46c5c2ce887d5db81ed5367",
+      "runId": "39687241275",
+      "runAttempt": "1",
+      "workflowId": "381341382",
+      "manifestSha256": "2c634ed95e44f37c703f7c9528831271549caa6cdafae33e1b5ce2e264e3c1b9",
+      "registry": "crates",
+      "units": [
+        "rightkit-credentials"
+      ],
+      "allow": {
+        "hostExclusion": [],
+        "noTest": [],
+        "ignored": [
+          "rightkit-credentials"
+        ],
+        "missingAssets": []
+      },
+      "artifacts": {
+        "packed": {
+          "id": "12387082504",
+          "digest": "sha256:1822c4b4b6e6424ae41ce10d1e6091cd8c4c364cbea7b1fd9e11a2a50862aa48"
+        },
+        "macos": {
+          "id": "12387497312",
+          "digest": "sha256:c91afacc2cf152d9a26678c621ed9d4140738b4026f03f00fcac22cc2c53c318",
+          "receiptSha256": "a284697ce7b4a002d79425deda0994dbd11afe4cbb326f7a66c7b9abe45df761"
+        },
+        "windows": {
+          "id": "12387838088",
+          "digest": "sha256:df5ffce835a1ae5d0537b131e61446c7a416abcb1744891afb7fd993977a116c",
+          "receiptSha256": "fc90757f67d9149a335ab5bfe37253b7214532f81d68243c42d782413602fb66"
+        }
+      }
     }
   ],
   "artifacts": [
@@ -1088,6 +1124,14 @@
       "sha256": "724aa2b0f39d30efe8d0779059e62d8763e160e836b067cae324795a7a0ea426",
       "reviewer": "Astra (gpt-6-astra high, adversarial review)",
       "reviewRef": "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593"
+    },
+    {
+      "registry": "crates",
+      "name": "rightkit-credentials",
+      "version": "0.4.2",
+      "sha256": "4d6eae05bf2b22bde1bf2b6c0ddbdeb072f12a07bfe3a3037c754f4ef95c22e7",
+      "reviewer": "Astra (gpt-6-astra high, adversarial review)",
+      "reviewRef": "https://github.com/bogusyogi/rightkit/issues/886#issuecomment-6328792371"
     }
   ]
 }

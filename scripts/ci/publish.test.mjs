@@ -752,6 +752,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "crates rightkit-crash@0.3.5 50a29ac424871a0d65fd186c6f65f0ebadc11fdbda9270e1446ce490c06dc0d0",
     "crates rightkit-credentials@0.4.0 c74c8f18566064482803651b63d03571ac75343f673ca8c10580f4c7e5ca936f",
     "crates rightkit-credentials@0.4.1 eff9ae836419d4a38ea1454d1374ed49846e647b6cc1f1780d297c185fe8da58",
+    "crates rightkit-credentials@0.4.2 4d6eae05bf2b22bde1bf2b6c0ddbdeb072f12a07bfe3a3037c754f4ef95c22e7",
     "crates rightkit-db@0.5.1 5faf1c33643ce547f0ed1b73a2bf975390095cbd99476f737a2e35417afca4fc",
     "crates rightkit-fs@0.4.6 8e901f915725e211a7acb5b4dfc99799adc03c3682ddb89a10e996e9d816efea",
     "crates rightkit-http@0.3.8 7764a1e201a6ea18222ff936e4ee36024c08fa79c0852bbf73eed6d94c2a4837",
@@ -806,6 +807,7 @@ test("ci/approved-artifacts.json is well formed and holds exactly the reviewer-s
     "rightkit-child-process@0.5.4": { reviewer: "Oracle (exact archive and native receipt review)", reviewRef: "agent-review:/root/hb_post_foundation/39486639316/child-process-0.5.4" },
     "rightkit-license@0.2.4": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593" },
     "rightkit-oauth@0.10.0": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/880#issuecomment-6326550593" },
+    "rightkit-credentials@0.4.2": { reviewer: "Astra (gpt-6-astra high, adversarial review)", reviewRef: "https://github.com/bogusyogi/rightkit/issues/886#issuecomment-6328792371" },
   };
   assert.deepEqual(Object.fromEntries(entries.map((e) => [`${e.name}@${e.version}`, { reviewer: e.reviewer, reviewRef: e.reviewRef }])), reviews);
 });
