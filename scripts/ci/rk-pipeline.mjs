@@ -18,7 +18,7 @@ import { DEFAULT_OUT, ROOT, readJson, receiptRefusal, exceptionAllowsets } from 
 
 export const REPO = "bogusyogi/rightkit";
 export const STATE_FILE = "/Volumes/D/scratch/rk-pipeline/state.json";
-import { readCrateWorkspace, crateRegistryVersions, satisfies as versionSatisfies } from "./publish.mjs";
+import { readCrateWorkspace, readNpmWorkspace, crateRegistryVersions, npmRegistryVersions, satisfies as versionSatisfies } from "./publish.mjs";
 const GH = process.platform === "win32" ? "C:\\Program Files\\GitHub CLI\\gh.exe" : "/opt/homebrew/bin/gh";
 const RUSTRIGHT = "rustright";
 const NODE = process.execPath;
@@ -38,7 +38,7 @@ export function parseArgs(argv) {
     else opts.units.push(...arg.split(/\s+/).filter(Boolean)); // one quoted list or many arguments, both fine
   }
   if (!["ready", "preflight", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, dispatch, watch or loop");
-  if (opts.registry !== "crates") throw new Error("--registry must be crates; npm needs a broker-admitted build adapter");
+  if (!["crates", "npm"].includes(opts.registry)) throw new Error("--registry must be crates or npm");
   if (!Number.isInteger(opts.jobs) || opts.jobs < 1) throw new Error("--jobs must be a positive integer");
   opts.units = [...new Set(opts.units)];
   return opts;
@@ -54,11 +54,30 @@ export function readCrates(root = ROOT) {
     deps: c.deps.filter((d) => !(d.dev && !d.spec)).map((d) => ({ ...d, req: d.spec })),
   }]));
 }
+/** Workspace npm packages in the crate-record shape the planner uses: publish = not private; deps = the other workspace
+ * packages it depends on (`workspace:` specs resolve to that member's version, so a sibling bump orders the waves). */
+export function readPackages(root = ROOT) {
+  const raw = readNpmWorkspace(root);
+  return new Map([...raw].map(([name, p]) => [name, {
+    name, version: p.version, dir: p.dir, publish: !p.private, hasTest: p.hasTest,
+    deps: p.deps.filter((d) => raw.has(d.name)).map((d) => ({ name: d.name, req: /^workspace:/.test(d.spec) ? (d.spec === "workspace:*" || d.spec === "workspace:^" || d.spec === "workspace:~" ? `=${raw.get(d.name).version}` : d.spec.slice("workspace:".length)) : d.spec })),
+  }]));
+}
+export function readUnits(registry, root = ROOT) {
+  if (registry === "npm") return readPackages(root);
+  if (registry === "crates") return readCrates(root);
+  throw new Error(`unknown registry ${registry}`);
+}
 export async function registryVersion(name, registry, fetchImpl = fetch) {
-  if (registry !== "crates") throw new Error("npm publication is not implemented by this driver");
+  if (registry === "npm") return npmRegistryVersions(name, fetchImpl); // Exact versions; transport failure throws.
+  if (registry !== "crates") throw new Error(`unknown registry ${registry}`);
   return crateRegistryVersions(name, fetchImpl); // Exact versions, checksums & yanks; transport failure throws.
 }
-const usable = (versions, requirement) => [...versions].some(([v, meta]) => !meta.yanked && satisfies(requirement, v));
+/** npm allows `a || b` alternatives in one requirement; a version satisfying any alternative satisfies the requirement. */
+export function satisfiesAny(requirement, version) {
+  return String(requirement).split("||").map((part) => part.trim()).filter(Boolean).some((part) => satisfies(part, version));
+}
+const usable = (versions, requirement) => [...versions].some(([v, meta]) => !meta.yanked && satisfiesAny(requirement, v));
 export function waves(crates, registryVersions, failures = new Map()) {
   const unpublished = new Set([...crates.values()].filter((c) => c.publish && !registryVersions.get(c.name)?.has(c.version)).map((c) => c.name));
   const blockers = new Map();
@@ -70,7 +89,7 @@ export function waves(crates, registryVersions, failures = new Map()) {
       if (!d.req || (typeof d.source === "string" && d.source.startsWith("git+"))) { blocked.push(`invalid:${d.name}`); continue; }
       if (usable(registryVersions.get(d.name) ?? new Map(), d.req)) continue;
       const future = crates.get(d.name);
-      blocked.push(unpublished.has(d.name) && satisfies(d.req, future.version) ? d.name : `unavailable:${d.name}`);
+      blocked.push(unpublished.has(d.name) && satisfiesAny(d.req, future.version) ? d.name : `unavailable:${d.name}`);
     }
     blockers.set(name, blocked);
   }
@@ -98,7 +117,7 @@ export function closureOf(crates, selected) {
 /** Registry truth for the needed closure only. A lookup that fails marks THAT crate unknown (never "unpublished"):
  * it cannot be ready and cannot satisfy a consumer, while every unrelated crate proceeds (Astra review item 6). */
 export async function readiness(opts, deps = {}) {
-  const crates = deps.crates ?? readCrates();
+  const crates = deps.crates ?? readUnits(opts.registry ?? "crates");
   const lookup = deps.lookup ?? registryVersion;
   const needed = [...closureOf(crates, opts.units ?? [])].filter((n) => crates.get(n).publish);
   const versions = new Map(), failures = new Map();
@@ -150,7 +169,7 @@ export function receiptFor(unit, sha, out = DEFAULT_OUT) {
   return fs.existsSync(file) ? { file, ...readJson(file, {}) } : null;
 }
 
-export function dispatchRefusal(receipt, sha, unit, registry = "crates", config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), version = readCrates().get(unit)?.version) {
+export function dispatchRefusal(receipt, sha, unit, registry = "crates", config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), version = readUnits(registry).get(unit)?.version) {
   return receiptRefusal(receipt, { sha, unit, registry, config, version });
 }
 
@@ -220,7 +239,8 @@ async function preflightMany(units, opts) {
   const worker = async () => {
     while (queue.length) {
       const unit = queue.shift();
-      const r = await runChild(NODE, [path.join(ROOT, "scripts", "ci", "rk-preflight.mjs"), "--registry", opts.registry, "--unit", unit]);
+      const script = opts.registry === "npm" ? "rk-npm-preflight.mjs" : "rk-preflight.mjs";
+      const r = await runChild(NODE, [path.join(ROOT, "scripts", "ci", script), "--registry", opts.registry, "--unit", unit]);
       const last = r.out.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "";
       results.set(unit, { code: r.code, last });
       log(`preflight ${unit}: ${r.code === 0 ? "GREEN" : "RED"} (${last.slice(0, 140)})`);
@@ -434,7 +454,11 @@ export async function cmdLoop(opts, deps = {}) {
     for (const unit of ready) {
       if (active.size >= opts.jobs) break;
       const key = stateKey(opts.registry, sha, unit);
-      if (attempted.has(unit) || state.dispatches[key] || held.has(unit)) continue;
+      // A record at this SHA ends the unit's attempts here, except a preflight-phase failure: that is local evidence
+      // only (nothing was dispatched), and the dispatcher itself admits a retry of it; the loop at 14ac0759 skipped
+      // qa and tauri-shell after a tree-change refusal and exited with nothing to do.
+      const previous = state.dispatches[key];
+      if (attempted.has(unit) || held.has(unit) || (previous && !(previous.status === "failed" && previous.phase === "preflight"))) continue;
       const reason = hold(unit, sha, state, r.crates);
       if (reason) { held.add(unit); log(`${unit}: ${reason}`); continue; }
       attempted.add(unit);

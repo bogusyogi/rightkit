@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
-import { acquireLock, releaseLock, closureOf, holdReason, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { acquireLock, releaseLock, closureOf, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
-test("argv normalizes unit lists & refuses unsupported npm", () => {
+test("argv normalizes unit lists; npm is a registry of its own, anything else is refused", () => {
   assert.deepEqual(parseArgs(["dispatch", "rightkit-daemon rightkit-crash", "rightkit-daemon"]).units, ["rightkit-daemon", "rightkit-crash"]);
-  assert.throws(() => parseArgs(["loop", "--registry", "npm"]), /broker-admitted/);
+  assert.equal(parseArgs(["loop", "--registry", "npm"]).registry, "npm");
+  assert.throws(() => parseArgs(["loop", "--registry", "pypi"]), /crates or npm/);
 });
 
 test("readiness uses all non-yanked versions, actual requirement semantics & prospective satisfaction", () => {
@@ -208,4 +209,30 @@ test("a unit that failed hosted is held at a new SHA until its closure, recipe o
   assert.match(holdReason("rightkit-a", "new", state, crates, { pipeline: stale, changed: unchanged, show }), /held/, "a release naming another run does not");
   assert.equal(holdReason("rightkit-b", "new", state, crates, { pipeline: {}, changed: unchanged, show }), null, "a unit without a hosted failure is never held");
   assert.equal(holdReason("rightkit-a", "old", state, crates, { pipeline: {}, changed: unchanged, show }), null, "the failed SHA itself is governed by the attempt record, not the hold");
+});
+
+
+test("a unit whose record at this SHA is a preflight-phase failure is attempted again; any other record ends its attempts", async () => {
+  const key = (u) => stateKey("crates", SHA, u);
+  let state = { dispatches: { [key("retry")]: { unit: "retry", sha: SHA, status: "failed", phase: "preflight", detail: "tree changed" }, [key("done")]: { unit: "done", sha: SHA, status: "failed", runId: 5 } } };
+  const calls = [];
+  const readiness = async () => ({ unpublished: new Set(["retry", "done"]), waves: [["retry", "done"]], crates: new Map() });
+  const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+    head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
+    preflight: async (unit) => { calls.push(unit); return { code: 1, last: "still red" }; },
+    dispatch: async () => { throw new Error("nothing green to dispatch"); },
+    watch: async () => 0, holdReason: () => null,
+    pause: () => new Promise((resolve) => setTimeout(resolve, 1)),
+  });
+  assert.equal(result, 1);
+  assert.deepEqual(calls, ["retry"], "only the preflight-phase failure is re-attempted");
+  assert.equal(state.dispatches[key("done")].runId, 5, "a hosted record is never overwritten by the loop");
+});
+
+
+test("an npm `a || b` requirement is satisfied by either alternative, and by neither otherwise", () => {
+  assert.equal(satisfiesAny("^0.4.1 || ^0.5.0", "0.5.0"), true);
+  assert.equal(satisfiesAny("^0.4.1 || ^0.5.0", "0.4.2"), true);
+  assert.equal(satisfiesAny("^0.4.1 || ^0.5.0", "0.6.0"), false);
+  assert.equal(satisfiesAny("=1.2.3", "1.2.3"), true);
 });

@@ -200,7 +200,7 @@ export async function main(argv, deps = {}) {
       ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins, expect, workspace: root })
       : { verified: false, requestId: null, nonce, reason: ids.length ? "more than one broker request for one row" : "no broker request" };
     const ok = r.code === 0 && !r.timedOut && attestation.verified === true && unchanged();
-    const entry = { id: row.id, kind: row.kind, command: `rustright ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, brokerRequests: ids, attestation, log: logFile, ok };
+    const entry = { id: row.id, kind: row.kind, cwd: ".", command: `rustright ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, brokerRequests: ids, attestation, log: logFile, ok };
     receipt.rows.push(entry);
     out(`${ok ? "PASS" : "FAIL"} ${row.id} (${r.seconds}s${r.timedOut ? ", timed out" : ""})`);
     save();
