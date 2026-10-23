@@ -59,7 +59,7 @@
         "reason": "ci/asset-gated.json: Whisper library (RIGHTKIT_WHISPER_LIB), ASR models and audio fixtures; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-automation": {
-        "version": "0.6.0",
+        "version": "0.6.1",
         "allow": [
           "allow_missing_assets"
         ],
