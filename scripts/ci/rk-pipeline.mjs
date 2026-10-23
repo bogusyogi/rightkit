@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_OUT, ROOT, readJson, receiptRefusal, exceptionAllowsets } from "./rk-preflight.mjs";
+import { packageRows } from "./rk-npm-preflight.mjs";
 
 export const REPO = "bogusyogi/rightkit";
 export const STATE_FILE = "/Volumes/D/scratch/rk-pipeline/state.json";
@@ -169,8 +170,18 @@ export function receiptFor(unit, sha, out = DEFAULT_OUT) {
   return fs.existsSync(file) ? { file, ...readJson(file, {}) } : null;
 }
 
-export function dispatchRefusal(receipt, sha, unit, registry = "crates", config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), version = readUnits(registry).get(unit)?.version) {
-  return receiptRefusal(receipt, { sha, unit, registry, config, version });
+export function dispatchRefusal(receipt, sha, unit, registry = "crates", config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), version = readUnits(registry).get(unit)?.version, deps = {}) {
+  // The same derivation the pinned dispatcher makes for an npm unit (rightkit-dispatch.mjs requirePreflight): the
+  // package directory and the expected row plan come from the committed workspace and policy, never from the receipt.
+  let expectedRows, packageDir;
+  if (registry === "npm") {
+    const pkg = (deps.readPackages ?? readPackages)().get(unit);
+    if (!pkg) return "unknown npm package";
+    const pipeline = deps.pipeline ?? readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {});
+    packageDir = pkg.dir;
+    try { expectedRows = (deps.packageRows ?? packageRows)(unit, pkg, { storeDir: pipeline.tools?.pnpm?.[process.platform]?.storeDir }); } catch (error) { return String(error.message); }
+  }
+  return receiptRefusal(receipt, { sha, unit, registry, config, version, expectedRows, packageDir });
 }
 
 /** Planner refusals remain refusals. Only explicit version-bound policy supplies exceptions. */

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
-import { acquireLock, releaseLock, closureOf, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { packageRows } from "./rk-npm-preflight.mjs";
+import { acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -235,4 +236,22 @@ test("an npm `a || b` requirement is satisfied by either alternative, and by nei
   assert.equal(satisfiesAny("^0.4.1 || ^0.5.0", "0.4.2"), true);
   assert.equal(satisfiesAny("^0.4.1 || ^0.5.0", "0.6.0"), false);
   assert.equal(satisfiesAny("=1.2.3", "1.2.3"), true);
+});
+
+
+test("an npm receipt is admitted through the real receiptRefusal with the real packageRows plan and the package directory the pinned dispatcher derives; an unknown package or a moved directory refuses", () => {
+  const sha = "f".repeat(40);
+  const pkg = { name: "@rightkit/legal", dir: "packages/legal", version: "0.6.2", scripts: { test: "vitest run" } };
+  const packages = new Map([[pkg.name, pkg]]);
+  const pipeline = { tools: { pnpm: { [process.platform]: { storeDir: "/Volumes/D/.pnpm-store/v11" } } } };
+  const rows = packageRows(pkg.name, pkg, { storeDir: pipeline.tools.pnpm[process.platform].storeDir });
+  const request = "11111111-1111-4111-8111-111111111111";
+  const row = (r) => ({ id: r.id, kind: r.kind, cwd: ".", command: `rustright run rightkit-pnpm -- ${r.args.join(" ")}`, exit: 0, timedOut: false, seconds: 1, ok: true, brokerRequests: [request], attestation: { verified: true, signatureVerified: true, requestId: request, nonce: "a".repeat(64) } });
+  const receipt = { schema: "rk-preflight.v2", mode: "local-test", sha, registry: "npm", unit: pkg.name, version: pkg.version, dir: pkg.dir, adapter: "rightkit-pnpm", route: "local", ok: true, finishedAt: "2026-10-23T02:00:00Z", scans: { ok: true, exit: 0, timedOut: false }, planChecks: { ok: true, exit: 0, timedOut: false }, requiredRows: rows.map((r) => r.id), rows: rows.map(row) };
+  const deps = { readPackages: () => packages, pipeline };
+  assert.equal(dispatchRefusal(receipt, sha, pkg.name, "npm", {}, pkg.version, deps), null, "the driver passes what the pinned dispatcher derives");
+  assert.match(dispatchRefusal({ ...receipt, dir: "packages/other" }, sha, pkg.name, "npm", {}, pkg.version, deps), /package directory mismatch/);
+  assert.match(dispatchRefusal({ ...receipt, requiredRows: ["test"] }, sha, pkg.name, "npm", {}, pkg.version, deps), /row order differs/);
+  assert.equal(dispatchRefusal(receipt, sha, "@rightkit/nope", "npm", {}, "1.0.0", deps), "unknown npm package");
+  assert.match(dispatchRefusal(receipt, sha, pkg.name, "npm", {}, pkg.version, { ...deps, pipeline: {} }), /store pin/, "no store pin, no plan, no dispatch");
 });
