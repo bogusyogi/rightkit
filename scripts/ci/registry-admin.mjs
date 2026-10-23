@@ -3,7 +3,7 @@
 // tokens are read from env and never printed. Exactly one action per run.
 import { spawnSync } from "node:child_process";
 
-const ACTIONS = ["yank-cargo", "deprecate-npm"];
+const ACTIONS = ["yank-cargo", "deprecate-npm", "undeprecate-npm"];
 const NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -14,6 +14,7 @@ export function adminPlan(env) {
   if (!VERSION.test(version ?? "")) throw new Error(`invalid version: ${version}`);
   if (action === "yank-cargo" && name.startsWith("@")) throw new Error("cargo package must not be scoped");
   if (action === "deprecate-npm" && (typeof message !== "string" || message.trim().length < 8 || message.length > 200 || /[\r\n]/.test(message))) throw new Error("deprecation message must be one line, 8-200 chars");
+  if (action === "undeprecate-npm" && name.split("/").length > 2) throw new Error(`invalid package name: ${name}`);
   return { action, name, version, message: action === "deprecate-npm" ? message.trim() : "" };
 }
 
@@ -42,6 +43,12 @@ export async function verifyNpmDeprecated({ name, version, message }, fetchImpl 
   return `${name}@${version}: deprecated=${JSON.stringify(message)} (npm readback)`;
 }
 
+export async function verifyNpmUndeprecated({ name, version }, fetchImpl = fetchJson) {
+  const data = await fetchImpl(`https://registry.npmjs.org/${name.replace("/", "%2f")}/${version}`);
+  if (data?.deprecated) throw new Error(`${name}@${version} is still deprecated after admin action: ${JSON.stringify(data.deprecated)}`);
+  return `${name}@${version}: deprecated=<none> (npm readback)`;
+}
+
 export async function main(env = process.env) {
   const plan = adminPlan(env);
   if (plan.action === "yank-cargo") {
@@ -50,8 +57,9 @@ export async function main(env = process.env) {
     console.log(await verifyCargoYank(plan));
   } else {
     if (!env.NODE_AUTH_TOKEN) throw new Error("NODE_AUTH_TOKEN missing");
-    run("npm", ["deprecate", `${plan.name}@${plan.version}`, plan.message, "--registry", "https://registry.npmjs.org/"], env);
-    console.log(await verifyNpmDeprecated(plan));
+    // npm removes a deprecation when the message is the empty string.
+    run("npm", ["deprecate", `${plan.name}@${plan.version}`, plan.action === "undeprecate-npm" ? "" : plan.message, "--registry", "https://registry.npmjs.org/"], env);
+    console.log(plan.action === "undeprecate-npm" ? await verifyNpmUndeprecated(plan) : await verifyNpmDeprecated(plan));
   }
 }
 

@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "yank-cargo or deprecate-npm (owner-authorized, one action per run)"
+        description: "yank-cargo, deprecate-npm or undeprecate-npm (owner-authorized, one action per run)"
         type: choice
-        options: [yank-cargo, deprecate-npm]
+        options: [yank-cargo, deprecate-npm, undeprecate-npm]
         required: true
       package:
         description: Package name (crate or @rightkit/* npm)
