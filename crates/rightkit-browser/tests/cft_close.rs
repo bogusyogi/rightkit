@@ -8,6 +8,9 @@ use rightkit_browser::{chrome_for_testing_path, BrowserSession, LaunchOptions};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+/// Chrome sessions each own a process & profile; serialize cases so they never overlap.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Required native qualification must never pass without exercising Chrome.
 fn required_chrome() -> Option<PathBuf> {
     match chrome_for_testing_path(None) {
@@ -83,6 +86,7 @@ fn group_alive(pid: u32) -> bool {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn chrome_for_testing_closes_gracefully_without_leftovers() {
+    let _serial = SERIAL.lock().await;
     let Some(exe) = required_chrome() else {
         return;
     };
@@ -117,6 +121,7 @@ async fn chrome_for_testing_closes_gracefully_without_leftovers() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn dropped_session_terminates_gracefully_and_removes_profile() {
+    let _serial = SERIAL.lock().await;
     if required_chrome().is_none() {
         return;
     }

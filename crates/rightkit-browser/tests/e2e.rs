@@ -13,6 +13,9 @@ use std::time::Duration;
 
 /// Every test here drives a real Chrome for Testing. Without one the test prints a SKIP line
 /// and returns; required assets or GitHub Actions turn the gap into a failure.
+/// Chrome sessions each own a process & profile; serialize cases so they never overlap.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 macro_rules! need_chrome {
     ($test:literal) => {
         if let Err(e) = rightkit_browser::chrome_for_testing_path(None) {
@@ -92,6 +95,7 @@ fn serve() -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn browser_runtime_outcomes() {
+    let _serial = SERIAL.lock().await;
     need_chrome!("browser_runtime_outcomes");
     let base = serve();
     let session = BrowserSession::launch(fixture_opts())
@@ -206,6 +210,7 @@ async fn browser_runtime_outcomes() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn named_profile_persists_and_is_exclusive() {
+    let _serial = SERIAL.lock().await;
     need_chrome!("named_profile_persists_and_is_exclusive");
     let base = serve();
     let root = tempfile::tempdir().unwrap();
@@ -234,6 +239,7 @@ async fn named_profile_persists_and_is_exclusive() {
 /// HttpOnly one stays out of script reach, and no assertion message prints a cookie value.
 #[tokio::test(flavor = "multi_thread")]
 async fn import_cookies_sets_cookies_in_the_profile() {
+    let _serial = SERIAL.lock().await;
     need_chrome!("import_cookies_sets_cookies_in_the_profile");
     let base = serve();
     let session = BrowserSession::launch(fixture_opts())
@@ -267,6 +273,7 @@ async fn import_cookies_sets_cookies_in_the_profile() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "opens a visible window; run with --ignored"]
 async fn headed_smoke() {
+    let _serial = SERIAL.lock().await;
     need_chrome!("headed_smoke");
     let base = serve();
     let s = BrowserSession::launch(fixture_opts().headed())

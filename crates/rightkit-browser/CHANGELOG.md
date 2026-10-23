@@ -4,6 +4,7 @@
 
 - **Fixed: the network policy callback now also decides traffic the page never sees (rightkit#925).** Before, the egress proxy decided only with the DNS pin, so workers, SharedWorkers, WebSockets and Chrome's own background fetches ignored a `Deny` from the `allow_request` callback; and a page request allowed to `127.0.0.1:A` approved the whole host, so other loopback ports passed. Now each session records the `(host, port)` pairs the page requests were allowed for, and the proxy asks the callback once for any other pair, as `resource_type = "Connect"` with `https://host:port/` (CONNECT) or the full URL (plain HTTP); the pin and the metadata/link-local block still always run. No API change; sessions without a callback are unchanged.
 - Behaviour change for callers that restrict loopback ports (GenRight): workers and WebSockets now get only the allowed port, as the callback intended.
+- **Fixed: fixture lease expiry is always reported as `Expired`, never `Revoked`.** The lease timer and the run deadline fired together, so a verify poll could see the timer's revocation first; an earlier security revocation still wins.
 - Documented gaps: a page-allowed `host:port` is not re-decided for another scheme on the same pair; a denied `Connect` attempt still appears in `pinned_connections()`.
 
 ## 0.3.5 — 2026-10-20

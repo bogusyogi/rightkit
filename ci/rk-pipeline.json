@@ -107,7 +107,7 @@
       "rightkit-browser": {
         "run": 39956299265,
         "version": "0.3.6",
-        "reason": "Hosted 39956299265: windows-2025 failed only the first e2e.rs pass (3 tests, CDP 'Request timed out', requests paused 0) while the same e2e.rs binary on the same code passed 3/3 in the cookie-export pass of the same job (13:07:30, 7.21 s); 0.3.5 run 39910376515 shows the identical timeout. Sage root cause (rightkit#925 comment): concurrent Chrome sessions stall CDP on a slow hosted Windows runner, pre-existing, tracked in rightkit#931; the #925 code path for no-callback sessions is pin-only and unchanged. One re-qualification; a repeat of the same zero-paused timeout is #931 evidence, not a revert signal."
+        "reason": "Hosted 39956299265: windows-2025 failed only the first e2e.rs pass (3 tests, CDP 'Request timed out', requests paused 0) while the same e2e.rs binary on the same code passed 3/3 in the cookie-export pass of the same job; 0.3.5 run 39910376515 shows the identical timeout in a serialised binary. The cause of the Windows CDP stall is unknown; it is pre-existing on 0.3.5 and tracked in rightkit#931. Run 39960658274 macOS failure was a different defect: the fixture Expired/Revoked race (lease timer vs run deadline), fixed in product code before re-qualification. One re-qualification; a repeat of the same zero-paused timeout is #931 evidence, not a revert signal."
       },
       "@rightkit/release": {
         "run": 39942099736,

@@ -190,6 +190,8 @@ struct FixtureDocument {
 struct MonitorData {
     document: Option<FixtureDocument>,
     revoked: Option<String>,
+    /// Set only when the lease deadline, not a security event, caused the revocation.
+    expired: bool,
     expected_shutdown: bool,
 }
 
@@ -285,6 +287,25 @@ impl FixtureMonitor {
         Self::revoke_locked(&mut data, reason);
     }
 
+    /// Lease deadline reached: revoke, and mark it as expiry unless an earlier revocation won.
+    fn expire(&self) {
+        let mut data = self.data.lock().unwrap_or_else(|error| error.into_inner());
+        if data.revoked.is_none() {
+            data.revoked = Some("fixture lease expired".into());
+            data.expired = true;
+        }
+    }
+
+    fn revoked_error(data: &MonitorData) -> Option<FixtureError> {
+        data.revoked.as_ref().map(|reason| {
+            if data.expired {
+                FixtureError::Expired(reason.clone())
+            } else {
+                FixtureError::Revoked(reason.clone())
+            }
+        })
+    }
+
     fn revoke_locked(data: &mut MonitorData, reason: &str) {
         if data.revoked.is_none() {
             data.revoked = Some(reason.into());
@@ -310,8 +331,8 @@ impl FixtureMonitor {
             return Err(FixtureError::Revoked("browser target crashed".into()));
         }
         let data = self.data.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(reason) = &data.revoked {
-            return Err(FixtureError::Revoked(reason.clone()));
+        if let Some(error) = Self::revoked_error(&data) {
+            return Err(error);
         }
         let document = data.document.clone().ok_or_else(|| {
             FixtureError::Revoked("fixture document identity is not bound".into())
@@ -329,8 +350,8 @@ impl FixtureMonitor {
             return Err(FixtureError::Revoked("browser target crashed".into()));
         }
         let data = self.data.lock().unwrap_or_else(|error| error.into_inner());
-        if let Some(reason) = &data.revoked {
-            return Err(FixtureError::Revoked(reason.clone()));
+        if let Some(error) = Self::revoked_error(&data) {
+            return Err(error);
         }
         data.document
             .clone()
@@ -738,7 +759,7 @@ impl FixtureSession {
             session.timer = Some(tokio::spawn(async move {
                 tokio::select! {
                     _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {
-                        monitor.revoke("fixture lease expired");
+                        monitor.expire();
                     }
                     _ = &mut cancelled => {}
                 }
@@ -934,7 +955,7 @@ impl FixtureSession {
             let cleanup_evidence = session.cleanup_evidence.clone();
             let monitor = session.monitor.clone();
             session.timer = Some(tokio::spawn(async move {
-                tokio::select! { _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => monitor.revoke("fixture lease expired"), _ = &mut cancelled => {} }
+                tokio::select! { _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => monitor.expire(), _ = &mut cancelled => {} }
                 let _ =
                     cleanup_resources(&browser, &server, &cleanup_lock, &cleanup_evidence).await;
             }));
@@ -1429,8 +1450,8 @@ async fn wait_for_bound_frame(
                 .data
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            if let Some(reason) = &data.revoked {
-                return Err(FixtureError::Revoked(reason.clone()));
+            if let Some(error) = FixtureMonitor::revoked_error(&data) {
+                return Err(error);
             }
             data.document
                 .as_ref()
@@ -1547,16 +1568,21 @@ async fn install_windows_fixture_fetch(
     let budget = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     Ok(tokio::spawn(async move {
         while let Some(event) = paused.next().await {
-            if Instant::now() >= deadline
-                || budget.fetch_add(1, Ordering::SeqCst) >= WINDOWS_FIXTURE_REQUEST_BUDGET
-            {
+            let expired = Instant::now() >= deadline;
+            if expired || budget.fetch_add(1, Ordering::SeqCst) >= WINDOWS_FIXTURE_REQUEST_BUDGET {
                 let _ = raw
                     .execute(FailRequestParams::new(
                         event.request_id.clone(),
                         chromiumoxide::cdp::browser_protocol::network::ErrorReason::BlockedByClient,
                     ))
                     .await;
-                monitor.revoke("Windows fixture Fetch request deadline or budget exceeded");
+                // A request paused at the lease deadline is the lease expiring, not a revocation:
+                // report it like the timer does, so the error kind never depends on which fires first.
+                if expired {
+                    monitor.expire();
+                } else {
+                    monitor.revoke("Windows fixture Fetch request budget exceeded");
+                }
                 return;
             }
             let method = event.request.method.as_str();
@@ -1696,6 +1722,37 @@ mod tests {
             "http://127.0.0.1:1/index.html",
         );
         assert!(matches!(monitor.snapshot(), Err(FixtureError::Revoked(_))));
+    }
+
+    #[test]
+    fn expire_then_snapshot_reports_expired() {
+        let monitor = FixtureMonitor::default();
+        monitor.expire();
+        assert!(matches!(monitor.snapshot(), Err(FixtureError::Expired(_))));
+        assert!(matches!(
+            monitor.bound_frame(),
+            Err(FixtureError::Expired(_))
+        ));
+    }
+
+    #[test]
+    fn revoke_then_expire_stays_revoked() {
+        let monitor = FixtureMonitor::default();
+        monitor.revoke("document or frame navigation detected");
+        monitor.expire();
+        assert!(matches!(monitor.snapshot(), Err(FixtureError::Revoked(_))));
+        assert!(matches!(
+            monitor.bound_frame(),
+            Err(FixtureError::Revoked(_))
+        ));
+    }
+
+    #[test]
+    fn expire_then_revoke_stays_expired() {
+        let monitor = FixtureMonitor::default();
+        monitor.expire();
+        monitor.revoke("document or frame navigation detected");
+        assert!(matches!(monitor.snapshot(), Err(FixtureError::Expired(_))));
     }
 
     #[test]
