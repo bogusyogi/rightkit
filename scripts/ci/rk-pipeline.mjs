@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_OUT, ROOT, readJson, receiptRefusal, exceptionAllowsets } from "./rk-preflight.mjs";
-import { packageRows } from "./rk-npm-preflight.mjs";
+import { packageRows, readPackages as readNpmPackages } from "./rk-npm-preflight.mjs";
 
 export const REPO = "bogusyogi/rightkit";
 export const STATE_FILE = "/Volumes/D/scratch/rk-pipeline/state.json";
@@ -175,7 +175,9 @@ export function dispatchRefusal(receipt, sha, unit, registry = "crates", config 
   // package directory and the expected row plan come from the committed workspace and policy, never from the receipt.
   let expectedRows, packageDir;
   if (registry === "npm") {
-    const pkg = (deps.readPackages ?? readPackages)().get(unit);
+    // The helper's own package record (with its scripts), exactly what the pinned dispatcher reads; the planner's
+    // record (readPackages here) has no scripts and made packageRows throw at cf9ef9c3 ("reading 'test'").
+    const pkg = (deps.readPackages ?? readNpmPackages)(deps.root ?? ROOT).get(unit);
     if (!pkg) return "unknown npm package";
     const pipeline = deps.pipeline ?? readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {});
     packageDir = pkg.dir;

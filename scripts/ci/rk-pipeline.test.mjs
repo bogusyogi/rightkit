@@ -248,6 +248,12 @@ test("an npm receipt is admitted through the real receiptRefusal with the real p
   const request = "11111111-1111-4111-8111-111111111111";
   const row = (r) => ({ id: r.id, kind: r.kind, cwd: ".", command: `rustright run rightkit-pnpm -- ${r.args.join(" ")}`, exit: 0, timedOut: false, seconds: 1, ok: true, brokerRequests: [request], attestation: { verified: true, signatureVerified: true, requestId: request, nonce: "a".repeat(64) } });
   const receipt = { schema: "rk-preflight.v2", mode: "local-test", sha, registry: "npm", unit: pkg.name, version: pkg.version, dir: pkg.dir, adapter: "rightkit-pnpm", route: "local", ok: true, finishedAt: "2026-10-23T02:00:00Z", scans: { ok: true, exit: 0, timedOut: false }, planChecks: { ok: true, exit: 0, timedOut: false }, requiredRows: rows.map((r) => r.id), rows: rows.map(row) };
+  // Real package reader over a real tree: the driver must read the helper's record (with scripts), not the planner's.
+  const fs = require("node:fs"), os = require("node:os"), pathMod = require("node:path");
+  const root = fs.mkdtempSync(pathMod.join(os.tmpdir(), "rk-npm-driver-"));
+  fs.mkdirSync(pathMod.join(root, "packages", "legal"), { recursive: true });
+  fs.writeFileSync(pathMod.join(root, "packages", "legal", "package.json"), JSON.stringify({ name: pkg.name, version: pkg.version, scripts: pkg.scripts }));
+  assert.equal(dispatchRefusal(receipt, sha, pkg.name, "npm", {}, pkg.version, { root, pipeline }), null, "the real helper reader supplies the scripts packageRows needs");
   const deps = { readPackages: () => packages, pipeline };
   assert.equal(dispatchRefusal(receipt, sha, pkg.name, "npm", {}, pkg.version, deps), null, "the driver passes what the pinned dispatcher derives");
   assert.match(dispatchRefusal({ ...receipt, dir: "packages/other" }, sha, pkg.name, "npm", {}, pkg.version, deps), /package directory mismatch/);
