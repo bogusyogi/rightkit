@@ -96,6 +96,10 @@ fn fixture_profile_confines_paths_network_and_writes() {
         assert!(sbpl.contains("(/Singleton(Socket|Cookie))?$"), "{sbpl}");
     }
     assert!(!sbpl.contains("(allow mach-lookup)"));
+    // Chrome 156 needs exactly this one Core Animation render-service name; no prefix or wildcard form.
+    assert!(sbpl.contains("(allow mach-lookup (global-name \"com.apple.CARenderServer\"))"));
+    assert!(!sbpl.contains("(allow mach-lookup (global-name-prefix \"com.apple."));
+    assert!(!sbpl.contains("(allow mach-lookup (regex"));
     assert!(sbpl.contains("(allow file-write* (literal \"/dev/null\"))"));
     assert!(sbpl.contains("com.google.chrome.for.testing.MachPortRendezvousServer"));
     assert!(!sbpl.contains("(allow iokit*)"));

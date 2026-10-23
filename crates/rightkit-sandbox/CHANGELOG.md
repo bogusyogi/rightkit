@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.0 (unpublished staging)
+## 0.6.1 (unpublished staging)
+
+- **macOS browser fixture profile: Chrome for Testing 156 starts under the profile.** 156.0.8078.47 exits 0 at startup, before its mach rendezvous server exists, when it cannot look up the Core Animation render service; its children then abort "No rendezvous client" and the rightkit-browser fixture failed 3 of 7 proofs with `ConfinementUnavailable` (155 tolerated the denial). `fixture_profile_for` adds exactly `(allow mach-lookup (global-name "com.apple.CARenderServer"))`: one exact name, no prefix, regex or wildcard, no file, network or IOKit authority. `com.apple.windowserver.active` also sufficed alone but is the broader WindowServer connection and is not granted. Verified 7/7 fixture proofs on Chrome for Testing 156.0.8078.47 and 155.0.8059.39; Oracle reviewed. Residual (owner-fixes/sandbox-macos-fixture.md): a Core Animation connection lets the confined tree use TCC grants (Screen Recording, Accessibility) held by the responsible launcher; data can still leave only through the profile directory and the loopback proxy.
+
+## 0.6.0 — 2026-10-23
 
 Breaking: `AppContainerProfile::with_grant` returns `WithGrantError` (it was `SandboxError`), and Windows refuses every `deny_read` policy. Includes the unpublished 0.5.1 changes below.
 

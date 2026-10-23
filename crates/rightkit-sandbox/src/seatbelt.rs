@@ -271,6 +271,13 @@ pub fn fixture_profile_for(policy: &BrowserFixturePolicy) -> std::io::Result<Str
          (allow mach-lookup (global-name \"com.apple.bsd.dirhelper\"))\n\
          (allow iokit-open (iokit-registry-entry-class \"RootDomainUserClient\"))\n",
     );
+    // Chrome for Testing 156 exits 0 at startup, before its rendezvous server exists, when it
+    // cannot look up the Core Animation render service (children then abort "No rendezvous
+    // client"); Chrome 155 tolerated the denial. One exact global-name, no prefix or wildcard
+    // (Chrome for Testing 156.0.8078.47, sandbox-exec: sufficient on its own). Residual: a CA
+    // connection can let the confined tree use TCC grants (Screen Recording, Accessibility) held
+    // by the responsible launcher; see owner-fixes/sandbox-macos-fixture.md.
+    p.push_str("(allow mach-lookup (global-name \"com.apple.CARenderServer\"))\n");
     // The mach port rendezvous service is named after the bundle id: `com.google.Chrome` for
     // Chrome, `com.google.chrome.for.testing` for Chrome for Testing (the CI browser). The
     // crashpad handler handshake also needs a service. Validated with sandbox-exec against

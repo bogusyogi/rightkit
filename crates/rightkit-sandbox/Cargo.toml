@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-sandbox"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Shared OS sandbox, PTY lease, process-tree, and reserve-before-spawn resource authority for Right Suite apps."
