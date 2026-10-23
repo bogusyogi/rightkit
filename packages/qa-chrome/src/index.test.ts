@@ -64,7 +64,7 @@ describe('resolveChromeForTesting', () => {
   it('the RightKit-managed folder wins, newest version first, over app installs and caches', () => {
     const managed = path.join(home, 'Library', 'Application Support', 'Orthic Labs', 'shared', 'chrome-for-testing');
     const older = touch(path.join(managed, '153.0.1.1', 'chrome-mac-arm64', macExe));
-    const current = touch(path.join(managed, '155.0.8059.39', 'chrome-mac-arm64', macExe));
+    const current = touch(path.join(managed, '156.0.8078.47', 'chrome-mac-arm64', macExe));
     const candidates = chromeForTestingCandidates(base);
     // Fixed layout first (current, current.previous), then legacy version folders newest first.
     expect(candidates.slice(0, 4)).toEqual([

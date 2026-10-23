@@ -52,17 +52,17 @@ export interface PinnedChrome {
 // install refuses it. Keep the begin/end markers: the script rewrites the lines between them.
 const CHROME_SHA256: Record<string, string | undefined> = {
   // chrome-pins:begin
-  'mac-arm64': '529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e',
-  'mac-x64': '9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7',
-  'linux64': '55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea',
-  'win64': '59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e',  // chrome-pins:end
+  'mac-arm64': 'ad7f2b49a4dc679af286b1b1b386670d93ca7868079f69012d21ba0ac8293df3',
+  'mac-x64': '5a38b8e3d621514fff0775dcae678a152ce378890188c88eef79fc97aa59fccd',
+  'linux64': 'e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50',
+  'win64': 'a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd',  // chrome-pins:end
 };
 
 // Same rule for chrome-headless-shell, which rightkit-browser pins for win64 only (the Windows fixture's browser).
 // `node scripts/chrome-pins.mjs --apply` rewrites the lines between the headless-pins markers.
 const HEADLESS_SHELL_SHA256: Record<string, string | undefined> = {
   // headless-pins:begin
-  'win64': '20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436',  // headless-pins:end
+  'win64': 'e0af9b23f8051cca4f37ca49cd425e8055701bfc0383c198d67f8d5cc5884249',  // headless-pins:end
 };
 
 const cft = (version: string, platform: string): PinnedDownload => ({
@@ -80,10 +80,10 @@ const cftHeadless = (version: string, platform: string): PinnedDownload => ({
 
 /** The build this package installs; the same version, URLs and digests as rightkit-browser's pin. */
 export const PINNED_CHROME_FOR_TESTING: PinnedChrome = {
-  version: '155.0.8059.39',
+  version: '156.0.8078.47',
   downloads: [
-    ...['mac-arm64', 'mac-x64', 'linux64', 'win64'].map((p) => cft('155.0.8059.39', p)),
-    ...['win64'].map((p) => cftHeadless('155.0.8059.39', p)),
+    ...['mac-arm64', 'mac-x64', 'linux64', 'win64'].map((p) => cft('156.0.8078.47', p)),
+    ...['win64'].map((p) => cftHeadless('156.0.8078.47', p)),
   ],
 };
 

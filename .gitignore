@@ -16,3 +16,6 @@ target/
 # Local audit and tool caches
 .cache/
 .legion-cache/
+
+# Local registry-consumer check directories written by scripts/ci/rk-consumer-stage.mjs (pre-flight only).
+/.consumer-checks/

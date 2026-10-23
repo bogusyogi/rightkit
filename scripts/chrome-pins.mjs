@@ -48,7 +48,7 @@ function parseRust(text) {
     pins.push({ kind: 'chrome', platform: m[2], version: m[1], url: urlFor(m[1], m[2], 'chrome'), sha256: m[3] ?? null });
   }
   for (const m of body.matchAll(
-    /cft_url!\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"chrome-headless-shell"\s*\)\s*,\s*sha256:\s*Sha256Pin::(?:Todo|Pinned\("([^"]*)"\))/g,
+    /cft_url!\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"chrome-headless-shell"\s*\)\s*,\s*sha256:\s*Sha256Pin::(?:Todo|Pinned\(\s*"([^"]*)"\s*,?\s*\))/g,
   )) {
     pins.push({ kind: 'headless_shell', platform: m[2], version: m[1], url: urlFor(m[1], m[2], 'chrome-headless-shell'), sha256: m[3] ?? null });
   }
@@ -184,7 +184,7 @@ function apply(file) {
     (_m, v, p) => `cft_chrome!("${v}", "${p}", "${digests.get(`chrome/${p}`)}")`,
   );
   tail = tail.replace(
-    /(cft_url!\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"chrome-headless-shell"\s*\)\s*,\s*sha256:\s*)Sha256Pin::(?:Todo|Pinned\("[^"]*"\))/g,
+    /(cft_url!\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"chrome-headless-shell"\s*\)\s*,\s*sha256:\s*)Sha256Pin::(?:Todo|Pinned\(\s*"[^"]*"\s*,?\s*\))/g,
     (_m, lead, _v, p) => `${lead}Sha256Pin::Pinned("${digests.get(`headless_shell/${p}`)}")`,
   );
   writeFileSync(RUST_PATH, head + tail);

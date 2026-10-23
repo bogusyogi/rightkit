@@ -105,11 +105,12 @@ export function matchRun(runs, query) {
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "a3bc810b074e59d94365d71fe92aff851132a818cff6678ec1c03bce8bfe95bc";
+const PREFLIGHT_SHA256 = "44b1d589f6b6b9460e8f59a26bde17ef6f174ebb8adab571ccc17b629630d405";
 const NPM_PREFLIGHT_SHA256 = "23d23960edd613de44b71885ea54f2a77ab865740a4218177da5f208cf02779c";
 const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
 // Filled from reviewed bytes; validate the complete static admission import tree before import.
 const ADMISSION_DEPENDENCIES = {
+  "scripts/ci/rk-consumer-stage.mjs": "1e199841d10546753d546ee996f96aaa437c6e1c4d569a99884be491c2c605ce",
   "scripts/ci/rk-routing.mjs": "6b3c6350a653c5284146c98dcd7df306c5ce8b96d5a5dd14c2e8f39c0dfb29c1",
   "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
   "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
@@ -182,6 +183,23 @@ export async function requirePreflight(opts) {
     const workspace = npm ? root : resolveRowWorkspace({ root, row, sha: opts.sha });
     const check = verifyAttestation(got.attestation?.requestId, { nonce: got.attestation?.nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], expect, workspace });
     if (!check.verified) throw new Error(`row ${row.id}: broker provenance not verified (${check.reason})`);
+  }
+  // Registry-consumer stage (rk-consumer-stage.mjs): a crate dispatched from local rows must carry a passed local-source
+  // fixture proof, and every brokered build or run in it is asked of the broker again, in its own check directory.
+  if (!npm && !hostedCompile) {
+    const stage = receipt.registryConsumer;
+    if (!stage || stage.ok !== true || stage.unit !== opts.unit || stage.version !== version) throw new Error("registry consumer stage did not pass for this unit and version");
+    const prefix = `.consumer-checks${path.sep}${opts.unit}-${opts.sha.slice(0, 12)}-`;
+    if (typeof stage.checkDir !== "string" || !stage.checkDir.startsWith(prefix) || stage.checkDir.includes("..")) throw new Error("registry consumer check directory is not this unit's at this commit");
+    const workspace = path.join(root, stage.checkDir);
+    const brokered = [...(stage.build ?? []).map((b) => ({ label: b.argv, argv: b.argvList, attestation: b.attestation })), ...(stage.runs ?? []).filter((x) => x.via === "broker").map((x) => ({ label: `run ${x.id}`, argv: x.argvList, attestation: x.attestation }))];
+    if (!(stage.build ?? []).length && (stage.runs ?? []).some((x) => x.status === "passed")) throw new Error("registry consumer runs passed without a brokered build");
+    for (const item of brokered) {
+      if (!Array.isArray(item.argv) || !item.argv.length) throw new Error(`registry consumer ${item.label}: no recorded argv to re-verify`);
+      const check = verifyAttestation(item.attestation?.requestId, { nonce: item.attestation?.nonce, argv: item.argv, pins: pipeline.attestation?.[process.platform], workspace });
+      if (!check.verified) throw new Error(`registry consumer ${item.label}: broker provenance not verified (${check.reason})`);
+    }
+    if ((stage.runs ?? []).some((x) => !["passed", "not-run-locally"].includes(x.status))) throw new Error("registry consumer stage recorded a failed run");
   }
   const policy = exceptionAllowsets(opts.unit, version, config, pipeline);
   for (const [key, value] of Object.entries(opts.allow)) {

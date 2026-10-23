@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { cargoRecipe } from "./consumer-recipes.mjs";
 import { routeCrate, readOnlyQueries } from "./rk-routing.mjs";
+import { consumerStage } from "./rk-consumer-stage.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_OUT = "/Volumes/D/scratch/rk-pipeline/receipts";
@@ -559,6 +560,36 @@ export async function main(argv, deps = {}) {
       save();
       if (!attestation.verified) err(`  attestation: ${attestation.reason}`);
       for (const line of r.out.split("\n").filter((l) => /^(error|warning)(\[|:)/.test(l)).slice(0, 12)) err(`  ${line}`);
+      return 1;
+    }
+  }
+  // The unit's committed registry consumer, built against this checkout through the broker and run as the hosted verify
+  // runs it (rk-consumer-stage.mjs). A fixture defect fails here, before any dispatch, instead of on the hosted runner.
+  if (opts.registry === "crates") {
+    if (!unchanged()) { receipt.failedAt = "source-changed"; save(); return 2; }
+    const pins = pipeline.attestation?.[process.platform];
+    const attest = (output, { nonce, argv, workspace }) => {
+      const ids = brokerRequestIds(output);
+      return ids.length === 1 ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv, pins, workspace }) : { verified: false, requestId: null, nonce, reason: ids.length ? "more than one broker request" : "no broker request" };
+    };
+    const provisionChrome = deps.provisionChrome ?? (async ({ runnerTemp }) => {
+      const { provision } = await import("./provision-chrome.mjs");
+      const { resolveR2CftEnv } = await import("./provision-r2-cft-env.mjs");
+      const pinsFile = JSON.parse(fs.readFileSync(path.join(root, "ci", "chrome-for-testing.json"), "utf8"));
+      const managedRoot = path.join(runnerTemp, "chrome-for-testing");
+      await provision({ root: managedRoot, pins: pinsFile, log: () => {} });
+      return resolveR2CftEnv({ managedRoot, runnerTemp, pins: pinsFile });
+    });
+    const stage = await (deps.consumerStage ?? consumerStage)({ root, unit: opts.unit, version: receipt.version, sha, logDir, env: rowEnv, runCommand: run, attest, provisionChrome });
+    receipt.registryConsumer = stage;
+    out(`${stage.ok ? "PASS" : "FAIL"} registry-consumer (${stage.pkId ?? "no recipe"}; ${stage.runs.map((x) => `${x.id}:${x.status}`).join(", ") || "no runs"})`);
+    save();
+    if (!stage.ok || !unchanged()) {
+      receipt.failedAt = stage.ok ? "source-changed" : "registry-consumer";
+      receipt.finishedAt = new Date().toISOString();
+      save();
+      err(`  registry consumer ${stage.failedAt}: ${stage.reason}`);
+      for (const line of stage.lines ?? []) err(`  ${line}`);
       return 1;
     }
   }

@@ -301,14 +301,14 @@
       ],
       "closure": {
         "install": {
-          "@rightkit/qa-chrome": "0.1.10"
+          "@rightkit/qa-chrome": "0.1.11"
         },
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/qa/README.md": "17f0aaabb7a5d6ad47a72bb569a135edb507d4a86c39da4cbcc305036180ee89",
-        "ci/consumers/npm/qa/consumer.mjs": "a0ed197f05a06a5cfd54cbbc43bffd3dcd2f1e8b3c96b3b760e069b3b7ad65ef",
-        "ci/consumers/npm/qa/package.json": "d3e10d2d2250a367ef04c4c8ab7dfb2407668c9ae9e5724229818c432ea5e0da",
+        "ci/consumers/npm/qa/README.md": "a66453dabe64719ca42f77042b5366462761e920fddec3c4f264331449b03d26",
+        "ci/consumers/npm/qa/consumer.mjs": "3666daed637f878d58b266bbd29311673e310242999a855b4e6d4cdca908525f",
+        "ci/consumers/npm/qa/package.json": "2a9441958aef7c52176dc1198d96419b7796f11d7273816ea2aa4ff19da59d63",
         "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }

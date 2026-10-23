@@ -97,8 +97,8 @@ describe('chrome-headless-shell', () => {
   it('pins the same platforms, URLs and digests as rightkit-browser, win64 headless shell included', () => {
     const headless = PINNED_CHROME_FOR_TESTING.downloads.filter((d) => d.kind === 'headless_shell');
     expect(headless.map((d) => d.platform)).toEqual(['win64']);
-    expect(headless[0].url).toBe('https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-headless-shell-win64.zip');
-    expect(headless[0].sha256).toBe('20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436');
+    expect(headless[0].url).toBe('https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/win64/chrome-headless-shell-win64.zip');
+    expect(headless[0].sha256).toBe('e0af9b23f8051cca4f37ca49cd425e8055701bfc0383c198d67f8d5cc5884249');
     for (const d of PINNED_CHROME_FOR_TESTING.downloads) {
       expect(d.sha256, `${d.kind ?? 'chrome'} ${d.platform}`).toMatch(/^[0-9a-f]{64}$/);
       expect(rustSource, `${d.kind ?? 'chrome'} ${d.platform} digest is pinned in install.rs`).toContain(`"${d.sha256}"`);

@@ -88,7 +88,7 @@ pub struct PinnedDownload {
 /// A Chrome for Testing version with a per-platform URL and SHA-256 table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PinnedChrome {
-    /// Dotted numeric version, for example `155.0.8059.39`.
+    /// Dotted numeric version, for example `156.0.8078.47`.
     pub version: &'static str,
     pub downloads: &'static [PinnedDownload],
 }
@@ -136,34 +136,34 @@ macro_rules! cft_chrome {
 /// A new version is pinned only together with its digests; an entry left as [`Sha256Pin::Todo`]
 /// makes [`ensure_chrome_for_testing`] return [`InstallError::DigestNotPinned`] before any download.
 pub const PINNED_CHROME_FOR_TESTING: PinnedChrome = PinnedChrome {
-    version: "155.0.8059.39",
+    version: "156.0.8078.47",
     downloads: &[
         cft_chrome!(
-            "155.0.8059.39",
+            "156.0.8078.47",
             "mac-arm64",
-            "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e"
+            "ad7f2b49a4dc679af286b1b1b386670d93ca7868079f69012d21ba0ac8293df3"
         ),
         cft_chrome!(
-            "155.0.8059.39",
+            "156.0.8078.47",
             "mac-x64",
-            "9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7"
+            "5a38b8e3d621514fff0775dcae678a152ce378890188c88eef79fc97aa59fccd"
         ),
         cft_chrome!(
-            "155.0.8059.39",
+            "156.0.8078.47",
             "linux64",
-            "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea"
+            "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50"
         ),
         cft_chrome!(
-            "155.0.8059.39",
+            "156.0.8078.47",
             "win64",
-            "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e"
+            "a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd"
         ),
         PinnedDownload {
             platform: "win64",
             kind: DownloadKind::HeadlessShell,
-            url: cft_url!("155.0.8059.39", "win64", "chrome-headless-shell"),
+            url: cft_url!("156.0.8078.47", "win64", "chrome-headless-shell"),
             sha256: Sha256Pin::Pinned(
-                "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436",
+                "e0af9b23f8051cca4f37ca49cd425e8055701bfc0383c198d67f8d5cc5884249",
             ),
         },
     ],

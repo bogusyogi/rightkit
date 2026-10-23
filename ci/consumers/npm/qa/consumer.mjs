@@ -7,7 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const RECIPE_ID = 'qa-public-exports-pure';
-const EXPECTED_VERSION = '0.6.0';
+const EXPECTED_VERSION = '0.6.1';
 const SPECIFIERS = ['@rightkit/qa', '@rightkit/qa/chrome', '@rightkit/qa/ts-hooks', '@rightkit/qa/ts-register'];
 const result = {
   recipeId: RECIPE_ID, schemaVersion: 1, ok: false,

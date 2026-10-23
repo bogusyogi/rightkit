@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- Depends on @rightkit/qa-chrome 0.1.11: Chrome for Testing 155.0.8059.39 -> 156.0.8078.47 (current Stable): archive and executable SHA-256 pins recomputed from the official downloads.
+
 ## 0.6.0 — unpublished staging
 
 Additive. Implements phase 1 of `docs/E2E-TESTING-STANDARD.md` (D3 to D5, D8) on the Node side. 0.5.2 is already on npm, so this is a minor bump.

@@ -6,6 +6,6 @@
     "qualify": "node consumer.mjs"
   },
   "dependencies": {
-    "@rightkit/qa-chrome": "0.1.10"
+    "@rightkit/qa-chrome": "0.1.11"
   }
 }

@@ -2,6 +2,7 @@
 
 ## 0.3.5 — 2026-10-20
 
+- Chrome for Testing 155.0.8059.39 -> 156.0.8078.47 (current Stable): archive and executable SHA-256 pins recomputed from the official downloads.
 - **Fixed: `install::ensure_chrome_for_testing` was uncallable** — `ManagedRoot` is now re-exported, so callers can construct the root it takes (ScrapeRight G8).
 - Added: `cookies::parse_netscape` and `BrowserPage::import_cookies` — bounded Netscape cookies.txt parsing (values redacted in Debug and errors) and CDP import into the current profile; domain filtering and consent stay with the caller (ScrapeRight G7).
 - Raises rightkit-models dependency floor to 0.5.0.

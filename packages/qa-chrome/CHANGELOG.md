@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11
+
+- Chrome for Testing 155.0.8059.39 -> 156.0.8078.47 (current Stable): archive and executable SHA-256 pins recomputed from the official downloads.
+
 ## 0.1.10 (unreleased)
 
 - #811: Windows profile scanner disables module autoload, then explicitly imports system PowerShell Utility & CimCmdlets modules in order from `$PSHOME`, avoiding autoload discovery stalls. Shared PowerShell runner, process identity checks, termination, timeout caps & failed-scan behavior remain unchanged.
