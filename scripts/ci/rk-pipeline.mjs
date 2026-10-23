@@ -214,9 +214,14 @@ export function readState() {
 /** Durable claim (registry, unit, version): a dispatch at another SHA whose outcome is not settled (published or
  * failed) still owns that version. An unknown/ambiguous status is a claim too (fail closed). A changed version is not
  * claimed. Returns the claiming record, or null. */
+export const RECONCILE_CONCLUSION = /reconcile|ambiguous|provenance mismatch/;
+/** A failed record still claims its version when a run or upload may exist (ambiguous intent, watch deadline,
+ * provenance mismatch, ambiguous uploads): the watcher marks those `reconcile: true`; older records are recognised by
+ * their conclusion. A plain failed run (conclusion failure/cancelled, upload failure) does not claim. */
+export const needsReconcile = (d) => d?.status === "failed" && (d.reconcile === true || RECONCILE_CONCLUSION.test(String(d.conclusion ?? "")));
 export function openClaim(state, { registry, unit, version, sha }) {
   return Object.values(state?.dispatches ?? {}).find((d) => d && d.unit === unit && (d.registry ?? "crates") === registry
-    && d.sha !== sha && !["published", "failed"].includes(d.status)
+    && d.sha !== sha && (!["published", "failed"].includes(d.status) || needsReconcile(d))
     && (version === undefined || d.version === undefined || d.version === version)) ?? null;
 }
 
@@ -394,10 +399,10 @@ export async function cmdWatch(opts, deps = {}) {
       const unit = d.unit ?? "legacy-state";
       if (d.status === "dispatching" && d.ownerPid === process.pid) { pending += 1; continue; }
       if (!d.runId || !d.runAttempt || !d.version || !d.unit) {
-        d.status = "failed"; d.conclusion = "dispatch intent is ambiguous or legacy; reconcile by broker request before retry"; hadFailure = true; continue;
+        d.status = "failed"; d.conclusion = "dispatch intent is ambiguous or legacy; reconcile by broker request before retry"; d.reconcile = true; hadFailure = true; continue;
       }
       if (Date.now() - Date.parse(d.dispatchedAt) > timeoutMs) {
-        d.status = "failed"; d.conclusion = "watch deadline exceeded; reconcile existing run before retry"; hadFailure = true; continue;
+        d.status = "failed"; d.conclusion = "watch deadline exceeded; reconcile existing run before retry"; d.reconcile = true; hadFailure = true; continue;
       }
       if (d.status === "published" || d.status === "failed") continue;
       const run = inspect(d.runId);
@@ -407,7 +412,7 @@ export async function cmdWatch(opts, deps = {}) {
         continue;
       }
       if (run.head_sha !== d.sha || Number(run.run_attempt) !== Number(d.runAttempt) || run.event !== "workflow_dispatch" || run.path !== ".github/workflows/publish.yml" || !String(run.display_title).split(/\s+/).includes(d.requestId)) {
-        d.status = "failed"; d.conclusion = "qualification provenance mismatch"; hadFailure = true; continue;
+        d.status = "failed"; d.conclusion = "qualification provenance mismatch"; d.reconcile = true; hadFailure = true; continue;
       }
       if (run.status !== "completed") {
         log(`${unit}: run ${d.runId} ${run.status}`);
@@ -424,7 +429,7 @@ export async function cmdWatch(opts, deps = {}) {
       }
       let uploads;
       try { uploads = uploadsFor(d); } catch { pending += 1; continue; }
-      if (uploads.length > 1) { d.status = "failed"; d.conclusion = "ambiguous upload runs"; hadFailure = true; continue; }
+      if (uploads.length > 1) { d.status = "failed"; d.conclusion = "ambiguous upload runs"; d.reconcile = true; hadFailure = true; continue; }
       const done = uploads.find((u) => u.status === "completed");
       if (!done) {
         log(`${unit}: qualification green, upload ${uploads[0]?.status ?? "not started"}`);

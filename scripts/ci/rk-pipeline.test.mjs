@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -382,4 +382,45 @@ test("openClaim: same version at another SHA claims; settled, changed version, o
   assert.equal(openClaim(s, { registry: "crates", unit: "u", version: "1.0.0", sha: "B" }), null);
   assert.equal(openClaim(s, { registry: "npm", unit: "u", version: "1.0.0", sha: "A" }), null);
   for (const status of ["published", "failed"]) assert.equal(openClaim({ dispatches: { k: { ...s.dispatches.k, status } } }, { registry: "npm", unit: "u", version: "1.0.0", sha: "B" }), null, status);
+});
+
+// ---- real cmdWatch: ambiguous intent / deadline must keep the claim (no stub watch) ----
+async function restartWithRealWatch(record) {
+  const A = "e".repeat(40), B = "f".repeat(40), unit = "rightkit-x";
+  const state = { dispatches: { [stateKey("crates", A, unit)]: { unit, registry: "crates", sha: A, version: "1.0.0", ...record } } };
+  const calls = [];
+  const code = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
+    head: () => B,
+    readiness: async () => ({ unpublished: new Set([unit]), waves: [[unit]], crates: new Map([[unit, { version: "1.0.0" }]]) }),
+    readState: () => state, writeState: () => {},
+    // The REAL watcher; only the GitHub/registry reads are fakes (run not readable, no uploads, nothing published).
+    watch: (o) => cmdWatch(o, { readState: () => state, writeState: () => {}, runState: () => null, uploadRun: () => [], registryVersion: async () => new Map() }),
+    holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 5)),
+    preflight: async () => { calls.push("preflight"); return { code: 0 }; },
+    dispatch: async () => { calls.push("dispatch"); return 0; },
+  });
+  return { code, calls, record: state.dispatches[stateKey("crates", A, unit)] };
+}
+
+test("real cmdWatch: an ambiguous dispatch intent becomes failed+reconcile and still blocks a restart dispatch", async () => {
+  const out = await restartWithRealWatch({ status: "unknown" });
+  assert.equal(out.record.status, "failed");
+  assert.equal(out.record.reconcile, true);
+  assert.deepEqual(out.calls, [], "no pre-flight or dispatch while a run may exist");
+  assert.equal(out.code, 1, "reported unfinished: reconcile required");
+});
+
+test("real cmdWatch: a watch deadline becomes failed+reconcile and still blocks a restart dispatch", async () => {
+  const out = await restartWithRealWatch({ status: "dispatched", runId: 7, runAttempt: 1, dispatchedAt: "2026-01-01T00:00:00.000Z" });
+  assert.match(out.record.conclusion, /deadline/);
+  assert.equal(out.record.reconcile, true);
+  assert.deepEqual(out.calls, []);
+});
+
+test("needsReconcile: plain run/upload failures do not claim; ambiguous ones do (flag or legacy conclusion)", () => {
+  assert.equal(needsReconcile({ status: "failed", conclusion: "failure" }), false);
+  assert.equal(needsReconcile({ status: "failed", conclusion: "upload failure" }), false);
+  assert.equal(needsReconcile({ status: "failed", reconcile: true }), true);
+  assert.equal(needsReconcile({ status: "failed", conclusion: "watch deadline exceeded; reconcile existing run before retry" }), true);
+  assert.equal(needsReconcile({ status: "published" }), false);
 });
