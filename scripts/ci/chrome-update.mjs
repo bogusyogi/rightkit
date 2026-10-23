@@ -152,6 +152,31 @@ export async function applyUpdate({ root = ROOT, version, fetchImpl = fetch, log
   if (await published("npm", pkg.name, pkg.version, fetchImpl)) {
     pkg.version = bumpPatch(pkg.version); fs.writeFileSync(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`);
     changelogLine(path.join(root, "packages", "qa-chrome", "CHANGELOG.md"), pkg.version, note); bumped.push(`${pkg.name} ${pkg.version}`);
+    // @rightkit/qa pins qa-chrome exactly: follow it, and its reviewed PK14 recipe (version, closure pin, hashes).
+    const qaFile = path.join(root, "packages", "qa", "package.json");
+    const qa = JSON.parse(fs.readFileSync(qaFile, "utf8"));
+    const oldChrome = qa.dependencies?.["@rightkit/qa-chrome"];
+    if (oldChrome && oldChrome !== pkg.version) {
+      const oldQa = qa.version;
+      qa.dependencies["@rightkit/qa-chrome"] = pkg.version;
+      if (await published("npm", qa.name, qa.version, fetchImpl)) qa.version = bumpPatch(qa.version);
+      fs.writeFileSync(qaFile, `${JSON.stringify(qa, null, 2)}\n`);
+      changelogLine(path.join(root, "packages", "qa", "CHANGELOG.md"), qa.version, `Depends on @rightkit/qa-chrome ${pkg.version}: ${note}`);
+      bumped.push(`${qa.name} ${qa.version}`);
+      const recipe = path.join(root, "ci", "consumers", "npm", "qa");
+      const edit = (rel, pairs) => { const f = path.join(recipe, rel); if (!fs.existsSync(f)) return; let t = fs.readFileSync(f, "utf8"); for (const [a, b] of pairs) t = t.split(a).join(b); fs.writeFileSync(f, t); };
+      edit("consumer.mjs", [[`EXPECTED_VERSION = '${oldQa}'`, `EXPECTED_VERSION = '${qa.version}'`]]);
+      edit("README.md", [[`| \`${oldQa}\` |`, `| \`${qa.version}\` |`], [oldChrome, pkg.version]]);
+      edit("package.json", [[`"@rightkit/qa-chrome": "${oldChrome}"`, `"@rightkit/qa-chrome": "${pkg.version}"`]]);
+      const invFile = path.join(root, "ci", "consumer-recipes.json");
+      const inv = JSON.parse(fs.readFileSync(invFile, "utf8"));
+      const entry = inv.npm?.["@rightkit/qa"];
+      if (entry) {
+        if (entry.closure?.install?.["@rightkit/qa-chrome"]) entry.closure.install["@rightkit/qa-chrome"] = pkg.version;
+        for (const f of Object.keys(entry.files)) entry.files[f] = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, f))).digest("hex");
+        fs.writeFileSync(invFile, `${JSON.stringify(inv, null, 2)}\n`);
+      }
+    }
   }
   fs.rmSync(tmp, { recursive: true, force: true });
   return { previous, version, digests: [...digests.values()], bumped };
