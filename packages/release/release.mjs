@@ -349,10 +349,18 @@ function releasePreflight({ config, configPath, root, repoRoot, platform, native
     ...(config.cargoLocks ?? []).map((entry) => path.resolve(root, entry)),
   ].filter((entry, index, entries) => entries.indexOf(entry) === index);
   // Same scope the build uses (rightkit#927): an iOS target is checked over its Xcode project and local packages only.
-  const ownershipScope = preflightOwnershipScope({ repoRoot, appRoot: root, platform, target: projectTarget, nativeAssembly: config.nativeAssembly });
+  // The doctor reports a refused scope as an ownership FAIL (never a crash, never a whole-repo scan); the build still throws.
+  let ownershipScope = null;
+  let ownershipScopeError = null;
+  try {
+    ownershipScope = preflightOwnershipScope({ repoRoot, appRoot: root, platform, target: projectTarget, nativeAssembly: config.nativeAssembly });
+  } catch (error) {
+    ownershipScopeError = error instanceof Error ? error.message : String(error);
+  }
   return collectPreflight({
     platform,
     ownershipScope,
+    ownershipScopeError,
     appRoot: root,
     repoRoot,
     app: config.app,

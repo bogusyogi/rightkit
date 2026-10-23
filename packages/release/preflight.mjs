@@ -193,6 +193,7 @@ export function collectPreflight({
   ownership = true,
   ownershipEvidenceFactory = createOwnershipEvidence,
   ownershipScope = null,
+  ownershipScopeError = null,
   runtimeBudgetAdoption = appRuntimeBudgetAdoptionCheck,
   freeDisk = freeDiskGb,
   projectType,
@@ -333,7 +334,10 @@ export function collectPreflight({
     if (adoption) checks.push(adoption);
   }
 
-  if (repoRoot && ownership) {
+  if (repoRoot && ownership && ownershipScopeError) {
+    // The target's scan scope could not be determined (the build refuses the same config): fail closed, never scan wider.
+    checks.push(fail("ownership", `ownership scope refused: ${ownershipScopeError}`, "fix the target's ownership scope configuration; the build refuses it too"));
+  } else if (repoRoot && ownership) {
     // An app living inside the RightKit workspace repository is scoped to its own directory.
     const workspace = existsSync(path.join(repoRoot, "tools", "rightkit", "packages", "release"));
     checks.push(ownershipCheck(repoRoot, { scanRoot: workspace && appRoot ? appRoot : repoRoot, scope: ownershipScope, evidenceFactory: ownershipEvidenceFactory }));

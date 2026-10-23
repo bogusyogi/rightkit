@@ -212,3 +212,13 @@ test("preflight hands the target's ownership scope to the evidence factory; no s
   collectPreflight({ platform: "mac", repoRoot: process.cwd(), ownershipEvidenceFactory: factory });
   assert.deepEqual(seen, [[".rightkit", "ios"], null]);
 });
+
+test("a refused ownership scope fails the ownership check with the scope error and runs no scan", () => {
+  let scans = 0;
+  const factory = () => { scans += 1; return { ok: true, result: { problems: [], violations: [], covered: [], coverage: [] }, floor: { ok: true, problems: [] }, evidence: {} }; };
+  const checks = collectPreflight({ platform: "ios", repoRoot: process.cwd(), ownershipScopeError: "ios ownership scope: the Xcode project sits at the repository root", ownershipEvidenceFactory: factory });
+  const own = checks.find((check) => check.name === "ownership");
+  assert.equal(own.status, PREFLIGHT_FAIL);
+  assert.match(own.detail ?? own.message ?? "", /Xcode project sits at the repository root/);
+  assert.equal(scans, 0);
+});
