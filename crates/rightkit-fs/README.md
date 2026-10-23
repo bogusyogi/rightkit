@@ -12,7 +12,7 @@ Safe filesystem state for Right Suite apps:
 - Crash-recoverable multi-file publication (`FileTransaction`, `PreparedTransaction::commit`, `recover_transactions`, feature `transaction`): a journal under the root, identity-checked rollback and recovery, recoverability and serialized writers (not all-file atomic visibility).
 - macOS `renamex_np(RENAME_SWAP)` (`swap_paths`, `is_swap_unsupported`) and the `rightkit-swap A B` binary: atomic exchange of two paths, never absent in between.
 
-Catalog capability: `safe-filesystem`. Published to crates.io; 0.4.5 adds the complete-before-lock lease guard and the opt-in Windows access-denied retry (see CHANGELOG). 0.4.6 (unpublished staging) adds `KeyedWriteLocks`, the `transaction` feature and `FsError::Conflict`.
+Catalog capability: `safe-filesystem`. Published to crates.io; 0.4.5 adds the complete-before-lock lease guard and the opt-in Windows access-denied retry (see CHANGELOG). 0.4.7 (unpublished) adds `account_home` and resolves app folders from the OS account, not `HOME`/`XDG_*` (see CHANGELOG). 0.4.6 (unpublished staging) adds `KeyedWriteLocks`, the `transaction` feature and `FsError::Conflict`.
 
 ## When to use it
 

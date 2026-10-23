@@ -3,11 +3,16 @@
 //!
 //! This replaces the hand-rolled `app_paths.rs` / `*_DATA_DIR` copies in each app. The rules:
 //!
-//! * **Per-OS bases.** Windows: the Roaming AppData known folder (data) and the Local AppData known
+//! * **Per-OS bases.** (The mappings below describe [`AppDirs::resolve_with`] over a supplied
+//!   environment; the process-reading resolvers feed it the account's folders instead of `HOME`,
+//!   `XDG_*`, `APPDATA`, `LOCALAPPDATA` and `USERPROFILE`, and Linux has no XDG override there.) Windows: the Roaming AppData known folder (data) and the Local AppData known
 //!   folder (local, cache), home from the Profile known folder, each asked of `SHGetKnownFolderPath`
 //!   by [`AppDirs::resolve`] (environment redirection of `%APPDATA%`, `%LOCALAPPDATA%` and
-//!   `%USERPROFILE%` is ignored, as the `dirs` crate does), with the variable as fallback only when
-//!   the call fails. [`AppDirs::resolve_with`] uses supplied environment for ordinary mappings;
+//!   `%USERPROFILE%` is ignored, as the `dirs` crate does); a failed call is an error
+//!   ([`AppDirsError::AccountHome`] or `NoBase`), never a fallback to the variable.
+//!   [`AppDirs::resolve`] and [`AppDirs::resolve_with_options`] build the macOS and Linux bases from
+//!   [`account_home`] (`getpwuid_r(geteuid())`), ignoring `HOME` and every `XDG_*` variable, so a
+//!   redirected environment cannot move a release app's folders. [`AppDirs::resolve_with`] uses supplied environment for ordinary mappings;
 //!   canonical QA overrides also validate disk state & trusted protected locations. macOS: `~/Library/Application Support` (data and local) and
 //!   `~/Library/Caches` (cache). Linux: `$XDG_DATA_HOME` (else `~/.local/share`) for data and
 //!   local, `$XDG_CACHE_HOME` (else `~/.cache`) for cache. Every base must be absolute; an unset or
@@ -97,6 +102,11 @@ pub enum AppDirsError {
     /// The canonical QA root is set without its activation pairing; refused, not honoured.
     #[error("{var} is set without test activation; refusing unpaired test root {}", .path.display())]
     UnpairedTestRoot { var: String, path: PathBuf },
+    /// The operating system could not name the account's home or known folders. Never answered
+    /// from `HOME`, `XDG_*`, `APPDATA`, `LOCALAPPDATA` or `USERPROFILE`: a redirected environment
+    /// must not move an app's real folders.
+    #[error("cannot resolve the account's folders from the operating system: {why}")]
+    AccountHome { why: String },
     /// Android has no environment-based mapping; the folders come from the `Context`.
     #[error("Android has no environment-based folder resolution: pass the Context's filesDir and cacheDir to AppDirs::injected")]
     AndroidNeedsInjectedRoots,
@@ -310,20 +320,24 @@ pub struct AppDirs {
 }
 
 impl AppDirs {
-    /// Resolve for this build and this process's environment.
+    /// Resolve for this build. The per-user base folders come from the operating system's account
+    /// (see [`account_home`] and the module docs), never from `HOME`, `XDG_*`, `APPDATA`,
+    /// `LOCALAPPDATA` or `USERPROFILE`; only the QA override variables are read from the process
+    /// environment, and only with feature `test-mode`.
     pub fn resolve(app: AppId) -> Result<AppDirs> {
-        AppDirs::resolve_with_legacy(&app, &Options::current(), &process_env, &|p| p.is_dir())
+        resolve_native(&app, &Options::current(), &account_home, &|p| p.is_dir())
     }
 
     /// [`AppDirs::resolve`] with explicit [`Options`] instead of [`Options::current`]: `dev(false)`
     /// gives the release namespace from a dev build, and the namespace follows `opts.dev` alone.
-    /// The base folders are read as in [`AppDirs::resolve`] (on Windows the known-folder API first,
-    /// then the environment variable), and legacy names apply when their folder already exists.
+    /// The base folders come from the operating system's account as in [`AppDirs::resolve`] (on
+    /// Windows the known-folder API only, with no environment fallback), and legacy names apply
+    /// when their folder already exists.
     /// On Windows the known-folder lookup is the build's own, so `opts.os` should name the build's
     /// OS for the real per-user folders; `opts.test_root` and the QA overrides behave as documented
     /// on [`Options`].
     pub fn resolve_with_options(app: AppId, opts: &Options) -> Result<AppDirs> {
-        AppDirs::resolve_with_legacy(&app, opts, &process_env, &|p| p.is_dir())
+        resolve_native(&app, opts, &account_home, &|p| p.is_dir())
     }
 
     /// Per-process temp folders in any build (consumer tests): never asks the OS.
@@ -480,24 +494,145 @@ struct Bases {
     home: Option<PathBuf>,
 }
 
-/// The environment [`AppDirs::resolve`] reads. On Windows the three base variables come from the
-/// known-folder API first, so a redirected `%APPDATA%`, `%LOCALAPPDATA%` or `%USERPROFILE%` does not
-/// move the real folders; the variable answers only when the API fails. Elsewhere it is the process
-/// environment.
-fn process_env(key: &str) -> Option<OsString> {
+/// The environment [`AppDirs::resolve`] reads. The base-folder variables are never taken from the
+/// process environment: macOS and Linux answer `HOME` from the account database
+/// ([`account_home`]) and report `XDG_*` as unset; Windows answers `APPDATA`, `LOCALAPPDATA` and
+/// `USERPROFILE` from the known-folder API only (no fallback to the variable when the call fails).
+/// Every other name (the QA override variables) is the process environment.
+fn native_env(
+    key: &str,
+    #[cfg_attr(not(any(unix, windows)), allow(unused_variables))] account: &dyn Fn() -> Result<
+        PathBuf,
+    >,
+) -> Option<OsString> {
+    match key {
+        #[cfg(unix)]
+        "HOME" => account().ok().map(PathBuf::into_os_string),
+        #[cfg(unix)]
+        "XDG_DATA_HOME" | "XDG_CACHE_HOME" | "XDG_CONFIG_HOME" => None,
+        #[cfg(windows)]
+        "APPDATA" => known::known_folder(&known::ROAMING_APP_DATA).map(PathBuf::into_os_string),
+        #[cfg(windows)]
+        "LOCALAPPDATA" => known::known_folder(&known::LOCAL_APP_DATA).map(PathBuf::into_os_string),
+        #[cfg(windows)]
+        "USERPROFILE" => account().ok().map(PathBuf::into_os_string),
+        _ => std::env::var_os(key),
+    }
+}
+
+/// [`AppDirs::resolve_with_legacy`] over [`native_env`], naming the account lookup as the cause
+/// when a base is missing because the operating system could not answer. `account` is the home
+/// lookup ([`account_home`]), a parameter so its failure is testable.
+fn resolve_native(
+    app: &AppId,
+    opts: &Options,
+    account: &dyn Fn() -> Result<PathBuf>,
+    exists: &dyn Fn(&Path) -> bool,
+) -> Result<AppDirs> {
+    let env = |key: &str| native_env(key, account);
+    AppDirs::resolve_with_legacy(app, opts, &env, exists).map_err(|err| {
+        let AppDirsError::NoBase { what, .. } = &err else {
+            return err;
+        };
+        #[cfg(not(windows))]
+        let _ = what;
+        if opts.os != Os::current() {
+            return err;
+        }
+        #[cfg(unix)]
+        {
+            match account() {
+                Err(account_err) => account_err,
+                Ok(_) => err,
+            }
+        }
+        #[cfg(windows)]
+        {
+            AppDirsError::AccountHome {
+                why: format!(
+                    "the known-folder lookup for the {what} folder failed or was not absolute"
+                ),
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        err
+    })
+}
+
+/// The real home folder of the account this process runs as, from the operating system and never
+/// from the environment.
+///
+/// * Unix: the `pw_dir` of `getpwuid_r(geteuid())`. `HOME` is ignored, so a launcher that
+///   redirects it cannot move an app's folders.
+/// * Windows: the Profile known folder (`SHGetKnownFolderPath`). `%USERPROFILE%` is ignored.
+///
+/// Fails with [`AppDirsError::AccountHome`] when the lookup fails, the account has no home, or the
+/// answer is not an absolute path without `..`. There is no environment fallback.
+pub fn account_home() -> Result<PathBuf> {
+    #[cfg(unix)]
+    {
+        passwd_home()
+    }
     #[cfg(windows)]
     {
-        let id = match key {
-            "APPDATA" => Some(&known::ROAMING_APP_DATA),
-            "LOCALAPPDATA" => Some(&known::LOCAL_APP_DATA),
-            "USERPROFILE" => Some(&known::PROFILE),
-            _ => None,
-        };
-        if let Some(path) = id.and_then(known::known_folder) {
-            return Some(path.into_os_string());
-        }
+        known::known_folder(&known::PROFILE)
+            .filter(|p| looks_absolute(Os::Windows, p))
+            .ok_or_else(|| AppDirsError::AccountHome {
+                why: "the Profile known folder is unavailable or not absolute".to_string(),
+            })
     }
-    std::env::var_os(key)
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(AppDirsError::AccountHome {
+            why: "no account lookup on this platform".to_string(),
+        })
+    }
+}
+
+#[cfg(unix)]
+fn passwd_home() -> Result<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let fail = |why: &str| AppDirsError::AccountHome {
+        why: why.to_string(),
+    };
+    let mut size = 16 * 1024;
+    loop {
+        let mut buffer = vec![0u8; size];
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut found = std::ptr::null_mut();
+        // SAFETY: `record` and `buffer` are writable and stay alive until `pw_dir` is copied.
+        let status = unsafe {
+            libc::getpwuid_r(
+                libc::geteuid(),
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut found,
+            )
+        };
+        if status == libc::ERANGE && size < 1024 * 1024 {
+            size *= 2;
+            continue;
+        }
+        if status != 0 {
+            return Err(fail("getpwuid_r failed"));
+        }
+        if found.is_null() {
+            return Err(fail("the account has no passwd entry"));
+        }
+        // SAFETY: a successful lookup initialized `record`; `pw_dir` points into `buffer`.
+        let raw = unsafe { record.assume_init().pw_dir };
+        if raw.is_null() {
+            return Err(fail("the passwd entry has no home directory"));
+        }
+        // SAFETY: `pw_dir` is a NUL-terminated string inside `buffer`, still alive.
+        let bytes = unsafe { std::ffi::CStr::from_ptr(raw) }.to_bytes();
+        let home = PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
+        if !looks_absolute(Os::current(), &home) {
+            return Err(fail("the passwd home is empty, relative or contains `..`"));
+        }
+        return Ok(home);
+    }
 }
 
 #[cfg(windows)]
@@ -507,6 +642,7 @@ mod known {
     use std::path::PathBuf;
 
     #[repr(C)]
+    #[derive(PartialEq, Eq)]
     pub(super) struct Guid {
         data1: u32,
         data2: u16,
@@ -551,18 +687,20 @@ mod known {
         fn CoTaskMemFree(pv: *mut c_void);
     }
 
-    /// `KF_FLAG_DEFAULT`: no creation, no verification, no redirection override.
-    const KF_FLAG_DEFAULT: u32 = 0;
+    /// `KF_FLAG_DONT_VERIFY`: do not require the folder to exist (the Profile folder is returned
+    /// even when a later subfolder is missing; creation is the caller's choice).
+    const KF_FLAG_DONT_VERIFY: u32 = 0x4000;
 
     /// The known folder `id` of the current user, or `None` when the call fails or returns an
     /// empty string. The returned buffer is always freed with `CoTaskMemFree`, also on failure
     /// (the API may set it even then).
-    pub(super) fn known_folder(id: &Guid) -> Option<PathBuf> {
+    fn api_folder(id: &Guid) -> Option<PathBuf> {
         let mut raw: *mut u16 = std::ptr::null_mut();
         // SAFETY: `id` is a valid GUID, a null token means the current user, and `raw` is a valid
         // out pointer. On return `raw` is null or a NUL-terminated UTF-16 string we own.
-        let hr =
-            unsafe { SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, std::ptr::null_mut(), &mut raw) };
+        let hr = unsafe {
+            SHGetKnownFolderPath(id, KF_FLAG_DONT_VERIFY, std::ptr::null_mut(), &mut raw)
+        };
         if raw.is_null() {
             return None;
         }
@@ -581,6 +719,184 @@ mod known {
         // SAFETY: `raw` came from SHGetKnownFolderPath and is freed exactly once.
         unsafe { CoTaskMemFree(raw.cast()) };
         path.filter(|p| !p.as_os_str().is_empty())
+    }
+
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn RegOpenCurrentUser(sam: u32, key: *mut *mut c_void) -> i32;
+        fn RegCloseKey(key: *mut c_void) -> i32;
+        fn RegGetValueW(
+            key: *mut c_void,
+            subkey: *const u16,
+            value: *const u16,
+            flags: u32,
+            kind: *mut u32,
+            data: *mut c_void,
+            len: *mut u32,
+        ) -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+
+    #[link(name = "userenv")]
+    unsafe extern "system" {
+        fn ExpandEnvironmentStringsForUserW(
+            token: *mut c_void,
+            src: *const u16,
+            dest: *mut u16,
+            size: u32,
+        ) -> i32;
+    }
+
+    const TOKEN_DUPLICATE: u32 = 0x2;
+    const TOKEN_IMPERSONATE: u32 = 0x4;
+    const TOKEN_QUERY: u32 = 0x8;
+    const KEY_READ: u32 = 0x2_0019;
+    const RRF_RT_REG_SZ: u32 = 0x2;
+    const RRF_RT_REG_EXPAND_SZ: u32 = 0x4;
+    const RRF_NOEXPAND: u32 = 0x1000_0000;
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+    const ERROR_MORE_DATA: i32 = 234;
+    const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
+    const USER_SHELL_FOLDERS: &str =
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders";
+
+    fn wide(text: &std::ffi::OsStr) -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        text.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    fn from_wide_nul(buffer: &[u16]) -> std::ffi::OsString {
+        let len = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+        std::ffi::OsString::from_wide(&buffer[..len])
+    }
+
+    /// Expand `%NAME%` references in `template` against the *account's* environment block
+    /// (`ExpandEnvironmentStringsForUserW` with this process's token), never the process
+    /// environment. `None` when the token or the expansion fails, or when a reference is left
+    /// unexpanded.
+    pub(super) fn expand_template(template: &std::ffi::OsStr) -> Option<PathBuf> {
+        let mut token: *mut c_void = std::ptr::null_mut();
+        // SAFETY: the pseudo handle is valid, `token` is a valid out pointer.
+        let ok = unsafe {
+            OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_IMPERSONATE,
+                &mut token,
+            )
+        };
+        if ok == 0 || token.is_null() {
+            return None;
+        }
+        let src = wide(template);
+        let mut size = 1024usize;
+        let result = loop {
+            let mut dest = vec![0u16; size];
+            // SAFETY: `src` is NUL-terminated; `dest` holds `size` writable u16 elements.
+            let ok = unsafe {
+                ExpandEnvironmentStringsForUserW(
+                    token,
+                    src.as_ptr(),
+                    dest.as_mut_ptr(),
+                    size as u32,
+                )
+            };
+            if ok != 0 {
+                break Some(from_wide_nul(&dest));
+            }
+            let code = std::io::Error::last_os_error().raw_os_error();
+            if code == Some(ERROR_INSUFFICIENT_BUFFER) && size < 64 * 1024 {
+                size *= 2;
+                continue;
+            }
+            break None;
+        };
+        // SAFETY: `token` was opened above and is closed once.
+        unsafe { CloseHandle(token) };
+        let path = PathBuf::from(result?);
+        let text = path.to_string_lossy();
+        (!text.contains('%') && super::looks_absolute(super::Os::Windows, &path)).then_some(path)
+    }
+
+    /// The raw (unexpanded) `User Shell Folders` template of the current user for `name`, read
+    /// from the user hive that `RegOpenCurrentUser` resolves from the token. `Ok(None)` when the
+    /// value is absent; `Err` for any other failure.
+    fn user_shell_folder_template(name: &str) -> Result<Option<std::ffi::OsString>, ()> {
+        let mut key: *mut c_void = std::ptr::null_mut();
+        // SAFETY: `key` is a valid out pointer.
+        if unsafe { RegOpenCurrentUser(KEY_READ, &mut key) } != 0 {
+            return Err(());
+        }
+        let subkey = wide(std::ffi::OsStr::new(USER_SHELL_FOLDERS));
+        let value = wide(std::ffi::OsStr::new(name));
+        let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND;
+        let mut bytes = 1024u32;
+        let result = loop {
+            let mut data = vec![0u16; (bytes as usize).div_ceil(2)];
+            let mut len = bytes;
+            // SAFETY: `key` is open; the name buffers are NUL-terminated; `data` holds `len`
+            // writable bytes.
+            let status = unsafe {
+                RegGetValueW(
+                    key,
+                    subkey.as_ptr(),
+                    value.as_ptr(),
+                    flags,
+                    std::ptr::null_mut(),
+                    data.as_mut_ptr().cast(),
+                    &mut len,
+                )
+            };
+            match status {
+                0 => break Ok(Some(from_wide_nul(&data))),
+                ERROR_FILE_NOT_FOUND => break Ok(None),
+                ERROR_MORE_DATA if len > bytes && len <= 64 * 1024 => bytes = len,
+                _ => break Err(()),
+            }
+        };
+        // SAFETY: `key` was opened above and is closed once.
+        unsafe { RegCloseKey(key) };
+        result
+    }
+
+    /// The known folder `id` of the current account, independent of the process environment.
+    ///
+    /// `SHGetKnownFolderPath` cannot be used for Roaming and Local AppData: the registry holds
+    /// them as `REG_EXPAND_SZ` templates (`%USERPROFILE%\AppData\Roaming`, or a redirection such
+    /// as `\\server\share\%USERNAME%\AppData\Roaming`) and the API expands them against the
+    /// *process* environment (measured: a redirected `USERPROFILE` moves the result). Microsoft
+    /// documents `KF_FLAG_DONT_UNEXPAND` for `SHSetKnownFolderPath` only, so the raw template
+    /// cannot be had from the getter. Those two folders are therefore read as the raw
+    /// `User Shell Folders` value of the current user hive and expanded with
+    /// `ExpandEnvironmentStringsForUserW` over this process's token, so every variable comes from
+    /// the account's own environment block. An absent value means the Windows default under the
+    /// Profile folder. Any failure is `None`: there is no fallback to the process environment.
+    /// The Profile folder comes from the account token and is returned by the API directly.
+    pub(super) fn known_folder(id: &Guid) -> Option<PathBuf> {
+        let (value, default) = if *id == ROAMING_APP_DATA {
+            ("AppData", r"AppData\Roaming")
+        } else if *id == LOCAL_APP_DATA {
+            ("Local AppData", r"AppData\Local")
+        } else {
+            return api_folder(id);
+        };
+        match user_shell_folder_template(value).ok()? {
+            Some(template) if !template.is_empty() => expand_template(&template),
+            Some(_) => None,
+            None => Some(api_folder(&PROFILE)?.join(default)),
+        }
+    }
+
+    /// The raw `SHGetKnownFolderPath` answer (environment-dependent for AppData); for tests that
+    /// compare it with [`known_folder`] in an unredirected environment.
+    #[cfg(test)]
+    pub(super) fn api_folder_for_test(id: &Guid) -> Option<PathBuf> {
+        api_folder(id)
     }
 }
 
@@ -846,37 +1162,7 @@ fn native_protected_paths(app: &AppId) -> Result<Vec<PathBuf>> {
     };
     #[cfg(unix)]
     let bases = {
-        let mut size = 16 * 1024;
-        let home = loop {
-            let mut buffer = vec![0u8; size];
-            let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
-            let mut found = std::ptr::null_mut();
-            // SAFETY: record and buffer are writable and remain alive while pw_dir is copied.
-            let status = unsafe {
-                libc::getpwuid_r(
-                    libc::geteuid(),
-                    record.as_mut_ptr(),
-                    buffer.as_mut_ptr().cast(),
-                    buffer.len(),
-                    &mut found,
-                )
-            };
-            if status == libc::ERANGE && size < 1024 * 1024 {
-                size *= 2;
-                continue;
-            }
-            if status != 0 || found.is_null() {
-                return Err(crate::test_mode::Refusal::UserRootUnknown.into());
-            }
-            // SAFETY: successful lookup initialized record; pw_dir points into buffer.
-            let raw = unsafe { record.assume_init().pw_dir };
-            if raw.is_null() {
-                return Err(crate::test_mode::Refusal::UserRootUnknown.into());
-            }
-            use std::os::unix::ffi::OsStrExt;
-            let bytes = unsafe { std::ffi::CStr::from_ptr(raw) }.to_bytes();
-            break PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
-        };
+        let home = account_home().map_err(|_| crate::test_mode::Refusal::UserRootUnknown)?;
         Bases::read(Os::current(), &|key| {
             (key == "HOME").then(|| home.clone().into_os_string())
         })
@@ -1569,16 +1855,196 @@ mod tests {
             assert_eq!((d.data, d.home), (p("/tmp/hr"), p("/tmp/hrhome")));
         }
     }
+    /// A raw `User Shell Folders` style template naming per-user variables a redirected
+    /// environment could change.
+    #[cfg(windows)]
+    const TEMPLATE: &str =
+        r"\\server\share\%USERNAME%\%USERPROFILE%\%HOMEDRIVE%%HOMEPATH%\AppData\Roaming";
+
+    /// Marker that makes [`redirected_environment_child`] run its checks. The redirection tests
+    /// run them in a child process started with the redirected environment, so no test mutates
+    /// the parent's environment (concurrent `set_var` races other threads' environment and
+    /// known-folder reads, and `SHGetKnownFolderPath` can fail while the block changes).
+    const CHILD_MARKER: &str = "RK_FS_APP_DIRS_CHILD";
+
+    fn failing_account() -> Result<PathBuf> {
+        Err(AppDirsError::AccountHome {
+            why: "injected".to_string(),
+        })
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn account_lookup_failure_is_an_error_not_an_env_fallback() {
+        let err = resolve_native(
+            &AppId::new("RedirectProbe"),
+            &Options::new(Os::current()),
+            &failing_account,
+            &|_| false,
+        )
+        .unwrap_err();
+        assert!(matches!(err, AppDirsError::AccountHome { .. }), "{err}");
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn redirected_environment_does_not_move_the_account_folders() {
+        let exe = std::env::current_exe().unwrap();
+        // An existing redirected profile with real AppData folders: the worst case, because the
+        // known-folder API accepts it.
+        let tmp = tempfile::tempdir().unwrap();
+        let redirected = tmp.path().to_path_buf();
+        for sub in ["AppData/Roaming", "AppData/Local"] {
+            std::fs::create_dir_all(redirected.join(sub)).unwrap();
+        }
+        // What the account's folders are in this (unredirected) process; the child must get
+        // exactly these under the redirected environment.
+        let expected = AppDirs::resolve_with_options(
+            AppId::new("RedirectProbe"),
+            &Options::new(Os::current()),
+        )
+        .unwrap();
+        let mut command = std::process::Command::new(exe);
+        command
+            .args([
+                "--exact",
+                "app_dirs::tests::redirected_environment_child",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD_MARKER, "1")
+            .env("HOME", "/tmp/x")
+            .env("XDG_DATA_HOME", "/tmp/x/data")
+            .env("XDG_CACHE_HOME", "/tmp/x/cache")
+            .env("XDG_CONFIG_HOME", "/tmp/x/config")
+            .env("APPDATA", redirected.join("AppData").join("Roaming"))
+            .env("LOCALAPPDATA", redirected.join("AppData").join("Local"))
+            .env("USERPROFILE", &redirected)
+            .env("RK_FS_PROBE_VAR", "kept")
+            .env("USERNAME", "redirected-user")
+            .env("HOMEDRIVE", "R:")
+            .env("HOMEPATH", r"\redirected-homepath")
+            .env("HOMESHARE", r"\\redirected-share\home")
+            .env("RK_FS_EXPECT_DATA", &expected.data)
+            .env("RK_FS_EXPECT_CONFIG", &expected.config)
+            .env("RK_FS_EXPECT_LOCAL", &expected.local)
+            .env("RK_FS_EXPECT_CACHE", &expected.cache)
+            .env("RK_FS_EXPECT_HOME", &expected.home);
+        #[cfg(windows)]
+        command.env(
+            "RK_FS_EXPECT_TEMPLATE",
+            known::expand_template(std::ffi::OsStr::new(TEMPLATE)).expect("template expands"),
+        );
+        let out = command.output().unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(out.status.success(), "child failed:\n{text}");
+        assert!(text.contains("1 passed"), "child did not run:\n{text}");
+    }
+
+    /// Runs only in the child of [`redirected_environment_does_not_move_the_account_folders`].
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn redirected_environment_child() {
+        if std::env::var_os(CHILD_MARKER).is_none() {
+            return;
+        }
+        let home = account_home().expect("account home");
+        assert!(home.is_absolute(), "{}", home.display());
+        // `Options::new` has no test root, so the real resolver path runs.
+        let opts = Options::new(Os::current());
+        let app = AppId::new("RedirectProbe");
+        let public = AppDirs::resolve_with_options(app.clone(), &opts).unwrap();
+        let native = resolve_native(&app, &opts, &account_home, &|_| false).unwrap();
+        assert_eq!(public, native);
+        assert!(!public.isolated);
+        // Equality with the unredirected answers, not just distance from the redirect.
+        let expect = |name: &str| PathBuf::from(std::env::var_os(name).expect(name));
+        assert_eq!(public.data, expect("RK_FS_EXPECT_DATA"));
+        assert_eq!(public.config, expect("RK_FS_EXPECT_CONFIG"));
+        assert_eq!(public.local, expect("RK_FS_EXPECT_LOCAL"));
+        assert_eq!(public.cache, expect("RK_FS_EXPECT_CACHE"));
+        assert_eq!(public.home, expect("RK_FS_EXPECT_HOME"));
+        #[cfg(unix)]
+        {
+            assert_ne!(home, p("/tmp/x"));
+            for dir in [&public.data, &public.config, &public.local, &public.cache] {
+                assert!(
+                    dir.starts_with(&home),
+                    "{} not under {}",
+                    dir.display(),
+                    home.display()
+                );
+            }
+            assert_eq!(public.home, home);
+            let fixed = || Ok(p("/home/fixed"));
+            for key in ["XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"] {
+                assert_eq!(native_env(key, &fixed), None, "{key}");
+            }
+            assert_eq!(
+                native_env("HOME", &fixed),
+                Some(OsString::from("/home/fixed"))
+            );
+            assert_eq!(
+                native_env("RK_FS_PROBE_VAR", &fixed),
+                Some(OsString::from("kept"))
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(public.home, home);
+            let redirected = PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
+            assert_ne!(redirected, home);
+            for dir in [
+                &public.data,
+                &public.config,
+                &public.local,
+                &public.cache,
+                &public.home,
+            ] {
+                assert!(!dir.starts_with(&redirected), "{}", dir.display());
+            }
+            assert_eq!(
+                native_env("RK_FS_PROBE_VAR", &failing_account),
+                Some(OsString::from("kept"))
+            );
+            // A template over USERNAME, USERPROFILE, HOMEDRIVE and HOMEPATH expands from the
+            // account's environment block: same answer as in the unredirected parent, and none
+            // of the redirected values.
+            let expanded = known::expand_template(std::ffi::OsStr::new(TEMPLATE)).unwrap();
+            assert_eq!(expanded, expect("RK_FS_EXPECT_TEMPLATE"));
+            let text = expanded.to_string_lossy().to_lowercase();
+            for leaked in ["redirected-user", "redirected-homepath", "r:"] {
+                assert!(!text.contains(leaked), "{leaked} in {text}");
+            }
+        }
+        // With the environment still redirected, a failed lookup is an error, not a fallback.
+        let err = resolve_native(&app, &opts, &failing_account, &|_| false).unwrap_err();
+        assert!(matches!(err, AppDirsError::AccountHome { .. }), "{err}");
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_bases_come_from_known_folders() {
         let roaming = known::known_folder(&known::ROAMING_APP_DATA).expect("RoamingAppData");
         let local = known::known_folder(&known::LOCAL_APP_DATA).expect("LocalAppData");
         let profile = known::known_folder(&known::PROFILE).expect("Profile");
+        // In an unredirected environment the registry-template path reproduces the shell API.
+        assert_eq!(
+            Some(&roaming),
+            known::api_folder_for_test(&known::ROAMING_APP_DATA).as_ref()
+        );
+        assert_eq!(
+            Some(&local),
+            known::api_folder_for_test(&known::LOCAL_APP_DATA).as_ref()
+        );
         assert!(roaming.is_absolute() && local.is_absolute() && profile.is_absolute());
         // The environment `AppDirs::resolve` reads yields the same folders, whatever the
         // variables say.
-        let b = Bases::read(Os::Windows, &process_env);
+        let b = Bases::read(Os::Windows, &|k| native_env(k, &account_home));
         assert_eq!(b.data.as_ref(), Some(&roaming));
         assert_eq!(b.local.as_ref(), Some(&local));
         assert_eq!(b.cache.as_ref(), Some(&local));

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.7 — unpublished
+
+- `app_dirs::account_home()` (re-exported as `rightkit_fs::account_home`): the real home of the
+  account the process runs as. Unix: `getpwuid_r(geteuid())` (promoted from the test-mode-only
+  lookup, which now calls it); Windows: the Profile known folder. Never read from the environment;
+  fails with the new `AppDirsError::AccountHome` when the OS cannot answer.
+- `AppDirs::resolve` and `AppDirs::resolve_with_options` build the macOS and Linux bases from
+  `account_home`, ignoring `HOME` and every `XDG_*` variable (as `Suite::per_user_default` does in
+  rightkit-daemon). Release builds can no longer have their data folders moved by a redirected
+  environment (HeardRight release-switch plan, item D5).
+- Windows guarantee: `AppDirs::resolve` and `resolve_with_options` read no `APPDATA`,
+  `LOCALAPPDATA`, `USERPROFILE`, `USERNAME`, `HOMEDRIVE`, `HOMEPATH` or `HOMESHARE` from the
+  process environment, and a failed lookup is an error (`AccountHome` or `NoBase`), never a
+  fallback to a variable. Profile comes from `SHGetKnownFolderPath`, which takes it from the
+  account token. Roaming and Local AppData cannot use that call: the registry holds them as
+  `REG_EXPAND_SZ` templates (`%USERPROFILE%\AppData\Roaming`, or a folder-redirection value such
+  as `\\server\share\%USERNAME%\AppData\Roaming`) and the call expands them against the
+  process environment (measured: a redirected `USERPROFILE` returned `<redirected>\AppData\...`,
+  or failed when that folder was missing). `KF_FLAG_DONT_UNEXPAND` is documented for
+  `SHSetKnownFolderPath` only, so the raw template is read from the current user's
+  `User Shell Folders` key (`RegOpenCurrentUser`, `RRF_NOEXPAND`) and expanded with
+  `ExpandEnvironmentStringsForUserW` over the process token, so every variable comes from the
+  account's own environment block. An absent value means the Windows default under Profile; a
+  template that still holds a `%` reference after expansion, or is not absolute, is an error.
+  In an unredirected environment the result equals the shell API's answer (tested).
+- Not guaranteed: a template naming a variable that the account's environment block lacks (for
+  example `HOMESHARE` on a machine with no home share) fails closed instead of being resolved from
+  the process; the answer is the account's, but its availability depends on the account's profile.
+- Behaviour change: QA runs of release builds that redirected `HOME` (or `XDG_*`) now use the real
+  home, intended. The test-mode QA overrides (`RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_QA_HOME`, legacy
+  variables) are unchanged. `AppDirs::resolve_with` and `resolve_with_legacy` remain pure over the
+  supplied environment, unchanged.
+
 ## 0.4.6 — unpublished staging
 
 - Transaction backup durability: the hard-link backup of a file about to be overwritten is now
