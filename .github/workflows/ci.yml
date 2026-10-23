@@ -109,7 +109,11 @@ jobs:
           install-dependencies: ${{ matrix.kind == 'npm' || matrix.kind == 'root' }}
           rust: ${{ matrix.rust }}
           cache-key: ${{ matrix.cacheKey }}
-          save-cache: ${{ github.event_name != 'pull_request' }}
+          # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
+          # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
+          # artifact). Broker-requested runs restore and save; pull requests restore only.
+          save-cache: ${{ github.event_name == 'workflow_dispatch' }}
+          restore-cache: ${{ github.event_name != 'push' }}
       - name: Gate shard
         shell: bash
         env:
@@ -151,7 +155,11 @@ jobs:
           install-dependencies: ${{ matrix.kind == 'npm' || matrix.kind == 'root' }}
           rust: ${{ matrix.rust }}
           cache-key: ${{ matrix.cacheKey }}
-          save-cache: ${{ github.event_name != 'pull_request' }}
+          # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
+          # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
+          # artifact). Broker-requested runs restore and save; pull requests restore only.
+          save-cache: ${{ github.event_name == 'workflow_dispatch' }}
+          restore-cache: ${{ github.event_name != 'push' }}
           derived-data: ${{ matrix.swift && 'xcode-27' || '' }}
       - name: Gate shard
         shell: bash
@@ -195,7 +203,11 @@ jobs:
           install-dependencies: "false"
           rust: "true"
           cache-key: ${{ matrix.cacheKey }}
-          save-cache: ${{ github.event_name != 'pull_request' }}
+          # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
+          # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
+          # artifact). Broker-requested runs restore and save; pull requests restore only.
+          save-cache: ${{ github.event_name == 'workflow_dispatch' }}
+          restore-cache: ${{ github.event_name != 'push' }}
       - name: Dependent closure check
         shell: bash
         env:
@@ -236,7 +248,11 @@ jobs:
           install-dependencies: "false"
           rust: "true"
           cache-key: ${{ matrix.cacheKey }}
-          save-cache: ${{ github.event_name != 'pull_request' }}
+          # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
+          # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
+          # artifact). Broker-requested runs restore and save; pull requests restore only.
+          save-cache: ${{ github.event_name == 'workflow_dispatch' }}
+          restore-cache: ${{ github.event_name != 'push' }}
       - name: Dependent closure check
         shell: bash
         env:
@@ -274,7 +290,11 @@ jobs:
           install-filter: --filter @rightkit/release...
           ignore-install-scripts: "true"
           cache-key: rk-ubuntu-hygiene
-          save-cache: ${{ github.event_name != 'pull_request' }}
+          # Push-triggered runs build without the Rust cache: 61 pushes on 2026-10-23 each restored hundreds of MB per
+          # shard and exhausted the account's Actions storage egress (macOS verify of @rightkit/legal 0.6.3 could not fetch its
+          # artifact). Broker-requested runs restore and save; pull requests restore only.
+          save-cache: ${{ github.event_name == 'workflow_dispatch' }}
+          restore-cache: ${{ github.event_name != 'push' }}
       - name: Install the pinned Cargo scan tools
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:

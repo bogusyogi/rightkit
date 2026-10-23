@@ -14,8 +14,11 @@ inputs:
     description: Rust cache key of this job (one per shard, stable across pushes)
     default: ""
   save-cache:
-    description: "true saves the Rust cache at the end of the job (pushes only)"
+    description: "true saves the Rust cache at the end of the job"
     default: "false"
+  restore-cache:
+    description: "false skips restoring the Rust build cache (push-triggered shared CI: each restore is hundreds of MB of Actions storage egress per shard)"
+    default: "true"
   derived-data:
     description: "Runner label for SwiftPM build cache (Swift package jobs); empty disables it"
     default: ""
@@ -115,7 +118,7 @@ runs:
       run: |
         & "$env:GITHUB_WORKSPACE/scripts/ci/locate-native-openssl.ps1"
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      if: ${{ inputs.rust == 'true' }}
+      if: ${{ inputs.rust == 'true' && inputs.restore-cache == 'true' }}
       with:
         workspaces: |
           . -> target
