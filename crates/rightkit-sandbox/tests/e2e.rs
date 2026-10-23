@@ -809,6 +809,45 @@ mod windows {
         let _ = fs::remove_dir_all(&other);
     }
 
+    /// The existence probe the deny tests rely on, proven through the helper itself: a fresh
+    /// profile name is absent, a spawn registers it, a delete removes it. `DeleteAppContainerProfile`
+    /// reports success either way on current Windows, so its return is not the evidence.
+    #[test]
+    fn profile_existence_probe_tracks_create_and_delete() {
+        if !crate::common::real_user_stores_allowed(
+            "profile_existence_probe_tracks_create_and_delete",
+        ) {
+            return;
+        }
+        let root = scratch("probe");
+        let policy = SandboxPolicy::new().allow_write(&root);
+        let name = appcontainer_profile_name_for_test(&policy).unwrap();
+        let _ = delete_appcontainer_profile_for_test(&name);
+        assert!(
+            !appcontainer_profile_exists_for_test(&name).unwrap(),
+            "a name no spawn has used must not be registered: {name}"
+        );
+        let out = expanded()
+            .spawn(&policy, cmd("echo x").cwd(&root))
+            .unwrap()
+            .wait_with_output(T)
+            .unwrap();
+        assert!(
+            out.status.unwrap().success(),
+            "the probe spawn must run: {out:?}"
+        );
+        assert!(
+            appcontainer_profile_exists_for_test(&name).unwrap(),
+            "a spawn registers the profile: {name}"
+        );
+        assert!(delete_appcontainer_profile_for_test(&name).unwrap());
+        assert!(
+            !appcontainer_profile_exists_for_test(&name).unwrap(),
+            "a deleted profile is no longer registered: {name}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn a_piped_child_reads_its_stdin_until_the_parent_closes_it() {
         use std::io::Write;
