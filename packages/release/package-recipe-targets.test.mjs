@@ -351,11 +351,11 @@ test("managed target outside the app: winPackage plans verified copies, declared
   const pre = planOf(out.prePackage);
   assert.deepEqual(pre.stability.files, [raw]);
   assert.deepEqual(pre.cleanup.remove, [raw, installer]);
-  assert.deepEqual(pre.stage, { post: [{ from: realRaw, to: raw, fresh: true }] });
+  assert.deepEqual(pre.stage, { post: [{ from: realRaw, to: raw, fresh: true }], resolve: { manifest: path.join(appRoot, "src-tauri", "Cargo.toml"), expected: targetDir } });
   // tauri bundle embeds the EXE from the real target directory: the signed copy goes back first, the installer comes out fresh.
   const bundle = planOf(out.package);
   assert.deepEqual(bundle.steps.map((step) => [step.phase, step.args.slice(0, 3)]), [["build", ["exec", "tauri", "bundle"]]]);
-  assert.deepEqual(bundle.stage, { pre: [{ from: raw, to: realRaw }], post: [{ from: realInstaller, to: installer, fresh: true }] });
+  assert.deepEqual(bundle.stage, { pre: [{ from: raw, to: realRaw }], verify: [{ app: raw, real: realRaw }], resolve: { manifest: path.join(appRoot, "src-tauri", "Cargo.toml"), expected: targetDir }, post: [{ from: realInstaller, to: installer, fresh: true }] });
   assert.equal(out.package.timeoutMs, 20 * 60 * 1000);
   assert.equal(out.package.env.TAURI_SIGNING_PRIVATE_KEY, "");
   // The scan sees the bundle step through the wrapper.
@@ -367,7 +367,7 @@ test("managed target outside the app: macPackage stages the built .app only", ()
   const targetDir = path.join(managedRoot, "t");
   const out = expandMacPackageTarget(macTarget({ macPackage: { cargoTargetRoot: true } }), { appRoot, env: {}, resolveTargetRoot: () => targetDir, managedRoots: [managedRoot] });
   assert.equal(out.notarize.app, "src-tauri/target/universal-apple-darwin/release/bundle/macos/Demo.app");
-  assert.deepEqual(planOf(out.prePackage).stage, { post: [{ from: path.resolve(targetDir, "universal-apple-darwin/release/bundle/macos/Demo.app"), to: out.notarize.app, fresh: true }] });
+  assert.deepEqual(planOf(out.prePackage).stage, { post: [{ from: path.resolve(targetDir, "universal-apple-darwin/release/bundle/macos/Demo.app"), to: out.notarize.app, fresh: true }], resolve: { manifest: path.join(appRoot, "src-tauri", "Cargo.toml"), expected: targetDir } });
 });
 
 test("a target directory outside the app and outside every managed root is still refused with the same message", () => {

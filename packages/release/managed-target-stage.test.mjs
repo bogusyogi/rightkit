@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync as renameSyncReal, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -139,4 +139,65 @@ test("recipe-build: a still-changing real source fails the stability wait before
   }, { appRoot: w.app, spawnSync: () => ({ status: 0 }), statSync, sleep: () => { clock += 10; }, now: () => clock }), { code: "RECIPE_BUILD_ARTIFACT_UNSTABLE" });
   // Nothing was copied: the in-app copy is still what was there before.
   assert.equal(readFileSync(path.join(w.app, "demo.exe"), "utf8"), "OLD IN-APP COPY");
+});
+
+const bundlePlan = (w, extra = {}) => ({
+  version: 1, steps: [{ phase: "build", cmd: "pnpm" }],
+  stage: {
+    pre: [{ from: "demo.exe", to: path.join(w.managed, "demo.exe") }],
+    verify: [{ app: "demo.exe", real: path.join(w.managed, "demo.exe") }],
+    resolve: { manifest: path.join(w.app, "Cargo.toml"), expected: w.managed },
+    post: [{ from: path.join(w.managed, "setup.exe"), to: "setup.exe", fresh: true }],
+    ...extra,
+  },
+});
+
+test("C1: an exe that changes during bundle fails before the installer is copied out", (t) => {
+  const w = workspace(); t.after(w.done);
+  writeFileSync(path.join(w.app, "demo.exe"), "SIGNED");
+  const spawnSync = () => { writeFileSync(path.join(w.managed, "setup.exe"), "INSTALLER"); writeFileSync(path.join(w.managed, "demo.exe"), "RELINKED BY ANOTHER JOB"); return { status: 0 }; };
+  assert.throws(() => runRecipeBuild(bundlePlan(w), { appRoot: w.app, spawnSync, resolveTargetRoot: () => w.managed }), (error) => error.code === "STAGE_REAL_CHANGED" && /after the build step/.test(error.message));
+  assert.equal(existsSync(path.join(w.app, "setup.exe")), false);
+});
+
+test("C1: an exe that differs from the signed copy right before bundle fails before the build step runs", (t) => {
+  const w = workspace(); t.after(w.done);
+  writeFileSync(path.join(w.app, "demo.exe"), "SIGNED");
+  let ran = false;
+  const fs = { cpSync: (src, dest) => writeFileSync(dest, readFileSync(src)) };
+  const racing = { ...fs, renameSync: (a, b) => { writeFileSync(a, "RACED"); return renameSyncReal(a, b); } };
+  assert.throws(() => runRecipeBuild(bundlePlan(w), { appRoot: w.app, fs: racing, spawnSync: () => { ran = true; return { status: 0 }; }, resolveTargetRoot: () => w.managed }), (error) => ["STAGE_REAL_CHANGED", "STAGE_DIGEST_MISMATCH"].includes(error.code));
+  assert.equal(ran, false);
+});
+
+test("C1: the signed exe in the target directory and the in-app exe match on success", (t) => {
+  const w = workspace(); t.after(w.done);
+  writeFileSync(path.join(w.app, "demo.exe"), "SIGNED");
+  const spawnSync = () => { writeFileSync(path.join(w.managed, "setup.exe"), "INSTALLER"); return { status: 0 }; };
+  runRecipeBuild(bundlePlan(w), { appRoot: w.app, spawnSync, sleep: () => {}, resolveTargetRoot: () => w.managed });
+  assert.equal(readFileSync(path.join(w.app, "setup.exe"), "utf8"), "INSTALLER");
+});
+
+test("C2: a rotated generation (re-resolved target directory differs) is refused before and after the build step", (t) => {
+  const w = workspace(); t.after(w.done);
+  writeFileSync(path.join(w.app, "demo.exe"), "SIGNED");
+  let ran = false;
+  assert.throws(() => runRecipeBuild(bundlePlan(w), { appRoot: w.app, spawnSync: () => { ran = true; return { status: 0 }; }, resolveTargetRoot: () => path.join(w.base, "g", "2", "t") }), (error) => error.code === "STAGE_TARGET_DIR_CHANGED" && /rotated or evicted/.test(error.message));
+  assert.equal(ran, false);
+  // Rotation during the step: the second resolution differs.
+  let calls = 0;
+  const spawnSync = () => { writeFileSync(path.join(w.managed, "setup.exe"), "I"); return { status: 0 }; };
+  assert.throws(() => runRecipeBuild(bundlePlan(w), { appRoot: w.app, spawnSync, resolveTargetRoot: () => (++calls === 1 ? w.managed : path.join(w.base, "g", "2", "t")) }), { code: "STAGE_TARGET_DIR_CHANGED" });
+  assert.equal(existsSync(path.join(w.app, "setup.exe")), false);
+});
+
+test("C2: a missing parent directory in the broker tree is never created", (t) => {
+  const w = workspace(); t.after(w.done);
+  writeFileSync(path.join(w.app, "demo.exe"), "SIGNED");
+  const gone = path.join(w.base, "evicted", "t");
+  assert.throws(() => stageArtifact({ from: path.join(w.app, "demo.exe"), to: path.join(gone, "demo.exe") }, { requireParent: true }), (error) => error.code === "STAGE_PARENT_MISSING" && /rotated or evicted/.test(error.message));
+  assert.equal(existsSync(path.dirname(gone)), false);
+  const plan = bundlePlan(w); plan.stage.pre = [{ from: "demo.exe", to: path.join(gone, "demo.exe") }]; plan.stage.verify = [];
+  assert.throws(() => runRecipeBuild(plan, { appRoot: w.app, spawnSync: () => ({ status: 0 }), resolveTargetRoot: () => w.managed }), { code: "STAGE_PARENT_MISSING" });
+  assert.equal(existsSync(path.dirname(gone)), false);
 });

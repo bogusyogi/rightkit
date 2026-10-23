@@ -5,7 +5,8 @@
 // and before a later step that reads the signed raw EXE from the target directory (tauri bundle) the signed copy is
 // copied back. A `fresh` source is deleted before the build and every source is polled until stable before it is
 // copied, so only this build's finished output is staged. Every copy is atomic (temp file beside the destination, then rename) and verified by sha256 against its
-// source; a stale destination is deleted first, so a failed copy can never leave an old artifact to be signed or sealed.
+// source; a destination in the broker tree is never created (its parent must exist) and the target directory is re-resolved
+// and must be the planned one. This is a temporary bridge until the broker exposes artifacts into the app. A stale destination is deleted first, so a failed copy can never leave an old artifact to be signed or sealed.
 import { createHash } from "node:crypto";
 import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -72,11 +73,15 @@ export function contentDigest(file, fs = {}) {
  * the destination, verify the copy's sha256 against the source (read before and after the copy), then rename into place.
  * Returns { from, to, kind, sha256 }.
  */
-export function stageArtifact({ from, to }, { fs = {}, log = () => {} } = {}) {
+export function stageArtifact({ from, to }, { fs = {}, log = () => {}, requireParent = false } = {}) {
   const remove = fs.rmSync ?? rmSync;
   const copy = fs.cpSync ?? cpSync;
   const rename = fs.renameSync ?? renameSync;
   const makeDir = fs.mkdirSync ?? mkdirSync;
+  // A destination in the broker's tree is never created: a missing parent means the generation was rotated or evicted.
+  if (requireParent && !(fs.lstatSync ?? lstatSync)(path.dirname(to), { throwIfNoEntry: false })) {
+    fail("STAGE_PARENT_MISSING", `managed target stage: the broker directory ${path.dirname(to)} does not exist (the build-control generation was rotated or evicted); not creating it, ${from} was not copied`, { from, to });
+  }
   // A destination left by an earlier build is never an acceptable result: remove it before anything else.
   remove(to, { recursive: true, force: true });
   if (!(fs.lstatSync ?? lstatSync)(from, { throwIfNoEntry: false })) {
@@ -99,6 +104,22 @@ export function stageArtifact({ from, to }, { fs = {}, log = () => {} } = {}) {
   }
   log(`recipe-build: staged ${from} -> ${to} (${before.kind} sha256 ${before.sha256})`);
   return { from, to, kind: before.kind, sha256: before.sha256 };
+}
+
+/** The two files (or trees) must have the same sha256; `what` names the check in the message. */
+export function verifySameContent({ app, real }, { what, fs = {} } = {}) {
+  const a = contentDigest(app, fs).sha256;
+  let b;
+  try { b = contentDigest(real, fs).sha256; } catch (error) { fail("STAGE_REAL_CHANGED", `managed target stage (${what}): cannot read ${real} (${error.message})`, { app, real }); }
+  if (a !== b) fail("STAGE_REAL_CHANGED", `managed target stage (${what}): ${real} (sha256 ${b}) is no longer the signed ${app} (sha256 ${a}); another build in the same workspace changed it, so nothing was packaged or copied out`, { app, real });
+}
+
+/** The Cargo target directory must still be the one planned: a broker generation rotation or eviction changes it. */
+export function assertTargetDirUnchanged({ manifest, expected }, resolveTargetRoot, { what } = {}) {
+  let now;
+  try { now = resolveTargetRoot(manifest); } catch (error) { fail("STAGE_TARGET_DIR_CHANGED", `managed target stage (${what}): cannot re-resolve the Cargo target directory (${error.message})`, { manifest, expected }); }
+  const same = (x, y) => (process.platform === "win32" ? path.resolve(x).toLowerCase() === path.resolve(y).toLowerCase() : path.resolve(x) === path.resolve(y));
+  if (!same(now, expected)) fail("STAGE_TARGET_DIR_CHANGED", `managed target stage (${what}): the Cargo target directory is now ${now}, not the ${expected} planned for this release (broker generation rotated or evicted); refusing to copy`, { manifest, expected, now });
 }
 
 /** Remove the sources named `fresh` before a build step, so a missing output after it cannot be a leftover. */

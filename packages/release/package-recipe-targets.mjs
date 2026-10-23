@@ -106,6 +106,7 @@ function targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, m
   const mapper = buildTargetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, managedRoots, staged });
   mapper.staged = staged;
   mapper.sourceOf = (declared) => staged.get(declared);
+  mapper.resolve = () => staged.resolve;
   return mapper;
 }
 
@@ -130,6 +131,7 @@ function buildTargetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, lab
         if (normalized.split("/").includes("..")) fail(`${label}: ${declared} must not contain ..`);
         // The default app-relative location under the app's ignored target directory; the copy is planned by the caller.
         staged.set(normalized, { from: moved, to: normalized });
+        staged.resolve = { manifest, expected: targetDir };
         return normalized;
       }
       fail(`${label}: the Cargo target directory ${targetDir} is outside the app, so ${declared} cannot be addressed by an app-relative path; point CARGO_TARGET_DIR inside the app or declare the artifact paths yourself`);
@@ -175,9 +177,10 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   // for `tauri bundle` (which embeds the EXE it finds in the real target directory) and the installer is copied out.
   const rawSource = mapPath.sourceOf(rawExe);
   const installerSource = mapPath.sourceOf(installerFile);
-  const prePackageStage = rawSource ? { post: [{ from: rawSource.from, to: rawExe, fresh: true }] } : undefined;
+  const prePackageStage = rawSource ? { post: [{ from: rawSource.from, to: rawExe, fresh: true }], resolve: mapPath.resolve() } : undefined;
   const packageStage = rawSource || installerSource ? {
-    ...(rawSource ? { pre: [{ from: rawExe, to: rawSource.from }] } : {}),
+    ...(rawSource ? { pre: [{ from: rawExe, to: rawSource.from }], verify: [{ app: rawExe, real: rawSource.from }] } : {}),
+    resolve: mapPath.resolve(),
     ...(installerSource ? { post: [{ from: installerSource.from, to: installerFile, fresh: true }] } : {}),
   } : undefined;
   const bundleArgs = ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, ...configArgs(extras, plan.appRoot, cwd), "--config", JSON.stringify(override), ...profileArgs(extras)];
@@ -266,7 +269,7 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   // Broker-managed target directory: the built .app (and any other declared file under the target) is copied to its app-relative location.
   // An entry inside another staged entry (a file within the .app) is covered by copying the outer one.
   const macEntries = [...mapPath.staged.values()].filter((entry) => ![...mapPath.staged.values()].some((outer) => outer !== entry && entry.to.startsWith(`${outer.to}/`)));
-  const macStage = macEntries.length ? { post: macEntries.map((entry) => ({ ...entry, fresh: true })) } : undefined;
+  const macStage = macEntries.length ? { post: macEntries.map((entry) => ({ ...entry, fresh: true })), resolve: mapPath.resolve() } : undefined;
   const wrapped = extras.prepare.length || extras.postBuild.length || cleanup || macStage;
   const { macPackage, recipe: _ignoredMac, ...rest } = target;
   // The updater tarball is made from the signed .app, so it runs in postSign, ahead of any postSign the app declares.

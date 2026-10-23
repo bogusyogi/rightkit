@@ -25,11 +25,15 @@
 //              reads from there); `post` waits for each real output to be stable (the stability settings, or their defaults), then copies it (a missing output skips the wait and fails the copy) to its app-relative location right after the build, and with
 //              `fresh` the absolute source is deleted before the build step so a missing output cannot be a leftover. Every
 //              copy deletes a stale destination first, is atomic, and is verified by sha256; a missing source fails the step.
+//              `pre` never creates the broker-side parent directory. `verify: [{ app, real }]` requires the real file to equal the
+//              signed app file before and after the build step; `resolve: { manifest, expected }` re-runs cargo metadata and
+//              requires the planned target directory before and after it (a temporary bridge until the broker exposes artifacts).
 import { existsSync as nodeExistsSync, readFileSync, readdirSync as nodeReaddirSync, rmSync as nodeRmSync, statSync as nodeStatSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
-import { removeFreshSources, stageArtifacts } from "./managed-target-stage.mjs";
+import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
+import { assertTargetDirUnchanged, removeFreshSources, stageArtifacts, verifySameContent } from "./managed-target-stage.mjs";
 
 export const RECIPE_BUILD_PLAN_VERSION = 1;
 export const RECIPE_PHASES = Object.freeze(["prepare", "build", "postBuild"]);
@@ -47,7 +51,7 @@ const fail = (code, message, details) => { throw new RecipeBuildError(code, mess
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const STEP_KEYS = new Set(["phase", "cmd", "args", "cwd", "env"]);
 const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage"]);
-const STAGE_KEYS = new Set(["pre", "post"]);
+const STAGE_KEYS = new Set(["pre", "post", "verify", "resolve"]);
 const STAGE_ENTRY_KEYS = new Set(["from", "to", "fresh"]);
 const CLEANUP_KEYS = new Set(["remove", "apps", "dmgVolumes"]);
 const APPS_KEYS = new Set(["dir", "remove", "unregister"]);
@@ -126,6 +130,26 @@ function validateStage(value, errors) {
       if (!inner || !outer) return undefined;
       return side === "pre" ? { from: inner, to: outer } : { from: outer, to: inner, ...(entry.fresh === true ? { fresh: true } : {}) };
     }).filter(Boolean);
+  }
+  if (value.verify !== undefined) {
+    if (!Array.isArray(value.verify)) errors.push("stage.verify must be a list of { app, real }");
+    else out.verify = value.verify.map((entry, index) => {
+      const label = `stage.verify[${index}]`;
+      if (!isObject(entry)) { errors.push(`${label} must be an object`); return undefined; }
+      unknownKeys(entry, new Set(["app", "real"]), label, errors);
+      const app = insideApp(entry.app, `${label}.app`, errors, { strict: true });
+      const real = absolute(entry.real, `${label}.real`);
+      return app && real ? { app, real } : undefined;
+    }).filter(Boolean);
+  }
+  if (value.resolve !== undefined) {
+    if (!isObject(value.resolve)) errors.push("stage.resolve must be { manifest, expected }");
+    else {
+      unknownKeys(value.resolve, new Set(["manifest", "expected"]), "stage.resolve", errors);
+      const manifest = absolute(value.resolve.manifest, "stage.resolve.manifest");
+      const expected = absolute(value.resolve.expected, "stage.resolve.expected");
+      if (manifest && expected) out.resolve = { manifest, expected };
+    }
   }
   return out;
 }
@@ -299,7 +323,7 @@ export function waitForStableArtifacts(stability, { appRoot, log = () => {}, sta
  * nothing after it runs.
  * Options: appRoot (absolute), env, platform, log, spawnSync, fs, sleep, now, statSync (injected in tests).
  */
-export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform = process.platform, log = () => {}, spawnSync = nodeSpawnSync, fs, sleep, now, statSync } = {}) {
+export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform = process.platform, log = () => {}, spawnSync = nodeSpawnSync, fs, sleep, now, statSync, resolveTargetRoot = cargoResolveTargetRoot } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("RECIPE_BUILD_PLAN_INVALID", "appRoot must be an absolute path");
   const plan = validateRecipePlan(rawPlan);
   const done = [];
@@ -309,9 +333,14 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
   const stagePost = plan.stage?.post ?? [];
   const resolveEntry = (entry, appKey) => ({ ...entry, [appKey]: path.resolve(appRoot, entry[appKey]) });
   for (const [index, step] of plan.steps.entries()) {
+    const verifyReal = (what) => { for (const entry of plan.stage?.verify ?? []) verifySameContent({ app: path.resolve(appRoot, entry.app), real: entry.real }, { what, ...(fs ? { fs } : {}) }); };
+    const checkDir = (what) => { if (plan.stage?.resolve) assertTargetDirUnchanged(plan.stage.resolve, resolveTargetRoot, { what }); };
     if (step.phase === "build" && plan.stage) {
+      checkDir("before the build step");
       removeFreshSources(stagePost, { ...(fs ? { fs } : {}), log });
-      staged = stageArtifacts((plan.stage.pre ?? []).map((entry) => resolveEntry(entry, "from")), { ...(fs ? { fs } : {}), log });
+      staged = stageArtifacts((plan.stage.pre ?? []).map((entry) => resolveEntry(entry, "from")), { ...(fs ? { fs } : {}), log, requireParent: true });
+      // Immediately before the step that embeds the real EXE: it must be exactly the signed in-app copy.
+      verifyReal("after the copy-back, before the build step");
     }
     const launch = resolveLaunch({ cmd: step.cmd, args: step.args, platform, env });
     const cwd = path.resolve(appRoot, step.cwd ?? ".");
@@ -321,6 +350,7 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
       fail("RECIPE_BUILD_STEP_FAILED", `recipe-build ${step.phase} step ${index} (${step.cmd}) failed (${result?.error?.message ?? `exit ${result?.status ?? result?.signal ?? "unknown"}`}); later steps were not run`, { phase: step.phase, index, cmd: step.cmd, status: result?.status ?? null });
     }
     done.push({ phase: step.phase, cmd: step.cmd, status: 0 });
+    if (step.phase === "build" && plan.stage) { verifyReal("after the build step"); checkDir("after the build step"); }
     // The REAL outputs must stop changing before anything is copied: a half-written EXE is never staged.
     if (step.phase === "build" && stagePost.length) waitForStableArtifacts({ ...(plan.stability ?? {}), files: stagePost.map((entry) => entry.from).filter((file) => (fs?.existsSync ?? nodeExistsSync)(file)) }, { appRoot, log, ...(sleep ? { sleep } : {}), ...(now ? { now } : {}), ...(statSync ? { statSync } : {}) });
     if (step.phase === "build" && stagePost.length) staged.push(...stageArtifacts(stagePost.map((entry) => resolveEntry(entry, "to")), { ...(fs ? { fs } : {}), log }));
