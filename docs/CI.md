@@ -1,5 +1,8 @@
 # RightKit CI
 
+The pipeline this document implements (check → build → qualify → release) and its invariants are in
+[`PIPELINE-ARCHITECTURE.md`](PIPELINE-ARCHITECTURE.md); this file is the mechanics.
+
 Pushes to `main` & pull requests run static validation. Native Windows & macOS qualification
 starts through broker-admitted `workflow_dispatch` requests. `publish.yml` qualifies sealed archives;
 `publish-direct.yml` uploads every green qualification run's sealed bytes as soon as it completes;
@@ -35,12 +38,13 @@ What is implemented today:
   and run no repository code; class B scans (clippy, check, doc, tsc, tests, the repository's docs
   generator) start only after class A passes. Content scans run on the exported HEAD. A required
   tool that is missing fails the scan.
-- `scripts/preflight.mjs` runs first, in the pre-push hook and as the first step of `ci.yml`'s `plan` job (every
-  other job needs `plan`). It reads only the committed files of HEAD: no network, cargo, pnpm, broker or compile, a few
+- `scripts/preflight.mjs` runs first: in the pre-push hook, as the first step of `ci.yml`'s `plan` job (every
+  other job needs `plan`), at the start of `rk-pipeline preflight` and `loop` (before any canary, compile or dispatch)
+  and as the first step of `publish.yml`'s `scans` job (every other job needs `scans`). It reads only the committed files of HEAD: no network, cargo, pnpm, broker or compile, a few
   seconds on any host. Its rules are the predicates the later stages already refuse with (consumer recipe hashes,
   npm surface & import closures, version copies, dispatcher helper digests, consumer locks, CRLF vs `.gitattributes`,
   file-URL paths, generated docs), run for every unit rather than only the one being published. Each `FAIL` line names
-  the file and the change. `node scripts/preflight.mjs --list` lists the rules; `--commit <rev>` checks another commit.
+  the file and the change. `node scripts/preflight.mjs --list` lists the rules; `--commit <rev>` checks another commit, `--repo <dir>` another repository and `--worktree` what a compile would see.
 - `scripts/local-gate.mjs` (the pre-push hook, after preflight) invokes `rightkit-gate --pre-push`: all applicable
   class A scans, focused `scripts/ci` tests & deterministic `generated-docs` checks before each push
   (Adrian 2026-10-22, #911). Native compile, clippy, rustdoc & package tests remain mandatory in

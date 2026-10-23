@@ -264,6 +264,20 @@ async function cmdReady(opts) {
   return r.waves.some((w) => !Array.isArray(w)) ? 1 : 0;
 }
 
+/** Step 1 of docs/PIPELINE-ARCHITECTURE.md (P1): scripts/preflight.mjs over HEAD's committed files, in seconds, before any
+ * canary, pre-flight compile or dispatch. A red check starts nothing. */
+function runCheckChild() {
+  return runChild(NODE, [path.join(ROOT, "scripts", "preflight.mjs")]);
+}
+
+async function checkPasses(check, sha) {
+  const r = await check();
+  if (r.code === 0) return true;
+  for (const line of String(r.out ?? "").split("\n").filter((l) => /^(FAIL |     fix: |preflight: )/.test(l))) log(line);
+  log(`check RED at ${String(sha).slice(0, 12)}: nothing canaried, compiled or dispatched; fix every FAIL, commit, then rerun`);
+  return false;
+}
+
 async function preflightMany(units, opts) {
   const results = new Map();
   const queue = [...units];
@@ -306,12 +320,14 @@ async function cmdCanary(opts, deps = {}) {
   return worst;
 }
 
-async function cmdPreflight(opts) {
+export async function cmdPreflight(opts, deps = {}) {
   if (!opts.units.length) {
     fail("name at least one unit");
     return 2;
   }
-  const results = await preflightMany(opts.units, opts);
+  const sha = (deps.head ?? (() => git("rev-parse", "HEAD")))();
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
+  const results = await (deps.preflightMany ?? preflightMany)(opts.units, opts);
   return [...results.values()].every((r) => r.code === 0) ? 0 : 1;
 }
 
@@ -503,6 +519,7 @@ export async function cmdLoop(opts, deps = {}) {
   const canary = deps.canary ?? runCanaryChild;
   const pause = deps.pause ?? (() => new Promise((r) => setTimeout(r, 15_000)));
   const hold = deps.holdReason ?? holdReason;
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
   const active = new Map(), attempted = new Set(), held = new Set();
   let dispatchTail = Promise.resolve();
   let failed = false;

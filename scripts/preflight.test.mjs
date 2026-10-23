@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { cargoPackage, lockPathPackages, RULES, runRules } from "./preflight.mjs";
 
 const tree = (t, files) => {
@@ -74,4 +76,83 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
 
 test("every rule names its scan-gap family", () => {
   for (const rule of RULES) assert.match(rule.gap, /^G\d{2}$/, rule.id);
+});
+
+// ---- regression fixtures from tonight's refusals, built from this checkout's real recipe data -----------------------------
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const copyFromRepo = (root, rel) => {
+  fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+  fs.cpSync(path.join(REPO, rel), path.join(root, rel), { recursive: true });
+};
+
+test("G01: a changed consumer recipe fails with the file and its committed hash (rightkit-automation 0.6.1, e0901f6)", (t) => {
+  const { root } = tree(t, {});
+  for (const rel of ["ci/consumer-recipes.json", "crates/rightkit-automation/Cargo.toml", "ci/consumers/rightkit-automation"]) copyFromRepo(root, rel);
+  const mine = () => runRules({ root, files: [], only: ["consumer-recipe"] }).failures.filter((f) => f.problem.startsWith("rightkit-automation:"));
+  assert.deepEqual(mine(), [], "the committed recipe passes");
+  fs.appendFileSync(path.join(root, "ci/consumers/rightkit-automation/Cargo.toml"), "\n# changed\n");
+  const [failure, ...rest] = mine();
+  assert.equal(rest.length, 0);
+  assert.match(failure.problem, /recipe differs from reviewed PK\d+ inventory/);
+  assert.match(failure.problem, /Cargo\.toml: inventory [0-9a-f]{12}…, committed [0-9a-f]{64}/);
+  assert.match(failure.fix, /^review the recipe change/, "the fix asks for review; preflight never writes an approved hash");
+});
+
+test("G02: an export missing from importClosures fails (@rightkit/app-update ./suite-api, d6eec41)", (t) => {
+  const { root } = tree(t, {});
+  for (const rel of ["ci/consumer-recipes.json", "packages/app-update/package.json"]) copyFromRepo(root, rel);
+  const mine = () => runRules({ root, files: [], only: ["npm-surface"] }).failures.filter((f) => f.problem.startsWith("@rightkit/app-update:"));
+  assert.deepEqual(mine(), [], "the committed entry passes");
+  const file = path.join(root, "ci/consumer-recipes.json");
+  const inventory = JSON.parse(fs.readFileSync(file, "utf8"));
+  delete inventory.npm["@rightkit/app-update"].importClosures["./suite-api"];
+  fs.writeFileSync(file, JSON.stringify(inventory));
+  assert.match(mine()[0].problem, /importClosures must cover reviewed surface exactly once/);
+});
+
+// ---- P2 and P9 of docs/PIPELINE-ARCHITECTURE.md -------------------------------------------------------------------------
+const NETWORK_GUARD = `data:text/javascript,${encodeURIComponent(`
+import net from "node:net"; import tls from "node:tls"; import dns from "node:dns"; import http from "node:http"; import https from "node:https";
+const block = (what) => function () { process.stderr.write("OFFLINE-GUARD " + what + "\\n"); throw new Error("offline guard: " + what); };
+net.Socket.prototype.connect = block("net.Socket.connect"); net.connect = net.createConnection = block("net.connect");
+tls.connect = block("tls.connect"); dns.lookup = block("dns.lookup"); dns.promises.lookup = block("dns.promises.lookup");
+http.request = http.get = block("http.request"); https.request = https.get = block("https.request"); globalThis.fetch = block("fetch");
+`)}`;
+const PREFLIGHT = fileURLToPath(new URL("./preflight.mjs", import.meta.url));
+const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" });
+
+test("P2: preflight on this checkout needs no environment or install and never touches the network; P9: it never writes to the checkout", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "rk-preflight-home-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const before = { status: git(REPO, "status", "--porcelain=v1", "-uall"), index: git(REPO, "diff", "--cached", "--name-only") };
+  // Only PATH (to find git and tar) and a throwaway HOME; every node child (the generated-docs check) inherits the guard.
+  const r = spawnSync(process.execPath, [PREFLIGHT], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, NODE_OPTIONS: `--import=${NETWORK_GUARD}` } });
+  assert.doesNotMatch(`${r.stdout}${r.stderr}`, /OFFLINE-GUARD/, "a rule reached for the network");
+  assert.ok(r.status === 0 || r.status === 1, `preflight could not run (exit ${r.status}): ${r.stderr}`);
+  assert.match(r.stdout, /^preflight: /m);
+  assert.deepEqual({ status: git(REPO, "status", "--porcelain=v1", "-uall"), index: git(REPO, "diff", "--cached", "--name-only") }, before, "preflight changed the checkout");
+});
+
+test("P2: --repo checks another repository's committed files, not its working tree (G04 fixture: CRLF against eol=lf)", (t) => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "rk-preflight-repo-"));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  git(repo, "init", "-q");
+  for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"]]) git(repo, "config", k, v);
+  fs.writeFileSync(path.join(repo, "a.json"), "{}\r\n");
+  git(repo, "add", "a.json");
+  git(repo, "commit", "-q", "-m", "crlf");
+  fs.writeFileSync(path.join(repo, ".gitattributes"), "*.json text eol=lf\n");
+  git(repo, "add", ".gitattributes");
+  git(repo, "commit", "-q", "-m", "attributes after the fact");
+  const run = (...args) => spawnSync(process.execPath, [PREFLIGHT, "--repo", repo, ...args], { encoding: "utf8" });
+  const red = run();
+  assert.equal(red.status, 1, red.stdout + red.stderr);
+  assert.match(red.stdout, /FAIL eol-policy \(G04\): 1 file\(s\) committed with CRLF.*: a\.json/);
+  fs.writeFileSync(path.join(repo, "a.json"), "{}\n");
+  assert.equal(run().status, 1, "an uncommitted fix is not what is pushed");
+  assert.equal(run("--worktree").status, 0, "the working tree a compile would see is clean");
+  git(repo, "add", "--renormalize", "a.json");
+  git(repo, "commit", "-q", "-m", "renormalize");
+  const green = run();
+  assert.equal(green.status, 0, green.stdout + green.stderr);
 });

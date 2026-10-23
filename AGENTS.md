@@ -135,6 +135,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 RightKit owns shared packages, crates, QA, licensing, logging, & release tooling; apps consume published versions, never parent paths.
 
 ## Canonical sources
+- Read `docs/PIPELINE-ARCHITECTURE.md` before changing any check, build, qualification or release path; keep its section 5 green.
 - Read `rightkit/README.md` for package contracts.
 - Read `docs/RIGHTKIT-SHARED-PACKAGES.md` before package boundaries change.
 - Read `docs/RIGHT-SUITE-RELEASE-PIPELINE.md` before release tooling changes.

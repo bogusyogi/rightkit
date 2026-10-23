@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -59,7 +59,7 @@ test("fast green dispatches while slow local peer is still running; failed peer 
   const published = new Set(), calls = [];
   const readiness = async () => ({ unpublished: new Set(["fast", "slow"].filter((u) => !published.has(u))), waves: [["fast", "slow"].filter((u) => !published.has(u))] });
   const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
-    head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
+    check: async () => ({ code: 0, out: "" }), head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
     preflight: async (unit) => { calls.push(unit); if (unit === "slow") return slow; return { code: 0 }; },
     dispatch: async ({ units }) => {
       assert.deepEqual(units, ["fast"]); assert.deepEqual(calls, ["fast", "slow"]);
@@ -77,7 +77,7 @@ test("resume watches existing dispatch & reports blocked work instead of false c
   let watched = 0;
   const d = { unit: "unit", sha: SHA, registry: "crates", status: "dispatched" };
   const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
-    head: () => SHA, readiness: async () => ({ unpublished: new Set(["unit"]), waves: [["unit"]] }),
+    check: async () => ({ code: 0, out: "" }), head: () => SHA, readiness: async () => ({ unpublished: new Set(["unit"]), waves: [["unit"]] }),
     readState: () => ({ dispatches: { [stateKey("crates", SHA, "unit")]: { ...d } } }),
     watch: async () => { watched++; d.status = "failed"; return 1; },
     preflight: async () => { throw new Error("must not restart existing attempt"); },
@@ -110,7 +110,7 @@ test("dependent enters once its registry prerequisite is live while unrelated sl
   const slow = new Promise((r) => { releaseSlow = r; });
   const done = new Set(), entered = [];
   const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
-    head: () => SHA,
+    check: async () => ({ code: 0, out: "" }), head: () => SHA,
     readiness: async () => ({ unpublished: new Set(["parent", "slow", "child"].filter((u) => !done.has(u))), waves: [[...(done.has("parent") ? [] : ["parent"]), "slow", ...(done.has("parent") && !done.has("child") ? ["child"] : [])]] }),
     readState: () => ({ dispatches: {} }),
     preflight: async (unit) => { entered.push(unit); return unit === "slow" ? slow : { code: 0 }; },
@@ -167,7 +167,7 @@ test("loop: a readiness exception drains the live preflight worker and the dispa
   let readinessCalls = 0;
   const unitState = { dispatches: {} };
   const deps = {
-    head: () => "a".repeat(40),
+    check: async () => ({ code: 0, out: "" }), head: () => "a".repeat(40),
     readiness: async () => { readinessCalls += 1; if (readinessCalls === 2) throw new Error("registry exploded"); return { unpublished: new Set(["rightkit-x"]), waves: [["rightkit-x"]], failures: new Map() }; },
     readState: () => unitState, writeState: (st) => Object.assign(unitState, st),
     watch: async () => 0,
@@ -224,7 +224,7 @@ test("a unit whose record at this SHA is a preflight-phase failure is attempted 
   const calls = [];
   const readiness = async () => ({ unpublished: new Set(["retry", "done"]), waves: [["retry", "done"]], crates: new Map() });
   const result = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
-    head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
+    check: async () => ({ code: 0, out: "" }), head: () => SHA, readiness, readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
     preflight: async (unit) => { calls.push(unit); return { code: 1, last: "still red" }; },
     dispatch: async () => { throw new Error("nothing green to dispatch"); },
     watch: async () => 0, holdReason: () => null,
@@ -276,7 +276,7 @@ test("loop --registry all runs crates and npm units in one coordinator; npm does
   const crateGate = new Promise((r) => { release = r; });
   const ready = { crates: ["rightkit-x"], npm: ["@rightkit/y"] };
   const result = cmdLoop({ registry: "all", units: [], jobs: 1 }, {
-    head: () => "a".repeat(40),
+    check: async () => ({ code: 0, out: "" }), head: () => "a".repeat(40),
     readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
     readState: () => state, writeState: () => {},
     watch: async () => 0, holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 5)),
@@ -301,7 +301,7 @@ test("loop --registry all: a crate whose preflight fails does not block the npm 
   const dispatches = [];
   const ready = { crates: ["rightkit-bad"], npm: ["@rightkit/y"] };
   const code = await cmdLoop({ registry: "all", units: [], jobs: 2 }, {
-    head: () => "b".repeat(40),
+    check: async () => ({ code: 0, out: "" }), head: () => "b".repeat(40),
     readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
     readState: () => state, writeState: () => {},
     watch: async () => 0, holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 5)),
@@ -340,7 +340,7 @@ function freshProcessRestart({ registry, recorded, planned, status = "dispatched
     const keyA = ${JSON.stringify(`${registry}:${A}:${unit}`)};
     const published = () => { const d = read().dispatches; return d[keyA]?.status === "published" && d[keyA].version === ${JSON.stringify(planned)} || calls.includes("dispatch"); };
     const code = await cmdLoop({ registry: ${JSON.stringify(registry)}, units: [], jobs: 2 }, {
-      head: () => ${JSON.stringify(B)},
+      check: async () => ({ code: 0, out: "" }), head: () => ${JSON.stringify(B)},
       readiness: async () => ({ unpublished: new Set(published() ? [] : [${JSON.stringify(unit)}]), waves: [published() ? [] : [${JSON.stringify(unit)}]], crates: new Map([[${JSON.stringify(unit)}, { version: ${JSON.stringify(planned)} }]]) }),
       readState: read, writeState: write,
       watch: async () => { ticks += 1; const s = read(); const d = s.dispatches[keyA]; if (ticks >= 3 && d && !["published", "failed"].includes(d.status)) { d.status = "published"; write(s); } return 0; },
@@ -390,7 +390,7 @@ async function restartWithRealWatch(record) {
   const state = { dispatches: { [stateKey("crates", A, unit)]: { unit, registry: "crates", sha: A, version: "1.0.0", ...record } } };
   const calls = [];
   const code = await cmdLoop({ registry: "crates", units: [], jobs: 2 }, {
-    head: () => B,
+    check: async () => ({ code: 0, out: "" }), head: () => B,
     readiness: async () => ({ unpublished: new Set([unit]), waves: [[unit]], crates: new Map([[unit, { version: "1.0.0" }]]) }),
     readState: () => state, writeState: () => {},
     // The REAL watcher; only the GitHub/registry reads are fakes (run not readable, no uploads, nothing published).
@@ -481,7 +481,7 @@ function canaryLoopHarness({ sha = "c".repeat(40), units = ["@rightkit/release",
   const events = [];
   const pending = new Set(units);
   const run = (code) => cmdLoop({ registry: "npm", units: [], jobs: 2 }, {
-    head: () => sha,
+    check: async () => ({ code: 0, out: "" }), head: () => sha,
     readiness: async () => ({ unpublished: new Set(pending), waves: [[...pending]], crates: [] }),
     readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
     watch: async () => 0, holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 1)),
@@ -539,4 +539,32 @@ test("loop: a crashing canary process (any other exit) is treated as incomplete,
 test("the canary command is parsed and refuses units without a canary", () => {
   assert.equal(parseArgs(["canary", "@rightkit/release"]).command, "canary");
   assert.deepEqual(parseArgs(["canary", "@rightkit/release"]).units, ["@rightkit/release"]);
+});
+
+// ---- P1 of docs/PIPELINE-ARCHITECTURE.md: the files-only check runs before anything is canaried, compiled or dispatched ----
+const RED_CHECK = async () => ({ code: 1, out: "FAIL consumer-locks (G08): ci/consumers/wv2/Cargo.lock lists rightkit-a 0.6.0\npreflight: 1 problem(s)\n" });
+
+test("P1: a red check stops the loop before any canary, pre-flight or dispatch", async () => {
+  const events = [];
+  const code = await cmdLoop({ registry: "npm", units: [], jobs: 2 }, {
+    check: async (...a) => { events.push("check"); return RED_CHECK(...a); },
+    head: () => "c".repeat(40),
+    readiness: async () => { events.push("readiness"); return { unpublished: new Set(["@rightkit/release"]), waves: [["@rightkit/release"]], crates: [] }; },
+    readState: () => ({ dispatches: {} }), writeState: () => { events.push("write"); },
+    watch: async () => { events.push("watch"); return 0; }, holdReason: () => null, pause: () => Promise.resolve(),
+    canary: async () => { events.push("canary"); return { code: 0 }; },
+    preflight: async () => { events.push("preflight"); return { code: 0 }; },
+    dispatch: async () => { events.push("dispatch"); return 0; },
+  });
+  assert.equal(code, 1);
+  assert.deepEqual(events, ["check"], "nothing else ran, and no state was written");
+});
+
+test("P1: pre-flight runs the check first and compiles nothing when it is red", async () => {
+  const compiled = [];
+  const many = async (units) => { compiled.push(...units); return new Map(units.map((u) => [u, { code: 0, last: "GREEN" }])); };
+  assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: RED_CHECK, preflightMany: many }), 1);
+  assert.deepEqual(compiled, []);
+  assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), preflightMany: many }), 0);
+  assert.deepEqual(compiled, ["rightkit-a"]);
 });

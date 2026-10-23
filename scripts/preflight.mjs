@@ -26,9 +26,13 @@
 // exemption, which preflight never authors. G06, G09, G11 and G13 need a parser.
 //
 // The rules come from this checkout's scripts; the content is the commit being checked. A FAIL line says what to change.
+// Step 1 of docs/PIPELINE-ARCHITECTURE.md; invariants P1, P2, P3 and P9 there name the tests that hold it to this.
 //
-// Usage: node scripts/preflight.mjs [--commit <rev>] [--only <rule,...>] [--list]
+// Usage: node scripts/preflight.mjs [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list]
+//   --repo <dir>    the repository to check (default: this checkout)
 //   --commit <rev>  the commit to check (default HEAD), exported with git archive: an uncommitted fix is not what is pushed.
+//   --worktree      check what a compile would see instead: tracked and untracked, non-ignored files as they are on disk
+//                   (written to a throwaway index, never the repository's own)
 // Exit 0: every rule passed. 1: at least one FAIL. 2: preflight itself could not run.
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -119,13 +123,13 @@ function inventoryDiff(reviewed = {}, actual = {}, prefix = "") {
 
 // ---- rules: each returns [{ problem, fix? }] -----------------------------------------------------------------------------
 
-function eolPolicy({ root, commit }) {
+function eolPolicy({ root, commit, repo = REPO }) {
   // CR-bearing text blobs of the commit, then the commit's own attributes (the exported tree holds its .gitattributes).
-  const grep = spawnSync("git", ["grep", "-z", "-l", "-I", "-e", "\r", commit, "--"], { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const grep = spawnSync("git", ["grep", "-z", "-l", "-I", "-e", "\r", commit, "--"], { cwd: repo, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (grep.status === 1) return []; // git grep: 1 = no match
   if (grep.error || grep.status !== 0) throw new Error(`git grep failed: ${grep.error?.message ?? grep.stderr.trim()}`);
   const files = grep.stdout.split("\0").filter(Boolean).map((f) => f.slice(commit.length + 1));
-  const attrs = git(["--work-tree", root, "check-attr", "-z", "--stdin", "eol"], { input: files.join("\0") }).split("\0");
+  const attrs = git(["--work-tree", root, "check-attr", "-z", "--stdin", "eol"], { cwd: repo, input: files.join("\0") }).split("\0");
   const bad = [];
   for (let i = 0; i + 2 < attrs.length; i += 3) if (attrs[i + 2] === "lf") bad.push(attrs[i]);
   return bad.length ? [{
@@ -262,7 +266,9 @@ function fileUrls({ root, files }) {
   return out;
 }
 
-function generatedDocs({ root }) {
+function generatedDocs({ root, files }) {
+  // Only a repository that carries the generator (RightKit) has generated docs to compare.
+  if (!files.includes("scripts/generate-index.mjs")) return [];
   const r = spawnSync(process.execPath, [path.join(REPO, "scripts", "generate-index.mjs"), "--check", "--root", root], { encoding: "utf8" });
   if (r.status === 0) return [];
   const drift = `${r.stdout}${r.stderr}`.split("\n").filter((l) => l.startsWith("DRIFT")).map((l) => l.replace(/^DRIFT /, ""));
@@ -281,15 +287,29 @@ export const RULES = Object.freeze([
   { id: "generated-docs", gap: "G10", run: generatedDocs },
 ]);
 
+/** The tree a compile of `repo` would see: HEAD plus every tracked and untracked, non-ignored file as it is on disk, written
+ * through a throwaway index under `scratch` (the repository's own index is never touched). Returns the tree id. */
+function worktreeTree(repo, scratch) {
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, ".preflight-index") };
+  const run = (args) => {
+    const r = spawnSync("git", args, { cwd: repo, env, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    if (r.error || r.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${r.error?.message ?? String(r.stderr).trim()}`);
+    return r.stdout.trim();
+  };
+  run(["read-tree", "HEAD"]);
+  run(["add", "-A"]);
+  return run(["write-tree"]);
+}
+
 /** Run the selected rules over an exported tree. Returns [{ rule, gap, problem, fix, ms }] failures and per-rule timings. */
-export function runRules({ root, commit, files, only = null }) {
+export function runRules({ root, commit, files, repo = REPO, only = null }) {
   const failures = [];
   const timings = [];
   for (const rule of RULES) {
     if (only && !only.includes(rule.id)) continue;
     const started = Date.now();
     let found;
-    try { found = rule.run({ root, commit, files }); }
+    try { found = rule.run({ root, commit, files, repo }); }
     catch (error) { found = [{ problem: `the rule itself failed: ${error.message}` }]; }
     timings.push({ rule: rule.id, ms: Date.now() - started, failures: found.length });
     for (const f of found) failures.push({ rule: rule.id, gap: rule.gap, ...f });
@@ -303,12 +323,14 @@ export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), 
   const only = arg("--only")?.split(",").filter(Boolean) ?? null;
   const unknown = only?.filter((id) => !RULES.some((r) => r.id === id)) ?? [];
   if (unknown.length) { err(`preflight: unknown rule(s): ${unknown.join(", ")} (see --list)`); return 2; }
+  if (argv.includes("--worktree") && arg("--commit")) { err("preflight: --worktree and --commit are exclusive"); return 2; }
+  const repo = arg("--repo") ? path.resolve(arg("--repo")) : REPO;
   const started = Date.now();
   let commit, root;
   try {
-    commit = git(["rev-parse", "--verify", `${arg("--commit") ?? "HEAD"}^{commit}`]).trim();
     root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-preflight-"));
-    const archive = spawnSync("git", ["archive", "--format=tar", commit], { cwd: REPO, maxBuffer: 2 * 1024 * 1024 * 1024 });
+    commit = argv.includes("--worktree") ? worktreeTree(repo, root) : git(["rev-parse", "--verify", `${arg("--commit") ?? "HEAD"}^{commit}`], { cwd: repo }).trim();
+    const archive = spawnSync("git", ["archive", "--format=tar", commit], { cwd: repo, maxBuffer: 2 * 1024 * 1024 * 1024 });
     if (archive.status !== 0) throw new Error(`git archive ${commit} failed: ${String(archive.stderr).trim()}`);
     const untar = spawnSync("tar", ["-x", "-f", "-", "-C", root], { input: archive.stdout, maxBuffer: 64 * 1024 * 1024 });
     if (untar.status !== 0) throw new Error(`tar could not extract ${commit}: ${String(untar.stderr).trim()}`);
@@ -318,8 +340,8 @@ export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), 
     return 2;
   }
   try {
-    const files = git(["ls-tree", "-r", "-z", "--name-only", commit]).split("\0").filter(Boolean);
-    const { failures } = runRules({ root, commit, files, only });
+    const files = git(["ls-tree", "-r", "-z", "--name-only", commit], { cwd: repo }).split("\0").filter(Boolean);
+    const { failures } = runRules({ root, commit, files, repo, only });
     for (const f of failures) {
       out(`FAIL ${f.rule} (${f.gap}): ${f.problem}`);
       if (f.fix) out(`     fix: ${f.fix}`);
