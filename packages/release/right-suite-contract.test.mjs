@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
+import { runCargoSync } from "./managed-cargo.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after } from "node:test";
 import {
@@ -36,9 +36,12 @@ const workspace = path.resolve(
 const siteRepoDir = existsSync(path.join(workspace, "rightsites")) ? "rightsites" : "rightapps";
 // Product checkouts sit beside rightkit in the owner's workspace; a hosted CI checkout holds rightkit alone. Missing
 // checkouts skip their tests with the reason. RIGHTKIT_REQUIRE_ASSETS=1 runs them anyway, so the missing path fails them.
+// RK_ISOLATED_CHECKOUT=1 is the same switch for a broker-admitted test row: the broker reserves every RIGHTKIT_* key in an
+// adapter's environment, so the local publication pre-flight (hosted scope: rightkit alone) passes this one instead.
+const isolatedCheckout = process.env.RIGHTKIT_ISOLATED_CHECKOUT === "1" || process.env.RK_ISOLATED_CHECKOUT === "1";
 const checkoutSkip = (paths, what) => {
   const missing = paths.filter((file) => !existsSync(file)).map((file) => path.relative(workspace, file));
-  return (missing.length === 0 && process.env.RIGHTKIT_ISOLATED_CHECKOUT !== "1") || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
+  return (missing.length === 0 && !isolatedCheckout) || process.env.RIGHTKIT_REQUIRE_ASSETS === "1" ? false : `${what} not checked out beside rightkit (missing ${missing.join(", ")})`;
 };
 const versionsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "rightkit-versions.json");
 const versions = JSON.parse(readFileSync(versionsPath, "utf8"));
@@ -48,7 +51,10 @@ const pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlG
 const apps = [
   { key: "viewright", root: "viewright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/build-mac-notarized.sh"] },
   { key: "scraperight", root: "scraperight", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["package.sh"] },
-  { key: "heardright", root: "heardright/tauri-app-next", repoRoot: "heardright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs", "scripts/publish-release.mjs"] },
+  // HeardRight removed its bespoke scripts/publish-release.mjs (78ccc184, 2026-10-21: sign/notarize/updater/DMG/R2 upload
+  // inside a product repository, which the workspace forbids); release is `right-release build` / `publish-update
+  // --tier <patch|update>` from package.json with tauri-app-next/right-release.config.mjs, asserted above.
+  { key: "heardright", root: "heardright/tauri-app-next", repoRoot: "heardright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
   // mac-dmg.mjs is the release file, as in HeardRight/CodeRight. build-mac.sh only delegates to it,
   // so asserting the mirror call against the wrapper failed a pipeline that does mirror.
   { key: "mailright", root: "mailright", tauri: "src-tauri/tauri.conf.json", releaseFiles: ["scripts/mac-dmg.mjs"] },
@@ -274,12 +280,7 @@ test("Cargo override contract accepts exact registry pins without repo-local ove
   }), 0);
 });
 
-// Cargo metadata runs only through the installed RightKit runtime on a developer host, or directly on a GitHub Actions
-// runner (managed-cargo.mjs). Inside the Mac broker's adapter environment neither is reachable (the client lives under
-// the real HOME; the job's HOME is the build home), so the three Cargo-contract tests skip there with that reason and
-// run everywhere else, including both hosted verify hosts.
-const CARGO_METADATA_SKIP = managedRuntimeClient() || process.env.GITHUB_ACTIONS === "true" ? false : "managed Cargo metadata is unavailable here (no RightKit runtime client, not GitHub Actions); the hosted verify runs this test";
-test("Cargo contract ignores release caches and build outputs", { skip: CARGO_METADATA_SKIP }, () => {
+test("Cargo contract ignores release caches and build outputs", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-scan-"));
   const appRoot = path.join(fixtureRoot, "app");
   mkdirSync(path.join(appRoot, ".right-release", "cache", "cargo-home", "registry", "cached"), { recursive: true });
@@ -363,7 +364,7 @@ test("Cargo override contract rejects local and repo-ancestor crates.io source r
   }
 });
 
-test("direct Cargo dependency contract accepts only published exact RightKit pins", { skip: CARGO_METADATA_SKIP }, () => {
+test("direct Cargo dependency contract accepts only published exact RightKit pins", () => {
   const published = new Map([
     ["rightkit-license", "0.1.2"],
     ["rightkit-logs", "0.1.0"],
@@ -388,7 +389,7 @@ license-adapter = { package = "rightkit-license", version = "=0.1.2" }
   assert.equal(assertCargoFixture(manifest, published, "fixture/Cargo.toml"), 4);
 });
 
-test("direct Cargo dependency contract rejects staged-only RightKit crates", { skip: CARGO_METADATA_SKIP }, () => {
+test("direct Cargo dependency contract rejects staged-only RightKit crates", () => {
   const { consumer } = resolveCargoVersionContract(
     {
       cargo: { "rightkit-license": "0.1.2" },

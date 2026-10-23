@@ -1,6 +1,6 @@
 import { discoverBrokerSocket, managedControlCandidates, resolveManagedRoots } from './managed-roots.mjs';
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawn as spawnProcess, spawnSync } from "./background-process.mjs";
@@ -17,6 +17,9 @@ export function managedRuntimeClient(env = process.env, platform = process.platf
   if (platform === 'darwin') {
     const client = path.posix.join(env.HOME || homedir(), 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
     if (exists(client)) return client;
+    // Broker-managed HOME may point at a build home; the installed native client belongs to the OS account.
+    const accountClient = path.posix.join(userInfo().homedir, 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
+    if (exists(accountClient)) return accountClient;
   }
   // RustRight's own install on Windows (2026-10-18 cutover): the runtime moved out of the control root to
   // <drive>\.rustright\runtime, beside the control root's drive, and runtime-current was retired.

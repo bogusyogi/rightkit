@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { userInfo } from 'node:os';
+import path from 'node:path';
 import { discoverBrokerSocket, resolveManagedRoots } from './managed-roots.mjs';
 import { managedRuntimeClient, runCargoSync } from './managed-cargo.mjs';
 
@@ -36,6 +38,25 @@ test('release client lookup prefers control runtime, then managed root, and reso
   assert.equal(managedRuntimeClient(env, 'darwin', (p) => p.endsWith('rightkit.mjs')), undefined);
 });
 
+test('Mac native client survives broker-managed HOME & retains broker endpoint', () => {
+  const client = path.posix.join(userInfo().homedir, 'Library', 'Application Support', 'RustRight', 'runtime', 'rustright');
+  const env = { HOME: '/managed/build-home', RIGHTKIT_CONTROL_ROOT: '/internal', RIGHTKIT_BUILD_BROKER_SOCKET: '/broker.sock' };
+  const exists = (file) => file === client || file === env.RIGHTKIT_BUILD_BROKER_SOCKET;
+  assert.equal(managedRuntimeClient(env, 'darwin', exists), client);
+  let call;
+  runCargoSync(['metadata', '--no-deps'], { env }, { platform: 'darwin', exists, spawn: (...args) => { call = args; return { status: 0 }; } });
+  assert.equal(call[0], client);
+  assert.deepEqual(call[1], ['cargo', 'metadata', '--no-deps']);
+  assert.equal(call[2].env.RIGHTKIT_BUILD_BROKER_SOCKET, '/broker.sock');
+  assert.equal(call[2].env.HOME, '/managed/build-home');
+});
+
+test('native install lookup retains explicit Mac HOME & Windows drive layout', () => {
+  const macClient = '/Users/custom/Library/Application Support/RustRight/runtime/rustright';
+  assert.equal(managedRuntimeClient({ HOME: '/Users/custom' }, 'darwin', (file) => file === macClient), macClient);
+  const windowsClient = 'D:\\.rustright\\runtime\\rustright.exe';
+  assert.equal(managedRuntimeClient({ RIGHTKIT_CONTROL_ROOT: 'D:\\control' }, 'win32', (file) => file === windowsClient), windowsClient);
+});
 test('Mac managed Cargo never falls through to cargo; missing client or socket is typed', () => {
   const spawn = () => { throw new Error('direct cargo must not run'); };
   assert.equal(runCargoSync(['metadata'], { env: {} }, { platform: 'darwin', exists: () => false, spawn }).error.code, 'RK_BROKER_UNAVAILABLE');

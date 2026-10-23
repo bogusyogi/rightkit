@@ -69,7 +69,9 @@ export function packageRows(unit, pkg, { storeDir, timeoutMinutes = 30 } = {}) {
     { id: "build-closure", kind: "build", args: pnpmBuildClosureArgs([unit]), timeoutMinutes },
     // The hosted verify has no sibling product checkouts beside rightkit; the local row runs with the same scope so
     // sibling-dependent contract tests (asset-gated, ci/asset-gated.json npm) skip here as they do there.
-    { id: "test", kind: "test", args: ["--dir", pkg.dir, "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" }, timeoutMinutes },
+    // RK_ISOLATED_CHECKOUT (not RIGHTKIT_*: the broker reserves that prefix in adapter environments) is the switch
+    // right-suite-contract.test.mjs honours; the adapter's env allowlist names it.
+    { id: "test", kind: "test", args: ["--dir", pkg.dir, "run", "test"], env: { RK_ISOLATED_CHECKOUT: "1" }, timeoutMinutes },
   ];
 }
 
