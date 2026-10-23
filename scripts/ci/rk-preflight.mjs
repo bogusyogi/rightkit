@@ -62,7 +62,7 @@ export function crateRows(unit, config) {
   }
   for (const [index, consumer] of consumerRows(unit, entry).entries()) {
     for (const [targetIndex, step] of consumerRowInvocations(consumer).entries()) {
-      rows.push({ id: `consumer-${index}-${targetIndex}`, kind: "consumer", args: step.args, timeoutMinutes });
+      rows.push({ id: `consumer-${index}-${targetIndex}`, kind: "consumer", cwd: step.cwd, args: step.args, timeoutMinutes });
     }
   }
   for (const row of rows) if (!row.args.includes("--locked")) row.args.splice(1, 0, "--locked");
@@ -130,7 +130,28 @@ function consumerRows(unit, entry = {}) {
 /** One Cargo step per target (or one host step when no target is named) for one consumer row. */
 function consumerRowInvocations(row) {
   const targets = row.targets.length ? row.targets : [null];
-  return targets.map((target) => ({ command: "cargo", args: [row.kind, "--manifest-path", row.manifestPath, "--locked", ...(target ? ["--target", target] : []), ...row.args] }));
+  return targets.map((target) => ({ command: "cargo", cwd: path.posix.dirname(row.manifestPath), args: [row.kind, "--locked", ...(target ? ["--target", target] : []), ...row.args] }));
+}
+
+/** Prevent Cargo ancestor fallback: every consumer runs beside its exact committed manifest. */
+export function resolveRowWorkspace({ root, row, sha, spawnFn = spawnSync }) {
+  const cwd = path.resolve(root, row.cwd ?? ".");
+  if (row.kind !== "consumer") return cwd;
+  const relative = `${row.cwd}/Cargo.toml`;
+  if (!CONSUMER_MANIFEST.test(relative) || relative.split("/").some((part) => part === "." || part === "..") || !/^[0-9a-f]{40}$/.test(sha ?? "")) throw new Error("consumer workspace requires validated path & full commit SHA");
+  let ancestor = path.resolve(root);
+  for (const part of row.cwd.split("/")) {
+    ancestor = path.join(ancestor, part);
+    const stat = fs.lstatSync(ancestor);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`consumer workspace is not a real directory: ${row.cwd}`);
+  }
+  const manifest = path.join(cwd, "Cargo.toml");
+  const stat = fs.lstatSync(manifest);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`consumer manifest must be a regular non-symlink file: ${relative}`);
+  const committed = spawnFn("git", ["--no-replace-objects", "show", `${sha}:${relative}`], { cwd: root, encoding: null, windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+  if (committed.error || committed.status !== 0 || !Buffer.isBuffer(committed.stdout)) throw new Error(`consumer manifest is absent or unreadable in requested commit: ${relative}`);
+  if (!fs.readFileSync(manifest).equals(committed.stdout)) throw new Error(`consumer manifest differs from requested commit: ${relative}`);
+  return cwd;
 }
 
 
@@ -221,9 +242,12 @@ export function checkTools({ pins, spawnFn = spawnSync, exists = fs.existsSync, 
  * envelope's signature bytes are verified by `rustright verify-receipt` against this host's ENROLLED public key, key id
  * and broker digest from ci/rk-pipeline.json (never taken from the receipt). The request digest is passed from the
  * receipt, so that one check is not independent yet; the signature over the canonical payload is. */
-export function verifyAttestation(requestId, { nonce, argv, pins, spawnFn = spawnSync, tmpDir = os.tmpdir() }) {
+export function verifyAttestation(requestId, { nonce, argv, pins, expect, workspace, spawnFn = spawnSync, tmpDir = os.tmpdir() }) {
   if (!requestId || !nonce) return { verified: false, requestId: requestId ?? null, nonce: nonce ?? null, reason: "no broker request or nonce" };
-  if (!pins?.publicKey || !pins.keyId || !pins.host || !pins.brokerDigest || !pins.cargoSha256) return { verified: false, requestId, nonce, reason: "no enrollment pins for this host" };
+  const adapter = expect?.kind === "adapter";
+  const executableDigest = adapter ? pins?.nodeSha256 : pins?.cargoSha256;
+  if (!pins?.publicKey || !pins.keyId || !pins.host || !pins.brokerDigest || !executableDigest) return { verified: false, requestId, nonce, reason: "no enrollment pins for this host" };
+  if (expect && (!adapter || expect.adapter !== "rightkit-pnpm" || !path.isAbsolute(expect.script?.path ?? "") || !/^[0-9a-f]{64}$/.test(expect.script?.sha256 ?? "") || expect.executable?.sha256 !== executableDigest)) return { verified: false, requestId, nonce, reason: "invalid expected adapter enrollment" };
   const r = spawnFn("rustright", ["status", requestId], { encoding: "utf8", timeout: 60_000 });
   if (r.error || r.status !== 0) return { verified: false, requestId, nonce, reason: "broker status unavailable" };
   let doc;
@@ -236,16 +260,23 @@ export function verifyAttestation(requestId, { nonce, argv, pins, spawnFn = spaw
   const p = receipt.provenance;
   const payload = p?.payload ?? {};
   const request = payload.request ?? {};
+  const normalizedWorkspace = (value) => {
+    if (typeof value !== "string" || !path.isAbsolute(value)) return null;
+    const resolved = path.resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
   const checks = [
     [p?.schema === "rustright.provenance.v1", "no signed provenance envelope"],
     [p?.signature?.alg === "ES256" && p?.signature?.keyId === pins.keyId, "signature key is not the enrolled key"],
     [payload.host === pins.host && payload.broker?.brokerDigest === pins.brokerDigest, "host or broker digest is not the enrolled one"],
     [payload.nonce === nonce, "nonce mismatch"],
     [payload.jobId === requestId, "job id mismatch"],
-    [request.kind === "cargo", "not a cargo job"],
+    [request.kind === (adapter ? "adapter" : "cargo") && (!adapter || request.adapter === expect.adapter), "signed request kind or adapter mismatch"],
     [JSON.stringify(request.requestedArgv ?? []) === JSON.stringify(argv), "argv mismatch"],
-    [receipt.state === "SUCCEEDED" && receipt.exitCode === 0, "job did not succeed"],
-    [payload.executable?.sha256 === pins.cargoSha256, "executable is not this host's enrolled cargo (the row did not run locally on this host)"],
+    [workspace === undefined || (normalizedWorkspace(workspace) !== null && normalizedWorkspace(request.workspace) === normalizedWorkspace(workspace)), "signed working directory mismatch"],
+    [payload.result?.status === "SUCCEEDED" && payload.result.exitCode === 0, "signed job result did not succeed"],
+    [payload.executable?.sha256 === executableDigest, "executable is not this host's enrolled runtime"],
+    [!adapter || (payload.executable?.kind === "interpreter" && payload.executable?.script?.path === expect.script.path && payload.executable?.script?.sha256 === expect.script.sha256), "signed adapter script differs from expected policy"],
     [receipt.route !== "ci", "the broker routed this row to hosted CI; it did not run locally"],
     [/^[0-9a-f]{64}$/.test(payload.requestDigest ?? ""), "no request digest"],
   ];
@@ -441,14 +472,24 @@ export async function main(argv, deps = {}) {
     }
     const command = row.command ?? "rustright";
     const args = row.command ? row.args : ["cargo", ...row.args];
+    let rowCwd;
+    try {
+      rowCwd = resolveRowWorkspace({ root, row, sha });
+    } catch (error) {
+      receipt.failedAt = row.id;
+      receipt.problems = [error.message];
+      save();
+      err(`rk-preflight: ${error.message}`);
+      return 2;
+    }
     const logFile = path.join(logDir, `${row.id.replace(/[^a-z0-9.-]+/gi, "_")}.log`);
     const nonce = crypto.randomBytes(32).toString("hex");
-    const r = await run(command, args, { cwd: root, env: { ...rowEnv, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
+    const r = await run(command, args, { cwd: rowCwd, env: { ...rowEnv, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
     const warnings = row.denyWarnings ? countDocWarnings(r.out, opts.unit) : 0;
     const ids = brokerRequestIds(r.out);
-    const attestation = ids.length === 1 ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins: pipeline.attestation?.[process.platform] }) : { verified: false, requestId: null, nonce, reason: ids.length ? "one row produced several broker requests" : "no broker request" };
+    const attestation = ids.length === 1 ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], workspace: rowCwd }) : { verified: false, requestId: null, nonce, reason: ids.length ? "one row produced several broker requests" : "no broker request" };
     const ok = r.code === 0 && !r.timedOut && warnings === 0 && attestation.verified === true && unchanged();
-    const entry = { id: row.id, kind: row.kind, command: `${command} ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, warnings, brokerRequests: ids, attestation, log: logFile, ok };
+    const entry = { id: row.id, kind: row.kind, cwd: row.cwd ?? ".", command: `${command} ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, seconds: r.seconds, warnings, brokerRequests: ids, attestation, log: logFile, ok };
     receipt.rows.push(entry);
     out(`${ok ? "PASS" : "FAIL"} ${row.id} (${r.seconds}s${warnings ? `, ${warnings} doc warning(s)` : ""}${r.timedOut ? ", timed out" : ""})`);
     save();
@@ -484,6 +525,7 @@ export function receiptRefusal(receipt, { sha, registry, unit, config, version }
   if (!Array.isArray(receipt.rows) || receipt.rows.length !== expected.length || !expected.length) return "missing or extra compile rows";
   for (const [i, row] of expected.entries()) {
     const got = receipt.rows[i];
+    if (!got || got.cwd !== (row.cwd ?? ".")) return `working directory differs for compile row ${row.id}`;
     if (got.id !== row.id || got.command !== `rustright cargo ${row.args.join(" ")}` || got.ok !== true || got.exit !== 0 || got.timedOut !== false || got.warnings !== 0 || !got.brokerRequests?.length || !got.brokerRequests.every((id) => /^[0-9a-f-]{36}$/.test(id)) || got.attestation?.verified !== true || got.attestation.signatureVerified !== true || typeof got.attestation.nonce !== "string" || got.attestation.nonce.length !== 64 || got.attestation.requestId !== got.brokerRequests[0]) return `unproven compile row ${row.id}`;
   }
   return null;

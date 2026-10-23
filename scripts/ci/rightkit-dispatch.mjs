@@ -105,7 +105,7 @@ export function matchRun(runs, query) {
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "3c5a82421a85e555b2c3a5f366624086c5fefd36b509bc406d74dbd00233ada8";
+const PREFLIGHT_SHA256 = "69c576a8f7656c0c2f449c2c365bd7f5b99f4124de7c6004e0e8ecd3ff070a8e";
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || opts.registry !== "crates") throw new Error("only scoped crates publication has local admission; general CI/npm dispatch is not admitted");
   // The broker runs the digest-pinned copy of this file from its policy directory, so the repository is the adapter's
@@ -114,7 +114,7 @@ export async function requirePreflight(opts) {
   const helper = path.join(root, "scripts", "ci", "rk-preflight.mjs");
   if (!fs.existsSync(helper) || !fs.existsSync(path.join(root, ".git"))) throw new Error(`working directory ${root} is not the RightKit checkout`);
   if (crypto.createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== PREFLIGHT_SHA256) throw new Error("preflight implementation digest changed; repin adapter with its reviewed helper");
-  const { receiptRefusal, exceptionAllowsets, crateRows, verifyAttestation, DEFAULT_OUT } = await import(pathToFileURL(helper));
+  const { receiptRefusal, exceptionAllowsets, crateRows, resolveRowWorkspace, verifyAttestation, DEFAULT_OUT } = await import(pathToFileURL(helper));
   const git = (...args) => {
     const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
     if (r.status !== 0) throw new Error("cannot prove committed admission inputs");
@@ -132,7 +132,8 @@ export async function requirePreflight(opts) {
   // and verify each envelope's signature against this host's enrolled key from the committed pipeline config.
   for (const [i, row] of crateRows(opts.unit, config).entries()) {
     const got = receipt.rows[i];
-    const check = verifyAttestation(got.attestation?.requestId, { nonce: got.attestation?.nonce, argv: row.args, pins: pipeline.attestation?.[process.platform] });
+    const workspace = resolveRowWorkspace({ root, row, sha: opts.sha });
+    const check = verifyAttestation(got.attestation?.requestId, { nonce: got.attestation?.nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], workspace });
     if (!check.verified) throw new Error(`row ${row.id}: broker provenance not verified (${check.reason})`);
   }
   const policy = exceptionAllowsets(opts.unit, version, config, pipeline);

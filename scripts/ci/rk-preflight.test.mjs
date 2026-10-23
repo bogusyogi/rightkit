@@ -7,7 +7,7 @@ import { consumerRecipePolicy, planCommandsFromWorkflow, PLAN_CONTRACT_STEP, cou
 const sha = "a".repeat(40), unit = "rightkit-example", version = "1.0.0", config = {};
 const expected = { sha, registry: "crates", unit, version, config };
 export function greenReceipt() {
-  return { schema: SCHEMA, mode: "local-compile", sha, registry: "crates", unit, version, route: "local", ok: true, finishedAt: new Date().toISOString(), scans: { ok: true, exit: 0, timedOut: false }, planChecks: { ok: true, exit: 0, timedOut: false }, rows: crateRows(unit, config).map((r) => ({ attestation: { verified: true, signatureVerified: true, nonce: "f".repeat(64), requestId: "11111111-1111-4111-8111-111111111111" }, id: r.id, command: `rustright cargo ${r.args.join(" ")}`, exit: 0, timedOut: false, warnings: 0, brokerRequests: ["11111111-1111-4111-8111-111111111111"], ok: true })) };
+  return { schema: SCHEMA, mode: "local-compile", sha, registry: "crates", unit, version, route: "local", ok: true, finishedAt: new Date().toISOString(), scans: { ok: true, exit: 0, timedOut: false }, planChecks: { ok: true, exit: 0, timedOut: false }, rows: crateRows(unit, config).map((r) => ({ cwd: r.cwd ?? ".", attestation: { verified: true, signatureVerified: true, nonce: "f".repeat(64), requestId: "11111111-1111-4111-8111-111111111111" }, id: r.id, command: `rustright cargo ${r.args.join(" ")}`, exit: 0, timedOut: false, warnings: 0, brokerRequests: ["11111111-1111-4111-8111-111111111111"], ok: true })) };
 }
 
 test("publication preflight refuses scan/compile shortcuts & unbrokered npm", () => {
@@ -23,7 +23,9 @@ test("compile plan preserves feature coverage, compiles tests without running th
   assert.equal(rows.filter((r) => r.kind === "test").length, 2);
   assert.ok(rows.filter((r) => r.kind === "test").every((r) => r.args.includes("--no-run") && !r.args.includes("--test-threads=1")));
   assert.ok(rows.every((r) => r.args.includes("--locked")));
-  assert.ok(rows.some((r) => r.kind === "consumer" && r.args.includes("ci/consumers/example/Cargo.toml")));
+  const consumer = rows.find((r) => r.kind === "consumer");
+  assert.equal(consumer.cwd, "ci/consumers/example", "a consumer row runs from its own directory (the attested client refuses a rewritten --manifest-path)");
+  assert.ok(!consumer.args.includes("--manifest-path"));
   config.rust[unit].consumerRows[0].args = ["--manifest-path", "/tmp/foreign/Cargo.toml"];
   assert.throws(() => crateRows(unit, config), /may not contain/);
 });
@@ -76,7 +78,7 @@ test("rustdoc diagnostics & request IDs are captured; scoped counting takes only
 test("per-row attestation: broker status fields must match, then the envelope signature is verified against the enrolled key", () => {
   const nonce = "a".repeat(64), job = "11111111-1111-4111-8111-111111111111";
   const pins = { host: "mac.local", keyId: "b".repeat(64), publicKey: "c".repeat(64), brokerDigest: "d".repeat(64), cargoSha256: "1".repeat(64) };
-  const status = (over = {}) => ({ receipt: { state: "SUCCEEDED", exitCode: 0, inputBoundary: { status: "unrequested" }, provenance: { schema: "rustright.provenance.v1", signature: { alg: "ES256", keyId: pins.keyId }, payload: { host: pins.host, broker: { brokerDigest: pins.brokerDigest }, nonce, jobId: job, requestDigest: "e".repeat(64), executable: { sha256: pins.cargoSha256 }, request: { kind: "cargo", requestedArgv: ["check", "-p", "x", "--locked"], manifestDigest: null } } }, ...over } });
+  const status = (over = {}) => ({ receipt: { state: "SUCCEEDED", exitCode: 0, inputBoundary: { status: "unrequested" }, provenance: { schema: "rustright.provenance.v1", signature: { alg: "ES256", keyId: pins.keyId }, payload: { host: pins.host, broker: { brokerDigest: pins.brokerDigest }, nonce, jobId: job, requestDigest: "e".repeat(64), executable: { sha256: pins.cargoSha256 }, result: { status: "SUCCEEDED", exitCode: 0 }, request: { kind: "cargo", requestedArgv: ["check", "-p", "x", "--locked"], manifestDigest: null } } }, ...over } });
   const spawnFor = (doc, verifyStatus = 0) => (cmd, args) => (args[0] === "status" ? { status: 0, stdout: JSON.stringify(doc) } : { status: verifyStatus, stdout: "" });
   const calls = [];
   const good = verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, tmpDir: process.env.TMPDIR ?? "/tmp", spawnFn: (cmd, args) => { calls.push(args); return spawnFor(status())(cmd, args); } });
@@ -88,10 +90,11 @@ test("per-row attestation: broker status fields must match, then the envelope si
   const bad = (over, n = nonce, argv = ["check", "-p", "x", "--locked"], verifyStatus = 0) => verifyAttestation(job, { nonce: n, argv, pins, tmpDir: process.env.TMPDIR ?? "/tmp", spawnFn: spawnFor(status(over), verifyStatus) }).reason;
   assert.equal(bad({}, "c".repeat(64)), "nonce mismatch");
   assert.equal(bad({}, nonce, ["check", "-p", "y", "--locked"]), "argv mismatch");
-  assert.equal(bad({ exitCode: 1 }), "job did not succeed");
+  const failedSigned = status(); failedSigned.receipt.provenance.payload.result = { status: "FAILED", exitCode: 101 };
+  assert.equal(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(failedSigned) }).reason, "signed job result did not succeed");
   assert.equal(bad({}, nonce, ["check", "-p", "x", "--locked"], 1), "signature verification failed");
   const foreignCargo = status(); foreignCargo.receipt.provenance.payload.executable.sha256 = "2".repeat(64);
-  assert.match(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(foreignCargo) }).reason, /not this host's enrolled cargo/);
+  assert.match(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(foreignCargo) }).reason, /not this host's enrolled runtime/);
   assert.match(bad({ route: "ci" }), /routed this row to hosted CI/);
   const foreignKey = status(); foreignKey.receipt.provenance.signature.keyId = "9".repeat(64);
   assert.equal(verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, spawnFn: spawnFor(foreignKey) }).reason, "signature key is not the enrolled key");
