@@ -48,6 +48,8 @@ import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { featuresInTokens, resolveCargoManifestPath, scriptTarget, tokenize } from "./qa-build-features.mjs";
 import { isNativeBinaryHeader } from "./qa-control-scan.mjs";
+import { nodeHostTriple } from "./stage-sidecar-command.mjs";
+import { WIN_PACKAGE_DEFAULT_TRIPLE } from "./win-package-recipe.mjs";
 
 export const TEST_MODE_MARKER = "RIGHTKIT-TEST-MODE-COMPILED"; // identical to `TEST_MODE_MARKER_TEXT` in rightkit-daemon/src/mode.rs
 const CHUNK = 4 * 1024 * 1024;
@@ -164,8 +166,45 @@ export function resolveFeatureClosure(options = {}) {
   return resolveCargoTree(options);
 }
 
+const MAC_SLICES = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
+const UPDATER_PLATFORM_TRIPLES = {
+  "darwin-aarch64": ["mac", "aarch64-apple-darwin"],
+  "darwin-x86_64": ["mac", "x86_64-apple-darwin"],
+  "windows-x86_64": ["win", "x86_64-pc-windows-msvc"],
+  "windows-aarch64": ["win", "aarch64-pc-windows-msvc"],
+};
+const PLATFORM_HOST_OS = { win: "windows", mac: "apple-darwin" };
+
+/**
+ * The Rust triples a release of `target` ships, evaluated on the RAW config target (before recipe expansion), so the
+ * feature closure checks exactly the slices that ship and never asks cargo for `--target all` (the RustRight broker
+ * refuses it). First matching rule wins. Throws `release-switch-target-unknown` when no shipped triple can be named.
+ */
+export function shippedRustTriples({ platform, target, hostTriple = nodeHostTriple } = {}) {
+  const explicit = target?.cargoTarget ?? target?.targetTriple ?? target?.rustTarget;
+  if (explicit) return explicit === "universal-apple-darwin" ? [...MAC_SLICES] : [explicit];
+  if (target?.winPackage) return [target.winPackage.triple ?? WIN_PACKAGE_DEFAULT_TRIPLE];
+  if (target?.macPackage) {
+    const spec = target.macPackage;
+    if (spec.triple) return spec.triple === "universal-apple-darwin" ? [...MAC_SLICES] : [spec.triple];
+    if (spec.universal === false) return [hostTriple()];
+    return [...MAC_SLICES];
+  }
+  if (platform === "ios") return ["aarch64-apple-ios"];
+  if (platform === "win" || platform === "mac") {
+    const fromUpdater = [...new Set((target?.updater?.artifacts ?? [])
+      .map((artifact) => UPDATER_PLATFORM_TRIPLES[artifact?.platform])
+      .filter((entry) => entry && entry[0] === platform)
+      .map((entry) => entry[1]))];
+    if (fromUpdater.length) return fromUpdater;
+    const host = hostTriple();
+    if (host.includes(PLATFORM_HOST_OS[platform])) return [host];
+  }
+  throw new Error(`release-switch-target-unknown: cannot name the Rust triple(s) the ${platform} release ships; declare targets.${platform}.cargoTarget`);
+}
+
 /** Shared Cargo tree resolver; keeps each build command's feature selection separate. */
-export function resolveCargoTree({ root, manifest, cargoManifest, rust, features = [], scripts, triple, commandTexts = [],
+export function resolveCargoTree({ root, manifest, cargoManifest, rust, features = [], scripts, triple, triples, commandTexts = [],
   edges = "features,no-dev", prefix, noDefaultFeatures = false, label = "feature closure", run = spawnSync } = {}) {
   const { rel, declared, candidates } = resolveCargoManifestPath({ root, cargoManifest, manifest });
   if (!rel) {
@@ -175,8 +214,11 @@ export function resolveCargoTree({ root, manifest, cargoManifest, rust, features
   if (declared.length && !declared.some((c) => existsSync(path.join(root, c)))) {
     throw new Error(`release-switch-manifest-missing: declared manifest ${declared.join(", ")} does not exist under ${root}`);
   }
-  const baseArgs = ["tree", "--color", "never", "-e", edges, "--locked", "--manifest-path", path.join(root, rel), "--target", triple || "all"];
+  const baseArgs = ["tree", "--color", "never", "-e", edges, "--locked", "--manifest-path", path.join(root, rel)];
   if (prefix) baseArgs.push("--prefix", prefix);
+  // `triples` may be a function so a target that cannot name its triples still skips cleanly when the app declares no Rust.
+  const tripleList = [...new Set((typeof triples === "function" ? triples() : triples) ?? (triple ? [triple] : []))];
+  if (tripleList.length === 0) throw new Error(`${label}: no Rust target triple given; the closure never runs \`cargo tree --target all\` (the build broker refuses it). Declare targets.<os>.cargoTarget`);
   const pkgScripts = scripts ?? readPackageScripts(root);
   // One cargo tree per distinct (features, no-default-features, manifest) combination, one combination per build command
   // (flags gathered over the command and the package.json scripts it runs). A `--no-default-features` in one command never
@@ -207,7 +249,8 @@ export function resolveCargoTree({ root, manifest, cargoManifest, rust, features
   for (const text of texts) comboFor(text);
   const trees = [];
   for (const { noDefault, allFeatures, list } of combos.values()) {
-    const args = [...baseArgs];
+    for (const tripleArg of tripleList) {
+    const args = [...baseArgs, "--target", tripleArg];
     if (noDefault) args.push("--no-default-features");
     if (allFeatures) args.push("--all-features");
     if (list.length) args.push("--features", list.join(","));
@@ -218,6 +261,7 @@ export function resolveCargoTree({ root, manifest, cargoManifest, rust, features
     const out = String(result.stdout ?? "");
     if (!out.trim()) throw new Error(`${label}: \`cargo tree\` printed nothing; cannot verify`);
     trees.push(out);
+    }
   }
   const treeText = trees.join("\n");
   return { treeText, trees, manifest: rel };

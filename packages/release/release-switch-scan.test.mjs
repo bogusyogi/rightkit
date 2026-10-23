@@ -6,7 +6,7 @@ import test from "node:test";
 import { cargoManifestIssues, commandFeatureIssues } from "./qa-build-features.mjs";
 import {
   REGISTRY, TEST_MODE_MARKER, assertNoReleaseSwitches, bufferSwitchFindings, commandSwitchFindings, denyNamesFor,
-  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteLoopbackFindings, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, sourceSwitchFindings,
+  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteLoopbackFindings, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, shippedRustTriples, sourceSwitchFindings,
 } from "./release-switch-scan.mjs";
 
 const FIX = new URL("./fixtures/release-switches/", import.meta.url);
@@ -184,9 +184,9 @@ test("closure: resolveFeatureClosure runs cargo tree for the target, forwards fe
   assert.equal(seen.command, "cargo");
   for (const a of ["tree", "features,no-dev", "--locked", "aarch64-apple-darwin", "--no-default-features", "custom-protocol"]) assert.ok(seen.args.includes(a), a);
   assert.ok(featureClosureFindings(got.treeText).length >= 1);
-  assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: 101, stdout: "", stderr: "lock needs update" }) }), /feature closure.*failed/s);
-  assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: null, error: new Error("ENOENT") }) }), /ENOENT/);
-  assert.throws(() => resolveFeatureClosure({ root, run: () => ({ status: 0, stdout: "  " }) }), /printed nothing/);
+  assert.throws(() => resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", run: () => ({ status: 101, stdout: "", stderr: "lock needs update" }) }), /feature closure.*failed/s);
+  assert.throws(() => resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", run: () => ({ status: null, error: new Error("ENOENT") }) }), /ENOENT/);
+  assert.throws(() => resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", run: () => ({ status: 0, stdout: "  " }) }), /printed nothing/);
   assert.throws(() => resolveFeatureClosure({ root: tmp() }), /release-switch-manifest-missing/);
 });
 
@@ -232,7 +232,7 @@ test("closure: a missing manifest is a hard failure; only an explicit rust:false
   mkdirSync(join(root, "engine"));
   writeFileSync(join(root, "engine", "Cargo.toml"), "[package]\nname=\"x\"\n");
   let seen;
-  resolveFeatureClosure({ root, cargoManifest: "engine/Cargo.toml", run: (c, a) => { seen = a; return { status: 0, stdout: "x v1\n", stderr: "" }; } });
+  resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", cargoManifest: "engine/Cargo.toml", run: (c, a) => { seen = a; return { status: 0, stdout: "x v1\n", stderr: "" }; } });
   assert.ok(seen.includes(join(root, "engine/Cargo.toml")));
 });
 
@@ -242,7 +242,7 @@ test("closure: features come from package.json scripts a hook runs, and from rel
   writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { "tauri:build": "tauri build -- --features shell,test-mode" } }));
   let seen;
   const run = (c, a) => { seen = a; return { status: 0, stdout: "x v1\n", stderr: "" }; };
-  resolveFeatureClosure({ root, commandTexts: ["pnpm run tauri:build"], features: ["extra"], run });
+  resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", commandTexts: ["pnpm run tauri:build"], features: ["extra"], run });
   const joined = seen[seen.indexOf("--features") + 1].split(",");
   for (const f of ["shell", "test-mode", "extra"]) assert.ok(joined.includes(f), f);
 });
@@ -268,7 +268,7 @@ test("closure: a --no-default-features command and a default-feature command are
   assert.throws(() => assertNoReleaseSwitches({ treeText: mixed.treeText }), /forbidden-feature test-mode/);
 
   calls.length = 0;
-  const onlyNoDefault = resolveFeatureClosure({ root, scripts: {}, commandTexts: ["cargo build --release --no-default-features"], run });
+  const onlyNoDefault = resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", scripts: {}, commandTexts: ["cargo build --release --no-default-features"], run });
   assert.equal(calls.length, 1);
   assert.deepEqual(featureClosureFindings(onlyNoDefault.treeText), []);
 });
@@ -279,7 +279,7 @@ test("closure: identical feature combinations run cargo tree once; feature order
   const calls = [];
   const run = (command, args) => { calls.push(args); return { status: 0, stdout: "x v1\n", stderr: "" }; };
   const got = resolveFeatureClosure({
-    root, scripts: { "tauri:build": "tauri build --features custom-protocol,shell" },
+    root, triple: "x86_64-pc-windows-msvc", scripts: { "tauri:build": "tauri build --features custom-protocol,shell" },
     commandTexts: ["cargo build --release --features shell,custom-protocol", "pnpm run tauri:build", "cargo build --features custom-protocol --features shell"],
     run,
   });
@@ -288,7 +288,7 @@ test("closure: identical feature combinations run cargo tree once; feature order
   assert.equal(calls[0][calls[0].indexOf("--features") + 1], "custom-protocol,shell");
 
   calls.length = 0;
-  const split = resolveFeatureClosure({ root, scripts: {}, commandTexts: ["cargo build --release", "cargo build --release --no-default-features"], run });
+  const split = resolveFeatureClosure({ root, triple: "x86_64-pc-windows-msvc", scripts: {}, commandTexts: ["cargo build --release", "cargo build --release --no-default-features"], run });
   assert.equal(calls.length, 2);
   assert.equal(split.trees.length, 2);
 });
@@ -478,4 +478,87 @@ test("sourceRoots narrows the source walk to what a target compiles; local crate
     const scoped = sourceSwitchFindings({ sourceRoot: root, sourceRoots: dirs.filter((dir) => dir.endsWith("phone")), inventoryText });
     assert.deepEqual(scoped.map((f) => f.file), [join("phone", "a.rs") + ":1"]);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// rightkit#926: the closure never runs `cargo tree --target all` (the RustRight broker refuses it).
+const WIN = "x86_64-pc-windows-msvc";
+const WINARM = "aarch64-pc-windows-msvc";
+const MAC_A = "aarch64-apple-darwin";
+const MAC_X = "x86_64-apple-darwin";
+const winHost = () => WIN;
+const armMacHost = () => MAC_A;
+function closureTargets({ platform, target, hostTriple, treeFor }) {
+  const root = tmp();
+  writeFileSync(join(root, "Cargo.toml"), "[package]\nname=\"x\"\n");
+  const argvs = [];
+  const run = (command, args) => {
+    argvs.push(args);
+    const triple = args[args.indexOf("--target") + 1];
+    return { status: 0, stdout: treeFor ? treeFor(triple) : fixture("tree-clean.txt"), stderr: "" };
+  };
+  const closure = resolveFeatureClosure({ root, triples: () => shippedRustTriples({ platform, target, hostTriple }), run });
+  return { argvs, targets: argvs.map((a) => a[a.indexOf("--target") + 1]), closure };
+}
+
+test("shipped triples: no cargo tree argv ever contains all", () => {
+  const cases = [
+    ["win", {}, winHost], ["win", { winPackage: {} }], ["mac", { macPackage: {} }], ["mac", { macPackage: { universal: false } }, armMacHost],
+    ["ios", {}], ["mac", { targetTriple: "universal-apple-darwin" }], ["win", { cargoTarget: WINARM }],
+  ];
+  for (const [platform, target, hostTriple] of cases) {
+    const { argvs } = closureTargets({ platform, target, hostTriple });
+    assert.ok(argvs.length >= 1);
+    for (const argv of argvs) assert.ok(!argv.includes("all"), JSON.stringify([platform, target]));
+  }
+  assert.throws(() => resolveFeatureClosure({ root: tmp(), run: () => ({ status: 0, stdout: "x" }) }), /manifest-missing/);
+  const root = tmp();
+  writeFileSync(join(root, "Cargo.toml"), "[package]\nname=\"x\"\n");
+  assert.throws(() => resolveFeatureClosure({ root, triples: [], run: () => ({ status: 0, stdout: "x" }) }), /no Rust target triple/);
+});
+
+test("shipped triples: win with hand-written hooks, no updater, win32/x64 host is exactly the host triple (HeardRight)", () => {
+  const { targets } = closureTargets({ platform: "win", target: { prePackage: "pnpm tauri build" }, hostTriple: () => nodeHost("win32", "x64") });
+  assert.deepEqual(targets, [WIN]);
+});
+function nodeHost(platform, arch) { return `${{ x64: "x86_64", arm64: "aarch64" }[arch]}-${platform === "win32" ? "pc-windows-msvc" : "apple-darwin"}`; }
+
+test("shipped triples: winPackage defaults to x86_64 and honours winPackage.triple", () => {
+  assert.deepEqual(shippedRustTriples({ platform: "win", target: { winPackage: {} } }), [WIN]);
+  assert.deepEqual(shippedRustTriples({ platform: "win", target: { winPackage: { triple: WINARM } } }), [WINARM]);
+});
+
+test("shipped triples: macPackage default and universal:true are both slices; universal:false on arm64 is aarch64 only", () => {
+  assert.deepEqual(closureTargets({ platform: "mac", target: { macPackage: {} } }).targets, [MAC_A, MAC_X]);
+  assert.deepEqual(closureTargets({ platform: "mac", target: { macPackage: { universal: true } } }).targets, [MAC_A, MAC_X]);
+  assert.deepEqual(closureTargets({ platform: "mac", target: { macPackage: { universal: false } }, hostTriple: armMacHost }).targets, [MAC_A]);
+  assert.deepEqual(shippedRustTriples({ platform: "mac", target: { macPackage: { triple: MAC_X } } }), [MAC_X]);
+});
+
+test("shipped triples: mac hand-written hooks with both darwin updater platforms run two trees (HeardRight mac)", () => {
+  const target = { package: "x", updater: { artifacts: [{ platform: "darwin-aarch64", file: "a" }, { platform: "darwin-x86_64", file: "b" }, { platform: "windows-x86_64", file: "c" }] } };
+  assert.deepEqual(closureTargets({ platform: "mac", target }).targets, [MAC_A, MAC_X]);
+});
+
+test("shipped triples: an explicit triple beats the recipe and the updater; universal-apple-darwin is two slices", () => {
+  assert.deepEqual(closureTargets({ platform: "mac", target: { targetTriple: "universal-apple-darwin" } }).targets, [MAC_A, MAC_X]);
+  const target = { rustTarget: MAC_X, macPackage: {}, updater: { artifacts: [{ platform: "darwin-aarch64" }] } };
+  assert.deepEqual(shippedRustTriples({ platform: "mac", target }), [MAC_X]);
+});
+
+test("shipped triples: ios is aarch64-apple-ios only", () => {
+  assert.deepEqual(closureTargets({ platform: "ios", target: { prePackage: "xcodebuild" } }).targets, ["aarch64-apple-ios"]);
+});
+
+test("shipped triples: android without a triple, or a host that does not match the platform, is release-switch-target-unknown", () => {
+  assert.throws(() => shippedRustTriples({ platform: "android", target: {}, hostTriple: winHost }), /release-switch-target-unknown.*targets\.android\.cargoTarget/);
+  assert.throws(() => shippedRustTriples({ platform: "mac", target: {}, hostTriple: winHost }), /release-switch-target-unknown/);
+  assert.throws(() => shippedRustTriples({ platform: "win", target: { updater: { artifacts: [{ platform: "darwin-aarch64" }] } }, hostTriple: armMacHost }), /release-switch-target-unknown/);
+  assert.deepEqual(shippedRustTriples({ platform: "android", target: { cargoTarget: "aarch64-linux-android" } }), ["aarch64-linux-android"]);
+});
+
+test("shipped triples: test-mode in only the x86_64 slice's tree fails the gate", () => {
+  const { closure, targets } = closureTargets({ platform: "mac", target: { macPackage: {} }, treeFor: (t) => (t === MAC_X ? fixture("tree-with-test-mode.txt") : fixture("tree-clean.txt")) });
+  assert.deepEqual(targets, [MAC_A, MAC_X]);
+  assert.throws(() => assertNoReleaseSwitches({ treeText: closure.treeText }), /forbidden-feature test-mode/);
+  assert.deepEqual(featureClosureFindings(closureTargets({ platform: "mac", target: { macPackage: {} } }).closure.treeText), []);
 });

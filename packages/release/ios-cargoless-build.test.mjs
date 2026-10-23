@@ -586,7 +586,7 @@ test("the feature closure resolves from the declared manifest outside the app, w
   assert.throws(() => resolveFeatureClosure({ root: app.root, commandTexts: inputs.cargoCommands, run: () => assert.fail("no cargo") }), /release-switch-manifest-missing/);
   // --all-features is carried too.
   const all = [];
-  resolveFeatureClosure({ root: app.root, cargoManifest: inputs.cargoManifest, commandTexts: cargoPrepare("--all-features"), run: (cmd, runArgs) => { all.push(runArgs); return { status: 0, stdout: treeWith(), stderr: "" }; } });
+  resolveFeatureClosure({ root: app.root, triple: "aarch64-apple-ios", cargoManifest: inputs.cargoManifest, commandTexts: cargoPrepare("--all-features"), run: (cmd, runArgs) => { all.push(runArgs); return { status: 0, stdout: treeWith(), stderr: "" }; } });
   assert.ok(all[0].includes("--all-features"));
 });
 
@@ -597,12 +597,12 @@ test("a forbidden release-time feature enabled in prepare is refused by the comm
     const inputs = releaseSwitchInputs({ appRoot: app.root, nativeIos: true, config: app.config, target: app.config.targets.ios, prepare: prepareCommands });
     assert.throws(() => assertNoForbiddenBuildFeatures({ root: app.root, tier: "release/update", cargoManifest: inputs.cargoManifest, commands: inputs.commands }), new RegExp(`${feature}`));
     // The closure layer: the graph cargo resolves for exactly that command carries the feature.
-    const closure = resolveFeatureClosure({ root: app.root, cargoManifest: inputs.cargoManifest, commandTexts: inputs.cargoCommands, run: () => ({ status: 0, stdout: treeWith(feature), stderr: "" }) });
+    const closure = resolveFeatureClosure({ root: app.root, triple: "aarch64-apple-ios", cargoManifest: inputs.cargoManifest, commandTexts: inputs.cargoCommands, run: () => ({ status: 0, stdout: treeWith(feature), stderr: "" }) });
     assert.deepEqual(featureClosureFindings(closure.treeText).map((finding) => finding.rule), [`forbidden-feature ${feature}`]);
   }
   const clean = releaseSwitchInputs({ appRoot: app.root, nativeIos: true, config: app.config, target: app.config.targets.ios, prepare: cargoPrepare("--features", "ffi,metrics") });
   assert.doesNotThrow(() => assertNoForbiddenBuildFeatures({ root: app.root, tier: "release/update", cargoManifest: clean.cargoManifest, commands: clean.commands }));
-  const closure = resolveFeatureClosure({ root: app.root, cargoManifest: clean.cargoManifest, commandTexts: clean.cargoCommands, run: () => ({ status: 0, stdout: treeWith(), stderr: "" }) });
+  const closure = resolveFeatureClosure({ root: app.root, triple: "aarch64-apple-ios", cargoManifest: clean.cargoManifest, commandTexts: clean.cargoCommands, run: () => ({ status: 0, stdout: treeWith(), stderr: "" }) });
   assert.deepEqual(featureClosureFindings(closure.treeText), []);
   // --all-features is itself a finding.
   const all = releaseSwitchInputs({ appRoot: app.root, nativeIos: true, config: app.config, target: app.config.targets.ios, prepare: cargoPrepare("--all-features") });

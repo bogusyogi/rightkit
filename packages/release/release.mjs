@@ -49,7 +49,7 @@ import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs
 import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
-import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure } from "./release-switch-scan.mjs";
+import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure, shippedRustTriples } from "./release-switch-scan.mjs";
 import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
@@ -472,8 +472,8 @@ try {
       cargoManifest: switchInputs.cargoManifest,
       rust: config.releaseSwitches?.rust,
       features: config.releaseSwitches?.features ?? [],
-      // iOS ships one device triple; "all" is refused by the build broker and would pull in desktop-only targets.
-      triple: target.cargoTarget ?? target.targetTriple ?? target.rustTarget ?? (opts.platform === "ios" ? "aarch64-apple-ios" : undefined),
+      // The shipped triples (never "all": the build broker refuses it); evaluated on the raw config target.
+      triples: () => shippedRustTriples({ platform: opts.platform, target: config.targets?.[opts.platform] }),
       commandTexts: closureCommands,
     });
     if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
