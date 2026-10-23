@@ -1,6 +1,6 @@
 # End-to-end testing standard and shared journey harness
 
-Status: proposed 2026-10-21, revision 2 (Sage design; Architect charter D1, significant, objective `best_shape`). Revision 2 resolves Astra review findings 8 to 11 (adapter contract, macOS GUI execution, receipt proof, gate classification); decision numbering D1 to D11 is unchanged and amended in place. Not yet adopted; the lead commits after external adversarial review.
+Status: proposed 2026-10-21, revision 2 (Sage design; Architect charter D1, significant, objective `best_shape`). Revision 2 resolves Astra review findings 8 to 11 (adapter contract, macOS GUI execution, receipt proof, gate classification); decision numbering D1 to D11 is unchanged and amended in place. Not yet adopted; the lead commits after external adversarial review. Execution sections superseded by ADR-0001 (`docs/design/ADR-0001-shared-e2e-runner.md`, rev 3, Sage sign-off conditions applied 2026-10-23); section 8 maps D1 to D11 to what ADR-0001 keeps and changes.
 Origin: Adrian, 2026-10-21: "for tests, each agent does it's own thing and we're getting thousands of small tests whereas we should have end to end tests, is this something that belongs in RK?" The lead answered yes; Adrian said do it now. Tracking issue: bogusyogi/rightkit (title "End-to-end testing standard and shared journey harness (Adrian 2026-10-21)").
 
 ## 1. Evidence (counts are `rg` line counts, 2026-10-21, primary checkouts, vendored `rk-snapshot` excluded)
@@ -230,3 +230,24 @@ Issue #878 stays open until criteria 1 to 4 have evidence.
 - Phase 2 gate enforcement, by separate decision (criterion 5).
 - Doctrine line in section 4, only after approval.
 - macOS over non-GUI SSH launch (stays `unknown`) and the installed-package lane (gap ledger row 56) stay out of scope.
+
+## 8. Relation to ADR-0001 (D1 to D11)
+
+ADR-0001 (`docs/design/ADR-0001-shared-e2e-runner.md`, chosen option C-1) makes `rightkit-qa` the single
+runner and retires the Node journeys orchestrator after an equivalence run. This section records, for each
+decision in section 3, whether ADR-0001 keeps it or changes it. Where this section and ADR-0001 differ,
+ADR-0001 governs. Sections 1 to 7 are unchanged.
+
+| Decision | Under ADR-0001 | What ADR-0001 keeps or changes |
+|---|---|---|
+| D1 journeys are the proof | Kept | A declared journey list run on the real built app in runtime QA mode with isolated data. Required journey IDs are fixed per platform before any scenario runs (ADR item 2). The runner owns the loop (item 4). |
+| D2 extend `rightkit-qa`, no new crate | Kept, owner emphasis | `rightkit-qa` is the one orchestrator (C-1 over C-2). The Node `@rightkit/qa` journeys orchestrator is retired after equivalence (item 13). Its gate, census and map logic remain as reports over `rightkit-qa` evidence. `@rightkit/qa` keeps its CheckStatus mirror, updated for `errored` (ruling D-f). |
+| D3 `journeys.toml` manifest | Partly changed | Journey identity, immutable IDs, `platforms`, `tier`, `data` and `release_critical` are kept. The `runner` and `adapter` fields change: journeys declare `runner = "scenario"`, and app-specific steps are supplied by a per-app step plugin (ADR item 4, ruling D-b). The plugin cannot choose journeys or set verdicts. |
+| D4 runner and adapter contract | Changed | The file-based adapter protocol v1 (the app appends verdict records to `results.jsonl`; `journeys/adapter.rs`) is not the runner-to-app contract. ADR-0001 uses the step-plugin protocol v1: JSON lines over stdio (`hello`, `setup`, `step`, `teardown`, `spawn`, `spawn_result`, `shutdown`), one persistent plugin per scenario inside the job. Worker contract (ruling D-g): the same `rightkit-qa` executable run as `worker <world dir>`. The no-alteration rule (no retry, no name filter, no softened verdict) is kept. |
+| D5 receipt and verdict rules | Kept in substance, with changes | Only `passed` counts, there is no retry to green, and a missing result is `missing` (ruling D-d). `CheckStatus` gains `errored` on the wire (ruling D-f). The build record in ADR item 1 (runner-computed sha256, git tree, lockfile hashes, features, toolchain, broker request id, attested exit) extends the `build` object in D5. Its exact schema is set by the implementation and its review. |
+| D6 CI versus local | Kept | Native-UI journeys still run per host in the logged-in session, and CI runs the other surfaces. ADR-0001 adds that the runner lane never runs inside the broker or `cargo test` (items 1 and 9). The vitest, iOS and Android lanes are deferred to a later wave (item 12). |
+| D7 unit-test classes | Kept and extended | `pure`, `contract` and `pin #issue` stay. ADR item 9 checks tags at edit time, lints `pure` and freezes the untagged count. Unit tests run in the broker under a time cap (item 1). The unit lane must not run journeys (Sage C4). |
+| D8 census, gate, behavior map, coverage owners | Kept as reports | Census, `journeys-map.toml` and the tombstone rules are kept as written here. ADR-0001 adds selection from changed files and a nightly and pre-release full run (item 7), and checks at edit, push and done (item 9). It does not restate the Phase 2 coverage-owner rules, which stay as written until their own decision. |
+| D9 migration of existing tests | Kept, with a bridge | Nothing is deleted without owner validation. ADR item 8 adds a time-boxed bridge for the seven Harness apps: their built test binaries run outside the broker, one worker per test function, with a removal date per app. Deleting wrappers and duplicates is gated on an equivalence run and owner sign-off (Reversibility). |
+| D10 pilot and order | Superseded for the runner | ADR-0001 sets PostRight as the runner pilot (Order steps 0 and 1), not scraperight. The scraperight-first order is not carried into ADR-0001. ADR-0001 does not set app order beyond PostRight. |
+| D11 build through the broker, execute through the session launcher | Kept, made mechanical | Compile in the broker, execute outside it. Qualifying runs refuse `--build` and `--build-ui`, so the broker is the only compile path (ADR item 1). The installed-app lane (item 11) is separate and runs last, on disposable machines. |

@@ -9,8 +9,9 @@ import { spawnSync } from "./background-process.mjs";
 import { admitSourceQa } from "./release-qa-audit.mjs";
 import {
   assertSourceQaAdmission, buildQaReceipt, carriedSourceReceiptPath, dependencyClosure, evaluateRequiredChecks, loadQaFloor,
-  QA_CARRIED_RECEIPT_ENV, sealQaReceipt, sourceIdentity, writeQaReceipt,
+  QA_CARRIED_RECEIPT_ENV, qaReceiptPath, sealQaReceipt, sourceIdentity, writeQaReceipt,
 } from "./release-qa-receipt.mjs";
+import { MANIFEST_TOML, policyWith, writeHardenedReceipt } from "./release-qa-fixtures.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const KEY = "unit-test-key";
@@ -35,6 +36,7 @@ function fixture() {
   sh(root, ["remote", "add", "origin", "https://github.com/bogusyogi/example-app.git"]);
   writeFileSync(path.join(root, "Cargo.lock"), "lock-1\n");
   writeFileSync(path.join(root, ".gitignore"), ".right-release/\n");
+  writeFileSync(path.join(root, "journeys.toml"), MANIFEST_TOML);
   sh(root, ["add", "-A"]); sh(root, ["commit", "-q", "-m", "init"]);
   return root;
 }
@@ -72,15 +74,17 @@ test("signing job with no local receipt records passed from the carried receipt 
   const carry = mkdtempSync(path.join(tmpdir(), "rk-qa-carry-"));
   try {
     const releaseId = `demo-1.0.0-${sourceIdentity(root).commit.slice(0, 8)}`;
-    const receipt = sourceReceipt(root, releaseId);
+    // A hardened receipt (journeys block, approved runner, execution window) as `right-release qa` seals it in the QA job.
+    const { receipt } = writeHardenedReceipt(root, { releaseId });
+    rmSync(qaReceiptPath({ repoRoot: root, releaseId, platform: "mac", stage: "source" }));
     writeQaReceipt(path.join(carry, "source.receipt.json"), receipt);
     const warnings = [];
-    const sealed = admitSourceQa(gateOpts(root, releaseId, { [QA_CARRIED_RECEIPT_ENV]: carry }), { warn: (line) => warnings.push(line) });
+    const sealed = admitSourceQa(gateOpts(root, releaseId, { [QA_CARRIED_RECEIPT_ENV]: carry }), { warn: (line) => warnings.push(line), policy: policyWith() });
     assert.equal(sealed.status, "passed");
     assert.equal(sealed.sourceReceiptDigest, receipt.digest);
     assert.deepEqual(warnings, []);
     // Same job without the carried receipt records missing, as before.
-    const missing = admitSourceQa(gateOpts(root, releaseId, {}), { warn: () => {} });
+    const missing = admitSourceQa(gateOpts(root, releaseId, {}), { warn: () => {}, policy: policyWith() });
     assert.equal(missing.status, "missing");
   } finally { rmSync(root, { recursive: true, force: true }); rmSync(carry, { recursive: true, force: true }); }
 });

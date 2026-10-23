@@ -15,7 +15,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export type EvidenceCheckStatus = 'passed' | 'failed' | 'skipped';
+// Only 'passed' is a pass. 'errored' = no verdict reached; 'missing' = never ran (Rust `NotRun`, ruling D-f).
+export type EvidenceCheckStatus = 'passed' | 'failed' | 'skipped' | 'errored' | 'missing';
 export type EvidenceRunStatus = 'running' | 'passed' | 'failed';
 
 export interface EvidenceArtifact {
@@ -149,6 +150,11 @@ export function writeEvidenceBundle(filePath: string, bundle: EvidenceBundle): v
   // A passing receipt is the one people trust without reading, so it is the one
   // whose artifacts must still be intact at write time.
   if (bundle.status === 'passed') {
+    // Skipped checks may sit in a passing run (optional); failed, errored and missing may not.
+    const bad = bundle.checks.filter((check) => check.status !== 'passed' && check.status !== 'skipped');
+    if (bad.length > 0) {
+      throw new Error(`refusing to write a passing QA receipt that contains non-passing checks: ${bad.map((check) => check.name).join(', ')}`);
+    }
     const drift = verifyEvidenceArtifacts(bundle);
     if (drift.length > 0) {
       throw new Error(

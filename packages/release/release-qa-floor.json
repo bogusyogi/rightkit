@@ -1,9 +1,14 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "runner": "rightkit-qa",
   "stages": {
     "source": { "required": ["smoke.launch", "journey"] },
     "installed": { "required": ["smoke.launch", "journey"] }
+  },
+  "journeys": {
+    "floorId": "journey",
+    "receiptSchema": "rightkit.journeys.receipt/1",
+    "rule": "all-release-critical-passed"
   }
 }

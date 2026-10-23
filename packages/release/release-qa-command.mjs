@@ -9,8 +9,13 @@
 //   qa: { version: "1", config: "rightkit-qa.toml", runner?: "<path to rightkit-qa>",
 //         args?: { source?: [..], installed?: [..] },                                   // {sealedDir} {releaseId} expand; installed also {installedApp} {installedDir} {qaRoot}
 //         installed?: { installDir?: "<abs dir>" },                                       // opt in: mount the sealed DMG (mac) / run the sealed NSIS installer (win, needs RIGHT_RELEASE_QA_ALLOW_INSTALL=1 off CI), see release-qa-installed.mjs
+//         journeys?: { manifest?: "journeys.toml", receipt?: "<path to a rightkit.journeys.receipt/1>", args?: { source?: [..], installed?: [..] } },
 //         checks: { "smoke.launch": ["app.launch"], journey: ["journey.*"] } }          // floor id -> evidence check names
 // Every id in release-qa-floor.json must be mapped; skipped/failed/missing required checks fail the receipt.
+// `qa.journeys` maps the floor's `journey` id to "every release-critical journey required on this platform passed":
+// `rightkit-qa journeys run` is run (or `receipt` is read), the receipt is validated through `rightkit-qa journeys
+// validate-receipt --manifest .. --tree ..`, and the validated summary is sealed into the receipt (release-qa-hardening.mjs).
+// This command refuses to seal from inside a QA run (RIGHT_RELEASE_QA_STAGE set): sealing is never test execution.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -21,6 +26,7 @@ import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { auditMain } from "./release-qa-audit.mjs";
+import { journeyRequiredItem, QA_RUN_ENV, relativePosix, validateJourneysReceipt } from "./release-qa-hardening.mjs";
 import { prepareInstalledArtifacts } from "./release-qa-installed.mjs";
 import { darwinKeyFile, PROTECTED_SECRETS } from "./protected-credentials.mjs";
 import {
@@ -49,6 +55,12 @@ function resolveRunner({ qa, appRoot, platform = process.platform, runner = spaw
   return realpathSync(file);
 }
 
+/** `rightkit-qa journeys run` prints `run <id> (<run dir>)` first; the receipt is `<run dir>/receipt.json`. */
+export function journeysReceiptFromOutput(stdout) {
+  const dir = String(stdout ?? "").match(/^run \S+ \((.+)\)\s*$/m)?.[1];
+  return dir ? path.join(dir, "receipt.json") : null;
+}
+
 export function evidencePathFromOutput(stdout) {
   const line = String(stdout).split(/\r?\n/).reverse().find((item) => item.startsWith("[qa]") && /evidence\s+\S/.test(item));
   return line?.match(/evidence\s+(.+?)\s*$/)?.[1] ?? null;
@@ -56,6 +68,8 @@ export function evidencePathFromOutput(stdout) {
 
 /** Run the QA plan through the runner, then seal a receipt. `deps` are test seams; production uses the defaults. */
 export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo = null, deps = {} }) {
+  if ((deps.env ?? process.env)[QA_RUN_ENV]) throw new Error(`refusing to seal a QA receipt inside a QA run (${QA_RUN_ENV} is set): sealing and signing happen outside test execution`);
+  const executionStartedAt = new Date();
   const gitRunner = deps.gitRunner ?? spawnSync;
   const appRoot = path.dirname(configPath);
   const repoRoot = String(gitRunner("git", ["-C", appRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", windowsHide: true }).stdout ?? "").trim();
@@ -86,6 +100,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   const key = ensureQaReceiptKey({ env: deps.env ?? process.env, credentialStore: deps.credentialStore, provision: deps.provision ?? provisionKeyOnHost });
   const runnerFile = deps.runnerFile ?? resolveRunner({ qa: config.qa, appRoot });
   const runnerSha = sha256File(runnerFile);
+  const journeysConfig = config.qa.journeys ?? null;
   const qaConfig = path.resolve(appRoot, config.qa.config);
   if (!existsSync(qaConfig)) throw new Error(`qa.config does not exist: ${qaConfig}`);
   // #184: opt in with `qa.installed: { installDir? }`. Mounts the sealed DMG (mac) or runs the sealed NSIS installer into a
@@ -98,15 +113,22 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
       deps: { log: (event) => { if (!deps.quiet) console.error(`[qa] ${JSON.stringify(event)}`); } },
     });
   }
-  let run;
+  let run, journeysRun = null;
   try {
     const expand = (value) => String(value).replaceAll("{sealedDir}", sealed?.sealedDir ?? "").replaceAll("{releaseId}", releaseId)
       .replaceAll("{installedApp}", installedQa?.installedApp ?? "").replaceAll("{installedDir}", installedQa?.installedDir ?? "").replaceAll("{qaRoot}", installedQa?.qaRoot ?? "");
+    const runEnv = { ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId, ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedQa?.env ?? {}) };
     const args = ["run", "--config", qaConfig, ...((config.qa.args?.[stage] ?? []).map(expand))];
     run = (deps.spawnRunner ?? spawnSync)(runnerFile, args, {
       cwd: appRoot, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024,
-      env: { ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId, ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedQa?.env ?? {}) },
+      env: runEnv,
     });
+    // Journeys lane: the one release proof (ADR-0001 item 10). A receipt named in the config is read as is.
+    if (journeysConfig && !journeysConfig.receipt) {
+      journeysRun = (deps.spawnJourneys ?? deps.spawnRunner ?? spawnSync)(runnerFile, ["journeys", "run", "--root", appRoot, ...((journeysConfig.args?.[stage] ?? []).map(expand))], {
+        cwd: appRoot, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, env: runEnv,
+      });
+    }
   } finally {
     installedQa?.cleanup();
   }
@@ -118,7 +140,22 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
     evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
     evidence = JSON.parse(bytes.toString("utf8"));
   }
-  const required = evaluateRequiredChecks({ floor, stage, qa: config.qa, evidence });
+  // The runner binary that produced the evidence is the one that was digested; a swap during the run is refused.
+  if (sha256File(runnerFile) !== runnerSha) throw new Error("the rightkit-qa runner changed while QA was running; refusing to seal");
+  let journeys = null;
+  let required = evaluateRequiredChecks({ floor, stage, qa: config.qa, evidence });
+  if (journeysConfig && floor.journeys) {
+    if (journeysRun && !deps.quiet) { process.stdout.write(String(journeysRun.stdout ?? "")); process.stderr.write(String(journeysRun.stderr ?? "")); }
+    const manifestFile = path.resolve(appRoot, journeysConfig.manifest ?? "journeys.toml");
+    const receiptFile = journeysConfig.receipt ? path.resolve(appRoot, String(journeysConfig.receipt)) : journeysReceiptFromOutput(journeysRun?.stdout);
+    const validation = receiptFile
+      ? validateJourneysReceipt({ runnerFile, runnerSha256: runnerSha, receiptFile, manifestFile, manifestRelPath: relativePosix(repoRoot, manifestFile), platform, spawn: deps.spawnValidator ?? deps.spawnRunner ?? spawnSync })
+      : { ok: false, problems: ["rightkit-qa journeys run reported no run directory, so there is no journeys receipt to validate"], block: null };
+    if (!deps.quiet) for (const problem of validation.problems) console.error(`[qa] journeys: ${problem}`);
+    journeys = validation.block;
+    required = required.map((item) => (item.id === floor.journeys.floorId ? journeyRequiredItem({ floorId: item.id, validation }) : item));
+  }
+  const executionFinishedAt = new Date();
   // A passing receipt needs the runner to exit cleanly AND an evidence bundle that itself passed.
   if (run.status !== 0 && evidence) evidence = { ...evidence, status: "failed" };
   const receipt = sealQaReceipt(buildQaReceipt({
@@ -126,7 +163,11 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
     releaseConfigSha256: sha256File(configPath), qa: config.qa, floor, floorDigest,
     policyBundleDigest: deps.policyBundleDigest ?? currentPolicyBundleDigest(deps.floorDir),
     runner: { basename: path.basename(runnerFile).replace(/\.exe$/i, ""), path: runnerFile, sha256: runnerSha },
-    evidence, evidenceSha256, required, artifacts, sourceReceiptDigest,
+    evidence, evidenceSha256, required, artifacts, sourceReceiptDigest, journeys,
+    execution: {
+      startedAt: executionStartedAt.toISOString(), finishedAt: executionFinishedAt.toISOString(),
+      runnerPids: [run.pid, journeysRun?.pid].filter((pid) => Number.isInteger(pid) && pid > 0), sealerPid: process.pid,
+    },
   }), key);
   const file = qaReceiptPath({ repoRoot, releaseId, platform, stage });
   writeQaReceipt(file, receipt);
@@ -140,7 +181,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
 }
 
 function usage(code) {
-  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs] [--carry-to <dir>]\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
+  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs] [--carry-to <dir>]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
   process.exit(code);
 }
 

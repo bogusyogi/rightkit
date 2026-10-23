@@ -335,9 +335,33 @@ let report = run_suite(&cfg, &SuiteOptions { hooks, ..Default::default() })?;
 
 A custom step's return value feeds `[[step.expect]]` and `save` like a built-in's. `util::hmac_sha256` and `util::secret_forms` (with base64 at all three stream alignments) are available to mocks and secret-absence steps.
 
+## Scenario steps, the pool and the step plugin (ADR-0001 Wave 2)
+
+**Engine steps.** `cli` is served by the scenario's persistent `--stdio` sidecar, one per distinct `env` set, started on first use; it is not a process per call. `lifecycle = "cold"` with exactly one `cold_reason` launches a cold process for that command instead (`startup`, `restart`, `recovery`, `role-change`, `store-lock`, `cli-entry`, `non-method`); `cold_reason` without `lifecycle = "cold"` is refused, and an undeclared cold launch makes the scenario `errored`. `cold_cli` is always cold and takes `cold_reason` (or `reason`). `restart` closes the `env` set's sidecar and opens a new one now; `kill` kills it and the next call recovers; both are counted as declared restarts. `parity` (`command` or `args`, `input`, `env`, `timeout_s`) runs one served method cold and in-session and fails on any difference in body, error class or exit code. A scenario that starts more engine processes than it declared (env sets + declared restarts + declared cold launches + store-lock reopens + its own `sidecar_start` sidecars) is `errored`, and so is one whose sidecar failed to start, died or went silent. Every `cli` call's whole stdout and stderr is written to `NN-cli.log` in the scenario's log directory; the evidence also holds `engine-starts.json` (the counts, per env set) and the sidecars' stderr files.
+
+**Built-in steps** (every app gets them; an app plugin may not declare these kinds):
+
+| Kind | What it does |
+|---|---|
+| `http` | One plain-HTTP request to a daemon's public listener or a loopback `port`: `method`, `path`, `headers`, `body` or `form`, `sign = { secret, header, prefix }` (HMAC-SHA256), `timeout_s`. Result `{ status, headers, body, json }`. |
+| `engine_log` | Wait (`wait_s`) for an `event` line, with `fields`, in a JSON-lines log under the data dir; `forbid` substrings and `forbid_held` (every secret the scenario has read or made) must not appear. |
+| `start_daemon`, `stop_daemon` | Run the engine as a long-lived listener (`command`, `args`, `env`, `env_remove`, `port_flag`, `ready_event`, `public_port`, `secret_files`, `hold_files`, `listen_timeout_s`), tracked by the scenario and stopped bounded (stdin closed, then killed if it will not exit). Sets `${<id>_url}`, `${<id>_port}`, `${<id>_pid}`. |
+| `mock_admin` | One request to an `/__admin/` path of the scenario's mock (`id`, `method`, `path`, `body`). An app that registers a custom step of the same name through `SuiteHooks` still gets its own handler first. |
+| `secret_absent` | Prove a `needle` (at least 12 characters) is in no file of the data and log directories, in no saved result named in `vars` and in no `cli` step log, in every encoding in `forms` (`raw`, `base64`, `url`, `hex`, `sha256`). `min_files` and `min_cli_logs` stop an empty scan from passing; a cut log fails the step. |
+
+**The step plugin, protocol v1** (`plugin` module). An app adds its own step kinds with one persistent plugin process per scenario, started by the runner inside the scenario's tracker (so inside the job). JSON lines over its stdio, stdout the protocol channel and nothing else, stderr captured to `plugin.stderr.log`. The runner sends `hello` (the plugin answers with its `name`, `version` and `kinds`: lower-case letters, digits and `_`, none a built-in or a core kind), then `setup`, one `step` per app step (`kind`, `params` with `${...}` resolved, `vars`), `teardown` and `shutdown`. The plugin answers each request with `result { id, value, set_vars }` or `error { id, message }`. While a request is open it may send `spawn` requests (`start`, `write`, `close_stdin`, `read`, `pid`, `wait`, `kill`); the runner starts and tracks the child and answers `spawn_result`. The plugin may not start processes itself. A `verdict`, `status`, `ok` or `pass` field in any message is ignored: a step passes or fails by `result` versus `error` and the scenario's own `expect`. A plugin that crashes, hangs, answers out of order or breaks the protocol makes the step `errored` (the error text carries `[errored]`). Write one with `plugin::StepPlugin` and `plugin::serve_stdio`. A library caller names it in `SuiteOptions::plugin`; there is no `[plugin]` config key yet.
+
+**The pool and `[host]`.** Scenarios run through a work queue, each in a world of its own: a data dir, home and temp dir, a port range, a control socket and token file, and an environment marker (`RIGHTKIT_QA_WORLD`), all under the run's home. There is no app-wide run lock. `[host]` in `rightkit-qa.toml` (unknown keys are refused): `workers` (pool size; absent, it is `min(cores, commit headroom / peak_mb)` capped by a per-OS start value, 2 on Windows and 4 on macOS), `peak_mb` (default 1024), `port_base` (default 41000) and `ports_per_world` (default 16). Port ranges are handed out per run, so two concurrent runs of one app on one host need different `port_base` values. macOS runs with UI scenarios stay serial unless `workers` is set, because they share one fixed QA app bundle.
+
+**Tokens.** A scenario that uses a machine-wide resource declares it: `tokens = ["focus"]` in the scenario file, from `focus`, `audio`, `gui-session`, `clipboard`, `credentials`. The pool never runs two scenarios that name the same token at once; a scenario that names none takes no lock and never waits. An unknown or repeated token refuses the run when the file is loaded.
+
+**Qualifying runs and the worker.** `rightkit-qa run --qualifying` (or `RIGHTKIT_QA_QUALIFYING=1`, or the library's `run_suite_qualifying`) is judged by the strict rule (only `passed` passes; the only tolerated skip is a scenario for another OS) and runs each scenario in a supervised worker: `rightkit-qa worker <world dir>`, the same executable, started by the runner and never by hand. The runner writes `scenario.json`, holds the Job Object (Windows, no breakaway) or process group (Unix) and the deadlines, records every process the scenario left behind before cleanup, and reads `outcome.json`. A worker that exits without an outcome, with a refused one, past a deadline or with a survivor is `errored`. A passing scenario with a survivor is `errored` in a worker even when `kill_orphans` is set. A worker cannot carry in-process `SuiteHooks`, so a qualifying run with hooks is refused: declare the app's steps in its plugin. Ordinary runs stay in this process.
+
+**Windows process cleanup.** `process::run_owned` settles a finished or terminated command through its Job Object first (it lists the members, terminates the job in-process, and gives it two seconds to empty) and runs `taskkill` only for a member that survives that, or when no job exists. A command that left nothing behind spawns no helper at all. Survivors are recorded as orphans before they are stopped.
+
 ## End-to-end journeys
 
-The proof of an app is a declared list of user journeys (`docs/E2E-TESTING-STANDARD.md`). This crate owns the manifest reader, the adapter helper and the receipt validator; the Node mirror lives in `@rightkit/qa`. `journeys run`, `census` and `gate` are not implemented yet.
+The proof of an app is a declared list of user journeys (`docs/E2E-TESTING-STANDARD.md`). This crate owns the manifest reader, the adapter helper and the receipt validator; the Node mirror lives in `@rightkit/qa`. `journeys run` is implemented (see "Running journeys"); `census` and `gate` are not.
 
 **`journeys.toml`** (app root, `journeys::manifest`). `rightkit-qa journeys check [--root DIR]` validates it and `journeys-map.toml` (when present): unique immutable ids, known platforms (`macos`, `windows`, `linux`), surface, tier and runner, entries that exist and stay inside the app root (a glob needs its fixed directory), every `adapter` reference resolving, `data = "real"` refused, a `native-ui` journey declaring a built binary (an adapter with `artifacts`) and not building through vite, vitest or storybook, tombstone shape, and mapping journeys that exist. Unknown keys are errors. Exit 0 only when there is no issue.
 
@@ -359,3 +383,69 @@ rep.end()?;                                   // errors if a selected journey wa
 The adapter exits 0 once the protocol is complete, whether or not journeys failed; the verdict comes from the records. `Isolation::from_env` only attests that `RIGHTKIT_QA_DATA_DIR` is set and absolute; the runner still checks the directory against the guard.
 
 **Receipt** (`journeys::receipt`). `rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>] [--results <file>] [--evidence-root <dir>] [--allow-dirty]` re-checks every rule of D5 and exits 0 only for an accepted pass. `--results` defaults to `results.jsonl` beside the receipt and `--evidence-root` to the receipt's directory. Without the results file, the manifest (`--manifest`, default the path the receipt records) or an evidence root the receipt is refused as incomplete (`results_unverified`), because those inputs cannot be re-checked. The adapter declaration also accepts `path` for `executable` and `artifacts`, and an optional `sources` list for carry-forward (the gate, not implemented, treats a missing list as stale); `manifest::change_hash` computes a tombstone `before_after_sha256` from canonical JSON of `{id, before, after}`. Problem codes: the D5 codes (`zero_executed`, `missing_result`, `duplicate_result`, `unselected_result`, `skipped`, `protocol_violation`, `stale_results`, `artifact_mismatch`, `artifact_not_from_build`, `source_mismatch`, `isolation`, `adapter_exit`) plus `journey_failed`, `empty_journey`, `schema`, `counts_mismatch`, `verdict_mismatch`, `receipt_results_mismatch`, `selection_invalid`, `no_launch`, `results_unverified`, `evidence_mismatch`, `dirty_tree` and `host_mismatch`. In code: `journeys::validate_receipt(&receipt, &ValidateOptions { .. })` returns a `Validation`; accept only when `passed()` is true.
+
+## Running journeys (ADR-0001)
+
+Decision record: `docs/design/ADR-0001-shared-e2e-runner.md` (rev 3). `docs/E2E-TESTING-STANDARD.md` section 8 maps its earlier decisions D1 to D11 to what ADR-0001 keeps and changes.
+
+Wave 2 is implemented: the worker, the pool, the built-in steps, the step plugin and all five steps of `journeys run` (select, source identity, broker build and build record, launch, collect into a validated receipt). Anything still marked **planned** below is not in the code. Open items before the first app pilot are tracked in bogusyogi/rightkit#942. The `--build` and `--build-ui` flags of `rightkit-qa run` remain for non-qualifying runs only; qualifying runs refuse them.
+
+### Build in the broker, run outside it
+
+Compilation and execution are separate lanes that meet only through a build record.
+
+- **Build lane (broker, compile only).** `rightkit-qa journeys run` builds through the broker, then launches and collects outside it; `--prepare-only` stops after the build record. The broker program (`rustright`, or the `rightkit` alias) is found on `PATH`, including `.cmd` shims on Windows, and the record stores the path actually run. The runner issues only `rustright|rightkit cargo build`, `rightkit cargo test --no-run --message-format=json`, or the declared frontend build. It writes a build record: binary paths, sha256 values computed by the runner, git tree, lockfile hashes, features, toolchain, the broker request id and an attested exit of 0. Binaries are copied into a run store that garbage collection does not touch.
+- **Unit lane (broker, `cargo test`).** Pure logic and contracts only, with no process launches. The broker's per-invocation `cargo test` cap (`testRunCapMs`) exists but is off by default; per-repository rollout is RustRight ADR-0002 and Adrian's decision.
+- **Runner lane (outside the broker).** `rightkit-qa run` never invokes cargo. It re-hashes every binary at launch, refuses any binary without the QA marker, and runs in the logged-in session. Qualifying runs refuse `--build`, `--build-ui` and `--kill-orphans`. Today `--build` and `--build-ui` still compile through `build_engine`.
+
+### Worker contract (ruling D-g)
+
+- In a qualifying run each scenario runs in its own worker (ruling D-a). The worker is the same `rightkit-qa` executable, run as `rightkit-qa worker <world dir>`. The contract types are in `worker.rs`, the runner side in `supervise.rs`, the worker side in `worker_main.rs` and `suite::run_spec`.
+- The runner writes `scenario.json` into the world directory: the resolved scenario, the world and the tokens.
+- The worker writes `outcome.json` and exits. It does not decide the verdict of the run.
+- The runner holds the tokens, the Job Object (Windows, breakaway denied, so a breakaway spawn fails) or the process group (Unix), and the deadlines. A hard step or scenario deadline kills the whole tree and marks the scenario `errored`.
+- Each worker gets a fresh sandbox: data, home, temp, ports and control socket.
+- The step plugin (ruling D-b, protocol v1) is one persistent process per scenario, inside the job. It speaks JSON lines over stdio (`hello`, `setup`, `step`, `teardown`, `spawn`, `spawn_result`, `shutdown`). It may not spawn processes itself; a one-off child goes through a `spawn` request, so the runner starts and tracks it. Verdict fields in plugin messages are ignored. Journeys declare it with `runner = "scenario"`.
+
+### Results: CheckStatus values (ruling D-f)
+
+| Status | Wire value | Counts as a pass | State today |
+|---|---|---|---|
+| Passed | `passed` | yes | implemented |
+| Failed | `failed` | no | implemented |
+| Skipped | `skipped` | no | implemented; a skip is never a pass, and a platform the journey does not declare is not selected |
+| Errored | `errored` | no | implemented (a plugin crash, an engine start overrun, a survivor, a worker that did not report) |
+| Not run | `missing` | no | implemented; the name `missing` stays on the wire (ruling D-d) |
+
+Only `passed` counts. There is no retry to green. Wrappers check `status != Passed`, not `status == Failed`. Until the runner lands, a wrapper fails on any status except `Passed` and except a `Skipped` for another platform (`suite.rs:420-447`; W0-B adds a typed skip kind). The Node mirror `packages/qa/src/evidence.ts` changes in the same release as the Rust enum.
+
+### Budgets
+
+Implemented in `budget.rs`: per-step budgets come from the journey's `[budget]`, and once a step kind has at least 20 samples on a host its budget becomes 2 times the p95; overruns warn during the warn window and fail after it. The targets below are the starting values.
+
+- **Warm** is runner time only, from the start of `rightkit-qa run` to the receipt, with a valid build record already present. **Cold** is warm plus the broker build from a warm cargo cache, including queue time. PostRight targets are warm under 1 minute and cold under 5 minutes, measured separately on the Mac and the Dell.
+- Per-host budgets are warnings for about a week, then enforced at about 2 times the p95 per step kind.
+- The unit-test cap is 600 s per invocation to start with, retuned to about 3 times the measured p95 per host after the first week.
+- Reference measurement (postright `ca1839f`, per the Sage verdict on rev 2): PostRight serial on the Dell ran 211 passed and 1 skipped in 304 s, with 411 engine starts for 3,066 cli calls. One process per step had taken 4,323 s.
+- Run store and evidence have a numeric size cap, set by the RightKit owner, with a cleanup after each run. Target directories outside the broker are a violation, not a capped resource.
+- Journeys are selected from changed files through `journeys-map.toml`. A full run happens nightly and before release.
+
+### Tokens, world marker and resources
+
+- **World marker (D-c).** Every scenario process carries an environment world marker. On Unix, survivors are found by a same-user scan (macOS `KERN_PROCARGS2`, Linux `/proc/<pid>/environ`), by the process group and by descent from registered roots; on Windows the Job Object lists every member. Any survivor or unknown owner fails the scenario, and survivors are recorded before cleanup. Limits of the marker scan: macOS hides the environment of Apple platform binaries (`/bin/*`, `/usr/bin/*`) from a same-user reader, so an escaped Apple binary is invisible to it; Linux skips a process the kernel marks non-readable; a process that scrubs its environment is invisible to it. Those are caught only through the process group or descent from a registered root.
+- **Runner-owned processes.** The engine `--stdio` sidecar and the step plugin are registered as runner-owned. A mid-scenario `assert_no_orphans` step does not count them while they are live, but still counts anything they left behind; teardown checks every process strictly. A live UI app, daemon or `spawn` child still fails a mid-scenario `assert_no_orphans`.
+- **Run token (D-e).** The runner issues a per-run token. It is a user-only file in the world directory, and the embedded control server accepts orders only with it (`crates/rightkit-qa/src/embedded/mod.rs`). It stops accidental ad-hoc driving. It is not protection against a same-user process.
+- **Resource tokens.** Shared machine state is declared, not assumed: `focus`, `audio`, `gui-session`, `clipboard` and `credentials`. A scenario that uses one declares it, and `journeys check` refuses undeclared use. `native.lock` is dropped. Under QA isolation an app must trip the guard (`Deny` or the memory store). Only scenarios that need the real OS credential store take the `credentials` token.
+- **Launch rule (planned, bogusyogi/rightkit#942).** A process that carries the world marker and no run token counts as launched from inside `cargo test`, and the runner refuses it. The run token is injected today, but the check is not implemented yet. Bridge-run binaries (the Harness bridge, ADR item 8) carry both and are exempt only until their declared removal date.
+- **Pool.** N = min(cores, free memory and commit divided by the measured peak per scenario). Starts at 2 on the Dell and 4 on the Mac until measured.
+
+### Commands
+
+| Command | State |
+|---|---|
+| `rightkit-qa journeys check`, `journeys validate-receipt` | implemented (see "End-to-end journeys") |
+| `rightkit-qa journeys run [--prepare-only]` | implemented (qualifying; `--help` prints usage and runs nothing) |
+| `rightkit-qa journeys census`, `gate` | planned |
+| `rightkit-qa journeys new`, `record` | planned |
+| `rightkit-qa worker <world dir>` | implemented (started by a qualifying run, never by hand) |
+| explore mode | library only (`journeys::run::RunMode::Explore`): writes no receipt and records a TOML scenario; no CLI flag yet |

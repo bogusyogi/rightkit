@@ -123,6 +123,25 @@ describe('QA evidence bundle', () => {
     expect(() => addEvidenceArtifact(bundle, { name: 'shot', path: second })).toThrow(/already records an artifact named shot/);
   });
 
+  it('never writes an errored or missing check inside a passing receipt, and keeps the wire names', () => {
+    for (const status of ['failed', 'errored', 'missing'] as const) {
+      const bundle = createEvidenceBundle({ app: 'viewright', platform: 'win32', runId: `run-${status}` });
+      addEvidenceCheck(bundle, { name: 'ok', status: 'passed' });
+      addEvidenceCheck(bundle, { name: 'bad', status });
+      finishEvidenceBundle(bundle, { status: 'passed' });
+      const output = path.join(tempRoot(), 'evidence.json');
+      expect(() => writeEvidenceBundle(output, bundle)).toThrow(/non-passing checks: bad/);
+      expect(fs.existsSync(output)).toBe(false);
+      bundle.status = 'failed';
+      writeEvidenceBundle(output, bundle);
+      expect(JSON.parse(fs.readFileSync(output, 'utf8')).checks[1].status).toBe(status);
+    }
+    const optional = createEvidenceBundle({ app: 'viewright', platform: 'win32', runId: 'run-skip' });
+    addEvidenceCheck(optional, { name: 'opt', status: 'skipped' });
+    finishEvidenceBundle(optional, { status: 'passed' });
+    writeEvidenceBundle(path.join(tempRoot(), 'evidence.json'), optional);
+  });
+
   it('will not accept new evidence after the run is finished', () => {
     const bundle = createEvidenceBundle({ app: 'viewright', platform: 'win32', runId: 'run-8' });
     finishEvidenceBundle(bundle, { status: 'passed' });

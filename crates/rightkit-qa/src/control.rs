@@ -3,7 +3,9 @@
 //! The app is launched hidden or backgrounded with `RIGHTKIT_CONTROL_SERVICE` and an
 //! isolated `RIGHTKIT_SUITE_ROOT`, discovers the `rightkit-daemon` record
 //! (`service.json`), and talks over the current-user-only socket / named pipe as the
-//! allowlisted app `right-qa`. No TCP and no shared secrets. The harness never searches for
+//! allowlisted app `right-qa`. No TCP. A launch that names a per-run control token file
+//! ([`token::ENV_AUTH_FILE`], ADR-0001 D-e) attaches the token to every order and the app refuses
+//! orders without it; the environment carries only the file's path. The harness never searches for
 //! processes by name to kill them: it records the pid it started and kills that
 //! tree only.
 use crate::process::{is_alive, kill_tree, Tracker};
@@ -119,9 +121,474 @@ pub struct Control {
     stopped: bool,
     /// The launch asked for a key/focused window (`LaunchSpec::focus`).
     focus_requested: bool,
+    /// The per-run control token of this launch (read from the file it named in
+    /// [`token::ENV_AUTH_FILE`], or minted by [`token::for_launch`]); attached to every order.
+    auth: Option<String>,
+    /// The token file this launch handed the app, the one value of [`token::ENV_AUTH_FILE`] that
+    /// reached it (the world's file on the journeys path). A receipt records this, not a guess.
+    auth_file: PathBuf,
 }
 
 const APP: &str = "right-qa";
+
+/// The per-run control token (ADR-0001 ruling D-e).
+///
+/// The runner mints a random token, writes it into a user-only file (`World::control_token_file`)
+/// and names that file to the app in [`ENV_AUTH_FILE`]. The in-app control server (`embedded`)
+/// reads the file once at start and refuses every order that does not carry the same token in
+/// [`PARAM`]. The environment carries a path, never the token itself, so the credential-key
+/// refusal of `check_env` still holds. Threat model: this stops accidental ad-hoc driving of a
+/// QA app (a stray `right-ctl`, a second runner), it is not protection against another process of
+/// the same user, who can read the file.
+///
+/// Fail closed (ADR-0001 item 7): a server launched without [`ENV_AUTH_FILE`] refuses every order,
+/// since no token can be required of a caller; a server launched with it but unable to use the file
+/// does not start. A launch that names no file mints one ([`for_launch`]), so the app it starts still
+/// accepts its own orders.
+pub mod token {
+    use crate::util::{err, Error, Result};
+    use serde_json::{json, Value};
+    use std::path::{Path, PathBuf};
+
+    /// Launcher-set variable naming the user-only token file: the same variable `pool::world_env`
+    /// puts in every process environment of a scenario world (`pool::ENV_CONTROL_TOKEN_FILE`), so a
+    /// launch that passes the world's environment on needs no translation. Its value is a path,
+    /// never the token, which is why `check_env` lets this one key through its credential-name
+    /// refusal.
+    pub const ENV_AUTH_FILE: &str = "RIGHTKIT_QA_CONTROL_TOKEN_FILE";
+    /// Request parameter that carries the token on every order.
+    pub const PARAM: &str = "rkAuth";
+    /// Error code of a refused order.
+    pub const REFUSED_CODE: &str = "unauthorized";
+    /// Token length in lowercase hex characters (32 random bytes).
+    pub const HEX_LEN: usize = 64;
+
+    /// Why an order was refused.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Refusal {
+        /// The order carries no token.
+        Missing,
+        /// The order carries a token that is not this run's.
+        Mismatch,
+        /// The server names no token file, so it can authorize no order (fail closed).
+        Unnamed,
+    }
+
+    impl Refusal {
+        pub fn message(self) -> &'static str {
+            match self {
+                Refusal::Missing => {
+                    "this control server requires the per-run control token; the order carries none"
+                }
+                Refusal::Mismatch => "the order's control token is not this run's token",
+                Refusal::Unnamed => {
+                    "this control server names no control token file (RIGHTKIT_QA_CONTROL_TOKEN_FILE); it refuses every order"
+                }
+            }
+        }
+    }
+
+    fn well_formed(t: &str) -> bool {
+        t.len() == HEX_LEN
+            && t.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }
+
+    /// A fresh token: 32 bytes from the operating system's random source, as lowercase hex.
+    pub fn mint() -> Result<String> {
+        let mut b = [0u8; 32];
+        getrandom::fill(&mut b)
+            .map_err(|e| Error(format!("no operating system random source: {e}")))?;
+        Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+    }
+
+    /// Mint a token and write it to `path` as an owner-only file (the temp inode is owner-only from
+    /// creation, so the token is never visible with a broader mode). Returns the token. The world
+    /// directory must already exist.
+    pub fn write_file(path: &Path) -> Result<String> {
+        let t = mint()?;
+        rightkit_fs::private::write_private_file(path, t.as_bytes()).map_err(|e| {
+            Error(format!(
+                "cannot write the control token file {}: {e}",
+                path.display()
+            ))
+        })?;
+        rightkit_fs::private::verify_owner_only(path).map_err(|e| {
+            Error(format!(
+                "the control token file {} is not owner-only after writing: {e}",
+                path.display()
+            ))
+        })?;
+        Ok(t)
+    }
+
+    /// Read the token from `path`. Fails closed: a relative path, a path with `.` or `..`, a file
+    /// that is not owner-only and owned by this user, or content that is not a 64-hex token.
+    pub fn read_file(path: &Path) -> Result<String> {
+        if !path.is_absolute()
+            || path.components().any(|c| {
+                matches!(
+                    c,
+                    std::path::Component::ParentDir | std::path::Component::CurDir
+                )
+            })
+        {
+            return err(format!(
+                "the control token file must be an absolute path without . or .. components: {}",
+                path.display()
+            ));
+        }
+        rightkit_fs::private::verify_owner_only(path).map_err(|e| {
+            Error(format!(
+                "the control token file {} is not usable: {e}",
+                path.display()
+            ))
+        })?;
+        let text = std::fs::read_to_string(path).map_err(|e| {
+            Error(format!(
+                "cannot read the control token file {}: {e}",
+                path.display()
+            ))
+        })?;
+        let t = text.trim();
+        if !well_formed(t) {
+            return err(format!(
+                "the control token file {} does not hold a {HEX_LEN}-character lowercase hex token",
+                path.display()
+            ));
+        }
+        Ok(t.to_string())
+    }
+
+    /// Server side: the token this process must require, from the value of [`ENV_AUTH_FILE`].
+    /// `Ok(None)` when it is unset or blank (no token is required); an error when it is set and the
+    /// file cannot be used, so the server never starts open by accident.
+    pub fn load(env_value: Option<&str>) -> Result<Option<String>> {
+        match env_value.map(str::trim).filter(|v| !v.is_empty()) {
+            None => Ok(None),
+            Some(p) => read_file(Path::new(p)).map(Some),
+        }
+    }
+
+    /// [`load`] for this process's environment.
+    pub fn from_env() -> Result<Option<String>> {
+        load(std::env::var(ENV_AUTH_FILE).ok().as_deref())
+    }
+
+    /// Client side: `params` with the token attached under [`PARAM`]. `None` leaves them alone.
+    pub fn with_token(mut params: Value, token: Option<&str>) -> Value {
+        let Some(t) = token else { return params };
+        if params.is_null() {
+            params = json!({});
+        }
+        if let Value::Object(m) = &mut params {
+            m.insert(PARAM.into(), Value::String(t.to_string()));
+        }
+        params
+    }
+
+    fn eq_constant_time(a: &[u8], b: &[u8]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
+    }
+
+    /// The token file a launch names (N2): the workspace's value first (the world's file on the
+    /// journeys path, where `launch_env` copies the workspace environment), then the caller's
+    /// `spec_env`. `None` means the launch mints one. Only the path is compared, never read here.
+    pub fn named_for_launch(
+        ws_env: &std::collections::BTreeMap<String, String>,
+        spec_env: &[(String, String)],
+    ) -> Option<PathBuf> {
+        // A named value is never blanked here: an empty name reaches `read_file` and fails closed.
+        ws_env.get(ENV_AUTH_FILE).map(PathBuf::from).or_else(|| {
+            spec_env
+                .iter()
+                .rev()
+                .find(|(k, _)| k == ENV_AUTH_FILE)
+                .map(|(_, v)| PathBuf::from(v))
+        })
+    }
+
+    /// Leave exactly one [`ENV_AUTH_FILE`] entry in `env`, naming `path`.
+    pub fn set_one(env: &mut Vec<(String, String)>, path: &Path) {
+        env.retain(|(k, _)| k != ENV_AUTH_FILE);
+        env.push((
+            ENV_AUTH_FILE.to_string(),
+            path.to_string_lossy().into_owned(),
+        ));
+    }
+
+    /// Client side, one launch: the token it holds and the file it names to the app (ADR-0001 D-e and
+    /// item 7). A launch that names a token file (`named`) reads it, failing closed on an unusable
+    /// file. A launch that names none (the legacy, non-journeys path) mints a token into `run_root` as
+    /// `control-<stem>.token` and names that file itself. Either way the launch holds a token.
+    pub fn for_launch(
+        named: Option<&Path>,
+        run_root: &Path,
+        stem: &str,
+    ) -> Result<(String, PathBuf)> {
+        if let Some(path) = named {
+            return Ok((read_file(path)?, path.to_path_buf()));
+        }
+        if !run_root.is_absolute() {
+            return err(format!(
+                "the run root must be an absolute path to hold a control token: {}",
+                run_root.display()
+            ));
+        }
+        let path = run_root.join(format!("control-{stem}.token"));
+        let t = write_file(&path)?;
+        Ok((t, path))
+    }
+
+    /// Server side: does this order carry the token the server requires? `expected` `None` means no
+    /// token file was named, and every order is refused (fail closed, ADR-0001 item 7). The
+    /// comparison does not stop at the first differing byte.
+    pub fn authorize(expected: Option<&str>, params: &Value) -> std::result::Result<(), Refusal> {
+        let Some(want) = expected else {
+            return Err(Refusal::Unnamed);
+        };
+        match params.get(PARAM).and_then(Value::as_str) {
+            None => Err(Refusal::Missing),
+            Some(got) if eq_constant_time(got.as_bytes(), want.as_bytes()) => Ok(()),
+            Some(_) => Err(Refusal::Mismatch),
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// `{ PARAM: v }`.
+        fn keyed(v: Value) -> Value {
+            let mut m = serde_json::Map::new();
+            m.insert(PARAM.into(), v);
+            Value::Object(m)
+        }
+
+        fn dir(tag: &str) -> std::path::PathBuf {
+            let d =
+                std::env::temp_dir().join(format!("rkqa-token-{tag}-{}", crate::util::new_id()));
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        }
+
+        #[test]
+        fn minted_tokens_are_64_lowercase_hex_and_differ() {
+            let (a, b) = (mint().unwrap(), mint().unwrap());
+            assert!(well_formed(&a) && well_formed(&b));
+            assert_ne!(a, b);
+        }
+
+        #[test]
+        fn a_written_token_file_reads_back_and_is_owner_only() {
+            let d = dir("rw");
+            let f = d.join("control.token");
+            let t = write_file(&f).unwrap();
+            assert_eq!(read_file(&f).unwrap(), t);
+            assert!(rightkit_fs::private::is_owner_only(&f).unwrap());
+            // load() takes the file named by the environment value
+            assert_eq!(load(Some(f.to_str().unwrap())).unwrap(), Some(t));
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        #[test]
+        fn an_unset_or_blank_variable_requires_no_token_but_a_bad_file_is_an_error() {
+            assert_eq!(load(None).unwrap(), None);
+            assert_eq!(load(Some("")).unwrap(), None);
+            assert_eq!(load(Some("   ")).unwrap(), None);
+            let d = dir("bad");
+            // missing file, relative path, `..` path, short content: the server must not start open
+            assert!(load(Some(d.join("absent.token").to_str().unwrap())).is_err());
+            assert!(load(Some("control.token")).is_err());
+            let dotted = d.join("sub").join("..").join("x.token");
+            assert!(load(Some(dotted.to_str().unwrap())).is_err());
+            let short = d.join("short.token");
+            rightkit_fs::private::write_private_file(&short, b"abc123").unwrap();
+            assert!(read_file(&short).is_err());
+            let upper = d.join("upper.token");
+            rightkit_fs::private::write_private_file(&upper, "A".repeat(HEX_LEN).as_bytes())
+                .unwrap();
+            assert!(
+                read_file(&upper).is_err(),
+                "uppercase is not the minted form"
+            );
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        #[cfg(unix)]
+        #[test]
+        fn a_world_readable_token_file_is_refused() {
+            use std::os::unix::fs::PermissionsExt;
+            let d = dir("mode");
+            let f = d.join("control.token");
+            write_file(&f).unwrap();
+            std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(read_file(&f).is_err());
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        #[test]
+        fn a_token_less_order_is_refused_and_a_wrong_one_too() {
+            let want = "a".repeat(HEX_LEN);
+            assert_eq!(
+                authorize(Some(&want), &json!({"x": 1})),
+                Err(Refusal::Missing)
+            );
+            assert_eq!(authorize(Some(&want), &json!({})), Err(Refusal::Missing));
+            assert_eq!(authorize(Some(&want), &Value::Null), Err(Refusal::Missing));
+            assert_eq!(
+                authorize(Some(&want), &keyed(json!(7))),
+                Err(Refusal::Missing),
+                "a non-string token is no token"
+            );
+            assert_eq!(
+                authorize(Some(&want), &keyed(json!("b".repeat(HEX_LEN)))),
+                Err(Refusal::Mismatch)
+            );
+            assert_eq!(
+                authorize(Some(&want), &keyed(json!("a"))),
+                Err(Refusal::Mismatch),
+                "a prefix is not the token"
+            );
+            assert_eq!(authorize(Some(&want), &keyed(json!(want.clone()))), Ok(()));
+        }
+
+        #[test]
+        fn no_token_file_named_refuses_every_order_even_one_that_carries_a_token() {
+            // ADR-0001 item 7: a server with no token file (`None`) refuses everything, fail closed.
+            let t = "a".repeat(HEX_LEN);
+            for params in [json!({}), json!({"x": 1}), Value::Null] {
+                assert_eq!(authorize(None, &params), Err(Refusal::Unnamed));
+            }
+            assert_eq!(
+                authorize(None, &keyed(json!(t.clone()))),
+                Err(Refusal::Unnamed),
+                "a token cannot be checked against nothing"
+            );
+            // and the client refuses to send an order from a launch holding no token
+            let e = crate::control::require_order_token(None, "click").unwrap_err();
+            assert!(e.0.contains("click") && e.0.contains("refused"), "{e}");
+            assert!(crate::control::require_order_token(Some(&t), "click").is_ok());
+        }
+
+        #[test]
+        fn a_legacy_launch_mints_a_token_into_the_run_root_and_the_app_accepts_it() {
+            // No token file named: the launch mints one, writes it owner-only, and the server it
+            // starts reads that same file and accepts the launch's own orders.
+            let d = dir("legacy");
+            let (t, path) = for_launch(None, &d, "abcd1234").unwrap();
+            assert_eq!(path, d.join("control-abcd1234.token"));
+            assert!(well_formed(&t));
+            assert!(rightkit_fs::private::is_owner_only(&path).unwrap());
+            // the app reads the file the launch exported (the env value is the path)
+            let served = load(Some(path.to_str().unwrap())).unwrap();
+            assert_eq!(served.as_deref(), Some(t.as_str()));
+            let order = with_token(json!({"x": 1}), Some(&t));
+            assert_eq!(authorize(served.as_deref(), &order), Ok(()));
+            // and a token-less order from the same launch is refused
+            assert_eq!(
+                authorize(served.as_deref(), &json!({"x": 1})),
+                Err(Refusal::Missing)
+            );
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        #[test]
+        fn a_named_token_file_is_read_and_a_relative_run_root_is_refused() {
+            let d = dir("named");
+            let f = d.join("world-control.token");
+            let written = write_file(&f).unwrap();
+            let (t, path) = for_launch(Some(&f), &d, "ffffffff").unwrap();
+            assert_eq!(t, written);
+            assert_eq!(path, f);
+            // a named file that is missing refuses the launch (no fallback to a minted token)
+            assert!(for_launch(Some(&d.join("absent.token")), &d, "ffffffff").is_err());
+            // a legacy launch needs an absolute run root to name the file to the app
+            assert!(for_launch(None, Path::new("relative-root"), "ffffffff").is_err());
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        #[test]
+        fn the_workspace_names_the_world_token_file_before_the_caller_and_a_mint_only_when_neither_does(
+        ) {
+            // N2: the journeys launch copies the world's file into the workspace environment; that
+            // file wins over a caller's value, and nothing is minted while one of them names a file.
+            let world = PathBuf::from(if cfg!(windows) {
+                r"C:\w\control.token"
+            } else {
+                "/w/control.token"
+            });
+            let other = PathBuf::from(if cfg!(windows) {
+                r"C:\o\other.token"
+            } else {
+                "/o/other.token"
+            });
+            let mut ws_env = std::collections::BTreeMap::new();
+            ws_env.insert(
+                ENV_AUTH_FILE.to_string(),
+                world.to_string_lossy().into_owned(),
+            );
+            let spec = vec![(
+                ENV_AUTH_FILE.to_string(),
+                other.to_string_lossy().into_owned(),
+            )];
+            assert_eq!(named_for_launch(&ws_env, &spec), Some(world.clone()));
+            assert_eq!(named_for_launch(&Default::default(), &spec), Some(other));
+            assert_eq!(named_for_launch(&Default::default(), &[]), None);
+        }
+
+        #[test]
+        fn the_app_is_handed_exactly_one_token_file_value() {
+            // N2: launch_env copies the workspace value; the launch replaces it, never appends.
+            let mut env = vec![
+                ("HOME".to_string(), "/h".to_string()),
+                (ENV_AUTH_FILE.to_string(), "/w/control.token".to_string()),
+            ];
+            let minted = PathBuf::from("/r/control-abcd1234.token");
+            set_one(&mut env, &minted);
+            let values: Vec<&String> = env
+                .iter()
+                .filter(|(k, _)| k == ENV_AUTH_FILE)
+                .map(|(_, v)| v)
+                .collect();
+            assert_eq!(values.len(), 1);
+            assert_eq!(values[0], &minted.to_string_lossy().into_owned());
+            assert!(env.iter().any(|(k, v)| k == "HOME" && v == "/h"));
+        }
+
+        #[test]
+        fn a_wrong_token_is_refused_by_the_minted_launch_token() {
+            let d = dir("wrong");
+            let (t, _) = for_launch(None, &d, "00000000").unwrap();
+            let other = "b".repeat(HEX_LEN);
+            assert_ne!(other, t);
+            let wrong = with_token(json!({}), Some(&other));
+            assert_eq!(authorize(Some(&t), &wrong), Err(Refusal::Mismatch));
+            let _ = std::fs::remove_dir_all(&d);
+        }
+
+        #[test]
+        fn the_client_attaches_the_token_to_every_order() {
+            let t = "c".repeat(HEX_LEN);
+            let p = with_token(json!({"selector": "#x"}), Some(&t));
+            assert_eq!(p[PARAM], json!(t));
+            assert_eq!(p["selector"], json!("#x"));
+            let p = with_token(Value::Null, Some(&t));
+            assert_eq!(p[PARAM], json!(t));
+            let stale = keyed(json!("d".repeat(HEX_LEN)));
+            assert_eq!(
+                with_token(stale, Some(&t))[PARAM],
+                json!(t),
+                "the session's token wins"
+            );
+            assert_eq!(with_token(json!({"k": 1}), None), json!({"k": 1}));
+            assert_eq!(
+                authorize(Some(&t), &with_token(json!({}), Some(&t))),
+                Ok(())
+            );
+        }
+    }
+}
 
 fn svc_err(e: ServiceError) -> Error {
     Error(e.to_string())
@@ -163,6 +630,18 @@ impl Worker {
             }
         });
         Worker { jobs }
+    }
+}
+
+/// Client side of ADR-0001 item 7: an order is refused, and never sent, from a launch that holds no
+/// control token. [`token::for_launch`] gives every launch one, so this is the last check before the
+/// wire, not the first.
+fn require_order_token(auth: Option<&str>, method: &str) -> Result<()> {
+    match auth {
+        Some(_) => Ok(()),
+        None => err(format!(
+            "{method}: refused, this launch holds no control token (RIGHTKIT_QA_CONTROL_TOKEN_FILE was never named)"
+        )),
     }
 }
 
@@ -229,11 +708,13 @@ fn bounded_connect_health(
     suite: &Suite,
     service: &str,
     timeout: Duration,
+    auth: Option<&str>,
 ) -> std::result::Result<Arc<Client>, String> {
     let (s, sv) = (suite.clone(), service.to_string());
+    let auth = auth.map(str::to_string);
     match bounded(timeout, move || {
         let c = Client::connect(&s, &sv, APP).map_err(|e| format!("connect: {e}"))?;
-        c.call("health", json!({}))
+        c.call("health", token::with_token(json!({}), auth.as_deref()))
             .map_err(|e| format!("health: {e}"))?;
         Ok(Arc::new(c))
     }) {
@@ -764,7 +1245,12 @@ mod windows_focus;
 /// harness-owned HOME/temp/profile paths are added separately.
 fn check_env(env: &[(String, String)]) -> Result<()> {
     for (k, _) in env {
+        // The one allowed key that names a token: its value is the path of the per-run control
+        // token file (D-e), never the token. Every other key is judged as before.
         let up = k.to_ascii_uppercase();
+        if k == token::ENV_AUTH_FILE {
+            continue;
+        }
         if [
             "TOKEN",
             "SECRET",
@@ -974,6 +1460,11 @@ fn launch_env(
         if spec.mode != Mode::Visible { "1" } else { "0" }.into(),
     );
     for (key, value) in &spec.env {
+        // The token file lives in the world directory, not the app home; `launch` validates and
+        // adds it after the guard has judged the rest of the environment.
+        if key == token::ENV_AUTH_FILE {
+            continue;
+        }
         let path = Path::new(value);
         if path.is_absolute()
             && (!path.starts_with(&ws.home)
@@ -1086,11 +1577,22 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     let log_dir = ws.home.join(".rightkit-qa");
     fs::create_dir_all(&log_dir)?;
     let raw_log = log_dir.join(format!("app-{}.log", &id[..8]));
-    let env = launch_env(spec, ws, &suite, &service)?;
+    let mut env = launch_env(spec, ws, &suite, &service)?;
     guard.check_dir(&ws.home)?;
     guard.check_env(&env)?;
     // The app must be told its isolated data directory; otherwise it resolves its own default.
     crate::userdata::check_app_data_dir(&guard, &spec.binary, &env)?;
+    // D-e: a launch that names a control token file reads the token now (fail closed: an unusable
+    // file refuses the launch) and hands the app only the path.
+    // ADR-0001 item 7: a launch that names no token file (the legacy path) mints one into the run
+    // root, so every launch holds a token and names its file to the app. Nothing is sent without one.
+    // N2: the world's file travels in `ws.env` (journeys), so it is named before `spec.env`; a mint
+    // happens only when neither names one.
+    let named = token::named_for_launch(&ws.env, &spec.env);
+    let (auth, auth_file) = token::for_launch(named.as_deref(), &ws.root, &id[..8])?;
+    // Exactly one value of the token file reaches the app: whatever `launch_env` copied from the
+    // workspace is replaced, never duplicated (a `open --env` pair per value would race).
+    token::set_one(&mut env, &auth_file);
     let frontmost_before = frontmost();
     let focus = FocusMonitor::start(spec.mode != Mode::Visible);
     let deadline = Instant::now() + spec.startup_timeout;
@@ -1123,12 +1625,19 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
             .unwrap_or(0),
         stopped: false,
         focus_requested: spec.focus,
+        auth: Some(auth),
+        auth_file: auth_file.clone(),
     };
     let mut last_error: String;
     loop {
         // Each attempt is bounded by the startup deadline: a hung host must not defeat it.
         let left = deadline.saturating_duration_since(Instant::now());
-        match bounded_connect_health(&suite, &service, left.min(Duration::from_secs(5))) {
+        match bounded_connect_health(
+            &suite,
+            &service,
+            left.min(Duration::from_secs(5)),
+            control.auth.as_deref(),
+        ) {
             Ok(c) => {
                 control.endpoint = c.record().endpoint.clone();
                 *control.client.lock().unwrap() = Some(c);
@@ -1369,6 +1878,7 @@ impl Control {
     }
 
     fn rpc_within(&self, method: &str, params: Value, request_timeout: Duration) -> Result<Value> {
+        require_order_token(self.auth.as_deref(), method)?;
         let replayable = matches!(method, "health" | "dom" | "ax" | "screenshot" | "move");
         let mut g = self.client.lock().unwrap();
         for attempt in 0..2 {
@@ -1389,7 +1899,7 @@ impl Control {
                 &client,
                 &self.worker,
                 method,
-                params.clone(),
+                token::with_token(params.clone(), self.auth.as_deref()),
                 request_timeout,
             ) {
                 Ok(v) => return Ok(v),
@@ -1491,6 +2001,49 @@ impl Control {
     /// True when this launch asked for a key/focused window, so the never-frontmost proof does not apply.
     pub fn focus_requested(&self) -> bool {
         self.focus_requested
+    }
+    /// True when this launch handed the app a per-run control token (D-e) and attaches it to every
+    /// order. It does not prove the app enforces it: see [`Control::probe_token_required`].
+    pub fn token_attached(&self) -> bool {
+        self.auth.is_some()
+    }
+    /// The token file this launch handed the app (the only [`token::ENV_AUTH_FILE`] value it received).
+    pub fn control_token_file(&self) -> &Path {
+        &self.auth_file
+    }
+    /// Prove the app enforces the control token: a fresh connection as the allowlisted app sends a
+    /// token-less `health`, and the server must refuse it. Returns the refusal code. An app built
+    /// before the token check answers instead, which is an error here, never a pass. Errors when this
+    /// launch attached no token.
+    pub fn probe_token_required(&self) -> Result<String> {
+        if self.auth.is_none() {
+            return err("this launch named no control token file, so there is no token to require");
+        }
+        let (suite, service, timeout) = (
+            self.suite.clone(),
+            self.service.clone(),
+            self.request_timeout,
+        );
+        let reply = bounded(
+            timeout,
+            move || -> std::result::Result<Value, ServiceError> {
+                let client = Client::connect(&suite, &service, APP)?;
+                client.call("health", json!({}))
+            },
+        );
+        match reply {
+            None => err(format!(
+                "token-less probe: no reply within {}ms",
+                timeout.as_millis()
+            )),
+            Some(Ok(v)) => err(format!(
+                "the control server answered a token-less order ({v}): the per-run token is not enforced; the app predates the token check and must re-pin rightkit-qa"
+            )),
+            Some(Err(e)) if e.code == token::REFUSED_CODE => Ok(e.code),
+            Some(Err(e)) => err(format!(
+                "token-less probe failed for a reason other than refusal: {e}"
+            )),
+        }
     }
     /// Prove the allowlist: an app that is not on it is refused at hello. Returns the error code.
     pub fn unlisted_app_probe(&self) -> Result<String> {

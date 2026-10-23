@@ -147,7 +147,7 @@ test("a changed QA floor or policy bundle invalidates existing receipts", () => 
     receiptFor(root);
     assert.throws(() => gate(root, manifestFor(root), { policyBundleDigest: "e".repeat(64) }), /policy bundle changed/);
     const floorDir = mkdtempSync(path.join(tmpdir(), "rk-qa-floor-"));
-    const weaker = { ...JSON.parse(readFileSync(path.join(here, QA_FLOOR_FILE), "utf8")), version: 2 };
+    const weaker = { ...JSON.parse(readFileSync(path.join(here, QA_FLOOR_FILE), "utf8")), version: floorFixture().floor.version + 1 };
     writeFileSync(path.join(floorDir, QA_FLOOR_FILE), JSON.stringify(weaker));
     assert.throws(() => gate(root, manifestFor(root), { floorDir }), /QA floor changed/);
   } finally { rmSync(root, { recursive: true, force: true }); }

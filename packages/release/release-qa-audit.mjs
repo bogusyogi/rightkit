@@ -1,14 +1,18 @@
-// Warn-and-record QA admission plus the ad hoc `right-release qa audit` scan.
+// QA admission plus the ad hoc `right-release qa audit` scan.
 //
-// A missing or invalid QA receipt never blocks a release. The gates in release-qa-receipt.mjs still verify
-// receipts exactly as before; this module turns a refusal into a loud stderr warning and a durable record
+// Per-app policy (qa-admission-policy.json, release-qa-policy.mjs): `warn` is the default, `refuse` is switched on
+// per app once the app has earned it. The gates in release-qa-receipt.mjs verify receipts, and the hardening in
+// release-qa-hardening.mjs re-checks platform, release id, approved runner digest, every release-critical journey
+// and the signing/test separation. In warn mode a refusal becomes a loud stderr warning and a durable record
 // (the sealed manifest `qa` field for the source stage, `state/<releaseId>/<platformDir>/qa-installed.json`
-// for the installed stage). `qa audit` reads those records so a weekly run can flag released builds
-// that lack passing QA.
+// for the installed stage). In refuse mode the same refusal throws a QaAdmissionError and nothing is sealed or
+// published. `qa audit` reads the records so a weekly run can flag released builds that lack passing QA.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { assertInstalledQaAdmission, assertSourceQaAdmission, qaReceiptPath, readQaReceipt } from "./release-qa-receipt.mjs";
+import { hardenQaReceipt } from "./release-qa-hardening.mjs";
+import { admissionModeFor, loadAdmissionPolicy } from "./release-qa-policy.mjs";
+import { assertInstalledQaAdmission, assertSourceQaAdmission, loadQaFloor, QaAdmissionError, qaReceiptPath, readQaReceipt } from "./release-qa-receipt.mjs";
 
 const platformDirOf = (platform) => (platform === "win" ? "windows" : platform);
 
@@ -22,19 +26,40 @@ export function formatQaWarning({ status, reason, command }) {
   return `[right-release] QA warning: ${reason}; release continues and is recorded as QA ${status} for audit.${command ? ` Run: ${command}` : ""}`;
 }
 
-function admit(check, { warn = (line) => console.error(line) } = {}) {
+/** App name of a source release id `<app>-<version>-<commit8>` (callers should pass `app` explicitly). */
+export const appOfReleaseId = (releaseId) => String(releaseId).match(/^(.+?)-\d+\.\d+\.\d+(?:[-+].*)?-[0-9a-f]{8}$/)?.[1] ?? String(releaseId);
+
+function admit(check, { warn = (line) => console.error(line), mode = { mode: "warn" }, app } = {}) {
   try { return { status: "passed", result: check() }; }
   catch (error) {
     if (error?.code !== "QA_ADMISSION_REFUSED") throw error;
     const outcome = { status: refusalStatus(error), reason: refusalReason(error), command: error.command ?? null };
+    if (mode.mode === "refuse") {
+      throw new QaAdmissionError(`QA admission refused for ${app} (policy refuse since ${mode.since} by ${mode.set_by}): ${outcome.reason}`, { command: outcome.command ?? undefined });
+    }
     warn(formatQaWarning(outcome));
     return outcome;
   }
 }
 
+function policyContext(opts, hooks = {}) {
+  const loaded = hooks.policy ?? loadAdmissionPolicy({ dir: hooks.policyDir, env: opts.env });
+  const app = opts.app ?? opts.manifest?.app ?? appOfReleaseId(opts.releaseId ?? opts.manifest?.releaseId);
+  return { loaded, app, mode: admissionModeFor(loaded.policy, app) };
+}
+
+function hardening(stage, opts, loaded, hooks) {
+  const releaseId = opts.releaseId ?? opts.manifest?.releaseId;
+  return (receipt) => hardenQaReceipt({
+    receipt, stage, platform: opts.platform, releaseId, policy: loaded.policy, floor: loadQaFloor(opts.floorDir).floor,
+    repoRoot: opts.repoRoot, configName: opts.configName, gitRunner: opts.gitRunner, env: opts.env ?? process.env, now: hooks.now, pid: hooks.pid, signingStartedAt: hooks.signingStartedAt,
+  });
+}
+
 /** Build stage. Returns the `qa` block sealed into the release manifest. */
-export function admitSourceQa(opts, hooks) {
-  const outcome = admit(() => assertSourceQaAdmission(opts), hooks);
+export function admitSourceQa(opts, hooks = {}) {
+  const { loaded, app, mode } = policyContext(opts, hooks);
+  const outcome = admit(() => assertSourceQaAdmission({ ...opts, afterVerify: hardening("source", opts, loaded, hooks) }), { ...hooks, mode, app });
   if (outcome.status === "passed") return { status: "passed", sourceReceiptDigest: outcome.result.digest, floorDigest: outcome.result.floorDigest };
   return { status: outcome.status, reason: outcome.reason };
 }
@@ -42,9 +67,10 @@ export function admitSourceQa(opts, hooks) {
 export const installedQaRecordPath = ({ repoRoot, releaseId, platform }) =>
   path.join(repoRoot, ".right-release", "state", releaseId, platformDirOf(platform), "qa-installed.json");
 
-/** Publication stage (upload, publish-update, github). Records the outcome durably and never blocks. */
+/** Publication stage (upload, publish-update, github). Records the outcome durably; throws in `refuse` mode. */
 export function admitInstalledQa(opts, { provider, now = () => new Date(), ...hooks } = {}) {
-  const outcome = admit(() => assertInstalledQaAdmission(opts), hooks);
+  const { loaded, app, mode } = policyContext(opts, hooks);
+  const outcome = admit(() => assertInstalledQaAdmission({ ...opts, afterVerify: hardening("installed", opts, loaded, { ...hooks, now }) }), { ...hooks, mode, app });
   const record = {
     status: outcome.status,
     ...(outcome.status === "passed" ? { receiptDigest: outcome.result.digest } : { reason: outcome.reason }),

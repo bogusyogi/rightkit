@@ -6,7 +6,9 @@
 //! trusted input injected straight into its webview, with no focus and no AX grant.
 //! `ServiceBridge` is the client: it speaks the shared `rightkit-daemon` convention
 //! (discovery file, current-user-only Unix socket or named pipe, per-app request allowlist).
-//! There is no TCP and no bearer token. Register it with
+//! There is no TCP. A server launched with `RIGHTKIT_QA_CONTROL_TOKEN_FILE` (the QA runner always does,
+//! ADR-0001 D-e) also requires the per-run control token on every order: give the bridge the token
+//! file with [`ServiceBridge::with_token_file`]. Register it with
 //! `rightkit_automation::Automation::add_in_app`. Moved from `rightkit-automation`'s former
 //! `in_app` client (0.3.0, feature `in-app`).
 
@@ -15,6 +17,7 @@ use rightkit_automation::keys::{Chord, Key, Named};
 use rightkit_automation::{Button, Error, InputEvent, Result};
 use rightkit_daemon::{Client, ServiceError, Suite, ERROR_NOT_ALLOWED};
 use serde_json::{json, Value};
+use std::path::Path;
 
 /// Client for one launched app instance, reached through its control service.
 pub struct ServiceBridge {
@@ -22,6 +25,9 @@ pub struct ServiceBridge {
     suite: Suite,
     service: String,
     app: String,
+    /// The per-run control token attached to every order (D-e). `None` sends orders without one, and
+    /// the server refuses them: a server with no token file refuses every order (ADR-0001 item 7).
+    token: Option<String>,
 }
 
 impl ServiceBridge {
@@ -43,18 +49,30 @@ impl ServiceBridge {
             suite,
             service: service.into(),
             app: app.into(),
+            token: None,
         })
+    }
+
+    /// Attach the per-run control token held in `file` (the world's `control_token_file`) to every
+    /// order. An unusable file is an error here, so a bridge never silently sends token-less orders
+    /// to a server that refuses them.
+    pub fn with_token_file(mut self, file: &Path) -> Result<Self> {
+        let t = crate::control::token::read_file(file)
+            .map_err(|e| Error::Invalid(format!("control token: {}", e.0)))?;
+        self.token = Some(t);
+        Ok(self)
     }
 
     fn call(&self, method: &str, params: Value) -> Result<String> {
         let client = Client::connect(&self.suite, &self.service, &self.app).map_err(map_err)?;
+        let params = crate::control::token::with_token(params, self.token.as_deref());
         client.call(method, params).map_err(map_err)?;
         Ok(format!("service {method}"))
     }
 }
 
 fn map_err(e: ServiceError) -> Error {
-    if e.code == ERROR_NOT_ALLOWED {
+    if e.code == ERROR_NOT_ALLOWED || e.code == crate::control::token::REFUSED_CODE {
         Error::Blocked(format!("control service refused: {}", e.message))
     } else if e.retryable {
         Error::NotFound(format!("control service unavailable: {}", e.message))
@@ -211,6 +229,79 @@ mod tests {
                 .is_err()
         );
         hosted.shutdown();
+    }
+
+    /// A handler that enforces the control token with the same function the embedded server uses.
+    struct Gated {
+        token: String,
+        seen: Mutex<Vec<(String, Value)>>,
+    }
+    impl Handler for Gated {
+        fn call(
+            &self,
+            _cx: &CallContext,
+            method: &str,
+            params: &Value,
+            _e: &Emit,
+        ) -> std::result::Result<Value, ServiceError> {
+            crate::control::token::authorize(Some(&self.token), params)
+                .map_err(|r| ServiceError::new(crate::control::token::REFUSED_CODE, r.message()))?;
+            self.seen
+                .lock()
+                .unwrap()
+                .push((method.into(), params.clone()));
+            Ok(json!({"ok": true}))
+        }
+    }
+
+    #[test]
+    fn a_bridge_without_the_token_is_refused_and_one_with_it_is_served() {
+        let suite = Suite::per_run_temp("inapp-token").unwrap();
+        let dir = std::env::temp_dir().join(format!("rkqa-inapp-tok-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("control.token");
+        let token = crate::control::token::write_file(&file).unwrap();
+        let gated = Arc::new(Gated {
+            token: token.clone(),
+            seen: Mutex::new(vec![]),
+        });
+        let allow = Allowlist::new().allow("right-qa", ["type"]);
+        let mut cfg = ServiceConfig::new("control-gated", "control:main", 0, "test", allow);
+        cfg.takeover_timeout = Duration::from_secs(5);
+        let hosted = host(&suite, cfg, gated.clone()).unwrap();
+
+        let bare = ServiceBridge::new(7, suite.clone(), "control-gated", "right-qa").unwrap();
+        assert!(
+            matches!(
+                bare.perform(7, &InputEvent::Text("x".into())),
+                Err(Error::Blocked(_))
+            ),
+            "a token-less order is refused"
+        );
+        assert!(gated.seen.lock().unwrap().is_empty());
+
+        let with = ServiceBridge::new(7, suite, "control-gated", "right-qa")
+            .unwrap()
+            .with_token_file(&file)
+            .unwrap();
+        with.perform(7, &InputEvent::Text("hi".into())).unwrap();
+        let seen = gated.seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, "type");
+        assert_eq!(seen[0].1["text"], json!("hi"));
+
+        // a missing token file is an error at construction, not a silent token-less bridge
+        assert!(ServiceBridge::new(
+            7,
+            Suite::per_run_temp("x2").unwrap(),
+            "control-gated",
+            "right-qa"
+        )
+        .unwrap()
+        .with_token_file(&dir.join("absent.token"))
+        .is_err());
+        hosted.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

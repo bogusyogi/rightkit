@@ -1218,6 +1218,39 @@ impl OwnedChild {
                 });
         }
     }
+    /// The pids of everything this child left running besides the leader, read without
+    /// signalling or reaping anything: the call a caller makes to record survivors before a kill
+    /// removes the evidence.
+    ///
+    /// Windows: every member of the retained job (grandchildren included, even after the leader
+    /// exited), plus parent-link descendants of the leader. Unix: members of the leader's process
+    /// group (while the leader is unreaped) plus parent-link descendants (see
+    /// [`descendant_identities`](Self::descendant_identities)). Order is unspecified, the leader
+    /// is never listed, and the list is a snapshot: a member can exit as soon as it is read. A
+    /// listing that fails is reported as the error, never as an empty tree.
+    pub fn tree_members(&self) -> io::Result<Vec<u32>> {
+        let leader = self.pid;
+        let mut pids: Vec<u32> = Vec::new();
+        #[cfg(windows)]
+        if let Some(job) = self.job.as_ref() {
+            pids.extend(job.process_ids()?);
+        }
+        #[cfg(unix)]
+        if !self.detached {
+            let group = match lock_child(&self.child).group_other_members()? {
+                crate::unix_child::Members::Pids(group) => Some(group),
+                crate::unix_child::Members::Unknown => None,
+            };
+            pids.extend(listed_or_error(group)?);
+        }
+        for identity in self.descendant_identities().unwrap_or_default() {
+            pids.push(identity.pid());
+        }
+        pids.retain(|p| *p != leader);
+        pids.sort_unstable();
+        pids.dedup();
+        Ok(pids)
+    }
     /// Identities of this child's descendants (see [`crate::AdoptedIdentity::descendants`]), taken
     /// while the leader is proven to be this child. Empty once the leader has been reaped:
     /// its children are re-parented then and can no longer be found by their parent.
@@ -1232,6 +1265,15 @@ impl OwnedChild {
             _ => Ok(Vec::new()),
         }
     }
+}
+/// A group listing that the host could not give (`None`: too large for one listing, or the
+/// enumeration failed while the group exists) is an error, never an empty tree: a caller that
+/// records survivors before a kill must not read "unknown" as "nobody".
+#[cfg_attr(not(unix), allow(dead_code))]
+fn listed_or_error(listing: Option<Vec<u32>>) -> io::Result<Vec<u32>> {
+    listing.ok_or_else(|| {
+        io::Error::other("the process group could not be fully listed (too large, or the host refused the enumeration)")
+    })
 }
 impl Drop for OwnedChild {
     fn drop(&mut self) {
@@ -1995,5 +2037,25 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(20));
         }
+    }
+}
+
+#[cfg(test)]
+mod tree_listing_tests {
+    use super::listed_or_error;
+
+    #[test]
+    fn an_unknown_group_listing_is_an_error_not_an_empty_tree() {
+        let error = listed_or_error(None).expect_err("unknown must not read as empty");
+        assert!(
+            error.to_string().contains("could not be fully listed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_known_listing_passes_through_including_an_empty_one() {
+        assert_eq!(listed_or_error(Some(vec![7, 9])).unwrap(), vec![7, 9]);
+        assert!(listed_or_error(Some(Vec::new())).unwrap().is_empty());
     }
 }

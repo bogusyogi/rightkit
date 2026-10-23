@@ -30,6 +30,12 @@
 //! # workspace_root = "src-tauri"         # cargo workspace the broker built, relative to app_root
 //! # pointer_file = ".rightkit-qa-app-binary"
 //! # binary_env = "GENRIGHT_APP_BINARY"
+//!
+//! [host]                                 # the scenario pool (ADR-0001 item 2); every key optional
+//! # workers = 2                          # pool size; absent: min(cores, commit headroom / peak_mb), capped by the OS start value
+//! # peak_mb = 1024                       # configured peak memory of one scenario, in MB
+//! # port_base = 41000                    # first port of the first world's range
+//! # ports_per_world = 16                 # ports each scenario world may bind
 //! ```
 use crate::util::{err, platform, require_text, Error, Result};
 use serde::Deserialize;
@@ -158,6 +164,44 @@ pub struct LockConfig {
     pub stale_s: Option<u64>,
 }
 
+/// `[host]`: how the scenario pool sizes itself and where it hands out ports (see [`crate::pool`]).
+/// Unknown keys are refused, so a misspelled `workers` cannot silently fall back to the default.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct HostConfig {
+    /// Pool size. Absent: the pool computes it from cores, commit headroom and `peak_mb`.
+    pub workers: Option<usize>,
+    /// Configured peak memory of one scenario, in MB, for the headroom division.
+    pub peak_mb: Option<u64>,
+    /// First port of the first scenario world's range.
+    pub port_base: Option<u16>,
+    /// Ports in each scenario world's range.
+    pub ports_per_world: Option<u16>,
+}
+
+impl HostConfig {
+    fn validate(&self) -> Result<()> {
+        if self.workers == Some(0) {
+            return err("[host] workers must be at least 1");
+        }
+        if self.peak_mb == Some(0) {
+            return err("[host] peak_mb must be at least 1");
+        }
+        if self.ports_per_world == Some(0) {
+            return err("[host] ports_per_world must be at least 1");
+        }
+        if let Some(base) = self.port_base {
+            if base < crate::worker::MIN_WORLD_PORT {
+                return err(format!(
+                    "[host] port_base {base} is below {}, the start of the unprivileged range",
+                    crate::worker::MIN_WORLD_PORT
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct Raw {
     app: String,
@@ -175,13 +219,32 @@ struct Raw {
     audio: AudioConfig,
     #[serde(default)]
     lock: LockConfig,
+    #[serde(default)]
+    host: HostConfig,
     /// `[tiers]` maps a tier name to the tiers it also selects ("all" = every tier).
     #[serde(default)]
     default_tier: Option<String>,
+    /// `[plugin]`: the app's step plugin for a `run --qualifying` (see [`PluginConfig`]).
+    #[serde(default)]
+    plugin: Option<PluginConfig>,
 }
 
 fn dot() -> String {
     ".".into()
+}
+
+/// `[plugin]` in `rightkit-qa.toml`: the step plugin binary a `run --qualifying` starts per scenario
+/// (protocol v1, `crate::plugin`). `binary` is relative to the app root, per platform. A journeys run
+/// takes its plugin from `journeys.toml` `[plugin]` (a build-record role) instead.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginConfig {
+    #[serde(default)]
+    pub binary: PerPlatform,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub hello_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -194,8 +257,10 @@ pub struct QaConfig {
     pub ui: UiConfig,
     pub audio: AudioConfig,
     pub lock: LockConfig,
+    pub host: HostConfig,
     pub default_tier: String,
     pub config_path: PathBuf,
+    pub plugin: Option<PluginConfig>,
 }
 
 pub const TIERS: [&str; 3] = ["fast", "local-models", "paid"];
@@ -230,6 +295,7 @@ impl QaConfig {
         crate::control::Mode::parse(&raw.ui.mode)?;
         let default_tier = raw.default_tier.unwrap_or_else(|| "fast".into());
         validate_tier_list(&default_tier)?;
+        raw.host.validate()?;
         Ok(Self {
             scenario_dirs: raw.scenarios.iter().map(|s| app_root.join(s)).collect(),
             app,
@@ -239,9 +305,31 @@ impl QaConfig {
             ui: raw.ui,
             audio: raw.audio,
             lock: raw.lock,
+            host: raw.host,
             default_tier,
             config_path: path.to_path_buf(),
+            plugin: raw.plugin,
         })
+    }
+
+    /// The `[plugin]` of `rightkit-qa.toml` as a spec the qualifying suite starts: the binary for this
+    /// platform resolved against the app root. `None` when no `[plugin]` is declared; a declared
+    /// `[plugin]` with no binary for this platform, or a hello timeout outside 1 to 60000 ms, is refused.
+    pub fn plugin_spec(&self) -> Result<Option<crate::plugin::PluginSpec>> {
+        let Some(p) = &self.plugin else {
+            return Ok(None);
+        };
+        let Some(rel) = p.binary.for_current()? else {
+            return err("[plugin] names no binary for this platform: set [plugin].binary");
+        };
+        let timeout = p.hello_timeout_ms.unwrap_or(10_000);
+        if !(1..=60_000).contains(&timeout) {
+            return err("[plugin].hello_timeout_ms must be between 1 and 60000");
+        }
+        let mut spec = crate::plugin::PluginSpec::new(self.app_root.join(rel));
+        spec.args = p.args.clone();
+        spec.hello_timeout = std::time::Duration::from_millis(timeout);
+        Ok(Some(spec))
     }
 
     pub fn engine_binary(&self) -> Result<Option<PathBuf>> {
@@ -400,6 +488,29 @@ binaries = {{ macos = \"target/debug/{exe}\", windows = \"target/debug/{exe}\" }
     }
 
     #[test]
+    fn host_section_defaults_parses_and_refuses_bad_values() {
+        let p = Path::new("/tmp/x/rightkit-qa.toml");
+        let c = QaConfig::parse(SAMPLE, p).unwrap();
+        assert_eq!(c.host, HostConfig::default());
+        let with = format!("{SAMPLE}\n[host]\nworkers = 3\npeak_mb = 2048\nport_base = 42000\nports_per_world = 8\n");
+        let c = QaConfig::parse(&with, p).unwrap();
+        assert_eq!(c.host.workers, Some(3));
+        assert_eq!(c.host.peak_mb, Some(2048));
+        assert_eq!(c.host.port_base, Some(42000));
+        assert_eq!(c.host.ports_per_world, Some(8));
+        for bad in [
+            "workers = 0",
+            "peak_mb = 0",
+            "ports_per_world = 0",
+            "port_base = 80",
+            "worker = 2",
+        ] {
+            let text = format!("{SAMPLE}\n[host]\n{bad}\n");
+            assert!(QaConfig::parse(&text, p).is_err(), "{bad} was accepted");
+        }
+    }
+
+    #[test]
     fn rejects_bad_app_key_mode_and_tier() {
         assert!(QaConfig::parse("app = \"GenRight\"", Path::new("/tmp/c.toml")).is_err());
         assert!(QaConfig::parse(
@@ -409,5 +520,43 @@ binaries = {{ macos = \"target/debug/{exe}\", windows = \"target/debug/{exe}\" }
         .is_err());
         assert!(validate_tier_list("fast,bogus").is_err());
         assert!(validate_tier_list("fast,paid").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod plugin_config_tests {
+    use super::*;
+
+    fn parse(extra: &str) -> Result<QaConfig> {
+        let text = format!("app = \"demo\"\napp_root = \".\"\n{extra}\n");
+        QaConfig::parse(&text, Path::new("/nonexistent-cfg/rightkit-qa.toml"))
+    }
+
+    #[test]
+    fn a_plugin_table_becomes_a_spec_resolved_against_the_app_root() {
+        let none = parse("").unwrap();
+        assert!(none.plugin_spec().unwrap().is_none());
+        let c = parse(
+            "[plugin]\nbinary = { darwin = \"bin/p\", windows = \"bin/p.exe\" }\nargs = [\"--x\"]\nhello_timeout_ms = 2000\n",
+        )
+        .unwrap();
+        let spec = c.plugin_spec().unwrap().expect("a declared plugin");
+        assert!(spec.binary.starts_with(&c.app_root), "{:?}", spec.binary);
+        assert_eq!(spec.args, vec!["--x".to_string()]);
+        assert_eq!(spec.hello_timeout, std::time::Duration::from_millis(2000));
+    }
+
+    #[test]
+    fn a_plugin_table_with_a_bad_timeout_or_no_binary_is_refused() {
+        let slow = parse(
+            "[plugin]\nbinary = { darwin = \"p\", windows = \"p.exe\" }\nhello_timeout_ms = 0\n",
+        )
+        .unwrap();
+        assert!(slow.plugin_spec().is_err());
+        // A declared table with no binary for this platform is refused, not ignored.
+        let nobin = parse("[plugin]\nargs = []\n").unwrap();
+        assert!(nobin.plugin_spec().is_err());
+        // Unknown keys are refused by the parser.
+        assert!(parse("[plugin]\nbinary = { darwin = \"p\" }\nbogus = 1\n").is_err());
     }
 }

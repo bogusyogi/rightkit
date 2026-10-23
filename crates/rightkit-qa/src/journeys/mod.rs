@@ -7,8 +7,16 @@
 //! * `receipt`: the receipt types and `validate_receipt`, which recomputes the verdict
 //!   from the evidence and never trusts the receipt's own `verdict` field.
 //!
-//! Not here yet: `journeys run` (select, build, launch, collect), `census` and `gate`. The
-//! CLI offers `journeys check` and `journeys validate-receipt` only.
+//! * `build_record`: the build lane's hand-off to the runner lane: broker build parsing, the
+//!   `build-record.json` (binary digests, source identity, lockfiles, features, broker request id,
+//!   attested exit), staleness and the launch-time re-check.
+//! * `run`: `journeys run` steps 1 to 3 (select, source identity, broker build), the qualifying-mode
+//!   refusals and the run-store cleanup.
+//! * `lint`: `journeys check` guardrails (W2-H, `src/journeys/lint.rs`).
+//!
+//! Not here yet: `census` and `gate`. (`journeys run` does all five steps: see `run`.) The CLI
+//! offers `journeys check`, `journeys validate-receipt` and `journeys run` (which stops after the
+//! build record).
 //!
 //! Hard rule of this module: a journey counts as passed only on positive evidence. Zero
 //! journeys, a missing or duplicate or unselected result, a skipped or errored journey, a stale
@@ -16,8 +24,12 @@
 //! exit each make the verdict something other than `passed`, and an input that cannot be
 //! checked (no results file) is a problem, not a pass.
 pub mod adapter;
+pub mod bridge;
+pub mod build_record;
+pub mod lint;
 pub mod manifest;
 pub mod receipt;
+pub mod run;
 
 #[cfg(test)]
 mod tests;
@@ -74,6 +86,14 @@ pub mod code {
     pub const DIRTY_TREE: &str = "dirty_tree";
     /// The receipt's host does not match the platform it claims to cover.
     pub const HOST_MISMATCH: &str = "host_mismatch";
+    /// A build record no longer matches what it was built from: manifest, build command, feature
+    /// set, lockfile or toolchain pin changed since the build.
+    pub const BUILD_RECORD_STALE: &str = "build_record_stale";
+    /// The build is not attested: no exit 0, no `build-finished` success, no broker request id, or
+    /// a command that is not a compile-only broker build.
+    pub const BUILD_NOT_ATTESTED: &str = "build_not_attested";
+    /// A binary to launch lacks the QA control marker (it is not a test-mode/control build).
+    pub const QA_MARKER_MISSING: &str = "qa_marker_missing";
 
     /// Codes that mean "no usable result" (verdict `incomplete`) rather than "a journey failed".
     pub fn is_incomplete(code: &str) -> bool {

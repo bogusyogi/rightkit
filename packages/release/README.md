@@ -199,9 +199,27 @@ Only a target directory under a managed root (`resolveManagedRoots`: `RIGHTKIT_D
 `postSign`: it packs the signed, stapled `.app` and signs the tarball. The default output is `<App>.app.tar.gz`, named after the
 app in `notarize.app`. Declare the file in `updater.artifacts` as before. See `docs/MAC-PACKAGE-RECIPE.md`.
 
-## QA receipts (warn-and-record)
+## QA receipts and admission (warn by default, refuse per app)
 
-`right-release qa --stage source|installed --platform mac|win` still runs `rightkit-qa` and writes a signed receipt, and receipt verification is unchanged. A missing or invalid receipt no longer blocks a release. `build`, `upload`, `publish-update` and `github` print `[right-release] QA warning: ...` to stderr, continue, and record the outcome:
+`right-release qa --stage source|installed --platform mac|win` runs `rightkit-qa` and writes a MAC'd receipt. Admission is a per-app policy in `qa-admission-policy.json`:
+
+```json
+{ "schema": 1,
+  "apps": { "postright": { "mode": "refuse", "since": "2026-11-02", "set_by": "adrian" } },
+  "approvedRunners": [ { "sha256": "<64 hex>", "version": "0.8.0" } ] }
+```
+
+- **`warn` (default; an app with no entry).** A missing or invalid receipt does not block. `build`, `upload`, `publish-update` and `github` print `[right-release] QA warning: ...` to stderr, continue, and record the outcome (below).
+- **`refuse`.** The same refusal throws `QA admission refused for <app> (policy refuse since ... by ...)`; nothing is sealed, uploaded or published. Switch an app on with `node release-qa-policy.mjs set --app <app> --mode refuse --set-by <name>`. Moving an app back to `warn` (or deleting its entry) is refused unless `set_by` is `adrian`; a hand edit that does so is caught on every load by comparing with the copy committed at `RIGHT_RELEASE_QA_POLICY_BASELINE_REF` (default `HEAD`; CI should use `origin/main`). `set_by` is a recorded claim, not an authenticated identity: the file must be owner-protected in the repository (CODEOWNERS and branch protection), and a downgrade that was already committed becomes the new baseline. An unreadable or malformed policy file is a hard error, never a fall back to warn.
+
+Hardening, applied in both modes (a failure is a warning in `warn` and a refusal in `refuse`):
+
+1. **Platform and release id.** The sealed receipt must be for the platform and the release id being sealed or published.
+2. **Approved runner.** The `rightkit-qa` executable's sha256 recorded in the receipt must be listed in `approvedRunners`. An empty list approves nothing. The binary is digested before the run and again after it; a swap during the run is refused.
+3. **Every release-critical journey.** With `qa.journeys` in the release config (`{ manifest?: "journeys.toml", receipt?: "<path>", args?: { source?, installed? } }`) `right-release qa` runs `rightkit-qa journeys run` (or reads `receipt`), validates the `rightkit.journeys.receipt/1` through `rightkit-qa journeys validate-receipt --manifest .. --tree ..` (exit code 0 and a final `ACCEPTED` line), and seals a `journeys` summary. `release-qa-floor.json` maps the `journey` floor id to "all release-critical journeys passed": at admission the required set is recomputed from the `journeys.toml` committed at the receipt's commit (every `release_critical` journey that lists the platform), and each must be `passed`. Zero critical journeys is never a pass. One matching check no longer satisfies the floor.
+4. **Signing outside test execution.** Checked: the receipt records the test processes' pids and the window they ran in; admission refuses a receipt sealed before that window ended, signing that began before it ended (`signingStartedAt`), a sealing or admitting process that is a test process, `RIGHT_RELEASE_QA_STAGE` set at admission (admission or signing inside a QA run), and `right-release qa` itself refuses to seal inside a QA run. Not checkable here: that test processes cannot reach the signing key (OS credential store and signing agent ACL) and that CI runs QA and signing as separate jobs (the carried receipt, rightkit#183, is the hook).
+
+`right-release qa` keeps the older behavior for evidence checks and verification of the receipt itself; the outcome is recorded:
 
 - Source stage: sealed into the manifest as `qa: { status: "passed", sourceReceiptDigest, floorDigest }` or `qa: { status: "missing" | "rejected", reason }`.
 - Installed stage: written to `.right-release/state/<releaseId>/<platformDir>/qa-installed.json` as `{ status, reason?, receiptDigest?, checkedAt, provider }`. It is written when publication starts, so a later upload failure still leaves a record.

@@ -7,12 +7,25 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Only `Passed` is a pass. `Errored` (the check could not reach a verdict) and `NotRun`
+/// (it never started) are distinct from `Failed` so a receipt cannot read as green by omission.
+/// Wire names are fixed: `errored`, and `missing` for `NotRun` (ruling D-f, mirrors D-d).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CheckStatus {
     Passed,
     Failed,
     Skipped,
+    Errored,
+    #[serde(rename = "missing")]
+    NotRun,
+}
+
+impl CheckStatus {
+    /// The single predicate for "this check passed"; never match `!= Failed` to mean it.
+    pub fn is_pass(self) -> bool {
+        self == CheckStatus::Passed
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,6 +192,20 @@ impl Bundle {
             return err("refusing to write unfinished QA evidence");
         }
         if self.status == RunStatus::Passed {
+            // Skipped checks may sit in a passing run (optional scenarios); failed, errored
+            // and never-run checks may not.
+            let bad: Vec<&str> = self
+                .checks
+                .iter()
+                .filter(|c| !matches!(c.status, CheckStatus::Passed | CheckStatus::Skipped))
+                .map(|c| c.name.as_str())
+                .collect();
+            if !bad.is_empty() {
+                return err(format!(
+                    "refusing to write a passing QA receipt that contains non-passing checks: {}",
+                    bad.join(", ")
+                ));
+            }
             let drift = self.verify();
             if !drift.is_empty() {
                 return err(format!(
@@ -253,5 +280,55 @@ mod tests {
         b.status = RunStatus::Failed;
         b.write(&out).unwrap();
         assert!(Bundle::new("a", "d", "r").unwrap().write(&out).is_err());
+    }
+
+    #[test]
+    fn check_status_wire_names_round_trip() {
+        for (s, wire) in [
+            (CheckStatus::Passed, "passed"),
+            (CheckStatus::Failed, "failed"),
+            (CheckStatus::Skipped, "skipped"),
+            (CheckStatus::Errored, "errored"),
+            (CheckStatus::NotRun, "missing"),
+        ] {
+            assert_eq!(serde_json::to_value(s).unwrap(), json!(wire));
+            let back: CheckStatus = serde_json::from_value(json!(wire)).unwrap();
+            assert_eq!(back, s);
+            assert_eq!(s.is_pass(), s == CheckStatus::Passed);
+        }
+        assert!(serde_json::from_value::<CheckStatus>(json!("not_run")).is_err());
+    }
+
+    #[test]
+    fn errored_or_missing_check_never_writes_as_passed() {
+        for bad in [
+            CheckStatus::Errored,
+            CheckStatus::NotRun,
+            CheckStatus::Failed,
+        ] {
+            let mut b = Bundle::new("a", "darwin", "r").unwrap();
+            b.add_check("good", CheckStatus::Passed, json!(null), &[])
+                .unwrap();
+            b.add_check("bad", bad, json!(null), &[]).unwrap();
+            b.set_identity(json!({"config": {"sha256": "x"}, "scenarios": ["s"]}))
+                .unwrap();
+            b.finish(RunStatus::Passed);
+            let out =
+                std::env::temp_dir().join(format!("rkqa-ev-bad-{}.json", crate::util::new_id()));
+            let e = b.write(&out).unwrap_err();
+            assert!(e.0.contains("non-passing checks"), "{}", e.0);
+            assert!(!out.exists());
+            b.status = RunStatus::Failed;
+            b.write(&out).unwrap();
+        }
+        // a skipped optional check does not block a passing run
+        let mut b = Bundle::new("a", "darwin", "r").unwrap();
+        b.add_check("opt", CheckStatus::Skipped, json!(null), &[])
+            .unwrap();
+        b.set_identity(json!({"config": {"sha256": "x"}, "scenarios": ["s"]}))
+            .unwrap();
+        b.finish(RunStatus::Passed);
+        let out = std::env::temp_dir().join(format!("rkqa-ev-skip-{}.json", crate::util::new_id()));
+        b.write(&out).unwrap();
     }
 }
