@@ -110,9 +110,9 @@
         "reason": "Hosted 39956299265: windows-2025 failed only the first e2e.rs pass (3 tests, CDP 'Request timed out', requests paused 0) while the same e2e.rs binary on the same code passed 3/3 in the cookie-export pass of the same job; 0.3.5 run 39910376515 shows the identical timeout in a serialised binary. The cause of the Windows CDP stall is unknown; it is pre-existing on 0.3.5 and tracked in rightkit#931. Run 39960658274 macOS failure was a different defect: the fixture Expired/Revoked race (lease timer vs run deadline), fixed in product code before re-qualification. One re-qualification; a repeat of the same zero-paused timeout is #931 evidence, not a revert signal."
       },
       "@rightkit/release": {
-        "run": 39942099736,
-        "version": "0.6.2",
-        "reason": "Hosted 39942099736 was cancelled by the lead, not failed: Adrian's governance rule (2026-10-23) requires a Sage+Oracle trail for every rk package change before publication. 0.6.2 now carries #924 (Sage APPROVE-WITH-CONDITIONS C1-C5, Oracle C1/C2 APPROVE) and #926 (Sage SHIP NOW, Oracle APPROVE); trail on bogusyogi/rightkit#924 and #926."
+        "run": 39966188759,
+        "version": "0.6.3",
+        "reason": "Hosted 39966188759 failed only the reviewed npm PK consumer on both hosts (artifact-provenance: ci/consumers/npm/release/consumer.mjs:27 still asserted version 0.6.2). The bump to 0.6.3 (035a439e/85ea11d4) missed the consumer recipe's pinned version; fixed with its recipe digest. Package code unchanged."
       },
       "@rightkit/qa": {
         "run": 39903647141,
