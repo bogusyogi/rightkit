@@ -13,6 +13,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
@@ -185,6 +186,27 @@ function killTree(child) {
   } catch { try { child.kill("SIGKILL"); } catch { /* gone */ } }
 }
 
+const RUST_TRIPLE = { "darwin:arm64": "aarch64-apple-darwin", "darwin:x64": "x86_64-apple-darwin", "win32:x64": "x86_64-pc-windows-msvc", "win32:arm64": "aarch64-pc-windows-msvc" };
+
+/** The pinned toolchain's bin directory. The doctor runs `cargo metadata --no-deps --offline` (packages/release/cargo-contract.mjs);
+ * on PATH `cargo` is the build-control agent shim, which refuses the canary's read-only scratch exports (RK_NOT_PRIMARY_CHECKOUT).
+ * The canary compiles nothing, so it reads metadata with the real toolchain, the same way tests run outside the broker. */
+export function rustToolchainBin(toolchain, { env = process.env, platform = process.platform, arch = process.arch, home = os.homedir() } = {}) {
+  if (!toolchain) return { error: "the manifest pins no rust toolchain" };
+  const triple = RUST_TRIPLE[`${platform}:${arch}`];
+  if (!triple) return { error: `no rust host triple for ${platform}/${arch}` };
+  const dir = path.join(env.RUSTUP_HOME || path.join(home, ".rustup"), "toolchains", `${toolchain}-${triple}`, "bin");
+  const cargo = path.join(dir, platform === "win32" ? "cargo.exe" : "cargo");
+  return fs.existsSync(cargo) ? { dir } : { error: `rust toolchain ${toolchain} is not installed here (${cargo} is missing)` };
+}
+
+/** env with dir first on PATH (the Windows key may be spelled Path). */
+export function withPathFirst(env, dir) {
+  if (!dir) return env;
+  const key = Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "PATH";
+  return { ...env, [key]: env[key] ? `${dir}${path.delimiter}${env[key]}` : dir };
+}
+
 /** Run `right-release doctor` from the app root. gates is passed only for a candidate that supports it; --admission never. */
 export function runDoctor({ node = process.execPath, bin, appRoot, configRel, platform, gates = false, sideDir, tmpDir, timeoutMs = DEFAULT_CELL_MS, env = process.env }) {
   const args = [bin, "doctor", "--config", configRel, "--platform", platform];
@@ -261,7 +283,7 @@ export function normalize(text) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Run one cell: tree digest, doctor, tree digest, classify. */
-export async function runCell({ side, sidePrep, app, platform, exportDir, node, tmpRoot, timeoutMs = DEFAULT_CELL_MS, gates }) {
+export async function runCell({ side, sidePrep, app, platform, exportDir, node, tmpRoot, timeoutMs = DEFAULT_CELL_MS, gates, env = process.env }) {
   const appRoot = path.join(exportDir, path.dirname(app.configPath));
   const configRel = path.basename(app.configPath);
   if (gates && side === "candidate" && !sidePrep.supportsGates && gatesRequired(sidePrep.version)) {
@@ -270,7 +292,7 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
   const gatesRun = Boolean(gates && side === "candidate" && sidePrep.supportsGates);
   const noNodeModules = !fs.existsSync(path.join(exportDir, "node_modules")) && !fs.existsSync(path.join(appRoot, "node_modules"));
   const before = treeDigest(exportDir);
-  const run = await runDoctor({ node, bin: sidePrep.bin, appRoot, configRel, platform, gates: gatesRun, sideDir: sidePrep.sideDir, tmpDir: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`), timeoutMs });
+  const run = await runDoctor({ node, bin: sidePrep.bin, appRoot, configRel, platform, gates: gatesRun, sideDir: sidePrep.sideDir, tmpDir: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`), timeoutMs, env });
   const after = treeDigest(exportDir);
   const parsed = parseDoctor(run);
   const delta = [...before.lines.filter((l) => !after.lines.includes(l)).map((l) => `-${l}`), ...after.lines.filter((l) => !before.lines.includes(l)).map((l) => `+${l}`)];
@@ -296,7 +318,7 @@ export async function pool(items, limit, fn) {
 }
 
 /** The leg: every cell of this host, both sides, bounded in time. */
-export async function runLeg(manifest, { manifestDir, now = Date.now, host = process.platform, node = process.execPath } = {}) {
+export async function runLeg(manifest, { manifestDir, now = Date.now, host = process.platform, node = process.execPath, resolveRust = rustToolchainBin } = {}) {
   const hostCfg = manifest.hosts?.[host];
   if (!hostCfg) throw new Error(`the manifest has no ${host} host`);
   const started = now();
@@ -318,6 +340,8 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
       });
     } catch (error) { sideErrors[side] = String(error.message ?? error); }
   }
+  const rust = resolveRust(manifest.rust?.toolchain);
+  const cellEnv = withPathFirst(process.env, rust.dir);
   const cells = [];
   const units = [];
   for (const app of manifest.apps) {
@@ -337,6 +361,7 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
     for (const { app, side, platforms } of group.items) {
       for (const platform of platforms) {
         const fixed = { id: app.id, app: app.id, platform, side, repoDir: app.repoDir, host };
+        if (rust.error) { cells.push({ ...fixed, status: "infra", detail: rust.error, failNames: [], gateFailNames: [], fatal: null, treeChanged: false }); continue; }
         if (sideErrors[side]) { cells.push({ ...fixed, status: "infra", detail: `side not prepared: ${sideErrors[side]}`, failNames: [], gateFailNames: [], fatal: null, treeChanged: false }); continue; }
         const meta = manifest.repos?.[app.repoDir];
         if (!meta || meta.error || !meta.sha) { cells.push({ ...fixed, status: "infra", detail: `no pinned app commit: ${meta?.error ?? "unresolved"}`, failNames: [], gateFailNames: [], fatal: null, treeChanged: false }); continue; }
@@ -347,7 +372,7 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
             const exportDir = path.join(root, side, app.repoDir);
             // The export is rebuilt for every cell: a previous cell can never leave state for the next one.
             prepareExport({ live: path.join(hostCfg.workspaceRoot, app.repoDir), origin: meta.origin, sha: meta.sha, dest: exportDir });
-            result = await runCell({ side, sidePrep: sides[side], app, platform, exportDir, node, tmpRoot, timeoutMs: cellMs, gates: manifest.gates !== false });
+            result = await runCell({ side, sidePrep: sides[side], app, platform, exportDir, node, tmpRoot, timeoutMs: cellMs, gates: manifest.gates !== false, env: cellEnv });
           } catch (error) {
             result = { ...fixed, status: "infra", detail: String(error.message ?? error).slice(0, 500), failNames: [], gateFailNames: [], fatal: null, treeChanged: false };
           }

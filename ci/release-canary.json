@@ -3,6 +3,7 @@
   "_comment": "Pipeline canary for @rightkit/release (scripts/ci/rk-release-canary.mjs). Each entry names one app config the candidate's `right-release doctor` is run against, beside the registry baseline, on the platforms listed. repoDir is the checkout directory under the host's workspace root; configPath is relative to repoDir (its directory is the app root). Platform ios runs on the Mac leg. blocking:false apps are report-only: their findings never turn the canary red. Matrix changes are reviewed with the canary scripts; the canary receipt binds this file's digest.",
   "unit": "@rightkit/release",
   "dependency": { "name": "smol-toml", "version": "1.9.1" },
+  "rust": { "toolchain": "1.98.0", "_comment": "The doctor runs cargo metadata --no-deps --offline; the leg puts this rustup toolchain's bin first on PATH, because the build-control cargo shim refuses the canary's scratch exports (RK_NOT_PRIMARY_CHECKOUT). Nothing is compiled." },
   "limits": { "cellMinutes": 5, "totalMinutes": 20 },
   "hosts": {
     "darwin": {

@@ -90,6 +90,7 @@ export function matrixProblems(matrix, { exists = (p) => fs.existsSync(p) } = {}
     if (typeof app.blocking !== "boolean") problems.push(`${app.id}: blocking must be true or false`);
     if (!exists(path.join(matrix.hosts.darwin.workspaceRoot, app.repoDir, app.configPath))) problems.push(`${app.id}: ${app.repoDir}/${app.configPath} does not exist under ${matrix.hosts.darwin.workspaceRoot}`);
   }
+  if (!/^\d+\.\d+\.\d+$/.test(String(matrix.rust?.toolchain ?? ""))) problems.push("rust.toolchain must pin an exact x.y.z toolchain (the doctor reads Cargo metadata with it)");
   for (const host of ["darwin", "win32"]) if (!matrix.hosts?.[host]?.workspaceRoot || !matrix.hosts[host].scratchRoot) problems.push(`hosts.${host} needs workspaceRoot and scratchRoot`);
   if (!matrix.hosts?.win32?.node || !/node\.exe$/i.test(matrix.hosts.win32.node)) problems.push("hosts.win32.node must pin the Dell's node.exe");
   if (matrix.dependency?.name !== "smol-toml" || !/^\d+\.\d+\.\d+$/.test(matrix.dependency?.version ?? "")) problems.push("dependency must pin smol-toml to an exact version");
@@ -299,7 +300,7 @@ export const fetchDependency = ({ fetchImpl = fetch, outDir, name = "smol-toml",
 export function buildManifest({ sha, version, matrix, repos, candidate, baseline, dependency }) {
   return {
     schema: MANIFEST_SCHEMA, sha, version, unit: UNIT, gates: true,
-    limits: matrix.limits, hosts: Object.fromEntries(Object.entries(matrix.hosts).map(([h, v]) => [h, { workspaceRoot: v.workspaceRoot, scratchRoot: v.scratchRoot, parallel: v.parallel }])),
+    limits: matrix.limits, rust: matrix.rust, hosts: Object.fromEntries(Object.entries(matrix.hosts).map(([h, v]) => [h, { workspaceRoot: v.workspaceRoot, scratchRoot: v.scratchRoot, parallel: v.parallel }])),
     apps: matrix.apps, repos,
     artifacts: {
       candidate: { file: "candidate.tgz", sha256: candidate.sha256, version: candidate.version },
