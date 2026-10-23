@@ -58,3 +58,5 @@ vendor/tauri-runtime-wry/** -text
 /packages/release/*.json text eol=lf
 /packages/build-control-policy/src/*.mjs text eol=lf
 /packages/build-control-policy/src/*.json text eol=lf
+# Byte-compared with packages/release/rightkit-ownership.json (LF) by rightkit-ownership tests::embedded_catalog_matches_canonical_source.
+/crates/rightkit-ownership/catalog/*.json text eol=lf

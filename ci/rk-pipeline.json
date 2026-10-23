@@ -87,7 +87,7 @@
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "@rightkit/release": {
-        "version": "0.5.1",
+        "version": "0.6.0",
         "allow": [
           "allow_missing_assets"
         ],
@@ -105,9 +105,9 @@
     "retryPolicy": "No automatic retry for unchanged SHA/unit. Reconcile ambiguous remote effects before any new attempt.",
     "releaseHolds": {
       "rightkit-browser": {
-        "run": 39895591570,
+        "run": 39910376515,
         "version": "0.3.5",
-        "reason": "Hosted 39895591570 failed in the registry consumer's runtime check (pinned executable SHA-256 mismatch) because scripts/ci/provision-r2-cft-env.mjs exported the archive digest as the executable pin; the fix (e177b0ad, judge's reviewed patch 04f54ff5) is in that helper and ci/chrome-for-testing.json, outside the crate closure, its recipe and its policy entries, so the hold is released by this reviewed entry."
+        "reason": "Hosted 39910376515: Windows failed 2 policy_e2e tests only in the --features cookie-export pass, which stalled >60 s per test (160 s vs 57-77 s on the Chrome 155 runs) against a 30 s request timeout; the same Chrome 156 passed all 12 policy_e2e tests in the plain pass of the same job, and a Dell reproduction fails identically on Chrome 155 and 156 (no 156 regression found). One diagnostic re-dispatch, labelled UNPROVEN flake-vs-regression (a green result is not a proven fix; the Dell reproduction used an old 2026-10-14 binary and does not qualify current source). Compare per-pass test durations, chrome stderr network-service events and cross-pass state/cleanup in the --show-output log; no timeout or launch-delay change until a failing boundary is identified, never a proxy bypass."
       },
       "@rightkit/release": {
         "run": 39900606184,
@@ -118,6 +118,11 @@
         "run": 39903647141,
         "version": "0.6.1",
         "reason": "Hosted 39903647141 refused @rightkit/qa 0.6.1 on both hosts: the PK consumer's reviewed release-age exception named only @rightkit/qa-chrome 0.1.10, and 0.6.1 depends on the newly published 0.1.11. The fix is the Oracle-approved 0.1.11 byte row (ci/approved-artifacts.json) and the matching exception in scripts/ci/npm-recipe-consumer.mjs, outside the package's own change set; the npm pre-flight now runs the same check."
+      },
+      "rightkit-ownership": {
+        "run": 39914894353,
+        "version": "0.4.1",
+        "reason": "Hosted 39914894353: Windows failed only tests::embedded_catalog_matches_canonical_source because packages/release/rightkit-ownership.json is LF-pinned (.gitattributes, caf2c844) while the byte-identical crates/rightkit-ownership/catalog/ownership-catalog.json was not, so windows-2025 checked it out CRLF; both sides are LF-pinned now (.gitattributes), outside the crate closure."
       }
     }
   },

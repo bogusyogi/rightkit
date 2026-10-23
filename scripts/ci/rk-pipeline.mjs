@@ -7,7 +7,7 @@
 //   rk-pipeline.mjs preflight    <unit...> [--jobs N]               rk-preflight each unit, N at a time, through the broker
 //   rk-pipeline.mjs dispatch     <unit...> [--registry crates|npm]  hosted qualification, only with a green receipt for HEAD, HEAD on origin
 //   rk-pipeline.mjs watch        [--wait]                          hosted run state per dispatched unit; upload and registry readback on green
-//   rk-pipeline.mjs loop         [--registry crates] [--jobs N]     ready -> preflight -> dispatch -> watch, wave after wave, until nothing is ready
+//   rk-pipeline.mjs loop         [--registry crates|npm|all] [--jobs N]  ready -> preflight -> dispatch -> watch; `all` runs crates and npm units in ONE coordinator, so npm never queues behind crates
 // Every compile and every dispatch goes through the broker. gh is used read-only, by absolute path, to watch runs.
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -39,7 +39,7 @@ export function parseArgs(argv) {
     else opts.units.push(...arg.split(/\s+/).filter(Boolean)); // one quoted list or many arguments, both fine
   }
   if (!["ready", "preflight", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, dispatch, watch or loop");
-  if (!["crates", "npm"].includes(opts.registry)) throw new Error("--registry must be crates or npm");
+  if (!["crates", "npm"].includes(opts.registry) && !(command === "loop" && opts.registry === "all")) throw new Error("--registry must be crates or npm (loop also accepts all)");
   if (!Number.isInteger(opts.jobs) || opts.jobs < 1) throw new Error("--jobs must be a positive integer");
   opts.units = [...new Set(opts.units)];
   return opts;
@@ -449,7 +449,9 @@ export async function cmdLoop(opts, deps = {}) {
   const stateFn = deps.readState ?? readState;
   const save = deps.writeState ?? writeState;
   const watch = deps.watch ?? cmdWatch;
-  const preflight = deps.preflight ?? (async (unit) => (await preflightMany([unit], opts)).get(unit));
+  const preflight = deps.preflight ?? (async (unit, registry = opts.registry) => (await preflightMany([unit], { ...opts, registry })).get(unit));
+  const registries = opts.registry === "all" ? ["crates", "npm"] : [opts.registry];
+  const slot = (registry, unit) => `${registry}:${unit}`;
   const dispatch = deps.dispatch ?? cmdDispatch;
   const pause = deps.pause ?? (() => new Promise((r) => setTimeout(r, 15_000)));
   const hold = deps.holdReason ?? holdReason;
@@ -462,44 +464,50 @@ export async function cmdLoop(opts, deps = {}) {
   try {
   for (;;) {
     if (head() !== sha) throw new Error("HEAD moved during release; retain receipts, reconcile before continuing");
-    await watch({ ...opts, wait: false });
-    const r = await readyFn(opts);
+    await watch({ ...opts, registry: registries[0], wait: false });
+    for (const registry of registries) {
+    const r = await readyFn({ ...opts, registry });
     const selected = [...r.unpublished].filter((u) => !opts.units.length || opts.units.includes(u));
     const state = stateFn();
     const ready = (Array.isArray(r.waves[0]) ? r.waves[0] : []).filter((u) => selected.includes(u));
     for (const unit of ready) {
       if (active.size >= opts.jobs) break;
-      const key = stateKey(opts.registry, sha, unit);
+      const key = stateKey(registry, sha, unit);
+      const id = slot(registry, unit);
       // A record at this SHA ends the unit's attempts here, except a preflight-phase failure: that is local evidence
       // only (nothing was dispatched), and the dispatcher itself admits a retry of it; the loop at 14ac0759 skipped
       // qa and tauri-shell after a tree-change refusal and exited with nothing to do.
       const previous = state.dispatches[key];
-      if (attempted.has(unit) || held.has(unit) || (previous && !(previous.status === "failed" && previous.phase === "preflight"))) continue;
+      if (attempted.has(id) || held.has(id) || (previous && !(previous.status === "failed" && previous.phase === "preflight"))) continue;
       const reason = hold(unit, sha, state, r.crates);
-      if (reason) { held.add(unit); log(`${unit}: ${reason}`); continue; }
-      attempted.add(unit);
+      if (reason) { held.add(id); log(`${unit}: ${reason}`); continue; }
+      attempted.add(id);
       const task = (async () => {
-        const result = await preflight(unit);
+        const result = await preflight(unit, registry);
         if (result.code !== 0) {
           failed = true;
-          const current = stateFn(); current.dispatches[key] = { unit, sha, registry: opts.registry, status: "failed", phase: "preflight", detail: result.last }; save(current);
+          const current = stateFn(); current.dispatches[key] = { unit, sha, registry, status: "failed", phase: "preflight", detail: result.last }; save(current);
           return;
         }
         // Serialized dispatch writes, independent preflight workers.
         const launched = dispatchTail.then(async () => {
           if (head() !== sha) throw new Error("HEAD changed before dispatch");
-          return dispatch({ ...opts, units: [unit] });
+          return dispatch({ ...opts, registry, units: [unit] });
         });
         dispatchTail = launched.catch(() => {});
         if (await launched !== 0) failed = true;
-      })().catch((error) => { failed = true; fail(`${unit}: ${error.message}`); }).finally(() => active.delete(unit));
-      active.set(unit, task);
+      })().catch((error) => { failed = true; fail(`${unit}: ${error.message}`); }).finally(() => active.delete(id));
+      active.set(id, task);
+    }
     }
     const current = stateFn();
     const pending = Object.values(current.dispatches).some((d) => d.sha === sha && d.status === "dispatched");
     if (!active.size && !pending) {
-      const remaining = await readyFn(opts);
-      const unfinished = [...remaining.unpublished].filter((u) => !opts.units.length || opts.units.includes(u));
+      const unfinished = [];
+      for (const registry of registries) {
+        const remaining = await readyFn({ ...opts, registry });
+        unfinished.push(...[...remaining.unpublished].filter((u) => !opts.units.length || opts.units.includes(u)));
+      }
       if (unfinished.length) fail(`unfinished: ${unfinished.join(" ")}`);
       return failed || unfinished.length ? 1 : 0;
     }

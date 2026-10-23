@@ -312,3 +312,30 @@ test("stage CLI dispatches npm & cargo staging, rejects malformed args & downgra
     assert.equal(await readFile(options.file, "utf8"), before);
   }
 });
+
+test("byte-compared pairs check out with the same line endings on every host (git check-attr eol)", async () => {
+  // A pair compared byte for byte must carry the same eol attribute, or one side checks out CRLF on Windows and the
+  // comparison fails there only (hosted 39900606184: build-control-policy copies; 39914894353: the ownership crate catalog).
+  const { spawnSync } = await import("node:child_process");
+  const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const pairs = [
+    ["packages/release/rightkit-ownership.json", "crates/rightkit-ownership/catalog/ownership-catalog.json"],
+    ["packages/release/rightkit-ownership.json", "packages/build-control-policy/src/ownership-session-catalog.json"],
+    ["packages/release/rightkit-ownership.json", "packages/build-control-policy/src/ownership-fingerprints.json"],
+    ["packages/release/rightkit-versions.json", "packages/build-control-policy/src/ownership-session-versions.json"],
+    ["packages/release/ownership-repositories.json", "packages/build-control-policy/src/ownership-repositories.json"],
+    ["packages/release/rightkit-drift.mjs", "packages/build-control-policy/src/rightkit-drift.mjs"],
+    ["packages/release/background-process.mjs", "packages/build-control-policy/src/background-process.mjs"],
+    ["packages/release/ownership-dependency-allowlist.json", "packages/build-control-policy/src/ownership-dependency-allowlist.json"],
+    ["packages/release/ownership-dependency-allowlist.mjs", "packages/build-control-policy/src/ownership-dependency-allowlist.mjs"],
+    ["packages/release/ownership-source.mjs", "packages/build-control-policy/src/ownership-source.mjs"],
+    ["packages/release/ownership-availability.mjs", "packages/build-control-policy/src/ownership-availability.mjs"],
+  ];
+  const eol = (file) => {
+    const r = spawnSync("git", ["check-attr", "eol", "text", "--", file], { cwd: repo, encoding: "utf8" });
+    if (r.status !== 0) return null;
+    return r.stdout.trim().split("\n").map((l) => l.split(": ").pop()).join(",");
+  };
+  if (eol(pairs[0][0]) === null) return; // not a git checkout (published package): nothing to compare
+  for (const [a, b] of pairs) assert.equal(eol(b), eol(a), `${b} must carry the same eol/text attributes as ${a}`);
+});

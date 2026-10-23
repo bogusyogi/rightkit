@@ -266,3 +266,54 @@ test("an npm receipt is admitted through the real receiptRefusal with the real p
   assert.equal(dispatchRefusal(receipt, sha, "@rightkit/nope", "npm", {}, "1.0.0", deps), "unknown npm package");
   assert.match(dispatchRefusal(receipt, sha, pkg.name, "npm", {}, pkg.version, { ...deps, pipeline: {} }), /store pin/, "no store pin, no plan, no dispatch");
 });
+
+test("loop --registry all runs crates and npm units in one coordinator; npm does not wait for crates", async () => {
+  assert.equal(parseArgs(["loop", "--registry", "all"]).registry, "all");
+  assert.throws(() => parseArgs(["dispatch", "--registry", "all", "x"]), /loop also accepts all/);
+  const state = { dispatches: {} };
+  const preflights = []; const dispatches = [];
+  let release;
+  const crateGate = new Promise((r) => { release = r; });
+  const ready = { crates: ["rightkit-x"], npm: ["@rightkit/y"] };
+  const result = cmdLoop({ registry: "all", units: [], jobs: 2 }, {
+    head: () => "a".repeat(40),
+    readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
+    readState: () => state, writeState: () => {},
+    watch: async () => 0, holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 5)),
+    preflight: async (unit, registry) => { preflights.push(`${registry}:${unit}`); if (registry === "crates") await crateGate; return { code: 0 }; },
+    dispatch: async (o) => {
+      dispatches.push(`${o.registry}:${o.units[0]}`);
+      ready[o.registry] = [];
+      state.dispatches[`${o.registry}:${o.units[0]}`] = { unit: o.units[0], registry: o.registry, sha: "a".repeat(40), status: "published" };
+      return 0;
+    },
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.deepEqual(dispatches, ["npm:@rightkit/y"], "npm dispatched while the crate preflight is still running");
+  release();
+  assert.equal(await result, 0);
+  assert.deepEqual(preflights.sort(), ["crates:rightkit-x", "npm:@rightkit/y"]);
+  assert.deepEqual(dispatches.sort(), ["crates:rightkit-x", "npm:@rightkit/y"]);
+});
+
+test("loop --registry all: a crate whose preflight fails does not block the npm unit", async () => {
+  const state = { dispatches: {} };
+  const dispatches = [];
+  const ready = { crates: ["rightkit-bad"], npm: ["@rightkit/y"] };
+  const code = await cmdLoop({ registry: "all", units: [], jobs: 2 }, {
+    head: () => "b".repeat(40),
+    readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
+    readState: () => state, writeState: () => {},
+    watch: async () => 0, holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 5)),
+    preflight: async (unit, registry) => (registry === "crates" ? { code: 1, last: "RED" } : { code: 0 }),
+    dispatch: async (o) => {
+      dispatches.push(`${o.registry}:${o.units[0]}`);
+      ready[o.registry] = [];
+      state.dispatches[`${o.registry}:${o.units[0]}`] = { unit: o.units[0], registry: o.registry, sha: "b".repeat(40), status: "published" };
+      return 0;
+    },
+  });
+  assert.deepEqual(dispatches, ["npm:@rightkit/y"], "npm published although the crate failed its preflight");
+  assert.equal(state.dispatches[stateKey("crates", "b".repeat(40), "rightkit-bad")].phase, "preflight");
+  assert.equal(code, 1, "the loop still reports the failed crate");
+});
