@@ -179,6 +179,38 @@ test("P11: retired-alias finds every invocation form and spares history, generat
   assert.match(failures[0].fix, /rustright/);
 });
 
+test("P11: retired-alias finds the forms the first sweep missed (Astra's review of #945 and its app PRs)", (t) => {
+  const failures = run("retired-alias", t, {
+    // heardright verify-local.mjs: [command, [args]] pairs, one element per line, a comment between, and a .cmd mapping
+    "scripts/verify-local.mjs": `const plan = [\n  [\n    "${OLD}",\n    // test-mode keychain overrides\n    ["cargo", "test"],\n  ],\n  ["${OLD}", ["cargo", "test", "--test", "contract"]],\n];\nif (platform === "win32" && command === "${OLD}") return ["rustright.cmd", args];\n`,
+    // heardright tsf-tip.ps1, coderight-profile-ab.ps1, genright qualify-local-image-backend.mjs
+    "scripts/tsf-tip.ps1": `$client = Get-Command ${OLD} -ErrorAction Stop\n$out = @(& ${OLD} @arguments 2>&1)\n`,
+    "scripts/qualify.mjs": "const command = `& ${OLD} ${args.join(' ')}`;\n".replace("${OLD}", OLD),
+    // viewright dev-tauri-bench.mjs, scraperight generate-rust-license-appendix.mjs, deterministic-scans.mjs PROBES
+    "scripts/bench.mjs": `const command = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "${OLD}";\nconst CARGO_COMMAND = "${OLD}";\nconst PROBES = { node: ["--version"], ${OLD}: ["cargo", "--version"] };\n`,
+    // spared: refusals that say so, data, English, paths
+    "src/refuse.mjs": `if (name === "${OLD}") return refuse("R1-retired-client");\nconst RETIRED_BROKER = "${OLD}";\n`,
+    "data/update.json": `{ "kind": "${OLD}", "identity": "${OLD}" }\n`,
+    "src/asr.rs": `// a test-mode redirect, which ${OLD} also refuses to resolve\nlet p = root.join("${OLD}");\n`,
+  });
+  assert.deepEqual(failures.map((f) => f.problem.split(" ")[0]).sort(), ["scripts/bench.mjs:1,2,3", "scripts/qualify.mjs:1", "scripts/tsf-tip.ps1:1,2", "scripts/verify-local.mjs:3,7,9"]);
+});
+
+test("G01: a unit about to publish is checked even when its inventory entry and recipe are deleted", (t) => {
+  const { root } = tree(t, {
+    "packages/release/rightkit-versions.json": JSON.stringify({ registry: { cargo: { "rightkit-gone": "0.1.0" }, npm: { "@rightkit/gone": "0.1.0" } } }),
+    "crates/rightkit-gone/Cargo.toml": `[package]\nname = "rightkit-gone"\nversion = "0.2.0"\n`,
+    "packages/gone/package.json": JSON.stringify({ name: "@rightkit/gone", version: "0.2.0" }),
+    "ci/consumer-recipes.json": JSON.stringify({ schema: 1, cargo: {}, npm: {} }),
+  });
+  const problems = runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures.map((f) => f.problem);
+  assert.ok(problems.some((p) => p.startsWith("rightkit-gone:")), problems.join("\n"));
+  assert.ok(problems.some((p) => p.startsWith("@rightkit/gone:") && /missing reviewed PK example/.test(p)), problems.join("\n"));
+  // At its published version the unit has nothing to publish, so no recipe is required yet.
+  fs.writeFileSync(path.join(root, "packages/release/rightkit-versions.json"), JSON.stringify({ registry: { cargo: { "rightkit-gone": "0.2.0" }, npm: { "@rightkit/gone": "0.2.0" } } }));
+  assert.deepEqual(runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures, []);
+});
+
 test("P11: retireAliasText rewrites to rustright and is idempotent", async () => {
   const { retireAliasText } = await import("./preflight.mjs");
   const text = `${OLD} cargo test && ${OLD} status x\n["${OLD}", "cargo", "build"]\n`;

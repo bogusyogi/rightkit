@@ -210,7 +210,7 @@ const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
 const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-index\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP)\.md)$/;
 const PROBES = Object.freeze({
-  rustfmt: ["--version"], node: ["--version"], rightkit: ["cargo", "--version"], pnpm: ["--version"],
+  rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
   actionlint: ["-version"], "right-git": ["--version"], swift: ["--version"],
 });
 

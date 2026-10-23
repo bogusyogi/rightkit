@@ -18,7 +18,9 @@ try {
   // Compile baselines prove host work only; ownership still blocks overall CI below.
   const compileRequired = ["private-repo-guard", "plan", "hygiene"];
   const aggregate = summaryVerdict(needs, { required, counts });
-  const expected = JSON.parse(outputs.evidence ?? "null");
+  // The plan job hands its evidence plan over as a file (EVIDENCE_PLAN, from the ci-plan artifact): as a job output it can
+  // exceed the 128 KiB a single environment string may hold. An `evidence` output, where one is given, still counts.
+  const expected = JSON.parse(outputs.evidence ?? (process.env.EVIDENCE_PLAN ? fs.readFileSync(process.env.EVIDENCE_PLAN, "utf8") : "null"));
   if (!Array.isArray(expected) || expected.length !== Object.values(counts).reduce((sum, count) => sum + count, 0)) throw new Error("evidence plan does not match planned matrix counts");
   for (const host of ["windows", "macos"]) {
     if (expected.filter((job) => job.host === host && job.steps === "test").length !== counts[`shards-${host}`] || expected.filter((job) => job.host === host && job.steps === "closure").length !== counts[`closure-${host}`]) throw new Error(`${host}: evidence plan does not match shard counts`);

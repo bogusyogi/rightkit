@@ -133,6 +133,14 @@ test("runner: all scans pass and the result is a plain receipt-ready object", as
   assert.match(order, /^A+B+$/, "class A runs before class B");
 });
 
+test("runner: the rustright version recorded for the cache is cargo's, so a toolchain upgrade invalidates cached passes", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = [];
+  await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
+  const probes = log.filter(([command]) => command === "rustright" || command === "cargo").filter((call) => call.includes("--version"));
+  assert.deepEqual(probes, [["rustright", "cargo", "--version"]], "`rustright --version` would record the client, not the toolchain");
+});
+
 test("runner: a missing required tool FAILS, never skips", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ missing: ["rustright"] }) }));

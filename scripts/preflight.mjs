@@ -140,9 +140,20 @@ function eolPolicy({ root, commit, repo = REPO }) {
   }] : [];
 }
 
+/** Publishable units whose committed version is not the recorded published one (packages/release/rightkit-versions.json
+ * `registry`): the next publication takes them, and it refuses a unit without a reviewed consumer recipe. Found from the
+ * manifests, not from ci/consumer-recipes.json, so deleting a unit's inventory entry (and its recipe directory) cannot
+ * take it out of the check. */
+export function pendingPublication(root) {
+  const registry = readJson(root, "packages/release/rightkit-versions.json")?.registry ?? {};
+  const cargo = [...workspaceCrates(root)].filter(([name, c]) => c.publish && c.version && registry.cargo?.[name] !== c.version).map(([name]) => name);
+  const npm = [...workspacePackages(root)].filter(([name, p]) => !p.manifest.private && p.manifest.version && registry.npm?.[name] !== p.manifest.version).map(([name]) => name);
+  return { cargo: cargo.sort(), npm: npm.sort() };
+}
+
 function consumerRecipes({ root }) {
   const inventory = readJson(root, "ci/consumer-recipes.json");
-  const units = new Set([...Object.keys(inventory?.cargo ?? {}), ...listDirs(root, "ci/consumers").filter((d) => d.startsWith("rightkit-"))]);
+  const units = new Set([...Object.keys(inventory?.cargo ?? {}), ...listDirs(root, "ci/consumers").filter((d) => d.startsWith("rightkit-")), ...pendingPublication(root).cargo]);
   const out = [];
   for (const unit of [...units].sort()) {
     const result = consumerRecipePolicy(root, unit);
@@ -156,7 +167,9 @@ function consumerRecipes({ root }) {
 function npmRecipes({ root }) {
   const inventory = readJson(root, "ci/consumer-recipes.json");
   const out = [];
-  for (const [unit, entry] of Object.entries(inventory?.npm ?? {}).sort()) {
+  const units = new Map(Object.entries(inventory?.npm ?? {}));
+  for (const unit of pendingPublication(root).npm) if (!units.has(unit)) units.set(unit, {});
+  for (const [unit, entry] of [...units].sort(([a], [b]) => a.localeCompare(b))) {
     const result = npmRecipePolicy(root, unit);
     if (result.ok) continue;
     const actual = Object.fromEntries(Object.keys(entry.files ?? {}).map((f) => { try { return [f, sha256(fs.readFileSync(path.join(root, f)))]; } catch { return [f, undefined]; } }).filter(([, h]) => h));
@@ -255,11 +268,15 @@ function consumerLocks({ root, files }) {
 
 // The RustRight client's subcommands as the retired `rightkit` alias took them (rustright crates/rustright-cli/src/cli.rs).
 const ALIAS_SUBCOMMANDS = "cargo|rustc|rustdoc|run|build|owns|status|attach|cancel|list|quiet|queue|prune|deps|profiles|forecast-report|resume-admission|pause-admission|remote|cutover|storage|verify-receipt";
+// Each form is [pattern, replacement] or [pattern, replacement, { unlessRetired, lineMust }]: `unlessRetired` spares a line that
+// says "retired", where code names the old client on purpose to refuse it (`if (name === "rightkit") refuse("R1-retired-client")`);
+// `lineMust` limits a form to lines that also match it (a ternary needs its `?`, so JSON's `"kind": "rightkit"` is data).
+// Forms match across lines (a multi-line argv array), so the rule reads whole files, not lines.
 const ALIAS_FORMS = [
   // rightkit cargo ..., `rightkit status <id>` (never rightkit-qa, @rightkit/..., .../rightkit, or "rightkit build-control")
   [new RegExp(`(^|[^-./@A-Za-z0-9_$])rightkit(?= (?:${ALIAS_SUBCOMMANDS})(?![-\\w]))`, "gm"), "$1rustright"],
-  // ["rightkit", "cargo", ...] and its quoting variants
-  [new RegExp(`([\\[(]\\s*)(["'\`])rightkit\\2(?=\\s*,\\s*["'\`](?:${ALIAS_SUBCOMMANDS})["'\`])`, "g"), "$1$2rustright$2"],
+  // ["rightkit", "cargo", ...], its quoting variants, one element per line, and the [command, [args]] pair ["rightkit", ["cargo", ...]]
+  [new RegExp(`([\\[(]\\s*)(["'\`])rightkit\\2(?=\\s*,\\s*(?:\\/\\/[^\\n]*\\n\\s*)*(?:\\[\\s*)?["'\`](?:${ALIAS_SUBCOMMANDS})["'\`])`, "g"), "$1$2rustright$2"],
   // the same inside an escaped string (a TOML fixture in a Rust or JS literal): [\"rightkit\", \"cargo\", ...]
   [new RegExp(`([\\[(]\\s*)\\\\(["'])rightkit\\\\\\2(?=\\s*,\\s*\\\\["'](?:${ALIAS_SUBCOMMANDS})\\\\["'])`, "g"), "$1\\$2rustright\\$2"],
   // vec!["rightkit".into(), "cargo".into(), ...] and .to_string() / .to_owned()
@@ -273,6 +290,17 @@ const ALIAS_FORMS = [
   [/(["'])rustright\.cmd\1(\s*:\s*)(["'])rightkit\3/g, "$1rustright.cmd$1$2$3rustright$3"],
   // { cmd: "rightkit", args: [...] } in a release config
   [/\bcmd:(\s*)(["'])rightkit\2/g, "cmd:$1$2rustright$2"],
+  // a command compared by name: `command === "rightkit"` (a Windows .cmd mapping), `argv0 == "rightkit"`
+  [/\b(command|cmd|program|bin|binary|exe|executable|tool|base|first|client|argv0)(\s*(?:===?|!==?)\s*)(["'])rightkit\3/g, "$1$2$3rustright$3", { unlessRetired: true }],
+  // the POSIX half of a platform choice: `win32 ? (env.ComSpec ?? "cmd.exe") : "rightkit"`, `isWin ? "x" : "rightkit"`
+  [/(\)|["'])(\s*:\s*)(["'])rightkit\3(?=\s*[;,)\n])/g, "$1$2$3rustright$3", { lineMust: /\?/ }],
+  // a named command constant: `const CARGO_COMMAND = "rightkit"`, `const BROKER: &str = "rightkit"` (RETIRED_* names are refusals)
+  [/\b((?![A-Z0-9_]*RETIRED)[A-Z][A-Z0-9_]*(?:COMMAND|CMD|BIN|BINARY|PROGRAM|EXE|CLI|BROKER|CLIENT))(\s*(?::\s*&(?:'static\s+)?str\s*)?=\s*)(["'])rightkit\3/g, "$1$2$3rustright$3", { unlessRetired: true }],
+  // PowerShell and shell lookups and calls: `Get-Command rightkit`, `& rightkit @args`, `which rightkit`, `command -v rightkit`
+  [/\b(Get-Command|which|where(?:\.exe)?|command -v)(\s+)rightkit\b(?![-.\w])(?=\s*(?:$|[)|;&>"'`\]]|-ErrorAction))/gm, "$1$2rustright"],
+  [/(^|[\s(;{`])&(\s+)rightkit\b(?![-.\w])/gm, "$1&$2rustright"],
+  // a per-tool table keyed by the client: `{ rightkit: ["cargo", "--version"] }`
+  [/(^|[{,\s])rightkit(\s*:\s*\[)/gm, "$1rustright$2"],
 ];
 /** History and byte-pinned content the alias may stay in: what was run then, or bytes a hash or review binds. */
 export const RETIRED_ALIAS_EXEMPT = /(^|\/)CHANGELOG\.md$|^docs\/(audits|plans|archive)\/|(^|\/)(evidence|release-evidence|receipts?|fixtures?|vendor)\/|adr-\d+-evidence\/|\.evidence\/|\d{4}-\d{2}-\d{2}|(^|\/)(handoffs?|handovers?|reports?|results|experiments|reviews|research|mockups|archive|incidents?|spikes)\/|[^/]*evidence[^/]*\/|\.(jsonl|log|patch|diff)$|\.receipt\.json$|(^|\/)SHA256SUMS$|^ci\/consumers\/|^packages\/ax\/plugin\/schemas\/|^scripts\/embed-export\/|msix-repair-guard\.ps1$|\.lock$|^scripts\/(preflight|preflight\.test|retire-rightkit-alias)\.mjs$/;
@@ -280,12 +308,28 @@ export const RETIRED_ALIAS_EXEMPT = /(^|\/)CHANGELOG\.md$|^docs\/(audits|plans|a
 /** A file generated from other sources (AGENTS.md from docs/agent-rules/): its sources are what is checked and edited. */
 export const isGeneratedFile = (text) => /^\s*(?:<!--|\/\/|#)\s*GENERATED FILE\. Do not hand-edit\./.test(String(text).slice(0, 300));
 
-/** `text` with every invocation of the retired alias renamed to `rustright`, and how many there were. */
+const lineAt = (text, offset) => text.slice(text.lastIndexOf("\n", offset - 1) + 1, (text.indexOf("\n", offset) + 1 || text.length + 1) - 1);
+
+/** `text` with every invocation of the retired alias renamed to `rustright`, how many there were, and the 1-based line of each. */
 export function retireAliasText(text) {
   let count = 0;
   let out = text;
-  for (const [pattern, replacement] of ALIAS_FORMS) out = out.replace(pattern, (...m) => { count += 1; return replacement.replace(/\$(\d)/g, (_, i) => m[Number(i)] ?? ""); });
-  return { text: out, count };
+  const lines = new Set();
+  for (const [pattern, replacement, { unlessRetired = false, lineMust = null } = {}] of ALIAS_FORMS) {
+    const hits = [];
+    out = out.replace(pattern, (...m) => {
+      const offset = m.at(-2);
+      const whole = m.at(-1);
+      const line = lineAt(whole, offset);
+      if ((unlessRetired && /retired/i.test(line)) || (lineMust && !lineMust.test(line))) return m[0];
+      count += 1;
+      hits.push(offset + m[0].search(/rightkit/));
+      return replacement.replace(/\$(\d)/g, (_, i) => m[Number(i)] ?? "");
+    });
+    // Offsets are positions in the text before this form's replacements; every replacement keeps its line count.
+    for (const at of hits) lines.add(text.slice(0, Math.max(0, at)).split("\n").length);
+  }
+  return { text: out, count, lines: [...lines].sort((a, b) => a - b) };
 }
 
 function retiredAlias({ root, files }) {
@@ -295,8 +339,7 @@ function retiredAlias({ root, files }) {
     let bytes;
     try { bytes = fs.readFileSync(path.join(root, file)); } catch { continue; }
     if (bytes.includes(0) || !bytes.includes("rightkit") || isGeneratedFile(bytes.toString("utf8"))) continue;
-    const lines = bytes.toString("utf8").split("\n");
-    const hits = lines.map((line, i) => (retireAliasText(line).count ? i + 1 : 0)).filter(Boolean);
+    const hits = retireAliasText(bytes.toString("utf8")).lines;
     if (hits.length) out.push({ problem: `${file}:${hits.slice(0, 8).join(",")}${hits.length > 8 ? ",…" : ""} invokes \`rightkit\`, the retired name of the RustRight client`, fix: "use rustright (node <rightkit>/scripts/retire-rightkit-alias.mjs --repo <this repository> rewrites them all)" });
   }
   return out;

@@ -308,8 +308,11 @@ async function runCanaryChild(unit) {
   return { code: r.code, last };
 }
 
-async function cmdCanary(opts, deps = {}) {
+export async function cmdCanary(opts, deps = {}) {
   if (!opts.units.length) { fail("name at least one unit"); return 2; }
+  // P1: the canary is expensive work (it builds and runs every app against the candidate); the check runs first.
+  const sha = (deps.head ?? (() => git("rev-parse", "HEAD")))();
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
   let worst = 0;
   for (const unit of opts.units) {
     if (!needsCanary(unit, "npm")) { fail(`${unit}: no pipeline canary for this unit`); worst = Math.max(worst, 2); continue; }
@@ -331,12 +334,14 @@ export async function cmdPreflight(opts, deps = {}) {
   return [...results.values()].every((r) => r.code === 0) ? 0 : 1;
 }
 
-async function cmdDispatch(opts, deps = {}) {
+export async function cmdDispatch(opts, deps = {}) {
   if (!opts.units.length) {
     fail("name at least one unit");
     return 2;
   }
-  const sha = git("rev-parse", "HEAD");
+  const sha = (deps.head ?? (() => git("rev-parse", "HEAD")))();
+  // P1: a dispatch starts hosted runners; the check runs first, whatever pre-flight receipts say.
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
   if (git("status", "--porcelain", "--untracked-files=no")) throw new Error("tracked files changed before dispatch");
   const remote = git("ls-remote", "origin", "refs/heads/main").split(/\s+/)[0];
   if (remote !== sha) {

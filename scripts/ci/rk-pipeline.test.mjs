@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdCanary, cmdDispatch, cmdLoop, cmdPreflight, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -567,4 +567,20 @@ test("P1: pre-flight runs the check first and compiles nothing when it is red", 
   assert.deepEqual(compiled, []);
   assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), preflightMany: many }), 0);
   assert.deepEqual(compiled, ["rightkit-a"]);
+});
+
+test("P1: a direct canary runs the check first and starts no canary when it is red", async () => {
+  const canaried = [];
+  const canary = async (unit) => { canaried.push(unit); return { code: 0, last: "GREEN" }; };
+  assert.equal(await cmdCanary({ units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, canary }), 1);
+  assert.deepEqual(canaried, []);
+  assert.equal(await cmdCanary({ units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: async () => ({ code: 0 }), canary }), 0);
+  assert.deepEqual(canaried, ["@rightkit/release"]);
+});
+
+test("P1: a direct dispatch runs the check first and dispatches nothing when it is red", async () => {
+  let planned = false;
+  const planFn = async () => { planned = true; return { units: [] }; };
+  assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, planFn }), 1);
+  assert.equal(planned, false, "a red check reaches no receipt, plan or dispatch");
 });

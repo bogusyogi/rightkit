@@ -91,10 +91,18 @@ function main() {
   console.log(JSON.stringify(output, null, 1));
   const out = argOf("--out");
   if (out) fs.writeFileSync(out, JSON.stringify(output, null, 2));
+  // The evidence plan grows with the units a run touches (132 KB for a run over every unit) and a job output reaches the
+  // summary step as one environment string, which Linux caps at 128 KiB ("Argument list too long", run 40034020934). It
+  // travels as a file (the ci-plan artifact) instead; every other output stays a job output.
+  const evidenceOut = argOf("--evidence-out");
+  if (evidenceOut) {
+    fs.mkdirSync(path.dirname(evidenceOut), { recursive: true });
+    fs.writeFileSync(evidenceOut, output.evidence);
+  }
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
   if (process.env.GITHUB_OUTPUT) {
     // One line per output; none of these values contains a newline.
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `${Object.entries(output).map(([k, v]) => `${k}=${v}`).join("\n")}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `${Object.entries(output).filter(([k]) => k !== "evidence").map(([k, v]) => `${k}=${v}`).join("\n")}\n`);
   }
 }
 

@@ -355,6 +355,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
     } else if (item.kind === "ffmpeg") {
       const { kind: _kind, platforms: _platforms, catalog: rawCatalog, sources: rawSources, probe: rawProbe, ...rest } = item;
       if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "cargo") errors.push(`${where}: stage.cmd must not be bare cargo; use { cmd: "rustright", args: ["cargo", ...] }`);
+      if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "rightkit") errors.push(`${where}: stage.cmd "rightkit" is the retired name of the RustRight client (rustright#91); use { cmd: "rustright", args: ["cargo", ...] }`);
       const catalogSpec = parseCatalogSpec(rawCatalog, `${where}: catalog`, errors, "ffmpeg");
       if (catalogSpec) entry.catalogSpec = catalogSpec;
       if (rawProbe !== undefined && typeof rawProbe !== "boolean") errors.push(`${where}: probe must be a boolean`);
@@ -513,9 +514,10 @@ function catalogContentDigest(bytes, arch) {
 const profileDirectory = (profile) => (profile === "dev" || profile === "test" ? "debug" : profile === "bench" ? "release" : profile);
 const tail = (text, lines = 12) => String(text ?? "").trim().split("\n").slice(-lines).join("\n");
 
-/** Default process runner: `rightkit` resolves through the installed runtime client (as the apps' scripts did). */
+/** Default process runner: `rustright` resolves through the installed runtime client (its Windows shim is rustright.cmd). */
 export function defaultRun(command, args, { cwd, env = process.env } = {}) {
-  const launch = command === "rustright" || command === "rightkit" ? resolveCommand(command, args, { root: cwd, env }) : { command, args };
+  if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (stage: { cmd: \"rustright\" })");
+  const launch = command === "rustright" ? resolveCommand(command, args, { root: cwd, env }) : { command, args };
   return nodeSpawnSync(launch.command, launch.args, {
     cwd, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8", maxBuffer: 512 * 1024 * 1024, shell: false, windowsHide: true, stdio: ["inherit", "pipe", "inherit"],
   });

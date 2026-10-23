@@ -21,7 +21,7 @@ build the frontend into `build.frontendDist`; build the app with `--features qa-
 | Pulse `hub` | no | yes (gate.sh:376) | `control::launch` | yes, outside the broker (gate.sh:427) | plain cargo (stated exception) |
 | PostRight | no | yes (`qa-native` enables it) | `run_suite` | built `--no-run`, run outside the broker | none for the dev server |
 | CutRight `apps/cutright` | no | via `tauri build` (inferred) | `control::launch`; Windows drives the installed copy | yes (40 tests, inside the broker) | build through the broker |
-| ViewRight | no for native | yes (`qa-native` includes it) | `control::launch` | built `--no-run`, run outside the broker | none material |
+| ViewRight | no for native QA; the native benchmark lane (`scripts/dev-tauri-bench.mjs:2,284`) starts Vite and builds `bench-native` | yes (`qa-native` includes it) | `control::launch` | built `--no-run`, run outside the broker | benchmark only: serve the built frontend, as the QA build does |
 
 No app has a `journeys.toml`; none runs `rightkit-qa journeys run`.
 

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  StageSidecarError, builtBinaryCandidates, defaultExtractMember, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
@@ -82,6 +82,15 @@ test("validation reports every problem at once with a typed error", () => {
   }
   assert.throws(() => validateSidecarManifest([], { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
   assert.throws(() => validateSidecarManifest({ sidecars: [{ kind: "resource", from: "a", to: "b" }], stageDir: "../out" }, { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+});
+
+test("the retired client name is refused in a stage command and by the default runner, never resolved", () => {
+  const retired = ["right", "kit"].join(""); // spelled at runtime: the retired-alias rule refuses the literal
+  assert.throws(
+    () => validateSidecarManifest([{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: { dir: "n", sourceOfferContact: "a@b.co" }, stage: { cmd: retired, args: ["cargo", "run"] } }], { target: MAC }),
+    (error) => error.code === "STAGE_SIDECAR_CONFIG_INVALID" && /retired name of the RustRight client/.test(error.message),
+  );
+  assert.throws(() => defaultRun(retired, ["cargo", "metadata"], { cwd: "." }), /retired name of the RustRight client/);
 });
 
 test("builtBinaryCandidates prefers the explicit-target layout, then the plain one", () => {

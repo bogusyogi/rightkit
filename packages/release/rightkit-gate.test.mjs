@@ -277,11 +277,11 @@ test("the gate blocks without a local compile grant: Rust units cannot be discov
   assert.match(c.err.join("\n"), /BLOCKED: no local compile grant/);
 });
 
-test("the gate blocks when neither rightkit nor the managed cargo shim resolves", async (t) => {
+test("the gate blocks when neither rustright nor the managed cargo shim resolves", async (t) => {
   const root = mkRepo(gateFiles(), t);
   const c = capture();
   const code = await main(["--plan"], { ...c.io, spawn: repoSpawn(root, { cargoLines: "" }), cwd: root, env: {} });
-  // `where rightkit` answers nothing: the only fallback is a cargo shim, and `where cargo` fails here.
+  // `where rustright` answers nothing: the only fallback is a cargo shim, and `where cargo` fails here.
   assert.equal(code, 1);
   assert.match(c.err.join("\n"), /neither `rustright` nor the managed cargo shim/);
 });

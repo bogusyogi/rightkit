@@ -67,7 +67,6 @@ jobs:
       scan_base: ${{ steps.plan.outputs.scan_base }}
       scan_crates: ${{ steps.plan.outputs.scan_crates }}
       scan_packages: ${{ steps.plan.outputs.scan_packages }}
-      evidence: ${{ steps.plan.outputs.evidence }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,7 +88,18 @@ jobs:
       - name: Plan shards
         id: plan
         shell: bash
-        run: node scripts/ci/ci-plan.mjs --last-green "$RUNNER_TEMP/last-green.json"
+        run: node scripts/ci/ci-plan.mjs --last-green "$RUNNER_TEMP/last-green.json" --evidence-out "$RUNNER_TEMP/ci-plan/evidence.json"
+      # The evidence plan reaches the summary as a file: as a job output it exceeds the 128 KiB one environment string holds
+      # once a run touches most units (run 40034020934, "Argument list too long").
+      - name: Upload evidence plan
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-plan
+          path: ${{ runner.temp }}/ci-plan/evidence.json
+          retention-days: 7
+          overwrite: true
+          if-no-files-found: error
 
   # Windows: one job per group of crates / npm packages (a crate's feature rows always stay together).
   # max-parallel bounds this matrix; GitHub admits jobs under account-wide concurrency.
@@ -410,12 +420,18 @@ jobs:
         with:
           pattern: qa-evidence-*
           path: ci-evidence
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        with:
+          name: ci-plan
+          path: ci-plan
       - name: Verdict
         id: verdict
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
           NEEDS: ${{ toJSON(needs) }}
+          EVIDENCE_PLAN: ci-plan/evidence.json
         run: node scripts/ci/ci-summary.mjs
       - name: Static validation verdict
         if: ${{ github.event_name != 'workflow_dispatch' }}

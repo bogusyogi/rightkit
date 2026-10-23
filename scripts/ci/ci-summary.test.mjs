@@ -31,7 +31,7 @@ function fixture() {
   return { expected, reports, needs };
 }
 
-function runSummary(f) {
+function runSummary(f, { planFile = false } = {}) {
   const parent = process.env.RIGHTKIT_TEST_SCRATCH ?? (process.env.GITHUB_ACTIONS === "true" ? process.env.RUNNER_TEMP : undefined) ?? os.tmpdir();
   const scratch = fs.realpathSync.native(fs.mkdtempSync(path.join(parent, "rk-compile-summary-")));
   try {
@@ -42,17 +42,26 @@ function runSummary(f) {
     }
     const output = path.join(scratch, "outputs");
     fs.writeFileSync(output, "");
+    // ci.yml hands the evidence plan over as the ci-plan artifact's file, never as a job output.
+    let needs = f.needs;
+    const env = { ...process.env, GITHUB_SHA: SHA, GITHUB_OUTPUT: output, EVIDENCE_DIR: scratch };
+    if (planFile) {
+      const { evidence, ...outputs } = f.needs.plan.outputs;
+      needs = { ...f.needs, plan: { ...f.needs.plan, outputs } };
+      env.EVIDENCE_PLAN = path.join(scratch, "evidence.json");
+      if (planFile !== "missing") fs.writeFileSync(env.EVIDENCE_PLAN, evidence);
+    }
+    env.NEEDS = JSON.stringify(needs);
     const run = spawnSync(process.execPath, [fileURLToPath(new URL("./ci-summary.mjs", import.meta.url))], {
-      encoding: "utf8", windowsHide: true, timeout: 30_000,
-      env: { ...process.env, NEEDS: JSON.stringify(f.needs), GITHUB_SHA: SHA, GITHUB_OUTPUT: output, EVIDENCE_DIR: scratch },
+      encoding: "utf8", windowsHide: true, timeout: 30_000, env,
     });
     assert.ifError(run.error);
     return { ...run, green: Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("="))) };
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 }
 
-function assertVerdict(f, status, windows, macos) {
-  const run = runSummary(f);
+function assertVerdict(f, status, windows, macos, opts) {
+  const run = runSummary(f, opts);
   assert.equal(run.status, status, run.stderr);
   assert.deepEqual(run.green, { windows_green: String(windows), macos_green: String(macos) });
   return run;
@@ -107,4 +116,18 @@ test("missing, failed, known-red & inexact reports block only their host marker"
     }
     assertVerdict(f, 1, host !== "windows", host !== "macos");
   }
+});
+
+test("the evidence plan arrives as a file, whatever its size, and a missing plan file refuses", () => {
+  // Run 40034020934: a plan over every unit (132 KB) as a job output broke the summary step with "Argument list too long".
+  const f = fixture();
+  const wide = ` --features ${"x".repeat(70_000)}`;
+  for (const job of f.expected) job.commands[0].command += wide;
+  for (const report of Object.values(f.reports)) report.results[0].command += wide;
+  f.needs.plan.outputs.evidence = JSON.stringify(f.expected);
+  assert.ok(f.needs.plan.outputs.evidence.length > 128 * 1024, "the fixture plan is larger than one environment string may be");
+  assertVerdict(f, 0, true, true, { planFile: true });
+  const missing = runSummary(fixture(), { planFile: "missing" });
+  assert.equal(missing.status, 1, missing.stderr);
+  assert.match(missing.stderr, /ci-summary: /);
 });
