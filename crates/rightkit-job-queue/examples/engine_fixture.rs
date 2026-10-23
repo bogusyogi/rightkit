@@ -9,6 +9,11 @@
 //! request received is appended, before it is answered, to `FX_DIR/methods` as
 //! `<generation> <method>` (never its params).
 //!
+//! When `FX_LAUNCH` is set, the fixture reads one stdin line before anything else (as an engine that
+//! needs its launch frame before slow startup does) and appends `<generation> <line>` to
+//! `FX_DIR/launch`; the line is never echoed to stderr. When `FX_RECORD_STDIN` is set, every
+//! later stdin line is appended, raw, to `FX_DIR/stdin_lines`.
+//!
 //! Modes: `ok`, `slow_hello:<ms>`, `no_hello`, `crash:<ms>` (exit 9 shortly after
 //! hello), `crash_on_call` (exit 9 on method `work`), `wedge:<ms>` (stops reading
 //! after the delay; the process stays alive), `reject_set` (refuses `set_*`), `wrong_contract` (advertises contract_version 2).
@@ -57,6 +62,17 @@ fn main() {
     trace("main");
     eprintln!("fixture gen {n} mode {mode} key=PRIVATE{n}");
 
+    if std::env::var_os("FX_LAUNCH").is_some() {
+        let mut first = String::new();
+        let _ = std::io::stdin().lock().read_line(&mut first);
+        let mut log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("launch"))
+            .unwrap();
+        writeln!(log, "{n} {}", first.trim_end_matches(['\r', '\n'])).unwrap();
+    }
+
     let stdout = std::io::stdout();
     let put = |v: Value| {
         let mut o = stdout.lock();
@@ -88,8 +104,18 @@ fn main() {
     }
     // Reads happen on this thread; `wedge` stops after the delay.
     let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let record = std::env::var_os("FX_RECORD_STDIN").map(|_| dir.join("stdin_lines"));
     std::thread::spawn(move || {
         for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+            if let Some(path) = &record {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    let _ = writeln!(f, "{line}");
+                }
+            }
             if tx.send(line).is_err() {
                 break;
             }

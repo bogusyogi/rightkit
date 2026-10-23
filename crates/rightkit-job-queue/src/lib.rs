@@ -14,6 +14,8 @@ mod error;
 #[allow(unsafe_code)]
 pub mod ffi;
 mod inline;
+#[cfg(feature = "protocol")]
+mod launch;
 #[cfg(feature = "store")]
 mod lock_queue;
 #[cfg(feature = "store")]
@@ -94,8 +96,9 @@ pub use store::{
 #[cfg(feature = "supervisor")]
 pub use supervisor::{
     CallOptions, EngineSupervisor, ExitObserver, ExitReason, HandshakeCall, HandshakeMode,
-    HealthCheck, InitialFailure, Lifecycle, LifecycleEvent, Readiness, ShutdownOutcome,
-    ShutdownReport, SupervisorConfig, SupervisorStatus, Terminal,
+    HealthCheck, InitialFailure, LaunchFrame, Lifecycle, LifecycleEvent, Readiness,
+    ShutdownOutcome, ShutdownReport, SupervisorConfig, SupervisorStatus, Terminal,
+    LAUNCH_FRAME_FAILED, MAX_LAUNCH_FRAME_BYTES,
 };
 /// The buffer type [`HandshakeCall::new`] takes for its params, re-exported so a host builds it
 /// with the `zeroize` this crate links.
@@ -105,6 +108,8 @@ pub use zeroize::Zeroizing;
 mod crash_observer;
 #[cfg(feature = "crash")]
 pub use crash_observer::CrashExitObserver;
+#[cfg(feature = "protocol")]
+pub use launch::{read_launch_frame, LaunchError};
 #[cfg(feature = "protocol")]
 pub use wire::{finite_frame_limit, CONTRACT_VERSION, DEFAULT_FRAME_LIMIT, MAX_FRAME_LIMIT};
 // Re-exported so a host that only depends on rightkit-job-queue can build the policy and spawn command.

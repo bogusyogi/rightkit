@@ -7016,7 +7016,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.6"
+version = "0.4.7"
 dependencies = [
  "blake3",
  "libc",
@@ -7099,7 +7099,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-job-queue"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "rightkit-child-process",
  "rightkit-crash",

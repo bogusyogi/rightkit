@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 — unpublished
+
+All additive. A supervisor with no launch frame configured writes and behaves exactly as in 0.5.0.
+
+- Added: `SupervisorConfig::with_launch_frame(provider)`, where `provider: Fn(generation: u64) -> Result<LaunchFrame, JobError>` is called once per boot generation (a restart calls it again, so each generation gets current settings), before the engine is spawned. The supervisor writes the frame as the engine's first stdin line, on a writer thread, right after the process starts and ahead of any snapshot replay, handshake call or request. The write counts against `hello_timeout`; a child that never reads stdin ends the boot at that bound. Needed by engines that must have their configuration before slow startup work and say hello only afterwards (HeardRight loads its model before hello; HeardRight `docs/plans/2026-10-23-release-switches.md`, items D1/D2).
+- Added: `LaunchFrame::new(schema, version, &params)` serialises `{"type":"launch","schema":..,"version":..,"params":..}` into zeroizing bytes without reallocating (no stray copy of the payload), `LaunchFrame::from_json_line` for a pre-serialised line, `MAX_LAUNCH_FRAME_BYTES` (4096, the line without its newline) and `LAUNCH_FRAME_FAILED` (`launch_frame_failed`). The supervisor refuses a frame that is empty, over 4 KiB or contains `\n` / `\r` before it spawns anything.
+- Failure: a provider that errors or panics, a refused frame, and a write that fails or times out fail the boot with `launch_frame_failed` through the normal restart budget. The payload, and a provider error's message, are never logged: no error text, exit reason, stderr tail or lifecycle event carries them (the provider error's `code` only).
+- Added (feature `protocol`, engine side): `read_launch_frame::<T>(reader, schema, max_version, limit) -> Result<T, LaunchError>` reads exactly one line (at most `limit` bytes) and returns the frame's `params`. `LaunchError` (`#[non_exhaustive]`): `Eof`, `Oversize`, `Io`, `Malformed`, `WrongType`, `WrongSchema`, `VersionTooNew { found, max }`; no variant or message contains frame text.
+- Tests: `tests/launch_frame.rs` (frame first on stdin ahead of a snapshot and a handshake call; provider once per generation; provider error, panic, multi-line, oversize and empty frames fail before any spawn and spend restart budget; payload absent from errors, status and lifecycle events; `hello_timeout` bound; no-frame stdin unchanged); `src/supervisor.rs` `launch_frame_tests` (blocked writer, broken pipe, line checks); `src/launch.rs` reader cases. The fixture gains `FX_LAUNCH` and `FX_RECORD_STDIN`.
+
 ## 0.5.0 — unpublished staging
 
 - BREAKING: public `rightkit-daemon` types change identity. `DispatcherHandler` implements `rightkit_daemon::Handler` (`src/service.rs:33`, exported at `src/lib.rs:80-81` under feature `service`), and `HostFactory::connect_service` returns `rightkit_daemon::Client` and `rightkit_daemon::ServiceError` (`src/ffi.rs:153-156`, feature `ffi`). The daemon dependency is 0.4.0 (`Cargo.toml:52`); published 0.4.0 pins `rightkit-daemon ^0.3.0`. The 0.4.1 entries below were never published and ship under this number.

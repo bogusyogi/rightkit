@@ -40,7 +40,7 @@ use std::fmt;
 use std::io::{self, BufReader};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::Stdio;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -76,6 +76,160 @@ type Redactor = dyn Fn(&str) -> Option<String> + Send + Sync;
 type LineSink = dyn Fn(&str) + Send + Sync;
 type OnEvent = Box<dyn Fn(&Value) + Send>;
 type HandshakeFn = dyn Fn(u64) -> Result<Vec<HandshakeCall>, JobError> + Send + Sync;
+type LaunchFrameFn = dyn Fn(u64) -> Result<LaunchFrame, JobError> + Send + Sync;
+
+/// Largest launch frame line in bytes, excluding its newline. See [`LaunchFrame`].
+pub const MAX_LAUNCH_FRAME_BYTES: usize = 4096;
+
+/// Code of a boot failure caused by the launch frame: the provider failed or panicked, the
+/// frame was refused (not one line, or over [`MAX_LAUNCH_FRAME_BYTES`]), or the write failed or
+/// did not finish within the hello budget.
+pub const LAUNCH_FRAME_FAILED: &str = "launch_frame_failed";
+
+/// The first line a [`SupervisorConfig::with_launch_frame`] engine reads on stdin, before it says
+/// hello: `{"type":"launch","schema":..,"version":..,"params":..}`. It carries configuration the
+/// engine needs before it starts slow work (for example which model backend to load).
+///
+/// The line is held in zeroizing bytes, is never parsed again by the supervisor, and appears in
+/// no log, error, exit reason, stderr tail or lifecycle event. The type has no `Clone`, and its
+/// `Debug` shows the length only.
+///
+/// The frame must be one line (no `\n` or `\r`) of at most [`MAX_LAUNCH_FRAME_BYTES`] bytes; the
+/// supervisor refuses anything else before it spawns the engine.
+pub struct LaunchFrame {
+    line: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for LaunchFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LaunchFrame({} bytes)", self.line.len())
+    }
+}
+
+/// A writer that refuses to grow past a fixed capacity, so serialising a frame never reallocates
+/// (a reallocation would leave an unzeroed copy of the payload behind).
+struct CappedWriter<'a> {
+    buf: &'a mut Vec<u8>,
+    cap: usize,
+}
+
+impl io::Write for CappedWriter<'_> {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        if self.buf.len() + data.len() > self.cap {
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "launch frame too large",
+            ));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl LaunchFrame {
+    /// Serialise `{"type":"launch","schema":schema,"version":version,"params":params}`. Fails
+    /// with `bad_input` when the line would pass [`MAX_LAUNCH_FRAME_BYTES`] or `params` does not
+    /// serialise; the message never contains the params.
+    pub fn new(schema: &str, version: u32, params: &impl Serialize) -> JobResult<Self> {
+        #[derive(Serialize)]
+        struct Wire<'a, P: Serialize> {
+            #[serde(rename = "type")]
+            kind: &'static str,
+            schema: &'a str,
+            version: u32,
+            params: &'a P,
+        }
+        let mut line = Zeroizing::new(Vec::with_capacity(MAX_LAUNCH_FRAME_BYTES));
+        let wire = Wire {
+            kind: "launch",
+            schema,
+            version,
+            params,
+        };
+        let cap = MAX_LAUNCH_FRAME_BYTES;
+        let written = serde_json::to_writer(
+            CappedWriter {
+                buf: &mut line,
+                cap,
+            },
+            &wire,
+        );
+        match written {
+            Ok(()) => Ok(Self { line }),
+            Err(e) if e.is_io() => Err(JobError::bad_input(format!(
+                "launch frame exceeds {MAX_LAUNCH_FRAME_BYTES} bytes"
+            ))),
+            Err(_) => Err(JobError::bad_input("launch frame params did not serialize")),
+        }
+    }
+
+    /// A frame from an already serialised line (no trailing newline). Not checked here: the
+    /// supervisor refuses a line with `\n` or `\r` in it, an empty line, or one over
+    /// [`MAX_LAUNCH_FRAME_BYTES`] before it spawns the engine, failing the boot with
+    /// `launch_frame_failed`.
+    pub fn from_json_line(line: Zeroizing<Vec<u8>>) -> Self {
+        Self { line }
+    }
+
+    /// Length of the line in bytes, without its newline.
+    pub fn len(&self) -> usize {
+        self.line.len()
+    }
+
+    /// Whether the line is empty (always refused at boot).
+    pub fn is_empty(&self) -> bool {
+        self.line.is_empty()
+    }
+
+    fn check(&self) -> Result<(), &'static str> {
+        if self.line.is_empty() {
+            Err("launch frame is empty")
+        } else if self.line.len() > MAX_LAUNCH_FRAME_BYTES {
+            Err("launch frame is over the size limit")
+        } else if self.line.iter().any(|b| *b == b'\n' || *b == b'\r') {
+            Err("launch frame is not one line")
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// Write `frame` and a newline to `writer` on its own thread and hand the writer back, so the
+/// caller can pass it on. Returns an error if the write fails or has not finished within
+/// `timeout`: a child that never reads stdin must not hang the boot (an OS pipe holds only so
+/// much, and Windows' anonymous pipes buffer as little as 4 KiB). On a timeout the writer stays
+/// with the blocked thread, which ends once the child is killed and the pipe breaks; the frame is
+/// dropped (zeroized) when that thread finishes.
+fn deliver_launch_frame<W: io::Write + Send + 'static>(
+    mut writer: W,
+    frame: LaunchFrame,
+    timeout: Duration,
+) -> Result<W, &'static str> {
+    let (tx, rx) = channel::<io::Result<W>>();
+    let spawned = thread::Builder::new()
+        .name("launch-frame".into())
+        .spawn(move || {
+            let result = writer
+                .write_all(&frame.line)
+                .and_then(|()| writer.write_all(b"\n"))
+                .and_then(|()| writer.flush())
+                .map(|()| writer);
+            drop(frame);
+            let _ = tx.send(result);
+        });
+    if spawned.is_err() {
+        return Err("launch frame writer thread did not start");
+    }
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(w)) => Ok(w),
+        Ok(Err(_)) => Err("launch frame write failed"),
+        Err(RecvTimeoutError::Timeout) => Err("launch frame write timed out"),
+        Err(RecvTimeoutError::Disconnected) => Err("launch frame writer ended abnormally"),
+    }
+}
 
 /// How a failed [`HandshakeCall`] is treated. See [`SupervisorConfig::with_handshake`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,6 +538,7 @@ pub struct SupervisorConfig {
     fallback_error_code: String,
     exit_observer: Option<Arc<dyn ExitObserver>>,
     handshake: Option<Arc<HandshakeFn>>,
+    launch_frame: Option<Arc<LaunchFrameFn>>,
 }
 
 impl SupervisorConfig {
@@ -416,6 +571,7 @@ impl SupervisorConfig {
             fallback_error_code: "engine_error".into(),
             exit_observer: None,
             handshake: None,
+            launch_frame: None,
         }
     }
     /// Deliver fresh secrets (for example provider API keys) to every engine generation before it
@@ -451,6 +607,32 @@ impl SupervisorConfig {
         provider: impl Fn(u64) -> Result<Vec<HandshakeCall>, JobError> + Send + Sync + 'static,
     ) -> Self {
         self.handshake = Some(Arc::new(provider));
+        self
+    }
+    /// Send a [`LaunchFrame`] as the engine's first stdin line, before it says hello, so it has
+    /// its configuration before slow startup work (an engine that loads a model before hello
+    /// needs this). `provider` is called with the generation number once per boot, on the booting
+    /// thread with no supervisor lock held, before the engine is spawned; a restart boots a new
+    /// generation and calls it again, so every generation gets current settings.
+    ///
+    /// Ordering: the frame is written right after the engine starts, on a writer thread, ahead of
+    /// any snapshot replay, handshake call or request. The write counts against
+    /// [`SupervisorConfig::hello_timeout`] (the hello wait gets what remains), so a child that
+    /// never reads stdin ends the boot at that bound instead of hanging it.
+    ///
+    /// Failure: a provider that returns `Err` or panics, a frame that is not one line or is over
+    /// [`MAX_LAUNCH_FRAME_BYTES`] (refused before the spawn), and a write that fails or does not
+    /// finish in time all fail the boot with code `launch_frame_failed`, through the normal
+    /// restart budget. Only the provider error's `code` is reported. The payload is never logged:
+    /// it is in no stderr tail, lifecycle event, error or exit reason.
+    ///
+    /// Without a provider nothing is written and the stdin bytes are unchanged. Replaces any
+    /// earlier provider.
+    pub fn with_launch_frame(
+        mut self,
+        provider: impl Fn(u64) -> Result<LaunchFrame, JobError> + Send + Sync + 'static,
+    ) -> Self {
+        self.launch_frame = Some(Arc::new(provider));
         self
     }
     /// Report every abnormal engine exit (not an intentional shutdown) to `observer`, with the
@@ -1430,6 +1612,32 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             String::new(),
         );
     }
+    // Evaluated before the spawn so a provider error or a refused frame never starts a process.
+    let launch_frame = match &sh.cfg.launch_frame {
+        None => None,
+        Some(provider) => {
+            let provided = catch_unwind(AssertUnwindSafe(|| provider(generation)));
+            let refused = match provided {
+                Ok(Ok(frame)) => match frame.check() {
+                    Ok(()) => Ok(frame),
+                    Err(why) => Err(why.to_string()),
+                },
+                Ok(Err(e)) => Err(format!("launch frame provider failed: {}", e.code)),
+                Err(_) => Err("launch frame provider panicked".to_string()),
+            };
+            match refused {
+                Ok(frame) => Some(frame),
+                Err(message) => {
+                    return fail(
+                        ExitReason::SpawnFailed(LAUNCH_FRAME_FAILED.into()),
+                        LAUNCH_FRAME_FAILED,
+                        message,
+                        String::new(),
+                    )
+                }
+            }
+        }
+    };
     let mut command = match (sh.cfg.spawn)() {
         Ok(c) => c,
         Err(e) => {
@@ -1528,8 +1736,50 @@ fn boot(sh: &Arc<Shared>, initial: bool) -> JobResult<()> {
             }
         },
     );
+    // The launch frame goes first on stdin, before the client (and any snapshot or request)
+    // can write; its time comes out of the hello budget.
+    let booted_at = Instant::now();
+    let stdin = match launch_frame {
+        None => stdin,
+        Some(frame) => {
+            sh.mark(generation, "launch frame write begin");
+            let delivered = deliver_launch_frame(stdin, frame, sh.cfg.hello_timeout);
+            match delivered {
+                Ok(stdin) => {
+                    sh.mark(generation, "launch frame write ended ok");
+                    stdin
+                }
+                Err(message) => {
+                    sh.mark(generation, "launch frame write ended error");
+                    let slot = sh
+                        .boot_slot
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take();
+                    if let Some((mut child, live)) = slot {
+                        let _ = child.terminate_tree_bounded(sh.cfg.shutdown_grace);
+                        drop(child);
+                        drop(live);
+                    }
+                    if sh.lock().shutting_down {
+                        return Err(JobError::supervisor(
+                            "down",
+                            "engine was shut down while starting",
+                        ));
+                    }
+                    let text = tail.finish_within(Duration::from_millis(500));
+                    return fail(
+                        ExitReason::HelloFailed(LAUNCH_FRAME_FAILED.into()),
+                        LAUNCH_FRAME_FAILED,
+                        message.into(),
+                        text,
+                    );
+                }
+            }
+        }
+    };
     let opts = ClientOptions {
-        hello_timeout: sh.cfg.hello_timeout,
+        hello_timeout: sh.cfg.hello_timeout.saturating_sub(booted_at.elapsed()),
         frame_limit: sh.cfg.effective_frame_limit(),
         contract_version: sh.cfg.contract_version.clone(),
         fallback_error_code: sh.cfg.fallback_error_code.clone(),
@@ -2085,5 +2335,93 @@ mod tests {
         // One unreaped child is within the cap: the gate passes and the spawn closure's own error
         // is what comes back.
         assert_eq!(s.start().unwrap_err().code, "spawn_failed");
+    }
+}
+
+#[cfg(test)]
+mod launch_frame_tests {
+    use super::*;
+    use std::sync::mpsc::sync_channel;
+
+    fn frame(bytes: &[u8]) -> LaunchFrame {
+        LaunchFrame::from_json_line(Zeroizing::new(bytes.to_vec()))
+    }
+
+    /// Shares its buffer so a test can read what the writer thread wrote.
+    #[derive(Clone, Default)]
+    struct Shared(Arc<Mutex<Vec<u8>>>);
+    impl io::Write for Shared {
+        fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A pipe nobody reads: every write blocks until the test releases it.
+    struct Stuck(std::sync::mpsc::Receiver<()>);
+    impl io::Write for Stuck {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            let _ = self.0.recv();
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct Broken;
+    impl io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from(io::ErrorKind::BrokenPipe))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn writes_the_line_then_a_newline_and_returns_the_writer() {
+        let out = Shared::default();
+        let back = deliver_launch_frame(out.clone(), frame(b"{\"a\":1}"), Duration::from_secs(5));
+        assert!(back.is_ok());
+        assert_eq!(*out.0.lock().unwrap(), b"{\"a\":1}\n");
+    }
+
+    #[test]
+    fn a_reader_that_never_drains_ends_at_the_timeout_not_forever() {
+        // A frame at the size limit, as on a Windows pipe whose buffer is only 4 KiB.
+        let (release, stuck) = sync_channel::<()>(1);
+        let began = Instant::now();
+        let r = deliver_launch_frame(
+            Stuck(stuck),
+            frame(&vec![b'x'; MAX_LAUNCH_FRAME_BYTES]),
+            Duration::from_millis(150),
+        );
+        assert_eq!(r.err(), Some("launch frame write timed out"));
+        assert!(began.elapsed() < Duration::from_secs(3));
+        // Killing the child breaks the pipe; the writer thread then ends on its own.
+        release.send(()).unwrap();
+    }
+
+    #[test]
+    fn a_broken_pipe_is_a_write_failure() {
+        let r = deliver_launch_frame(Broken, frame(b"{}"), Duration::from_secs(5));
+        assert_eq!(r.err(), Some("launch frame write failed"));
+    }
+
+    #[test]
+    fn check_accepts_exactly_one_nonempty_line_within_the_limit() {
+        assert!(frame(b"{}").check().is_ok());
+        assert!(frame(&vec![b'x'; MAX_LAUNCH_FRAME_BYTES]).check().is_ok());
+        assert!(frame(&vec![b'x'; MAX_LAUNCH_FRAME_BYTES + 1])
+            .check()
+            .is_err());
+        assert!(frame(b"").check().is_err());
+        assert!(frame(b"a\nb").check().is_err());
+        assert!(frame(b"a\r").check().is_err());
+        assert!(!format!("{:?}", frame(b"SECRET")).contains("SECRET"));
     }
 }
