@@ -275,7 +275,7 @@ test("loop --registry all runs crates and npm units in one coordinator; npm does
   let release;
   const crateGate = new Promise((r) => { release = r; });
   const ready = { crates: ["rightkit-x"], npm: ["@rightkit/y"] };
-  const result = cmdLoop({ registry: "all", units: [], jobs: 2 }, {
+  const result = cmdLoop({ registry: "all", units: [], jobs: 1 }, {
     head: () => "a".repeat(40),
     readiness: async ({ registry }) => ({ unpublished: new Set(ready[registry]), waves: [ready[registry]], crates: [] }),
     readState: () => state, writeState: () => {},
@@ -289,7 +289,7 @@ test("loop --registry all runs crates and npm units in one coordinator; npm does
     },
   });
   await new Promise((r) => setTimeout(r, 30));
-  assert.deepEqual(dispatches, ["npm:@rightkit/y"], "npm dispatched while the crate preflight is still running");
+  assert.deepEqual(dispatches, ["npm:@rightkit/y"], "npm dispatched while the crate preflight holds the only crate slot (--jobs 1)");
   release();
   assert.equal(await result, 0);
   assert.deepEqual(preflights.sort(), ["crates:rightkit-x", "npm:@rightkit/y"]);

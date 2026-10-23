@@ -471,7 +471,8 @@ export async function cmdLoop(opts, deps = {}) {
     const state = stateFn();
     const ready = (Array.isArray(r.waves[0]) ? r.waves[0] : []).filter((u) => selected.includes(u));
     for (const unit of ready) {
-      if (active.size >= opts.jobs) break;
+      // Slots are per registry: crate pre-flights never hold the npm units back (and the reverse).
+      if ([...active.keys()].filter((k) => k.startsWith(`${registry}:`)).length >= opts.jobs) break;
       const key = stateKey(registry, sha, unit);
       const id = slot(registry, unit);
       // A record at this SHA ends the unit's attempts here, except a preflight-phase failure: that is local evidence
