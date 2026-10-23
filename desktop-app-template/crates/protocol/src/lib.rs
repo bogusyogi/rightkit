@@ -29,5 +29,7 @@ pub fn app_data_root() -> Result<PathBuf, String> {
         return Ok(v.into());
     }
     let suite = Suite::resolve().map_err(|e| e.to_string())?;
-    suite.private_service_subdir(SERVICE, PRIVATE_AREA).map_err(|e| e.to_string())
+    suite
+        .private_service_subdir(SERVICE, PRIVATE_AREA)
+        .map_err(|e| e.to_string())
 }

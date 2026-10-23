@@ -43,19 +43,31 @@ done"#,
             log = log.display()
         ),
     );
-    let sup = EngineSupervisor::new(engine_config(engine).unwrap().with_rpc_timeout(Duration::from_millis(600)));
+    let sup = EngineSupervisor::new(
+        engine_config(engine)
+            .unwrap()
+            .with_rpc_timeout(Duration::from_millis(600)),
+    );
     sup.start().unwrap();
 
     let started = Instant::now();
     let err = sup.call("slow", json!({"n": 1})).unwrap_err();
     assert_eq!(err.code, "timeout", "{err}");
-    assert!(started.elapsed() < Duration::from_secs(5), "call held {:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "call held {:?}",
+        started.elapsed()
+    );
 
     let ok = sup.call("echo", json!({"n": 2})).unwrap();
     assert_eq!(ok, json!({"served": true}));
 
     let seen = fs::read_to_string(&log).unwrap();
-    assert_eq!(seen.matches("\"method\":\"slow\"").count(), 1, "timed-out command must not be replayed: {seen}");
+    assert_eq!(
+        seen.matches("\"method\":\"slow\"").count(),
+        1,
+        "timed-out command must not be replayed: {seen}"
+    );
     assert_eq!(seen.matches("\"method\":\"echo\"").count(), 1, "{seen}");
     drop(sup);
     let _ = fs::remove_dir_all(&dir);
@@ -71,7 +83,10 @@ fn restart_budget_is_bounded() {
     // 2 * 5 + 2 iterations to reach the refusal.
     let engine = script(&dir, &format!("{HELLO}\nread line\nexit 1"));
     let sup = EngineSupervisor::new(
-        engine_config(engine).unwrap().with_hello_timeout(Duration::from_secs(5)).with_rpc_timeout(Duration::from_secs(5)),
+        engine_config(engine)
+            .unwrap()
+            .with_hello_timeout(Duration::from_secs(5))
+            .with_rpc_timeout(Duration::from_secs(5)),
     );
     sup.start().unwrap();
     let started = Instant::now();
@@ -83,6 +98,10 @@ fn restart_budget_is_bounded() {
         }
     }
     assert!(last.contains("budget"), "{last}");
-    assert!(started.elapsed() < Duration::from_secs(60), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(60),
+        "{:?}",
+        started.elapsed()
+    );
     let _ = fs::remove_dir_all(&dir);
 }

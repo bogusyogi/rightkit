@@ -13,9 +13,17 @@ const HOST_TRIPLE: &str = env!("RIGHTAPP_HOST_TRIPLE");
 
 fn engine_name(root: &Path) -> Result<String> {
     let toml = read(root, "crates/engine/Cargo.toml")?;
-    let bin = toml.split("[[bin]]").nth(1).ok_or("engine Cargo.toml has no [[bin]]")?;
+    let bin = toml
+        .split("[[bin]]")
+        .nth(1)
+        .ok_or("engine Cargo.toml has no [[bin]]")?;
     bin.lines()
-        .find_map(|l| l.trim().strip_prefix("name").and_then(|r| r.split('"').nth(1)).map(String::from))
+        .find_map(|l| {
+            l.trim()
+                .strip_prefix("name")
+                .and_then(|r| r.split('"').nth(1))
+                .map(String::from)
+        })
         .ok_or_else(|| "engine [[bin]] has no name".into())
 }
 
@@ -39,9 +47,13 @@ fn profile_dir(args: &[String]) -> Result<String> {
 /// `<target>/<profile>/<bin>`, or `<target>/<triple>/<profile>/<bin>` when a target is set.
 pub fn target_root(exe: &Path, host_triple: &str) -> Result<PathBuf> {
     let profile = exe.parent().ok_or("tools binary has no directory")?;
-    let up = profile.parent().ok_or("tools binary is not inside a target directory")?;
+    let up = profile
+        .parent()
+        .ok_or("tools binary is not inside a target directory")?;
     if up.file_name().and_then(|n| n.to_str()) == Some(host_triple) {
-        up.parent().map(Path::to_path_buf).ok_or_else(|| "triple directory has no parent".into())
+        up.parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "triple directory has no parent".into())
     } else {
         Ok(up.to_path_buf())
     }
@@ -50,7 +62,10 @@ pub fn target_root(exe: &Path, host_triple: &str) -> Result<PathBuf> {
 /// Where the engine may have been written, in the order tried.
 pub fn engine_candidates(target: &Path, triple: &str, profile: &str, engine: &str) -> Vec<PathBuf> {
     let file = format!("{engine}{}", std::env::consts::EXE_SUFFIX);
-    vec![target.join(triple).join(profile).join(&file), target.join(profile).join(&file)]
+    vec![
+        target.join(triple).join(profile).join(&file),
+        target.join(profile).join(&file),
+    ]
 }
 
 pub fn stage(root: &Path, args: &[String]) -> Result<()> {
@@ -74,7 +89,11 @@ pub fn stage(root: &Path, args: &[String]) -> Result<()> {
     })?;
     let dir = root.join("src-tauri").join("binaries");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let suffix = if triple.contains("windows") { ".exe" } else { "" };
+    let suffix = if triple.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
     let dest = dir.join(format!("{engine}-{triple}{suffix}"));
     std::fs::copy(source, &dest).map_err(|e| format!("stage {}: {e}", source.display()))?;
     println!("staged {} -> {}", source.display(), dest.display());

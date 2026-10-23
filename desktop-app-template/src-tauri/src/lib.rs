@@ -96,24 +96,37 @@ impl KeyringDeviceStore {
     }
 
     fn with_config(config: Config) -> Self {
-        Self { store: Store::open(config) }
+        Self {
+            store: Store::open(config),
+        }
     }
 }
 
 impl SecureStore<String> for KeyringDeviceStore {
     fn get(&self) -> Result<Option<String>, String> {
         match self.store.get(DEVICE_ACCOUNT).map_err(|e| e.to_string())? {
-            Some(secret) => Ok(Some(secret.expose_str().map_err(|e| e.to_string())?.trim().to_string())),
+            Some(secret) => Ok(Some(
+                secret
+                    .expose_str()
+                    .map_err(|e| e.to_string())?
+                    .trim()
+                    .to_string(),
+            )),
             None => Ok(None),
         }
     }
 
     fn set(&self, value: &String) -> Result<(), String> {
-        self.store.set_str(DEVICE_ACCOUNT, value).map_err(|e| e.to_string())
+        self.store
+            .set_str(DEVICE_ACCOUNT, value)
+            .map_err(|e| e.to_string())
     }
 
     fn delete(&self) -> Result<(), String> {
-        self.store.delete(DEVICE_ACCOUNT).map(|_| ()).map_err(|e| e.to_string())
+        self.store
+            .delete(DEVICE_ACCOUNT)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -161,7 +174,9 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(DeviceService::new(KeyringDeviceStore::new().expect("device identity store")))
+        .manage(DeviceService::new(
+            KeyringDeviceStore::new().expect("device identity store"),
+        ))
         .setup(|app| {
             let engine = EngineSupervisor::new(engine_config(engine_path(app.handle())?)?);
             engine.start()?;
@@ -194,7 +209,10 @@ mod engine_override_tests {
 
     #[test]
     fn a_release_build_ignores_the_engine_override() {
-        assert_eq!(engine_override(Some(OsString::from("/tmp/evil")), false), None);
+        assert_eq!(
+            engine_override(Some(OsString::from("/tmp/evil")), false),
+            None
+        );
     }
 
     #[test]
@@ -231,7 +249,9 @@ mod device_store_tests {
     #[test]
     fn a_denied_secret_store_is_an_error_not_an_absent_identity() {
         let namespace = Namespace::new("app.rightsuite.rightapp.denied").unwrap();
-        let store = KeyringDeviceStore::with_config(Config::new(namespace).guard_when(true, GuardMode::Deny));
+        let store = KeyringDeviceStore::with_config(
+            Config::new(namespace).guard_when(true, GuardMode::Deny),
+        );
         assert!(store.get().is_err());
     }
 }

@@ -49,7 +49,9 @@ fn run_tools(dir: &Path, tools_dir: &[&str], args: &[&str], triple_env: Option<&
         tools.push(part);
     }
     let mut cmd = Command::new(tools.join(exe("rightapp-tools")));
-    cmd.args(args).current_dir(dir).env_remove("TAURI_ENV_TARGET_TRIPLE");
+    cmd.args(args)
+        .current_dir(dir)
+        .env_remove("TAURI_ENV_TARGET_TRIPLE");
     if let Some(t) = triple_env {
         cmd.env("TAURI_ENV_TARGET_TRIPLE", t);
     }
@@ -57,18 +59,29 @@ fn run_tools(dir: &Path, tools_dir: &[&str], args: &[&str], triple_env: Option<&
 }
 
 fn text(o: &Output) -> String {
-    format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    )
 }
 
 fn staged(dir: &Path) -> PathBuf {
-    dir.join("src-tauri").join("binaries").join(exe(&format!("{ENGINE}-{HOST}")))
+    dir.join("src-tauri")
+        .join("binaries")
+        .join(exe(&format!("{ENGINE}-{HOST}")))
 }
 
 #[test]
 fn stages_the_release_iterate_engine_from_the_profile_directory() {
     let dir = layout("profile", &["debug"]);
     write_engine(&dir, &["release-iterate"]);
-    let out = run_tools(&dir, &["debug"], &["stage-engine", "--profile", "release-iterate"], None);
+    let out = run_tools(
+        &dir,
+        &["debug"],
+        &["stage-engine", "--profile", "release-iterate"],
+        None,
+    );
     assert!(out.status.success(), "{}", text(&out));
     assert_eq!(fs::read(staged(&dir)).unwrap(), b"engine-bytes");
     let _ = fs::remove_dir_all(&dir);
@@ -100,7 +113,10 @@ fn a_missing_engine_reports_every_path_tried() {
     let out = run_tools(&dir, &["debug"], &["stage-engine", "--release"], None);
     let msg = text(&out);
     assert!(!out.status.success(), "{msg}");
-    assert!(msg.contains("tried:") && msg.contains(HOST) && msg.contains("release"), "{msg}");
+    assert!(
+        msg.contains("tried:") && msg.contains(HOST) && msg.contains("release"),
+        "{msg}"
+    );
     assert!(msg.contains("pnpm build:engine"), "{msg}");
     let _ = fs::remove_dir_all(&dir);
 }
@@ -109,9 +125,22 @@ fn a_missing_engine_reports_every_path_tried() {
 fn refuses_to_stage_a_cross_target_engine() {
     let dir = layout("cross", &["debug"]);
     write_engine(&dir, &["release"]);
-    let other = if HOST.starts_with("x86_64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
-    let out = run_tools(&dir, &["debug"], &["stage-engine", "--release"], Some(other));
-    assert!(!out.status.success() && text(&out).contains("cross-target"), "{}", text(&out));
+    let other = if HOST.starts_with("x86_64") {
+        "aarch64-unknown-linux-gnu"
+    } else {
+        "x86_64-unknown-linux-gnu"
+    };
+    let out = run_tools(
+        &dir,
+        &["debug"],
+        &["stage-engine", "--release"],
+        Some(other),
+    );
+    assert!(
+        !out.status.success() && text(&out).contains("cross-target"),
+        "{}",
+        text(&out)
+    );
     assert!(!staged(&dir).exists());
     let _ = fs::remove_dir_all(&dir);
 }
@@ -120,7 +149,11 @@ fn refuses_to_stage_a_cross_target_engine() {
 fn stage_engine_requires_the_profile_it_was_built_with() {
     let dir = layout("noprofile", &["debug"]);
     let out = run_tools(&dir, &["debug"], &["stage-engine"], None);
-    assert!(!out.status.success() && text(&out).contains("--release"), "{}", text(&out));
+    assert!(
+        !out.status.success() && text(&out).contains("--release"),
+        "{}",
+        text(&out)
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -130,6 +163,9 @@ fn build_engine_is_retired_and_names_the_two_calls() {
     let out = run_tools(&dir, &["debug"], &["build-engine"], None);
     let msg = text(&out);
     assert!(!out.status.success(), "{msg}");
-    assert!(msg.contains("stage-engine") && msg.contains("build:engine") && msg.contains("exit 125"), "{msg}");
+    assert!(
+        msg.contains("stage-engine") && msg.contains("build:engine") && msg.contains("exit 125"),
+        "{msg}"
+    );
     let _ = fs::remove_dir_all(&dir);
 }

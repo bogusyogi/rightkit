@@ -10,7 +10,10 @@ fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for e in fs::read_dir(from).unwrap().flatten() {
         let name = e.file_name();
-        if matches!(name.to_str(), Some("target" | "node_modules" | ".git" | "dist" | "gen" | "binaries")) {
+        if matches!(
+            name.to_str(),
+            Some("target" | "node_modules" | ".git" | "dist" | "gen" | "binaries")
+        ) {
             continue;
         }
         let (src, dst) = (e.path(), to.join(&name));
@@ -31,11 +34,19 @@ fn template_copy(tag: &str) -> PathBuf {
 }
 
 fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(BIN).args(args).current_dir(dir).output().unwrap()
+    Command::new(BIN)
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap()
 }
 
 fn text(o: &Output) -> String {
-    format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    )
 }
 
 #[test]
@@ -47,31 +58,69 @@ fn clean_template_passes_and_node_harnesses_or_loose_pins_fail() {
     let pkg_path = dir.join("package.json");
     let original = fs::read_to_string(&pkg_path).unwrap();
 
-    fs::write(&pkg_path, original.replace("\"typescript\"", "\"puppeteer-core\": \"25.9.0\",\n    \"typescript\"")).unwrap();
+    fs::write(
+        &pkg_path,
+        original.replace(
+            "\"typescript\"",
+            "\"puppeteer-core\": \"25.9.0\",\n    \"typescript\"",
+        ),
+    )
+    .unwrap();
     let bad = run(&dir, &["check"]);
-    assert!(!bad.status.success() && text(&bad).contains("forbidden test harness"), "{}", text(&bad));
+    assert!(
+        !bad.status.success() && text(&bad).contains("forbidden test harness"),
+        "{}",
+        text(&bad)
+    );
 
-    fs::write(&pkg_path, original.replace("\"@rightkit/logs\": \"0.1.4\"", "\"@rightkit/logs\": \"^0.1.4\"")).unwrap();
+    fs::write(
+        &pkg_path,
+        original.replace(
+            "\"@rightkit/logs\": \"0.1.4\"",
+            "\"@rightkit/logs\": \"^0.1.4\"",
+        ),
+    )
+    .unwrap();
     let bad = run(&dir, &["check"]);
-    assert!(!bad.status.success() && text(&bad).contains("exact registry version"), "{}", text(&bad));
+    assert!(
+        !bad.status.success() && text(&bad).contains("exact registry version"),
+        "{}",
+        text(&bad)
+    );
 
     fs::write(&pkg_path, &original).unwrap();
     fs::write(dir.join("scripts").join("helper.mjs"), "console.log(1)\n").unwrap();
     let bad = run(&dir, &["check"]);
-    assert!(!bad.status.success() && text(&bad).contains("write it in Rust"), "{}", text(&bad));
+    assert!(
+        !bad.status.success() && text(&bad).contains("write it in Rust"),
+        "{}",
+        text(&bad)
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn init_renames_the_template_and_the_result_still_passes() {
     let dir = template_copy("init");
-    let out = run(&dir, &["init", "--slug", "acme", "--name", "Acme", "--org", "com.acme"]);
+    let out = run(
+        &dir,
+        &[
+            "init", "--slug", "acme", "--name", "Acme", "--org", "com.acme",
+        ],
+    );
     assert!(out.status.success(), "{}", text(&out));
     let tauri = fs::read_to_string(dir.join("src-tauri/tauri.conf.json")).unwrap();
-    assert!(tauri.contains("\"identifier\": \"com.acme.acme\"") && tauri.contains("\"productName\": \"Acme\""), "{tauri}");
+    assert!(
+        tauri.contains("\"identifier\": \"com.acme.acme\"")
+            && tauri.contains("\"productName\": \"Acme\""),
+        "{tauri}"
+    );
     assert!(dir.join("crates/tools/src/init.rs").exists());
     let cargo = fs::read_to_string(dir.join("crates/engine/Cargo.toml")).unwrap();
-    assert!(cargo.contains("name = \"acme-engine\"") && !cargo.to_lowercase().contains("rightapp"), "{cargo}");
+    assert!(
+        cargo.contains("name = \"acme-engine\"") && !cargo.to_lowercase().contains("rightapp"),
+        "{cargo}"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -80,18 +129,34 @@ fn engine_scripts_must_be_two_top_level_managed_calls() {
     let dir = template_copy("engine-scripts");
     let pkg_path = dir.join("package.json");
     let original = fs::read_to_string(&pkg_path).unwrap();
-    let release = original.lines().find(|l| l.contains("\"build:engine\":")).unwrap().to_string();
+    let release = original
+        .lines()
+        .find(|l| l.contains("\"build:engine\":"))
+        .unwrap()
+        .to_string();
     // The retired one-call shape must fail the gate.
     let retired = "    \"build:engine\": \"rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- build-engine\",";
     fs::write(&pkg_path, original.replace(&release, retired)).unwrap();
     let bad = run(&dir, &["check"]);
-    assert!(!bad.status.success() && text(&bad).contains("scripts.build:engine must be exactly"), "{}", text(&bad));
+    assert!(
+        !bad.status.success() && text(&bad).contains("scripts.build:engine must be exactly"),
+        "{}",
+        text(&bad)
+    );
     fs::write(&pkg_path, &original).unwrap();
     // The dev override in right-release must select the release-iterate pair.
     let rel_path = dir.join("right-release.config.mjs");
     let rel = fs::read_to_string(&rel_path).unwrap();
-    fs::write(&rel_path, rel.replace("pnpm build:engine:dev", "pnpm build:engine")).unwrap();
+    fs::write(
+        &rel_path,
+        rel.replace("pnpm build:engine:dev", "pnpm build:engine"),
+    )
+    .unwrap();
     let bad = run(&dir, &["check"]);
-    assert!(!bad.status.success() && text(&bad).contains("build:engine:dev"), "{}", text(&bad));
+    assert!(
+        !bad.status.success() && text(&bad).contains("build:engine:dev"),
+        "{}",
+        text(&bad)
+    );
     let _ = fs::remove_dir_all(&dir);
 }

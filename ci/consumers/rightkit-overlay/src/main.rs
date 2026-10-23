@@ -100,7 +100,13 @@ fn main() {
         candidate("Own", true, true, false, area(100.0, 0.0, 300.0, 40.0)),
         candidate("Cloaked", true, false, true, area(100.0, 0.0, 300.0, 40.0)),
         candidate("Far", true, false, false, area(1000.0, 0.0, 1100.0, 40.0)),
-        candidate("Browser", true, false, false, area(100.0, 0.0, 500.0, 300.0)),
+        candidate(
+            "Browser",
+            true,
+            false,
+            false,
+            area(100.0, 0.0, 500.0, 300.0),
+        ),
         candidate("Later", true, false, false, area(100.0, 0.0, 500.0, 300.0)),
     ];
     assert_eq!(

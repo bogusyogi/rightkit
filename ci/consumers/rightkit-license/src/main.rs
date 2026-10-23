@@ -9,12 +9,12 @@
 // State: a temp directory removed on exit. No network, no OS keychain, no real user data.
 use rightkit_license::{
     verify_lease_envelope, verify_token, ClockStore, DeviceIdError, DeviceIdSource, FileClockStore,
-    LicenseClient, LicenseMode, LicenseSetup, Lifecycle, LifecyclePolicy,
-    MemoryClockStore, NativeCredential, NativeEngineEntitlements, NativeEntitlementSource,
-    NativeSignedCredential, NativeSourceError, ProcessAnchor, VerifyError, ViewStatus,
+    LicenseClient, LicenseMode, LicenseSetup, Lifecycle, LifecyclePolicy, MemoryClockStore,
+    NativeCredential, NativeEngineEntitlements, NativeEntitlementSource, NativeSignedCredential,
+    NativeSourceError, ProcessAnchor, VerifyError, ViewStatus,
 };
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 type Failure = Box<dyn std::error::Error>;
 
@@ -43,8 +43,12 @@ struct NoCredential;
 struct SyntheticDevice;
 
 impl DeviceIdSource for SyntheticDevice {
-    fn device_id(&self) -> Result<String, DeviceIdError> { Ok("synthetic-device".into()) }
-    fn device_id_hash(&self) -> Result<String, DeviceIdError> { Ok("synthetic-hash".into()) }
+    fn device_id(&self) -> Result<String, DeviceIdError> {
+        Ok("synthetic-device".into())
+    }
+    fn device_id_hash(&self) -> Result<String, DeviceIdError> {
+        Ok("synthetic-hash".into())
+    }
 }
 
 impl NativeEntitlementSource for NoCredential {
@@ -97,7 +101,13 @@ fn exercise(dir: &std::path::Path) -> Result<(), Failure> {
         Err(VerifyError::DeviceMismatch)
     ));
     assert!(matches!(
-        verify_token(LICENSE_TOKEN, &LICENSE_KEY, "heardright", "dev-1", 10_000_000_000),
+        verify_token(
+            LICENSE_TOKEN,
+            &LICENSE_KEY,
+            "heardright",
+            "dev-1",
+            10_000_000_000
+        ),
         Err(VerifyError::Expired { .. })
     ));
     assert!(matches!(
@@ -142,7 +152,10 @@ fn exercise(dir: &std::path::Path) -> Result<(), Failure> {
         .current_at(NOW)
         .expect("an absent native credential is a verdict, not an error");
     assert_eq!(report.lifecycle, Lifecycle::Unlicensed);
-    assert!(!report.grants_access(), "absent credential must not grant access");
+    assert!(
+        !report.grants_access(),
+        "absent credential must not grant access"
+    );
 
     println!("rightkit-license 0.2.4 registry consumer passed");
     Ok(())

@@ -45,7 +45,11 @@ fn exercise(dir: &Path) -> Result<(), Failure> {
     };
 
     let (mut conn, first) = options.open_writer_migrated(MIGRATIONS, &migrate)?;
-    assert_eq!(first.applied, vec![1, 2], "both migrations apply on a fresh file");
+    assert_eq!(
+        first.applied,
+        vec![1, 2],
+        "both migrations apply on a fresh file"
+    );
     assert_eq!(user_version(&conn)?, 2, "schema version after migrations");
     {
         let tx = write_txn(&mut conn)?;
@@ -58,14 +62,19 @@ fn exercise(dir: &Path) -> Result<(), Failure> {
     drop(conn);
 
     let reader = open_read_only(&path)?;
-    let name: String = reader.query_row("SELECT name FROM items WHERE id = 1", [], |row| {
-        row.get(0)
-    })?;
-    assert_eq!(name, "alpha", "committed row reads back through open_read_only");
+    let name: String =
+        reader.query_row("SELECT name FROM items WHERE id = 1", [], |row| row.get(0))?;
+    assert_eq!(
+        name, "alpha",
+        "committed row reads back through open_read_only"
+    );
     drop(reader);
 
     let (_again, second) = options.open_writer_migrated(MIGRATIONS, &migrate)?;
-    assert!(second.applied.is_empty(), "reopening a migrated file must not reapply migrations");
+    assert!(
+        second.applied.is_empty(),
+        "reopening a migrated file must not reapply migrations"
+    );
 
     let missing = dir.join("missing.sqlite");
     assert!(

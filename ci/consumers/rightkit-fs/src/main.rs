@@ -1,9 +1,9 @@
+use rightkit_fs::transaction::seams::{self, Step};
 use rightkit_fs::{
     atomic_write_private, recover_transactions, sweep_stale_temps, sweep_stale_temps_report,
     AtomicWriteOptions, AtomicWriter, ExpectedPrior, FileKey, FileTransaction, FsError,
     KeyedWriteLocks, StateDir, TransactionEntry, TransactionOptions, TransactionReport,
 };
-use rightkit_fs::transaction::seams::{self, Step};
 use std::{
     fs,
     io::{self, Write},
@@ -45,7 +45,10 @@ fn commit_pair(root: &Path, stage: &Path) {
     .expect("two-file transaction refused at prepare")
     .commit()
     .expect("two-file transaction failed at commit");
-    assert!(report.is_committed(), "two-file transaction not committed: {report:?}");
+    assert!(
+        report.is_committed(),
+        "two-file transaction not committed: {report:?}"
+    );
     assert_eq!(
         fs::read(root.join("a.txt")).unwrap(),
         b"new-a",
@@ -61,7 +64,12 @@ fn commit_pair(root: &Path, stage: &Path) {
         use std::os::unix::fs::PermissionsExt;
         for path in [root.join("a.txt"), root.join("sub/b.txt")] {
             let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o600, "{} must stay owner-only after commit", path.display());
+            assert_eq!(
+                mode,
+                0o600,
+                "{} must stay owner-only after commit",
+                path.display()
+            );
         }
     }
     assert!(
@@ -78,10 +86,8 @@ fn conflicts_preserve_content(root: &Path, stage: &Path) {
     let expected = FileKey::of_path(&target).unwrap();
     let prepared = FileTransaction::prepare(
         root,
-        vec![
-            TransactionEntry::new("a.txt", stage.join("a.txt"))
-                .expect(ExpectedPrior::Identity(expected)),
-        ],
+        vec![TransactionEntry::new("a.txt", stage.join("a.txt"))
+            .expect(ExpectedPrior::Identity(expected))],
         TransactionOptions::default(),
     )
     .expect("identity-checked transaction refused at prepare");
@@ -138,7 +144,10 @@ fn keyed_serialization(root: &Path) {
                 let busy =
                     other_locks.try_with_destination(&alias, |_| panic!("overlapping writer"));
                 assert!(
-                    matches!(busy, Err(FsError::Locked { .. } | FsError::LockTimeout { .. })),
+                    matches!(
+                        busy,
+                        Err(FsError::Locked { .. } | FsError::LockTimeout { .. })
+                    ),
                     "second destination writer must be refused while the first holds the key"
                 );
                 attempted_tx.send(()).unwrap();
@@ -154,7 +163,10 @@ fn keyed_serialization(root: &Path) {
             });
             attempted_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             assert!(
-                matches!(entered_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
+                matches!(
+                    entered_rx.try_recv(),
+                    Err(std::sync::mpsc::TryRecvError::Empty)
+                ),
                 "second writer entered before the first released the destination"
             );
             let mut writer = held.atomic_writer(AtomicWriteOptions::default()).unwrap();
@@ -201,7 +213,10 @@ fn native_import_retention(root: &Path) {
         "StateDir::sweep_temps removed a user import"
     );
     let report = sweep_stale_temps_report(root).unwrap();
-    assert_eq!(report.removed, 0, "sweep_stale_temps_report removed a user import");
+    assert_eq!(
+        report.removed, 0,
+        "sweep_stale_temps_report removed a user import"
+    );
     assert!(
         report.retained_live + report.retained_unknown + report.retained_other >= 1,
         "user import candidate was not reported as retained"
@@ -234,8 +249,8 @@ fn main() {
         serde_json::from_slice(&fs::read(temp.join("rk-fs-native-state.json")).unwrap()).unwrap();
     let root = Path::new(plan["scratch"].as_str().unwrap())
         .join(format!("rk-fs-consumer-{}", std::process::id()));
-    let other = Path::new(plan["other"].as_str().unwrap())
-        .join(format!("consumer-{}", std::process::id()));
+    let other =
+        Path::new(plan["other"].as_str().unwrap()).join(format!("consumer-{}", std::process::id()));
     fs::create_dir(&root).unwrap();
     fs::create_dir(&other).unwrap();
     assert_ne!(
@@ -267,8 +282,14 @@ fn main() {
     assert_eq!(staged.load(Ordering::SeqCst), 2);
     drop(guard);
     for (index, name) in ["a", "b"].iter().enumerate() {
-        assert_eq!(fs::read(root.join(name)).unwrap(), format!("new-{name}").as_bytes());
-        assert_eq!(fs::read(other.join(name)).unwrap(), format!("new-{name}").as_bytes());
+        assert_eq!(
+            fs::read(root.join(name)).unwrap(),
+            format!("new-{name}").as_bytes()
+        );
+        assert_eq!(
+            fs::read(other.join(name)).unwrap(),
+            format!("new-{name}").as_bytes()
+        );
         assert_eq!(FileKey::of_path(&other.join(name)).unwrap(), keys[index]);
     }
     old(&root);

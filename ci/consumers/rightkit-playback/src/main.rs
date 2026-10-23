@@ -51,10 +51,8 @@ impl TempDir {
             .duration_since(UNIX_EPOCH)
             .expect("clock after epoch")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "rk-playback-{tag}-{}-{nanos}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("rk-playback-{tag}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&dir).expect("create temp dir");
         TempDir(dir)
     }
@@ -90,21 +88,32 @@ fn main() {
         .expect("regular file under the granted root");
     assert_eq!(id.as_str().len(), 64, "a source id is 64 hex characters");
     assert_eq!(
-        state.media_source_id(&media).expect("registered path is found again"),
+        state
+            .media_source_id(&media)
+            .expect("registered path is found again"),
         id
     );
 
     // Refusals: each one returns a distinct error and registers nothing.
     assert!(
-        matches!(state.authorised_media_source_id(&outside), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.authorised_media_source_id(&outside),
+            Err(PlaybackError::NotAllowed)
+        ),
         "a file outside the grant is refused"
     );
     assert!(
-        matches!(state.authorised_media_source_id(root.join("sub")), Err(PlaybackError::Empty)),
+        matches!(
+            state.authorised_media_source_id(root.join("sub")),
+            Err(PlaybackError::Empty)
+        ),
         "a directory inside the grant is not a source"
     );
     assert!(
-        matches!(state.authorised_media_source_id(&empty), Err(PlaybackError::Empty)),
+        matches!(
+            state.authorised_media_source_id(&empty),
+            Err(PlaybackError::Empty)
+        ),
         "an empty file is not a source"
     );
     assert!(
@@ -118,11 +127,17 @@ fn main() {
     // Revocation: clearing the hook stops every id it admitted; nothing resolves afterwards.
     state.clear_authoriser();
     assert!(
-        matches!(state.media_source_id(&media), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.media_source_id(&media),
+            Err(PlaybackError::NotAllowed)
+        ),
         "clearing the hook revokes the admitted id"
     );
     assert!(
-        matches!(state.authorised_media_source_id(&media), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.authorised_media_source_id(&media),
+            Err(PlaybackError::NotAllowed)
+        ),
         "without a hook nothing is authorised"
     );
 
@@ -150,7 +165,10 @@ fn asset_scope() {
     state.set_asset_scope(scope.clone());
 
     assert!(
-        matches!(state.authorised_media_source_id(&clip), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.authorised_media_source_id(&clip),
+            Err(PlaybackError::NotAllowed)
+        ),
         "an empty scope admits nothing"
     );
     // Grants made after the scope was installed are seen: the hook shares the live scope.
@@ -160,13 +178,21 @@ fn asset_scope() {
         .expect("a file under the granted directory is admitted");
     assert_eq!(id.as_str().len(), 64, "a source id is 64 hex characters");
     assert!(
-        matches!(state.authorised_media_source_id(&outside), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.authorised_media_source_id(&outside),
+            Err(PlaybackError::NotAllowed)
+        ),
         "a file outside the granted directory is refused"
     );
     // A forbid wins over the recursive grant and revokes the id it had admitted.
-    scope.forbid_directory(root.join("nested"), true).expect("forbid directory");
+    scope
+        .forbid_directory(root.join("nested"), true)
+        .expect("forbid directory");
     assert!(
-        matches!(state.authorised_media_source_id(&clip), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.authorised_media_source_id(&clip),
+            Err(PlaybackError::NotAllowed)
+        ),
         "a forbidden directory beats the recursive grant"
     );
     assert!(
@@ -191,17 +217,29 @@ fn asset_scope() {
             "canonical Windows paths are verbatim drive paths"
         );
         assert_eq!(
-            state.authorised_media_source_id(&verbatim).expect("verbatim spelling"),
-            state.authorised_media_source_id(&plain).expect("plain spelling"),
+            state
+                .authorised_media_source_id(&verbatim)
+                .expect("verbatim spelling"),
+            state
+                .authorised_media_source_id(&plain)
+                .expect("plain spelling"),
             "both spellings resolve to one id"
         );
-        scope.forbid_file(&verbatim).expect("forbid verbatim spelling");
+        scope
+            .forbid_file(&verbatim)
+            .expect("forbid verbatim spelling");
         assert!(
-            matches!(state.authorised_media_source_id(&plain), Err(PlaybackError::NotAllowed)),
+            matches!(
+                state.authorised_media_source_id(&plain),
+                Err(PlaybackError::NotAllowed)
+            ),
             "a forbid on the verbatim spelling refuses the plain spelling"
         );
         assert!(
-            matches!(state.authorised_media_source_id(&verbatim), Err(PlaybackError::NotAllowed)),
+            matches!(
+                state.authorised_media_source_id(&verbatim),
+                Err(PlaybackError::NotAllowed)
+            ),
             "a forbid on the verbatim spelling refuses itself"
         );
     }
@@ -209,7 +247,10 @@ fn asset_scope() {
     // Clearing the hook drops the scope: nothing it admitted resolves afterwards.
     state.clear_authoriser();
     assert!(
-        matches!(state.authorised_media_source_id(&sibling), Err(PlaybackError::NotAllowed)),
+        matches!(
+            state.authorised_media_source_id(&sibling),
+            Err(PlaybackError::NotAllowed)
+        ),
         "without a hook nothing is authorised"
     );
 }

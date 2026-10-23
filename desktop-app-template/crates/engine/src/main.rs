@@ -9,10 +9,12 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
 
-use rightapp_protocol::{app_data_root, JobError, JobResult, ENGINE_NAME, JOB_KIND_ECHO, METHOD_ECHO};
+use rightapp_protocol::{
+    app_data_root, JobError, JobResult, ENGINE_NAME, JOB_KIND_ECHO, METHOD_ECHO,
+};
 use rightkit_jobs::{
-    run_cli, serve, CommandSet, Dispatcher, Job, JobCommands, JobControl, JobHandler, JobLocks, JobStore,
-    Runner, Sink, CONTRACT_VERSION,
+    run_cli, serve, CommandSet, Dispatcher, Job, JobCommands, JobControl, JobHandler, JobLocks,
+    JobStore, Runner, Sink, CONTRACT_VERSION,
 };
 use serde_json::{json, Value};
 
@@ -25,7 +27,10 @@ impl JobHandler for DomainJobs {
     fn run(&self, job: &Job, _ctl: &JobControl) -> JobResult<Value> {
         match job.kind.as_str() {
             JOB_KIND_ECHO => Ok(job.request.clone()),
-            other => Err(JobError::new("unknown_kind", format!("unknown job kind: {other}"))),
+            other => Err(JobError::new(
+                "unknown_kind",
+                format!("unknown job kind: {other}"),
+            )),
         }
     }
 }
@@ -41,7 +46,10 @@ impl CommandSet for DomainCommands {
     fn call(&self, method: &str, params: &Value, _dry_run: bool, _emit: &Sink) -> JobResult<Value> {
         match method {
             METHOD_ECHO => Ok(params.clone()),
-            other => Err(JobError::new("unknown_method", format!("unknown method: {other}"))),
+            other => Err(JobError::new(
+                "unknown_method",
+                format!("unknown method: {other}"),
+            )),
         }
     }
 }
@@ -71,7 +79,10 @@ fn dispatcher(data: &Path) -> Result<Dispatcher, String> {
 }
 
 fn exit_with(code: &str, message: &str, exit: i32) -> ! {
-    println!("{}", json!({ "error": { "code": code, "message": message } }));
+    println!(
+        "{}",
+        json!({ "error": { "code": code, "message": message } })
+    );
     std::process::exit(exit)
 }
 
@@ -92,14 +103,29 @@ fn main() {
     let dispatcher = dispatcher(&data).unwrap_or_else(|e| exit_with("engine_start", &e, 1));
 
     if args.is_empty() || args[0] == "--stdio" {
-        let served = serve(Arc::new(dispatcher), io::BufReader::new(io::stdin()), io::stdout(), false);
+        let served = serve(
+            Arc::new(dispatcher),
+            io::BufReader::new(io::stdin()),
+            io::stdout(),
+            false,
+        );
         std::process::exit(if served.is_ok() { 0 } else { 1 });
     }
 
     let mut out: Vec<u8> = Vec::new();
-    let code = run_cli(&dispatcher, args.into_iter(), &mut io::stdin(), &mut out, &mut io::stderr());
+    let code = run_cli(
+        &dispatcher,
+        args.into_iter(),
+        &mut io::stdin(),
+        &mut out,
+        &mut io::stderr(),
+    );
     // rightkit-jobs exits 2 for any usage failure; the engine contract has always used 3 for an unknown command.
-    let code = if code == 2 && String::from_utf8_lossy(&out).contains("\"unknown_command\"") { 3 } else { code };
+    let code = if code == 2 && String::from_utf8_lossy(&out).contains("\"unknown_command\"") {
+        3
+    } else {
+        code
+    };
     let _ = io::stdout().write_all(&out);
     std::process::exit(code);
 }

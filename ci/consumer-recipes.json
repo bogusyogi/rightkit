@@ -366,7 +366,7 @@
       "files": {
         "Cargo.toml": "3c2733aa910dda3ec27dd02db91cc2ed1d89ec6117c430bf89db104bc3e92998",
         "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
-        "src/main.rs": "e5a789145b36520860cc98d934f6c8d84d95c97411f1595518f1887bd1905bd3"
+        "src/main.rs": "3c0690a863a9bc587ff49a4b6805e2ce05764ca03133f97dd16d723538513208"
       }
     },
     "rightkit-logs": {
@@ -374,7 +374,7 @@
       "id": "ci/consumers/rightkit-logs/src/main.rs",
       "files": {
         "Cargo.toml": "dc6a3fa9a3410d43dadb5d62e4874a1e2e91664f416025a4e33ae2c27fbe6655",
-        "src/main.rs": "0293239a91820c36492f4d2fed789a70b595907f69fc65b6fed8d626c262163e"
+        "src/main.rs": "cc03ad005c1aa5439f1265f5f4c77d649717d0eca5acb36079304c37a8861a94"
       }
     },
     "rightkit-credentials": {
@@ -502,7 +502,7 @@
       "files": {
         "Cargo.toml": "6774407d00e978382d00a27906e62d0c83ff133e40534c3f4a0ee1c0bcfbe6e6",
         "README.md": "89882aaf797120f3d96f0e952647ac065477071f7ef5f75fef938749ff6912c1",
-        "src/main.rs": "230df0498b06af5a0ac8907dbb9272c3a7ea65b1d36db5b4f1768955deaaf18b"
+        "src/main.rs": "ce01069b25201872c1cf7e6849902d4110eb9a00adb42e4341a18956773fdc05"
       },
       "aggregateSha256": "7d3626d6ecc45d0cd23f9173e6fed71c15f752d82364a369aed0f064a09fcb04"
     },
@@ -530,7 +530,7 @@
       "files": {
         "Cargo.toml": "da1356d2ae79dbbc88af7b0808192aa657a9f095159bdb193f3cb772a3875318",
         "README.md": "770ff4bb02fbe406da975e7b6799480bbb07090f35fd1debef8dab2d0297d623",
-        "src/main.rs": "0fe566395d7bfb6a3b2d4a7756a72734a1ad36e5b15e3b6246f0e257bde8b761"
+        "src/main.rs": "c8656352b667fb13e79d44fc2e66ab373ea3962c4e8d887ef10246e996f5bb5c"
       },
       "aggregateSha256": "e67bbe0291afa387b0293859ac1b23017ab113f98ac7d23794ff75999f195b40"
     },
@@ -554,7 +554,7 @@
       "files": {
         "Cargo.toml": "6c28c8f7f98b67cc53c2b6ccc873a985a49b2a7d1161c089818fb01a4e2f7d71",
         "README.md": "9357b45245ed0e9c9c9a05b32c3b894b68b14234ac02a47bccde46addd94c994",
-        "src/main.rs": "287a8418b9693a9e635ad060b233271fdef00d7e5117726a36bdff72af9693c1"
+        "src/main.rs": "2b8439ab27e28074f38c981423b5f142a8e406397a63f75fca092a27c763f07d"
       }
     },
     "rightkit-device": {
@@ -590,7 +590,7 @@
       "files": {
         "Cargo.toml": "a623e01d68d993c3b4f1119027b4447d0c43cf0d3cac0ec10588212ad02b9637",
         "README.md": "acc7418ea97ef234347c2def02056d097c38a65d1b62b63619b1280d4e822fa7",
-        "src/main.rs": "e53aafef247c6a91a2dc1feca5d88ac06e964789e7b3dc095cacf066ff72b314"
+        "src/main.rs": "75d84361f4e8fbc2a326f2a97c88805233e7104e74b5cc5b8c8721055b426a25"
       }
     },
     "rightkit-models": {
@@ -640,7 +640,7 @@
       "consumes": "rightkit-daemon/src/remote/oauth.rs::FlowOAuthHandler; PK06-5 existing remote consumer; PK10-3 typed OAuth port is consumer-facing abstraction, not DB ownership",
       "files": {
         "Cargo.toml": "f9686ac1ef8454074488f7eb1cabe693ee03ec92b21ef839f7bfe906a6f3393d",
-        "src/main.rs": "af25d66aab5f44c0f39f72977928be9e757558aba61fa5f75ab618a65cad3823"
+        "src/main.rs": "5abfc438aa2bd21dce9011977eb6adcdd6784fa904a95529c3a2dbdcd660df82"
       },
       "runs": [
         {
@@ -669,7 +669,7 @@
       "files": {
         "Cargo.toml": "da2f729115d28df1d80ce7a18987f42212726156426c54961c34d37f1682ca50",
         "README.md": "fccbf7c8387ccb776090ac2c717edc090af0a0b6d2368c641017849350b96c21",
-        "src/main.rs": "65570b67678e35565cf128d027c8524b60d7961509e21c4f31137c81900d6152"
+        "src/main.rs": "af1c9a4987c9179dec7c72c1b63c37b19e6a077465d2152531527265a357622d"
       },
       "aggregateSha256": "35bb1b2aa4e0cc1ff09dc378a85541e329fcfa513bfc6acbaddbf829191f2999"
     },
@@ -683,7 +683,7 @@
       "files": {
         "Cargo.toml": "551f139d5755d1ac15e9faecadace5e8c660a83683b5a517cd6e02db19569632",
         "README.md": "4abd6869451076b56d9822016fc48733da706836d6f7cb4c2a7d51edb0bfe7a0",
-        "src/main.rs": "df050c58a46bb12213098b5f0c37b7ba69399982bb23ffe3838733306f1319d0"
+        "src/main.rs": "d1a40968811a8ca407cf74c9902fa93cbf63821e680cf2c1f2410284b082a33c"
       },
       "aggregateSha256": "24f0586eccd10226d88986d48c4c55c4e64f5b8430704cd65dd1aee61a4167f5"
     },

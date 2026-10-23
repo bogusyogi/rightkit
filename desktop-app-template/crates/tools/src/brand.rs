@@ -5,7 +5,8 @@ use std::path::Path;
 
 fn valid_name(name: &str) -> bool {
     let mut parts = name.split('-');
-    parts.next() == Some("brand") && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_lowercase()))
+    parts.next() == Some("brand")
+        && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_lowercase()))
 }
 
 fn valid_hex(v: &str) -> bool {
@@ -14,7 +15,9 @@ fn valid_hex(v: &str) -> bool {
 
 pub fn sync(root: &Path) -> Result<()> {
     let brand = read_json(root, "assets/brand/brand.json")?;
-    let colors = brand["colors"].as_object().ok_or("brand.json has no colors object")?;
+    let colors = brand["colors"]
+        .as_object()
+        .ok_or("brand.json has no colors object")?;
     let mut css = String::from("/* Generated from assets/brand/brand.json; edit that file, then run brand-sync. */\n@theme {\n");
     for (name, value) in colors {
         let value = value.as_str().unwrap_or("");
@@ -28,6 +31,9 @@ pub fn sync(root: &Path) -> Result<()> {
     if std::fs::read_to_string(&target).ok().as_deref() != Some(css.as_str()) {
         std::fs::write(&target, css).map_err(|e| e.to_string())?;
     }
-    println!("{}", json!({"event": "brand_theme_synced", "brand": brand["code"], "colors": colors.len()}));
+    println!(
+        "{}",
+        json!({"event": "brand_theme_synced", "brand": brand["code"], "colors": colors.len()})
+    );
     Ok(())
 }
