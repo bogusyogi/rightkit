@@ -102,7 +102,14 @@
       }
     },
     "watchTimeoutMinutes": 180,
-    "retryPolicy": "No automatic retry for unchanged SHA/unit. Reconcile ambiguous remote effects before any new attempt."
+    "retryPolicy": "No automatic retry for unchanged SHA/unit. Reconcile ambiguous remote effects before any new attempt.",
+    "releaseHolds": {
+      "rightkit-browser": {
+        "run": 39895591570,
+        "version": "0.3.5",
+        "reason": "Hosted 39895591570 failed in the registry consumer's runtime check (pinned executable SHA-256 mismatch) because scripts/ci/provision-r2-cft-env.mjs exported the archive digest as the executable pin; the fix (e177b0ad, judge's reviewed patch 04f54ff5) is in that helper and ci/chrome-for-testing.json, outside the crate closure, its recipe and its policy entries, so the hold is released by this reviewed entry."
+      }
+    }
   },
   "attestation": {
     "darwin": {
