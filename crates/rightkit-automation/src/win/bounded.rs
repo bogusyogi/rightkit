@@ -2,19 +2,33 @@
 //! whose UIA server is hung blocks the calling thread indefinitely. These helpers run the call
 //! on a COM-initialised worker thread and give up when the deadline passes, so the caller always
 //! gets an answer in time. A timed-out call may stay stuck on its worker; the lane stays occupied
-//! until it returns, so a hung target never accumulates threads.
+//! until it returns, so a hung target never accumulates threads. A caller that arrives while the
+//! lane is occupied is refused at once (`None`), never queued behind the stuck call.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 type Job = Box<dyn FnOnce() + Send>;
 
-/// One persistent MTA worker thread with a one-slot queue.
+/// One persistent MTA worker thread that refuses new work while it is busy.
 pub(crate) struct Lane {
     tx: Option<SyncSender<Job>>,
+    /// True from the moment a call is accepted until its job finishes, is skipped, panics or is
+    /// dropped. A caller that finds it set returns `None` at once.
+    busy: Arc<AtomicBool>,
+}
+
+/// Clears the lane's busy flag on drop, so every exit path of a job (return, stale skip, panic
+/// unwinding, job dropped unrun) releases the lane.
+struct BusySlot(Arc<AtomicBool>);
+impl Drop for BusySlot {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl Lane {
@@ -32,6 +46,7 @@ impl Lane {
             .is_ok();
         Lane {
             tx: started.then_some(tx),
+            busy: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -45,14 +60,27 @@ impl Lane {
         if timeout.is_zero() {
             return None;
         }
+        let tx = self.tx.as_ref()?;
+        if self
+            .busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return None;
+        }
+        let slot = BusySlot(Arc::clone(&self.busy));
         let deadline = Instant::now() + timeout;
         let (reply, receive) = sync_channel::<Option<T>>(1);
         let job: Job = Box::new(move || {
-            // A job that waited behind a stuck call is stale: skip it rather than run late.
+            // Defensive: a job that somehow started after its deadline is stale; skip it.
             let value = (Instant::now() < deadline).then(|| f(deadline));
+            // Free the lane before replying, so a caller that calls again right after its reply
+            // never sees a false busy. A panic in `f` drops `slot` while unwinding.
+            drop(slot);
             let _ = reply.send(value);
         });
-        self.tx.as_ref()?.try_send(job).ok()?;
+        // A dead lane drops the job, and with it the slot, which clears the flag.
+        tx.try_send(job).ok()?;
         match receive.recv_timeout(timeout) {
             Ok(v) => v,
             Err(RecvTimeoutError::Timeout) | Err(RecvTimeoutError::Disconnected) => None,
@@ -67,7 +95,8 @@ fn read_lane() -> &'static Lane {
 
 /// Run read-only UIA work on RightKit's shared COM-initialised worker thread and return its
 /// result, or `None` when `timeout` passes first (or the worker is busy with an earlier stuck
-/// call, which also returns `None` immediately).
+/// call, which also returns `None` immediately: a caller arriving during a stall is refused at
+/// once, never queued).
 ///
 /// `f` receives the absolute deadline so a long walk can stop early. COM is initialised
 /// (multithreaded apartment) on the worker by RightKit; the caller's thread is never touched.
@@ -191,10 +220,59 @@ mod tests {
             1
         });
         assert_eq!(r, None);
-        // The worker is still inside the slow call: the next job queues, then goes stale.
-        assert_eq!(lane.run(Duration::from_millis(50), |_| 2), None);
+        // The worker is still inside the slow call: the next call is refused at once, not queued.
+        let started = Instant::now();
+        assert_eq!(lane.run(Duration::from_secs(5), |_| 2), None);
+        assert!(started.elapsed() < Duration::from_secs(1));
         std::thread::sleep(Duration::from_millis(500));
         assert_eq!(lane.run(Duration::from_secs(2), |_| 3), Some(3));
+    }
+
+    /// Retry until the lane has released a finished job (the worker clears the flag just before
+    /// it replies, but a timed-out caller may return earlier than the job ends).
+    fn recover(lane: &Lane, value: i32) {
+        for _ in 0..1000 {
+            if lane.run(Duration::from_secs(2), move |_| value) == Some(value) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("lane never recovered");
+    }
+
+    #[test]
+    fn lane_refuses_immediately_while_busy() {
+        use std::sync::mpsc::channel;
+        let lane = Lane::spawn("test-lane-busy");
+        let (entered_tx, entered_rx) = channel::<()>();
+        let (release_tx, release_rx) = channel::<()>();
+        let a = lane.run(Duration::from_millis(50), move |_| {
+            let _ = entered_tx.send(());
+            let _ = release_rx.recv();
+            1
+        });
+        assert_eq!(a, None);
+        entered_rx.recv().expect("job A entered");
+        let ran = Arc::new(AtomicBool::new(false));
+        let ran_b = Arc::clone(&ran);
+        let started = Instant::now();
+        let b = lane.run(Duration::from_secs(5), move |_| {
+            ran_b.store(true, Ordering::SeqCst);
+            2
+        });
+        assert_eq!(b, None);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(!ran.load(Ordering::SeqCst), "refused job must never run");
+        release_tx.send(()).expect("release A");
+        recover(&lane, 3);
+    }
+
+    #[test]
+    fn lane_back_to_back_calls_never_see_false_busy() {
+        let lane = Lane::spawn("test-lane-b2b");
+        for i in 0..1000 {
+            assert_eq!(lane.run(Duration::from_secs(2), move |_| i), Some(i));
+        }
     }
 
     #[test]
@@ -202,6 +280,26 @@ mod tests {
         let lane = Lane::spawn("test-lane-panic");
         let r: Option<i32> = lane.run(Duration::from_secs(2), |_| panic!("probe panic"));
         assert_eq!(r, None);
-        assert_eq!(lane.run(Duration::from_secs(2), |_| 5), Some(5));
+        recover(&lane, 5);
+    }
+
+    #[test]
+    fn security_lane_answers_while_the_read_lane_is_held() {
+        use std::sync::mpsc::channel;
+        let (entered_tx, entered_rx) = channel::<()>();
+        let (release_tx, release_rx) = channel::<()>();
+        let held = with_deadline(Duration::from_millis(50), move |_| {
+            let _ = entered_tx.send(());
+            let _ = release_rx.recv();
+            1
+        });
+        assert_eq!(held, None);
+        entered_rx.recv().expect("read lane held");
+        assert_eq!(with_deadline(Duration::from_secs(5), |_| 2), None);
+        assert_eq!(
+            with_deadline_security(Duration::from_secs(2), |_| 9),
+            Some(9)
+        );
+        release_tx.send(()).expect("release");
     }
 }

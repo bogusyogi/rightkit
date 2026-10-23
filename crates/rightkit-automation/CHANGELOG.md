@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.0 — unpublished staging
+## 0.6.1 — 2026-10-23
+
+- **Fix (Windows, #930): `win::bounded` lanes refuse while busy.** `with_deadline` and `with_deadline_security` documented that a caller arriving while an earlier call is stuck returns `None` at once, but the one-slot queue accepted it and it waited out its whole timeout. Each lane now carries a busy flag, set when a call is accepted and cleared when its job finishes, panics or is dropped. A caller arriving while any earlier call on the same lane is still running (stuck or not) now gets `None` at once instead of a late `Some` (or a full-timeout wait); for the security lane `None` means "not proven safe". Cleared before the reply is sent, so a caller that calls again right after a reply is never refused. Found by HeardRight's `windows_uia_probe_timeout_saturates_lane_and_recovers`.
+
+## 0.6.0
 
 - BREAKING: the `paths` feature's `per_run_evidence_dir(label) -> Result<(rightkit_daemon::Suite, PathBuf)>` (`src/paths.rs:7`, `:20`) returns a daemon `Suite`. The daemon dependency is 0.4.0 (`Cargo.toml:31`); published 0.5.0 pins `rightkit-daemon ^0.3.0`, so the `Suite` identity changes. Gated behind feature `paths` (`src/lib.rs:54-55`, `Cargo.toml:23`).
 
