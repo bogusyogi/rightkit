@@ -49,3 +49,6 @@ vendor/tauri-runtime-wry/** -text
 /packages/*/package.json text eol=lf
 /ci/consumer-recipes.json text eol=lf
 /ci/approved-artifacts*.json text eol=lf
+# packages/release ships lock-graph.mjs as a byte-identical copy of scripts/ci/select.mjs (rightkit-gate.test.mjs compares their
+# function sources); a CRLF checkout on windows-2025 made them differ (run 39898066947). Pin the package's sources LF like scripts/ci.
+/packages/release/*.mjs text eol=lf
