@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { digestScanSet } from "../../packages/release/deterministic-scans.mjs";
 import { artifactMatches } from "./reviewed-candidate.mjs";
-import { assertPublishDoc, SCANS_MUTATIONS, SCANS_TOOLS, SCANS_ACTIONLINT_ENV } from "./workflow-contract.mjs";
+import { assertPublishDoc, SCANS_MUTATIONS, SCANS_TOOLS, SCANS_ACTIONLINT_ENV, SCANS_SHELLCHECK_ENV } from "./workflow-contract.mjs";
 import { assertReviewedDoc, REVIEWED_MUTATIONS } from "./reviewed-workflow-contract.mjs";
 import { parseYaml } from "./workflow-yaml.mjs";
 import {
@@ -29,6 +29,7 @@ const clone = (v) => structuredClone(v);
 test("workflow pins agree with the receipt module's trusted pins", () => {
   assert.equal(SCANS_TOOLS, `cargo-deny@${SCAN_TOOL_PINS["cargo-deny"]},cargo-audit@${SCAN_TOOL_PINS["cargo-audit"]}`);
   assert.deepEqual(SCANS_ACTIONLINT_ENV, { ACTIONLINT_VERSION: SCAN_TOOL_PINS.actionlint, ACTIONLINT_SHA256: ACTIONLINT_SHA256 });
+  assert.deepEqual(SCANS_SHELLCHECK_ENV, { SHELLCHECK_VERSION: "0.10.0", SHELLCHECK_SHA256: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87" });
 });
 
 test("a complete, passed, bound receipt verifies", () => {

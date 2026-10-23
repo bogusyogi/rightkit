@@ -1,12 +1,12 @@
 {
-  "_comment": "Pinned Chrome for Testing for the publish verify job. Set version (e.g. from Google's last-known-good-versions JSON); URLs derive as https://storage.googleapis.com/chrome-for-testing-public/<version>/<platform>/chrome-<platform>.zip. An empty sha256 makes a DRY RUN print 'CHROME_PIN <platform> <version> <sha256> <bytes>' and fail the step; copy the value here. A real publish refuses an empty sha256. Hosts: win64 (windows-2025), mac-arm64 (xcode-27) and linux64 (ubuntu-24.04, publish.yml verify-linux for units in ci/linux-required.json). linux64 uses the same verified archive digest as packages/qa-chrome/src/install.ts. \"headlessShell\" pins the chrome-headless-shell-<platform>.zip of the same version (URL .../<version>/<platform>/chrome-headless-shell-<platform>.zip), win64 only: the Windows rightkit-browser fixture runs it because chrome.exe unconditionally starts the crashpad handler, which cannot create its pipe inside an AppContainer.",
+  "_comment": "Pinned Chrome for Testing for the publish verify job. Set version (e.g. from Google's last-known-good-versions JSON); URLs derive as https://storage.googleapis.com/chrome-for-testing-public/<version>/<platform>/chrome-<platform>.zip. An empty sha256 makes a DRY RUN print 'CHROME_PIN <platform> <version> <sha256> <bytes>' and fail the step; copy the value here. A real publish refuses an empty sha256. executableSha256 pins exact extracted executable bytes, derived only after validating each archive sha256; R2 consumers verify these separately from archive markers. Hosts: win64 (windows-2025), mac-arm64 (xcode-27) and linux64 (ubuntu-24.04, publish.yml verify-linux for units in ci/linux-required.json). linux64 uses the same verified archive digest as packages/qa-chrome/src/install.ts. \"headlessShell\" pins the chrome-headless-shell-<platform>.zip of the same version (URL .../<version>/<platform>/chrome-headless-shell-<platform>.zip), win64 only: the Windows rightkit-browser fixture runs it because chrome.exe unconditionally starts the crashpad handler, which cannot create its pipe inside an AppContainer.",
   "version": "155.0.8059.39",
   "platforms": {
-    "win64": { "sha256": "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e" },
-    "mac-arm64": { "sha256": "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e" },
-    "linux64": { "sha256": "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea" }
+    "win64": { "sha256": "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e", "executableSha256": "b3750f3977e4c179e80b8fcb66d5919ca6c0a6525c2f5066f7e40e1becfcd083" },
+    "mac-arm64": { "sha256": "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e", "executableSha256": "316795971c05d253320fcc574168aa8ae7782eae9beb540e0595ebbd654ab965" },
+    "linux64": { "sha256": "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea", "executableSha256": "ed05e73a2cdf875326fcfa438b31c71a6a885a353610731dd52090dfc476f778" }
   },
   "headlessShell": {
-    "win64": { "sha256": "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436" }
+    "win64": { "sha256": "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436", "executableSha256": "cb3e6c88734823d828042d9a153ca9c8f5989301456d4fcda76079a88c475791" }
   }
 }

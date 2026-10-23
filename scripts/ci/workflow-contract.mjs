@@ -218,6 +218,7 @@ export const DENY_RUN = "cargo deny --manifest-path crates/rightkit-typeset/Carg
 // (scan-receipt.test.mjs proves they agree) and the actionlint release checksum.
 export const SCANS_TOOLS = "cargo-deny@0.20.2,cargo-audit@0.22.2";
 export const SCANS_ACTIONLINT_ENV = { ACTIONLINT_VERSION: "1.7.12", ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" };
+export const SCANS_SHELLCHECK_ENV = { SHELLCHECK_VERSION: "0.10.0", SHELLCHECK_SHA256: "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87" };
 export const SCANS_RUN = 'node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"';
 export const SCANS_ENV = { SCAN_CONTENT_ROOT: "${{ github.workspace }}/source", SCAN_LIVE_ROOT: "${{ github.workspace }}/live", SCAN_OUT: `${RT}/scan-receipt`, PUBLISH_REGISTRY: "${{ inputs.registry }}", PUBLISH_UNITS: "${{ inputs.units }}" };
 export const SCANS_ARTIFACT = "scan-receipt-${{ github.run_attempt }}";
@@ -342,10 +343,12 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(scanInstall.length === 1 && same(Object.keys(scanInstall[0].with ?? {}), ["tool"]) && scanInstall[0].with.tool === SCANS_TOOLS && scanInstall[0].if === undefined && scanInstall[0].env === undefined, `scans must install exactly ${SCANS_TOOLS} (pinned action, only the tool input, unconditional)`);
   const lintInstall = scanSteps.filter((s) => /actionlint/.test(s.run ?? "") && /sha256sum --check --strict/.test(s.run ?? ""));
   check(lintInstall.length === 1 && same(lintInstall[0].env, SCANS_ACTIONLINT_ENV) && lintInstall[0].if === undefined && /releases\/download\/v\$\{ACTIONLINT_VERSION\}\//.test(lintInstall[0].run), "scans must install the checksum-verified pinned actionlint, unconditionally");
+  const shellcheckInstall = scanSteps.filter((s) => /shellcheck/.test(s.run ?? "") && /sha256sum --check --strict/.test(s.run ?? ""));
+  check(shellcheckInstall.length === 1 && same(shellcheckInstall[0].env, SCANS_SHELLCHECK_ENV) && shellcheckInstall[0].if === undefined && /releases\/download\/v\$\{SHELLCHECK_VERSION\}\/shellcheck-v\$\{SHELLCHECK_VERSION\}\.linux\.x86_64\.tar\.xz/.test(shellcheckInstall[0].run) && /version: \$\{SHELLCHECK_VERSION\}/.test(shellcheckInstall[0].run) && /\$RUNNER_TEMP\/shellcheck-bin.*\$GITHUB_PATH/.test(shellcheckInstall[0].run), "scans must checksum-verify, version-check & expose the pinned ShellCheck before scanning");
   const scanRunAt = scanSteps.findIndex((s) => s.run?.trim() === SCANS_RUN);
   const scanDepsAt = scanSteps.findIndex((s) => /pnpm install/.test(s.run ?? ""));
   check(scanSteps.filter((s) => /run-deterministic-scans\.mjs/.test(s.run ?? "")).length === 1 && scanRunAt >= 0 && same(scanSteps[scanRunAt].env, SCANS_ENV) && scanSteps[scanRunAt].if === undefined && scanSteps[scanRunAt].shell === undefined, "scans must run run-deterministic-scans.mjs exactly once, unconditionally, with fixed roots, output & requested registry/units");
-  check(scanDepsAt >= 0 && scanRunAt > scanDepsAt && scanRunAt > scanSteps.indexOf(scanInstall[0]) && scanRunAt > scanSteps.indexOf(lintInstall[0]), "scans must install tools & dependencies before running the scans");
+  check(scanDepsAt >= 0 && scanRunAt > scanDepsAt && scanRunAt > scanSteps.indexOf(scanInstall[0]) && scanRunAt > scanSteps.indexOf(lintInstall[0]) && scanRunAt > scanSteps.indexOf(shellcheckInstall[0]), "scans must install tools & dependencies before running the scans");
   check(!scanSteps.some((s) => /pnpm install/.test(s.run ?? "") && !/--frozen-lockfile --ignore-scripts/.test(s.run ?? "")), "scans must install dependencies frozen & without lifecycle scripts");
   const scanUpload = scanSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
   check(scanUpload.length === 1 && scanSteps.indexOf(scanUpload[0]) === scanSteps.length - 1 && scanSteps.indexOf(scanUpload[0]) > scanRunAt && scanUpload[0].if === undefined && scanUpload[0].with?.name === SCANS_ARTIFACT && scanUpload[0].with?.path === `${RT}/scan-receipt` && scanUpload[0].with?.["if-no-files-found"] === "error" && scanUpload[0].with?.["retention-days"] === "90" && scanUpload[0].with?.overwrite === "false", "scans must upload its receipt as its last step, only after a passing scan run, retained 90 days");
@@ -608,6 +611,7 @@ const LINUX_MUTATIONS = [
 const scanStep = (j, test) => j.scans.steps.find(test);
 const SCAN_INSTALL = (s) => (s.uses ?? "").startsWith("taiki-e/install-action@");
 const SCAN_LINT = (s) => /actionlint/.test(s.run ?? "");
+const SCAN_SHELLCHECK = (s) => /shellcheck/.test(s.run ?? "") && /sha256sum --check --strict/.test(s.run ?? "");
 const SCAN_RUNNER = (s) => /run-deterministic-scans/.test(s.run ?? "");
 const SCAN_UPLOAD = (s) => /^actions\/upload-artifact@/.test(s.uses ?? "");
 const buildLane = (needs) => ({ needs, "runs-on": "ubuntu-24.04", "timeout-minutes": 5, steps: [{ run: "echo build" }] });
@@ -646,6 +650,11 @@ export const SCANS_MUTATIONS = [
   ["scans actionlint loses its checksum", edit((j) => { const s = scanStep(j, SCAN_LINT); s.run = s.run.replace(/^.*sha256sum.*\n/m, ""); })],
   ["scans actionlint pins another checksum", edit((j) => { scanStep(j, SCAN_LINT).env.ACTIONLINT_SHA256 = "0".repeat(64); })],
   ["scans actionlint floats", edit((j) => { scanStep(j, SCAN_LINT).env.ACTIONLINT_VERSION = "latest"; })],
+  ["scans omit pinned ShellCheck", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => !SCAN_SHELLCHECK(s)); })],
+  ["scans ShellCheck loses its checksum", edit((j) => { const s = scanStep(j, SCAN_SHELLCHECK); s.run = s.run.replace(/^.*sha256sum.*\n/m, ""); })],
+  ["scans ShellCheck pin drifts", edit((j) => { scanStep(j, SCAN_SHELLCHECK).env.SHELLCHECK_VERSION = "0.9.0"; })],
+  ["scans ShellCheck is not added to PATH", edit((j) => { const s = scanStep(j, SCAN_SHELLCHECK); s.run = s.run.replace(/^.*\$GITHUB_PATH.*\n/m, ""); })],
+  ["scans omit ShellCheck version check", edit((j) => { const s = scanStep(j, SCAN_SHELLCHECK); s.run = s.run.replace(/^.*version:.*\n/m, ""); })],
   ["scans install runs lifecycle scripts", edit((j) => { const s = scanStep(j, (x) => /pnpm install/.test(x.run ?? "")); s.run = s.run.replace(" --ignore-scripts", ""); })],
   ["scans runs no scan script", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => !SCAN_RUNNER(s)); })],
   ["scans script failure is ignored", edit((j) => { const s = scanStep(j, SCAN_RUNNER); s.run = `${s.run} || true`; })],

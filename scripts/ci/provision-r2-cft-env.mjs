@@ -7,7 +7,8 @@
 // installs, or runs Chrome. Fails closed (non-zero exit, no GITHUB_ENV write)
 // unless the managed root is a real directory inside RUNNER_TEMP whose
 // current/install.json marker matches the pin for this host, with the
-// executables present. Values never come from the candidate.
+// executable bytes matching committed executable pins. Values never come from the candidate.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +20,20 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const fail = (why) => { throw new Error(`provision-r2-cft-env refused: ${why}`); };
 
 const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+const inside = (root, target) => {
+  const relative = path.relative(root, target);
+  return !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
+};
+const executableDigest = (root, file, expected, label) => {
+  if (!HEX64.test(expected ?? "")) fail(`${label} has no pinned executable sha256`);
+  const resolved = real(file);
+  if (!resolved) fail(`provisioned ${label} executable is missing`);
+  if (!inside(root, resolved)) fail(`provisioned ${label} executable must be inside managed root`);
+  if (!fs.statSync(resolved).isFile()) fail(`provisioned ${label} executable must be a regular file`);
+  const actual = crypto.createHash("sha256").update(fs.readFileSync(resolved)).digest("hex");
+  if (actual !== expected) fail(`provisioned ${label} executable sha256 does not match the pinned executable`);
+  return expected;
+};
 
 /**
  * Resolve the R2 CFT env values without touching GITHUB_ENV. `key` defaults to
@@ -34,23 +49,24 @@ export function resolveR2CftEnv({ managedRoot, runnerTemp, pins, key = platformK
   if (stat.isSymbolicLink()) fail("managed root must not be a symlink");
   const root = real(managedRoot);
   if (!root || !fs.statSync(root).isDirectory()) fail("managed root must be an existing real directory");
-  if (root !== temp && (path.relative(temp, root).startsWith(`..${path.sep}`) || path.relative(temp, root) === "..")) fail("managed root must be inside RUNNER_TEMP");
+  if (!inside(temp, root)) fail("managed root must be inside RUNNER_TEMP");
   const pin = pinFor(pins, key);
   if (!HEX64.test(pin.sha256 ?? "")) fail(`${key} has no pinned sha256; record it with a publish dry run`);
   const current = path.join(root, "current");
+  const marker = real(path.join(current, "install.json"));
+  if (marker && !inside(root, marker)) fail("provisioned marker must be inside managed root");
   let recorded;
-  try { recorded = JSON.parse(fs.readFileSync(path.join(current, "install.json"), "utf8")); } catch { fail("provisioned Chrome for Testing marker is missing; provision-chrome.mjs must run first"); }
+  try { recorded = JSON.parse(fs.readFileSync(marker ?? path.join(current, "install.json"), "utf8")); } catch { fail("provisioned Chrome for Testing marker is missing; provision-chrome.mjs must run first"); }
   const files = Array.isArray(recorded?.files) ? recorded.files : [];
   const chrome = files.find((f) => f?.kind === "chrome");
   if (recorded?.version !== pins.version || recorded?.platform !== key || chrome?.sha256 !== pin.sha256) fail("provisioned install does not match the pinned Chrome for Testing");
-  if (!fs.existsSync(executable(current, key))) fail("provisioned Chrome for Testing executable is missing");
-  const env = { RK_R2_CFT_ROOT: root, RK_R2_CFT_SHA256: pin.sha256 };
+  // Archive markers & executable pins must both match before consumers receive hashes.
+  const env = { RK_R2_CFT_ROOT: root, RK_R2_CFT_SHA256: executableDigest(root, executable(current, key), pins.platforms?.[key]?.executableSha256, "Chrome for Testing") };
   const shell = shellPinFor(pins, key);
   if (shell) {
     const shellFile = files.find((f) => f?.kind === "headless_shell");
     if (shellFile?.sha256 !== shell.sha256) fail("provisioned install does not match the pinned headless shell");
-    if (!fs.existsSync(shellExecutable(current, key))) fail("provisioned headless shell executable is missing");
-    env.RK_R2_HEADLESS_SHELL_SHA256 = shell.sha256;
+    env.RK_R2_HEADLESS_SHELL_SHA256 = executableDigest(root, shellExecutable(current, key), pins.headlessShell?.[key]?.executableSha256, "headless shell");
   }
   return env;
 }
