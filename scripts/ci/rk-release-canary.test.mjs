@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import zlib from "node:zlib";
-import { killRemoteLeg, CHECKS, CanaryInfraError, DIGEST_FILES, EXIT, RECEIPT_NAME, buildManifest, canaryDigests, compareAll, compareCells, expectedMatch, expectedProblems, fetchBaseline, fetchDependency, loadExpected, loadMatrix, matrixProblems, packCandidate, parseArgs, receiptPath, resolveAppShas, runCanary, runLeg, writeReceipt } from "./rk-release-canary.mjs";
+import { killRemoteLeg, CHECKS, CanaryInfraError, DIGEST_FILES, EXIT, RECEIPT_NAME, admissionInfra, buildManifest, canaryDigests, compareAll, compareCells, expectedMatch, expectedProblems, fetchBaseline, fetchDependency, loadExpected, loadMatrix, matrixProblems, packCandidate, parseArgs, receiptPath, resolveAppShas, runCanary, runLeg, writeReceipt } from "./rk-release-canary.mjs";
 import { readTarball } from "./rk-release-canary-leg.mjs";
 
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
@@ -176,6 +176,67 @@ test("compareAll: a regression anywhere wins over incomplete, and stale expected
   const r = all(cells, { expected: { entries: [{ ...ENTRY, version: "0.6.4", app: "gone" }] } });
   assert.equal(r.verdict, "regression");
   assert.equal(r.staleExpected.length, 1);
+});
+
+// ---------- broker admission and the other new findings ----------
+const RNPC = "RK_NOT_PRIMARY_CHECKOUT";
+const onMac = (r) => r.cells.find((c) => c.id === "a" && c.platform === "mac");
+test("admissionInfra: a refusal is infrastructure only when the probe or the baseline shows the same code", () => {
+  const crash = { status: "crash", admissionCode: RNPC, detail: "exit 1" };
+  assert.equal(admissionInfra(crash, { side: "candidate", baseline: { status: "pass" }, refused: null }).status, "crash", "candidate-only refusal stays a crash");
+  assert.equal(admissionInfra(crash, { side: "candidate", baseline: { ...crash } }).status, "infra", "the baseline shows the code");
+  assert.equal(admissionInfra(crash, { side: "candidate", baseline: { status: "pass" }, refused: RNPC }).status, "infra", "the probe refused the code");
+  assert.equal(admissionInfra(crash, { side: "candidate", baseline: { status: "pass" }, refused: "RK_REPOSITORY_BUSY" }).status, "crash", "another code does not count");
+  assert.equal(admissionInfra(crash, { side: "baseline" }).status, "infra", "a baseline that shows the code is infrastructure itself");
+  assert.equal(admissionInfra({ status: "pass", admissionCode: RNPC }, { side: "candidate", refused: RNPC }).status, "pass", "only crash and fail are classed");
+  assert.equal(admissionInfra(null, { side: "candidate" }), null);
+});
+test("compareAll: a candidate-only refusal with a completing baseline still blocks", () => {
+  const r = all(full({ "candidate.a.mac": { status: "crash", admissionCode: RNPC, detail: "exit 1" } }));
+  assert.equal(r.verdict, "regression");
+  assert.equal(onMac(r).verdict, "regression");
+  assert.ok(onMac(r).findings.some((f) => f.kind === "candidate-crash" && f.severity === "block"));
+});
+test("compareAll: a baseline cell that shows the same admission code makes both refusals infrastructure (incomplete, never a verdict)", () => {
+  const r = all(full({ "baseline.a.mac": { status: "crash", admissionCode: RNPC, detail: "exit 1" }, "candidate.a.mac": { status: "crash", admissionCode: RNPC, detail: "exit 1" } }));
+  assert.equal(r.verdict, "incomplete");
+  assert.equal(onMac(r).candidate.status, "infra");
+  assert.equal(onMac(r).candidate.detail, `broker admission: ${RNPC}`);
+  assert.equal(onMac(r).candidate.refusedAs, "crash");
+  assert.equal(onMac(r).baseline.status, "infra");
+  assert.deepEqual(onMac(r).findings.map((f) => f.kind).sort(), ["baseline-infra", "candidate-infra"]);
+});
+test("compareAll: a leg probe that refused the code makes the candidate refusal infrastructure, even when the baseline did not show it", () => {
+  const gateRow = { status: "fail", failNames: [], gateFailNames: ["gate:build-features"], gatesRun: true, admissionCode: "RK_BROKER_UNAVAILABLE" };
+  const r = all(full({ "candidate.a.mac": gateRow }), { admissionRefused: { darwin: "RK_BROKER_UNAVAILABLE" } });
+  assert.equal(r.verdict, "incomplete");
+  assert.equal(onMac(r).candidate.status, "infra");
+  assert.ok(!onMac(r).findings.some((f) => f.kind === "gate-row"), "a refused gate row is not a gate regression");
+  assert.equal(all(full({ "candidate.a.mac": gateRow }), { admissionRefused: { win32: "RK_BROKER_UNAVAILABLE" } }).verdict, "regression", "the refusal of another host does not count");
+});
+test("compareAll: a gate [FAIL] row that carries the code is infrastructure when the baseline shows it, blocking when only the candidate does", () => {
+  const gateRow = { status: "fail", failNames: [], gateFailNames: ["gate:build-features"], gatesRun: true, admissionCode: RNPC };
+  const shown = all(full({ "candidate.a.mac": gateRow, "baseline.a.mac": { status: "fail", failNames: [], gateFailNames: ["gate:build-features"], gatesRun: false, admissionCode: RNPC } }));
+  assert.equal(onMac(shown).candidate.status, "infra");
+  assert.equal(shown.verdict, "incomplete");
+  const only = all(full({ "candidate.a.mac": gateRow }));
+  assert.equal(only.verdict, "regression");
+  assert.ok(onMac(only).findings.some((f) => f.kind === "gate-row" && f.severity === "block"));
+});
+test("compareAll: host-not-representative says whether no baseline cell completed, or the baseline completed without broker-managed compiler cache", () => {
+  const withoutCache = all(full({ "baseline.a.win": { compilerCache: false } }));
+  const winCell = withoutCache.cells.find((c) => c.id === "a" && c.platform === "win");
+  assert.ok(winCell.findings.some((f) => f.kind === "host-not-representative" && f.detail === "baseline completed without broker-managed compiler cache on win32"), JSON.stringify(winCell.findings));
+  const noneCompleted = all(full({ "baseline.a.win": { status: "crash", compilerCache: false, detail: "exit 1" } }));
+  const winNone = noneCompleted.cells.find((c) => c.id === "a" && c.platform === "win");
+  assert.ok(winNone.findings.some((f) => f.kind === "host-not-representative" && f.detail === "no baseline cell completed on win32"), JSON.stringify(winNone.findings));
+  assert.equal(noneCompleted.verdict, "incomplete");
+});
+test("compareAll: tolerated unnormalized blobs are a report-level finding and never change the verdict", () => {
+  const r = all(full({ "candidate.a.mac": { unnormalizedBlobs: ["sub/doc.md"] } }));
+  assert.equal(r.verdict, "green");
+  assert.ok(onMac(r).findings.some((f) => f.kind === "unnormalized-blob" && f.severity === "report" && f.match === "sub/doc.md"));
+  assert.deepEqual(onMac(r).candidate.unnormalizedBlobs, ["sub/doc.md"]);
 });
 
 // ---------- matrix ----------
@@ -414,6 +475,22 @@ test("runCanary: only @rightkit/release has a canary; a dirty tree is refused", 
   assert.equal((await runCanary({ root: REPO, out, unit: "@rightkit/qa", deps })).code, EXIT.usage);
   deps.exec = async (cmd, args) => (args.includes("rev-parse") ? { code: 0, stdout: `${"f".repeat(40)}\n`, stderr: "" } : { code: 0, stdout: " M scripts/ci/x.mjs\n", stderr: "" });
   assert.equal((await runCanary({ root: REPO, out, deps })).code, EXIT.usage);
+});
+test("runCanary: a candidate refusal that the Mac leg's probe refused is incomplete (code 11), not a regression", async (t) => {
+  const { out, deps } = canaryDeps(t, { cells: matrixCells() });
+  const plain = deps.runLeg;
+  deps.runLeg = async (host, opts) => {
+    const leg = await plain(host, opts);
+    if (host === "darwin") {
+      leg.receipt.admissionRefused = RNPC;
+      for (const c of leg.receipt.cells) if (c.id === "mailright" && c.side === "candidate" && c.platform === "mac") Object.assign(c, { status: "crash", admissionCode: RNPC, detail: "exit 1" });
+    }
+    return leg;
+  };
+  const r = await runCanary({ root: REPO, out, deps });
+  assert.equal(r.code, EXIT.incomplete);
+  assert.equal(r.receipt.legs.darwin.admissionRefused, RNPC);
+  assert.equal(r.receipt.cells.find((c) => c.id === "mailright" && c.platform === "mac").candidate.detail, `broker admission: ${RNPC}`);
 });
 test("writeReceipt is atomic and parseArgs is strict", (t) => {
   const out = tmp(t);

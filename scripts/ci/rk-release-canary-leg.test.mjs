@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { GATES_REQUIRED_FROM, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareExport, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
+import { GATES_REQUIRED_FROM, admissionCodeOf, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareExport, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
 
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -149,7 +149,55 @@ test("prepareExport: origin rewritten to the real remote, main attached at the p
   fs.writeFileSync(path.join(dest, "junk.log"), "x"); fs.writeFileSync(path.join(dest, "mode.txt"), "changed");
   prepareExport({ live: repo, origin: "git@github.com:Org/app.git", sha, dest });
   assert.equal(git(dest, "status", "--porcelain", "--ignored=matching"), "");
-  assert.throws(() => prepareExport({ live: repo, origin: "x", sha: "a".repeat(40), dest }), /not in the live repository/);
+  assert.throws(() => prepareExport({ live: repo, origin: "x", sha: "a".repeat(40), dest }), /git fetch --no-tags origin/);
+});
+
+test("prepareExport: a pin the live repository lacks is fetched into the scratch export only; the live repository is untouched", (t) => {
+  const { dir, repo, sha } = liveRepo(t);
+  const up = path.join(dir, "upstream");
+  git(dir, "clone", "-q", repo, up);
+  git(up, "config", "user.email", "t@example.com"); git(up, "config", "user.name", "t");
+  git(up, "config", "uploadpack.allowAnySHA1InWant", "true");
+  fs.writeFileSync(path.join(up, "later.txt"), "pinned\n"); git(up, "add", "-A"); git(up, "commit", "-qm", "pinned");
+  const pin = git(up, "rev-parse", "HEAD");
+  const liveRefs = git(repo, "for-each-ref");
+  const liveHead = git(repo, "rev-parse", "HEAD");
+  const dest = path.join(dir, "scratch", "candidate", "app");
+  const result = prepareExport({ live: repo, origin: up, sha: pin, dest });
+  assert.equal(result.head, pin);
+  assert.equal(git(dest, "remote", "get-url", "origin"), up);
+  assert.equal(fs.existsSync(path.join(dest, "later.txt")), true);
+  assert.deepEqual(treeDigest(dest).lines, []);
+  assert.equal(git(repo, "for-each-ref"), liveRefs);
+  assert.equal(git(repo, "rev-parse", "HEAD"), liveHead);
+  assert.notEqual(spawnSync("git", ["-C", repo, "cat-file", "-e", `${pin}^{commit}`]).status, 0, "the live repository never received the pin");
+  assert.notEqual(pin, sha);
+});
+
+test("prepareExport: a pin that neither the live repository nor origin has is infrastructure with git's message", (t) => {
+  const { dir, repo } = liveRepo(t);
+  assert.throws(() => prepareExport({ live: repo, origin: repo, sha: "e".repeat(40), dest: path.join(dir, "x") }), (e) => e.infra === true && /git fetch --no-tags origin eeee/.test(e.message));
+});
+
+test("prepareExport: a CRLF blob under a text attribute is tolerated and listed; other dirt (an ident expansion) stays infrastructure", (t) => {
+  const crlf = liveRepo(t, { "doc.md": "a\r\nb\r\n" });
+  fs.writeFileSync(path.join(crlf.repo, ".gitattributes"), "*.md text\n");
+  git(crlf.repo, "add", ".gitattributes"); git(crlf.repo, "commit", "-qm", "attributes");
+  const ok = prepareExport({ live: crlf.repo, origin: "https://example.com/x.git", sha: git(crlf.repo, "rev-parse", "HEAD"), dest: path.join(crlf.dir, "scratch", "a") });
+  assert.deepEqual(ok.unnormalizedBlobs, ["doc.md"]);
+  assert.deepEqual(treeDigest(ok.dest).lines, [" M doc.md"]);
+  const dirt = liveRepo(t, { "id.txt": "x $Id: old $\n" });
+  fs.writeFileSync(path.join(dirt.repo, ".gitattributes"), "id.txt ident\n");
+  git(dirt.repo, "add", ".gitattributes"); git(dirt.repo, "commit", "-qm", "attributes");
+  assert.throws(() => prepareExport({ live: dirt.repo, origin: "https://example.com/y.git", sha: git(dirt.repo, "rev-parse", "HEAD"), dest: path.join(dirt.dir, "scratch", "b") }), (e) => e.infra === true && /fresh export is not clean: +M id\.txt/.test(e.message));
+});
+
+test("admissionCodeOf finds the three broker admission codes and nothing else", () => {
+  assert.equal(admissionCodeOf("x RK_REPOSITORY_BUSY y"), "RK_REPOSITORY_BUSY");
+  assert.equal(admissionCodeOf("RK_BROKER_UNAVAILABLE"), "RK_BROKER_UNAVAILABLE");
+  assert.equal(admissionCodeOf("rustright: RK_NOT_PRIMARY_CHECKOUT: <path> is not a primary checkout"), "RK_NOT_PRIMARY_CHECKOUT");
+  assert.equal(admissionCodeOf("RK_SOMETHING_ELSE"), null);
+  assert.equal(admissionCodeOf(undefined), null);
 });
 
 test("treeDigest sees untracked, modified and ignored output", (t) => {
@@ -167,12 +215,14 @@ test("treeDigest sees untracked, modified and ignored output", (t) => {
 // ---------- the doctor, end to end with a fake package ----------
 const cli = (body) => `import fs from "node:fs";\nconst args = process.argv.slice(2);\nconst mode = fs.readFileSync("mode.txt", "utf8").trim();\nconsole.log("right-release 9.9.9\\nargs: " + args.join(" ") + "\\nplatform: " + args[args.indexOf("--platform") + 1] + "\\npreflight:");\n${body}\n`;
 const PASS_BODY = `console.log("  [ok  ] compiler-cache: broker-managed; recorded");\nif (mode === "write") fs.writeFileSync("stray.txt", "x");\nif (mode === "fail") { console.log("  [FAIL] ownership: copy"); console.error("right-release: preflight found 1 blocking problem(s)"); process.exit(1); }\nif (mode === "fatal") { console.error("right-release: app boom at " + process.cwd()); process.exit(1); }\nif (mode === "crash") { throw new Error("kaput"); }\nif (mode === "hang") setInterval(() => {}, 1000);`;
-function sidePkg(dir, name, { body = PASS_BODY, gates = false, version = "9.9.9" } = {}) {
+function sidePkg(dir, name, { body = PASS_BODY, gates = false, version = "9.9.9", extra = {} } = {}) {
   const file = path.join(dir, `${name}.tgz`);
-  fs.writeFileSync(file, tgz({ "package.json": JSON.stringify({ name: "@rightkit/release", version }), "cli/right-release.mjs": cli(body), "release.mjs": gates ? 'else if (arg === "--gates") opts.gates = true;' : "", }));
+  fs.writeFileSync(file, tgz({ "package.json": JSON.stringify({ name: "@rightkit/release", version }), "cli/right-release.mjs": cli(body), "release.mjs": gates ? 'else if (arg === "--gates") opts.gates = true;' : "", ...extra }));
   return { file, sha256: sha256(fs.readFileSync(file)), version };
 }
-function manifestFor(t, modes, { candidateBody, baselineBody, hang } = {}) {
+/** `files` are added to every app's repository (in one commit with the cell files); `attributes`, when given, is committed
+ * alone afterwards, so a committed CRLF blob stays CRLF in the index while its path gets a text attribute. */
+function manifestFor(t, modes, { candidateBody, baselineBody, hang, files = {}, attributes = null, candidateFiles = {} } = {}) {
   const dir = tmp(t, "rk-leg-run-");
   const live = path.join(dir, "ws");
   fs.mkdirSync(live);
@@ -182,13 +232,17 @@ function manifestFor(t, modes, { candidateBody, baselineBody, hang } = {}) {
   const apps = [];
   for (const [id, mode] of Object.entries(modes)) {
     const repoDir = `repo-${id}`;
-    const r = liveRepo(t, { "sub/right-release.config.mjs": "export default {}\n", "sub/mode.txt": `${mode}\n` });
+    const r = liveRepo(t, { "sub/right-release.config.mjs": "export default {}\n", "sub/mode.txt": `${mode}\n`, ...files });
+    if (attributes !== null) {
+      fs.writeFileSync(path.join(r.repo, ".gitattributes"), attributes);
+      git(r.repo, "add", ".gitattributes"); git(r.repo, "commit", "-qm", "attributes");
+    }
     fs.renameSync(r.repo, path.join(live, repoDir));
-    repos[repoDir] = { origin: `https://example.com/${id}.git`, sha: r.sha };
+    repos[repoDir] = { origin: `https://example.com/${id}.git`, sha: git(path.join(live, repoDir), "rev-parse", "HEAD") };
     apps.push({ id, repoDir, configPath: "sub/right-release.config.mjs", platforms: [platform], blocking: true });
   }
   const bundle = path.join(dir, "bundle"); fs.mkdirSync(bundle);
-  const candidate = sidePkg(bundle, "candidate", { body: candidateBody ?? PASS_BODY, gates: true, version: "9.9.10" });
+  const candidate = sidePkg(bundle, "candidate", { body: candidateBody ?? PASS_BODY, gates: true, version: "9.9.10", extra: candidateFiles });
   const baseline = sidePkg(bundle, "baseline", { body: baselineBody ?? PASS_BODY, version: "9.9.9" });
   const dep = path.join(bundle, "smol-toml.tgz"); fs.writeFileSync(dep, tgz({ "package.json": "{}" }));
   const manifest = {
@@ -239,12 +293,13 @@ test("runLeg: a hanging doctor is killed at the cell limit and reported as a tim
   }
 });
 
-test("runLeg: a commit missing from the live repository is infrastructure (never fetched), and a spent budget stops starting cells", async (t) => {
+test("runLeg: a pin the live repository lacks that origin also lacks is infrastructure with git's message, and a spent budget stops starting cells", async (t) => {
   const missing = manifestFor(t, { gone: "pass" });
   missing.manifest.repos["repo-gone"].sha = "e".repeat(40);
+  missing.manifest.repos["repo-gone"].origin = liveRepo(t).repo;
   const r1 = await runLeg(missing.manifest, { manifestDir: missing.bundle });
   assert.equal(cellOf(r1, "gone", "candidate").status, "infra");
-  assert.match(cellOf(r1, "gone", "candidate").detail, /not in the live repository/);
+  assert.match(cellOf(r1, "gone", "candidate").detail, /git fetch --no-tags origin eeee/);
   const spent = manifestFor(t, { late: "pass" });
   let clock = 0;
   const r2 = await runLeg(spent.manifest, { manifestDir: spent.bundle, now: () => (clock += 10 * 60_000) });
@@ -314,4 +369,72 @@ test("runLeg: each cell records whether its export has no node_modules", async (
   const { manifest, bundle } = manifestFor(t, { clean: "pass" });
   const receipt = await runLeg(manifest, { manifestDir: bundle });
   assert.equal(cellOf(receipt, "clean", "candidate").noNodeModules, true);
+});
+
+const CRLF_DOC = { "sub/doc.md": "a\r\nb\r\n" };
+test("runLeg: a doctor write to a tolerated CRLF blob flips treeChanged (hashed around the doctor); an untouched one does not", async (t) => {
+  const { manifest, bundle } = manifestFor(t, { crlf: "touchdoc", quiet: "pass" }, {
+    candidateBody: 'if (mode === "touchdoc") fs.writeFileSync("doc.md", "changed\\r\\n");',
+    files: CRLF_DOC, attributes: "*.md text\n",
+  });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  const touched = cellOf(receipt, "crlf", "candidate");
+  assert.equal(touched.status, "pass");
+  assert.equal(touched.treeChanged, true);
+  assert.deepEqual(touched.unnormalizedBlobs, ["sub/doc.md"]);
+  assert.ok(touched.treeDelta.some((l) => /^[-+]hash sub\/doc\.md /.test(l)), touched.treeDelta.join(";"));
+  assert.equal(cellOf(receipt, "crlf", "baseline").treeChanged, false);
+  assert.equal(cellOf(receipt, "quiet", "candidate").treeChanged, false);
+  assert.deepEqual(cellOf(receipt, "quiet", "candidate").unnormalizedBlobs, ["sub/doc.md"]);
+});
+
+test("runLeg: a crash or fail carries its broker admission code; a clean cell carries none", async (t) => {
+  const { manifest, bundle } = manifestFor(t, { refused: "admit", clean: "pass" }, {
+    candidateBody: 'if (mode === "admit") { console.error("Error: cargo metadata: RK_NOT_PRIMARY_CHECKOUT: <path>"); process.exit(1); }',
+  });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  const refused = cellOf(receipt, "refused", "candidate");
+  assert.equal(refused.status, "crash");
+  assert.equal(refused.admissionCode, "RK_NOT_PRIMARY_CHECKOUT");
+  assert.equal(cellOf(receipt, "refused", "baseline").status, "pass");
+  assert.equal(cellOf(receipt, "refused", "baseline").admissionCode, null);
+  assert.equal(cellOf(receipt, "clean", "candidate").admissionCode, null);
+  assert.equal(receipt.admissionRefused, null, "the probe did not run here, so no leg refusal is recorded");
+});
+
+test("runLeg: a probe the broker refuses makes every cell of the leg infrastructure, and no cell runs", async (t) => {
+  const { manifest, bundle } = manifestFor(t, { clean: "pass", other: "pass" }, {
+    candidateFiles: { "managed-cargo.mjs": 'export function runCargoSync() { return { status: 1, stdout: "", stderr: "RK_NOT_PRIMARY_CHECKOUT: <path> is not a primary checkout" }; }\n' },
+    files: { "sub/Cargo.toml": '[package]\nname = "x"\nversion = "0.1.0"\n' },
+  });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  assert.equal(receipt.admissionProbe.ran, true);
+  assert.equal(receipt.admissionRefused, "RK_NOT_PRIMARY_CHECKOUT");
+  assert.equal(receipt.cells.length, 4);
+  for (const c of receipt.cells) {
+    assert.equal(c.status, "infra");
+    assert.equal(c.detail, "broker admission: RK_NOT_PRIMARY_CHECKOUT");
+    assert.equal(c.attempts, undefined, "no cell ran, so none was retried");
+  }
+});
+
+test("runLeg: a probe that cannot run (no managed-cargo in the candidate) records why and refuses nothing", async (t) => {
+  const { manifest, bundle } = manifestFor(t, { clean: "pass" }, { files: { "sub/Cargo.toml": '[package]\nname = "x"\nversion = "0.1.0"\n' } });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  assert.equal(receipt.admissionProbe.ran, false);
+  assert.match(receipt.admissionProbe.detail, /managed-cargo/);
+  assert.equal(receipt.admissionRefused, null);
+  assert.equal(cellOf(receipt, "clean", "candidate").status, "pass");
+});
+
+test("runLeg: deleting or chmod +x on a tolerated CRLF blob flips treeChanged", { skip: process.platform === "win32" && "no execute bit on Windows" }, async (t) => {
+  const { manifest, bundle } = manifestFor(t, { chmoddoc: "chmoddoc", rmdoc: "rmdoc" }, {
+    candidateBody: 'if (mode === "chmoddoc") fs.chmodSync("doc.md", 0o755); if (mode === "rmdoc") fs.rmSync("doc.md");',
+    files: CRLF_DOC, attributes: "*.md text\n",
+  });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
+  for (const id of ["chmoddoc", "rmdoc"]) {
+    assert.equal(cellOf(receipt, id, "candidate").treeChanged, true, id);
+    assert.equal(cellOf(receipt, id, "baseline").treeChanged, false, id);
+  }
 });

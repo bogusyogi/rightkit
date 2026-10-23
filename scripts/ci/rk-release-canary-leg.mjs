@@ -8,14 +8,15 @@
 // For every app cell the manifest assigns to this host it runs `right-release doctor` twice, from the SAME pinned app
 // commit: once with the registry baseline (latest published @rightkit/release) and once with the candidate tarball.
 // It reports facts (status, [FAIL] rows, fatal signature, whether the app tree changed); the coordinator judges them.
-// Hard rules: exports are scratch clones, live repositories are never fetched into or modified; `--admission` is never
-// passed; the doctor must leave the export byte-for-byte clean.
+// Hard rules: exports are scratch clones; live repositories are never fetched into or modified (a pin they lack is fetched
+// into the export only); `--admission` is never passed; the doctor must leave the export as checked out (status clean,
+// except tolerated CRLF blobs, whose content hashes must not change either; see classifyStatus and treeDigest).
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const LEG_SCHEMA = "rk-release-canary-leg.v1";
 export const HOST_FOR_PLATFORM = Object.freeze({ mac: "darwin", ios: "darwin", win: "win32" });
@@ -23,6 +24,13 @@ export const DEFAULT_CELL_MS = 5 * 60_000;
 export const DEFAULT_TOTAL_MS = 20 * 60_000;
 const OUTPUT_CAP = 4 * 1024 * 1024;
 export const INFRA_STATUSES = Object.freeze(["timeout", "recoverable", "infra", "budget"]);
+/** Broker admission refusals: the build broker's answer that this checkout may not run Cargo. Not a candidate defect. */
+export const ADMISSION_CODES = Object.freeze(["RK_NOT_PRIMARY_CHECKOUT", "RK_BROKER_UNAVAILABLE", "RK_REPOSITORY_BUSY"]);
+const ADMISSION = new RegExp(ADMISSION_CODES.join("|"));
+export function admissionCodeOf(text) {
+  const m = ADMISSION.exec(String(text ?? ""));
+  return m ? m[0] : null;
+}
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -147,29 +155,60 @@ function git(cwd, args, { allowFail = false, timeout = GIT_TIMEOUT_MS } = {}) {
 }
 
 /** A fresh scratch clone of the live repository at exactly `sha`, on an attached `main`, origin = the real remote.
- * `git clone --local` hard-links objects and only reads the live repository; nothing is ever fetched into it. */
+ * `git clone --local` hard-links objects and only reads the live repository. A pin the live repository lacks is fetched
+ * from origin into the scratch export only (after its origin is restored); the live repository is never fetched into. */
 export function prepareExport({ live, origin, sha, dest }) {
   if (!/^[0-9a-f]{40}$/.test(sha ?? "")) throw Object.assign(new Error(`invalid app commit ${JSON.stringify(sha)}`), { infra: true });
   if (!origin) throw Object.assign(new Error("no origin URL for the export"), { infra: true });
   if (!fs.existsSync(path.join(live, ".git"))) throw Object.assign(new Error(`${live} is not a git checkout on this host`), { infra: true });
-  if (git(live, ["cat-file", "-e", `${sha}^{commit}`], { allowFail: true }).status !== 0) throw Object.assign(new Error(`commit ${sha} is not in the live repository ${live}; update it (the canary never fetches into live repositories)`), { infra: true });
+  const inLive = git(live, ["cat-file", "-e", `${sha}^{commit}`], { allowFail: true }).status === 0;
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   git(path.dirname(dest), ["clone", "--local", "--no-checkout", "--quiet", live, dest], { timeout: 300_000 });
   git(dest, ["remote", "set-url", "origin", origin]);
+  if (!inLive) git(dest, ["fetch", "--no-tags", "origin", sha], { timeout: 300_000 });
   git(dest, ["checkout", "--quiet", "-B", "main", sha]);
   git(dest, ["update-ref", "refs/remotes/origin/main", sha]);
   git(dest, ["reset", "--quiet", "--hard"]);
   git(dest, ["clean", "-ffdxq"]);
+  // Settle the index first, so the verdict does not depend on racy timestamps; then only the lines git itself explains
+  // (see classifyStatus) may remain. --really-refresh exits non-zero whenever it changed anything, hence allowFail.
+  git(dest, ["update-index", "-q", "--really-refresh"], { allowFail: true });
   const tree = treeDigest(dest);
-  if (tree.lines.length) throw Object.assign(new Error(`fresh export is not clean: ${tree.lines.slice(0, 3).join("; ")}`), { infra: true });
-  return { dest, sha, head: git(dest, ["rev-parse", "HEAD"]).stdout.trim() };
+  const { tolerated, dirt } = classifyStatus(dest, tree.lines);
+  if (dirt.length) throw Object.assign(new Error(`fresh export is not clean: ${dirt.slice(0, 3).join("; ")}`), { infra: true });
+  return { dest, sha, head: git(dest, ["rev-parse", "HEAD"]).stdout.trim(), unnormalizedBlobs: tolerated };
 }
 
-/** `git status --porcelain --ignored=matching`, sorted, and its digest. */
-export function treeDigest(repoRoot) {
+/** Split a fresh export's status lines. Tolerated: a modified tracked file whose committed blob is CRLF or mixed and whose
+ * attributes include text (or eol=): git's line-ending conversion disagrees with the blob, so checkout alone shows it.
+ * Every other line is dirt. */
+export function classifyStatus(repoRoot, lines) {
+  const modified = lines.filter((l) => l.startsWith(" M ")).map((l) => l.slice(3)).filter((p) => p && !p.startsWith('"'));
+  const tolerated = new Set();
+  if (modified.length) {
+    for (const line of git(repoRoot, ["ls-files", "--eol", "--", ...modified]).stdout.split("\n")) {
+      const m = /^i\/(\S*)\s+w\/\S*\s+attr\/([^\t]*)\t(.*)$/.exec(line);
+      if (!m || !modified.includes(m[3])) continue;
+      const textual = m[2].trim().split(/\s+/).some((a) => a === "text" || a.startsWith("text=") || a.startsWith("eol="));
+      if (["crlf", "mixed"].includes(m[1]) && textual) tolerated.add(m[3]);
+    }
+  }
+  return { tolerated: [...tolerated].sort(), dirt: lines.filter((l) => !(l.startsWith(" M ") && tolerated.has(l.slice(3)))) };
+}
+
+/** `git status --porcelain --ignored=matching` plus the raw content hash of each `extra` path (a missing one hashes as
+ * "missing"), sorted, and its digest. Hashing with --no-filters makes a doctor write to a tolerated file visible. */
+export function treeDigest(repoRoot, { extra = [] } = {}) {
   const r = git(repoRoot, ["-c", "core.fsmonitor=false", "status", "--porcelain", "--ignored=matching"]);
-  const lines = r.stdout.split(/\r?\n/).filter(Boolean).sort();
+  const lines = r.stdout.split(/\r?\n/).filter(Boolean);
+  for (const file of extra) {
+    const h = git(repoRoot, ["hash-object", "--no-filters", file], { allowFail: true });
+    let exec = "";
+    try { exec = (fs.statSync(path.join(repoRoot, file)).mode & 0o111) ? " +x" : " -x"; } catch { /* missing: the hash says so */ }
+    lines.push(`hash ${file} ${h.status === 0 ? h.stdout.trim() : "missing"}${exec}`);
+  }
+  lines.sort();
   return { digest: sha256(lines.join("\n")), lines };
 }
 
@@ -261,7 +300,7 @@ export function normalize(text) {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Run one cell: tree digest, doctor, tree digest, classify. */
-export async function runCell({ side, sidePrep, app, platform, exportDir, node, tmpRoot, timeoutMs = DEFAULT_CELL_MS, gates }) {
+export async function runCell({ side, sidePrep, app, platform, exportDir, node, tmpRoot, timeoutMs = DEFAULT_CELL_MS, gates, unnormalizedBlobs = [] }) {
   const appRoot = path.join(exportDir, path.dirname(app.configPath));
   const configRel = path.basename(app.configPath);
   if (gates && side === "candidate" && !sidePrep.supportsGates && gatesRequired(sidePrep.version)) {
@@ -269,10 +308,12 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
   }
   const gatesRun = Boolean(gates && side === "candidate" && sidePrep.supportsGates);
   const noNodeModules = !fs.existsSync(path.join(exportDir, "node_modules")) && !fs.existsSync(path.join(appRoot, "node_modules"));
-  const before = treeDigest(exportDir);
+  const before = treeDigest(exportDir, { extra: unnormalizedBlobs });
   const run = await runDoctor({ node, bin: sidePrep.bin, appRoot, configRel, platform, gates: gatesRun, sideDir: sidePrep.sideDir, tmpDir: path.join(tmpRoot, `${side}-${app.repoDir}-${platform}`), timeoutMs });
-  const after = treeDigest(exportDir);
+  const after = treeDigest(exportDir, { extra: unnormalizedBlobs });
   const parsed = parseDoctor(run);
+  // Only the orchestrator decides whether an admission code is infrastructure: it needs the baseline cell and the probe.
+  const admissionCode = ["crash", "fail"].includes(parsed.status) ? admissionCodeOf(`${run.stdout}\n${run.stderr}`) : null;
   const delta = [...before.lines.filter((l) => !after.lines.includes(l)).map((l) => `-${l}`), ...after.lines.filter((l) => !before.lines.includes(l)).map((l) => `+${l}`)];
   const combined = normalize(`${run.stdout}\n${run.stderr}`);
   return {
@@ -281,8 +322,42 @@ export async function runCell({ side, sidePrep, app, platform, exportDir, node, 
     failNames: parsed.failNames, gateFailNames: parsed.gateFailNames, fatal: parsed.fatal, compilerCache: parsed.compilerCache,
     rows: parsed.rows.map((r) => ({ level: r.level, name: r.name, gate: r.gate })), gatesRun, noNodeModules, args: run.args.slice(1),
     treeChanged: before.digest !== after.digest, treeDelta: delta.slice(0, 50), treeBefore: before.digest, treeAfter: after.digest,
-    normalizedSha256: sha256(combined), normalized: combined.slice(0, 20_000),
+    normalizedSha256: sha256(combined), normalized: combined.slice(0, 20_000), admissionCode, unnormalizedBlobs: [...unnormalizedBlobs],
   };
+}
+
+/** One `cargo metadata --no-deps --offline` through the candidate's own managed-cargo runCargoSync, in a scratch export of
+ * the first app that has a Cargo.toml. A refusal with an admission code is returned as admissionRefused for the whole leg.
+ * A probe that cannot run says why and refuses nothing. The probe export is removed afterwards. */
+export async function admissionProbe({ sidePrep, candidates, probeRoot }) {
+  if (!sidePrep) return { ran: false, admissionRefused: null, detail: "candidate side not prepared" };
+  const problems = [];
+  try {
+    for (const c of candidates) {
+      const dir = path.join(probeRoot, c.repoDir);
+      let manifest = null;
+      try {
+        prepareExport({ live: c.live, origin: c.origin, sha: c.sha, dest: dir });
+        manifest = cargoManifestIn(dir);
+      } catch (error) { problems.push(`${c.repoDir}: ${error.message}`); continue; }
+      if (!manifest) { problems.push(`${c.repoDir}: no Cargo.toml`); continue; }
+      const cargo = await import(pathToFileURL(path.join(sidePrep.releaseDir, "managed-cargo.mjs")).href);
+      const r = cargo.runCargoSync(["metadata", "--no-deps", "--offline", "--format-version", "1", "--manifest-path", path.join(dir, manifest)], { cwd: dir, encoding: "utf8", timeout: 120_000, windowsHide: true });
+      const text = [r?.stdout, r?.stderr, r?.error?.code, r?.error?.message].filter(Boolean).join("\n");
+      return { ran: true, app: c.repoDir, manifest, admissionRefused: admissionCodeOf(text) };
+    }
+    return { ran: false, admissionRefused: null, detail: problems.join("; ") || "no app in this leg has a Cargo.toml" };
+  } catch (error) {
+    return { ran: false, admissionRefused: null, detail: String(error.message ?? error).slice(0, 300) };
+  } finally {
+    fs.rmSync(probeRoot, { recursive: true, force: true });
+  }
+}
+
+/** The shallowest tracked Cargo.toml of an export, or null. */
+function cargoManifestIn(dir) {
+  const found = git(dir, ["ls-files", "--", "*Cargo.toml"]).stdout.split("\n").filter((f) => path.posix.basename(f) === "Cargo.toml");
+  return found.sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))[0] ?? null;
 }
 
 /** Run `fn` over `items` with at most `limit` in flight. */
@@ -333,7 +408,16 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
     if (!grouped.has(key)) grouped.set(key, { side: u.side, repoDir: u.app.repoDir, items: [] });
     grouped.get(key).items.push(u);
   }
-  await pool([...grouped.values()], hostCfg.parallel ?? 4, async (group) => {
+  // Fail fast: one probe, before any cell, says whether the broker admits this host's Cargo at all.
+  const probeApps = [];
+  for (const u of units) {
+    const meta = manifest.repos?.[u.app.repoDir];
+    if (meta?.sha && !meta.error && !probeApps.some((c) => c.repoDir === u.app.repoDir)) probeApps.push({ repoDir: u.app.repoDir, live: path.join(hostCfg.workspaceRoot, u.app.repoDir), origin: meta.origin, sha: meta.sha });
+  }
+  const probe = await admissionProbe({ sidePrep: sides.candidate, candidates: probeApps, probeRoot: path.join(root, "probe") });
+  if (probe.admissionRefused) {
+    for (const u of units) for (const platform of u.platforms) cells.push({ id: u.app.id, app: u.app.id, platform, side: u.side, repoDir: u.app.repoDir, host, status: "infra", detail: `broker admission: ${probe.admissionRefused}`, failNames: [], gateFailNames: [], fatal: null, treeChanged: false });
+  } else await pool([...grouped.values()], hostCfg.parallel ?? 4, async (group) => {
     for (const { app, side, platforms } of group.items) {
       for (const platform of platforms) {
         const fixed = { id: app.id, app: app.id, platform, side, repoDir: app.repoDir, host };
@@ -346,8 +430,8 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
           try {
             const exportDir = path.join(root, side, app.repoDir);
             // The export is rebuilt for every cell: a previous cell can never leave state for the next one.
-            prepareExport({ live: path.join(hostCfg.workspaceRoot, app.repoDir), origin: meta.origin, sha: meta.sha, dest: exportDir });
-            result = await runCell({ side, sidePrep: sides[side], app, platform, exportDir, node, tmpRoot, timeoutMs: cellMs, gates: manifest.gates !== false });
+            const exported = prepareExport({ live: path.join(hostCfg.workspaceRoot, app.repoDir), origin: meta.origin, sha: meta.sha, dest: exportDir });
+            result = await runCell({ side, sidePrep: sides[side], app, platform, exportDir, node, tmpRoot, timeoutMs: cellMs, gates: manifest.gates !== false, unnormalizedBlobs: exported.unnormalizedBlobs });
           } catch (error) {
             result = { ...fixed, status: "infra", detail: String(error.message ?? error).slice(0, 500), failNames: [], gateFailNames: [], fatal: null, treeChanged: false };
           }
@@ -365,6 +449,7 @@ export async function runLeg(manifest, { manifestDir, now = Date.now, host = pro
     manifestSha256: manifest.manifestSha256 ?? null, legSha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))),
     startedAt: new Date(started).toISOString(), finishedAt: new Date(now()).toISOString(), seconds: Math.round((now() - started) / 1000),
     sides: Object.fromEntries(Object.entries(sides).map(([k, v]) => [k, { version: v.version, supportsGates: v.supportsGates, gatesVia: v.gatesVia }])), sideErrors, cells,
+    admissionRefused: probe.admissionRefused ?? null, admissionProbe: probe,
   };
 }
 

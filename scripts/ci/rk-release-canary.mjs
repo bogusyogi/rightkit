@@ -133,15 +133,26 @@ const notPass = (cell) => cell.status === "fail" || cell.status === "fatal";
 
 /** Judge one (candidate, baseline) cell pair. Returns { verdict: "ok"|"regression"|"incomplete", findings }.
  * Finding severities: block (a regression), incomplete (never green), report (information). */
-export function compareCells({ candidate: c, baseline: b, expected = [], version, app, platform, blocking = true, hostRepresentative = true }) {
+/** Broker admission: a crash or fail whose output carries an admission code is infrastructure, not a verdict, when the leg's
+ * probe refused that same code or the baseline cell for the same app and platform shows it too. A baseline cell that shows
+ * the code is itself infrastructure. A candidate-only refusal keeps its blocking verdict. */
+export function admissionInfra(cell, { side, baseline, refused = null }) {
+  if (!cell?.admissionCode || (cell.status !== "crash" && cell.status !== "fail")) return cell;
+  const code = cell.admissionCode;
+  if (refused !== code && side !== "baseline" && baseline?.admissionCode !== code) return cell;
+  return { ...cell, refusedAs: cell.status, status: "infra", detail: `broker admission: ${code}` };
+}
+
+export function compareCells({ candidate: c, baseline: b, expected = [], version, app, platform, blocking = true, hostRepresentative = true, baselineCompleted = false }) {
   const findings = [];
   const add = (severity, kind, match, detail) => findings.push({ severity, kind, match, detail });
+  const host = HOST_FOR_PLATFORM[platform];
 
   if (!c) add("incomplete", "candidate-missing", app, "the candidate cell never reported");
   else if (isInfra(c)) add("incomplete", `candidate-${c.status}`, c.status, c.detail ?? "infrastructure failure after one retry");
   if (!b) add("incomplete", "baseline-missing", app, "the baseline cell never reported");
   else if (isInfra(b)) add("incomplete", `baseline-${b.status}`, b.status, b.detail ?? "infrastructure failure after one retry");
-  if (!hostRepresentative) add("incomplete", "host-not-representative", platform, "no baseline cell on this host showed `compiler-cache: broker-managed`, so the host is not the broker-managed machine releases build on");
+  if (!hostRepresentative) add("incomplete", "host-not-representative", platform, baselineCompleted ? `baseline completed without broker-managed compiler cache on ${host}` : `no baseline cell completed on ${host}`);
 
   if (c && !isInfra(c)) {
     if (c.status === "crash") add("block", "candidate-crash", c.detail ?? "crash", "the candidate doctor crashed; a crash can never be listed as expected");
@@ -183,12 +194,22 @@ export function compareCells({ candidate: c, baseline: b, expected = [], version
 }
 
 /** Pair every declared cell, decide host representativeness, run compareCells, and roll up. */
-export function compareAll({ matrix, candidateCells, baselineCells, expected, version, repos = {} }) {
+export function compareAll({ matrix, candidateCells, baselineCells, expected, version, repos = {}, admissionRefused = {} }) {
   const key = (c) => `${c.id}:${c.platform}`;
-  const cand = new Map(candidateCells.map((c) => [key(c), c]));
-  const base = new Map(baselineCells.map((c) => [key(c), c]));
+  const refusedOn = (c) => admissionRefused[HOST_FOR_PLATFORM[c.platform]] ?? null;
+  // Admission is classified against the raw baseline, then the baseline itself is classified; both feed the verdict.
+  const rawBase = new Map(baselineCells.map((c) => [key(c), c]));
+  const baseCells = baselineCells.map((c) => admissionInfra(c, { side: "baseline", refused: refusedOn(c) }));
+  const base = new Map(baseCells.map((c) => [key(c), c]));
+  const cand = new Map(candidateCells.map((c) => [key(c), admissionInfra(c, { side: "candidate", baseline: rawBase.get(key(c)), refused: refusedOn(c) })]));
   const representative = {};
-  for (const c of baselineCells) { representative[c.host] ??= false; if (c.compilerCache === true && c.status !== "crash") representative[c.host] = true; }
+  const completed = {};
+  for (const c of baseCells) {
+    representative[c.host] ??= false;
+    completed[c.host] ??= false;
+    if (c.compilerCache === true && c.status !== "crash") representative[c.host] = true;
+    if (!isInfra(c) && c.status !== "crash") completed[c.host] = true;
+  }
   const entries = (expected?.entries ?? []).filter((e) => e.version === version);
   const used = new Set();
   const cells = [];
@@ -197,11 +218,12 @@ export function compareAll({ matrix, candidateCells, baselineCells, expected, ve
       const host = HOST_FOR_PLATFORM[platform];
       const pair = { candidate: cand.get(`${app.id}:${platform}`), baseline: base.get(`${app.id}:${platform}`) };
       const unresolved = repos[app.repoDir]?.error;
-      const r = compareCells({ ...pair, expected: entries, version, app: app.id, platform, blocking: app.blocking, hostRepresentative: representative[host] !== false });
+      const r = compareCells({ ...pair, expected: entries, version, app: app.id, platform, blocking: app.blocking, hostRepresentative: representative[host] !== false, baselineCompleted: completed[host] === true });
+      for (const cell of [pair.candidate, pair.baseline]) if (cell?.unnormalizedBlobs?.length) r.findings.push({ severity: "report", kind: "unnormalized-blob", match: cell.unnormalizedBlobs.join(","), detail: "CRLF or mixed blob under a text attribute: tolerated, listed and hashed around the doctor" });
       if (unresolved && !pair.candidate && !pair.baseline) r.findings.unshift({ severity: app.blocking ? "incomplete" : "report", kind: "unresolved-app-commit", match: app.repoDir, detail: unresolved });
       const verdict = r.findings.some((f) => f.severity === "block") ? "regression" : r.findings.some((f) => f.severity === "incomplete") ? "incomplete" : "ok";
       for (const e of r.excused) used.add(e);
-      const summary = (cell) => cell && ({ status: cell.status, failNames: cell.failNames, gateFailNames: cell.gateFailNames, fatal: cell.fatal?.signature ?? null, treeChanged: cell.treeChanged, gatesRun: cell.gatesRun ?? false, compilerCache: cell.compilerCache ?? null, normalizedSha256: cell.normalizedSha256 ?? null, noNodeModules: cell.noNodeModules ?? null, seconds: cell.seconds, attempts: cell.attempts ?? 1, detail: cell.detail ?? null });
+      const summary = (cell) => cell && ({ status: cell.status, refusedAs: cell.refusedAs ?? null, failNames: cell.failNames, gateFailNames: cell.gateFailNames, fatal: cell.fatal?.signature ?? null, treeChanged: cell.treeChanged, gatesRun: cell.gatesRun ?? false, compilerCache: cell.compilerCache ?? null, normalizedSha256: cell.normalizedSha256 ?? null, noNodeModules: cell.noNodeModules ?? null, seconds: cell.seconds, attempts: cell.attempts ?? 1, detail: cell.detail ?? null, admissionCode: cell.admissionCode ?? null, unnormalizedBlobs: cell.unnormalizedBlobs ?? [] });
       cells.push({ id: app.id, platform, host, blocking: app.blocking, verdict, findings: r.findings, candidate: summary(pair.candidate), baseline: summary(pair.baseline) });
     }
   }
@@ -440,13 +462,15 @@ export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, d
   const hosts = ["darwin", "win32"].filter((h) => matrix.apps.some((a) => a.platforms.some((p) => HOST_FOR_PLATFORM[p] === h)));
   const legs = await Promise.all(hosts.map((h) => (deps.runLeg ?? runLeg)(h, { bundleDir, matrix, sha, run, node: deps.node })));
   const cells = { candidate: [], baseline: [] };
+  const admissionRefused = {};
   receipt.legs = {};
   for (const leg of legs) {
     if (leg.error) { receipt.legs[leg.host] = { ok: false, error: leg.error }; say(`${leg.host} leg: ${leg.error}`); continue; }
-    receipt.legs[leg.host] = { ok: true, node: leg.receipt.node, seconds: leg.receipt.seconds, sides: leg.receipt.sides, sideErrors: leg.receipt.sideErrors };
+    receipt.legs[leg.host] = { ok: true, node: leg.receipt.node, seconds: leg.receipt.seconds, sides: leg.receipt.sides, sideErrors: leg.receipt.sideErrors, admissionRefused: leg.receipt.admissionRefused ?? null, admissionProbe: leg.receipt.admissionProbe ?? null };
+    admissionRefused[leg.host] = leg.receipt.admissionRefused ?? null;
     for (const c of leg.receipt.cells) cells[c.side]?.push(c);
   }
-  const result = compareAll({ matrix, candidateCells: cells.candidate, baselineCells: cells.baseline, expected, version, repos });
+  const result = compareAll({ matrix, candidateCells: cells.candidate, baselineCells: cells.baseline, expected, version, repos, admissionRefused });
   for (const c of result.cells) for (const f of c.findings) if (f.severity !== "report" || ["pre-existing-fail", "pre-existing-fatal", "fixed", "fixed-row", "unproven"].includes(f.kind) || f.excusedBy) say(`${f.severity.toUpperCase().padEnd(10)} ${c.id}/${c.platform} ${f.kind}${f.match && f.kind !== "unproven" ? ` ${JSON.stringify(f.match)}` : ""}${f.excusedBy ? ` (expected: ${f.excusedBy.issue})` : ""}${f.reportOnly ? " [report-only app]" : ""}`);
   return finish(result.verdict, { cells: result.cells, representative: result.representative, staleExpected: result.staleExpected });
 }
