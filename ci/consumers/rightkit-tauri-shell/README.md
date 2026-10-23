@@ -1,6 +1,6 @@
-# rightkit-tauri-shell 0.5.0 registry consumer (PK08)
+# rightkit-tauri-shell 0.5.1 registry consumer (PK08)
 
-Standalone consumer, outside the workspace, pinning `rightkit-tauri-shell =0.5.0` exactly with
+Standalone consumer, outside the workspace, pinning `rightkit-tauri-shell =0.5.1` exactly with
 default features. It exercises, through public API only:
 
 - navigation scheme rules: `external_scheme_allowed`, `validate_internal_scheme`;

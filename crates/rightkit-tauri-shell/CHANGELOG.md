@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.5.0 (unpublished)
+## 0.5.1 (unpublished staging)
+
+- **Fixed: features `update` and `update-license` were unusable in a Tauri 2.12 app.** `tauri-plugin-updater` was pinned `=2.10.1`, while Tauri 2.12 apps resolve 2.14, so Cargo could not select both (ViewRight, 2026-10-23: blocks its native licence cutover). The requirement is now `>=2.10.1, <3`. Checked with a consumer-shaped crate: tauri 2.12.5 + tauri-plugin-updater 2.14.0 + features `update,update-license`, `cargo check` green on macOS through the broker. The RightKit workspace lock stays on 2.10.1 until the Tauri 2.12 move; runtime behaviour on 2.14 is the app's qualification.
+
+## 0.5.0 — 2026-10-23
 
 Status: nothing in this section has been compiled, tested or run, and CI has not run on it. The entries are read from source (`crates/rightkit-tauri-shell/src/**`, `tests/**`, `Cargo.toml`); none is verified by a build. Qualification still owed: `rustfmt --check` on the changed Rust files, `cargo test` and `cargo check` with the `wv2-0_38` and `wv2-0_39` feature sets, and a signed-fixture updater test on macOS (cancel, signature, install).
 
