@@ -113,6 +113,11 @@
         "run": 39900606184,
         "version": "0.5.0",
         "reason": "Hosted 39900606184: Windows failed only 'checked-in consumer copies match the canonical catalog' because caf2c844 pinned packages/release/*.mjs LF but not the byte-identical copies in packages/build-control-policy/src, which windows-2025 then checked out CRLF; both sides are LF-pinned now (.gitattributes), outside the package's own change set."
+      },
+      "@rightkit/qa": {
+        "run": 39903647141,
+        "version": "0.6.1",
+        "reason": "Hosted 39903647141 refused @rightkit/qa 0.6.1 on both hosts: the PK consumer's reviewed release-age exception named only @rightkit/qa-chrome 0.1.10, and 0.6.1 depends on the newly published 0.1.11. The fix is the Oracle-approved 0.1.11 byte row (ci/approved-artifacts.json) and the matching exception in scripts/ci/npm-recipe-consumer.mjs, outside the package's own change set; the npm pre-flight now runs the same check."
       }
     }
   },

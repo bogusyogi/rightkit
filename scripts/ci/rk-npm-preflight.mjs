@@ -20,6 +20,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { checkTools, planCommandsFromWorkflow, readJson, SCHEMA, verifyAttestation, brokerRequestIds, DEFAULT_OUT } from "./rk-preflight.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
+import { closureAgeExceptions, validateClosureApproval } from "./npm-recipe-consumer.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const ADAPTER = "rightkit-pnpm";
@@ -92,6 +93,15 @@ export function npmRecipePolicy(root, unit) {
     if (!fs.existsSync(full) || fs.lstatSync(full).isSymbolicLink() || !fs.statSync(full).isFile()) return { ok: false, reason: `reviewed recipe file is missing or not a regular file: ${file}` };
     if (crypto.createHash("sha256").update(fs.readFileSync(full)).digest("hex") !== sha256) return { ok: false, reason: `recipe file differs from reviewed inventory: ${file}` };
   }
+  // The hosted verify refuses a closure dependency inside pnpm's release-age window unless it is the exact reviewed
+  // exception with an approved byte row (scripts/ci/npm-recipe-consumer.mjs). Hosted 39903647141 refused @rightkit/qa 0.6.1
+  // on both hosts for qa-chrome 0.1.11 after a GREEN local pre-flight.
+  try {
+    if (closureAgeExceptions(reviewed, unit).length) {
+      const approved = JSON.parse(fs.readFileSync(path.join(root, "ci", "approved-artifacts.json"), "utf8"));
+      validateClosureApproval(approved.artifacts, reviewed, unit);
+    }
+  } catch (error) { return { ok: false, reason: `reviewed closure exception: ${error.message ?? error}` }; }
   return { ok: true, pkId: reviewed.pkId, id: reviewed.id, files: Object.keys(reviewed.files).length };
 }
 
