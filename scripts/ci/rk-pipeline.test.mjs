@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { openClaim, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -316,4 +316,70 @@ test("loop --registry all: a crate whose preflight fails does not block the npm 
   assert.deepEqual(dispatches, ["npm:@rightkit/y"], "npm published although the crate failed its preflight");
   assert.equal(state.dispatches[stateKey("crates", "b".repeat(40), "rightkit-bad")].phase, "preflight");
   assert.equal(code, 1, "the loop still reports the failed crate");
+});
+
+// ---- restart at a new SHA: durable (registry, unit, version) claim ----
+import { spawnSync as spawnChild } from "node:child_process";
+import { mkdtempSync, writeFileSync as writeFileNow, readFileSync as readFileNow } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
+
+const MODULE_URL = new URL("./rk-pipeline.mjs", import.meta.url).href;
+/** Run cmdLoop in a FRESH Node process at SHA B against a state file on disk written by the "previous" process at SHA A.
+ * The SHA A run stays pending for the first watch ticks and only completes on a later tick. */
+function freshProcessRestart({ registry, recorded, planned, status = "dispatched" }) {
+  const dir = mkdtempSync(joinPath(tmpdir(), "rk-restart-"));
+  const A = "a".repeat(40), B = "b".repeat(40), unit = registry === "npm" ? "@rightkit/x" : "rightkit-x";
+  const stateFile = joinPath(dir, "state.json");
+  writeFileNow(stateFile, JSON.stringify({ dispatches: { [`${registry}:${A}:${unit}`]: { unit, registry, sha: A, version: recorded, status, runId: 101 } } }));
+  const child = `
+    import fs from "node:fs";
+    const { cmdLoop } = await import(${JSON.stringify(MODULE_URL)});
+    const file = ${JSON.stringify(stateFile)}; const calls = []; let ticks = 0;
+    const read = () => JSON.parse(fs.readFileSync(file, "utf8")); const write = (s) => fs.writeFileSync(file, JSON.stringify(s));
+    const keyA = ${JSON.stringify(`${registry}:${A}:${unit}`)};
+    const published = () => { const d = read().dispatches; return d[keyA]?.status === "published" && d[keyA].version === ${JSON.stringify(planned)} || calls.includes("dispatch"); };
+    const code = await cmdLoop({ registry: ${JSON.stringify(registry)}, units: [], jobs: 2 }, {
+      head: () => ${JSON.stringify(B)},
+      readiness: async () => ({ unpublished: new Set(published() ? [] : [${JSON.stringify(unit)}]), waves: [published() ? [] : [${JSON.stringify(unit)}]], crates: new Map([[${JSON.stringify(unit)}, { version: ${JSON.stringify(planned)} }]]) }),
+      readState: read, writeState: write,
+      watch: async () => { ticks += 1; const s = read(); const d = s.dispatches[keyA]; if (ticks >= 3 && d && !["published", "failed"].includes(d.status)) { d.status = "published"; write(s); } return 0; },
+      holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 5)),
+      preflight: async () => { calls.push("preflight"); return { code: 0 }; },
+      dispatch: async () => { calls.push("dispatch"); return 0; },
+    });
+    process.stdout.write("\\nRESULT " + JSON.stringify({ code, calls, ticks, final: read().dispatches[keyA].status }) + "\\n");
+  `;
+  const r = spawnChild(process.execPath, ["--input-type=module", "-e", child], { encoding: "utf8", timeout: 60_000 });
+  assert.equal(r.status, 0, r.stderr);
+  const line = r.stdout.split("\n").find((l) => l.startsWith("RESULT "));
+  assert.ok(line, r.stdout);
+  return JSON.parse(line.slice(7));
+}
+
+for (const registry of ["crates", "npm"]) {
+  test(`fresh process at SHA B (${registry}): same version in flight at SHA A gets zero pre-flight and zero second dispatch; A completes`, () => {
+    const out = freshProcessRestart({ registry, recorded: "1.0.0", planned: "1.0.0" });
+    assert.deepEqual(out.calls, [], "no pre-flight or dispatch while SHA A owns the version");
+    assert.ok(out.ticks >= 3, "SHA A was still pending on the first watch ticks");
+    assert.equal(out.final, "published");
+    assert.equal(out.code, 0);
+  });
+  test(`fresh process at SHA B (${registry}): a changed version stays eligible`, () => {
+    const out = freshProcessRestart({ registry, recorded: "0.9.0", planned: "1.0.0" });
+    assert.deepEqual(out.calls, ["preflight", "dispatch"]);
+  });
+  test(`fresh process at SHA B (${registry}): an unknown/ambiguous status is a claim (fail closed)`, () => {
+    const out = freshProcessRestart({ registry, recorded: "1.0.0", planned: "1.0.0", status: "unknown" });
+    assert.deepEqual(out.calls, []);
+  });
+}
+
+test("openClaim: same version at another SHA claims; settled, changed version, other registry and same SHA do not", () => {
+  const s = { dispatches: { k: { unit: "u", registry: "npm", sha: "A", version: "1.0.0", status: "dispatching" } } };
+  assert.ok(openClaim(s, { registry: "npm", unit: "u", version: "1.0.0", sha: "B" }));
+  assert.equal(openClaim(s, { registry: "npm", unit: "u", version: "1.1.0", sha: "B" }), null);
+  assert.equal(openClaim(s, { registry: "crates", unit: "u", version: "1.0.0", sha: "B" }), null);
+  assert.equal(openClaim(s, { registry: "npm", unit: "u", version: "1.0.0", sha: "A" }), null);
+  for (const status of ["published", "failed"]) assert.equal(openClaim({ dispatches: { k: { ...s.dispatches.k, status } } }, { registry: "npm", unit: "u", version: "1.0.0", sha: "B" }), null, status);
 });

@@ -211,6 +211,15 @@ export function readState() {
   return state;
 }
 
+/** Durable claim (registry, unit, version): a dispatch at another SHA whose outcome is not settled (published or
+ * failed) still owns that version. An unknown/ambiguous status is a claim too (fail closed). A changed version is not
+ * claimed. Returns the claiming record, or null. */
+export function openClaim(state, { registry, unit, version, sha }) {
+  return Object.values(state?.dispatches ?? {}).find((d) => d && d.unit === unit && (d.registry ?? "crates") === registry
+    && d.sha !== sha && !["published", "failed"].includes(d.status)
+    && (version === undefined || d.version === undefined || d.version === version)) ?? null;
+}
+
 export function writeState(state) {
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
   const temp = `${STATE_FILE}.${process.pid}.tmp`;
@@ -305,6 +314,8 @@ async function cmdDispatch(opts, deps = {}) {
     if (!planned) { log(`${unit}: exact version already exists; no dispatch`); continue; }
     const key = stateKey(opts.registry, sha, unit);
     const state = readState();
+    const claim = openClaim(state, { registry: opts.registry, unit, version: planned.version, sha });
+    if (claim) { fail(`${unit}: ${planned.version} is already claimed by the dispatch at ${String(claim.sha).slice(0, 12)} (status ${claim.status}, run ${claim.runId ?? "?"}); not dispatching again`); exit = 1; continue; }
     const previous = state.dispatches[key];
     if (previous && !(previous.status === "failed" && previous.phase === "preflight") && ["dispatched", "dispatching", "unknown", "failed", "published"].includes(previous.status)) {
       fail(`${unit}: attempt already recorded as ${previous.status}; reconcile it before retrying`); exit = 1; continue;
@@ -480,6 +491,8 @@ export async function cmdLoop(opts, deps = {}) {
       // qa and tauri-shell after a tree-change refusal and exited with nothing to do.
       const previous = state.dispatches[key];
       if (attempted.has(id) || held.has(id) || (previous && !(previous.status === "failed" && previous.phase === "preflight"))) continue;
+      const claim = openClaim(state, { registry, unit, version: r.crates?.get?.(unit)?.version, sha });
+      if (claim) { held.add(id); log(`${unit}: ${claim.version ?? ""} already claimed at ${String(claim.sha).slice(0, 8)} (status ${claim.status}, run ${claim.runId ?? "?"}); watching it, not dispatching again`); continue; }
       const reason = hold(unit, sha, state, r.crates);
       if (reason) { held.add(id); log(`${unit}: ${reason}`); continue; }
       attempted.add(id);
@@ -502,7 +515,8 @@ export async function cmdLoop(opts, deps = {}) {
     }
     }
     const current = stateFn();
-    const pending = Object.values(current.dispatches).some((d) => d.sha === sha && d.status === "dispatched");
+    // Unsettled runs from any SHA in these registries keep the loop watching (they own their versions).
+    const pending = Object.values(current.dispatches).some((d) => (d.sha === sha || registries.includes(d.registry ?? "crates")) && !["published", "failed"].includes(d.status));
     if (!active.size && !pending) {
       const unfinished = [];
       for (const registry of registries) {
