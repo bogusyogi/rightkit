@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.6.1 (unpublished staging)
+## 0.6.2 (unpublished staging)
+
+- Managed-target staging deletes the real raw exe before the build (`fresh`) and waits for each real output in the broker target directory to be stable before copying it, so a stale or half-written exe can never be staged, signed or packaged (independent Oracle review: APPROVE).
+
+- **`winPackage` / `macPackage` with `cargoTargetRoot` work on a RustRight-managed host (rightkit#924: MailRight and ScrapeRight Windows installers were refused by doctor 0.6.1).** The broker owns the Cargo target directory outside the app, and the recipe refused any directory outside the app. A target directory under a managed root (`resolveManagedRoots`) is now staged: declared paths stay at their default app-relative location under `src-tauri/target/`, and recipe-build gets a `stage` plan section that copies the declared artifacts after the build (raw EXE; the built `.app` on macOS). On Windows the signed EXE is copied back into the real target directory before `tauri bundle` (which embeds the EXE it finds there) and the installer is copied out after it. Each copy deletes a stale destination, is atomic (temp + rename) and is verified by sha256 against its source (directories: a per-entry digest, symlinks preserved); a missing source fails with `STAGE_SOURCE_MISSING`. A target directory outside the app and outside every managed root still fails closed with the same message; inside the app nothing changes. New module `managed-target-stage.mjs`.
+
+## 0.6.1 — 2026-10-23
 
 - **Fixed: an app's own path crate whose name starts with `rightkit-` was refused as an unowned RightKit pin** (rightkit#918: Pulse's `rightkit-mesh-ffi` and `rightkit-engine-native`). A lock entry with no registry source that RightKit's ownership data does not list is app-local code: the registry check, its lock-coverage check and the Cargo contract skip it. A path override of a crate RightKit publishes is still refused, and an unowned prefixed name that resolves from a registry is still refused.
 - **Clearer stale-lock refusal.** When an exact pin is not among the accepted versions, the Cargo contract now says the accepted set is the bundled feed plus the versions the app's Cargo.lock proves, and to refresh Cargo.lock so it locks the pinned version (CodeRight: manifest bumped to `=0.5.1`, lock still at 0.5.0).

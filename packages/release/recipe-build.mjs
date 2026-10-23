@@ -19,10 +19,17 @@
 //   stability: { files: [file], intervalMs?, checks?, timeoutMs? } runs right AFTER the build step: each file must exist
 //              and keep the same size and mtime over `checks` consecutive polls `intervalMs` apart (defaults 2 and 1000 ms,
 //              timeout 120 s), so a hung or still-writing Tauri process cannot hand a half-written EXE to signing.
+//   stage:     { pre?: [{ from: app-relative, to: absolute }], post?: [{ from: absolute, to: app-relative, fresh?: bool }] }
+//              the broker-managed target directory shape (bogusyogi/rightkit#924, managed-target-stage.mjs): `pre` copies
+//              app files into the real target directory right before the build step (the signed raw EXE, which tauri bundle
+//              reads from there); `post` waits for each real output to be stable (the stability settings, or their defaults), then copies it (a missing output skips the wait and fails the copy) to its app-relative location right after the build, and with
+//              `fresh` the absolute source is deleted before the build step so a missing output cannot be a leftover. Every
+//              copy deletes a stale destination first, is atomic, and is verified by sha256; a missing source fails the step.
 import { existsSync as nodeExistsSync, readFileSync, readdirSync as nodeReaddirSync, rmSync as nodeRmSync, statSync as nodeStatSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync as nodeSpawnSync } from "./background-process.mjs";
+import { removeFreshSources, stageArtifacts } from "./managed-target-stage.mjs";
 
 export const RECIPE_BUILD_PLAN_VERSION = 1;
 export const RECIPE_PHASES = Object.freeze(["prepare", "build", "postBuild"]);
@@ -39,7 +46,9 @@ export class RecipeBuildError extends Error {
 const fail = (code, message, details) => { throw new RecipeBuildError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const STEP_KEYS = new Set(["phase", "cmd", "args", "cwd", "env"]);
-const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability"]);
+const PLAN_KEYS = new Set(["version", "steps", "cleanup", "stability", "stage"]);
+const STAGE_KEYS = new Set(["pre", "post"]);
+const STAGE_ENTRY_KEYS = new Set(["from", "to", "fresh"]);
 const CLEANUP_KEYS = new Set(["remove", "apps", "dmgVolumes"]);
 const APPS_KEYS = new Set(["dir", "remove", "unregister"]);
 const STABILITY_KEYS = new Set(["files", "intervalMs", "checks", "timeoutMs"]);
@@ -94,6 +103,33 @@ function validateStability(value, errors) {
   return { files, ...(value.intervalMs === undefined ? {} : { intervalMs: value.intervalMs }), ...(value.checks === undefined ? {} : { checks: value.checks }), ...(value.timeoutMs === undefined ? {} : { timeoutMs: value.timeoutMs }) };
 }
 
+function validateStage(value, errors) {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) { errors.push("stage must be an object"); return undefined; }
+  unknownKeys(value, STAGE_KEYS, "stage", errors);
+  const out = {};
+  const absolute = (item, label) => {
+    if (typeof item !== "string" || !path.isAbsolute(item) || item.split(/[\\/]/).includes("..")) { errors.push(`${label} must be an absolute path without ..: ${JSON.stringify(item)}`); return undefined; }
+    return item;
+  };
+  for (const [side, appKey, outerKey] of [["pre", "from", "to"], ["post", "to", "from"]]) {
+    if (value[side] === undefined) continue;
+    if (!Array.isArray(value[side])) { errors.push(`stage.${side} must be a list of { from, to }`); continue; }
+    out[side] = value[side].map((entry, index) => {
+      const label = `stage.${side}[${index}]`;
+      if (!isObject(entry)) { errors.push(`${label} must be an object`); return undefined; }
+      unknownKeys(entry, STAGE_ENTRY_KEYS, label, errors);
+      if (entry.fresh !== undefined && typeof entry.fresh !== "boolean") errors.push(`${label}.fresh must be a boolean`);
+      if (side === "pre" && entry.fresh !== undefined) errors.push(`${label}.fresh is only valid in stage.post`);
+      const inner = insideApp(entry[appKey], `${label}.${appKey}`, errors, { strict: true });
+      const outer = absolute(entry[outerKey], `${label}.${outerKey}`);
+      if (!inner || !outer) return undefined;
+      return side === "pre" ? { from: inner, to: outer } : { from: outer, to: inner, ...(entry.fresh === true ? { fresh: true } : {}) };
+    }).filter(Boolean);
+  }
+  return out;
+}
+
 /** Validate a plan strictly; every problem is reported at once as RECIPE_BUILD_PLAN_INVALID. Returns the normalized plan. */
 export function validateRecipePlan(plan) {
   const errors = [];
@@ -123,8 +159,9 @@ export function validateRecipePlan(plan) {
   if (builds !== 1) errors.push(`exactly one build step is required, found ${builds}`);
   const cleanup = validateCleanup(plan.cleanup, errors);
   const stability = validateStability(plan.stability, errors);
+  const stage = validateStage(plan.stage, errors);
   if (errors.length) fail("RECIPE_BUILD_PLAN_INVALID", `invalid recipe plan:\n${errors.map((line) => `- ${line}`).join("\n")}`, { errors });
-  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}) };
+  return { version: RECIPE_BUILD_PLAN_VERSION, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage ? { stage } : {}) };
 }
 
 // cmd.exe would reinterpret these in a shell launch; refuse rather than escape.
@@ -258,7 +295,7 @@ export function waitForStableArtifacts(stability, { appRoot, log = () => {}, sta
 
 /**
  * Run the plan: cleanup, prepare steps, the build step, stability polling, then postBuild steps, strictly in order.
- * Returns { steps: [{ phase, cmd, status }], cleaned, stable }. The first failure throws RECIPE_BUILD_STEP_FAILED and
+ * Returns { steps: [{ phase, cmd, status }], cleaned, stable, staged }. The first failure throws RECIPE_BUILD_STEP_FAILED and
  * nothing after it runs.
  * Options: appRoot (absolute), env, platform, log, spawnSync, fs, sleep, now, statSync (injected in tests).
  */
@@ -268,7 +305,14 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
   const done = [];
   const cleaned = runRecipeCleanup(plan.cleanup, { appRoot, platform, log, spawnSync, ...(fs ? { fs } : {}) });
   let stable = [];
+  let staged = [];
+  const stagePost = plan.stage?.post ?? [];
+  const resolveEntry = (entry, appKey) => ({ ...entry, [appKey]: path.resolve(appRoot, entry[appKey]) });
   for (const [index, step] of plan.steps.entries()) {
+    if (step.phase === "build" && plan.stage) {
+      removeFreshSources(stagePost, { ...(fs ? { fs } : {}), log });
+      staged = stageArtifacts((plan.stage.pre ?? []).map((entry) => resolveEntry(entry, "from")), { ...(fs ? { fs } : {}), log });
+    }
     const launch = resolveLaunch({ cmd: step.cmd, args: step.args, platform, env });
     const cwd = path.resolve(appRoot, step.cwd ?? ".");
     log(`recipe-build: [${step.phase}] ${step.cmd} ${step.args.join(" ")}`.trimEnd());
@@ -277,9 +321,12 @@ export function runRecipeBuild(rawPlan, { appRoot, env = process.env, platform =
       fail("RECIPE_BUILD_STEP_FAILED", `recipe-build ${step.phase} step ${index} (${step.cmd}) failed (${result?.error?.message ?? `exit ${result?.status ?? result?.signal ?? "unknown"}`}); later steps were not run`, { phase: step.phase, index, cmd: step.cmd, status: result?.status ?? null });
     }
     done.push({ phase: step.phase, cmd: step.cmd, status: 0 });
+    // The REAL outputs must stop changing before anything is copied: a half-written EXE is never staged.
+    if (step.phase === "build" && stagePost.length) waitForStableArtifacts({ ...(plan.stability ?? {}), files: stagePost.map((entry) => entry.from).filter((file) => (fs?.existsSync ?? nodeExistsSync)(file)) }, { appRoot, log, ...(sleep ? { sleep } : {}), ...(now ? { now } : {}), ...(statSync ? { statSync } : {}) });
+    if (step.phase === "build" && stagePost.length) staged.push(...stageArtifacts(stagePost.map((entry) => resolveEntry(entry, "to")), { ...(fs ? { fs } : {}), log }));
     if (step.phase === "build") stable = waitForStableArtifacts(plan.stability, { appRoot, log, ...(sleep ? { sleep } : {}), ...(now ? { now } : {}), ...(statSync ? { statSync } : {}) });
   }
-  return { steps: done, cleaned, stable };
+  return { steps: done, cleaned, stable, staged };
 }
 
 export function parseRecipeBuildArgs(argv) {

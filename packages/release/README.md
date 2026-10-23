@@ -169,6 +169,16 @@ Copies each `targets.<platform>.mirror` entry (an app-relative path, or `{ file,
 never writes into the repository root. `pruneSuffix` then removes the other files with that suffix from that directory, so it
 holds only the current installer. The one-file form (`--file <path> --package-root <dir> [--name <name>]`) is unchanged.
 
+### Broker-managed Cargo target directory (`cargoTargetRoot`)
+
+With `cargoTargetRoot: true` (or an app-relative Cargo.toml path) in `winPackage` / `macPackage`, declared artifact paths under `<cargo dir>/target/` follow `cargo metadata`'s target directory. On a RustRight-managed host that directory is owned by the broker and lies outside the app (for example `D:\.rightkit-managed\rightkit-build-control\ws\<hash>\g\<n>\t`); release.mjs needs app-relative paths, so the recipe keeps the declared paths at their default location under the app's ignored `src-tauri/target/` and plans verified copies (`managed-target-stage.mjs`, the `stage` section of the recipe-build plan):
+
+- after `tauri build`, the raw EXE (win) or the built `.app` (mac) is copied from the real target directory to the app-relative path; every later step (sign, package, seal) sees app-relative paths unchanged;
+- win: `tauri bundle` embeds the EXE it finds in the real target directory, so the signed app-relative EXE is copied back there first, and the installer is copied out afterwards (its source is deleted before the bundle step, so a leftover can never be copied);
+- every copy deletes a stale destination first, writes a temp file beside the destination, verifies sha256 (a directory: a digest of every entry, symlinks kept) against the source before and after the copy, then renames; a source the build did not produce fails the step with `STAGE_SOURCE_MISSING` and no stale copy is left to package.
+
+Only a target directory under a managed root (`resolveManagedRoots`: `RIGHTKIT_DATA_ROOT`, `RIGHTKIT_MANAGED_ROOT`, `RIGHTKIT_EXTERNAL_ROOT`, `RIGHTKIT_CONTROL_ROOT`, the legacy `D:\.rightkit-managed` / `/Volumes/D/.rightkit-managed`) is staged. Any other directory outside the app still fails closed: `the Cargo target directory <dir> is outside the app, so <path> cannot be addressed by an app-relative path; point CARGO_TARGET_DIR inside the app or declare the artifact paths yourself`.
+
 ### macOS updater tarball from `macPackage`
 
 `targets.mac.macPackage.updater: true` (or an app-relative `.tar.gz` path) adds a `create-mac-updater` command at the front of

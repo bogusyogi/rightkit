@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTargetRoot as cargoResolveTargetRoot } from "./cargo-target.mjs";
+import { defaultManagedRoots, isUnderManagedRoot } from "./managed-target-stage.mjs";
 import { validateWinPackage, WinPackageConfigError } from "./win-package-recipe.mjs";
 import { IOS_SIGNING_CONTRACT, IosPackageError, validateIosPackageConfig } from "./ios-package-recipe.mjs";
 import { IosUploadError, validateIosDistribution } from "./ios-upload.mjs";
@@ -77,13 +78,13 @@ const configArgs = (extras, appRoot, cwd) => (extras.tauriConfig ? ["--config", 
  * release.mjs runs ONE prePackage command: node recipe-build.mjs runs the built-in cleanup, prepare, the Tauri build,
  * the artifact stability poll and postBuild in order. `cleanup` and `stability` are recipe-build plan sections.
  */
-function recipeBuildCommand({ extras, build, env, cleanup, stability, timeoutMs }) {
+function recipeBuildCommand({ extras, build, env, cleanup, stability, stage, timeoutMs }) {
   const steps = [
     ...extras.prepare.map((step) => ({ phase: "prepare", ...step })),
     { phase: "build", cmd: build.cmd, args: build.args, cwd: build.cwd },
     ...extras.postBuild.map((step) => ({ phase: "postBuild", ...step })),
   ];
-  const plan = { version: 1, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}) };
+  const plan = { version: 1, steps, ...(cleanup ? { cleanup } : {}), ...(stability ? { stability } : {}), ...(stage && (stage.pre?.length || stage.post?.length) ? { stage } : {}) };
   return { cmd: process.execPath, args: [RECIPE_BUILD, "--plan", JSON.stringify(plan)], env, ...(timeoutMs ? { timeoutMs } : {}) };
 }
 
@@ -95,9 +96,20 @@ const positiveInt = (value) => Number.isInteger(value) && value > 0;
  * With `cargoTargetRoot` (true: <tauriCwd>/src-tauri/Cargo.toml; or an app-relative Cargo.toml path) or CARGO_TARGET_DIR set
  * (default manifest), `cargo metadata`'s target_directory is resolved and every declared path under the default
  * `<cargo dir>/target/` is moved to the real directory. release.mjs needs app-relative paths with no `..`, so a target
- * directory outside the app fails closed (use RIGHT_RELEASE_ARTIFACT_DIR for copies, see the docs).
+ * directory outside the app fails closed (use RIGHT_RELEASE_ARTIFACT_DIR for copies, see the docs), EXCEPT a directory under
+ * a broker-managed root (the RustRight data root, bogusyogi/rightkit#924): the declared path then stays at its default
+ * app-relative location and the mapper records `{ from: <real path>, to: <declared path> }` so the caller plans a verified
+ * copy step (managed-target-stage.mjs). `mapPath.staged` lists the recorded entries; `mapPath.sourceOf(declared)` finds one.
  */
-function targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label }) {
+function targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, managedRoots = defaultManagedRoots(env) }) {
+  const staged = new Map();
+  const mapper = buildTargetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, managedRoots, staged });
+  mapper.staged = staged;
+  mapper.sourceOf = (declared) => staged.get(declared);
+  return mapper;
+}
+
+function buildTargetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label, managedRoots, staged }) {
   const explicit = spec.cargoTargetRoot;
   if (explicit !== undefined && explicit !== true && explicit !== false && typeof explicit !== "string") fail(`${label}.cargoTargetRoot must be true or an app-relative Cargo.toml path`);
   const envDir = typeof env.CARGO_TARGET_DIR === "string" && env.CARGO_TARGET_DIR.trim() !== "";
@@ -114,19 +126,25 @@ function targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label })
     const moved = path.resolve(targetDir, normalized.slice(prefix.length + 1));
     const relative = path.relative(appRoot, moved).split(path.sep).join("/");
     if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative) || /^[A-Za-z]:/.test(relative)) {
+      if (isUnderManagedRoot(targetDir, managedRoots)) {
+        if (normalized.split("/").includes("..")) fail(`${label}: ${declared} must not contain ..`);
+        // The default app-relative location under the app's ignored target directory; the copy is planned by the caller.
+        staged.set(normalized, { from: moved, to: normalized });
+        return normalized;
+      }
       fail(`${label}: the Cargo target directory ${targetDir} is outside the app, so ${declared} cannot be addressed by an app-relative path; point CARGO_TARGET_DIR inside the app or declare the artifact paths yourself`);
     }
     return relative;
   };
 }
 
-function winPrePackage({ extras, cwd, appRoot, triple, jobs, timeoutMs, cleanup, stability }) {
+function winPrePackage({ extras, cwd, appRoot, triple, jobs, timeoutMs, cleanup, stability, stage }) {
   const args = ["exec", "tauri", "build", "--no-bundle", "--target", triple, ...configArgs(extras, appRoot, cwd), ...buildCargoArgs(extras, jobs)];
-  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stability, timeoutMs });
+  return recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stability, stage, timeoutMs });
 }
 
 /** `targets.win.winPackage` → prePackage (`tauri build --no-bundle`) and package (`tauri bundle --bundles nsis`). */
-export function expandWinPackageTarget(target, { appRoot, config = {}, env = process.env, resolveTargetRoot = cargoResolveTargetRoot }) {
+export function expandWinPackageTarget(target, { appRoot, config = {}, env = process.env, resolveTargetRoot = cargoResolveTargetRoot, managedRoots }) {
   if (!target?.winPackage) return withoutRecipe(target);
   if (target.prePackage !== undefined) fail("targets.win.winPackage replaces prePackage; remove the prePackage script");
   if (target.winPackage.sidecars !== undefined) fail("targets.win.winPackage.sidecars is not supported in a right-release target: declare sidecars through externalBin or mediaSidecar, which release.mjs signs with the raw EXE");
@@ -145,19 +163,34 @@ export function expandWinPackageTarget(target, { appRoot, config = {}, env = pro
   if (target.signingContract !== undefined && target.signingContract !== "windows-raw-exe-authenticode-before-nsis-v1") fail(`targets.win.winPackage builds an NSIS installer; signingContract must be windows-raw-exe-authenticode-before-nsis-v1, got ${target.signingContract}`);
   const cwd = rel(plan.appRoot, plan.tauriCwd) || ".";
   const override = { bundle: { createUpdaterArtifacts: false, windows: { nsis: { installMode: plan.perMachine ? "perMachine" : "currentUser" } } } };
-  const mapPath = targetRootMapper({ spec: target.winPackage, appRoot: plan.appRoot, cwd, env, resolveTargetRoot, label: "targets.win.winPackage" });
+  const mapPath = targetRootMapper({ spec: target.winPackage, appRoot: plan.appRoot, cwd, env, resolveTargetRoot, label: "targets.win.winPackage", ...(managedRoots ? { managedRoots } : {}) });
   const rawExe = mapPath(rel(plan.appRoot, plan.rawExe));
   const installerFile = mapPath(rel(plan.appRoot, plan.installerFile));
-  // Stale outputs are removed before the build, and the raw EXE is polled until it stops changing after it.
+  // Stale outputs are removed before the build, and the raw EXE is polled until it stops changing after it (in a managed
+  // target directory the poll covers the real EXE before it is copied; the in-app copy is polled again after the copy).
   const cleanup = cleanStale === false ? undefined : { remove: [rawExe, installerFile] };
   const timeout = timeoutMs ?? DEFAULT_WIN_TIMEOUT_MS;
+  // Broker-managed target directory: the real raw EXE is deleted before the build (it holds the previous signed copy) and
+  // the fresh one is copied out once stable; after signing, the signed copy goes back
+  // for `tauri bundle` (which embeds the EXE it finds in the real target directory) and the installer is copied out.
+  const rawSource = mapPath.sourceOf(rawExe);
+  const installerSource = mapPath.sourceOf(installerFile);
+  const prePackageStage = rawSource ? { post: [{ from: rawSource.from, to: rawExe, fresh: true }] } : undefined;
+  const packageStage = rawSource || installerSource ? {
+    ...(rawSource ? { pre: [{ from: rawExe, to: rawSource.from }] } : {}),
+    ...(installerSource ? { post: [{ from: installerSource.from, to: installerFile, fresh: true }] } : {}),
+  } : undefined;
+  const bundleArgs = ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, ...configArgs(extras, plan.appRoot, cwd), "--config", JSON.stringify(override), ...profileArgs(extras)];
+  const bundleCommand = packageStage
+    ? recipeBuildCommand({ extras: { prepare: [], postBuild: [] }, build: { cmd: "pnpm", args: bundleArgs, cwd }, env: QUIET_TAURI_ENV, stage: packageStage, timeoutMs: timeout })
+    : { cmd: "pnpm", args: bundleArgs, cwd, env: QUIET_TAURI_ENV, timeoutMs: timeout };
   // `recipe` is set only here: a hand-written one is dropped so it can never select a recipe path.
   const { winPackage, recipe: _ignoredWin, ...rest } = target;
   return {
     ...rest,
     signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
-    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple, jobs, timeoutMs: timeout, cleanup, stability: { files: [rawExe] } }),
-    package: { cmd: "pnpm", args: ["exec", "tauri", "bundle", "--bundles", "nsis", "--target", plan.triple, ...configArgs(extras, plan.appRoot, cwd), "--config", JSON.stringify(override), ...profileArgs(extras)], cwd, env: QUIET_TAURI_ENV, timeoutMs: timeout },
+    prePackage: winPrePackage({ extras, cwd, appRoot: plan.appRoot, triple: plan.triple, jobs, timeoutMs: timeout, cleanup, stability: { files: [rawExe] }, stage: prePackageStage }),
+    package: bundleCommand,
     sign: { ...(target.sign ?? {}), prePackageFiles: [rawExe], files: [installerFile] },
     recipe: { kind: "winPackage", productName: plan.productName, updater: plan.updater },
   };
@@ -185,7 +218,7 @@ function macCleanupSpec(value) {
  * `updater: true | "<app-relative .tar.gz>"` emits the Tauri updater tarball and its signature from the signed, stapled .app:
  * it prepends a `create-mac-updater` command to `postSign` (default output `<App>.app.tar.gz` beside the app's working root).
  */
-export function expandMacPackageTarget(target, { appRoot, env = process.env, resolveTargetRoot = cargoResolveTargetRoot }) {
+export function expandMacPackageTarget(target, { appRoot, env = process.env, resolveTargetRoot = cargoResolveTargetRoot, managedRoots }) {
   if (!target?.macPackage) return withoutRecipe(target);
   const spec = target.macPackage;
   if (!isObject(spec)) fail("targets.mac.macPackage must be an object");
@@ -214,7 +247,7 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   const args = ["exec", "tauri", "build", "--target", triple, "--bundles", "app", "--no-sign", ...configArgs(extras, appRoot, cwd), "--config", JSON.stringify(override)];
   if (spec.features?.length) args.push("--features", spec.features.join(","));
   args.push(...profileArgs(extras));
-  const mapPath = targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label: "targets.mac.macPackage" });
+  const mapPath = targetRootMapper({ spec, appRoot, cwd, env, resolveTargetRoot, label: "targets.mac.macPackage", ...(managedRoots ? { managedRoots } : {}) });
   const app = mapPath(target.notarize.app);
   const entryFile = (entry) => (typeof entry === "string" ? entry : entry?.file);
   const declaredFiles = target.sign?.prePackageFiles ?? [target.notarize.app];
@@ -230,7 +263,11 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
       ...(cleanupSpec.staleApps || cleanupSpec.lsclean ? { apps: { dir: path.posix.dirname(appPosix), remove: cleanupSpec.staleApps === true, unregister: cleanupSpec.lsclean === true } } : {}),
     }
     : undefined;
-  const wrapped = extras.prepare.length || extras.postBuild.length || cleanup;
+  // Broker-managed target directory: the built .app (and any other declared file under the target) is copied to its app-relative location.
+  // An entry inside another staged entry (a file within the .app) is covered by copying the outer one.
+  const macEntries = [...mapPath.staged.values()].filter((entry) => ![...mapPath.staged.values()].some((outer) => outer !== entry && entry.to.startsWith(`${outer.to}/`)));
+  const macStage = macEntries.length ? { post: macEntries.map((entry) => ({ ...entry, fresh: true })) } : undefined;
+  const wrapped = extras.prepare.length || extras.postBuild.length || cleanup || macStage;
   const { macPackage, recipe: _ignoredMac, ...rest } = target;
   // The updater tarball is made from the signed .app, so it runs in postSign, ahead of any postSign the app declares.
   const updaterOutput = spec.updater === true ? `${productName}.app.tar.gz` : typeof spec.updater === "string" ? relativeInside(spec.updater, "targets.mac.macPackage.updater") : undefined;
@@ -243,7 +280,7 @@ export function expandMacPackageTarget(target, { appRoot, env = process.env, res
   return {
     ...rest,
     ...postSign,
-    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
+    prePackage: wrapped ? recipeBuildCommand({ extras, build: { cmd: "pnpm", args, cwd }, env: QUIET_TAURI_ENV, cleanup, stage: macStage }) : { cmd: "pnpm", args, cwd, env: QUIET_TAURI_ENV },
     sign: { ...(target.sign ?? {}), prePackageFiles },
     notarize: { ...target.notarize, app, appBeforePackage: true },
     dmg: isObject(target.dmg) ? target.dmg : {},
@@ -289,8 +326,8 @@ export function expandIosPackageTarget(target, { appRoot: _appRoot } = {}) {
 }
 
 /** Expand whichever declarative package key the target carries. */
-export function expandPackageRecipeTarget(target, { platform, appRoot, config, env, resolveTargetRoot }) {
-  const injected = { ...(env ? { env } : {}), ...(resolveTargetRoot ? { resolveTargetRoot } : {}) };
+export function expandPackageRecipeTarget(target, { platform, appRoot, config, env, resolveTargetRoot, managedRoots }) {
+  const injected = { ...(env ? { env } : {}), ...(resolveTargetRoot ? { resolveTargetRoot } : {}), ...(managedRoots ? { managedRoots } : {}) };
   if (platform === "win") return expandWinPackageTarget(target, { appRoot, config, ...injected });
   if (platform === "mac") return expandMacPackageTarget(target, { appRoot, config, ...injected });
   if (platform === "ios") return expandIosPackageTarget(target, { appRoot });

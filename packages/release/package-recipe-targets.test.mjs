@@ -333,3 +333,58 @@ test("targets.ios.distribution is allowed for apps that also ship desktop, and v
   assert.throws(() => expandPackageRecipeTarget(iosTarget({ distribution: { ...distribution, groups: undefined } }), { platform: "ios", appRoot }),
     (error) => error instanceof PackageRecipeTargetError && /groups is required/.test(error.message));
 });
+
+// ---- broker-managed Cargo target directory outside the app (bogusyogi/rightkit#924) ----
+
+test("managed target outside the app: winPackage plans verified copies, declared paths stay app-relative", () => {
+  const managedRoot = path.resolve(appRoot, "..", ".rightkit-managed");
+  const targetDir = path.join(managedRoot, "rightkit-build-control", "ws", "h", "g", "1", "t");
+  const spec = { winPackage: { installer: "nsis", productName: "Demo", updater: true, cargoTargetRoot: true } };
+  const out = expandWinPackageTarget(winTarget(spec), { appRoot, config: {}, env: {}, resolveTargetRoot: () => targetDir, managedRoots: [managedRoot] });
+  const raw = "src-tauri/target/x86_64-pc-windows-msvc/release/demo.exe";
+  const installer = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Demo_1.0.0_x64-setup.exe";
+  const realRaw = path.resolve(targetDir, "x86_64-pc-windows-msvc/release/demo.exe");
+  const realInstaller = path.resolve(targetDir, "x86_64-pc-windows-msvc/release/bundle/nsis/Demo_1.0.0_x64-setup.exe");
+  // Every later step sees the unchanged app-relative paths.
+  assert.deepEqual(out.sign.prePackageFiles, [raw]);
+  assert.deepEqual(out.sign.files, [installer]);
+  const pre = planOf(out.prePackage);
+  assert.deepEqual(pre.stability.files, [raw]);
+  assert.deepEqual(pre.cleanup.remove, [raw, installer]);
+  assert.deepEqual(pre.stage, { post: [{ from: realRaw, to: raw, fresh: true }] });
+  // tauri bundle embeds the EXE from the real target directory: the signed copy goes back first, the installer comes out fresh.
+  const bundle = planOf(out.package);
+  assert.deepEqual(bundle.steps.map((step) => [step.phase, step.args.slice(0, 3)]), [["build", ["exec", "tauri", "bundle"]]]);
+  assert.deepEqual(bundle.stage, { pre: [{ from: raw, to: realRaw }], post: [{ from: realInstaller, to: installer, fresh: true }] });
+  assert.equal(out.package.timeoutMs, 20 * 60 * 1000);
+  assert.equal(out.package.env.TAURI_SIGNING_PRIVATE_KEY, "");
+  // The scan sees the bundle step through the wrapper.
+  assert.ok(expandRecipeBuildCommands(out.package, { root: appRoot }).length >= 2);
+});
+
+test("managed target outside the app: macPackage stages the built .app only", () => {
+  const managedRoot = path.resolve(appRoot, "..", ".rightkit-managed");
+  const targetDir = path.join(managedRoot, "t");
+  const out = expandMacPackageTarget(macTarget({ macPackage: { cargoTargetRoot: true } }), { appRoot, env: {}, resolveTargetRoot: () => targetDir, managedRoots: [managedRoot] });
+  assert.equal(out.notarize.app, "src-tauri/target/universal-apple-darwin/release/bundle/macos/Demo.app");
+  assert.deepEqual(planOf(out.prePackage).stage, { post: [{ from: path.resolve(targetDir, "universal-apple-darwin/release/bundle/macos/Demo.app"), to: out.notarize.app, fresh: true }] });
+});
+
+test("a target directory outside the app and outside every managed root is still refused with the same message", () => {
+  const managedRoot = path.resolve(appRoot, "..", ".rightkit-managed");
+  const unmanaged = () => path.resolve(appRoot, "..", "elsewhere");
+  const spec = { winPackage: { installer: "nsis", productName: "Demo", updater: true, cargoTargetRoot: true } };
+  assert.throws(() => expandWinPackageTarget(winTarget(spec), { appRoot, config: {}, env: {}, resolveTargetRoot: unmanaged, managedRoots: [managedRoot] }), /the Cargo target directory .* is outside the app, so src-tauri\/target\/x86_64-pc-windows-msvc\/release\/demo\.exe cannot be addressed by an app-relative path; point CARGO_TARGET_DIR inside the app or declare the artifact paths yourself/);
+  assert.throws(() => expandMacPackageTarget(macTarget({ macPackage: { cargoTargetRoot: true } }), { appRoot, env: {}, resolveTargetRoot: unmanaged, managedRoots: [managedRoot] }), /outside the app/);
+  // The managed root itself is not a managed target directory.
+  assert.throws(() => expandWinPackageTarget(winTarget(spec), { appRoot, config: {}, env: {}, resolveTargetRoot: () => managedRoot, managedRoots: [managedRoot] }), /outside the app/);
+});
+
+test("a target directory inside the app plans no stage and keeps the existing shape", () => {
+  const managedRoot = path.resolve(appRoot, "..", ".rightkit-managed");
+  const inside = path.join(appRoot, ".cargo-target");
+  const out = expandWinPackageTarget(winTarget({ winPackage: { installer: "nsis", productName: "Demo", updater: true, cargoTargetRoot: true } }), { appRoot, config: {}, env: {}, resolveTargetRoot: () => inside, managedRoots: [managedRoot, appRoot] });
+  assert.equal(planOf(out.prePackage).stage, undefined);
+  assert.equal(out.package.cmd, "pnpm");
+  assert.deepEqual(out.sign.prePackageFiles, [".cargo-target/x86_64-pc-windows-msvc/release/demo.exe"]);
+});
