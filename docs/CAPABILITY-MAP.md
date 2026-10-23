@@ -17,9 +17,9 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.3.0 (crates.io) |
 | android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.3.0 (crates.io) |
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.2 (npm) |
-| appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.0 (crates.io) |
+| appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.1 (crates.io) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.3.1 (crates.io) |
-| browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.4 (crates.io) |
+| browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.5 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.11 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.2.2 (crates.io) |
@@ -33,7 +33,7 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: published 0.7.0 (crates.io) |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: published 0.2.0 (crates.io) |
 | desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.8.0 (crates.io) |
-| desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.2 (npm); rightkit-tauri-shell: published 0.5.0 (crates.io) |
+| desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.2 (npm); rightkit-tauri-shell: published 0.5.1 (crates.io) |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
 | document | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | document-io | `rightkit-docs` | advise | fingerprinted | 11 (0 block, 11 advise) | rightkit-docs: published 0.1.2 (crates.io) |
@@ -72,7 +72,7 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | os-credential-store | `RightKitSwift`, `rightkit-credentials` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.4.0 (SwiftPM); rightkit-credentials: published 0.4.2 (crates.io) |
 | os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.6.1 (crates.io) |
 | owned-processes | `rightkit-child-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-child-process: published 0.5.5 (crates.io) |
-| ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.0 (crates.io) |
+| ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.1 (crates.io) |
 | pdf | `rightkit-pdf` | none | declaration-only | 0 | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-engine | `rightkit-pdf` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-ui | `@rightkit/pdf-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/pdf-ui: published 0.2.0 (npm) |
@@ -80,7 +80,7 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | platform-rules | `rightkit-platform-rules` | none | declaration-only | 0 | rightkit-platform-rules: published 0.1.0 (crates.io) |
 | platform-ui | `@rightkit/platform-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/platform-ui: published 0.4.0 (npm) |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.6.1 (npm) |
-| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.5.1 (npm) |
+| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.0 (npm) |
 | safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.6 (crates.io) |
 | scenario-runtime | `rightkit-workflow` | none | declaration-only | 0 | rightkit-workflow: published 0.2.0 (crates.io) |
 | screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: published 0.3.3 (crates.io) |

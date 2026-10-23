@@ -24,7 +24,7 @@ try {
   const resolution = required('RIGHTKIT_CONSUMER_RESOLUTION');
   assert.match(sha256, /^[a-f0-9]{64}$/);
   assert(['packed', 'fetched'].includes(resolution));
-  assert.equal(version, '0.6.0');
+  assert.equal(version, '0.6.1');
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   // @rightkit/release has no `exports` and no `main`: its only public surface is the
   // `right-release` bin (cli/right-release.mjs). Resolve that installed file directly;

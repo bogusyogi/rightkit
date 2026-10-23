@@ -569,3 +569,33 @@ test("a present but malformed rightReleaseVersion is refused, never treated as l
   assert.deepEqual(assertManifestRegistryEvidence({ releaseId: "r-legacy" }, { legacyReleaseIds: ["r-legacy"] }), { legacy: true });
   assert.deepEqual(assertManifestRegistryEvidence({ releaseId: "r-legacy", rightReleaseVersion: "0.5.1" }, { legacyReleaseIds: ["r-legacy"] }), { legacy: true });
 });
+
+test("an app's own prefixed path crate (no registry source) is app-local, not a RightKit pin; a registry-sourced unowned name is still a candidate", async () => {
+  const { collectLockedRightKit, declaredRightKitDependencies } = await import("./rightkit-registry-resolver.mjs");
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const pathMod = await import("node:path");
+  const root = mkdtempSync(pathMod.join(tmpdir(), "rk-local-crate-"));
+  writeFileSync(pathMod.join(root, "Cargo.lock"), [
+    'version = 4', '',
+    '[[package]]', 'name = "rightkit-mesh-ffi"', 'version = "0.0.1"', '',
+    '[[package]]', 'name = "rightkit-squat"', 'version = "1.0.0"', 'source = "registry+https://github.com/rust-lang/crates.io-index"', 'checksum = "' + "a".repeat(64) + '"', '',
+    '[[package]]', 'name = "rightkit-fs"', 'version = "0.4.6"', 'source = "registry+https://github.com/rust-lang/crates.io-index"', 'checksum = "' + "b".repeat(64) + '"', '',
+  ].join("\n"));
+  mkdirSync(pathMod.join(root, "app"));
+  writeFileSync(pathMod.join(root, "app", "Cargo.toml"), '[package]\nname = "app"\nversion = "0.1.0"\n[dependencies]\nrightkit-mesh-ffi = { path = "../rightkit-mesh-ffi" }\nrightkit-fs = "=0.4.6"\nrightkit-squat = "=1.0.0"\n');
+  const owned = { cargo: new Set(["rightkit-fs"]), npm: new Set() };
+  const names = collectLockedRightKit(root, owned).entries.map((e) => e.name).sort();
+  assert.deepEqual(names, ["rightkit-fs", "rightkit-squat"], "the path crate is skipped; owned and registry-sourced prefixed names stay");
+  const declared = declaredRightKitDependencies(root, owned).map((d) => d.name).sort();
+  assert.deepEqual(declared, ["rightkit-fs", "rightkit-squat"], "a path dependency on an unowned prefixed name needs no lock proof");
+});
+
+test("cargo contract: an unpublished prefixed path crate is app code; a stale exact pin names the lock refresh", async () => {
+  const { assertPublishedRightKitCargoDependencies } = await import("./cargo-contract.mjs");
+  const published = new Map([["rightkit-tauri-shell", new Set(["0.5.0"])]]);
+  const crates = "registry+https://github.com/rust-lang/crates.io-index";
+  assert.equal(assertPublishedRightKitCargoDependencies([{ name: "rightkit-mesh-ffi", path: "/x", req: "*", source: null }], published, "app"), 0);
+  assert.throws(() => assertPublishedRightKitCargoDependencies([{ name: "rightkit-tauri-shell", path: "/x", req: "=0.5.0", source: null }], published, "app"), /must use exact crates.io versions/, "a path override of a published RightKit crate is still refused");
+  assert.throws(() => assertPublishedRightKitCargoDependencies([{ name: "rightkit-tauri-shell", req: "=0.5.1", source: crates }], published, "app"), /refresh Cargo.lock so it locks 0\.5\.1/);
+});

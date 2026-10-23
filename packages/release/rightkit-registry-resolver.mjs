@@ -153,7 +153,13 @@ export function collectLockedRightKit(root, owned, { extraLocks = [] } = {}) {
   const entries = [];
   for (const file of lockFiles) {
     const all = path.basename(file) === "Cargo.lock" ? cargoLockEntries(file) : pnpmLockEntries(file);
-    for (const entry of all) if (owned[entry.ecosystem].has(entry.name) || prefixed(entry.ecosystem, entry.name)) entries.push(entry);
+    for (const entry of all) {
+      if (owned[entry.ecosystem].has(entry.name)) { entries.push(entry); continue; }
+      // An app's own path/workspace crate or package that happens to carry the prefix (no registry source, e.g. Pulse's
+      // rightkit-mesh-ffi) is app-local code, not a RightKit pin. A prefixed name that DOES resolve from a registry and is not
+      // owned stays a refusal (it could be a squatted or foreign package).
+      if (prefixed(entry.ecosystem, entry.name) && entry.source !== null) entries.push(entry);
+    }
   }
   return { lockFiles, entries };
 }
@@ -174,7 +180,10 @@ function manifestRoots(root, extraLocks) {
 /** RightKit dependencies the manifests under root declare (Cargo.toml, package.json): the inputs that need lock proof. */
 export function declaredRightKitDependencies(root, owned, extraLocks = []) {
   const found = [];
-  const take = (ecosystem, name, file) => { if (owned[ecosystem].has(name) || prefixed(ecosystem, name)) found.push({ ecosystem, name, file }); };
+  const take = (ecosystem, name, file, local = false) => {
+    if (owned[ecosystem].has(name)) found.push({ ecosystem, name, file });
+    else if (prefixed(ecosystem, name) && !local) found.push({ ecosystem, name, file });
+  };
   for (const file of manifestRoots(root, extraLocks).flatMap((dir) => scanFiles(dir, new Set(["Cargo.toml", "package.json"])))) {
     try {
       if (path.basename(file) === "package.json") {
@@ -184,7 +193,8 @@ export function declaredRightKitDependencies(root, owned, extraLocks = []) {
       } else {
         const doc = parseToml(readFileSync(file, "utf8"));
         const tables = [...MANIFEST_DEP_TABLES.map((t) => doc[t]), doc.workspace?.dependencies, ...Object.values(doc.target ?? {}).flatMap((target) => MANIFEST_DEP_TABLES.map((t) => target?.[t]))];
-        for (const table of tables) for (const [key, spec] of Object.entries(table ?? {})) take("cargo", typeof spec === "object" && spec && typeof spec.package === "string" ? spec.package : key, file);
+        // A path or workspace dependency on an unowned prefixed name is app-local (see collectLockedRightKit).
+        for (const table of tables) for (const [key, spec] of Object.entries(table ?? {})) take("cargo", typeof spec === "object" && spec && typeof spec.package === "string" ? spec.package : key, file, typeof spec === "object" && spec !== null && (typeof spec.path === "string" || spec.workspace === true));
       }
     } catch { /* an unreadable manifest is the manifest validators' finding */ }
   }

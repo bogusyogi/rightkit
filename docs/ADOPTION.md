@@ -17,7 +17,7 @@ Status values compare each pin with the latest published version (registry-recor
 
 - Packages in RightKit: 95 (69 crates, 26 npm packages).
 - Packages with at least one app pin: 76.
-- App pins: 625. Stale: 214. Ahead of published: 0. Unpublished: 0. Local: 1. Git: 0. Unparsed: 0.
+- App pins: 625. Stale: 215. Ahead of published: 0. Unpublished: 0. Local: 1. Git: 0. Unparsed: 0.
 - Vendored copies of RightKit packages inside app repos: 0.
 - App and package pairs with more than one requirement: 1.
 
@@ -33,14 +33,14 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-asr` | crates.io | 0.3.0 | 0.3.0 | 3 | cutright, heardright, scraperight | 2 stale |
 | `rightkit-audio` | crates.io | 0.3.1 | 0.3.1 | 4 | cutright, genright, heardright, scraperight | - |
 | `rightkit-automation` | crates.io | 0.6.0 | 0.6.0 | 2 | cutright, heardright | 5 stale |
-| `rightkit-browser` | crates.io | 0.3.5 | 0.3.4 | 4 | coderight, genright, legion, scraperight | 1 stale |
+| `rightkit-browser` | crates.io | 0.3.5 | 0.3.5 | 4 | coderight, genright, legion, scraperight | 6 stale |
 | `rightkit-cache` | crates.io | 0.2.3 | 0.2.3 | 5 | coderight, cutright, legion, mailright, postright | 1 stale |
 | `rightkit-channel-memory` | crates.io | 0.2.1 | 0.2.1 | 1 | postright | - |
 | `rightkit-child-process` | crates.io | 0.5.5 | 0.5.5 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 21 stale |
 | `rightkit-compose` | crates.io | 0.2.0 | 0.2.0 | 1 | cutright | - |
 | `rightkit-contracts` | crates.io | 0.1.7 | 0.1.7 | 3 | cutright, genright, postright | - |
 | `rightkit-crash` | crates.io | 0.3.6 | 0.3.6 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 10 stale |
-| `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 18 stale |
+| `rightkit-credentials` | crates.io | 0.4.2 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 10 stale |
 | `rightkit-crypto` | crates.io | 0.1.0 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, viewright | - |
 | `rightkit-daemon` | crates.io | 0.4.0 | 0.4.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 12 stale |
 | `rightkit-db` | crates.io | 0.5.1 | 0.5.1 | 7 | coderight, genright, heardright, mailright, postright, scraperight, viewright | - |
@@ -68,7 +68,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-onnx` | crates.io | 0.2.7 | 0.2.7 | 6 | coderight, cutright, genright, heardright, mailright, scraperight | 15 stale |
 | `rightkit-overlay` | crates.io | 0.2.0 | 0.2.0 | 2 | cutright, heardright | - |
 | `rightkit-overlay-win` | crates.io | 0.1.0 | 0.1.0 | 1 | heardright | - |
-| `rightkit-ownership` | crates.io | 0.4.1 | 0.4.0 | 1 | legion | 1 stale |
+| `rightkit-ownership` | crates.io | 0.4.1 | 0.4.1 | 1 | legion | 1 stale |
 | `rightkit-pdf` | crates.io | 0.3.3 | 0.3.3 | 1 | viewright | 1 stale |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 1 | postright | - |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 2 | cutright, scraperight | 2 stale |
@@ -84,7 +84,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-spend` | crates.io | 0.2.0 | 0.2.0 | 2 | genright, postright | 1 stale |
 | `rightkit-sync` | crates.io | 0.2.2 | 0.2.2 | 2 | heardright, scraperight | - |
 | `rightkit-sync-keys` | private | 0.1.0 | none recorded | 0 | none | - |
-| `rightkit-tauri-shell` | crates.io | 0.5.0 | 0.5.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 4 stale |
+| `rightkit-tauri-shell` | crates.io | 0.5.1 | 0.5.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 6 stale |
 | `rightkit-time` | crates.io | 0.1.0 | 0.1.0 | 6 | coderight, genright, heardright, mailright, postright, scraperight | - |
 | `rightkit-transcript` | crates.io | 0.4.0 | 0.4.0 | 4 | cutright, genright, heardright, scraperight | 1 stale |
 | `rightkit-tts` | crates.io | 0.2.3 | 0.2.3 | 1 | genright | - |
@@ -114,7 +114,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.1 | 0.6.1 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 4 stale |
 | `@rightkit/qa-chrome` | npm | 0.1.11 | 0.1.11 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 5 stale |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
-| `@rightkit/release` | npm | 0.6.0 | 0.5.1 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 5 stale |
+| `@rightkit/release` | npm | 0.6.1 | 0.6.0 | 9 | coderight, cutright, genright, heardright, legion, mailright, postright, scraperight, viewright | 7 stale |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 8 stale |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | 7 stale |
@@ -167,12 +167,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-automation` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.5.0` | 0.6.0 | stale |
 | `rightkit-automation` | heardright | `heardright/tauri-app-next/heardright_platform/Cargo.toml` | dependencies | `=0.5.0` | 0.6.0 | stale |
 | `rightkit-automation` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.6.0 | stale |
-| `rightkit-browser` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.4` | 0.3.4 | current |
-| `rightkit-browser` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.4` | 0.3.4 | current |
-| `rightkit-browser` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.4` | 0.3.4 | current |
-| `rightkit-browser` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.3.1` | 0.3.4 | stale |
-| `rightkit-browser` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.4` | 0.3.4 | current |
-| `rightkit-browser` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.4` | 0.3.4 | current |
+| `rightkit-browser` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.4` | 0.3.5 | stale |
+| `rightkit-browser` | genright | `genright/crates/genright-e2e/Cargo.toml` | dev-dependencies | `=0.3.4` | 0.3.5 | stale |
+| `rightkit-browser` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.4` | 0.3.5 | stale |
+| `rightkit-browser` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.3.1` | 0.3.5 | stale |
+| `rightkit-browser` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.3.4` | 0.3.5 | stale |
+| `rightkit-browser` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.3.4` | 0.3.5 | stale |
 | `rightkit-cache` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.2.3` | 0.2.3 | current |
 | `rightkit-cache` | cutright | `cutright/crates/cutright-engine/Cargo.toml` | dependencies | `=0.2.3` | 0.2.3 | current |
 | `rightkit-cache` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.2.0` | 0.2.3 | stale |
@@ -236,8 +236,8 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-crash` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.6` | 0.3.6 | current |
 | `rightkit-credentials` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
 | `rightkit-credentials` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.3.0` | 0.4.2 | stale |
-| `rightkit-credentials` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
-| `rightkit-credentials` | cutright | `cutright/crates/cutright-shorts/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
+| `rightkit-credentials` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | cutright | `cutright/crates/cutright-shorts/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
 | `rightkit-credentials` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
 | `rightkit-credentials` | genright | `genright/crates/genright-gen/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
 | `rightkit-credentials` | genright | `genright/crates/genright-protocol/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
@@ -246,12 +246,12 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-credentials` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
 | `rightkit-credentials` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
 | `rightkit-credentials` | mailright | `mailright/src-tauri/engine/Cargo.toml` | dependencies | `=0.3.0` | 0.4.2 | stale |
-| `rightkit-credentials` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
-| `rightkit-credentials` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
-| `rightkit-credentials` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
-| `rightkit-credentials` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
-| `rightkit-credentials` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
-| `rightkit-credentials` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.1` | 0.4.2 | stale |
+| `rightkit-credentials` | postright | `postright/crates/engine/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
+| `rightkit-credentials` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.4.2` | 0.4.2 | current |
 | `rightkit-crypto` | coderight | `coderight/apps/coderight-tauri/src-tauri/crates/daemon-client/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-crypto` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-crypto` | genright | `genright/crates/genright-e2e/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
@@ -520,7 +520,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-overlay` | heardright | `heardright/tauri-app-next/heardright-command-host/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-overlay` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.2.0` | 0.2.0 | current |
 | `rightkit-overlay-win` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
-| `rightkit-ownership` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.3.1` | 0.4.0 | stale |
+| `rightkit-ownership` | legion | `legion/engine/crates/legion-audit/Cargo.toml` | dependencies | `=0.3.1` | 0.4.1 | stale |
 | `rightkit-pdf` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.3.3` | 0.3.3 | current |
 | `rightkit-pdf` | viewright | `viewright/src-tauri/qa-e2e/Cargo.toml` | dev-dependencies | `=0.3.3` | 0.3.3 | current |
 | `rightkit-pdf` | viewright | `viewright/tasks/handoffs/2026-10-11/pdf-021-probe/Cargo.toml` | dev-dependencies | `=0.2.0` | 0.3.3 | stale |
@@ -578,14 +578,14 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-sync` | scraperight | `scraperight/crates/engine/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
 | `rightkit-sync` | scraperight | `scraperight/crates/protocol/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
 | `rightkit-sync` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.2.2` | 0.2.2 | current |
-| `rightkit-tauri-shell` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.0 | stale |
-| `rightkit-tauri-shell` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.5.0 | current |
-| `rightkit-tauri-shell` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.0 | stale |
-| `rightkit-tauri-shell` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.0 | stale |
-| `rightkit-tauri-shell` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.0 | stale |
-| `rightkit-tauri-shell` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.5.0 | current |
-| `rightkit-tauri-shell` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.5.0 | current |
-| `rightkit-tauri-shell` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.5.0 | current |
+| `rightkit-tauri-shell` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.1 | stale |
+| `rightkit-tauri-shell` | cutright | `cutright/apps/cutright/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-tauri-shell` | genright | `genright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.1 | stale |
+| `rightkit-tauri-shell` | heardright | `heardright/tauri-app-next/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.1 | stale |
+| `rightkit-tauri-shell` | mailright | `mailright/src-tauri/Cargo.toml` | dependencies | `=0.4.0` | 0.5.1 | stale |
+| `rightkit-tauri-shell` | postright | `postright/src-tauri/Cargo.toml` | dependencies | `=0.5.1` | 0.5.1 | current |
+| `rightkit-tauri-shell` | scraperight | `scraperight/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.5.1 | stale |
+| `rightkit-tauri-shell` | viewright | `viewright/src-tauri/Cargo.toml` | dependencies | `=0.5.0` | 0.5.1 | stale |
 | `rightkit-time` | coderight | `coderight/apps/coderight-tauri/src-tauri/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-time` | coderight | `coderight/engine/Cargo.toml` | workspace.dependencies | `=0.1.0` | 0.1.0 | current |
 | `rightkit-time` | genright | `genright/crates/genright-engine/Cargo.toml` | dependencies | `=0.1.0` | 0.1.0 | current |
@@ -711,15 +711,15 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/react-shell` | postright | `postright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
 | `@rightkit/react-shell` | scraperight | `scraperight/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
 | `@rightkit/react-shell` | viewright | `viewright/package.json` | dependencies | `0.7.2` | 0.7.2 | current |
-| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.4.0` | 0.5.1 | stale |
-| `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.5.1` | 0.5.1 | current |
-| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.4.0` | 0.5.1 | stale |
-| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.4.1` | 0.5.1 | stale |
-| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.3.0` | 0.5.1 | stale |
-| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.4.0` | 0.5.1 | stale |
-| `@rightkit/release` | postright | `postright/package.json` | devDependencies | `0.5.1` | 0.5.1 | current |
-| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.5.1` | 0.5.1 | current |
-| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.5.1` | 0.5.1 | current |
+| `@rightkit/release` | coderight | `coderight/apps/coderight-tauri/package.json` | devDependencies | `0.4.0` | 0.6.0 | stale |
+| `@rightkit/release` | cutright | `cutright/apps/cutright/package.json` | devDependencies | `0.6.0` | 0.6.0 | current |
+| `@rightkit/release` | genright | `genright/package.json` | devDependencies | `0.4.0` | 0.6.0 | stale |
+| `@rightkit/release` | heardright | `heardright/tauri-app-next/package.json` | devDependencies | `0.4.1` | 0.6.0 | stale |
+| `@rightkit/release` | legion | `legion/package.json` | devDependencies | `0.3.0` | 0.6.0 | stale |
+| `@rightkit/release` | mailright | `mailright/package.json` | devDependencies | `0.4.0` | 0.6.0 | stale |
+| `@rightkit/release` | postright | `postright/package.json` | devDependencies | `0.6.0` | 0.6.0 | current |
+| `@rightkit/release` | scraperight | `scraperight/package.json` | devDependencies | `0.5.1` | 0.6.0 | stale |
+| `@rightkit/release` | viewright | `viewright/package.json` | devDependencies | `0.5.1` | 0.6.0 | stale |
 | `@rightkit/settings-ui` | coderight | `coderight/apps/coderight-tauri/package.json` | dependencies | `0.6.1` | 0.7.0 | stale |
 | `@rightkit/settings-ui` | cutright | `cutright/apps/cutright/package.json` | dependencies | `0.6.1` | 0.7.0 | stale |
 | `@rightkit/settings-ui` | genright | `genright/package.json` | dependencies | `0.6.1` | 0.7.0 | stale |
@@ -780,4 +780,4 @@ Split pins: one app names the same package with different requirements, possibly
 | sellright | yes | 13 | 0 | 1 |
 | rightsites | yes | 20 | 0 | 1 |
 | voiceright | **missing** | 0 | 0 | 0 |
-| legion | yes | 60 | 0 | 14 |
+| legion | yes | 64 | 0 | 14 |

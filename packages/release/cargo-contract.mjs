@@ -71,13 +71,15 @@ export function validateRightKitCargoContract(root, publishedVersions, label = p
 export function assertPublishedRightKitCargoDependencies(dependencies, published, label) {
   let checked = 0;
   for (const dependency of dependencies.filter(({ name }) => name.startsWith("rightkit-"))) {
+    // An app's own path crate with the prefix that RightKit does not publish (e.g. Pulse's rightkit-mesh-ffi) is app code.
+    if (dependency.path && !published.has(dependency.name)) continue;
     checked += 1;
     const configured = published.get(dependency.name);
     if (!configured) throw new Error(`${label} ${dependency.name} is not a published RightKit crate`);
     const allowed = configured instanceof Set ? configured : new Set(Array.isArray(configured) ? configured : [configured]);
     const exactVersions = new Set([...allowed].map((version) => `=${version}`));
     if (!CRATES_IO_SOURCES.has(dependency.source) || dependency.path || dependency.registry || !exactVersions.has(dependency.req)) {
-      throw new Error(`${label} ${dependency.name} must use exact crates.io versions (${[...exactVersions].join(" or ")})`);
+      throw new Error(`${label} ${dependency.name} must use exact crates.io versions (${[...exactVersions].join(" or ")})${dependency.req && !exactVersions.has(dependency.req) && /^=\d/.test(dependency.req) ? `; ${dependency.req} is not among them: the accepted versions are the bundled feed plus the versions your Cargo.lock proves against crates.io, so if you just bumped the pin, refresh Cargo.lock so it locks ${dependency.req.slice(1)}` : ""}`);
     }
   }
   return checked;
