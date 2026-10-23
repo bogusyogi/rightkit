@@ -87,7 +87,7 @@
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "@rightkit/release": {
-        "version": "0.6.2",
+        "version": "0.6.3",
         "allow": [
           "allow_missing_assets"
         ],

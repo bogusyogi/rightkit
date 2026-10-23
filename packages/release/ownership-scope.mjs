@@ -87,6 +87,15 @@ export function iosOwnershipScope({ repoRoot, appRoot, target, nativeAssembly })
   return [...new Set([...checked, OWNERSHIP_SCOPE_ALWAYS])].sort();
 }
 
+/**
+ * The one place the doctor (`releasePreflight`) and the build (`buildPreflight`) assemble the ownership scan scope, so the
+ * two can never disagree about what ships (rightkit#927). iOS builds from its Xcode project and local packages only; every
+ * other platform scans the whole repository (null).
+ */
+export function preflightOwnershipScope({ repoRoot, appRoot, platform, target, nativeAssembly }) {
+  return platform === "ios" ? iosOwnershipScope({ repoRoot, appRoot, target, nativeAssembly }) : null;
+}
+
 /** Repository-relative file or directory under any scope root (null scope = everything). */
 export function inOwnershipScope(scope, rel) {
   if (!scope) return true;

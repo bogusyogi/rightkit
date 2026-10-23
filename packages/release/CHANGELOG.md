@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.3 (unpublished staging)
+
+- **The doctor's ownership check uses the same scan scope as the build (rightkit#927: Pulse's iOS doctor failed on a vendored grammar the iOS build never ships).** `releasePreflight` never passed `ownershipScope`, so `right-release doctor` scanned the whole repository while `buildPreflight` and the iOS upload scanned only the iOS scope (drift since 0070b6bf). New `preflightOwnershipScope` in `ownership-scope.mjs` is the single assembler both call: iOS gives `iosOwnershipScope(...)`, every other platform stays whole-repository. The 2 MiB rule is unchanged; a source file over 2 MiB inside the scope still fails. Deferred (Sage): classifying oversize vendored sources.
+
 ## 0.6.2 (unpublished staging)
 
 - Managed-target staging deletes the real raw exe before the build (`fresh`) and waits for each real output in the broker target directory to be stable before copying it, so a stale or half-written exe can never be staged, signed or packaged (independent Oracle review: APPROVE).

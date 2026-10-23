@@ -50,7 +50,7 @@ import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
 import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure, shippedRustTriples } from "./release-switch-scan.mjs";
-import { iosOwnershipScope } from "./ownership-scope.mjs";
+import { iosOwnershipScope, preflightOwnershipScope } from "./ownership-scope.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
 import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
@@ -348,8 +348,11 @@ function releasePreflight({ config, configPath, root, repoRoot, platform, native
     ...pinnedCargoLocks,
     ...(config.cargoLocks ?? []).map((entry) => path.resolve(root, entry)),
   ].filter((entry, index, entries) => entries.indexOf(entry) === index);
+  // Same scope the build uses (rightkit#927): an iOS target is checked over its Xcode project and local packages only.
+  const ownershipScope = preflightOwnershipScope({ repoRoot, appRoot: root, platform, target: projectTarget, nativeAssembly: config.nativeAssembly });
   return collectPreflight({
     platform,
+    ownershipScope,
     appRoot: root,
     repoRoot,
     app: config.app,

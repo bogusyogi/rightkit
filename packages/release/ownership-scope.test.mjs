@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { createCommittedOwnershipEvidenceForTest, verifyOwnershipEvidenceForTest } from "./ownership-evidence.mjs";
-import { iosOwnershipScope, normalizeScopeRoots, projectYmlLocalPackagePaths } from "./ownership-scope.mjs";
+import { iosOwnershipScope, normalizeScopeRoots, preflightOwnershipScope, projectYmlLocalPackagePaths } from "./ownership-scope.mjs";
 import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
 
 function git(root, ...args) {
@@ -169,4 +170,57 @@ test("a path dependency that leaves the repository is a blocking coverage gap in
     assert.equal(checked.ok, false);
     assert.ok(checked.contentCoverage.some((c) => /local-dependency-outside-repository/.test(c.reason) && c.path === "ffi/Cargo.toml"), JSON.stringify(checked.contentCoverage));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+const NATIVE = { workspaceRoot: "ffi" };
+const BIG = "x".repeat(2 * 1024 * 1024 + 10);
+const doctorScope = (root, nativeAssembly = NATIVE) => preflightOwnershipScope({ repoRoot: root, appRoot: root, platform: "ios", target: target(), nativeAssembly });
+
+test("doctor ownership passes a 2 MiB source file outside the iOS scope (rightkit#927; written, not run)", () => {
+  const root = fixture();
+  try {
+    writeFileSync(path.join(root, "membrane", "big.c"), BIG);
+    commit(root);
+    const scope = doctorScope(root);
+    assert.ok(!scope.includes("membrane"));
+    assert.equal(createCommittedOwnershipEvidenceForTest(root, options(root, scope)).ok, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("doctor ownership fails a 2 MiB source file inside the iOS scope with source-file-over-2MiB (rightkit#927; written, not run)", () => {
+  const root = fixture();
+  try {
+    writeFileSync(path.join(root, "ffi", "big.c"), BIG);
+    commit(root);
+    const scope = doctorScope(root);
+    assert.ok(scope.includes("ffi"));
+    const checked = createCommittedOwnershipEvidenceForTest(root, options(root, scope));
+    assert.equal(checked.ok, false);
+    assert.ok(checked.contentCoverage.some((c) => c.reason === "source-file-over-2MiB" && c.path === "ffi/big.c"));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("doctor and build assemble an identical ownership scope; non-iOS stays whole-repo (rightkit#927; written, not run)", () => {
+  const root = fixture();
+  try {
+    const config = { nativeAssembly: NATIVE };
+    const raw = target({ ownershipScope: ["membrane"] });
+    const expanded = expandIosPackageTarget({ signed: true, artifacts: ["b/App.ipa"], ownershipScope: ["membrane"], iosPackage: { ...raw.iosPackage, teamId: "ABCDE12345", bundleId: "dev.x.app", ipa: "b/App.ipa", archive: "b/App.xcarchive" } });
+    // The doctor passes config.targets[platform] (raw); the build passes its target (raw or expanded): same scope either way.
+    const fromDoctor = preflightOwnershipScope({ repoRoot: root, appRoot: root, platform: "ios", target: raw, nativeAssembly: config.nativeAssembly });
+    const fromBuild = preflightOwnershipScope({ repoRoot: root, appRoot: root, platform: "ios", target: expanded, nativeAssembly: config.nativeAssembly });
+    assert.deepEqual(fromDoctor, fromBuild);
+    assert.deepEqual(fromDoctor, iosOwnershipScope({ repoRoot: root, appRoot: root, target: raw, nativeAssembly: config.nativeAssembly }));
+    assert.equal(preflightOwnershipScope({ repoRoot: root, appRoot: root, platform: "mac", target: raw, nativeAssembly: config.nativeAssembly }), null);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("doctor and build both route collectPreflight's ownershipScope through the one shared helper (rightkit#927; written, not run)", () => {
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  for (const [file, call] of [["release.mjs", /const ownershipScope = preflightOwnershipScope\(\{ repoRoot, appRoot: root, platform, target: projectTarget, nativeAssembly: config\.nativeAssembly \}\);/], ["build-release.mjs", /const ownershipScope = preflightOwnershipScope\(\{ repoRoot, appRoot, platform, target, nativeAssembly: config\?\.nativeAssembly \}\);/]]) {
+    const text = readFileSync(path.join(dir, file), "utf8");
+    assert.match(text, call, file);
+    assert.match(text, /collectPreflight\(\{\s*platform,\s*ownershipScope,/, file);
+    if (file === "build-release.mjs") assert.doesNotMatch(text, /iosOwnershipScope\(/, `${file} must not assemble the scope itself`);
+  }
 });
