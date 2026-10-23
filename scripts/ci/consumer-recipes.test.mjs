@@ -25,8 +25,8 @@ test("PK identity binds executable source, every file, exact dependency & select
 });
 
 test("PK08 keeps bare defaults while locked Tauri 2.11 shell rows select legacy bindings", () => {
-  const recipe = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-tauri-shell", version: "0.5.0" } });
-  assert.deepEqual(recipe.evidence.dependency, { name: "rightkit-tauri-shell", version: "=0.5.0", defaultFeatures: true, features: [] });
+  const recipe = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-tauri-shell", version: "0.5.1" } });
+  assert.deepEqual(recipe.evidence.dependency, { name: "rightkit-tauri-shell", version: "=0.5.1", defaultFeatures: true, features: [] });
   const shell = fs.readFileSync(path.join(committedRoot, "crates/rightkit-tauri-shell/Cargo.toml"), "utf8");
   assert.match(shell, /^default = \["wv2-0_39"\]$/m);
   const config = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/gate.config.json"), "utf8"));
@@ -41,7 +41,7 @@ test("PK08 keeps bare defaults while locked Tauri 2.11 shell rows select legacy 
 
 test("reviewed inventory admits only existing locked PK examples", () => {
   const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8"));
-  assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-agent-tools", "rightkit-align", "rightkit-android", "rightkit-app-settings", "rightkit-asr", "rightkit-automation", "rightkit-browser", "rightkit-child-process", "rightkit-crash", "rightkit-credentials", "rightkit-daemon", "rightkit-db", "rightkit-device", "rightkit-docs", "rightkit-embed", "rightkit-ffmpeg", "rightkit-fs", "rightkit-fsindex", "rightkit-google-identity", "rightkit-http", "rightkit-job-queue", "rightkit-license", "rightkit-logs", "rightkit-models", "rightkit-motion", "rightkit-oauth", "rightkit-onnx", "rightkit-overlay", "rightkit-overlay-win", "rightkit-ownership", "rightkit-pdf", "rightkit-playback", "rightkit-qa", "rightkit-qa-driver", "rightkit-record", "rightkit-sandbox", "rightkit-sidecar", "rightkit-speech-client", "rightkit-spend", "rightkit-sync-keys", "rightkit-tauri-shell", "rightkit-vault"]);
+  assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-agent-tools", "rightkit-align", "rightkit-android", "rightkit-app-settings", "rightkit-asr", "rightkit-automation", "rightkit-browser", "rightkit-child-process", "rightkit-crash", "rightkit-credentials", "rightkit-daemon", "rightkit-db", "rightkit-device", "rightkit-docs", "rightkit-embed", "rightkit-ffmpeg", "rightkit-fs", "rightkit-fsindex", "rightkit-google-identity", "rightkit-http", "rightkit-job-queue", "rightkit-license", "rightkit-llm", "rightkit-logs", "rightkit-models", "rightkit-motion", "rightkit-oauth", "rightkit-onnx", "rightkit-overlay", "rightkit-overlay-win", "rightkit-ownership", "rightkit-pdf", "rightkit-playback", "rightkit-qa", "rightkit-qa-driver", "rightkit-record", "rightkit-sandbox", "rightkit-sidecar", "rightkit-speech-client", "rightkit-spend", "rightkit-sync-keys", "rightkit-tauri-shell", "rightkit-vault"]);
   for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.5", "PK11"], ["rightkit-speech-client", "0.4.0", "PK15"], ["rightkit-onnx", "0.2.7", "PK18"], ["rightkit-asr", "0.3.0", "PK18"], ["rightkit-qa-driver", "0.7.0", "PK14"], ["rightkit-android", "0.3.0", "PK09"], ["rightkit-google-identity", "0.2.0", "PK10"], ["rightkit-vault", "0.2.0", "PK13"], ["rightkit-docs", "0.1.2", "PK16"], ["rightkit-record", "0.3.3", "PK17"], ["rightkit-align", "0.1.0", "PK21"], ["rightkit-sync-keys", "0.1.0", "PK22"]]) {
     const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version } });
     assert.equal(evidence.pkId, pkId); assert.deepEqual(evidence.files, inventory.cargo[name].files);

@@ -974,6 +974,15 @@
         "src/main.rs": "f2e73d403e393647e26a9b3dfbca00c3149f6e7a92dac32ad51a5ba3dfd2f04e"
       },
       "aggregateSha256": "dd861970191eb2b66691b5d4687b5ad99b3baece8fb97457e917d2b3fa95286d"
+    },
+    "rightkit-llm": {
+      "pkId": "PK26",
+      "id": "ci/consumers/rightkit-llm/src/main.rs",
+      "files": {
+        "Cargo.toml": "9e4347f8ba4635c6331ccaf599095df5aff289417deed52afb1a7b419af48895",
+        "README.md": "b6615409fe6230ce89f536708e07002b33df0b9712c828baca6335480662e47a",
+        "src/main.rs": "af9e5de71bcd646a770d34f76853e42621347b156f0a5cd6e440f138022c36fa"
+      }
     }
   }
 }
