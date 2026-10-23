@@ -19,6 +19,13 @@
       "darwin": {
         "path": "/Users/adrdsouza/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/rustfmt"
       }
+    },
+    "pnpm": {
+      "note": "The npm rows install with --store-dir pinned to the store node_modules was installed from. The adapter's cleared environment makes pnpm default to <HOME>/Library/pnpm/store, which differs from the workspace's store and makes pnpm demand a modules purge (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY observed 2026-10-23).",
+      "version": "11.24.0",
+      "darwin": {
+        "storeDir": "/Volumes/D/.pnpm-store/v11"
+      }
     }
   },
   "preflight": {
@@ -89,9 +96,13 @@
       "keyId": "a9eb1ceeaa6b1cec899a7e5d01a97a084308a585c3e2c409510d02774ef7134f",
       "publicKey": "04248e98a439add3f13756be789c4091a5e9735fbe4e85768d394eedbffc685f63ae4ad3e1a68dfee87008955b308dcdf5d142b1a760bf45e4ea0b2d3430c22dcb",
       "brokerDigest": "fe179004769e710d7fe9c15a17a857be1eafb7e5b5249e18807126fba4ac4344",
-      "note": "Enrollment of this host's installed broker for receipt verification (attested-runs.md 'Verifying a receipt'): public key, key id and broker digest read from the control root and runtime manifest, never from a receipt.",
+      "note": "Enrollment of this host's installed broker for receipt verification (attested-runs.md 'Verifying a receipt'): public key, key id and broker digest read from the control root and runtime manifest, never from a receipt. npm rows run through the broker adapter `rightkit-pnpm` (node + pinned pnpm.mjs, both in the broker tool registry); nodeSha256 and pnpmScriptSha256 are read from that registry, never from a receipt.",
       "cargoSha256": "1de2e84c15443b70444eecfa959ff9099dd8c1a5606b6d9ef5bc0ea9c25bc7f9",
-      "cargoPath": "/Volumes/D/.build-home/adrdsouza/rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo"
+      "cargoPath": "/Volumes/D/.build-home/adrdsouza/rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+      "nodeSha256": "ebd2d552c7bebde593dd0390530963ad28de56bccde6ce387cdbe55fb0b6fb8e",
+      "nodePath": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/bin/node",
+      "pnpmScriptSha256": "ff3224d46b47fbb24a7e9fe15fededef7e00892d07d4e376b6762d4899906bfd",
+      "pnpmScriptPath": "/Users/adrdsouza/.nvm/versions/node/v26.8.1/lib/node_modules/pnpm/bin/pnpm.mjs"
     }
   }
 }

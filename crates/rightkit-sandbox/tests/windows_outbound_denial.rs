@@ -24,7 +24,13 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const CHILD_DEADLINE: Duration = Duration::from_secs(20);
+/// Bound for a confined PowerShell probe to start, run its 5 s bounded connect and exit. Measured on
+/// the windows-2025 runner (hosted 39885718722, `confined_powershell_starts_and_prints_within_the_wide_bound`):
+/// a script that only prints and exits took 26 056 ms inside a network-denied AppContainer and
+/// exited 0, so a 20 s bound never reached the connect phase there (39872794369, 39881928960,
+/// 39884672645 timed out with no output; 39878045340 started faster and passed). The denial proof
+/// is the exit code (17 or 18), not the time; the bound only has to outlast a cold start.
+const CHILD_DEADLINE: Duration = Duration::from_secs(90);
 /// Wide bound for the startup diagnostic only; its elapsed time is the evidence, not the bound.
 const STARTUP_PROBE_DEADLINE: Duration = Duration::from_secs(120);
 const LOCAL_BLACKHOLE_DEADLINE: Duration = Duration::from_secs(2);
@@ -531,11 +537,15 @@ fn confined_powershell_starts_and_prints_within_the_wide_bound() {
     profile.delete_after_child_exit();
     assert!(
         !output.timed_out,
-        "confined PowerShell did not start and print within {STARTUP_PROBE_DEADLINE:?}"
+        "confined PowerShell did not start and exit within {STARTUP_PROBE_DEADLINE:?}"
     );
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("probe start"),
-        "confined PowerShell ran but its stdout did not reach the parent"
+    // The pipe-pair spawn carries the two auxiliary pipes, not the child's stdout: hosted
+    // 39885718722 printed `exit=Some(0) stdout=""` for this script, so the exit code, not the
+    // text, is the proof that PowerShell ran.
+    assert_eq!(
+        output.status.and_then(|status| status.code()),
+        Some(0),
+        "confined PowerShell must run the script to its `exit 0`"
     );
 }
 

@@ -21,7 +21,7 @@
 //!
 //! The first call of every command is [`license_for`] over the facts of the invoking `Webview`
 //! (label and current URL from Tauri's native context, never an argument). A caller the
-//! [`HostCallerPolicy`](super::HostCallerPolicy) does not trust for the action is refused with
+//! [`HostCallerPolicy`] does not trust for the action is refused with
 //! `forbidden` before the client is touched: no lock is taken, no network is used, no record is
 //! read. The service's trust (labels, origins, actions) is the app's; a registered content
 //! webview is refused whatever its label.
@@ -164,7 +164,7 @@ impl LicenseHostService {
     /// Call `emit` with a fresh `status()` read after every change the client signals, ordered
     /// and coalesced by [`ChangeCoalescer`]: `emit` never runs twice at once, never runs for a
     /// read older than one already emitted, and a re-entrant or concurrent signal neither blocks
-    /// nor is lost. [`attach_emitter`](Self::attach_emitter) is this with the Tauri emit; a test
+    /// nor is lost. `attach_emitter` (crate-private) is this with the Tauri emit; a test
     /// passes its own.
     pub fn on_change(&self, emit: impl Fn(&LicenseView) + Send + Sync + 'static) {
         let Some(invalidation) = self.ops.invalidation() else {
