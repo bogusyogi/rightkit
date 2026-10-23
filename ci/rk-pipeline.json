@@ -123,6 +123,11 @@
         "run": 39914894353,
         "version": "0.4.1",
         "reason": "Hosted 39914894353: Windows failed only tests::embedded_catalog_matches_canonical_source because packages/release/rightkit-ownership.json is LF-pinned (.gitattributes, caf2c844) while the byte-identical crates/rightkit-ownership/catalog/ownership-catalog.json was not, so windows-2025 checked it out CRLF; both sides are LF-pinned now (.gitattributes), outside the crate closure."
+      },
+      "@rightkit/legal": {
+        "run": 39930510044,
+        "version": "0.6.3",
+        "reason": "Hosted 39930510044: windows-2025 verify passed; xcode-27 failed only in 'Fetch the sealed artifacts' (09:17:49-09:21:11Z) and its job log is unreadable because GitHub storage answered 'ServerBusy: Egress is over the account limit' (HTTP 503) at 09:23Z. That is artifact-storage throttling, not the package; one re-dispatch."
       }
     }
   },
