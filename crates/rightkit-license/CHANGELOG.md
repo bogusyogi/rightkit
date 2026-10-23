@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 (2026-10-23)
+
+- **New: `suite_api`, the Right Suite API host contract (rightkit#940).** Constants generated from `contracts/right-suite-api.v1.json` (`API_HOST`, `API_ORIGIN`, `LEGACY_HOSTS`, path templates, per-app artifact hosts) and `updater_endpoint(app)`, `release_status_url(app)`, `artifact_path_prefix(app)`, `update_check_hosts()`, `artifact_hosts(app)`. App keys must match `^[a-z][a-z0-9-]*$`; an app the contract does not list is refused. Apps stop writing the host themselves.
+- **New (`update-auth`): `UpdateAuthConfig::right_suite(app)`.** The check host is the current API host only (the legacy host is never allowlisted); artifact hosts are that app's set from the contract (viewright: public only). Exact-host matching as before.
+
 ## 0.2.4 — 2026-10-20 (unpublished staging)
 
 Additive: features `client`, `update-auth` and `client-testing`; all are off by default. The default build also exposes the native engine source API described below.

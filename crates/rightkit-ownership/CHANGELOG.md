@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 (2026-10-23)
+
+- Catalog: new declaration-only capability `right-suite-api`, owned by `rightkit-license` (the Right Suite API host contract, rightkit#940). No source change.
+
 ## 0.4.1 (2026-10-23)
 
 - **A catalog digest that differs from the digest pinned in protected trust is a warning, not a refusal (judge ruling; `decisions.md` 2026-10-15 retired ownership trust-sync, and `docs/OWNERSHIP-ENFORCEMENT.md` puts the catalog in the policy bundle).** `validate_ownership_floor` pushed `catalog digest below protected pinned digest` into the problems whenever `trust.minimumCatalogDigest` differed from the scanned catalog digest, which refused `RK_OWNERSHIP_POLICY_DOWNGRADE` with no way left to re-pin. It now reports `CATALOG_DIGEST_DRIFT_WARNING` (byte-identical to `@rightkit/release`'s constant) and admits.

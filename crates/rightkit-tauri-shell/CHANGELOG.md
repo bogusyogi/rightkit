@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0 (2026-10-23)
+
+- **BREAKING (source): `UpdatePolicy` gains the public field `release_status_url: Option<Url>`.** Apps building it with `UpdatePolicy::new(hosts)` (all current apps) are unaffected; a full struct literal must add the field.
+- **New (`update-license`): `UpdateHostPolicy::right_suite(app)`, `UpdatePolicy::right_suite(app)`, `TauriUpdateConfig::right_suite(app, public_key, timeout)`** build hosts, the updater endpoint and the release-status URL from `rightkit_license::suite_api` (rightkit#940); apps drop their own host literals and the `plugins.updater.endpoints` copy in `tauri.conf.json`.
+- **New: native release status.** `UpdateHost::release_status()` and the command `rightkit_update_release_status` (authorization action `release_status`): https only, no redirect, 200 only, 16 KiB body cap, strict `{schema: 1, appKey, platform, patchVersion, updateVersion}` shape. `UpdateTransport::release_status` has a default, so custom transports keep compiling. `rustls` (ring) becomes an optional dependency of `update`.
+
 ## 0.5.1 (unpublished staging)
 
 - **Fixed: features `update` and `update-license` were unusable in a Tauri 2.12 app.** `tauri-plugin-updater` was pinned `=2.10.1`, while Tauri 2.12 apps resolve 2.14, so Cargo could not select both (ViewRight, 2026-10-23: blocks its native licence cutover). The requirement is now `>=2.10.1, <3`. Checked with a consumer-shaped crate: tauri 2.12.5 + tauri-plugin-updater 2.14.0 + features `update,update-license`, `cargo check` green on macOS through the broker. The RightKit workspace lock stays on 2.10.1 until the Tauri 2.12 move; runtime behaviour on 2.14 is the app's qualification.
