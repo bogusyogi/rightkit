@@ -307,7 +307,7 @@ Commands:
   apple profile renew [--config <file>] [--profile <file>] [--dry-run]
                                                       Renew macOS profile for current Keychain signer
   signing-agent install|uninstall|status              Manage invisible Aqua-session signing service
-  doctor [--platform mac|win]                        Inspect one app's release config
+  doctor [--platform mac|win] [--gates]               Inspect one app's release config; --gates also runs the build's pre-build source gates
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
   ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities

@@ -75,11 +75,14 @@ test("CLI dispatch reaches dependency command & reports invalid input", () => {
 });
 
 test("release gate runs outside dry-run fallback & before skippable app checks", () => {
-  const source = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+  // The gates live in prebuild-gates.mjs; release.mjs calls them before any skippable app check.
+  const source = readFileSync(new URL("./prebuild-gates.mjs", import.meta.url), "utf8");
   const gate = source.indexOf("assertReleaseDependencies({ root, config, target, commands: closureCommands });");
   assert.ok(gate > 0);
-  assert.ok(gate < source.indexOf("if (!opts.dryRun) throw error;", gate));
-  assert.ok(gate < source.indexOf("await runConfiguredChecks("));
+  assert.ok(gate < source.indexOf("if (strict) throw error;", gate));
+  const build = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+  assert.ok(build.indexOf("evaluatePrebuildGates({ root,") > 0);
+  assert.ok(build.indexOf("evaluatePrebuildGates({ root,") < build.indexOf("await runConfiguredChecks("));
   const dev = readFileSync(new URL("./development.mjs", import.meta.url), "utf8");
   assert.ok(!dev.includes("assertReleaseDependencies"));
 });

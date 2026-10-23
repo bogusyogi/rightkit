@@ -6,7 +6,7 @@ import test from "node:test";
 import { cargoManifestIssues, commandFeatureIssues } from "./qa-build-features.mjs";
 import {
   REGISTRY, TEST_MODE_MARKER, assertNoReleaseSwitches, bufferSwitchFindings, commandSwitchFindings, denyNamesFor,
-  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteLoopbackFindings, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, shippedRustTriples, sourceSwitchFindings,
+  featureClosureFindings, inventoryDenyNames, localCrateDirsFromTree, parseInventory, remoteLoopbackFindings, remoteServiceFindings, resolveFeatureClosure, releaseSwitchFindings, scanSwitchPaths, shippedRustTriples, sourceSwitchFindings, validateNonShipped,
 } from "./release-switch-scan.mjs";
 
 const FIX = new URL("./fixtures/release-switches/", import.meta.url);
@@ -561,4 +561,166 @@ test("shipped triples: test-mode in only the x86_64 slice's tree fails the gate"
   assert.deepEqual(targets, [MAC_A, MAC_X]);
   assert.throws(() => assertNoReleaseSwitches({ treeText: closure.treeText }), /forbidden-feature test-mode/);
   assert.deepEqual(featureClosureFindings(closureTargets({ platform: "mac", target: { macPackage: {} } }).closure.treeText), []);
+});
+
+// releaseSwitches.nonShipped: app tooling that never ships is skipped by the desktop walk; everything undeclared is still scanned.
+function nonShippedApp() {
+  const root = mkdtempSync(join(tmpdir(), "rk-nonshipped-"));
+  for (const [dir, file] of [["src-tauri/src", "main.rs"], ["bakeoff", "run.rs"], ["scripts", "tool.mjs"], ["tooling", "other.mjs"]]) {
+    mkdirSync(join(root, dir), { recursive: true });
+    writeFileSync(join(root, dir, file), file.endsWith(".rs") ? 'fn f() { let _ = std::env::var("TOOL_ONLY"); }\n' : "const a = process.env.TOOL_ONLY;\n");
+  }
+  writeFileSync(join(root, "src-tauri", "Cargo.toml"), "[package]\nname=\"app\"\n");
+  return root;
+}
+const emptyInventory = JSON.stringify({ schema: 1, app: "x", switches: [], dynamicReads: [] });
+const nsTree = (root) => `app v0.1.0 (${join(root, "src-tauri")})\n`;
+
+test("nonShipped dir is not walked", () => {
+  const root = nonShippedApp();
+  try {
+    const declared = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "bakeoff", reason: "bakeoff harness, not in the bundle" }, { dir: "scripts/", reason: "dev scripts" }] });
+    assert.deepEqual(declared.findings, []);
+    assert.deepEqual(declared.roots, ["bakeoff", "scripts"]);
+    const files = sourceSwitchFindings({ sourceRoot: root, inventoryText: emptyInventory, skipRoots: declared.roots }).map((f) => f.file.split(":")[0]);
+    assert.deepEqual(files.sort(), [join("src-tauri", "src", "main.rs"), join("tooling", "other.mjs")]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("undeclared tooling dir is still walked", () => {
+  const root = nonShippedApp();
+  try {
+    const declared = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "bakeoff", reason: "bakeoff harness" }] });
+    const files = sourceSwitchFindings({ sourceRoot: root, inventoryText: emptyInventory, skipRoots: declared.roots }).map((f) => f.file.split(":")[0]);
+    assert.ok(files.includes(join("scripts", "tool.mjs")) && files.includes(join("tooling", "other.mjs")) && files.includes(join("src-tauri", "src", "main.rs")));
+    assert.ok(!files.includes(join("bakeoff", "run.rs")));
+    assert.equal(sourceSwitchFindings({ sourceRoot: root, inventoryText: emptyInventory }).length, 4, "no skipRoots: everything is walked");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nonShipped overlapping a local crate in the tree is refused", () => {
+  const root = nonShippedApp();
+  try {
+    mkdirSync(join(root, "bakeoff", "crate"), { recursive: true });
+    const inside = validateNonShipped({ root, treeText: `${nsTree(root)}c v0.1.0 (${join(root, "bakeoff", "crate")})\n`, nonShipped: [{ dir: "bakeoff", reason: "r" }] });
+    assert.deepEqual(ids(inside.findings), ["inventory-invalid"]);
+    assert.match(inside.findings[0].reason, /overlaps shipped code/);
+    assert.deepEqual(inside.roots, []);
+    const containing = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "src-tauri", reason: "r" }] });
+    assert.match(containing.findings[0].reason, /overlaps shipped code/);
+    const sitsInside = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "src-tauri/src", reason: "r" }] });
+    assert.match(sitsInside.findings[0].reason, /overlaps shipped code/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nonShipped refuses frontend inputs (package.json) and the frontend bundle", () => {
+  const root = nonShippedApp();
+  try {
+    writeFileSync(join(root, "tooling", "package.json"), "{}");
+    mkdirSync(join(root, "scripts", "inner"), { recursive: true });
+    writeFileSync(join(root, "scripts", "inner", "package.json"), "{}");
+    mkdirSync(join(root, "tooling", "deep"), { recursive: true });
+    writeFileSync(join(root, "src-tauri", "tauri.conf.json"), JSON.stringify({ build: { frontendDist: "../dist" } }));
+    mkdirSync(join(root, "dist"), { recursive: true });
+    const found = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "tooling", reason: "r" }, { dir: "scripts", reason: "r" }, { dir: "tooling/deep", reason: "r" }, { dir: "dist", reason: "r" }] });
+    assert.equal(found.findings.length, 4);
+    assert.match(found.findings[0].reason, /package\.json/);
+    assert.match(found.findings[1].reason, /package\.json/);
+    assert.match(found.findings[2].reason, /sits inside a package/);
+    assert.match(found.findings[3].reason, /overlaps shipped code/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("missing nonShipped dir is refused", () => {
+  const root = nonShippedApp();
+  try {
+    const out = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "nope", reason: "r" }] });
+    assert.deepEqual(ids(out.findings), ["inventory-invalid"]);
+    assert.match(out.findings[0].reason, /does not exist/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nonShipped escaping the root, absolute, the root itself or malformed is refused", () => {
+  const root = nonShippedApp();
+  try {
+    const out = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "../elsewhere", reason: "r" }, { dir: "bakeoff/../../x", reason: "r" }, { dir: join(root, "bakeoff"), reason: "r" }, { dir: ".", reason: "r" }, "bakeoff"] });
+    assert.equal(out.findings.length, 5);
+    assert.match(out.findings[0].reason, /escapes/);
+    assert.match(out.findings[1].reason, /escapes/);
+    assert.match(out.findings[2].reason, /absolute/);
+    assert.match(out.findings[3].reason, /app root itself/);
+    assert.match(out.findings[4].reason, /\{ dir, reason \}/);
+    assert.match(validateNonShipped({ root, nonShipped: { dir: "bakeoff" } }).findings[0].reason, /must be an array/);
+    assert.deepEqual(validateNonShipped({ root, nonShipped: undefined }), { findings: [], roots: [] });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nonShipped with an empty reason is refused", () => {
+  const root = nonShippedApp();
+  try {
+    for (const reason of ["", "   ", undefined]) {
+      const out = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "bakeoff", reason }] });
+      assert.deepEqual(ids(out.findings), ["inventory-invalid"]);
+      assert.match(out.findings[0].reason, /reason is required/);
+      assert.deepEqual(out.roots, []);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+function tauriLayout() {
+  const root = mkdtempSync(join(tmpdir(), "rk-nonshipped-tauri-"));
+  for (const d of ["src", "public", "src-tauri/src", "scripts", "bakeoff", "web", "assets", "helpers"]) mkdirSync(join(root, d), { recursive: true });
+  writeFileSync(join(root, "bakeoff", "run.mjs"), "x\n");
+  writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { build: "pnpm run stage && vite build", stage: "node ./helpers/stage.mjs", dev: "vite" } }));
+  writeFileSync(join(root, "index.html"), '<script type="module" src="/web/main.ts"></script><link href="https://x.test/a.css">');
+  writeFileSync(join(root, "vite.config.ts"), 'export default { publicDir: "assets", build: { outDir: "dist" } };\n');
+  writeFileSync(join(root, "tsconfig.json"), '{ "include": ["src"] }');
+  writeFileSync(join(root, "web", "main.ts"), "x\n");
+  writeFileSync(join(root, "scripts", "stage-ffmpeg.mjs"), "x\n");
+  writeFileSync(join(root, "helpers", "stage.mjs"), "x\n");
+  writeFileSync(join(root, "src-tauri", "Cargo.toml"), "[package]\nname=\"app\"\n");
+  writeFileSync(join(root, "src-tauri", "tauri.conf.json"), JSON.stringify({ build: { frontendDist: "../dist", beforeBuildCommand: "node ./scripts/stage-ffmpeg.mjs && pnpm run build" } }));
+  return root;
+}
+
+test("nonShipped refuses the standard root-level Tauri frontend (src, public, index.html, vite and tsconfig dirs)", () => {
+  const root = tauriLayout();
+  try {
+    const dirs = ["src", "public", "web", "assets"];
+    const out = validateNonShipped({ root, treeText: nsTree(root), nonShipped: dirs.map((dir) => ({ dir, reason: "r" })) });
+    assert.equal(out.findings.length, dirs.length);
+    for (const f of out.findings) assert.match(f.reason, /root frontend/);
+    assert.deepEqual(out.roots, []);
+    const ok = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "bakeoff", reason: "bakeoff harness" }] });
+    assert.deepEqual(ok, { findings: [], roots: ["bakeoff"] });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nonShipped refuses directories holding a build-time input (tauri before*Command, package.json build scripts)", () => {
+  const root = tauriLayout();
+  try {
+    const out = validateNonShipped({ root, treeText: nsTree(root), nonShipped: [{ dir: "scripts", reason: "r" }, { dir: "helpers", reason: "r" }] });
+    assert.equal(out.findings.length, 2);
+    assert.match(out.findings[0].reason, /build-time input \(scripts\/stage-ffmpeg\.mjs/);
+    assert.match(out.findings[1].reason, /build-time input \(helpers\/stage\.mjs/, "followed through `pnpm run stage`");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("nonShipped refuses a dir named only by the release recipe's commands (targets.*.package -> pnpm run script)", () => {
+  const root = mkdtempSync(join(tmpdir(), "rk-nonshipped-recipe-"));
+  try {
+    for (const d of ["release", "bakeoff", "src-tauri"]) mkdirSync(join(root, d), { recursive: true });
+    writeFileSync(join(root, "release", "pkg.mjs"), "x\n");
+    writeFileSync(join(root, "bakeoff", "run.mjs"), "x\n");
+    writeFileSync(join(root, "src-tauri", "Cargo.toml"), "[package]\nname=\"app\"\n");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ scripts: { "rightkit:package:mac": "node ./release/pkg.mjs" } }));
+    const input = { root, treeText: nsTree(root), nonShipped: [{ dir: "release", reason: "r" }, { dir: "bakeoff", reason: "r" }] };
+    const without = validateNonShipped(input);
+    assert.deepEqual(without.findings, [], "the package.json script alone is not a build* script, so the recipe is the only link");
+    const withRecipe = validateNonShipped({ ...input, recipeCommands: ["pnpm run rightkit:package:mac"] });
+    assert.equal(withRecipe.findings.length, 1);
+    assert.match(withRecipe.findings[0].reason, /releaseSwitches\.nonShipped\[0\].*build-time input \(release\/pkg\.mjs/);
+    assert.deepEqual(withRecipe.roots, []);
+    assert.deepEqual(validateNonShipped({ ...input, nonShipped: [input.nonShipped[1]], recipeCommands: ["pnpm run rightkit:package:mac"] }).roots, ["bakeoff"]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

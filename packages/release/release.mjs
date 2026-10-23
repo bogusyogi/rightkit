@@ -49,13 +49,14 @@ import { assertNoQaControl, assertNoWebBundleMocks } from "./qa-control-scan.mjs
 import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { assertNoForbiddenBuildFeatures } from "./qa-build-features.mjs";
 import { expandRecipeBuildCommands } from "./recipe-build.mjs";
-import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure, shippedRustTriples } from "./release-switch-scan.mjs";
+import { assertNoReleaseSwitches, commandTokens, localCrateDirsFromTree, resolveFeatureClosure, shippedRustTriples, validateNonShipped } from "./release-switch-scan.mjs";
 import { iosOwnershipScope, preflightOwnershipScope } from "./ownership-scope.mjs";
 import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mjs";
 import { runAndroidRelease, validateAndroidTarget } from "./android-release.mjs";
 import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
 import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
+import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -128,6 +129,7 @@ const opts = {
   dryRun: false,
   skipChecks: false,
   doctor: false,
+  gates: false,
   tier: null,
   resume: false,
   resumeFrom: null,
@@ -145,6 +147,7 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--skip-checks") opts.skipChecks = true;
   else if (arg === "--skip-hardening") fail("--skip-hardening is forbidden; use exact artifact/source-bound hardeningAllowances");
   else if (arg === "--doctor") opts.doctor = true;
+  else if (arg === "--gates") opts.gates = true;
   else if (arg === "--admission") opts.admission = true;
   else if (arg === "--resume") opts.resume = true;
   else if (arg === "--resume-from") { opts.resume = true; opts.resumeFrom = args[++i]; }
@@ -158,6 +161,7 @@ for (let i = 0; i < args.length; i++) {
   else usage(2, `unknown argument: ${arg}`);
 }
 
+if (opts.gates && !opts.doctor) usage(2, "--gates is valid only with --doctor");
 if (opts.upload) fail("combined build+upload was removed; run right-release build, then right-release upload --release <id> --tier patch|update");
 if (opts.tier && !TIERS.has(opts.tier)) usage(2, `invalid --tier: ${opts.tier} (expected patch|update)`);
 const MAC_RESUME_PHASES = ["prepackage", "sign", "package", "post-sign", "harden"];
@@ -426,102 +430,25 @@ if (opts.doctor) {
   console.log("preflight:");
   console.log(formatPreflight(checks));
   const failures = preflightFailures(checks);
-  if (failures.length > 0) {
-    fail(`preflight found ${failures.length} blocking problem(s); the build would fail on these`);
+  // --gates: run the build's pre-build source gates (release-switch scan, feature closure, release dependencies,
+  // devtools, production mode) over this app and report each finding as a FAIL row.
+  const gateFindings = opts.gates
+    ? evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun }).findings
+    : [];
+  if (gateFindings.length) {
+    console.log(gateFindings.map((finding) => `  [FAIL] gate:${finding.name}: ${finding.detail}`).join("\n"));
+  }
+  if (failures.length + gateFindings.length > 0) {
+    fail(`preflight found ${failures.length + gateFindings.length} blocking problem(s); the build would fail on these`);
   }
   process.exit(0);
 }
 
 let prePackScanned = false; // set once a pre-pack payload scan has seen a native binary
-// Source-level layer of "no test-automation surface ships": refuse a release or update build whose build command
-// or app Cargo manifest enables devtools, qa-native, qa-control or dev-native (also in --dry-run).
-// DevTools: refused for every app except an allow-listed one that declares `devtools: "content-only"` (devtools-policy.mjs).
-let devtoolsAllowance = { mode: "denied" };
-// The Rust a build compiles is checked from the manifest it compiles: targets.<os>.cargoManifest, else the declared
-// nativeAssembly.cargoManifest. iosPackage.prepare commands run cargo for a native iOS app, so they are scanned like any build command.
-const switchInputs = releaseSwitchInputs({ appRoot: root, config, target, prepare: iosSpec?.prepare ?? [], nativeIos });
-if (switchInputs.problems.length) fail(`${config.app ?? "app"} ios release-switch scan cannot see what is built:\n- ${switchInputs.problems.join("\n- ")}`);
-try {
-  devtoolsAllowance = resolveDevtoolsAllowance({ config, root });
-  if (devtoolsAllowance.mode === "content-only") console.log(`right-release: devtools allowance recorded: ${JSON.stringify(devtoolsEvidence(devtoolsAllowance))}`);
-  assertNoForbiddenBuildFeatures({ root, tier: "release/update", devtools: devtoolsAllowance, cargoManifest: switchInputs.cargoManifest, manifest: config.releaseSwitches?.manifest, commands: [
-    ...switchInputs.commands,
-    { label: "target.prePackage", command: target.prePackage },
-    { label: "target.package", command: target.package },
-    { label: "nativeAssembly.packageHook", command: nativeAssembly?.packageHook },
-    { label: "nativeAssembly.finalizer", command: nativeFinalizer },
-    ...commandList(target.postSign).map((command, index) => ({ label: Array.isArray(target.postSign) ? `target.postSign[${index}]` : "target.postSign", command })),
-    { label: "target.gradle", command: target.gradle },
-  ] });
-} catch (error) { fail(error.message); }
-// M12: the frontend build resolves in production mode only (development-only conditional exports such as
-// `@rightkit/license/testing` never resolve). `run` pins NODE_ENV=production for build children; this refuses a
-// Vite config that lists the `development` resolve condition explicitly, which the pin cannot override.
-{
-  const modeProblems = productionModeProblems({ appRoot: root });
-  if (modeProblems.length) fail(`${config.app ?? "app"} release frontend is not production-only:\n- ${modeProblems.join("\n- ")}`);
-}
-
-// D4 (M21/M23) source layer: every environment/argument read in app source is registered in the app's switches.json and
-// every S1-S4 selector is compiled out of release. The inventory is `config.releaseSwitches.inventory` (relative to the
-// app root) or `switches.json`; a release without one fails (a dry run only checks one that exists).
-// The resolved feature graph (`cargo tree -e features`) is the AUTHORITATIVE test-mode check: it runs here, in the app
-// repository, for the release target, and a release that cannot run it fails (a dry run reports and continues).
-// The binary marker/name scan below is secondary evidence.
-const releaseSwitchInventoryPath = path.resolve(root, config.releaseSwitches?.inventory ?? "switches.json");
-const releaseSwitchInventoryText = existsSync(releaseSwitchInventoryPath) ? readFileSync(releaseSwitchInventoryPath, "utf8") : null;
-try {
-  // A `node recipe-build.mjs --plan <JSON>` prePackage hides each step's `--features` in one argument: the closure and the
-  // command token scan see every prepare / build / postBuild step (a plan that cannot be read or validated fails closed).
-  const closureCommands = [target.prePackage, target.package, nativeAssembly?.packageHook, nativeFinalizer, ...commandList(target.postSign), target.gradle, ...switchInputs.cargoCommands].filter(Boolean).flatMap((c) => expandRecipeBuildCommands(c, { root }));
-  assertReleaseDependencies({ root, config, target, commands: closureCommands });
-  let treeText;
-  try {
-    const closure = resolveFeatureClosure({
-      root,
-      manifest: config.releaseSwitches?.manifest,
-      cargoManifest: switchInputs.cargoManifest,
-      rust: config.releaseSwitches?.rust,
-      features: config.releaseSwitches?.features ?? [],
-      // The shipped triples (never "all": the build broker refuses it); evaluated on the raw config target.
-      triples: () => shippedRustTriples({ platform: opts.platform, target: config.targets?.[opts.platform] }),
-      commandTexts: closureCommands,
-    });
-    if (closure.skipped) console.log(`right-release: feature closure skipped (${closure.skipped})`);
-    else treeText = closure.treeText;
-  } catch (error) {
-    if (!opts.dryRun) throw error;
-    console.log(`right-release: dry run: ${error.message}`);
-  }
-  // remoteHost: rightkit-daemon `remote` is refused in the closure unless the app declares releaseSwitches.remoteHost: true.
-  // remoteLoopback: the daemon `remote-loopback` feature is a separate declaration (releaseSwitches.remoteLoopback: true); remoteHost does not cover it.
-  const closureInput = { treeText, devtools: devtoolsAllowance, remoteHost: config.releaseSwitches?.remoteHost, remoteLoopback: config.releaseSwitches?.remoteLoopback, commands: closureCommands.map((c) => commandTokens(c)) };
-  if (releaseSwitchInventoryText != null) {
-    // iOS: only what the iPhone app compiles — the Xcode project and its local packages, plus the local crates in the
-    // resolved aarch64-apple-ios cargo graph (feature-aware, unlike the ownership closure). Other targets walk the app root.
-    let sourceRoots;
-    if (opts.platform === "ios") {
-      const repoTop = git(root, ["rev-parse", "--show-toplevel"]);
-      // Swift side only: the Rust side is the resolved cargo graph below. The ownership scope also folds in the whole
-      // nativeAssembly workspace, which would scan crates (desktop tools, the TUI) the iPhone never links.
-      const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
-      sourceRoots = [...new Set([...swiftSide, ...localCrateDirsFromTree(treeText, repoTop)])].sort();
-      // A prepare step can stage sources from anywhere (a web bundle, a generated resource) into the app; its working directory must be
-      // inside the scanned roots, or the release fails instead of shipping what the scan never saw. Add the directory to ownershipScope.
-      for (const step of config.targets?.ios?.iosPackage?.prepare ?? []) {
-        const cwd = path.resolve(root, step?.cwd ?? ".");
-        if (!sourceRoots.some((dir) => cwd === dir || cwd.startsWith(dir + path.sep))) throw new Error(`source switch inventory: targets.ios.iosPackage.prepare runs in ${path.relative(repoTop, cwd) || "."}, outside the iOS scan roots (${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}); list that directory in targets.ios.ownershipScope`);
-      }
-      console.log(`right-release: source switch scan (ios): ${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}`);
-    }
-    assertNoReleaseSwitches({ ...closureInput, sourceRoot: root, sourceRoots, inventoryText: releaseSwitchInventoryText, appForbid: config.releaseSwitches?.forbid ?? [] }, "source switch inventory");
-  } else if (treeText != null || closureInput.commands.length) {
-    assertNoReleaseSwitches({ ...closureInput, appForbid: config.releaseSwitches?.forbid ?? [] }, "feature closure");
-  }
-  if (releaseSwitchInventoryText == null && !opts.dryRun) {
-    throw new Error(`source switch inventory: ${path.relative(root, releaseSwitchInventoryPath) || releaseSwitchInventoryPath} is missing; a release build needs the app's switches.json (see packages/release/README.md, "switches.json")`);
-  }
-} catch (error) { fail(error.message); }
+// Source-level gates (release-switch scan, devtools, feature closure, release dependencies, production mode) live in
+// prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. The build fails on the first finding.
+const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText } = evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun });
+if (prebuildFindings.length) fail(prebuildFindings[0].detail);
 
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";

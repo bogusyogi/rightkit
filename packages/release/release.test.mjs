@@ -13,6 +13,7 @@ import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, val
 import { renderLanes } from "../ci/sync.mjs";
 import test from "node:test";
 import { admittedWorkerEnv, registryEnv } from "./test-support/admission.mjs";
+import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
 const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
@@ -1802,10 +1803,11 @@ test("postSign accepts one command or an ordered array, scanned and run fail-clo
   assert.doesNotMatch(source, /runCommand\(target\.postSign/);
   assert.equal((source.match(/runCommands\(target\.postSign, root\)/g) ?? []).length, 2);
   // Scanner inputs (forbidden features, feature closure texts, closure commands) expand every entry.
-  assert.match(source, /\.\.\.commandList\(target\.postSign\)\.map\(/);
+  const gates = readFileSync(new URL("./prebuild-gates.mjs", import.meta.url), "utf8");
+  assert.match(gates, /\.\.\.commandList\(target\.postSign\)\.map\(/);
   // One closureCommands list (recipe-build plans unwrapped, #345 F1) feeds both the cargo-tree closure and the token scan.
-  assert.match(source, /const closureCommands = \[[^\n]*\.\.\.commandList\(target\.postSign\), target\.gradle(?:, \.\.\.switchInputs\.cargoCommands)?\][^\n]*expandRecipeBuildCommands/);
-  assert.doesNotMatch(source, /nativeFinalizer, target\.postSign, target\.gradle/);
+  assert.match(gates, /const closureCommands = \[[^\n]*\.\.\.commandList\(target\.postSign\), target\.gradle(?:, \.\.\.switchInputs\.cargoCommands)?\][^\n]*expandRecipeBuildCommands/);
+  assert.doesNotMatch(gates, /nativeFinalizer, target\.postSign, target\.gradle/);
 });
 
 test("run() timeout kills the whole process tree through background-process spawn and taskkill /T /F", () => {
@@ -1854,4 +1856,61 @@ test("the release worker refuses a missing, arbitrary, foreign, fabricated or st
   const original = readFileSync(lock, "utf8");
   writeFileSync(lock, original.replace(/sha512-[0-9a-f]+==/, "sha512-00==") );
   refused(workerRun(config, withAdmitted), /lock digest changed since the bound registry snapshot/);
+});
+
+// doctor --gates: the doctor runs the build's pre-build source gates (prebuild-gates.mjs) in the same order.
+const FORBIDDEN_PACKAGE = { cmd: "cargo", args: ["build", "--features", "test-mode"] };
+
+// Host- and run-dependent lines are dropped; what remains is the doctor's stable output.
+function normalizeDoctor(output, config) {
+  return output
+    .split(path.dirname(config)).join("<DIR>")
+    .split(/\r?\n/)
+    .filter((line) => !/^(rightkit-registry|workdir|hardeningscan|config):|\] (disk|ownership|target-bridge|compiler-cache):|^\s+fix: |^\s*$/.test(line))
+    .join("\n")
+    .replace(/^right-release \d+\.\d+\.\d+/m, "right-release <version>")
+    .replace(/^platform: .*/m, "platform: <host>");
+}
+
+test("doctor without --gates keeps its output (golden) and prints no gate rows", () => {
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac", packageCommand: FORBIDDEN_PACKAGE });
+  const result = runDoctor(config);
+  const output = `${result.stdout}`;
+  assert.doesNotMatch(output, /gate:/);
+  const golden = readFileSync(new URL("./test-support/doctor-golden.txt", import.meta.url), "utf8");
+  assert.equal(normalizeDoctor(output, config).trim(), golden.trim());
+});
+
+test("doctor --gates reports a forbidden feature as a gate FAIL row and exits 1", () => {
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac", packageCommand: FORBIDDEN_PACKAGE });
+  const result = runDoctor(config, "--gates");
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /^\s*\[FAIL\] gate:build-features: release\/update build refused: .*\n- target\.package: enables feature `test-mode`/m);
+  assert.match(result.stderr, /preflight found \d+ blocking problem\(s\)/);
+});
+
+test("doctor --gates fails a missing switches.json like the build, and --gates needs --doctor", () => {
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" });
+  const result = runDoctor(config, "--gates");
+  // The only gate finding on a clean fixture is the missing inventory (the feature closure never reaches a live broker in tests).
+  assert.match(result.stdout, /^\s*\[FAIL\] gate:(switch-inventory-missing|feature-closure): /m);
+  const bare = runRaw(config, "--platform", hostPlatform, "--dry-run", "--gates");
+  assert.equal(bare.status, 2);
+  assert.match(bare.stderr, /--gates is valid only with --doctor/);
+});
+
+test("the gates never ask cargo tree for --target all on a win target without a triple", async () => {
+  const config = fixture({ platform: "win" });
+  const loaded = (await import(`${new URL(`file://${config}`).href}?t=${Date.now()}`)).default;
+  const { findings } = evaluatePrebuildGates({ root: path.dirname(config), config: loaded, target: loaded.targets.win, platform: "win", strict: true });
+  const text = findings.map((f) => f.detail).join("\n");
+  assert.match(text, /cargo tree .*--target x86_64-pc-windows-msvc/, text);
+  assert.doesNotMatch(text, /--target all\b/);
+});
+
+test("build refusal text for a gate finding is unchanged", () => {
+  const config = fixture({ platform: "win", packageCommand: FORBIDDEN_PACKAGE });
+  const result = run(config);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /^right-release: release\/update build refused: it enables a test-automation or debugging feature \(test-mode, qa-native, [^)]*\); none may ship:\n- target\.package: enables feature `test-mode`\nRemove the feature from the release build command, the app's default features and its tauri dependency; dev builds \(`right-release dev`\) may keep it\. No app may ship devtools unless it is on the allow-list in devtools-policy\.json and declares `devtools: "content-only"` \(rightkit-tauri-shell DevToolsPolicy::ContentOnly\)\.\n$/m);
 });

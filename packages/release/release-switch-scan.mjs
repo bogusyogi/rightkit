@@ -370,7 +370,7 @@ const DYNAMIC_READS = [
 // Builtins every JS runtime sets; they select nothing and are not part of the inventory.
 const JS_BUILTINS = new Set(["MODE", "DEV", "PROD", "BASE_URL", "SSR", "NODE_ENV"]);
 
-function* walkSource(root) {
+function* walkSource(root, skipAbs = new Set()) {
   const stack = [root];
   while (stack.length) {
     const dir = stack.pop();
@@ -379,7 +379,7 @@ function* walkSource(root) {
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) { if (!skipDir(entry.name)) stack.push(full); continue; }
+      if (entry.isDirectory()) { if (!skipDir(entry.name) && !skipAbs.has(full)) stack.push(full); continue; }
       if (entry.isFile() && SOURCE_EXT.has(path.extname(entry.name)) && !TEST_FILE.test(entry.name)) yield full;
     }
   }
@@ -388,7 +388,7 @@ function* walkSource(root) {
 function lineOf(text, index) { let n = 1; for (let i = 0; i < index; i += 1) if (text.charCodeAt(i) === 10) n += 1; return n; }
 
 // inventoryText: contents of switches.json. Returns findings only.
-export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, inventoryLabel = "switches.json", extraDeny = [] }) {
+export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, inventoryLabel = "switches.json", extraDeny = [], skipRoots = [] }) {
   const { doc, issues } = parseInventory(inventoryText, inventoryLabel);
   const findings = [...issues];
   if (!doc || !Array.isArray(doc.switches)) return findings;
@@ -398,7 +398,9 @@ export function sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, i
   const denyFlags = [...REGISTRY.denyNames, ...extraDeny.map((n) => ({ name: typeof n === "string" ? n : n.name }))].map((d) => d.name).filter((n) => n.startsWith("-"));
   // `sourceRoots` (absolute directories) narrows the walk to what a target compiles; paths stay relative to `sourceRoot`.
   const walkRoots = Array.isArray(sourceRoots) && sourceRoots.length ? sourceRoots : [sourceRoot];
-  for (const file of walkRoots.flatMap((walkRoot) => [...walkSource(walkRoot)])) {
+  // `skipRoots` (paths relative to `sourceRoot`, validated by `validateNonShipped`) are directories that never ship; the walk does not enter them.
+  const skipAbs = new Set((skipRoots ?? []).map((dir) => path.resolve(sourceRoot, dir)));
+  for (const file of walkRoots.flatMap((walkRoot) => [...walkSource(walkRoot, skipAbs)])) {
     let text;
     try { text = readFileSync(file, "utf8"); } catch { continue; }
     const rel = path.relative(sourceRoot, file);
@@ -527,7 +529,7 @@ export function scanSwitchPaths(paths, { denyMap = denyNamesFor() } = {}) {
 // Every layer is optional input; a layer given no input is skipped, except that `requireBinary` fails a scan that
 // found no native binary. `bypass: ["feature-closure"]` exists only for the negative fixtures that prove the binary
 // layer independently; release.mjs never passes it.
-export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, remoteLoopback, devtools } = {}) {
+export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sourceRoots, skipRoots, inventoryText, binaryPaths = [], appForbid = [], requireBinary = true, bypass = [], remoteHost, remoteLoopback, devtools } = {}) {
   const findings = [];
   const bypassed = new Set(bypass);
   const denyMap = denyNamesFor({ appForbid: [...appForbid, ...(inventoryText != null ? inventoryDenyNames(inventoryText) : [])] });
@@ -539,7 +541,7 @@ export function releaseSwitchFindings({ treeText, commands = [], sourceRoot, sou
     }
     for (const argv of commands) findings.push(...commandSwitchFindings(argv, { allowDevtools: devtools?.mode === "content-only" }));
   }
-  if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, sourceRoots, inventoryText, extraDeny: appForbid }));
+  if (sourceRoot && inventoryText != null) findings.push(...sourceSwitchFindings({ sourceRoot, sourceRoots, skipRoots, inventoryText, extraDeny: appForbid }));
   let receipt = { files: [], binaries: 0 };
   if (binaryPaths.length) {
     const scanned = scanSwitchPaths(binaryPaths, { denyMap });
@@ -570,4 +572,133 @@ export function localCrateDirsFromTree(treeText, root) {
     if (dir === base || dir.startsWith(base + path.sep)) dirs.add(dir);
   }
   return [...dirs].sort();
+}
+
+const NON_SHIPPED_SKIP = new Set(["node_modules", "target", ".git"]);
+function hasPackageJson(dir, depth = 0) {
+  if (depth > 6) return false;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name === "package.json") return true;
+    if (entry.isDirectory() && !entry.isSymbolicLink() && !NON_SHIPPED_SKIP.has(entry.name) && hasPackageJson(path.join(dir, entry.name), depth + 1)) return true;
+  }
+  return false;
+}
+const within = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
+
+const readJsonSafe = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
+const readTextSafe = (file) => { try { return readFileSync(file, "utf8"); } catch { return ""; } };
+const BUILD_HOOKS = ["beforeBuildCommand", "beforeDevCommand", "beforeBundleCommand"];
+
+// Existing paths under `base` named by shell command strings (`node ./scripts/x.mjs && pnpm run y`): each path-like token, and
+// the body of every package.json script reached through `run <name>` / `pnpm <name>`.
+function commandRefs(base, commands, scripts) {
+  const refs = new Set();
+  const seen = new Set();
+  const visit = (command, depth) => {
+    for (const raw of String(command).split(/\s+|&&|\|\||[;|]/)) {
+      const tokens = [raw.replace(/^['"]+|['"]+$/g, "")];
+      if (raw.includes("=")) tokens.push(raw.slice(raw.indexOf("=") + 1).replace(/^['"]+|['"]+$/g, ""));
+      for (const token of tokens) {
+        if (!token || token.startsWith("-") || /^[a-z][a-z0-9+.-]*:\/\//i.test(token)) continue;
+        if (!/[\\/]|\.[A-Za-z0-9]+$/.test(token)) continue;
+        const abs = path.resolve(base, token);
+        if (abs !== base && within(base, abs) && existsSync(abs)) refs.add(abs);
+      }
+    }
+    if (depth >= 4) return;
+    for (const m of String(command).matchAll(/\b(?:pnpm|npm|yarn|bun)\s+(?:run\s+)?([A-Za-z0-9:_.-]+)/g)) {
+      const name = m[1];
+      if (Object.hasOwn(scripts, name) && !seen.has(name)) { seen.add(name); visit(scripts[name], depth + 1); }
+    }
+  };
+  commands.forEach((c) => visit(c, 0));
+  return refs;
+}
+
+// The standard root-level frontend (package.json at the app root): src/, public/ and every directory index.html, vite.config.*
+// and tsconfig.json name. Quoted strings in vite.config are read as paths when they exist under the root (root, publicDir, build input).
+function rootFrontendDirs(base) {
+  const dirs = new Set();
+  const add = (rel) => {
+    const abs = path.resolve(base, rel);
+    if (abs !== base && within(base, abs) && existsSync(abs)) dirs.add(abs);
+  };
+  add("src"); add("public");
+  for (const m of readTextSafe(path.join(base, "index.html")).matchAll(/\b(?:src|href)\s*=\s*["']([^"'#?]+)["']/g)) if (!/^[a-z][a-z0-9+.-]*:|^\/\//i.test(m[1])) add(m[1].replace(/^\//, ""));
+  for (const entry of readdirSafe(base)) {
+    if (!/^vite\.config\./.test(entry)) continue;
+    for (const m of readTextSafe(path.join(base, entry)).matchAll(/["'`]([^"'`\n]+)["'`]/g)) add(m[1].replace(/^\//, ""));
+  }
+  const ts = readTextSafe(path.join(base, "tsconfig.json"));
+  for (const m of ts.matchAll(/"(?:include|files)"\s*:\s*\[([^\]]*)\]/g)) {
+    for (const q of m[1].matchAll(/"([^"]+)"/g)) add(q[1].split(/[*?{[]/)[0].replace(/\/$/, "") || ".");
+  }
+  return dirs;
+}
+function readdirSafe(dir) { try { return readdirSync(dir); } catch { return []; } }
+
+/**
+ * `releaseSwitches.nonShipped: [{ dir, reason }]`: app directories (tooling, bakeoffs, scripts) the desktop source walk skips.
+ * An exclusion list: whatever is not declared is still scanned. Each entry is refused (`inventory-invalid`) when the dir is missing,
+ * absolute, escapes the root, is a symlink or the root itself, has an empty reason, contains or sits inside a local crate of the release
+ * cargo tree, contains or sits inside `src-tauri` or the Tauri `frontendDist` bundle, or contains or sits inside a package that has a
+ * `package.json` (a frontend build input), overlaps the root frontend (`src/`, `public/`, directories named by `index.html`, `vite.config.*` or
+ * `tsconfig.json`, when the root has a `package.json`), or contains a file named by a `src-tauri/tauri.conf.json` `before*Command` or a root
+ * `package.json` `build*` script or by the release recipe's own commands (`recipeCommands`; followed through `run <script>`), which run during the release build.
+ * Returns { findings, roots } where `roots` are the validated root-relative dirs, empty if any entry was refused.
+ */
+export function validateNonShipped({ root, treeText, nonShipped, recipeCommands = [] }) {
+  const findings = [];
+  const roots = [];
+  const bad = (label, why) => findings.push({ layer: "inventory", rule: "inventory-invalid", file: `releaseSwitches.nonShipped${label}`, reason: `inventory-invalid: releaseSwitches.nonShipped${label}: ${why}` });
+  if (nonShipped === undefined) return { findings, roots };
+  if (!Array.isArray(nonShipped)) { bad("", "must be an array of { dir, reason }"); return { findings, roots }; }
+  const base = path.resolve(root);
+  const crates = localCrateDirsFromTree(treeText, base).map((dir) => (dir === base ? path.join(base, "src") : dir));
+  const protectedDirs = [path.join(base, "src-tauri"), ...crates];
+  try {
+    const conf = JSON.parse(readFileSync(path.join(base, "src-tauri", "tauri.conf.json"), "utf8")).build ?? {};
+    const dist = conf.frontendDist ?? conf.distDir;
+    if (typeof dist === "string" && !/^[a-z][a-z0-9+.-]*:\/\//i.test(dist)) protectedDirs.push(path.resolve(base, "src-tauri", dist));
+  } catch { /* no readable tauri.conf.json: nothing extra to protect */ }
+  const pkg = readJsonSafe(path.join(base, "package.json"));
+  const frontendDirs = pkg ? rootFrontendDirs(base) : new Set();
+  const scripts = pkg?.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
+  const hookObj = readJsonSafe(path.join(base, "src-tauri", "tauri.conf.json"))?.build ?? {};
+  const commands = [
+    ...BUILD_HOOKS.map((k) => hookObj[k]).map((v) => (v && typeof v === "object" ? v.script : v)).filter((v) => typeof v === "string"),
+    ...Object.entries(scripts).filter(([name, v]) => /^build/.test(name) && typeof v === "string").map(([, v]) => v),
+    // The release recipe's own commands (targets.<os>.prePackage, package, postSign, packageHook, finalizer): `release.mjs` passes its `closureCommands`.
+    ...(Array.isArray(recipeCommands) ? recipeCommands : []).map((c) => (Array.isArray(c) ? c.join(" ") : c)).filter((c) => typeof c === "string"),
+  ];
+  const buildRefs = commandRefs(base, commands, scripts);
+  nonShipped.forEach((entry, i) => {
+    const label = `[${i}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) { bad(label, "must be { dir, reason }"); return; }
+    const { dir, reason } = entry;
+    if (typeof reason !== "string" || reason.trim() === "") bad(label, "reason is required and must say why the directory never ships");
+    if (typeof dir !== "string" || dir.trim() === "") { bad(label, "dir is required"); return; }
+    if (path.isAbsolute(dir) || path.win32.isAbsolute(dir)) { bad(label, `dir \`${dir}\` must be relative to the app root, not absolute`); return; }
+    const abs = path.resolve(base, dir);
+    if (abs === base) { bad(label, `dir \`${dir}\` is the app root itself`); return; }
+    if (!within(base, abs)) { bad(label, `dir \`${dir}\` escapes the app root`); return; }
+    let st;
+    try { st = lstatSync(abs); } catch { bad(label, `dir \`${dir}\` does not exist under the app root`); return; }
+    if (st.isSymbolicLink() || !st.isDirectory()) { bad(label, `dir \`${dir}\` must be a real directory`); return; }
+    for (const guarded of protectedDirs) {
+      if (within(abs, guarded) || within(guarded, abs)) { bad(label, `dir \`${dir}\` overlaps shipped code (${path.relative(base, guarded) || "."}: a local crate of the release cargo tree, src-tauri or the frontend bundle); it cannot be declared non-shipped`); return; }
+    }
+    if (hasPackageJson(abs)) { bad(label, `dir \`${dir}\` contains a package.json (a possible frontend build input); it cannot be declared non-shipped`); return; }
+    for (let up = path.dirname(abs); within(base, up) && up !== base; up = path.dirname(up)) {
+      if (existsSync(path.join(up, "package.json"))) { bad(label, `dir \`${dir}\` sits inside a package (${path.relative(base, up)}/package.json: a possible frontend build input); it cannot be declared non-shipped`); return; }
+    }
+    const guardedBy = [...frontendDirs].find((g) => within(abs, g) || within(g, abs));
+    if (guardedBy) { bad(label, `dir \`${dir}\` overlaps the app's root frontend (${path.relative(base, guardedBy)}: src/, public/ or a directory named by index.html, vite.config or tsconfig); it cannot be declared non-shipped`); return; }
+    const buildRef = [...buildRefs].find((r) => within(abs, r) || within(r, abs));
+    if (buildRef) { bad(label, `dir \`${dir}\` contains or sits inside a build-time input (${path.relative(base, buildRef)}: named by a tauri.conf.json before*Command or a package.json build script, which runs during the release build); it cannot be declared non-shipped`); return; }
+    if (typeof reason === "string" && reason.trim() !== "") roots.push(path.relative(base, abs));
+  });
+  return { findings, roots: findings.length ? [] : roots };
 }

@@ -59,6 +59,18 @@ Every Right app has absolutely NO access to DevTools; the single exception is Vi
 - S1-S4 need `compiledOut`: `feature:<name>`, `cfg:test`, `cfg:debug_assertions` or, for Swift, `swift:DEBUG` (the read sits inside `#if DEBUG`; the read exists only there). The source walk skips test directories, including Swift bundles named `Tests`, `UITests`, `<App>Tests` and `<App>UITests`. S5 needs `userGesture: true`. S6 needs `valueType` of `bool`, `int` or `enum`.
 - `anchor` and `note` are informational. Fixtures: `fixtures/release-switches/` (`app/` is a clean example).
 
+#### Non-shipped tooling: `releaseSwitches.nonShipped`
+
+On desktop (non-iOS) targets the source walk covers the whole app root, so app tooling that never ships (a bakeoff harness) can produce `unregistered-read` findings that cannot truthfully be declared in `switches.json`. Declare such directories in the release config:
+
+```json
+"releaseSwitches": { "nonShipped": [ { "dir": "bakeoff", "reason": "bakeoff harness; not compiled or bundled" } ] }
+```
+
+- It is an exclusion list: any directory not listed is still scanned, so an omission fails safe. `dir` is relative to the app root; `reason` is required and non-empty. iOS is unchanged (it already walks only the Xcode project and the local crates in its cargo tree).
+- Every entry is validated before the walk and a bad one fails the release with `inventory-invalid`. Refused: a dir that is missing, not a real directory (a symlink), absolute, escaping the root, or the root itself; an empty `reason`; a dir that contains or sits inside a local crate of the resolved release cargo tree (a crate at the app root protects `src/`), `src-tauri`, or the Tauri `frontendDist` bundle; a dir that contains a `package.json` or sits inside a directory below the root that has one; when the root has a `package.json`, `src/`, `public/` and every existing directory named by the root `index.html` (`src`/`href`), a quoted string in `vite.config.*` (root, publicDir, build input) or `include`/`files` of `tsconfig.json`, plus anything inside or containing them; and any dir holding a path named by `src-tauri/tauri.conf.json` `beforeBuildCommand`/`beforeDevCommand`/`beforeBundleCommand` a root `package.json` `build*` script, or the release recipe's own commands (`targets.<os>.prePackage`, `package`, `postSign`, `packageHook`, the finalizer; followed through `pnpm|npm|yarn run <script>`), because those run during the release build.
+- Not protected: the release code does not otherwise know the frontend source layout. A frontend input that none of the rules above names (for example one referenced only from a nested config, or built by a script not reachable from those commands) is not refused, so list only directories you know never ship.
+
 ## Commands
 
 `right-release` maps these subcommands to the modules in this package:
