@@ -8,22 +8,40 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" },
-    "./tooling": { "types": "./dist/tooling.d.ts", "import": "./dist/tooling.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./tooling": {
+      "types": "./dist/tooling.d.ts",
+      "import": "./dist/tooling.js"
+    }
   },
   "bin": {
     "legal-snapshot": "./bin/legal-snapshot.mjs",
     "generate-npm-license-appendix": "./bin/npm-license-appendix.mjs",
     "rightkit-legal": "./bin/rightkit-legal.mjs"
   },
-  "files": ["bin", "dist", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE"],
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
   "sideEffects": false,
   "peerDependencies": {
     "@rightkit/release": "^0.4.1 || ^0.5.0"
   },
   "peerDependenciesMeta": {
-    "@rightkit/release": { "optional": true }
+    "@rightkit/release": {
+      "optional": true
+    }
   },
   "scripts": {
     "build": "tsc",
@@ -45,5 +63,20 @@
     "type": "git",
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/legal"
+  },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "legal-snapshot": [
+          "--help"
+        ],
+        "generate-npm-license-appendix": [
+          "--help"
+        ],
+        "rightkit-legal": [
+          "--help"
+        ]
+      }
+    }
   }
 }

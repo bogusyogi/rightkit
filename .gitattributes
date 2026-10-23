@@ -43,3 +43,9 @@ vendor/tauri-runtime-wry/** -text
 /packages/logs/src/recorder.ts text eol=lf
 /crates/rightkit-logs/tests/scrub-parity.v1.json text eol=lf
 /crates/rightkit-logs/benches/workloads.json text eol=lf
+# The npm recipe consumer compares these on-disk bytes with the committed blob on every host (scripts/ci/npm-recipe-consumer.mjs
+# sourceFiles): a CRLF checkout on windows-2025 refused issues-tracker and legal (runs 39893910596, 39893927025).
+/package.json text eol=lf
+/packages/*/package.json text eol=lf
+/ci/consumer-recipes.json text eol=lf
+/ci/approved-artifacts*.json text eol=lf

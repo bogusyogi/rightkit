@@ -186,7 +186,7 @@ export function dispatchRefusal(receipt, sha, unit, registry = "crates", config 
     packageDir = pkg.dir;
     try { expectedRows = (deps.packageRows ?? packageRows)(unit, pkg, { storeDir: pipeline.tools?.pnpm?.[process.platform]?.storeDir }); } catch (error) { return String(error.message); }
   }
-  return receiptRefusal(receipt, { sha, unit, registry, config, version, expectedRows, packageDir });
+  return receiptRefusal(receipt, { sha, unit, registry, config, version, expectedRows, packageDir, allowHostedCompile: registry === "crates" });
 }
 
 /** Planner refusals remain refusals. Only explicit version-bound policy supplies exceptions. */

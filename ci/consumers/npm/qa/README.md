@@ -12,7 +12,7 @@ Required environment:
 | --- | --- |
 | `RIGHTKIT_CONSUMER_ARTIFACT` | Absolute installed `.tgz` path |
 | `RIGHTKIT_CONSUMER_ARTIFACT_SHA256` | Actual lowercase archive SHA-256 (no candidate digest is pinned; no packed archive exists yet) |
-| `RIGHTKIT_CONSUMER_EXPECTED_VERSION` | `0.5.2` |
+| `RIGHTKIT_CONSUMER_EXPECTED_VERSION` | `0.6.0` |
 | `RIGHTKIT_CONSUMER_RESOLUTION` | `packed` before upload; `fetched` after registry readback |
 
 No runtime environment is forwarded; the recipe never reads a browser root. Run `node consumer.mjs` from the consumer directory on macOS and Windows (the default unit hosts; Linux is not required for this unit).

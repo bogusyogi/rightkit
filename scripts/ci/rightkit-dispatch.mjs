@@ -105,9 +105,16 @@ export function matchRun(runs, query) {
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "084294ab06209c84826013efca553b576b462169e18d69caa71e3a1f3e3c3810";
+const PREFLIGHT_SHA256 = "a3bc810b074e59d94365d71fe92aff851132a818cff6678ec1c03bce8bfe95bc";
 const NPM_PREFLIGHT_SHA256 = "53ce2324bd10f69e4d876516681ff0c1331a35ec93044d773fc3a9f297373de3";
 const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
+// Filled from reviewed bytes; validate the complete static admission import tree before import.
+const ADMISSION_DEPENDENCIES = {
+  "scripts/ci/rk-routing.mjs": "6b3c6350a653c5284146c98dcd7df306c5ce8b96d5a5dd14c2e8f39c0dfb29c1",
+  "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
+  "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
+  "packages/release/workflow-yaml.mjs": "13491a0cbebe60575f459be004333d4782c1dbe66fe18963c1b1eba0410f4ced",
+};
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted");
   const npm = opts.registry === "npm";
@@ -118,13 +125,17 @@ export async function requirePreflight(opts) {
   const helper = path.join(root, "scripts", "ci", "rk-preflight.mjs");
   if (!fs.existsSync(helper) || !fs.existsSync(path.join(root, ".git"))) throw new Error(`working directory ${root} is not the RightKit checkout`);
   if (crypto.createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== PREFLIGHT_SHA256) throw new Error("preflight implementation digest changed; repin adapter with its reviewed helper");
+  for (const [relative, expected] of Object.entries(ADMISSION_DEPENDENCIES)) {
+    const file = path.join(root, relative);
+    if (!fs.existsSync(file) || crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") !== expected) throw new Error(`admission dependency digest changed: ${relative}`);
+  }
   const npmHelper = path.join(root, "scripts", "ci", "rk-npm-preflight.mjs");
   if (npm) {
     for (const [file, expected] of [[npmHelper, NPM_PREFLIGHT_SHA256], [path.join(root, "scripts", "ci", "select.mjs"), NPM_SELECT_SHA256]]) {
       if (!fs.existsSync(file) || crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") !== expected) throw new Error("npm admission implementation digest changed; repin reviewed dependencies");
     }
   }
-  const { receiptRefusal, exceptionAllowsets, crateRows, resolveRowWorkspace, verifyAttestation, DEFAULT_OUT } = await import(pathToFileURL(helper));
+  const { receiptRefusal, exceptionAllowsets, crateRows, resolveRowWorkspace, verifyAttestation, recheckHostedAdmission, DEFAULT_OUT } = await import(pathToFileURL(helper));
   const git = (...args) => {
     const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
     if (r.status !== 0) throw new Error("cannot prove committed admission inputs");
@@ -157,11 +168,16 @@ export async function requirePreflight(opts) {
     rows = crateRows(opts.unit, config);
   }
   const receipt = JSON.parse(fs.readFileSync(path.join(DEFAULT_OUT, opts.sha, `${opts.unit.replaceAll("/", "__")}.json`), "utf8"));
-  const reason = receiptRefusal(receipt, { ...opts, config, version, expectedRows: rows, packageDir });
+  const reason = receiptRefusal(receipt, { ...opts, config, version, expectedRows: rows, packageDir, allowHostedCompile: !npm });
   if (reason) throw new Error(reason);
+  const hostedCompile = !npm && receipt.mode === "hosted-compile";
+  if (hostedCompile) {
+    await recheckHostedAdmission({ receipt, root, sha: opts.sha, unit: opts.unit, rows, config, version });
+    if (git("rev-parse", "HEAD") !== opts.sha || git("status", "--porcelain", "--untracked-files=no")) throw new Error("checkout changed during hosted admission");
+  }
   // The receipt is writable JSON; the broker's signed provenance is not. Ask the broker about every row again, now,
   // and verify each envelope's signature against this host's enrolled key from the committed pipeline config.
-  for (const [i, row] of rows.entries()) {
+  for (const [i, row] of (hostedCompile ? [] : rows).entries()) {
     const got = receipt.rows[i];
     const workspace = npm ? root : resolveRowWorkspace({ root, row, sha: opts.sha });
     const check = verifyAttestation(got.attestation?.requestId, { nonce: got.attestation?.nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], expect, workspace });

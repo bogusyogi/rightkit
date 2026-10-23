@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { consumerRecipePolicy, planCommandsFromWorkflow, PLAN_CONTRACT_STEP, countIgnoredTests, verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
@@ -119,7 +120,7 @@ test("ignored-test policy: #[ignore] attributes are counted statically across sr
 
 test("the plan-job contract commands come from publish.yml itself, never from a copied list", () => {
   const fs = require("node:fs"), path = require("node:path");
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const commands = planCommandsFromWorkflow(root, { execPath: "NODE" });
   assert.ok(commands.length >= 4, "the real workflow step runs at least four commands");
   assert.ok(commands.every(([exe, args]) => exe === "NODE" && args.length >= 1 && args.every((a) => /^[A-Za-z0-9_./@-]+$/.test(a))));

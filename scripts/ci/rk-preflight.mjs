@@ -9,10 +9,52 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 import { cargoRecipe } from "./consumer-recipes.mjs";
+import { routeCrate, readOnlyQueries } from "./rk-routing.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_OUT = "/Volumes/D/scratch/rk-pipeline/receipts";
 export const SCHEMA = "rk-preflight.v2";
+
+// Observations select where compilation occurs; hosted qualification remains mandatory.
+export async function observeCrateRoute({ root, sha, unit, rows }, deps = {}) {
+  const workspace = fs.realpathSync(root);
+  for (const row of rows) resolveRowWorkspace({ root: workspace, row, sha });
+  const historyFile = process.platform === "win32" ? "D:\\scratch\\rk-pipeline\\state.json" : "/Volumes/D/scratch/rk-pipeline/state.json";
+  const pipeline = readJson(path.join(workspace, "ci", "rk-pipeline.json"), {});
+  const rustright = nativeForecastClient(pipeline);
+  return routeCrate({ workspace, sourceSha: sha, registry: "crates", unit, rows, state: readJson(historyFile, {}) },
+    deps.queries ?? readOnlyQueries({ cwd: workspace, rustright }));
+}
+
+export function nativeForecastClient(pipeline, platform = process.platform) {
+  const client = pipeline.attestation?.[platform]?.clientPath;
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  if (typeof client !== "string" || !paths.isAbsolute(client) || (platform === "win32" && !/\.exe$/i.test(client))) {
+    throw new Error("installed native forecast client path is not enrolled for this host");
+  }
+  return client;
+}
+
+/** Pinned dispatcher calls this only after independently deriving committed identity/rows. */
+export async function recheckHostedAdmission({ receipt, root, sha, unit, rows, config, version }, deps = {}) {
+  const reason = receiptRefusal(receipt, { sha, registry: "crates", unit, config, version, allowHostedCompile: true });
+  if (reason || receipt.mode !== "hosted-compile") throw new Error(reason ?? "explicit hosted-compile receipt required");
+  let checked = false;
+  const code = await (deps.checks ?? main)(["--registry", "crates", "--unit", unit], {
+    root, checksOnly: true, writeReceipt: false,
+    onChecksPassed: actual => {
+      if (actual.sha !== sha || actual.unit !== unit) throw new Error("deterministic recheck identity changed");
+      checked = true;
+    },
+  });
+  if (code !== 0 || !checked) throw new Error("fresh deterministic admission checks did not pass");
+  const route = await (deps.observeRoute ?? observeCrateRoute)({ root, sha, unit, rows });
+  if (route.route !== "ci" || route.local?.knownHistory !== true || !Number.isSafeInteger(route.local?.totalMs)
+      || !Number.isSafeInteger(route.hosted?.estimateMs) || route.hosted.estimateMs < 0 || route.local.totalMs <= route.hosted.estimateMs) {
+    throw new Error("fresh broker/API routing requires local compilation; run preflight again");
+  }
+  return route;
+}
 
 
 export function readJson(file, fallback) {
@@ -381,6 +423,7 @@ export async function main(argv, deps = {}) {
   const logDir = fs.mkdtempSync(path.join(receiptDir, `${opts.unit.replaceAll("/", "__")}.logs-`));
   const receipt = { schema: SCHEMA, sha, registry: opts.registry, unit: opts.unit, startedAt: new Date().toISOString(), host: process.platform, route: "local", ok: false, tools: null, scans: null, rows: [], mode: "local-compile", gaps: ["runtime tests, other OS targets & sealed archive consumers remain hosted"] };
   const save = () => {
+    if (deps.writeReceipt === false) return;
     const file = path.join(receiptDir, `${opts.unit.replaceAll("/", "__")}.json`);
     const temp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(temp, JSON.stringify(receipt, null, 2));
@@ -464,6 +507,23 @@ export async function main(argv, deps = {}) {
     }
   }
 
+  if (!unchanged()) { receipt.failedAt = "source-changed"; save(); return 2; }
+  await deps.onChecksPassed?.({ sha, unit: opts.unit });
+  // Internal dispatcher recheck cannot be requested by CLI and never executes a compile row.
+  if (deps.checksOnly) return 0;
+  let decision;
+  try { decision = await (deps.observeRoute ?? observeCrateRoute)({ root, sha, unit: opts.unit, rows }); }
+  catch (error) { decision = { route: "local", reason: `routing-unavailable: ${error.message}` }; }
+  receipt.routing = decision;
+  if (decision.route === "ci") {
+    receipt.route = "ci";
+    receipt.mode = "hosted-compile";
+    receipt.ok = unchanged();
+    receipt.finishedAt = new Date().toISOString();
+    save();
+    out(`${receipt.ok ? "GREEN" : "RED"} ${opts.unit}: hosted-compile selected; pinned dispatcher rechecks admission before dispatch`);
+    return receipt.ok ? 0 : 2;
+  }
   // Compile only. Runtime tests & OS qualification belong on hosted runners.
   const rowEnv = { ...env, RIGHTKIT_REQUIRE_ASSETS: "1" };
   for (const row of rows) {
@@ -513,19 +573,24 @@ export async function main(argv, deps = {}) {
 }
 
 /** Structural proof, never a signature. Expected rows come from commit-bound policy, not receipt claims. */
-export function receiptRefusal(receipt, { sha, registry, unit, config, version, expectedRows, packageDir }) {
+export function receiptRefusal(receipt, { sha, registry, unit, config, version, expectedRows, packageDir, allowHostedCompile = false }) {
   const npm = registry === "npm";
   if (registry !== "crates" && !npm) return "unsupported pre-flight registry";
   if (!receipt) return "no pre-flight receipt for this commit";
   if (receipt.sha !== sha) return "receipt commit differs from requested commit";
-  if (receipt.schema !== SCHEMA || receipt.mode !== (npm ? "local-test" : "local-compile")) return "obsolete or diagnostic receipt";
+  const hosted = !npm && allowHostedCompile && receipt.mode === "hosted-compile" && receipt.route === "ci";
+  if (receipt.schema !== SCHEMA || (!hosted && receipt.mode !== (npm ? "local-test" : "local-compile"))) return "obsolete or diagnostic receipt";
   if (receipt.registry !== registry || receipt.unit !== unit || receipt.version !== version) return "receipt unit/registry/version mismatch";
   if (npm && (receipt.adapter !== "rightkit-pnpm" || receipt.dir !== packageDir)) return "npm adapter or package directory mismatch";
-  if (receipt.route !== "local" || receipt.ok !== true || !receipt.finishedAt || receipt.failedAt) return "local compilation is incomplete or red";
+  if ((!hosted && receipt.route !== "local") || receipt.ok !== true || !receipt.finishedAt || receipt.failedAt) return "local compilation is incomplete or red";
   if (receipt.scans?.ok !== true || receipt.scans.exit !== 0 || receipt.scans.timedOut !== false) return "deterministic scans did not pass";
   if (receipt.planChecks?.ok !== true || receipt.planChecks.exit !== 0 || receipt.planChecks.timedOut !== false) return "the hosted plan job's contract checks did not pass locally";
   const expected = npm ? expectedRows : crateRows(unit, config);
   if (!Array.isArray(expected) || !expected.length) return "missing committed row plan";
+  if (hosted) {
+    if (JSON.stringify(receipt.requiredRows) !== JSON.stringify(expected.map(row => row.id)) || !Array.isArray(receipt.rows) || receipt.rows.length !== 0) return "hosted compile row plan differs";
+    return null; // Observation only: pinned dispatcher must re-execute checks and query route independently.
+  }
   if (npm && JSON.stringify(receipt.requiredRows) !== JSON.stringify(expected.map((row) => row.id))) return "npm required row order differs";
   if (!Array.isArray(receipt.rows) || receipt.rows.length !== expected.length || !expected.length) return "missing or extra compile rows";
   for (const [i, row] of expected.entries()) {

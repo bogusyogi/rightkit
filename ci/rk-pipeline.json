@@ -106,6 +106,7 @@
   },
   "attestation": {
     "darwin": {
+      "clientPath": "/Users/adrdsouza/Library/Application Support/RustRight/runtime/rustright",
       "host": "Adrians-Mac-Mini.local",
       "keyId": "a9eb1ceeaa6b1cec899a7e5d01a97a084308a585c3e2c409510d02774ef7134f",
       "publicKey": "04248e98a439add3f13756be789c4091a5e9735fbe4e85768d394eedbffc685f63ae4ad3e1a68dfee87008955b308dcdf5d142b1a760bf45e4ea0b2d3430c22dcb",

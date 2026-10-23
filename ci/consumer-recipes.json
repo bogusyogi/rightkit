@@ -306,8 +306,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/qa/README.md": "821de93064ed1ee9e09e05d059b1631a0d0eefab920dc8f7ef4f056a1eb6e4a8",
-        "ci/consumers/npm/qa/consumer.mjs": "8568000b993001f60b17e804343115162b06138baf78fefbfe02d09b6167bbe3",
+        "ci/consumers/npm/qa/README.md": "17f0aaabb7a5d6ad47a72bb569a135edb507d4a86c39da4cbcc305036180ee89",
+        "ci/consumers/npm/qa/consumer.mjs": "a0ed197f05a06a5cfd54cbbc43bffd3dcd2f1e8b3c96b3b760e069b3b7ad65ef",
         "ci/consumers/npm/qa/package.json": "d3e10d2d2250a367ef04c4c8ab7dfb2407668c9ae9e5724229818c432ea5e0da",
         "ci/consumers/npm/qa/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
