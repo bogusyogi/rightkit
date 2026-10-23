@@ -6797,7 +6797,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-browser"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "async-tungstenite",
  "chromiumoxide",

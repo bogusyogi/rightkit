@@ -1573,7 +1573,7 @@ async fn start_intercept_pump(
             let hook_slot = hook_slot.clone();
             tokio::spawn(async move {
                 let kind = format!("{:?}", e.resource_type);
-                match g.network.check(&e.request.url, &kind).await {
+                match g.check_request(&e.request.url, &kind).await {
                     Ok(()) => {
                         let hook = hook_slot.lock().unwrap().clone();
                         let decision = match hook {

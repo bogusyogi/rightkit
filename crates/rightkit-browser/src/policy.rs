@@ -32,18 +32,28 @@
 //! so a name that rebinds from public to private between check and connect
 //! cannot reach a blocked address.
 //!
+//! Traffic page interception never sees (WebSocket handshakes, requests from
+//! dedicated/shared/service workers, Chrome's own fetchers) still reaches the
+//! pinning proxy. When a per-request callback is set, the proxy runs the same
+//! check for every `host:port` no page check of this session allowed, with
+//! resource type `Connect` and URL `https://host:port/` (a plain-HTTP proxy
+//! request is checked with its full URL); a refusal is a typed `Denied` event
+//! with `what = "Connect"` and nothing is connected (#925).
+//!
 //! Known gaps (documented, not silently covered):
-//! * WebSocket handshakes and requests from dedicated/shared/service workers
-//!   are not visible to page-level interception. They still pass the pinning
-//!   proxy, so the address policy holds, but the scheme check and the
-//!   per-request callback are not consulted for them.
-//! * The callback can only *deny* public destinations for requests the page
-//!   interception sees (same limit as above).
+//! * For that non-intercepted traffic the callback decides per `host:port`
+//!   only; path-level decisions apply only to intercepted requests. A closed
+//!   allowlist must return `Deny` for everything else: `Default` (or `false`)
+//!   leaves public destinations allowed, as for any request.
+//! * Once a page check allows a `host:port`, later non-intercepted traffic to
+//!   the same pair is not decided again.
+//! * [`crate::BrowserSession::pinned_connections`] also records failed
+//!   connection attempts, so it is not an egress audit on its own.
 //! * WebRTC UDP is restricted to proxied routes by Chrome flag; this is not
 //!   independently verified by a test.
 
 use futures::future::BoxFuture;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, Mutex};
@@ -706,6 +716,29 @@ pub(crate) struct Guard {
     pub admission: Option<AdmissionHook>,
     pub network: NetworkPolicy,
     pub events: Option<EventSink>,
+    /// This session's `(host, port)` pairs a page request check allowed; the proxy does not
+    /// decide those again (#925).
+    pub page_allowed: Mutex<HashSet<(String, u16)>>,
+}
+
+/// The `(host, port)` an allowed networked request leaves for, keyed as the proxy sees it.
+fn networked_pair(url: &str) -> Option<(String, u16)> {
+    let parsed = url::Url::parse(url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https" | "ws" | "wss") {
+        return None;
+    }
+    let host = normalize_host(parsed.host_str()?);
+    Some((host, parsed.port_or_known_default()?))
+}
+
+/// The URL a CONNECT `host:port` is checked as; CONNECT has no path.
+fn connect_url(host: &str, port: u16) -> String {
+    let host = normalize_host(host);
+    if host.contains(':') {
+        format!("https://[{host}]:{port}/")
+    } else {
+        format!("https://{host}:{port}/")
+    }
 }
 
 impl Guard {
@@ -749,13 +782,53 @@ impl Guard {
         Ok(())
     }
 
+    /// [`NetworkPolicy::check`] for a request page interception saw. An allowed networked
+    /// request records its `(host, port)` for this session.
+    pub async fn check_request(&self, url: &str, kind: &str) -> Result<(), BlockReason> {
+        self.network.check(url, kind).await?;
+        if let Some(pair) = networked_pair(url) {
+            self.page_allowed.lock().unwrap().insert(pair);
+        }
+        Ok(())
+    }
+
+    /// The proxy's decision for one connection: CONNECT `host:port`, or a plain-HTTP `url`.
+    /// With a per-request callback set, a pair no page check of this session allowed gets the
+    /// same check page requests get, as resource type `Connect`; then the address is pinned.
+    /// Without a callback the decision is the pin alone, as before.
+    pub(crate) async fn admit_proxied(
+        &self,
+        host: &str,
+        port: u16,
+        url: Option<&str>,
+    ) -> Result<Vec<IpAddr>, BlockReason> {
+        let decide = self.network.allow_request.is_some()
+            && !self
+                .page_allowed
+                .lock()
+                .unwrap()
+                .contains(&(normalize_host(host), port));
+        if decide {
+            let connect;
+            let url = match url {
+                Some(url) => url,
+                None => {
+                    connect = connect_url(host, port);
+                    &connect
+                }
+            };
+            self.network.check(url, "Connect").await?;
+        }
+        self.network.pin(host).await
+    }
+
     pub async fn check_url(
         &self,
         page_id: Option<&str>,
         url: &str,
         kind: &str,
     ) -> crate::error::Result<()> {
-        match self.network.check(url, kind).await {
+        match self.check_request(url, kind).await {
             Ok(()) => Ok(()),
             Err(reason) => {
                 self.denied_network(page_id, kind, &reason);
@@ -1111,6 +1184,7 @@ mod tests {
             events: Some(Arc::new(move |e: &BrowserEvent| {
                 e2.lock().unwrap().push(e.clone())
             })),
+            page_allowed: Mutex::default(),
         };
         let before = SystemTime::now();
         let err = block_on(g.check_url(Some("p1"), "http://10.0.0.1/", "Navigation")).unwrap_err();

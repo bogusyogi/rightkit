@@ -4,7 +4,10 @@
 //! addresses against the policy, and connects to the vetted address. A name
 //! that flips from public to private between check and connect (DNS
 //! rebinding), or a request that bypassed page interception (workers), can
-//! therefore never reach a blocked address.
+//! therefore never reach a blocked address. With a per-request callback set,
+//! a connection to a `host:port` no page check of the session allowed gets the
+//! page check here first (resource type `Connect`), so traffic page
+//! interception never sees cannot pass a callback `Deny` (#925).
 use crate::policy::BlockReason;
 use crate::policy::Guard;
 use std::collections::HashSet;
@@ -580,7 +583,10 @@ async fn serve(
         )
     };
 
-    let ips = match guard.network.pin(&host).await {
+    let ips = match guard
+        .admit_proxied(&host, port, (!is_connect).then_some(target))
+        .await
+    {
         Ok(ips) => ips,
         Err(reason) => {
             guard.denied_network(None, "Connect", &reason);
@@ -749,6 +755,7 @@ mod fixture_tests {
             admission: None,
             network: NetworkPolicy::default(),
             events: None,
+            page_allowed: Mutex::default(),
         });
         let server_endpoint = endpoint();
         let proxy = PinProxy::start_fixture(
@@ -764,5 +771,231 @@ mod fixture_tests {
         let mut byte = [0u8; 1];
         assert!(matches!(client.read(&mut byte).await, Ok(0) | Err(_)));
         assert!(TcpStream::connect(proxy.addr).await.is_err());
+    }
+}
+
+/// #925: traffic page interception never sees gets the page decision in the proxy.
+#[cfg(test)]
+mod connect_policy_tests {
+    use super::*;
+    use crate::policy::{
+        BrowserEvent, BrowserRequest, LifecycleKind, NetworkPolicy, PolicyDecision,
+    };
+
+    type Calls = Arc<Mutex<Vec<(String, String)>>>;
+
+    /// Offline names: `public.example` is public and never reachable here; `allowed.example`
+    /// and `other.example` resolve to loopback, where the test listens.
+    fn offline() -> NetworkPolicy {
+        NetworkPolicy::default().with_resolver(|h| match h {
+            "public.example" => vec!["93.184.216.34".parse().unwrap()],
+            "allowed.example" | "other.example" => vec!["127.0.0.1".parse().unwrap()],
+            _ => vec![],
+        })
+    }
+
+    fn recording(
+        decide: impl Fn(&BrowserRequest) -> PolicyDecision + Send + Sync + 'static,
+    ) -> (NetworkPolicy, Calls) {
+        let calls: Calls = Arc::default();
+        let c = calls.clone();
+        let network = offline().allow_with(move |r: &BrowserRequest| {
+            c.lock()
+                .unwrap()
+                .push((r.resource_type.clone(), r.url.clone()));
+            decide(r)
+        });
+        (network, calls)
+    }
+
+    struct Harness {
+        guard: Arc<Guard>,
+        proxy: PinProxy,
+        denied: Arc<Mutex<Vec<BrowserEvent>>>,
+    }
+
+    impl Harness {
+        async fn start(network: NetworkPolicy) -> Harness {
+            let denied: Arc<Mutex<Vec<BrowserEvent>>> = Arc::default();
+            let d = denied.clone();
+            let guard = Arc::new(Guard {
+                session_id: "connect-test".into(),
+                admission: None,
+                network,
+                events: Some(Arc::new(move |e: &BrowserEvent| {
+                    if matches!(e.kind, LifecycleKind::Denied) {
+                        d.lock().unwrap().push(e.clone());
+                    }
+                })),
+                page_allowed: Mutex::default(),
+            });
+            let proxy = PinProxy::start(guard.clone()).await.unwrap();
+            Harness {
+                guard,
+                proxy,
+                denied,
+            }
+        }
+
+        /// Sends one proxy request head and returns the status line.
+        async fn send(&self, head: &str) -> String {
+            let mut client = TcpStream::connect(self.proxy.addr).await.unwrap();
+            client.write_all(head.as_bytes()).await.unwrap();
+            let mut buf = vec![0u8; 512];
+            let n = tokio::time::timeout(Duration::from_secs(10), client.read(&mut buf))
+                .await
+                .unwrap()
+                .unwrap();
+            String::from_utf8_lossy(&buf[..n])
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string()
+        }
+
+        async fn connect(&self, target: &str) -> String {
+            self.send(&format!(
+                "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n"
+            ))
+            .await
+        }
+
+        fn connect_denials(&self) -> usize {
+            self.denied
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.what.as_deref() == Some("Connect"))
+                .count()
+        }
+
+        fn logged(&self) -> Vec<PinnedConnection> {
+            self.proxy.log.lock().unwrap().clone()
+        }
+    }
+
+    async fn listener() -> (u16, JoinHandle<io::Result<TcpStream>>) {
+        let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = upstream.local_addr().unwrap().port();
+        (
+            port,
+            tokio::spawn(async move { upstream.accept().await.map(|(s, _)| s) }),
+        )
+    }
+
+    /// Test 1.
+    #[tokio::test]
+    async fn deny_all_callback_refuses_connect_before_any_upstream() {
+        let (network, calls) = recording(|_| PolicyDecision::Deny("deny all".into()));
+        let h = Harness::start(network).await;
+        let status = h.connect("public.example:443").await;
+        assert!(status.contains("403"), "{status}");
+        assert!(h.logged().is_empty(), "no upstream connection may be made");
+        assert_eq!(h.connect_denials(), 1);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [(
+                "Connect".to_string(),
+                "https://public.example:443/".to_string()
+            )]
+        );
+    }
+
+    /// Test 2.
+    #[tokio::test]
+    async fn plain_http_absolute_form_is_checked_with_its_full_url() {
+        let (network, calls) = recording(|_| PolicyDecision::Deny("deny all".into()));
+        let h = Harness::start(network).await;
+        let url = "http://public.example/path?q=1";
+        let status = h
+            .send(&format!(
+                "GET {url} HTTP/1.1\r\nHost: public.example\r\n\r\n"
+            ))
+            .await;
+        assert!(status.contains("403"), "{status}");
+        assert!(h.logged().is_empty());
+        assert_eq!(h.connect_denials(), 1);
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [("Connect".to_string(), url.to_string())]
+        );
+    }
+
+    /// Test 3.
+    #[tokio::test]
+    async fn callback_allowing_one_host_admits_exactly_that_host() {
+        let (port, accepted) = listener().await;
+        let (network, _) = recording(|r| {
+            if r.host == "allowed.example" {
+                PolicyDecision::Allow
+            } else {
+                PolicyDecision::Deny("not listed".into())
+            }
+        });
+        let h = Harness::start(network).await;
+        let status = h.connect(&format!("allowed.example:{port}")).await;
+        assert!(status.contains("200"), "{status}");
+        assert!(accepted.await.unwrap().is_ok());
+        let status = h.connect(&format!("other.example:{port}")).await;
+        assert!(status.contains("403"), "{status}");
+        let log = h.logged();
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert_eq!(
+            (log[0].host.as_str(), log[0].port),
+            ("allowed.example", port)
+        );
+        assert_eq!(h.connect_denials(), 1);
+    }
+
+    /// Test 4.
+    #[tokio::test]
+    async fn a_pair_a_page_check_allowed_is_not_decided_again() {
+        let (port, accepted) = listener().await;
+        let (network, calls) = recording(|r| PolicyDecision::from(r.host == "allowed.example"));
+        let h = Harness::start(network).await;
+        // Page interception checks the full URL first, as Chrome's Fetch domain does.
+        let url = format!("https://allowed.example:{port}/page?q=1");
+        h.guard.check_request(&url, "Document").await.unwrap();
+        let status = h.connect(&format!("allowed.example:{port}")).await;
+        assert!(status.contains("200"), "{status}");
+        assert!(accepted.await.unwrap().is_ok());
+        assert_eq!(*calls.lock().unwrap(), [("Document".to_string(), url)]);
+        assert_eq!(h.connect_denials(), 0);
+    }
+
+    /// Test 5: without a callback the proxy decision is the pin alone, as before.
+    #[tokio::test]
+    async fn without_a_callback_the_decision_is_unchanged() {
+        let guard = Harness::start(offline()).await.guard;
+        assert_eq!(
+            guard.admit_proxied("public.example", 443, None).await,
+            guard.network.pin("public.example").await
+        );
+        assert!(guard
+            .admit_proxied("public.example", 443, None)
+            .await
+            .is_ok());
+        assert!(guard
+            .admit_proxied("allowed.example", 443, None)
+            .await
+            .is_err());
+        assert!(guard.page_allowed.lock().unwrap().is_empty());
+    }
+
+    /// Test 6: an Allow cannot open the metadata or link-local hard block.
+    #[tokio::test]
+    async fn allow_callback_cannot_open_metadata_or_link_local() {
+        let (network, _) = recording(|_| PolicyDecision::Allow);
+        let h = Harness::start(network).await;
+        for target in [
+            "169.254.169.254:80",
+            "metadata.google.internal:80",
+            "[fe80::1]:443",
+        ] {
+            let status = h.connect(target).await;
+            assert!(status.contains("403"), "{target}: {status}");
+        }
+        assert!(h.logged().is_empty());
+        assert_eq!(h.connect_denials(), 3);
     }
 }

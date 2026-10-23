@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 chromiumoxide = { version = "=0.9.1", default-features = false }
-rightkit-browser = { version = "=0.3.5", default-features = false, features = ["cookie-export"] }
+rightkit-browser = { version = "=0.3.6", default-features = false, features = ["cookie-export"] }
 rightkit-fs = { version = "=0.4.6", default-features = false, features = ["fs"] }
 tokio = { version = "=1.53.3", features = ["rt-multi-thread", "macros", "time"] }
 sha2 = "=0.11.1"

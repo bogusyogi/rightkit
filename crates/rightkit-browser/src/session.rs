@@ -625,6 +625,7 @@ impl BrowserSession {
             admission,
             network: opts.network.clone(),
             events: opts.on_event.clone(),
+            page_allowed: StdMutex::default(),
         });
         let fixture_mode = fixture_proxy_policy.is_some();
         #[cfg(windows)]

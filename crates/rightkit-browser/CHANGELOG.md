@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6 — unreleased
+
+- **Fixed: the network policy callback now also decides traffic the page never sees (rightkit#925).** Before, the egress proxy decided only with the DNS pin, so workers, SharedWorkers, WebSockets and Chrome's own background fetches ignored a `Deny` from the `allow_request` callback; and a page request allowed to `127.0.0.1:A` approved the whole host, so other loopback ports passed. Now each session records the `(host, port)` pairs the page requests were allowed for, and the proxy asks the callback once for any other pair, as `resource_type = "Connect"` with `https://host:port/` (CONNECT) or the full URL (plain HTTP); the pin and the metadata/link-local block still always run. No API change; sessions without a callback are unchanged.
+- Behaviour change for callers that restrict loopback ports (GenRight): workers and WebSockets now get only the allowed port, as the callback intended.
+- Documented gaps: a page-allowed `host:port` is not re-decided for another scheme on the same pair; a denied `Connect` attempt still appears in `pinned_connections()`.
+
 ## 0.3.5 — 2026-10-20
 
 - Requires rightkit-sandbox 0.6.1: Chrome for Testing 156 (the pinned Stable) needs the Core Animation render-service lookup in the macOS fixture profile.

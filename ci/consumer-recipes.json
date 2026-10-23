@@ -441,7 +441,7 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-browser/src/main.rs",
       "files": {
-        "Cargo.toml": "3102a5a7d7eba2ad5021d248e19b0ab830e5590d0cb37c66f555ba7fcafc6904",
+        "Cargo.toml": "001499957888de0d32ce2799faf9c73d440a6f4d2b724ba2a0162a60cd971c17",
         "README.md": "8515f8481c8a4fb81582afc0acfa1638aaafe61364656e050bd1e5abb920bc82",
         "src/main.rs": "a719e9badfca191c21ee3491b4f184a342eea93140f514050897cd0af8d520e9"
       },

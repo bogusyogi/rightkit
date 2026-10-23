@@ -76,10 +76,26 @@ impl Fixture {
                                 secret_url.unwrap_or_default()
                             ),
                             "/btn" => "<title>Btn</title><button id=b onclick=\"document.title='clicked'\">Go</button>".to_string(),
+                            // #925: traffic page interception does not see.
+                            "/worker-page" => "<title>Worker</title><script>new Worker('/worker.js')</script>".to_string(),
+                            "/shared-worker-page" => "<title>Shared</title><script>new SharedWorker('/worker.js')</script>".to_string(),
+                            "/worker.js" => format!(
+                                "fetch('{}/from-worker').catch(() => {{}});",
+                                secret_url.unwrap_or_default()
+                            ),
+                            "/ws-page" => format!(
+                                "<title>Ws</title><script>new WebSocket('{}/ws')</script>",
+                                secret_url.unwrap_or_default().replacen("http:", "ws:", 1)
+                            ),
                             _ => "<title>Home</title><p>home</p>".to_string(),
                         };
+                        let content_type = if path.ends_with(".js") {
+                            "text/javascript"
+                        } else {
+                            "text/html"
+                        };
                         format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                             body.len()
                         )
                     };
@@ -129,6 +145,144 @@ async fn wait_gone(marker: &str) -> Vec<u32> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// #925 test 7: Chrome's own fetchers never pass page interception; with a deny-all callback
+/// the proxy refuses them, so an idle session makes no successful upstream connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_session_with_deny_all_callback_makes_no_upstream_connection() {
+    need_chrome!("idle_session_with_deny_all_callback_makes_no_upstream_connection");
+    let _serial = SERIAL.lock().await;
+    let refused: Arc<Mutex<Vec<String>>> = Arc::default();
+    let r = refused.clone();
+    let opts = LaunchOptions::default()
+        .network(
+            NetworkPolicy::default()
+                .allow_with(|_| rightkit_browser::PolicyDecision::Deny("deny all".into())),
+        )
+        .on_event(move |e| {
+            if e.kind == LifecycleKind::Denied && e.what.as_deref() == Some("Connect") {
+                r.lock().unwrap().push(e.reason.clone());
+            }
+        });
+    let s = BrowserSession::launch(opts).await.unwrap();
+    let _p = s.new_page("about:blank").await.unwrap();
+    tokio::time::sleep(Duration::from_secs(15)).await;
+    // The log also holds failed attempts; with every pair refused before connecting it is empty.
+    let pinned = s.pinned_connections();
+    s.shutdown().await;
+    assert!(pinned.is_empty(), "upstream connections: {pinned:?}");
+    // Background timing varies by OS and Chrome version: logged, not asserted.
+    println!(
+        "idle: proxy refused {} connection(s)",
+        refused.lock().unwrap().len()
+    );
+}
+
+/// `Denied` events naming a target: (`what`, reason).
+type Denials = Vec<(Option<String>, String)>;
+
+/// One page on fixture `page` drives a request to fixture `target` from outside the page's own
+/// requests (#925 tests 8 and 9). The callback allows `page`; `target` only when `allow_target`.
+/// Returns the target's hits for `target_path` and the `Denied` events naming the target.
+async fn non_intercepted_request(
+    page_path: &str,
+    target_path: &str,
+    allow_target: bool,
+) -> (usize, Denials) {
+    let target = Fixture::start(None, None);
+    let page = Fixture::start(None, Some(target.base()));
+    let (pp, tp) = (page.port, target.port);
+    let denied: Arc<Mutex<Denials>> = Arc::default();
+    let d = denied.clone();
+    let opts = LaunchOptions::default()
+        .network(NetworkPolicy::default().allow_with(move |r| {
+            use rightkit_browser::PolicyDecision;
+            if r.host == "127.0.0.1" && (r.port == Some(pp) || (allow_target && r.port == Some(tp)))
+            {
+                PolicyDecision::Allow
+            } else {
+                PolicyDecision::Deny(format!("not allowed: {}:{:?}", r.host, r.port))
+            }
+        }))
+        .on_event(move |e| {
+            if e.kind == LifecycleKind::Denied && e.reason.contains(&format!("{tp}")) {
+                d.lock().unwrap().push((e.what.clone(), e.reason.clone()));
+            }
+        });
+    let s = BrowserSession::launch(opts).await.unwrap();
+    let _p = s
+        .new_page(&format!("{}{page_path}", page.base()))
+        .await
+        .unwrap();
+    let end = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < end && target.hits(target_path) == 0 && denied.lock().unwrap().is_empty()
+    {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // Let a request that is still in flight land before reading the counts.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    s.shutdown().await;
+    let hits = target.hits(target_path);
+    let denied = denied.lock().unwrap().clone();
+    (hits, denied)
+}
+
+/// #925 test 8: a worker's fetch to a port the callback denies never reaches it. A dedicated
+/// worker's fetch is seen by page interception (CfT 156: denied there as `Xhr`); a shared
+/// worker runs in its own target, so only the proxy decides its fetch.
+#[tokio::test(flavor = "multi_thread")]
+async fn worker_fetch_to_a_denied_port_is_refused_by_the_proxy() {
+    need_chrome!("worker_fetch_to_a_denied_port_is_refused_by_the_proxy");
+    let _serial = SERIAL.lock().await;
+    let (hits, denied) = non_intercepted_request("/worker-page", "/from-worker", false).await;
+    println!("dedicated worker denied: {denied:?}");
+    assert_eq!(
+        hits, 0,
+        "the denied dedicated-worker fetch reached its server"
+    );
+    assert!(
+        !denied.is_empty(),
+        "no denial for the dedicated-worker fetch"
+    );
+
+    let (hits, denied) =
+        non_intercepted_request("/shared-worker-page", "/from-worker", false).await;
+    println!("shared worker denied: {denied:?}");
+    assert_eq!(hits, 0, "the denied shared-worker fetch reached its server");
+    assert!(
+        denied
+            .iter()
+            .any(|(what, _)| what.as_deref() == Some("Connect")),
+        "{denied:?}"
+    );
+    // Control: the same page with the target allowed reaches it, so the denial is what blocked it.
+    let (hits, _) = non_intercepted_request("/shared-worker-page", "/from-worker", true).await;
+    assert_eq!(
+        hits, 1,
+        "control run: the allowed shared-worker fetch must arrive"
+    );
+}
+
+/// #925 test 9: a WebSocket handshake to a port the callback denies never reaches it.
+#[tokio::test(flavor = "multi_thread")]
+async fn websocket_to_a_denied_port_is_refused_by_the_proxy() {
+    need_chrome!("websocket_to_a_denied_port_is_refused_by_the_proxy");
+    let _serial = SERIAL.lock().await;
+    let (hits, denied) = non_intercepted_request("/ws-page", "/ws", false).await;
+    println!("websocket denied: {denied:?}");
+    assert_eq!(hits, 0, "the denied WebSocket handshake reached its server");
+    assert!(
+        denied
+            .iter()
+            .any(|(what, _)| what.as_deref() == Some("Connect")),
+        "{denied:?}"
+    );
+    let (hits, _) = non_intercepted_request("/ws-page", "/ws", true).await;
+    assert_eq!(
+        hits, 1,
+        "control run: the allowed WebSocket handshake must arrive"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
