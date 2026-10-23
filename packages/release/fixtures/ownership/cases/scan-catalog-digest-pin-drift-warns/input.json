@@ -1,7 +1,7 @@
 {
   "kind": "scan",
-  "description": "trust.minimumCatalogDigest pins a different catalog.",
-  "expectCode": "RK_OWNERSHIP_POLICY_DOWNGRADE",
+  "description": "trust.minimumCatalogDigest pins a different catalog: the scan is admitted and the drift warning is reported (trust-sync is retired).",
+  "expectCode": "RK_OWNERSHIP_CLEAN",
   "harness": {
     "now": "2026-10-09T00:00:00.000Z",
     "origin": "https://github.com/test/repo",

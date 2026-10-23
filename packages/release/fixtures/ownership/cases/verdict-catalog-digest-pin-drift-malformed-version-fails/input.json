@@ -1,6 +1,6 @@
 {
   "kind": "verdict",
-  "description": "catalogDigest differs from trust.minimumCatalogDigest.",
+  "description": "A malformed catalogVersion refuses regardless of the digest pin.",
   "expectCode": "RK_OWNERSHIP_POLICY_DOWNGRADE",
   "report": {
     "ok": true,
@@ -11,7 +11,7 @@
     "metadata": {
       "repositoryIdentity": "https://github.com/test/repo",
       "scannerVersion": "2.6.0",
-      "catalogVersion": "1",
+      "catalogVersion": "1.x",
       "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "coverage": [],
       "roots": [

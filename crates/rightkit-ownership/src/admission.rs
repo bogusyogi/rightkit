@@ -190,6 +190,8 @@ pub struct Classification {
     pub problems: Vec<String>,
     pub outcome: &'static str,
     pub violations: Vec<Violation>,
+    /// Reported warnings on an admitted verdict (Node spreads the verdict's `warnings`).
+    pub warnings: Vec<String>,
 }
 
 /// Classifies one report against the protected trust registry.
@@ -201,6 +203,7 @@ pub fn classify_ownership_report(report: &Value, trust: &Value) -> Classificatio
         code: decision.code,
         problems: decision.problems,
         violations: violations_of(report),
+        warnings: decision.warnings,
     }
 }
 

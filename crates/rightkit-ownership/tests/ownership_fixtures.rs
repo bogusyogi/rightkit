@@ -91,7 +91,12 @@ fn opt_text(value: &Value, key: &str) -> Option<String> {
 }
 
 fn verdict_json(decision: &rightkit_ownership::Decision) -> Value {
-    json!({"admit": decision.admit, "code": decision.code, "problems": decision.problems})
+    let mut out =
+        json!({"admit": decision.admit, "code": decision.code, "problems": decision.problems});
+    if !decision.warnings.is_empty() {
+        out["warnings"] = json!(decision.warnings);
+    }
+    out
 }
 
 /// Case names of one `kind`, sorted.
@@ -162,7 +167,7 @@ fn verdict_case(name: &str) {
 
 #[test]
 fn fixtures_verdict() {
-    run_group("verdict", 88, verdict_case);
+    run_group("verdict", 92, verdict_case);
 }
 
 // ---- cache key -----------------------------------------------------------------------

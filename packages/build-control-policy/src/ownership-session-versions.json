@@ -32,7 +32,7 @@
     "@rightkit/qa": "0.6.1",
     "@rightkit/qa-chrome": "0.1.11",
     "@rightkit/react-shell": "0.7.2",
-    "@rightkit/release": "0.5.1",
+    "@rightkit/release": "0.6.0",
     "@rightkit/settings-ui": "0.7.0",
     "@rightkit/tauri": "0.3.0",
     "@rightkit/tauri-shell": "0.1.2",
@@ -224,7 +224,8 @@
       "0.3.0",
       "0.4.0",
       "0.4.1",
-      "0.5.0"
+      "0.5.0",
+      "0.5.1"
     ],
     "@rightkit/qa": [
       "0.1.0",
@@ -480,7 +481,7 @@
     "rightkit-qa-driver": "0.7.0",
     "rightkit-record": "0.3.3",
     "rightkit-review": "0.4.0",
-    "rightkit-sandbox": "0.6.0",
+    "rightkit-sandbox": "0.6.1",
     "rightkit-search": "0.4.0",
     "rightkit-send": "0.2.0",
     "rightkit-sidecar": "0.3.0",
@@ -572,7 +573,7 @@
       "rightkit-qts-ggml-sys": "0.1.2",
       "rightkit-record": "0.3.3",
       "rightkit-review": "0.4.0",
-      "rightkit-sandbox": "0.6.0",
+      "rightkit-sandbox": "0.6.1",
       "rightkit-search": "0.4.0",
       "rightkit-secrets": "0.2.0",
       "rightkit-send": "0.2.0",
@@ -618,7 +619,7 @@
       "@rightkit/qa": "0.6.1",
       "@rightkit/qa-chrome": "0.1.11",
       "@rightkit/react-shell": "0.7.2",
-      "@rightkit/release": "0.5.0",
+      "@rightkit/release": "0.5.1",
       "@rightkit/settings-ui": "0.7.0",
       "@rightkit/shell": "0.1.1",
       "@rightkit/tauri": "0.3.0",
@@ -762,7 +763,8 @@
       "0.3.3",
       "0.3.5",
       "0.4.0",
-      "0.5.0"
+      "0.5.0",
+      "0.6.0"
     ],
     "rightkit-shell": [
       "0.1.0",

@@ -7,6 +7,7 @@ import { deflateRawSync } from "node:zlib";
 import {
   DEV_INSPECT_MARKER, QA_CONTROL_MARKER, assertNoQaControl, bufferHasQaControlMarker, bufferQaFindings, fileHasQaControlMarker, isNativeBinaryHeader, scanForQaControl, scanWithStats, WEB_MOCK_MARKERS, assertNoWebBundleMocks, scanWebBundle, webBundleMockFindings,
 } from "./qa-control-scan.mjs";
+import { registryEvidenceFixture } from "./test-support/admission.mjs";
 
 const MACHO = Buffer.from([0xcf, 0xfa, 0xed, 0xfe]);
 const PE = Buffer.from("MZ");
@@ -98,7 +99,7 @@ test("a sealed release containing the marker fails verification (every seal and 
     const dir = mkdtempSync(join(tmpdir(), "rk-qa-sealed-"));
     writeFileSync(join(dir, "App.exe"), bytes);
     writeFileSync(join(dir, "release-manifest.json"), JSON.stringify({
-      schema: 1, checkpoints: ["sealed"],
+      schema: 1, ...registryEvidenceFixture(), checkpoints: ["sealed"],
       files: [{ name: "App.exe", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length }],
     }));
     return dir;
@@ -279,7 +280,7 @@ test("a sealed MSIX with a marked PE inside fails verification", async () => {
     const dir = mkdtempSync(join(tmpdir(), "rk-qa-sealed-"));
     writeFileSync(join(dir, "App.msix"), bytes);
     writeFileSync(join(dir, "release-manifest.json"), JSON.stringify({
-      schema: 1, checkpoints: ["sealed"],
+      schema: 1, ...registryEvidenceFixture(), checkpoints: ["sealed"],
       files: [{ name: "App.msix", sha256: createHash("sha256").update(bytes).digest("hex"), sizeBytes: bytes.length }],
     }));
     return dir;

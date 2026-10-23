@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
 import { assertUploadTier, authorizeGitHubUpload, resolveGitHubDistribution } from "./github-upload-gate.mjs";
+import { registryEvidenceFixture } from "./test-support/admission.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const GITHUB = { distribution: { provider: "github-releases", repository: "Orthic-Labs/CutRight" } };
@@ -17,7 +18,7 @@ function sealedFixture() {
   mkdirSync(sealedDir, { recursive: true });
   writeFileSync(path.join(sealedDir, "CutRight.exe"), "signed-installer");
   writeFileSync(path.join(sealedDir, "release-manifest.json"), `${JSON.stringify({
-    schema: 1, releaseId, app: "cutright", version: "1.2.3", commit: "abcdef1234567890", platform: "win",
+    schema: 1, ...registryEvidenceFixture(), releaseId, app: "cutright", version: "1.2.3", commit: "abcdef1234567890", platform: "win",
     files: [{ role: "installer", name: "CutRight.exe", sha256: sha256("signed-installer"), sizeBytes: 16 }],
     checkpoints: ["sealed"],
   })}\n`);

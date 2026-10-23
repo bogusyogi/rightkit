@@ -478,9 +478,21 @@ fn incomplete_inventory_never_inherits_cached_or_in_flight_clean_verdict() {
 
 #[test]
 fn protected_pinned_catalog_root_coverage_and_malformed_registry_fail_closed() {
+    // A digest that differs from the pin is drift: admitted with a warning (trust-sync is retired).
     let pinned = with(trust(), json!({"minimumCatalogDigest": digest(99)}));
+    let drift = classify_ownership_report(&report(), &pinned);
+    assert!(drift.admit);
     assert_eq!(
-        classify_ownership_report(&report(), &pinned).code,
+        drift.warnings,
+        vec![crate::CATALOG_DIGEST_DRIFT_WARNING.to_string()]
+    );
+    // The version floor stays hard, whatever the digest says.
+    let below = with(
+        trust(),
+        json!({"minimumCatalogDigest": digest(99), "minimumCatalogVersion": "99"}),
+    );
+    assert_eq!(
+        classify_ownership_report(&report(), &below).code,
         codes::POLICY_DOWNGRADE
     );
 

@@ -20,6 +20,7 @@ import {
 import path from "node:path";
 import { iosOwnershipScope } from "./ownership-scope.mjs";
 import { spawn, spawnSync } from "./background-process.mjs";
+import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord } from "./rightkit-registry-resolver.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
@@ -106,6 +107,7 @@ function buildPreflight({ config, configPath, appRoot, repoRoot, platform, nativ
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
+const RELEASE_TOOL_VERSION = JSON.parse(readFileSync(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 const args = process.argv.slice(2);
 let configName = "right-release.config.mjs";
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
@@ -365,6 +367,59 @@ try {
   env.RIGHT_RELEASE_ARTIFACT_DIR = managedArtifactDir;
   const buildRoot = managedCargoTarget ? null : path.join(vaultRoot, "build", config.app, config.version, shortCommit, platformDir);
   env.RIGHT_RELEASE_STATE_ROOT = stateRoot;
+  // Resolve the exact locked RightKit pins against the canonical registries ONCE, here (build admission), and keep
+  // the snapshot in this release's state root with an admission record naming the release (id, commit, platform) and
+  // the snapshot digest. The release worker, a --resume-from phase resume and the sealed manifest consume only that
+  // recorded snapshot; a missing one is refused, never re-resolved. These are trusted-local files: a resume proves the
+  // recorded admission is consistent with this release and the current locks, not that the registry still agrees nor
+  // that the controller wrote it (see rightkit-registry-resolver.mjs, TRUST SCOPE). Lock inputs come from the canonical build-input
+  // inventory (requiredInputs, pinnedCargoLocks), not a reconstructed list.
+  mkdirSync(stateRoot, { recursive: true });
+  const rightKitSnapshotFile = path.join(stateRoot, SNAPSHOT_FILE);
+  const admissionIdentity = { releaseId, commit, platform };
+  const sealedManifestPath = path.join(repoRoot, ".right-release", "sealed", releaseId, platformDir, "release-manifest.json");
+  const sealedExists = existsSync(sealedManifestPath);
+  const rightKitReuse = Boolean(resumeFrom) || sealedExists;
+  let boundSnapshot = null;
+  let legacySealed = false;
+  try {
+    if (sealedExists) {
+      const sealedManifest = JSON.parse(readFileSync(sealedManifestPath, "utf8"));
+      legacySealed = assertManifestRegistryEvidence(sealedManifest).legacy;
+      boundSnapshot = legacySealed ? null : sealedManifest.rightkitRegistry.snapshot;
+    } else if (resumeFrom) {
+      boundSnapshot = loadAdmittedSnapshot(stateRoot, { ...admissionIdentity, inPreflight: true });
+    }
+  } catch (error) {
+    fail(`${error instanceof RightKitRegistryError && error.recoverable ? "RECOVERABLE " : ""}${error.message}`);
+  }
+  let rightKitResolution = null;
+  if (!legacySealed) {
+    try {
+      rightKitResolution = await prepareRightKitResolution({
+        root: appRoot,
+        extraLocks: rightKitLockInventory({ requiredInputs, cargoLockPaths: pinnedCargoLocks, nativeLayout, config, root: appRoot }),
+        versions: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-versions.json"), "utf8")),
+        ownership: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-ownership.json"), "utf8")),
+        releaseVersion: RELEASE_TOOL_VERSION,
+        snapshotFile: rightKitSnapshotFile,
+        boundSnapshot,
+        reuse: rightKitReuse,
+        // Build admission: a fresh build samples registry latest live and refuses EVERY pin behind it (a hold is a lane
+        // task, not an exception). The snapshot is then frozen through build, seal, resume and upload.
+        admission: !rightKitReuse,
+        write: true,
+      });
+    } catch (error) {
+      if (!(error instanceof RightKitRegistryError)) throw error;
+      fail(`${error.recoverable ? "RECOVERABLE " : ""}${error.message}`);
+    }
+    for (const line of rightKitResolution.freshness.tasks) console.error(`[right-release] LANE TASK ${line}`);
+    for (const line of rightKitResolution.freshness.warnings) console.error(`[right-release] WARNING ${line}`);
+    console.error(`[right-release] rightkit-registry: ${rightKitResolution.summary}`);
+    if (rightKitReuse) console.error("[right-release] resume reuses the recorded admission snapshot: it is checked for consistency with this release and the current locks only; the registry is not asked again and the record is not authenticated");
+    env[SNAPSHOT_ENV] = rightKitSnapshotFile;
+  }
   env.RIGHT_RELEASE_VAULT_STATE_ROOT = path.join(vaultRoot, "state");
   const lockPayload = {
     schema: 1,
@@ -418,6 +473,8 @@ try {
         writeJson(path.join(stateRoot, "release-waits.json"), { schema: 1, recordedAt: new Date().toISOString(), ...preBrokerWaits });
         if (buildRoot) writeJson(path.join(buildRoot, "release-inputs.lock.json"), lockPayload);
         writeJson(path.join(stateRoot, "release-inputs.lock.json"), lockPayload);
+        // The controller's admission record: which snapshot was admitted for exactly this release and input identity.
+        if (rightKitResolution) writeAdmissionRecord(stateRoot, { ...admissionIdentity, snapshot: rightKitResolution.snapshot });
         checkpoint(stateRoot, "preflight_complete");
       },
       prepare: async () => {
@@ -474,7 +531,7 @@ try {
         });
       },
       seal: async ({ sealedDir }) => {
-        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot });
+        sealRelease({ configRoot: appRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields: rightKitResolution ? registryManifestFields(rightKitResolution.snapshot, RELEASE_TOOL_VERSION) : undefined });
         verifySealedRelease(sealedDir);
         if (cacheMode === "shared") markCacheEntrySuccessful({ layout: sharedLayout });
         checkpoint(stateRoot, "sealed");
@@ -521,7 +578,7 @@ function sqlCipherFeatures(text) {
     .filter((value) => /sqlcipher|openssl/i.test(value));
 }
 
-function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot }) {
+function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields }) {
   // Every app's right-release.config.mjs names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
@@ -669,6 +726,9 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
     version: config.version,
     commit,
     ownershipEvidence,
+    // The exact registry resolution (identities, digests, registries, policy revision, observation time, observed latest)
+    // this release was built against. Upload and resume consume it; neither resolves again.
+    ...rightkitRegistryFields,
     qa: qaAdmission,
     // DevTools allowance (owner's fixed design): { mode: "denied" } for every app; content-only only for an allow-listed app.
     devtools: devtoolsEvidence(resolveDevtoolsAllowance({ config, root: configRoot })),

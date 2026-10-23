@@ -400,7 +400,7 @@ pub fn ownership_verdict(report: &Value, trust: &Value) -> Decision {
     }
     // Pending approval enrollment is a reported warning, never a refusal (#262): every real finding gate below still applies.
     let pending = field(report, "enrollmentPending").as_bool() == Some(true);
-    let warnings: Vec<String> = if pending {
+    let mut warnings: Vec<String> = if pending {
         vec!["protected ownership approval enrollment is pending (warning only; it existed only for retired signed approvals)".to_string()]
     } else {
         Vec::new()
@@ -428,9 +428,11 @@ pub fn ownership_verdict(report: &Value, trust: &Value) -> Decision {
                 vec!["scan roots do not exactly cover protected repository registration".into()],
             );
         }
-        if let Err(problems) = validate_ownership_floor(trust, metadata) {
-            return refuse(codes::POLICY_DOWNGRADE, problems);
+        let floor = validate_ownership_floor(trust, metadata);
+        if !floor.ok() {
+            return refuse(codes::POLICY_DOWNGRADE, floor.problems);
         }
+        warnings.extend(floor.warnings);
     }
     let incomplete: Vec<String> = items(field(report, "coverage"))
         .iter()

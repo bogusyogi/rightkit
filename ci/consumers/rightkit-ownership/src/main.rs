@@ -1,4 +1,4 @@
-// rightkit-ownership 0.4.0 consumed by exact registry pin, outside the workspace.
+// rightkit-ownership 0.4.1 consumed by exact registry pin, outside the workspace.
 //
 // Proves the public scanner surface without a git checkout or protected trust file: the embedded catalog,
 // ownership_verdict and ownership_cache_key contracts, is_blocking_finding, canonical_repository_identity,
@@ -99,7 +99,7 @@ fn main() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&dir);
     outcome?;
 
-    println!("OK rightkit-ownership 0.4.0 (registry consumer)");
+    println!("OK rightkit-ownership 0.4.1 (registry consumer)");
     Ok(())
 }
 

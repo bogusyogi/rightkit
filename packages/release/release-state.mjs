@@ -6,6 +6,7 @@ import { readCachePolicy, resolveCacheLayout } from "./cache-policy.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { bufferQaFindings } from "./qa-control-scan.mjs";
 import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
+import { assertManifestRegistryEvidence } from "./rightkit-registry-resolver.mjs";
 
 export function cacheFingerprint({ cargoLockSha256, rustc, target, architecture, features = [] }) {
   const payload = JSON.stringify({
@@ -117,13 +118,14 @@ export function releaseEnvironment({ root, cacheRoot, platform, architecture, ap
   };
 }
 
-export function verifySealedRelease(sealedDir) {
+export function verifySealedRelease(sealedDir, options = {}) {
   const manifestPath = path.join(sealedDir, "release-manifest.json");
   if (!existsSync(manifestPath)) throw new Error(`sealed manifest missing: ${manifestPath}`);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   if (manifest.schema !== 1) throw new Error(`unsupported sealed manifest schema: ${manifest.schema}`);
   if (manifest.kind != null && typeof manifest.kind !== "string") throw new Error("sealed manifest kind must be a string when present");
   if (!manifest.checkpoints?.includes("sealed")) throw new Error("release is not sealed");
+  assertManifestRegistryEvidence(manifest, options.legacyReleaseIds ? { legacyReleaseIds: options.legacyReleaseIds } : undefined);
   for (const item of manifest.files ?? []) {
     if (typeof item.name !== "string" || path.basename(item.name) !== item.name || item.name === "." || item.name === "..") throw new Error("unsafe sealed artifact name");
     const file = path.join(sealedDir, item.name);

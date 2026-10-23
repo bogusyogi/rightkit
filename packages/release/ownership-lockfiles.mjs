@@ -59,7 +59,7 @@ function scalar(raw) {
   if (/[\[\]{}]/.test(value)) fail("invalid YAML scalar");
   return value.replace(/\s+#.*$/, "");
 }
-function parsePnpmYaml(text) {
+export function parsePnpmYaml(text) {
   const root = Object.create(null), stack = [{ indent: -1, value: root }];
   for (const line of text.split(/\r?\n/)) {
     if (!line.trim() || /^\s*#/.test(line)) continue;

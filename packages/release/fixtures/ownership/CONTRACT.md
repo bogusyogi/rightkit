@@ -287,7 +287,7 @@ Mapping of the user-facing scenario list to cases: clean pass `scan-clean-pass`;
 | `cache_invalidates_changed_*` (6 bindings) | `admission-cache-invalidated-by-*`, `cache-key-changed-*`, `cache-key-missing-*` |
 | `identical_digests_share_cache_and_in_flight_scan` | `admission-cache-hit-same-inputs`, `admission-single-flight-concurrent`, `admission-cache-no-expiry-by-age` (DEFECT-1: Rust must differ) |
 | `incomplete_inventory_never_inherits_cached_or_in_flight_clean_verdict` | `admission-incomplete-inventory-does-not-inherit-cached-clean`, `...-share-in-flight-clean` |
-| `protected_pinned_catalog_root_coverage_and_malformed_registry_fail_closed` | `verdict-downgrade-catalog-digest-pin`, `verdict-registration-engine-app-roots-mismatch`, `verdict-registration-null-registry-entry`, `verdict-coverage-incomplete-status` |
+| `protected_pinned_catalog_root_coverage_and_malformed_registry_fail_closed` | `verdict-catalog-digest-pin-drift-warns`, `verdict-registration-engine-app-roots-mismatch`, `verdict-registration-null-registry-entry`, `verdict-coverage-incomplete-status` |
 | `missing_digests_changed_scan_bindings_and_unavailable_scanners_refuse_failures_retry` | `admission-missing-binding-*`, `admission-inputs-changed-between-probe-and-scan`, `admission-complete-*`, `admission-scan-error-retries`, `admission-scanner-unstaged`, `admission-mode-off` |
 | `only_block_tier_or_banned_violations_refuse_advise...` | `verdict-advisory-only`, `verdict-violation-*`, `verdict-malformed-finding-bad-tier` |
 | approval.rs identity, path, version tests | `identity-*`, `verdict-registration-*path*`, `verdict-downgrade-*version*` |

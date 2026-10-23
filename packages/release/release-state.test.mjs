@@ -16,6 +16,7 @@ import {
   runUploadStateMachine,
   verifySealedRelease,
 } from "./release-state.mjs";
+import { registryEvidenceFixture } from "./test-support/admission.mjs";
 
 const expectedPnpmVersion = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8")).packageManager.replace(/^pnpm@/, "");
 
@@ -166,6 +167,7 @@ function fixture() {
   writeFileSync(signature, "updater-signature");
   const manifest = {
     schema: 1,
+    ...registryEvidenceFixture(),
     releaseId: "fixture-1.2.3-abcdef12",
     app: "fixture",
     version: "1.2.3",
@@ -419,4 +421,52 @@ test("dependency cache survives source commits and invalidates only dependency/t
   assert.notEqual(cacheFingerprint(base), cacheFingerprint({ ...base, cargoLockSha256: "lock-b" }));
   assert.notEqual(cacheFingerprint(base), cacheFingerprint({ ...base, rustc: "rustc 1.91.0" }));
   assert.notEqual(cacheFingerprint(base), cacheFingerprint({ ...base, features: ["bundled-sqlcipher"] }));
+});
+
+// ----- RightKit registry evidence: absence is refused on every seal/upload path; there is no global escape.
+function rewriteManifest(fx, change) {
+  const file = path.join(fx.sealedDir, "release-manifest.json");
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  writeFileSync(file, `${JSON.stringify(change(manifest), null, 2)}\n`);
+}
+const stripRegistry = ({ rightkitRegistryEvidence, rightkitRegistry, ...manifest }) => manifest;
+const stripEverything = ({ rightReleaseVersion, ...manifest }) => stripRegistry(manifest);
+
+test("verifySealedRelease accepts a new seal with valid versioned evidence and refuses a deleted marker, a deleted block and a tampered snapshot", () => {
+  const fx = fixture();
+  assert.equal(verifySealedRelease(fx.sealedDir).manifest.rightkitRegistryEvidence, 1);
+  rewriteManifest(fx, ({ rightkitRegistryEvidence, ...m }) => m);
+  assert.throws(() => verifySealedRelease(fx.sealedDir), /marker must be 1, got <missing>/);
+  rewriteManifest(fx, (m) => ({ ...m, rightkitRegistryEvidence: 1, rightkitRegistry: undefined }));
+  assert.throws(() => verifySealedRelease(fx.sealedDir), /evidence is missing/);
+  rewriteManifest(fx, (m) => ({ ...m, rightkitRegistryEvidence: 1, rightkitRegistry: { ...evidenceFixtureBlock(), snapshot: { ...evidenceFixtureBlock().snapshot, observedAt: "2020-01-01T00:00:00.000Z" } } }));
+  assert.throws(() => verifySealedRelease(fx.sealedDir), /digest/);
+});
+const evidenceFixtureBlock = () => registryEvidenceFixture().rightkitRegistry;
+
+test("a stripped NEW seal is refused even with the legacy release acknowledged; the upload and build resume paths agree", async () => {
+  const fx = fixture(); // carries rightReleaseVersion 0.6.0 and evidence
+  rewriteManifest(fx, stripRegistry);
+  const named = [fx.manifest.releaseId];
+  assert.throws(() => verifySealedRelease(fx.sealedDir), /produced by @rightkit\/release 0\.6\.0 but carries no RightKit registry evidence/);
+  assert.throws(() => verifySealedRelease(fx.sealedDir, { legacyReleaseIds: named }), /a stripped new seal is never a legacy seal/);
+  const previous = process.env.RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES;
+  process.env.RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES = named.join(",");
+  try {
+    await assert.rejects(runUploadStateMachine({ root: fx.root, releaseId: fx.manifest.releaseId, platform: "win", tier: "patch", ops: {} }), /stripped new seal is never a legacy seal/);
+    await assert.rejects(runBuildStateMachine({ root: fx.root, app: "fixture", version: "1.2.3", commit: fx.manifest.commit, platform: "win", requiredInputs: [], ops: {} }), /stripped new seal is never a legacy seal/);
+  } finally {
+    if (previous === undefined) delete process.env.RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES; else process.env.RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES = previous;
+  }
+});
+
+test("only an explicitly identified pre-0.6.0 release is exempt: no recorded tool version and its release id named; a lower recorded version too", () => {
+  const fx = fixture();
+  rewriteManifest(fx, stripEverything);
+  assert.throws(() => verifySealedRelease(fx.sealedDir), /only a pre-0\.6\.0 release named in RIGHT_RELEASE_LEGACY_REGISTRY_RELEASES is exempt/);
+  assert.throws(() => verifySealedRelease(fx.sealedDir, { legacyReleaseIds: ["another-release"] }), /is exempt/);
+  assert.equal(verifySealedRelease(fx.sealedDir, { legacyReleaseIds: [fx.manifest.releaseId] }).manifest.app, "fixture");
+  rewriteManifest(fx, (m) => ({ ...m, rightReleaseVersion: "0.5.1" }));
+  assert.equal(verifySealedRelease(fx.sealedDir, { legacyReleaseIds: [fx.manifest.releaseId] }).manifest.app, "fixture");
+  assert.throws(() => verifySealedRelease(fx.sealedDir), /is exempt/);
 });

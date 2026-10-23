@@ -28,6 +28,13 @@ import { dirtyBuildInputs, isNativeIosTarget, resolveReleaseBuildInputs } from "
 
 // Native iOS app (CodeRight shape): right-release.config.mjs, project.yml, source dirs; no src-tauri, no package.json.
 const here = path.dirname(fileURLToPath(import.meta.url));
+import { admittedWorkerEnv, registryEnv } from "./test-support/admission.mjs";
+import { registryManifestFields, resolveRightKitPins, rightKitLockInventory, snapshotDigest } from "./rightkit-registry-resolver.mjs";
+const baseEnv = { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" };
+// The registries are answered offline from the fixture's locks; a worker run carries the state the controller leaves after admission.
+const doctorEnv = (app) => ({ ...baseEnv, ...registryEnv(app.root) });
+const workerEnv = (app) => ({ ...baseEnv, ...registryEnv(app.root), ...admittedWorkerEnv(app.configPath, "ios") });
+const emptyAdmission = () => { const snapshot = { schema: 1, mode: "admission", observedAt: "2026-10-23T00:00:00.000Z", registries: {}, policyRevision: "test", lockFiles: [], entries: [], latest: [] }; snapshot.digest = snapshotDigest(snapshot); return registryManifestFields(snapshot); };
 const buildScript = path.join(here, "build-release.mjs");
 const releaseScript = path.join(here, "release.mjs");
 const profileTemplate = readFileSync(path.join(here, "templates", "cargo-profiles.toml"), "utf8");
@@ -167,7 +174,7 @@ test("build --dry-run for the cargoless iOS app succeeds without touching the tr
 test("the worker dry-run plans the iOS recipe for the cargoless app (no package.json, no Cargo, no Tauri)", () => {
   const app = iosApp();
   const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], {
-    cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" },
+    cwd: app.root, encoding: "utf8", env: workerEnv(app),
   });
   const output = `${result.stdout}\n${result.stderr}`;
   assert.doesNotMatch(output, /ENOENT|native Cargo manifest missing|package\.json/, output);
@@ -226,7 +233,7 @@ test("native layout presence: a declared manifest or src-tauri/Cargo.toml, nothi
 test("the doctor resolves the cargoless iOS inputs and runs only the preflight checks that apply", () => {
   const app = iosApp();
   const result = spawnSync(process.execPath, [releaseScript, "--doctor", "--config", app.configPath, "--platform", "ios"], {
-    cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" },
+    cwd: app.root, encoding: "utf8", env: doctorEnv(app),
   });
   const output = `${result.stdout}\n${result.stderr}`;
   assert.doesNotMatch(output, /native Cargo|missing required release input|ENOENT/, output);
@@ -248,7 +255,7 @@ test("a cargoless iOS target with prepare commands and no nativeAssembly.cargoMa
 
 test("the worker refuses the same app directly, before any step runs", () => {
   const app = iosApp({ iosExtra: { prepare } });
-  const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" } });
+  const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: workerEnv(app) });
   assert.notEqual(result.status, 0);
   assert.match(`${result.stdout}\n${result.stderr}`, /declare nativeAssembly\.cargoManifest/);
 });
@@ -350,7 +357,7 @@ test("a null native layout flows through input hashing and sealRelease, and the 
   production.sealRelease({
     configRoot: app.root, managedCargoTarget: null, androidTarget: null, iosSpec: { ipa: ipaRel }, nativeLayout: null, sealedDir, releaseId: "coderight-1.0.0-x",
     config: app.config, target: { artifacts: [ipaRel] }, platform: "ios", commit, inputHashes, toolVersions, cacheKey: "k", signingIdentity,
-    ownershipEvidence: { commit, source: "test" }, qaAdmission: { status: "recorded" }, managedRoot, stateRoot,
+    ownershipEvidence: { commit, source: "test" }, qaAdmission: { status: "recorded" }, managedRoot, stateRoot, rightkitRegistryFields: emptyAdmission(),
   });
   const sealed = verifySealedRelease(sealedDir);
   assert.deepEqual(sealed.manifest.inputs, JSON.parse(JSON.stringify(inputHashes)));
@@ -441,7 +448,7 @@ test("a cargoless iOS app that declares mediaSidecar fails with a clear message,
   git(app.root, "config", "user.name", "T");
   git(app.root, "add", ".");
   git(app.root, "commit", "-m", "init");
-  const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" } });
+  const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: workerEnv(app) });
   const output = `${result.stdout}\n${result.stderr}`;
   assert.notEqual(result.status, 0, output);
   assert.doesNotMatch(output, /TypeError|Cannot read properties/, output);
@@ -517,7 +524,7 @@ test("CodeRight shape: cargo is a required executable, with git and no package m
 
 test("CodeRight shape: the worker dry-run plans the iOS recipe, and the prepare command is the app's own cargo build", () => {
   const app = coderightApp();
-  const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" } });
+  const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: workerEnv(app) });
   const output = `${result.stdout}\n${result.stderr}`;
   assert.equal(result.status, 0, output);
   assert.match(output, /prepare: cargo build --release --manifest-path \.\.\/\.\.\/crates\/x\/Cargo\.toml --target aarch64-apple-ios/);
@@ -525,7 +532,7 @@ test("CodeRight shape: the worker dry-run plans the iOS recipe, and the prepare 
 
 test("CodeRight shape: the doctor pins the manifest and lock and reports no target-bridge or compiler-cache check", () => {
   const app = coderightApp();
-  const result = spawnSync(process.execPath, [releaseScript, "--doctor", "--config", app.configPath, "--platform", "ios"], { cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" } });
+  const result = spawnSync(process.execPath, [releaseScript, "--doctor", "--config", app.configPath, "--platform", "ios"], { cwd: app.root, encoding: "utf8", env: doctorEnv(app) });
   const output = `${result.stdout}\n${result.stderr}`;
   assert.doesNotMatch(output, /native Cargo|missing required release input|ENOENT|target-bridge|sccache/, output);
   const otherFailures = output.split(/\r?\n/).filter((line) => /^\s*\[(?:FAIL|ERROR)\] /.test(line) && !/^\s*\[FAIL\] ownership: /.test(line));
@@ -634,7 +641,7 @@ test("the worker refuses a forbidden feature in prepare and a prepare it cannot 
     writeFileSync(app.configPath, `export default ${JSON.stringify(config)};\n`);
     git(app.repo, "add", ".");
     git(app.repo, "commit", "-q", "-m", "prepare");
-    const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" } });
+    const result = spawnSync(process.execPath, [releaseScript, "--config", app.configPath, "--platform", "ios", "--dry-run"], { cwd: app.root, encoding: "utf8", env: workerEnv(app) });
     return { result, output: `${result.stdout}\n${result.stderr}` };
   };
   const forbidden = worker(cargoPrepare("--features", "ffi,qa-native"));
@@ -865,4 +872,41 @@ test("Package.resolved is a git-tracked input: untracked or modified counts as d
   assert.ok(!dirtyBuildInputs(app.root, inputs).includes("Package.resolved"), "committed");
   writeFileSync(path.join(app.root, "Package.resolved"), PINS.replace("1.0.0", "1.0.1"));
   assert.ok(dirtyBuildInputs(app.root, inputs).includes("Package.resolved"), "modified");
+});
+
+test("native iOS: a nativeAssembly Rust lock in a sibling directory is admitted through the canonical build-input inventory", async () => {
+  const repo = nodeFs.realpathSync.native(tempRoot("right-ios-sibling-"));
+  const appRoot = path.join(repo, "apps", "coderight");
+  const engine = path.join(repo, "engine");
+  mkdirSync(appRoot, { recursive: true });
+  mkdirSync(engine, { recursive: true });
+  const config = { schema: 1, app: "coderight", version: "1.0.0", buildInputs: { include: ["project.yml"] }, nativeAssembly: { cargoManifest: "../../engine/Cargo.toml" }, targets: { ios: { signed: true, iosPackage: iosPackage(), artifacts: ["build/CodeRight.ipa"] } } };
+  const configPath = path.join(appRoot, "right-release.config.mjs");
+  writeFileSync(configPath, `export default ${JSON.stringify(config)};\n`);
+  writeFileSync(path.join(appRoot, "project.yml"), "name: CodeRight\n");
+  writeFileSync(path.join(engine, "Cargo.toml"), '[package]\nname = "engine"\nversion = "0.0.0"\n[dependencies]\nrightkit-foo = "=0.2.0"\n');
+  const sum = "2".repeat(64);
+  writeFileSync(path.join(engine, "Cargo.lock"), `version = 4\n\n[[package]]\nname = "rightkit-foo"\nversion = "0.7.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${sum}"\n`);
+  const inputs = resolveReleaseBuildInputs({ repoRoot: repo, appRoot, configPath, config, target: config.targets.ios });
+  assert.equal(inputs.nativeLayout, null);
+  assert.deepEqual(inputs.cargoLockPaths, [path.join(engine, "Cargo.lock")], "the preflight inventory carries the sibling lock");
+  assert.ok(path.relative(appRoot, inputs.cargoLockPaths[0]).startsWith(".."), "the lock lies outside the app root scan");
+  const inventory = rightKitLockInventory({ requiredInputs: inputs.requiredInputs, cargoLockPaths: inputs.cargoLockPaths, nativeLayout: inputs.nativeLayout, config, root: appRoot });
+  assert.deepEqual(inventory, [path.join(engine, "Cargo.lock")]);
+  const fetchImpl = async (url) => {
+    const u = new URL(url);
+    if (u.host === "index.crates.io") return new Response([{ name: "rightkit-foo", vers: "0.2.0", cksum: sum, yanked: false }].map((r) => JSON.stringify(r)).join("\n"));
+    return new Response(JSON.stringify({ crate: { max_stable_version: "0.2.0" } }));
+  };
+  const versions = { schema: 2, cargo: { "rightkit-foo": "0.1.0" }, registry: { cargo: { "rightkit-foo": "0.1.0" } } };
+  const base = { root: appRoot, versions, ownership: { capabilities: [{ package: "rightkit-foo" }] }, fetchImpl, sleep: async () => {}, cacheDir: null, attempts: 1, warn() {} };
+  // Without the inventory (the reconstructed, app-root-only list) nothing in the sibling directory was ever admitted.
+  assert.equal((await resolveRightKitPins(base)).entries.length, 0);
+  // With it, the sibling lock is resolved: its unpublished 0.7.0 is refused.
+  await assert.rejects(resolveRightKitPins({ ...base, extraLocks: inventory }), /rightkit-foo 0\.7\.0 is not published on crates\.io/);
+  // And the sibling manifest's declaration is covered by the same lock.
+  writeFileSync(path.join(engine, "Cargo.lock"), `version = 4\n\n[[package]]\nname = "rightkit-foo"\nversion = "0.2.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${sum}"\n`);
+  assert.deepEqual((await resolveRightKitPins({ ...base, extraLocks: inventory })).entries.map((e) => e.version), ["0.2.0"]);
+  writeFileSync(path.join(engine, "Cargo.lock"), "version = 4\n");
+  await assert.rejects(resolveRightKitPins({ ...base, extraLocks: inventory }), /declares rightkit-foo but no Cargo\.lock entry proves it/);
 });

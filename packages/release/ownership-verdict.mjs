@@ -55,8 +55,9 @@ export function ownershipVerdict(report, trust) {
   const scannedRoots = report.metadata.roots?.map((entry) => entry.root) ?? [report.metadata.pathPrefix?.replace(/\/$/, "") || "."];
   if (!noRegistry && (new Set(scannedRoots).size !== scannedRoots.length || sha256([...scannedRoots].sort()) !== sha256([...registration.registration.roots].sort())))
     return refuse("RK_OWNERSHIP_INVALID_REGISTRATION", ["scan roots do not exactly cover protected repository registration"]);
-  const floor = noRegistry ? { ok: true, problems: [] } : validateOwnershipFloor(trust, report.metadata);
+  const floor = noRegistry ? { ok: true, problems: [], warnings: [] } : validateOwnershipFloor(trust, report.metadata);
   if (!floor.ok) return refuse("RK_OWNERSHIP_POLICY_DOWNGRADE", floor.problems);
+  warnings.push(...(floor.warnings ?? []));
   const incomplete = [...report.coverage, ...report.metadata.coverage].filter((entry) => entry.status !== "complete");
   if (incomplete.length) return refuse("RK_OWNERSHIP_INCOMPLETE_COVERAGE", [...new Set(incomplete.map((entry) => entry.path + ": " + entry.reason))]);
   const blocking = report.violations.filter(isBlockingFinding);

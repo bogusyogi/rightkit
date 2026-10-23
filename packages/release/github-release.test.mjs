@@ -9,6 +9,7 @@ import { canonicalAddonManifest, createAddonManifest } from "./addon-contract.mj
 import { prepareGitHubAddonRelease, prepareGitHubDirectRelease, prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
 import { readVerifiedArtifact } from "./publication-artifacts.mjs";
 import { RIGHTRELEASE_MANIFEST_SIGNER, verifyManifestCatalogSignature } from "./sign-release-manifest.mjs";
+import { registryEvidenceFixture } from "./test-support/admission.mjs";
 
 const captured = (assets) => new Map(assets.map((file) => [file, readVerifiedArtifact(file, { sha256: sha256(readFileSync(file)) })]));
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -20,7 +21,7 @@ function fixture() {
   mkdirSync(sealedDir, { recursive: true });
   writeFileSync(path.join(sealedDir, "CutRight.exe"), "signed-installer");
   writeFileSync(path.join(sealedDir, "release-manifest.json"), `${JSON.stringify({
-    schema: 1, releaseId, app: "cutright", version: "1.2.3", commit: "abcdef1234567890", platform: "win",
+    schema: 1, ...registryEvidenceFixture(), releaseId, app: "cutright", version: "1.2.3", commit: "abcdef1234567890", platform: "win",
     files: [{ role: "installer", name: "CutRight.exe", sha256: sha256("signed-installer"), sizeBytes: 16 }],
     checkpoints: ["sealed"],
   })}\n`);

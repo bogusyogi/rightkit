@@ -1,8 +1,9 @@
 import "./test-support/broker-guard.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { execFileSync, spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
@@ -11,6 +12,7 @@ import { signingReceiptPath } from "./signing-receipts.mjs";
 import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../ci/manifest.mjs";
 import { renderLanes } from "../ci/sync.mjs";
 import test from "node:test";
+import { admittedWorkerEnv, registryEnv } from "./test-support/admission.mjs";
 
 const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
 const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
@@ -31,28 +33,28 @@ function withQaAdoption(pkg, qa = true) {
   return { ...pkg, devDependencies: { ...pkg.devDependencies, "@rightkit/qa": latest } };
 }
 
+// A pnpm lock that resolves every exact @rightkit/* pin of the fixture package, with a deterministic integrity.
+export function pnpmLockFor(pkg) {
+  const pins = Object.entries({ ...pkg.dependencies, ...pkg.devDependencies }).filter(([name, spec]) => name.startsWith("@rightkit/") && /^\d+\.\d+\.\d+$/.test(spec));
+  return `lockfileVersion: '9.0'\n${pins.length ? `\npackages:\n\n${pins.map(([name, version]) => `  '${name}@${version}':\n    resolution: {integrity: sha512-${Buffer.from(`${name}@${version}`).toString("hex")}==}\n`).join("\n")}` : ""}`;
+}
+
 function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true, qa = true } = {}) {
   const fixtureRoot = tempRoot("right-release-test-");
   const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
   mkdirSync(dir, { recursive: true });
   const config = path.join(dir, "right-release.config.mjs");
-  writeFileSync(
-    path.join(dir, "package.json"),
-    JSON.stringify(
-      withQaAdoption(packageJson ?? {
-        name: "fixture",
-        scripts: { [`release:patch:${platform}`]: `right-release --platform ${platform} --tier patch` },
-        packageManager: versions.packageManager,
-        dependencies: {
-          "@rightkit/license": versions.npm["@rightkit/license"],
-          "@rightkit/logs": versions.npm["@rightkit/logs"],
-        },
-        devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-      }, qa),
-      null,
-      2,
-    ),
-  );
+  const fixturePackage = withQaAdoption(packageJson ?? {
+    name: "fixture",
+    scripts: { [`release:patch:${platform}`]: `right-release --platform ${platform} --tier patch` },
+    packageManager: versions.packageManager,
+    dependencies: {
+      "@rightkit/license": versions.npm["@rightkit/license"],
+      "@rightkit/logs": versions.npm["@rightkit/logs"],
+    },
+    devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
+  }, qa);
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify(fixturePackage, null, 2));
   writeFileSync(
     config,
     `export default ${JSON.stringify({
@@ -76,7 +78,7 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
       },
     })};\n`,
   );
-  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), pnpmLockFor(fixturePackage), "utf8");
   const tauriDir = path.join(dir, "src-tauri");
   mkdirSync(tauriDir, { recursive: true });
   if (includeCargoSources) {
@@ -85,6 +87,8 @@ function fixture({ signed = true, publish = false, signingContract = "windows-ra
   }
   writeFileSync(path.join(tauriDir, "lib.rs"), "pub fn fixture() {}\n", "utf8");
   if (cargoManifest) {
+    const crates = [...cargoManifest.matchAll(/^(rightkit-[a-z0-9-]+)\s*=\s*"=([^"]+)"/gm)];
+    writeFileSync(path.join(dir, "Cargo.lock"), `version = 4\n${crates.map(([, name, version]) => `\n[[package]]\nname = "${name}"\nversion = "${version}"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${createHash("sha256").update(`${name}@${version}`).digest("hex")}"\n`).join("")}`, "utf8");
     writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n${profileTemplate}`, "utf8");
     writeFileSync(path.join(dir, "fixture.rs"), "", "utf8");
   }
@@ -141,10 +145,7 @@ test("release accepts a clean frontend dist and logs the web scan", () => {
 function lockFixture() {
   const dir = tempRoot("right-release-lock-test-");
   const config = path.join(dir, "right-release.config.mjs");
-  writeFileSync(
-    path.join(dir, "package.json"),
-    JSON.stringify(
-      withQaAdoption({
+  const lockPackage = withQaAdoption({
         name: "fixture-lock",
         scripts: { "release:patch:mac": "right-release --platform mac --tier patch" },
         packageManager: versions.packageManager,
@@ -153,11 +154,9 @@ function lockFixture() {
           "@rightkit/logs": versions.npm["@rightkit/logs"],
         },
         devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-      }),
-      null,
-      2,
-    ),
-  );
+      });
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify(lockPackage, null, 2));
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), pnpmLockFor(lockPackage), "utf8");
   writeFileSync(
     config,
     `export default ${JSON.stringify({
@@ -184,29 +183,41 @@ function lockFixture() {
   return { dir, config };
 }
 
-function managedEnv() {
+function managedEnv(config, { worker = false, platform = "win", registry = {} } = {}) {
   // The doctor's free-space floor is about the machine running the tests, not the code under test.
-  return { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1" };
+  // The registries are answered offline from the fixture's own locks; a worker run carries the admitted state the
+  // controller (build-release.mjs) would have left for this exact release.
+  return { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1", ...(config ? registryEnv(path.dirname(config), registry) : {}), ...(config && worker ? admittedWorkerEnv(config, platform) : {}) };
 }
 
+const lastPlatform = (args, fallback) => (args.lastIndexOf("--platform") >= 0 ? args[args.lastIndexOf("--platform") + 1] : fallback);
+
 function run(config, ...args) {
-  return spawnSync(process.execPath, [release, "--config", config, "--platform", "win", "--dry-run", ...args], {
+  const argv = [release, "--config", config, "--platform", "win", "--dry-run", ...args];
+  return spawnSync(process.execPath, argv, {
     encoding: "utf8",
-    env: managedEnv(),
+    env: managedEnv(config, { worker: true, platform: lastPlatform(argv, "win") }),
   });
 }
 
 function runRaw(config, ...args) {
   return spawnSync(process.execPath, [release, "--config", config, ...args], {
     encoding: "utf8",
-    env: managedEnv(),
+    env: managedEnv(config, { worker: !args.includes("--doctor"), platform: lastPlatform(args, hostPlatform) }),
+  });
+}
+
+function runDoctorWith(config, registry, ...args) {
+  return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
+    encoding: "utf8",
+    env: managedEnv(config, { registry }),
   });
 }
 
 function runDoctor(config, ...args) {
   return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
     encoding: "utf8",
-    env: managedEnv(),
+    env: managedEnv(config),
   });
 }
 
@@ -499,7 +510,9 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
   // One patch past the staged version, so the test never goes stale when git publishes.
   const [major, minor, patch] = versions.registry.npm["@rightkit/git"].split(".").map(Number);
   const future = `${major}.${minor}.${patch + 1}`;
-  const result = run(fixture({
+  // A version above the bundled file is no longer refused for being unlisted: it is refused when the registry does not
+  // publish it (staged but unpublished), and accepted when the registry proves it (the doctor resolves it live).
+  const config = fixture({
     packageJson: {
       name: "fixture",
       packageManager: versions.packageManager,
@@ -507,9 +520,10 @@ test("rejects an unlisted future @rightkit/git release-chain consumer", () => {
       dependencies: { "@rightkit/git": future },
       devDependencies: { "@rightkit/release": versions.stagedNpm["@rightkit/release"] },
     },
-  }));
+  });
+  const result = runDoctorWith(config, { RK_TEST_UNPUBLISHED: `@rightkit/git@${future}` });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, new RegExp(`@rightkit/git must be one of[\\s\\S]*got ${future.replaceAll(".", "\\.")}`, "i"));
+  assert.match(result.stderr, new RegExp(`@rightkit/git ${future.replaceAll(".", "\\.")} is not published on npm`, "i"));
 });
 
 test("accepts an unlisted @rightkit/git patch inside the recorded range, rejects one below the minimum", () => {
@@ -527,7 +541,7 @@ test("accepts an unlisted @rightkit/git patch inside the recorded range, rejects
   assert.equal(accepted.status, 0, accepted.stderr);
   const below = run(fixture(pkg("0.0.1")));
   assert.notEqual(below.status, 0);
-  assert.match(below.stderr, /@rightkit\/git must be one of[\s\S]*got 0\.0\.1/);
+  assert.match(below.stderr, /@rightkit\/git 0\.0\.1 is below the recorded minimum/);
 });
 
 test("rejects hosted workflow files before release work starts", () => {
@@ -1594,7 +1608,7 @@ test("doctor rejects untracked dirt inside declared buildInputs with the exact p
 
 test("doctor rejects dirty required release metadata even when it is not declared", () => {
   const config = fixture({ buildInputs: { include: ["src-tauri/lib.rs"] } });
-  writeFileSync(path.join(path.dirname(config), "pnpm-lock.yaml"), "lockfileVersion: '9.1'\n");
+  writeFileSync(path.join(path.dirname(config), "pnpm-lock.yaml"), `${readFileSync(path.join(path.dirname(config), "pnpm-lock.yaml"), "utf8")}# dirty\n`);
   const result = run(config, "--doctor");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /dirty files can change the packaged app[\s\S]*- pnpm-lock\.yaml/i);
@@ -1638,7 +1652,7 @@ test("doctor scopes Cargo inspection to the configured app inside a monorepo", (
 
 test("doctor rejects a repo-local RightKit Cargo override", () => {
   const config = fixture({
-    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     cargoConfig: `[patch.crates-io]\nrightkit-license = { path = "../rightkit-license" }`,
   });
   const result = run(config, "--doctor");
@@ -1648,7 +1662,7 @@ test("doctor rejects a repo-local RightKit Cargo override", () => {
 
 test("doctor rejects a RightKit override at an ancestor repository root", () => {
   const config = fixture({
-    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.1"`,
+    cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
     repoCargoConfig: `[patch.crates-io]\nrightkit-license = { git = "https://example.test/rightkit-license.git" }`,
   });
   const result = run(config, "--doctor");
@@ -1717,6 +1731,11 @@ test("release skips the sweep when no target dir exists", () => {
 
 test("release lock is single-flight and is cleaned after success", () => {
   const { dir, config } = lockFixture();
+  git(dir, "init", "--initial-branch", "main");
+  git(dir, "config", "user.email", "release-test@example.com");
+  git(dir, "config", "user.name", "Release Test");
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "initial");
   const lockPath = path.join(dir, ".cache", "right-release", "mac.lock.json");
   const result = runRaw(config, "--platform", "mac", "--tier=patch", "--dry-run");
   assert.equal(result.status, 0, result.stderr);
@@ -1796,4 +1815,43 @@ test("run() timeout kills the whole process tree through background-process spaw
   assert.match(source, /setTimeout\(\(\) => \{\s*killProcessTree\(child\.pid\);/);
   const heavy = readFileSync(path.join(path.dirname(release), "heavy-command.mjs"), "utf8");
   assert.match(heavy, /"\/PID", String\(pid\), "\/T", "\/F"/);
+});
+
+// ----- the worker handoff: a RightKit registry snapshot is accepted only from this release's admitted state.
+function workerRun(config, env) {
+  return spawnSync(process.execPath, [release, "--config", config, "--platform", "win", "--dry-run"], { encoding: "utf8", env });
+}
+
+test("the release worker refuses a missing, arbitrary, foreign, fabricated or stale RightKit registry snapshot", () => {
+  const config = fixture({ platform: "win" });
+  const stateless = managedEnv(config); // registry stub only: nothing was admitted
+  const admitted = admittedWorkerEnv(config, "win");
+  const withAdmitted = { ...stateless, ...admitted };
+  const refused = (result, pattern) => { assert.notEqual(result.status, 0, result.stdout); assert.match(result.stderr, pattern); };
+
+  assert.equal(workerRun(config, withAdmitted).status, 0);
+  // nothing handed to the worker: it never resolves on its own and never trusts the bundled data
+  refused(workerRun(config, stateless), /no admitted RightKit registry snapshot was handed to the release worker/);
+  // a snapshot env that points anywhere but the state root's own admitted snapshot
+  const copy = path.join(tempRoot("right-release-snap-"), "snap.json");
+  writeFileSync(copy, readFileSync(admitted.RIGHT_RELEASE_RIGHTKIT_SNAPSHOT));
+  refused(workerRun(config, { ...withAdmitted, RIGHT_RELEASE_RIGHTKIT_SNAPSHOT: copy }), /not the admitted snapshot of this release/);
+  refused(workerRun(config, { ...withAdmitted, RIGHT_RELEASE_STATE_ROOT: "" }), /RIGHT_RELEASE_STATE_ROOT is not set/);
+  // state admitted for another release (another platform here; commit and id are covered the same way)
+  refused(workerRun(config, { ...stateless, ...admittedWorkerEnv(config, "mac") }), /belongs to another release/);
+  // an admission record that was never written (a snapshot dropped into a state root)
+  const orphan = admittedWorkerEnv(config, "win");
+  unlinkSync(path.join(orphan.RIGHT_RELEASE_STATE_ROOT, "rightkit-admission.json"));
+  refused(workerRun(config, { ...stateless, ...orphan }), /no admission record exists for this release/);
+  // a fabricated snapshot recorded as admitted but internally inconsistent: no latest observations
+  refused(workerRun(config, { ...stateless, ...admittedWorkerEnv(config, "win", { mutate: (snapshot) => { snapshot.latest = []; } }) }), /no latest observation for/);
+  // a fabricated snapshot whose registry digest disagrees with the lock
+  refused(workerRun(config, { ...stateless, ...admittedWorkerEnv(config, "win", { mutate: (snapshot) => { snapshot.entries[0].registryDigest = "sha512-forged=="; } }) }), /registry digest does not equal the lock digest/);
+  // an extra, unrelated verified entry
+  refused(workerRun(config, { ...stateless, ...admittedWorkerEnv(config, "win", { mutate: (snapshot) => { snapshot.entries.push({ ...snapshot.entries[0], name: "@rightkit/ghost" }); snapshot.latest.push({ ...snapshot.latest[0], name: "@rightkit/ghost" }); } }) }), /@rightkit\/ghost [\d.]+ is in the bound registry snapshot but not in the locked inputs/);
+  // the locks change after admission
+  const lock = path.join(path.dirname(config), "pnpm-lock.yaml");
+  const original = readFileSync(lock, "utf8");
+  writeFileSync(lock, original.replace(/sha512-[0-9a-f]+==/, "sha512-00==") );
+  refused(workerRun(config, withAdmitted), /lock digest changed since the bound registry snapshot/);
 });

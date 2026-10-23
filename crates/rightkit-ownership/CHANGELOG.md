@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 (2026-10-23)
+
+- **A catalog digest that differs from the digest pinned in protected trust is a warning, not a refusal (judge ruling; `decisions.md` 2026-10-15 retired ownership trust-sync, and `docs/OWNERSHIP-ENFORCEMENT.md` puts the catalog in the policy bundle).** `validate_ownership_floor` pushed `catalog digest below protected pinned digest` into the problems whenever `trust.minimumCatalogDigest` differed from the scanned catalog digest, which refused `RK_OWNERSHIP_POLICY_DOWNGRADE` with no way left to re-pin. It now reports `CATALOG_DIGEST_DRIFT_WARNING` (byte-identical to `@rightkit/release`'s constant) and admits.
+  - Unchanged and still hard: the numeric `minimumScannerVersion` and `minimumCatalogVersion` floors (a missing, malformed or lower version refuses whatever the digest says), external-trust-unavailable, registration, signature, revocation and source-integrity checks. No trust-file write, automatic re-pin or bypass flag is added.
+  - **BREAKING (source): `validate_ownership_floor` returns `OwnershipFloor { problems, warnings }` (with `ok()`) instead of `Result<(), Vec<String>>`; `Checked` gains `warnings: Vec<String>`.** The verdict carries the floor warning in `Decision.warnings` on an admitted result; evidence reports it in `Checked.warnings` (not in `result.warnings`), as `@rightkit/release` does.
+  - Golden fixtures: `*-downgrade-catalog-digest-pin*` became `verdict-catalog-digest-pin-drift-warns`, `scan-catalog-digest-pin-drift-warns` and `verdict-catalog-digest-pin-match-quiet`; new cases cover a higher catalog version with drift (warns), and a below or malformed catalog version (refuses regardless of digest).
+
 ## 0.4.0 (2026-10-22)
 
 - **New block-tier rule `appkit.autorelease.thread-loop-no-pool` (capability `appkit-autorelease-pool`, package `rightkit-ownership`; Orthic-Labs/rightkit#893, heardright#292).** A long-lived `std::thread` loop that calls AppKit, Accessibility (`AX*`) or CoreFoundation without an `objc2::rc::autoreleasepool` inside the loop fails the ownership scan in every macOS app. Minor bump: a scan that passed on 0.3.x can now fail, as with the 0.3.0 default-browser rules; neither this CHANGELOG nor the README states that new rules are patch-level.

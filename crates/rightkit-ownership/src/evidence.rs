@@ -25,6 +25,8 @@ pub struct Checked {
     pub enrollment_pending: bool,
     pub evidence: Value,
     pub result: Value,
+    /// Floor warnings (catalog digest drift); reported beside `result`, never a failure (Node `checked.warnings`).
+    pub warnings: Vec<String>,
 }
 
 fn root_contains(root: &str, candidate: &str) -> bool {
@@ -183,12 +185,12 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
     let catalog_version = catalog_version(manifest);
     let metadata_floor = json!({"scannerVersion": SCANNER_VERSION, "catalogVersion": catalog_version, "catalogDigest": catalog_digest});
     // No protected trust registry on this host is a reported warning, never a failure (#262).
-    let floor: Result<(), Vec<String>> = if truthy(&trust) {
+    let floor = if truthy(&trust) {
         validate_ownership_floor(&trust, &metadata_floor)
     } else {
-        Ok(())
+        crate::approval::OwnershipFloor::default()
     };
-    let floor_ok = floor.is_ok();
+    let floor_ok = floor.ok();
     let requested_root = ".".to_string();
     let mut diagnostics: Vec<String> = Vec::new();
     let mut identity: Option<String> = None;
@@ -531,6 +533,7 @@ pub fn create_evidence(ctx: &ScanContext, repo_root: &Path, manifest: &Value) ->
         enrollment_pending: pending,
         evidence: Value::Object(evidence),
         result,
+        warnings: floor.warnings,
     })
 }
 

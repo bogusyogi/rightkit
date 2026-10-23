@@ -330,8 +330,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/release/README.md": "6dd2d991632c0a4c7c1bf5b5a541ade7e257ca90ba53ec8ba0a875d068305d2b",
-        "ci/consumers/npm/release/consumer.mjs": "fb1d788130b10f569e273df67c3c5d499e9ceff4b0437045123178603626c7b6",
+        "ci/consumers/npm/release/README.md": "ec140e56d8d2f738060fcc4ed55aebbb5a1caa6b13f7e1edc5dba2c867bd861e",
+        "ci/consumers/npm/release/consumer.mjs": "b4f5fd783bfa3406b9d1f21fa8feef96a85020f6a7dc740334b194f209c43e7e",
         "ci/consumers/npm/release/package.json": "52ccd307f9992035ad0795fe0ea3d9a0756a7a30c5830c05435bd0f34b9074d0",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
@@ -846,16 +846,16 @@
     "rightkit-ownership": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-ownership/src/main.rs",
-      "dependency": "rightkit-ownership = { version = \"=0.4.0\" }",
+      "dependency": "rightkit-ownership = { version = \"=0.4.1\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "embedded catalog only; in-memory trust loader with an unavailable checkpoint authority, so no protected trust file, key, git remote or signature is used; scans one temp directory holding one file, removed at the end; no network",
       "consumes": "PK14 quality-gate consumer (reviewed recipe, named product consumers not re-read here); rightkit-ownership public items used: catalog, catalog_value, scanner_policy_digest, SCANNER_VERSION, ownership_verdict, ownership_cache_key, is_blocking_finding, codes, canonical_repository_identity, Scanner::with_embedded_catalog (inputs, scan), ScanContext, ManualClock, keyauth::AuthorityEnv",
       "files": {
-        "Cargo.toml": "952aff65af6b5dc0699b9ffed406491788baf87d43f0b9d670db2ef2b547e2f7",
-        "README.md": "6ff521d90f53d935785f3a6ea4ee730c1debe671736a38f47c5e9d4d13b914b2",
-        "src/main.rs": "bafd2008cfe854e873a4e14018b05d0131f60928fb92e7cb2d6a0838c823cd8a"
+        "Cargo.toml": "133e27ad2a378bb9b769e6ef88398ae266dc1e6e4b0d71def351b87b3e4a79c6",
+        "README.md": "ce0f6d0da5c89859187f1a6c3d00ebfe2a1f5cd1f91ed20d92c5ef481512d448",
+        "src/main.rs": "4a624a85b992e1acc685765888eae0fd661495cd7fffdd73ed12d0cab488bca1"
       },
       "aggregateSha256": "d8f21200898579b9503a352d3ca62d64790b10cf0af0f8d628e73887af425535"
     },

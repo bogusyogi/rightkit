@@ -1,6 +1,6 @@
-# rightkit-ownership 0.4.0 (registry consumer recipe)
+# rightkit-ownership 0.4.1 (registry consumer recipe)
 
-Standalone consumer, outside the workspace, pinning `rightkit-ownership =0.4.0` exactly, plus
+Standalone consumer, outside the workspace, pinning `rightkit-ownership =0.4.1` exactly, plus
 `serde_json = "1"` because the public API exchanges `serde_json::Value`. It uses public API only:
 
 - The embedded catalog: `catalog`, `catalog_value`, and the schema and capability list it carries.

@@ -25,6 +25,7 @@ import { MSIX_SIGNING_CONTRACT, assertValidMsixTarget } from "./msix-config.mjs"
 import { buildMsix } from "./msix-build.mjs";
 import { msixBuildOptions } from "./msix-target.mjs";
 import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
+import { RightKitRegistryError, SNAPSHOT_ENV, loadAdmittedSnapshot, prepareRightKitResolution, rightKitLockInventory } from "./rightkit-registry-resolver.mjs";
 import { collectPreflight, formatPreflight, preflightFailures } from "./preflight.mjs";
 import { patchTauriBundleType } from "./tauri-bundle-marker.mjs";
 import { verifyNsisEmbeddedBinary } from "./nsis-payload.mjs";
@@ -73,7 +74,16 @@ const RIGHTKIT_ALLOWED = buildAllowedVersions(
   RIGHTKIT_VERSIONS.legacyNpm,
   RIGHTKIT_VERSIONS.registry?.npm,
 );
-const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(RIGHTKIT_VERSIONS.cargo, RIGHTKIT_VERSIONS.stagedCargo, RIGHTKIT_VERSIONS.legacyCargo);
+const RIGHTKIT_CARGO_ALLOWED = buildAllowedVersions(
+  RIGHTKIT_VERSIONS.cargo,
+  RIGHTKIT_VERSIONS.stagedCargo,
+  RIGHTKIT_VERSIONS.legacyCargo,
+  RIGHTKIT_VERSIONS.registry?.cargo,
+);
+const RIGHTKIT_OWNERSHIP = JSON.parse(readFileSync(path.resolve(TOOL_ROOT, "rightkit-ownership.json"), "utf8"));
+// Exact RightKit versions proven against the canonical registries for THIS app's locks (see rightkit-registry-resolver.mjs).
+// Exact membership only: a verified version never widens the bundled min..max range.
+let rightKitVerifiedNpm = new Map();
 const FORBIDDEN_RIGHTKIT_SPEC = /^(?:git|file|link|workspace):|github|github\.com/i;
 const WINDOWS_NSIS_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-nsis-v1";
 const WINDOWS_PORTABLE_SIGNING_CONTRACT = "windows-raw-exe-authenticode-before-portable-v1";
@@ -135,6 +145,7 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--skip-checks") opts.skipChecks = true;
   else if (arg === "--skip-hardening") fail("--skip-hardening is forbidden; use exact artifact/source-bound hardeningAllowances");
   else if (arg === "--doctor") opts.doctor = true;
+  else if (arg === "--admission") opts.admission = true;
   else if (arg === "--resume") opts.resume = true;
   else if (arg === "--resume-from") { opts.resume = true; opts.resumeFrom = args[++i]; }
   else if (arg === "--tier") opts.tier = args[++i];
@@ -190,11 +201,59 @@ const nativeIos = opts.platform === "ios" && !hasDefaultTauriManifest({ appRoot:
 const nativeLayout = nativeIos ? null : resolveNativeCargoLayout({ appRoot: root, config });
 const nativeAssembly = config.nativeAssembly;
 const nativeFinalizer = resolveNativeFinalizerConfig(nativeAssembly);
+// RightKit pins are proven against the canonical registries once per release, at build admission by the controller
+// (build-release.mjs). This worker, a resume and the upload consume only that admitted snapshot, through the release's own
+// state root and admission record; a snapshot from anywhere else is refused. The standalone doctor resolves live.
+const rightKitSnapshotFile = process.env[SNAPSHOT_ENV] || null;
+let rightKitResolution;
+try {
+  const lockInventory = () => {
+    try {
+      const repoRoot = git(root, ["rev-parse", "--show-toplevel"]);
+      let canonicalTarget = config.targets?.[opts.platform];
+      try { canonicalTarget = expandPackageRecipeTarget(canonicalTarget, { platform: opts.platform, appRoot: root, config }); } catch { /* reported later */ }
+      const inputs = resolveReleaseBuildInputs({ repoRoot, appRoot: root, configPath, config, target: canonicalTarget });
+      return rightKitLockInventory({ requiredInputs: inputs.requiredInputs, cargoLockPaths: inputs.cargoLockPaths, nativeLayout: inputs.nativeLayout, config, root });
+    } catch {
+      return rightKitLockInventory({ nativeLayout, config, root });
+    }
+  };
+  let boundSnapshot = null;
+  if (!opts.doctor) {
+    if (!rightKitSnapshotFile) throw new RightKitRegistryError("no-admission", "no admitted RightKit registry snapshot was handed to the release worker; run it through `right-release build`, which admits the release");
+    const stateRoot = process.env.RIGHT_RELEASE_STATE_ROOT;
+    if (!stateRoot) throw new RightKitRegistryError("no-admission", "RIGHT_RELEASE_STATE_ROOT is not set; the admitted RightKit registry snapshot cannot be located");
+    const commit = git(root, ["rev-parse", "HEAD"]);
+    boundSnapshot = loadAdmittedSnapshot(stateRoot, { releaseId: `${config.app}-${config.version}-${commit.slice(0, 8)}`, commit, platform: opts.platform, snapshotFile: rightKitSnapshotFile });
+  }
+  rightKitResolution = await prepareRightKitResolution({
+    root,
+    extraLocks: lockInventory(),
+    versions: RIGHTKIT_VERSIONS,
+    ownership: RIGHTKIT_OWNERSHIP,
+    releaseVersion: VERSION,
+    boundSnapshot,
+    // The doctor reports newer versions; run as the admission gate (--admission) it refuses a pin behind latest.
+    admission: opts.doctor && opts.admission,
+  });
+} catch (error) {
+  if (!(error instanceof RightKitRegistryError)) throw error;
+  fail(`${config.app ?? path.basename(root)} ${error.recoverable ? "RECOVERABLE " : ""}${error.message}`);
+}
+{
+  const { newer, tasks, warnings, notes } = rightKitResolution.freshness;
+  const out = opts.doctor ? console.log : console.error;
+  for (const line of newer) out(`right-release: newer RightKit version (informational): ${line}`);
+  for (const line of tasks) out(`right-release: LANE TASK ${line}`);
+  for (const line of warnings) console.error(`right-release: WARNING ${line}`);
+  for (const line of notes) console.error(`right-release: note ${line}`);
+}
+rightKitVerifiedNpm = rightKitResolution.verified.npm;
 // A SwiftPM app or a native iOS app without a package.json has no Node package contract to validate.
 if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
   await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
 }
-validateRightKitCargoContract(root, RIGHTKIT_CARGO_ALLOWED, config.app ?? path.basename(root));
+validateRightKitCargoContract(root, mergeVerifiedVersions(RIGHTKIT_CARGO_ALLOWED, rightKitResolution.verified.cargo), config.app ?? path.basename(root));
 // One standard dev profile and panic = "unwind" in every app (templates/cargo-profiles.toml).
 assertCargoProfileContract(root, config.app ?? path.basename(root));
 // RightKit QA is mandatory for every app (also SwiftPM apps without a package.json): no QA lane refuses the release.
@@ -324,6 +383,7 @@ if (opts.doctor) {
   console.log(`platform: ${opts.platform}`);
   console.log(`tier: ${opts.tier ?? "<required for release/publish>"}`);
   console.log(`packageManager: ${config.packageManager}`);
+  console.log(`rightkit-registry: ${rightKitResolution.summary}`);
   console.log(`workdir: ${workdir}`);
   console.log(`hardeningscan: ${HARDENING_SCAN}`);
   if (sccacheVersion) console.log(`sccache: ${sccacheVersion}`);
@@ -1050,12 +1110,13 @@ async function validateRightKitPackageContract(root, appName, hostedWorkflows) {
       fail(`${appName ?? pkg.name ?? "app"} ${name} must come from the published npm package, not ${specifier}`);
     }
     const allowed = RIGHTKIT_ALLOWED.get(name);
-    if (allowed && !rightKitVersionAllowed(allowed, specifier)) {
+    if (allowed && !rightKitVerifiedNpm.get(name)?.has(specifier) && !rightKitVersionAllowed(allowed, specifier)) {
       fail(`${appName ?? pkg.name ?? "app"} ${name} must be one of ${[...allowed].join(", ")}, got ${specifier}`);
     }
   }
   const releaseAllowed = RIGHTKIT_ALLOWED.get("@rightkit/release");
-  if (!releaseAllowed || !rightKitVersionAllowed(releaseAllowed, pkg.devDependencies?.["@rightkit/release"])) {
+  const releaseSpecifier = pkg.devDependencies?.["@rightkit/release"];
+  if (!releaseAllowed || !(rightKitVerifiedNpm.get("@rightkit/release")?.has(releaseSpecifier) || rightKitVersionAllowed(releaseAllowed, releaseSpecifier))) {
     fail(`${appName ?? pkg.name ?? "app"} must depend on a supported @rightkit/release version in devDependencies`);
   }
 }
@@ -1457,6 +1518,16 @@ async function validateHostedWorkflows(root, appName, workflows, policy) {
       fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets${detail.length > 0 ? `: ${detail.join("; ")}` : ""}`);
     }
   }
+}
+
+function mergeVerifiedVersions(bundled, verified) {
+  const merged = new Map([...bundled].map(([name, versions]) => [name, new Set(versions)]));
+  for (const [name, versions] of verified) {
+    const set = merged.get(name) ?? new Set();
+    for (const version of versions) set.add(version);
+    merged.set(name, set);
+  }
+  return merged;
 }
 
 function buildAllowedVersions(published = {}, staged = {}, legacy = {}, registry = {}) {

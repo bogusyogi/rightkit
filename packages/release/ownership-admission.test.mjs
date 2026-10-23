@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { OwnershipAdmission, classifyOwnershipReport, defaultScannerRoot, ownershipScanRoot } from './ownership-admission.mjs';
+import { CATALOG_DIGEST_DRIFT_WARNING } from './ownership-approval.mjs';
 
 const digest = (n) => n.toString(16).padStart(64, '0');
 const identity = 'https://github.com/test/repo';
@@ -110,7 +111,11 @@ test('incomplete inventory never inherits cached or in-flight clean verdict', as
 });
 
 test('protected pinned catalog, root coverage & malformed registry fail closed', () => {
-  assert.equal(classifyOwnershipReport(report(), { ...trust, minimumCatalogDigest: digest(99) }).code, 'RK_OWNERSHIP_POLICY_DOWNGRADE');
+  // A digest that differs from the pin is drift: admitted with a warning (trust-sync is retired); version floors stay hard.
+  const drift = classifyOwnershipReport(report(), { ...trust, minimumCatalogDigest: digest(99) });
+  assert.equal(drift.admit, true); assert.deepEqual(drift.warnings, [CATALOG_DIGEST_DRIFT_WARNING]);
+  assert.equal(classifyOwnershipReport(report(), { ...trust, minimumCatalogDigest: report().metadata.catalogDigest }).warnings, undefined);
+  assert.equal(classifyOwnershipReport(report(), { ...trust, minimumCatalogVersion: '99', minimumCatalogDigest: digest(99) }).code, 'RK_OWNERSHIP_POLICY_DOWNGRADE');
   assert.equal(classifyOwnershipReport(report(), { ...trust, repositories: [{ ...trust.repositories[0], roots: ['engine', 'app'] }] }).code, 'RK_OWNERSHIP_INVALID_REGISTRATION');
   assert.equal(classifyOwnershipReport(report(), { ...trust, repositories: [null] }).code, 'RK_OWNERSHIP_INVALID_REGISTRATION');
   assert.equal(classifyOwnershipReport(report({ metadata: { ...report().metadata, coverage: [{ path: 'source.rs', status: 'incomplete', reason: 'missing' }] } }), trust).code, 'RK_OWNERSHIP_INCOMPLETE_COVERAGE');

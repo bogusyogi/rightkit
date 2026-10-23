@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { assertArtifactUnchanged, digestBytes, readVerifiedArtifact, verifyPublicationRelease } from "./publication-artifacts.mjs";
 import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
+import { registryEvidenceFixture } from "./test-support/admission.mjs";
 
 const commit = "a".repeat(40);
 function fixture(t) {
@@ -16,7 +17,7 @@ function fixture(t) {
   const signing = { schema: 1, identity: "Developer ID Application: Fixture", files: [{ after: { sha256: digestBytes(Buffer.from("signed installer")) }, timestampPresent: true, authenticode: "Valid", subject: "CN=Damned Ventures LLC", codesign: "strict-valid", identity: "Developer ID Application: Fixture" }] };
   writeFileSync(receipt, JSON.stringify(signing));
   const manifest = {
-    schema: 1, commit, app: "fixture", version: "1.0.0", platform: "win",
+    schema: 1, ...registryEvidenceFixture(), commit, app: "fixture", version: "1.0.0", platform: "win",
     ownershipEvidence: { commit }, signing: { receipts: [{ file: receipt, sha256: digestBytes(Buffer.from(JSON.stringify(signing))) }] },
     checkpoints: ["signed", "hardened", "sealed"],
     files: [{ name: "installer.exe", role: "installer", sha256: digestBytes(Buffer.from("signed installer")), sizeBytes: 16 }],

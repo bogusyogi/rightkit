@@ -74,6 +74,7 @@ pub use admission::{
 };
 pub use approval::{
     canonical_repository_identity, validate_ownership_floor, verify_repository_registration,
+    OwnershipFloor, CATALOG_DIGEST_DRIFT_WARNING,
 };
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use error::ScanError;

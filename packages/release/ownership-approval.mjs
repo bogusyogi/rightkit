@@ -291,13 +291,17 @@ function versionAtLeast(actual, minimum) {
 export const TRUST_SYNC_RETIRED = "right-release ownership trust-sync is retired: no release, ownership or QA check needs a human-approved policy bundle any more. The bundle is still fingerprinted; `right-release ownership trust-compare` reports drift as a warning with a semantic diff.";
 
 export const POLICY_BUNDLE_DRIFT_WARNING = "ownership policy bundle (scanner source, catalog, registry or dependency allowlist) differs from the bundle pinned in protected trust (warning only; trust-sync is retired)";
+export const CATALOG_DIGEST_DRIFT_WARNING = "ownership catalog digest differs from the digest pinned in protected trust (warning only; the catalog version still meets the protected minimum; trust-sync is retired)";
 export function validateOwnershipFloor(trust, { scannerVersion, catalogVersion, catalogDigest, policyBundleDigest } = {}) {
   const problems = [];
   const warnings = [];
   if (!trust) return { ok: false, problems: ["external ownership trust unavailable"], warnings };
   if (!versionAtLeast(scannerVersion, trust.minimumScannerVersion)) problems.push("scanner version missing, malformed, or below protected minimum");
   if (!versionAtLeast(catalogVersion, trust.minimumCatalogVersion)) problems.push("catalog version missing, malformed, or below protected minimum");
-  if (trust.minimumCatalogDigest && trust.minimumCatalogDigest !== catalogDigest) problems.push("catalog digest below protected pinned digest");
+  // Digest drift is policy-bundle drift (the catalog is part of the bundle): a warning, never a refusal, because
+  // trust-sync, the only way to re-pin it, is retired (decisions.md 2026-10-15, docs/OWNERSHIP-ENFORCEMENT.md).
+  // The numeric scanner and catalog minimums above stay hard floors.
+  if (trust.minimumCatalogDigest && trust.minimumCatalogDigest !== catalogDigest) warnings.push(CATALOG_DIGEST_DRIFT_WARNING);
   // Trust written before the bundle existed has no policyBundle: nothing to compare.
   if (trust.policyBundle?.digest && policyBundleDigest !== undefined && trust.policyBundle.digest !== policyBundleDigest) warnings.push(POLICY_BUNDLE_DRIFT_WARNING);
   return { ok: problems.length === 0, problems, warnings };

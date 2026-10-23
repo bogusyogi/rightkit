@@ -3,7 +3,7 @@
     "admit": false,
     "code": "RK_OWNERSHIP_POLICY_DOWNGRADE",
     "problems": [
-      "catalog digest below protected pinned digest"
+      "catalog version missing, malformed, or below protected minimum"
     ]
   }
 }

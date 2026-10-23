@@ -330,33 +330,53 @@ pub(crate) fn version_at_least(actual: Option<&str>, minimum: Option<&str>) -> b
     true
 }
 
-/// Scanner, catalog and pinned-digest floors (Node `validateOwnershipFloor`).
-pub fn validate_ownership_floor(trust: &Value, metadata: &Value) -> Result<(), Vec<String>> {
-    if !truthy(trust) {
-        return Err(vec!["external ownership trust unavailable".into()]);
+/// Warning for catalog digest drift; must equal the Node `CATALOG_DIGEST_DRIFT_WARNING` byte for byte.
+pub const CATALOG_DIGEST_DRIFT_WARNING: &str = "ownership catalog digest differs from the digest pinned in protected trust (warning only; the catalog version still meets the protected minimum; trust-sync is retired)";
+
+/// Result of the ownership floor check: `problems` refuse, `warnings` are reported only.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OwnershipFloor {
+    pub problems: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+impl OwnershipFloor {
+    pub fn ok(&self) -> bool {
+        self.problems.is_empty()
     }
-    let mut problems = Vec::new();
+}
+
+/// Scanner and catalog version floors are hard; a catalog digest that differs from the pinned
+/// digest is a warning (trust-sync is retired, decisions.md 2026-10-15). Node `validateOwnershipFloor`.
+pub fn validate_ownership_floor(trust: &Value, metadata: &Value) -> OwnershipFloor {
+    if !truthy(trust) {
+        return OwnershipFloor {
+            problems: vec!["external ownership trust unavailable".into()],
+            warnings: Vec::new(),
+        };
+    }
+    let mut floor = OwnershipFloor::default();
     if !version_at_least(
         field(metadata, "scannerVersion").as_str(),
         field(trust, "minimumScannerVersion").as_str(),
     ) {
-        problems.push("scanner version missing, malformed, or below protected minimum".into());
+        floor
+            .problems
+            .push("scanner version missing, malformed, or below protected minimum".into());
     }
     if !version_at_least(
         field(metadata, "catalogVersion").as_str(),
         field(trust, "minimumCatalogVersion").as_str(),
     ) {
-        problems.push("catalog version missing, malformed, or below protected minimum".into());
+        floor
+            .problems
+            .push("catalog version missing, malformed, or below protected minimum".into());
     }
     let pinned = field(trust, "minimumCatalogDigest");
     if truthy(pinned) && pinned != field(metadata, "catalogDigest") {
-        problems.push("catalog digest below protected pinned digest".into());
+        floor.warnings.push(CATALOG_DIGEST_DRIFT_WARNING.into());
     }
-    if problems.is_empty() {
-        Ok(())
-    } else {
-        Err(problems)
-    }
+    floor
 }
 
 // ---- approval records ------------------------------------------------------------

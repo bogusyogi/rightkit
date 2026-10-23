@@ -1,6 +1,6 @@
 {
   "kind": "verdict",
-  "description": "catalogDigest equals trust.minimumCatalogDigest.",
+  "description": "A higher catalogVersion with a different digest is also admitted with the drift warning.",
   "expectCode": "RK_OWNERSHIP_CLEAN",
   "report": {
     "ok": true,
@@ -11,7 +11,7 @@
     "metadata": {
       "repositoryIdentity": "https://github.com/test/repo",
       "scannerVersion": "2.6.0",
-      "catalogVersion": "1",
+      "catalogVersion": "2",
       "catalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "coverage": [],
       "roots": [
@@ -46,6 +46,6 @@
         "publicKeyPem": "TEST-ONLY-PLACEHOLDER-MACOS"
       }
     },
-    "minimumCatalogDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "minimumCatalogDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   }
 }
