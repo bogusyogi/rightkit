@@ -72,3 +72,66 @@ test("@rightkit/release is refused while its bundled version feed is behind the 
   assert.equal((await releaseFeedPolicy("/x", "@rightkit/release", { sync: offline })).ok, false, "an unreachable registry fails closed");
   assert.deepEqual(await releaseFeedPolicy("/x", "@rightkit/qa", { sync: behind }), { ok: true, skipped: true });
 });
+
+// ---- @rightkit/release pipeline canary policy and version pins ----
+import crypto from "node:crypto";
+import { CANARY_DIGEST_FILES, CANARY_EXPECTED_FILE, CANARY_RECEIPT, releaseCanaryPolicy } from "./rk-npm-preflight.mjs";
+import { DIGEST_FILES, EXPECTED_FILE } from "./rk-release-canary.mjs";
+
+const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+function canaryFixture(t, { verdict = "green", sha = "a".repeat(40), version = "0.6.3", receiptSha = sha, receiptVersion = version, ok = verdict === "green", writeReceipt = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-canary-policy-"));
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), "rk-canary-out-"));
+  t.after(() => { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(out, { recursive: true, force: true }); });
+  const digest = (rel) => crypto.createHash("sha256").update(fs.readFileSync(path.join(root, rel))).digest("hex");
+  for (const rel of [...CANARY_DIGEST_FILES, CANARY_EXPECTED_FILE]) { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.copyFileSync(path.join(REPO_ROOT, rel), path.join(root, rel)); }
+  const receipt = { schema: "rk-release-canary.v1", unit: "@rightkit/release", sha: receiptSha, version: receiptVersion, verdict, ok, digests: { scripts: Object.fromEntries(CANARY_DIGEST_FILES.map((f) => [f, digest(f)])), expected: digest(CANARY_EXPECTED_FILE) } };
+  if (writeReceipt) { fs.mkdirSync(path.join(out, sha), { recursive: true }); fs.writeFileSync(path.join(out, sha, CANARY_RECEIPT), JSON.stringify(receipt)); }
+  return { root, out, sha, version, receipt };
+}
+
+test("the pre-flight's canary digest list is the canary's own list", () => {
+  assert.deepEqual([...CANARY_DIGEST_FILES], [...DIGEST_FILES]);
+  assert.equal(CANARY_EXPECTED_FILE, EXPECTED_FILE);
+  assert.equal(CANARY_RECEIPT, "@rightkit__release.canary.json");
+});
+
+test("@rightkit/release pre-flight: a green canary for this SHA, version, scripts and expected file passes", (t) => {
+  const f = canaryFixture(t);
+  const r = releaseCanaryPolicy(f.root, "@rightkit/release", { sha: f.sha, version: f.version, out: f.out });
+  assert.equal(r.ok, true);
+  assert.equal(r.verdict, "green");
+});
+
+test("@rightkit/release pre-flight: no receipt, a receipt for another SHA, another version, or a non-green verdict refuses", (t) => {
+  const none = canaryFixture(t, { writeReceipt: false });
+  assert.match(releaseCanaryPolicy(none.root, "@rightkit/release", { sha: none.sha, version: none.version, out: none.out }).reason, /no canary receipt/);
+  const other = canaryFixture(t, { receiptSha: "b".repeat(40) });
+  assert.match(releaseCanaryPolicy(other.root, "@rightkit/release", { sha: other.sha, version: other.version, out: other.out }).reason, /is for bbbbbbbbbbbb, not aaaaaaaaaaaa/);
+  const stale = canaryFixture(t, { receiptVersion: "0.6.2" });
+  assert.match(releaseCanaryPolicy(stale.root, "@rightkit/release", { sha: stale.sha, version: stale.version, out: stale.out }).reason, /0\.6\.2, not 0\.6\.3/);
+  for (const verdict of ["incomplete", "regression"]) {
+    const f = canaryFixture(t, { verdict });
+    assert.match(releaseCanaryPolicy(f.root, "@rightkit/release", { sha: f.sha, version: f.version, out: f.out }).reason, /not green/);
+  }
+  const lying = canaryFixture(t, { verdict: "green", ok: false });
+  assert.equal(releaseCanaryPolicy(lying.root, "@rightkit/release", { sha: lying.sha, version: lying.version, out: lying.out }).ok, false);
+});
+
+test("@rightkit/release pre-flight: a receipt written by different canary scripts or judged against a different expected file refuses", (t) => {
+  const a = canaryFixture(t);
+  fs.appendFileSync(path.join(a.root, "scripts/ci/rk-release-canary.mjs"), "\n// changed after the canary ran\n");
+  assert.match(releaseCanaryPolicy(a.root, "@rightkit/release", { sha: a.sha, version: a.version, out: a.out }).reason, /different scripts\/ci\/rk-release-canary\.mjs/);
+  const b = canaryFixture(t);
+  fs.writeFileSync(path.join(b.root, CANARY_EXPECTED_FILE), JSON.stringify({ schema: 1, entries: [] }, null, 4));
+  assert.match(releaseCanaryPolicy(b.root, "@rightkit/release", { sha: b.sha, version: b.version, out: b.out }).reason, /different ci\/release-canary-expected\.json/);
+  const c = canaryFixture(t);
+  fs.appendFileSync(path.join(c.root, "ci/release-canary.json"), "\n");
+  assert.match(releaseCanaryPolicy(c.root, "@rightkit/release", { sha: c.sha, version: c.version, out: c.out }).reason, /different ci\/release-canary\.json/);
+});
+
+test("other units are unaffected by the canary policy", (t) => {
+  const none = canaryFixture(t, { writeReceipt: false });
+  assert.deepEqual(releaseCanaryPolicy(none.root, "@rightkit/qa", { sha: none.sha, version: "1.0.0", out: none.out }), { ok: true, skipped: true });
+  assert.deepEqual(releaseCanaryPolicy(none.root, "@rightkit/legal", { sha: none.sha, version: "1.0.0", out: none.out }), { ok: true, skipped: true });
+});

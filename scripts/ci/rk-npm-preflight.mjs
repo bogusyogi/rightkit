@@ -21,6 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkTools, planCommandsFromWorkflow, readJson, SCHEMA, verifyAttestation, brokerRequestIds, DEFAULT_OUT } from "./rk-preflight.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { closureAgeExceptions, validateClosureApproval } from "./npm-recipe-consumer.mjs";
+import { versionPinProblems } from "./release-version-pins.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const ADAPTER = "rightkit-pnpm";
@@ -118,6 +119,34 @@ export async function releaseFeedPolicy(root, unit, { sync } = {}) {
   const behind = (result.changes ?? []).map((c) => `${c.registry} ${c.name} ${c.from ?? "unlisted"} -> ${c.to}`);
   if (behind.length) return { ok: false, reason: `packages/release/rightkit-versions.json is behind the registries (${behind.join("; ")}); run node packages/release/rightkit-sync.mjs, commit, then publish`, behind };
   return { ok: true, checked: true };
+}
+
+/** Files whose digests the @rightkit/release canary receipt binds, and the reviewed expected-findings file: a receipt
+ * written by other canary code, or against other policy, proves nothing about this tree. Kept in step with
+ * scripts/ci/rk-release-canary.mjs DIGEST_FILES (a unit test compares the two). */
+export const CANARY_DIGEST_FILES = ["scripts/ci/rk-release-canary.mjs", "scripts/ci/rk-release-canary-leg.mjs", "scripts/ci/release-version-pins.mjs", "ci/release-canary.json"];
+export const CANARY_EXPECTED_FILE = "ci/release-canary-expected.json";
+export const CANARY_RECEIPT = "@rightkit__release.canary.json";
+
+/** @rightkit/release is published only behind a GREEN pipeline canary for this exact SHA and version, written by exactly
+ * this tree's canary scripts against exactly this tree's expected-findings file. Other units are unaffected. */
+export function releaseCanaryPolicy(root, unit, { sha, version, out = DEFAULT_OUT } = {}) {
+  if (unit !== "@rightkit/release") return { ok: true, skipped: true };
+  const file = path.join(out, sha ?? "", CANARY_RECEIPT);
+  let receipt;
+  try { receipt = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return { ok: false, reason: `no canary receipt for ${sha ? String(sha).slice(0, 12) : "this SHA"} (${file}); run: node scripts/ci/rk-pipeline.mjs canary ${unit}` }; }
+  const digest = (rel) => { try { return crypto.createHash("sha256").update(fs.readFileSync(path.join(root, rel))).digest("hex"); } catch { return null; } };
+  if (receipt.schema !== "rk-release-canary.v1" || receipt.unit !== unit) return { ok: false, reason: `canary receipt ${file} has an unknown schema or unit` };
+  if (receipt.sha !== sha) return { ok: false, reason: `canary receipt is for ${String(receipt.sha).slice(0, 12)}, not ${String(sha).slice(0, 12)}` };
+  if (receipt.version !== version) return { ok: false, reason: `canary receipt is for ${unit}@${receipt.version}, not ${version}` };
+  if (receipt.verdict !== "green" || receipt.ok !== true) return { ok: false, reason: `canary verdict is ${receipt.verdict ?? "missing"}, not green; incomplete is never green` };
+  for (const rel of CANARY_DIGEST_FILES) {
+    const have = digest(rel);
+    if (!have || receipt.digests?.scripts?.[rel] !== have) return { ok: false, reason: `canary receipt was written by a different ${rel}; rerun the canary` };
+  }
+  const expected = digest(CANARY_EXPECTED_FILE);
+  if (!expected || receipt.digests?.expected !== expected) return { ok: false, reason: `canary receipt was judged against a different ${CANARY_EXPECTED_FILE}; rerun the canary` };
+  return { ok: true, verdict: receipt.verdict, receipt: file };
 }
 
 /** What the signed receipt of an adapter row must bind: the adapter id, this host's node and the pinned pnpm script. */
@@ -225,6 +254,16 @@ export async function main(argv, deps = {}) {
     for (const [i, [command, args]] of planCommands.entries()) {
       const r = await run(command, args, { cwd: root, env, timeoutMinutes: 20, logFile: path.join(logDir, `plan-check-${i + 1}.log`) });
       if (r.code !== 0 || r.timedOut) { failed = { index: i + 1, command: `node ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, lines: r.out.split("\n").filter((l) => /^not ok|error:|refused/.test(l.trim())).slice(0, 8) }; break; }
+    }
+    if (!failed) {
+      const pins = versionPinProblems(root, opts.unit);
+      receipt.versionPins = { ok: pins.length === 0, problems: pins };
+      if (pins.length) failed = { index: 0, command: "version pins", exit: 1, timedOut: false, lines: pins.slice(0, 8) };
+      const canary = failed ? null : releaseCanaryPolicy(root, opts.unit, { sha, version: pkg.version, out: opts.out });
+      if (canary) {
+        receipt.releaseCanary = canary;
+        if (!canary.ok) failed = { index: 0, command: "release pipeline canary", exit: 1, timedOut: false, lines: [canary.reason] };
+      }
     }
     if (!failed) {
       const recipe = npmRecipePolicy(root, opts.unit);

@@ -5,6 +5,7 @@
 //
 //   rk-pipeline.mjs ready        [--registry crates|npm]           units whose version is not on the registry, in dependency waves
 //   rk-pipeline.mjs preflight    <unit...> [--jobs N]               rk-preflight each unit, N at a time, through the broker
+//   rk-pipeline.mjs canary       @rightkit/release                 the pipeline canary (candidate vs registry baseline doctor, both hosts); `loop` runs it before pre-flight
 //   rk-pipeline.mjs dispatch     <unit...> [--registry crates|npm]  hosted qualification, only with a green receipt for HEAD, HEAD on origin
 //   rk-pipeline.mjs watch        [--wait]                          hosted run state per dispatched unit; upload and registry readback on green
 //   rk-pipeline.mjs loop         [--registry crates|npm|all] [--jobs N]  ready -> preflight -> dispatch -> watch; `all` runs crates and npm units in ONE coordinator, so npm never queues behind crates
@@ -38,7 +39,7 @@ export function parseArgs(argv) {
     else if (arg.startsWith("--")) throw new Error(`unknown argument ${arg}`);
     else opts.units.push(...arg.split(/\s+/).filter(Boolean)); // one quoted list or many arguments, both fine
   }
-  if (!["ready", "preflight", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, dispatch, watch or loop");
+  if (!["ready", "preflight", "canary", "dispatch", "watch", "loop"].includes(command)) throw new Error("command must be ready, preflight, canary, dispatch, watch or loop");
   if (!["crates", "npm"].includes(opts.registry) && !(command === "loop" && opts.registry === "all")) throw new Error("--registry must be crates or npm (loop also accepts all)");
   if (!Number.isInteger(opts.jobs) || opts.jobs < 1) throw new Error("--jobs must be a positive integer");
   opts.units = [...new Set(opts.units)];
@@ -280,6 +281,31 @@ async function preflightMany(units, opts) {
   return results;
 }
 
+/** Units that run the pipeline canary before their pre-flight. */
+export const CANARY_UNITS = new Set(["@rightkit/release"]);
+/** Exit codes of scripts/ci/rk-release-canary.mjs: 0 green, 10 regression, 11 incomplete (infrastructure). */
+export const CANARY_REGRESSION = 10;
+export const CANARY_INCOMPLETE = 11;
+export const needsCanary = (unit, registry) => registry === "npm" && CANARY_UNITS.has(unit);
+
+async function runCanaryChild(unit) {
+  const r = await runChild(NODE, [path.join(ROOT, "scripts", "ci", "rk-release-canary.mjs"), "--unit", unit]);
+  const last = r.out.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "";
+  return { code: r.code, last };
+}
+
+async function cmdCanary(opts, deps = {}) {
+  if (!opts.units.length) { fail("name at least one unit"); return 2; }
+  let worst = 0;
+  for (const unit of opts.units) {
+    if (!needsCanary(unit, "npm")) { fail(`${unit}: no pipeline canary for this unit`); worst = Math.max(worst, 2); continue; }
+    const result = await (deps.canary ?? runCanaryChild)(unit);
+    log(`canary ${unit}: ${result.code === 0 ? "GREEN" : result.code === CANARY_REGRESSION ? "REGRESSION" : result.code === CANARY_INCOMPLETE ? "INCOMPLETE" : "ERROR"} (${String(result.last ?? "").slice(0, 140)})`);
+    worst = Math.max(worst, result.code === 0 ? 0 : 1);
+  }
+  return worst;
+}
+
 async function cmdPreflight(opts) {
   if (!opts.units.length) {
     fail("name at least one unit");
@@ -474,6 +500,7 @@ export async function cmdLoop(opts, deps = {}) {
   const registries = opts.registry === "all" ? ["crates", "npm"] : [opts.registry];
   const slot = (registry, unit) => `${registry}:${unit}`;
   const dispatch = deps.dispatch ?? cmdDispatch;
+  const canary = deps.canary ?? runCanaryChild;
   const pause = deps.pause ?? (() => new Promise((r) => setTimeout(r, 15_000)));
   const hold = deps.holdReason ?? holdReason;
   const active = new Map(), attempted = new Set(), held = new Set();
@@ -498,15 +525,27 @@ export async function cmdLoop(opts, deps = {}) {
       const id = slot(registry, unit);
       // A record at this SHA ends the unit's attempts here, except a preflight-phase failure: that is local evidence
       // only (nothing was dispatched), and the dispatcher itself admits a retry of it; the loop at 14ac0759 skipped
-      // qa and tauri-shell after a tree-change refusal and exited with nothing to do.
+      // qa and tauri-shell after a tree-change refusal and exited with nothing to do. A canary-incomplete record
+      // (outage, timeout, unrepresentative host) is retried the same way; a canary regression is not: the same SHA
+      // would reproduce it, and only a new commit changes the answer.
       const previous = state.dispatches[key];
-      if (attempted.has(id) || held.has(id) || (previous && !(previous.status === "failed" && previous.phase === "preflight"))) continue;
+      if (attempted.has(id) || held.has(id) || (previous && !(previous.status === "failed" && ["preflight", "canary-incomplete"].includes(previous.phase)))) continue;
       const claim = openClaim(state, { registry, unit, version: r.crates?.get?.(unit)?.version, sha });
       if (claim) { held.add(id); log(`${unit}: ${claim.version ?? ""} already claimed at ${String(claim.sha).slice(0, 8)} (status ${claim.status}, run ${claim.runId ?? "?"}); watching it, not dispatching again`); continue; }
       const reason = hold(unit, sha, state, r.crates);
       if (reason) { held.add(id); log(`${unit}: ${reason}`); continue; }
       attempted.add(id);
       const task = (async () => {
+        if (needsCanary(unit, registry)) {
+          const verdict = await canary(unit, registry);
+          if (verdict.code !== 0) {
+            failed = true;
+            const phase = verdict.code === CANARY_REGRESSION ? "canary" : "canary-incomplete";
+            log(`${unit}: canary ${phase === "canary" ? "found a regression" : "is incomplete"} at ${sha.slice(0, 12)}: ${String(verdict.last ?? "").slice(0, 140)}`);
+            const current = stateFn(); current.dispatches[key] = { unit, sha, registry, status: "failed", phase, detail: verdict.last }; save(current);
+            return;
+          }
+        }
         const result = await preflight(unit, registry);
         if (result.code !== 0) {
           failed = true;
@@ -584,6 +623,8 @@ export async function main(argv) {
       return cmdReady(opts);
     case "preflight":
       return cmdPreflight(opts);
+    case "canary":
+      return cmdCanary(opts);
     case "dispatch":
       return cmdDispatch(opts);
     case "watch":

@@ -472,3 +472,71 @@ test("needsReconcile: plain run/upload failures do not claim; ambiguous ones do 
   assert.equal(needsReconcile({ status: "failed", conclusion: "watch deadline exceeded; reconcile existing run before retry" }), true);
   assert.equal(needsReconcile({ status: "published" }), false);
 });
+
+// ---- @rightkit/release pipeline canary in the loop ----
+import { CANARY_INCOMPLETE, CANARY_REGRESSION, needsCanary } from "./rk-pipeline.mjs";
+
+function canaryLoopHarness({ sha = "c".repeat(40), units = ["@rightkit/release", "@rightkit/qa"], canaryCodes = {} } = {}) {
+  let state = { dispatches: {} };
+  const events = [];
+  const pending = new Set(units);
+  const run = (code) => cmdLoop({ registry: "npm", units: [], jobs: 2 }, {
+    head: () => sha,
+    readiness: async () => ({ unpublished: new Set(pending), waves: [[...pending]], crates: [] }),
+    readState: () => structuredClone(state), writeState: (s) => { state = structuredClone(s); },
+    watch: async () => 0, holdReason: () => null, pause: () => new Promise((r) => setTimeout(r, 1)),
+    canary: async (unit) => { events.push(`canary:${unit}`); const c = canaryCodes[unit]?.shift() ?? 0; return { code: c, last: `canary exit ${c}` }; },
+    preflight: async (unit) => { events.push(`preflight:${unit}`); return { code: 0 }; },
+    dispatch: async (o) => {
+      events.push(`dispatch:${o.units[0]}`); pending.delete(o.units[0]);
+      state.dispatches[stateKey("npm", sha, o.units[0])] = { unit: o.units[0], registry: "npm", sha, status: "published" };
+      return 0;
+    },
+  });
+  return { run, events, get state() { return state; }, sha };
+}
+
+test("loop: the canary runs before pre-flight for @rightkit/release only", async () => {
+  assert.equal(needsCanary("@rightkit/release", "npm"), true);
+  assert.equal(needsCanary("@rightkit/qa", "npm"), false);
+  assert.equal(needsCanary("@rightkit/release", "crates"), false);
+  const h = canaryLoopHarness();
+  assert.equal(await h.run(), 0);
+  assert.ok(h.events.indexOf("canary:@rightkit/release") < h.events.indexOf("preflight:@rightkit/release"));
+  assert.ok(h.events.indexOf("preflight:@rightkit/release") < h.events.indexOf("dispatch:@rightkit/release"));
+  assert.ok(!h.events.includes("canary:@rightkit/qa"), "other units get no canary");
+  assert.ok(h.events.includes("preflight:@rightkit/qa") && h.events.includes("dispatch:@rightkit/qa"));
+});
+
+test("loop: a canary regression records phase canary, skips pre-flight and dispatch, and is not retried at the same SHA", async () => {
+  const h = canaryLoopHarness({ units: ["@rightkit/release"], canaryCodes: { "@rightkit/release": [CANARY_REGRESSION, 0] } });
+  assert.equal(await h.run(), 1);
+  assert.deepEqual(h.events, ["canary:@rightkit/release"]);
+  const record = h.state.dispatches[stateKey("npm", h.sha, "@rightkit/release")];
+  assert.equal(record.status, "failed");
+  assert.equal(record.phase, "canary");
+  // A fresh loop at the same SHA (the state survived): the unit is not attempted again, even though the next canary would be green.
+  assert.equal(await h.run(), 1);
+  assert.deepEqual(h.events, ["canary:@rightkit/release"], "no second canary, no pre-flight");
+});
+
+test("loop: an incomplete canary records canary-incomplete, skips pre-flight, and IS retried by the next loop at the same SHA", async () => {
+  const h = canaryLoopHarness({ units: ["@rightkit/release"], canaryCodes: { "@rightkit/release": [CANARY_INCOMPLETE, 0] } });
+  assert.equal(await h.run(), 1);
+  assert.deepEqual(h.events, ["canary:@rightkit/release"]);
+  assert.equal(h.state.dispatches[stateKey("npm", h.sha, "@rightkit/release")].phase, "canary-incomplete");
+  assert.equal(await h.run(), 0);
+  assert.deepEqual(h.events, ["canary:@rightkit/release", "canary:@rightkit/release", "preflight:@rightkit/release", "dispatch:@rightkit/release"]);
+});
+
+test("loop: a crashing canary process (any other exit) is treated as incomplete, never as green", async () => {
+  const h = canaryLoopHarness({ units: ["@rightkit/release"], canaryCodes: { "@rightkit/release": [2] } });
+  assert.equal(await h.run(), 1);
+  assert.equal(h.state.dispatches[stateKey("npm", h.sha, "@rightkit/release")].phase, "canary-incomplete");
+  assert.ok(!h.events.includes("preflight:@rightkit/release"));
+});
+
+test("the canary command is parsed and refuses units without a canary", () => {
+  assert.equal(parseArgs(["canary", "@rightkit/release"]).command, "canary");
+  assert.deepEqual(parseArgs(["canary", "@rightkit/release"]).units, ["@rightkit/release"]);
+});

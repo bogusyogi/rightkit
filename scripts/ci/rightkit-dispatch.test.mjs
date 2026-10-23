@@ -169,3 +169,17 @@ test("admission rejection never posts even when remote main matches", async () =
   assert.equal(code, 2);
   assert.ok(!calls.some((c) => c.includes("-X")));
 });
+
+test("the dispatcher's pinned helper digests match the helper files committed beside it (npm pre-flight, its imported pins module, select, crate pre-flight)", async () => {
+  const { createHash } = await import("node:crypto");
+  const fs = await import("node:fs");
+  const here = new URL(".", import.meta.url);
+  const source = fs.readFileSync(new URL("./rightkit-dispatch.mjs", here), "utf8");
+  const pinned = (name) => new RegExp(`const ${name} = "([0-9a-f]{64})"`).exec(source)?.[1];
+  const digest = (file) => createHash("sha256").update(fs.readFileSync(new URL(file, here))).digest("hex");
+  assert.equal(pinned("PREFLIGHT_SHA256"), digest("./rk-preflight.mjs"));
+  assert.equal(pinned("NPM_PREFLIGHT_SHA256"), digest("./rk-npm-preflight.mjs"));
+  assert.equal(pinned("NPM_SELECT_SHA256"), digest("./select.mjs"));
+  assert.equal(pinned("NPM_VERSION_PINS_SHA256"), digest("./release-version-pins.mjs"));
+  assert.match(source, /release-version-pins\.mjs"\), NPM_VERSION_PINS_SHA256\]/, "the pins module is checked in the npm admission list");
+});

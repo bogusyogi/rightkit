@@ -106,8 +106,10 @@ export function matchRun(runs, query) {
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
 const PREFLIGHT_SHA256 = "44b1d589f6b6b9460e8f59a26bde17ef6f174ebb8adab571ccc17b629630d405";
-const NPM_PREFLIGHT_SHA256 = "4cc026b45d5ca77493617a9afd7f811f02d31cb763c633ae9eb88fb5020bc70a";
+const NPM_PREFLIGHT_SHA256 = "8cf8376beaabd07a055c03364acc62e40c2d2bb024a516f024a0628d9aa0c5f6";
 const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
+// rk-npm-preflight.mjs imports this module (its version-pin plan-check); a pinned importer that trusts an unpinned module is not pinned.
+const NPM_VERSION_PINS_SHA256 = "5f490eb13c11dab32bb57a0d4b95eea94564e75ec1d853af5dbc1093a215b7a8";
 // Filled from reviewed bytes; validate the complete static admission import tree before import.
 const ADMISSION_DEPENDENCIES = {
   "scripts/ci/rk-consumer-stage.mjs": "90ddd59db1636c847eb61c1c07b97f59bda9ecc4d2de06d638592d69c6030c11",
@@ -132,7 +134,7 @@ export async function requirePreflight(opts) {
   }
   const npmHelper = path.join(root, "scripts", "ci", "rk-npm-preflight.mjs");
   if (npm) {
-    for (const [file, expected] of [[npmHelper, NPM_PREFLIGHT_SHA256], [path.join(root, "scripts", "ci", "select.mjs"), NPM_SELECT_SHA256]]) {
+    for (const [file, expected] of [[npmHelper, NPM_PREFLIGHT_SHA256], [path.join(root, "scripts", "ci", "select.mjs"), NPM_SELECT_SHA256], [path.join(root, "scripts", "ci", "release-version-pins.mjs"), NPM_VERSION_PINS_SHA256]]) {
       if (!fs.existsSync(file) || crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") !== expected) throw new Error("npm admission implementation digest changed; repin reviewed dependencies");
     }
   }
