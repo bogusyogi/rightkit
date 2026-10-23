@@ -8,7 +8,7 @@ Owners come from `packages/release/rightkit-ownership.json`, which the ownership
 - Detection: `fingerprinted` when the owner declares dependency or source fingerprints; `declaration-only` when it declares ownership without a precise fingerprint. A declared dependency alone does not prove integration.
 - Published availability: `published` means a registry version is recorded. `staged` means a version is prepared and unverified on the registry.
 
-Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners that are not application capabilities are excluded.
+Capabilities: 96 (58 with fingerprints, 38 declaration-only). Internal owners that are not application capabilities are excluded.
 
 | Capability | Owner | Tier | Detection | Fingerprints | Published availability |
 |---|---|---|---|---|---|
@@ -19,7 +19,7 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.2 (npm) |
 | appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.1 (crates.io) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.3.1 (crates.io) |
-| browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.5 (crates.io) |
+| browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.6 (crates.io) |
 | browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.11 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.2.2 (crates.io) |
@@ -76,12 +76,13 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | pdf | `rightkit-pdf` | none | declaration-only | 0 | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-engine | `rightkit-pdf` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-ui | `@rightkit/pdf-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/pdf-ui: published 0.2.0 (npm) |
-| persistent-jobs | `rightkit-job-queue` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-job-queue: published 0.5.0 (crates.io) |
+| persistent-jobs | `rightkit-job-queue` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-job-queue: published 0.5.1 (crates.io) |
 | platform-rules | `rightkit-platform-rules` | none | declaration-only | 0 | rightkit-platform-rules: published 0.1.0 (crates.io) |
 | platform-ui | `@rightkit/platform-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/platform-ui: published 0.4.0 (npm) |
 | qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.6.1 (npm) |
-| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.1 (npm) |
-| safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.6 (crates.io) |
+| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.6.3 (npm) |
+| right-suite-api | `rightkit-license` | none | declaration-only | 0 | rightkit-license: published 0.2.4 (crates.io) |
+| safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.7 (crates.io) |
 | scenario-runtime | `rightkit-workflow` | none | declaration-only | 0 | rightkit-workflow: published 0.2.0 (crates.io) |
 | screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: published 0.3.3 (crates.io) |
 | script-alignment | `rightkit-align` | none | declaration-only | 0 | rightkit-align: none recorded |
@@ -93,7 +94,7 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.3.0 (crates.io) |
 | spend-ledger | `rightkit-spend` | none | declaration-only | 0 | rightkit-spend: published 0.2.0 (crates.io) |
 | spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
-| sqlite-storage | `rightkit-db` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-db: published 0.5.1 (crates.io) |
+| sqlite-storage | `rightkit-db` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-db: published 0.5.2 (crates.io) |
 | structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.6 (npm); rightkit-logs: published 0.3.5 (crates.io) |
 | sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: none recorded |
 | sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
