@@ -223,6 +223,7 @@ fn tcp_probe_script(root: &Path) -> PathBuf {
     fs::write(
         &script,
         r#"$status = 19
+Write-Output ("probe start " + [DateTime]::UtcNow.ToString("o"))
 $client = [System.Net.Sockets.TcpClient]::new()
 try {
     $timeoutMs = [int]$env:RIGHTKIT_SANDBOX_OUTBOUND_TIMEOUT_MS
@@ -250,6 +251,7 @@ try {
 } finally {
     $client.Dispose()
 }
+Write-Output ("probe connect-phase done status=" + $status + " " + [DateTime]::UtcNow.ToString("o"))
 if ($env:RIGHTKIT_SANDBOX_OUTBOUND_HOLD -eq "1") {
     Start-Sleep -Seconds 2
 }
@@ -538,10 +540,22 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_remote_tcp_contro
     println!(
         "windows outbound remote token appcontainer=true internet_client=false endpoint={host}:{port}"
     );
+    let started = Instant::now();
     let output = child
         .wait_with_output(CHILD_DEADLINE)
         .expect("wait for network-denied AppContainer remote control");
     drop(io);
+    // Evidence first, verdict second: a deadline miss must say whether PowerShell started inside
+    // the lowbox at all and whether the bounded connect expired (runs 39872794369 and 39881928960
+    // timed out with no output recorded; 39878045340 passed).
+    println!(
+        "windows outbound remote confined elapsed_ms={} timed_out={} exit={:?} stdout={:?} stderr={:?}",
+        started.elapsed().as_millis(),
+        output.timed_out,
+        output.status.and_then(|status| status.code()),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     output_completed(&output, "network-denied AppContainer remote control");
     // The unsandboxed helper connected to this endpoint inside `REMOTE_CONNECT_BOUND` (exit 0), so
     // only the missing `internetClient` capability explains the confined helper not connecting:

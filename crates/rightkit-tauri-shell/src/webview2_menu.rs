@@ -120,6 +120,9 @@ type Action = Arc<dyn Fn(&MenuContext) + Send + Sync>;
 /// What a picked item does.
 #[derive(Clone)]
 enum Route {
+    /// Run this closure. Only the WebView2 pick handler (`#[cfg(windows)]`) invokes it; on other
+    /// platforms the planning code builds and classifies the route without ever reading it.
+    #[cfg_attr(not(windows), allow(dead_code))]
     Callback(Action),
     /// Emit this Tauri event with the [`MenuContext`] as payload.
     Event(String),
