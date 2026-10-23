@@ -35,7 +35,8 @@
         "./native": {},
         "./react": {
           "react": "19.3.1"
-        }
+        },
+        "./suite-api": {}
       },
       "files": {
         "ci/consumers/npm/app-update/README.md": "e6c18530765bd8d876fefc8800da1ca2ded1099e310e4a666e10c855031ffa40",
@@ -383,12 +384,12 @@
       "id": "ci/consumers/rightkit-credentials/src/main.rs",
       "files": {
         "Cargo.toml": "989e8d2d35d0e4c50fe34ba002a740f5c791242876636795c77cce7b6fcc8465",
-        "README.md": "8aae0e4630500f529171dd6399138807955ff55df50239cc749f277d5c26b32b",
         "prepare_signed_helper.py": "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c",
-        "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
-        "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
         "qualification-helper/entitlements.plist": "a6aa6260390ae45abe50cc5bed4d0dd2b922a67ac93f69bd58b86419666f123c",
+        "qualification-helper/Info.plist": "8a865dfac7975ff5b0bd3315625676af43490ed611e3e31d2a823debc7b664ad",
         "qualification-helper/main.swift": "e1598bfca1122aa38060e09f95abce58b367023cfee8b9d43c1375b80f4b15a1",
+        "qualification-helper/README.md": "99fea95aa2c38cd5ba15b373a77bbfb0de9f0746e8687a2a4a08f8fdd131e549",
+        "README.md": "8aae0e4630500f529171dd6399138807955ff55df50239cc749f277d5c26b32b",
         "src/main.rs": "3732cd23cced5c6490d0caa2d45f478e94ecb54338090f883465e9004f18b577"
       },
       "runs": [

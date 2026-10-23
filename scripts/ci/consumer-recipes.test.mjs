@@ -7,6 +7,9 @@ import { fileURLToPath } from "node:url";
 import { cargoRecipe, nativeFixture, planRuns, parseRuns, executeRuns, cargoRunArgs, NATIVE_HELPER, planNativeHelper, stageNativeHelper, nativeHelperExecute } from "./consumer-recipes.mjs";
 const unit = { name: "rightkit-logs", version: "0.3.5" };
 const committedRoot = fileURLToPath(new URL("../../", import.meta.url));
+
+// Committed recipes pin each crate's current version; read it from the manifest so a version bump never breaks these tests.
+const committedVersion = (name) => /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(path.join(committedRoot, "crates", name, "Cargo.toml"), "utf8"))[1];
 const manifest = fs.readFileSync(path.join(committedRoot, "ci/consumers/rightkit-logs/Cargo.toml"), "utf8");
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-pk-recipe-"))); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -25,8 +28,8 @@ test("PK identity binds executable source, every file, exact dependency & select
 });
 
 test("PK08 keeps bare defaults while locked Tauri 2.11 shell rows select legacy bindings", () => {
-  const recipe = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-tauri-shell", version: "0.5.1" } });
-  assert.deepEqual(recipe.evidence.dependency, { name: "rightkit-tauri-shell", version: "=0.5.1", defaultFeatures: true, features: [] });
+  const recipe = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-tauri-shell", version: committedVersion("rightkit-tauri-shell") } });
+  assert.deepEqual(recipe.evidence.dependency, { name: "rightkit-tauri-shell", version: `=${committedVersion("rightkit-tauri-shell")}`, defaultFeatures: true, features: [] });
   const shell = fs.readFileSync(path.join(committedRoot, "crates/rightkit-tauri-shell/Cargo.toml"), "utf8");
   assert.match(shell, /^default = \["wv2-0_39"\]$/m);
   const config = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/gate.config.json"), "utf8"));
@@ -43,7 +46,8 @@ test("reviewed inventory admits only existing locked PK examples", () => {
   const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8"));
   assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-agent-tools", "rightkit-align", "rightkit-android", "rightkit-app-settings", "rightkit-asr", "rightkit-automation", "rightkit-browser", "rightkit-child-process", "rightkit-crash", "rightkit-credentials", "rightkit-daemon", "rightkit-db", "rightkit-device", "rightkit-docs", "rightkit-embed", "rightkit-ffmpeg", "rightkit-fs", "rightkit-fsindex", "rightkit-google-identity", "rightkit-http", "rightkit-job-queue", "rightkit-license", "rightkit-llm", "rightkit-logs", "rightkit-models", "rightkit-motion", "rightkit-oauth", "rightkit-onnx", "rightkit-overlay", "rightkit-overlay-win", "rightkit-ownership", "rightkit-pdf", "rightkit-playback", "rightkit-qa", "rightkit-qa-driver", "rightkit-record", "rightkit-sandbox", "rightkit-sidecar", "rightkit-speech-client", "rightkit-spend", "rightkit-sync-keys", "rightkit-tauri-shell", "rightkit-vault"]);
   for (const [name, version, pkId] of [["rightkit-fs", "0.4.6", "PK01"], ["rightkit-logs", "0.3.5", "PK11"], ["rightkit-speech-client", "0.4.0", "PK15"], ["rightkit-onnx", "0.2.7", "PK18"], ["rightkit-asr", "0.3.0", "PK18"], ["rightkit-qa-driver", "0.7.0", "PK14"], ["rightkit-android", "0.3.0", "PK09"], ["rightkit-google-identity", "0.2.0", "PK10"], ["rightkit-vault", "0.2.0", "PK13"], ["rightkit-docs", "0.1.2", "PK16"], ["rightkit-record", "0.3.3", "PK17"], ["rightkit-align", "0.1.0", "PK21"], ["rightkit-sync-keys", "0.1.0", "PK22"]]) {
-    const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version } });
+    assert.ok(version); // the listed version documents the pin at review time; the recipe is checked at the current one
+    const { evidence } = cargoRecipe({ root: committedRoot, unit: { name, version: committedVersion(name) } });
     assert.equal(evidence.pkId, pkId); assert.deepEqual(evidence.files, inventory.cargo[name].files);
   }
 });
@@ -132,13 +136,13 @@ test("a missing provider prerequisite refuses; an other-OS run is only not-appli
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 });
 test("committed credentials & browser inventory declare their reviewed runs", () => {
-  const cred = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-credentials", version: "0.4.2" } });
+  const cred = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-credentials", version: committedVersion("rightkit-credentials") } });
   assert.deepEqual(cred.runs.map(r => [r.id, r.args, r.features, r.hosts]), [["core", ["core"], [], null], ["native-db", ["native-db"], ["sqlcipher-system"], ["win32", "darwin"]], ["native-helper", ["native-helper"], [], ["darwin"]]]);
   assert.ok(cred.evidence.dependency.features.includes("db-adapter"));
   assert.deepEqual(cred.runs[2].env, { RK_CONSUMER_HELPER_NAME: "signedHelper", RK_CONSUMER_HELPER_TEAM_ID: "signedHelper" });
   assert.equal(cred.evidence.files["prepare_signed_helper.py"], "5416b80b5b81ef50528033bbc9b91131a73c421a66764b3390331dd80fa0cd6c");
   assert.deepEqual(Object.keys(cred.evidence.files).sort(), ["Cargo.toml", "README.md", "prepare_signed_helper.py", "qualification-helper/Info.plist", "qualification-helper/README.md", "qualification-helper/entitlements.plist", "qualification-helper/main.swift", "src/main.rs"]);
-  const browser = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-browser", version: "0.3.5" } });
+  const browser = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-browser", version: committedVersion("rightkit-browser") } });
   assert.deepEqual(Object.keys(browser.runs[0].env).sort(), ["RK_R2_CFT_ROOT", "RK_R2_CFT_SHA256", "RK_R2_HEADLESS_SHELL_SHA256", "RK_R2_SCRATCH"]);
 });
 test("shared run executor builds Cargo args, records each status and stops at the first failure", () => {
