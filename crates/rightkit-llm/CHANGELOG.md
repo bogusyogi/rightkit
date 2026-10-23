@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (unpublished staging)
+
+- **Fixed: `LlmError::billing()` reported `Spend::Unknown` for failures that never reached the provider.** A `HttpError::Transport` or `HttpError::Timeout` whose phase is `Phase::Connect` (name lookup, TCP connect, TLS handshake) and a `HttpError::InvalidRequest` are now `Spend::NotSpent`, as the method's own documentation says ("`NotSpent` when nothing was sent"). Headers, body and redirect phases stay `Unknown`. Reported by HeardRight (its provider ladder had to override this in `l3_cleanup/transport.rs`).
+
 ## 0.3.0 (2026-10-17)
 
 - **Breaking:** public route-health registry retains at most 256 routes & 32 KiB of route-name bytes. Outcome records & state reads refresh LRU order; new routes evict oldest observations. Evicted routes read as `Healthy` until reporting again; oversized names are ignored. `snapshot` lists currently retained routes. Owned `RouteHealth` state & independent `FailoverChain` breakers are unchanged.

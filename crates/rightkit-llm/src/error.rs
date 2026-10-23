@@ -1,6 +1,6 @@
 use std::fmt;
 
-use rightkit_http::HttpError;
+use rightkit_http::{HttpError, Phase};
 
 use crate::raw::RawHandle;
 use crate::types::{AttemptBilling, Metering, Spend};
@@ -146,6 +146,17 @@ impl LlmError {
             LlmError::MissingCredential(_)
             | LlmError::InvalidRequest(_)
             | LlmError::Auth { .. } => per_token(Spend::NotSpent),
+            // Nothing can have reached the provider: the request was never built, or it failed during name
+            // lookup, TCP connect or the TLS handshake (`Phase::Connect`, rightkit-http's own definition).
+            LlmError::Http(HttpError::InvalidRequest(_))
+            | LlmError::Http(HttpError::Transport {
+                phase: Phase::Connect,
+                ..
+            })
+            | LlmError::Http(HttpError::Timeout {
+                phase: Phase::Connect,
+                ..
+            }) => per_token(Spend::NotSpent),
             LlmError::Status { status, .. } => per_token(status_spend(*status)),
             LlmError::Http(HttpError::Status { status, .. }) => per_token(status_spend(*status)),
             #[cfg(feature = "cli")]
@@ -303,5 +314,43 @@ impl std::error::Error for LlmError {}
 impl From<HttpError> for LlmError {
     fn from(e: HttpError) -> Self {
         LlmError::from_http(e, None)
+    }
+}
+
+#[cfg(test)]
+mod connect_phase_billing_tests {
+    use super::*;
+
+    #[test]
+    fn nothing_sent_is_not_spent_and_a_dispatched_request_stays_unknown() {
+        let transport = |phase| {
+            LlmError::Http(HttpError::Transport {
+                message: "x".into(),
+                connect_phase: phase == Phase::Connect,
+                phase,
+            })
+        };
+        let timeout = |phase| {
+            LlmError::Http(HttpError::Timeout {
+                message: "x".into(),
+                phase,
+            })
+        };
+        assert_eq!(transport(Phase::Connect).billing().spend, Spend::NotSpent);
+        assert_eq!(timeout(Phase::Connect).billing().spend, Spend::NotSpent);
+        assert_eq!(
+            LlmError::Http(HttpError::InvalidRequest("bad".into()))
+                .billing()
+                .spend,
+            Spend::NotSpent
+        );
+        for phase in [Phase::Headers, Phase::Body, Phase::Redirect] {
+            assert_eq!(
+                transport(phase).billing().spend,
+                Spend::Unknown,
+                "{phase:?}"
+            );
+            assert_eq!(timeout(phase).billing().spend, Spend::Unknown, "{phase:?}");
+        }
     }
 }
