@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
-import { GATES_REQUIRED_FROM, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareExport, prepareSide, readTarball, runDoctor, runLeg, rustToolchainBin, treeDigest, withPathFirst } from "./rk-release-canary-leg.mjs";
+import { GATES_REQUIRED_FROM, detectGates, extractTarball, gatesRequired, normalize, parseDoctor, pool, prepareExport, prepareSide, readTarball, runDoctor, runLeg, treeDigest } from "./rk-release-canary-leg.mjs";
 
 const tmp = (t, prefix = "rk-leg-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
@@ -202,7 +202,7 @@ const cellOf = (receipt, id, side) => receipt.cells.find((c) => c.id === id && c
 
 test("runLeg: both sides run from the same pinned commit; candidate-only --gates; --admission never; classification and tree writes", async (t) => {
   const { manifest, bundle, platform } = manifestFor(t, { clean: "pass", failing: "fail", fatal: "fatal", boom: "crash", writer: "write" });
-  const receipt = await runLeg(manifest, { resolveRust: () => ({}), manifestDir: bundle });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
   assert.equal(receipt.cells.length, 10);
   for (const side of ["baseline", "candidate"]) {
     assert.equal(cellOf(receipt, "clean", side).status, "pass");
@@ -231,7 +231,7 @@ test("runLeg: both sides run from the same pinned commit; candidate-only --gates
 
 test("runLeg: a hanging doctor is killed at the cell limit and reported as a timeout, after one retry", async (t) => {
   const { manifest, bundle } = manifestFor(t, { slow: "hang" }, { hang: true });
-  const receipt = await runLeg(manifest, { resolveRust: () => ({}), manifestDir: bundle });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
   for (const side of ["baseline", "candidate"]) {
     const c = cellOf(receipt, "slow", side);
     assert.equal(c.status, "timeout");
@@ -242,19 +242,19 @@ test("runLeg: a hanging doctor is killed at the cell limit and reported as a tim
 test("runLeg: a commit missing from the live repository is infrastructure (never fetched), and a spent budget stops starting cells", async (t) => {
   const missing = manifestFor(t, { gone: "pass" });
   missing.manifest.repos["repo-gone"].sha = "e".repeat(40);
-  const r1 = await runLeg(missing.manifest, { resolveRust: () => ({}), manifestDir: missing.bundle });
+  const r1 = await runLeg(missing.manifest, { manifestDir: missing.bundle });
   assert.equal(cellOf(r1, "gone", "candidate").status, "infra");
   assert.match(cellOf(r1, "gone", "candidate").detail, /not in the live repository/);
   const spent = manifestFor(t, { late: "pass" });
   let clock = 0;
-  const r2 = await runLeg(spent.manifest, { resolveRust: () => ({}), manifestDir: spent.bundle, now: () => (clock += 10 * 60_000) });
+  const r2 = await runLeg(spent.manifest, { manifestDir: spent.bundle, now: () => (clock += 10 * 60_000) });
   assert.equal(cellOf(r2, "late", "candidate").status, "budget");
 });
 
 test("runLeg: a side whose tarball digest is wrong makes every cell on it infrastructure, not a verdict", async (t) => {
   const { manifest, bundle } = manifestFor(t, { clean: "pass" });
   manifest.artifacts.candidate.sha256 = "0".repeat(64);
-  const receipt = await runLeg(manifest, { resolveRust: () => ({}), manifestDir: bundle });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
   assert.equal(cellOf(receipt, "clean", "candidate").status, "infra");
   assert.equal(cellOf(receipt, "clean", "baseline").status, "pass");
   assert.match(receipt.sideErrors.candidate, /differs from the manifest/);
@@ -301,7 +301,7 @@ test("runLeg: a candidate >= 0.6.4 that cannot run --gates makes every candidate
   const bodyless = path.join(bundle, "candidate.tgz");
   fs.writeFileSync(bodyless, tgz({ "package.json": JSON.stringify({ name: "@rightkit/release", version: "0.6.4" }), "cli/right-release.mjs": cli(PASS_BODY), "release.mjs": "// the flag moved somewhere unrecognisable" }));
   manifest.artifacts.candidate = { file: "candidate.tgz", sha256: sha256(fs.readFileSync(bodyless)), version: "0.6.4" };
-  const receipt = await runLeg(manifest, { resolveRust: () => ({}), manifestDir: bundle });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
   const c = cellOf(receipt, "clean", "candidate");
   assert.equal(c.status, "infra");
   assert.match(c.detail, /cannot run doctor --gates/);
@@ -312,28 +312,6 @@ test("runLeg: a candidate >= 0.6.4 that cannot run --gates makes every candidate
 
 test("runLeg: each cell records whether its export has no node_modules", async (t) => {
   const { manifest, bundle } = manifestFor(t, { clean: "pass" });
-  const receipt = await runLeg(manifest, { resolveRust: () => ({}), manifestDir: bundle });
+  const receipt = await runLeg(manifest, { manifestDir: bundle });
   assert.equal(cellOf(receipt, "clean", "candidate").noNodeModules, true);
-});
-
-test("rustToolchainBin: the pinned rustup toolchain's bin, or an infra error naming what is missing", (t) => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "rk-canary-rust-"));
-  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
-  const bin = path.join(home, "toolchains", "1.98.0-aarch64-apple-darwin", "bin");
-  fs.mkdirSync(bin, { recursive: true });
-  assert.match(rustToolchainBin("1.98.0", { env: { RUSTUP_HOME: home }, platform: "darwin", arch: "arm64" }).error, /is not installed here/);
-  fs.writeFileSync(path.join(bin, "cargo"), "");
-  assert.deepEqual(rustToolchainBin("1.98.0", { env: { RUSTUP_HOME: home }, platform: "darwin", arch: "arm64" }), { dir: bin });
-  assert.match(rustToolchainBin(undefined).error, /pins no rust toolchain/);
-  assert.deepEqual(withPathFirst({ Path: "C:\\a" }, "D"), { Path: `D${path.delimiter}C:\\a` });
-});
-
-test("runLeg: a host without the pinned toolchain makes every cell infrastructure, not a verdict", async (t) => {
-  const { manifest, bundle } = manifestFor(t, { clean: "pass" });
-  const receipt = await runLeg(manifest, { manifestDir: bundle, resolveRust: () => ({ error: "rust toolchain 1.98.0 is not installed here" }) });
-  for (const side of ["baseline", "candidate"]) {
-    const c = cellOf(receipt, "clean", side);
-    assert.equal(c.status, "infra");
-    assert.match(c.detail, /not installed here/);
-  }
 });
