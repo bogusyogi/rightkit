@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { consumerStage, localRunPlan, patchedManifest } from "./rk-consumer-stage.mjs";
+import { consumerStage, HOSTED_ONLY_RUNS, localRunPlan, patchedManifest } from "./rk-consumer-stage.mjs";
 
 const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const SHA = "a".repeat(40);
@@ -123,4 +123,23 @@ test("a unit without a reviewed recipe fails at recipe, before any broker work",
   const stage = await consumerStage({ root: f.root, unit: f.unit, version: f.version, sha: SHA, logDir: f.logDir, env: {}, runCommand: b.runCommand, attest: b.attest, provisionChrome: async () => ({}), platform: "darwin" });
   assert.equal(stage.failedAt, "recipe");
   assert.equal(b.calls.length, 0);
+});
+
+test("a unit whose consumer needs hosted-only fixtures (rightkit-fs) is not run locally, with the reason; other units are unchanged", () => {
+  const plan = localRunPlan(null, "darwin", "rightkit-fs");
+  assert.deepEqual(plan.map((p) => p.local), [false]);
+  assert.equal(plan[0].reason, HOSTED_ONLY_RUNS.get("rightkit-fs"));
+  assert.match(plan[0].reason, /fs-native-fixtures\.mjs/);
+  assert.deepEqual(localRunPlan(null, "darwin", "rightkit-db").map((p) => p.local), [true]);
+});
+
+test("a hosted-only unit still gets one attested brokered build against the checkout; its run is recorded not-run-locally", async () => {
+  const f = fixture({ unit: "rightkit-fs", version: "0.4.7" });
+  const b = brokerDouble();
+  const stage = await consumerStage({ root: f.root, unit: f.unit, version: f.version, sha: SHA, logDir: f.logDir, env: {}, runCommand: b.runCommand, attest: b.attest, provisionChrome: async () => { throw new Error("no chrome needed"); }, platform: "darwin" });
+  assert.equal(stage.ok, true, stage.reason);
+  assert.equal(stage.build.length, 1);
+  assert.equal(stage.build[0].attestation.verified, true);
+  assert.deepEqual(stage.runs.map((r) => [r.id, r.status]), [["default", "not-run-locally"]]);
+  assert.ok(!b.calls.some((c) => c.args[1] === "run"), "the hosted-only run is never executed locally");
 });

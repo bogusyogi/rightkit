@@ -32,9 +32,17 @@ export function patchedManifest(manifest, unit, crateDirFromCheck) {
 }
 
 /** Which runs this host executes locally, and why the others are not. */
-export function localRunPlan(runs, platform = process.platform) {
+// Units whose reviewed consumer can only run where the hosted workflow prepares its fixtures. The local stage still
+// builds the recipe against the checkout (attested, before the run is skipped); the run itself stays hosted evidence.
+export const HOSTED_ONLY_RUNS = new Map([
+  ["rightkit-fs", "needs the mounted native fixture volumes that fs-native-fixtures.mjs sets up on GitHub Actions (consumer-recipes.mjs:131, nativeFixture)"],
+]);
+
+export function localRunPlan(runs, platform = process.platform, unit = null) {
   const declared = runs ?? [{ id: "default", features: [], args: [], hosts: null, env: {} }];
+  const hostedOnly = unit ? HOSTED_ONLY_RUNS.get(unit) : undefined;
   return declared.map((run) => {
+    if (hostedOnly) return { run, local: false, buildOnly: true, reason: hostedOnly };
     if (run.hosts && !run.hosts.includes(platform)) return { run, local: false, reason: `not applicable on ${platform}` };
     const foreign = Object.values(run.env ?? {}).filter((p) => !LOCAL_PROVIDERS.has(p));
     if (foreign.length) return { run, local: false, reason: `needs ${[...new Set(foreign)].join(", ")}, which only the hosted runner provides` };
@@ -64,7 +72,7 @@ export async function consumerStage({ root, unit, version, sha, logDir, env, run
   try { recipe = cargoRecipe({ root, unit: { name: unit, version } }); } catch (error) { return { ...result, failedAt: "recipe", reason: String(error.message ?? error) }; }
   result.pkId = recipe.evidence.pkId;
   const runs = recipe.runs ? parseRuns(recipe.runs.map(({ id, features, args, hosts, env: e }) => ({ id, features, args, ...(hosts ? { hosts } : {}), env: e }))) : null;
-  const plan = localRunPlan(runs, platform);
+  const plan = localRunPlan(runs, platform, unit);
   const checks = path.join(root, ".consumer-checks");
   fs.mkdirSync(checks, { recursive: true });
   const checkDir = fs.mkdtempSync(path.join(checks, `${unit}-${sha.slice(0, 12)}-`));
@@ -84,8 +92,8 @@ export async function consumerStage({ root, unit, version, sha, logDir, env, run
   }
 
   const built = new Map();
-  for (const { run, local, reason } of plan) {
-    if (!local) { result.runs.push({ id: run.id, status: "not-run-locally", reason }); continue; }
+  for (const { run, local, buildOnly, reason } of plan) {
+    if (!local && !buildOnly) { result.runs.push({ id: run.id, status: "not-run-locally", reason }); continue; }
     const features = run.features ?? [];
     const key = features.join(",");
     if (!built.has(key)) {
@@ -104,6 +112,8 @@ export async function consumerStage({ root, unit, version, sha, logDir, env, run
       if (!binary) return { ...result, failedAt: "build", reason: `built binary ${packageName} not found under the broker target directory` };
       built.set(key, binary);
     }
+    // A hosted-only unit still proves it compiles against the checkout (the attested build above); only the run is hosted.
+    if (!local) { result.runs.push({ id: run.id, status: "not-run-locally", reason }); continue; }
     let values;
     try {
       [{ values }] = planRuns({ runs: [run], env: { ...env, ...chromeEnv, RUNNER_TEMP: scratchRoot }, scratchRoot, platform });

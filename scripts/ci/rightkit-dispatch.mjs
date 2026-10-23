@@ -110,7 +110,7 @@ const NPM_PREFLIGHT_SHA256 = "4cc026b45d5ca77493617a9afd7f811f02d31cb763c633ae9e
 const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
 // Filled from reviewed bytes; validate the complete static admission import tree before import.
 const ADMISSION_DEPENDENCIES = {
-  "scripts/ci/rk-consumer-stage.mjs": "1e199841d10546753d546ee996f96aaa437c6e1c4d569a99884be491c2c605ce",
+  "scripts/ci/rk-consumer-stage.mjs": "90ddd59db1636c847eb61c1c07b97f59bda9ecc4d2de06d638592d69c6030c11",
   "scripts/ci/rk-routing.mjs": "6b3c6350a653c5284146c98dcd7df306c5ce8b96d5a5dd14c2e8f39c0dfb29c1",
   "scripts/ci/consumer-recipes.mjs": "919a1f28d6b005ea963d7e1f9958aebdb34c0ca2a9696ba3eecee475b426bcb8",
   "scripts/ci/workflow-yaml.mjs": "c9e6fe758036e9e246915b2205d520e7ffc8e9f0e0a1a4117c2affc96dd015f5",
