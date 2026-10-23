@@ -772,10 +772,13 @@ mod windows {
             }
             other => panic!("a deny inside a grant must be refused: {:?}", other.err()),
         }
+        // Existence is read from the profile's registry mapping: on current Windows a delete of a
+        // name that was never registered also reports success, so it cannot prove absence.
         assert!(
-            !delete_appcontainer_profile_for_test(&name).unwrap(),
+            !appcontainer_profile_exists_for_test(&name).unwrap(),
             "no profile may have been created"
         );
+        let _ = delete_appcontainer_profile_for_test(&name);
         assert_eq!(fs::read_to_string(&key).unwrap(), "TOP-SECRET");
         let _ = fs::remove_dir_all(&root);
     }
@@ -796,7 +799,11 @@ mod windows {
             Err(SandboxError::Unsupported(_)) => {}
             other => panic!("any deny_read entry must be refused: {:?}", other.err()),
         }
-        assert!(!delete_appcontainer_profile_for_test(&name).unwrap());
+        assert!(
+            !appcontainer_profile_exists_for_test(&name).unwrap(),
+            "no profile may have been created"
+        );
+        let _ = delete_appcontainer_profile_for_test(&name);
         assert!(!deny_read_enforced(), "Windows must not claim a carve-out");
         let _ = fs::remove_dir_all(&root);
         let _ = fs::remove_dir_all(&other);

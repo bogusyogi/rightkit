@@ -144,15 +144,19 @@ function label(features) {
  * rustdoc warnings and never fail the hosted row, so they do not fail this one (Astra review item h). */
 export function countDocWarnings(text, unit) {
   const lines = text.split("\n");
-  let documenting = !unit;
+  let started = !unit;
   let count = 0;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    if (unit && new RegExp(`^\\s*Documenting ${unit.replace(/[-/]/g, "[-/]")} `).test(line)) documenting = true;
-    if (!documenting || !/^warning: /.test(line) || /generated \d+ warning/.test(line)) continue;
+    // cargo reaches the unit itself only after its dependencies: from its own `Checking`/`Documenting` line on, a
+    // warning belongs to the unit unless rustdoc locates it in another crate's directory. A warning without any
+    // `-->` line (rustdoc prints module-level `//!` link diagnostics that way: rightkit-onnx provision.rs, hosted run
+    // 39878997992 after a local GREEN) therefore counts.
+    if (unit && new RegExp(`^\\s*(Checking|Documenting) ${unit.replace(/[-/]/g, "[-/]")} `).test(line)) started = true;
+    if (!started || !/^warning: /.test(line) || /generated \d+ warning/.test(line)) continue;
     if (!unit) { count += 1; continue; }
-    const location = lines.slice(i + 1, i + 4).find((l) => /^\s*-->\s/.test(l)) ?? "";
-    if (new RegExp(`-->\\s*crates[\\/]${unit}[\\/]`).test(location)) count += 1;
+    const location = lines.slice(i + 1, i + 4).find((l) => /^\s*-->\s/.test(l));
+    if (location === undefined || new RegExp(`-->\\s*crates[\\/]${unit}[\\/]`).test(location)) count += 1;
   }
   return count;
 }

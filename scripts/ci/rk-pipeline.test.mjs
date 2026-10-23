@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
-import { acquireLock, releaseLock, closureOf, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { acquireLock, releaseLock, closureOf, holdReason, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -184,4 +184,28 @@ test("loop: a readiness exception drains the live preflight worker and the dispa
   const after = dispatched.length;
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(dispatched.length, after, "nothing dispatches after the loop has ended");
+});
+
+
+test("a unit that failed hosted is held at a new SHA until its closure, recipe or own policy changed, or a reviewed release names the run", () => {
+  const crates = new Map([["rightkit-a", { name: "rightkit-a", version: "1.0.0", dir: "crates/rightkit-a", publish: true, deps: [{ name: "rightkit-b" }] }], ["rightkit-b", { name: "rightkit-b", version: "2.0.0", dir: "crates/rightkit-b", publish: true, deps: [] }]]);
+  const state = { dispatches: { "crates:old:rightkit-a": { unit: "rightkit-a", sha: "old", status: "failed", runId: 77, dispatchedAt: "2026-10-23T00:00:00Z" } } };
+  const same = { "ci/gate.config.json": '{"rust":{"rightkit-a":{"allowIgnored":"x"}}}', "ci/rk-pipeline.json": '{"dispatch":{"exceptions":{}}}' };
+  const show = (sha, file) => same[file];
+  const unchanged = () => false;
+  const paths = [];
+  const held = holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: (from, to, p) => { paths.push(...p); return false; }, show });
+  assert.match(held, /held: unchanged since hosted failure at old \(run 77\)/);
+  assert.deepEqual(paths, ["crates/rightkit-a", "crates/rightkit-b", "ci/consumers/rightkit-a", "Cargo.lock"], "the closure, the recipe and the lock are the change set");
+  assert.equal(holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: () => true, show }), null, "a change in the closure releases");
+  const policyChanged = (sha, file) => (sha === "new" && file === "ci/gate.config.json") ? '{"rust":{"rightkit-a":{"allowIgnored":"y"}}}' : same[file];
+  assert.equal(holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: unchanged, show: policyChanged }), null, "a change to the unit's own policy entry releases");
+  const otherUnit = (sha, file) => (sha === "new" && file === "ci/gate.config.json") ? '{"rust":{"rightkit-a":{"allowIgnored":"x"},"rightkit-z":{"allowIgnored":"q"}}}' : same[file];
+  assert.match(holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: unchanged, show: otherUnit }), /held/, "another unit's policy change does not release");
+  const release = { dispatch: { releaseHolds: { "rightkit-a": { run: 77, version: "1.0.0", reason: "runner image fixed" } } } };
+  assert.equal(holdReason("rightkit-a", "new", state, crates, { pipeline: release, changed: unchanged, show }), null, "a reviewed release naming the failed run and version releases");
+  const stale = { dispatch: { releaseHolds: { "rightkit-a": { run: 70, version: "1.0.0", reason: "older run" } } } };
+  assert.match(holdReason("rightkit-a", "new", state, crates, { pipeline: stale, changed: unchanged, show }), /held/, "a release naming another run does not");
+  assert.equal(holdReason("rightkit-b", "new", state, crates, { pipeline: {}, changed: unchanged, show }), null, "a unit without a hosted failure is never held");
+  assert.equal(holdReason("rightkit-a", "old", state, crates, { pipeline: {}, changed: unchanged, show }), null, "the failed SHA itself is governed by the attempt record, not the hold");
 });

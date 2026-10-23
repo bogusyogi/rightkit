@@ -141,7 +141,8 @@
           ],
           "locked": true
         }
-      ]
+      ],
+      "allowIgnored": "src/control/macos_focus.rs (3 tests: native_helper_records_rapid_activate_and_return, native_helper_loss_fails_closed, native_helper_starts_and_stops_without_focus_activity) are #[ignore] on purpose: they need a macOS foreground desktop with disposable GUI apps in an active login session, which no runner has, and run by hand with --ignored (3 ignored per default run on macOS, 0 on Windows where the module is cfg(target_os = \"macos\")); every other qa test runs and asserts on every default run"
     },
     "rightkit-qa-driver": {
       "checkFeatureSets": [
@@ -149,7 +150,8 @@
           "--features",
           "qa-control,wv2-0_38,offscreen-private-spi"
         ]
-      ]
+      ],
+      "allowIgnored": "tests/offscreen_windows.rs (3 tests: live_session_moves_window_off_all_displays_without_focus, hidden_at_start_window_is_placed_and_shown_without_ever_appearing_on_a_display, minimized_window_is_refused) and tests/offscreen_macos.rs (4 tests: launches_offscreen_with_native_identity, identity_cross_check_survives_after_end, never_shown_window_shows_hover_and_pressed_pixels, shown_unfocused_window_registers_hover_style_and_pressed_pixels) are #[ignore] on purpose: they create real windows in the interactive desktop session or launch the Tauri control fixture, which no runner provides, and run by hand with --ignored (3 ignored per default run on Windows, 4 on macOS); every other qa-driver test runs and asserts on every default run"
     },
     "rightkit-tauri-shell": {
       "featureSets": [
@@ -203,7 +205,8 @@
           "locked": true
         }
       ],
-      "quietTests": true
+      "quietTests": true,
+      "allowIgnored": "example-app/tests/e2e.rs (2 tests: positive_control_native_menu_is_detectable_where_the_shell_allows_it, native_menu_bar_matches_the_spec_through_accessibility) are #[ignore] on purpose: background-only QA forbids a native popup or global menu activation over the user's work, so they run by hand with --ignored (2 ignored per default run of the example-app package; the crate's own tests have none); every other tauri-shell test runs and asserts on every default run"
     },
     "rightkit-file-watch": {
       "featureSets": [
@@ -334,7 +337,8 @@
           "cookie-export"
         ]
       ],
-      "quietTests": true
+      "quietTests": true,
+      "allowIgnored": "tests/e2e.rs::headed_smoke is #[ignore] on purpose: it opens a visible browser window and runs by hand with --ignored on a workstation (1 ignored per default run); every other browser test runs and asserts on every default run, with the Chrome-for-Testing ones recording SKIP markers in the receipts (ci/asset-gated.json)"
     },
     "rightkit-models": {
       "featureSets": [

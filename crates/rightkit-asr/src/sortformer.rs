@@ -10,14 +10,14 @@
 //! - Post-processing: median filtering, hysteresis thresholding
 //! - Supports up to 4 speakers
 //!
-//! Reference: https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2
+//! Reference: <https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2>
 //! Note that, my ONNX export:
 //! CHUNK_LEN = 124
 //! FIFO_LEN = 124
 //! CACHE_LEN = 188
 //! FEAT_DIM = 128
 //! EMB_DIM = 512
-//! Note, my stft code is adapted from: https://librosa.org/doc/main/generated/librosa.stft.html
+//! Note, my stft code is adapted from: <https://librosa.org/doc/main/generated/librosa.stft.html>
 
 use rightkit_onnx::ort;
 use crate::error::{Error, Result};
@@ -77,7 +77,7 @@ const MAX_INDEX: usize = 99999;
 /// # Custom Config
 /// Use `custom(onset, offset)` to create your own config for fine-tuning.
 ///
-/// See: https://github.com/NVIDIA-NeMo/NeMo/tree/main/examples/speaker_tasks/diarization/conf/neural_diarizer
+/// See: <https://github.com/NVIDIA-NeMo/NeMo/tree/main/examples/speaker_tasks/diarization/conf/neural_diarizer>
 #[derive(Debug, Clone)]
 pub struct DiarizationConfig {
     pub onset: f32,

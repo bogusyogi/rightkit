@@ -117,6 +117,32 @@ export async function readiness(opts, deps = {}) {
   return { crates: scoped, versions, failures, ...waves(scoped, versions, failures) };
 }
 
+/** A unit whose last hosted qualification failed runs again only on evidence that what it is built from changed since
+ * that run: its own crate directory, the crate directories of its workspace dependency closure, its committed consumer
+ * recipe, or its own entries in the reviewed policy (ci/gate.config.json rust.<unit>, ci/rk-pipeline.json
+ * dispatch.exceptions.<unit>). A new workspace SHA alone is not evidence: rightkit-sandbox 0.6.0 ran hosted twice on the
+ * same tree (runs 39872794369 and 39878045340). Shared pipeline changes (scripts/ci, workflows, other units' policy)
+ * do not release a hold; a reviewed, version-bound `dispatch.releaseHolds.<unit>` entry naming the failed run does. */
+export function holdReason(unit, sha, state, crates, { pipeline = readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {}), changed = changedBetween, show = showAt } = {}) {
+  const prior = Object.values(state.dispatches ?? {}).filter((d) => d.unit === unit && d.status === "failed" && d.phase !== "preflight" && d.runId && d.sha && d.sha !== sha);
+  if (!prior.length) return null;
+  const last = prior.sort((a, b) => String(a.dispatchedAt ?? "").localeCompare(String(b.dispatchedAt ?? ""))).at(-1);
+  const release = pipeline.dispatch?.releaseHolds?.[unit];
+  if (release && String(release.run) === String(last.runId) && release.version === crates.get(unit)?.version && release.reason) return null;
+  const dirs = [...closureOf(crates, [unit])].map((n) => crates.get(n).dir ?? `crates/${n}`);
+  if (changed(last.sha, sha, [...dirs, `ci/consumers/${unit}`, "Cargo.lock"])) return null;
+  const section = (file, pick) => { try { return JSON.stringify(pick(JSON.parse(show(last.sha, file)))) !== JSON.stringify(pick(JSON.parse(show(sha, file)))); } catch { return true; } };
+  if (section("ci/gate.config.json", (j) => j.rust?.[unit]) || section("ci/rk-pipeline.json", (j) => j.dispatch?.exceptions?.[unit])) return null;
+  return `held: unchanged since hosted failure at ${last.sha.slice(0, 12)} (run ${last.runId}); its crate closure, consumer recipe and own policy entries are identical, so the same run would repeat`;
+}
+function changedBetween(from, to, paths) {
+  const r = spawnSync("git", ["diff", "--quiet", from, to, "--", ...paths], { cwd: ROOT, encoding: "utf8" });
+  if (r.status === 0) return false;
+  if (r.status === 1) return true;
+  throw new Error(`git diff ${from}..${to}: ${(r.stderr ?? "").trim()}`);
+}
+function showAt(sha, file) { return git("show", `${sha}:${file}`); }
+
 // ---------- receipts, allowsets, state ----------
 
 export function receiptFor(unit, sha, out = DEFAULT_OUT) {
@@ -390,7 +416,8 @@ export async function cmdLoop(opts, deps = {}) {
   const preflight = deps.preflight ?? (async (unit) => (await preflightMany([unit], opts)).get(unit));
   const dispatch = deps.dispatch ?? cmdDispatch;
   const pause = deps.pause ?? (() => new Promise((r) => setTimeout(r, 15_000)));
-  const active = new Map(), attempted = new Set();
+  const hold = deps.holdReason ?? holdReason;
+  const active = new Map(), attempted = new Set(), held = new Set();
   let dispatchTail = Promise.resolve();
   let failed = false;
   // Every exit path drains the live preflight workers and the serialized dispatch tail first: no worker may dispatch
@@ -407,7 +434,9 @@ export async function cmdLoop(opts, deps = {}) {
     for (const unit of ready) {
       if (active.size >= opts.jobs) break;
       const key = stateKey(opts.registry, sha, unit);
-      if (attempted.has(unit) || state.dispatches[key]) continue;
+      if (attempted.has(unit) || state.dispatches[key] || held.has(unit)) continue;
+      const reason = hold(unit, sha, state, r.crates);
+      if (reason) { held.add(unit); log(`${unit}: ${reason}`); continue; }
       attempted.add(unit);
       const task = (async () => {
         const result = await preflight(unit);

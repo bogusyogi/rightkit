@@ -81,8 +81,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     request.target.window_id = 42;
     let (code, message) = refusal(&request);
     assert_eq!(code, Code::ArgInvalid);
-    assert!(message.contains("surface"), "an empty surface list is refused: {message}");
-    assert!(!out.exists(), "a refused request creates no bundle directory");
+    assert!(
+        message.contains("surface"),
+        "an empty surface list is refused: {message}"
+    );
+    assert!(
+        !out.exists(),
+        "a refused request creates no bundle directory"
+    );
 
     // Content hashes: canonical blake3 text, streamed file hash, keyed digests per field and key.
     let frame = b"frame bytes";
@@ -100,9 +106,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keyed = keyed_digest(b"key-one", "target.label", "x");
     assert!(keyed.starts_with("hmac-sha256:"));
     assert!(!is_blake3_text(&keyed));
-    assert_eq!(keyed, keyed_digest(b"key-one", "target.label", "x"), "deterministic");
-    assert_ne!(keyed, keyed_digest(b"key-one", "text", "x"), "field separates digests");
-    assert_ne!(keyed, keyed_digest(b"key-two", "target.label", "x"), "key separates digests");
+    assert_eq!(
+        keyed,
+        keyed_digest(b"key-one", "target.label", "x"),
+        "deterministic"
+    );
+    assert_ne!(
+        keyed,
+        keyed_digest(b"key-one", "text", "x"),
+        "field separates digests"
+    );
+    assert_ne!(
+        keyed,
+        keyed_digest(b"key-two", "target.label", "x"),
+        "key separates digests"
+    );
 
     // Error codes: stable strings, and a round trip through parse.
     assert_eq!(Code::parse(Code::OutExists.as_str()), Some(Code::OutExists));
@@ -116,7 +134,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report = bundle_verify(&empty, &VerifyOptions::default())?;
     assert!(!report.ok(), "a directory with no manifest is not a bundle");
     assert!(
-        report.problems.iter().any(|p| p.starts_with("manifest unreadable")),
+        report
+            .problems
+            .iter()
+            .any(|p| p.starts_with("manifest unreadable")),
         "the problem names the missing manifest: {:?}",
         report.problems
     );

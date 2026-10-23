@@ -66,6 +66,10 @@ test("rustdoc diagnostics & request IDs are captured; scoped counting takes only
   assert.equal(countDocWarnings(own, "rightkit-job-queue"), 1, "the unit's own rustdoc warning counts");
   const before = ["warning: unresolved link to `Nope`", "  --> crates/rightkit-job-queue/src/lib.rs:9:5", " Documenting rightkit-job-queue v0.5.0 (/w/crates/rightkit-job-queue)"].join("\n");
   assert.equal(countDocWarnings(before, "rightkit-job-queue"), 0, "nothing counts before cargo starts documenting the unit");
+  const unlocated = ["    Checking rightkit-onnx v0.2.7 (/w/crates/rightkit-onnx)", "warning: unresolved link to `provision_runtime`", "  |", "  = note: the link appears in this line:", "    Finished"].join("\n");
+  assert.equal(countDocWarnings(unlocated, "rightkit-onnx"), 1, "a unit warning without a location line (module docs) counts once the unit has started");
+  const depAfter = [" Documenting rightkit-onnx v0.2.7 (/w/crates/rightkit-onnx)", "warning: function `x` is never used", "   --> crates/rightkit-crash/src/native.rs:208:19"].join("\n");
+  assert.equal(countDocWarnings(depAfter, "rightkit-onnx"), 0, "a warning located in another crate never counts");
 });
 
 

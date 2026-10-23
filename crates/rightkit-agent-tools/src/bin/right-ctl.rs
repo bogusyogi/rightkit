@@ -1,5 +1,6 @@
 //! `right-ctl`: drive any Right Suite app (and desktop / browser) from a shell.
 //!
+//! ```text
 //!   right-ctl --list                               live services under the suite root
 //!   right-ctl <app> --tools                        tools right-ctl may call on <app> (JSON)
 //!   right-ctl <app> <method> [json | k=v ...]      a control method (health click type key dom ...)
@@ -9,17 +10,22 @@
 //!   right-ctl run                                  JSON array [{"tool","args"}] on stdin, one session
 //!                                                  (desktop.*, browser.*, <app>.*, speech.*)
 //!   right-ctl <app> batch '{"steps":[{"method","params"}]}'   many control steps, one round trip
+//! ```
 //!
 //! Drive an app with `run` or `batch`, not one command per step: every separate call pays a
 //! process start and a connection, and a model turn between them.
 //!
+//! ```text
 //!   right-ctl demo <tool> [args]                 agent demo mode (feature `demo` only): request, apps,
 //!                                                snapshot, act, batch, end. Pass the token from
 //!                                                `demo request` as token=... on each later call.
+//! ```
 //!
+//! ```text
 //! Options: --suite-root <abs path> (else RIGHTKIT_SUITE_ROOT / per-user default, fail-closed),
 //!          --journal <file> (content-free JSONL of started/denied/settled).
 //! Exit: 0 ok, 1 tool error, 2 usage, 3 refused (exposure, allowlist, admission).
+//! ```
 //! Result JSON goes to stdout; errors are `{"error":{code,message,retryable}}` on stderr.
 
 use rightkit_agent_tools::*;

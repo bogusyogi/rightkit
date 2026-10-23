@@ -227,6 +227,14 @@ unsafe extern "system" {
 
 #[link(name = "advapi32")]
 unsafe extern "system" {
+    fn RegOpenKeyExW(
+        key: *mut c_void,
+        sub_key: *const u16,
+        options: u32,
+        desired: u32,
+        result: *mut *mut c_void,
+    ) -> i32;
+    fn RegCloseKey(key: *mut c_void) -> i32;
     fn FreeSid(sid: *mut c_void) -> *mut c_void;
     fn ConvertSidToStringSidW(sid: *mut c_void, text: *mut *mut u16) -> i32;
     fn ConvertStringSidToSidW(text: *const u16, sid: *mut *mut c_void) -> i32;
@@ -2387,12 +2395,76 @@ pub fn appcontainer_profile_name_for_test(policy: &SandboxPolicy) -> Result<Stri
 
 /// Test support: delete the named AppContainer profile of the current user, so a test run leaves
 /// none behind. Only a name this crate could have made is accepted. Returns whether Windows
-/// reported the profile deleted; a profile that does not exist is not an error.
+/// reported success; a profile that does not exist is not an error, and on current Windows
+/// (10.0.26300; the windows-2025 runner) `DeleteAppContainerProfile` reports success for a name
+/// that was never registered, so `true` does not prove a profile existed. A test that must prove
+/// no profile was created asks [`appcontainer_profile_exists_for_test`] first.
 ///
 /// The crate itself never deletes a profile: a spawn creates or adopts one per distinct set of
 /// grants and leaves it registered.
 #[doc(hidden)]
 pub fn delete_appcontainer_profile_for_test(name: &str) -> io::Result<bool> {
+    let wide_name = test_profile_name(name)?;
+    // SAFETY: a NUL-terminated name that outlives the call.
+    let result = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
+    Ok(result >= 0)
+}
+
+/// Test support: whether a profile of that name is registered for the current user.
+///
+/// Windows keeps one registry mapping per registered profile, `HKCU\Software\Classes\Local
+/// Settings\Software\Microsoft\Windows\CurrentVersion\AppContainer\Mappings\<SID>`, written by
+/// `CreateAppContainerProfile` and removed by `DeleteAppContainerProfile`; the SID itself is
+/// derived from the name and exists whether or not a profile does. Only a name this crate could
+/// have made is accepted.
+#[doc(hidden)]
+pub fn appcontainer_profile_exists_for_test(name: &str) -> io::Result<bool> {
+    const KEY_READ: u32 = 0x0002_0019;
+    const ERROR_FILE_NOT_FOUND: i32 = 2;
+    // `HKEY_CURRENT_USER` is `(HKEY)(ULONG_PTR)(LONG)0x80000001`: sign-extended on 64-bit.
+    let hkey_current_user = (0x8000_0001_u32 as i32) as isize as *mut c_void;
+    let wide_name = test_profile_name(name)?;
+    let mut sid = std::ptr::null_mut();
+    // SAFETY: NUL-terminated name and a valid out-pointer; the SID is freed below with FreeSid.
+    let hr = unsafe { DeriveAppContainerSidFromAppContainerName(wide_name.as_ptr(), &mut sid) };
+    if hr < 0 {
+        return Err(io::Error::other(format!(
+            "derive AppContainer SID for {name}: HRESULT 0x{hr:08x}"
+        )));
+    }
+    let mut raw = std::ptr::null_mut();
+    // SAFETY: `sid` is a valid SID; `raw` receives a LocalAlloc string freed below.
+    let converted = unsafe { ConvertSidToStringSidW(sid, &mut raw) };
+    let conversion_error = (converted == 0).then(|| last_error("AppContainer SID to string"));
+    // SAFETY: allocated by DeriveAppContainerSidFromAppContainerName, freed once.
+    unsafe { FreeSid(sid) };
+    if let Some(error) = conversion_error {
+        return Err(error);
+    }
+    // SAFETY: NUL-terminated LocalAlloc string, freed once.
+    let sid_text = unsafe { read_wide(raw) };
+    unsafe { LocalFree(raw.cast()) };
+    let sub_key = wide(format!(
+        "Software\\Classes\\Local Settings\\Software\\Microsoft\\Windows\\CurrentVersion\\AppContainer\\Mappings\\{sid_text}"
+    ));
+    let mut key = std::ptr::null_mut();
+    // SAFETY: predefined root key, NUL-terminated sub key and a valid out-pointer; an opened key
+    // is closed below.
+    let status =
+        unsafe { RegOpenKeyExW(hkey_current_user, sub_key.as_ptr(), 0, KEY_READ, &mut key) };
+    match status {
+        0 => {
+            // SAFETY: `key` was opened by the call above.
+            unsafe { RegCloseKey(key) };
+            Ok(true)
+        }
+        ERROR_FILE_NOT_FOUND => Ok(false),
+        other => Err(io::Error::from_raw_os_error(other)),
+    }
+}
+
+/// The NUL-terminated form of a profile name this crate could have made; any other name is refused.
+fn test_profile_name(name: &str) -> io::Result<Vec<u16>> {
     let hash = name.strip_prefix(PROFILE_PREFIX).unwrap_or("");
     if hash.len() != 16 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(io::Error::new(
@@ -2400,10 +2472,7 @@ pub fn delete_appcontainer_profile_for_test(name: &str) -> io::Result<bool> {
             format!("`{name}` is not a {PROFILE_PREFIX}<16 hex digits> profile name"),
         ));
     }
-    let wide_name = wide(name);
-    // SAFETY: a NUL-terminated name that outlives the call.
-    let result = unsafe { DeleteAppContainerProfile(wide_name.as_ptr()) };
-    Ok(result >= 0)
+    Ok(wide(name))
 }
 
 // ---------------------------------------------------------------------------------------

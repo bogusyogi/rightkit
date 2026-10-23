@@ -20,7 +20,7 @@ pub enum ErrorOrigin {
 /// errors pause a running job (it stays recoverable) instead of failing it.
 ///
 /// Equality compares `code`, `message`, `retryable`, `origin` and `details`; the database
-/// classification behind [`JobError::open_failure`] is derived from the same failure and does
+/// classification behind `JobError::open_failure` (feature `store`) is derived from the same failure and does
 /// not take part.
 #[derive(Debug, Clone)]
 pub struct JobError {
@@ -148,9 +148,9 @@ pub const CONTRACT_VERSION_MISMATCH: &str = "contract_version_mismatch";
 /// received none, part, or all of it. The engine was killed (bounded) and will be restarted by its
 /// policy. Not retryable on its own: resubmit only an operation that is safe to run twice.
 pub const DELIVERY_UNKNOWN: &str = "delivery_unknown";
-/// Stable code: a paging [`crate::Cursor`] is malformed, truncated or from an unknown version.
+/// Stable code: a paging `Cursor` (feature `store`) is malformed, truncated or from an unknown version.
 pub const INVALID_CURSOR: &str = "invalid_cursor";
-/// Stable code: a paging [`crate::Cursor`] was issued for a different filter or sort order than
+/// Stable code: a paging `Cursor` (feature `store`) was issued for a different filter or sort order than
 /// the listing it was passed to.
 pub const CURSOR_MISMATCH: &str = "cursor_mismatch";
 /// Stable code: an active inline request already owns this ID, or

@@ -906,9 +906,9 @@
       "files": {
         "Cargo.toml": "1904c4f4f8693f5094e5987dea3d0d17caee153a1e5ecad9241b95f02e5746ae",
         "README.md": "11e05f18bbe29d30d5bdcda04f5af46c83a92801f4bbbd28c79a94572bb7e87f",
-        "src/main.rs": "cf23b5ae6d0278cbeb3cede0a026bb0dbce378f89ca6ba3afab490896f772176"
+        "src/main.rs": "3cd251364dc3e335648956e76a7f401046dabb16dad3aad48c21144a7c8986f3"
       },
-      "aggregateSha256": "b93c2d3728a24b5b9e8d8ba19d5ab4993c052da930776a3a602757ebfc205314"
+      "aggregateSha256": "1bdd87f9e772012e88dcb44f601cd5cc6dbf49ae70054673b35cf91d23e6ddf3"
     },
     "rightkit-record": {
       "pkId": "PK17",
@@ -920,9 +920,9 @@
       "files": {
         "Cargo.toml": "805fa8067579716980454ee6a2e1f9f95859c9a6dd3e436fce41c2a8e839bdfd",
         "README.md": "b7dc9f6f871480c064cf7ac33c71c736a197c7f5e40e62d918929d7a1539c93e",
-        "src/main.rs": "98b1179b8c3d7916715829a74e1c91a3b14398a316d23d79f97e30a9a5e9960c"
+        "src/main.rs": "a6bf340d00f3f9601b8ceb454807d5a76bb75d786a64214628c444c54310bb14"
       },
-      "aggregateSha256": "5ae117688daf83752248ca91508b6016bc07f36a949c5e143e1b0680b8533cca"
+      "aggregateSha256": "b83a27ae056551a9fb1c5a4f32fb5d50765e22ad471d50e8910ff891d62ebf7f"
     },
     "rightkit-align": {
       "pkId": "PK21",

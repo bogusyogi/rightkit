@@ -49,9 +49,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read: the format comes from the bytes, and the hash is of the exact bytes read.
     let doc = read(Source::Path(&path), &ReadOptions::default())?;
     assert_eq!(doc.format, Format::Docx);
-    assert_eq!(doc.sha256, created.sha256, "read and create hash the same bytes");
+    assert_eq!(
+        doc.sha256, created.sha256,
+        "read and create hash the same bytes"
+    );
     assert!(doc.text.contains("Q3"), "heading text is read back");
-    assert!(doc.text.contains("Revenue held."), "paragraph text is read back");
+    assert!(
+        doc.text.contains("Revenue held."),
+        "paragraph text is read back"
+    );
 
     // Refused: an edit against a hash that is not the file's current hash publishes nothing.
     let stale = refusal(write(

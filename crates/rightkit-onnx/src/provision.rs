@@ -1,6 +1,6 @@
 //! Build-time provisioning of a verified ONNX Runtime bundle (`provision` feature).
 //!
-//! Run-once, never continuous: a build script or `xtask` calls [`provision_runtime`], which
+//! Run-once, never continuous: a build script or `xtask` calls `provision_runtime`, which
 //! downloads the catalog archive for a target, checks its SHA-256 before opening it, extracts only
 //! the runtime files, checks each extracted file against the catalog digest, and writes the
 //! `manifest.json` that [`crate::verify_runtime_manifest`] accepts. Nothing here loads a library
