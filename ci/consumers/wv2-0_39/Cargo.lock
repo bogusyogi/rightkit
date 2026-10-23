@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-automation"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "windows",
 ]
@@ -3455,7 +3455,7 @@ dependencies = [
  "serde_with",
  "swift-rs",
  "thiserror 2.0.21",
- "toml 1.1.8+spec-1.1.0",
+ "toml 0.9.12+spec-1.1.0",
  "url",
  "urlpattern",
  "uuid",
