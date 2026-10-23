@@ -997,7 +997,7 @@ impl TauriSurface {
         }
         #[cfg(target_os = "macos")]
         {
-            return crate::windows::dispatch_native(&self.window, |w| {
+            crate::windows::dispatch_native(&self.window, |w| {
                 use objc2_app_kit::NSWindow;
                 let ptr = w.ns_window().map_err(|e| e.to_string())?;
                 if ptr.is_null() {
@@ -1007,10 +1007,12 @@ impl TauriSurface {
                 let native = unsafe { &*(ptr as *const NSWindow) };
                 native.orderOut(None);
                 Ok(())
-            });
+            })
         }
         #[cfg(not(target_os = "macos"))]
-        self.window.hide().map_err(|e| e.to_string())
+        {
+            self.window.hide().map_err(|e| e.to_string())
+        }
     }
 }
 

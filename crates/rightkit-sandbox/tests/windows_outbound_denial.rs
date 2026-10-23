@@ -25,6 +25,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const CHILD_DEADLINE: Duration = Duration::from_secs(20);
+/// Wide bound for the startup diagnostic only; its elapsed time is the evidence, not the bound.
+const STARTUP_PROBE_DEADLINE: Duration = Duration::from_secs(120);
 const LOCAL_BLACKHOLE_DEADLINE: Duration = Duration::from_secs(2);
 const LOCAL_BLACKHOLE_EXIT: i32 = 18;
 const ACCEPT_SETTLE: Duration = Duration::from_millis(300);
@@ -479,6 +481,62 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_host_non_loopback
     // releasing its profile lease. Successful deletion proves no live job/profile holder remains.
     profile.delete_after_child_exit();
     listener.finish();
+}
+
+/// Diagnostic for the two bounded-deadline misses above (hosted 39872794369, 39881928960,
+/// 39884672645: `elapsed_ms=20018 timed_out=true exit=Some(1) stdout="" stderr=""`): the confined
+/// PowerShell wrote nothing at all within `CHILD_DEADLINE`, so the first question is whether
+/// PowerShell starts inside a network-denied lowbox on this image at all, and how long that takes.
+/// No TCP: the script only prints and exits. The bound is deliberately wide; the printed elapsed
+/// time is the evidence.
+#[test]
+fn confined_powershell_starts_and_prints_within_the_wide_bound() {
+    if !common::real_user_stores_allowed(
+        "confined_powershell_starts_and_prints_within_the_wide_bound",
+    ) {
+        return;
+    }
+    let scratch = ScratchDir::new("windows-confined-powershell-startup");
+    let script = scratch.path().join("startup-probe.ps1");
+    fs::write(
+        &script,
+        "Write-Output (\"probe start \" + [DateTime]::UtcNow.ToString(\"o\"))\nexit 0\n",
+    )
+    .expect("write startup probe script");
+    let sandbox = Sandbox::new(ResourceAuthority::new(ResourceProfile::Expanded));
+    let policy = SandboxPolicy::new()
+        .allow_read(scratch.path())
+        .network(NetworkPolicy::Deny);
+    let mut profile = TestProfileCleanup::for_policy(&policy);
+    let command = SandboxCommand::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-File"])
+        .arg(script.as_os_str());
+    let started = Instant::now();
+    let pipe_spawn = sandbox
+        .spawn_with_pipe_pair(&policy, command, "--remote-debugging-io-pipes")
+        .expect("spawn network-denied AppContainer PowerShell through pipe-pair path");
+    let rightkit_sandbox::WindowsPipeSpawn { child, io } = pipe_spawn;
+    let output = child
+        .wait_with_output(STARTUP_PROBE_DEADLINE)
+        .expect("wait for the confined PowerShell startup probe");
+    drop(io);
+    println!(
+        "windows confined powershell startup elapsed_ms={} timed_out={} exit={:?} stdout={:?} stderr={:?}",
+        started.elapsed().as_millis(),
+        output.timed_out,
+        output.status.and_then(|status| status.code()),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    profile.delete_after_child_exit();
+    assert!(
+        !output.timed_out,
+        "confined PowerShell did not start and print within {STARTUP_PROBE_DEADLINE:?}"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("probe start"),
+        "confined PowerShell ran but its stdout did not reach the parent"
+    );
 }
 
 #[test]

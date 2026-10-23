@@ -1,10 +1,12 @@
 //! `rightkit-qa-interactive`: run a journey command in the logged-on user's interactive desktop
 //! session when this process is in session 0 (SSH, service) on Windows.
 //!
+//! ```text
 //!   rightkit-qa-interactive [--interactive] [--timeout-secs N] [--cwd DIR]
 //!                           [--env K=V]... [--pass-env NAME]... -- <program> [args...]
 //!   rightkit-qa-interactive status          print the session facts and the decision
 //!   rightkit-qa-interactive __child <spec>  internal: the wrapper the one-shot task runs
+//! ```
 //!
 //! In an interactive session (or off Windows) the program simply runs, inheriting stdio. In session
 //! 0 it fails with the usual clear error unless the run is opted in (`--interactive` or
