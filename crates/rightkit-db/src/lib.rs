@@ -4,6 +4,7 @@
 #[cfg(all(feature = "sqlcipher", feature = "sqlcipher-system"))]
 compile_error!("rightkit-db features `sqlcipher` and `sqlcipher-system` are mutually exclusive; enable exactly one");
 
+use rusqlite::config::DbConfig;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
 use std::ffi::OsString;
 use std::ops::Deref;
@@ -468,6 +469,11 @@ impl DbOptions {
             | OpenFlags::SQLITE_OPEN_CREATE
             | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = Connection::open_with_flags(path, flags)?;
+        // A failed open drops `conn`. A default close checkpoints and then deletes the `-wal` and
+        // `-shm`, which destroys the evidence quarantine promises to keep (and rewrites a valid but
+        // corrupt main file). Suppress that until the open has fully succeeded. This is a plain
+        // connection setting, valid before keying; it reads nothing from the file.
+        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
         // Narrow the main file before any write so WAL/SHM sidecars inherit owner-only.
         if self.owner_only {
             rightkit_fs::restrict_owner_only(path)?;
@@ -481,6 +487,8 @@ impl DbOptions {
         if self.owner_only {
             harden_sidecars(path)?;
         }
+        // The open succeeded: restore the normal close behaviour (checkpoint and remove the WAL).
+        conn.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, false)?;
         Ok((conn, journal))
     }
 

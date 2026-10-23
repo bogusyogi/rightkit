@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 rightkit-credentials = { version = "=0.4.2", default-features = false, features = ["db-adapter"] }
-rightkit-db = { version = "=0.5.1", default-features = false, optional = true }
+rightkit-db = { version = "=0.5.2", default-features = false, optional = true }
 
 [features]
 # The sealed plain build resolves db-adapter, which deliberately selects no provider in the

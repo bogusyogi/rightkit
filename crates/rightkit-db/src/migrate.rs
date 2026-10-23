@@ -793,7 +793,19 @@ impl DbOptions {
         let conn = self.open_writer()?;
         let mut options = options.clone();
         options.backup_options.get_or_insert_with(|| self.clone());
-        let report = migrate(&conn, Some(&self.path), migrations, &options)?;
+        let report = match migrate(&conn, Some(&self.path), migrations, &options) {
+            Ok(report) => report,
+            Err(err) => {
+                // Corruption can first surface here, after `open_at` re-enabled the close
+                // checkpoint. Closing this connection must not checkpoint or delete the `-wal`
+                // before `open_writer_migrated_or_degrade` moves the store aside (rightkit#932).
+                let _ = conn.set_db_config(
+                    rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+                    true,
+                );
+                return Err(err);
+            }
+        };
         Ok((conn, report))
     }
 

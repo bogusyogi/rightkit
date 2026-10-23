@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2 — 2026-10-23
+
+- Fix (rightkit#932, ViewRight): a failed open no longer checkpoints and deletes the `-wal`/`-shm` before quarantine runs. When `open_at` failed (a key check reading page 1, or `check_on_open`), the `?` dropped the connection, and SQLite's close checkpoints and then deletes the `-wal` and `-shm`. Quarantine then found no `-wal`, and a valid-but-corrupt main file had already been rewritten, which broke the "nothing is deleted" promise of `open_writer_recovering`, `open_writer_recovering_unreadable` and `open_writer_migrated_or_degrade`. `open_at` now sets `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE` right after the handle opens (before keying) and clears it only once the check and sidecar hardening have succeeded, so a successful connection closes exactly as before. Every writer path goes through `open_at`. Damage that first surfaces during migration (`open_writer_migrated`, after `open_at` succeeded) sets the flag again before the connection is dropped, so `open_writer_migrated_or_degrade` also quarantines the original bytes.
+- Tests: `tests/failed_open_keeps_wal.rs` (garbage main plus `-wal` through `open_writer_migrated_or_degrade` and `open_writer_recovering_unreadable`; a valid WAL store whose last write exists only in the `-wal`, with a corrupt interior page, under `IntegrityCheck::Quick` through `open_writer_recovering`; a WAL-only last write with a corrupt page first seen by a migration (`corruption_first_seen_during_migration_keeps_the_wal_and_the_main_bytes`); and a healthy-store close regression). Not published when written.
+
 ## 0.5.1 — 2026-10-20
 
 Additive, behind the new optional feature `encrypted-lifecycle` (PK03-3..6). Nothing here changes the published 0.5.0 API, & rightkit-db still has no edge to rightkit-credentials or rightkit-daemon. Requires rightkit-fs 0.4.6 with `fs`, `lock` & `transaction`; publish fs 0.4.6 before this crate.
