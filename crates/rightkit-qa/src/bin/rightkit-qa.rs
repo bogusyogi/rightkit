@@ -372,7 +372,7 @@ fn verify(a: &Args) -> Result<i32> {
 /// `rightkit-qa journeys run [--root <app root>] [--id J-001]... [--platform P] [--tier fast[,full,paid]]
 /// [--run-store-cap-bytes N] [--prepare-only]` is always a qualifying run: it selects the journeys
 /// for this host up front, records the source identity, builds through the broker
-/// (`rightkit cargo ... --no-run --message-format=json`) and writes `build-record.json` into the
+/// (`rustright cargo ... --no-run --message-format=json`) and writes `build-record.json` into the
 /// managed run directory. It refuses `--build`, `--build-ui` and `--kill-orphans`. Without
 /// `--prepare-only` it then launches each scenario in a supervised worker outside the broker and
 /// collects the outcomes into a validated receipt; with `--prepare-only` it stops at the written

@@ -74,7 +74,7 @@ Schema 1, checked by `packages/release/runtime-budgets.mjs`:
     "crateVersion": "0.2.0", "commit": "<40-hex>", "date": "2026-10-11",
     "scope": "synthetic",
     "dataScale": { "description": "generated tree", "unit": "entries", "count": 1000000 },
-    "command": "rightkit cargo bench -p rightkit-fsindex --bench budget -- mem 1000000",
+    "command": "rustright cargo bench -p rightkit-fsindex --bench budget -- mem 1000000",
     "observed": { "residentMemoryBytes": 1, "idleCpuPercent": 0, "wakeupsPerSecond": 0, "diskOpsPerSecond": 0 },
     "evidence": { "file": "runtime-budget.evidence/darwin-arm64-0.2.0-synthetic.txt", "sha256": "<64-hex>" }
   }]

@@ -41,7 +41,7 @@ const measurement = (osName, over = {}) => ({
   host: { os: osName, arch: osName === "darwin" ? "arm64" : "x64", model: "test host" },
   crateVersion: "0.2.0", commit: COMMIT, date: "2026-10-11", scope: "synthetic",
   dataScale: { description: "generated tree", unit: "entries", count: 1000000 },
-  command: "rightkit cargo bench -p rightkit-fsindex --bench budget",
+  command: "rustright cargo bench -p rightkit-fsindex --bench budget",
   observed: { ...OBSERVED }, ...over,
 });
 const budgetFor = (over = {}) => ({
@@ -754,7 +754,7 @@ test("record writes host, HEAD, evidence file and hash itself, and the gate then
   git(r.root, "add", "-A"); git(r.root, "commit", "-q", "-m", "budget file");
   const out = path.join(r.root, "bench-out.txt");
   writeFileSync(out, `bench noise\n${resultLine(OBSERVED, { crate: crateName, version: "0.2.0", count: 5000 })}\n`);
-  const common = { crateDir: r.svc, resultFile: out, scope: "synthetic", command: "rightkit cargo bench -p svc --bench budget", description: "generated entries" };
+  const common = { crateDir: r.svc, resultFile: out, scope: "synthetic", command: "rustright cargo bench -p svc --bench budget", description: "generated entries" };
   recordMeasurement(common, { host: { os: "darwin", arch: "arm64", model: "m" }, now: new Date("2026-10-11T00:00:00Z") });
   const record = recordMeasurement(common, { host: { os: "win32", arch: "x64" }, now: new Date("2026-10-11T00:00:00Z") });
   const written = JSON.parse(readFileSync(path.join(r.svc, "runtime-budget.json"), "utf8"));

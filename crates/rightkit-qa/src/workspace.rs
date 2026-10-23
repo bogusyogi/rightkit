@@ -47,7 +47,7 @@ pub fn create(cache_root: &Path, run_id: Option<&str>, app_key: &str) -> Result<
 /// [`create`] with the QA root limits set in code. A limit set in `limits` wins over its
 /// environment variable (`0` disables it); a limit left `None` falls back to the environment, then
 /// the default. This is for a test process that cannot receive the environment variable, such as
-/// one run under `rightkit cargo`.
+/// one run under `rustright cargo`.
 pub fn create_with_limits(
     cache_root: &Path,
     run_id: Option<&str>,

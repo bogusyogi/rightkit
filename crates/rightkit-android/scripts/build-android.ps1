@@ -5,7 +5,7 @@
 .DESCRIPTION
   Writes android/src/main/jniLibs/<abi>/ and android/src/main/uniffi-generated/ (both git-ignored)
   and a BUILD-RECEIPT.txt. Run it from anywhere; it locates the workspace root. Runs cargo through
-  $env:RIGHTKIT_CARGO when set (for example 'rightkit cargo'), otherwise 'cargo'. Run it through the
+  $env:RIGHTKIT_CARGO when set (for example 'rustright cargo'), otherwise 'cargo'. Run it through the
   owner chat only. It has not been run by its author.
 
   -Crate  the package to build (default rightkit-android). An app with its own cdylib that links

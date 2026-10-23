@@ -1,13 +1,13 @@
-//! Test settings that survive `rightkit cargo test`.
+//! Test settings that survive `rustright cargo test`.
 //!
-//! Managed cargo (`rightkit cargo ...`) starts the test binary with a scrubbed environment and
+//! Managed cargo (`rustright cargo ...`) starts the test binary with a scrubbed environment and
 //! refuses nested managed builds, so a Rust integration test cannot rely on `MY_APP_E2E_TIER=paid
-//! rightkit cargo test`. The supported pattern is:
+//! rustright cargo test`. The supported pattern is:
 //!
 //! * **Tiers are cargo features** of the test crate (`--features full,paid`), read at compile time
 //!   with `cfg!(feature = "...")` and handed to [`crate::harness::Harness::with_feature_tiers`].
 //! * **Knobs are a settings file** (`KEY=VALUE` lines) read at run time through [`Settings`].
-//! * **Binaries are built first** by a separate `rightkit cargo build -p <bin>`, then located
+//! * **Binaries are built first** by a separate `rustright cargo build -p <bin>`, then located
 //!   next to the test executable's `deps/` directory (never by building from inside a test).
 //!
 //! # File format
@@ -29,7 +29,7 @@
 //! # Lookup order ([`Settings::get`])
 //!
 //! A non-empty process environment variable wins over the file, so a direct (unmanaged) run can
-//! still override a single knob; under `rightkit cargo` the file is what reaches the test.
+//! still override a single knob; under `rustright cargo` the file is what reaches the test.
 use crate::util::{err, Error, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

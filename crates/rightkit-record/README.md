@@ -196,5 +196,5 @@ It has not been read on a host yet.
 
 ## Tests
 
-`rightkit cargo test -p rightkit-record` runs the lifecycle, bundle, redaction, reader and
+`rustright cargo test -p rightkit-record` runs the lifecycle, bundle, redaction, reader and
 protocol tests on any host. The Windows capture code compiles only on Windows.

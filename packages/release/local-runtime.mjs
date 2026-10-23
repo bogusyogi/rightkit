@@ -176,7 +176,7 @@ export async function measureRuntimeCrate(options, deps = {}) {
   const run = deps.run ?? ((command, args, settings) => spawnCollect(command, args, { maxBuffer: 64 * 1024 * 1024, ...settings }));
   const invoke = (args, settings) => run(cargoCommand[0], [...cargoCommand.slice(1), ...args], { cwd: root, windowsHide: true, ...settings });
   const toolchainOf = async () => {
-    const rustc = await run(cargoCommand[0] === "rightkit" ? "rightkit" : "rustc", cargoCommand[0] === "rightkit" ? ["rustc", "-Vv"] : ["-Vv"], { cwd: root, env: { ...baseEnv, ...brokerEnv }, windowsHide: true, timeout: 60_000 });
+    const rustc = await run(cargoCommand[0] === "rustright" ? "rustright" : "rustc", cargoCommand[0] === "rustright" ? ["rustc", "-Vv"] : ["-Vv"], { cwd: root, env: { ...baseEnv, ...brokerEnv }, windowsHide: true, timeout: 60_000 });
     const cargo = await invoke(["-V"], { env: { ...baseEnv, ...brokerEnv }, timeout: 60_000 });
     if (rustc.error || rustc.status !== 0 || cargo.error || cargo.status !== 0) throw new Error("cannot read the toolchain through the broker");
     return { rustc: String(rustc.stdout).trim(), cargo: String(cargo.stdout).trim() };

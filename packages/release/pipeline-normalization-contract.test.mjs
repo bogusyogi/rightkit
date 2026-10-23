@@ -49,12 +49,12 @@ function initializeFixture(root, compliant) {
   if (!compliant) return;
   for (const productRoot of packageRoots) {
     writeFixture(`${productRoot}/package.json`, JSON.stringify({ scripts: {
-      build: "rightkit cargo build",
+      build: "rustright cargo build",
       verify: "pnpm exec rightkit verify",
     } }), root);
   }
   writeFixture("coderight/apps/coderight-tauri/right-release.config.mjs", 'import { resolveTargetRoot } from "@rightkit/release/cargo-target.mjs";\nresolveTargetRoot();\n', root);
-  writeFixture("coderight/apps/coderight-tauri/scripts/build.mjs", 'execFileSync("rightkit", ["cargo", "build"]);\n', root);
+  writeFixture("coderight/apps/coderight-tauri/scripts/build.mjs", 'execFileSync("rustright", ["cargo", "build"]);\n', root);
   for (const repo of rightGitRepos) writeFixture(`${repo}/.github/workflows/ci.yml`, "# Managed by right-git\nname: CI\n", root);
 }
 

@@ -8,7 +8,7 @@
 //! One test function on purpose: the kill switch is process-wide and TextEdit is
 //! a singleton, so scenarios run in sequence and share one cleanup guard.
 //!
-//! Run: `rightkit cargo test -p rightkit-automation --test e2e_mac`
+//! Run: `rustright cargo test -p rightkit-automation --test e2e_mac`
 //! (the test host process needs Accessibility and Screen Recording; when a managed
 //! broker spawns it without them, run the built test binary from a granted shell).
 

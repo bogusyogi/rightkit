@@ -6,7 +6,7 @@
 //! Prints `RESULT` lines (see `rightkit_child_process::IdleObservation::result_lines`) after the idle
 //! window, plus warm-up and status figures.
 //!
-//! Run: `rightkit cargo bench -p rightkit-logs --features tracing --bench budget`
+//! Run: `rustright cargo bench -p rightkit-logs --features tracing --bench budget`
 //! Optional: `-- <lines> <idle_seconds>` (defaults 200000 and 30).
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};

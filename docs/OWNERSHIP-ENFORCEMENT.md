@@ -9,8 +9,8 @@ Lookup never infers API shape, supported
 platforms, minimum versions, or migration instructions unless the catalog
 contains that field.
 
-Use `rightkit owns <capability>` for a single entry. Use
-`rightkit owns --compact` for the compact session-start index; host startup
+Use `rustright owns <capability>` for a single entry. Use
+`rustright owns --compact` for the compact session-start index; host startup
 integration must inject this output as context. This lookup reports ownership
 and availability. A declared dependency alone does not establish integration.
 

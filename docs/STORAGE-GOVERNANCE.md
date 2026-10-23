@@ -1,6 +1,6 @@
 # RightKit storage governance
 
-> Retired 2026-10-09: the Node build broker packages were removed; the Rust broker at `bogusyogi/rustright` (binary `rustright`, alias `rightkit`) owns this. Rows and commands below that name broker, client or core modules describe the removed implementation.
+> Retired 2026-10-09: the Node build broker packages were removed; the Rust broker at `bogusyogi/rustright` (binary `rustright`; its old `rightkit` alias is retired) owns this. Rows and commands below that name broker, client or core modules describe the removed implementation.
 
 Implemented source changes only. No commit, publication, live config edit, cutover, real-data deletion or Trash move occurred. Existing unrelated checkout edits remain intact.
 
@@ -32,23 +32,23 @@ Managed run/artifact pruning requires valid ownership metadata. Unknown roots su
 Storage migration, bootstrap and cutover commands for the removed Node broker no longer exist; use the RustRight installer and CLI documented in `bogusyogi/rustright`.
 
 ```sh
-rightkit storage report --workspace /Volumes/D/claude \
+rustright storage report --workspace /Volumes/D/claude \
   --external /Volumes/D/.build-home/adrdsouza/tmp \
   --external /Volumes/D/.build-home/adrdsouza/xcode-ios-device-support
-rightkit storage doctor --workspace /Volumes/D/claude
-rightkit storage prune --dry-run \
+rustright storage doctor --workspace /Volumes/D/claude
+rustright storage prune --dry-run \
   --device-support /Volumes/D/.build-home/adrdsouza/xcode-ios-device-support
-rightkit storage prune --apply \
+rustright storage prune --apply \
   --device-support /Volumes/D/.build-home/adrdsouza/xcode-ios-device-support
 
 # Optional reviewed one-off item: repeat --trash for exact selected paths.
-rightkit storage prune --dry-run --trash /exact/path/old-installer.dmg
-rightkit storage prune --apply --trash /exact/path/old-installer.dmg
+rustright storage prune --dry-run --trash /exact/path/old-installer.dmg
+rustright storage prune --apply --trash /exact/path/old-installer.dmg
 
 # Scripts inherit managed output root & temporary-directory variables.
-rightkit storage run --app heardright -- bash ios-native/scripts/device-smoke.sh
+rustright storage run --app heardright -- bash ios-native/scripts/device-smoke.sh
 # Called inside that managed run; emits JSON array for xcodebuild argv.
-rightkit storage xcode-args --run-root "$RIGHTKIT_RUN_ROOT"
+rustright storage xcode-args --run-root "$RIGHTKIT_RUN_ROOT"
 ```
 
 Prune uses live broker RPC for broker caches. `--broker skip` explicitly excludes broker work, useful for temp-only fixtures. Busy/unavailable broker, unresolved run overage or unknown artifact publication state returns failure with JSON diagnostics. Device discovery uses locally verified `xcrun devicectl list devices --json-output -`; a captured snapshot can be supplied via `--devices-json FILE`.
@@ -77,7 +77,7 @@ Validation uses disposable temp directories. No claimed disk-space recovery.
 
 Focused core/CLI/Xcode + public QA policies: 25/25 passed. Focused release/doctor/CLI/launcher policies: 40 passed, 1 platform skip, 0 failed. Focused broker migration/bootstrap policies: 38/38 passed. Focused QA Vitest: 11/11 passed; QA TypeScript build passed. Full Node failures include Node26 async assertion in client socket tests, denied Unix/TCP binds, pnpm store SQLite access, existing app contract drift & unrelated dirty-source contract failures. Required `pnpm run test:release` & `pnpm run test:qa` wrappers were attempted separately; both fail before test execution because pnpm cannot open its store SQLite database. Full Node suites are not green.
 
-`rightkit cargo test -p rightkit-qa` completed successfully on native Mac through managed broker: 48 unit, 15 integration & 1 doc test; all six new Rust storage policy tests passed. Terminal request `df8fb341-e026-4213-aed0-36852cb703aa`, exit 0, confirmed by `rightkit attach`. Optional browser-feature tests were not enabled. First attempt exposed an outdated workspace-path assertion; fixed before successful rerun.
+`rustright cargo test -p rightkit-qa` completed successfully on native Mac through managed broker: 48 unit, 15 integration & 1 doc test; all six new Rust storage policy tests passed. Terminal request `df8fb341-e026-4213-aed0-36852cb703aa`, exit 0, confirmed by `rustright attach`. Optional browser-feature tests were not enabled. First attempt exposed an outdated workspace-path assertion; fixed before successful rerun.
 
 Lead verification commands:
 
@@ -85,7 +85,7 @@ Lead verification commands:
 TMPDIR=/private/tmp node --test --test-concurrency=1 --test-force-exit \
   packages/release/*.test.mjs packages/qa/public-storage.test.mjs
 pnpm --dir packages/qa test
-rightkit cargo test -p rightkit-qa
+rustright cargo test -p rightkit-qa
 ```
 
 Primary check: `git diff --check` passed. Read-only independent safety review informed fixes for owner locks, publication replay, active-run sweeps, count retention & broker grace races.

@@ -24,7 +24,7 @@ Published version: see `INDEX.md` at the repository root. Release notes: see `CH
 
 ## Example
 
-The snippets below are illustrative. They show the public API shape; they are not compiled by the crate's test suite. For a compiled example, see `examples/example_server.rs`, run with `rightkit cargo run -p rightkit-mcp --example example_server -- stdio` (or `-- http`). The integration tests in `tests/` exercise client and server behavior.
+The snippets below are illustrative. They show the public API shape; they are not compiled by the crate's test suite. For a compiled example, see `examples/example_server.rs`, run with `rustright cargo run -p rightkit-mcp --example example_server -- stdio` (or `-- http`). The integration tests in `tests/` exercise client and server behavior.
 
 ```rust,ignore
 use rightkit_mcp::*;

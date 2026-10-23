@@ -95,12 +95,12 @@ test('executable classification regression table (public hook)', async (t) => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 for (const command of ['cargo test', '/opt/rust/bin/rustc x.rs', 'env PATH=/x cargo build', 'FOO=1 cargo test && rustdoc x', 'zsh -lc "cargo build"', 'command rustdoc x', '$(cargo test)', 'rustup run stable cargo test']) test(`blocks ${command}`, () => assert.ok(managedBuildViolation(command)));
-test('allows exact rightkit only', () => { assert.equal(managedBuildViolation('rightkit cargo -- test'), null); assert.equal(claudeHookDecision({ environment: { GITHUB_ACTIONS: 'true' }, tool_input: { command: 'rightkit cargo -- test' } }).decision, 'allow'); });
-for (const command of ['rightkit cargo test --manifest-path /workspace/Cargo.toml', 'rightkit rustc --version', 'rightkit rustdoc --version', 'pnpm exec rightkit cargo fmt --check', 'rightkit cargo test 2>&1 | tail -20', 'cd /workspace && rightkit cargo check', 'rightkit cargo test > build.log', '(rightkit rustdoc --version) | tee result.log']) test(`allows sanctioned entrypoint ${command}`, () => assert.equal(managedBuildViolation(command), null));
+test('allows exact rightkit only', () => { assert.equal(managedBuildViolation('rustright cargo -- test'), null); assert.equal(claudeHookDecision({ environment: { GITHUB_ACTIONS: 'true' }, tool_input: { command: 'rustright cargo -- test' } }).decision, 'allow'); });
+for (const command of ['rustright cargo test --manifest-path /workspace/Cargo.toml', 'rustright rustc --version', 'rustright rustdoc --version', 'pnpm exec rustright cargo fmt --check', 'rustright cargo test 2>&1 | tail -20', 'cd /workspace && rustright cargo check', 'rustright cargo test > build.log', '(rustright rustdoc --version) | tee result.log']) test(`allows sanctioned entrypoint ${command}`, () => assert.equal(managedBuildViolation(command), null));
 for (const command of ['pnpm --version', 'npm --version', 'pnpm exec cargo --version', 'npm run cargo-version', 'env PATH=/opt/.rightkit-managed/agent-bin pnpm run cargo-version', 'env PATH=D:\\RightKitManagedAgent\\agent-bin pnpm exec cargo --version']) test(`allows package manager child Cargo ${command}`, () => assert.equal(managedBuildViolation(command), null));
 for (const command of ['env PATH=/real pnpm exec cargo --version', 'env PATH=C:\\Users\\adrds\\.cargo\\bin npm exec cargo --version']) test(`rejects untrusted PATH package manager Cargo ${command}`, () => assert.ok(managedBuildViolation(command)));
 for (const command of ['pnpm exec cargo --version && cargo test', 'npm run cargo-version; rustc x.rs']) test(`rejects composed package manager bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
-for (const command of ['rightkit cargo -- test && cargo test', 'rightkit cargo -- test; rustc x.rs', 'rightkit cargo -- $(cargo test)', 'rightkit cargo test | rustdoc x.rs', '/tmp/rightkit cargo test', 'env PATH=/tmp rightkit cargo test', 'alias c=cargo; c test', 'env PATH=/x /opt/rust/bin/cargo test']) test(`rejects rightkit bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
+for (const command of ['rustright cargo -- test && cargo test', 'rustright cargo -- test; rustc x.rs', 'rustright cargo -- $(cargo test)', 'rustright cargo test | rustdoc x.rs', '/tmp/rightkit cargo test', 'env PATH=/tmp rustright cargo test', 'alias c=cargo; c test', 'env PATH=/x /opt/rust/bin/cargo test']) test(`rejects rightkit bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
 test('hook denial is independent of default permission mode', () => { for (const mode of ['auto', 'bypassPermissions']) assert.equal(claudeHookDecision({ platform: 'darwin', permission_mode: mode, tool_input: { command: 'cargo test' } }).hookSpecificOutput.permissionDecision, 'deny'); });
 
 test('Codex cmd field and composed functions.exec payload retain managed build policy', () => {
@@ -111,7 +111,7 @@ test('Codex cmd field and composed functions.exec payload retain managed build p
   assert.equal(claudeHookDecision({ platform: 'darwin', tool_name: 'functions.exec', tool_input: { code: 'await tools.exec_command({cmd: "grep \\"Failed to list rustc sysroot\\" log"})' } }).decision, 'allow');
 });
 test('cline hook blocks direct cargo', () => { assert.equal(clineHookDecision({ platform: 'darwin', preToolUse: { tool: 'execute_command', parameters: { command: 'cargo test' } } }).cancel, true); });
-test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ platform: 'darwin', environment: { GITHUB_ACTIONS: 'true' }, preToolUse: { tool: 'execute_command', parameters: { command: 'rightkit cargo -- test' } } }).cancel, false); });
+test('cline hook permits rightkit', () => { assert.equal(clineHookDecision({ platform: 'darwin', environment: { GITHUB_ACTIONS: 'true' }, preToolUse: { tool: 'execute_command', parameters: { command: 'rustright cargo -- test' } } }).cancel, false); });
 
 test('a redirect of the shim search path cannot shadow the managed tools', () => {
   const evil = 'PA' + 'TH=/tmp/evil';
@@ -128,7 +128,7 @@ test('a redirect of the shim search path cannot shadow the managed tools', () =>
 test('a bare tool word inside a quoted, non-executed string is not a violation', () => {
   const cargo = 'ca' + 'rgo';
   // The documented sanctioned entrypoint, unaffected by the fix.
-  assert.equal(managedBuildViolation(`rightkit ${cargo} check`), null);
+  assert.equal(managedBuildViolation(`rustright ${cargo} check`), null);
   // Single-word quoted argument: broke on the tokenizer's own open-quote
   // delimiter before this fix.
   assert.equal(managedBuildViolation(`grep -rn "${cargo}" file.txt`), null);
@@ -172,10 +172,10 @@ test('github-actions-only public repositories deny every local dynamic lane', as
     await setOrigin(root);
     await writeFile(join(root, '.rightgit.json'), '{"compile":"github-actions-only"}\n');
     const commands = [
-      'rightkit cargo -- test',
+      'rustright cargo -- test',
       'pnpm exec cargo test',
       'npm exec rustc --version',
-      'pnpm exec rightkit cargo -- test',
+      'pnpm exec rustright cargo -- test',
       'pnpm test',
       'pnpm run ci:rust:test',
       'pnpm run release:candidate',
@@ -290,8 +290,8 @@ test('Membrane local declaration admits only its unsigned Windows installer entr
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-for (const command of ['rightkit remote windows cargo clippy --workspace --all-targets -- -D warnings', 'rightkit remote windows cargo test -p rightkit-onnx --all-targets', 'rightkit remote mac rustc --version', 'cd /workspace && rightkit remote windows cargo check 2>&1 | tail -5']) test(`allows documented remote lane ${command}`, () => assert.equal(managedBuildViolation(command), null));
-for (const command of ['rightkit remote windows cargo test && cargo test', 'rightkit remote evil cargo test', 'rightkit remote windows cargo test; rustc x.rs', 'env PATH=/tmp rightkit remote windows cargo test']) test(`rejects remote lane bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
+for (const command of ['rustright remote windows cargo clippy --workspace --all-targets -- -D warnings', 'rustright remote windows cargo test -p rightkit-onnx --all-targets', 'rustright remote mac rustc --version', 'cd /workspace && rustright remote windows cargo check 2>&1 | tail -5']) test(`allows documented remote lane ${command}`, () => assert.equal(managedBuildViolation(command), null));
+for (const command of ['rustright remote windows cargo test && cargo test', 'rustright remote evil cargo test', 'rustright remote windows cargo test; rustc x.rs', 'env PATH=/tmp rustright remote windows cargo test']) test(`rejects remote lane bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
 
 for (const command of ['node packages/release/cli/right-release.mjs publish cargo --crate rightkit-onnx', 'right-release publish cargo --crate rightkit-onnx --dry-run']) test(`allows right-release cargo publication ${command}`, () => assert.equal(managedBuildViolation(command), null));
 for (const command of ['right-release publish cargo --crate x && cargo publish', 'right-release publish cargo; cargo test']) test(`rejects right-release publication bypass ${command}`, () => assert.ok(managedBuildViolation(command)));
@@ -348,22 +348,32 @@ test("denial message names RustRight and never RightKit's build tool", () => {
   assert.doesNotMatch(reason, /RightKit's build tool/i);
 });
 
-// Rename: `rustright` is the sanctioned managed form; `rightkit` stays admitted during the shim transition.
+// `rustright` is the sanctioned managed form; `rightkit`, its retired name (rustright#91), is refused by name.
 const sanctionedForms = [
   'rustright cargo test --manifest-path /workspace/Cargo.toml', 'rustright rustc --version', 'rustright rustdoc --version',
   'rustright.cmd cargo check', 'pnpm exec rustright cargo fmt --check', 'cd /workspace && rustright cargo check',
   'rustright cargo test 2>&1 | tail -20', 'env PATH=/d/.rightkit-managed/agent-bin /d/.rightkit-managed/agent-bin/rustright.cmd cargo test',
-  'rightkit cargo test', 'rightkit.cmd cargo check', 'rustright remote windows cargo test', 'rustright remote mac cargo test',
-  '/d/.rightkit-managed/agent-bin/rightkit.cmd cargo check', '/d/.rightkit-managed/agent-bin/rustright.cmd cargo check',
+  'rustright cargo test', 'rustright remote windows cargo test', 'rustright remote mac cargo test',
+  '/d/.rightkit-managed/agent-bin/rustright.cmd cargo check',
   '/Users/a/Library/RightKitManagedAgent/agent-bin/rustright cargo test',
 ];
 const rejectedForms = [
   'rustright cargo -- test && cargo test', 'rustright cargo -- $(cargo test)', 'rustright cargo test | rustdoc x.rs',
   'env PATH=/tmp rustright cargo test', 'rustright remote linux cargo test', 'cargo test',
 ];
-test('rustright and rightkit are both sanctioned managed forms', () => {
+// Spelled at run time so the retired-alias sweep (scripts/retire-rightkit-alias.mjs) never rewrites these.
+const RETIRED = ['right', 'kit'].join('');
+const retiredForms = [
+  `${RETIRED} cargo test`, `${RETIRED}.cmd cargo check`, `/d/.rightkit-managed/agent-bin/${RETIRED}.cmd cargo check`,
+  `${RETIRED} status abc`, `${RETIRED} remote windows cargo test`,
+];
+test('rustright is the only sanctioned managed form; the retired rightkit name is refused by name', () => {
   for (const command of sanctionedForms) assert.equal(managedBuildViolation(command), null, command);
   for (const command of rejectedForms) assert.ok(managedBuildViolation(command), command);
+  for (const command of retiredForms) assert.equal(managedBuildViolation(command), 'retired-client:rightkit', command);
+  const reason = claudeHookDecision({ platform: 'darwin', tool_input: { command: retiredForms[0] } }).hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /retired name of the RustRight client/);
+  assert.match(reason, /rustright cargo/);
   assert.equal(claudeHookDecision({ platform: 'darwin', environment: { GITHUB_ACTIONS: 'true' }, tool_input: { command: 'rustright cargo -- test' } }).decision, 'allow');
 });
 

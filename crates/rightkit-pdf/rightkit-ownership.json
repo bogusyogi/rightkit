@@ -63,7 +63,7 @@
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Discovery alias so `rightkit owns pdf` resolves to the PDF owner; carries no fingerprints of its own."
+        "Discovery alias so `rustright owns pdf` resolves to the PDF owner; carries no fingerprints of its own."
       ]
     }
   ]

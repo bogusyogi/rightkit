@@ -15,7 +15,7 @@
 //! file operations in the same process, so churn-window disk figures include them; only the idle
 //! window is a budget figure.
 //!
-//! Run: `rightkit cargo bench -p rightkit-file-watch --bench budget`
+//! Run: `rustright cargo bench -p rightkit-file-watch --bench budget`
 //! Optional: `-- <static_files> <churn_seconds> <idle_seconds>` (defaults 50000, 60 and 30).
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};

@@ -45,7 +45,7 @@
         "unit": "connections",
         "count": 64
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-daemon --bench budget",
       "observed": {
         "residentMemoryBytes": 12947456,
         "idleCpuPercent": 0.052,
@@ -72,7 +72,7 @@
         "unit": "connections",
         "count": 64
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-daemon --bench budget",
       "observed": {
         "residentMemoryBytes": 10665984,
         "idleCpuPercent": 0.003,
@@ -99,7 +99,7 @@
         "unit": "connections",
         "count": 64
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-daemon --bench budget",
       "observed": {
         "residentMemoryBytes": 11223040,
         "idleCpuPercent": 0.001,
@@ -126,7 +126,7 @@
         "unit": "connections",
         "count": 64
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-daemon --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-daemon --bench budget",
       "observed": {
         "residentMemoryBytes": 12611584,
         "idleCpuPercent": 0.156,

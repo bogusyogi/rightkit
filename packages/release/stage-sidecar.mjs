@@ -1,6 +1,6 @@
 // Declarative engine and sidecar staging for Tauri externalBin (bogusyogi/rightkit#345).
 //
-// Eight apps hand-rolled the same script: build an engine through `rightkit cargo`, find the executable, copy it to
+// Eight apps hand-rolled the same script: build an engine through `rustright cargo`, find the executable, copy it to
 // src-tauri/binaries/<name>-<target-triple>[.exe], stage ffmpeg, stage onnxruntime, copy model resources. This module is
 // that script, driven by a `sidecars` list in right-release.config.mjs:
 //
@@ -19,7 +19,7 @@
 // then not an externalBin. `clean: true` removes a stale file at the destination before staging. The wrapper key
 // `wipeStageDir: true` removes stale files named exactly `<name>-<current triple>[.exe]` for a declared name this run no longer produces.
 //
-// `catalog` is a relative path, an absolute path, { crate: "rightkit-ffmpeg", file? } (resolved through `rightkit cargo
+// `catalog` is a relative path, an absolute path, { crate: "rightkit-ffmpeg", file? } (resolved through `rustright cargo
 // metadata`) or { npm: "<pkg>/<file>" }. The wrapper form { sidecars, profiles: { dev, release } } sets the default cargo
 // profile pair; RIGHTKIT_BUILD_MODE (dev|release, default release) selects. The target `universal-apple-darwin` builds
 // both slices of a cargo-bin and lipo-creates `<name>-universal-apple-darwin`. `ffmpeg` and `onnxruntime` do the same from their
@@ -122,13 +122,13 @@ export function parseTargetTriple(target) {
   return { triple: target, ...row };
 }
 
-/** `--target`, then TAURI_ENV_TARGET_TRIPLE, then the host triple from `rightkit rustc -vV`. */
+/** `--target`, then TAURI_ENV_TARGET_TRIPLE, then the host triple from `rustright rustc -vV`. */
 export function resolveTargetTriple({ target, env = process.env, run = defaultRun, cwd = process.cwd() } = {}) {
   if (target) return target;
   if (env.TAURI_ENV_TARGET_TRIPLE) return env.TAURI_ENV_TARGET_TRIPLE;
-  const result = run("rightkit", ["rustc", "-vV"], { cwd, env });
+  const result = run("rustright", ["rustc", "-vV"], { cwd, env });
   const host = result?.stdout?.match(/^host:\s*(.+)$/m)?.[1]?.trim();
-  if (!host || result.status !== 0) fail("STAGE_SIDECAR_TARGET_UNKNOWN", "cannot determine the host triple (rightkit rustc -vV failed); pass a target");
+  if (!host || result.status !== 0) fail("STAGE_SIDECAR_TARGET_UNKNOWN", "cannot determine the host triple (rustright rustc -vV failed); pass a target");
   return host;
 }
 
@@ -354,7 +354,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       Object.assign(entry, { package: item.package, bin, name, profile, features: [...features], ...(manifestPath ? { manifestPath } : {}), ...(item.sha256 ? { sha256: item.sha256 } : {}), ...(dest ? { dest } : {}), ...(clean ? { clean } : {}) });
     } else if (item.kind === "ffmpeg") {
       const { kind: _kind, platforms: _platforms, catalog: rawCatalog, sources: rawSources, probe: rawProbe, ...rest } = item;
-      if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "cargo") errors.push(`${where}: stage.cmd must not be bare cargo; use { cmd: "rightkit", args: ["cargo", ...] }`);
+      if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "cargo") errors.push(`${where}: stage.cmd must not be bare cargo; use { cmd: "rustright", args: ["cargo", ...] }`);
       const catalogSpec = parseCatalogSpec(rawCatalog, `${where}: catalog`, errors, "ffmpeg");
       if (catalogSpec) entry.catalogSpec = catalogSpec;
       if (rawProbe !== undefined && typeof rawProbe !== "boolean") errors.push(`${where}: probe must be a boolean`);
@@ -515,7 +515,7 @@ const tail = (text, lines = 12) => String(text ?? "").trim().split("\n").slice(-
 
 /** Default process runner: `rightkit` resolves through the installed runtime client (as the apps' scripts did). */
 export function defaultRun(command, args, { cwd, env = process.env } = {}) {
-  const launch = command === "rightkit" ? resolveCommand("rightkit", args, { root: cwd, env }) : { command, args };
+  const launch = command === "rustright" || command === "rightkit" ? resolveCommand(command, args, { root: cwd, env }) : { command, args };
   return nodeSpawnSync(launch.command, launch.args, {
     cwd, env: { ...env, ...(launch.env ?? {}) }, encoding: "utf8", maxBuffer: 512 * 1024 * 1024, shell: false, windowsHide: true, stdio: ["inherit", "pipe", "inherit"],
   });
@@ -561,7 +561,7 @@ function resolveCatalogFile(spec, ctx, kind) {
   if (spec.via === "absolute") return spec.file;
   if (spec.via === "path") return path.resolve(ctx.appRoot, spec.file);
   if (spec.via === "crate") {
-    const meta = ctx.run("rightkit", ["cargo", "metadata", "--format-version", "1"], { cwd: ctx.appRoot, env: ctx.env });
+    const meta = ctx.run("rustright", ["cargo", "metadata", "--format-version", "1"], { cwd: ctx.appRoot, env: ctx.env });
     let packages;
     try { packages = JSON.parse(meta.stdout).packages; } catch { /* refused below */ }
     if (meta?.status !== 0 || !Array.isArray(packages)) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", `the ${label} catalog crate ${spec.crate} cannot be located: the workspace metadata query failed`, { crate: spec.crate });
@@ -737,18 +737,18 @@ function stageCargoSlice(entry, ctx, triple, { dest }) {
   return [{ kind: "cargo-bin", name: entry.name, path: rel(ctx, dest), ...copied, sourceSha256, package: entry.package, bin: entry.bin, profile: entry.profile, features: entry.features, externalBin: !entry.dest }];
 }
 
-/** Build one slice through `rightkit cargo` and locate the executable. Returns { source, sourceSha256 }. */
+/** Build one slice through `rustright cargo` and locate the executable. Returns { source, sourceSha256 }. */
 function stageCargoBuild(entry, ctx, triple) {
   const { run, appRoot, env, fs } = ctx;
   const args = ["cargo", "build", "--locked", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : []),
     "-p", entry.package, "--bin", entry.bin, "--target", triple, "--profile", entry.profile,
     ...(entry.features.length ? ["--features", entry.features.join(",")] : []), "--message-format=json-render-diagnostics"];
   ctx.log(`stage-sidecar: rightkit ${args.join(" ")}`);
-  const built = run("rightkit", args, { cwd: appRoot, env });
-  if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `rightkit cargo build of ${entry.package} failed (${built?.error?.message ?? `exit ${built?.status}`})`, { package: entry.package, stderr: tail(built?.stderr) });
+  const built = run("rustright", args, { cwd: appRoot, env });
+  if (built?.error || built?.status !== 0) fail("STAGE_SIDECAR_BUILD_FAILED", `rustright cargo build of ${entry.package} failed (${built?.error?.message ?? `exit ${built?.status}`})`, { package: entry.package, stderr: tail(built?.stderr) });
   let source = artifactFromStream(built.stdout, entry.bin);
   if (!source || !fs.existsSync(source)) {
-    const meta = run("rightkit", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : [])], { cwd: appRoot, env });
+    const meta = run("rustright", ["cargo", "metadata", "--format-version", "1", "--no-deps", ...(entry.manifestPath ? ["--manifest-path", path.resolve(appRoot, entry.manifestPath)] : [])], { cwd: appRoot, env });
     let targetDir;
     try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }
     if (meta?.status !== 0 || typeof targetDir !== "string" || !path.isAbsolute(targetDir)) targetDir = undefined;
@@ -1378,12 +1378,12 @@ export function isNestedBrokerContext(env = process.env) {
   return insideTauri && (managedHost(env ?? {}) || env?.RIGHTSUITE_HEAVY_WORK_OWNER === "1");
 }
 
-/** True when staging would call `rightkit cargo` for a non-skipped entry. */
+/** True when staging would call `rustright cargo` for a non-skipped entry. */
 const needsBroker = (plan) => plan.entries.some((entry) => !entry.skipped && (entry.kind === "cargo-bin" || entry.catalogSpec?.via === "crate"));
 
 function assertNotNested(plan, env) {
   if (needsBroker(plan) && isNestedBrokerContext(env)) {
-    fail(NESTED_BROKER_CODE, "stage-sidecar needs `rightkit cargo`, but it is running inside an outer broker build (a Tauri beforeBuildCommand/beforeDevCommand on a managed host), where a nested broker call exits 125. Run stage-sidecar in the recipe `prepare` step, before the Tauri build (or call it from your own script before `tauri build`), not from beforeBuildCommand.");
+    fail(NESTED_BROKER_CODE, "stage-sidecar needs `rustright cargo`, but it is running inside an outer broker build (a Tauri beforeBuildCommand/beforeDevCommand on a managed host), where a nested broker call exits 125. Run stage-sidecar in the recipe `prepare` step, before the Tauri build (or call it from your own script before `tauri build`), not from beforeBuildCommand.");
   }
 }
 

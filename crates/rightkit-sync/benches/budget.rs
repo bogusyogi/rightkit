@@ -13,7 +13,7 @@
 //! `SyncEngine::metrics()`, and the size of the ledger document that every durable write
 //! serializes in full.
 //!
-//! Run: `rightkit cargo bench -p rightkit-sync --bench budget`
+//! Run: `rustright cargo bench -p rightkit-sync --bench budget`
 //! Optional: `-- <records> <passes> <edits_per_side_per_pass>` (defaults 100000, 100, 100); a fourth argument sets the idle seconds (default 30).
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels, ProcessUsage};

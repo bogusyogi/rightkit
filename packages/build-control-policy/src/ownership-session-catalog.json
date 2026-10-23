@@ -1023,7 +1023,7 @@
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Discovery alias so `rightkit owns docx` resolves to the document-io owner; carries no fingerprints of its own."
+        "Discovery alias so `rustright owns docx` resolves to the document-io owner; carries no fingerprints of its own."
       ]
     },
     {
@@ -1033,7 +1033,7 @@
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Discovery alias so `rightkit owns xlsx` resolves to the document-io owner; carries no fingerprints of its own."
+        "Discovery alias so `rustright owns xlsx` resolves to the document-io owner; carries no fingerprints of its own."
       ]
     },
     {
@@ -1043,7 +1043,7 @@
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Discovery alias so `rightkit owns document` resolves to the document-io owner; carries no fingerprints of its own."
+        "Discovery alias so `rustright owns document` resolves to the document-io owner; carries no fingerprints of its own."
       ]
     },
     {
@@ -1053,7 +1053,7 @@
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Discovery alias so `rightkit owns spreadsheet` resolves to the document-io owner; carries no fingerprints of its own."
+        "Discovery alias so `rustright owns spreadsheet` resolves to the document-io owner; carries no fingerprints of its own."
       ]
     },
     {
@@ -2479,7 +2479,7 @@
       "fingerprints": [],
       "detection": "declaration-only",
       "policyNotes": [
-        "Discovery alias so `rightkit owns pdf` resolves to the PDF owner; carries no fingerprints of its own."
+        "Discovery alias so `rustright owns pdf` resolves to the PDF owner; carries no fingerprints of its own."
       ]
     },
     {

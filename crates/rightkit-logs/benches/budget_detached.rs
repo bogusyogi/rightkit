@@ -7,7 +7,7 @@
 //! `spawn_drainer` requires its caller to choose an interval.
 //! Qualification covers this chosen two-second synthetic workload only.
 //!
-//! Run: `rightkit cargo test --locked --profile release-iterate -p rightkit-logs
+//! Run: `rustright cargo test --locked --profile release-iterate -p rightkit-logs
 //! --features tracing,log-bridge --bench budget_detached`
 //! Optional: `-- <lines> <idle_seconds>` (defaults 200000 and 60).
 

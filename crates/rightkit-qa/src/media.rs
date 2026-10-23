@@ -664,7 +664,7 @@ pub fn write_png_rgb(path: &Path, width: u32, height: u32, rgb: &[u8]) -> Result
 }
 
 /// Find a tool: the settings key (path) first, then `PATH`, then common install directories
-/// (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`). Under `rightkit cargo` the environment,
+/// (`/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`). Under `rustright cargo` the environment,
 /// including `PATH`, may be scrubbed, so tests should pass the result explicitly.
 pub fn locate_tool(name: &str, settings: &crate::settings::Settings, key: &str) -> Option<PathBuf> {
     if let Some(p) = settings.get(key) {

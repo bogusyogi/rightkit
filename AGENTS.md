@@ -135,7 +135,6 @@ Say "done" only when each requested state is proven, and "independently reviewed
 RightKit owns shared packages, crates, QA, licensing, logging, & release tooling; apps consume published versions, never parent paths.
 
 ## Canonical sources
-- Read `docs/PIPELINE-ARCHITECTURE.md` before changing any check, build, qualification or release path; keep its section 5 green.
 - Read `rightkit/README.md` for package contracts.
 - Read `docs/RIGHTKIT-SHARED-PACKAGES.md` before package boundaries change.
 - Read `docs/RIGHT-SUITE-RELEASE-PIPELINE.md` before release tooling changes.
@@ -144,7 +143,6 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 
 ## Commands
 - Compile, test & publish locally on the Mac and the Dell: Adrian granted RightKit a local-build exception on 2026-10-14 in `.rightkit-local-build.json`; CI still runs on every push; see `docs/CI.md`.
-- Run `node scripts/preflight.mjs` before every push, hook or no hook: seconds, files only. Fix every `FAIL` it prints, commit, & rerun until it passes; CI's first step runs the same check.
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.

@@ -10,7 +10,7 @@
 //!
 //! No file is transferred here: the receive and send paths are exercised by `tests/localsend.rs`.
 //!
-//! Run: `rightkit cargo bench -p rightkit-send --bench budget`
+//! Run: `rustright cargo bench -p rightkit-send --bench budget`
 //! Optional: `-- <devices> <idle_seconds>` (defaults 50 and 30).
 
 use rightkit_child_process::{BudgetLabels, observe_idle, process_usage};

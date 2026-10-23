@@ -72,7 +72,7 @@ function host(t, { platform = "win32", arch = "x64", plan = {} } = {}) {
     },
     measuredPathspecs: () => ({ specs: [`crates/${CRATE}/src`], problems: [] }), healthFiles: ["unused"], env: { PATH: process.env.PATH, GITHUB_TOKEN: "secret", RIGHTKIT_EXCLUSIVE: "x" }, log: () => {},
   };
-  const options = { root: ROOT, commit: COMMIT, crate: CRATE, version: VERSION, archiveSha256: "d".repeat(64), candidateId: ID, broker: { name: "rustright", client: `/rustright-${platform}`, sha256: "9".repeat(64) }, cargoCommand: ["rightkit", "cargo"], repository: "bogusyogi/rightkit", scratch, repeats: 3, waitIdleMs: 0, ...(plan.options ?? {}) };
+  const options = { root: ROOT, commit: COMMIT, crate: CRATE, version: VERSION, archiveSha256: "d".repeat(64), candidateId: ID, broker: { name: "rustright", client: `/rustright-${platform}`, sha256: "9".repeat(64) }, cargoCommand: ["rustright", "cargo"], repository: "bogusyogi/rightkit", scratch, repeats: 3, waitIdleMs: 0, ...(plan.options ?? {}) };
   return { state, deps: { ...deps, ...(plan.deps ?? {}) }, options, files };
 }
 
@@ -87,11 +87,11 @@ test("one host: trusted workloads only, warm build then three quiet runs each, w
     assert.ok(w.repeats.every((run) => run.window.endedAtMs - run.window.startedAtMs >= 40_000 && run.window.during.health.length >= 7 && run.window.during.health.every((sample, i, all) => sample.writtenAtMs >= run.window.startedAtMs && (i === 0 || sample.writtenAtMs > all[i - 1].writtenAtMs))));
     assert.ok(w.repeats.every((run) => run.window.jobs.atGrant.checked && run.window.jobs.atGrant.live.length === 0 && run.window.jobs.atRelease.checked && run.window.jobs.atRelease.live.length === 0 && run.window.jobs.atRelease.checkedAtMs >= run.window.endedAtMs));
   }
-  // Commands: toolchain through the broker, then per workload one warm build and three runs, all through `rightkit cargo`.
+  // Commands: toolchain through the broker, then per workload one warm build and three runs, all through `rustright cargo`.
   const benches = h.state.calls.filter((call) => call.includes("--bench") && !call.includes("--no-run"));
-  assert.equal(benches.length, 6); assert.ok(h.state.calls.every((call) => call[0] === "rightkit"));
+  assert.equal(benches.length, 6); assert.ok(h.state.calls.every((call) => call[0] === "rustright"));
   assert.equal(h.state.calls.filter((call) => call.includes("--no-run")).length, 2);
-  assert.deepEqual(benches[0].slice(0, 3), ["rightkit", "cargo", "test"]); assert.ok(benches[0].includes("--locked") && benches[0].includes("release-iterate"));
+  assert.deepEqual(benches[0].slice(0, 3), ["rustright", "cargo", "test"]); assert.ok(benches[0].includes("--locked") && benches[0].includes("release-iterate"));
   assert.equal(entry.harness.sourceSha, COMMIT); assert.ok(entry.harness.helpers["scripts/ci/runtime-qualify.mjs"]); assert.ok(entry.workloads[0].bindings[`crates/${CRATE}/benches/workloads.json`]);
   assert.equal(entry.manifestSha256, null, "bound only when the driver seals the manifest");
   assert.deepEqual(fs.readdirSync(h.options.scratch), [], "the raw result scratch is removed");

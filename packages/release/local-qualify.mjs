@@ -370,16 +370,16 @@ function brokerIdentity(deps) {
   return { name: "rustright", client: String(client).replaceAll("\\", "/"), sha256: sha256((deps.readFile ?? fs.readFileSync)(client)) };
 }
 
-// Cargo only through the broker: `rightkit cargo`, or a `cargo` on PATH that is the managed shim (scripts/local-gate.mjs).
+// Cargo only through the broker: `rustright cargo`, or a `cargo` on PATH that is the managed shim (scripts/local-gate.mjs).
 function detectCargoCommand(deps) {
   const which = (command) => {
     const result = (deps.run ?? spawnSync)((deps.platform ?? process.platform) === "win32" ? "where" : "which", [command], { encoding: "utf8", windowsHide: true });
     return result.status === 0 ? String(result.stdout).split(/\r?\n/).map((line) => line.trim()).filter(Boolean) : [];
   };
-  if (which("rightkit").length) return ["rightkit", "cargo"];
+  if (which("rustright").length) return ["rustright", "cargo"];
   const first = which("cargo")[0];
   if (first) { try { if (fs.readFileSync(first, "utf8").includes("cargo-guard.mjs")) return ["cargo"]; } catch { /* not the managed shim */ } }
-  return refuse("neither `rightkit` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used");
+  return refuse("neither `rustright` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used");
 }
 
 const loadFromRoot = (root, file) => {

@@ -10,7 +10,7 @@ GENRIGHT_NO_KEYCHAIN = "1"  # mandatory, always
 
 [engine]
 package = "genright-engine"
-build = ["rightkit", "cargo", "build", "-p", "genright-engine"]
+build = ["rustright", "cargo", "build", "-p", "genright-engine"]
 data_dir_env = "GENRIGHT_APP_DATA"      # fresh per scenario
 # `binary` is optional: managed RightKit keeps targets outside the checkout, so
 # the runner takes the executable from the build's compiler-artifact message
@@ -22,7 +22,7 @@ window_label = "main"
 mode = "hidden"
 feature = "qa-native"
 package = "genright"
-build = ["rightkit", "cargo", "build", "-p", "genright", "--features", "qa-native"]
+build = ["rustright", "cargo", "build", "-p", "genright", "--features", "qa-native"]
 cargo_toml = "src-tauri/Cargo.toml"
 rust_sources = ["src-tauri/src/lib.rs"]
 package_json = "package.json"

@@ -16,7 +16,7 @@ import path from "node:path";
 import { admitHookString, admitTauriHook } from "./pipeline-admission.mjs";
 import { loadGeneratorRegistry, makeGeneratorAdmitter } from "./pipeline-generators.mjs";
 import { ownershipOfCode, ruleOfCode, validateConfigPipeline } from "./pipeline-config.mjs";
-import { classifyAction, dispatchesRightKit, scanTextForPipelineTools, segmentTokens, splitSegments } from "./pipeline-tools.mjs";
+import { MANAGED_CLIENT_NAMES, classifyAction, dispatchesRightKit, scanTextForPipelineTools, segmentTokens, splitSegments } from "./pipeline-tools.mjs";
 import { LEGACY_RELEASE_CONFIG_FILE, RELEASE_CONFIG_FILE, loadReleaseConfigSync } from "./release-config.mjs";
 import { PIPELINE_DISPATCH_SUBCOMMANDS } from "./pipeline-admission.mjs";
 
@@ -252,7 +252,7 @@ export function scanApp({ appRoot, registry, fs = defaultFs } = {}) {
       const spawn = /Command::new\(\s*"([^"]+)"/.exec(lineText);
       if (!spawn) return;
       const name = path.basename(spawn[1]).toLowerCase().replace(/\.(?:exe|cmd|bat)$/, "");
-      if (name === "rightkit" || name === "right-release") add({ code: "R2-build-rs-dispatch", file: label, line: i + 1, stage: "hook", ownership: "app-owned", message: `${label} starts ${name} from build.rs; a generator cannot dispatch another pipeline` });
+      if (MANAGED_CLIENT_NAMES.includes(name) || name === "right-release") add({ code: "R2-build-rs-dispatch", file: label, line: i + 1, stage: "hook", ownership: "app-owned", message: `${label} starts ${name} from build.rs; a generator cannot dispatch another pipeline` });
       else if (["node", "python", "python3", "py", "bash", "sh", "zsh", "pwsh", "powershell", "cmd", "pnpm", "npm", "npx", "yarn", "deno", "bun", "ruby", "perl"].includes(name)) add({ code: "R4-build-rs-generator", file: label, line: i + 1, stage: "generator", ownership: "unknown", message: `${label} runs ${name} from build.rs; a pipeline generator must be an admitted shared step (pipeline-generators.json), not app code` });
     });
   }
@@ -269,7 +269,7 @@ export function scanApp({ appRoot, registry, fs = defaultFs } = {}) {
       }
       for (const segment of body.script.split(/\r?\n/).flatMap(splitSegments)) {
         const tokens = segmentTokens(segment);
-        if (dispatchesRightKit(tokens) && (tokens[0] === "rightkit" || PIPELINE_DISPATCH_SUBCOMMANDS.has(tokens[1]))) add({ code: "R2-xcode-script-dispatch", file: label, line: kind === "xcode" ? body.line : 1, stage: "hook", ownership: "app-owned", message: `${label} script phase starts a RightKit pipeline run; a hook cannot dispatch another pipeline` });
+        if (dispatchesRightKit(tokens) && (MANAGED_CLIENT_NAMES.includes(tokens[0]) || PIPELINE_DISPATCH_SUBCOMMANDS.has(tokens[1]))) add({ code: "R2-xcode-script-dispatch", file: label, line: kind === "xcode" ? body.line : 1, stage: "hook", ownership: "app-owned", message: `${label} script phase starts a RightKit pipeline run; a hook cannot dispatch another pipeline` });
       }
     }
   }

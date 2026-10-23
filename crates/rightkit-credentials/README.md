@@ -123,4 +123,4 @@ Only the owner binary reads the OS store. Cross-binary keychain sharing is settl
 
 ## Verification
 
-Run through the RightKit wrapper: `rightkit cargo test -p rightkit-credentials`; add `--features isolated-test-keychain` on macOS for `tests/e2e.rs`.
+Run through the RightKit wrapper: `rustright cargo test -p rightkit-credentials`; add `--features isolated-test-keychain` on macOS for `tests/e2e.rs`.

@@ -109,6 +109,6 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/remux_e2
 
 ## Verification
 
-Run through the RightKit wrapper: `rightkit cargo test -p rightkit-playback`.
+Run through the RightKit wrapper: `rustright cargo test -p rightkit-playback`.
 
 Scope tests require `tauri`: `rustright cargo test -p rightkit-playback --features tauri --lib --test asset_scope`. Run on Windows for plain/verbatim drive identity, cross-spelling forbids & paths exceeding 260 characters. These tests use Tauri's mock runtime with its real filesystem scope; they need no FFmpeg or visible windows. Network-share UNC access requires a separate Windows share fixture.

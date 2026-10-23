@@ -1,6 +1,6 @@
 //! The build record: what the build lane hands to the runner lane (ADR-0001 item 1, Sage C6/C9).
 //!
-//! `journeys run` never compiles. It spawns `rightkit cargo ... --no-run --message-format=json`
+//! `journeys run` never compiles. It spawns `rustright cargo ... --no-run --message-format=json`
 //! (the broker is the only compile path), and this module turns what came back into a
 //! `build-record.json` the runner can trust at launch time:
 //!
@@ -42,8 +42,10 @@ pub const STORE_DIR: &str = "build/bin";
 pub const REQUEST_ID_SOURCE: &str = "stderr_request_line";
 /// Hard deadline for the broker build (the broker has its own queue and caps).
 pub const BUILD_TIMEOUT: Duration = Duration::from_secs(45 * 60);
-/// Programs whose `cargo` subcommand is the broker. Anything else is a compile outside the broker.
-const BROKER_PROGRAMS: [&str; 2] = ["rightkit", "rustright"];
+/// The program whose `cargo` subcommand is the broker. Anything else is a compile outside the broker.
+const BROKER_PROGRAM: &str = "rustright";
+/// The RustRight client's retired name (rustright#91): refused by name, with the replacement.
+const RETIRED_BROKER: &str = "rightkit";
 /// Lockfiles recorded when found at or above the build directory (inside the repository).
 pub const LOCKFILE_NAMES: [&str; 4] = [
     "Cargo.lock",
@@ -251,8 +253,8 @@ fn before_separator(command: &[String]) -> &[String] {
 }
 
 /// Check that `command` is a compile-only broker build and return it with `--message-format=json`
-/// added when absent. Allowed: `rightkit|rustright cargo build ...` and
-/// `rightkit|rustright cargo test ... --no-run ...`. Refused: any other program or subcommand, a
+/// added when absent. Allowed: `rustright cargo build ...` and
+/// `rustright cargo test ... --no-run ...`. Refused: any other program (the retired `rightkit` by name) or subcommand, a
 /// leading flag or `+toolchain` before the subcommand, `test` without `--no-run` (tests never run
 /// in the build lane), a `--message-format` that is not JSON, and `--target-dir`, `--out-dir` or
 /// `--artifact-dir` (a target outside the broker's is a violation, not something to cap).
@@ -268,13 +270,17 @@ pub fn validate_build_command(command: &[String]) -> Result<Vec<String>> {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    if !BROKER_PROGRAMS.contains(&stem.as_str())
-        || command.get(1).map(String::as_str) != Some("cargo")
-    {
+    if stem == RETIRED_BROKER {
+        return Err(coded(
+            code::BUILD_NOT_ATTESTED,
+            "`rightkit` is the retired name of the RustRight client (rustright#91); the build command is `rustright cargo ...`",
+        ));
+    }
+    if stem != BROKER_PROGRAM || command.get(1).map(String::as_str) != Some("cargo") {
         return Err(coded(
             code::BUILD_NOT_ATTESTED,
             format!(
-                "build command must be `rightkit cargo ...` (the broker is the only compile path), got {:?}",
+                "build command must be `rustright cargo ...` (the broker is the only compile path), got {:?}",
                 &command[..command.len().min(2)]
             ),
         ));
@@ -413,8 +419,8 @@ fn valid_request_id(id: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-')
 }
 
-/// The broker request id from the stderr line `{prefix}: request {id}` (prefix `rightkit`,
-/// `rustright` or `rustright managed-agent`). The first matching line wins. Lines of other shapes
+/// The broker request id from the stderr line `{prefix}: request {id}` (prefix `rustright` or
+/// `rustright managed-agent`, the client's only prefixes). The first matching line wins. Lines of other shapes
 /// are ignored, so compiler text cannot supply an id; a second, different id (a re-run after a
 /// reconnect) or an `... (exit N)` suffix with `N != 0` refuses the build, because then the text
 /// no longer describes one successful request.
@@ -425,10 +431,7 @@ pub fn parse_request_id(stderr: &str) -> Result<String> {
         let Some((prefix, rest)) = line.split_once(": request ") else {
             continue;
         };
-        let prefix_ok = prefix == "rightkit"
-            || prefix == "rustright"
-            || prefix.starts_with("rightkit ")
-            || prefix.starts_with("rustright ");
+        let prefix_ok = prefix == "rustright" || prefix.starts_with("rustright ");
         if !prefix_ok || prefix.len() > 40 {
             continue;
         }
@@ -457,7 +460,7 @@ pub fn parse_request_id(stderr: &str) -> Result<String> {
     match ids.len() {
         0 => Err(coded(
             code::BUILD_NOT_ATTESTED,
-            "stderr carries no broker request line (`rightkit: request <id>`), so the build cannot be tied to a broker job",
+            "stderr carries no broker request line (`rustright: request <id>`), so the build cannot be tied to a broker job",
         )),
         1 => Ok(ids.remove(0)),
         n => Err(coded(
@@ -693,8 +696,8 @@ pub fn spawn_broker(plan: &BuildPlan) -> Result<RawBuild> {
     Ok(raw)
 }
 
-/// The broker names the runner accepts; `rightkit` is an alias of `rustright`.
-pub const BROKER_NAMES: [&str; 2] = ["rustright", "rightkit"];
+/// The broker name the runner accepts. The retired `rightkit` is refused, never resolved in its place.
+pub const BROKER_NAMES: [&str; 1] = [BROKER_PROGRAM];
 
 /// Resolve the broker program against `path_var` (the PATH to walk, in order). The command's own
 /// name is tried first, then the other alias. On Windows each directory is tried with the
@@ -716,6 +719,12 @@ pub fn resolve_broker(program: &str, path_var: &std::ffi::OsStr, windows: bool) 
         .file_stem()
         .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
+    if stem == RETIRED_BROKER {
+        return Err(coded(
+            "broker_not_found",
+            "`rightkit` is the retired name of the RustRight client (rustright#91); name `rustright`",
+        ));
+    }
     let mut names: Vec<&str> = BROKER_NAMES.to_vec();
     if let Some(i) = names.iter().position(|n| *n == stem) {
         names.swap(0, i);
@@ -727,7 +736,7 @@ pub fn resolve_broker(program: &str, path_var: &std::ffi::OsStr, windows: bool) 
     }
     Err(coded(
         "broker_not_found",
-        "neither `rustright` nor `rightkit` resolves on PATH; put the broker on PATH (the Windows shims rustright.cmd or rightkit.cmd count)",
+        "`rustright` does not resolve on PATH; put the broker on PATH (the Windows shim rustright.cmd counts)",
     ))
 }
 
@@ -1684,11 +1693,11 @@ mod tests {
         ]
         .join("\n");
         let stderr = format!(
-            "rightkit: request {REQ}\n[rightkit] target warm at start (4 entries, generation 3)\n   Compiling fx v0.1.0\n    Finished `test` profile in 3.0s\n"
+            "rustright: request {REQ}\n[rustright] target warm at start (4 entries, generation 3)\n   Compiling fx v0.1.0\n    Finished `test` profile in 3.0s\n"
         );
         let plan = BuildPlan::new(
             "fx",
-            &argv("rightkit cargo test -p fx --no-run --features qa --message-format=json"),
+            &argv("rustright cargo test -p fx --no-run --features qa --message-format=json"),
             dir.clone(),
             vec![
                 ArtifactSpec {
@@ -1867,17 +1876,17 @@ mod tests {
         assert_eq!(parse_request_id(&ok).unwrap(), REQ);
         // The reconnect line repeats the same id: still one request.
         let again =
-            format!("rightkit: request {REQ}\nrightkit: request {REQ} COMPLETED (exit 0)\n");
+            format!("rustright: request {REQ}\nrustright: request {REQ} COMPLETED (exit 0)\n");
         assert_eq!(parse_request_id(&again).unwrap(), REQ);
         // A non-zero exit in that line, or a second request, refuses the build.
         let failed =
-            format!("rightkit: request {REQ}\nrightkit: request {REQ} FAILED (exit 101)\n");
+            format!("rustright: request {REQ}\nrustright: request {REQ} FAILED (exit 101)\n");
         assert!(parse_request_id(&failed)
             .unwrap_err()
             .0
             .starts_with("build_not_attested"));
         let two = format!(
-            "rightkit: request {REQ}\nrightkit: request 11111111-2222-3333-4444-555555555555\n"
+            "rustright: request {REQ}\nrustright: request 11111111-2222-3333-4444-555555555555\n"
         );
         assert!(parse_request_id(&two)
             .unwrap_err()
@@ -1885,8 +1894,8 @@ mod tests {
             .contains("2 different"));
         // No line, or an id of the wrong shape, is refused.
         assert!(parse_request_id("Compiling x\n").is_err());
-        assert!(parse_request_id("rightkit: request NOT-AN-ID!\n").is_err());
-        assert!(parse_request_id("rightkit: request abc\n").is_err());
+        assert!(parse_request_id("rustright: request NOT-AN-ID!\n").is_err());
+        assert!(parse_request_id("rustright: request abc\n").is_err());
     }
 
     #[test]
@@ -1976,10 +1985,10 @@ mod tests {
         assert!(rec.stale_against(&cur).is_empty());
         let mut other = cur.clone();
         other.features = features_of(&argv(
-            "rightkit cargo test -p fx --no-run --features qa,extra",
+            "rustright cargo test -p fx --no-run --features qa,extra",
         ));
         other.command =
-            argv("rightkit cargo test -p fx --no-run --features qa,extra --message-format=json");
+            argv("rustright cargo test -p fx --no-run --features qa,extra --message-format=json");
         let problems = rec.stale_against(&other);
         assert!(problems.iter().all(|p| p.code == code::BUILD_RECORD_STALE));
         assert!(
@@ -2129,10 +2138,18 @@ mod tests {
 
     #[test]
     fn build_commands_are_compile_only_and_through_the_broker() {
-        let ok = validate_build_command(&argv("rightkit cargo build -p fx --features qa")).unwrap();
+        let retired = validate_build_command(&argv(&format!("{RETIRED_BROKER} cargo build -p fx")))
+            .unwrap_err();
+        assert!(
+            retired.0.contains("retired name of the RustRight client"),
+            "{}",
+            retired.0
+        );
+        let ok =
+            validate_build_command(&argv("rustright cargo build -p fx --features qa")).unwrap();
         assert_eq!(ok.last().unwrap(), "--message-format=json");
         let ok = validate_build_command(&argv(
-            "rightkit.exe cargo test -p fx --no-run -- --nocapture",
+            "rustright.exe cargo test -p fx --no-run -- --nocapture",
         ))
         .unwrap();
         // The format flag goes before the `--` separator.
@@ -2151,37 +2168,37 @@ mod tests {
         );
         for bad in [
             "cargo build -p fx",
-            "rightkit npm build",
-            "rightkit cargo test -p fx",
-            "rightkit cargo run -p fx",
-            "rightkit cargo check",
-            "rightkit cargo +nightly build",
-            "rightkit cargo --offline build",
-            "rightkit cargo build --target-dir D:/t",
-            "rightkit cargo build --target-dir=D:/t",
-            "rightkit cargo build --out-dir D:/o",
-            "rightkit cargo build --message-format short",
-            "rightkit cargo build --message-format=human",
-            "rightkit cargo test --no-run --artifact-dir x",
+            "rustright npm build",
+            "rustright cargo test -p fx",
+            "rustright cargo run -p fx",
+            "rustright cargo check",
+            "rustright cargo +nightly build",
+            "rustright cargo --offline build",
+            "rustright cargo build --target-dir D:/t",
+            "rustright cargo build --target-dir=D:/t",
+            "rustright cargo build --out-dir D:/o",
+            "rustright cargo build --message-format short",
+            "rustright cargo build --message-format=human",
+            "rustright cargo test --no-run --artifact-dir x",
         ] {
             let e = validate_build_command(&argv(bad));
             assert!(e.is_err(), "{bad} should be refused");
             assert!(e.unwrap_err().0.starts_with("build_not_attested"));
         }
         // `--no-run` after `--` belongs to the test binary, not to cargo.
-        assert!(validate_build_command(&argv("rightkit cargo test -p fx -- --no-run")).is_err());
+        assert!(validate_build_command(&argv("rustright cargo test -p fx -- --no-run")).is_err());
         assert!(validate_build_command(&[]).is_err());
     }
 
     #[test]
     fn features_are_read_from_every_spelling() {
         let f = features_of(&argv(
-            "rightkit cargo test --features a,b -F c --features=d -Fe --no-default-features",
+            "rustright cargo test --features a,b -F c --features=d -Fe --no-default-features",
         ));
         assert_eq!(f.requested, vec!["a", "b", "c", "d", "e"]);
         assert!(f.no_default_features && !f.all_features);
         let f = features_of(&argv(
-            "rightkit cargo build --all-features -- --features ignored",
+            "rustright cargo build --all-features -- --features ignored",
         ));
         assert!(f.all_features && f.requested.is_empty());
         // Order and duplicates do not matter.
@@ -2362,8 +2379,15 @@ mod tests {
         std::fs::write(dir.join("rustright.cmd"), "@echo off\r\n").unwrap();
         let path_var = std::env::join_paths([dir.as_path()]).unwrap();
         // A Windows shim is found by its extension and returned as a full path.
-        let hit = resolve_broker("rightkit", &path_var, true).unwrap();
+        let hit = resolve_broker("rustright", &path_var, true).unwrap();
         assert_eq!(hit, dir.join("rustright.cmd"));
+        // The retired name is refused by name, never resolved to rustright.cmd in its place.
+        let retired = resolve_broker(RETIRED_BROKER, &path_var, true).unwrap_err();
+        assert!(
+            retired.0.contains("retired") && retired.0.contains("rustright"),
+            "{}",
+            retired.0
+        );
         // `rustright` on the command also resolves, and nothing is copied into the directory.
         assert_eq!(
             resolve_broker("rustright", &path_var, true).unwrap(),
@@ -2373,13 +2397,9 @@ mod tests {
         // Neither name on PATH is a typed refusal that names both.
         let empty = tmp("broker-empty");
         let none = std::env::join_paths([empty.as_path()]).unwrap();
-        let e = resolve_broker("rightkit", &none, true).unwrap_err();
+        let e = resolve_broker("rustright", &none, true).unwrap_err();
         assert!(e.0.starts_with("broker_not_found"), "{}", e.0);
-        assert!(
-            e.0.contains("rustright") && e.0.contains("rightkit"),
-            "{}",
-            e.0
-        );
+        assert!(e.0.contains("rustright"), "{}", e.0);
         // Off Windows the shim extension does not count.
         assert!(resolve_broker("rustright", &path_var, false).is_err());
     }
@@ -2434,10 +2454,10 @@ mod tests {
         };
         println!("{stdout}");
         eprintln!(
-            "rightkit: request {}",
+            "rustright: request {}",
             std::env::var("RKQA_FAKE_BROKER_ID").unwrap()
         );
-        eprintln!("[rightkit] target warm at start (1 entries, generation 1)");
+        eprintln!("[rustright] target warm at start (1 entries, generation 1)");
     }
 
     #[test]

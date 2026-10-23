@@ -10,7 +10,7 @@ Flags: `ok` means source, published and staged agree. `staged, not yet published
 
 Flagged mismatches: 0.
 
-The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
+The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); it is not part of this inventory. `packages/build-control-policy` keeps the agent permission hooks.
 
 ## Rust crates (69)
 

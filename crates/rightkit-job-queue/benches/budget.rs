@@ -7,7 +7,7 @@
 //!
 //! The figures are the supervising process's own (the engine child is a separate process).
 //!
-//! Run: `rightkit cargo bench -p rightkit-job-queue --bench budget`
+//! Run: `rustright cargo bench -p rightkit-job-queue --bench budget`
 //! Optional: `-- <calls> <idle_seconds>` (defaults 10000 and 30).
 
 use rightkit_child_process::{

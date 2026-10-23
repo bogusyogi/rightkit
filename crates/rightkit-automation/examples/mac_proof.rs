@@ -2,7 +2,7 @@
 //! the background, checks the frontmost app never changes, records which tier ran,
 //! then closes everything it opened.
 //!
-//! Run: rightkit cargo run -p rightkit-automation --example mac_proof
+//! Run: rustright cargo run -p rightkit-automation --example mac_proof
 //! Env: RKA_OUT=<dir> for evidence (default: a temp dir)
 
 use rightkit_automation::*;

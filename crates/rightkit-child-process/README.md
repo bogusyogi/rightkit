@@ -426,10 +426,10 @@ Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`
 (run the Unix suites in both thread modes: default and `RUST_TEST_THREADS=1`):
 
 ```text
-rightkit cargo test -p rightkit-child-process --all-targets
-rightkit cargo fmt --check
-rightkit cargo clippy -p rightkit-child-process --all-targets -- -D warnings
-rightkit cargo package -p rightkit-child-process --allow-dirty --no-verify --list
+rustright cargo test -p rightkit-child-process --all-targets
+rustright cargo fmt --check
+rustright cargo clippy -p rightkit-child-process --all-targets -- -D warnings
+rustright cargo package -p rightkit-child-process --allow-dirty --no-verify --list
 ```
 
 `tests/windows_process_tree.rs` covers parent and grandchild termination, sibling

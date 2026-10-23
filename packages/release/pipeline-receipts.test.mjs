@@ -15,12 +15,12 @@ const NOW = Date.parse("2026-10-22T12:00:00Z");
 const iso = (offsetMs) => new Date(NOW + offsetMs).toISOString();
 const SCAN_A = [
   { id: "rustfmt:2021", class: "A", command: "rustfmt --check", status: "pass" },
-  { id: "cargo-metadata", class: "A", command: "rightkit cargo metadata", status: "pass" },
+  { id: "cargo-metadata", class: "A", command: "rustright cargo metadata", status: "pass" },
 ];
 const SCAN_B = [
-  { id: "clippy:foo", class: "B", command: "rightkit cargo clippy", status: "pass" },
-  { id: "check:foo", class: "B", command: "rightkit cargo check", status: "pass" },
-  { id: "doc:foo", class: "B", command: "rightkit cargo doc", status: "pass" },
+  { id: "clippy:foo", class: "B", command: "rustright cargo clippy", status: "pass" },
+  { id: "check:foo", class: "B", command: "rustright cargo check", status: "pass" },
+  { id: "doc:foo", class: "B", command: "rustright cargo doc", status: "pass" },
 ];
 const REQUIRED = { A: SCAN_A.map((s) => s.id), B: SCAN_B.map((s) => s.id) };
 
@@ -204,7 +204,7 @@ test("SCAN_B missing any class B scan is rejected", () => {
 });
 
 test("SCAN_A claiming a class B scan is rejected (and SCAN_B carrying class A)", () => {
-  const mixed = [...SCAN_A, { id: "clippy:foo", class: "B", command: "rightkit cargo clippy", status: "pass" }];
+  const mixed = [...SCAN_A, { id: "clippy:foo", class: "B", command: "rustright cargo clippy", status: "pass" }];
   const result = verify(chainTo("SCAN_A", { mutate: { SCAN_A: (r) => { r.evidence.scans = mixed; r.evidence.scanSetDigest = digestScanSet(mixed); } } }));
   assert.ok(codes(result).includes("SCAN_CLASS_MIX"));
   // Disguised: labelled class A but the id is a class B scan.

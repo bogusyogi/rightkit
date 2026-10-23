@@ -5,7 +5,7 @@ Per-repo dependency updater. `right-update` compares every pinned dependency in 
 | Item | Value |
 |---|---|
 | Where it runs | Developer and CI hosts (Node 26.8+), inside a repository checkout |
-| Status | `check`, `apply`, `gate`, `land`, `discard`, `run` and `schedule` are implemented. Every command is exercised by the package tests; the Windows scheduler path and `rightkit cargo update` are covered by injected-process tests only. |
+| Status | `check`, `apply`, `gate`, `land`, `discard`, `run` and `schedule` are implemented. Every command is exercised by the package tests; the Windows scheduler path and `rustright cargo update` are covered by injected-process tests only. |
 | Version | 0.2.0 |
 | License | MIT OR Apache-2.0 |
 
@@ -129,7 +129,7 @@ Journey placeholders: `{candidate}` (the staged candidate directory), `{out}` (a
 
 | Kind | Edit | Lockfile |
 |---|---|---|
-| `cargo` | Replaces only the version text in the declaring `Cargo.toml`, in place (comments, tables, features, inline tables, dotted keys and `package` renames are preserved byte for byte). The result is re-parsed and must equal the original with exactly that version changed. | `rightkit cargo update -p <crate> --precise <ver>`, never bare `cargo`. The lock must then contain the new version. Without a `Cargo.lock` the lockfile is not refreshed and the report notes it. |
+| `cargo` | Replaces only the version text in the declaring `Cargo.toml`, in place (comments, tables, features, inline tables, dotted keys and `package` renames are preserved byte for byte). The result is re-parsed and must equal the original with exactly that version changed. | `rustright cargo update -p <crate> --precise <ver>`, never bare `cargo`. The lock must then contain the new version. Without a `Cargo.lock` the lockfile is not refreshed and the report notes it. |
 | `pnpm` | `pnpm add [-w] [-D\|-O] (--save-exact\|--save-prefix=<p>) --ignore-scripts <name>@<ver>` in the declaring package directory. `-D` for `devDependencies`, `-O` for `optionalDependencies`, `-w` when the directory is a pnpm workspace root. The range style (`1.2.3`, `^`, `~`) is kept; `>=`, `=` and `v` styles are skipped. The written `package.json` entry is verified. | `pnpm-lock.yaml` |
 | `swiftpm` | Rewrites `exact:`/`from:` in `Package.swift` and the matching key in `project.yml`: the source manifest, plus the sibling file (`project.yml`, or `Package.swift` when `project.yml` is the source) when it declares the dependency at the same requirement. | `Package.resolved` is not refreshed; the report notes it. |
 | `tool` | Downloads the asset for this host's platform to `.rightkit/update/candidates/<name>/<version>/`, enforces the size bound, computes sha256, extracts `extract.member` from archives, and hashes the other platforms' assets without storing them. | none |
@@ -143,7 +143,7 @@ Not applied automatically:
 - Rows with policy `held`: listed under `held`.
 - Pre-release or build-metadata versions, wildcards and ranges: listed under `skipped`.
 
-`apply` fails closed: if any lookup in scope failed, it changes nothing and exits 2. `--only <name>...` (repeat the flag, list several names after it, or comma-separate) scopes both the work and that check. `--dry-run` plans without editing files, running `pnpm add` or `rightkit cargo update`, or downloading tool assets, and writes no report (the check phase still runs, including `pnpm outdated --json`).
+`apply` fails closed: if any lookup in scope failed, it changes nothing and exits 2. `--only <name>...` (repeat the flag, list several names after it, or comma-separate) scopes both the work and that check. `--dry-run` plans without editing files, running `pnpm add` or `rustright cargo update`, or downloading tool assets, and writes no report (the check phase still runs, including `pnpm outdated --json`).
 
 Tool digests are recorded with `"trust": "observed"`. They are computed from the download, are not verified against any upstream-published checksum, and become the manifest checksum only if the journey passes and `land` writes them.
 

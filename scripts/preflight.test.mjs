@@ -74,8 +74,8 @@ test("a rule that throws is a FAIL, never a pass", (t) => {
   assert.match(failures[0].problem, /^the rule itself failed/);
 });
 
-test("every rule names its scan-gap family", () => {
-  for (const rule of RULES) assert.match(rule.gap, /^G\d{2}$/, rule.id);
+test("every rule names its scan-gap family or the invariant it enforces", () => {
+  for (const rule of RULES) assert.match(rule.gap, /^(G\d{2}|P\d+)$/, rule.id);
 });
 
 // ---- regression fixtures from tonight's refusals, built from this checkout's real recipe data -----------------------------
@@ -155,4 +155,35 @@ test("P2: --repo checks another repository's committed files, not its working tr
   git(repo, "commit", "-q", "-m", "renormalize");
   const green = run();
   assert.equal(green.status, 0, green.stdout + green.stderr);
+});
+
+// ---- P11 of docs/PIPELINE-ARCHITECTURE.md: one client name ---------------------------------------------------------------
+// Spelled at run time so the retired-alias sweep never rewrites these fixtures.
+const OLD = ["right", "kit"].join("");
+
+test("P11: retired-alias finds every invocation form and spares history, generated files and look-alikes", (t) => {
+  const failures = run("retired-alias", t, {
+    "package.json": `{ "scripts": { "test:rust": "${OLD} cargo test" } }\n`,
+    "scripts/build.mjs": `spawnSync("${OLD}", ["cargo", "build"]);\nconst c = isWindows ? "${OLD}.cmd" : "${OLD}";\n`,
+    "journeys.toml": `[build]\ncommand = ["${OLD}", "cargo", "build"]\n`,
+    "src/lib.rs": `let c = Command::new("${OLD}");\nlet v = vec!["${OLD}".into(), "cargo".into()];\n`,
+    "right-release.config.mjs": `export default { stage: { cmd: "${OLD}", args: ["cargo"] } };\n`,
+    "README.md": `Run \`${OLD} status <id>\`.\n`,
+    // spared: history, generated files, and names that only look alike
+    "CHANGELOG.md": `- ran ${OLD} cargo test\n`,
+    "docs/plans/2026-10-20-plan.md": `${OLD} cargo build\n`,
+    "AGENTS.md": `<!-- GENERATED FILE. Do not hand-edit. Source: docs/agent-rules.md -->\n${OLD} cargo test\n`,
+    "notes.md": `${OLD}-qa run, @${OLD}/release build, the ${OLD} build-control plane, crates/${OLD} cargo, ["cargo", "rustc", "${OLD}", "rustup"]\n`,
+  });
+  assert.deepEqual(failures.map((f) => f.problem.split(" ")[0]).sort(), ["README.md:1", "journeys.toml:2", "package.json:1", "right-release.config.mjs:1", "scripts/build.mjs:1,2", "src/lib.rs:1,2"]);
+  assert.match(failures[0].fix, /rustright/);
+});
+
+test("P11: retireAliasText rewrites to rustright and is idempotent", async () => {
+  const { retireAliasText } = await import("./preflight.mjs");
+  const text = `${OLD} cargo test && ${OLD} status x\n["${OLD}", "cargo", "build"]\n`;
+  const once = retireAliasText(text);
+  assert.equal(once.count, 3);
+  assert.equal(once.text, `rustright cargo test && rustright status x\n["rustright", "cargo", "build"]\n`);
+  assert.equal(retireAliasText(once.text).count, 0);
 });

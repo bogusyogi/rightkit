@@ -15,7 +15,7 @@ default_tier = "fast"
 
 [engine]
 package = "postright-engine"
-build = ["rightkit", "cargo", "build", "-p", "postright-engine"]
+build = ["rustright", "cargo", "build", "-p", "postright-engine"]
 data_dir_env = "POSTRIGHT_APP_DATA"        # the scenario's isolated dir; the UI gets the same one
 
 [ui]
@@ -28,7 +28,7 @@ package = "postright"                      # target whose executable the UI buil
 # hidden QA run does not have. The frontend must already be built into `frontendDist`:
 # `[ui].build` is one command, so run the frontend build first (`npm run build`).
 build = [
-  "rightkit", "cargo", "build",
+  "rustright", "cargo", "build",
   "--manifest-path", "src-tauri/Cargo.toml",
   "-p", "postright",
   "--features", "qa-native,custom-protocol",

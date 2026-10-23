@@ -19,7 +19,7 @@
 //!
 //! Scenarios are declarative TOML ([`scenario`]) run by the CLI, or plain Rust
 //! integration tests wrapped by [`harness::Harness::scenario`] (tier gating, requires-skip,
-//! per-scenario evidence, orphan check). Knobs reach managed (`rightkit cargo`) test runs
+//! per-scenario evidence, orphan check). Knobs reach managed (`rustright cargo`) test runs
 //! through cargo features plus a [`settings::Settings`] file, never the caller's environment.
 //!
 //! Run kinds and evidence: a run is `functional` (the default: clicks, state and text, no

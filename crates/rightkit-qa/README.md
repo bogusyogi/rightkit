@@ -26,7 +26,7 @@
 
 Rust QA harness for Right Suite applications. It owns declarative scenarios (`harness::Harness::scenario`), engine and app control (`control`; the in-app server behind the dev-only `control` feature), run locking and orphan sweeps, isolated app profiles and temp companions (`storage`), process handling, paid-provider mocks (`mock`), loudness, WAV, and PNG validators, and hashed evidence.
 
-**Use it** in an app's end-to-end and UI tests, through `rightkit cargo test`, when the test must run the real engine or the installed app and record evidence.
+**Use it** in an app's end-to-end and UI tests, through `rustright cargo test`, when the test must run the real engine or the installed app and record evidence.
 
 **Do not use it** as a general test runner or as a substitute for unit tests. Scenarios that launch a real app need an interactive user session: a macOS login session (see the macOS UI section below) or a Windows desktop session (see the Windows section).
 
@@ -66,7 +66,7 @@ A test chooses its runner by its target.
 
 ## Examples
 
-`examples/control-test-app` and `examples/genright` are compiled examples. Run them through `rightkit cargo run -p rightkit-qa --example <name>`.
+`examples/control-test-app` and `examples/genright` are compiled examples. Run them through `rustright cargo run -p rightkit-qa --example <name>`.
 
 `sidecar_command` picks its frame shape from the sidecar's hello. A `contract_version` field means the rightkit-job-queue contract (`request {id, method, params}` → `response {id, ok, result | error}`); an `rpc_version` field means GenRight's legacy frames (`method:{method:"command", params:{name,input}}`, answered by `status: ok|err`). A hello with neither uses the jobs contract, and a silent engine then gets an error that names the shape. Set `legacy_status_frames = true` on `sidecar_start` or on one `sidecar_command` to force the legacy frames, or `legacy_status_frames = false` on either to force the jobs contract.
 
@@ -142,13 +142,13 @@ Each home carries `.rightkit-home.json` (owner pid, start time). A home is remov
 
 `harness::Harness::scenario(name, tier, requires, |sc| ...)` wraps a `#[test]` body with tier gating, requires-skip, a per-scenario evidence directory (`<evidence root>/<slug>/evidence.json`, hashed artifacts), an orphan-process check and a `summary.jsonl` skip ledger. A skipped scenario prints `[qa] SKIP name: reason`, because libtest reports it as `ok`.
 
-## Settings under `rightkit cargo`
+## Settings under `rustright cargo`
 
-`rightkit cargo test` starts the test binary with a scrubbed environment and refuses nested managed builds. Do not pass knobs as environment variables. Use this pattern instead:
+`rustright cargo test` starts the test binary with a scrubbed environment and refuses nested managed builds. Do not pass knobs as environment variables. Use this pattern instead:
 
-1. Declare tiers as cargo features of the test crate (`full = []`, `paid = []`), and pass them with `Harness::with_feature_tiers(&[("full", cfg!(feature = "full")), ("paid", cfg!(feature = "paid"))])`. Run them with `rightkit cargo test -p my-e2e --features full,paid`. The `fast` tier always runs.
+1. Declare tiers as cargo features of the test crate (`full = []`, `paid = []`), and pass them with `Harness::with_feature_tiers(&[("full", cfg!(feature = "full")), ("paid", cfg!(feature = "paid"))])`. Run them with `rustright cargo test -p my-e2e --features full,paid`. The `fast` tier always runs.
 2. Put knobs in a `KEY=VALUE` settings file and read them through `settings::Settings` (`get`, `require`, `get_bool`, `get_u64`, `get_f64`, `get_list`, `get_path`). `requires = ["env:KEY"]` is answered from the same file.
-3. Build binaries under test first with a separate `rightkit cargo build -p <bin>`, then locate them next to the test executable's `deps/` directory.
+3. Build binaries under test first with a separate `rustright cargo build -p <bin>`, then locate them next to the test executable's `deps/` directory.
 
 Search order (the first existing file wins; files are not merged):
 
@@ -161,7 +161,7 @@ A non-empty process environment variable overrides the file for a single key. Th
 
 ## UI scenarios against a real app (macOS)
 
-Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rightkit cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `scripts/run-ui-tests.sh` does both and keeps your shell's environment:
+Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rustright cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `scripts/run-ui-tests.sh` does both and keeps your shell's environment:
 
 ```sh
 rightkit/scripts/run-ui-tests.sh -p cutright-e2e --test ui -- --nocapture
@@ -267,7 +267,7 @@ Unmatched commands reach the real engine. Rules live in the page, so a reload or
   - The task is `\RightKit\QA\<uuid>`, `LogonType InteractiveToken`, `RunLevel LeastPrivilege`, for the current account, no triggers (started by `/run`), with a hard time limit. No password is stored or asked for. It runs only when the SSH account is the account logged on at the console; otherwise the run refuses with a clear error. The task and its temp files are removed on success, error, timeout and panic, and a still-running journey is killed by pid. A hard kill of the parent process cannot run that cleanup: delete a leftover with `schtasks /delete /tn "\RightKit\QA\<uuid>" /f` (the task's time limit bounds it meanwhile).
   - The task runs `rightkit-qa-interactive __child <spec.json>`, not a shell: the program and its arguments are JSON data spawned as argv, so a journey argument is never parsed by `cmd.exe` or a shell. A `.cmd` or `.bat` program is still started through `cmd.exe` by the OS, with Rust's argument escaping.
   - Scheduled tasks do not inherit the SSH environment. Forwarded: every `RIGHTKIT_*` variable, each `--pass-env NAME`, and each `--env K=V` (explicit wins). Everything else comes from the logged-on user's own environment.
-  - Git Bash cannot execute `rightkit.cmd`. That shim is not generated in this repository; the POSIX `rightkit` sh shim belongs next to it in the tool that installs the CLI.
+  - Git Bash cannot execute `rustright.cmd`. That shim is not generated in this repository; the POSIX `rustright` sh shim belongs next to it in the tool that installs the CLI.
 
 ### Limits and gaps
 
@@ -301,8 +301,8 @@ Generated from `runtime-budget.json`; edit that file, then run `node packages/re
 - Required scale: 10,000 commands or more.
 - Required hosts: macOS and Windows.
 - Status exposure: `Sidecar::status()` in `src/engine.rs`; exposes resident memory, idle CPU, wake-ups, disk operations.
-- Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-qa 0.6.4 at 21bc142d718f, 10,000 commands (synthetic bench at the declared requiredScale (crates/rightkit-qa/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-qa --bench budget`, 2026-10-17, evidence b3f5d51148d1: resident memory 11.6 MiB, idle CPU 0.052%, wake-ups 1.565 per second, disk operations 0 operations per second.
-- Measured: darwin/arm64 (Mac18,5), rightkit-qa 0.6.4 at 9ba23463a5d0, 10,000 commands (synthetic bench at the declared requiredScale (crates/rightkit-qa/benches/budget.rs)), synthetic, `rightkit cargo test --profile release-iterate -p rightkit-qa --bench budget`, 2026-10-17, evidence a4f153ff71ec: resident memory 13.9 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).
+- Measured: win32/x64 (13th Gen Intel(R) Core(TM) i9-13900H), rightkit-qa 0.6.4 at 21bc142d718f, 10,000 commands (synthetic bench at the declared requiredScale (crates/rightkit-qa/benches/budget.rs)), synthetic, `rustright cargo test --profile release-iterate -p rightkit-qa --bench budget`, 2026-10-17, evidence b3f5d51148d1: resident memory 11.6 MiB, idle CPU 0.052%, wake-ups 1.565 per second, disk operations 0 operations per second.
+- Measured: darwin/arm64 (Mac18,5), rightkit-qa 0.6.4 at 9ba23463a5d0, 10,000 commands (synthetic bench at the declared requiredScale (crates/rightkit-qa/benches/budget.rs)), synthetic, `rustright cargo test --profile release-iterate -p rightkit-qa --bench budget`, 2026-10-17, evidence a4f153ff71ec: resident memory 13.9 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).
 - Measured: darwin/arm64 (Mac18,5), rightkit-qa 0.7.1 at fa003289a62c, 10,000 commands (one --stdio engine sidecar, 10000 echo commands, 30 s idle window (synthetic bench)), synthetic, `rustright cargo test -p rightkit-qa --profile dev --bench budget -- 10000 30`, 2026-10-19, evidence 613ff8b29e24: resident memory 14.3 MiB, idle CPU 0%, wake-ups 0.033 per second, disk operations n/a (not measurable on this host).
 
 ## Runtime budget status
@@ -318,7 +318,7 @@ Homes live under `<tmp>/rightkit-qa/` (`/private/tmp/rightkit-qa` on macOS). Two
 
 A refusal says which product's homes it counted, the total, the largest homes, and that `rightkit-qa clean` removes the homes of dead runs. It is a `storage::RootOverCap` (`kind`, `app`, `total_bytes`, `home_count`, `limit_bytes`, `largest`); `?` turns it into `rightkit_qa::Error`.
 
-**Setting limits in code.** A test run under `rightkit cargo` does not receive the environment variables, so set them on the harness: `Harness::new(..)?.with_root_cap_bytes(8_000_000_000).with_root_ceiling_bytes(0)` (`0` disables a limit), or `workspace::create_with_limits(.., storage::RootLimits::default().with_cap_bytes(..))`. A value set in code wins over the environment variable; a limit left unset falls back to the variable, then the default. The harness sweeps when it is built and checks its limits once, at the first scenario that runs (a skipped scenario does not check), so the setters take effect when chained after `new`. A refused scenario writes a failed evidence record, removes its own home and panics with the refusal.
+**Setting limits in code.** A test run under `rustright cargo` does not receive the environment variables, so set them on the harness: `Harness::new(..)?.with_root_cap_bytes(8_000_000_000).with_root_ceiling_bytes(0)` (`0` disables a limit), or `workspace::create_with_limits(.., storage::RootLimits::default().with_cap_bytes(..))`. A value set in code wins over the environment variable; a limit left unset falls back to the variable, then the default. The harness sweeps when it is built and checks its limits once, at the first scenario that runs (a skipped scenario does not check), so the setters take effect when chained after `new`. A refused scenario writes a failed evidence record, removes its own home and panics with the refusal.
 
 **The sweep removes more.** `storage::clean_homes` (run at every start, and by `rightkit-qa clean`) removes a home that has no `.rightkit-home.json` owner marker (written before it existed, or missing a file) when all of these hold: it is a plain directory directly inside `rightkit-qa` (never a symlink, never outside it); its name is `<label>-<16 lowercase hex>` or `<label>-<6 letters or digits>` (the two runners' patterns); no pid its records name is alive (the `ownerPid` of the run record its binding points at, and the pid of a home marker that has no binding); and nothing in it, the directory included, was modified within `RIGHTKIT_QA_HOME_MAX_AGE_SECS` (default 2 hours). Not checked: which processes have the home as working directory or an open file (there is no process-table walk), and the run record's lease (a 24 hour timer, not evidence of a live process; it is what kept cancelled runs counted). An app that holds a home and writes nothing for two hours, or a recorded pid that is reused by an unrelated live process, is the residual risk: the first is removed, the second is kept. Homes with an owner marker keep the earlier rule (pid dead and run older than the window).
 
@@ -394,7 +394,7 @@ Wave 2 is implemented: the worker, the pool, the built-in steps, the step plugin
 
 Compilation and execution are separate lanes that meet only through a build record.
 
-- **Build lane (broker, compile only).** `rightkit-qa journeys run` builds through the broker, then launches and collects outside it; `--prepare-only` stops after the build record. The broker program (`rustright`, or the `rightkit` alias) is found on `PATH`, including `.cmd` shims on Windows, and the record stores the path actually run. The runner issues only `rustright|rightkit cargo build`, `rightkit cargo test --no-run --message-format=json`, or the declared frontend build. It writes a build record: binary paths, sha256 values computed by the runner, git tree, lockfile hashes, features, toolchain, the broker request id and an attested exit of 0. Binaries are copied into a run store that garbage collection does not touch.
+- **Build lane (broker, compile only).** `rightkit-qa journeys run` builds through the broker, then launches and collects outside it; `--prepare-only` stops after the build record. The broker program (`rustright`, or the `rightkit` alias) is found on `PATH`, including `.cmd` shims on Windows, and the record stores the path actually run. The runner issues only `rustright|rustright cargo build`, `rustright cargo test --no-run --message-format=json`, or the declared frontend build. It writes a build record: binary paths, sha256 values computed by the runner, git tree, lockfile hashes, features, toolchain, the broker request id and an attested exit of 0. Binaries are copied into a run store that garbage collection does not touch.
 - **Unit lane (broker, `cargo test`).** Pure logic and contracts only, with no process launches. The broker's per-invocation `cargo test` cap (`testRunCapMs`) exists but is off by default; per-repository rollout is RustRight ADR-0002 and Adrian's decision.
 - **Runner lane (outside the broker).** `rightkit-qa run` never invokes cargo. It re-hashes every binary at launch, refuses any binary without the QA marker, and runs in the logged-in session. Qualifying runs refuse `--build`, `--build-ui` and `--kill-orphans`. Today `--build` and `--build-ui` still compile through `build_engine`.
 

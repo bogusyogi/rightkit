@@ -529,7 +529,7 @@ async function publishUnit(parsed, deps, batch) {
       // #258: the package ships a Developer-ID-signed bin/darwin/rightkit-swap; build, sign and verify it before packing (fails closed).
       try { (deps.prepareSwapHelper ?? prepareSwapHelper)({ workspaceRoot, packageDir: unitPath, platform, run, env, log }); }
       catch (error) { refuse(`${error.code ? `[${error.code}] ` : ""}${error.message}`); }
-      packCommands.push(`rightkit cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} && codesign --verify --strict bin/darwin/rightkit-swap`);
+      packCommands.push(`rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} && codesign --verify --strict bin/darwin/rightkit-swap`);
     }
     if (kind === "npm") {
       // The feed a tarball ships must list the version it ships with (#319): stage it before packing.

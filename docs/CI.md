@@ -50,7 +50,7 @@ What is implemented today:
   (Adrian 2026-10-22, #911). Native compile, clippy, rustdoc & package tests remain mandatory in
   publication qualification. Direct `rightkit-gate` invocation retains full class A & B coverage;
   generated app hooks also retain that default. Pre-push mode needs the committed local
-  compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rightkit cargo`, or
+  compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rustright cargo`, or
   the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate,
   and so does a checkout that differs from HEAD where the broker scans read it. A change to a root
   workspace file (`Cargo.lock`, `Cargo.toml`, toolchain, `.cargo/`, pnpm lock or workspace) puts every
@@ -99,7 +99,7 @@ What is implemented today:
 the repository itself and covers all of it; what it cannot scan it names, never skips quietly.
 
 - **Rust.** Every tracked `Cargo.toml` that is a workspace root, or a standalone package not inside another workspace, is its own Cargo
-  workspace, read with its own `cargo metadata --no-deps --locked` through the broker (`rightkit cargo` or the managed shim). A manifest below
+  workspace, read with its own `cargo metadata --no-deps --locked` through the broker (`rustright cargo` or the managed shim). A manifest below
   a workspace that is not one of its members is tried on its own (an `exclude`d crate is a real workspace); when cargo refuses it there it
   is a fixture or vendored crate, and the run prints it as skipped. A workspace member whose manifest is untracked or ignored, and an untracked
   `Cargo.toml`, are skipped with a note too. A manifest outside every workspace that cargo refuses stops the gate.
@@ -404,7 +404,7 @@ What runs, per crate, per host:
 - **The trusted workloads.** `workloadsFor(crate)` from `scripts/ci/runtime-qualify.mjs` (the table of pinned `cargo test
   --locked --profile release-iterate ... --bench ...` commands, features, trailing arguments, env names, profiles), never the
   candidate's list: `crates/<crate>/benches/workloads.json` must equal that table or the run refuses. Each command runs
-  through the broker (`rightkit cargo`), after a warm `--no-run` build that is never part of a window.
+  through the broker (`rustright cargo`), after a warm `--no-run` build that is never part of a window.
 - **The measured source.** The checkout is clean and at the candidate commit before and after every run (HEAD is on
   `origin/main`, as for the rest of local qualification). Every file the measurement depends on is hashed from the git
   blobs of that commit into `bindings`, as CI's `bindSource` does, and the whole harness helper closure

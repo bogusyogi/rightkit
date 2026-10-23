@@ -60,7 +60,7 @@ A standard was designed (`docs/E2E-TESTING-STANDARD.md`) and half built. It was 
 ## Decision (C-1)
 
 1. **Two lanes that meet only through a build record.**
-   - **Build lane (broker), compile only.** The runner may issue only `rightkit cargo build` or
+   - **Build lane (broker), compile only.** The runner may issue only `rustright cargo build` or
      `test --no-run --message-format=json` plus the declared frontend build. It writes a build record:
      binary paths, sha256 values computed by the runner, git tree, lockfile hashes, features, toolchain,
      broker request id, and an attested exit of 0. Binaries are copied to a run store that is safe from
@@ -234,9 +234,9 @@ A standard was designed (`docs/E2E-TESTING-STANDARD.md`) and half built. It was 
 
 **Order:**
 0. **Step 0, relief first, almost no new code:**
-   - PostRight runs `rightkit cargo test --no-run` in the broker, then executes the test binary
+   - PostRight runs `rustright cargo test --no-run` in the broker, then executes the test binary
      outside it. The 10-21 standard already describes this; it frees the compile slot immediately.
-   - Unit lane must not run journeys (Sage C4). `test:rust` is `rightkit cargo test --workspace`
+   - Unit lane must not run journeys (Sage C4). `test:rust` is `rustright cargo test --workspace`
      (package.json:21) and includes `crates/e2e`, whose aggregate test is not ignored (scenarios.rs:2554-2555),
      so `pnpm test` still runs all 212 scenarios in the broker. Fix: `--exclude postright-e2e`. Remove the
      `POSTRIGHT_CARGO` override (run-e2e.sh:10, 18), which allows a plain cargo compile outside the broker.

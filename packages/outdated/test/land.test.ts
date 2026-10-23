@@ -21,7 +21,7 @@ function cargoChange(repo: string): ApplyChange {
     latest: "1.0.229",
     status: "applied",
     files: [fileChange(repo, "Cargo.toml", CARGO_BEFORE), fileChange(repo, "Cargo.lock", LOCK_BEFORE)],
-    commands: [["rightkit", "cargo", "update", "-p", "serde", "--precise", "1.0.229"]],
+    commands: [["rustright", "cargo", "update", "-p", "serde", "--precise", "1.0.229"]],
     notes: [],
   };
 }

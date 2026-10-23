@@ -53,7 +53,7 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn manifest_text(ids: &[&str]) -> String {
     let mut t = String::from(
-        "version = 1\napp = \"demo\"\ncoverage_owners = [\"owner\"]\n\n[[adapter]]\nname = \"demo-adapter\"\nbuild = [\"rightkit\", \"cargo\", \"test\", \"--no-run\", \"--message-format=json\"]\nexecutable = { role = \"adapter\", cargo_target = \"journeys_adapter\" }\nartifacts = [{ role = \"engine\", cargo_package = \"demo-engine\" }]\n",
+        "version = 1\napp = \"demo\"\ncoverage_owners = [\"owner\"]\n\n[[adapter]]\nname = \"demo-adapter\"\nbuild = [\"rustright\", \"cargo\", \"test\", \"--no-run\", \"--message-format=json\"]\nexecutable = { role = \"adapter\", cargo_target = \"journeys_adapter\" }\nartifacts = [{ role = \"engine\", cargo_package = \"demo-engine\" }]\n",
     );
     for id in ids {
         t.push_str(&format!(
@@ -189,7 +189,7 @@ fn build(selected: &[&str], written: Vec<JourneyResult>) -> Fx {
         },
         mapping: None,
         build: Build {
-            command: vec!["rightkit".into(), "cargo".into(), "test".into()],
+            command: vec!["rustright".into(), "cargo".into(), "test".into()],
             source_tree: tree.clone(),
             tree_after_build: tree,
             started_at: "2026-10-21T10:00:00Z".into(),
@@ -977,7 +977,7 @@ fn a_native_ui_journey_needs_a_built_binary_and_no_dev_server() {
         )
     };
     assert!(has_issue(&manifest_issues(no_artifacts), "no artifacts"));
-    let vite = |t: String| native(t).replace("\"rightkit\", \"cargo\"", "\"pnpm\", \"vite\"");
+    let vite = |t: String| native(t).replace("\"rustright\", \"cargo\"", "\"pnpm\", \"vite\"");
     assert!(has_issue(&manifest_issues(vite), "dev server"));
     let no_binary = |t: String| native(t).replace(", cargo_package = \"demo-engine\"", "");
     assert!(has_issue(&manifest_issues(no_binary), "no built binary"));
@@ -1073,7 +1073,7 @@ mod manifest_fields_tests {
     }
 
     const SCENARIO_JOURNEY: &str = "\n[[journey]]\nid = \"J-1\"\ntitle = \"t\"\nplatforms = [\"windows\"]\nsurface = \"engine\"\nrunner = \"scenario\"\nentry = \"tests/j.scenario.toml\"\ntier = \"fast\"\ndata = \"generated\"\n";
-    const BUILD: &str = "\n[build]\ncommand = [\"rightkit\", \"cargo\", \"build\", \"-F\", \"qa-test-mode\", \"--message-format=json\"]\nfeatures = [\"qa-test-mode\"]\nartifacts = [{ role = \"app\", cargo_package = \"demo-app\" }, { role = \"engine\", cargo_target = \"demo-engine\", qa_marker = false }]\n";
+    const BUILD: &str = "\n[build]\ncommand = [\"rustright\", \"cargo\", \"build\", \"-F\", \"qa-test-mode\", \"--message-format=json\"]\nfeatures = [\"qa-test-mode\"]\nartifacts = [{ role = \"app\", cargo_package = \"demo-app\" }, { role = \"engine\", cargo_target = \"demo-engine\", qa_marker = false }]\n";
     const SCENARIO_FILE: &str =
         "name = \"j\"\ntokens = [\"focus\"]\n\n[[step]]\nkind = \"focus_window\"\n";
     const MISSING_ROOT: &str = "/nonexistent-app-root";

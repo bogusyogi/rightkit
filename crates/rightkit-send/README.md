@@ -63,7 +63,7 @@ On iOS the crate opens no mDNS or multicast sockets. Browse and advertise belong
 
 ## Tests
 
-`rightkit cargo test -p rightkit-send --all-features` runs the in-crate tests and the loopback
+`rustright cargo test -p rightkit-send --all-features` runs the in-crate tests and the loopback
 integration tests in `tests/localsend.rs` (no network is needed beyond the local machine).
 
 ## Runtime budget

@@ -21,6 +21,8 @@
 //   file-url         G12  new URL(..., import.meta.url).pathname used as a path: wrong on Windows; use fileURLToPath
 //   generated-docs   G10  scripts/generate-index.mjs --check: INDEX.md and docs/CAPABILITY-MAP.md match the committed sources
 //                         (offline: reads manifests and the version feed only)
+//   retired-alias    P11  an invocation of `rightkit`, the retired name of the RustRight client (rustright#91), outside
+//                         history; scripts/retire-rightkit-alias.mjs rewrites them (any repository: --repo)
 //
 // Not here yet: G07 (ignored tests) refuses rightkit-pdf and rightkit-credentials today, and its fix is a reviewed allowIgnored
 // exemption, which preflight never authors. G06, G09, G11 and G13 need a parser.
@@ -251,6 +253,55 @@ function consumerLocks({ root, files }) {
   return out;
 }
 
+// The RustRight client's subcommands as the retired `rightkit` alias took them (rustright crates/rustright-cli/src/cli.rs).
+const ALIAS_SUBCOMMANDS = "cargo|rustc|rustdoc|run|build|owns|status|attach|cancel|list|quiet|queue|prune|deps|profiles|forecast-report|resume-admission|pause-admission|remote|cutover|storage|verify-receipt";
+const ALIAS_FORMS = [
+  // rightkit cargo ..., `rightkit status <id>` (never rightkit-qa, @rightkit/..., .../rightkit, or "rightkit build-control")
+  [new RegExp(`(^|[^-./@A-Za-z0-9_$])rightkit(?= (?:${ALIAS_SUBCOMMANDS})(?![-\\w]))`, "gm"), "$1rustright"],
+  // ["rightkit", "cargo", ...] and its quoting variants
+  [new RegExp(`([\\[(]\\s*)(["'\`])rightkit\\2(?=\\s*,\\s*["'\`](?:${ALIAS_SUBCOMMANDS})["'\`])`, "g"), "$1$2rustright$2"],
+  // the same inside an escaped string (a TOML fixture in a Rust or JS literal): [\"rightkit\", \"cargo\", ...]
+  [new RegExp(`([\\[(]\\s*)\\\\(["'])rightkit\\\\\\2(?=\\s*,\\s*\\\\["'](?:${ALIAS_SUBCOMMANDS})\\\\["'])`, "g"), "$1\\$2rustright\\$2"],
+  // vec!["rightkit".into(), "cargo".into(), ...] and .to_string() / .to_owned()
+  [new RegExp(`([\\[(]\\s*)(["'])rightkit\\2(\\.(?:into|to_string|to_owned)\\(\\))(?=\\s*,\\s*["'](?:${ALIAS_SUBCOMMANDS})["'])`, "g"), "$1$2rustright$2$3"],
+  // run("rightkit", ...), spawn("rightkit", ...), execFileSync("rightkit", ...), which("rightkit"), Command::new("rightkit")
+  [/\b(run|spawn|spawnSync|execFile|execFileSync|execa|resolveCommand|which|Command::new)\((["'])rightkit\2/g, "$1($2rustright$2"],
+  // the Windows shim by name: "rightkit.cmd", `...\agent-bin\rightkit.cmd cargo ...`
+  [/(["'])rightkit\.(cmd|exe)\1/g, "$1rustright.$2$1"],
+  [new RegExp(`(^|[^-./@A-Za-z0-9_$])rightkit\\.(cmd|exe)(?= (?:${ALIAS_SUBCOMMANDS})(?![-\\w]))`, "gm"), "$1rustright.$2"],
+  // isWindows ? "rustright.cmd" : "rightkit" (the POSIX half of the same shim choice)
+  [/(["'])rustright\.cmd\1(\s*:\s*)(["'])rightkit\3/g, "$1rustright.cmd$1$2$3rustright$3"],
+  // { cmd: "rightkit", args: [...] } in a release config
+  [/\bcmd:(\s*)(["'])rightkit\2/g, "cmd:$1$2rustright$2"],
+];
+/** History and byte-pinned content the alias may stay in: what was run then, or bytes a hash or review binds. */
+export const RETIRED_ALIAS_EXEMPT = /(^|\/)CHANGELOG\.md$|^docs\/(audits|plans|archive)\/|(^|\/)(evidence|release-evidence|receipts?|fixtures?|vendor)\/|adr-\d+-evidence\/|\.evidence\/|\d{4}-\d{2}-\d{2}|(^|\/)(handoffs?|handovers?|reports?|results|experiments|reviews|research|mockups|archive|incidents?|spikes)\/|[^/]*evidence[^/]*\/|\.(jsonl|log|patch|diff)$|\.receipt\.json$|(^|\/)SHA256SUMS$|^ci\/consumers\/|^packages\/ax\/plugin\/schemas\/|^scripts\/embed-export\/|msix-repair-guard\.ps1$|\.lock$|^scripts\/(preflight|preflight\.test|retire-rightkit-alias)\.mjs$/;
+
+/** A file generated from other sources (AGENTS.md from docs/agent-rules/): its sources are what is checked and edited. */
+export const isGeneratedFile = (text) => /^\s*(?:<!--|\/\/|#)\s*GENERATED FILE\. Do not hand-edit\./.test(String(text).slice(0, 300));
+
+/** `text` with every invocation of the retired alias renamed to `rustright`, and how many there were. */
+export function retireAliasText(text) {
+  let count = 0;
+  let out = text;
+  for (const [pattern, replacement] of ALIAS_FORMS) out = out.replace(pattern, (...m) => { count += 1; return replacement.replace(/\$(\d)/g, (_, i) => m[Number(i)] ?? ""); });
+  return { text: out, count };
+}
+
+function retiredAlias({ root, files }) {
+  const out = [];
+  for (const file of files) {
+    if (RETIRED_ALIAS_EXEMPT.test(file)) continue;
+    let bytes;
+    try { bytes = fs.readFileSync(path.join(root, file)); } catch { continue; }
+    if (bytes.includes(0) || !bytes.includes("rightkit") || isGeneratedFile(bytes.toString("utf8"))) continue;
+    const lines = bytes.toString("utf8").split("\n");
+    const hits = lines.map((line, i) => (retireAliasText(line).count ? i + 1 : 0)).filter(Boolean);
+    if (hits.length) out.push({ problem: `${file}:${hits.slice(0, 8).join(",")}${hits.length > 8 ? ",…" : ""} invokes \`rightkit\`, the retired name of the RustRight client`, fix: "use rustright (node <rightkit>/scripts/retire-rightkit-alias.mjs --repo <this repository> rewrites them all)" });
+  }
+  return out;
+}
+
 const FILE_URL_PATHNAME = /new URL\((?:[^()]|\([^()]*\))*import\.meta\.url\s*\)\s*\.pathname/g;
 function fileUrls({ root, files }) {
   const out = [];
@@ -285,6 +336,7 @@ export const RULES = Object.freeze([
   { id: "consumer-locks", gap: "G08", run: consumerLocks },
   { id: "file-url", gap: "G12", run: fileUrls },
   { id: "generated-docs", gap: "G10", run: generatedDocs },
+  { id: "retired-alias", gap: "P11", run: retiredAlias },
 ]);
 
 /** The tree a compile of `repo` would see: HEAD plus every tracked and untracked, non-ignored file as it is on disk, written

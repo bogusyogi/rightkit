@@ -165,7 +165,7 @@ write after a commit; a commit flushes dirty columns, then writes the header cle
 changing, and on drop). A dirty header at open means a torn update: the store is discarded and re-crawled. A crawl or compaction builds
 `index.new` and swaps it in; an interrupted swap is recovered on open.
 
-Declared figures, not re-run or recorded in this repository (harness `benches/footprint.rs`, run as `rightkit cargo bench -p rightkit-fsindex --bench footprint -- 7700000`; entries generated straight into the columns,
+Declared figures, not re-run or recorded in this repository (harness `benches/footprint.rs`, run as `rustright cargo bench -p rightkit-fsindex --bench footprint -- 7700000`; entries generated straight into the columns,
 fresh process reopening the store, macOS): ~114 bytes/entry on disk (836 MB at 7.7M); after reopen 3.5 MB phys footprint /
 22.6 MB resident; after a name search 24.4 MB footprint / 185 MB resident (clean mapped pages touched by the scan; footprint does
 not count them), back to 24 MB footprint / 29 MB resident after `trim()`, which the worker also does after large searches and

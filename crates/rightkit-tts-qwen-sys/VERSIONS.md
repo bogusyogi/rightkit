@@ -5,7 +5,7 @@
 - **Path**: `crates/rightkit-tts-qwen-sys/vendor/ggml`. The ggml sources are plain files committed in this repository. This is not a Git submodule.
 - **Upstream**: [ggml-org/ggml](https://github.com/ggml-org/ggml), commit `2fb6431f67dd505584a9fefe94fd2866b944c85f`, release **v0.9.8**, MIT (`vendor/ggml/LICENSE`).
 - **Reported version** (`vendor/ggml/CMakeLists.txt` at this vendoring): **0.9.8**.
-- **Bump**: fetch the new upstream tag in a separate checkout, copy its ggml tree over `vendor/ggml`, update the commit and version above in this file and in `PINNED.md`, then rebuild with `rightkit cargo test -p rightkit-tts-qwen-sys`.
+- **Bump**: fetch the new upstream tag in a separate checkout, copy its ggml tree over `vendor/ggml`, update the commit and version above in this file and in `PINNED.md`, then rebuild with `rustright cargo test -p rightkit-tts-qwen-sys`.
 
 ## Checked-in bindings
 
@@ -16,11 +16,11 @@
 - Regenerate for the host target (requires libclang; bindgen 0.72):
 
   ```bash
-  rightkit cargo check -p rightkit-tts-qwen-sys --features regenerate-bindings
+  rustright cargo check -p rightkit-tts-qwen-sys --features regenerate-bindings
   ```
 
   This overwrites `bindings-<host-target>.rs`. Commit the file with any vendor/ggml bump.
-- Verify: `rightkit cargo test -p rightkit-tts-qwen-sys --test bindings_match`. It fails when the stamp is missing, names another target, or carries a stale version or header digest, and when `VERSIONS.md` disagrees with `vendor/ggml/CMakeLists.txt`.
+- Verify: `rustright cargo test -p rightkit-tts-qwen-sys --test bindings_match`. It fails when the stamp is missing, names another target, or carries a stale version or header digest, and when `VERSIONS.md` disagrees with `vendor/ggml/CMakeLists.txt`.
 
 ## `ggml-sys` Cargo features → CMake
 

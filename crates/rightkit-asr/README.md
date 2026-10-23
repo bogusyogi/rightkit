@@ -118,10 +118,10 @@ This derivative is based on crates.io `parakeet-rs 0.3.5`, upstream commit `7d68
 Run through the managed Rust wrapper (see `docs/rules/rightkit.md`):
 
 ```text
-rightkit cargo test -p rightkit-asr --no-default-features --features load-dynamic --all-targets
-rightkit cargo clippy -p rightkit-asr --no-default-features --features load-dynamic --all-targets -- -D warnings
-rightkit cargo fmt --check
-rightkit cargo package -p rightkit-asr --allow-dirty --no-verify --list
+rustright cargo test -p rightkit-asr --no-default-features --features load-dynamic --all-targets
+rustright cargo clippy -p rightkit-asr --no-default-features --features load-dynamic --all-targets -- -D warnings
+rustright cargo fmt --check
+rustright cargo package -p rightkit-asr --allow-dirty --no-verify --list
 ```
 
 The `load-dynamic` lane is `--no-default-features` plus a no-op feature (`Cargo.toml:85-86`); `rightkit-onnx` loads ONNX Runtime dynamically in every lane, and only `ort-download` fetches it at build time. macOS parity and portable fixtures are still publication gates.

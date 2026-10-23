@@ -6,7 +6,7 @@ Product-neutral read and write for DOCX, XLSX and PDF, behind one typed API, for
 
 **Do not use it** to render pages, to recalculate formulas, to open password-protected or macro-enabled files, or for PDF page graphs and font work (that is `rightkit-pdf`, which this crate wraps for PDF).
 
-Capability: `document-io`; `rightkit owns docx|xlsx|document|spreadsheet` resolve to this crate and `rightkit owns pdf` resolves to `rightkit-pdf`. Choice of engine and evidence: [BAKEOFF.md](BAKEOFF.md).
+Capability: `document-io`; `rustright owns docx|xlsx|document|spreadsheet` resolve to this crate and `rustright owns pdf` resolves to `rightkit-pdf`. Choice of engine and evidence: [BAKEOFF.md](BAKEOFF.md).
 
 ## API
 
