@@ -316,7 +316,7 @@ test("stage CLI dispatches npm & cargo staging, rejects malformed args & downgra
 test("byte-compared pairs check out with the same line endings on every host (git check-attr eol)", async () => {
   // A pair compared byte for byte must carry the same eol attribute, or one side checks out CRLF on Windows and the
   // comparison fails there only (hosted 39900606184: build-control-policy copies; 39914894353: the ownership crate catalog).
-  const { spawnSync } = await import("node:child_process");
+  const { spawnSync } = await import("./background-process.mjs");
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const pairs = [
     ["packages/release/rightkit-ownership.json", "crates/rightkit-ownership/catalog/ownership-catalog.json"],
