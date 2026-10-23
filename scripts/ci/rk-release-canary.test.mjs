@@ -471,6 +471,21 @@ test("runCanary: a candidate whose smol-toml differs from the pin is a regressio
   assert.ok(r.lines.some((l) => /stage 0: .*stagedNpm/.test(l)));
   assert.equal(r.receipt.stages.pins.ok, false);
 });
+test("runCanary --sha: a HEAD other than the checked commit is refused, and HEAD moving before the verdict is never green", async (t) => {
+  const { out, sha, deps, legCalls } = canaryDeps(t, { cells: matrixCells() });
+  const refused = await runCanary({ root: REPO, out, expectSha: "e".repeat(40), deps });
+  assert.equal(refused.code, EXIT.usage);
+  assert.match(refused.lines.join("\n"), /not the checked eeeeeeeeeeee; nothing canaried/);
+  assert.deepEqual(legCalls, [], "no leg ran for an unchecked commit");
+  // Another chat commits while the legs run: the second rev-parse answers a new commit.
+  let reads = 0;
+  deps.exec = async (cmd, args) => (args.includes("rev-parse") ? { code: 0, stdout: `${(reads += 1) === 1 ? sha : "b".repeat(40)}\n`, stderr: "" } : { code: 0, stdout: "", stderr: "" });
+  const moved = await runCanary({ root: REPO, out, expectSha: sha, deps });
+  assert.equal(moved.code, EXIT.incomplete);
+  assert.match(moved.lines.join("\n"), /HEAD moved from ffffffffffff to bbbbbbbbbbbb while the canary ran/);
+  assert.equal(parseArgs(["--sha", sha]).expectSha, sha);
+  assert.throws(() => parseArgs(["--sha", "abc"]), /full 40-hex/);
+});
 test("runCanary: only @rightkit/release has a canary; a dirty tree is refused", async (t) => {
   const { out, deps } = canaryDeps(t, { cells: matrixCells() });
   assert.equal((await runCanary({ root: REPO, out, unit: "@rightkit/qa", deps })).code, EXIT.usage);

@@ -202,6 +202,8 @@ test("G01: a unit about to publish is checked even when its inventory entry and 
     "crates/rightkit-gone/Cargo.toml": `[package]\nname = "rightkit-gone"\nversion = "0.2.0"\n`,
     "packages/gone/package.json": JSON.stringify({ name: "@rightkit/gone", version: "0.2.0" }),
     "ci/consumer-recipes.json": JSON.stringify({ schema: 1, cargo: {}, npm: {} }),
+    // Listed as uncovered: that excuses a unit with nothing to publish, never one about to publish.
+    "ci/recipe-coverage.json": JSON.stringify({ schema: 1, uncovered: { cargo: { "rightkit-gone": "no recipe yet" }, npm: { "@rightkit/gone": "no recipe yet" } } }),
   });
   const problems = runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures.map((f) => f.problem);
   assert.ok(problems.some((p) => p.startsWith("rightkit-gone:")), problems.join("\n"));
@@ -209,6 +211,33 @@ test("G01: a unit about to publish is checked even when its inventory entry and 
   // At its published version the unit has nothing to publish, so no recipe is required yet.
   fs.writeFileSync(path.join(root, "packages/release/rightkit-versions.json"), JSON.stringify({ registry: { cargo: { "rightkit-gone": "0.2.0" }, npm: { "@rightkit/gone": "0.2.0" } } }));
   assert.deepEqual(runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures, []);
+});
+
+test("G01: recipe coverage is explicit: a publishable unit has a recipe or is listed, and the list holds only those", (t) => {
+  const { root } = tree(t, {
+    "packages/release/rightkit-versions.json": JSON.stringify({ registry: { cargo: { "rightkit-new": "0.1.0", "rightkit-old": "0.1.0" }, npm: { "@rightkit/new": "0.1.0" } } }),
+    "crates/rightkit-new/Cargo.toml": `[package]\nname = "rightkit-new"\nversion = "0.1.0"\n`,
+    "crates/rightkit-old/Cargo.toml": `[package]\nname = "rightkit-old"\nversion = "0.1.0"\n`,
+    "crates/rightkit-internal/Cargo.toml": `[package]\nname = "rightkit-internal"\nversion = "0.1.0"\npublish = false\n`,
+    "packages/new/package.json": JSON.stringify({ name: "@rightkit/new", version: "0.1.0" }),
+    "packages/private/package.json": JSON.stringify({ name: "@rightkit/private", version: "0.1.0", private: true }),
+    "ci/consumer-recipes.json": JSON.stringify({ schema: 1, cargo: {}, npm: {} }),
+    "ci/recipe-coverage.json": JSON.stringify({ schema: 1, uncovered: { cargo: { "rightkit-old": "why", "rightkit-renamed": "why" }, npm: {} } }),
+  });
+  const problems = runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures.map((f) => f.problem.split(": ").slice(0, 2).join(": "));
+  assert.deepEqual(problems.sort(), [
+    "@rightkit/new: publishable but has no reviewed consumer recipe (ci/consumer-recipes.json npm) and is not listed in ci/recipe-coverage.json uncovered.npm",
+    "rightkit-new: publishable but has no reviewed consumer recipe (ci/consumer-recipes.json cargo) and is not listed in ci/recipe-coverage.json uncovered.cargo",
+    "rightkit-renamed: listed in ci/recipe-coverage.json uncovered.cargo but no publishable crate has that name",
+  ].sort());
+});
+
+test("G01: this tree's recipe coverage list names exactly its publishable units without a recipe", () => {
+  const coverage = JSON.parse(fs.readFileSync(new URL("../ci/recipe-coverage.json", import.meta.url), "utf8"));
+  const inventory = JSON.parse(fs.readFileSync(new URL("../ci/consumer-recipes.json", import.meta.url), "utf8"));
+  for (const unit of Object.keys(coverage.uncovered.cargo)) assert.ok(!inventory.cargo[unit], `${unit} has a recipe; take it off the list`);
+  for (const unit of Object.keys(coverage.uncovered.npm)) assert.ok(!inventory.npm[unit], `${unit} has a recipe; take it off the list`);
+  assert.deepEqual(runRules({ root: fileURLToPath(new URL("..", import.meta.url)), files: [], only: ["consumer-recipe", "npm-recipe"] }).failures.filter((f) => /recipe-coverage/.test(f.problem)), []);
 });
 
 test("P11: retireAliasText rewrites to rustright and is idempotent", async () => {

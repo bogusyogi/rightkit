@@ -584,3 +584,43 @@ test("P1: a direct dispatch runs the check first and dispatches nothing when it 
   assert.equal(await cmdDispatch({ registry: "npm", units: ["@rightkit/release"] }, { head: () => "c".repeat(40), check: RED_CHECK, planFn }), 1);
   assert.equal(planned, false, "a red check reaches no receipt, plan or dispatch");
 });
+
+// Astra's second review of #945: check A, another chat commits B, the canary packs B. One SHA binds every stage.
+const A = "a".repeat(40), B = "b".repeat(40);
+const movingHead = () => { let moved = false; return { head: () => (moved ? B : A), move: () => { moved = true; } }; };
+
+test("P1: the check reads the captured commit, and HEAD moving while it runs starts nothing", async () => {
+  for (const command of ["canary", "preflight", "dispatch", "loop"]) {
+    const h = movingHead();
+    const events = [];
+    const check = async (sha) => { events.push(`check ${sha.slice(0, 1)}`); h.move(); return { code: 0, out: "" }; };
+    const deps = {
+      head: h.head, check,
+      canary: async () => { events.push("canary"); return { code: 0 }; },
+      preflightMany: async (units) => { events.push("preflight"); return new Map(units.map((u) => [u, { code: 0 }])); },
+      preflight: async () => { events.push("preflight"); return { code: 0 }; },
+      planFn: async () => { events.push("plan"); return { units: [] }; },
+      dispatch: async () => { events.push("dispatch"); return 0; },
+      readiness: async () => { events.push("readiness"); return { unpublished: new Set(["@rightkit/release"]), waves: [["@rightkit/release"]], crates: [] }; },
+      readState: () => ({ dispatches: {} }), writeState: () => events.push("write"),
+      watch: async () => 0, holdReason: () => null, pause: () => Promise.resolve(),
+    };
+    const fn = { canary: cmdCanary, preflight: cmdPreflight, dispatch: cmdDispatch, loop: cmdLoop }[command];
+    const code = await fn({ registry: "npm", units: ["@rightkit/release"], jobs: 1 }, deps);
+    assert.equal(code, 1, command);
+    assert.deepEqual(events, ["check a"], `${command}: the check saw the captured commit and nothing else started`);
+  }
+});
+
+test("P1: the canary child is handed the checked commit", async () => {
+  const seen = [];
+  const code = await cmdCanary({ units: ["@rightkit/release"] }, { head: () => A, check: async () => ({ code: 0 }), canary: async (unit, sha) => { seen.push([unit, sha]); return { code: 0, last: "GREEN" }; } });
+  assert.equal(code, 0);
+  assert.deepEqual(seen, [["@rightkit/release", A]]);
+});
+
+test("P1: pre-flight results from a HEAD that moved while they ran do not count", async () => {
+  const h = movingHead();
+  const many = async (units) => { h.move(); return new Map(units.map((u) => [u, { code: 0, last: "GREEN" }])); };
+  assert.equal(await cmdPreflight({ registry: "crates", units: ["rightkit-a"], jobs: 1 }, { head: h.head, check: async () => ({ code: 0 }), preflightMany: many }), 1);
+});

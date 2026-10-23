@@ -151,6 +151,23 @@ export function pendingPublication(root) {
   return { cargo: cargo.sort(), npm: npm.sort() };
 }
 
+/** Recipe coverage, explicit: every publishable unit has a reviewed recipe or is listed in ci/recipe-coverage.json
+ * `uncovered` (with why). A new unit with neither, a listed unit that now has a recipe, or a listed name that is no
+ * publishable unit each fails, so the list is exactly the units still without one and can only shrink by review. */
+function coverageProblems(root, kind, publishable, covered) {
+  const file = "ci/recipe-coverage.json";
+  const listed = readJson(root, file)?.uncovered?.[kind] ?? {};
+  const out = [];
+  for (const unit of [...publishable].sort()) {
+    if (!covered.has(unit) && !Object.hasOwn(listed, unit)) out.push({ problem: `${unit}: publishable but has no reviewed consumer recipe (ci/consumer-recipes.json ${kind}) and is not listed in ${file} uncovered.${kind}`, fix: `write and review its recipe, or list it in ${file} uncovered.${kind} with the reason` });
+  }
+  for (const unit of Object.keys(listed).sort()) {
+    if (covered.has(unit)) out.push({ problem: `${unit}: listed in ${file} uncovered.${kind} but has a reviewed recipe`, fix: `remove it from ${file} uncovered.${kind}` });
+    else if (!publishable.has(unit)) out.push({ problem: `${unit}: listed in ${file} uncovered.${kind} but no publishable ${kind === "cargo" ? "crate" : "package"} has that name`, fix: `remove it from ${file} uncovered.${kind}` });
+  }
+  return out;
+}
+
 function consumerRecipes({ root }) {
   const inventory = readJson(root, "ci/consumer-recipes.json");
   const units = new Set([...Object.keys(inventory?.cargo ?? {}), ...listDirs(root, "ci/consumers").filter((d) => d.startsWith("rightkit-")), ...pendingPublication(root).cargo]);
@@ -161,7 +178,9 @@ function consumerRecipes({ root }) {
     const diff = inventoryDiff(inventory?.cargo?.[unit]?.files, recipeFileHashes(root, unit) ?? {}, "  ");
     out.push({ problem: `${unit}: ${result.reason}${diff.length ? `\n${diff.join("\n")}` : ""}`, fix: diff.length ? `review the recipe change, then set ci/consumer-recipes.json cargo.${unit}.files to the committed hashes above` : undefined });
   }
-  return out;
+  const publishable = new Set([...workspaceCrates(root)].filter(([, c]) => c.publish).map(([name]) => name));
+  const covered = new Set([...Object.keys(inventory?.cargo ?? {}), ...listDirs(root, "ci/consumers")]);
+  return [...out, ...coverageProblems(root, "cargo", publishable, covered)];
 }
 
 function npmRecipes({ root }) {
@@ -176,7 +195,8 @@ function npmRecipes({ root }) {
     const diff = inventoryDiff(entry.files, actual, "  ");
     out.push({ problem: `${unit}: ${result.reason}${diff.length ? `\n${diff.join("\n")}` : ""}`, fix: diff.length ? `review the recipe change, then set ci/consumer-recipes.json npm["${unit}"].files to the committed hashes above` : undefined });
   }
-  return out;
+  const publishable = new Set([...workspacePackages(root)].filter(([, p]) => !p.manifest.private).map(([name]) => name));
+  return [...out, ...coverageProblems(root, "npm", publishable, new Set(Object.keys(inventory?.npm ?? {})))];
 }
 
 function npmSurface({ root }) {

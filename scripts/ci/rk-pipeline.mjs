@@ -264,17 +264,28 @@ async function cmdReady(opts) {
   return r.waves.some((w) => !Array.isArray(w)) ? 1 : 0;
 }
 
-/** Step 1 of docs/PIPELINE-ARCHITECTURE.md (P1): scripts/preflight.mjs over HEAD's committed files, in seconds, before any
- * canary, pre-flight compile or dispatch. A red check starts nothing. */
-function runCheckChild() {
-  return runChild(NODE, [path.join(ROOT, "scripts", "preflight.mjs")]);
+/** Step 1 of docs/PIPELINE-ARCHITECTURE.md (P1): scripts/preflight.mjs over exactly `sha`'s committed files (`--commit`), in
+ * seconds, before any canary, pre-flight compile or dispatch. A red check starts nothing. */
+function runCheckChild(sha) {
+  return runChild(NODE, [path.join(ROOT, "scripts", "preflight.mjs"), "--commit", sha]);
 }
 
-async function checkPasses(check, sha) {
-  const r = await check();
-  if (r.code === 0) return true;
-  for (const line of String(r.out ?? "").split("\n").filter((l) => /^(FAIL |     fix: |preflight: )/.test(l))) log(line);
-  log(`check RED at ${String(sha).slice(0, 12)}: nothing canaried, compiled or dispatched; fix every FAIL, commit, then rerun`);
+/** The check passes for `sha`, and HEAD is still `sha` once it has: another chat may commit to this shared checkout while it
+ * runs, and every later stage reads HEAD, so a moved HEAD starts nothing (check A, commit B, canary B is the failure). */
+async function checkPasses(check, sha, head) {
+  const r = await check(sha);
+  if (r.code !== 0) {
+    for (const line of String(r.out ?? "").split("\n").filter((l) => /^(FAIL |     fix: |preflight: )/.test(l))) log(line);
+    log(`check RED at ${String(sha).slice(0, 12)}: nothing canaried, compiled or dispatched; fix every FAIL, commit, then rerun`);
+    return false;
+  }
+  return stillAt(sha, head, "while the check ran: nothing canaried, compiled or dispatched; rerun at the new commit");
+}
+
+function stillAt(sha, head, when) {
+  const now = head ? head() : sha;
+  if (now === sha) return true;
+  log(`HEAD moved from ${String(sha).slice(0, 12)} to ${String(now).slice(0, 12)} ${when}`);
   return false;
 }
 
@@ -302,21 +313,23 @@ export const CANARY_REGRESSION = 10;
 export const CANARY_INCOMPLETE = 11;
 export const needsCanary = (unit, registry) => registry === "npm" && CANARY_UNITS.has(unit);
 
-async function runCanaryChild(unit) {
-  const r = await runChild(NODE, [path.join(ROOT, "scripts", "ci", "rk-release-canary.mjs"), "--unit", unit]);
+/** The canary of the commit the check passed: --sha makes it refuse any other HEAD, and a HEAD that moves before its verdict. */
+async function runCanaryChild(unit, sha) {
+  const r = await runChild(NODE, [path.join(ROOT, "scripts", "ci", "rk-release-canary.mjs"), "--unit", unit, "--sha", sha]);
   const last = r.out.trim().split("\n").filter(Boolean).slice(-1)[0] ?? "";
   return { code: r.code, last };
 }
 
 export async function cmdCanary(opts, deps = {}) {
   if (!opts.units.length) { fail("name at least one unit"); return 2; }
-  // P1: the canary is expensive work (it builds and runs every app against the candidate); the check runs first.
-  const sha = (deps.head ?? (() => git("rev-parse", "HEAD")))();
-  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
+  // P1: the canary is expensive work (it builds and runs every app against the candidate); the check runs first, on the same commit.
+  const head = deps.head ?? (() => git("rev-parse", "HEAD"));
+  const sha = head();
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   let worst = 0;
   for (const unit of opts.units) {
     if (!needsCanary(unit, "npm")) { fail(`${unit}: no pipeline canary for this unit`); worst = Math.max(worst, 2); continue; }
-    const result = await (deps.canary ?? runCanaryChild)(unit);
+    const result = await (deps.canary ?? runCanaryChild)(unit, sha);
     log(`canary ${unit}: ${result.code === 0 ? "GREEN" : result.code === CANARY_REGRESSION ? "REGRESSION" : result.code === CANARY_INCOMPLETE ? "INCOMPLETE" : "ERROR"} (${String(result.last ?? "").slice(0, 140)})`);
     worst = Math.max(worst, result.code === 0 ? 0 : 1);
   }
@@ -328,9 +341,12 @@ export async function cmdPreflight(opts, deps = {}) {
     fail("name at least one unit");
     return 2;
   }
-  const sha = (deps.head ?? (() => git("rev-parse", "HEAD")))();
-  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
+  const head = deps.head ?? (() => git("rev-parse", "HEAD"));
+  const sha = head();
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   const results = await (deps.preflightMany ?? preflightMany)(opts.units, opts);
+  // The pre-flight children (digest-pinned) read HEAD themselves: results from a moved HEAD prove nothing about the checked commit.
+  if (!stillAt(sha, head, "while the pre-flights ran: their results are not for the checked commit; rerun")) return 1;
   return [...results.values()].every((r) => r.code === 0) ? 0 : 1;
 }
 
@@ -339,9 +355,10 @@ export async function cmdDispatch(opts, deps = {}) {
     fail("name at least one unit");
     return 2;
   }
-  const sha = (deps.head ?? (() => git("rev-parse", "HEAD")))();
-  // P1: a dispatch starts hosted runners; the check runs first, whatever pre-flight receipts say.
-  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
+  const head = deps.head ?? (() => git("rev-parse", "HEAD"));
+  const sha = head();
+  // P1: a dispatch starts hosted runners; the check runs first, on the commit it dispatches, whatever pre-flight receipts say.
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   if (git("status", "--porcelain", "--untracked-files=no")) throw new Error("tracked files changed before dispatch");
   const remote = git("ls-remote", "origin", "refs/heads/main").split(/\s+/)[0];
   if (remote !== sha) {
@@ -524,7 +541,7 @@ export async function cmdLoop(opts, deps = {}) {
   const canary = deps.canary ?? runCanaryChild;
   const pause = deps.pause ?? (() => new Promise((r) => setTimeout(r, 15_000)));
   const hold = deps.holdReason ?? holdReason;
-  if (!(await checkPasses(deps.check ?? runCheckChild, sha))) return 1;
+  if (!(await checkPasses(deps.check ?? runCheckChild, sha, head))) return 1;
   const active = new Map(), attempted = new Set(), held = new Set();
   let dispatchTail = Promise.resolve();
   let failed = false;
@@ -558,8 +575,9 @@ export async function cmdLoop(opts, deps = {}) {
       if (reason) { held.add(id); log(`${unit}: ${reason}`); continue; }
       attempted.add(id);
       const task = (async () => {
+        if (head() !== sha) throw new Error(`HEAD moved from ${sha.slice(0, 12)} before ${unit} started; nothing more runs at the checked commit`);
         if (needsCanary(unit, registry)) {
-          const verdict = await canary(unit, registry);
+          const verdict = await canary(unit, sha);
           if (verdict.code !== 0) {
             failed = true;
             const phase = verdict.code === CANARY_REGRESSION ? "canary" : "canary-incomplete";
@@ -569,6 +587,7 @@ export async function cmdLoop(opts, deps = {}) {
           }
         }
         const result = await preflight(unit, registry);
+        if (head() !== sha) throw new Error(`HEAD moved from ${sha.slice(0, 12)} while ${unit} was pre-flighted; its result is not for the checked commit`);
         if (result.code !== 0) {
           failed = true;
           const current = stateFn(); current.dispatches[key] = { unit, sha, registry, status: "failed", phase: "preflight", detail: result.last }; save(current);
