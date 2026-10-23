@@ -59,3 +59,16 @@ test("npm recipe policy mirrors the hosted refusal: a reviewed entry with matchi
   fs.rmSync(path.join(root, "ci", "consumers", "npm", "x", "consumer.mjs"));
   assert.match(npmRecipePolicy(root, "@rightkit/x").reason, /missing or not a regular file/);
 });
+
+test("@rightkit/release is refused while its bundled version feed is behind the registries; other units are not checked", async () => {
+  const { releaseFeedPolicy } = await import("./rk-npm-preflight.mjs");
+  const behind = async () => ({ changes: [{ registry: "cargo", name: "rightkit-qa", from: "0.7.1", to: "0.8.0" }] });
+  const current = async () => ({ changes: [] });
+  const offline = async () => { throw new Error("fetch failed"); };
+  const r = await releaseFeedPolicy("/x", "@rightkit/release", { sync: behind });
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /cargo rightkit-qa 0\.7\.1 -> 0\.8\.0/);
+  assert.equal((await releaseFeedPolicy("/x", "@rightkit/release", { sync: current })).ok, true);
+  assert.equal((await releaseFeedPolicy("/x", "@rightkit/release", { sync: offline })).ok, false, "an unreachable registry fails closed");
+  assert.deepEqual(await releaseFeedPolicy("/x", "@rightkit/qa", { sync: behind }), { ok: true, skipped: true });
+});

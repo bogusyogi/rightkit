@@ -106,7 +106,7 @@ export function matchRun(runs, query) {
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
 const PREFLIGHT_SHA256 = "44b1d589f6b6b9460e8f59a26bde17ef6f174ebb8adab571ccc17b629630d405";
-const NPM_PREFLIGHT_SHA256 = "007cb41064c0fccca5ac0696fb204415505c6d8505a6a36044fb09a32f9e9386";
+const NPM_PREFLIGHT_SHA256 = "4cc026b45d5ca77493617a9afd7f811f02d31cb763c633ae9eb88fb5020bc70a";
 const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
 // Filled from reviewed bytes; validate the complete static admission import tree before import.
 const ADMISSION_DEPENDENCIES = {

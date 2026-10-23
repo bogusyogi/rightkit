@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkTools, planCommandsFromWorkflow, readJson, SCHEMA, verifyAttestation, brokerRequestIds, DEFAULT_OUT } from "./rk-preflight.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
 import { closureAgeExceptions, validateClosureApproval } from "./npm-recipe-consumer.mjs";
@@ -103,6 +103,21 @@ export function npmRecipePolicy(root, unit) {
     }
   } catch (error) { return { ok: false, reason: `reviewed closure exception: ${error.message ?? error}` }; }
   return { ok: true, pkId: reviewed.pkId, id: reviewed.id, files: Object.keys(reviewed.files).length };
+}
+
+/** @rightkit/release ships packages/release/rightkit-versions.json, the allow-list every app's `right-release` doctor and
+ * seal check pins against. Publishing it while that list is behind crates.io/npm ships a doctor that refuses versions
+ * already published: HeardRight's seal was blocked twice that way (bogusyogi/rightkit#912 on 0.4.1, then 0.5.0 on
+ * 2026-10-23). Same comparison as `node packages/release/rightkit-sync.mjs --check`, as a blocking pre-flight row. */
+export async function releaseFeedPolicy(root, unit, { sync } = {}) {
+  if (unit !== "@rightkit/release") return { ok: true, skipped: true };
+  const run = sync ?? (await import(pathToFileURL(path.join(root, "packages", "release", "rightkit-sync.mjs")).href)).syncRightkitVersions;
+  let result;
+  try { result = await run({ check: true, file: path.join(root, "packages", "release", "rightkit-versions.json"), root, log: () => {} }); }
+  catch (error) { return { ok: false, reason: `release version feed could not be checked against the registries: ${error.message ?? error}` }; }
+  const behind = (result.changes ?? []).map((c) => `${c.registry} ${c.name} ${c.from ?? "unlisted"} -> ${c.to}`);
+  if (behind.length) return { ok: false, reason: `packages/release/rightkit-versions.json is behind the registries (${behind.join("; ")}); run node packages/release/rightkit-sync.mjs, commit, then publish`, behind };
+  return { ok: true, checked: true };
 }
 
 /** What the signed receipt of an adapter row must bind: the adapter id, this host's node and the pinned pnpm script. */
@@ -213,6 +228,9 @@ export async function main(argv, deps = {}) {
     }
     if (!failed) {
       const recipe = npmRecipePolicy(root, opts.unit);
+      const feed = await releaseFeedPolicy(root, opts.unit);
+      receipt.releaseFeed = feed;
+      if (!feed.ok) failed = { index: 0, command: "release version feed vs registries", exit: 1, timedOut: false, lines: [feed.reason] };
       receipt.npmRecipe = recipe;
       if (!recipe.ok) failed = { index: planCommands.length + 1, command: "npm-recipe policy", exit: 1, timedOut: false, lines: [recipe.reason] };
     }
