@@ -36,8 +36,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Key material: the key id is a function of the bytes and the version is kept.
     let first = key(1, 7)?;
     assert_eq!(first.version(), 1);
-    assert_eq!(first.key_id(), key(1, 7)?.key_id(), "same bytes, same key id");
-    assert_ne!(first.key_id(), key(1, 8)?.key_id(), "different bytes, different key id");
+    assert_eq!(
+        first.key_id(),
+        key(1, 7)?.key_id(),
+        "same bytes, same key id"
+    );
+    assert_ne!(
+        first.key_id(),
+        key(1, 8)?.key_id(),
+        "different bytes, different key id"
+    );
     assert!(
         matches!(key(0, 7), Err(Error::Invalid { .. })),
         "versions start at 1"
@@ -47,8 +55,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let notes = first.zone_key("demo-app", "notes")?;
     let notes_again = first.zone_key("demo-app", "notes")?;
     let calendar = first.zone_key("demo-app", "calendar")?;
-    assert_eq!(notes.as_bytes(), notes_again.as_bytes(), "zone keys are deterministic");
-    assert_ne!(notes.as_bytes(), calendar.as_bytes(), "zones are unrelated keys");
+    assert_eq!(
+        notes.as_bytes(),
+        notes_again.as_bytes(),
+        "zone keys are deterministic"
+    );
+    assert_ne!(
+        notes.as_bytes(),
+        calendar.as_bytes(),
+        "zones are unrelated keys"
+    );
     assert_eq!(notes.key_id(), first.key_id());
     assert_eq!(notes.version(), 1);
 
@@ -74,7 +90,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let older = provider
         .key_by_id(first.key_id())?
         .ok_or("version 1 is held")?;
-    assert_eq!(older.as_bytes(), notes.as_bytes(), "an older key resolves by id");
+    assert_eq!(
+        older.as_bytes(),
+        notes.as_bytes(),
+        "an older key resolves by id"
+    );
     let unknown = key(3, 5)?;
     assert!(
         provider.key_by_id(unknown.key_id())?.is_none(),
@@ -89,8 +109,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut requester, mut approver) = paired(&ctx)?;
     let requester_code = requester.code()?;
     let approver_code = approver.code()?;
-    assert_eq!(requester_code, approver_code, "both screens show the same code");
-    let wrong = if requester_code == "000001" { "000002" } else { "000001" };
+    assert_eq!(
+        requester_code, approver_code,
+        "both screens show the same code"
+    );
+    let wrong = if requester_code == "000001" {
+        "000002"
+    } else {
+        "000001"
+    };
     assert_eq!(
         approver.approve(wrong, &first).unwrap_err(),
         Error::SasMismatch { remaining: 2 },

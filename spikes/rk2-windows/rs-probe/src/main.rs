@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use windows::core::{factory, Error, Interface, Result};
 use windows::Foundation::Metadata::ApiInformation;
 use windows::Graphics::Capture::{
-    Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind, GraphicsCaptureItem,
-    GraphicsCaptureSession,
+    Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
+    GraphicsCaptureItem, GraphicsCaptureSession,
 };
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
@@ -28,7 +28,9 @@ use windows::Win32::Graphics::Direct3D11::{
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::IDXGIDevice;
-use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
+use windows::Win32::System::WinRT::Direct3D11::{
+    CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
+};
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindowVisible};
@@ -79,14 +81,20 @@ fn run(hwnd: HWND, out: &Path) -> Result<()> {
     ));
 
     // Borderless access (Windows 11 build 22000+). Recorded; the probe continues on any status.
-    let access = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)?.get()?;
+    let access =
+        GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless)?.get()?;
     log.push_str(&format!("graphicsCaptureAccessBorderless={:?}\n", access));
 
     // GraphicsCaptureItem for the HWND.
     let interop = factory::<GraphicsCaptureItem, IGraphicsCaptureItemInterop>()?;
     let item: GraphicsCaptureItem = unsafe { interop.CreateForWindow(hwnd)? };
     let size = item.Size()?;
-    log.push_str(&format!("item name={} size={}x{}\n", item.DisplayName()?, size.Width, size.Height));
+    log.push_str(&format!(
+        "item name={} size={}x{}\n",
+        item.DisplayName()?,
+        size.Width,
+        size.Height
+    ));
 
     // D3D11 device, wrapped as a WinRT IDirect3DDevice.
     let mut device: Option<ID3D11Device> = None;
@@ -131,7 +139,10 @@ fn run(hwnd: HWND, out: &Path) -> Result<()> {
         &windows::core::HSTRING::from("MinUpdateInterval"),
     )
     .unwrap_or(false);
-    log.push_str(&format!("ApiInformation GraphicsCaptureSession.MinUpdateInterval present={}\n", has_min_interval));
+    log.push_str(&format!(
+        "ApiInformation GraphicsCaptureSession.MinUpdateInterval present={}\n",
+        has_min_interval
+    ));
 
     session.StartCapture()?;
 
@@ -170,7 +181,10 @@ fn run(hwnd: HWND, out: &Path) -> Result<()> {
         MipLevels: 1,
         ArraySize: 1,
         Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
         Usage: D3D11_USAGE_STAGING,
         BindFlags: 0,
         CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
@@ -188,13 +202,22 @@ fn run(hwnd: HWND, out: &Path) -> Result<()> {
     let pitch = mapped.RowPitch as usize;
     let mut bgra = vec![0u8; w * h * 4];
     for y in 0..h {
-        let src = unsafe { std::slice::from_raw_parts((mapped.pData as *const u8).add(y * pitch), w * 4) };
+        let src = unsafe {
+            std::slice::from_raw_parts((mapped.pData as *const u8).add(y * pitch), w * 4)
+        };
         bgra[y * w * 4..(y + 1) * w * 4].copy_from_slice(src);
     }
     unsafe { context.Unmap(&staging, 0) };
-    log.push_str(&format!("frame {}x{} rowPitch={} readbackBytes={}\n", w, h, pitch, bgra.len()));
+    log.push_str(&format!(
+        "frame {}x{} rowPitch={} readbackBytes={}\n",
+        w,
+        h,
+        pitch,
+        bgra.len()
+    ));
 
-    write_bmp(&out.join("frame.bmp"), w, h, &bgra).map_err(|e| Error::new(E_FAIL, e.to_string()))?;
+    write_bmp(&out.join("frame.bmp"), w, h, &bgra)
+        .map_err(|e| Error::new(E_FAIL, e.to_string()))?;
 
     frame.Close()?;
     session.Close()?;

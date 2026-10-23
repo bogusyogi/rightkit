@@ -971,7 +971,7 @@
       "files": {
         "Cargo.toml": "f3b9a78d19215ae51b4bcd5502e6b32d6bb8acf775e37c93c625752f8f7506d3",
         "README.md": "58c0118b9c329391b6fa00791e410bca903f24dfc68fe982084642d5b1f629e1",
-        "src/main.rs": "44c1410c42fe5706e49d5224dad460a2a82ee68b19c553a5d0d17f93881300b0"
+        "src/main.rs": "f2e73d403e393647e26a9b3dfbca00c3149f6e7a92dac32ad51a5ba3dfd2f04e"
       },
       "aggregateSha256": "dd861970191eb2b66691b5d4687b5ad99b3baece8fb97457e917d2b3fa95286d"
     }
