@@ -1,11 +1,12 @@
 //! Black-box driving of an app's engine binary: one-shot CLI words and the
 //! framed stdio sidecar protocol (newline-delimited JSON through
 //! `rightkit-sidecar`). Nothing mocks the engine.
-use crate::process::{run_owned, RunOptions, Tracker};
+use crate::process::{run_owned, RunOptions, RunnerOwner, Tracker};
 use crate::util::{err, Error, Result};
 use rightkit_child_process::{OwnedChild, OwnedCommand};
 use rightkit_sidecar::{read_json_line, write_json_line, FrameError};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -21,6 +22,10 @@ const TIMEOUT_PREFIX: &str = "sidecar timeout after";
 const DEFAULT_EVENT_LIMIT: usize = 2_048;
 /// Bytes of engine stderr kept unless [`Sidecar::set_stderr_limit`] changes it.
 const DEFAULT_STDERR_LIMIT: usize = 256 * 1024;
+/// [`Sidecar::stderr_since`] waits this long, then again while the stderr total is still growing.
+const STDERR_SETTLE: Duration = Duration::from_millis(2);
+/// Most waits of [`STDERR_SETTLE`] for one read: a hard stop for an engine that never stops writing.
+const STDERR_SETTLE_POLLS: u32 = 100;
 
 /// An engine binary and how to launch it without touching real user data.
 ///
@@ -253,7 +258,19 @@ impl EngineTarget {
     }
 
     pub fn start_sidecar(&self, opts: &CliOptions, tracker: &Tracker) -> Result<Sidecar> {
-        Sidecar::start(self, opts, tracker)
+        Sidecar::start(self, opts, tracker, None)
+    }
+
+    /// Like [`EngineTarget::start_sidecar`], and every byte of the engine's stderr is also appended to
+    /// `spill` as it arrives (the file is created or truncated first). [`Sidecar::stderr_since`] then
+    /// reads a call's stderr from it, so the in-memory limit cannot hide output.
+    pub fn start_sidecar_spilling(
+        &self,
+        opts: &CliOptions,
+        tracker: &Tracker,
+        spill: &Path,
+    ) -> Result<Sidecar> {
+        Sidecar::start(self, opts, tracker, Some(spill))
     }
 }
 
@@ -287,6 +304,8 @@ pub struct Sidecar {
     /// Sidecar-level pin set by `set_frame_shape`; beats `legacy_status_frames` and the hello.
     frame_shape: Option<bool>,
     tracker: Tracker,
+    /// File holding every byte of engine stderr, when the sidecar was started with one.
+    spill: Option<PathBuf>,
 }
 
 /// Runtime figures of a running sidecar, computed on call by [`Sidecar::status`].
@@ -375,6 +394,12 @@ struct StderrBuf {
     limit: usize,
     /// Bytes dropped from the front since the sidecar started.
     dropped: u64,
+    /// Bytes pushed since the sidecar started, kept or not: the offset a [`Sidecar::stderr_mark`] names.
+    written: u64,
+    /// Every pushed byte, appended as it arrives, so the memory limit never hides engine output from
+    /// a secret scan. Dropped (and `spill_failed` set) when a write fails.
+    spill: Option<std::fs::File>,
+    spill_failed: bool,
 }
 
 impl StderrBuf {
@@ -384,10 +409,20 @@ impl StderrBuf {
             start: 0,
             limit,
             dropped: 0,
+            written: 0,
+            spill: None,
+            spill_failed: false,
         }
     }
 
     fn push(&mut self, chunk: &str) {
+        self.written += chunk.len() as u64;
+        if let Some(file) = self.spill.as_mut() {
+            if file.write_all(chunk.as_bytes()).is_err() {
+                self.spill = None;
+                self.spill_failed = true;
+            }
+        }
         self.text.push_str(chunk);
         self.trim();
     }
@@ -441,8 +476,22 @@ impl StderrBuf {
 }
 
 impl Sidecar {
-    fn start(engine: &EngineTarget, opts: &CliOptions, tracker: &Tracker) -> Result<Self> {
+    fn start(
+        engine: &EngineTarget,
+        opts: &CliOptions,
+        tracker: &Tracker,
+        spill: Option<&Path>,
+    ) -> Result<Self> {
         engine.check_launch(&["--stdio".to_string()], opts)?;
+        let spill_file = match spill {
+            Some(path) => Some(std::fs::File::create(path).map_err(|e| {
+                Error(format!(
+                    "cannot create sidecar stderr file {}: {e}",
+                    path.display()
+                ))
+            })?),
+            None => None,
+        };
         let mut cmd = Command::new(&engine.binary);
         cmd.arg("--stdio")
             .stdin(Stdio::piped())
@@ -460,13 +509,14 @@ impl Sidecar {
             ))
         })?;
         let pid = child.id();
-        tracker.register(pid, "engine --stdio");
+        tracker.register_owned(pid, "engine --stdio", RunnerOwner::Sidecar);
         let stdin = child.take_stdin();
         let stdout = child
             .take_stdout()
             .ok_or_else(|| Error("sidecar stdout unavailable".into()))?;
         let mut stderr_pipe = child.take_stderr();
         let stderr = Arc::new(Mutex::new(StderrBuf::new(DEFAULT_STDERR_LIMIT)));
+        stderr.lock().unwrap().spill = spill_file;
         let sink = stderr.clone();
         std::thread::spawn(move || {
             use std::io::Read;
@@ -515,6 +565,7 @@ impl Sidecar {
             detected_legacy: None,
             frame_shape: None,
             tracker: tracker.clone(),
+            spill: spill.map(Path::to_path_buf),
         }
         .finish_start()
     }
@@ -588,6 +639,179 @@ impl Sidecar {
 
     pub fn stderr_tail(&self) -> String {
         self.stderr.lock().unwrap().tail(1500)
+    }
+
+    /// Bytes of engine stderr received so far, including what the memory limit has dropped. Pass it
+    /// to [`Sidecar::stderr_since`] to read what the engine writes after this point.
+    pub fn stderr_mark(&self) -> u64 {
+        self.stderr.lock().map_or(0, |s| s.written)
+    }
+
+    /// The engine stderr written since `mark`. The reader thread drains the pipe on its own and the
+    /// engine wrote its stderr before it answered, so the total is polled until it stops growing.
+    /// With a stderr file ([`EngineTarget::start_sidecar_spilling`]) the text is complete whatever
+    /// the memory limit; without one, or after a file write failed, it is the retained tail and
+    /// `complete` says whether that covered everything since `mark`.
+    pub fn stderr_since(&self, mark: u64) -> StderrSlice {
+        let mut now = self.stderr_mark();
+        for _ in 0..STDERR_SETTLE_POLLS {
+            std::thread::sleep(STDERR_SETTLE);
+            let again = self.stderr_mark();
+            if again == now {
+                break;
+            }
+            now = again;
+        }
+        let bytes = now.saturating_sub(mark);
+        if bytes == 0 {
+            return StderrSlice {
+                text: String::new(),
+                complete: true,
+                bytes: 0,
+            };
+        }
+        let spill_ok = self.stderr.lock().is_ok_and(|s| !s.spill_failed);
+        if let (Some(path), true) = (&self.spill, spill_ok) {
+            use std::io::{Read, Seek, SeekFrom};
+            let read = std::fs::File::open(path).and_then(|mut f| {
+                f.seek(SeekFrom::Start(mark))?;
+                let mut buf = Vec::new();
+                f.take(bytes).read_to_end(&mut buf)?;
+                Ok(buf)
+            });
+            if let Ok(buf) = read {
+                if buf.len() as u64 == bytes {
+                    return StderrSlice {
+                        text: String::from_utf8_lossy(&buf).into_owned(),
+                        complete: true,
+                        bytes,
+                    };
+                }
+            }
+        }
+        let buf = self.stderr.lock().unwrap();
+        let kept = buf.retained();
+        match kept.get(kept.len().saturating_sub(bytes as usize)..) {
+            Some(text) if bytes as usize <= kept.len() => StderrSlice {
+                text: text.to_string(),
+                complete: true,
+                bytes,
+            },
+            _ => StderrSlice {
+                text: kept.to_string(),
+                complete: false,
+                bytes,
+            },
+        }
+    }
+
+    /// One engine command the way the one-shot CLI answers it, so a `cli` step sees the same result
+    /// shape from a long-lived engine (`code`, `json`, `stdout`, `stderr`, `events`, `timed_out`).
+    ///
+    /// - The body is the response's `result`, or `{"error": <the response's error>}`.
+    /// - `code` is the CLI's exit code: taken from the response when it carries an integer
+    ///   `exit_code` (`exit_code_source` is then `"protocol"`), otherwise ok maps to 0 and an error
+    ///   to 1 (`"derived"`; the protocol cannot say 2, the usage code).
+    /// - `events` are the event frames since the previous call, each unwrapped to its inner `event`
+    ///   as the CLI prints it on stderr.
+    /// - `stderr` is the engine's stderr since the previous call; see [`Sidecar::stderr_since`].
+    ///
+    /// `Ok(CliServed::NotServed)` is the dispatcher's exact refusal of the method (see
+    /// [`is_unknown_method_refusal`]); a handler's own error is an answer. An `Err` is a sidecar that
+    /// died, closed its pipes or did not answer in time.
+    pub fn serve_cli(
+        &mut self,
+        method: &str,
+        input: Option<&Value>,
+        timeout: Duration,
+    ) -> Result<CliServed> {
+        let events_before = self.events.len() as u64 + self.events_dropped;
+        let mark = self.stderr_mark();
+        let (legacy, _) = self.resolve_shape(None);
+        let params = input.cloned().unwrap_or_else(|| json!({}));
+        let frame = self
+            .request(command_frame(method, params, legacy), timeout)
+            .map_err(|x| x.error)?;
+        let failed = if legacy {
+            frame["status"] == "err"
+        } else {
+            frame["ok"] != json!(true)
+        };
+        if failed && is_unknown_method_refusal(&frame, method) {
+            return Ok(CliServed::NotServed);
+        }
+        let new_events =
+            (self.events.len() as u64 + self.events_dropped).saturating_sub(events_before) as usize;
+        let held = self.events.len();
+        let events = self.events[held - new_events.min(held)..]
+            .iter()
+            .map(|f| f.get("event").cloned().unwrap_or_else(|| f.clone()))
+            .collect();
+        let stderr = self.stderr_since(mark);
+        let json = if failed {
+            let error = match frame.get("error") {
+                Some(e) if e.is_object() => e.clone(),
+                _ => json!({"code": "error", "message": ""}),
+            };
+            json!({ "error": error })
+        } else {
+            frame["result"].clone()
+        };
+        let carried = frame["exit_code"]
+            .as_i64()
+            .and_then(|c| i32::try_from(c).ok());
+        let exit_code_source = if carried.is_some() {
+            "protocol"
+        } else {
+            "derived"
+        };
+        let code = carried.unwrap_or(i32::from(failed));
+        let mut text = stderr.text;
+        if !stderr.complete {
+            text = format!(
+                "[sidecar stderr capped: {} bytes written since the previous call, last {} kept]\n{text}",
+                stderr.bytes,
+                text.len()
+            );
+        }
+        Ok(CliServed::Answer(Box::new(ServedCli {
+            result: CliResult {
+                code: Some(code),
+                stdout: format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(&json).unwrap_or_default()
+                ),
+                json,
+                stderr: text,
+                events,
+                timed_out: false,
+            },
+            exit_code_source,
+            events_truncated: new_events > held,
+            stderr_complete: stderr.complete,
+        })))
+    }
+
+    /// Kill the engine's process tree now, without closing stdin first and without a grace period:
+    /// a crash the scenario causes on purpose. Returns the exit code when the process was reaped.
+    /// Later requests fail with `sidecar stdin closed`.
+    pub fn kill(&mut self) -> Option<i32> {
+        self.stdin.take();
+        let mut code = None;
+        if let Some(mut child) = self.child.take() {
+            let (status, note) = crate::process::terminate_bounded(&mut child);
+            code = status.and_then(|s| s.code());
+            if let Some(note) = note {
+                eprintln!("{note}");
+            }
+        }
+        self.tracker.forget(self.pid);
+        code
+    }
+
+    /// The file holding all of this sidecar's stderr, when it was started with one.
+    pub fn stderr_file(&self) -> Option<&Path> {
+        self.spill.as_deref()
     }
 
     /// Buffers a frame that is neither the hello nor an awaited response. A request waiting on
@@ -752,6 +976,878 @@ impl Drop for Sidecar {
     }
 }
 
+// ------------------------------------------------------------------------- engine per scenario
+
+/// Engine stderr read since a [`Sidecar::stderr_mark`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StderrSlice {
+    pub text: String,
+    /// False when the text is only the last part of what was written (memory limit, no stderr file).
+    pub complete: bool,
+    /// Bytes written since the mark.
+    pub bytes: u64,
+}
+
+/// What [`Sidecar::serve_cli`] got back.
+#[derive(Debug, Clone)]
+pub enum CliServed {
+    Answer(Box<ServedCli>),
+    /// The dispatcher refused the method as unknown ([`is_unknown_method_refusal`]).
+    NotServed,
+}
+
+/// One command answered by a sidecar in the shape of a one-shot CLI call.
+#[derive(Debug, Clone)]
+pub struct ServedCli {
+    pub result: CliResult,
+    /// Where `result.code` came from: `"protocol"` (the response carried `exit_code`) or `"derived"`
+    /// (ok is 0, error is 1; the stdio protocol cannot say 2).
+    pub exit_code_source: &'static str,
+    /// More event frames arrived during the call than the sidecar keeps; `result.events` is the newest part.
+    pub events_truncated: bool,
+    pub stderr_complete: bool,
+}
+
+/// The dispatcher's own refusal of `method`: code `unknown_method` and exactly `unknown method: <method>`.
+/// A handler's error, even with that code, names something else (an id, a sub-command) or carries
+/// another code, so it is an answer and never a reason to launch a cold process.
+pub fn is_unknown_method_refusal(frame: &Value, method: &str) -> bool {
+    frame["error"]["code"] == "unknown_method"
+        && frame["error"]["message"].as_str() == Some(&format!("unknown method: {method}"))
+}
+
+/// Why a scenario may launch an engine process for one command instead of using its sidecar (Sage
+/// C3(a)). Each cold declaration names exactly one.
+pub const COLD_REASONS: [&str; 7] = [
+    "startup",
+    "restart",
+    "recovery",
+    "role-change",
+    // The command takes the exclusive store lock: every sidecar of the scenario is closed first.
+    "store-lock",
+    // The step tests argv or CLI parsing itself (a non-object `--input`, flags, several words).
+    "cli-entry",
+    // The command is not a method the dispatcher serves (`doctor`, `ping`, ...).
+    "non-method",
+];
+
+/// `s` as one of [`COLD_REASONS`].
+pub fn parse_cold_reason(s: &str) -> Result<&'static str> {
+    COLD_REASONS
+        .iter()
+        .copied()
+        .find(|r| *r == s)
+        .ok_or_else(|| {
+            Error(format!(
+                "cold reason `{s}` is not one of: {}",
+                COLD_REASONS.join(", ")
+            ))
+        })
+}
+
+/// How an [`EngineSession`] reaches the engine: [`TargetHost`] for a real binary, a fake in tests.
+pub trait EngineHost {
+    /// Start a `--stdio` sidecar (`stderr_file`: see [`EngineTarget::start_sidecar_spilling`]).
+    fn start(&self, opts: &CliOptions, stderr_file: Option<&Path>) -> Result<Sidecar>;
+    /// One cold process: the one-shot CLI.
+    fn cold(&self, args: &[String], opts: &CliOptions) -> Result<CliResult>;
+}
+
+/// An [`EngineTarget`] and the tracker its processes register with.
+pub struct TargetHost<'a> {
+    pub target: &'a EngineTarget,
+    pub tracker: &'a Tracker,
+}
+
+impl EngineHost for TargetHost<'_> {
+    fn start(&self, opts: &CliOptions, stderr_file: Option<&Path>) -> Result<Sidecar> {
+        match stderr_file {
+            Some(file) => self.target.start_sidecar_spilling(opts, self.tracker, file),
+            None => self.target.start_sidecar(opts, self.tracker),
+        }
+    }
+
+    fn cold(&self, args: &[String], opts: &CliOptions) -> Result<CliResult> {
+        self.target.cli(args, opts, self.tracker)
+    }
+}
+
+/// The identity of an env set: the step's launch variables, sorted, a later value of a key winning
+/// (keys are case-insensitive on Windows). The environment is read once, when the engine starts, so
+/// one sidecar can serve only the steps that name the same set; a different role is a different set.
+pub fn env_set_id(env: &[(String, String)]) -> String {
+    let mut set: BTreeMap<String, &str> = BTreeMap::new();
+    for (k, v) in env {
+        let key = if cfg!(windows) {
+            k.to_ascii_lowercase()
+        } else {
+            k.clone()
+        };
+        set.insert(key, v);
+    }
+    set.iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
+/// The engine processes one scenario started (ADR-0001 item 5, Sage C3(b)).
+///
+/// The scenario may hold one sidecar per distinct env set (a role). Starts allowed =
+/// distinct env sets that started a sidecar + declared restarts (`restart`, `kill`) + declared cold
+/// launches + one reopen for each sidecar a `store-lock` cold launch closed + scenario-started
+/// sidecars (`sidecar_start`, each its own declaration). More starts than that fail the scenario
+/// as `errored`. A start the scenario did not declare (a cold launch for an unknown method or a
+/// non-object input, a plugin `spawn` with `engine: true`) still happens and still counts, is never
+/// allowed, and makes the scenario `errored` by itself, whatever allowance is left over. A restart,
+/// kill or store-lock closure allows its replacement start only when that start happens.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EngineStarts {
+    /// Sidecars the session started, restarts and reopens included.
+    pub sidecar_starts: u32,
+    /// One-shot CLI processes, declared or not.
+    pub cold_launches: u32,
+    /// Sidecars the scenario started itself with `sidecar_start`.
+    pub scenario_sidecars: u32,
+    /// Engine processes a `start_daemon` step started (the step is its own declaration).
+    pub daemon_engines: u32,
+    /// Engine processes the step plugin started with `spawn` `engine: true`. Counted, never
+    /// allowed: each is also recorded in `undeclared`.
+    pub spawned_engines: u32,
+    /// Distinct env sets that started a session sidecar.
+    pub env_sets: u32,
+    /// Replacement starts a `restart` or `kill` step made room for, counted when the replacement
+    /// actually starts (a `kill` nobody follows up allows nothing).
+    pub declared_restarts: u32,
+    /// Cold launches that named a reason.
+    pub declared_cold: u32,
+    /// Sidecars a `store-lock` cold launch closed that then reopened (counted at the reopen).
+    pub store_lock_reopens: u32,
+    /// Cold starts the step plugin declared itself (`spawn` `engine: true` with a `cold_reason`),
+    /// counted in `declared_cold` too. They are not in the reviewed scenario file, so they are
+    /// listed apart in [`EngineStarts::plugin_declared`], each with the plugin step that made it.
+    pub plugin_declared_cold: u32,
+    pub plugin_declared: Vec<PluginDeclaredStart>,
+    /// Starts per env set: `#<n> default`, or `#<n> env <KEYS>` (values never appear), n by first use.
+    pub by_env_set: BTreeMap<String, u32>,
+    pub cold_reasons: BTreeMap<String, u32>,
+    /// Cold launches the scenario did not declare, each with what to declare.
+    pub undeclared: Vec<String>,
+    /// Sidecars that failed to start, died or did not answer. Any is an `errored` scenario.
+    pub crashes: Vec<String>,
+}
+
+/// One cold engine start the step plugin declared at run time (not the scenario file).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginDeclaredStart {
+    /// The scenario step number (1-based) the plugin call ran under; `None` outside a step (the
+    /// plugin's `setup` or teardown).
+    pub step: Option<usize>,
+    pub cold_reason: String,
+    /// What started, as the spawn named it.
+    pub what: String,
+}
+
+impl PluginDeclaredStart {
+    pub fn to_value(&self) -> Value {
+        json!({
+            "declared_by": "plugin",
+            "step": self.step,
+            "cold_reason": self.cold_reason,
+            "what": self.what,
+        })
+    }
+}
+
+/// Every engine start that happened: sidecars, cold launches, scenario sidecars, daemons and
+/// plugin spawns. Shared by [`EngineStarts::total`] and the receipt validator (`journeys::receipt`),
+/// so the two cannot disagree on what a start is.
+pub fn engine_start_total(
+    sidecar_starts: u32,
+    cold_launches: u32,
+    scenario_sidecars: u32,
+    daemon_engines: u32,
+    spawned_engines: u32,
+) -> u32 {
+    sidecar_starts + cold_launches + scenario_sidecars + daemon_engines + spawned_engines
+}
+
+/// Starts the scenario may make: one per env set, plus declared restarts, declared cold launches,
+/// store-lock reopens, scenario sidecars and daemons. Shared by [`EngineStarts::allowed`] and the
+/// receipt validator, so the rule has one definition.
+pub fn engine_start_allowance(
+    env_sets: u32,
+    declared_restarts: u32,
+    declared_cold: u32,
+    store_lock_reopens: u32,
+    scenario_sidecars: u32,
+    daemon_engines: u32,
+) -> u32 {
+    env_sets
+        + declared_restarts
+        + declared_cold
+        + store_lock_reopens
+        + scenario_sidecars
+        + daemon_engines
+}
+
+impl EngineStarts {
+    pub fn total(&self) -> u32 {
+        engine_start_total(
+            self.sidecar_starts,
+            self.cold_launches,
+            self.scenario_sidecars,
+            self.daemon_engines,
+            self.spawned_engines,
+        )
+    }
+
+    pub fn allowed(&self) -> u32 {
+        engine_start_allowance(
+            self.env_sets,
+            self.declared_restarts,
+            self.declared_cold,
+            self.store_lock_reopens,
+            self.scenario_sidecars,
+            self.daemon_engines,
+        )
+    }
+
+    /// `Some(..)` when the scenario started more than it declared, or started anything it did not
+    /// declare at all. An undeclared start is a violation by itself: unused allowance elsewhere
+    /// (a declared restart whose replacement never started) cannot cover it.
+    pub fn violation(&self) -> Option<String> {
+        let (total, allowed) = (self.total(), self.allowed());
+        if total <= allowed && self.undeclared.is_empty() {
+            return None;
+        }
+        let undeclared = if self.undeclared.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; undeclared engine launches: {}",
+                self.undeclared.join(" | ")
+            )
+        };
+        let head = if total > allowed {
+            format!("engine starts {total} > allowed {allowed}")
+        } else {
+            format!("undeclared engine launch (engine starts {total}, allowed {allowed})")
+        };
+        Some(format!(
+            "{head} (env sets {} + declared restarts {} + declared cold {} + store-lock reopens {} + scenario sidecars {} + daemons {}; started {} sidecar(s), {} cold launch(es), {} plugin-spawned engine(s){undeclared})",
+            self.env_sets,
+            self.declared_restarts,
+            self.declared_cold,
+            self.store_lock_reopens,
+            self.scenario_sidecars,
+            self.daemon_engines,
+            self.sidecar_starts,
+            self.cold_launches,
+            self.spawned_engines
+        ))
+    }
+
+    /// Every reason the scenario is `errored` on account of its engines: crashes, then the count check.
+    pub fn errored(&self) -> Vec<String> {
+        let mut out = self.crashes.clone();
+        out.extend(self.violation());
+        out
+    }
+
+    pub fn to_value(&self) -> Value {
+        json!({
+            "engine_starts": self.total(),
+            "allowed": self.allowed(),
+            "sidecar_starts": self.sidecar_starts,
+            "cold_launches": self.cold_launches,
+            "scenario_sidecars": self.scenario_sidecars,
+            "daemon_engines": self.daemon_engines,
+            "spawned_engines": self.spawned_engines,
+            "env_sets": self.env_sets,
+            "declared_restarts": self.declared_restarts,
+            "declared_cold": self.declared_cold,
+            "store_lock_reopens": self.store_lock_reopens,
+            "plugin_declared_cold": self.plugin_declared_cold,
+            "plugin_declared": self
+                .plugin_declared
+                .iter()
+                .map(PluginDeclaredStart::to_value)
+                .collect::<Vec<_>>(),
+            "by_env_set": self.by_env_set,
+            "cold_reasons": self.cold_reasons,
+            "undeclared": self.undeclared,
+            "crashes": self.crashes,
+        })
+    }
+}
+
+/// How a call was served.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Via {
+    Sidecar,
+    Cold,
+}
+
+/// Where a `cli` call goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// The scenario's sidecar for the call's env set. A call it cannot serve goes cold, undeclared.
+    Session,
+    /// A cold process, declared with this reason.
+    Cold(&'static str),
+}
+
+/// One `cli` call: the words, the launch options (`env` picks the sidecar) and a label for messages.
+pub struct CliCall<'a> {
+    pub args: &'a [String],
+    pub opts: &'a CliOptions,
+    pub label: &'a str,
+}
+
+/// A call's result and how it was reached.
+#[derive(Debug, Clone)]
+pub struct Served {
+    pub result: CliResult,
+    pub via: Via,
+    /// `"process"` for a cold call; see [`ServedCli::exit_code_source`] for a sidecar.
+    pub exit_code_source: &'static str,
+    pub events_truncated: bool,
+    pub stderr_complete: bool,
+    pub env_set: String,
+    pub cold_reason: Option<&'static str>,
+}
+
+impl Served {
+    /// The step result: the CLI shape plus `via`, `env_set`, `exit_code_source` and, when they apply,
+    /// `cold_reason`, `stderr_complete: false` and `events_truncated: true`.
+    pub fn to_value(&self) -> Value {
+        let mut v = self.result.to_value();
+        v["via"] = json!(match self.via {
+            Via::Sidecar => "sidecar",
+            Via::Cold => "cold",
+        });
+        v["env_set"] = json!(self.env_set);
+        v["exit_code_source"] = json!(self.exit_code_source);
+        if let Some(reason) = self.cold_reason {
+            v["cold_reason"] = json!(reason);
+        }
+        if !self.stderr_complete {
+            v["stderr_complete"] = json!(false);
+        }
+        if self.events_truncated {
+            v["events_truncated"] = json!(true);
+        }
+        v
+    }
+}
+
+/// The verdict of one parity check.
+#[derive(Debug, Clone)]
+pub struct ParityReport {
+    pub command: String,
+    /// Empty when cold and in-session agree.
+    pub differences: Vec<String>,
+    /// Where the in-session exit code came from (see [`ServedCli::exit_code_source`]).
+    pub exit_code_source: &'static str,
+    /// False when the stdio protocol cannot carry the exit code: only body and error class are compared.
+    pub exit_code_compared: bool,
+    pub cold: CliResult,
+    pub session: CliResult,
+}
+
+impl ParityReport {
+    pub fn equal(&self) -> bool {
+        self.differences.is_empty()
+    }
+
+    pub fn to_value(&self) -> Value {
+        let side =
+            |r: &CliResult| json!({"code": r.code, "json": r.json, "events": r.events.len()});
+        json!({
+            "command": self.command,
+            "equal": self.equal(),
+            "differences": self.differences,
+            "compares": if self.exit_code_compared {
+                "json body, error class, exit code"
+            } else {
+                "json body and error class only: the stdio protocol does not carry the CLI exit code"
+            },
+            "exit_code_compared": self.exit_code_compared,
+            "exit_code_source": self.exit_code_source,
+            "cold": side(&self.cold),
+            "session": side(&self.session),
+        })
+    }
+}
+
+/// The error class of a CLI body: `error.code` (or the string `error`), `None` for an ok body.
+fn error_class(body: &Value) -> Option<String> {
+    match body.get("error") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s.clone()),
+        Some(e) => Some(e["code"].as_str().unwrap_or("error").to_string()),
+    }
+}
+
+/// Differences between a cold result and an in-session one (Sage C3(c)): the JSON body, the error
+/// class when both failed, and the exit code. The exit code is compared only when
+/// `session_exit_code_source` is `"protocol"`; a derived code is invented from ok/error and proves
+/// nothing, so it is left out and [`ParityReport::exit_code_compared`] says so.
+pub fn compare_parity(
+    cold: &CliResult,
+    session: &CliResult,
+    session_exit_code_source: &str,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    match (error_class(&cold.json), error_class(&session.json)) {
+        (None, None) => {
+            if cold.json != session.json {
+                out.push(format!(
+                    "JSON body differs: cold {} vs in-session {}",
+                    crate::util::tail(&cold.json.to_string(), 400),
+                    crate::util::tail(&session.json.to_string(), 400)
+                ));
+            }
+        }
+        (Some(a), Some(b)) => {
+            if a != b {
+                out.push(format!(
+                    "error class differs: cold `{a}` vs in-session `{b}`"
+                ));
+            }
+        }
+        (a, b) => out.push(format!(
+            "outcome differs: cold {} vs in-session {}",
+            a.map_or("ok".to_string(), |c| format!("error `{c}`")),
+            b.map_or("ok".to_string(), |c| format!("error `{c}`"))
+        )),
+    }
+    if session_exit_code_source == "protocol" && cold.code != session.code {
+        out.push(format!(
+            "exit code differs: cold {:?} vs in-session {:?}",
+            cold.code, session.code
+        ));
+    }
+    out
+}
+
+/// Why `call` cannot be answered by a sidecar at all, or `None`.
+fn session_ineligible(call: &CliCall) -> Option<&'static str> {
+    let [word] = call.args else {
+        return Some("not exactly one method word");
+    };
+    if word.starts_with('-') {
+        return Some("a flag, not a method");
+    }
+    match &call.opts.input {
+        Some(i) if !i.is_object() && !i.is_null() => {
+            Some("input is not a JSON object (the CLI answers 2)")
+        }
+        _ => None,
+    }
+}
+
+struct EnvSet {
+    label: String,
+    sidecar_started: bool,
+}
+
+/// Why the next start of an env set is a replacement the scenario made room for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Replace {
+    /// A `restart` or `kill` step closed the set's sidecar.
+    Restart,
+    /// A `store-lock` cold launch closed it.
+    StoreLockReopen,
+}
+
+/// One scenario's engine: a `--stdio` sidecar per distinct env set, started on first use, and the
+/// counter of every engine process the scenario started. The scenario owns it for its whole run and
+/// stops it (see [`EngineSession::close_all`]) before survivors are recorded.
+pub struct EngineSession {
+    slots: BTreeMap<String, Sidecar>,
+    /// Env sets whose next start is an allowed replacement (counted when it starts).
+    pending: BTreeMap<String, Replace>,
+    sets: BTreeMap<String, EnvSet>,
+    stderr_dir: Option<PathBuf>,
+    stderr_files: Vec<PathBuf>,
+    starts: EngineStarts,
+}
+
+impl EngineSession {
+    /// `stderr_dir`: where each sidecar keeps all of its stderr (`engine-sidecar-NN.stderr.log`).
+    pub fn new(stderr_dir: Option<PathBuf>) -> Self {
+        Self {
+            slots: BTreeMap::new(),
+            pending: BTreeMap::new(),
+            sets: BTreeMap::new(),
+            stderr_dir,
+            stderr_files: Vec::new(),
+            starts: EngineStarts::default(),
+        }
+    }
+
+    pub fn starts(&self) -> &EngineStarts {
+        &self.starts
+    }
+
+    /// The stderr files of every sidecar started so far; complete once [`EngineSession::close_all`] ran.
+    pub fn stderr_files(&self) -> &[PathBuf] {
+        &self.stderr_files
+    }
+
+    /// Sidecars running now.
+    pub fn live_sidecars(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// The set's label, assigned on first sight.
+    fn label(&mut self, id: &str, env: &[(String, String)]) -> String {
+        let next = self.sets.len() + 1;
+        self.sets
+            .entry(id.to_string())
+            .or_insert_with(|| {
+                let mut keys: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
+                keys.sort_unstable();
+                keys.dedup();
+                EnvSet {
+                    label: if keys.is_empty() {
+                        format!("#{next} default")
+                    } else {
+                        format!("#{next} env {}", keys.join(","))
+                    },
+                    sidecar_started: false,
+                }
+            })
+            .label
+            .clone()
+    }
+
+    fn count_start(&mut self, label: &str) {
+        *self.starts.by_env_set.entry(label.to_string()).or_default() += 1;
+    }
+
+    /// Start the sidecar for env set `id` (counted even when the start fails).
+    fn open(
+        &mut self,
+        host: &dyn EngineHost,
+        opts: &CliOptions,
+        id: &str,
+        label: &str,
+    ) -> Result<()> {
+        self.starts.sidecar_starts += 1;
+        self.count_start(label);
+        // A replacement the scenario made room for is allowed now that it starts, not before.
+        match self.pending.remove(id) {
+            Some(Replace::Restart) => self.starts.declared_restarts += 1,
+            Some(Replace::StoreLockReopen) => self.starts.store_lock_reopens += 1,
+            None => {}
+        }
+        if let Some(set) = self.sets.get_mut(id) {
+            if !set.sidecar_started {
+                set.sidecar_started = true;
+                self.starts.env_sets += 1;
+            }
+        }
+        let file = self.stderr_dir.as_ref().map(|d| {
+            d.join(format!(
+                "engine-sidecar-{:02}.stderr.log",
+                self.starts.sidecar_starts
+            ))
+        });
+        let start = CliOptions {
+            input: None,
+            ..opts.clone()
+        };
+        let started = host.start(&start, file.as_deref());
+        if let Some(f) = file.filter(|f| f.exists()) {
+            self.stderr_files.push(f);
+        }
+        match started {
+            Ok(sidecar) => {
+                self.slots.insert(id.to_string(), sidecar);
+                Ok(())
+            }
+            Err(e) => {
+                self.starts.crashes.push(format!(
+                    "engine sidecar for env set {label} failed to start: {}",
+                    e.0
+                ));
+                Err(e)
+            }
+        }
+    }
+
+    /// One call on the sidecar for the call's env set, started on first use. `Ok(None)`: the engine's
+    /// dispatcher refuses the method. An `Err` is an engine that died or went silent, recorded as a crash.
+    fn session_call(&mut self, host: &dyn EngineHost, call: &CliCall) -> Result<Option<Served>> {
+        let id = env_set_id(&call.opts.env);
+        let label = self.label(&id, &call.opts.env);
+        if !self.slots.contains_key(&id) {
+            self.open(host, call.opts, &id, &label)?;
+        }
+        let timeout = call.opts.timeout.unwrap_or(Duration::from_secs(120));
+        let answer = {
+            let sidecar = self
+                .slots
+                .get_mut(&id)
+                .ok_or_else(|| Error("engine sidecar vanished".into()))?;
+            sidecar.serve_cli(&call.args[0], call.opts.input.as_ref(), timeout)
+        };
+        match answer {
+            Ok(CliServed::Answer(a)) => {
+                let a = *a;
+                Ok(Some(Served {
+                    result: a.result,
+                    via: Via::Sidecar,
+                    exit_code_source: a.exit_code_source,
+                    events_truncated: a.events_truncated,
+                    stderr_complete: a.stderr_complete,
+                    env_set: label,
+                    cold_reason: None,
+                }))
+            }
+            Ok(CliServed::NotServed) => Ok(None),
+            Err(e) => {
+                // A sidecar that stopped answering is gone for good: it is not reused or retried.
+                if let Some(mut dead) = self.slots.remove(&id) {
+                    dead.kill();
+                }
+                let note = format!(
+                    "{}: engine sidecar for env set {label} died or did not answer `{}`: {}",
+                    call.label, call.args[0], e.0
+                );
+                self.starts.crashes.push(note.clone());
+                Err(Error(note))
+            }
+        }
+    }
+
+    /// Close every sidecar (stdin closed, a moment to exit, then the tree is killed). Returns the env
+    /// sets that were closed.
+    fn close_slots(&mut self) -> Vec<String> {
+        let mut closed = Vec::new();
+        for (id, mut sidecar) in std::mem::take(&mut self.slots) {
+            sidecar.close();
+            closed.push(id);
+        }
+        closed
+    }
+
+    /// Stop everything the session started. Call it before survivors are read from the tracker.
+    pub fn close_all(&mut self) {
+        self.close_slots();
+    }
+
+    /// A cold process for the call. `declared` is the reason the scenario named; `None` is a launch the
+    /// runner chose (the sidecar could not serve it), kept as an undeclared start with `note`.
+    fn cold_launch(
+        &mut self,
+        host: &dyn EngineHost,
+        call: &CliCall,
+        declared: Option<&'static str>,
+        note: Option<String>,
+    ) -> Result<Served> {
+        let id = env_set_id(&call.opts.env);
+        let label = self.label(&id, &call.opts.env);
+        if declared == Some("store-lock") {
+            // The exclusive store lock refuses any other engine process on the store: the scenario's
+            // sidecars go first, and the declaration covers one reopen of each.
+            // each may reopen once, and the reopen is allowed only if it happens.
+            for closed in self.close_slots() {
+                self.pending
+                    .entry(closed)
+                    .or_insert(Replace::StoreLockReopen);
+            }
+        }
+        self.starts.cold_launches += 1;
+        self.count_start(&label);
+        match declared {
+            Some(reason) => {
+                self.starts.declared_cold += 1;
+                *self
+                    .starts
+                    .cold_reasons
+                    .entry(reason.to_string())
+                    .or_default() += 1;
+            }
+            None => self.starts.undeclared.extend(note),
+        }
+        let result = host.cold(call.args, call.opts)?;
+        Ok(Served {
+            result,
+            via: Via::Cold,
+            exit_code_source: "process",
+            events_truncated: false,
+            stderr_complete: true,
+            env_set: label,
+            cold_reason: declared,
+        })
+    }
+
+    /// One `cli` call. [`Route::Session`] goes to the sidecar for the call's env set, and goes cold
+    /// (undeclared) only when it cannot be a sidecar call at all (see `session_ineligible`) or when the
+    /// dispatcher's exact unknown-method refusal came back. [`Route::Cold`] is a declared cold launch.
+    pub fn cli(&mut self, host: &dyn EngineHost, call: &CliCall, route: Route) -> Result<Served> {
+        let declare = "declare lifecycle = \"cold\" with cold_reason";
+        match route {
+            Route::Cold(reason) => self.cold_launch(host, call, Some(reason), None),
+            Route::Session => {
+                if let Some(why) = session_ineligible(call) {
+                    let note = format!("{}: {why}; {declare} = \"cli-entry\"", call.label);
+                    return self.cold_launch(host, call, None, Some(note));
+                }
+                match self.session_call(host, call)? {
+                    Some(served) => Ok(served),
+                    None => {
+                        let note = format!(
+                            "{}: the dispatcher refuses `{}` as an unknown method; {declare} = \"non-method\"",
+                            call.label, call.args[0]
+                        );
+                        self.cold_launch(host, call, None, Some(note))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Close the env set's sidecar if one runs and open a new one now. Declared: it allows one start,
+    /// counted when the replacement starts, and only when there was a sidecar (or a killed or
+    /// store-lock-closed one) to replace; a restart of a set that never ran is just its first start.
+    pub fn restart(&mut self, host: &dyn EngineHost, opts: &CliOptions) -> Result<Value> {
+        let id = env_set_id(&opts.env);
+        let label = self.label(&id, &opts.env);
+        let closed = self.slots.remove(&id).map(|mut s| (s.pid, s.close()));
+        if closed.is_some() {
+            self.pending.insert(id.clone(), Replace::Restart);
+        }
+        self.open(host, opts, &id, &label)?;
+        let fresh = self
+            .slots
+            .get(&id)
+            .ok_or_else(|| Error("engine sidecar vanished".into()))?;
+        Ok(json!({
+            "env_set": label,
+            "closed_pid": closed.map(|(pid, _)| pid),
+            "closed_exit_code": closed.and_then(|(_, code)| code),
+            "pid": fresh.pid,
+            "hello": fresh.hello,
+        }))
+    }
+
+    /// Kill the env set's sidecar (no grace period). The engine is expected to recover on the next call
+    /// to that set, which starts its replacement. Declared, so it adds one allowed start.
+    pub fn kill(&mut self, opts: &CliOptions) -> Result<Value> {
+        let id = env_set_id(&opts.env);
+        let label = self.label(&id, &opts.env);
+        let Some(mut sidecar) = self.slots.remove(&id) else {
+            return err(format!(
+                "kill: no sidecar is running for env set {label}; a cli step on it starts one"
+            ));
+        };
+        let pid = sidecar.pid;
+        let code = sidecar.kill();
+        // Allowed when the replacement starts (the next call on this set), not now.
+        self.pending.insert(id, Replace::Restart);
+        Ok(json!({
+            "env_set": label,
+            "killed_pid": pid,
+            "exit_code": code,
+            "next": "the next cli step on this env set starts the replacement engine",
+        }))
+    }
+
+    /// A sidecar the scenario started itself (`sidecar_start`): counted, and its own declaration.
+    pub fn note_scenario_sidecar(&mut self) {
+        self.starts.scenario_sidecars += 1;
+    }
+
+    /// An engine process a `start_daemon` step started (counted when the process started, even if it
+    /// then failed to become ready). The step is its own declaration, so it is also allowed.
+    pub fn note_daemon_engine(&mut self) {
+        self.starts.daemon_engines += 1;
+    }
+
+    /// An engine process the step plugin started with `spawn` `engine: true` (`what` names the child).
+    /// With `cold_reason` (one of [`COLD_REASONS`], already validated by [`parse_cold_reason`]) it is a
+    /// declared cold start, counted and allowed exactly as a declared `cold_cli` is. Without one it is
+    /// counted, never allowed, and recorded as undeclared, so the scenario is `errored`.
+    /// `step` is the scenario step the plugin call ran under (`None` outside a step); a declared
+    /// start is recorded under it as a plugin declaration, apart from the scenario's own.
+    pub fn note_spawned_engine(
+        &mut self,
+        what: &str,
+        cold_reason: Option<&'static str>,
+        step: Option<usize>,
+    ) {
+        let Some(reason) = cold_reason else {
+            self.starts.spawned_engines += 1;
+            self.starts.undeclared.push(format!(
+                "{what}: the step plugin started the engine with `spawn` `engine: true` and no `cold_reason`, which no scenario declaration covers"
+            ));
+            return;
+        };
+        if reason == "store-lock" {
+            // As for a declared store-lock cold launch: the scenario's sidecars go first, and the
+            // declaration covers one reopen of each, allowed when it happens.
+            for closed in self.close_slots() {
+                self.pending
+                    .entry(closed)
+                    .or_insert(Replace::StoreLockReopen);
+            }
+        }
+        self.starts.cold_launches += 1;
+        self.starts.declared_cold += 1;
+        self.starts.plugin_declared_cold += 1;
+        self.starts.plugin_declared.push(PluginDeclaredStart {
+            step,
+            cold_reason: reason.to_string(),
+            what: what.to_string(),
+        });
+        *self
+            .starts
+            .cold_reasons
+            .entry(reason.to_string())
+            .or_default() += 1;
+    }
+
+    /// A plugin `spawn` of the engine that the runner refused because its `cold_reason` was not valid
+    /// (nothing was started). Recorded as an engine failure, so the scenario is `errored`.
+    pub fn note_engine_refusal(&mut self, what: &str) {
+        self.starts.crashes.push(what.to_string());
+    }
+
+    /// Run one served method cold and in-session and compare them (Sage C3(c), see [`compare_parity`]).
+    /// The cold launch is declared as `parity`. Use it on a read-only or idempotent command: it runs twice.
+    /// It cannot cover a `store-lock` command, which refuses to run beside the sidecar. Errors when the
+    /// dispatcher does not serve the method (there is nothing in-session to compare).
+    pub fn parity(&mut self, host: &dyn EngineHost, call: &CliCall) -> Result<ParityReport> {
+        if let Some(why) = session_ineligible(call) {
+            return err(format!(
+                "{}: parity needs one served method: {why}",
+                call.label
+            ));
+        }
+        let cold = self.cold_launch(host, call, Some("parity"), None)?;
+        let Some(session) = self.session_call(host, call)? else {
+            return err(format!(
+                "{}: the dispatcher does not serve `{}`, so there is no in-session answer to compare",
+                call.label, call.args[0]
+            ));
+        };
+        let differences = compare_parity(&cold.result, &session.result, session.exit_code_source);
+        Ok(ParityReport {
+            command: call.args.join(" "),
+            differences,
+            exit_code_source: session.exit_code_source,
+            exit_code_compared: session.exit_code_source == "protocol",
+            cold: cold.result,
+            session: session.result,
+        })
+    }
+}
+
 /// Build the engine through the managed wrapper and return the executable it
 /// produced (from cargo's `compiler-artifact` message), never a stale copy.
 pub fn build_engine(
@@ -891,6 +1987,7 @@ mod frame_shape_tests {
             detected_legacy: None,
             frame_shape: None,
             tracker: Tracker::new(),
+            spill: None,
         }
         .finish_start()
         .unwrap();
@@ -1171,5 +2268,848 @@ mod launch_guard_tests {
         // No HOME redirect in the launch environment: still refused (on Windows always).
         let e = refusal(t.check_launch(&["doctor".to_string()], &CliOptions::default()));
         assert!(e.contains(&Rule::ProbeUnavailable.to_string()), "{e}");
+    }
+}
+
+/// The engine-per-scenario counter and routing against a fixture engine that lives in the test
+/// process: a scripted sidecar (frames answered as its stdin is written) and a one-shot CLI that
+/// answers from the same table, so cold and in-session results can be compared.
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc::Sender;
+
+    #[derive(Clone)]
+    struct Reply {
+        ok: bool,
+        result: Value,
+        code: &'static str,
+        message: String,
+        exit_code: Option<i64>,
+        events: Vec<Value>,
+        stderr: String,
+    }
+
+    impl Reply {
+        fn ok(result: Value) -> Self {
+            Self {
+                ok: true,
+                result,
+                code: "",
+                message: String::new(),
+                exit_code: None,
+                events: vec![],
+                stderr: String::new(),
+            }
+        }
+        fn fail(code: &'static str, message: &str) -> Self {
+            Self {
+                ok: false,
+                result: Value::Null,
+                code,
+                message: message.into(),
+                exit_code: None,
+                events: vec![],
+                stderr: String::new(),
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Mode {
+        Sidecar,
+        Cold,
+    }
+
+    /// `(mode, method, params, launch env) -> reply`; `None` is an engine process that dies unanswered.
+    type Engine =
+        Arc<dyn Fn(Mode, &str, &Value, &[(String, String)]) -> Option<Reply> + Send + Sync>;
+
+    /// The fixture engine's command table.
+    fn table() -> Engine {
+        Arc::new(
+            |mode: Mode, method: &str, params: &Value, env: &[(String, String)]| {
+                let role = env
+                    .iter()
+                    .find(|(k, _)| k == "ROLE")
+                    .map_or("none", |(_, v)| v.as_str());
+                match method {
+                    "job.status" => Some(Reply::ok(json!({"role": role, "echo": params}))),
+                    "job.progress" => {
+                        let mut r = Reply::ok(json!({"done": true}));
+                        r.events = vec![json!({"progress": 1}), json!({"progress": 2})];
+                        r.stderr = "canary-7f3a engine log line\n".into();
+                        Some(r)
+                    }
+                    // Handler errors: other codes, or the dispatcher's code on text naming something else.
+                    "job.lookup" => Some(Reply::fail("unknown_template", "unknown template: t")),
+                    "job.nested" => {
+                        Some(Reply::fail("unknown_method", "unknown method: job.inner"))
+                    }
+                    "store.restore" => Some(Reply::ok(json!({"restored": true}))),
+                    "job.crash" => None,
+                    "job.differs" => Some(Reply::ok(
+                        json!({"mode": if mode == Mode::Cold { "cold" } else { "session" }}),
+                    )),
+                    "job.errdiffers" => Some(Reply::fail(
+                        if mode == Mode::Cold {
+                            "bad_input"
+                        } else {
+                            "conflict"
+                        },
+                        "x",
+                    )),
+                    "job.exit" => {
+                        let mut r = Reply::fail("nope", "n");
+                        r.exit_code = Some(if mode == Mode::Cold { 1 } else { 3 });
+                        Some(r)
+                    }
+                    // The dispatcher's refusal; the one-shot CLI turns it into its usage error, exit 2.
+                    other => {
+                        let mut r =
+                            Reply::fail("unknown_method", &format!("unknown method: {other}"));
+                        if mode == Mode::Cold {
+                            r.exit_code = Some(2);
+                        }
+                        Some(r)
+                    }
+                }
+            },
+        )
+    }
+
+    /// Stdin of a scripted sidecar: each complete request line is answered at once.
+    struct ScriptedWire {
+        buf: Vec<u8>,
+        tx: Option<Sender<Value>>,
+        stderr: Arc<Mutex<StderrBuf>>,
+        engine: Engine,
+        env: Vec<(String, String)>,
+        live: Arc<AtomicUsize>,
+    }
+
+    impl Drop for ScriptedWire {
+        fn drop(&mut self) {
+            self.live.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl ScriptedWire {
+        fn respond(&mut self, req: &Value) {
+            let id = req["id"].clone();
+            let method = req["method"].as_str().unwrap_or("").to_string();
+            match (self.engine)(Mode::Sidecar, &method, &req["params"], &self.env) {
+                // The process died: its stdout closes.
+                None => self.tx = None,
+                Some(r) => {
+                    self.stderr.lock().unwrap().push(&r.stderr);
+                    let Some(tx) = self.tx.as_ref() else { return };
+                    for e in &r.events {
+                        tx.send(json!({"type": "event", "id": id, "event": e}))
+                            .unwrap();
+                    }
+                    let mut frame = if r.ok {
+                        json!({"type": "response", "id": id, "ok": true, "result": r.result})
+                    } else {
+                        json!({"type": "response", "id": id, "ok": false,
+                               "error": {"code": r.code, "message": r.message}})
+                    };
+                    if let Some(c) = r.exit_code {
+                        frame["exit_code"] = json!(c);
+                    }
+                    tx.send(frame).unwrap();
+                }
+            }
+        }
+    }
+
+    impl Write for ScriptedWire {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            self.buf.extend_from_slice(data);
+            while let Some(pos) = self.buf.iter().position(|b| *b == b'\n') {
+                let line: Vec<u8> = self.buf.drain(..=pos).collect();
+                let req: Value = serde_json::from_slice(&line).unwrap();
+                self.respond(&req);
+            }
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct FakeHost {
+        engine: Engine,
+        /// Sidecars alive now (a scripted wire counts itself out when it is dropped).
+        live: Arc<AtomicUsize>,
+        sidecar_starts: AtomicUsize,
+        cold_calls: AtomicUsize,
+        /// `live` as each cold call began.
+        live_at_cold: Mutex<Vec<usize>>,
+        stderr_limit: usize,
+    }
+
+    impl FakeHost {
+        fn new() -> Self {
+            Self {
+                engine: table(),
+                live: Arc::new(AtomicUsize::new(0)),
+                sidecar_starts: AtomicUsize::new(0),
+                cold_calls: AtomicUsize::new(0),
+                live_at_cold: Mutex::new(vec![]),
+                stderr_limit: DEFAULT_STDERR_LIMIT,
+            }
+        }
+    }
+
+    impl EngineHost for FakeHost {
+        fn start(&self, opts: &CliOptions, stderr_file: Option<&Path>) -> Result<Sidecar> {
+            self.sidecar_starts.fetch_add(1, Ordering::SeqCst);
+            self.live.fetch_add(1, Ordering::SeqCst);
+            let (tx, rx) = channel();
+            tx.send(
+                json!({"type": "hello", "engine": "fake", "version": "1", "contract_version": 1}),
+            )
+            .unwrap();
+            let stderr = Arc::new(Mutex::new(StderrBuf::new(self.stderr_limit)));
+            if let Some(p) = stderr_file {
+                stderr.lock().unwrap().spill = Some(std::fs::File::create(p).unwrap());
+            }
+            let wire = ScriptedWire {
+                buf: vec![],
+                tx: Some(tx),
+                stderr: stderr.clone(),
+                engine: self.engine.clone(),
+                env: opts.env.clone(),
+                live: self.live.clone(),
+            };
+            Sidecar {
+                child: None,
+                stdin: Some(Box::new(wire)),
+                rx,
+                seq: 0,
+                hello: Value::Null,
+                pid: 0,
+                stderr,
+                events: vec![],
+                events_dropped: 0,
+                event_limit: DEFAULT_EVENT_LIMIT,
+                watch: None,
+                legacy_status_frames: false,
+                detected_legacy: None,
+                frame_shape: None,
+                tracker: Tracker::new(),
+                spill: stderr_file.map(Path::to_path_buf),
+            }
+            .finish_start()
+        }
+
+        fn cold(&self, args: &[String], opts: &CliOptions) -> Result<CliResult> {
+            self.cold_calls.fetch_add(1, Ordering::SeqCst);
+            self.live_at_cold
+                .lock()
+                .unwrap()
+                .push(self.live.load(Ordering::SeqCst));
+            let input = opts.input.clone().unwrap_or_else(|| json!({}));
+            let r = (self.engine)(Mode::Cold, &args.join(" "), &input, &opts.env)
+                .ok_or_else(|| Error("cold engine died".into()))?;
+            let code = r
+                .exit_code
+                .map_or(i32::from(!r.ok), |c| i32::try_from(c).unwrap());
+            let json = if r.ok {
+                r.result.clone()
+            } else {
+                json!({"error": {"code": r.code, "message": r.message}})
+            };
+            // The one-shot CLI prints each event as a JSON line on stderr after the engine's own lines.
+            let mut stderr = r.stderr.clone();
+            for e in &r.events {
+                stderr.push_str(&format!("{e}\n"));
+            }
+            Ok(CliResult {
+                code: Some(code),
+                stdout: format!("{}\n", serde_json::to_string_pretty(&json).unwrap()),
+                json,
+                stderr,
+                events: r.events.clone(),
+                timed_out: false,
+            })
+        }
+    }
+
+    fn opts(env: &[(&str, &str)], input: Option<Value>) -> CliOptions {
+        CliOptions {
+            data_dir: None,
+            env: env
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            input,
+            timeout: Some(Duration::from_secs(5)),
+        }
+    }
+
+    fn run(
+        s: &mut EngineSession,
+        host: &FakeHost,
+        cmd: &str,
+        env: &[(&str, &str)],
+        route: Route,
+    ) -> Result<Served> {
+        let args = vec![cmd.to_string()];
+        let o = opts(env, None);
+        s.cli(
+            host,
+            &CliCall {
+                args: &args,
+                opts: &o,
+                label: "step 1",
+            },
+            route,
+        )
+    }
+
+    fn status(s: &mut EngineSession, host: &FakeHost, env: &[(&str, &str)]) -> Served {
+        run(s, host, "job.status", env, Route::Session).unwrap()
+    }
+
+    #[test]
+    fn starts_equal_env_sets_plus_declared_restarts_and_pass() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        for _ in 0..3 {
+            assert_eq!(status(&mut s, &host, &[]).via, Via::Sidecar);
+        }
+        // A role is a second env set: its own sidecar, no restart needed.
+        for _ in 0..3 {
+            let served = status(&mut s, &host, &[("ROLE", "daemon")]);
+            assert_eq!(served.result.json["role"], json!("daemon"));
+        }
+        s.restart(&host, &opts(&[("ROLE", "daemon")], None))
+            .unwrap();
+        status(&mut s, &host, &[("ROLE", "daemon")]);
+        let st = s.starts();
+        assert_eq!(st.env_sets, 2);
+        assert_eq!(st.declared_restarts, 1);
+        assert_eq!((st.sidecar_starts, st.cold_launches), (3, 0));
+        assert_eq!((st.total(), st.allowed()), (3, 3));
+        assert_eq!(st.violation(), None);
+        assert!(st.errored().is_empty());
+        assert_eq!(host.sidecar_starts.load(Ordering::SeqCst), 3);
+        assert_eq!(host.cold_calls.load(Ordering::SeqCst), 0);
+        // Per env set, labelled by first use, never by value.
+        let per: Vec<(&str, u32)> = st
+            .by_env_set
+            .iter()
+            .map(|(k, v)| (k.as_str(), *v))
+            .collect();
+        assert_eq!(per, vec![("#1 default", 1), ("#2 env ROLE", 2)]);
+        assert_eq!(st.to_value()["engine_starts"], json!(3));
+    }
+
+    #[test]
+    fn one_undeclared_start_more_fails_the_scenario() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        // A non-object input is served cold by the runner; the scenario never declared it.
+        let args = vec!["job.status".to_string()];
+        let o = opts(&[], Some(json!("text")));
+        let served = s
+            .cli(
+                &host,
+                &CliCall {
+                    args: &args,
+                    opts: &o,
+                    label: "step 4 `job.status`",
+                },
+                Route::Session,
+            )
+            .unwrap();
+        assert_eq!(served.via, Via::Cold);
+        let st = s.starts();
+        assert_eq!((st.total(), st.allowed()), (2, 1));
+        let v = st.violation().expect("2 starts, 1 allowed");
+        assert!(v.starts_with("engine starts 2 > allowed 1"), "{v}");
+        assert!(v.contains("step 4") && v.contains("cli-entry"), "{v}");
+        assert_eq!(st.errored(), vec![v]);
+
+        // The same call declared with its reason is within the allowance.
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        let served = s
+            .cli(
+                &host,
+                &CliCall {
+                    args: &args,
+                    opts: &o,
+                    label: "step 4",
+                },
+                Route::Cold("cli-entry"),
+            )
+            .unwrap();
+        assert_eq!(served.cold_reason, Some("cli-entry"));
+        assert_eq!((s.starts().total(), s.starts().allowed()), (2, 2));
+        assert_eq!(s.starts().violation(), None);
+        assert_eq!(s.starts().cold_reasons["cli-entry"], 1);
+    }
+
+    #[test]
+    fn only_the_dispatchers_exact_refusal_goes_cold() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        // A handler's unknown_* error, and the dispatcher's code on text about something else, are answers.
+        for method in ["job.lookup", "job.nested"] {
+            let served = run(&mut s, &host, method, &[], Route::Session).unwrap();
+            assert_eq!(served.via, Via::Sidecar, "{method}");
+            assert_eq!(served.result.code, Some(1));
+            assert!(served.result.json["error"]["code"].is_string());
+        }
+        assert_eq!(host.cold_calls.load(Ordering::SeqCst), 0);
+        assert!(s.starts().undeclared.is_empty());
+        // The refusal of the method asked for is answered by the one-shot CLI (its usage error, 2).
+        let served = run(&mut s, &host, "doctor", &[], Route::Session).unwrap();
+        assert_eq!(served.via, Via::Cold);
+        assert_eq!(served.result.code, Some(2));
+        assert_eq!(served.exit_code_source, "process");
+        assert_eq!(host.cold_calls.load(Ordering::SeqCst), 1);
+        let st = s.starts();
+        assert_eq!(st.undeclared.len(), 1);
+        assert!(
+            st.undeclared[0].contains("non-method"),
+            "{:?}",
+            st.undeclared
+        );
+        assert!(
+            st.violation().is_some(),
+            "an undeclared cold launch is not allowed"
+        );
+    }
+
+    #[test]
+    fn refusal_matches_the_method_asked_for_and_nothing_else() {
+        let refusal = json!({"type":"response","ok":false,"error":{"code":"unknown_method","message":"unknown method: doctor"}});
+        assert!(is_unknown_method_refusal(&refusal, "doctor"));
+        assert!(!is_unknown_method_refusal(&refusal, "job.inner"));
+        let other_code =
+            json!({"ok":false,"error":{"code":"unknown_job","message":"unknown method: doctor"}});
+        assert!(!is_unknown_method_refusal(&other_code, "doctor"));
+        assert!(!is_unknown_method_refusal(
+            &json!({"ok":true,"result":{}}),
+            "doctor"
+        ));
+    }
+
+    #[test]
+    fn events_are_unwrapped_and_stderr_since_the_last_call_is_appended() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        let session = run(&mut s, &host, "job.progress", &[], Route::Session).unwrap();
+        let cold = run(&mut s, &host, "job.progress", &[], Route::Cold("startup")).unwrap();
+        // The inner event objects, as the one-shot CLI prints them, not the frames.
+        assert_eq!(
+            session.result.events,
+            vec![json!({"progress": 1}), json!({"progress": 2})]
+        );
+        assert_eq!(session.result.events, cold.result.events);
+        // The engine's own stderr reaches the step, so a secret scan sees it.
+        assert!(
+            session.result.stderr.contains("canary-7f3a"),
+            "{}",
+            session.result.stderr
+        );
+        assert!(session.stderr_complete);
+        assert_eq!(session.exit_code_source, "derived");
+        // A call that writes nothing gets nothing of the previous call's stderr or events.
+        let quiet = status(&mut s, &host, &[]);
+        assert_eq!(quiet.result.stderr, "");
+        assert!(quiet.result.events.is_empty());
+        let again = run(&mut s, &host, "job.progress", &[], Route::Session).unwrap();
+        assert_eq!(again.result.events.len(), 2);
+        assert_eq!(again.result.stderr.matches("canary-7f3a").count(), 1);
+        let v = session.to_value();
+        assert_eq!(v["via"], json!("sidecar"));
+        assert_eq!(v["exit_code_source"], json!("derived"));
+    }
+
+    #[test]
+    fn a_capped_stderr_is_marked_and_a_stderr_file_keeps_everything() {
+        let mut host = FakeHost::new();
+        host.stderr_limit = 8;
+        let mut s = EngineSession::new(None);
+        let capped = run(&mut s, &host, "job.progress", &[], Route::Session).unwrap();
+        assert!(!capped.stderr_complete);
+        assert!(
+            capped.result.stderr.starts_with("[sidecar stderr capped"),
+            "{}",
+            capped.result.stderr
+        );
+        assert_eq!(capped.to_value()["stderr_complete"], json!(false));
+
+        let dir = std::env::temp_dir().join(format!("rkqa-session-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = EngineSession::new(Some(dir.clone()));
+        let full = run(&mut s, &host, "job.progress", &[], Route::Session).unwrap();
+        assert!(full.stderr_complete, "{}", full.result.stderr);
+        assert_eq!(full.result.stderr, "canary-7f3a engine log line\n");
+        s.close_all();
+        let files = s.stderr_files().to_vec();
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&files[0]).unwrap(),
+            "canary-7f3a engine log line\n"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_store_lock_cold_call_runs_with_no_sidecar_and_covers_their_reopen() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        status(&mut s, &host, &[("ROLE", "daemon")]);
+        assert_eq!(s.live_sidecars(), 2);
+        let served = run(
+            &mut s,
+            &host,
+            "store.restore",
+            &[],
+            Route::Cold("store-lock"),
+        )
+        .unwrap();
+        assert_eq!(served.via, Via::Cold);
+        // The exclusive lock command saw no other engine process of the scenario.
+        assert_eq!(*host.live_at_cold.lock().unwrap(), vec![0]);
+        assert_eq!(s.live_sidecars(), 0);
+        // The next call reopens a sidecar; that start is covered by the declaration.
+        status(&mut s, &host, &[]);
+        let st = s.starts();
+        // Only the default set reopened; the ROLE set's reopen is not allowed until it happens.
+        assert_eq!(st.store_lock_reopens, 1);
+        assert_eq!((st.sidecar_starts, st.cold_launches), (3, 1));
+        assert_eq!((st.total(), st.allowed()), (4, 4));
+        assert_eq!(st.violation(), None);
+        // A different cold reason does not close anything.
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        run(&mut s, &host, "job.status", &[], Route::Cold("recovery")).unwrap();
+        assert_eq!(s.live_sidecars(), 1);
+    }
+
+    #[test]
+    fn a_kill_is_declared_and_the_next_call_recovers_on_a_new_engine() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        assert!(s.kill(&opts(&[], None)).is_err(), "nothing to kill yet");
+        status(&mut s, &host, &[]);
+        let killed = s.kill(&opts(&[], None)).unwrap();
+        assert_eq!(killed["env_set"], json!("#1 default"));
+        assert_eq!(host.live.load(Ordering::SeqCst), 0);
+        assert_eq!(s.live_sidecars(), 0);
+        assert_eq!(status(&mut s, &host, &[]).via, Via::Sidecar);
+        let st = s.starts();
+        assert_eq!((st.total(), st.allowed()), (2, 2));
+        assert_eq!(st.violation(), None);
+        assert_eq!(host.sidecar_starts.load(Ordering::SeqCst), 2);
+    }
+
+    /// Oracle item 4: a kill whose replacement never starts allows nothing, so an undeclared cold
+    /// launch after it is errored, not absorbed by the unused allowance.
+    #[test]
+    fn a_kill_then_an_undeclared_cold_launch_is_errored() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        s.kill(&opts(&[], None)).unwrap();
+        assert_eq!(
+            s.starts().declared_restarts,
+            0,
+            "no replacement started yet"
+        );
+        // A non-object input is served cold by the runner; the scenario never declared it.
+        let args = vec!["job.status".to_string()];
+        let o = opts(&[], Some(json!("text")));
+        let served = s
+            .cli(
+                &host,
+                &CliCall {
+                    args: &args,
+                    opts: &o,
+                    label: "step 3",
+                },
+                Route::Session,
+            )
+            .unwrap();
+        assert_eq!(served.via, Via::Cold);
+        let st = s.starts();
+        assert_eq!(st.undeclared.len(), 1);
+        assert!(st.violation().is_some());
+        assert!(!st.errored().is_empty());
+    }
+
+    /// A cold start the plugin declared is recorded apart, as the plugin's, with its step; the
+    /// scenario's own declarations never appear in that list.
+    #[test]
+    fn a_plugin_declared_cold_start_is_recorded_with_declared_by_plugin_and_its_step() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        s.note_spawned_engine("spawn `eng` (pid 9)", Some("startup"), Some(4));
+        let st = s.starts();
+        assert_eq!(st.plugin_declared_cold, 1);
+        assert_eq!(st.declared_cold, 1);
+        assert_eq!(st.violation(), None);
+        let v = st.to_value();
+        assert_eq!(v["plugin_declared_cold"], json!(1));
+        let list = v["plugin_declared"].as_array().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["declared_by"], json!("plugin"));
+        assert_eq!(list[0]["step"], json!(4));
+        assert_eq!(list[0]["cold_reason"], json!("startup"));
+        assert_eq!(v["cold_reasons"]["startup"], json!(1));
+
+        // A session with no plugin declaration lists none.
+        let mut own = EngineSession::new(None);
+        status(&mut own, &host, &[]);
+        let own_v = own.starts().to_value();
+        assert_eq!(own_v["plugin_declared_cold"], json!(0));
+        assert!(own_v["plugin_declared"].as_array().unwrap().is_empty());
+    }
+
+    /// An undeclared launch is errored by itself, even when the counts alone would pass.
+    #[test]
+    fn an_undeclared_launch_is_errored_even_when_unused_allowance_covers_its_count() {
+        let st = EngineStarts {
+            sidecar_starts: 1,
+            cold_launches: 1,
+            env_sets: 1,
+            declared_restarts: 1,
+            undeclared: vec!["step 2: cold".to_string()],
+            ..EngineStarts::default()
+        };
+        assert!(st.total() <= st.allowed(), "the counts alone would pass");
+        let v = st.violation().expect("undeclared launch is a violation");
+        assert!(v.starts_with("undeclared engine launch"), "{v}");
+        assert!(v.contains("step 2: cold"), "{v}");
+        assert_eq!(st.errored(), vec![v]);
+    }
+
+    /// A restart of a set that never ran is its first start: no allowance appears from nowhere.
+    #[test]
+    fn a_restart_of_a_set_that_never_ran_allows_nothing_extra() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        s.restart(&host, &opts(&[], None)).unwrap();
+        let st = s.starts();
+        assert_eq!((st.total(), st.allowed()), (1, 1));
+        assert_eq!(st.declared_restarts, 0);
+        // A restart of a running set is allowed once its replacement starts, which is at once.
+        s.restart(&host, &opts(&[], None)).unwrap();
+        let st = s.starts();
+        assert_eq!((st.total(), st.allowed()), (2, 2));
+        assert_eq!(st.declared_restarts, 1);
+        assert_eq!(st.violation(), None);
+    }
+
+    /// Oracle item 4: engines started through a plugin `spawn` (`engine: true`) count, are never
+    /// allowed, and make the scenario errored; `start_daemon` counts and is its own declaration.
+    #[test]
+    fn plugin_spawned_engines_count_and_error_and_daemons_count_and_pass() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        for n in 1..=3 {
+            s.note_spawned_engine(&format!("spawn `eng-{n}`"), None, Some(n));
+        }
+        let st = s.starts();
+        assert!(st.total() >= 4, "total {}", st.total());
+        assert_eq!(st.spawned_engines, 3);
+        assert_eq!((st.total(), st.allowed()), (4, 1));
+        let v = st.violation().expect("three undeclared spawns");
+        assert!(v.starts_with("engine starts 4 > allowed 1"), "{v}");
+        assert!(v.contains("eng-3"), "{v}");
+        assert!(!st.errored().is_empty());
+        assert_eq!(st.to_value()["spawned_engines"], json!(3));
+
+        let mut s = EngineSession::new(None);
+        s.note_daemon_engine();
+        let st = s.starts();
+        assert_eq!((st.total(), st.allowed()), (1, 1));
+        assert_eq!(st.violation(), None);
+    }
+
+    #[test]
+    fn a_sidecar_that_dies_mid_call_is_errored_and_not_reused() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        status(&mut s, &host, &[]);
+        let e = run(&mut s, &host, "job.crash", &[], Route::Session)
+            .unwrap_err()
+            .0;
+        assert!(e.contains("died or did not answer `job.crash`"), "{e}");
+        assert_eq!(s.live_sidecars(), 0);
+        assert_eq!(s.starts().crashes.len(), 1);
+        assert!(!s.starts().errored().is_empty());
+        // The next call starts a fresh sidecar, counted: 2 starts for 1 env set, so the count check fails too.
+        status(&mut s, &host, &[]);
+        assert!(s.starts().violation().is_some());
+    }
+
+    #[test]
+    fn parity_passes_when_cold_and_in_session_agree() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        let args = vec!["job.status".to_string()];
+        let o = opts(&[], Some(json!({"a": 1})));
+        let call = CliCall {
+            args: &args,
+            opts: &o,
+            label: "step 2",
+        };
+        let report = s.parity(&host, &call).unwrap();
+        assert!(report.equal(), "{:?}", report.differences);
+        // The stdio protocol here carries no exit code: only body and error class are compared, and said so.
+        assert_eq!(report.exit_code_source, "derived");
+        assert!(!report.exit_code_compared);
+        assert!(report.to_value()["compares"]
+            .as_str()
+            .unwrap()
+            .contains("only"));
+        assert_eq!(s.starts().cold_reasons["parity"], 1);
+        assert_eq!(s.starts().violation(), None);
+    }
+
+    #[test]
+    fn parity_fails_on_a_differing_body_error_class_or_protocol_exit_code() {
+        let host = FakeHost::new();
+        let mut s = EngineSession::new(None);
+        let check = |s: &mut EngineSession, cmd: &str| {
+            let args = vec![cmd.to_string()];
+            let o = opts(&[], None);
+            s.parity(
+                &host,
+                &CliCall {
+                    args: &args,
+                    opts: &o,
+                    label: "step 2",
+                },
+            )
+            .unwrap()
+        };
+        let body = check(&mut s, "job.differs");
+        assert!(!body.equal());
+        assert!(
+            body.differences[0].starts_with("JSON body differs"),
+            "{:?}",
+            body.differences
+        );
+        let class = check(&mut s, "job.errdiffers");
+        assert!(
+            class.differences[0].contains("error class differs"),
+            "{:?}",
+            class.differences
+        );
+        // The response carries an exit code, so it is compared, and 1 vs 3 differs.
+        let exit = check(&mut s, "job.exit");
+        assert_eq!(exit.exit_code_source, "protocol");
+        assert!(exit.exit_code_compared);
+        assert!(
+            exit.differences
+                .iter()
+                .any(|d| d.contains("exit code differs")),
+            "{:?}",
+            exit.differences
+        );
+        // A method the dispatcher refuses has no in-session answer: nothing to compare.
+        let args = vec!["doctor".to_string()];
+        let o = opts(&[], None);
+        let e = s
+            .parity(
+                &host,
+                &CliCall {
+                    args: &args,
+                    opts: &o,
+                    label: "step 3",
+                },
+            )
+            .unwrap_err()
+            .0;
+        assert!(e.contains("does not serve `doctor`"), "{e}");
+    }
+
+    #[test]
+    fn compare_parity_reads_body_class_and_exit_code() {
+        let result = |code: i32, json: Value| CliResult {
+            code: Some(code),
+            json,
+            stdout: String::new(),
+            stderr: String::new(),
+            events: vec![],
+            timed_out: false,
+        };
+        let ok = result(0, json!({"a": 1}));
+        assert!(compare_parity(&ok, &ok.clone(), "derived").is_empty());
+        let other = result(0, json!({"a": 2}));
+        assert_eq!(compare_parity(&ok, &other, "derived").len(), 1);
+        let bad = result(1, json!({"error": {"code": "x", "message": "m"}}));
+        let bad_other_text = result(1, json!({"error": {"code": "x", "message": "other"}}));
+        assert!(
+            compare_parity(&bad, &bad_other_text, "derived").is_empty(),
+            "class is the code, not the text"
+        );
+        let mixed = compare_parity(&ok, &bad, "derived");
+        assert!(mixed[0].starts_with("outcome differs"), "{mixed:?}");
+        // The exit code only counts when the protocol carried it.
+        let exit2 = result(2, json!({"a": 1}));
+        assert!(compare_parity(&ok, &exit2, "derived").is_empty());
+        assert_eq!(compare_parity(&ok, &exit2, "protocol").len(), 1);
+    }
+
+    #[test]
+    fn env_sets_ignore_order_and_a_later_value_wins() {
+        let a = vec![
+            ("B".to_string(), "2".to_string()),
+            ("A".to_string(), "1".to_string()),
+        ];
+        let b = vec![
+            ("A".to_string(), "0".to_string()),
+            ("A".to_string(), "1".to_string()),
+            ("B".to_string(), "2".to_string()),
+        ];
+        assert_eq!(env_set_id(&a), env_set_id(&b));
+        assert_ne!(
+            env_set_id(&a),
+            env_set_id(&[("A".to_string(), "1".to_string())])
+        );
+        assert_eq!(env_set_id(&[]), "");
+    }
+
+    #[test]
+    fn cold_reasons_are_the_closed_set_of_c3a() {
+        for r in [
+            "startup",
+            "restart",
+            "recovery",
+            "role-change",
+            "store-lock",
+            "cli-entry",
+            "non-method",
+        ] {
+            assert_eq!(parse_cold_reason(r).unwrap(), r);
+        }
+        let e = parse_cold_reason("because").unwrap_err().0;
+        assert!(e.contains("store-lock") && e.contains("cli-entry"), "{e}");
+    }
+
+    #[test]
+    fn scenario_sidecars_are_counted_and_each_is_its_own_declaration() {
+        let mut s = EngineSession::new(None);
+        s.note_scenario_sidecar();
+        s.note_scenario_sidecar();
+        let st = s.starts();
+        assert_eq!((st.total(), st.allowed()), (2, 2));
+        assert_eq!(st.violation(), None);
     }
 }

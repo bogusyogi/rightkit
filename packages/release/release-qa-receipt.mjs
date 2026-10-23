@@ -85,6 +85,17 @@ export function validateQaFloor(floor) {
     const required = floor.stages?.[stage]?.required;
     if (!Array.isArray(required) || required.length === 0 || required.some((id) => typeof id !== "string" || !id)) problems.push(`floor stage ${stage} must list required check ids`);
   }
+  // `journeys` maps one floor id to "every release-critical journey required on the platform passed", proven by a
+  // rightkit.journeys.receipt/1 validated through rightkit-qa (release-qa-hardening.mjs).
+  const journeys = floor.journeys;
+  if (journeys !== undefined) {
+    if (!journeys || typeof journeys !== "object" || Array.isArray(journeys)) problems.push("floor journeys must be an object");
+    else {
+      if (typeof journeys.floorId !== "string" || !QA_STAGES.every((stage) => floor.stages?.[stage]?.required?.includes?.(journeys.floorId))) problems.push("floor journeys.floorId must be a required id of every stage");
+      if (journeys.receiptSchema !== "rightkit.journeys.receipt/1") problems.push("floor journeys.receiptSchema must be rightkit.journeys.receipt/1");
+      if (journeys.rule !== "all-release-critical-passed") problems.push("floor journeys.rule must be all-release-critical-passed");
+    }
+  }
   return problems;
 }
 
@@ -95,6 +106,11 @@ export function validateAppQaConfig(qa, floor, stage) {
   if (typeof qa.version !== "string" && typeof qa.version !== "number") problems.push("qa.version is required");
   if (typeof qa.config !== "string" || !qa.config) problems.push("qa.config (rightkit-qa.toml path) is required");
   for (const id of floor.stages[stage].required) {
+    // The journeys receipt proves this id; no evidence-check mapping is needed (or used) for it.
+    if (floor.journeys?.floorId === id && qa.journeys) {
+      if (typeof qa.journeys !== "object" || Array.isArray(qa.journeys)) problems.push("qa.journeys must be an object { manifest?, receipt?, args? }");
+      continue;
+    }
     const patterns = qa.checks?.[id];
     if (!Array.isArray(patterns) || patterns.length === 0 || patterns.some((p) => typeof p !== "string" || !p)) problems.push(`qa.checks must map required floor check "${id}" to evidence check names`);
   }
@@ -179,7 +195,7 @@ export function receiptDigest(receipt) {
 
 export function buildQaReceipt({
   stage, app, platform, releaseId, source, closure, releaseConfigSha256, qa, floor, floorDigest, policyBundleDigest,
-  runner, evidence, evidenceSha256, required, artifacts = [], sourceReceiptDigest = null, now = new Date(),
+  runner, evidence, evidenceSha256, required, artifacts = [], sourceReceiptDigest = null, now = new Date(), journeys = null, execution = null,
 }) {
   const evidenceOk = evidence?.status === "passed" && Boolean(evidence?.finishedAt);
   const status = evidenceOk && required.every((item) => item.status === "passed") ? "passed" : "failed";
@@ -195,6 +211,8 @@ export function buildQaReceipt({
     evidence: { sha256: evidenceSha256, runId: evidence?.runId ?? null, status: evidence?.status ?? null, schemaVersion: evidence?.schemaVersion ?? null },
     required, checks: (evidence?.checks ?? []).map((check) => ({ name: String(check.name), status: String(check.status) })),
     artifacts, sourceReceiptDigest, status, createdAt: now.toISOString(),
+    ...(journeys ? { journeys } : {}),
+    ...(execution ? { execution } : {}),
   };
 }
 
@@ -272,6 +290,7 @@ export function assertSourceQaAdmission({ repoRoot, releaseId, platform, configN
   if (carried && (receipt.releaseId !== releaseId || receipt.platform !== platform)) {
     throw new QaAdmissionError(`source QA receipt rejected: carried receipt is for ${receipt.releaseId} (${receipt.platform}), not ${releaseId} (${platform})`, { command });
   }
+  opts.afterVerify?.(receipt); // hardening hook (release-qa-hardening.mjs); throws QaAdmissionError
   return { digest: receipt.digest, floorDigest: receipt.floor.digest };
 }
 
@@ -293,5 +312,6 @@ export function assertInstalledQaAdmission({ repoRoot, manifest, platform, confi
   });
   if (!verdict.ok) throw new QaAdmissionError(`installed QA receipt rejected: ${verdict.reason}`, { command });
   if (receipt.commit !== manifest.commit) throw new QaAdmissionError("installed QA receipt commit differs from the sealed release commit", { command });
+  opts.afterVerify?.(receipt);
   return { digest: receipt.digest };
 }

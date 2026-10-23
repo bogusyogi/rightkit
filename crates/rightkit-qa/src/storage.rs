@@ -1405,6 +1405,29 @@ pub(crate) fn copy_tree(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+/// A plain file in a run directory that says its owner asked to keep the run's data
+/// (`SuiteOptions::keep_data`): the run's home and worlds are what the caller reads after the run.
+/// Both removal paths honour it ([`prune_unlocked`] and `retention::prune_runs`), whatever the
+/// run's outcome, age or count, so a later or concurrent run of the same app cannot remove it.
+pub const KEEP_DATA_FILE: &str = ".rightkit-keep-data";
+
+/// Mark the run at `run_root` as kept: call it before the run's outcome is recorded, so a pass that
+/// reads the marker never sees a finished run whose keep request is not there yet.
+pub fn mark_keep_data(run_root: &Path) -> std::io::Result<()> {
+    fs::write(
+        run_root.join(KEEP_DATA_FILE),
+        "the run's owner asked to keep its data; retention does not remove this run\n",
+    )
+}
+
+/// True when `run_dir` carries [`KEEP_DATA_FILE`] as a plain file (a link of that name does not
+/// count). The one check both retention rules use.
+pub fn run_keeps_data(run_dir: &Path) -> bool {
+    fs::symlink_metadata(run_dir.join(KEEP_DATA_FILE))
+        .map(|m| m.is_file())
+        .unwrap_or(false)
+}
+
 pub fn prune(root: &Path, app: &str, max_bytes: Option<u64>) -> Result<RetentionReport> {
     prune_with_keep(root, app, max_bytes, &[])
 }
@@ -1557,7 +1580,7 @@ fn prune_unlocked(
         .collect();
     let protected: std::collections::HashSet<String> = runs
         .iter()
-        .filter(|x| now.saturating_sub(x.1.created_at) < young_ms || x.3)
+        .filter(|x| now.saturating_sub(x.1.created_at) < young_ms || x.3 || run_keeps_data(&x.0))
         .map(|x| x.1.run_id.clone())
         .collect();
     let caller_protected: std::collections::HashSet<&str> =
@@ -1632,6 +1655,8 @@ fn prune_unlocked(
                 "active run".into()
             } else if now.saturating_sub(item.1.created_at) < young_ms {
                 "younger than retention window".into()
+            } else if run_keeps_data(&item.0) {
+                "kept data (the run's owner asked to keep it)".into()
             } else if failed.contains(&item.1.run_id) {
                 "failed run kept".into()
             } else {
@@ -2149,6 +2174,50 @@ mod tests {
             .retained
             .iter()
             .any(|(p, reason)| p.ends_with("link") && reason.contains("symlink")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_kept_data_run_is_not_evicted_by_the_count_age_or_cap_prune() {
+        let root = temp_root("keepdata");
+        let kept = create(
+            Some(&root),
+            "keepdata",
+            Some("kept"),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        let plain = create(
+            Some(&root),
+            "keepdata",
+            Some("plain"),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        finish(&kept).unwrap();
+        finish(&plain).unwrap();
+        fs::write(kept.root.join("evidence-of-world"), b"data").unwrap();
+        mark_keep_data(&kept.root).unwrap();
+        age(&kept);
+        age(&plain);
+        // A zero cap evicts every unprotected finished run, however old.
+        let report =
+            prune_with_age_override(&root, "keepdata", &[], Duration::from_millis(0)).unwrap();
+        assert!(
+            report.removed.iter().any(|p| p.ends_with("plain")),
+            "{report:?}"
+        );
+        assert!(
+            !report.removed.iter().any(|p| p.ends_with("kept")),
+            "a kept-data run was evicted: {report:?}"
+        );
+        assert!(root.join("runs/keepdata/kept/evidence-of-world").exists());
+        assert!(report
+            .retained
+            .iter()
+            .any(|(p, why)| p.ends_with("kept") && why.contains("kept data")));
+        assert!(report.over_cap_bytes > 0, "the cap is reported as exceeded");
+        assert!(run_keeps_data(&kept.root) && !run_keeps_data(&plain.root));
         let _ = fs::remove_dir_all(root);
     }
 

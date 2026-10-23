@@ -577,11 +577,22 @@ impl Harness {
                 self.failed.store(true, Ordering::Release);
             }
             CheckStatus::Skipped => {}
+            // Errored ran without reaching a verdict; NotRun never started. Neither is a pass,
+            // so both fail the run.
+            CheckStatus::Errored => {
+                self.ran.store(true, Ordering::Release);
+                self.failed.store(true, Ordering::Release);
+            }
+            CheckStatus::NotRun => {
+                self.failed.store(true, Ordering::Release);
+            }
         }
         let (word, reason) = match status {
             CheckStatus::Passed => ("PASS", None),
             CheckStatus::Skipped => ("SKIP", details["reason"].as_str().map(String::from)),
             CheckStatus::Failed => ("FAIL", details["error"].as_str().map(String::from)),
+            CheckStatus::Errored => ("ERROR", details["error"].as_str().map(String::from)),
+            CheckStatus::NotRun => ("NOTRUN", details["reason"].as_str().map(String::from)),
         };
         match &reason {
             Some(r) => println!("{} {word} {name}: {r}", self.prefix),
@@ -658,11 +669,15 @@ impl Harness {
             status
         };
         b.add_check(name, status, details, &names)?;
-        b.finish(if status == CheckStatus::Failed {
-            RunStatus::Failed
-        } else {
-            RunStatus::Passed
-        });
+        // Only a pass (or an optional skip, which suite.rs already treats as non-failing)
+        // may finish the bundle as passed; failed, errored and never-run checks never do.
+        b.finish(
+            if matches!(status, CheckStatus::Passed | CheckStatus::Skipped) {
+                RunStatus::Passed
+            } else {
+                RunStatus::Failed
+            },
+        );
         b.write(out)
     }
 }

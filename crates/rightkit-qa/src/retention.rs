@@ -9,7 +9,9 @@
 //! * a run that has not finished (no recorded outcome) or is still active is kept;
 //! * every failed run is kept;
 //! * of the passing runs, the newest per app and kind is kept and the others are deleted;
-//! * a run in which nothing executed (outcome `skipped`) holds no evidence and is deleted.
+//! * a run in which nothing executed (outcome `skipped`) holds no evidence and is deleted;
+//! * a run whose owner asked to keep its data ([`KEEP_DATA_FILE`], written by [`mark_keep_data`])
+//!   is kept whatever its outcome, and does not count as the newest passing run.
 //!
 //! The pass runs right after each job ends ([`prune_runs_after_job`], called by the suite and by
 //! the Rust harness) and is also the CLI `rightkit-qa prune-runs`, for a schedule.
@@ -29,6 +31,10 @@ use std::time::Duration;
 
 /// How long a pass waits for another pass over the same app before it skips that app.
 const LOCK_WAIT: Duration = Duration::from_secs(10);
+
+// The keep-data request is defined once, in `storage`, because the count/age prune there honours
+// it too.
+pub use crate::storage::{mark_keep_data, run_keeps_data, KEEP_DATA_FILE};
 
 /// What one retention pass did. With `dry_run` the `removed` entries are what would go.
 #[derive(Debug, Default, Clone)]
@@ -227,6 +233,12 @@ fn prune_app(
             report.kept.push((dir, "active run".into()));
             continue;
         }
+        if run_keeps_data(&dir) {
+            report
+                .kept
+                .push((dir, "kept data (the run's owner asked to keep it)".into()));
+            continue;
+        }
         let outcome = marker.outcome;
         match outcome {
             None => report
@@ -420,6 +432,55 @@ mod tests {
         assert_eq!(r.removed.len(), 1);
         // A second pass has nothing left to do.
         assert!(prune_runs(&root, None, false).unwrap().removed.is_empty());
+    }
+
+    #[test]
+    fn a_kept_data_run_survives_a_later_pass_of_the_same_app() {
+        // Two runs of one app finish one after the other (the concurrent-runs case): the later one's
+        // retention pass must not remove the earlier one when that run's owner kept its data.
+        let root = temp_root("keep-data");
+        let pass = Some(RunOutcome::Passed);
+        let f = Some(RunKind::Functional);
+        let kept = run(&root, "app", "kept", f, pass, 10);
+        fs::write(kept.join("evidence").join("world-data.txt"), "marker").unwrap();
+        mark_keep_data(&kept).unwrap();
+        let plain = run(&root, "app", "plain", f, pass, 11);
+        let newest = run(&root, "app", "newest", f, pass, 12);
+        let r = prune_runs(&root, Some("app"), false).unwrap();
+        assert!(exists(&kept), "a kept-data run was removed");
+        assert!(
+            exists(&kept.join("evidence").join("world-data.txt")),
+            "the kept run's data was removed"
+        );
+        assert!(
+            !exists(&plain),
+            "an ordinary older pass still goes: {}",
+            r.summary()
+        );
+        assert!(exists(&newest));
+        assert!(r
+            .kept
+            .iter()
+            .any(|(p, why)| p.ends_with("kept") && why.contains("kept data")));
+        // Whatever its outcome and age, and on every later pass.
+        let skipped = run(&root, "app", "skipped", f, Some(RunOutcome::Skipped), 1);
+        mark_keep_data(&skipped).unwrap();
+        assert!(prune_runs(&root, None, false).unwrap().removed.is_empty());
+        assert!(exists(&kept) && exists(&skipped));
+        // The request is a plain file in the run directory: a link of that name does not count.
+        let linked = run(&root, "app", "linked", f, pass, 2);
+        let target = temp_root("keep-target");
+        fs::write(target.join("flag"), "x").unwrap();
+        let link = linked.join(KEEP_DATA_FILE);
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(target.join("flag"), &link).is_ok();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(target.join("flag"), &link).is_ok();
+        if made {
+            prune_runs(&root, Some("app"), false).unwrap();
+            assert!(!exists(&linked), "a link must not keep a run");
+            assert!(exists(&target.join("flag")));
+        }
     }
 
     #[test]

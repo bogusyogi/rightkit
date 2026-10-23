@@ -239,6 +239,12 @@ mod tests {
 pub(crate) struct KillOnCloseJob(OwnedHandle);
 
 impl KillOnCloseJob {
+    /// The process ids in the job now (leader included while it is listed), grandchildren
+    /// included. A snapshot; see [`crate::WindowsJob::process_ids`].
+    pub(crate) fn process_ids(&self) -> io::Result<Vec<u32>> {
+        crate::windows_job::WindowsJob::ids_of(raw(&self.0), 32)
+    }
+
     fn assign(process: &ProcessHandle, breakaway: crate::owned::BreakawayMode) -> io::Result<Self> {
         let job = Self(own(
             unsafe { CreateJobObjectW(None, None) }.map_err(os_error)?

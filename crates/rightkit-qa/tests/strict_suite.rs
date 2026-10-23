@@ -52,6 +52,8 @@ const WRONG: &str = r#"
 name = "wrong content"
 [[step]]
 kind = "cli"
+lifecycle = "cold"
+cold_reason = "startup"
 command = "x"
   [[step.expect]]
   path = "json.value"
@@ -62,6 +64,8 @@ const RIGHT: &str = r#"
 name = "right content"
 [[step]]
 kind = "cli"
+lifecycle = "cold"
+cold_reason = "startup"
 command = "x"
   [[step.expect]]
   path = "json.value"
@@ -73,6 +77,8 @@ name = "mandatory skip"
 requires = ["env:RKQA_IT_DEFINITELY_UNSET"]
 [[step]]
 kind = "cli"
+lifecycle = "cold"
+cold_reason = "startup"
 command = "x"
 "#;
 const OPTIONAL_SKIP: &str = r#"
@@ -81,6 +87,8 @@ optional = true
 requires = ["env:RKQA_IT_DEFINITELY_UNSET"]
 [[step]]
 kind = "cli"
+lifecycle = "cold"
+cold_reason = "startup"
 command = "x"
 "#;
 
@@ -138,12 +146,16 @@ name = "other os"
 requires = ["platform:__OTHER__"]
 [[step]]
 kind = "cli"
+lifecycle = "cold"
+cold_reason = "startup"
 command = "x"
 "#;
 const STRAY: &str = r#"
 name = "stray"
 [[step]]
 kind = "cli"
+lifecycle = "cold"
+cold_reason = "startup"
 command = "x"
 "#;
 
@@ -221,31 +233,83 @@ fn only_matches_the_file_stem_exactly_and_comma_lists() {
     assert_eq!(r.exit_code, 1);
 }
 
-#[test]
-fn live_run_lock_holder_is_not_displaced_by_a_second_run() {
-    let d = tmp("lock");
-    let cfg = app(&d, &[("right", RIGHT)]);
-    let managed_root = cfg.app_root.join("managed");
-    let managed_app_root = managed_root.join("runs").join(&cfg.app);
-    fs::create_dir_all(&managed_app_root).unwrap();
-    let lock = rightkit_qa::lock::acquire(
-        &managed_app_root.join("native.lock"),
-        "first",
-        &Default::default(),
+/// A scenario that has the engine report the world it was handed and leave a marker in it, then stays
+/// alive long enough for a second run to overlap with it.
+fn probe_scenario(port_base: u16) -> String {
+    format!(
+        r#"
+name = "world probe"
+[[step]]
+kind = "cold_cli"
+cold_reason = "startup"
+command = "x"
+  [[step.expect]]
+  path = "json.port"
+  eq = "{port_base}"
+[[step]]
+kind = "sleep"
+ms = 1500
+"#
+    )
+}
+
+/// An engine that prints the first port of its world and writes its run's tag into its world's data
+/// dir. The tag comes from the config's `[env]`, the world from the runner's environment.
+fn probe_app(root: &Path, tag: &str, port_base: u16) -> QaConfig {
+    let mut cfg = app(root, &[("probe", &probe_scenario(port_base))]);
+    let engine = root.join("engine.sh");
+    fs::write(
+        &engine,
+        "#!/bin/sh\nmkdir -p \"$RIGHTKIT_QA_WORLD_DATA\"\nprintf %s \"$RUN_TAG\" > \"$RIGHTKIT_QA_WORLD_DATA/marker.txt\"\nprintf '{\"port\":\"%s\",\"tag\":\"%s\"}\\n' \"$RIGHTKIT_QA_PORT_START\" \"$RUN_TAG\"\n",
     )
     .unwrap();
-    let mut quick = cfg.clone();
-    quick.lock.timeout_s = Some(1);
-    quick.lock.stale_s = Some(0);
-    let e = run_suite_in_managed_root(&quick, &SuiteOptions::default(), &managed_root).unwrap_err();
-    assert!(e.0.contains("held by first"), "{e}");
-    drop(lock);
-    assert_eq!(
-        run_suite_in_managed_root(&quick, &SuiteOptions::default(), &managed_root)
-            .unwrap()
-            .exit_code,
-        0
+    fs::set_permissions(&engine, fs::Permissions::from_mode(0o755)).unwrap();
+    cfg.env.insert("RUN_TAG".into(), tag.into());
+    cfg.host.port_base = Some(port_base);
+    cfg
+}
+
+#[test]
+fn two_concurrent_runs_of_one_app_get_distinct_worlds_data_and_ports() {
+    // There is no app-wide run lock: two runs of the same app on one managed root proceed together,
+    // each in worlds of its own. The runner hands out port ranges per run from `[host] port_base`, so
+    // concurrent runs of one app on one host are given different bases.
+    let root_a = tmp("two-runs-a");
+    let root_b = tmp("two-runs-b");
+    let managed = tmp("two-runs-managed");
+    let cfg_a = probe_app(&root_a, "run-a", 42000);
+    let cfg_b = probe_app(&root_b, "run-b", 43000);
+    let opts = SuiteOptions {
+        keep_data: true,
+        ..Default::default()
+    };
+    let (a, b) = std::thread::scope(|s| {
+        let a = s.spawn(|| run_suite_in_managed_root(&cfg_a, &opts, &managed));
+        let b = s.spawn(|| run_suite_in_managed_root(&cfg_b, &opts, &managed));
+        (a.join().unwrap().unwrap(), b.join().unwrap().unwrap())
+    });
+    // Each engine saw its own run's range (the scenario's `expect` is the run's port base), so both
+    // pass only if neither was handed the other's world.
+    assert_eq!(a.exit_code, 0, "{:?}", a.outcomes);
+    assert_eq!(b.exit_code, 0, "{:?}", b.outcomes);
+    assert_ne!(a.run_id, b.run_id);
+    assert_ne!(a.run_dir, b.run_dir);
+    assert_ne!(a.evidence_path, b.evidence_path);
+    let world_of = |r: &rightkit_qa::suite::SuiteReport| r.outcomes[0].world.clone().unwrap();
+    let (wa, wb) = (world_of(&a), world_of(&b));
+    assert_ne!(wa, wb);
+    assert!(
+        !wa.starts_with(&wb) && !wb.starts_with(&wa),
+        "{wa:?} / {wb:?}"
     );
+    // Each world's data dir holds only its own run's marker.
+    let marker =
+        |w: &Path| fs::read_to_string(w.join("home").join("data").join("marker.txt")).unwrap();
+    assert_eq!(marker(&wa), "run-a");
+    assert_eq!(marker(&wb), "run-b");
+    let _ = fs::remove_dir_all(&root_a);
+    let _ = fs::remove_dir_all(&root_b);
+    let _ = fs::remove_dir_all(&managed);
 }
 
 #[test]

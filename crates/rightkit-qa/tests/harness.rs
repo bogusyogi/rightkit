@@ -209,7 +209,8 @@ fn leaked_process_fails_the_scenario_and_is_killed() {
         .cloned()
         .unwrap_or_default();
     assert!(
-        msg.contains("orphan processes still running") && msg.contains("sleep 30"),
+        msg.contains("orphan processes outlived their owners or are still running")
+            && msg.contains("sleep 30"),
         "{msg}"
     );
     let mut child = slot.unwrap();

@@ -9,12 +9,16 @@ use crate::a11y;
 use crate::check::{check_all, interpolate, Expect};
 use crate::config::QaConfig;
 use crate::control::{self, Control, LaunchSpec, Mode};
-use crate::engine::{CliOptions, EngineTarget, Sidecar};
+use crate::engine::{
+    parse_cold_reason, CliCall, CliOptions, EngineSession, EngineStarts, EngineTarget,
+    ParityReport, Route as EngineRoute, Sidecar, TargetHost, COLD_REASONS,
+};
 use crate::mock::{MockServer, Route};
 use crate::page;
 use crate::process::Tracker;
 use crate::storage::RunKind;
 use crate::util::{err, sleep_ms, Error, Result};
+use crate::worker::{Survivor, SurvivorOwner, Token, World};
 use crate::workspace::QaWorkspace;
 use crate::{media, util};
 use serde::Deserialize;
@@ -44,6 +48,15 @@ pub struct Scenario {
     #[serde(default)]
     pub kill_orphans: bool,
     pub timeout_s: Option<u64>,
+    /// Machine-wide resources the scenario holds while it runs: `focus`, `audio`, `gui-session`,
+    /// `clipboard`, `credentials` (ADR-0001 item 2). The pool never runs two scenarios that name the
+    /// same token at once; a scenario that names none takes no lock. An unknown or repeated name is
+    /// refused when the file is loaded.
+    #[serde(default)]
+    pub tokens: Vec<String>,
+    /// `tokens` parsed and checked by [`Scenario::load`], in declared order.
+    #[serde(skip)]
+    pub grants: Vec<Token>,
     /// `functional` or `visual`. Absent: the scenario takes the run's kind (see
     /// [`resolve_run_kind`]). A `functional` scenario takes no screenshots and no recordings; a
     /// `visual` scenario may, and makes an otherwise unconstrained run `visual`.
@@ -94,6 +107,8 @@ impl Scenario {
         if s.steps.is_empty() {
             return err(format!("{}: scenario has no steps", path.display()));
         }
+        s.grants = crate::pool::parse_tokens(&s.tokens)
+            .map_err(|e| Error(format!("{}: {}", path.display(), e.0)))?;
         Ok(s)
     }
 }
@@ -226,6 +241,76 @@ pub fn unmet_requirement_with(
     None
 }
 
+/// Why a scenario was skipped (Sage C5). A skip is a decision the run made, not a verdict, so each one
+/// carries its reason as a kind, and the pass rule reads the kind, never the text of the reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SkipKind {
+    /// The scenario requires another OS than the host's (`platform:<os>`). It can never run here, so
+    /// it never counts against any run.
+    OtherPlatform,
+    /// A requirement other than the platform is unmet (a missing env var, file or command).
+    UnmetRequirement,
+    /// The run's tier selection left the scenario out.
+    TierNotSelected,
+    /// The scenario is declared `optional` and its requirements are unmet.
+    Optional,
+}
+
+impl SkipKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SkipKind::OtherPlatform => "other-platform",
+            SkipKind::UnmetRequirement => "unmet-requirement",
+            SkipKind::TierNotSelected => "tier-not-selected",
+            SkipKind::Optional => "optional",
+        }
+    }
+
+    /// Whether a skip of this kind leaves the run passing. A qualifying run tolerates only
+    /// `OtherPlatform`; an ordinary run also tolerates `Optional` (the behaviour before typed skips).
+    /// Every other kind fails either way.
+    pub fn tolerated(self, qualifying: bool) -> bool {
+        match self {
+            SkipKind::OtherPlatform => true,
+            SkipKind::Optional => !qualifying,
+            SkipKind::UnmetRequirement | SkipKind::TierNotSelected => false,
+        }
+    }
+}
+
+/// What the requirement check decides for one scenario before any step runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Gate {
+    /// Requirements are met (or none are declared): run it.
+    Run,
+    /// Do not run it; record a skip of this kind.
+    Skip { kind: SkipKind, reason: String },
+    /// Do not run it and fail: a mandatory scenario that cannot run is a failed gate.
+    Fail { reason: String },
+}
+
+/// Decide whether `sc` runs on this host. A `platform:<os>` mismatch is an `OtherPlatform` skip even
+/// for a mandatory scenario (it can never run here). Any other unmet requirement is an `Optional`
+/// skip for an `optional` scenario and a failure for a mandatory one.
+pub fn requirement_gate(sc: &Scenario, app_root: &Path) -> Gate {
+    if let Some(reason) = platform_mismatch(&sc.requires) {
+        return Gate::Skip {
+            kind: SkipKind::OtherPlatform,
+            reason,
+        };
+    }
+    match unmet_requirement(&sc.requires, app_root) {
+        None => Gate::Run,
+        Some(reason) if sc.optional => Gate::Skip {
+            kind: SkipKind::Optional,
+            reason,
+        },
+        Some(reason) => Gate::Fail {
+            reason: format!("mandatory scenario could not run: {reason} (mark it `optional = true` only if skipping is acceptable)"),
+        },
+    }
+}
+
 fn command_exists(name: &str) -> bool {
     if name.contains(std::path::MAIN_SEPARATOR) {
         return Path::new(name).exists();
@@ -301,6 +386,10 @@ pub struct Ctx<'a> {
     pub log_dir: PathBuf,
     pub vars: BTreeMap<String, Value>,
     pub sidecars: BTreeMap<String, Sidecar>,
+    /// The scenario's engine: one `--stdio` sidecar per distinct env set that `cli` steps use, and the
+    /// count of every engine process the scenario started (ADR-0001 item 5). [`Ctx::finish`] stops it
+    /// before survivors are read. Sidecars of `sidecar_start` steps are in `sidecars`, not here.
+    pub engine_session: EngineSession,
     pub mocks: BTreeMap<String, MockServer>,
     pub ui: Option<(Control, Mode)>,
     #[cfg(feature = "browser")]
@@ -314,6 +403,13 @@ pub struct Ctx<'a> {
     pub handlers: StepHandlers,
     /// When set, [`Ctx::teardown`] kills tracked survivors instead of reporting them as orphans.
     pub kill_orphans: bool,
+    /// The pool's world for this scenario (ports, env marker, control files); `None` outside a pool
+    /// run (a harness test, a hand-built `Ctx`). See [`Ctx::with_world`].
+    pub world: Option<World>,
+    /// Resource tokens the pool holds for this scenario, see [`Scenario::tokens`].
+    pub granted: Vec<Token>,
+    /// What the built-in steps and the app's step plugin hold for this scenario ([`crate::steps`]).
+    pub steps: crate::steps::StepState,
     step_no: usize,
 }
 
@@ -356,6 +452,7 @@ impl<'a> Ctx<'a> {
             "engine".into(),
             json!(engine.as_ref().map(|e| scenario_path_text(&e.binary))),
         );
+        let engine_session = EngineSession::new(Some(log_dir.clone()));
         Ok(Self {
             cfg,
             engine,
@@ -367,6 +464,7 @@ impl<'a> Ctx<'a> {
             log_dir,
             vars,
             sidecars: BTreeMap::new(),
+            engine_session,
             mocks: BTreeMap::new(),
             ui: None,
             #[cfg(feature = "browser")]
@@ -375,12 +473,64 @@ impl<'a> Ctx<'a> {
             artifacts: vec![],
             handlers: StepHandlers::default(),
             kill_orphans: false,
+            world: None,
+            granted: vec![],
+            steps: crate::steps::StepState::default(),
             step_no: 0,
         })
     }
 
+    /// The 1-based number of the step being run (0 before the first).
+    pub fn step_no(&self) -> usize {
+        self.step_no
+    }
+
+    /// Bind the scenario to the world the pool built for it and the tokens the pool holds for it.
+    /// The engine this scenario starts carries the world's environment (marker, port range, control
+    /// paths, tokens), so a process finds its world in its own env and not in shared state.
+    pub fn with_world(mut self, world: World, granted: Vec<Token>) -> Self {
+        let pairs = crate::pool::world_env(&world, &granted);
+        if let Some(e) = self.engine.as_mut() {
+            e.env.retain(|(k, _)| !pairs.iter().any(|(wk, _)| wk == k));
+            e.env.extend(pairs);
+        }
+        self.world = Some(world);
+        self.granted = granted;
+        self
+    }
+
+    /// The `offset`-th port of this scenario's world range (0 is the first). Refused outside a pool
+    /// run and past the end of the range, so a scenario cannot bind into another world's ports.
+    pub fn world_port(&self, offset: u16) -> Result<u16> {
+        let w = self
+            .world
+            .as_ref()
+            .ok_or_else(|| Error("this scenario has no world, so it has no port range".into()))?;
+        let port = u32::from(w.port_start) + u32::from(offset);
+        if port > u32::from(w.port_end) {
+            return err(format!(
+                "port offset {offset} is outside this scenario's range {}-{}",
+                w.port_start, w.port_end
+            ));
+        }
+        Ok(port as u16)
+    }
+
+    /// Refuse use of a machine-wide resource the scenario did not declare. Outside a pool run
+    /// (`world` is `None`) nothing is held or checked, so existing direct users are unchanged.
+    pub fn require_token(&self, token: Token, what: &str) -> Result<()> {
+        if self.world.is_none() || self.granted.contains(&token) {
+            return Ok(());
+        }
+        let name = crate::pool::token_name(token);
+        err(format!(
+            "{what} uses the {name} resource but scenario '{}' does not declare it; add tokens = [\"{name}\"] to the scenario",
+            self.scenario
+        ))
+    }
+
     fn engine(&self) -> Result<&EngineTarget> {
-        self.engine.as_ref().ok_or_else(|| Error("no engine binary configured (set [engine].binary, RIGHTKIT_QA_ENGINE, or pass --build)".into()))
+        self.engine.as_ref().ok_or_else(no_engine)
     }
 
     fn ui(&self) -> Result<&Control> {
@@ -397,8 +547,26 @@ impl<'a> Ctx<'a> {
     }
 
     /// Stop everything this scenario started, in reverse dependency order.
-    /// Returns problems found while cleaning up (a failed stop is a failed scenario).
+    /// Returns problems found while cleaning up (a failed stop is a failed scenario), then the
+    /// engine problems of [`Ctx::finish`] (`errored` there). A caller that reports a scenario as
+    /// `errored` or records survivors calls [`Ctx::finish`] instead.
     pub fn teardown(&mut self) -> Vec<String> {
+        let t = self.finish();
+        let mut problems = t.problems;
+        problems.extend(t.errored);
+        problems
+    }
+
+    /// [`Ctx::teardown`] with everything it learned kept apart. The order is the point:
+    /// 1. the browser, the UI app, the scenario's own sidecars and the `cli` steps' engine
+    ///    sidecars are stopped (stdin closed, a moment to exit, then the tree is killed);
+    /// 2. the tracker's live processes are read into `survivors`;
+    /// 3. only then is anything killed (`kill_orphans`) or reported as an orphan.
+    ///
+    /// So a survivor is always recorded before cleanup removes the evidence of it, and a sidecar that
+    /// is stopped here can never be mistaken for one. Also writes `engine-starts.json` (the counts,
+    /// per env set) and the sidecars' full stderr files as artifacts.
+    pub fn finish(&mut self) -> Teardown {
         let mut problems = vec![];
         #[cfg(feature = "browser")]
         if let Some(mut b) = self.browser.take() {
@@ -430,14 +598,61 @@ impl<'a> Ctx<'a> {
         for (_, mut s) in std::mem::take(&mut self.sidecars) {
             s.close();
         }
+        self.engine_session.close_all();
         self.mocks.clear();
+        // Read before any kill: `assert_no_orphans` and `kill_all` remove what they find.
+        let survivors: Vec<Survivor> = self
+            .tracker
+            .alive()
+            .into_iter()
+            .map(|(pid, label)| Survivor {
+                pid,
+                name: label,
+                owner: SurvivorOwner::RegisteredRoot,
+                detail: String::new(),
+            })
+            .collect();
         if self.kill_orphans {
             self.tracker.kill_all();
         } else if let Err(e) = self.tracker.assert_no_orphans() {
             problems.push(e.0);
         }
-        problems
+        let engine_starts = self.engine_session.starts().clone();
+        if engine_starts.total() > 0 {
+            let path = self.log_dir.join("engine-starts.json");
+            let text = serde_json::to_string_pretty(&engine_starts.to_value()).unwrap_or_default();
+            match std::fs::write(&path, text) {
+                Ok(()) => self.artifact("engine-starts.json", path),
+                Err(e) => problems.push(format!("engine-starts.json could not be written: {e}")),
+            }
+        }
+        for file in self.engine_session.stderr_files().to_vec() {
+            if let Some(name) = file.file_name().map(|n| n.to_string_lossy().into_owned()) {
+                self.artifact(&name, file);
+            }
+        }
+        Teardown {
+            problems,
+            errored: engine_starts.errored(),
+            survivors,
+            engine_starts,
+        }
     }
+}
+
+/// What stopping a scenario found (see [`Ctx::finish`]).
+#[derive(Debug, Clone)]
+pub struct Teardown {
+    /// Failures: a UI app not fully stopped, a tracked process left running (unless `kill_orphans`).
+    pub problems: Vec<String>,
+    /// Why the scenario is `errored` on account of its engines: sidecars that failed to start, died or
+    /// went silent, then `engine starts N > allowed M` (Sage C3(b)). Empty for a clean scenario.
+    pub errored: Vec<String>,
+    /// Tracked processes still alive once everything above was stopped, read before any was killed.
+    pub survivors: Vec<Survivor>,
+    /// The engine-start counts, total and per env set; `engine_starts.total()` is the receipt's
+    /// `engine_starts`.
+    pub engine_starts: EngineStarts,
 }
 
 // --------------------------------------------------------------------- params
@@ -560,6 +775,19 @@ pub const DEFAULT_UNTIL_INTERVAL_MS: u64 = 25;
 /// Run one step including retry-until-expectations-hold.
 pub fn run_step(ctx: &mut Ctx, step: &Step) -> Result<Value> {
     ctx.step_no += 1;
+    if let Some(name) = step
+        .save
+        .as_deref()
+        .filter(|n| crate::plugin::is_build_var(n))
+    {
+        // The runner's build record: a scenario that saves over it would repoint `${build.<role>}`.
+        return Err(Error(format!(
+            "{} step {} ({}): `save = \"{name}\"` names a variable the runner owns (`build`)",
+            crate::plugin::ERRORED_MARK,
+            ctx.step_no,
+            step.kind
+        )));
+    }
     let started = Instant::now();
     let until = step.until_timeout_s.map(Duration::from_secs);
     let interval = Duration::from_millis(step.interval_ms.unwrap_or(DEFAULT_UNTIL_INTERVAL_MS));
@@ -639,33 +867,128 @@ pub(crate) fn seed_commands(p: &Map<String, Value>) -> Result<Vec<Map<String, Va
         .collect()
 }
 
-/// One engine CLI call: the body of the `cli` step and of each `engine_seed` command. The call's
-/// transcript is written to `log_name` in the scenario's evidence dir.
-fn run_cli(ctx: &mut Ctx, p: &Map<String, Value>, log_name: &str) -> Result<Value> {
-    let args: Vec<String> = match (pv(p, "args"), ps_opt(p, "command")) {
-        (Some(Value::Array(a)), _) => a
+fn no_engine() -> Error {
+    Error(
+        "no engine binary configured (set [engine].binary, RIGHTKIT_QA_ENGINE, or pass --build)"
+            .into(),
+    )
+}
+
+/// The words of a `cli`-family step: `args` (a list) or `command` (split on whitespace).
+fn cli_args(p: &Map<String, Value>) -> Result<Vec<String>> {
+    match (pv(p, "args"), ps_opt(p, "command")) {
+        (Some(Value::Array(a)), _) => Ok(a
             .iter()
             .map(|v| {
                 v.as_str()
                     .map(String::from)
                     .unwrap_or_else(|| v.to_string())
             })
-            .collect(),
-        (_, Some(c)) => c.split_whitespace().map(String::from).collect(),
-        _ => return err("cli step needs 'command' or 'args'"),
+            .collect()),
+        (_, Some(c)) => Ok(c.split_whitespace().map(String::from).collect()),
+        _ => err("cli step needs 'command' or 'args'"),
+    }
+}
+
+/// Which step kind is calling the engine; it decides how the call may be routed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lane {
+    /// `cli`: the scenario's sidecar, unless the step declares `lifecycle = "cold"` and a `cold_reason`.
+    Session,
+    /// `cold_cli`: always a cold process; `cold_reason` (or `reason`) is required.
+    ColdStep,
+    /// `engine_seed`: each command is a cold process, declared as `startup` (it runs before the UI app,
+    /// which opens the store next, so no sidecar of the scenario may hold it).
+    Seed,
+}
+
+fn cold_reason_of(reason: Option<String>) -> Result<&'static str> {
+    match reason {
+        Some(r) => parse_cold_reason(&r),
+        None => err(format!(
+            "a cold launch names its reason: cold_reason = one of {}",
+            COLD_REASONS.join(", ")
+        )),
+    }
+}
+
+/// Where a `cli`-family step goes (Sage C3(a)): the sidecar by default, a declared cold launch with
+/// `lifecycle = "cold"` and exactly one `cold_reason` from [`COLD_REASONS`].
+fn cli_route(p: &Map<String, Value>, lane: Lane) -> Result<EngineRoute> {
+    let lifecycle = ps_opt(p, "lifecycle");
+    let reason = ps_opt(p, "cold_reason");
+    match lane {
+        Lane::Seed => Ok(EngineRoute::Cold("startup")),
+        Lane::ColdStep => {
+            if let Some(l) = lifecycle.as_deref().filter(|l| *l != "cold") {
+                return err(format!(
+                    "cold_cli is always cold: lifecycle `{l}` is not allowed"
+                ));
+            }
+            Ok(EngineRoute::Cold(cold_reason_of(
+                reason.or_else(|| ps_opt(p, "reason")),
+            )?))
+        }
+        Lane::Session => match lifecycle.as_deref() {
+            None | Some("session") => {
+                if reason.is_some() {
+                    return err("cold_reason needs lifecycle = \"cold\"");
+                }
+                Ok(EngineRoute::Session)
+            }
+            Some("cold") => Ok(EngineRoute::Cold(cold_reason_of(reason)?)),
+            Some(other) => err(format!(
+                "lifecycle must be `session` or `cold`, not `{other}`"
+            )),
+        },
+    }
+}
+
+/// One engine CLI call: the body of the `cli` and `cold_cli` steps and of each `engine_seed`
+/// command. The call's transcript is written to `log_name` in the scenario's evidence dir.
+///
+/// A `cli` step is served by the scenario's `--stdio` sidecar for its `env` set (started on first use),
+/// and by a cold process only when the step declares it. The result has the shape a cold call returns
+/// plus `via`, `env_set`, `exit_code_source` (and `cold_reason`); see [`crate::engine::Served::to_value`].
+fn run_cli(ctx: &mut Ctx, p: &Map<String, Value>, log_name: &str, lane: Lane) -> Result<Value> {
+    let args = cli_args(p)?;
+    let route = cli_route(p, lane)?;
+    let opts = cli_opts(ctx, p);
+    let label = format!("step {} `{}`", ctx.step_no, args.join(" "));
+    let target = ctx.engine.as_ref().ok_or_else(no_engine)?;
+    let host = TargetHost {
+        target,
+        tracker: ctx.tracker,
     };
-    let r = ctx.engine()?.cli(&args, &cli_opts(ctx, p), ctx.tracker)?;
+    let served = ctx.engine_session.cli(
+        &host,
+        &CliCall {
+            args: &args,
+            opts: &opts,
+            label: &label,
+        },
+        route,
+    )?;
+    let r = &served.result;
     let log = ctx.log_dir.join(log_name);
     std::fs::write(
         &log,
         format!(
-            "$ {}\nexit {:?}\n--- stdout\n{}\n--- stderr\n{}\n",
+            "$ {}\nvia {:?} (env set {}{}), exit code from {}\nexit {:?}\n--- stdout\n{}\n--- stderr\n{}\n",
             args.join(" "),
+            served.via,
+            served.env_set,
+            served
+                .cold_reason
+                .map(|c| format!(", cold: {c}"))
+                .unwrap_or_default(),
+            served.exit_code_source,
             r.code,
             r.stdout,
             r.stderr
         ),
     )?;
+    ctx.steps.note_cli_log(log.clone());
     ctx.artifact(log_name, log);
     let ok = r.code == Some(0) && r.json.get("error").map(Value::is_null).unwrap_or(true);
     if !ok && !pb(p, "allow_error") {
@@ -678,7 +1001,67 @@ fn run_cli(ctx: &mut Ctx, p: &Map<String, Value>, log_name: &str) -> Result<Valu
             crate::util::tail(&r.stderr, 600)
         ));
     }
-    Ok(r.to_value())
+    Ok(served.to_value())
+}
+
+impl Ctx<'_> {
+    /// Run `command` (one served method) with `input` cold and in-session and compare them: JSON body,
+    /// error class and exit code (Sage C3(c)). The stdio protocol carries the exit code only when a
+    /// response has `exit_code`; otherwise the report says only body and error class were compared and
+    /// records `exit_code_source: "derived"`. The cold launch is declared as `parity`. The command runs
+    /// twice: use a read-only or idempotent one, and not a `store-lock` command. The transcript of both
+    /// answers is the step's `NN-parity.log`. `env` picks the sidecar, as for a `cli` step.
+    pub fn parity(
+        &mut self,
+        command: &str,
+        input: Option<Value>,
+        env: Vec<(String, String)>,
+        timeout: Duration,
+    ) -> Result<ParityReport> {
+        let args: Vec<String> = command.split_whitespace().map(String::from).collect();
+        let opts = CliOptions {
+            data_dir: Some(self.data_dir.clone()),
+            env,
+            input,
+            timeout: Some(timeout),
+        };
+        let label = format!("step {} parity `{command}`", self.step_no);
+        let target = self.engine.as_ref().ok_or_else(no_engine)?;
+        let host = TargetHost {
+            target,
+            tracker: self.tracker,
+        };
+        let report = self.engine_session.parity(
+            &host,
+            &CliCall {
+                args: &args,
+                opts: &opts,
+                label: &label,
+            },
+        )?;
+        let name = format!("{:02}-parity.log", self.step_no);
+        let log = self.log_dir.join(&name);
+        let side = |title: &str, r: &crate::engine::CliResult| {
+            format!(
+                "--- {title}: exit {:?}\n{}\n--- {title} stderr\n{}\n",
+                r.code, r.stdout, r.stderr
+            )
+        };
+        std::fs::write(
+            &log,
+            format!(
+                "$ {command}\nequal {}\ncompares {}\ndifferences {:?}\n{}{}",
+                report.equal(),
+                report.to_value()["compares"].as_str().unwrap_or(""),
+                report.differences,
+                side("cold", &report.cold),
+                side("in-session", &report.session)
+            ),
+        )?;
+        self.steps.note_cli_log(log.clone());
+        self.artifact(&name, log);
+        Ok(report)
+    }
 }
 
 fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
@@ -687,9 +1070,56 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
     }
     match kind {
         // ------------------------------------------------------------ engine
+        // Served by the scenario's `--stdio` sidecar for the step's `env` set. `lifecycle = "cold"` with
+        // one `cold_reason` (startup, restart, recovery, role-change, store-lock, cli-entry,
+        // non-method) launches a cold process instead.
         "cli" => {
             let log = format!("{:02}-cli.log", ctx.step_no);
-            run_cli(ctx, p, &log)
+            run_cli(ctx, p, &log, Lane::Session)
+        }
+        // A cold process on purpose: the `cli` parameters plus `cold_reason` (or `reason`), required.
+        "cold_cli" => {
+            let log = format!("{:02}-cold-cli.log", ctx.step_no);
+            run_cli(ctx, p, &log, Lane::ColdStep)
+        }
+        // Close the `env` set's sidecar and open a new one now (a declared, counted restart).
+        "restart" => {
+            let opts = cli_opts(ctx, p);
+            let target = ctx.engine.as_ref().ok_or_else(no_engine)?;
+            let host = TargetHost {
+                target,
+                tracker: ctx.tracker,
+            };
+            ctx.engine_session.restart(&host, &opts)
+        }
+        // Kill the `env` set's sidecar; the engine must recover on the next call to that set (a declared,
+        // counted restart).
+        "kill" => {
+            let opts = cli_opts(ctx, p);
+            ctx.engine_session.kill(&opts)
+        }
+        // `command` (one served method), `input`, `env`, `timeout_s`: run it cold and in-session and fail
+        // on any difference in body, error class or (when the protocol carries it) exit code.
+        "parity" => {
+            let command = match (ps_opt(p, "command"), pv(p, "args")) {
+                (Some(c), _) => c,
+                (None, Some(_)) => cli_args(p)?.join(" "),
+                _ => return err("parity step needs 'command'"),
+            };
+            let report = ctx.parity(
+                &command,
+                pv(p, "input").cloned(),
+                env_pairs(p),
+                dur(p, "timeout_s", 120.0),
+            )?;
+            if !report.equal() {
+                return err(format!(
+                    "parity failed for `{}`: {}",
+                    report.command,
+                    report.differences.join("; ")
+                ));
+            }
+            Ok(report.to_value())
         }
         // Seed the engine's state before the UI starts: each entry of `commands` is a `cli` step's
         // parameters (`command` or `args`, `input`, `env`, `allow_error`, `timeout_s`), run in order
@@ -704,7 +1134,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             for (i, one) in commands.iter().enumerate() {
                 let log = format!("{:02}-seed-{:02}.log", ctx.step_no, i + 1);
                 results.push(
-                    run_cli(ctx, one, &log)
+                    run_cli(ctx, one, &log, Lane::Seed)
                         .map_err(|e| Error(format!("engine_seed command {}: {}", i + 1, e.0)))?,
                 );
             }
@@ -719,6 +1149,8 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             s.set_frame_shape(pv(p, "legacy_status_frames").and_then(Value::as_bool));
             let hello = s.hello.clone();
             ctx.sidecars.insert(id, s);
+            // An engine process the scenario asked for by name: counted, and its own declaration.
+            ctx.engine_session.note_scenario_sidecar();
             Ok(hello)
         }
         "sidecar_command" => {
@@ -825,7 +1257,9 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             Ok(json!({"slept_ms": pf_or(p, "ms", 100.0)}))
         }
         "assert_no_orphans" => {
-            ctx.tracker.assert_no_orphans()?;
+            // Mid-scenario: the runner's own live sidecars and the step plugin are alive on purpose
+            // (teardown retires them and checks them strictly), everything else is reported.
+            ctx.tracker.assert_no_foreign_orphans()?;
             Ok(json!({"alive": 0}))
         }
         // ------------------------------------------------------------- UI app
@@ -853,6 +1287,10 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
             let focus = pv(p, "focus")
                 .and_then(Value::as_bool)
                 .unwrap_or(ctx.cfg.ui.focus);
+            // Keyboard and window focus is one per machine: a scenario that takes it declares it.
+            if focus {
+                ctx.require_token(Token::Focus, "ui_launch with focus")?;
+            }
             let spec = LaunchSpec {
                 binary,
                 mode,
@@ -1091,7 +1529,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
         }
         #[cfg(feature = "browser")]
         k if k.starts_with("browser_") => crate::browser::exec(ctx, k, p),
-        other => err(format!("unknown step kind '{other}'")),
+        other => crate::steps::dispatch(ctx, other, p),
     }
 }
 
@@ -1352,16 +1790,16 @@ command = \"x\"
         let tracker = Tracker::new();
         let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
         ctx.vars.insert("mock_url".into(), json!("http://m"));
-        let e = run_step(&mut ctx, &bare_step("mock_admin", json!({}))).unwrap_err();
-        assert!(e.0.contains("unknown step kind 'mock_admin'"), "{e}");
-        ctx.handlers.register("mock_admin", |ctx, p| {
+        let e = run_step(&mut ctx, &bare_step("custom_probe", json!({}))).unwrap_err();
+        assert!(e.0.contains("unknown step kind 'custom_probe'"), "{e}");
+        ctx.handlers.register("custom_probe", |ctx, p| {
             let url = ctx.vars["mock_url"].as_str().unwrap().to_string();
             ctx.vars.insert("touched".into(), json!(true));
             Ok(json!({"url": url, "echo": p.get("what").cloned()}))
         });
-        assert_eq!(ctx.handlers.kinds(), vec!["mock_admin"]);
+        assert_eq!(ctx.handlers.kinds(), vec!["custom_probe"]);
         // Parameters arrive interpolated; the result is what `expect` checks and `save` stores.
-        let mut step = bare_step("mock_admin", json!({"what": "${mock_url}/x"}));
+        let mut step = bare_step("custom_probe", json!({"what": "${mock_url}/x"}));
         step.save = Some("admin".into());
         step.expect =
             vec![serde_json::from_value(json!({"path": "echo", "eq": "http://m/x"})).unwrap()];
@@ -1371,7 +1809,26 @@ command = \"x\"
         assert_eq!(ctx.vars["touched"], json!(true));
         step.expect = vec![serde_json::from_value(json!({"path": "echo", "eq": "nope"})).unwrap()];
         let e = run_step(&mut ctx, &step).unwrap_err();
-        assert!(e.0.contains("mock_admin"), "{e}");
+        assert!(e.0.contains("custom_probe"), "{e}");
+        // `build` and `build.*` are the runner's record of what it built: a `save` over them is
+        // errored before the step runs.
+        for name in ["build", "build.app"] {
+            let mut step = bare_step("custom_probe", json!({"what": "x"}));
+            step.save = Some(name.into());
+            let touched_before = ctx.vars.get("touched").cloned();
+            ctx.vars.remove("touched");
+            let e = run_step(&mut ctx, &step).unwrap_err();
+            assert!(crate::plugin::is_errored(&e), "{e}");
+            assert!(e.0.contains(name), "{e}");
+            assert!(
+                !ctx.vars.contains_key("touched"),
+                "the step must not have run"
+            );
+            assert!(!ctx.vars.contains_key(name));
+            if let Some(v) = touched_before {
+                ctx.vars.insert("touched".into(), v);
+            }
+        }
         // A handler error is the step's error.
         ctx.handlers.register("boom", |_, _| err("bad thing"));
         assert!(run_step(&mut ctx, &bare_step("boom", json!({})))
@@ -1780,5 +2237,221 @@ screenshot = true
         drop(probed);
         let _ = crate::workspace::dispose(&ws, false, 3, 10);
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod token_and_skip_tests {
+    use super::*;
+
+    fn load(header: &str) -> Result<Scenario> {
+        let text = format!("name = \"t\"\n{header}\n[[step]]\nkind = \"set\"\nvalue = 1\n");
+        let path = std::env::temp_dir().join(format!("rkqa-tok-{}.scenario.toml", util::new_id()));
+        std::fs::write(&path, text).unwrap();
+        let s = Scenario::load(&path);
+        let _ = std::fs::remove_file(&path);
+        s
+    }
+
+    #[test]
+    fn scenario_tokens_parse_in_declared_order_and_default_to_none() {
+        assert!(load("").unwrap().grants.is_empty());
+        let s = load("tokens = [\"gui-session\", \"focus\"]").unwrap();
+        assert_eq!(s.grants, vec![Token::GuiSession, Token::Focus]);
+        assert_eq!(s.tokens, vec!["gui-session", "focus"]);
+    }
+
+    #[test]
+    fn an_unknown_empty_or_repeated_token_is_refused_at_load() {
+        for bad in [
+            "tokens = [\"fcus\"]",
+            "tokens = [\"\"]",
+            "tokens = [\"Focus\"]",
+            "tokens = [\"focus\", \"focus\"]",
+        ] {
+            let e = load(bad).unwrap_err();
+            assert!(e.0.contains("token"), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn ctx_refuses_an_undeclared_token_only_inside_a_world() {
+        let root = std::env::temp_dir().join(format!("rkqa-ctxtok-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = crate::config::QaConfig::parse(
+            "app = \"tok\"\n[engine]\ndata_dir_env = \"TOK_DATA\"\n",
+            &root.join("rightkit-qa.toml"),
+        )
+        .unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "tok").unwrap();
+        let tracker = Tracker::new();
+        let ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
+        // No world: nothing is held or checked.
+        ctx.require_token(Token::Focus, "x").unwrap();
+        let world = crate::pool::WorldPlan::new(
+            "run".into(),
+            ws.home.clone(),
+            &crate::config::HostConfig::default(),
+            1,
+        )
+        .unwrap()
+        .world(0)
+        .unwrap();
+        let ctx = ctx.with_world(world.clone(), vec![Token::Audio]);
+        ctx.require_token(Token::Audio, "x").unwrap();
+        let e = ctx
+            .require_token(Token::Focus, "ui_launch with focus")
+            .unwrap_err();
+        assert!(e.0.contains("tokens = [\"focus\"]"), "{e}");
+        // The port range is the world's, and nothing past it.
+        assert_eq!(ctx.world_port(0).unwrap(), world.port_start);
+        assert_eq!(ctx.world_port(1).unwrap(), world.port_start + 1);
+        assert!(ctx
+            .world_port(world.port_end - world.port_start + 1)
+            .is_err());
+        let _ = crate::workspace::dispose(&ws, false, 3, 10);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn skip_kinds_count_by_kind_and_a_qualifying_run_tolerates_only_other_platform() {
+        for (kind, ordinary, qualifying) in [
+            (SkipKind::OtherPlatform, true, true),
+            (SkipKind::Optional, true, false),
+            (SkipKind::UnmetRequirement, false, false),
+            (SkipKind::TierNotSelected, false, false),
+        ] {
+            assert_eq!(kind.tolerated(false), ordinary, "{kind:?} ordinary");
+            assert_eq!(kind.tolerated(true), qualifying, "{kind:?} qualifying");
+        }
+    }
+
+    #[test]
+    fn requirement_gate_types_each_outcome() {
+        let other = if cfg!(windows) { "darwin" } else { "windows" };
+        let host = if cfg!(windows) { "windows" } else { "darwin" };
+        let root = std::env::temp_dir();
+        let gate = |header: &str| requirement_gate(&load(header).unwrap(), &root);
+
+        assert_eq!(gate(""), Gate::Run);
+        assert_eq!(
+            gate(&format!("requires = [\"platform:{host}\"]")),
+            Gate::Run
+        );
+        // Another OS is a skip even when the scenario is mandatory.
+        assert!(matches!(
+            gate(&format!("requires = [\"platform:{other}\"]")),
+            Gate::Skip {
+                kind: SkipKind::OtherPlatform,
+                ..
+            }
+        ));
+        assert!(matches!(
+            gate(&format!(
+                "optional = true\nrequires = [\"platform:{other}\"]"
+            )),
+            Gate::Skip {
+                kind: SkipKind::OtherPlatform,
+                ..
+            }
+        ));
+        // Another unmet requirement: optional skips, mandatory fails.
+        assert!(matches!(
+            gate("optional = true\nrequires = [\"env:RKQA_DEFINITELY_UNSET_X\"]"),
+            Gate::Skip {
+                kind: SkipKind::Optional,
+                ..
+            }
+        ));
+        match gate("requires = [\"env:RKQA_DEFINITELY_UNSET_X\"]") {
+            Gate::Fail { reason } => assert!(reason.contains("mandatory"), "{reason}"),
+            other => panic!("expected a failed gate, got {other:?}"),
+        }
+    }
+}
+
+/// How `cli`, `cold_cli` and `engine_seed` steps declare their lifecycle (Sage C3(a)); the counting
+/// and routing themselves are tested in `engine::session_tests`.
+#[cfg(test)]
+mod cli_route_tests {
+    use super::*;
+
+    fn params(v: Value) -> Map<String, Value> {
+        v.as_object().cloned().unwrap()
+    }
+
+    #[test]
+    fn a_cli_step_is_in_session_unless_it_declares_a_cold_reason() {
+        let p = params(json!({"command": "a.b"}));
+        assert!(matches!(
+            cli_route(&p, Lane::Session),
+            Ok(EngineRoute::Session)
+        ));
+        let p = params(json!({"command": "a.b", "lifecycle": "session"}));
+        assert!(matches!(
+            cli_route(&p, Lane::Session),
+            Ok(EngineRoute::Session)
+        ));
+        let p = params(
+            json!({"command": "store.restore", "lifecycle": "cold", "cold_reason": "store-lock"}),
+        );
+        assert!(matches!(
+            cli_route(&p, Lane::Session),
+            Ok(EngineRoute::Cold("store-lock"))
+        ));
+    }
+
+    #[test]
+    fn a_cold_declaration_names_exactly_one_reason_from_the_closed_set() {
+        let missing = params(json!({"command": "a.b", "lifecycle": "cold"}));
+        let e = cli_route(&missing, Lane::Session).err().unwrap().0;
+        assert!(
+            e.contains("names its reason") && e.contains("non-method"),
+            "{e}"
+        );
+        let unknown = params(json!({"command": "a.b", "lifecycle": "cold", "cold_reason": "slow"}));
+        assert!(cli_route(&unknown, Lane::Session).is_err());
+        // A reason without `lifecycle = "cold"` is a mistake, never a quiet cold launch.
+        let stray = params(json!({"command": "a.b", "cold_reason": "startup"}));
+        assert!(cli_route(&stray, Lane::Session).is_err());
+        let bad_lifecycle = params(json!({"command": "a.b", "lifecycle": "warm"}));
+        assert!(cli_route(&bad_lifecycle, Lane::Session).is_err());
+    }
+
+    #[test]
+    fn cold_cli_is_always_cold_and_needs_its_reason() {
+        let p = params(json!({"command": "doctor", "reason": "non-method"}));
+        assert!(matches!(
+            cli_route(&p, Lane::ColdStep),
+            Ok(EngineRoute::Cold("non-method"))
+        ));
+        let p = params(json!({"command": "doctor", "cold_reason": "cli-entry"}));
+        assert!(matches!(
+            cli_route(&p, Lane::ColdStep),
+            Ok(EngineRoute::Cold("cli-entry"))
+        ));
+        assert!(cli_route(&params(json!({"command": "doctor"})), Lane::ColdStep).is_err());
+        let p = params(json!({"command": "doctor", "reason": "startup", "lifecycle": "session"}));
+        assert!(cli_route(&p, Lane::ColdStep).is_err());
+    }
+
+    #[test]
+    fn engine_seed_commands_are_declared_startup_launches() {
+        let p = params(json!({"command": "a.b"}));
+        assert!(matches!(
+            cli_route(&p, Lane::Seed),
+            Ok(EngineRoute::Cold("startup"))
+        ));
+    }
+
+    #[test]
+    fn the_cli_words_come_from_command_or_args() {
+        let words = |v: Value| cli_args(&params(v)).unwrap();
+        assert_eq!(
+            words(json!({"command": "job status"})),
+            vec!["job", "status"]
+        );
+        assert_eq!(words(json!({"args": ["job.status"]})), vec!["job.status"]);
+        assert!(cli_args(&params(json!({"input": {}}))).is_err());
     }
 }

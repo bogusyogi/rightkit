@@ -10,7 +10,11 @@
 //! never set it, so nothing listens. The server is a `rightkit-daemon` host:
 //! discovery file `<suite>/runtime/<name>/service.json`, a current-user-only
 //! Unix socket (macOS) or named pipe (Windows), and a per-app request
-//! allowlist. There is no TCP listener and no bearer token. The suite root is
+//! allowlist. There is no TCP listener. When the launcher also sets `RIGHTKIT_QA_CONTROL_TOKEN_FILE`
+//! (the QA runner always does, ADR-0001 D-e), the server reads the per-run control token from that
+//! user-only file once and refuses every order that does not carry it (error `unauthorized`); a
+//! batch is authorized once, on the outer order. Without the variable the server refuses every order
+//! (fail closed, ADR-0001 item 7); with it but with an unusable file the server does not start. The token stops accidental ad-hoc driving, not a same-user process. The suite root is
 //! resolved by `Suite::resolve` (honours `RIGHTKIT_SUITE_ROOT` for isolated
 //! runs) and the server **fails closed**: if no absolute root exists the plugin
 //! does not start, it never falls back to the working directory.
@@ -585,11 +589,16 @@ impl<R: Runtime> Control<R> {
                 // Before any window exists (plugin setup precedes the app's own setup).
                 enforce_hidden_activation(app);
                 if let Some(service) = service_from_env() {
+                    // D-e: read the per-run token before anything listens. A named but unusable
+                    // file stops the plugin, so the server never comes up open by accident. No file
+                    // named (`None`) is fail closed: every order is refused (ADR-0001 item 7).
+                    let auth = crate::control::token::from_env()?;
                     // One loud line, always, before the socket exists: a QA control server must never
                     // run unnoticed. stderr, not the app log, so it cannot be filtered or redirected away.
                     eprintln!(
-                        "RIGHTKIT QA CONTROL SERVER ACTIVE: service={service} (control build, {ENV_SERVICE} set); \
-                         this process accepts same-user input, DOM/eval and screenshot control. Never ship this build."
+                        "RIGHTKIT QA CONTROL SERVER ACTIVE: service={service} (control build, {ENV_SERVICE} set, per-run control token {}); \
+                         this process accepts same-user input, DOM/eval and screenshot control. Never ship this build.",
+                        if auth.is_some() { "required" } else { "NOT named, so every order is refused" }
                     );
                     let gate_events = placement.clone();
                     app.listen(PLACEMENT_EVENT, move |event| {
@@ -606,6 +615,7 @@ impl<R: Runtime> Control<R> {
                             lease: lease.clone(),
                         },
                         vp.clone(),
+                        auth,
                     )?;
                 }
                 Ok(())
@@ -665,6 +675,9 @@ struct ControlHandler<R: Runtime> {
     guards: Guards,
     viewport: ViewportCtx,
     allow: Allowlist,
+    /// The per-run control token every order must carry (D-e); `None` when the launcher named no
+    /// token file, and then every order is refused (ADR-0001 item 7).
+    auth: Option<String>,
 }
 
 #[derive(Clone)]
@@ -673,6 +686,7 @@ struct Guards {
     lease: Option<Arc<InputLease>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn serve<R: Runtime>(
     app: AppHandle<R>,
     label: String,
@@ -681,6 +695,7 @@ fn serve<R: Runtime>(
     allow: Allowlist,
     guards: Guards,
     viewport: ViewportCtx,
+    auth: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Fail closed: no absolute suite root means no server, never a cwd-relative one.
     let suite = Suite::resolve()?;
@@ -701,6 +716,7 @@ fn serve<R: Runtime>(
         guards,
         viewport,
         allow,
+        auth,
     });
     let hosted = host(&suite, cfg, handler)?;
     // Hosted releases on drop; the plugin keeps it for the life of the process.
@@ -708,8 +724,43 @@ fn serve<R: Runtime>(
     Ok(())
 }
 
+/// D-e: judge the control token of one order and return the params the routes see (the token
+/// removed). With `expected` `None` the order passes unchanged. Refusals are `unauthorized`.
+fn admit_order<'a>(
+    expected: Option<&str>,
+    params: &'a Value,
+) -> Result<std::borrow::Cow<'a, Value>, ServiceError> {
+    crate::control::token::authorize(expected, params)
+        .map_err(|r| ServiceError::new(crate::control::token::REFUSED_CODE, r.message()))?;
+    if params.get(crate::control::token::PARAM).is_none() {
+        return Ok(std::borrow::Cow::Borrowed(params));
+    }
+    let mut stripped = params.clone();
+    if let Some(map) = stripped.as_object_mut() {
+        map.remove(crate::control::token::PARAM);
+    }
+    Ok(std::borrow::Cow::Owned(stripped))
+}
+
 impl<R: Runtime> Handler for ControlHandler<R> {
+    /// Every order from the wire passes the control token check first, `health` included. The
+    /// steps of a `batch` do not come back through here: the batch was authorized as a whole and
+    /// runs its steps through [`ControlHandler::dispatch`].
     fn call(
+        &self,
+        cx: &CallContext,
+        method: &str,
+        params: &Value,
+        emit: &Emit,
+    ) -> Result<Value, ServiceError> {
+        let params = admit_order(self.auth.as_deref(), params)?;
+        self.dispatch(cx, method, &params, emit)
+    }
+}
+
+impl<R: Runtime> ControlHandler<R> {
+    /// One authorized order: the effect gate, the input lease and the route.
+    fn dispatch(
         &self,
         cx: &CallContext,
         method: &str,
@@ -879,7 +930,7 @@ impl<R: Runtime> ControlHandler<R> {
         );
         for (i, (m, p)) in plan.iter().enumerate() {
             let t = std::time::Instant::now();
-            match self.call(cx, m, p, emit) {
+            match self.dispatch(cx, m, p, emit) {
                 Ok(v) => {
                     results.push(v);
                     step_ms.push(t.elapsed().as_millis() as u64);
@@ -1470,6 +1521,77 @@ mod tests {
         assert_eq!(QA_CONTROL_MARKER, "RIGHTKIT-QA-CONTROL-SERVER-PRESENT");
         assert_eq!(&QA_CONTROL_MARKER_BYTES[..], QA_CONTROL_MARKER.as_bytes());
         assert_eq!(keep_marker(), b'R');
+    }
+    #[test]
+    fn a_token_less_control_order_is_refused() {
+        let want = "a".repeat(crate::control::token::HEX_LEN);
+        for params in [json!({}), json!({"x": 1}), Value::Null] {
+            let e = admit_order(Some(&want), &params).unwrap_err();
+            assert_eq!(e.code, "unauthorized");
+            assert!(!e.retryable, "a refused order is never retried");
+        }
+        // health is not exempt: the runner's readiness poll carries the token like any order
+        let e = admit_order(Some(&want), &json!({})).unwrap_err();
+        assert_eq!(e.code, crate::control::token::REFUSED_CODE);
+    }
+    #[test]
+    fn a_control_token_mismatch_is_refused() {
+        let want = "a".repeat(crate::control::token::HEX_LEN);
+        let other = "b".repeat(crate::control::token::HEX_LEN);
+        let wrong = crate::control::token::with_token(json!({}), Some(&other));
+        assert_eq!(
+            admit_order(Some(&want), &wrong).unwrap_err().code,
+            "unauthorized"
+        );
+        let prefix = crate::control::token::with_token(json!({}), Some("aaaa"));
+        assert_eq!(
+            admit_order(Some(&want), &prefix).unwrap_err().code,
+            "unauthorized"
+        );
+    }
+    #[test]
+    fn the_right_token_is_admitted_and_stripped_before_routing() {
+        let want = "a".repeat(crate::control::token::HEX_LEN);
+        let order = crate::control::token::with_token(json!({"x": 3, "y": 4}), Some(&want));
+        let seen = admit_order(Some(&want), &order).unwrap();
+        assert_eq!(*seen, json!({"x": 3, "y": 4}), "routes never see the token");
+        // a batch is authorized once, on the outer order; its steps carry no token
+        let batch = crate::control::token::with_token(
+            json!({"steps": [{"method": "click", "params": {"x": 1, "y": 2}}]}),
+            Some(&want),
+        );
+        let seen = admit_order(Some(&want), &batch).unwrap();
+        assert_eq!(seen["steps"][0]["method"], json!("click"));
+    }
+    #[test]
+    fn a_server_without_a_token_file_refuses_every_order() {
+        // ADR-0001 item 7: control service configured, no token file named: fail closed.
+        let order = json!({"x": 1});
+        for params in [
+            order.clone(),
+            json!({}),
+            crate::control::token::with_token(json!({"x": 1}), Some(&"c".repeat(64))),
+        ] {
+            let e = admit_order(None, &params).unwrap_err();
+            assert_eq!(e.code, crate::control::token::REFUSED_CODE);
+            assert!(!e.retryable, "a refused order is never retried");
+        }
+    }
+    #[test]
+    fn a_legacy_launch_token_is_minted_and_accepted_by_the_server() {
+        // The legacy launch mints into the run root and exports the path; the server reads that file.
+        let d = std::env::temp_dir().join(format!("rkqa-legacy-srv-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let (t, path) = crate::control::token::for_launch(None, &d, "srv00001").unwrap();
+        let served = crate::control::token::load(Some(path.to_str().unwrap()))
+            .unwrap()
+            .expect("the launch names a file, so the server requires a token");
+        let order = crate::control::token::with_token(json!({"x": 1}), Some(&t));
+        assert_eq!(
+            *admit_order(Some(&served), &order).unwrap(),
+            json!({"x": 1})
+        );
+        let _ = std::fs::remove_dir_all(&d);
     }
     #[test]
     fn key_char_names() {

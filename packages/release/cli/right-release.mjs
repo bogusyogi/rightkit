@@ -270,7 +270,8 @@ Commands:
   upload --platform ios --release <id> [--apply]       Sealed IPA to TestFlight, then the exact build into the beta groups; dry run unless --apply (macOS)
   ios-credentials store --key-id <KEYID> --issuer <uuid> | check
                                                       Put the App Store Connect API key (stdin), key id and issuer into the login Keychain once, or check them; never a file (macOS)
-  qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa and write the sealed QA receipt (a missing receipt warns and is recorded; it never blocks)
+  qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa (and the journeys lane when the config sets qa.journeys) and write the sealed QA receipt. Refused inside a QA run. The receipt must match the platform and release id, come from an approved runner digest, and show every release-critical journey passed
+                                                      Admission is per app in qa-admission-policy.json: warn (default) records a refusal and continues; refuse blocks build, upload and publish. Only adrian moves an app from refuse back to warn
   qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]            List source/installed QA status per release; exit 1 if an uploaded build lacks passing QA
   publish-update --release <id> --platform mac|win --tier patch|update
                                                       Upload sealed bytes to R2 & register RightApps

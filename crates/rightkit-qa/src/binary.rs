@@ -474,6 +474,326 @@ pub fn stash_binary(
     Ok(dest)
 }
 
+// ---------------------------------------------------------------------------------- launch checks
+//
+// ADR-0001 item 1: the runner lane never trusts a path. A binary recorded in a build record
+// (`journeys::build_record`) is re-hashed immediately before it is launched and refused when the
+// bytes differ from the recorded digest, or when it is an app-class binary without the QA control
+// marker. Hash and marker come from ONE read of the file, so the two answers describe the same
+// bytes. The check cannot close the window between the read and the exec; the store the copies sit
+// in is a run-private directory (see `build_record::STORE_DIR`) so nothing else is expected to
+// write there.
+
+/// Incremental form of [`has_qa_marker`]: feed the chunks of one file in order, then ask
+/// [`MarkerScanner::found`]. Recognizes the same Latin-1/UTF-8 and UTF-16LE spellings, including
+/// a marker that straddles a chunk boundary.
+#[derive(Debug, Clone)]
+pub struct MarkerScanner {
+    narrow: Vec<u8>,
+    wide: Vec<u8>,
+    carry: Vec<u8>,
+    found: bool,
+}
+
+impl Default for MarkerScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MarkerScanner {
+    pub fn new() -> Self {
+        MarkerScanner {
+            narrow: QA_CONTROL_MARKER.as_bytes().to_vec(),
+            wide: QA_CONTROL_MARKER.bytes().flat_map(|b| [b, 0]).collect(),
+            carry: Vec::new(),
+            found: false,
+        }
+    }
+
+    pub fn feed(&mut self, chunk: &[u8]) {
+        if self.found {
+            return;
+        }
+        self.carry.extend_from_slice(chunk);
+        let find = |hay: &[u8], pat: &[u8]| hay.windows(pat.len()).any(|w| w == pat);
+        if find(&self.carry, &self.narrow) || find(&self.carry, &self.wide) {
+            self.found = true;
+            self.carry = Vec::new();
+            return;
+        }
+        let keep = self.wide.len() - 1;
+        if self.carry.len() > keep {
+            let cut = self.carry.len() - keep;
+            self.carry.drain(..cut);
+        }
+    }
+
+    pub fn found(&self) -> bool {
+        self.found
+    }
+}
+
+/// What one pass over a file measured.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileScan {
+    pub sha256: String,
+    pub size: u64,
+    pub qa_marker: bool,
+}
+
+/// SHA-256, size and QA-marker presence of `path`, from a single streamed read.
+pub fn scan_file(path: &Path) -> std::io::Result<FileScan> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = rightkit_fs::digest::Sha256Hasher::new();
+    let mut scanner = MarkerScanner::new();
+    let mut buf = vec![0u8; 1 << 20];
+    let mut size = 0u64;
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+        scanner.feed(&buf[..n]);
+        size += n as u64;
+    }
+    Ok(FileScan {
+        sha256: hasher.finalize(),
+        size,
+        qa_marker: scanner.found(),
+    })
+}
+
+/// A binary that passed [`check_launch`]: the digest and size measured just now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchCheck {
+    pub path: PathBuf,
+    pub sha256: String,
+    pub size: u64,
+    pub qa_marker: bool,
+}
+
+/// Why a binary was refused at launch. [`LaunchRefusal::code`] is the journeys problem code the
+/// refusal maps to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LaunchRefusal {
+    /// Missing, a directory, or a link: only a regular file recorded by the build is launched.
+    NotARegularFile { path: PathBuf },
+    /// The file exists but could not be read.
+    Unreadable { path: PathBuf, error: String },
+    /// An installed app (Program Files, /Applications, ...): never a QA launch target.
+    Installed { path: PathBuf, detail: String },
+    /// The bytes differ from the digest the build record holds.
+    HashMismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
+    /// An app-class binary without the control marker: not a QA build.
+    MarkerMissing { path: PathBuf },
+}
+
+impl LaunchRefusal {
+    pub fn code(&self) -> &'static str {
+        match self {
+            LaunchRefusal::NotARegularFile { .. }
+            | LaunchRefusal::Unreadable { .. }
+            | LaunchRefusal::HashMismatch { .. } => crate::journeys::code::ARTIFACT_MISMATCH,
+            LaunchRefusal::Installed { .. } => crate::journeys::code::ARTIFACT_NOT_FROM_BUILD,
+            LaunchRefusal::MarkerMissing { .. } => crate::journeys::code::QA_MARKER_MISSING,
+        }
+    }
+}
+
+impl std::fmt::Display for LaunchRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaunchRefusal::NotARegularFile { path } => write!(
+                f,
+                "{} is missing or is not a regular file; refusing to launch it",
+                path.display()
+            ),
+            LaunchRefusal::Unreadable { path, error } => {
+                write!(f, "cannot read {} to re-hash it: {error}", path.display())
+            }
+            LaunchRefusal::Installed { path, detail } => {
+                write!(f, "{} is an installed app: {detail}", path.display())
+            }
+            LaunchRefusal::HashMismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "{} changed since the build: sha256 {actual} is not the recorded {expected}",
+                path.display()
+            ),
+            LaunchRefusal::MarkerMissing { path } => write!(
+                f,
+                "{} does not carry the QA control marker; it is not a test-mode/control build",
+                path.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LaunchRefusal {}
+
+impl From<LaunchRefusal> for Error {
+    fn from(r: LaunchRefusal) -> Self {
+        Error(format!("{}: {r}", r.code()))
+    }
+}
+
+/// Re-hash `path` and refuse it unless it is the file the build recorded: a regular file (not a
+/// link), not an installed app, with SHA-256 `expected_sha256`, and, when `require_marker`,
+/// carrying [`QA_CONTROL_MARKER`]. The digest is checked before the marker, so a swapped file is
+/// reported as a mismatch whatever it contains.
+pub fn check_launch(
+    path: &Path,
+    expected_sha256: &str,
+    require_marker: bool,
+) -> std::result::Result<LaunchCheck, LaunchRefusal> {
+    let meta = std::fs::symlink_metadata(path).map_err(|_| LaunchRefusal::NotARegularFile {
+        path: path.to_path_buf(),
+    })?;
+    if !meta.is_file() {
+        return Err(LaunchRefusal::NotARegularFile {
+            path: path.to_path_buf(),
+        });
+    }
+    crate::installed::refuse_installed(path, "launch binary").map_err(|e| {
+        LaunchRefusal::Installed {
+            path: path.to_path_buf(),
+            detail: e.0,
+        }
+    })?;
+    let scan = scan_file(path).map_err(|e| LaunchRefusal::Unreadable {
+        path: path.to_path_buf(),
+        error: e.to_string(),
+    })?;
+    if scan.sha256 != expected_sha256 {
+        return Err(LaunchRefusal::HashMismatch {
+            path: path.to_path_buf(),
+            expected: expected_sha256.to_string(),
+            actual: scan.sha256,
+        });
+    }
+    if require_marker && !scan.qa_marker {
+        return Err(LaunchRefusal::MarkerMissing {
+            path: path.to_path_buf(),
+        });
+    }
+    Ok(LaunchCheck {
+        path: path.to_path_buf(),
+        sha256: scan.sha256,
+        size: scan.size,
+        qa_marker: scan.qa_marker,
+    })
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("rkqa-launch-{tag}-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn write(path: &Path, marker: bool, filler: u8) -> String {
+        let mut bytes = vec![filler; 4096];
+        if marker {
+            bytes.extend_from_slice(QA_CONTROL_MARKER.as_bytes());
+        }
+        std::fs::write(path, &bytes).unwrap();
+        crate::util::sha256_hex(&bytes)
+    }
+
+    #[test]
+    fn a_matching_marked_binary_passes_with_one_read() {
+        let dir = tmp("ok");
+        let exe = dir.join("app");
+        let sha = write(&exe, true, 7);
+        let ok = check_launch(&exe, &sha, true).unwrap();
+        assert_eq!(ok.sha256, sha);
+        assert!(ok.qa_marker);
+        assert_eq!(ok.size, 4096 + QA_CONTROL_MARKER.len() as u64);
+    }
+
+    #[test]
+    fn a_binary_changed_after_the_build_is_refused() {
+        let dir = tmp("tamper");
+        let exe = dir.join("app");
+        let sha = write(&exe, true, 7);
+        // Same marker, one different filler byte: still a QA build, no longer the recorded one.
+        write(&exe, true, 8);
+        let e = check_launch(&exe, &sha, true).unwrap_err();
+        assert!(matches!(e, LaunchRefusal::HashMismatch { .. }), "{e}");
+        assert_eq!(e.code(), crate::journeys::code::ARTIFACT_MISMATCH);
+        // A tampered binary is refused even where no marker is required.
+        assert!(matches!(
+            check_launch(&exe, &sha, false).unwrap_err(),
+            LaunchRefusal::HashMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn a_binary_without_the_marker_is_refused_even_when_the_hash_matches() {
+        let dir = tmp("nomarker");
+        let exe = dir.join("app");
+        let sha = write(&exe, false, 7);
+        let e = check_launch(&exe, &sha, true).unwrap_err();
+        assert!(matches!(e, LaunchRefusal::MarkerMissing { .. }), "{e}");
+        assert_eq!(e.code(), crate::journeys::code::QA_MARKER_MISSING);
+        assert!(e.to_string().contains("test-mode/control build"));
+        // Marker not applicable (an engine or adapter): the hash alone decides.
+        assert!(check_launch(&exe, &sha, false).is_ok());
+    }
+
+    #[test]
+    fn a_missing_file_a_directory_and_a_wrong_digest_shape_are_refused() {
+        let dir = tmp("shape");
+        assert!(matches!(
+            check_launch(&dir.join("gone"), &"0".repeat(64), false).unwrap_err(),
+            LaunchRefusal::NotARegularFile { .. }
+        ));
+        assert!(matches!(
+            check_launch(&dir, &"0".repeat(64), false).unwrap_err(),
+            LaunchRefusal::NotARegularFile { .. }
+        ));
+        let exe = dir.join("app");
+        write(&exe, true, 1);
+        assert!(matches!(
+            check_launch(&exe, "not-a-digest", true).unwrap_err(),
+            LaunchRefusal::HashMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn the_scanner_finds_the_marker_across_chunks_in_both_spellings() {
+        let mut narrow = MarkerScanner::new();
+        let m = QA_CONTROL_MARKER.as_bytes();
+        narrow.feed(&m[..10]);
+        assert!(!narrow.found());
+        narrow.feed(&m[10..]);
+        assert!(narrow.found());
+        let mut wide = MarkerScanner::new();
+        let w: Vec<u8> = QA_CONTROL_MARKER.bytes().flat_map(|b| [b, 0]).collect();
+        for chunk in w.chunks(7) {
+            wide.feed(chunk);
+        }
+        assert!(wide.found());
+        let mut none = MarkerScanner::new();
+        none.feed(&m[..20]);
+        none.feed(b"unrelated bytes");
+        assert!(!none.found());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
