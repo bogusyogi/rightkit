@@ -94,7 +94,7 @@
         "reason": "ci/asset-gated.json npm: sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit; the hosted runner has none, so the sibling contract tests skip there and the package's own tests still qualify it. The local pre-flight runs its test row with RIGHTKIT_ISOLATED_CHECKOUT=1 for the same scope."
       },
       "@rightkit/legal": {
-        "version": "0.6.2",
+        "version": "0.6.3",
         "allow": [
           "allow_missing_assets"
         ],

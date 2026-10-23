@@ -1,6 +1,6 @@
 # @rightkit/legal npm consumer (draft, npm.@rightkit/legal)
 
-Packed-archive consumer for `@rightkit/legal` 0.6.2 (workspace version). The unit is installed only from the sealed
+Packed-archive consumer for `@rightkit/legal` 0.6.3 (workspace version). The unit is installed only from the sealed
 `file:` archive; the reviewed closure has no registry dependencies. `@rightkit/release` is an optional peer and is
 declared only, never installed.
 

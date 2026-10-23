@@ -20,7 +20,7 @@
     "@rightkit/hooks": "0.1.2",
     "@rightkit/i18n": "0.2.0",
     "@rightkit/issues-tracker": "0.1.0",
-    "@rightkit/legal": "0.6.2",
+    "@rightkit/legal": "0.6.3",
     "@rightkit/legal-ui": "0.4.1",
     "@rightkit/license": "0.3.0",
     "@rightkit/logs": "0.1.6",
@@ -107,7 +107,8 @@
       "0.3.1",
       "0.5.0",
       "0.6.0",
-      "0.6.1"
+      "0.6.1",
+      "0.6.2"
     ],
     "@rightkit/license": [
       "0.1.6",

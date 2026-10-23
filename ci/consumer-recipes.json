@@ -208,7 +208,7 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/legal/README.md": "597815360967f1e04706803d8c353a44196e1f5596489ab98e161b4490de2896",
+        "ci/consumers/npm/legal/README.md": "f34c606a490ad478fbf99680b8f79d1430f825fb3bb57a6cce75440c0a9bc310",
         "ci/consumers/npm/legal/consumer.mjs": "88b5ebc6b2c3787d47302046aaf28e67006727794bd162d0e9764d2906323fb5",
         "ci/consumers/npm/legal/package.json": "412fca5c15c88350f882032c920c3c9b8f2413548d279512cdf428d2f96f4395",
         "ci/consumers/npm/legal/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",

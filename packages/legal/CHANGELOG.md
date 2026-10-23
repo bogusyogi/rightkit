@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.2 — unpublished staging
+## 0.6.3 (unpublished staging)
+
+- **Fixed: `@rightkit/legal` 0.6.2 refused `@rightkit/release` 0.6.x.** Its `@rightkit/release` range stopped at `^0.5.0`, so an app on release 0.6.0 (registry-checked RightKit pins at build admission) could not keep legal 0.6.2 (Pulse TestFlight, rightkit#918). The range is now `^0.4.1 || ^0.5.0 || ^0.6.0`; no code change.
+
+## 0.6.2 — 2026-10-23
 
 Additive (PK10-2, PK10-4). Manifest, receipt and digest behaviour is unchanged; compatible additions take the next patch (R5).
 
