@@ -1,3 +1,4 @@
+use chromiumoxide::cdp::browser_protocol::network::GetCookiesParams;
 use rightkit_browser::{
     actions_digest, chrome_for_testing_path, parse_netscape, BrowserError, BrowserSession,
     ClearOutcome, CookieExport, CookieExportError, FixtureAction, FixtureAttestation,
@@ -152,7 +153,22 @@ async fn browser_tabs_and_export(executable: &Path, scratch: &Path) -> Result<()
             first.import_cookies(&seed).await? == seed.len(),
             "cookie import count",
         )?;
-        let stored = first.raw().get_cookies().await?;
+        // about:blank has no matching cookie scope. Query every seeded scope directly
+        // over HTTPS (secure cookie) & include /app without navigating or making requests.
+        let stored = first
+            .raw()
+            .execute(
+                GetCookiesParams::builder()
+                    .urls([
+                        "https://example.test/",
+                        "https://sub.example.test/app",
+                        "https://unrelated.example/",
+                    ])
+                    .build(),
+            )
+            .await?
+            .result
+            .cookies;
         let mut observed = Vec::new();
         for cookie in stored {
             // These are session-cookie vectors. Refuse an unexpected persistent cookie
