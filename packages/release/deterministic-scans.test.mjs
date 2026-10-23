@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
 import path from "node:path";
@@ -1139,4 +1140,26 @@ test("quietTests: 'ci' leaves the quiet crates' test scans to the CI shards with
   assert.ok(npmCi.notes.some((n) => /1 quiet test scan\(s\) left to the CI shards.*test:npm:p/.test(n)), npmCi.notes.join("\n"));
   const npmLocal = planFor(changedPkgs, pkg, { packageFeatures: { p: { quietTests: true } } }).plan;
   assert.deepEqual(npmLocal.scans.filter((s) => s.quiet).map((s) => s.id), ["test:npm:p"]);
+});
+
+test("suite-api: planned only when a contract input changes; the checked-in projections pass and a one-byte drift fails", async () => {
+  const REAL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const read = (p) => readFileSync(p, "utf8");
+  const realFs = { exists: existsSync, readFile: read, readdir: readdirSync, realpath: (p) => p };
+  const planFor = (changed) => planScans({ changed, contentRoot: REAL, liveRoot: REAL, ...realFs, platform: "darwin", includeTests: false });
+  const suiteScan = (plan) => plan.scans.find((s) => s.id === "suite-api");
+  assert.equal(scanClassOf("suite-api"), "A");
+  assert.ok(suiteScan(planFor(["contracts/right-suite-api.v1.json"])), "a contract change plans the scan");
+  assert.ok(suiteScan(planFor(["packages/app-update/src/suite-api.generated.ts"])), "a projection change plans the scan");
+  assert.equal(suiteScan(planFor(["packages/release/README.md"])), undefined, "an unrelated change does not");
+  const only = (plan, extra = {}) => runScans(plan, { ...deps({ ...realFs }), classes: ["A"], exclude: (s) => s.id !== "suite-api", ...extra });
+  const passing = await only(planFor(["contracts/right-suite-api.v1.json"]));
+  const row = passing.scans.find((s) => s.id === "suite-api");
+  assert.equal(row.status, "pass", row.detail);
+  const drifted = await only(planFor(["contracts/right-suite-api.v1.json"]), {
+    readFile: (p) => (p.endsWith("suite-api.generated.ts") ? `${read(p)} ` : read(p)),
+  });
+  const bad = drifted.scans.find((s) => s.id === "suite-api");
+  assert.equal(bad.status, "fail");
+  assert.match(bad.detail, /suite-api\.generated\.ts/);
 });

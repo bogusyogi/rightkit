@@ -61,6 +61,7 @@ export const LEGAL_RECEIPT_COMMANDS = Object.freeze({
 export const UPDATE_COMMANDS = Object.freeze({
   check: 'rightkit_update_check',
   status: 'rightkit_update_status',
+  releaseStatus: 'rightkit_update_release_status',
   download: 'rightkit_update_download',
   install: 'rightkit_update_install',
   cancel: 'rightkit_update_cancel',

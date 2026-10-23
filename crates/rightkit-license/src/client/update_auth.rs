@@ -197,6 +197,29 @@ impl UpdateAuthConfig {
         })
     }
 
+    /// The Right Suite configuration for `app_key`, from the RightKit-owned contract
+    /// ([`crate::suite_api`]): the current API host is the only check host, the app's own
+    /// artifact hosts are the only artifact hosts (an app the contract does not list, or a
+    /// malformed key, is [`UpdateAuthError::BadConfig`]), and the prefix is the app's path.
+    pub fn right_suite(app_key: &str) -> Result<Self, UpdateAuthError> {
+        use crate::suite_api;
+        let artifact_hosts = suite_api::artifact_hosts(app_key)
+            .map_err(|_| UpdateAuthError::BadConfig)?
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let prefix =
+            suite_api::artifact_path_prefix(app_key).map_err(|_| UpdateAuthError::BadConfig)?;
+        Self::new(
+            suite_api::update_check_hosts()
+                .iter()
+                .map(|host| (*host).to_owned())
+                .collect(),
+            artifact_hosts,
+            &prefix,
+        )
+    }
+
     /// Also require this of the entitlement ([`UpdateAuthError::TierIneligible`] otherwise).
     pub fn with_requirement(mut self, requirement: LicenseRequirement) -> Self {
         self.requirement = Some(requirement);
@@ -482,6 +505,83 @@ mod tests {
         }
         fn device_id_hash(&self) -> Result<String, DeviceIdError> {
             Err(DeviceIdError)
+        }
+    }
+
+    fn suite_purpose(app: &str, url: &str) -> Result<Purpose, UpdateAuthError> {
+        UpdateAuthConfig::right_suite(app)
+            .unwrap()
+            .purpose(&Url::parse(url).unwrap(), UpdateRoute::Private)
+    }
+
+    #[test]
+    fn right_suite_classifies_the_check_host_and_the_apps_artifact_hosts() {
+        use crate::suite_api::{GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST};
+        let check = "https://api.orthiclabs.com/v1/apps/mailright/releases/latest.json?platform=darwin-aarch64";
+        assert_eq!(suite_purpose("mailright", check), Ok(Purpose::Metadata));
+        for host in [GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST] {
+            let artifact =
+                format!("https://{host}/mailright/updates/darwin/current/MailRight.app.tar.gz");
+            assert_eq!(
+                suite_purpose("mailright", &artifact),
+                Ok(Purpose::Artifact),
+                "{host}"
+            );
+            // The artifact prefix is the app's own path.
+            let other = format!("https://{host}/viewright/updates/x");
+            assert_eq!(
+                suite_purpose("mailright", &other),
+                Err(UpdateAuthError::PathNotAllowed),
+                "{host}"
+            );
+        }
+    }
+
+    #[test]
+    fn right_suite_viewright_never_receives_the_gated_host() {
+        use crate::suite_api::{GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST};
+        let gated = format!("https://{GATED_ARTIFACT_HOST}/viewright/updates/x");
+        assert_eq!(
+            suite_purpose("viewright", &gated),
+            Err(UpdateAuthError::HostNotAllowed)
+        );
+        let public = format!("https://{PUBLIC_ARTIFACT_HOST}/viewright/updates/x");
+        assert_eq!(suite_purpose("viewright", &public), Ok(Purpose::Artifact));
+    }
+
+    #[test]
+    fn right_suite_refuses_legacy_lookalike_and_non_https_hosts() {
+        for refused in [
+            // The retired host: its redirects are never followed, so it is never allowlisted.
+            "https://api.spoares.com/v1/apps/mailright/releases/latest.json",
+            "https://api.orthiclabs.com.evil.com/v1/apps/mailright/releases/latest.json",
+            "https://evilapi.orthiclabs.com/v1/apps/mailright/releases/latest.json",
+            "https://orthiclabs.com/v1/apps/mailright/releases/latest.json",
+            "https://sub.api.orthiclabs.com/v1/apps/mailright/releases/latest.json",
+            "http://api.orthiclabs.com/v1/apps/mailright/releases/latest.json",
+            "https://api.orthiclabs.com:8443/v1/apps/mailright/releases/latest.json",
+            "https://user@api.orthiclabs.com/v1/apps/mailright/releases/latest.json",
+            "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev.evil.com/mailright/x",
+            "https://evil.example/mailright/updates/x",
+        ] {
+            assert_eq!(
+                suite_purpose("mailright", refused),
+                Err(UpdateAuthError::HostNotAllowed),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn right_suite_refuses_an_unknown_or_malformed_app() {
+        for bad in ["", "Mail", "a/b", "../x", "nosuchapp"] {
+            assert!(
+                matches!(
+                    UpdateAuthConfig::right_suite(bad),
+                    Err(UpdateAuthError::BadConfig)
+                ),
+                "{bad:?}"
+            );
         }
     }
 

@@ -1,3 +1,5 @@
+import { isReleaseStatus } from '../index.js';
+import type { ReleaseStatus } from '../index.js';
 /** Safe renderer DTOs for M12-DESIGN v3.1 section 2 + v3.2 (no cached view). */
 export type UpdateKind = 'patch' | 'update';
 export type UpdateRefusal = 'notLicensed' | 'expired' | 'revoked' | 'tierIneligible' | 'busy' | 'unresolved' | 'disabledNoPublicPatch' | 'offline' | 'none';
@@ -52,6 +54,8 @@ export interface NativeUpdateClient {
   download(handleId: string): Promise<UpdateDownloadResult>;
   install(handleId: string): Promise<UpdateInstallResult>;
   cancel(handleId: string): Promise<{ cancelled: boolean }>;
+  /** Release status for the native app, read by the shell (`rightkit_update_release_status`) and validated against the release status schema. */
+  releaseStatus(): Promise<ReleaseStatus>;
   onProgress(callback: (progress: UpdateProgress) => void): Promise<Unlisten>;
   /** Also cleans registrations whose asynchronous listen call has not resolved. */
   dispose(): void;
@@ -67,6 +71,10 @@ export class NativeUpdateClientError extends Error {
 const kinds = ['patch', 'update'] as const;
 const refusals = ['notLicensed', 'expired', 'revoked', 'tierIneligible', 'busy', 'unresolved', 'disabledNoPublicPatch', 'offline', 'none'] as const;
 const states = ['idle', 'checking', 'available', 'downloading', 'downloaded', 'installing', 'failed'] as const;
+function releaseStatusView(value: unknown): ReleaseStatus {
+  if (!isReleaseStatus(value)) return invalid();
+  return value;
+}
 const errorCodes = ['unconfigured', 'busy', 'unresolved', 'network', 'store', 'verify', 'forbidden', 'unsupported', 'unknown'] as const;
 type Data = Record<string, unknown>;
 function invalid(): never { throw new NativeUpdateClientError(); }
@@ -177,6 +185,7 @@ export function createNativeUpdateClient(transport: NativeUpdateTransport): Nati
   return {
     check: () => request('rightkit_update_check', checkView),
     status: () => request('rightkit_update_status', statusView),
+    releaseStatus: () => request('rightkit_update_release_status', releaseStatusView),
     async download(handleId) { return request('rightkit_update_download', downloadResult, { handleId: handle(handleId) }); },
     async install(handleId) { return request('rightkit_update_install', installResult, { handleId: handle(handleId) }); },
     async cancel(handleId) { return request('rightkit_update_cancel', value => ({ cancelled: bool(record(value).cancelled) }), { handleId: handle(handleId) }); },

@@ -382,6 +382,7 @@ test('command and event constants carry the native names', () => {
   assert.deepEqual({ ...UPDATE_COMMANDS }, {
     check: 'rightkit_update_check',
     status: 'rightkit_update_status',
+    releaseStatus: 'rightkit_update_release_status',
     download: 'rightkit_update_download',
     install: 'rightkit_update_install',
     cancel: 'rightkit_update_cancel',

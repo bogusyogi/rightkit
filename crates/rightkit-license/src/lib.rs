@@ -75,6 +75,7 @@ mod refresh;
 mod revocation;
 #[cfg(feature = "subject-entitlement")]
 mod subject;
+pub mod suite_api;
 
 #[cfg(feature = "engine-gate")]
 pub use gate::{

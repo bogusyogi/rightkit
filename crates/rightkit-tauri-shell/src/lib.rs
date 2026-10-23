@@ -1533,6 +1533,7 @@ macro_rules! __rk_handler_update {
         $crate::__rk_handler_models![
             $crate::update::rightkit_update_check,
             $crate::update::rightkit_update_status,
+            $crate::update::rightkit_update_release_status,
             $crate::update::rightkit_update_download,
             $crate::update::rightkit_update_install,
             $crate::update::rightkit_update_cancel,

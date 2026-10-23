@@ -1,4 +1,6 @@
-const DEFAULT_API_BASE = "https://api.spoares.com";
+import { RIGHT_SUITE_API_ORIGIN } from "./suite-api.generated.mjs";
+
+const DEFAULT_API_BASE = RIGHT_SUITE_API_ORIGIN;
 const REGISTRATION_ROUTES = new Set([
   "/v1/admin/apps/patches",
   "/v1/admin/apps/releases",

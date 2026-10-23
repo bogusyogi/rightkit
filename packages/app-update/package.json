@@ -1,6 +1,6 @@
 {
   "name": "@rightkit/app-update",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Shared runtime update policy helper for Right Suite Tauri apps.",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.24.0",
@@ -23,6 +23,10 @@
     "./native": {
       "types": "./dist/native/index.d.ts",
       "import": "./dist/native/index.js"
+    },
+    "./suite-api": {
+      "types": "./dist/suite-api.d.ts",
+      "import": "./dist/suite-api.js"
     }
   },
   "files": [

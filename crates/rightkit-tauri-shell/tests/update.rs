@@ -882,7 +882,14 @@ fn only_a_trusted_app_window_reaches_the_update_host() {
     let app = Url::parse("tauri://localhost/").unwrap();
     let foreign = Url::parse("https://evil.example.net/").unwrap();
     let content = ["viewer".to_owned()];
-    for action in ["check", "status", "download", "install", "cancel"] {
+    for action in [
+        "check",
+        "status",
+        "release_status",
+        "download",
+        "install",
+        "cancel",
+    ] {
         assert!(update_host_for(&services, action, &facts("main", &[], &app, &nav)).is_ok());
         for (label, url, content) in [
             ("settings", &app, &[][..]), // an app window the service does not trust

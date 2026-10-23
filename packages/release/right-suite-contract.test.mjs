@@ -26,6 +26,8 @@ import { assertReviewedDoc, REVIEWED_MUTATIONS } from "../../scripts/ci/reviewed
 import { assertSwiftDoc, proveSwiftMutations } from "../../scripts/ci/swift-workflow-contract.mjs";
 import { parseYaml } from "../../scripts/ci/workflow-yaml.mjs";
 
+import { pendingUpdaterEndpoint, SUITE_API_CONTRACT_HOSTS } from "./suite-api-literal.mjs";
+
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
     ?? new URL("../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"),
@@ -755,9 +757,23 @@ for (const app of apps) {
 
     const tauri = JSON.parse(readFileSync(path.join(root, app.tauri), "utf8"));
     assert.equal(tauri.plugins.updater.pubkey, pubkey);
-    assert.deepEqual(tauri.plugins.updater.endpoints, [
-      `https://${app.key === "scraperight" ? "scraperight.cc" : "api.spoares.com"}/v1/apps/${app.key}/releases/latest.json?platform={{target}}`,
-    ]);
+    if (app.key === "scraperight") {
+      // ScrapeRight is outside the Right Suite API contract and keeps its own host.
+      assert.deepEqual(tauri.plugins.updater.endpoints, [
+        `https://scraperight.cc/v1/apps/${app.key}/releases/latest.json?platform={{target}}`,
+      ]);
+    } else {
+      // The shell supplies the endpoint from @rightkit/app-update/suite-api, so a migrated conf carries none. Until the
+      // suite-api-literal gate is wired (after the app migrations), a conf may still carry exactly the contract endpoint;
+      // any other endpoint, and the legacy host, are refused now.
+      if (tauri.plugins.updater.endpoints !== undefined) {
+        assert.deepEqual(tauri.plugins.updater.endpoints, [pendingUpdaterEndpoint(app.key)], `${app.key} plugins.updater.endpoints must be absent or exactly the contract endpoint`);
+      }
+      const confText = readFileSync(path.join(root, app.tauri), "utf8").split(pendingUpdaterEndpoint(app.key)).join("");
+      for (const host of SUITE_API_CONTRACT_HOSTS) {
+        assert.ok(!confText.includes(host), `${app.key} ${app.tauri} must not name the Right Suite API host ${host} outside the contract endpoint`);
+      }
+    }
     assert.equal(tauri.bundle.createUpdaterArtifacts, true);
 
     const { consumer, canonical } = getCurrentCargoVersionContract();

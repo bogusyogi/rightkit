@@ -9,14 +9,14 @@
         "0.9.10"
       ],
       "dependents": [
-        "rightkit-ownership 0.4.1"
+        "rightkit-ownership 0.4.2"
       ],
       "path": "rightkit-ownership -> rsa",
       "owner": "RK Fable",
       "rationale": "Marvin timing attack applies to RSA private-key operations; rightkit-ownership only parses and exports public keys and verifies signatures, and no RustCrypto RSA private-key operation exists in the workspace.",
       "evidence": "crates/rightkit-ownership/src/keylog.rs:11-25",
       "reviewBy": "2026-11-22",
-      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md; rightkit-ownership 0.4.0 re-checked by RK Fable 2026-10-22: rsa use unchanged (crates/rightkit-ownership/src/keylog.rs public-key parse, size/exponent check and PSS/PKCS1v15 verify only; no private-key operation in the crate); rightkit-ownership 0.4.1 re-checked by RightKit Mac new 2026-10-23: keylog.rs unchanged since 0.4.0 (git diff f893f78d..208dc78f empty for it); 0.4.1 only moves catalog-digest drift to a warning (approval.rs/verdict.rs/evidence.rs/admission.rs), no rsa use added; rsa use remains public-key parse, size/exponent check and PSS/PKCS1v15 verify"
+      "approvedBy": "Astra 2026-10-22, D:/scratch/rk-888/astra-advisories-answer.md; rightkit-ownership 0.4.0 re-checked by RK Fable 2026-10-22: rsa use unchanged (crates/rightkit-ownership/src/keylog.rs public-key parse, size/exponent check and PSS/PKCS1v15 verify only; no private-key operation in the crate); rightkit-ownership 0.4.1 re-checked by RightKit Mac new 2026-10-23: keylog.rs unchanged since 0.4.0 (git diff f893f78d..208dc78f empty for it); 0.4.1 only moves catalog-digest drift to a warning (approval.rs/verdict.rs/evidence.rs/admission.rs), no rsa use added; rsa use remains public-key parse, size/exponent check and PSS/PKCS1v15 verify; rightkit-ownership 0.4.2 re-checked by RightKit Mac new 2026-10-23: catalog JSON entry only (right-suite-api capability), no src change, no rsa use added"
     },
     {
       "id": "RUSTSEC-2026-0235",

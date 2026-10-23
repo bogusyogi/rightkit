@@ -1662,6 +1662,16 @@
       ]
     },
     {
+      "package": "rightkit-license",
+      "capability": "right-suite-api",
+      "summary": "The Right Suite API host and endpoint contract (contracts/right-suite-api.v1.json): canonical API host, updater and release-status paths, per-app artifact hosts. Rust projection rightkit_license::suite_api, TS @rightkit/app-update/suite-api; apps never write the host.",
+      "fingerprints": [],
+      "detection": "declaration-only",
+      "policyNotes": [
+        "Enforcement: the @rightkit/release pre-build gate suite-api-literal ships with this contract and is wired into the build after the app migrations (L1-L5); no ownership fingerprint."
+      ]
+    },
+    {
       "package": "rightkit-llm",
       "capability": "llm-providers",
       "summary": "Brand-neutral BYOK LLM clients: Anthropic Messages and OpenAI-compatible chat, streaming, tool use, route failover with circuit breaker, pricing, and prompt-cache discipline.",

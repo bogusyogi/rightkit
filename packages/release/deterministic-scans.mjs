@@ -34,7 +34,7 @@ export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
   "actionlint", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
-  "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions",
+  "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
 ]);
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
   "clippy", "check", "check-all-features", "check-features", "check-dependent", "doc", "tsc", "eslint", "swift-build", "test", "generated-docs",
@@ -206,6 +206,8 @@ const ESLINT_FILES = ["eslint.config.js", "eslint.config.mjs", ".eslintrc.json"]
 const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
 // Everything scripts/generate-index.mjs reads or writes (its header and loadInventory): crate and package manifests and
 // READMEs, the root Cargo.toml (workspace version), the versions and ownership data, the ownership-availability helper it imports, itself, and its outputs.
+// The Right Suite API contract and every projection scripts/gen-suite-api.mjs writes from it (the test-vector copy included).
+const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-index\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP)\.md)$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rightkit: ["cargo", "--version"], pnpm: ["--version"],
@@ -434,6 +436,9 @@ export function planScans({
 
   // Exceptions expire by date, not by change: checked on every run, whatever changed.
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
+  // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
+  // the trusted scanner checkout (the import below); the exported contract and projections are data it checks.
+  if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) add({ id: "suite-api", class: A, internal: "suite-api" });
   if (rustTouched) {
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, ...metadataArgs()) });
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
@@ -758,6 +763,12 @@ const INTERNAL = {
   // Every RustSec exception is dated, scoped to the locked versions and identical in deny.toml and
   // .cargo/audit.toml (ci/advisory-exceptions.json; Astra 2026-10-22). Expiry fails every run.
   "advisory-exceptions": (s, ctx) => checkAdvisoryExceptions({ root: ctx.contentRoot, readFile: ctx.read }),
+  // Every Right Suite API projection must equal what the generator writes from the contract. The pure check is imported from the
+  // scanner's own checkout (scripts/ sits beside packages/release), never from the content root.
+  "suite-api": async (s, ctx) => {
+    const { suiteApiProblems } = await import("../../scripts/gen-suite-api.mjs");
+    return suiteApiProblems((f) => ctx.read(f));
+  },
   "ownership-catalog": (s, ctx) => (ctx.read(s.files[0]) === ctx.read(s.files[1]) ? [] : ["copy packages/release/rightkit-ownership.json to crates/rightkit-ownership/catalog/ownership-catalog.json"]),
   "changelog-version": (s, ctx) => {
     const version = (ctx.read(s.files[0]).match(/^version\s*=\s*"([^"]+)"/m) || [])[1];

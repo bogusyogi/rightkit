@@ -7,4 +7,4 @@ publish = false
 [workspace]
 
 [dependencies]
-rightkit-license = { version = "=0.2.4", features = ["client"] }
+rightkit-license = { version = "=0.2.5", features = ["client"] }

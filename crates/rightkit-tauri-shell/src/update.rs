@@ -1,4 +1,4 @@
-//! Native update host: `rightkit_update_check / _status / _download / _install / _cancel`
+//! Native update host: `rightkit_update_check / _status / _release_status / _download / _install / _cancel`
 //! (feature `update`, PK13-2, K13 "updates").
 //!
 //! `@rightkit/app-update/native` owns policy, status copy and UI scheduling; this module is the
@@ -535,6 +535,21 @@ impl UpdateHostPolicy {
             .map(str::to_ascii_lowercase)
             .is_some_and(|h| self.check_hosts.contains(&h) || self.artifact_hosts.contains(&h))
     }
+
+    /// The Right Suite policy for `app_key`, from the RightKit-owned API contract
+    /// (`rightkit_license::suite_api`): the current API host is the only check host and the
+    /// app's own artifact hosts the only artifact hosts. The retired host is never allowed, and an
+    /// app does not receive another app's hosts. An unlisted or malformed key is refused.
+    #[cfg(feature = "update-license")]
+    pub fn right_suite(app_key: &str) -> Result<Self, ShellError> {
+        use rightkit_license::suite_api;
+        let artifact_hosts = suite_api::artifact_hosts(app_key)
+            .map_err(|e| ShellError::Invalid(format!("Right Suite update hosts: {e}")))?;
+        Self::new(
+            suite_api::update_check_hosts().iter().copied(),
+            artifact_hosts,
+        )
+    }
 }
 
 /// What the transport asks to authorize each request. Checks the compiled allowlist first.
@@ -625,6 +640,70 @@ pub trait UpdateTransport: Send + Sync + 'static {
     fn staged_identity(&self, staged: &StagedArtifact) -> Result<StagedIdentity, TransportError>;
     /// Run the installer on the staged artifact.
     fn install(&self, staged: StagedArtifact) -> Result<(), TransportError>;
+    /// Read the release status at `url` (already checked against the host allowlist): an
+    /// unauthenticated GET with the transport's https-only, no-redirect client, whose body must
+    /// pass [`parse_release_status`]. A transport without this answers `Failed`.
+    fn release_status(&self, _url: &Url) -> Result<ReleaseStatusView, TransportError> {
+        Err(TransportError::Failed)
+    }
+}
+
+/// The answer to `rightkit_update_release_status`: the closed shape of
+/// `ReleaseStatus` in `@rightkit/app-update` (`isReleaseStatus`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseStatusView {
+    /// Always `1`.
+    pub schema: u8,
+    pub app_key: String,
+    pub platform: Option<String>,
+    pub patch_version: Option<String>,
+    pub update_version: Option<String>,
+}
+
+/// Longest value a release-status field may carry.
+const MAX_STATUS_TEXT: usize = 256;
+
+/// Validate a release-status body against the shape `isReleaseStatus` accepts: a JSON object with
+/// exactly the keys `schema` (the number 1), `appKey` (a non-empty string) and `platform`,
+/// `patchVersion`, `updateVersion` (each a string or null, none missing). Anything else, and any
+/// string over [`MAX_STATUS_TEXT`] characters or holding a control character, is `None`.
+pub fn parse_release_status(body: &[u8]) -> Option<ReleaseStatusView> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let record = value.as_object()?;
+    const KEYS: [&str; 5] = [
+        "schema",
+        "appKey",
+        "platform",
+        "patchVersion",
+        "updateVersion",
+    ];
+    if record.len() != KEYS.len() || !KEYS.iter().all(|k| record.contains_key(*k)) {
+        return None;
+    }
+    let text = |v: &serde_json::Value| -> Option<String> {
+        let t = v.as_str()?;
+        (t.chars().count() <= MAX_STATUS_TEXT && !t.chars().any(char::is_control))
+            .then(|| t.to_owned())
+    };
+    let nullable = |v: &serde_json::Value| -> Option<Option<String>> {
+        if v.is_null() {
+            Some(None)
+        } else {
+            text(v).map(Some)
+        }
+    };
+    if record["schema"].as_f64() != Some(1.0) {
+        return None;
+    }
+    let app_key = text(&record["appKey"]).filter(|k| !k.is_empty())?;
+    Some(ReleaseStatusView {
+        schema: 1,
+        app_key,
+        platform: nullable(&record["platform"])?,
+        patch_version: nullable(&record["patchVersion"])?,
+        update_version: nullable(&record["updateVersion"])?,
+    })
 }
 
 // ---- policy ----------------------------------------------------------------------------------
@@ -649,6 +728,9 @@ pub struct UpdatePolicy {
     pub allowed_tiers: Option<BTreeSet<String>>,
     pub max_handles: usize,
     pub handle_ttl: Duration,
+    /// Where `release_status` reads from; none means the host answers `unsupported`. Its host
+    /// must pass `hosts` (checked again on every read).
+    pub release_status_url: Option<Url>,
 }
 
 impl UpdatePolicy {
@@ -659,7 +741,26 @@ impl UpdatePolicy {
             allowed_tiers: None,
             max_handles: MAX_HANDLES,
             handle_ttl: DEFAULT_HANDLE_TTL,
+            release_status_url: None,
         }
+    }
+
+    /// The Right Suite policy for `app_key`: [`UpdateHostPolicy::right_suite`] hosts plus the
+    /// contract's release-status URL for the app.
+    #[cfg(feature = "update-license")]
+    pub fn right_suite(app_key: &str) -> Result<Self, ShellError> {
+        let hosts = UpdateHostPolicy::right_suite(app_key)?;
+        let status = rightkit_license::suite_api::release_status_url(app_key)
+            .map_err(|e| ShellError::Invalid(format!("Right Suite release status: {e}")))?;
+        let status = Url::parse(&status)
+            .map_err(|_| ShellError::Invalid("Right Suite release status URL".into()))?;
+        Ok(Self::new(hosts).release_status_url(status))
+    }
+
+    /// Read the release status from `url`.
+    pub fn release_status_url(mut self, url: Url) -> Self {
+        self.release_status_url = Some(url);
+        self
     }
 
     pub fn platform(mut self, platform: &str) -> Self {
@@ -988,6 +1089,26 @@ impl UpdateHost {
         view.eligible = true;
         view.handle_id = Some(id);
         Ok(view)
+    }
+
+    /// The release status for the configured URL: the closed [`ReleaseStatusView`] or a fixed
+    /// error. Unconfigured, or a URL the host policy does not allow, is `unsupported`. It reads
+    /// no licence and holds no flow state, so it is not serialised with check or download.
+    pub fn release_status(&self) -> Result<ReleaseStatusView, UpdateHostError> {
+        let unsupported =
+            || UpdateHostError::new(UpdateErrorCode::Unsupported, UpdateMessage::Unsupported);
+        let url = self
+            .policy
+            .release_status_url
+            .as_ref()
+            .ok_or_else(unsupported)?;
+        if !self.policy.hosts.allows(url) {
+            return Err(unsupported());
+        }
+        self.transport.release_status(url).map_err(|e| {
+            let (code, message) = transport_message(e);
+            UpdateHostError::new(code, message)
+        })
     }
 
     /// The state, read now.
@@ -1436,6 +1557,15 @@ pub async fn rightkit_update_status(
 ) -> Result<UpdateStatusView, UpdateHostError> {
     let host = update_host(&webview, "status")?;
     Ok(host.status())
+}
+
+/// The release status (`ReleaseStatus` of `@rightkit/app-update`), read natively.
+#[tauri::command]
+pub async fn rightkit_update_release_status(
+    webview: Webview<Wry>,
+) -> Result<ReleaseStatusView, UpdateHostError> {
+    let host = update_host(&webview, "release_status")?;
+    off_thread(move || host.release_status()).await
 }
 
 /// Download the update `handle_id` names. Progress goes to the invoking window only.

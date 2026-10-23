@@ -148,10 +148,12 @@ ssh win 'Set-Location D:\Claude\genright; $env:RIGHTAPPS_STORE_SLUG = "rightsite
 ## RightApps registration & six-file catalog
 
 Shared client posts signed envelope to `/v1/admin/apps/runtime-artifacts`,
-using `RIGHTAPPS_API_URL` (default `https://api.spoares.com`) &
-`RIGHTAPPS_STORE_SLUG` (default `rightapps`). Workspace server implementation is
-`rightsites/packages/api/src/rightsites-plugin/release-routes.ts`; suite schema
-config is `rightsites/packages/api/src/licensing/suite-artifacts.ts`. Server
+using `RIGHTAPPS_API_URL` (default: the contract origin in
+`contracts/right-suite-api.v1.json`, projected to `packages/release/suite-api.generated.mjs`;
+currently `https://api.orthiclabs.com`; `api.spoares.com` is a legacy host, not a default) &
+`RIGHTAPPS_STORE_SLUG` (default `rightapps`). Server implementation is in
+`Orthic-Labs/sellright` `packages/api` (`src/rightsites-plugin/release-routes.ts`; suite schema
+config `src/licensing/suite-artifacts.ts`). Server
 requires configured trusted Ed25519 public key/key ID, authenticated release
 write access, same authority/entitlement app, app present in resolved store
 catalog, & newer promotion time (same-envelope replay is idempotent).

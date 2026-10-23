@@ -13,7 +13,7 @@
     "@rightkit/updates": "0.2.3"
   },
   "stagedNpm": {
-    "@rightkit/app-update": "0.4.1",
+    "@rightkit/app-update": "0.4.2",
     "@rightkit/ax": "0.3.2",
     "@rightkit/ci": "0.3.0",
     "@rightkit/doc-render": "0.2.1",
@@ -35,7 +35,7 @@
     "@rightkit/release": "0.6.4",
     "@rightkit/settings-ui": "0.7.0",
     "@rightkit/tauri": "0.3.0",
-    "@rightkit/tauri-shell": "0.1.2",
+    "@rightkit/tauri-shell": "0.1.3",
     "@rightkit/theme": "0.3.1"
   },
   "legacyNpm": {
@@ -408,14 +408,16 @@
     "@rightkit/app-update": [
       "0.2.5",
       "0.3.0",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "@rightkit/logs": [
       "0.1.4",
       "0.1.5"
     ],
     "@rightkit/tauri-shell": [
-      "0.1.1"
+      "0.1.1",
+      "0.1.2"
     ]
   },
   "cargo": {
@@ -467,7 +469,7 @@
     "rightkit-http": "0.3.8",
     "rightkit-identity": "0.1.0",
     "rightkit-job-queue": "0.5.1",
-    "rightkit-license": "0.2.4",
+    "rightkit-license": "0.2.5",
     "rightkit-llm": "0.3.1",
     "rightkit-logs": "0.3.5",
     "rightkit-mcp": "0.7.0",
@@ -478,7 +480,7 @@
     "rightkit-onnx": "0.2.7",
     "rightkit-overlay": "0.2.0",
     "rightkit-overlay-win": "0.1.0",
-    "rightkit-ownership": "0.4.1",
+    "rightkit-ownership": "0.4.2",
     "rightkit-pdf": "0.3.3",
     "rightkit-platform-rules": "0.1.0",
     "rightkit-playback": "0.3.0",
@@ -493,7 +495,7 @@
     "rightkit-speech-client": "0.4.0",
     "rightkit-spend": "0.2.0",
     "rightkit-sync": "0.2.2",
-    "rightkit-tauri-shell": "0.5.1",
+    "rightkit-tauri-shell": "0.6.0",
     "rightkit-time": "0.1.0",
     "rightkit-transcript": "0.4.0",
     "rightkit-tts": "0.2.3",
@@ -638,7 +640,8 @@
       "0.2.0",
       "0.2.1",
       "0.3.1",
-      "0.4.0"
+      "0.4.0",
+      "0.4.1"
     ],
     "rightkit-browser": [
       "0.2.0",
@@ -1010,7 +1013,8 @@
     "rightkit-license": [
       "0.2.0",
       "0.2.2",
-      "0.2.3"
+      "0.2.3",
+      "0.2.4"
     ],
     "rightkit-credentials": [
       "0.2.0",
@@ -1068,7 +1072,8 @@
       "0.3.2",
       "0.3.3",
       "0.4.0",
-      "0.5.0"
+      "0.5.0",
+      "0.5.1"
     ],
     "rightkit-android": [
       "0.2.0"

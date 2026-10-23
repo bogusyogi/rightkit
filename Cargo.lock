@@ -7118,7 +7118,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-license"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -7290,7 +7290,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-ownership"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "base64 0.23.1",
  "fancy-regex 0.19.2",
@@ -7506,7 +7506,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-tauri-shell"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "block2",
  "objc2",

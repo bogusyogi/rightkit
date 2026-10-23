@@ -1,0 +1,50 @@
+{
+  "_comment": "Canonical Right Suite API host contract, owned by RightKit. Edit only here; scripts/gen-suite-api.mjs writes every projection (rightkit-license suite_api_generated.rs, @rightkit/app-update suite-api.generated.ts, @rightkit/release suite-api.generated.mjs) and a byte copy under crates/rightkit-license/test-vectors/. Path templates use {app} for the app key (filled by RightKit) and Tauri's {{target}} placeholder (filled by the updater at runtime). Hosts are bare hostnames; origins include the scheme.",
+  "schema": "right-suite-api.v1",
+  "host": "api.orthiclabs.com",
+  "origin": "https://api.orthiclabs.com",
+  "legacyHosts": [
+    "api.spoares.com"
+  ],
+  "paths": {
+    "updaterManifest": "/v1/apps/{app}/releases/latest.json?platform={{target}}",
+    "releaseStatus": "/v1/apps/{app}/releases/status.json",
+    "adminPatches": "/v1/admin/apps/patches",
+    "adminReleases": "/v1/admin/apps/releases",
+    "adminRuntimeArtifacts": "/v1/admin/apps/runtime-artifacts"
+  },
+  "artifactHostSets": {
+    "gated": "rightapps-license-gate.adrdsouza.workers.dev",
+    "public": "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
+  },
+  "publicInstallerBase": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev",
+  "artifactPathPrefix": "/{app}",
+  "apps": {
+    "coderight": {
+      "artifactHosts": [
+        "gated",
+        "public"
+      ]
+    },
+    "heardright": {
+      "artifactHosts": [
+        "gated",
+        "public"
+      ]
+    },
+    "mailright": {
+      "artifactHosts": [
+        "gated",
+        "public"
+      ]
+    },
+    "viewright": {
+      "artifactHosts": [
+        "public"
+      ]
+    }
+  },
+  "pendingNativeUpdater": [
+    "heardright"
+  ]
+}

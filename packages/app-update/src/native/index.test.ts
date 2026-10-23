@@ -214,3 +214,29 @@ describe('UPDATE_MESSAGES', () => {
     for (const [code, text] of Object.entries(UPDATE_MESSAGES)) if (code !== 'none') expect(text.length).toBeGreaterThan(0);
   });
 });
+
+describe('native release status bridge', () => {
+  const status = { schema: 1, appKey: 'viewright', platform: 'darwin', patchVersion: null, updateVersion: '2.0.0' };
+
+  it('invokes rightkit_update_release_status with no arguments and returns a validated status', async () => {
+    const f = fixture({ rightkit_update_release_status: status });
+    await expect(f.client.releaseStatus()).resolves.toEqual(status);
+    expect(f.invoke.mock.calls).toEqual([['rightkit_update_release_status', undefined]]);
+  });
+
+  it('rejects an off-schema result with a safe native error', async () => {
+    for (const bad of [
+      { ...status, schema: 2 },
+      { ...status, extra: 'https://private.example' },
+      { ...status, appKey: '' },
+      { ...status, updateVersion: 3 },
+      [status],
+      null,
+    ]) {
+      const f = fixture({ rightkit_update_release_status: bad });
+      const error = await f.client.releaseStatus().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(NativeUpdateClientError);
+      expect((error as Error).message).not.toMatch(/private\.example/u);
+    }
+  });
+});

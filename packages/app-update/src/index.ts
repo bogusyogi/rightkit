@@ -179,7 +179,7 @@ export async function fetchReleaseStatus(
   return value;
 }
 
-function isReleaseStatus(value: unknown): value is ReleaseStatus {
+export function isReleaseStatus(value: unknown): value is ReleaseStatus {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const allowed = new Set(['schema', 'appKey', 'platform', 'patchVersion', 'updateVersion']);

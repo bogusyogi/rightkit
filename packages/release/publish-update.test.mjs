@@ -6,6 +6,7 @@ import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { unmanagedEnv } from "./test-support/unmanaged-env.mjs";
+import { RIGHT_SUITE_LEGACY_HOSTS } from "./suite-api.generated.mjs";
 
 const publisher = fileURLToPath(new URL("./publish-update.mjs", import.meta.url));
 
@@ -233,7 +234,7 @@ test("github-releases dry run plans bundle, signature and latest.json uploads wi
   assert.match(result.stdout, /UPLOAD Orthic-Labs\/Fixture@v1\.2\.3\/latest\.json/);
   assert.match(result.stdout, /"url":"https:\/\/github\.com\/Orthic-Labs\/Fixture\/releases\/download\/v1\.2\.3\/Fixture_1\.2\.3_x64-setup\.exe"/);
   assert.match(result.stdout, /github-releases would-publish v1\.2\.3/);
-  assert.doesNotMatch(result.stdout, /api\.spoares\.com/);
+  for (const legacy of RIGHT_SUITE_LEGACY_HOSTS) assert.doesNotMatch(result.stdout, new RegExp(legacy.replaceAll(".", "\\.")));
 });
 
 test("github-releases refuses a missing or malformed repository", () => {

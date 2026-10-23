@@ -14,12 +14,13 @@ import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, di
 import { uploadVerifiedR2Artifact } from "./r2-verified-upload.mjs";
 import { verifyPlatformTrust } from "./github-release.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
+import { RIGHT_SUITE_API_ORIGIN, RIGHT_SUITE_GATED_ARTIFACT_HOST, RIGHT_SUITE_PUBLIC_INSTALLER_BASE } from "./suite-api.generated.mjs";
 import { assertAssetName, assertGitHubRepository, assertUpdaterKeyId, assertUpdaterPlatform, assertUpdaterSignature, buildLatestJson, githubAssetUrl, githubTag, publishGitHubUpdaterRelease } from "./github-updater-release.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
-const API_BASE = process.env.RIGHTAPPS_API_URL || "https://api.spoares.com";
-const DOWNLOAD_BASE = process.env.RIGHTAPPS_UPDATE_DOWNLOAD_BASE || "https://rightapps-license-gate.adrdsouza.workers.dev";
-const PUBLIC_BASE = process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev";
+const API_BASE = process.env.RIGHTAPPS_API_URL || RIGHT_SUITE_API_ORIGIN;
+const DOWNLOAD_BASE = process.env.RIGHTAPPS_UPDATE_DOWNLOAD_BASE || `https://${RIGHT_SUITE_GATED_ARTIFACT_HOST}`;
+const PUBLIC_BASE = process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || RIGHT_SUITE_PUBLIC_INSTALLER_BASE;
 const PIPELINE_VERSION = JSON.parse(await readFile(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 let tier = process.env.RIGHT_RELEASE_TIER || "";
 const args = process.argv.slice(2);

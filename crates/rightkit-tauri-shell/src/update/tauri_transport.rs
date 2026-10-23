@@ -14,8 +14,9 @@ use tauri::{AppHandle, Url, Wry};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 use super::{
-    current_platform, lock, ReleaseInfo, RequestAuthorizer, RequestHeaders, StagedArtifact,
-    StagedIdentity, TransportError, UpdateKind, UpdateTransport,
+    current_platform, lock, parse_release_status, ReleaseInfo, ReleaseStatusView,
+    RequestAuthorizer, RequestHeaders, StagedArtifact, StagedIdentity, TransportError, UpdateKind,
+    UpdateTransport,
 };
 
 /// Native application configuration. `endpoint` is the existing Tauri updater feed, including
@@ -25,6 +26,38 @@ pub struct TauriUpdateConfig {
     pub endpoint: Url,
     pub public_key: String,
     pub timeout: Duration,
+}
+
+impl TauriUpdateConfig {
+    /// The Right Suite configuration for `app_key`: the contract's updater feed
+    /// (`rightkit_license::suite_api::updater_endpoint`, `{{target}}` left for the updater to
+    /// fill), the app's pinned updater key and one timeout. No `endpoints` entry in
+    /// `tauri.conf.json` is needed or read.
+    #[cfg(feature = "update-license")]
+    pub fn right_suite(
+        app_key: &str,
+        public_key: &str,
+        timeout: Duration,
+    ) -> Result<Self, crate::error::ShellError> {
+        // An app the contract does not list has no artifact hosts, so it has no feed either.
+        rightkit_license::suite_api::artifact_hosts(app_key)
+            .map_err(|e| crate::error::ShellError::Invalid(format!("Right Suite updater: {e}")))?;
+        let endpoint = rightkit_license::suite_api::updater_endpoint(app_key)
+            .map_err(|e| crate::error::ShellError::Invalid(format!("Right Suite updater: {e}")))?;
+        let endpoint = Url::parse(&endpoint).map_err(|_| {
+            crate::error::ShellError::Invalid("Right Suite updater endpoint".into())
+        })?;
+        if timeout.is_zero() || public_key.trim().is_empty() {
+            return Err(crate::error::ShellError::Invalid(
+                "Right Suite updater needs a public key and a non-zero timeout".into(),
+            ));
+        }
+        Ok(Self {
+            endpoint,
+            public_key: public_key.to_owned(),
+            timeout,
+        })
+    }
 }
 
 /// Shared updater implementation; apps configure it instead of implementing UpdateTransport.
@@ -87,6 +120,54 @@ fn client_policy(client: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
 
 fn redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::none()
+}
+
+/// Largest release-status body read; the real answer is a few hundred bytes.
+const MAX_STATUS_BYTES: usize = 16 * 1024;
+/// Longest a release-status read may take, whatever the transfer timeout is.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn ensure_tls_provider() {
+    // Same as tauri-plugin-updater does before it builds its client; it only fails when a default
+    // provider exists already.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
+/// One unauthenticated GET of `url`. Success is exactly `200` (a redirect is a failure, never
+/// followed); the body is size-capped and must match the `isReleaseStatus` shape.
+async fn read_release_status(
+    client: &reqwest::Client,
+    url: &Url,
+) -> Result<ReleaseStatusView, TransportError> {
+    let mut response = client
+        .get(url.clone())
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|_| TransportError::Network)?;
+    if response.status() != reqwest::StatusCode::OK {
+        return Err(TransportError::Network);
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_STATUS_BYTES as u64)
+    {
+        return Err(TransportError::Verify);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| TransportError::Network)?
+    {
+        if body.len() + chunk.len() > MAX_STATUS_BYTES {
+            return Err(TransportError::Verify);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    parse_release_status(&body).ok_or(TransportError::Verify)
 }
 
 fn identity(bytes: &[u8]) -> StagedIdentity {
@@ -211,6 +292,16 @@ impl UpdateTransport for TauriUpdateTransport {
         Ok(identity(&staged.bytes))
     }
 
+    fn release_status(&self, url: &Url) -> Result<ReleaseStatusView, TransportError> {
+        ensure_tls_provider();
+        // The updater's own policy: https only, no redirect, no referer, valid certificates.
+        let client = client_policy(reqwest::Client::builder())
+            .timeout(self.config.timeout.min(STATUS_TIMEOUT))
+            .build()
+            .map_err(|_| TransportError::Failed)?;
+        tauri::async_runtime::block_on(read_release_status(&client, url))
+    }
+
     fn install(&self, staged: StagedArtifact) -> Result<(), TransportError> {
         // UpdateHost already checks the original licence revision & recorded digest immediately
         // before this call. Recheck identity here too; public callers cannot substitute a token.
@@ -323,6 +414,111 @@ mod tests {
             target.accept().unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock
         );
+    }
+
+    /// Serve each canned response once on a loopback port; returns the URL and the join handle.
+    fn serve(responses: Vec<String>) -> (Url, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            for response in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request).unwrap();
+                stream.write_all(response.as_bytes()).unwrap();
+            }
+        });
+        (
+            Url::parse(&format!("http://{address}/status.json")).unwrap(),
+            handle,
+        )
+    }
+
+    fn ok_response(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// The production policy minus `https_only` (the fixture is plain loopback HTTP).
+    fn fixture_client() -> reqwest::Client {
+        ensure_tls_provider();
+        reqwest::Client::builder()
+            .no_proxy()
+            .referer(false)
+            .redirect(redirect_policy())
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap()
+    }
+
+    fn read(url: &Url) -> Result<ReleaseStatusView, TransportError> {
+        tauri::async_runtime::block_on(read_release_status(&fixture_client(), url))
+    }
+
+    #[test]
+    fn release_status_reads_the_closed_shape() {
+        let (url, server) = serve(vec![ok_response(
+            r#"{"schema":1,"appKey":"mailright","platform":null,"patchVersion":"0.1.2","updateVersion":null}"#,
+        )]);
+        let view = read(&url).unwrap();
+        server.join().unwrap();
+        assert_eq!(view.app_key, "mailright");
+        assert_eq!(view.patch_version.as_deref(), Some("0.1.2"));
+        assert_eq!(view.update_version, None);
+        assert_eq!(view.platform, None);
+    }
+
+    #[test]
+    fn release_status_refuses_a_redirect_without_following_it() {
+        use std::net::TcpListener;
+        let target = TcpListener::bind("127.0.0.1:0").unwrap();
+        target.set_nonblocking(true).unwrap();
+        let target_address = target.local_addr().unwrap();
+        let (url, server) = serve(vec![format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: http://{target_address}/status.json\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )]);
+        assert_eq!(read(&url), Err(TransportError::Network));
+        server.join().unwrap();
+        assert_eq!(
+            target.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock,
+            "the redirect target was contacted"
+        );
+    }
+
+    #[test]
+    fn release_status_refuses_an_off_schema_or_oversized_body_and_a_non_200() {
+        let valid =
+            r#"{"schema":1,"appKey":"a","platform":null,"patchVersion":null,"updateVersion":null}"#;
+        let bad_bodies = [
+            "not json".to_owned(),
+            "[]".to_owned(),
+            r#"{"schema":2,"appKey":"a","platform":null,"patchVersion":null,"updateVersion":null}"#.to_owned(),
+            r#"{"schema":1,"appKey":"","platform":null,"patchVersion":null,"updateVersion":null}"#.to_owned(),
+            r#"{"schema":1,"appKey":"a","platform":null,"patchVersion":null}"#.to_owned(),
+            r#"{"schema":1,"appKey":"a","platform":null,"patchVersion":null,"updateVersion":null,"extra":1}"#.to_owned(),
+            r#"{"schema":1,"appKey":"a","platform":1,"patchVersion":null,"updateVersion":null}"#.to_owned(),
+            format!("{valid}{}", " ".repeat(MAX_STATUS_BYTES + 1)),
+        ];
+        let mut responses: Vec<String> = bad_bodies.iter().map(|b| ok_response(b)).collect();
+        responses.push(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                .into(),
+        );
+        let count = responses.len();
+        let (url, server) = serve(responses);
+        for index in 0..count {
+            let result = read(&url);
+            assert!(result.is_err(), "response {index} was accepted: {result:?}");
+        }
+        server.join().unwrap();
     }
 
     #[test]
