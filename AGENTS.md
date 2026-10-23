@@ -143,6 +143,7 @@ RightKit owns shared packages, crates, QA, licensing, logging, & release tooling
 
 ## Commands
 - Compile, test & publish locally on the Mac and the Dell: Adrian granted RightKit a local-build exception on 2026-10-14 in `.rightkit-local-build.json`; CI still runs on every push; see `docs/CI.md`.
+- Run `node scripts/preflight.mjs` before every push, hook or no hook: seconds, files only. Fix every `FAIL` it prints, commit, & rerun until it passes; CI's first step runs the same check.
 - Run `node scripts/ci/gate.mjs --plan --base <sha>` to preview what a push will verify.
 - Push to `main` in batches & read the `ci` run; apply its `fmt.patch` or `Cargo.lock.patch`, never hand-format.
 - Run `rustfmt --edition <edition> --check <file>` on each changed Rust file before pushing.

@@ -343,7 +343,7 @@ test("plan detects dependency cycles and npm workspace specifiers", async () => 
 // ---- npm provenance preconditions (finding 6) -------------------------------------------------
 
 test("every public npm package names bogusyogi/rightkit and its own directory", () => {
-  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "..", "..");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
   const workspace = readNpmWorkspace(root);
   assert.ok(workspace.size > 5);
   for (const unit of workspace.values()) {

@@ -1,3 +1,7 @@
 #!/bin/sh
 # Mandatory local gate before every push (Adrian 2026-10-22). Never bypass with --no-verify.
-exec node "$(git rev-parse --show-toplevel)/scripts/local-gate.mjs" --base origin/main
+# Preflight first: seconds, committed files only, no broker (scripts/preflight.mjs). It reads no stdin, so git's ref lines
+# still reach the gate.
+root="$(git rev-parse --show-toplevel)"
+node "$root/scripts/preflight.mjs" </dev/null || exit 1
+exec node "$root/scripts/local-gate.mjs" --base origin/main

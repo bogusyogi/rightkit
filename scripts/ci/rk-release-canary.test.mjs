@@ -5,11 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 import { killRemoteLeg, CHECKS, CanaryInfraError, DIGEST_FILES, EXIT, RECEIPT_NAME, admissionInfra, buildManifest, canaryDigests, compareAll, compareCells, expectedMatch, expectedProblems, fetchBaseline, fetchDependency, loadExpected, loadMatrix, matrixProblems, packCandidate, parseArgs, receiptPath, resolveAppShas, runCanary, runLeg, writeReceipt } from "./rk-release-canary.mjs";
 import { readTarball } from "./rk-release-canary-leg.mjs";
 
-const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const tmp = (t, p = "rk-canary-") => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; };
 

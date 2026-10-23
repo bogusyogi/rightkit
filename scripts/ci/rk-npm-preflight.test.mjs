@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { adapterExpectation, ADAPTER, npmRecipePolicy, packageRows, parseArgs, readPackages } from "./rk-npm-preflight.mjs";
 
 test("arguments: npm registry and one @rightkit package only", () => {
@@ -78,7 +79,7 @@ import crypto from "node:crypto";
 import { CANARY_DIGEST_FILES, CANARY_EXPECTED_FILE, CANARY_RECEIPT, releaseCanaryPolicy } from "./rk-npm-preflight.mjs";
 import { DIGEST_FILES, EXPECTED_FILE } from "./rk-release-canary.mjs";
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 function canaryFixture(t, { verdict = "green", sha = "a".repeat(40), version = "0.6.3", receiptSha = sha, receiptVersion = version, ok = verdict === "green", writeReceipt = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-canary-policy-"));
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "rk-canary-out-"));

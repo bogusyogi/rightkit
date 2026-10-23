@@ -30,7 +30,7 @@ import { pendingUpdaterEndpoint, SUITE_API_CONTRACT_HOSTS } from "./suite-api-li
 
 const workspace = path.resolve(
   process.env.RIGHT_SUITE_CONTRACT_WORKSPACE
-    ?? new URL("../../..", import.meta.url).pathname.replace(/^\/(\w:)/, "$1"),
+    ?? fileURLToPath(new URL("../../..", import.meta.url)),
 );
 // The Right Suite web layer's repo + filesystem path is `rightsites` post the 2026-07-15 naming lock;
 // a not-yet-renamed checkout may still have `rightapps`. Resolve whichever exists so the contract
