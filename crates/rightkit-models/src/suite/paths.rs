@@ -82,36 +82,69 @@ pub fn version_within(app_version: &str, max_version: &str) -> bool {
 /// - **Without it** (every release build) no override variable is read: the root is the operating
 ///   system's per-user default from the account database.
 pub fn suite_root() -> PathBuf {
+    match checked_suite_root() {
+        Ok(root) => root,
+        Err(refusal) => panic!("{refusal}"),
+    }
+}
+
+/// Whether `models_root` is the suite's own models root ([`models_root`]).
+///
+/// Comparing a path writes nothing, so a test-mode build whose own root would be refused (no
+/// usable override, real `HOME`) answers `false` here instead of panicking: nothing can be the
+/// suite's models root when the suite has none. Store code uses this to decide whether the legacy
+/// registry beside the suite root is also consulted.
+pub fn is_suite_models_root(models_root: &Path) -> bool {
+    checked_suite_root()
+        .map(|root| models_root_at(&root) == models_root)
+        .unwrap_or(false)
+}
+
+/// Whether `root` is the suite root itself ([`suite_root`]); same non-panicking contract as
+/// [`is_suite_models_root`]. Lease code uses this to decide whether the legacy root's lease is
+/// taken alongside an explicit root.
+pub fn is_suite_root(root: &Path) -> bool {
+    checked_suite_root()
+        .map(|suite| suite == root)
+        .unwrap_or(false)
+}
+
+/// [`suite_root`] with the test-mode refusal as the error, in the words [`suite_root`] panics with.
+fn checked_suite_root() -> Result<PathBuf, String> {
     // An app-injected files directory (Android) is the root outright: there is no per-user
     // account folder to resolve, and nothing else may redirect it.
     if let Some(files_dir) = crate::android::android_files_dir() {
-        return files_dir;
+        return Ok(files_dir);
     }
     let resolved = rightkit_daemon::Suite::resolve();
     // `TEST_CAPABILITY` is the daemon's own feature, so it is also true when an app enabled
     // `rightkit-daemon/test-mode` directly instead of this crate's `test-mode`.
     if !rightkit_daemon::mode::TEST_CAPABILITY {
-        return match resolved {
+        return Ok(match resolved {
             Ok(suite) => suite.root().to_path_buf(),
             Err(_) => default_suite_root(),
-        };
+        });
     }
     // A test-capable build never reaches the real per-user folder: an unresolvable root, or one
     // that equals the account's real default (no usable override, real HOME), is refused loudly
     // rather than written to. Resolved fresh on every call, never cached.
     let root = match resolved {
         Ok(suite) => suite.root().to_path_buf(),
-        Err(err) => panic!("rightkit-models: cannot resolve the suite root in test-mode: {err}"),
+        Err(err) => {
+            return Err(format!(
+                "rightkit-models: cannot resolve the suite root in test-mode: {err}"
+            ))
+        }
     };
     if let Ok(real) = rightkit_daemon::Suite::per_user_default() {
         if real.root() == root {
-            panic!(
+            return Err(format!(
                 "rightkit-models: refusing the real per-user suite root {} in a test-mode build; set RIGHTKIT_SUITE_ROOT (or redirect HOME) to an isolated directory",
                 root.display()
-            );
+            ));
         }
     }
-    root
+    Ok(root)
 }
 
 /// Previous Right Suite registry root retained during compatibility window.

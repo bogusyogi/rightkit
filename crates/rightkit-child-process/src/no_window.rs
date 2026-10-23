@@ -15,7 +15,7 @@ pub const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 /// A `std::process::Command` for `program` that already has the no-window flag set on Windows,
 /// returned by value so it chains: `command_std("git").args(["status"]).output()`. Same effect as
 /// `Command::new(program)` followed by [`NoWindow::no_window`]; on Unix the child also inherits
-/// no descriptor above stderr (see [`SanitizeDescriptors`](crate::SanitizeDescriptors); pass
+/// no descriptor above stderr (see `SanitizeDescriptors`; pass
 /// descriptors with a later `sanitize_descriptors(&[fd])`). The async variant is
 /// `tokio_support::command` (feature `tokio`).
 pub fn command_std(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {

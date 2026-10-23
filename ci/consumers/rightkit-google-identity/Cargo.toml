@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-google-identity-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-google-identity = { version = "=0.2.0" }

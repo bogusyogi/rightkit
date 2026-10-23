@@ -4,7 +4,7 @@
 //!
 //! [`OwnedCommand`](crate::OwnedCommand) owns the spawn. A caller that already builds tokio
 //! commands (and puts the child in its own process group or session) keeps its spawn and uses
-//! [`terminate_tree`] on the `tokio::process::Child`, or [`terminate_process_group`] when it
+//! [`terminate_tree`] on the `tokio::process::Child`, or `terminate_process_group` when it
 //! holds only a group id.
 //!
 //! # What is and is not proven
@@ -48,7 +48,7 @@ impl NoWindow for tokio::process::Command {
 /// A `tokio::process::Command` for `program` that already has the no-window flag set on
 /// Windows, returned by value so it chains. The async counterpart of
 /// [`command_std`](crate::command_std): on Unix the child also inherits no descriptor above
-/// stderr (see [`SanitizeDescriptors`](crate::SanitizeDescriptors)).
+/// stderr (see `SanitizeDescriptors`).
 pub fn command(program: impl AsRef<std::ffi::OsStr>) -> tokio::process::Command {
     // windowless: no_window() is applied on the next line
     let mut command = tokio::process::Command::new(program);

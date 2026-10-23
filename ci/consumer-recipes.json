@@ -796,15 +796,17 @@
       "pkId": "PK12",
       "id": "ci/consumers/rightkit-embed/src/main.rs",
       "dependency": "rightkit-embed = { version = \"=0.6.1\" }",
-      "extraDependencies": [],
+      "extraDependencies": [
+        "rightkit-db = { version = \"0.5\", features = [\"bundled\"] }"
+      ],
       "gateEvidence": "model-free public API only: no model directory, tokenizer or ONNX Runtime library is read or loaded; Embedder::load is exercised only through its typed refusals (missing directory, invalid dimension) before any model access; VectorStore is not used; default features stay on; one empty temp directory removed at the end",
       "consumes": "PK12 local-inference consumers (PK12 proposal; reviewed recipe, named product consumers not re-read here); rightkit-embed public items used: reciprocal_rank_fusion and RRF_K (src/fusion.rs), cosine_similarity (src/vector.rs), truncate_and_normalize, installed_model_dir, bundle_files, EmbedderConfig builders, ExecutionProvider, EmbedError and Embedder::load refusals (src/embedder.rs)",
       "files": {
-        "Cargo.toml": "b78bcee34656829916861f0b15a8a6d6a4a97078ef1538c3e960e4a5f80823ab",
+        "Cargo.toml": "c3bb0ad032207f13951bb66f56de70c215527136732ca35f725f759921d3a069",
         "README.md": "e15d8bc2963ba4feba16751a39f89510d2530ca7611d08826b29f14952ad057f",
         "src/main.rs": "a5a33dc9989abb59d91a2cb7abc773cdd6273402304bcfdc6ea97aa6a2f8c37a"
       },
-      "aggregateSha256": "8e545f4ce244dbb268abdd9954cb331cc3236fe4b26db29ede41889e1a3e9fcb"
+      "aggregateSha256": "3a81ac2a1b2c9ab0a77ef2c8b00aaf2109f112a97f6c8505f49069fc87d6ca5f"
     },
     "rightkit-fsindex": {
       "pkId": "PK01",
@@ -849,6 +851,108 @@
         "src/main.rs": "a3e53c37dce90b1c9fa9141384f3f28d28b47881852f0869d19cc1765fa1c025"
       },
       "aggregateSha256": "ada1d6084c05d5944081baff49cc14f99a7dedb00a1e6659baddf1c5aa362548"
+    },
+    "rightkit-android": {
+      "pkId": "PK09",
+      "id": "ci/consumers/rightkit-android/src/main.rs",
+      "dependency": "rightkit-android = { version = \"=0.3.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "20e148cfce16c30d577f235bbf9cdaecac9914043cc20cc1c84d9e03b07fad99",
+        "README.md": "8a9b8a952e250aa8008ec84943a1b900160da652fab0a4984dc427af66a825fe",
+        "src/main.rs": "fdc1fd2f4878d91235693752f3086c270a73451187e9c6d1d2a3d8da4321e900"
+      },
+      "aggregateSha256": "de4b77be8ac1c381f57540f38ef0d90457c07e0b45b8e63bce96b044d281a0ac"
+    },
+    "rightkit-google-identity": {
+      "pkId": "PK10",
+      "id": "ci/consumers/rightkit-google-identity/src/main.rs",
+      "dependency": "rightkit-google-identity = { version = \"=0.2.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "434905bf4780a5a3bea3d3a9b08506ca635b66557b90d58e3fd84b45a813d8df",
+        "README.md": "5622836a95b72fcb9e187fb120737b9e5a7c1967a0981e791ba4182a1ea499ac",
+        "src/main.rs": "2cc07a719ca27c2195c313ec92b20900d0ba03ef827c95243652b6524d6303c5"
+      },
+      "aggregateSha256": "a2003db1f56e448b31dbf16b05bf629c649a0e05acd3a0713dfbba183252f78b"
+    },
+    "rightkit-vault": {
+      "pkId": "PK13",
+      "id": "ci/consumers/rightkit-vault/src/main.rs",
+      "dependency": "rightkit-vault = { version = \"=0.2.0\" }",
+      "extraDependencies": [
+        "rightkit-credentials = { version = \"=0.4.2\" }"
+      ],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "f801b9840c5f8fd6ef3655c08a2102ad8ea31db2ec9cffca78edb242cb497ea5",
+        "README.md": "94a94a3ca200629a7eb8052c1783e29efc4cc479366e35508b9889120370b5b3",
+        "src/main.rs": "b6cdd16efbc7840fa77c07e44f63a53bfc2460d4f131eb5fb26f73a522844ee3"
+      },
+      "aggregateSha256": "f3779db695334c7594c1d57168bcb4c2999b023736165e251a72d733f95fcd7e"
+    },
+    "rightkit-docs": {
+      "pkId": "PK16",
+      "id": "ci/consumers/rightkit-docs/src/main.rs",
+      "dependency": "rightkit-docs = { version = \"=0.1.2\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "1904c4f4f8693f5094e5987dea3d0d17caee153a1e5ecad9241b95f02e5746ae",
+        "README.md": "11e05f18bbe29d30d5bdcda04f5af46c83a92801f4bbbd28c79a94572bb7e87f",
+        "src/main.rs": "cf23b5ae6d0278cbeb3cede0a026bb0dbce378f89ca6ba3afab490896f772176"
+      },
+      "aggregateSha256": "b93c2d3728a24b5b9e8d8ba19d5ab4993c052da930776a3a602757ebfc205314"
+    },
+    "rightkit-record": {
+      "pkId": "PK17",
+      "id": "ci/consumers/rightkit-record/src/main.rs",
+      "dependency": "rightkit-record = { version = \"=0.3.3\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "805fa8067579716980454ee6a2e1f9f95859c9a6dd3e436fce41c2a8e839bdfd",
+        "README.md": "b7dc9f6f871480c064cf7ac33c71c736a197c7f5e40e62d918929d7a1539c93e",
+        "src/main.rs": "98b1179b8c3d7916715829a74e1c91a3b14398a316d23d79f97e30a9a5e9960c"
+      },
+      "aggregateSha256": "5ae117688daf83752248ca91508b6016bc07f36a949c5e143e1b0680b8533cca"
+    },
+    "rightkit-align": {
+      "pkId": "PK21",
+      "id": "ci/consumers/rightkit-align/src/main.rs",
+      "dependency": "rightkit-align = { version = \"=0.1.0\" }",
+      "extraDependencies": [],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "86cdf6a6377e281dc144fc859f2a314e09f4f4dcfb6250ce6cc7a49d1d2f27ab",
+        "README.md": "2901f6b1d32a485a29a64f47cb8ebb814f4187beb99589f988133c610415cf4a",
+        "src/main.rs": "ddbb68e0d88d741077f70bf88b27ab6d873c7db9f985256891ac2508cb690eac"
+      },
+      "aggregateSha256": "e70ebc57d3259d6719a2dc31f636cf1c2b5b289366503a0101930188f8b77432"
+    },
+    "rightkit-sync-keys": {
+      "pkId": "PK22",
+      "id": "ci/consumers/rightkit-sync-keys/src/main.rs",
+      "dependency": "rightkit-sync-keys = { version = \"=0.1.0\" }",
+      "extraDependencies": [
+        "zeroize = \"1.9\""
+      ],
+      "gateEvidence": "no assets needed; deterministic, in-process; no ci/asset-gated.json entry needed",
+      "consumes": "no app pins this version yet; publication unblocks adoption (recipe exercises the public API family named in its README)",
+      "files": {
+        "Cargo.toml": "f3b9a78d19215ae51b4bcd5502e6b32d6bb8acf775e37c93c625752f8f7506d3",
+        "README.md": "58c0118b9c329391b6fa00791e410bca903f24dfc68fe982084642d5b1f629e1",
+        "src/main.rs": "44c1410c42fe5706e49d5224dad460a2a82ee68b19c553a5d0d17f93881300b0"
+      },
+      "aggregateSha256": "dd861970191eb2b66691b5d4687b5ad99b3baece8fb97457e917d2b3fa95286d"
     }
   }
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
-import { planCommandsFromWorkflow, PLAN_CONTRACT_STEP, countIgnoredTests, verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
+import { consumerRecipePolicy, planCommandsFromWorkflow, PLAN_CONTRACT_STEP, countIgnoredTests, verifyAttestation, brokerRequestIds, checkTools, countDocWarnings, crateRows, parseArgs, receiptRefusal, SCHEMA } from "./rk-preflight.mjs";
 
 const sha = "a".repeat(40), unit = "rightkit-example", version = "1.0.0", config = {};
 const expected = { sha, registry: "crates", unit, version, config };
@@ -57,9 +57,15 @@ test("tool parity resolves pinned rustfmt & rejects prefix-only actionlint match
   assert.match(checkTools({ ...base, spawnFn: (cmd, args) => cmd === "actionlint" ? { status: 0, stdout: "1.7.120" } : spawnFn(cmd, args) }).problems.join(" "), /not the pinned/);
 });
 
-test("rustdoc diagnostics & request IDs are captured", () => {
-  assert.equal(countDocWarnings("warning: private intra-doc link\nwarning: `crate` generated 1 warning\n"), 1);
+test("rustdoc diagnostics & request IDs are captured; scoped counting takes only the unit's own rustdoc warnings", () => {
+  assert.equal(countDocWarnings("warning: private intra-doc link\nwarning: `crate` generated 1 warning\n"), 1, "unscoped counting is unchanged");
   assert.deepEqual(brokerRequestIds("rustright: request 6891efd1-6e8b-4ef4-9600-613527d4515e\n"), ["6891efd1-6e8b-4ef4-9600-613527d4515e"]);
+  const depWarning = ["    Checking rightkit-crash v0.3.6 (/w/crates/rightkit-crash)", "warning: function `scrub_for_bundle` is never used", "   --> crates/rightkit-crash/src/native.rs:208:19", "    |", " Documenting rightkit-job-queue v0.5.0 (/w/crates/rightkit-job-queue)", "    Finished"].join("\n");
+  assert.equal(countDocWarnings(depWarning, "rightkit-job-queue"), 0, "a dependency's compile warning is not the unit's rustdoc warning");
+  const own = [" Documenting rightkit-job-queue v0.5.0 (/w/crates/rightkit-job-queue)", "warning: unresolved link to `Nope`", "  --> crates/rightkit-job-queue/src/lib.rs:9:5", "warning: `rightkit-job-queue` (lib doc) generated 1 warning"].join("\n");
+  assert.equal(countDocWarnings(own, "rightkit-job-queue"), 1, "the unit's own rustdoc warning counts");
+  const before = ["warning: unresolved link to `Nope`", "  --> crates/rightkit-job-queue/src/lib.rs:9:5", " Documenting rightkit-job-queue v0.5.0 (/w/crates/rightkit-job-queue)"].join("\n");
+  assert.equal(countDocWarnings(before, "rightkit-job-queue"), 0, "nothing counts before cargo starts documenting the unit");
 });
 
 
@@ -116,4 +122,30 @@ test("the plan-job contract commands come from publish.yml itself, never from a 
   assert.throws(() => planCommandsFromWorkflow(root, { readFile: () => renamed }), /no plan step named/);
   const shelly = real.replace("node scripts/ci/reviewed-workflow-contract.mjs", "node scripts/ci/reviewed-workflow-contract.mjs && rm -rf /");
   assert.throws(() => planCommandsFromWorkflow(root, { readFile: () => shelly }), /not a plain node command/);
+});
+
+
+test("consumer-recipe policy: a valid reviewed recipe passes; a missing recipe and a stale inventory hash refuse before any cargo row", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path"), crypto = require("node:crypto");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-recipe-"));
+  const unit = "rightkit-example";
+  fs.mkdirSync(path.join(root, "crates", unit), { recursive: true });
+  fs.writeFileSync(path.join(root, "crates", unit, "Cargo.toml"), '[package]\nname = "rightkit-example"\nversion = "1.2.3"\n');
+  const dir = path.join(root, "ci", "consumers", unit);
+  fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+  const manifest = '[package]\nname = "rightkit-example-registry-consumer"\nversion = "0.0.0"\nedition = "2021"\npublish = false\n[workspace]\n[dependencies]\nrightkit-example = { version = "=1.2.3" }\n';
+  fs.writeFileSync(path.join(dir, "Cargo.toml"), manifest);
+  fs.writeFileSync(path.join(dir, "src", "main.rs"), "fn main() {}\n");
+  const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+  const files = { "Cargo.toml": sha(manifest), "src/main.rs": sha("fn main() {}\n") };
+  const inventory = { schema: 1, cargo: { [unit]: { pkId: "PK99", id: `ci/consumers/${unit}/src/main.rs`, files } } };
+  fs.writeFileSync(path.join(root, "ci", "consumer-recipes.json"), JSON.stringify(inventory));
+  const good = consumerRecipePolicy(root, unit);
+  assert.equal(good.ok, true, good.reason);
+  assert.equal(good.pkId, "PK99");
+  fs.writeFileSync(path.join(dir, "src", "main.rs"), "fn main() { println!(\"changed\"); }\n");
+  assert.match(consumerRecipePolicy(root, unit).reason, /differs from reviewed PK99 inventory/);
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.match(consumerRecipePolicy(root, unit).reason, /missing committed PK example/);
+  assert.match(consumerRecipePolicy(root, "rightkit-absent").reason, /Cargo.toml is missing/);
 });

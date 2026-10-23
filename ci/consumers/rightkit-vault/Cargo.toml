@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-vault-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-vault = { version = "=0.2.0" }
+rightkit-credentials = { version = "=0.4.2" }

@@ -570,9 +570,11 @@ pub struct RetiredPruneReport {
 /// when this is the machine-wide store.
 fn registry_dirs(models_root: &Path) -> Vec<PathBuf> {
     let mut ref_dirs = vec![paths::model_refs_dir_at(models_root)];
-    let legacy_models = paths::legacy_suite_root().join("models");
-    if models_root == paths::models_root() && legacy_models != *models_root {
-        ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
+    if paths::is_suite_models_root(models_root) {
+        let legacy_models = paths::legacy_suite_root().join("models");
+        if legacy_models != *models_root {
+            ref_dirs.push(paths::model_refs_dir_at(&legacy_models));
+        }
     }
     ref_dirs
 }
@@ -927,7 +929,7 @@ pub fn migrate_source_checked(
     let refs_dir = paths::model_refs_dir_at(models_root);
     let mut ref_paths = vec![refs_dir.clone()];
     let mut lease_root_paths = vec![destination_root.to_path_buf()];
-    if models_root == paths::models_root() {
+    if paths::is_suite_models_root(models_root) {
         let legacy = paths::legacy_suite_root();
         ref_paths.push(legacy.join("models/refs"));
         lease_root_paths.push(legacy);

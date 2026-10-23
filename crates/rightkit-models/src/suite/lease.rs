@@ -168,10 +168,13 @@ pub fn acquire_bounded_at_root(
 /// Attempt to guard model GC. Unknown runtime lock files block conservatively;
 /// returned guard remains held through the caller's deletion.
 pub fn try_acquire_for_gc(root: &Path, app: &str) -> Result<Option<ModelLease>, String> {
-    let current = crate::suite::paths::suite_root();
-    let legacy = crate::suite::paths::legacy_suite_root();
-    if root == current && legacy != current {
-        return try_acquire_for_gc_at_roots(&[root, &legacy], app);
+    // Only the suite's own root also guards the legacy root; an explicit other root (a test's
+    // temp dir, a source store) never resolves the suite root at all.
+    if crate::suite::paths::is_suite_root(root) {
+        let legacy = crate::suite::paths::legacy_suite_root();
+        if legacy != root {
+            return try_acquire_for_gc_at_roots(&[root, &legacy], app);
+        }
     }
     try_acquire_for_gc_at_roots(&[root], app)
 }

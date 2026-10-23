@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-sync-keys-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-sync-keys = { version = "=0.1.0" }
+zeroize = "1.9"

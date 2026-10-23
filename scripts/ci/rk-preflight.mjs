@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
+import { cargoRecipe } from "./consumer-recipes.mjs";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const DEFAULT_OUT = "/Volumes/D/scratch/rk-pipeline/receipts";
@@ -137,9 +138,39 @@ function label(features) {
   return features.length ? `[${features.filter((x) => !x.startsWith("--")).join(",") || features.join(" ")}]` : "";
 }
 
-/** Rustdoc warnings as the hosted `-D warnings` row would see them: every `warning:` line except cargo's own summary. */
-export function countDocWarnings(text) {
-  return text.split("\n").filter((line) => /^warning: /.test(line) && !/generated \d+ warning/.test(line)).length;
+/** Rustdoc diagnostics for THIS unit, as the hosted `RUSTDOCFLAGS=-D warnings` row fails on them: a `warning:` line is
+ * counted only after cargo has started documenting the unit and only when its `-->` location is inside the unit's own
+ * crate directory. Compile warnings of dependencies (`Checking rightkit-crash ... warning: function is never used`) are not
+ * rustdoc warnings and never fail the hosted row, so they do not fail this one (Astra review item h). */
+export function countDocWarnings(text, unit) {
+  const lines = text.split("\n");
+  let documenting = !unit;
+  let count = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (unit && new RegExp(`^\\s*Documenting ${unit.replace(/[-/]/g, "[-/]")} `).test(line)) documenting = true;
+    if (!documenting || !/^warning: /.test(line) || /generated \d+ warning/.test(line)) continue;
+    if (!unit) { count += 1; continue; }
+    const location = lines.slice(i + 1, i + 4).find((l) => /^\s*-->\s/.test(l)) ?? "";
+    if (new RegExp(`-->\\s*crates[\\/]${unit}[\\/]`).test(location)) count += 1;
+  }
+  return count;
+}
+
+/** The hosted verify's receipt step refuses a publication whose committed registry consumer recipe is missing or differs
+ * from the reviewed inventory (scripts/ci/consumer-recipes.mjs cargoRecipe). Same helper, same refusal text, before any
+ * cargo row: a valid recipe passes, a missing recipe or a stale inventory hash refuses. */
+export function consumerRecipePolicy(root, unit) {
+  const manifest = path.join(root, "crates", unit, "Cargo.toml");
+  if (!fs.existsSync(manifest)) return { ok: false, reason: `crates/${unit}/Cargo.toml is missing` };
+  const version = fs.readFileSync(manifest, "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  if (!version) return { ok: false, reason: `crates/${unit}/Cargo.toml has no version` };
+  try {
+    const recipe = cargoRecipe({ root, unit: { name: unit, version } });
+    return { ok: true, pkId: recipe.evidence.pkId, sha256: recipe.evidence.sha256, version };
+  } catch (error) {
+    return { ok: false, reason: String(error?.message ?? error), version };
+  }
 }
 
 export function brokerRequestIds(text) {
@@ -377,6 +408,11 @@ export async function main(argv, deps = {}) {
     // Ignored tests are not passes on the hosted verify hosts: a unit that carries any #[ignore] needs the reviewed
     // allowIgnored policy entry in ci/gate.config.json (the dispatcher then names it in allow_ignored). Static, no compile.
     if (!failed && opts.registry === "crates") {
+      const recipe = consumerRecipePolicy(root, opts.unit);
+      receipt.consumerRecipe = recipe;
+      if (!recipe.ok) failed = { index: planCommands.length + 1, command: "consumer-recipe policy", exit: 1, timedOut: false, lines: [recipe.reason] };
+    }
+    if (!failed && opts.registry === "crates") {
       const ignored = countIgnoredTests(path.join(root, "crates", opts.unit));
       const allowed = Boolean(config.rust?.[opts.unit]?.allowIgnored);
       receipt.ignoredTests = { count: ignored, allowed };
@@ -404,7 +440,7 @@ export async function main(argv, deps = {}) {
     const logFile = path.join(logDir, `${row.id.replace(/[^a-z0-9.-]+/gi, "_")}.log`);
     const nonce = crypto.randomBytes(32).toString("hex");
     const r = await run(command, args, { cwd: root, env: { ...rowEnv, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
-    const warnings = row.denyWarnings ? countDocWarnings(r.out) : 0;
+    const warnings = row.denyWarnings ? countDocWarnings(r.out, opts.unit) : 0;
     const ids = brokerRequestIds(r.out);
     const attestation = ids.length === 1 ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins: pipeline.attestation?.[process.platform] }) : { verified: false, requestId: null, nonce, reason: ids.length ? "one row produced several broker requests" : "no broker request" };
     const ok = r.code === 0 && !r.timedOut && warnings === 0 && attestation.verified === true && unchanged();

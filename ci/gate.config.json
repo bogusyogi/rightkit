@@ -418,6 +418,9 @@
     },
     "rightkit-record": {
       "allowIgnored": "src/macos/tests/live.rs (8 tests: hello_reports_the_identity_without_prompting, without_permission_start_is_refused_and_nothing_is_written, an_unknown_window_is_not_found_and_nothing_is_written, an_unsupported_plan_is_refused_before_capture, the_target_exiting_mid_take_is_reported_and_the_media_is_kept, a_short_hevc_take_seals_and_verifies, a_live_capture_of_the_off_screen_fixture_seals_a_verified_bundle, a_sigkilled_helper_leaves_quarantined_media_that_decodes) and src/windows/tests/live.rs::a_terminated_helper_leaves_quarantined_media_that_decodes are #[ignore] on purpose: they need the built capture helper, Screen Recording permission (macOS) or the rk2 target (Windows), and ffmpeg/ffprobe, none of which a runner has; they run by hand with --ignored per the module docs (8 ignored per default run on macOS, 1 on Windows); the golden-file and unit tests run and assert on every default run"
+    },
+    "rightkit-asr": {
+      "allowIgnored": "tests/e2e_parakeet.rs::onnx_transducer_decodes_the_fixtures_when_the_export_is_present is #[ignore] on purpose: it needs an ONNX Parakeet TDT export (RK_PARAKEET_ONNX_DIR) and the ORT dylib (RK_ORT_TEST_DYLIB) that no runner provisions, and runs by hand with --ignored (1 ignored per default run); every other asr test runs and asserts on every default run, with the asset-gated ones recording SKIP markers in the receipts"
     }
   },
   "fixtures": [

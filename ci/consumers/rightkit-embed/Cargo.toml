@@ -8,3 +8,4 @@ publish = false
 
 [dependencies]
 rightkit-embed = { version = "=0.6.1" }
+rightkit-db = { version = "0.5", features = ["bundled"] }
