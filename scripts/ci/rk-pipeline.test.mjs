@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 import test from "node:test";
 import { packageRows } from "./rk-npm-preflight.mjs";
-import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
+import { openClaim, needsReconcile, acquireLock, releaseLock, closureOf, dispatchRefusal, holdReason, satisfiesAny, readiness, allowsetsFor, cmdLoop, cmdWatch, matchingUploadRuns, uploadRunsQuery, parseArgs, registryVersion, satisfies, stateKey, waves } from "./rk-pipeline.mjs";
 const SHA = "f".repeat(40);
 const index = (...versions) => new Map(versions.map((v) => [v, { yanked: false, cksum: "0".repeat(64) }]));
 
@@ -415,6 +415,54 @@ test("real cmdWatch: a watch deadline becomes failed+reconcile and still blocks 
   assert.match(out.record.conclusion, /deadline/);
   assert.equal(out.record.reconcile, true);
   assert.deepEqual(out.calls, []);
+});
+
+// Real cmdWatch with one dispatch that has a green qualification run; only the upload/registry read is faked.
+async function watchWithFailingRead(read) {
+  const key = stateKey("crates", SHA, "unit");
+  const dispatch = { unit: "unit", registry: "crates", sha: SHA, version: "1.0.0", runId: 1, runAttempt: 1, requestId: "req-1", dispatchedAt: new Date().toISOString(), status: "dispatched" };
+  let state = { dispatches: { [key]: dispatch } };
+  const lines = [];
+  const write = process.stdout.write;
+  process.stdout.write = (chunk) => { lines.push(String(chunk)); return true; };
+  try {
+    const code = await cmdWatch({ wait: false }, {
+      readState: () => structuredClone(state), writeState: (s) => { state = s; },
+      runState: () => ({ status: "completed", conclusion: "success", head_sha: SHA, run_attempt: 1, path: ".github/workflows/publish.yml", event: "workflow_dispatch", display_title: "publish req-1" }),
+      ...read,
+    });
+    return { code, lines, record: state.dispatches[key] };
+  } finally {
+    process.stdout.write = write;
+  }
+}
+
+test("real cmdWatch: an unreadable upload-run listing is logged and the dispatch stays pending, not published or failed", async () => {
+  const out = await watchWithFailingRead({
+    uploadRun: () => { throw new Error("upload runs are unreadable: ETIMEDOUT"); },
+    registryVersion: async () => { throw new Error("registry must not be read before the upload succeeds"); },
+  });
+  assert.equal(out.code, 1, "reported unfinished");
+  assert.equal(out.record.status, "dispatched");
+  assert.equal(out.record.published, undefined);
+  assert.ok(out.lines.some((l) => l.includes("unit: upload runs unreadable: upload runs are unreadable: ETIMEDOUT")), out.lines.join(""));
+});
+
+test("real cmdWatch: a registry read that throws is logged and the dispatch stays pending, not published or failed", async () => {
+  const out = await watchWithFailingRead({
+    uploadRun: () => [{ id: 20, status: "completed", conclusion: "success" }],
+    registryVersion: async () => { throw new Error("HTTP 503 from index"); },
+  });
+  assert.equal(out.code, 1, "reported unfinished");
+  assert.equal(out.record.status, "dispatched");
+  assert.equal(out.record.published, undefined);
+  assert.ok(out.lines.some((l) => l.includes("unit: registry read failed: HTTP 503 from index")), out.lines.join(""));
+});
+
+test("uploadRunsQuery: created filter is %3E%3D-encoded and starts 15 minutes before dispatchedAt", () => {
+  const dispatchedAt = "2026-10-23T10:00:00.000Z";
+  const query = uploadRunsQuery({ dispatchedAt });
+  assert.equal(query, "repos/bogusyogi/rightkit/actions/workflows/publish-direct.yml/runs?event=workflow_run&per_page=100&created=%3E%3D2026-10-23T09:45:00.000Z");
 });
 
 test("needsReconcile: plain run/upload failures do not claim; ambiguous ones do (flag or legacy conclusion)", () => {

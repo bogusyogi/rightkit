@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildCrateUploadMetadata, commandBuild, commandLedger, commandPack, commandVerify, crateIndexPath, crateSourceProblems, crateWorkspaceFromMetadata, ledgerEntries, parseAllowList, parseUnitNames, planPublication, readNpmWorkspace, satisfies, stageSealedHelperEnv } from "./publish.mjs";
-import { APPROVED_ARTIFACTS_FILE, checkReceipts, linuxRequiredFor, requiredHostsFor, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems } from "./upload.mjs";
+import { APPROVED_ARTIFACTS_FILE, checkReceipts, linuxRequiredFor, requiredHostsFor, buildCratePublishBody, checkNpmTarball, checkUploadPayloads, CRATES_PUBLISH_URL, childEnv, executeUpload as executeUploadRaw, loadApprovedArtifacts, loadSealed, NPM_REGISTRY_URL, parseCratesResponse, repositoryProblems, waitForNpmBytes } from "./upload.mjs";
 import { consumeCrates, consumeNpm as consumeNpmChecked, declaredEntries, npmCliCommand, skipImportList } from "./consume.mjs";
 // These portability tests use synthetic units without a reviewed PK recipe. Refusal of unreviewed npm units is
 // covered in npm-recipe-consumer.test.mjs, so only that one problem is dropped here.
@@ -605,6 +605,27 @@ test("upload (real npm) builds the publish command from the sealed tarball and i
   await assert.rejects(executeUpload({ env: actionsEnv({ ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /NODE_AUTH_TOKEN is not set/);
   await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token", CARGO_REGISTRY_TOKEN: "crate-secret-token", ...oidc }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /CARGO_REGISTRY_TOKEN must not be present/);
   await assert.rejects(executeUpload({ env: actionsEnv({ NODE_AUTH_TOKEN: "npm-secret-token" }), packDir: sealed.dir, receiptsDir, outDir, dryRun: false, spawn, fetchImpl: npmFetch(sealed) }), /needs id-token: write/);
+});
+
+test("waitForNpmBytes tolerates late npm visibility: 404 for more than the old 40 attempts, then the matching dist", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    if (calls <= 45) return { status: 404, ok: false, text: async () => "" };
+    return { status: 200, ok: true, text: async () => JSON.stringify({ dist: { shasum: "a".repeat(40), integrity: "sha512-x" } }) };
+  };
+  await waitForNpmBytes({ name: "@rightkit/a", version: "0.1.0", sha1: "a".repeat(40), integrity: "sha512-x", fetchImpl, pause: 1 });
+  assert.equal(calls, 46);
+});
+
+test("waitForNpmBytes: a different shasum throws at once, without waiting for later attempts", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return { status: 200, ok: true, text: async () => JSON.stringify({ dist: { shasum: "b".repeat(40), integrity: "sha512-x" } }) };
+  };
+  await assert.rejects(waitForNpmBytes({ name: "@rightkit/a", version: "0.1.0", sha1: "a".repeat(40), integrity: "sha512-x", fetchImpl, pause: 1 }), /serves different bytes/);
+  assert.equal(calls, 1);
 });
 
 test("upload refuses a registry that serves different bytes than the sealed tarball", async () => {

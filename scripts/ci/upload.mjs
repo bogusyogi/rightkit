@@ -576,7 +576,7 @@ async function getJson(url, fetchImpl, headers = {}) {
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function waitForNpmBytes({ name, version, sha1, integrity: sri, fetchImpl, attempts = 40, pause = 10_000 }) {
+export async function waitForNpmBytes({ name, version, sha1, integrity: sri, fetchImpl, attempts = 90, pause = 10_000 }) {
   for (let i = 0; i < attempts; i += 1) {
     const doc = await getJson(`${NPM_REGISTRY_URL}${name.replace("/", "%2F")}/${version}`, fetchImpl, { accept: "application/json" }).catch(() => null);
     if (doc?.dist) {

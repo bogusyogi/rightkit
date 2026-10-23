@@ -239,8 +239,8 @@ function git(...args) {
 }
 
 function gh(args) {
-  const r = spawnSync(GH, args, { encoding: "utf8", env: { ...process.env, GH_NO_UPDATE_NOTIFIER: "1", GH_PROMPT_DISABLED: "1" }, timeout: 60_000 });
-  return { ok: r.status === 0, stdout: r.stdout ?? "" };
+  const r = spawnSync(GH, args, { encoding: "utf8", env: { ...process.env, GH_NO_UPDATE_NOTIFIER: "1", GH_PROMPT_DISABLED: "1" }, timeout: 60_000, maxBuffer: 64 * 1024 * 1024 });
+  return { ok: r.status === 0, stdout: r.stdout ?? "", error: r.error?.code ?? null, stderr: (r.stderr ?? "").slice(-2000) };
 }
 
 function runChild(command, args, env = process.env) {
@@ -373,9 +373,14 @@ function failedSteps(runId) {
 export function matchingUploadRuns(runs, dispatch) {
   return runs.filter((r) => r.event === "workflow_run" && r.path === ".github/workflows/publish-direct.yml" && r.display_title === `publish-direct ${dispatch.runId} ${dispatch.runAttempt}`);
 }
+/** Upload runs created from 15 minutes before the dispatch on; matching is still by run id & attempt in matchingUploadRuns. */
+export function uploadRunsQuery(dispatch) {
+  const since = new Date(Date.parse(dispatch.dispatchedAt) - 15 * 60_000).toISOString();
+  return `repos/${REPO}/actions/workflows/publish-direct.yml/runs?event=workflow_run&per_page=100&created=%3E%3D${since}`;
+}
 function uploadRun(dispatch) {
-  const r = gh(["api", "--paginate", "--slurp", `repos/${REPO}/actions/workflows/publish-direct.yml/runs?event=workflow_run&per_page=100`]);
-  if (!r.ok) throw new Error("upload runs are unreadable");
+  const r = gh(["api", "--paginate", "--slurp", uploadRunsQuery(dispatch)]);
+  if (!r.ok) throw new Error(`upload runs are unreadable: ${r.error ?? "exit"} ${r.stderr.trim().slice(-500)}`);
   return matchingUploadRuns(JSON.parse(r.stdout).flatMap((p) => p.workflow_runs ?? []), dispatch);
 }
 
@@ -398,7 +403,7 @@ export async function cmdWatch(opts, deps = {}) {
     for (const d of open) {
       const unit = d.unit ?? "legacy-state";
       if (d.status === "dispatching" && d.ownerPid === process.pid) { pending += 1; continue; }
-      if (!d.runId || !d.runAttempt || !d.version || !d.unit) {
+      if (!d.runId || !d.runAttempt || !d.version || !d.unit || !Number.isFinite(Date.parse(d.dispatchedAt))) {
         d.status = "failed"; d.conclusion = "dispatch intent is ambiguous or legacy; reconcile by broker request before retry"; d.reconcile = true; hadFailure = true; continue;
       }
       if (Date.now() - Date.parse(d.dispatchedAt) > timeoutMs) {
@@ -428,7 +433,7 @@ export async function cmdWatch(opts, deps = {}) {
         continue;
       }
       let uploads;
-      try { uploads = uploadsFor(d); } catch { pending += 1; continue; }
+      try { uploads = uploadsFor(d); } catch (e) { log(`${unit}: upload runs unreadable: ${e.message}`); pending += 1; continue; }
       if (uploads.length > 1) { d.status = "failed"; d.conclusion = "ambiguous upload runs"; d.reconcile = true; hadFailure = true; continue; }
       const done = uploads.find((u) => u.status === "completed");
       if (!done) {
@@ -440,7 +445,7 @@ export async function cmdWatch(opts, deps = {}) {
         d.status = "failed"; d.conclusion = `upload ${done.conclusion}`; d.uploadRunId = done.id; hadFailure = true; continue;
       }
       let versions;
-      try { versions = await versionsFor(unit, d.registry); } catch { pending += 1; continue; }
+      try { versions = await versionsFor(unit, d.registry); } catch (e) { log(`${unit}: registry read failed: ${e.message}`); pending += 1; continue; }
       const published = versions.get(d.version);
       if (!published || published.yanked) { pending += 1; log(`${unit}: awaiting usable ${d.version} in registry`); continue; }
       d.status = "published"; d.published = d.version; d.registryChecksum = published.cksum; d.uploadRunId = done.id;
