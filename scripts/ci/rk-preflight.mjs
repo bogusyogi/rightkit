@@ -513,20 +513,27 @@ export async function main(argv, deps = {}) {
 }
 
 /** Structural proof, never a signature. Expected rows come from commit-bound policy, not receipt claims. */
-export function receiptRefusal(receipt, { sha, registry, unit, config, version }) {
+export function receiptRefusal(receipt, { sha, registry, unit, config, version, expectedRows, packageDir }) {
+  const npm = registry === "npm";
+  if (registry !== "crates" && !npm) return "unsupported pre-flight registry";
   if (!receipt) return "no pre-flight receipt for this commit";
   if (receipt.sha !== sha) return "receipt commit differs from requested commit";
-  if (receipt.schema !== SCHEMA || receipt.mode !== "local-compile") return "obsolete or diagnostic receipt";
+  if (receipt.schema !== SCHEMA || receipt.mode !== (npm ? "local-test" : "local-compile")) return "obsolete or diagnostic receipt";
   if (receipt.registry !== registry || receipt.unit !== unit || receipt.version !== version) return "receipt unit/registry/version mismatch";
+  if (npm && (receipt.adapter !== "rightkit-pnpm" || receipt.dir !== packageDir)) return "npm adapter or package directory mismatch";
   if (receipt.route !== "local" || receipt.ok !== true || !receipt.finishedAt || receipt.failedAt) return "local compilation is incomplete or red";
   if (receipt.scans?.ok !== true || receipt.scans.exit !== 0 || receipt.scans.timedOut !== false) return "deterministic scans did not pass";
   if (receipt.planChecks?.ok !== true || receipt.planChecks.exit !== 0 || receipt.planChecks.timedOut !== false) return "the hosted plan job's contract checks did not pass locally";
-  const expected = crateRows(unit, config);
+  const expected = npm ? expectedRows : crateRows(unit, config);
+  if (!Array.isArray(expected) || !expected.length) return "missing committed row plan";
+  if (npm && JSON.stringify(receipt.requiredRows) !== JSON.stringify(expected.map((row) => row.id))) return "npm required row order differs";
   if (!Array.isArray(receipt.rows) || receipt.rows.length !== expected.length || !expected.length) return "missing or extra compile rows";
   for (const [i, row] of expected.entries()) {
     const got = receipt.rows[i];
     if (!got || got.cwd !== (row.cwd ?? ".")) return `working directory differs for compile row ${row.id}`;
-    if (got.id !== row.id || got.command !== `rustright cargo ${row.args.join(" ")}` || got.ok !== true || got.exit !== 0 || got.timedOut !== false || got.warnings !== 0 || !got.brokerRequests?.length || !got.brokerRequests.every((id) => /^[0-9a-f-]{36}$/.test(id)) || got.attestation?.verified !== true || got.attestation.signatureVerified !== true || typeof got.attestation.nonce !== "string" || got.attestation.nonce.length !== 64 || got.attestation.requestId !== got.brokerRequests[0]) return `unproven compile row ${row.id}`;
+    const command = npm ? `rustright run rightkit-pnpm -- ${row.args.join(" ")}` : `rustright cargo ${row.args.join(" ")}`;
+    if (got.id !== row.id || got.command !== command || got.ok !== true || got.exit !== 0 || got.timedOut !== false || (!npm && got.warnings !== 0) || !got.brokerRequests?.length || !got.brokerRequests.every((id) => /^[0-9a-f-]{36}$/.test(id)) || got.attestation?.verified !== true || got.attestation.signatureVerified !== true || typeof got.attestation.nonce !== "string" || got.attestation.nonce.length !== 64 || got.attestation.requestId !== got.brokerRequests[0]) return `unproven compile row ${row.id}`;
+    if (npm && (got.kind !== row.kind || got.brokerRequests.length !== 1 || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(got.brokerRequests[0]) || !/^[0-9a-f]{64}$/.test(got.attestation.nonce))) return `unproven npm row ${row.id}`;
   }
   return null;
 }

@@ -457,7 +457,11 @@ fn pipe_pair_appcontainer_without_internet_client_cannot_reach_host_non_loopback
     let output = {
         let rightkit_sandbox::WindowsPipeSpawn { child, io } = pipe_spawn;
         let output = child
-            .wait_with_output(LOCAL_BLACKHOLE_DEADLINE + Duration::from_secs(3))
+            // The probe's own connect bound stays LOCAL_BLACKHOLE_DEADLINE; the wait must outlast the
+            // confined PowerShell's cold start (26-31 s measured on windows-2025: hosted 39885718722,
+            // 39886739616), or the test times out before the probe reaches its connect (39886739616:
+            // "exceeded bounded deadline" after ~7.7 s). The proof is the exit code, not the time.
+            .wait_with_output(CHILD_DEADLINE)
             .expect("wait for network-denied AppContainer");
         drop(io);
         output

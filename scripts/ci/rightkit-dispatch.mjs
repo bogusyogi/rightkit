@@ -105,15 +105,25 @@ export function matchRun(runs, query) {
 }
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
-const PREFLIGHT_SHA256 = "69c576a8f7656c0c2f449c2c365bd7f5b99f4124de7c6004e0e8ecd3ff070a8e";
+const PREFLIGHT_SHA256 = "084294ab06209c84826013efca553b576b462169e18d69caa71e3a1f3e3c3810";
+const NPM_PREFLIGHT_SHA256 = "3bc578a554f74b4e9191bffb28dc965a8820df5a77daaf87f39871a3891c4543";
+const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
 export async function requirePreflight(opts) {
-  if (opts.workflow !== "publish" || opts.registry !== "crates") throw new Error("only scoped crates publication has local admission; general CI/npm dispatch is not admitted");
+  if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted");
+  const npm = opts.registry === "npm";
+  if (npm && !/^@rightkit\/[a-z][a-z0-9-]{0,63}$/.test(opts.unit ?? "")) throw new Error("npm admission requires exactly one @rightkit/* package");
   // The broker runs the digest-pinned copy of this file from its policy directory, so the repository is the adapter's
   // working directory (the request's workspace), never a path relative to this file.
   const root = process.cwd();
   const helper = path.join(root, "scripts", "ci", "rk-preflight.mjs");
   if (!fs.existsSync(helper) || !fs.existsSync(path.join(root, ".git"))) throw new Error(`working directory ${root} is not the RightKit checkout`);
   if (crypto.createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== PREFLIGHT_SHA256) throw new Error("preflight implementation digest changed; repin adapter with its reviewed helper");
+  const npmHelper = path.join(root, "scripts", "ci", "rk-npm-preflight.mjs");
+  if (npm) {
+    for (const [file, expected] of [[npmHelper, NPM_PREFLIGHT_SHA256], [path.join(root, "scripts", "ci", "select.mjs"), NPM_SELECT_SHA256]]) {
+      if (!fs.existsSync(file) || crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex") !== expected) throw new Error("npm admission implementation digest changed; repin reviewed dependencies");
+    }
+  }
   const { receiptRefusal, exceptionAllowsets, crateRows, resolveRowWorkspace, verifyAttestation, DEFAULT_OUT } = await import(pathToFileURL(helper));
   const git = (...args) => {
     const r = spawnSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
@@ -123,17 +133,38 @@ export async function requirePreflight(opts) {
   if (git("rev-parse", "HEAD") !== opts.sha || git("status", "--porcelain", "--untracked-files=no")) throw new Error("checkout changed since local admission");
   const config = JSON.parse(git("show", `${opts.sha}:ci/gate.config.json`));
   const pipeline = JSON.parse(git("show", `${opts.sha}:ci/rk-pipeline.json`));
-  const manifest = git("show", `${opts.sha}:crates/${opts.unit}/Cargo.toml`);
-  const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-  const receipt = JSON.parse(fs.readFileSync(path.join(DEFAULT_OUT, opts.sha, `${opts.unit}.json`), "utf8"));
-  const reason = receiptRefusal(receipt, { ...opts, config, version });
+  let version;
+  let rows;
+  let expect;
+  let packageDir;
+  if (npm) {
+    // Import after digest checks. npm helper imports preflight; preflight never imports npm helper.
+    const { packageRows, readPackages, adapterExpectation } = await import(pathToFileURL(npmHelper));
+    const pkg = readPackages(root).get(opts.unit);
+    if (!pkg) throw new Error(`${opts.unit} is not a workspace package`);
+    const manifestPath = path.join(root, pkg.dir, "package.json");
+    const committed = git("show", `${opts.sha}:${pkg.dir}/package.json`);
+    if (fs.readFileSync(manifestPath, "utf8").trim() !== committed) throw new Error("npm package manifest differs from requested commit");
+    const manifest = JSON.parse(committed);
+    if (manifest.name !== opts.unit || typeof manifest.version !== "string" || !manifest.version || manifest.version !== pkg.version) throw new Error("npm package name/version differs from requested commit");
+    version = manifest.version;
+    packageDir = pkg.dir;
+    rows = packageRows(opts.unit, pkg, { storeDir: pipeline.tools?.pnpm?.[process.platform]?.storeDir });
+    expect = adapterExpectation(pipeline.attestation?.[process.platform]);
+  } else {
+    const manifest = git("show", `${opts.sha}:crates/${opts.unit}/Cargo.toml`);
+    version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+    rows = crateRows(opts.unit, config);
+  }
+  const receipt = JSON.parse(fs.readFileSync(path.join(DEFAULT_OUT, opts.sha, `${opts.unit.replaceAll("/", "__")}.json`), "utf8"));
+  const reason = receiptRefusal(receipt, { ...opts, config, version, expectedRows: rows, packageDir });
   if (reason) throw new Error(reason);
   // The receipt is writable JSON; the broker's signed provenance is not. Ask the broker about every row again, now,
   // and verify each envelope's signature against this host's enrolled key from the committed pipeline config.
-  for (const [i, row] of crateRows(opts.unit, config).entries()) {
+  for (const [i, row] of rows.entries()) {
     const got = receipt.rows[i];
-    const workspace = resolveRowWorkspace({ root, row, sha: opts.sha });
-    const check = verifyAttestation(got.attestation?.requestId, { nonce: got.attestation?.nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], workspace });
+    const workspace = npm ? root : resolveRowWorkspace({ root, row, sha: opts.sha });
+    const check = verifyAttestation(got.attestation?.requestId, { nonce: got.attestation?.nonce, argv: row.args, pins: pipeline.attestation?.[process.platform], expect, workspace });
     if (!check.verified) throw new Error(`row ${row.id}: broker provenance not verified (${check.reason})`);
   }
   const policy = exceptionAllowsets(opts.unit, version, config, pipeline);
