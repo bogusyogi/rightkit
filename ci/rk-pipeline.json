@@ -110,9 +110,9 @@
         "reason": "Hosted 39895591570 failed in the registry consumer's runtime check (pinned executable SHA-256 mismatch) because scripts/ci/provision-r2-cft-env.mjs exported the archive digest as the executable pin; the fix (e177b0ad, judge's reviewed patch 04f54ff5) is in that helper and ci/chrome-for-testing.json, outside the crate closure, its recipe and its policy entries, so the hold is released by this reviewed entry."
       },
       "@rightkit/release": {
-        "run": 39898066947,
+        "run": 39900606184,
         "version": "0.5.0",
-        "reason": "Hosted 39898066947: Windows verify failed only rightkit-gate.test.mjs 'lock-graph.mjs is identical to scripts/ci/select.mjs' because packages/release/*.mjs checked out CRLF on windows-2025 while scripts/ci/*.mjs is LF-pinned; the fix is the .gitattributes LF pin for packages/release/*.mjs, outside the package directory, its recipe and its policy entries."
+        "reason": "Hosted 39900606184: Windows failed only 'checked-in consumer copies match the canonical catalog' because caf2c844 pinned packages/release/*.mjs LF but not the byte-identical copies in packages/build-control-policy/src, which windows-2025 then checked out CRLF; both sides are LF-pinned now (.gitattributes), outside the package's own change set."
       }
     }
   },
