@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { consumerStage, HOSTED_ONLY_RUNS, localRunPlan, patchedManifest } from "./rk-consumer-stage.mjs";
+import { consumerStage, HOSTED_ONLY_RUNS, localRunPlan, patchedManifest, pathSiblings } from "./rk-consumer-stage.mjs";
 
 const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
 const SHA = "a".repeat(40);
@@ -142,4 +142,13 @@ test("a hosted-only unit still gets one attested brokered build against the chec
   assert.equal(stage.build[0].attestation.verified, true);
   assert.deepEqual(stage.runs.map((r) => [r.id, r.status]), [["default", "not-run-locally"]]);
   assert.ok(!b.calls.some((c) => c.args[1] === "run"), "the hosted-only run is never executed locally");
+});
+
+test("a path sibling the recipe also names is patched with the unit (automation -> daemon); others are not", () => {
+  const recipe = '[dependencies]\nrightkit-automation = { version = "=0.6.1", features = ["paths"] }\nrightkit-daemon = { version = "=0.4.0" }\nserde = "1"\n';
+  const unit = '[dependencies]\nrightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon", optional = true }\nrightkit-fs = { version = "0.4.7", path = "../rightkit-fs" }\n';
+  assert.deepEqual(pathSiblings(recipe, unit, "rightkit-automation"), ["rightkit-daemon"]);
+  const out = patchedManifest("[package]\nname = \"x\"\n", "rightkit-automation", path.join("..", "..", "crates", "rightkit-automation"), [{ name: "rightkit-daemon", rel: path.join("..", "..", "crates", "rightkit-daemon") }]);
+  assert.match(out, /\[patch\.crates-io\]\nrightkit-automation = \{ path = "\.\.\/\.\.\/crates\/rightkit-automation" \}\nrightkit-daemon = \{ path = "\.\.\/\.\.\/crates\/rightkit-daemon" \}\n$/);
+  assert.deepEqual(pathSiblings(recipe, "[dependencies]\nserde = \"1\"\n", "rightkit-automation"), []);
 });

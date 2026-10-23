@@ -20,7 +20,8 @@
         ".",
         "./contract-vectors",
         "./native",
-        "./react"
+        "./react",
+        "./suite-api"
       ],
       "closure": {
         "install": {

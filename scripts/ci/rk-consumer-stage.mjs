@@ -24,11 +24,25 @@ import { cargoRecipe, parseRuns, planRuns } from "./consumer-recipes.mjs";
 export const LOCAL_PROVIDERS = new Set(["freshRunRoot", "cftRoot", "cftSha256", "headlessShellSha256"]);
 const CHROME_PROVIDERS = new Set(["cftRoot", "cftSha256", "headlessShellSha256"]);
 
-/** The check directory's manifest: the committed recipe manifest plus one patch pointing the unit at the checkout. */
-export function patchedManifest(manifest, unit, crateDirFromCheck) {
+/** The check directory's manifest: the committed recipe manifest plus one patch pointing the unit at the checkout, and
+ * one more for each sibling crate in `siblings` ({ name, rel }). A unit's path dependency is built from the checkout
+ * even when the unit is patched, so a sibling the recipe also names directly (rightkit-automation -> rightkit-daemon)
+ * must come from the same place or the recipe sees two copies of it (E0308, d137a9c6). */
+export function patchedManifest(manifest, unit, crateDirFromCheck, siblings = []) {
   if (/^\[patch\./m.test(manifest)) throw new Error(`${unit}: a committed recipe manifest must not carry its own [patch] table`);
   const rel = crateDirFromCheck.split(path.sep).join("/");
-  return `${manifest.replace(/\s*$/, "\n")}\n# Local pre-flight only (rk-consumer-stage.mjs): the unit is built from this checkout, not the sealed archive.\n[patch.crates-io]\n${unit} = { path = ${JSON.stringify(rel)} }\n`;
+  const extra = siblings.map((s) => `${s.name} = { path = ${JSON.stringify(s.rel.split(path.sep).join("/"))} }\n`).join("");
+  return `${manifest.replace(/\s*$/, "\n")}\n# Local pre-flight only (rk-consumer-stage.mjs): the unit is built from this checkout, not the sealed archive.\n[patch.crates-io]\n${unit} = { path = ${JSON.stringify(rel)} }\n${extra}`;
+}
+
+/** RightKit crates the recipe names directly that the unit also depends on by path: they must be patched with it. */
+export function pathSiblings(recipeManifest, unitManifest, unit) {
+  const named = new Set([...recipeManifest.matchAll(/^(rightkit-[a-z0-9-]+)\s*=/gm)].map((m) => m[1]).filter((n) => n !== unit));
+  const out = [];
+  for (const m of unitManifest.matchAll(/^(rightkit-[a-z0-9-]+)\s*=\s*\{[^\n]*\bpath\s*=\s*"\.\.\/(rightkit-[a-z0-9-]+)"/gm)) {
+    if (named.has(m[1]) && m[1] === m[2]) out.push(m[1]);
+  }
+  return [...new Set(out)].sort();
 }
 
 /** Which runs this host executes locally, and why the others are not. */
@@ -67,7 +81,7 @@ export function consumerBinary(targetDir, packageName, platform = process.platfo
  * fixture failure: returns { ok:false, failedAt, reason } so the pre-flight records it and refuses dispatch.
  */
 export async function consumerStage({ root, unit, version, sha, logDir, env, runCommand, attest, provisionChrome, platform = process.platform, spawnRun }) {
-  const result = { schema: "rk-consumer-stage.v1", proof: "local-source fixture proof (not sealed-artifact qualification)", unit, version, ok: false, build: [], runs: [], differences: ["unit from checkout via [patch.crates-io]", "lock generated (not --locked/--offline)", "binary executed directly"] };
+  const result = { schema: "rk-consumer-stage.v1", proof: "local-source fixture proof (not sealed-artifact qualification)", unit, version, ok: false, build: [], runs: [], differences: ["unit (and the path siblings listed in patchedSiblings) from checkout via [patch.crates-io]", "lock generated (not --locked/--offline)", "binary executed directly"] };
   let recipe;
   try { recipe = cargoRecipe({ root, unit: { name: unit, version } }); } catch (error) { return { ...result, failedAt: "recipe", reason: String(error.message ?? error) }; }
   result.pkId = recipe.evidence.pkId;
@@ -79,7 +93,21 @@ export async function consumerStage({ root, unit, version, sha, logDir, env, run
   result.checkDir = path.relative(root, checkDir);
   fs.cpSync(recipe.directory, checkDir, { recursive: true });
   for (const lock of ["Cargo.lock"]) if (fs.existsSync(path.join(checkDir, lock))) fs.renameSync(path.join(checkDir, lock), path.join(checkDir, `${lock}.committed`));
-  fs.writeFileSync(path.join(checkDir, "Cargo.toml"), patchedManifest(fs.readFileSync(path.join(checkDir, "Cargo.toml"), "utf8"), unit, path.relative(checkDir, path.join(root, "crates", unit))));
+  const recipeManifest = fs.readFileSync(path.join(checkDir, "Cargo.toml"), "utf8");
+  let unitManifest = "";
+  try { unitManifest = fs.readFileSync(path.join(root, "crates", unit, "Cargo.toml"), "utf8"); } catch { /* no sibling patches */ }
+  // A sibling is patched only when the checkout has the exact version the recipe pins; otherwise Cargo would ignore the
+  // patch, and the receipt must not claim it.
+  const siblings = pathSiblings(recipeManifest, unitManifest, unit)
+    .filter((name) => {
+      const pin = new RegExp(`^${name}\\s*=\\s*\\{[^\\n]*version\\s*=\\s*"=([^"]+)"`, "m").exec(recipeManifest)?.[1];
+      let local = null;
+      try { local = /^version\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(path.join(root, "crates", name, "Cargo.toml"), "utf8"))?.[1] ?? null; } catch { /* absent */ }
+      return pin !== undefined && local === pin;
+    })
+    .map((name) => ({ name, rel: path.relative(checkDir, path.join(root, "crates", name)) }));
+  result.patchedSiblings = siblings.map((s) => s.name);
+  fs.writeFileSync(path.join(checkDir, "Cargo.toml"), patchedManifest(recipeManifest, unit, path.relative(checkDir, path.join(root, "crates", unit)), siblings));
   const packageName = recipe.manifest.match(/^name\s*=\s*"([^"]+)"/m)?.[1];
   if (!packageName) return { ...result, failedAt: "recipe", reason: "recipe manifest has no package name" };
 

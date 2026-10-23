@@ -667,7 +667,7 @@ const MAX_STATUS_TEXT: usize = 256;
 /// Validate a release-status body against the shape `isReleaseStatus` accepts: a JSON object with
 /// exactly the keys `schema` (the number 1), `appKey` (a non-empty string) and `platform`,
 /// `patchVersion`, `updateVersion` (each a string or null, none missing). Anything else, and any
-/// string over [`MAX_STATUS_TEXT`] characters or holding a control character, is `None`.
+/// string over 256 characters or holding a control character, is `None`.
 pub fn parse_release_status(body: &[u8]) -> Option<ReleaseStatusView> {
     let value: serde_json::Value = serde_json::from_slice(body).ok()?;
     let record = value.as_object()?;
