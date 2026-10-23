@@ -47,8 +47,13 @@ fn hash_matches(path: &Path, expected: &str) -> Result<()> {
         }
         digest.update(&buffer[..count]);
     }
+    let actual = digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     require(
-        format!("{:x}", digest.finalize()).eq_ignore_ascii_case(expected),
+        actual.eq_ignore_ascii_case(expected),
         "pinned executable SHA-256 mismatch",
     )
 }
