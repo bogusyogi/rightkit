@@ -606,7 +606,7 @@
       "pkId": "PK15",
       "id": "ci/consumers/rightkit-automation/src/main.rs",
       "files": {
-        "Cargo.toml": "c958bc6e43f493e183865827b2563fa79390d61bc1e3e067dc779668f2be5e1d",
+        "Cargo.toml": "b4540af03c7436cfb6c54f612071310f82011e38dd62abec1febee900b4b652c",
         "README.md": "7e6256207f36119308357bc0ace7a3b0f9a696e92dcad2859597ca77188b9bbd",
         "src/main.rs": "0dc6091e9811e1daac8b41a2d6fa4c2e214f11bb6b9f2227547fcc1789cc4754"
       }
@@ -624,7 +624,7 @@
       "pkId": "PK08",
       "id": "ci/consumers/rightkit-tauri-shell/src/main.rs",
       "files": {
-        "Cargo.toml": "39f9ec9dcec8b5ce43b19b4ac3c4917e4f559ee4d03fb7de7c18f57f8162d4c1",
+        "Cargo.toml": "fb7a351491f4ae234b80b8c3fb64266881070a6e09ed58a0bdbc8b60e8367faa",
         "README.md": "6c436494f121266387c34ec66bad6959d92ae9e378fe05f1551f238489e222e6",
         "src/main.rs": "8019c8f4a15fd6d4e0abf44933b074fc0cedffd99231cb5e721620b7c81f28d9"
       }
@@ -676,12 +676,12 @@
     "rightkit-license": {
       "pkId": "PK05",
       "id": "ci/consumers/rightkit-license/src/main.rs",
-      "dependency": "rightkit-license = { version = \"=0.2.4\" }",
+      "dependency": "rightkit-license = { version = \"=0.2.5\" }",
       "extraDependencies": [],
       "gateEvidence": "pure and offline: public keys and vectors copied verbatim from crates/rightkit-license/test-vectors (public material, verified byte-equal); clock ledger in a temp directory; client feature enabled for explicitly disabled LicenseClient status with synthetic device id; no network, no OS keychain or real user data; configured client operations, update-auth, engine-gate and subject-entitlement not exercised",
       "consumes": "PK05 plan (01-packages.md:167-183): every app licence migration; public items exercised: verify_token (crates/rightkit-license/src/lib.rs:514), VerifyError (src/lib.rs:390), verify_lease_envelope (src/lease.rs:168), FileClockStore (src/file_store.rs:184), ClockStore::load (src/clock.rs:305), MemoryClockStore (src/clock.rs:348), ProcessAnchor::new (src/clock.rs:243), NativeEntitlementSource (src/native_engine.rs:42), NativeEngineEntitlements::new and current_at (src/native_engine.rs:158,208), LifecyclePolicy (src/lifecycle.rs:118), LicenseClient::new/status/is_disabled (src/client/mod.rs:108,157,140) in Disabled mode only",
       "files": {
-        "Cargo.toml": "551f139d5755d1ac15e9faecadace5e8c660a83683b5a517cd6e02db19569632",
+        "Cargo.toml": "249216eda20ab352efa4938bb3328a83e02d83155097da65fba16c502773da2a",
         "README.md": "4abd6869451076b56d9822016fc48733da706836d6f7cb4c2a7d51edb0bfe7a0",
         "src/main.rs": "d1a40968811a8ca407cf74c9902fa93cbf63821e680cf2c1f2410284b082a33c"
       },
@@ -846,14 +846,14 @@
     "rightkit-ownership": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-ownership/src/main.rs",
-      "dependency": "rightkit-ownership = { version = \"=0.4.1\" }",
+      "dependency": "rightkit-ownership = { version = \"=0.4.2\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "embedded catalog only; in-memory trust loader with an unavailable checkpoint authority, so no protected trust file, key, git remote or signature is used; scans one temp directory holding one file, removed at the end; no network",
       "consumes": "PK14 quality-gate consumer (reviewed recipe, named product consumers not re-read here); rightkit-ownership public items used: catalog, catalog_value, scanner_policy_digest, SCANNER_VERSION, ownership_verdict, ownership_cache_key, is_blocking_finding, codes, canonical_repository_identity, Scanner::with_embedded_catalog (inputs, scan), ScanContext, ManualClock, keyauth::AuthorityEnv",
       "files": {
-        "Cargo.toml": "133e27ad2a378bb9b769e6ef88398ae266dc1e6e4b0d71def351b87b3e4a79c6",
+        "Cargo.toml": "ef0d4d755ece30e51feac371918f000c8f0695dd9ac67851466fdc7e453e004c",
         "README.md": "ce0f6d0da5c89859187f1a6c3d00ebfe2a1f5cd1f91ed20d92c5ef481512d448",
         "src/main.rs": "4a624a85b992e1acc685765888eae0fd661495cd7fffdd73ed12d0cab488bca1"
       },
