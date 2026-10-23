@@ -67,8 +67,30 @@ export function packageRows(unit, pkg, { storeDir, timeoutMinutes = 30 } = {}) {
   return [
     { id: "install", kind: "install", args: ["install", "--frozen-lockfile", "--store-dir", storeDir], timeoutMinutes },
     { id: "build-closure", kind: "build", args: pnpmBuildClosureArgs([unit]), timeoutMinutes },
-    { id: "test", kind: "test", args: ["--dir", pkg.dir, "run", "test"], timeoutMinutes },
+    // The hosted verify has no sibling product checkouts beside rightkit; the local row runs with the same scope so
+    // sibling-dependent contract tests (asset-gated, ci/asset-gated.json npm) skip here as they do there.
+    { id: "test", kind: "test", args: ["--dir", pkg.dir, "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" }, timeoutMinutes },
   ];
+}
+
+/** The hosted verify's receipt step refuses an npm unit without a reviewed PK recipe (ci/consumer-recipes.json npm.<unit>,
+ * full-file-hash inventory, scripts/ci/consume.mjs consumeReviewedNpm) or whose recipe files differ from the inventory
+ * (scripts/ci/npm-recipe-consumer.mjs). Same refusal before any adapter row: hosted 39889913884 (issues-tracker, no
+ * entry) and 39889932622 (legal, stale hash) were refused on both hosts after a GREEN local pre-flight. */
+export function npmRecipePolicy(root, unit) {
+  const inventoryFile = path.join(root, "ci", "consumer-recipes.json");
+  let inventory;
+  try { inventory = JSON.parse(fs.readFileSync(inventoryFile, "utf8")); } catch { return { ok: false, reason: "reviewed ci/consumer-recipes.json inventory required" }; }
+  const reviewed = inventory.schema === 1 ? inventory.npm?.[unit] : null;
+  if (!reviewed || !/^PK\d{2}$/.test(reviewed.pkId ?? "") || typeof reviewed.id !== "string" || !reviewed.files || typeof reviewed.files !== "object") {
+    return { ok: false, reason: `missing reviewed PK example (ci/consumer-recipes.json npm.${unit}); generic portability is not PK qualification` };
+  }
+  for (const [file, sha256] of Object.entries(reviewed.files)) {
+    const full = path.join(root, file);
+    if (!fs.existsSync(full) || fs.lstatSync(full).isSymbolicLink() || !fs.statSync(full).isFile()) return { ok: false, reason: `reviewed recipe file is missing or not a regular file: ${file}` };
+    if (crypto.createHash("sha256").update(fs.readFileSync(full)).digest("hex") !== sha256) return { ok: false, reason: `recipe file differs from reviewed inventory: ${file}` };
+  }
+  return { ok: true, pkId: reviewed.pkId, id: reviewed.id, files: Object.keys(reviewed.files).length };
 }
 
 /** What the signed receipt of an adapter row must bind: the adapter id, this host's node and the pinned pnpm script. */
@@ -168,7 +190,7 @@ export async function main(argv, deps = {}) {
     }
   }
 
-  // 3. The hosted plan job's contract commands.
+  // 3. The hosted plan job's contract commands, then the reviewed npm PK recipe (deterministic, no execution).
   {
     const planCommands = planCommandsFromWorkflow(root);
     const started = Date.now();
@@ -176,6 +198,11 @@ export async function main(argv, deps = {}) {
     for (const [i, [command, args]] of planCommands.entries()) {
       const r = await run(command, args, { cwd: root, env, timeoutMinutes: 20, logFile: path.join(logDir, `plan-check-${i + 1}.log`) });
       if (r.code !== 0 || r.timedOut) { failed = { index: i + 1, command: `node ${args.join(" ")}`, exit: r.code, timedOut: r.timedOut, lines: r.out.split("\n").filter((l) => /^not ok|error:|refused/.test(l.trim())).slice(0, 8) }; break; }
+    }
+    if (!failed) {
+      const recipe = npmRecipePolicy(root, opts.unit);
+      receipt.npmRecipe = recipe;
+      if (!recipe.ok) failed = { index: planCommands.length + 1, command: "npm-recipe policy", exit: 1, timedOut: false, lines: [recipe.reason] };
     }
     receipt.planChecks = { ok: !failed && unchanged(), exit: failed ? failed.exit : 0, timedOut: Boolean(failed?.timedOut), seconds: Math.round((Date.now() - started) / 1000), commands: planCommands.length, failed };
     out(`${receipt.planChecks.ok ? "PASS" : "FAIL"} plan-checks (${receipt.planChecks.seconds}s)`);
@@ -194,7 +221,7 @@ export async function main(argv, deps = {}) {
     const args = ["run", ADAPTER, "--", ...row.args];
     const logFile = path.join(logDir, `${row.id.replace(/[^a-z0-9.-]+/gi, "_")}.log`);
     const nonce = crypto.randomBytes(32).toString("hex");
-    const r = await run("rustright", args, { cwd: root, env: { ...env, RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
+    const r = await run("rustright", args, { cwd: root, env: { ...env, ...(row.env ?? {}), RIGHTKIT_ATTEST_NONCE: nonce }, timeoutMinutes: row.timeoutMinutes, logFile });
     const ids = brokerRequestIds(r.out);
     const attestation = ids.length === 1
       ? (deps.verifyAttestation ?? verifyAttestation)(ids[0], { nonce, argv: row.args, pins, expect, workspace: root })

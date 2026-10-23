@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
-import { runCargoSync } from "./managed-cargo.mjs";
+import { managedRuntimeClient, runCargoSync } from "./managed-cargo.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after } from "node:test";
 import {
@@ -274,7 +274,12 @@ test("Cargo override contract accepts exact registry pins without repo-local ove
   }), 0);
 });
 
-test("Cargo contract ignores release caches and build outputs", () => {
+// Cargo metadata runs only through the installed RightKit runtime on a developer host, or directly on a GitHub Actions
+// runner (managed-cargo.mjs). Inside the Mac broker's adapter environment neither is reachable (the client lives under
+// the real HOME; the job's HOME is the build home), so the three Cargo-contract tests skip there with that reason and
+// run everywhere else, including both hosted verify hosts.
+const CARGO_METADATA_SKIP = managedRuntimeClient() || process.env.GITHUB_ACTIONS === "true" ? false : "managed Cargo metadata is unavailable here (no RightKit runtime client, not GitHub Actions); the hosted verify runs this test";
+test("Cargo contract ignores release caches and build outputs", { skip: CARGO_METADATA_SKIP }, () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "rightkit-cargo-scan-"));
   const appRoot = path.join(fixtureRoot, "app");
   mkdirSync(path.join(appRoot, ".right-release", "cache", "cargo-home", "registry", "cached"), { recursive: true });
@@ -358,7 +363,7 @@ test("Cargo override contract rejects local and repo-ancestor crates.io source r
   }
 });
 
-test("direct Cargo dependency contract accepts only published exact RightKit pins", () => {
+test("direct Cargo dependency contract accepts only published exact RightKit pins", { skip: CARGO_METADATA_SKIP }, () => {
   const published = new Map([
     ["rightkit-license", "0.1.2"],
     ["rightkit-logs", "0.1.0"],
@@ -383,7 +388,7 @@ license-adapter = { package = "rightkit-license", version = "=0.1.2" }
   assert.equal(assertCargoFixture(manifest, published, "fixture/Cargo.toml"), 4);
 });
 
-test("direct Cargo dependency contract rejects staged-only RightKit crates", () => {
+test("direct Cargo dependency contract rejects staged-only RightKit crates", { skip: CARGO_METADATA_SKIP }, () => {
   const { consumer } = resolveCargoVersionContract(
     {
       cargo: { "rightkit-license": "0.1.2" },
@@ -1108,6 +1113,8 @@ const RIGHTKIT_EVIDENCE_WORKFLOWS = ["qualify-fs.yml", "qualify-runtime.yml", "q
 const RIGHTKIT_ADMIN_WORKFLOWS = ["registry-admin.yml"];
 const RIGHTKIT_QUALIFICATION_WORKFLOWS = ["publish.yml"];
 const RIGHTKIT_PUBLISHING_WORKFLOWS = ["publish-reviewed.yml"];
+// Direct publication (Adrian, 2026-10-22): a green publish.yml qualification run on main uploads its own sealed bytes.
+const RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS = ["publish-direct.yml"];
 const RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS = ["publish-swift.yml"];
 const publishWorkflowPresent = existsSync(new URL("../../.github/workflows/publish.yml", import.meta.url));
 const reviewedWorkflowPresent = existsSync(new URL("../../.github/workflows/publish-reviewed.yml", import.meta.url));
@@ -1145,6 +1152,18 @@ function assertReviewedWorkflow(text, name) {
     mutate(copy);
     assert.throws(() => assertReviewedDoc(copy), undefined, `${name}: ${label}`);
   }
+}
+/** Direct publication: triggered only by a completed publish.yml run on main, uploads only when that run succeeded from a
+ * workflow_dispatch, checks out the qualified commit itself, top-level permissions read-only, no manual or push trigger. */
+function assertDirectPublishWorkflow(text, name) {
+  assert.match(text, /^on:\n  workflow_run:\n    workflows: \[publish\]\n    types: \[completed\]\n    branches: \[main\]\n/m, `${name} must run only after publish.yml completes on main`);
+  assert.doesNotMatch(text, /^  (?:push|pull_request|pull_request_target|schedule|workflow_dispatch|release):/m, `${name} must have no other trigger`);
+  assert.match(text, /^permissions:\n  contents: read\n/m, `${name} top-level permissions must be contents: read only`);
+  assert.match(text, /if: \$\{\{ github\.event\.workflow_run\.conclusion == 'success' && github\.event\.workflow_run\.event == 'workflow_dispatch' && github\.event\.workflow_run\.head_branch == 'main'/, `${name} must upload only a successful workflow_dispatch qualification of main`);
+  assert.match(text, /ref: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/, `${name} must check out the qualified commit, never the default branch`);
+  assert.match(text, /persist-credentials: false/, `${name} must not persist checkout credentials`);
+  assert.doesNotMatch(text, /pull_request_target/, `${name} must not use pull_request_target`);
+  pinnedActionLines(text, name);
 }
 function assertEvidenceWorkflow(text, name) {
   assert.match(text, /^on:\n  workflow_dispatch:/m, `${name} must be manually dispatched`);
@@ -1185,12 +1204,13 @@ test("Right Suite hosts no hosted workflow except rightkit's reviewed workflows"
       assert.deepEqual(workflows, [], `${root} must not contain hosted workflow files`);
       continue;
     }
-    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS];
+    const allowed = [...RIGHTKIT_VERIFICATION_WORKFLOWS, ...RIGHTKIT_EVIDENCE_WORKFLOWS, ...RIGHTKIT_EXCEPTION_WORKFLOWS, ...RIGHTKIT_QUALIFICATION_WORKFLOWS, ...RIGHTKIT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS, ...RIGHTKIT_ADMIN_WORKFLOWS];
     assert.deepEqual(workflows.filter((name) => !allowed.includes(name)), [], `rightkit may host only ${allowed.join(", ")}; any other hosted workflow needs an explicit decision`);
     for (const name of workflows) {
       const text = readFileSync(path.join(workflowDir, name), "utf8").replace(/\r\n/g, "\n");
       if (RIGHTKIT_QUALIFICATION_WORKFLOWS.includes(name)) { assertPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_PUBLISHING_WORKFLOWS.includes(name)) { assertReviewedWorkflow(text, name); continue; }
+      if (RIGHTKIT_DIRECT_PUBLISHING_WORKFLOWS.includes(name)) { assertDirectPublishWorkflow(text, name); continue; }
       if (RIGHTKIT_ADMIN_WORKFLOWS.includes(name)) { assertAdminWorkflow(text, name); continue; }
       if (RIGHTKIT_SWIFT_PUBLISHING_WORKFLOWS.includes(name)) {
         const doc = parseYaml(text);

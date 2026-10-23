@@ -33,6 +33,7 @@ const SAMPLES = {
   "process.api.kill-on-job-close": "info.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;",
   "ort.env.dylib": 'std::env::set_var("ORT_DYLIB_PATH", p)',
   "ort.api.init": "ort::init()",
+  "overlay-win.api.update-layered-window": "unsafe { UpdateLayeredWindow(hwnd, std::ptr::null_mut(), &destination, &size, surface.dc(), &source, 0, &blend, ULW_ALPHA) != 0 }",
   "browser.source.chrome-discovery": 'let path = r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";',
   "control.api.cgevent-post": "unsafe { CGEventPostToPid(pid, event) };",
   "control.api.ax-element": "let app = unsafe { AXUIElementCreateApplication(pid) };",

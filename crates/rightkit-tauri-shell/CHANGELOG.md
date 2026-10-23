@@ -4,7 +4,9 @@
 
 Status: nothing in this section has been compiled, tested or run, and CI has not run on it. The entries are read from source (`crates/rightkit-tauri-shell/src/**`, `tests/**`, `Cargo.toml`); none is verified by a build. Qualification still owed: `rustfmt --check` on the changed Rust files, `cargo test` and `cargo check` with the `wv2-0_38` and `wv2-0_39` feature sets, and a signed-fixture updater test on macOS (cancel, signature, install).
 
-**Feature flags.** All new flags are off in `default` (`default` stays `wv2-0_38`), and each new dependency is optional (`Cargo.toml`).
+**Windows binding default.** `default` now selects `wv2-0_39` for fresh Tauri 2.12 registry consumers. Apps locked to Tauri 2.11 must use `default-features = false, features = ["wv2-0_38"]` & retain any other selected shell features. Explicit 0.38 support remains; enabling both generations still selects 0.39. Workspace gate rows select 0.38 explicitly against their existing 2.11 lock, while PK08 keeps bare defaults to qualify fresh registry resolution.
+
+**Feature flags.** All new service flags are off in `default`, and each new service dependency is optional (`Cargo.toml`).
 
 - `host-services`: adds `rightkit-app-settings` 0.3.0 (default features off) and the `host` module (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the caller policy `HostCallerPolicy`.
 - `logs`: adds `rightkit-logs` 0.3.4 and `src/logs_commands.rs`.

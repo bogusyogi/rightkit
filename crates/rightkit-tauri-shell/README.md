@@ -11,8 +11,8 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | Feature | Default | Pulls in | Effect |
 |---|---|---|---|
 | `engine` | off | `rightkit-job-queue` (optional; `rightkit-child-process` is an unconditional dependency) | Engine sidecar wiring over `rightkit-job-queue` `EngineClient`. Opt in; it pulls `rightkit-job-queue` (db, time, uuid). |
-| `wv2-0_38` | on | `windows` 0.61, `webview2-com` 0.38 | Windows types for Tauri 2.11 (the default). Must match the app's Tauri. |
-| `wv2-0_39` | off | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12. With `default-features = false`, enable `wv2-0_39` (plus `engine` if used). Enabling both selects 0.39. |
+| `wv2-0_38` | off | `windows` 0.61, `webview2-com` 0.38 | Windows types for apps locked to Tauri 2.11. Use `default-features = false, features = ["wv2-0_38"]` & retain other selected features. |
+| `wv2-0_39` | on | `windows` 0.62, `webview2-com` 0.39 | Windows types for Tauri 2.12; default since 0.5.0. Enabling both selects 0.39. |
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
 | `dev-overrides` | off | none | Development and QA builds only: `NavPolicy::default()` treats loopback (localhost, 127.0.0.1, [::1]) http(s) URLs as internal. Not implied by a build profile (installed dev builds with debug assertions get the release default, `allow_loopback: false`); an app sets it from an optional QA/dev feature. Never a default feature. |
 | `host-services` | off | `rightkit-app-settings` 0.3.0 | Shared host services (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the `HostCallerPolicy` that gates them. Adds the `rightkit_settings_*`, `rightkit_secrets_*`, `rightkit_legal_receipt_*` and `rightkit_preview_*` commands. |
@@ -49,7 +49,7 @@ Illustrative; not compiled as a doctest. The compiled references are `tests/poli
 
 ## Windows
 
-- Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38 (default). `wv2-0_39` selects 0.62 and 0.39. Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Tauri 2.12 apps use `default-features = false, features = ["wv2-0_39"]` (add `"engine"` for the sidecar).
+- Generation: `src/lib.rs` re-exports one `windows` and `webview2-com` pair as `crate::winapi`. `wv2-0_38` selects windows 0.61 and webview2-com 0.38. `wv2-0_39` selects 0.62 and 0.39 (default since 0.5.0). Enabling both picks 0.39. With neither, the crate fails with `compile_error!`. Apps locked to Tauri 2.11 use `default-features = false, features = ["wv2-0_38"]` & retain other selected features (such as `"engine"` for the sidecar).
 - The Cargo.toml comment ties 0.38 to Tauri 2.11 and 0.39 to Tauri 2.12. The Tauri lock versions are not checked here: the example app's `Cargo.lock` is stale and records rightkit-tauri-shell 0.2.0 (`example-app/Cargo.lock:2692`; the crate is 0.3.0).
 - WebView2 hardening (`src/harden.rs`, `windows_impl`): sets status bar, zoom control, pinch zoom, swipe navigation and browser accelerator keys (F5, Ctrl+R, Alt+Left, F12). It registers `ContextMenuRequested` through `ICoreWebView2_11`. That handler suppresses the menu unless the target is editable and `allow_editable_menu` is set.
 - Idle (`src/idle.rs`): `ICoreWebView2_3::TrySuspend` and `SetIsVisible` on the controller.
@@ -357,7 +357,7 @@ let cold = rightkit_tauri_shell::open_url::current_urls(); // arrived before any
 
 `Shell::builder(..).on_second_instance(|app, argv, cwd| ..)` replaces the default second-launch behaviour (event plus reveal of the main window); the callback owns focus. Arbitration is unchanged, and URLs on the forwarded argv still reach `open_url` handlers and `current_urls()` before the callback runs. Without a callback nothing changes.
 
-`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11, **default since 0.2.0**, `CHANGELOG.md`) or `wv2-0_39` (0.62/0.39, Tauri 2.12). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). With `default-features = false`, add one of them, e.g. `features = ["wv2-0_38"]` (an earlier default, `wv2-0_39`, broke Tauri 2.11 apps; found by CodeRight).
+`windows`/`webview2-com` are feature-selected so they match the app's Tauri: `wv2-0_38` (0.61/0.38, Tauri 2.11) or `wv2-0_39` (0.62/0.39, Tauri 2.12, **default since 0.5.0**, `CHANGELOG.md`). A mismatch puts two copies beside Tauri's and `cast()` fails (E0599, found by MailRight). Apps locked to Tauri 2.11 must set `default-features = false, features = ["wv2-0_38"]` & retain other selected features; enabling 0.38 while leaving defaults enabled still selects 0.39.
 
 ## Runtime budget
 

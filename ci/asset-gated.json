@@ -15,6 +15,7 @@
     "rightkit-vad": "ONNX Runtime and the Silero model"
   },
   "npm": {
-    "@rightkit/release": "sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit"
+    "@rightkit/release": "sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit",
+    "@rightkit/legal": "packages/legal/test/tooling.test.mjs 'npm generator invokes production pnpm scanner in app root & preserves output on failure' is skipped on win32 by design (POSIX shebang scanner fixture); every other legal test runs on both hosts"
   }
 }

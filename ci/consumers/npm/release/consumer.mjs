@@ -24,7 +24,7 @@ try {
   const resolution = required('RIGHTKIT_CONSUMER_RESOLUTION');
   assert.match(sha256, /^[a-f0-9]{64}$/);
   assert(['packed', 'fetched'].includes(resolution));
-  assert.equal(version, '0.4.1');
+  assert.equal(version, '0.5.0');
   assert.equal(createHash('sha256').update(readFileSync(archive)).digest('hex'), sha256);
   // @rightkit/release has no `exports` and no `main`: its only public surface is the
   // `right-release` bin (cli/right-release.mjs). Resolve that installed file directly;
@@ -45,9 +45,10 @@ try {
     assert.equal(installed.name, '@rightkit/release');
     assert.equal(installed.version, version);
     assert.equal('exports' in installed, false);
-    assert.deepEqual(installed.bin, { 'right-release': 'cli/right-release.mjs' });
+    assert.deepEqual(installed.bin, { 'right-release': 'cli/right-release.mjs', 'rightkit-gate': 'bin/rightkit-gate.mjs' });
+    assert.ok(readFileSync(path.join(packageRoot, 'bin', 'rightkit-gate.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
     assert.ok(readFileSync(path.join(packageRoot, 'cli', 'right-release.mjs'), 'utf8').startsWith('#!/usr/bin/env node'));
-    return { bin: 'right-release', binTarget: 'cli/right-release.mjs', exportsPresent: false };
+    return { bins: ['right-release', 'rightkit-gate'], binTargets: ['cli/right-release.mjs', 'bin/rightkit-gate.mjs'], exportsPresent: false };
   });
 
   await run('installed-cli-version-smoke', async () => {

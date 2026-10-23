@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adapterExpectation, ADAPTER, packageRows, parseArgs, readPackages } from "./rk-npm-preflight.mjs";
+import { adapterExpectation, ADAPTER, npmRecipePolicy, packageRows, parseArgs, readPackages } from "./rk-npm-preflight.mjs";
 
 test("arguments: npm registry and one @rightkit package only", () => {
   const opts = parseArgs(["--registry", "npm", "--unit", "@rightkit/legal"]);
@@ -38,4 +40,22 @@ test("workspace packages are read from packages/*/package.json with their direct
   assert.deepEqual([...packages.keys()], ["@rightkit/legal"]);
   assert.equal(packages.get("@rightkit/legal").dir, "packages/legal");
   assert.equal(packages.get("@rightkit/legal").version, "0.6.2");
+});
+
+
+test("npm recipe policy mirrors the hosted refusal: a reviewed entry with matching file hashes passes; no entry, a changed file and a missing file refuse", () => {
+  const crypto = require("node:crypto");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-npm-recipe-"));
+  fs.mkdirSync(path.join(root, "ci", "consumers", "npm", "x"), { recursive: true });
+  fs.writeFileSync(path.join(root, "ci", "consumers", "npm", "x", "consumer.mjs"), "console.log(1)\n");
+  const sha = crypto.createHash("sha256").update("console.log(1)\n").digest("hex");
+  const write = (inv) => fs.writeFileSync(path.join(root, "ci", "consumer-recipes.json"), JSON.stringify(inv));
+  write({ schema: 1, npm: {} });
+  assert.match(npmRecipePolicy(root, "@rightkit/x").reason, /missing reviewed PK example/);
+  write({ schema: 1, npm: { "@rightkit/x": { pkId: "PK90", id: "ci/consumers/npm/x/consumer.mjs", files: { "ci/consumers/npm/x/consumer.mjs": sha } } } });
+  assert.deepEqual(npmRecipePolicy(root, "@rightkit/x"), { ok: true, pkId: "PK90", id: "ci/consumers/npm/x/consumer.mjs", files: 1 });
+  fs.writeFileSync(path.join(root, "ci", "consumers", "npm", "x", "consumer.mjs"), "console.log(2)\n");
+  assert.match(npmRecipePolicy(root, "@rightkit/x").reason, /differs from reviewed inventory: ci\/consumers\/npm\/x\/consumer.mjs/);
+  fs.rmSync(path.join(root, "ci", "consumers", "npm", "x", "consumer.mjs"));
+  assert.match(npmRecipePolicy(root, "@rightkit/x").reason, /missing or not a regular file/);
 });

@@ -2,7 +2,7 @@
 //! `cookie-export`).
 //!
 //! [`CookieExport`] keeps only the cookies of declared domains, writes them in the format
-//! [`parse_netscape`](crate::parse_netscape) reads and publishes the file through rightkit-fs's
+//! [`parse_netscape`] reads and publishes the file through rightkit-fs's
 //! `AtomicWriter`: owner-only from creation, flushed and replaced atomically. The file is a
 //! credential, so the rules are fail-closed:
 //!

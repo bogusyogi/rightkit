@@ -155,36 +155,47 @@
     },
     "rightkit-tauri-shell": {
       "featureSets": [
-        [],
         [
+          "--no-default-features",
           "--features",
-          "engine"
+          "wv2-0_38"
         ],
         [
+          "--no-default-features",
           "--features",
-          "host-services,license,update,update-license"
+          "wv2-0_38,engine"
         ],
         [
+          "--no-default-features",
           "--features",
-          "logs,crash,overlay,models,pdf-host"
+          "wv2-0_38,host-services,license,update,update-license"
         ],
         [
+          "--no-default-features",
           "--features",
-          "app-lock"
+          "wv2-0_38,logs,crash,overlay,models,pdf-host"
+        ],
+        [
+          "--no-default-features",
+          "--features",
+          "wv2-0_38,app-lock"
         ]
       ],
       "checkFeatureSets": [
         [
+          "--no-default-features",
           "--features",
-          "engine,content-devtools"
+          "wv2-0_38,engine,content-devtools"
         ],
         [
+          "--no-default-features",
           "--features",
-          "engine,dev-overrides,qa-probes"
+          "wv2-0_38,engine,dev-overrides,qa-probes"
         ],
         [
+          "--no-default-features",
           "--features",
-          "engine"
+          "wv2-0_38,engine"
         ]
       ],
       "paths": [

@@ -60,5 +60,17 @@
     "type": "git",
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/qa"
+  },
+  "rightkit": {
+    "publishCheck": {
+      "binSmoke": {
+        "rightkit-qa-journeys": [
+          "--help"
+        ]
+      },
+      "skipImport": [
+        "./journeys-fixture-adapter"
+      ]
+    }
   }
 }

@@ -373,7 +373,7 @@ function brokerIdentity(deps) {
 // Cargo only through the broker: `rightkit cargo`, or a `cargo` on PATH that is the managed shim (scripts/local-gate.mjs).
 function detectCargoCommand(deps) {
   const which = (command) => {
-    const result = (deps.run ?? spawnSync)(process.platform === "win32" ? "where" : "which", [command], { encoding: "utf8", windowsHide: true });
+    const result = (deps.run ?? spawnSync)((deps.platform ?? process.platform) === "win32" ? "where" : "which", [command], { encoding: "utf8", windowsHide: true });
     return result.status === 0 ? String(result.stdout).split(/\r?\n/).map((line) => line.trim()).filter(Boolean) : [];
   };
   if (which("rightkit").length) return ["rightkit", "cargo"];

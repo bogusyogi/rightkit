@@ -24,6 +24,21 @@ test("PK identity binds executable source, every file, exact dependency & select
   fs.appendFileSync(path.join(dir, "src/main.rs"), "// changed API prescription\n"); assert.throws(() => cargoRecipe({ root, unit }), /differs from reviewed PK11 inventory/);
 });
 
+test("PK08 keeps bare defaults while locked Tauri 2.11 shell rows select legacy bindings", () => {
+  const recipe = cargoRecipe({ root: committedRoot, unit: { name: "rightkit-tauri-shell", version: "0.5.0" } });
+  assert.deepEqual(recipe.evidence.dependency, { name: "rightkit-tauri-shell", version: "=0.5.0", defaultFeatures: true, features: [] });
+  const shell = fs.readFileSync(path.join(committedRoot, "crates/rightkit-tauri-shell/Cargo.toml"), "utf8");
+  assert.match(shell, /^default = \["wv2-0_39"\]$/m);
+  const config = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/gate.config.json"), "utf8"));
+  const rows = config.rust["rightkit-tauri-shell"];
+  for (const args of [...rows.featureSets, ...rows.checkFeatureSets]) {
+    assert.equal(args[0], "--no-default-features");
+    assert.equal(args[1], "--features");
+    assert.ok(args[2].split(",").includes("wv2-0_38"));
+    assert.ok(!args[2].split(",").includes("wv2-0_39"));
+  }
+});
+
 test("reviewed inventory admits only existing locked PK examples", () => {
   const inventory = JSON.parse(fs.readFileSync(path.join(committedRoot, "ci/consumer-recipes.json"), "utf8"));
   assert.deepEqual(Object.keys(inventory.cargo).sort(), ["rightkit-agent-tools", "rightkit-align", "rightkit-android", "rightkit-app-settings", "rightkit-asr", "rightkit-automation", "rightkit-browser", "rightkit-child-process", "rightkit-crash", "rightkit-credentials", "rightkit-daemon", "rightkit-db", "rightkit-device", "rightkit-docs", "rightkit-embed", "rightkit-ffmpeg", "rightkit-fs", "rightkit-fsindex", "rightkit-google-identity", "rightkit-http", "rightkit-job-queue", "rightkit-license", "rightkit-logs", "rightkit-models", "rightkit-motion", "rightkit-oauth", "rightkit-onnx", "rightkit-overlay", "rightkit-overlay-win", "rightkit-ownership", "rightkit-pdf", "rightkit-playback", "rightkit-qa", "rightkit-qa-driver", "rightkit-record", "rightkit-sandbox", "rightkit-sidecar", "rightkit-speech-client", "rightkit-spend", "rightkit-sync-keys", "rightkit-tauri-shell", "rightkit-vault"]);

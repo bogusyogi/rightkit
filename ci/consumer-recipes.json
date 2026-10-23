@@ -73,7 +73,7 @@
         "ci/consumers/npm/onboarding/package.json": "e72033f2dfcf6c03ad8aadfc18f8fbca9702b17166997bc77e388c32e46474a6",
         "ci/consumers/npm/onboarding/provenance-negative.mjs": "0d685129d02c216d539c6ff67305541596c6822a5c9354ea40ab375dcd924952",
         "ci/consumers/npm/onboarding/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     },
     "@rightkit/qa-chrome": {
@@ -93,7 +93,7 @@
         "ci/consumers/npm/qa-chrome/consumer.mjs": "7bad71cec2e6d1f95c93705e8317b9774a38c2e04a8b0fdc13a6d109056f7b09",
         "ci/consumers/npm/qa-chrome/package.json": "6eacf53c660287434f0a95ef8c7cb159196af8b6567f74278654655c0cbf5c30",
         "ci/consumers/npm/qa-chrome/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     },
     "@rightkit/settings-ui": {
@@ -188,7 +188,7 @@
         "ci/consumers/npm/tauri-shell/consumer.mjs": "3c3207fe0254581feb8e6f2626f0c89a32ebaaec1b15beed85a683d589d8feb0",
         "ci/consumers/npm/tauri-shell/package.json": "f4797fc0336d4b4f8cc23b6060757bf9ad193d03b35ddd8287023c10338a1b13",
         "ci/consumers/npm/tauri-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     },
     "@rightkit/legal": {
@@ -212,7 +212,7 @@
         "ci/consumers/npm/legal/consumer.mjs": "88b5ebc6b2c3787d47302046aaf28e67006727794bd162d0e9764d2906323fb5",
         "ci/consumers/npm/legal/package.json": "412fca5c15c88350f882032c920c3c9b8f2413548d279512cdf428d2f96f4395",
         "ci/consumers/npm/legal/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     },
     "@rightkit/doc-render": {
@@ -247,7 +247,7 @@
         "ci/consumers/npm/doc-render/consumer.mjs": "03ec48728c00e08bb8d0637bccf50703971955ab4616b71b9e092eba6bca9fcd",
         "ci/consumers/npm/doc-render/package.json": "9bfd7a0c02b3a7123319aaefdaf3ab449109dca74fa0e6f152263561a2da5e44",
         "ci/consumers/npm/doc-render/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     },
     "@rightkit/tauri": {
@@ -283,7 +283,7 @@
         "ci/consumers/npm/tauri/consumer.mjs": "9f02cf75b03879bce155c87aa629b9a98eef3862852910b2c28267a261f933c2",
         "ci/consumers/npm/tauri/package.json": "356c2c80b7466bbcf19cec801b2eea0cb2b69686d670f3cf38d622ade8dac3ee",
         "ci/consumers/npm/tauri/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
-        "scripts/ci/npm-recipe-consumer.mjs": "b0d909590e65a2189520f1961c7e3278a902b9171dd47b7e71c3656f1bbac7dd"
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     },
     "@rightkit/qa": {
@@ -330,10 +330,31 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/release/README.md": "346b19cd8260cdbd3e2ce42f5364784ca1011f52cbf2be49b7ce07763f73c0b8",
-        "ci/consumers/npm/release/consumer.mjs": "486dc7d3d435e79e474245e1f44c3416eeedba792fcc37627cf33026638904f2",
+        "ci/consumers/npm/release/README.md": "9f5dd90eef0fc4836588080173899359c245e13126a01772f3b348d1ce009fea",
+        "ci/consumers/npm/release/consumer.mjs": "b84e06e413b581ca1b9f8d4f2d23622d78952965a7e43a889493db250775b89b",
         "ci/consumers/npm/release/package.json": "52ccd307f9992035ad0795fe0ea3d9a0756a7a30c5830c05435bd0f34b9074d0",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
+      }
+    },
+    "@rightkit/issues-tracker": {
+      "pkId": "PK25",
+      "id": "ci/consumers/npm/issues-tracker/consumer.mjs",
+      "recipeId": "issues-tracker-cli-and-module-consumer",
+      "scenarios": 3,
+      "surface": [],
+      "bin": {
+        "right-issues": "cli/right-issues.mjs"
+      },
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/issues-tracker/README.md": "2dfa1dd33b3aa847ecabc4104bef987021a7c4fb04779dc34bbeb745dad80f74",
+        "ci/consumers/npm/issues-tracker/consumer.mjs": "fc74e501a6a5f73777625f2162e54c78c8b66d7d01d51f32f7ba757c19d3bdcb",
+        "ci/consumers/npm/issues-tracker/package.json": "ad2c578f5ab4362e3a7a3f709a865d005c82d6aca8142d0df1deb6d686cc7b3c",
+        "ci/consumers/npm/issues-tracker/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "ac9a2d663cb89d8e4b2dcb037c7ede2cfa8ef209f35da2577ad486bf48da4e8e"
       }
     }

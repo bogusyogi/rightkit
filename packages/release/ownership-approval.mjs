@@ -322,11 +322,12 @@ function protectedLocation(file, platform, { runner = spawnSync, inspect = lstat
   const problems = [];
   if (platform === "win32") {
     const dirs = [];
-    let current = path.dirname(file);
+    // Audit the requested platform's ancestors even when fixtures run on another host.
+    let current = path.win32.dirname(file);
     while (true) {
       dirs.push(current);
-      if (path.dirname(current) === current) break;
-      current = path.dirname(current);
+      if (path.win32.dirname(current) === current) break;
+      current = path.win32.dirname(current);
     }
     dirs.push(file);
     for (const target of dirs) {
