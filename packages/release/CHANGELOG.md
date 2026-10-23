@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.5.0 — unpublished staging
+## 0.5.1 — unpublished staging
+
+- **The bundled RightKit version feed lists every unit published on 2026-10-23.** `rightkit-versions.json` (and its build-control-policy copy) was cut before the night's publications, so `right-release`'s allow-list refused app pins on crates.io/npm versions it did not know: rightkit-qa 0.8.0, rightkit-qa-driver 0.7.0, rightkit-sandbox 0.6.0, rightkit-tauri-shell 0.5.0, @rightkit/legal 0.6.2, @rightkit/qa 0.6.1 and @rightkit/qa-chrome 0.1.11 (HeardRight's 0.1.230 doctor blocked on qa 0.8.0 and tauri-shell 0.5.0). Refreshed with `rightkit-sync.mjs` from the registries; no code change.
+
+## 0.5.0 — 2026-10-23
 
 - **`rightkit-gate`: wall-clock-bound npm package tests ride the CI shards too (`ci/gate.config.json` `npm.<unit>.quietTests`).** Gate15 (2026-10-22) failed `test:npm:rightkit-outdated`, `rightkit-onboarding` and `rightkit-qa` on vitest timeouts and a Chrome for Testing shutdown beside the 4-wide Rust test lane; alone they pass (168/168, 117/117, 317/317). `planScans` takes `packageFeatures` (the config's `npm` section): under `quietTests: "ci"` such a package's test row is deferred with the same note as the Rust quiet tests, under `"local"` it runs in the quiet lane; its tsc and eslint rows are unchanged.
 - **`rightkit-gate`: the quiet tests are proven by the CI shards, not the local gate (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).** `planScans` takes `quietTests: "local" | "ci"`; with `"ci"` the test scans of `quietTests` crates are left out of the plan and a note names them. The gate passes `"ci"` unless `RK_GATE_QUIET_TESTS=local`. On GitHub each crate's tests run on their own runner, where the port, pipe, desktop and wall-clock conflicts that forced the serial quiet lane do not exist; the local lane remains for hosts without CI.

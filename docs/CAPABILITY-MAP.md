@@ -14,90 +14,90 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 |---|---|---|---|---|---|
 | agent-experience-gates | `@rightkit/ax` | none | declaration-only | 0 | @rightkit/ax: published 0.3.2 (npm) |
 | agent-sessions | `rightkit-agents` | none | declaration-only | 0 | rightkit-agents: published 0.2.0 (crates.io) |
-| agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.2.0 (crates.io) |
-| android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.2.0 (crates.io) |
+| agent-tools | `rightkit-agent-tools` | none | declaration-only | 0 | rightkit-agent-tools: published 0.3.0 (crates.io) |
+| android-bridge | `rightkit-android` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-android: published 0.3.0 (crates.io) |
 | app-shell-ui | `@rightkit/react-shell` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/react-shell: published 0.7.2 (npm) |
-| appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.3.1 (crates.io) |
+| appkit-autorelease-pool | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.0 (crates.io) |
 | audio | `rightkit-audio` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-audio: published 0.3.1 (crates.io) |
 | browser-automation | `rightkit-browser` | block | fingerprinted | 11 (5 block, 6 advise) | rightkit-browser: published 0.3.4 (crates.io) |
-| browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.10 (npm) |
+| browser-qa | `@rightkit/qa-chrome` | advise | fingerprinted | 5 (0 block, 5 advise) | @rightkit/qa-chrome: published 0.1.11 (npm) |
 | channel-memory | `rightkit-channel-memory` | none | declaration-only | 0 | rightkit-channel-memory: published 0.2.1 (crates.io) |
 | cloud-sync | `rightkit-sync` | none | declaration-only | 0 | rightkit-sync: published 0.2.2 (crates.io) |
 | composition-model | `rightkit-compose` | none | declaration-only | 0 | rightkit-compose: published 0.2.0 (crates.io) |
 | content-contracts | `rightkit-contracts` | none | declaration-only | 0 | rightkit-contracts: published 0.1.7 (crates.io) |
 | content-review | `rightkit-review` | none | declaration-only | 0 | rightkit-review: published 0.4.0 (crates.io) |
-| crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.3.5 (crates.io) |
+| crash-reporting | `rightkit-crash` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-crash: published 0.3.6 (crates.io) |
 | crypto-primitives | `rightkit-crypto` | none | declaration-only | 0 | rightkit-crypto: published 0.1.0 (crates.io) |
 | dependency-updates | `@rightkit/outdated` | none | declaration-only | 0 | @rightkit/outdated: published 0.2.0 (npm) |
-| desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: published 0.5.0 (crates.io) |
-| desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: published 0.6.0 (crates.io) |
+| desktop-automation | `rightkit-automation` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-automation: published 0.6.0 (crates.io) |
+| desktop-control | `rightkit-qa-driver` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-qa-driver: published 0.7.0 (crates.io) |
 | desktop-overlay | `rightkit-overlay` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-overlay: published 0.2.0 (crates.io) |
-| desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.7.1 (crates.io) |
-| desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.2 (npm); rightkit-tauri-shell: published 0.4.0 (crates.io) |
+| desktop-qa | `rightkit-qa` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-qa: published 0.8.0 (crates.io) |
+| desktop-shell | `@rightkit/tauri-shell`, `rightkit-tauri-shell` | advise | declaration-only, fingerprinted | 6 (0 block, 6 advise) | @rightkit/tauri-shell: published 0.1.2 (npm); rightkit-tauri-shell: published 0.5.0 (crates.io) |
 | disk-cache | `rightkit-cache` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-cache: published 0.2.3 (crates.io) |
-| document | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.1 (crates.io) |
-| document-io | `rightkit-docs` | advise | fingerprinted | 11 (0 block, 11 advise) | rightkit-docs: published 0.1.1 (crates.io) |
+| document | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
+| document-io | `rightkit-docs` | advise | fingerprinted | 11 (0 block, 11 advise) | rightkit-docs: published 0.1.2 (crates.io) |
 | document-rendering | `@rightkit/doc-render` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/doc-render: published 0.2.1 (npm) |
-| docx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.1 (crates.io) |
-| embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.0 (crates.io) |
-| file-index | `rightkit-fsindex` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-fsindex: published 0.4.1 (crates.io) |
+| docx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
+| embeddings | `rightkit-embed` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-embed: published 0.6.1 (crates.io) |
+| file-index | `rightkit-fsindex` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-fsindex: published 0.5.0 (crates.io) |
 | file-watching | `rightkit-file-watch` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-file-watch: published 0.4.1 (crates.io) |
 | framed-sidecar | `rightkit-sidecar` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sidecar: published 0.3.0 (crates.io) |
 | github-workflows | `@rightkit/ci` | none | declaration-only | 0 | @rightkit/ci: published 0.3.0 (npm) |
 | global-hotkeys | `rightkit-hotkeys` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-hotkeys: published 0.1.2 (crates.io) |
-| google-identity | `rightkit-google-identity` | none | declaration-only | 0 | rightkit-google-identity: published 0.1.0 (crates.io) |
+| google-identity | `rightkit-google-identity` | none | declaration-only | 0 | rightkit-google-identity: published 0.2.0 (crates.io) |
 | http-client | `rightkit-http` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-http: published 0.3.8 (crates.io) |
 | installation-identity | `rightkit-identity` | none | declaration-only | 0 | rightkit-identity: published 0.1.0 (crates.io) |
-| issues-tracker | `@rightkit/issues-tracker` | none | declaration-only | 0 | @rightkit/issues-tracker: staged 0.1.0, not published |
-| legal-assent | `@rightkit/legal` | none | declaration-only | 0 | @rightkit/legal: published 0.6.1 (npm) |
+| issues-tracker | `@rightkit/issues-tracker` | none | declaration-only | 0 | @rightkit/issues-tracker: published 0.1.0 (npm) |
+| legal-assent | `@rightkit/legal` | none | declaration-only | 0 | @rightkit/legal: published 0.6.2 (npm) |
 | legal-ui | `@rightkit/legal-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/legal-ui: published 0.4.1 (npm) |
 | licensing | `@rightkit/license`, `rightkit-license` | advise | fingerprinted | 6 (0 block, 6 advise) | @rightkit/license: published 0.3.0 (npm); rightkit-license: published 0.2.4 (crates.io) |
 | lifecycle-hooks | `@rightkit/hooks`, `rightkit-hooks` | none | declaration-only | 0 | @rightkit/hooks: published 0.1.2 (npm); rightkit-hooks: published 0.2.0 (crates.io) |
 | llm-providers | `rightkit-llm` | advise | fingerprinted | 6 (0 block, 6 advise) | rightkit-llm: published 0.3.0 (crates.io) |
-| local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.3.0 (crates.io) |
+| local-services | `rightkit-daemon` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-daemon: published 0.4.0 (crates.io) |
 | localization | `@rightkit/i18n` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/i18n: published 0.2.0 (npm) |
 | mcp | `rightkit-mcp` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-mcp: published 0.7.0 (crates.io) |
-| media-pipelines | `rightkit-ffmpeg` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-ffmpeg: published 0.2.9 (crates.io) |
+| media-pipelines | `rightkit-ffmpeg` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-ffmpeg: published 0.2.10 (crates.io) |
 | media-playback | `rightkit-playback` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-playback: published 0.3.0 (crates.io) |
 | media-ui | `@rightkit/media-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/media-ui: published 0.3.4 (npm) |
-| model-installation | `rightkit-models` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-models: published 0.4.4 (crates.io) |
-| motion-beat-sync | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.1.0 (crates.io) |
-| motion-inspect-sheets | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.1.0 (crates.io) |
-| motion-takes | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.1.0 (crates.io) |
+| model-installation | `rightkit-models` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-models: published 0.5.1 (crates.io) |
+| motion-beat-sync | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |
+| motion-inspect-sheets | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |
+| motion-takes | `rightkit-motion` | none | declaration-only | 0 | rightkit-motion: published 0.2.0 (crates.io) |
 | nearby-sharing | `rightkit-send` | none | declaration-only | 0 | rightkit-send: published 0.2.0 (crates.io) |
 | oauth-sign-in | `rightkit-oauth` | block | fingerprinted | 8 (3 block, 5 advise) | rightkit-oauth: published 0.10.0 (crates.io) |
 | ocr | `rightkit-ocr` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-ocr: published 0.2.3 (crates.io) |
 | onboarding-ui | `@rightkit/onboarding` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/onboarding: published 0.6.3 (npm) |
-| onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: published 0.2.6 (crates.io) |
+| onnx-runtime | `rightkit-onnx` | advise | fingerprinted | 4 (0 block, 4 advise) | rightkit-onnx: published 0.2.7 (crates.io) |
 | os-credential-store | `RightKitSwift`, `rightkit-credentials` | advise | fingerprinted | 7 (0 block, 7 advise) | RightKitSwift: published 0.4.0 (SwiftPM); rightkit-credentials: published 0.4.2 (crates.io) |
-| os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.5.0 (crates.io) |
-| owned-processes | `rightkit-child-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-child-process: published 0.5.4 (crates.io) |
-| ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.3.1 (crates.io) |
+| os-sandbox | `rightkit-sandbox` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-sandbox: published 0.6.0 (crates.io) |
+| owned-processes | `rightkit-child-process` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-child-process: published 0.5.5 (crates.io) |
+| ownership-scanner | `rightkit-ownership` | none | declaration-only | 0 | rightkit-ownership: published 0.4.0 (crates.io) |
 | pdf | `rightkit-pdf` | none | declaration-only | 0 | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-engine | `rightkit-pdf` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-pdf: published 0.3.3 (crates.io) |
 | pdf-ui | `@rightkit/pdf-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/pdf-ui: published 0.2.0 (npm) |
-| persistent-jobs | `rightkit-job-queue` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-job-queue: published 0.4.0 (crates.io) |
+| persistent-jobs | `rightkit-job-queue` | advise | fingerprinted | 10 (0 block, 10 advise) | rightkit-job-queue: published 0.5.0 (crates.io) |
 | platform-rules | `rightkit-platform-rules` | none | declaration-only | 0 | rightkit-platform-rules: published 0.1.0 (crates.io) |
 | platform-ui | `@rightkit/platform-ui` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/platform-ui: published 0.4.0 (npm) |
-| qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.5.2 (npm) |
-| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.4.1 (npm) |
+| qa-evidence | `@rightkit/qa` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/qa: published 0.6.1 (npm) |
+| release-tooling | `@rightkit/release` | advise | fingerprinted | 10 (0 block, 10 advise) | @rightkit/release: published 0.5.0 (npm) |
 | safe-filesystem | `rightkit-fs` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-fs: published 0.4.6 (crates.io) |
 | scenario-runtime | `rightkit-workflow` | none | declaration-only | 0 | rightkit-workflow: published 0.2.0 (crates.io) |
-| screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: published 0.3.2 (crates.io) |
+| screen-recording | `rightkit-record` | none | declaration-only | 0 | rightkit-record: published 0.3.3 (crates.io) |
 | script-alignment | `rightkit-align` | none | declaration-only | 0 | rightkit-align: none recorded |
 | search | `rightkit-search` | advise | fingerprinted | 9 (0 block, 9 advise) | rightkit-search: published 0.4.0 (crates.io) |
-| secret-vault | `rightkit-vault` | none | declaration-only | 0 | rightkit-vault: published 0.1.0 (crates.io) |
+| secret-vault | `rightkit-vault` | none | declaration-only | 0 | rightkit-vault: published 0.2.0 (crates.io) |
 | settings-persistence | `rightkit-app-settings` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-app-settings: published 0.3.0 (crates.io) |
 | settings-ui | `@rightkit/settings-ui` | none | declaration-only | 0 | @rightkit/settings-ui: published 0.7.0 (npm) |
-| shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.3.6 (crates.io) |
-| speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.2.4 (crates.io) |
-| spend-ledger | `rightkit-spend` | none | declaration-only | 0 | rightkit-spend: published 0.1.1 (crates.io) |
-| spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.1 (crates.io) |
+| shared-speech-service | `rightkit-speech-client` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-speech-client: published 0.4.0 (crates.io) |
+| speech-recognition | `rightkit-asr` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-asr: published 0.3.0 (crates.io) |
+| spend-ledger | `rightkit-spend` | none | declaration-only | 0 | rightkit-spend: published 0.2.0 (crates.io) |
+| spreadsheet | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |
 | sqlite-storage | `rightkit-db` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-db: published 0.5.1 (crates.io) |
 | structured-logging | `@rightkit/logs`, `rightkit-logs` | advise | fingerprinted | 8 (0 block, 8 advise) | @rightkit/logs: published 0.1.6 (npm); rightkit-logs: published 0.3.5 (crates.io) |
 | sync-key-management | `rightkit-sync-keys` | none | declaration-only | 0 | rightkit-sync-keys: none recorded |
 | sync-worker | `@rightkit/sync-worker` | none | declaration-only | 0 | @rightkit/sync-worker: none recorded |
-| tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.3.0 (npm); rightkit-device: published 0.3.1 (crates.io) |
+| tauri-host-adapters | `@rightkit/tauri`, `rightkit-device` | advise | fingerprinted | 2 (0 block, 2 advise) | @rightkit/tauri: published 0.3.0 (npm); rightkit-device: published 0.4.0 (crates.io) |
 | text-to-speech | `rightkit-tts`, `rightkit-tts-qwen`, `rightkit-tts-qwen-sys` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-tts: published 0.2.3 (crates.io); rightkit-tts-qwen: published 0.2.7 (crates.io); rightkit-tts-qwen-sys: published 0.1.2 (crates.io) |
 | theme-ui | `@rightkit/theme` | advise | fingerprinted | 7 (0 block, 7 advise) | @rightkit/theme: published 0.3.1 (npm) |
 | time-civil | `rightkit-time` | none | declaration-only | 0 | rightkit-time: published 0.1.0 (crates.io) |
@@ -105,5 +105,5 @@ Capabilities: 95 (58 with fingerprints, 37 declaration-only). Internal owners th
 | typeset | `rightkit-typeset` | advise | fingerprinted | 3 (0 block, 3 advise) | rightkit-typeset: published 0.1.0 (crates.io) |
 | update-policy | `@rightkit/app-update` | advise | fingerprinted | 1 (0 block, 1 advise) | @rightkit/app-update: published 0.4.1 (npm) |
 | voice-activity-detection | `rightkit-vad` | advise | fingerprinted | 2 (0 block, 2 advise) | rightkit-vad: published 0.1.2 (crates.io) |
-| windows-native-overlay-renderer | `rightkit-overlay-win` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-overlay-win: none recorded |
-| xlsx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.1 (crates.io) |
+| windows-native-overlay-renderer | `rightkit-overlay-win` | advise | fingerprinted | 1 (0 block, 1 advise) | rightkit-overlay-win: published 0.1.0 (crates.io) |
+| xlsx | `rightkit-docs` | none | declaration-only | 0 | rightkit-docs: published 0.1.2 (crates.io) |

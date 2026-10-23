@@ -1,6 +1,6 @@
 # @rightkit/release npm consumer (draft, npm.@rightkit/release)
 
-Packed-archive consumer for `@rightkit/release` 0.5.0 (workspace version). The unit is installed only from the
+Packed-archive consumer for `@rightkit/release` 0.5.1 (workspace version). The unit is installed only from the
 sealed `file:` archive. The reviewed closure pins its sole registry dependency, `smol-toml` 1.9.1, recorded in
 `packages/release/package.json`. No `@rightkit/*` package is in the closure.
 

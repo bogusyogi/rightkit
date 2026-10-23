@@ -330,8 +330,8 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/release/README.md": "9f5dd90eef0fc4836588080173899359c245e13126a01772f3b348d1ce009fea",
-        "ci/consumers/npm/release/consumer.mjs": "b84e06e413b581ca1b9f8d4f2d23622d78952965a7e43a889493db250775b89b",
+        "ci/consumers/npm/release/README.md": "6dd2d991632c0a4c7c1bf5b5a541ade7e257ca90ba53ec8ba0a875d068305d2b",
+        "ci/consumers/npm/release/consumer.mjs": "fb1d788130b10f569e273df67c3c5d499e9ceff4b0437045123178603626c7b6",
         "ci/consumers/npm/release/package.json": "52ccd307f9992035ad0795fe0ea3d9a0756a7a30c5830c05435bd0f34b9074d0",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
