@@ -198,7 +198,12 @@ test("a unit that failed hosted is held at a new SHA until its closure, recipe o
   const paths = [];
   const held = holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: (from, to, p) => { paths.push(...p); return false; }, show });
   assert.match(held, /held: unchanged since hosted failure at old \(run 77\)/);
-  assert.deepEqual(paths, ["crates/rightkit-a", "crates/rightkit-b", "ci/consumers/rightkit-a", "Cargo.lock"], "the closure, the recipe and the lock are the change set");
+  assert.deepEqual(paths, ["crates/rightkit-a", "crates/rightkit-b", "ci/consumers/rightkit-a", "ci/consumer-recipes.json", "Cargo.lock"], "the closure, the recipe, the inventory and the lock are the change set");
+  const npmCrates = new Map([["@rightkit/x", { name: "@rightkit/x", version: "1.0.0", dir: "packages/x", publish: true, deps: [] }]]);
+  const npmState = { dispatches: { "npm:old:@rightkit/x": { unit: "@rightkit/x", sha: "old", status: "failed", runId: 9, dispatchedAt: "2026-10-23T00:00:00Z" } } };
+  const npmPaths = [];
+  holdReason("@rightkit/x", "new", npmState, npmCrates, { pipeline: {}, changed: (f, t, p) => { npmPaths.push(...p); return false; }, show });
+  assert.deepEqual(npmPaths, ["packages/x", "ci/consumers/npm/x", "ci/consumer-recipes.json", "Cargo.lock"], "an npm unit's recipe lives under ci/consumers/npm/<short name>");
   assert.equal(holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: () => true, show }), null, "a change in the closure releases");
   const policyChanged = (sha, file) => (sha === "new" && file === "ci/gate.config.json") ? '{"rust":{"rightkit-a":{"allowIgnored":"y"}}}' : same[file];
   assert.equal(holdReason("rightkit-a", "new", state, crates, { pipeline: {}, changed: unchanged, show: policyChanged }), null, "a change to the unit's own policy entry releases");

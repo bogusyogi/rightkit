@@ -150,7 +150,10 @@ export function holdReason(unit, sha, state, crates, { pipeline = readJson(path.
   const release = pipeline.dispatch?.releaseHolds?.[unit];
   if (release && String(release.run) === String(last.runId) && release.version === crates.get(unit)?.version && release.reason) return null;
   const dirs = [...closureOf(crates, [unit])].map((n) => crates.get(n).dir ?? `crates/${n}`);
-  if (changed(last.sha, sha, [...dirs, `ci/consumers/${unit}`, "Cargo.lock"])) return null;
+  // The reviewed recipe lives at ci/consumers/<crate> or ci/consumers/npm/<package short name>; the inventory that admits
+  // it (ci/consumer-recipes.json) is part of what the hosted verify checks, so a refreshed entry releases the hold.
+  const recipeDir = unit.startsWith("@rightkit/") ? `ci/consumers/npm/${unit.slice("@rightkit/".length)}` : `ci/consumers/${unit}`;
+  if (changed(last.sha, sha, [...dirs, recipeDir, "ci/consumer-recipes.json", "Cargo.lock"])) return null;
   const section = (file, pick) => { try { return JSON.stringify(pick(JSON.parse(show(last.sha, file)))) !== JSON.stringify(pick(JSON.parse(show(sha, file)))); } catch { return true; } };
   if (section("ci/gate.config.json", (j) => j.rust?.[unit]) || section("ci/rk-pipeline.json", (j) => j.dispatch?.exceptions?.[unit])) return null;
   return `held: unchanged since hosted failure at ${last.sha.slice(0, 12)} (run ${last.runId}); its crate closure, consumer recipe and own policy entries are identical, so the same run would repeat`;
@@ -187,7 +190,7 @@ export function dispatchRefusal(receipt, sha, unit, registry = "crates", config 
 }
 
 /** Planner refusals remain refusals. Only explicit version-bound policy supplies exceptions. */
-export async function allowsetsFor(registry, units, planFn, { config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), pipeline = readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {}), crates = readCrates() } = {}) {
+export async function allowsetsFor(registry, units, planFn, { config = readJson(path.join(ROOT, "ci", "gate.config.json"), {}), pipeline = readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {}), crates = readUnits(registry) } = {}) {
   const allow = { allow_host_exclusion: [], allow_no_test: [], allow_ignored: [], allow_missing_assets: [] };
   for (const unit of units) {
     const policy = exceptionAllowsets(unit, crates.get(unit)?.version, config, pipeline);

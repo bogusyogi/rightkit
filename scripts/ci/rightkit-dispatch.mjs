@@ -106,7 +106,7 @@ export function matchRun(runs, query) {
 
 // Broker pins this adapter. Pin its admission implementation too: importing mutable helpers would defeat that pin.
 const PREFLIGHT_SHA256 = "084294ab06209c84826013efca553b576b462169e18d69caa71e3a1f3e3c3810";
-const NPM_PREFLIGHT_SHA256 = "3bc578a554f74b4e9191bffb28dc965a8820df5a77daaf87f39871a3891c4543";
+const NPM_PREFLIGHT_SHA256 = "53ce2324bd10f69e4d876516681ff0c1331a35ec93044d773fc3a9f297373de3";
 const NPM_SELECT_SHA256 = "8ac5c7edb635e5f3a1103dc977f382bd8b27d7076dc6046644f72aa3d15c36d0";
 export async function requirePreflight(opts) {
   if (opts.workflow !== "publish" || !["crates", "npm"].includes(opts.registry)) throw new Error("only scoped crates/npm publication has local admission; general CI dispatch is not admitted");
