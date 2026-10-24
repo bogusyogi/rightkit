@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { NEXT_STEPS, initTemplate, parseInitArgs, reidentifyCargoLock, rehashLegalManifest, resolveIdentity, runInitCommand, sortCargoLock } from "./init-command.mjs";
+import { NEXT_STEPS, initTemplate, parseInitArgs, reidentifyCargoLock, rehashLegalManifest, renameText, resolveIdentity, runInitCommand, sortCargoLock } from "./init-command.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 
 const TITLE = ["Right", "App"].join("");
@@ -228,4 +228,15 @@ test("init prints the steps no command can do, including the host registration a
   const dry = [];
   runInitCommand(["--name", "Heard Right", "--id", "app.orthiclabs.heardright", "--dir", fixture(), "--dry-run"], { stdout: (l) => dry.push(l), stderr: () => {} });
   assert.ok(!dry.join("\n").includes("next:"), "a dry run prints no next steps");
+});
+
+test("init renames the identity but leaves the RightApps distribution provider alone (it contains the identity as a substring)", () => {
+  const root = fixture();
+  const provider = `r2-${LOWER}s`;
+  writeFileSync(path.join(root, "right-release.config.json"), `{"app":"${LOWER}","distribution":{"provider":"${provider}"}}\n`);
+  initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright" });
+  const config = JSON.parse(readFileSync(path.join(root, "right-release.config.json"), "utf8"));
+  assert.equal(config.app, "heardright");
+  assert.equal(config.distribution.provider, provider, "publish-update takes r2-rightapps, never r2-<slug>s");
+  assert.equal(renameText(`${provider} ${LOWER} ${TITLE} ${UPPER}`, { name: "X Y", id: "a.b.xy", slug: "xy" }), `${provider} xy X Y XY`);
 });

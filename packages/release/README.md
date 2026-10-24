@@ -341,7 +341,7 @@ Never cancel an MSIX deployment from app or updater code. Cancelling `AddPackage
 
 macOS Swift apps use `right-release swift-package mac-app` (Info.plist from config, resources, frameworks, entitlements on the bundle only; nested code signed inside-out before the app).
 
-Build a SwiftPM app with `right-release build --platform mac|win` (add `--config <path>` when the config is not `right-release.config.mjs`). Build is tier-neutral and never uploads, so it rejects `--tier` and takes no `--upload`/`--no-upload`; the old `release --tier patch --no-upload` form no longer works. Pick the tier only at upload: `right-release upload --release <sealed-id> --platform mac|win --tier patch|update` (`--tier` is required; it never builds). `upload` (and `publish`, its alias) requires `distribution.provider: "github-releases"` and `distribution.repository` in the release config; a product distributed through R2 and RightApps publishes with `right-release publish-update --release <sealed-id> --platform mac|win --tier patch|update` (or `RIGHT_RELEASE_TIER`), which requires `distribution.provider: "r2-rightapps"`.
+Build a SwiftPM app with `right-release build --platform mac|win` (add `--config <path>` when the config is not the default `right-release.config.json`, or the legacy `right-release.config.mjs` of an app that has not moved). Build is tier-neutral and never uploads, so it rejects `--tier` and takes no `--upload`/`--no-upload`; the old `release --tier patch --no-upload` form no longer works. Pick the tier only at upload: `right-release upload --release <sealed-id> --platform mac|win --tier patch|update` (`--tier` is required; it never builds). `upload` (and `publish`, its alias) requires `distribution.provider: "github-releases"` and `distribution.repository` in the release config; a product distributed through R2 and RightApps publishes with `right-release publish-update --release <sealed-id> --platform mac|win --tier patch|update` (or `RIGHT_RELEASE_TIER`), which requires `distribution.provider: "r2-rightapps"`.
 
 Set `targets.mac.notarize.appBeforePackage: true` (with `notarize.app` naming the `.app`) to notarize and staple the app itself right after signing and before the package step copies it into the DMG, so an app copied out of the DMG passes `stapler validate` offline. The DMG named by `notarize.file` is still notarized and stapled afterward; the app ticket receipt is `macos-app-notarization.json`. Without the flag, behavior is unchanged.
 
@@ -626,9 +626,22 @@ invalid arguments, failed resolution & forbidden dependencies with nonzero exit 
 files, base Tauri config content & app-specific default-feature restrictions remain separate guards.
 
 
+## Release config (JSON)
+
+`right-release.config.json` is the release contract of an app: finite, versioned JSON read by `dev`, `build`, `doctor`, `upload`, `publish-update`, `qa`, `deps`, `stage-sidecar` and the licence-notice commands alike (`release-config.mjs`). It is data. RightKit parses it strictly (no comments, trailing commas or duplicate keys), checks `schema: 1` and the finite top-level key set (`TOP_LEVEL_KEYS`; a new capability is a RightKit change, not an app extension), expands the typed templates below, then admits every command in it (M24: only RightKit invocations, `pipeline-config.mjs`). Write a note in `$comment`; it is expanded like any string, so name no `{{token}}` in it.
+
+| Template | Meaning |
+|---|---|
+| `{ "$fromJson": { "file", "pointer" } }` | a string or number read from an app-relative JSON file (`"/version"` of `src-tauri/tauri.conf.json`) |
+| `{ "$fromToml": { "file", "path" } }` | the same from a TOML file (`package.version` of a Cargo.toml) |
+| `{ "$json": <value> }` | `JSON.stringify(<value>)`, for a JSON argument such as Tauri's `--config` |
+| `{{app}}` `{{version}}` `{{home}}` `{{localAppData}}` | replaced inside any string; `{{localAppData}}` is `%LOCALAPPDATA%` on Windows and `<home>/AppData/Local` elsewhere, so one config loads on every host |
+
+Commands default to `right-release.config.json` when the app directory holds it; an app that has not moved yet keeps its `right-release.config.mjs`, which is still imported (the legacy branch; it is executable and outside M24, and the pipeline scan reports it as `R0-legacy-config`). `--config x.json` always takes the strict loader. `desktop-app-template/right-release.config.json` is the worked example: `winPackage` / `macPackage` recipes, `sidecars`, `legal`, `qa`, `releaseSwitches` and the dev targets, with no environment read, absolute path or app script.
+
 ## Template rename, PE digest, icon packing
 
-`right-release init --name <Product Name> --id <reverse.dns.bundle.id> [--slug <lowercase>] [--dir <root>] [--dry-run]` renames the desktop app template identity in place (see `init-command.mjs`); it runs no gate or build.
+`right-release init --name <Product Name> --id <reverse.dns.bundle.id> [--slug <lowercase>] [--dir <root>] [--dry-run]` renames the desktop app template identity in place (see `init-command.mjs`); it runs no gate or build. The rename also re-identifies `Cargo.lock` (cargo writes `[[package]]` tables and each `dependencies` list in name order, and `--locked` refuses a lock that differs, so the renamed template crates are moved to where cargo puts them) and recomputes the `sha256` of every document and appendix in `legal/legal-manifest.json` from the renamed bytes. A rename that changes a *material* legal document warns, because that digest feeds `src/generated/legal-contract.json`, which only `legal-snapshot` regenerates. A real run ends with the steps no command can do (install, `right-release doctor`, the app's legal host and reviewed documents, the repository registry entry and `right-release ownership trust-refresh` on each host, which a person with administrator rights runs).
 
 `right-release pe digest <file> [--algorithm sha256|sha384|sha512] [--json]` prints the signature-independent PE content digest (Authenticode image hash: CheckSum, certificate table entry and certificate data excluded, so signing, re-signing and timestamping do not change it). `right-release pe imports <file> [--allow dll,...] [--allow-file <path>] [--json]` lists regular and delay-load imports and exits 1 when any is outside the allow list (case-insensitive; a trailing `*` allows a prefix such as `api-ms-win-*`; no allow list refuses every import). SDK: `peContentDigest(bytes)` and `verifyImportClosure(bytes, allowedDlls)` in `pe-content.mjs`.
 

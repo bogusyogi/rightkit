@@ -123,13 +123,20 @@ export function walkTextFiles(dir, out = []) {
   return out;
 }
 
-/** Rewrite the template identity in one string; the bundle id first, then the three spellings. */
+// Names that merely contain the template identity as a substring and must survive the rename: the RightApps distribution provider
+// (`distribution.provider`, "r2-rightapps") would otherwise become "r2-<slug>s", which publish-update refuses.
+const KEEP = Object.freeze(["r2-" + LOWER + "s"]);
+const keepToken = (index) => `\u0000keep${index}\u0000`;
+
+/** Rewrite the template identity in one string; the bundle id first, then the three spellings. Names in KEEP are left alone. */
 export function renameText(text, { name, id, slug }) {
-  return text
+  const kept = KEEP.reduce((value, word, index) => value.replaceAll(word, keepToken(index)), text);
+  const renamed = kept
     .replaceAll(TEMPLATE_ID, id)
     .replaceAll(UPPER, slug.toUpperCase())
     .replaceAll(TITLE, name)
     .replaceAll(LOWER, slug);
+  return KEEP.reduce((value, word, index) => value.replaceAll(keepToken(index), word), renamed);
 }
 
 export const LEGAL_MANIFEST = "legal/legal-manifest.json";
