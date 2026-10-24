@@ -55,6 +55,17 @@ test("parseDoctor: a right-release: line with exit 1 and no rows is a fatal with
   const informational = parseDoctor({ stdout: "right-release: newer RightKit version (informational): rightkit-qa 0.8.0\n", stderr: "right-release: boom at /a/b\n", exit: 1 });
   assert.equal(informational.fatal.signature, "boom at <path>");
 });
+test("parseDoctor: a command-scoped refusal (right-release doctor: the app check found problems…) is a fatal, not a crash", () => {
+  const stderr = "FAIL eol-policy (G04): 1 file(s) committed with CRLF\n     fix: git add --renormalize\ncheck: 42 problem(s) in 95151b7ce02e (12 rules, 10.6s). Each would refuse later in CI or publication; fix and commit, then push.\nright-release doctor: the app check found problems in /Volumes/D/claude/heardright; nothing was started. Fix the above and commit, then run it again.\n";
+  const r = parseDoctor({ stdout: "", stderr, exit: 1 });
+  assert.equal(r.status, "fatal");
+  assert.deepEqual(r.failNames, []);
+  assert.equal(r.fatal.signature, "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.");
+  const cannot = parseDoctor({ stdout: "", stderr: "right-release doctor: the app check could not run in D:/claude/pulse; nothing was started. Fix the above and commit, then run it again.\n", exit: 1 });
+  assert.equal(cannot.status, "fatal");
+  assert.equal(cannot.fatal.signature, "the app check could not run in <path>; nothing was started. Fix the above and commit, then run it again.");
+  assert.equal(parseDoctor({ stdout: "right-release dev: [RK_X] boom\n", exit: 0 }).status, "pass");
+});
 test("parseDoctor: crashes are non-1 exits, signals, spawn errors and exit 1 with nothing recognizable", () => {
   assert.equal(parseDoctor({ stderr: "TypeError: x is not a function\n    at file:///a.mjs:1:1\n\nNode.js v26.8.1\n", exit: 1 }).status, "crash");
   assert.equal(parseDoctor({ exit: 139 }).status, "crash");
