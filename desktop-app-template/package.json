@@ -8,6 +8,7 @@
   },
   "type": "module",
   "scripts": {
+    "prepare": "rightkit-gate install-hook",
     "dev": "vite --host 127.0.0.1 --port 5190 --strictPort",
     "build": "pnpm exec vite build",
     "typecheck": "tsc --noEmit",
