@@ -271,8 +271,12 @@ Commands:
   ios-credentials store --key-id <KEYID> --issuer <uuid> | check
                                                       Put the App Store Connect API key (stdin), key id and issuer into the login Keychain once, or check them; never a file (macOS)
   qa --stage source|installed --platform mac|win [--release <id>]   Run rightkit-qa (and the journeys lane when the config sets qa.journeys) and write the sealed QA receipt. Refused inside a QA run. The receipt must match the platform and release id, come from an approved runner digest, and show every release-critical journey passed
-                                                      Admission is per app in qa-admission-policy.json: warn (default) records a refusal and continues; refuse blocks build, upload and publish. Only adrian moves an app from refuse back to warn
+                                                      Admission is per app, and per stage (source = build, installed = upload and publish), in qa-admission-policy.json: warn (default) records a refusal and continues; refuse blocks that stage. Only adrian moves an app or stage from refuse back to warn, or approves a runner
   qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]            List source/installed QA status per release; exit 1 if an uploaded build lacks passing QA
+  qa policy show | set --app <app> --mode warn|refuse --set-by <name> [--stage source|installed]
+                                                      Show the QA admission policy, or set an app's mode (both stages, or one with --stage)
+  qa policy approve-runner --runner <file> --version <v> --platform mac|win --set-by adrian [--note <text>]
+                                                      Approve a rightkit-qa runner build for one platform: the file must report "rightkit-qa <v>" from --version and <v> must be the published version
   publish-update --release <id> --platform mac|win --tier patch|update
                                                       Upload sealed bytes to R2 & register RightApps
   release                                             Compatibility alias for build
