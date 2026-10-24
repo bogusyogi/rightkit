@@ -1,0 +1,24 @@
+{
+  "appKey": "rightapp",
+  "productName": "RightApp",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-24",
+  "acceptanceVersion": "rightapp-2026-10-24-v1",
+  "draftAcceptanceVersion": "rightapp-draft-2026-10-24",
+  "documents": [
+    { "id": "license", "role": "license", "title": "Right Suite Desktop License", "version": "1.0", "path": "LICENSE.md", "publicUrl": "https://example.com/legal/license/", "treatment": "agree", "material": true },
+    { "id": "eula", "role": "eula", "title": "End User License Agreement", "version": "1.1", "path": "EULA.md", "publicUrl": "https://example.com/legal/eula/", "treatment": "agree", "material": true },
+    { "id": "acceptable-use", "role": "acceptable_use", "title": "Acceptable Use Policy", "version": "1.0", "path": "ACCEPTABLE_USE.md", "publicUrl": "https://example.com/legal/acceptable-use/", "treatment": "agree", "material": true },
+    { "id": "product-schedule", "role": "product_schedule", "title": "Product Schedule", "version": "1.0", "path": "PRODUCT_SCHEDULE.md", "publicUrl": "https://example.com/legal/product-schedule/", "treatment": "agree", "material": true },
+    { "id": "privacy", "role": "privacy_notice", "title": "Privacy Notice", "version": "1.0", "path": "PRIVACY_NOTICE.md", "publicUrl": "https://example.com/legal/privacy/", "treatment": "acknowledge", "material": false },
+    { "id": "notices", "role": "third_party_notices", "title": "Third-Party Notices", "version": "1.0", "path": "THIRD_PARTY_NOTICES.md", "publicUrl": "https://example.com/legal/notices/", "treatment": "notice", "material": false }
+  ],
+  "appendices": [
+    { "id": "npm-licenses", "title": "npm dependency licenses", "path": "THIRD_PARTY_NPM_LICENSES.html" }
+  ],
+  "notices": {
+    "template": "NOTICES.template.md",
+    "path": "THIRD_PARTY_NOTICES.md",
+    "hashes": { "lock": "pnpm-lock.yaml" }
+  }
+}

@@ -5,7 +5,18 @@ edition = "2021"
 rust-version = "1.98.0"
 publish = false
 
+[features]
+# M21 test mode: QA and dev builds only, never in `default`. rightkit-fs and rightkit-daemon read the
+# test selectors only when this is compiled, and `right-release` refuses a release build that has it.
+test-mode = ["rightkit-fs/test-mode", "rightkit-daemon/test-mode"]
+
 [dependencies]
-# Shared RightKit crates: exact registry pins (rightkit-versions.json `registry`).
-rightkit-jobs = "=0.2.6"
-rightkit-service = "=0.1.3"
+# Shared RightKit crates: exact crates.io pins (packages/release/rightkit-versions.json `registry`).
+# M21/M23 mode: `rightkit_daemon::mode` decides release or test run; the shell and the engine call it first.
+rightkit-daemon = "=0.4.0"
+# M6 data location: AppDirs resolves the one app data root, ensure_private_dir makes it owner-only.
+rightkit-fs = { version = "=0.4.7", default-features = false, features = ["app-dirs"] }
+# M4 window/CLI protocol: JobError and JobResult are the typed errors of the serve contract (no job-queue features here).
+rightkit-job-queue = { version = "=0.5.1", default-features = false }
+# M4 sidecar framing: declared; the engine serves these stdio frames through rightkit-job-queue's contract feature.
+rightkit-sidecar = "=0.3.0"

@@ -9,8 +9,20 @@ publish = false
 name = "rightapp-engine"
 path = "src/main.rs"
 
+[features]
+# M21 test mode: QA and dev builds only, never in `default`. The engine binary that `rightkit-qa` runs in
+# an isolated home is built with it; `right-release` refuses a release build that has it.
+test-mode = ["rightapp-protocol/test-mode"]
+
 [dependencies]
 rightapp-protocol = { path = "../protocol" }
-# Serves the rightkit-jobs contract: one command table for the sidecar and the CLI.
-rightkit-jobs = "=0.2.6"
+# Shared RightKit crates: exact crates.io pins (packages/release/rightkit-versions.json `registry`).
+# M16 crash: the engine installs its own process hook (the shell does not install one for it).
+rightkit-crash = { version = "=0.3.6", default-features = false }
+# M21/M23 mode: the first call of main is rightkit_daemon::mode::init_or_exit.
+rightkit-daemon = "=0.4.0"
+# M9 database: declared; the engine's durable job store is SQLite through rightkit-job-queue.
+rightkit-db = "=0.5.2"
+# M3/M4: the contract feature serves one command table over stdio frames and the CLI (it implies store + protocol).
+rightkit-job-queue = { version = "=0.5.1", default-features = false, features = ["contract"] }
 serde_json = "1"

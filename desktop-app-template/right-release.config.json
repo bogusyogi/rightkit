@@ -1,0 +1,314 @@
+{
+  "$comment": "Release contract for right-release (@rightkit/release): finite JSON, data only (M24). Every command is an admitted RightKit invocation; the only computation is the typed templates $fromJson, $fromToml and $json and the name, version, home and local-app-data tokens. Build is upload-free; upload is build-free and needs an explicit --tier patch|update. `right-release init` renames RightApp and rightapp.",
+  "schema": 1,
+  "app": "rightapp",
+  "version": {
+    "$fromJson": {
+      "file": "src-tauri/tauri.conf.json",
+      "pointer": "/version"
+    }
+  },
+  "distribution": {
+    "provider": "r2-rightapps"
+  },
+  "packageManager": "pnpm",
+  "deps": {
+    "workdirs": [
+      "."
+    ]
+  },
+  "checks": [
+    "typecheck"
+  ],
+  "buildInputs": {
+    "include": [
+      "right-release.config.json",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "index.html",
+      "tsconfig.json",
+      "vite.config.ts",
+      "src/**",
+      "assets/**",
+      "legal/**",
+      "switches.json",
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml",
+      "crates/**",
+      "src-tauri/Cargo.toml",
+      "src-tauri/build.rs",
+      "src-tauri/src/**",
+      "src-tauri/capabilities/**",
+      "src-tauri/icons/**",
+      "src-tauri/tauri.conf.json",
+      "src-tauri/tauri.sidecar.conf.json"
+    ],
+    "exclude": [
+      "**/*.test.*",
+      "**/tests/**",
+      "node_modules/**",
+      ".right-release/**",
+      ".cache/**",
+      "dist/**",
+      "target/**",
+      "src-tauri/target/**",
+      "*.dmg",
+      "*.exe",
+      "*.sig"
+    ]
+  },
+  "releaseSwitches": {
+    "inventory": "switches.json"
+  },
+  "legal": {
+    "manifest": "legal/legal-manifest.json",
+    "tauriConfig": "src-tauri/tauri.conf.json",
+    "npmNotices": {
+      "output": "legal/THIRD_PARTY_NPM_LICENSES.html",
+      "productName": "RightApp"
+    }
+  },
+  "qa": {
+    "version": "1",
+    "config": "rightkit-qa.toml",
+    "checks": {
+      "smoke.launch": [
+        "engine black box: one-shot CLI contract"
+      ]
+    },
+    "journeys": {
+      "manifest": "journeys.toml"
+    }
+  },
+  "sidecars": {
+    "sidecars": [
+      {
+        "kind": "cargo-bin",
+        "package": "rightapp-engine",
+        "profile": {
+          "dev": "dev",
+          "release": "release"
+        }
+      }
+    ]
+  },
+  "development": {
+    "targets": {
+      "win": {
+        "build": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "x86_64-pc-windows-msvc"
+            ]
+          },
+          {
+            "cmd": "pnpm",
+            "args": [
+              "exec",
+              "tauri",
+              "build",
+              "--debug",
+              "--target",
+              "x86_64-pc-windows-msvc",
+              "--bundles",
+              "nsis",
+              "--no-sign",
+              "--config",
+              "src-tauri/tauri.sidecar.conf.json",
+              "--config",
+              {
+                "$json": {
+                  "bundle": {
+                    "createUpdaterArtifacts": false,
+                    "windows": {
+                      "signCommand": null
+                    }
+                  }
+                }
+              },
+              "--",
+              "--locked"
+            ]
+          }
+        ],
+        "install": {
+          "kind": "tauri",
+          "productName": "RightApp",
+          "manifestPath": "src-tauri/Cargo.toml",
+          "targetTriple": "x86_64-pc-windows-msvc",
+          "expectedInstalledPath": "{{localAppData}}/RightApp/rightapp.exe"
+        }
+      },
+      "mac": {
+        "build": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "aarch64-apple-darwin"
+            ]
+          },
+          {
+            "cmd": "pnpm",
+            "args": [
+              "exec",
+              "tauri",
+              "build",
+              "--debug",
+              "--target",
+              "aarch64-apple-darwin",
+              "--bundles",
+              "app",
+              "--no-sign",
+              "--config",
+              "src-tauri/tauri.sidecar.conf.json",
+              "--config",
+              {
+                "$json": {
+                  "bundle": {
+                    "createUpdaterArtifacts": false,
+                    "macOS": {
+                      "signingIdentity": "-"
+                    }
+                  }
+                }
+              },
+              "--",
+              "--locked"
+            ]
+          }
+        ],
+        "install": {
+          "kind": "tauri",
+          "productName": "RightApp",
+          "manifestPath": "src-tauri/Cargo.toml",
+          "targetTriple": "aarch64-apple-darwin"
+        }
+      }
+    }
+  },
+  "targets": {
+    "mac": {
+      "signed": true,
+      "signingContract": "macos-developer-id-notarized-portable-v1",
+      "macPackage": {
+        "triple": "aarch64-apple-darwin",
+        "cargoTargetRoot": "Cargo.toml",
+        "prepare": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "aarch64-apple-darwin"
+            ]
+          }
+        ],
+        "tauriConfig": "src-tauri/tauri.sidecar.conf.json"
+      },
+      "notarize": {
+        "app": "target/aarch64-apple-darwin/release/bundle/macos/RightApp.app",
+        "file": "RightApp_{{version}}_aarch64.dmg",
+        "profile": "apple-dev-notary"
+      },
+      "artifacts": [
+        "RightApp_{{version}}_aarch64.dmg"
+      ],
+      "hardening": [
+        "RightApp_{{version}}_aarch64.dmg"
+      ],
+      "publish": {
+        "cmd": "right-release",
+        "args": [
+          "publish-update",
+          "--platform",
+          "mac"
+        ]
+      },
+      "installer": {
+        "artifacts": [
+          {
+            "file": "RightApp_{{version}}_aarch64.dmg",
+            "key": "rightapp/installers/mac/current/RightApp_aarch64.dmg"
+          }
+        ]
+      },
+      "updater": {
+        "artifacts": []
+      },
+      "externalBin": {
+        "names": [
+          "rightapp-engine"
+        ],
+        "arch": "aarch64",
+        "bundleDir": "Contents/MacOS"
+      }
+    },
+    "win": {
+      "signed": true,
+      "winPackage": {
+        "installer": "nsis",
+        "productName": "RightApp",
+        "updater": false,
+        "cargoTargetRoot": "Cargo.toml",
+        "timeoutMs": 1200000,
+        "prepare": [
+          {
+            "cmd": "right-release",
+            "args": [
+              "stage-sidecar",
+              "--target",
+              "x86_64-pc-windows-msvc"
+            ]
+          }
+        ],
+        "tauriConfig": "src-tauri/tauri.sidecar.conf.json"
+      },
+      "sign": {
+        "prePackageFiles": [
+          "target/release/rightapp.exe"
+        ],
+        "files": [
+          "target/release/bundle/nsis/RightApp_{{version}}_x64-setup.exe"
+        ]
+      },
+      "artifacts": [
+        "target/release/bundle/nsis"
+      ],
+      "hardening": [
+        "target/release/bundle/nsis"
+      ],
+      "publish": {
+        "cmd": "right-release",
+        "args": [
+          "publish-update",
+          "--platform",
+          "win"
+        ]
+      },
+      "installer": {
+        "artifacts": [
+          {
+            "file": "target/release/bundle/nsis/RightApp_{{version}}_x64-setup.exe",
+            "key": "rightapp/installers/windows/current/RightApp_x64-setup.exe"
+          }
+        ]
+      },
+      "updater": {
+        "artifacts": []
+      },
+      "externalBin": {
+        "names": [
+          "rightapp-engine"
+        ],
+        "arch": "x86_64"
+      }
+    }
+  }
+}

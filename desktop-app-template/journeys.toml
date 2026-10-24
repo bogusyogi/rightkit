@@ -1,0 +1,25 @@
+# Product journeys for rightkit-qa (`rightkit-qa journeys check`, `rightkit-qa journeys run`).
+# One QA build for the whole app: the engine with its `test-mode` feature (the same switch rightkit-fs and
+# rightkit-daemon read for test isolation). Every journey is declared here and runs through the shared runner.
+version = 1
+app = "rightapp"
+
+[build]
+command = ["rustright", "cargo", "build", "-p", "rightapp-engine", "--features", "test-mode"]
+features = ["test-mode"]
+artifacts = [{ role = "engine", cargo_package = "rightapp-engine", qa_marker = false }]
+
+# Every unit test in the template is tagged `// rk-test: pure`, so nothing is frozen as untagged.
+[tests]
+untagged_baseline = 0
+
+[[journey]]
+id = "J-001"
+title = "Engine CLI contract"
+platforms = ["macos", "windows"]
+surface = "engine"
+runner = "scenario"
+entry = "tests/scenarios/engine-blackbox.scenario.toml"
+tier = "fast"
+data = "generated"
+release_critical = true

@@ -2,15 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "RightApp main window permissions",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "os:allow-platform",
-    "updater:default",
-    "process:default"
+    "os:allow-platform"
   ]
 }

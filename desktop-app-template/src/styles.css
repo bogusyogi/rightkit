@@ -1,4 +1,8 @@
+/* The layer order comes first so the shell's rules (layer rk) sit between Tailwind's base and its
+   utilities: the app's own utility classes override the shell, and the shell overrides preflight. */
+@layer theme, base, rk, components, utilities;
 @import "tailwindcss";
+@import "@rightkit/react-shell/shell.layered.css";
 @import "./brand.css";
 
 :root { color-scheme: light dark; }

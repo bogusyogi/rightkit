@@ -16,61 +16,47 @@ path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-serde_json = "1"
 
 [dependencies]
 rightapp-protocol = { path = "../crates/protocol" }
 tauri = { version = "2", features = ["protocol-asset"] }
-serde_json = "1"
 
 # Tauri plugin crates: exact, equal to their npm counterparts (@tauri-apps/plugin-*).
 tauri-plugin-os = "=2.4.0"
-tauri-plugin-process = "=2.3.1"
-tauri-plugin-updater = "=2.10.1"
 
-# RightKit shared crates: exact registry pins only (no path/git/vendored copies).
-# Versions must equal packages/release/rightkit-versions.json `registry` (the published set);
-# `pnpm check:template` enforces this.
-# rightkit-jobs supervises the engine sidecar (EngineSupervisor).
-rightkit-jobs = "=0.2.6"
-# rightkit-logs: JSONL diagnostics.
-rightkit-logs = "=0.2.0"
-# rightkit-process: OwnedCommand, the ownership-safe child spawn for the sidecar.
-rightkit-process = "=0.3.3"
-# rightkit-shell hosts the window; wv2-0_39 matches Tauri 2.12 (the locked tauri version).
-rightkit-shell = { version = "=0.1.4", default-features = false, features = ["wv2-0_39"] }
-# rightkit-tauri: DeviceService.
-rightkit-tauri = "=0.1.2"
-# rightkit-secrets: OS credential store for the device identity (KeyringDeviceStore).
-rightkit-secrets = "=0.1.3"
-# rightkit-db = "=0.3.2"  (add when the app owns a database beside the job store)
+# RightKit shared crates: exact crates.io pins only (no path/git/vendored copies).
+# Versions must equal packages/release/rightkit-versions.json `registry` (the published set).
+#
+# M1 window host + M3 engine supervision + M15 logging + M16 crash: one shell crate. wv2-0_39 matches Tauri 2.12
+# (the locked tauri version); `engine` supervises the sidecar, `logs` registers the renderer log commands and
+# `crash` adds the watchdog's stall capture. host-services, license and update are not enabled here.
+rightkit-tauri-shell = { version = "=0.6.0", default-features = false, features = ["wv2-0_39", "engine", "logs", "crash"] }
+# M1/M12 device: DeviceService, with the credentials adapter whose set_if_absent is atomic.
+rightkit-device = { version = "=0.4.0", features = ["credentials"] }
+# M11 secrets: the OS credential store behind the device identity.
+rightkit-credentials = "=0.4.2"
+# M5 child process: OwnedCommand, the ownership-safe spawn of the engine sidecar.
+rightkit-child-process = "=0.5.6"
+# M21/M23 mode: the first call of run is rightkit_daemon::mode::init_or_exit.
+rightkit-daemon = "=0.4.0"
+# M16 crash: the process hook of the window host.
+rightkit-crash = { version = "=0.3.6", default-features = false }
+# M15 logging: declared; wired through rightkit-tauri-shell `logs` (the shell pulls this crate itself).
+rightkit-logs = { version = "=0.3.5", default-features = false }
+# M12 licence: declared; native wiring lands with the per-app trust roots lane (the shell's host-services, license and update wiring).
+rightkit-license = "=0.2.5"
+# M17 http: declared; native wiring lands with the per-app trust roots lane (the shell's host-services, license and update wiring).
+rightkit-http = "=0.3.8"
+# M10 settings: declared; native wiring lands with the per-app trust roots lane (the shell's host-services, license and update wiring).
+rightkit-app-settings = "=0.3.0"
 
-# QA control never ships. The in-app control server (`rightkit-control` `qa-control`) is for the internal
-# rightkit-qa harness only; the only supported automation surface for users is the app's own command line
-# or plugin. When rightkit-control 0.3.0 is on the registry (`rightkit-versions.json` `registry`), adopt it
-# exactly like this (an optional dependency, a feature that is off by default, never in `default`):
-#
-#   [features]
-#   qa-native = ["dep:rightkit-control", "rightkit-control/qa-control"]
-#
-#   # in [dependencies]; wv2-0_39 matches Tauri 2.12:
-#   rightkit-control = { version = "=0.3.0", default-features = false, features = ["wv2-0_39"], optional = true }
-#
-# then enable the registration in src/lib.rs (the commented block in `run`). The dev lane builds with
-# `--features qa-native`; `right-release` fails any release or update seal that contains the server.
-#
-# Developer inspection of DEV builds. rightkit-shell denies DevTools on every webview of every build (the
-# owner's rule for shipped apps). A development build that must be inspected (attached debugger, QA tooling,
-# the wdio remote-debugging port) selects the shell's `dev-inspect` feature through an optional, off-by-default
-# app feature, exactly like `qa-native`. It is NOT enabled here: the pinned `rightkit-shell = "=0.1.4"` has no
-# `dev-inspect` feature yet, so adding the line below would break `cargo metadata`. Once the registry pin moves
-# to the rightkit-shell release that has it (`rightkit-versions.json` `registry`), add to [features]:
-#
-#   dev-native = ["rightkit-shell/dev-inspect"]
-#
-# and build the dev lane with `--features dev-native` (or `qa-native,dev-native`). `default` must never reach it:
-# `right-release` refuses `dev-native` / `dev-inspect` in a release or update build command or manifest, the
-# binary scan refuses the marker `RIGHTKIT-SHELL-DEV-INSPECT-COMPILED`, and `rightkit-qa guard` rejects it in
-# default features.
+# QA control never ships. The in-app control server (rightkit-qa, feature `control`) is for the internal QA
+# harness only: an optional dependency behind the off-by-default `qa-native` feature, never in `default`.
+# `qa-native` also compiles the protocol crate's `test-mode`, the only way the isolated test root is read.
+# The dev lane builds with `--features qa-native`; `right-release` fails any release or update seal that
+# contains the server. wv2-0_39 matches Tauri 2.12.
+rightkit-qa = { version = "=0.9.0", optional = true, default-features = false, features = ["control", "wv2-0_39"] }
+
 [features]
 default = []
+qa-native = ["dep:rightkit-qa", "rightkit-qa/control", "rightapp-protocol/test-mode"]

@@ -1,6 +1,8 @@
-# Rust QA harness config (`rightkit-qa run --tier fast`). Replaces every Node e2e harness.
-# Scenarios are declarative TOML in tests/scenarios; the real engine binary runs in a fresh
-# per-scenario data dir, with system audio muted and no network.
+# Config for rightkit-qa (the shared QA runner): `rightkit-qa journeys run` builds in the broker and runs outside it.
+# Scenarios are declarative TOML in tests/scenarios; the real engine binary runs in a fresh per-scenario test root
+# with system audio muted and no network. Test isolation is the shared `test-mode` switch, never an app-owned variable:
+# the engine is built with its `test-mode` feature (QA builds only, never default, never released), and the runner binds
+# RIGHTKIT_UNDER_TEST and RIGHTKIT_QA_DATA_DIR for each scenario; rightkit-fs and rightkit-daemon read them only then.
 app = "rightapp"
 app_root = "."
 scenarios = ["tests/scenarios"]
@@ -8,11 +10,12 @@ default_tier = "fast"
 
 [engine]
 package = "rightapp-engine"
-build = ["rustright", "cargo", "build", "-p", "rightapp-engine"]
-data_dir_env = "RIGHTAPP_APP_DATA"
+build = ["rustright", "cargo", "build", "-p", "rightapp-engine", "--features", "test-mode"]
+# The runner names the scenario's isolated data directory through this variable (and binds the same value for test-mode).
+data_dir_env = "RIGHTKIT_QA_DATA_DIR"
 
 [audio]
 system_mute = true
 
-# Native UI scenarios (hidden app driven through rightkit-control) are added with the shell's
-# `qa-native` feature; see README step 11. Until then the engine scenarios are the gate.
+# Native UI scenarios drive the hidden app through the control server of the app's `qa-native` feature
+# (src-tauri/Cargo.toml). They are added per app with a [ui] section; until then the engine scenarios are the gate.

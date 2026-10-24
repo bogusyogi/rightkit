@@ -1,81 +1,69 @@
-//! RightApp desktop shell. `rightkit-shell` hosts the window (hardened webview, window state, single
-//! instance, tray and menu hooks). `rightkit-jobs` supervises the `rightapp-engine` sidecar: restart
-//! budget, per-call deadline, no replay of a timed-out call. The product's work lives in `crates/engine`
-//! behind the rightkit-jobs contract. The data root comes from `rightapp_protocol::app_data_root`.
+//! RightApp desktop shell. `rightkit-tauri-shell` hosts the window (hardened webview, window state,
+//! single instance, tray and menu hooks) and owns the `rightapp-engine` sidecar: it starts the engine
+//! off the UI thread, answers the renderer's `rk_shell_engine_call` under a native method allowlist,
+//! never replays a call lost in flight, and shuts the engine down on exit. It also registers the
+//! renderer log commands (`logs`) and the watchdog's stall capture (`crash`). The product's work
+//! lives in `crates/engine` behind the rightkit-job-queue contract. The data root comes from
+//! `rightapp_protocol::app_data_root`.
 
-mod diagnostics;
+use std::path::{Path, PathBuf};
 
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
-
-use rightapp_protocol::app_data_root;
-use rightkit_jobs::{EngineSupervisor, SupervisorConfig};
-use rightkit_process::{OwnedCommand, RestartMode, RestartPolicy};
-use rightkit_secrets::{Config, Namespace, Store};
-use rightkit_shell::Shell;
-use rightkit_tauri::{DeviceService, SecureStore};
-use serde_json::Value;
-use tauri::Manager;
+use rightapp_protocol::{
+    app_data_root, build_label, crash_dir, APP_ID, APP_NAME, METHOD_ECHO, MODE_APP,
+};
+use rightkit_child_process::OwnedCommand;
+use rightkit_crash::{install_process_hook, CrashConfig, ProcessKind};
+use rightkit_credentials::{Config, Namespace, Store};
+use rightkit_device::credentials::CredentialStore;
+use rightkit_device::DeviceService;
+use rightkit_tauri_shell::engine::{EnginePolicy, EngineSpec};
+use rightkit_tauri_shell::logs_commands::{self, LogsConfig};
+use rightkit_tauri_shell::watchdog::{crash_capture, CrashCaptureOptions};
+use rightkit_tauri_shell::{Shell, WatchdogConfig};
 
 /// Sidecar binary name: `bundle.externalBin` is `binaries/rightapp-engine`.
 const ENGINE_BIN: &str = "rightapp-engine";
 
-/// Engine launch for the supervisor. The engine resolves its own data root, so the shell passes nothing
-/// app-specific in the environment. A call that outlives its deadline kills the engine and fails; it is
-/// never replayed. Restarts are on demand, within 5 per minute.
-pub fn engine_config(engine: PathBuf) -> Result<SupervisorConfig, String> {
-    let restart = RestartPolicy::new(
-        RestartMode::OnDemand,
-        5,
-        Duration::from_secs(60),
-        Duration::from_millis(100),
-        Duration::from_secs(2),
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(SupervisorConfig::new(ENGINE_BIN, move || {
-        let mut command = OwnedCommand::new(&engine);
+/// Where the sidecar runs from. Packaged: Tauri places `externalBin` next to the executable (triple
+/// suffix stripped). In a dev build the workspace's `cargo build -p rightapp-engine` lands beside the
+/// app binary as well. Nothing is read from the environment, so a packaged app never launches an
+/// executable that its environment names. Without an executable path the bare name is returned and
+/// the spawn fails with a plain "not found" that the shell reports as the engine's lifecycle error.
+fn engine_program(exe: Option<PathBuf>) -> PathBuf {
+    let name = if cfg!(windows) {
+        format!("{ENGINE_BIN}.exe")
+    } else {
+        ENGINE_BIN.to_owned()
+    };
+    match exe.as_deref().and_then(Path::parent) {
+        Some(dir) => dir.join(name),
+        None => PathBuf::from(name),
+    }
+}
+
+/// The engine launch the shell supervises: `--stdio` serves the job-queue frames. The shell restarts a
+/// dead engine on the next call and never replays a call that was lost in flight.
+fn engine_spec() -> EngineSpec {
+    EngineSpec::new(|| {
+        let mut command = OwnedCommand::new(engine_program(std::env::current_exe().ok()));
         command.command_mut().arg("--stdio");
         command.windows_hide();
-        Ok(command)
+        command
     })
-    .with_restart(restart)
-    .with_rpc_timeout(Duration::from_secs(30)))
 }
 
-/// Engine path override from `RIGHTAPP_ENGINE_BIN`, honoured only when `allowed`. A release build
-/// passes `false`, so a packaged app never launches an executable named by its environment.
-fn engine_override(value: Option<std::ffi::OsString>, allowed: bool) -> Option<PathBuf> {
-    if allowed {
-        value.map(PathBuf::from)
-    } else {
-        None
-    }
+/// Which engine methods the renderer may call through `rk_shell_engine_call`. The engine serves more
+/// (`ping`, `shutdown`, `job.*`); those stay native-only. Every method not listed is denied.
+fn engine_policy() -> EnginePolicy {
+    EnginePolicy::default().allow_methods(["doctor", METHOD_ECHO])
 }
 
-/// Packaged: Tauri places `externalBin` next to the executable (triple suffix stripped). Debug builds
-/// (dev and QA) may override the path with `RIGHTAPP_ENGINE_BIN`; release builds ignore it.
-fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if let Some(p) = engine_override(
-        std::env::var_os("RIGHTAPP_ENGINE_BIN"),
-        cfg!(debug_assertions),
-    ) {
-        return Ok(p);
-    }
-    let name = if cfg!(windows) {
-        "rightapp-engine.exe"
-    } else {
-        "rightapp-engine"
-    };
-    let exe_dir = std::env::current_exe()?
-        .parent()
-        .map(|p| p.to_path_buf())
-        .ok_or("no exe dir")?;
-    let packaged = exe_dir.join(name);
-    if packaged.is_file() {
-        return Ok(packaged);
-    }
-    Ok(app.path().resource_dir()?.join(name))
+/// Crash reports of the window host land in the shared `crash` folder under the data root.
+fn crash_config(data_root: &Path) -> CrashConfig {
+    let mut config = CrashConfig::new(APP_NAME, env!("CARGO_PKG_VERSION"), crash_dir(data_root))
+        .process_kind(ProcessKind::Window);
+    config.build = Some(build_label().to_owned());
+    config
 }
 
 /// Keychain service for the device identity: the bundle identifier (`tauri.conf.json` `identifier`).
@@ -83,175 +71,117 @@ fn engine_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Er
 const DEVICE_SERVICE: &str = "app.rightsuite.rightapp";
 const DEVICE_ACCOUNT: &str = "device-id";
 
-/// Device identity lives in the OS credential store through `rightkit-secrets`, so it survives
-/// profile wipes and is not a readable file. Read failures are errors, never absence.
-struct KeyringDeviceStore {
-    store: Store,
+/// Device identity lives in the OS credential store through `rightkit-credentials`, so it survives
+/// profile wipes and is not a readable file. `CredentialStore` creates atomically (`add_if_absent`),
+/// so two creators cannot both mint an identity, and a read failure is an error, never absence.
+fn device_service_with(config: Config) -> Result<DeviceService<CredentialStore>, String> {
+    let store =
+        CredentialStore::new(Store::open(config), DEVICE_ACCOUNT).map_err(|e| e.to_string())?;
+    Ok(DeviceService::new(store))
 }
 
-impl KeyringDeviceStore {
-    fn new() -> Result<Self, String> {
-        let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
-        Ok(Self::with_config(Config::new(namespace)))
-    }
-
-    fn with_config(config: Config) -> Self {
-        Self {
-            store: Store::open(config),
-        }
-    }
+fn open_device_service() -> Result<DeviceService<CredentialStore>, String> {
+    let namespace = Namespace::new(DEVICE_SERVICE).map_err(|e| e.to_string())?;
+    device_service_with(Config::new(namespace))
 }
 
-impl SecureStore<String> for KeyringDeviceStore {
-    fn get(&self) -> Result<Option<String>, String> {
-        match self.store.get(DEVICE_ACCOUNT).map_err(|e| e.to_string())? {
-            Some(secret) => Ok(Some(
-                secret
-                    .expose_str()
-                    .map_err(|e| e.to_string())?
-                    .trim()
-                    .to_string(),
-            )),
-            None => Ok(None),
-        }
-    }
+/// Managed state of the device command. A credential store that cannot open at launch does not stop
+/// the app: the command answers with the reason and never with a made-up identity.
+struct DeviceState(Result<DeviceService<CredentialStore>, String>);
 
-    fn set(&self, value: &String) -> Result<(), String> {
-        self.store
-            .set_str(DEVICE_ACCOUNT, value)
-            .map_err(|e| e.to_string())
-    }
-
-    fn delete(&self) -> Result<(), String> {
-        self.store
-            .delete(DEVICE_ACCOUNT)
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-    }
-}
-
+/// The one native device-identity command of the `@rightkit/tauri` contract.
 #[tauri::command]
-fn device_get_or_create(
-    device: tauri::State<'_, DeviceService<KeyringDeviceStore>>,
-) -> Result<String, String> {
-    device.get_or_create().map_err(|e| e.to_string())
-}
-
-/// One engine call. The blocking supervisor call runs off the UI thread, so a slow command never
-/// stalls the window.
-#[tauri::command]
-async fn engine_call(
-    engine: tauri::State<'_, Arc<EngineSupervisor>>,
-    cmd: String,
-    input: Value,
-) -> Result<Value, String> {
-    let engine = engine.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        engine.call(&cmd, input).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+fn secure_device_id_get_or_create(device: tauri::State<'_, DeviceState>) -> Result<String, String> {
+    match &device.inner().0 {
+        Ok(service) => service.get_or_create().map_err(|e| e.to_string()),
+        Err(reason) => Err(reason.clone()),
+    }
 }
 
 pub fn run() {
+    // The mode decision comes before any store, log, credential or service opens.
+    rightkit_daemon::mode::init_or_exit(&MODE_APP);
     let data_root = app_data_root().expect("RightApp data root");
+    let crash = crash_config(&data_root);
+    install_process_hook(ProcessKind::Window, crash.clone());
     // The shell plugin goes first so single-instance arbitration runs before any other plugin works.
-    let shell = Shell::builder("rightapp")
-        .app_name("RightApp")
+    let shell = Shell::builder(APP_ID)
+        .app_name(APP_NAME)
         .frameless(true)
         .state_dir(data_root.join("shell"))
+        .watchdog(Some(WatchdogConfig::default().with_capture(crash_capture(
+            crash,
+            "ui_stall",
+            CrashCaptureOptions::default(),
+        ))))
+        .engine_with_policy(engine_spec(), engine_policy())
         .build()
         .plugin();
-    let builder = tauri::Builder::default();
-    // QA control never ships: see the `qa-native` pattern in Cargo.toml. Once adopted, uncomment:
-    // #[cfg(feature = "qa-native")]
-    // let builder = match rightkit_control::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
-    //     Some(control) => builder.plugin(control), // logs "RIGHTKIT QA CONTROL SERVER ACTIVE" when the launcher sets RIGHTKIT_CONTROL_SERVICE
-    //     None => builder,
-    // };
+    let builder = tauri::Builder::default().plugin(shell);
+    // QA control never ships: the registration exists only in a `qa-native` build, and only a launch that
+    // sets the control runtime flag starts the server (see Cargo.toml).
+    #[cfg(feature = "qa-native")]
+    let builder = match rightkit_qa::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
+        Some(plugin) => builder.plugin(plugin),
+        None => builder,
+    };
+    let logs_path = data_root.join("logs").join("events.jsonl");
     builder
-        .plugin(shell)
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(DeviceService::new(
-            KeyringDeviceStore::new().expect("device identity store"),
-        ))
-        .setup(|app| {
-            let engine = EngineSupervisor::new(engine_config(engine_path(app.handle())?)?);
-            engine.start()?;
-            app.manage(Arc::new(engine));
+        .manage(DeviceState(open_device_service()))
+        .setup(move |app| {
+            let mut logs = LogsConfig::new(APP_NAME, env!("CARGO_PKG_VERSION"), logs_path);
+            logs.build = build_label().to_owned();
+            logs_commands::install(app.handle(), logs)?;
             Ok(())
         })
-        .invoke_handler(rightkit_shell::handler![
-            device_get_or_create,
-            engine_call,
-            diagnostics::rightkit_logs_write,
-            diagnostics::rightkit_logs_collect,
-            diagnostics::rightkit_logs_clear,
+        .invoke_handler(rightkit_tauri_shell::handler![
+            secure_device_id_get_or_create
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building RightApp")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(engine) = app.try_state::<Arc<EngineSupervisor>>() {
-                    engine.shutdown();
-                }
-            }
-        });
+        .run(tauri::generate_context!())
+        .expect("error while running RightApp");
 }
 
 #[cfg(test)]
-mod engine_override_tests {
-    use super::engine_override;
-    use std::ffi::OsString;
-    use std::path::PathBuf;
-
-    #[test]
-    fn a_release_build_ignores_the_engine_override() {
-        assert_eq!(
-            engine_override(Some(OsString::from("/tmp/evil")), false),
-            None
-        );
-    }
-
-    #[test]
-    fn a_debug_build_honours_the_engine_override() {
-        assert_eq!(
-            engine_override(Some(OsString::from("/tmp/dev-engine")), true),
-            Some(PathBuf::from("/tmp/dev-engine"))
-        );
-        assert_eq!(engine_override(None, true), None);
-    }
-}
-
-#[cfg(test)]
-mod device_store_tests {
+mod tests {
     use super::*;
-    use rightkit_secrets::GuardMode;
+    use rightkit_credentials::GuardMode;
 
-    fn memory_store() -> KeyringDeviceStore {
-        let namespace = Namespace::new("app.rightsuite.rightapp.test").unwrap();
-        KeyringDeviceStore::with_config(Config::new(namespace).guard_when(true, GuardMode::Memory))
-    }
-
+    // rk-test: pure
     #[test]
-    fn device_identity_round_trips_through_the_secret_store_and_not_a_file() {
-        let store = memory_store();
-        store.delete().unwrap();
-        assert_eq!(store.get().unwrap(), None);
-        store.set(&"device-123".to_string()).unwrap();
-        assert_eq!(store.get().unwrap().as_deref(), Some("device-123"));
-        store.delete().unwrap();
-        assert_eq!(store.get().unwrap(), None);
-    }
-
-    #[test]
-    fn a_denied_secret_store_is_an_error_not_an_absent_identity() {
-        let namespace = Namespace::new("app.rightsuite.rightapp.denied").unwrap();
-        let store = KeyringDeviceStore::with_config(
-            Config::new(namespace).guard_when(true, GuardMode::Deny),
+    fn the_engine_is_found_next_to_the_executable() {
+        let name = if cfg!(windows) {
+            "rightapp-engine.exe"
+        } else {
+            "rightapp-engine"
+        };
+        let exe = PathBuf::from("install-dir").join("rightapp");
+        assert_eq!(
+            engine_program(Some(exe)),
+            PathBuf::from("install-dir").join(name)
         );
-        assert!(store.get().is_err());
+        assert_eq!(engine_program(None), PathBuf::from(name));
+    }
+
+    // rk-test: pure
+    #[test]
+    fn the_device_identity_is_minted_once_through_the_credential_store() {
+        let namespace = Namespace::new("app.rightsuite.rightapp.test").unwrap();
+        let service =
+            device_service_with(Config::new(namespace).guard_when(true, GuardMode::Memory))
+                .unwrap();
+        let first = service.get_or_create().unwrap();
+        assert_eq!(first.len(), 36);
+        assert_eq!(service.get_or_create().unwrap(), first);
+        assert_eq!(service.get().unwrap().as_deref(), Some(first.as_str()));
+    }
+
+    // rk-test: pure
+    #[test]
+    fn a_denied_credential_store_is_an_error_not_a_minted_identity() {
+        let namespace = Namespace::new("app.rightsuite.rightapp.denied").unwrap();
+        let service =
+            device_service_with(Config::new(namespace).guard_when(true, GuardMode::Deny)).unwrap();
+        assert!(service.get_or_create().is_err());
     }
 }

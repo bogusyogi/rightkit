@@ -1,0 +1,7 @@
+{
+  "profile": "desktop",
+  "notApplicable": {
+    "M22": "The template has no agent surface: rightkit-agent-tools is the daemon-backed app-control client, an add-on in the foundation plan (decision pending), and an app adds it only when it exposes agent tools."
+  },
+  "M22": { "role": "absent", "entrypoints": [] }
+}

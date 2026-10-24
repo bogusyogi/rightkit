@@ -1,0 +1,85 @@
+{
+  "schema": 2,
+  "suite": "right-suite-desktop",
+  "appKey": "rightapp",
+  "productName": "RightApp",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-24",
+  "acceptanceVersion": "rightapp-2026-10-24-v1",
+  "documents": [
+    {
+      "id": "license",
+      "role": "license",
+      "title": "Right Suite Desktop License",
+      "version": "1.0",
+      "path": "LICENSE.md",
+      "publicUrl": "https://example.com/legal/license/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "74c91121939a3fc2c66d4471c5aa6d7a7b1d4d57caaf4419dd04c379119fa5b1"
+    },
+    {
+      "id": "eula",
+      "role": "eula",
+      "title": "End User License Agreement",
+      "version": "1.1",
+      "path": "EULA.md",
+      "publicUrl": "https://example.com/legal/eula/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "9a5ce62ae250ba9b4859b6831a74d38e2267007965af9ad12dd2c84ff5ed769e"
+    },
+    {
+      "id": "acceptable-use",
+      "role": "acceptable_use",
+      "title": "Acceptable Use Policy",
+      "version": "1.0",
+      "path": "ACCEPTABLE_USE.md",
+      "publicUrl": "https://example.com/legal/acceptable-use/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "2fa8470434259ba4ef182999c8ca9212185424991a6dbae16ffd60471baa41c9"
+    },
+    {
+      "id": "product-schedule",
+      "role": "product_schedule",
+      "title": "Product Schedule",
+      "version": "1.0",
+      "path": "PRODUCT_SCHEDULE.md",
+      "publicUrl": "https://example.com/legal/product-schedule/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "286a6ec58f616438af238ef30f5c4462b705b4b8fbe40c6b7de6dee86ee59211"
+    },
+    {
+      "id": "privacy",
+      "role": "privacy_notice",
+      "title": "Privacy Notice",
+      "version": "1.0",
+      "path": "PRIVACY_NOTICE.md",
+      "publicUrl": "https://example.com/legal/privacy/",
+      "treatment": "acknowledge",
+      "material": false,
+      "sha256": "03b0c1eaed32c933a64e7e30fb08a989bfc19ffa59065c4f4ffe5a45b84f7730"
+    },
+    {
+      "id": "notices",
+      "role": "third_party_notices",
+      "title": "Third-Party Notices",
+      "version": "1.0",
+      "path": "THIRD_PARTY_NOTICES.md",
+      "publicUrl": "https://example.com/legal/notices/",
+      "treatment": "notice",
+      "material": false,
+      "sha256": "af21ba6e850895c39b64f170db36cceff57d233a4145a41b0ed36d6d194bb85b"
+    }
+  ],
+  "appendices": [
+    {
+      "id": "npm-licenses",
+      "title": "npm dependency licenses",
+      "path": "THIRD_PARTY_NPM_LICENSES.html",
+      "sha256": "d64451312de880814fd4500c0f765e30cc487459db23b568c550d24a1ea728a5"
+    }
+  ]
+}

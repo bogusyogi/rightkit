@@ -147,7 +147,9 @@ everything runs.
 - **Root suites.** `ownership-approval`, `characterization`, `infrastructure`, `swift/contracts`
   and `scripts` run when their directory changed.
 
-Not covered yet: `desktop-app-template`, `swift/ios-app-template`, `spikes`.
+Not covered yet: `swift/ios-app-template`, `spikes`. `desktop-app-template` is its own Cargo workspace: `rightkit-gate`
+discovers it (it is not a `ci/gate.config.json` fixture), and `packages/release/desktop-template.test.mjs` instantiates it with
+`right-release init` and runs the files-only checks and the doctor's files rows on the fresh app with an empty baseline.
 
 ## Sharded CI
 
