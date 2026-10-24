@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // right-release qa: run RightKit's own QA runner (rightkit-qa) and write the sealed, MAC'd QA receipt.
 //
-//   right-release qa --stage source    --platform mac|win [--config right-release.config.mjs]
-//   right-release qa --stage installed --platform mac|win --release <sealed-id> [--config right-release.config.mjs]
+//   right-release qa --stage source    --platform mac|win [--config right-release.config.json]
+//   right-release qa --stage installed --platform mac|win --release <sealed-id> [--config right-release.config.json]
 //   right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]   (release-qa-audit.mjs; exit 1 when an uploaded build lacks passing QA)
 //
 // The release config declares the app's QA plan:
@@ -20,8 +20,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
@@ -77,7 +78,7 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   if (!deps.skipPrimaryCheckout) assertPrimaryReleaseCheckout(repoRoot);
   assertCleanSource({ status: String(gitRunner("git", ["-C", repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all"], { encoding: "utf8", windowsHide: true }).stdout ?? ""), commandId: "right-release qa" });
   const source = sourceIdentity(repoRoot, gitRunner);
-  const config = (await import(`${pathToFileURL(configPath).href}?qa=${source.commit}`)).default;
+  const config = await importReleaseConfig(configPath, { query: `qa=${source.commit}` });
   if (!config?.app || !config?.version) throw new Error("release config must expose app and version");
   const { floor, digest: floorDigest } = loadQaFloor(deps.floorDir);
   const problems = validateAppQaConfig(config.qa, floor, stage);
@@ -181,13 +182,13 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
 }
 
 function usage(code) {
-  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs] [--carry-to <dir>]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
+  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.json] [--carry-to <dir>]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
   process.exit(code);
 }
 
 export async function main(args) {
   if (args[0] === "audit") process.exit(auditMain(args.slice(1)));
-  let stage = "", platform = process.platform === "win32" ? "win" : "mac", releaseId = "", configName = "right-release.config.mjs", carryTo = null;
+  let stage = "", platform = process.platform === "win32" ? "win" : "mac", releaseId = "", configName = defaultReleaseConfigFile(), carryTo = null;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--stage") stage = args[++index];

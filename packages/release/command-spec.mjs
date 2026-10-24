@@ -5,13 +5,12 @@
 // `cwd` and `node` are app-relative and may not leave the app. `nodeFlags` go before the script, `nodeOptions` are merged
 // (de-duplicated) into NODE_OPTIONS for the child. Unknown keys are refused so a typo cannot silently change a run.
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 
-/** Load an app's `right-release.config.mjs`; the app root is the config file's directory. */
-export async function loadAppConfig(configFile = "right-release.config.mjs") {
+/** Load an app's release config (`right-release.config.json`, or the legacy `.mjs` while it is the only one); the app root is the config file's directory. */
+export async function loadAppConfig(configFile = defaultReleaseConfigFile()) {
   const configPath = path.resolve(configFile);
-  const loaded = await import(pathToFileURL(configPath).href);
-  return { config: loaded.default ?? loaded.config ?? loaded, appRoot: path.dirname(configPath), configPath };
+  return { config: await importReleaseConfig(configPath, { lenient: true }), appRoot: path.dirname(configPath), configPath };
 }
 
 export class CommandSpecError extends Error {

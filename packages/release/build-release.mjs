@@ -21,7 +21,8 @@ import path from "node:path";
 import { preflightOwnershipScope } from "./ownership-scope.mjs";
 import { spawn, spawnSync } from "./background-process.mjs";
 import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord } from "./rightkit-registry-resolver.mjs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { admitSourceQa } from "./release-qa-audit.mjs";
@@ -109,7 +110,7 @@ const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
 const RELEASE_TOOL_VERSION = JSON.parse(readFileSync(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 const args = process.argv.slice(2);
-let configName = "right-release.config.mjs";
+let configName = defaultReleaseConfigFile();
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
 let dryRun = false;
 let skipChecks = false;
@@ -155,7 +156,8 @@ if (dryRun) {
   const commit = git(invocationRoot, ["rev-parse", "HEAD"]);
   const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
   if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-  const config = (await import(`${pathToFileURL(configPath).href}?dry-run=${commit}`)).default;
+  let config;
+  try { config = await importReleaseConfig(configPath, { query: `dry-run=${commit}` }); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   const target = config.targets?.[platform];
   // Android builds with target.gradle (validated by release.mjs), not a package command; iOS with targets.ios.iosPackage.
@@ -192,7 +194,7 @@ try {
   const shortCommit = commit.slice(0, 8);
   const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
   if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-  const config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default;
+  const config = await importReleaseConfig(configPath, { query: `commit=${commit}` });
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(config.app) || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(config.version)) {
     fail("app and version must be safe release-id components");
@@ -994,7 +996,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.mjs] [--dry-run]");
+  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.json] [--dry-run]");
   process.exit(code);
 }
 

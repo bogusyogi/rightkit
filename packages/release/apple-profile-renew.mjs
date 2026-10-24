@@ -1,8 +1,9 @@
 import { createHash, createPrivateKey, randomUUID, sign, X509Certificate } from "node:crypto";
 import { constants, copyFileSync, existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { isManagedHost, refuseManagedEnvSecret } from "./managed-host-secrets.mjs";
 import os from "node:os";
 
@@ -226,7 +227,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
     return;
   }
   if (args[0] !== "profile" || args[1] !== "renew") fail("APPLE_PROFILE_USAGE", "Expected: right-release apple profile renew");
-  let configPath = "right-release.config.mjs", profilePath, dryRun = false;
+  let configPath = defaultReleaseConfigFile(), profilePath, dryRun = false;
   for (let i = 2; i < args.length; i++) {
     if (args[i] === "--dry-run") dryRun = true;
     else if (["--config", "--profile"].includes(args[i])) {
@@ -236,8 +237,8 @@ export async function main(args = process.argv.slice(2), options = {}) {
     } else fail("APPLE_PROFILE_USAGE", `Unknown option: ${args[i]}`);
   }
   const absolute = path.resolve(configPath);
-  const loaded = await import(pathToFileURL(absolute));
-  return renewAppleProfile({ ...options, root: path.dirname(absolute), config: loaded.default ?? loaded.config ?? loaded, profilePath, dryRun });
+  const config = await importReleaseConfig(absolute, { lenient: true });
+  return renewAppleProfile({ ...options, root: path.dirname(absolute), config, profilePath, dryRun });
 }
 
 const realOrSelf = (file) => { try { return realpathSync(file); } catch { return path.resolve(file); } };

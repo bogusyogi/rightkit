@@ -2,8 +2,9 @@ import { createHash, generateKeyPairSync, randomUUID, sign, X509Certificate } fr
 import { chmodSync, copyFileSync, constants, existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { appleProfileAuth, decodeAppleProfile, findAppleSigningCertificate, signAppleApiJwt } from "./apple-profile-renew.mjs";
 
 // right-release apple-profile-create: issue a Mac Development provisioning profile
@@ -452,10 +453,10 @@ export async function main(args = process.argv.slice(2), options = {}) {
     return;
   }
   const parsed = parseCreateArgs(args);
-  const configPath = parsed.configPath ?? "right-release.config.mjs";
+  const configPath = parsed.configPath ?? defaultReleaseConfigFile();
   const absolute = path.resolve(configPath);
   let config = {};
-  if (existsSync(absolute)) { const loaded = await import(pathToFileURL(absolute)); config = loaded.default ?? loaded.config ?? loaded; }
+  if (existsSync(absolute)) config = await importReleaseConfig(absolute, { lenient: true });
   else if (parsed.configPath) fail("APPLE_PROFILE_USAGE", `Config file not found: ${parsed.configPath}`);
   return createAppleProfile({ ...options, root: path.dirname(absolute), config, ...parsed });
 }

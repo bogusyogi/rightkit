@@ -40,6 +40,27 @@ test("loads real config & package scripts, host-only by default, all shipped tar
   assert.deepEqual(calls, ["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]);
 });
 
+test("a JSON-only app resolves right-release.config.json by default and through --config", async () => {
+  const root = tempRoot("release-dependencies-json-");
+  mkdirSync(path.join(root, "src-tauri"));
+  writeFileSync(path.join(root, "src-tauri/Cargo.toml"), '[package]\nname = "cutright"\nversion = "0.1.0"\n');
+  writeFileSync(path.join(root, "package.json"), JSON.stringify({ scripts: { package: "rustright cargo build --release --features export" } }));
+  writeFileSync(path.join(root, "right-release.config.json"), JSON.stringify({
+    schema: 1, app: "cutright", releaseDependencies: { forbiddenCrates: ["rightkit-record", "rightkit-qa"] },
+    targets: { mac: { cargoTarget: "aarch64-apple-darwin", package: { cmd: "pnpm", args: ["run", "package"] } } },
+  }));
+  const calls = [];
+  const run = (cmd, args) => { calls.push(args[args.indexOf("--features") + 1]); return clean; };
+  const [result] = await main([], { cwd: root, platform: "darwin", arch: "arm64", run });
+  assert.equal(result.target, "aarch64-apple-darwin");
+  assert.deepEqual(result.forbiddenCrates, ["rightkit-record", "rightkit-qa"]);
+  assert.equal((await main(["--config", "right-release.config.json", "--platform", "mac"], { cwd: root, run })).length, 1);
+  assert.deepEqual(calls, ["export", "export"]);
+  await assert.rejects(main([], { cwd: root, platform: "darwin", run: () => ({ ...clean, stdout: "cutright v0.1.0\nrightkit-record v0.2.0\n" }) }), /rightkit-record/);
+  writeFileSync(path.join(root, "right-release.config.json"), JSON.stringify({ schema: 1, app: "cutright", releaseDependencies: {}, targets: { mac: { package: { cmd: "bash", args: ["package.sh"] } } } }));
+  await assert.rejects(main([], { cwd: root, platform: "darwin", run: () => assert.fail("Cargo invoked") }), (error) => error.code === "RELEASE_CONFIG_M24");
+});
+
 test("cross-target forbidden dependency or unresolvable tree refuses standalone check", async () => {
   const root = fixture();
   await assert.rejects(main(["--all-targets"], { cwd: root, run: (cmd, args) => args.includes("x86_64-pc-windows-msvc")

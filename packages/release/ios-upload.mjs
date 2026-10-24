@@ -21,8 +21,8 @@
 // TestFlight steps use the same in-memory ES256 JWT. No file, temp or not, ever holds the key; no altool, no Transporter.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertGuiSigningSession, assertIosHost, IosHostError } from "./ios-host.mjs";
 import { acquireFileLock } from "./ios-lock.mjs";
 import {
@@ -136,7 +136,7 @@ const git = (cwd, args) => {
 };
 
 /** Local checks only; no network, no secret. The sealed release is the only input: build-free by construction. */
-export async function authorizeIosUpload({ releaseId, configName = "right-release.config.mjs", cwd = process.cwd() }) {
+export async function authorizeIosUpload({ releaseId, cwd = process.cwd(), configName = defaultReleaseConfigFile(cwd) }) {
   if (!RELEASE_ID.test(releaseId ?? "")) refuse("IOS_UPLOAD_RELEASE_REQUIRED", "--release <sealed-id> is required");
   const repoRoot = git(cwd, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot);
@@ -144,8 +144,8 @@ export async function authorizeIosUpload({ releaseId, configName = "right-releas
   assertCleanSource({ status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release upload" });
   const configPath = path.resolve(cwd, configName);
   if (!existsSync(configPath)) refuse("IOS_UPLOAD_CONFIG_INVALID", `release config is required: ${configName}`);
-  // The config is a module that runs on import: loaded only after the tree is proven clean.
-  const config = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
+  // A legacy config is a module that runs on import (a JSON config is data): loaded only after the tree is proven clean.
+  const config = await importReleaseConfig(configPath, { query: `upload=${Date.now()}` });
   const distribution = validateIosDistribution(targetDistribution(config, "ios"));
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "ios");
   const appRoot = path.dirname(configPath);
