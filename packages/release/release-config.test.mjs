@@ -126,3 +126,21 @@ test("no release command hard-codes the legacy config name or imports a release 
     if (name !== "github-release.mjs") assert.ok(!/await import\(`?\$?\{?pathToFileURL\((?:configPath|absoluteConfig|configFile|absolute|file)\b/.test(text), `${name} imports the release config directly; use importReleaseConfig()`);
   }
 });
+
+test("{{localAppData}} loads on every host: %LOCALAPPDATA% when set, the Windows profile default under the home directory otherwise", () => {
+  const file = writeConfig({
+    schema: 1, app: "demo",
+    development: { targets: { win: { install: { kind: "tauri", productName: "Demo", targetTriple: "x86_64-pc-windows-msvc", expectedInstalledPath: "{{localAppData}}/Demo/demo.exe" } } } },
+  });
+  const installPath = (env) => loadReleaseConfigSync(file, { validatePipeline: false, env, homedir: () => "/home/someone" }).config.development.targets.win.install.expectedInstalledPath;
+  assert.equal(installPath({}), `${path.join("/home/someone", "AppData", "Local")}/Demo/demo.exe`);
+  assert.equal(installPath({ LOCALAPPDATA: "" }), `${path.join("/home/someone", "AppData", "Local")}/Demo/demo.exe`);
+  assert.equal(installPath({ LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }), "C:\\Users\\a\\AppData\\Local/Demo/demo.exe");
+});
+
+test("a template token inside $comment is expanded like any other string, so a comment must not name one", () => {
+  const file = writeConfig({ schema: 1, app: "demo", $comment: "use {{version}} here", version: "1.2.3" });
+  assert.equal(loadReleaseConfigSync(file, { validatePipeline: false }).config.$comment, "use 1.2.3 here");
+  const unknown = writeConfig({ schema: 1, app: "demo", $comment: "tokens like {{nope}} are errors" });
+  assert.throws(() => loadReleaseConfigSync(unknown, { validatePipeline: false }), (error) => error.code === "RELEASE_CONFIG_TEMPLATE" && /unknown template token \{\{nope\}\}/.test(error.message));
+});

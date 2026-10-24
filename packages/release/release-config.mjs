@@ -17,7 +17,9 @@
 //   { "$fromJson": { "file": "src-tauri/tauri.conf.json", "pointer": "/version" } }   a string read from an app-relative JSON file
 //   { "$fromToml": { "file": "src-tauri/Cargo.toml", "path": "package.version" } }    a string read from an app-relative TOML file
 //   { "$json": <value> }                                                              JSON.stringify(<value>), for a JSON argument
-//   "{{app}}" "{{version}}" "{{home}}" "{{localAppData}}"                              replaced inside any string value
+//   "{{app}}" "{{version}}" "{{home}}" "{{localAppData}}"                              replaced inside any string value, `$comment`
+//                                                                                     included (write no token in a comment). localAppData is
+//                                                                                     %LOCALAPPDATA% on Windows and <home>/AppData/Local elsewhere
 // Anything else with braces is left alone, and an unknown {{token}} is an error.
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
@@ -204,7 +206,7 @@ function expand(node, context, label) {
     return node.replace(/\{\{([A-Za-z][A-Za-z0-9]*)\}\}/g, (_, token) => {
       if (!TEMPLATE_TOKENS.includes(token)) fail("RELEASE_CONFIG_TEMPLATE", `${label}: unknown template token {{${token}}} (allowed: ${TEMPLATE_TOKENS.map((t) => `{{${t}}}`).join(", ")})`);
       const resolved = context.values[token];
-      if (typeof resolved !== "string" || resolved === "") fail("RELEASE_CONFIG_TEMPLATE", `${label}: {{${token}}} is not available${token === "localAppData" ? " (LOCALAPPDATA is not set)" : token === "version" ? " here (version cannot refer to itself)" : ""}`);
+      if (typeof resolved !== "string" || resolved === "") fail("RELEASE_CONFIG_TEMPLATE", `${label}: {{${token}}} is not available${token === "version" ? " here (version cannot refer to itself)" : ""}`);
       return resolved;
     });
   }
@@ -319,7 +321,9 @@ export function loadReleaseConfigSync(file, {
   const raw = parsed.value;
   validateReleaseConfigShape(raw, { file: configPath, phase: "raw" });
   const inputs = new Map();
-  const base = { appRoot, inputs, readBytes, lstat, values: { home: homedir(), localAppData: env.LOCALAPPDATA ?? "", app: "", version: "" } };
+  // {{localAppData}} is %LOCALAPPDATA% on Windows. Elsewhere it is the Windows profile default under the home directory (a path
+  // no other host uses), so one config that names a Windows install path loads on every host instead of failing on the Mac.
+  const base = { appRoot, inputs, readBytes, lstat, values: { home: homedir(), localAppData: env.LOCALAPPDATA || path.join(homedir(), "AppData", "Local"), app: "", version: "" } };
   base.values.app = expand(raw.app, { ...base }, "/app");
   if (raw.version !== undefined) base.values.version = expand(raw.version, { ...base, values: { ...base.values, version: "" } }, "/version");
   const config = expand(raw, base, "");
