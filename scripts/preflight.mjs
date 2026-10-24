@@ -33,6 +33,8 @@
 //   qa-dev-server    G18  a package.json qa* script that runs `tauri dev` (QA would test the dev server, not the app)
 //   ffmpeg-release-escape G19 `allow_in_release_builds` in non-test Rust outside crates/rightkit-ffmpeg
 //   switches-inventory G20 a right-release.config.mjs directory without a switches.json (or its releaseSwitches.inventory)
+//   speech-link      G21  `import Speech` in RightKitSwift's RightKitSpeech, RightKitAudio or RightKitArtifacts sources or in
+//                         RightKitSpeechTests: it links Speech.framework into every app that takes RightKitSpeech
 //
 // Ratchet: ci/app-check-baseline.json (this checkout's) lists, per repository key (lowercased --repo basename; "rightkit" for
 // this one), the identities `${rule}|${file}|${subject}` (no line numbers) of findings that exist today. A listed finding prints
@@ -621,6 +623,23 @@ function switchesInventory({ root, files }) {
   return out;
 }
 
+// G21: Speech.framework must stay out of RightKitSpeech's dependency closure. swiftc writes the framework into the object file of
+// every module that imports it, so one `import Speech` there links it into every app that takes RightKitSpeech (HeardRight's App
+// Store policy). Apple Speech lives in RightKitAppleSpeech. The link probe (swift/RightKitSwift/LinkProbes/SpeechNoApple) is the
+// proof; this is the seconds-fast early signal.
+const SPEECH_FREE = /^swift\/RightKitSwift\/(?:Sources\/(?:RightKitSpeech|RightKitAudio|RightKitArtifacts)|Tests\/RightKitSpeechTests)\/.+\.swift$/;
+const IMPORT_SPEECH = /^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*import[ \t]+(?:(?:struct|class|enum|protocol|typealias|func|var|let)[ \t]+)?Speech\b/m;
+function speechLink({ root, files }) {
+  const out = [];
+  for (const file of files.filter((f) => SPEECH_FREE.test(f))) {
+    const text = readText(root, file);
+    if (text === null) continue;
+    const hit = IMPORT_SPEECH.exec(blankComments(text));
+    if (hit) out.push({ file, subject: file, problem: `${file}:${lineOf(text, hit.index)} imports Speech: it would link Speech.framework into every app that uses RightKitSpeech`, fix: "move the code into swift/RightKitSwift/Sources/RightKitAppleSpeech (and its tests into Tests/RightKitAppleSpeechTests)" });
+  }
+  return out;
+}
+
 export const RULES = Object.freeze([
   { id: "eol-policy", gap: "G04", run: eolPolicy },
   { id: "consumer-recipe", gap: "G01", run: consumerRecipes },
@@ -640,6 +659,7 @@ export const RULES = Object.freeze([
   { id: "qa-dev-server", gap: "G18", run: qaDevServer },
   { id: "ffmpeg-release-escape", gap: "G19", run: ffmpegReleaseEscape },
   { id: "switches-inventory", gap: "G20", run: switchesInventory },
+  { id: "speech-link", gap: "G21", run: speechLink },
 ]);
 
 /** The tree a compile of `repo` would see: HEAD plus every tracked and untracked, non-ignored file as it is on disk, written

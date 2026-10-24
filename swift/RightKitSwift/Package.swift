@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "RightKitLiveActivity", targets: ["RightKitLiveActivity"]),
         .library(name: "RightKitWatchBridge", targets: ["RightKitWatchBridge"]),
         .library(name: "RightKitSpeech", targets: ["RightKitSpeech"]),
+        .library(name: "RightKitAppleSpeech", targets: ["RightKitAppleSpeech"]),
         .library(name: "RightKitIntents", targets: ["RightKitIntents"]),
         .library(name: "RightKitAppleCredentials", targets: ["RightKitAppleCredentials"]),
         .library(name: "RightKitOverlay", targets: ["RightKitOverlay"]),
@@ -79,6 +80,9 @@ let package = Package(
         .testTarget(name: "RightKitWatchBridgeTests", dependencies: ["RightKitWatchBridge"]),
         .target(name: "RightKitSpeech", dependencies: ["RightKitAudio", "RightKitArtifacts"], resources: [.copy("Resources/whisper_mel_128.bin")]),
         .testTarget(name: "RightKitSpeechTests", dependencies: ["RightKitSpeech", "RightKitAudio", "RightKitArtifacts"]),
+        // The only product that links Speech.framework; RightKitSpeech stays free of it so an app that never uses Apple Speech never links it.
+        .target(name: "RightKitAppleSpeech", dependencies: ["RightKitSpeech", "RightKitAudio"]),
+        .testTarget(name: "RightKitAppleSpeechTests", dependencies: ["RightKitAppleSpeech", "RightKitSpeech", "RightKitAudio"]),
         .target(name: "RightKitIntents"),
         .testTarget(name: "RightKitIntentsTests", dependencies: ["RightKitIntents"]),
         .target(name: "RightKitAppleCredentials"),

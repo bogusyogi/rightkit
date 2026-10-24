@@ -292,6 +292,10 @@ public struct SpeechEngineSelector: Sendable {
     /// Canonical providers handed to every engine this selector builds.
     public var conditioning: ConditioningProvider?
     public var parakeetDetokenization: DetokenizationProvider?
+    public typealias EngineFactory = @Sendable () throws -> any SpeechTranscribing
+    /// Engines supplied by optional RightKit layers (RightKitAppleSpeech registers `.apple`), so this
+    /// module never references a framework only that layer links.
+    public var registeredEngines: [SpeechEngineKind: EngineFactory] = [:]
 
     public init(parakeetModelDirectory: URL? = nil, whisperModelDirectory: URL? = nil) {
         self.parakeetModelDirectory = parakeetModelDirectory
@@ -326,7 +330,10 @@ public struct SpeechEngineSelector: Sendable {
             guard let dir = whisperModelDirectory else { throw SpeechError.modelNotReady }
             return try WhisperEngine(modelDirectory: dir, conditioning: conditioning)
         case .apple:
-            return AppleSpeechEngine()
+            guard let factory = registeredEngines[.apple] else {
+                throw SpeechError.engineUnavailable("apple: not linked; add RightKitAppleSpeech and call registerAppleSpeech()")
+            }
+            return try factory()
         }
     }
 }

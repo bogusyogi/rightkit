@@ -2,6 +2,7 @@
 import AVFoundation
 import Foundation
 import RightKitAudio
+import RightKitSpeech
 import Speech
 
 /// Microphone dictation on Apple's on-device recognizers: `SpeechAnalyzer` on iOS/macOS 26+,

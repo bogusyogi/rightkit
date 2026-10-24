@@ -1,5 +1,6 @@
 #if canImport(Speech) // Speech is unavailable on watchOS; RightKitAudio carries the watch recorder
 import Foundation
+import RightKitSpeech
 import Speech
 
 /// Local-only policy for the pre-iOS/macOS 26 `SFSpeechRecognizer` path. `SFSpeechRecognizer` sends

@@ -1,6 +1,7 @@
 #if canImport(Speech) // Speech is unavailable on watchOS; RightKitAudio carries the watch recorder
 import AVFoundation
 import Foundation
+import RightKitSpeech
 import Speech
 
 /// Apple's on-device speech-to-text as a zero-download engine (ScrapeRight `AppleSpeechTranscriber`

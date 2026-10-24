@@ -372,6 +372,20 @@ test("G20 switches-inventory: a release config directory needs switches.json or 
   assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.mjs:2 has no switches inventory \(missing\/nope\.json does not exist\)/);
 });
 
+test("G21 speech-link: import Speech is refused in the Speech-free targets and allowed in RightKitAppleSpeech", (t) => {
+  const base = "swift/RightKitSwift";
+  const failures = run("speech-link", t, {
+    [`${base}/Sources/RightKitSpeech/A.swift`]: "import Foundation\nimport Speech\n",
+    [`${base}/Sources/RightKitAudio/B.swift`]: "@preconcurrency import Speech\n",
+    [`${base}/Tests/RightKitSpeechTests/C.swift`]: "import struct Speech.SFSpeechRecognizer\n",
+    [`${base}/Sources/RightKitArtifacts/D.swift`]: "// import Speech\nimport RightKitSpeech\n",
+    [`${base}/Sources/RightKitAppleSpeech/E.swift`]: "import Speech\n",
+    [`${base}/Tests/RightKitAppleSpeechTests/F.swift`]: "import Speech\n",
+  });
+  assert.deepEqual(failures.map((f) => f.file).sort(), [`${base}/Sources/RightKitAudio/B.swift`, `${base}/Sources/RightKitSpeech/A.swift`, `${base}/Tests/RightKitSpeechTests/C.swift`]);
+  assert.match(failures.find((f) => f.file.endsWith("A.swift")).problem, /A\.swift:2 imports Speech/);
+});
+
 test("G01 recipe rules do not apply to an app: no recipe inventory or version feed means nothing to check", (t) => {
   const { root } = tree(t, { "crates/app-core/Cargo.toml": '[package]\nname = "app-core"\nversion = "0.1.0"\n', "packages/ui/package.json": JSON.stringify({ name: "@app/ui", version: "1.0.0" }) });
   assert.deepEqual(runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures, []);

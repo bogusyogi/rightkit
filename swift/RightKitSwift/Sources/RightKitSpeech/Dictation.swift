@@ -2,7 +2,7 @@
 import Foundation
 
 /// Pure composer-dictation rules (CodeRight `Dictation`). Audio capture lives in
-/// ``LiveDictationSession``.
+/// `LiveDictationSession` (RightKitAppleSpeech).
 public enum Dictation {
     private static let maximumPreferredLanguages = 3
 

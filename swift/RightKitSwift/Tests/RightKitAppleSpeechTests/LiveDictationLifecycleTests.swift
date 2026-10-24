@@ -3,6 +3,7 @@ import RightKitAudio
 import Speech
 import Testing
 
+@testable import RightKitAppleSpeech
 @testable import RightKitSpeech
 
 /// `Event.stopped`, per-segment finals, audio-session interruption and the network opt-in (#595, #597, #599).
