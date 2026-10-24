@@ -414,7 +414,7 @@ Updater artifacts are declared as for R2 but need no `key`; `platform` must be a
 ```js
 targets: {
   win: {
-    updater: { keyFile: "%APPDATA%/RightKit/updater.key", artifacts: [
+    updater: { artifacts: [
       { file: "src-tauri/target/release/bundle/nsis/Ember_1.2.3_x64-setup.exe", signature: "src-tauri/target/release/bundle/nsis/Ember_1.2.3_x64-setup.exe.sig", platform: "windows-x86_64" },
     ] },
     artifacts: ["dist/Ember-1.2.3-portable-win.zip"], // portable zips seal alongside; they are not in latest.json
@@ -424,6 +424,8 @@ targets: {
   ] } },
 }
 ```
+
+Updater signing keys are never named in the config: `sign-updater` reads the minisign key from the OS credential provider (`rightkit-credentials`, namespace `rightsuite-updater-key`; see `protected-credentials.mjs`). `targets.<platform>.updater.keyFile` is refused at config validation (`RELEASE_CONFIG_UPDATER_KEY_FILE`; `right-release doctor` and the build refuse it at config load) and is never forwarded to the signer, so remove it from apps that still set it.
 
 NSIS, MSI, `.app.tar.gz` and AppImage bundles all work the same way (any file signed by `sign-updater`). With no sealed installer the installer platform-trust check is skipped (reported in the output); installer-bearing seals still run it. The app side: `plugins.updater.endpoints` is the `latest.json` URL above and `plugins.updater.pubkey` is the suite updater public key (see `@rightkit/app-update` README).
 

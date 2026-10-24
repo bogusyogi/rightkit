@@ -57,6 +57,7 @@ import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
 import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
+import { releaseConfigFieldProblems } from "./release-config.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -184,6 +185,12 @@ if (opts.doctor) {
   doctorInvocation = { repoRoot, commit };
 }
 const config = (await import(pathToFileURL(configPath))).default;
+// R01: a config naming updater.keyFile could only fail mid-signing (sign-updater refuses --key-file; keys come from the OS
+// credential provider), so it is refused here, before any build or doctor check, and the key path is never forwarded.
+{
+  const fieldProblems = releaseConfigFieldProblems(config);
+  if (fieldProblems.length) fail(fieldProblems.map((problem) => problem.detail).join("\n"));
+}
 if (!config) usage(2, `config did not export default: ${configPath}`);
 if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<missing>"} (expected 1)`);
 
@@ -446,9 +453,10 @@ if (opts.doctor) {
 
 let prePackScanned = false; // set once a pre-pack payload scan has seen a native binary
 // Source-level gates (release-switch scan, devtools, feature closure, release dependencies, production mode) live in
-// prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. The build fails on the first finding.
+// prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. The build reports every finding of the
+// run (a gate fed by a failed one says BLOCKED) and stops before the release lock, install or compile.
 const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText } = evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun });
-if (prebuildFindings.length) fail(prebuildFindings[0].detail);
+if (prebuildFindings.length) fail(prebuildFindings.map((finding) => finding.detail).join("\n"));
 
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
@@ -627,7 +635,7 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   if (target.postSign) await runCommands(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
-  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...(target.updater?.keyFile ? ["--key-file", String(target.updater.keyFile)] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
+  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {

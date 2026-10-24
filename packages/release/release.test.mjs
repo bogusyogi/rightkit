@@ -1912,5 +1912,12 @@ test("build refusal text for a gate finding is unchanged", () => {
   const config = fixture({ platform: "win", packageCommand: FORBIDDEN_PACKAGE });
   const result = run(config);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /^right-release: release\/update build refused: it enables a test-automation or debugging feature \(test-mode, qa-native, [^)]*\); none may ship:\n- target\.package: enables feature `test-mode`\nRemove the feature from the release build command, the app's default features and its tauri dependency; dev builds \(`right-release dev`\) may keep it\. No app may ship devtools unless it is on the allow-list in devtools-policy\.json and declares `devtools: "content-only"` \(rightkit-tauri-shell DevToolsPolicy::ContentOnly\)\.\n$/m);
+  assert.match(result.stderr, /^right-release: release\/update build refused: it enables a test-automation or debugging feature \(test-mode, qa-native, [^)]*\); none may ship:\n- target\.package: enables feature `test-mode`\nRemove the feature from the release build command, the app's default features and its tauri dependency; dev builds \(`right-release dev`\) may keep it\. No app may ship devtools unless it is on the allow-list in devtools-policy\.json and declares `devtools: "content-only"` \(rightkit-tauri-shell DevToolsPolicy::ContentOnly\)\.\n/m); // later gates' findings follow (every finding is reported)
+});
+
+test("R01: release.mjs refuses updater.keyFile at load and never forwards a key path to sign-updater", () => {
+  const source = readFileSync(new URL("./release.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /"--key-file"/);
+  assert.match(source, /releaseConfigFieldProblems\(config\)/);
+  assert.ok(source.indexOf("releaseConfigFieldProblems(config)") < source.indexOf("evaluatePrebuildGates({"), "refused before any gate or build step");
 });

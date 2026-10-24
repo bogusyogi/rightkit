@@ -130,6 +130,9 @@ export function validateWinPackage({ appRoot, config = {}, target } = {}) {
     }
   }
   if (spec.updater === true && target.updater !== undefined && !isPlainObject(target.updater)) issues.push("target.updater must be an object when winPackage.updater is true");
+  if (isPlainObject(target.updater) && Object.prototype.hasOwnProperty.call(target.updater, "keyFile")) {
+    issues.push("target.updater.keyFile is not supported: updater signing keys come from the OS credential provider (rightkit-credentials, namespace rightsuite-updater-key; see protected-credentials.mjs and sign-updater.mjs), never from a key file. Remove updater.keyFile");
+  }
 
   if (issues.length) throw new WinPackageConfigError(issues);
   return Object.freeze({
@@ -142,7 +145,6 @@ export function validateWinPackage({ appRoot, config = {}, target } = {}) {
     installerFile,
     sidecars: Object.freeze(sidecars),
     tauriCwd,
-    updaterKeyFile: typeof target.updater?.keyFile === "string" ? target.updater.keyFile : null,
   });
 }
 
@@ -181,11 +183,12 @@ export function defaultWinPackageDeps({ appRoot, target, env }) {
       const evidence = JSON.parse(readFileSync(receipt, "utf8"));
       return evidence.files.map((item) => ({ file: path.resolve(item.file), sha256: item.after?.sha256 }));
     },
-    signUpdater(file, { keyFile, dryRun = false }) {
+    // The signing key comes from the OS credential provider inside sign-updater; no key path is ever passed down.
+    signUpdater(file, { dryRun = false } = {}) {
       const childEnv = { ...env };
       delete childEnv.TAURI_SIGNING_PRIVATE_KEY;
       delete childEnv.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
-      const result = spawn("node", [SIGN_UPDATER, "--file", file, ...(dryRun ? ["--dry-run"] : []), ...(keyFile ? ["--key-file", keyFile] : [])], { cwd: appRoot, env: childEnv });
+      const result = spawn("node", [SIGN_UPDATER, "--file", file, ...(dryRun ? ["--dry-run"] : [])], { cwd: appRoot, env: childEnv });
       if (result.error || result.status !== 0) throw new Error(`sign-updater exited ${result.status ?? result.error?.message}`);
     },
     patchMarker: (file, options) => patchTauriBundleType(file, options),
@@ -299,7 +302,7 @@ export function runWinPackageRecipe({ appRoot, config = {}, target, deps = {} } 
   if (plan.updater) {
     phase("updater", () => {
       if (!dry) fs.rmSync(`${installer}.sig`, { force: true });
-      d.signUpdater(installer, { keyFile: plan.updaterKeyFile, dryRun: dry });
+      d.signUpdater(installer, { dryRun: dry });
       if (dry) return;
       if (!fs.existsSync(`${installer}.sig`)) throw new Error(`sign-updater did not write ${installer}.sig`);
       updaterSignature = `${installer}.sig`;
