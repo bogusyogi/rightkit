@@ -1,7 +1,7 @@
 {
   "profile": "desktop",
   "notApplicable": {
-    "M22": "The template has no agent surface; foundation plan item 0.6 (2026-10-24) demotes M22 to an add-on, so an app adopts rightkit-agent-tools only when it ships agent tools."
+    "M22": "The template has no agent surface; foundation plan item 0.6 (2026-10-24) demotes M22 to an add-on, so an app adopts rightkit-agent-tools only when it ships agent tools. Ratification of M22 not-applicable per app, or demoting the owner to an add-on, is bogusyogi/rightkit#994."
   },
   "M22": { "role": "absent", "entrypoints": [] }
 }
