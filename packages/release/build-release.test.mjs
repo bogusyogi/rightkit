@@ -206,7 +206,7 @@ test("native local builds retain Cache V2 while CI & explicit legacy use safe fa
 });
 
 test("production builds package from the real primary app checkout", () => {
-  assert.match(source, /const configPath = path\.resolve\(configName\)/);
+  assert.match(source, /const configPath = nativeReal\(path\.resolve\(configName\)\)/, "the config path is resolved and canonicalized once (symlinked or short-name roots)");
   assert.match(source, /const appRoot = path\.dirname\(configPath\)/);
   assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload", "--resume"/);
   assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);

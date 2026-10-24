@@ -448,7 +448,7 @@ test("a hook's GIT_DIR and GIT_INDEX_FILE do not redirect the check to another r
   const result = runAppCheck({ repo, central: null });
   assert.equal(result.exitCode, 1, result.errText);
   assert.deepEqual(result.findings.map((f) => f.identity), ["skip-checks|package.json|ship"]);
-  assert.equal(repoRoot(repo), fs.realpathSync(repo));
+  assert.equal(repoRoot(repo), fs.realpathSync.native(repo));
 });
 
 // ---- runAppCheck, main and the baseline ------------------------------------------------------------------------------------------
@@ -728,7 +728,8 @@ test("baseline: a malformed app baseline is exit 2, and the resolution order is 
 
 // ---- which right-release commands run the check ------------------------------------------------------------------------------------
 
-const cliSource = fs.readFileSync(new URL("./cli/right-release.mjs", import.meta.url), "utf8");
+// Read as LF whatever the checkout's line endings (a Windows checkout may carry CRLF), so the anchors below match everywhere.
+const cliSource = fs.readFileSync(new URL("./cli/right-release.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const dispatchable = () => {
   const table = /const commands = new Map\(\[([\s\S]*?)\n\]\);/.exec(cliSource)?.[1] ?? "";
   const mapped = [...table.matchAll(/^\s*\["([a-z][a-z-]*)", "[^"]+\.mjs"\],?$/gm)].map((m) => m[1]);
@@ -864,7 +865,7 @@ test("guardCommand: nothing for an unguarded command or a green check, the findi
   assert.equal(guardCommand({ args: ["cache", "status"], cwd: repo, run: fake(1) }), null);
   assert.deepEqual(calls, [], "an unguarded command runs no check");
   assert.equal(guardCommand({ args: ["build"], cwd: repo, run: fake(0, ["check: passed"]) }), null, "green prints nothing");
-  assert.deepEqual(calls.map((c) => [c.repo, c.mode, c.label]), [[fs.realpathSync(repo), "commit", "check"]]);
+  assert.deepEqual(calls.map((c) => [c.repo, c.mode, c.label]), [[fs.realpathSync.native(repo), "commit", "check"]]);
   assert.equal(calls[0].refuse, BUILD_REFUSES, "a baseline cannot excuse what the build refuses");
   const red = guardCommand({ args: ["build"], cwd: repo, run: fake(1, ["FAIL x (G99): bad", "     fix: y", "check: 1 problem(s)"]) });
   assert.equal(red.exitCode, 1);
@@ -877,7 +878,7 @@ test("guardCommand: nothing for an unguarded command or a green check, the findi
   calls.length = 0;
   guardCommand({ args: ["doctor", "--config", "sub/right-release.config.mjs"], cwd: repo, run: fake(0) });
   guardCommand({ args: ["dev", `--config=${path.join(repo, "sub", "right-release.config.mjs")}`], cwd: os.tmpdir(), run: fake(0) });
-  assert.deepEqual(calls.map((c) => [c.repo, c.mode]), [[fs.realpathSync(repo), "worktree"], [fs.realpathSync(repo), "worktree"]]);
+  assert.deepEqual(calls.map((c) => [c.repo, c.mode]), [[fs.realpathSync.native(repo), "worktree"], [fs.realpathSync.native(repo), "worktree"]]);
   assert.equal(appDirectory(["build"], "/cwd"), "/cwd");
   // recipe-build runs its plan in --app-root: that folder's repository is the one checked; --config still wins when both are given
   assert.equal(appDirectory(["recipe-build", "--plan-file", "p.json", "--app-root", "sub"], "/cwd"), path.resolve("/cwd", "sub"));
