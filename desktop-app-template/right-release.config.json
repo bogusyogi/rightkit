@@ -45,7 +45,10 @@
       "src-tauri/src/**",
       "src-tauri/capabilities/**",
       "src-tauri/icons/**",
-      "src-tauri/tauri.conf.json"
+      "src-tauri/tauri.conf.json",
+      "switches.json",
+      "legal-snapshot.config.json",
+      "legal/**"
     ],
     "exclude": [
       "**/*.test.*",
@@ -291,6 +294,17 @@
           }
         ]
       }
+    }
+  },
+  "legal": {
+    "manifest": "legal/legal-manifest.json",
+    "tauriConfig": "src-tauri/tauri.conf.json",
+    "npmNotices": {
+      "output": "legal/THIRD_PARTY_NPM_LICENSES.html",
+      "productName": "RightApp",
+      "exclude": [
+        "@rightkit/"
+      ]
     }
   }
 }

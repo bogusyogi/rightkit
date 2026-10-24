@@ -1,0 +1,85 @@
+{
+  "schema": 2,
+  "suite": "right-suite-desktop",
+  "appKey": "rightapp",
+  "productName": "RightApp",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-24",
+  "acceptanceVersion": "rightapp-2026-10-24-v1",
+  "documents": [
+    {
+      "id": "license",
+      "role": "license",
+      "title": "Right Suite Desktop License: Ownership Notice",
+      "version": "1.0",
+      "path": "LICENSE.md",
+      "publicUrl": "https://rightapp.example/legal/license/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "74c91121939a3fc2c66d4471c5aa6d7a7b1d4d57caaf4419dd04c379119fa5b1"
+    },
+    {
+      "id": "eula",
+      "role": "eula",
+      "title": "Right Suite End User License Agreement",
+      "version": "1.1",
+      "path": "EULA.md",
+      "publicUrl": "https://rightapp.example/legal/eula/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "9a5ce62ae250ba9b4859b6831a74d38e2267007965af9ad12dd2c84ff5ed769e"
+    },
+    {
+      "id": "acceptable-use",
+      "role": "acceptable_use",
+      "title": "Right Suite Acceptable Use Policy",
+      "version": "1.0",
+      "path": "ACCEPTABLE_USE.md",
+      "publicUrl": "https://rightapp.example/legal/acceptable-use/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "2fa8470434259ba4ef182999c8ca9212185424991a6dbae16ffd60471baa41c9"
+    },
+    {
+      "id": "product-schedule",
+      "role": "product_schedule",
+      "title": "RightApp Product Schedule",
+      "version": "1",
+      "path": "PRODUCT_SCHEDULE.md",
+      "publicUrl": "https://rightapp.example/legal/product-schedule/",
+      "treatment": "agree",
+      "material": true,
+      "sha256": "44e3a1193476fe13d0e8420d6a018cf4e292a8bbdd2af1b6ea60b04d99f0b371"
+    },
+    {
+      "id": "privacy",
+      "role": "privacy_notice",
+      "title": "RightApp Privacy Notice",
+      "version": "1",
+      "path": "PRIVACY_NOTICE.md",
+      "publicUrl": "https://rightapp.example/legal/privacy/",
+      "treatment": "acknowledge",
+      "material": false,
+      "sha256": "be764cf57d2b58f6b5793f0a9dc91743bd00678a5943c4d7826bb0a0c2fd95b0"
+    },
+    {
+      "id": "notices",
+      "role": "third_party_notices",
+      "title": "RightApp Third-Party Notices",
+      "version": "1",
+      "path": "THIRD_PARTY_NOTICES.md",
+      "publicUrl": "https://rightapp.example/legal/notices/",
+      "treatment": "notice",
+      "material": false,
+      "sha256": "b4a51b7bc0435366bf98ddf45cd299e989d2f7408f2a28d92aa4729e9e3e4bf0"
+    }
+  ],
+  "appendices": [
+    {
+      "id": "npm",
+      "title": "RightApp npm third-party licenses",
+      "path": "THIRD_PARTY_NPM_LICENSES.html",
+      "sha256": "8fd019cc7113f1f828a345649db3dcd5d359a260f35ca60fe65aa0527132262b"
+    }
+  ]
+}
