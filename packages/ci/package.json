@@ -21,7 +21,9 @@
     "policy",
     "templates",
     "*.mjs",
-    "*.json"
+    "*.json",
+    "!*.test.mjs",
+    "!test-support.mjs"
   ],
   "sideEffects": false,
   "scripts": {

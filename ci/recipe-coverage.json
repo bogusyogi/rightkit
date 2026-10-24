@@ -32,7 +32,6 @@
     },
     "npm": {
       "@rightkit/ax": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/ci": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
       "@rightkit/hooks": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
       "@rightkit/i18n": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
       "@rightkit/legal-ui": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
