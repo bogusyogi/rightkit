@@ -3,118 +3,16 @@ import { tempRoot } from "./test-support/temp-roots.mjs";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { createHash } from "node:crypto";
 import path from "node:path";
-import { execFileSync, spawnSync } from "./background-process.mjs";
+import { spawnSync } from "./background-process.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
-import { fileURLToPath } from "node:url";
 import { signingReceiptPath } from "./signing-receipts.mjs";
 import { swiftPrivatePackagesCleanupStep, swiftPrivatePackagesConfigureStep, validateManifest } from "../ci/manifest.mjs";
 import { renderLanes } from "../ci/sync.mjs";
 import test from "node:test";
-import { admittedWorkerEnv, registryEnv } from "./test-support/admission.mjs";
+import { admittedWorkerEnv } from "./test-support/admission.mjs";
+import { editConfig, fixture, git, hostPlatform, lastPlatform, managedEnv, pnpmLockFor, release, runDoctor, runDoctorWith, versions, withQaAdoption } from "./test-support/fixture.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
-
-const release = fileURLToPath(new URL("./release.mjs", import.meta.url));
-const cli = fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url));
-const versions = JSON.parse(readFileSync(new URL("./rightkit-versions.json", import.meta.url), "utf8"));
-// Fixture apps carry the standard Cargo profile tables, as the release contract requires.
-const profileTemplate = readFileSync(new URL("./templates/cargo-profiles.toml", import.meta.url), "utf8");
-const defaultBuildInputs = { include: ["package.json", "pnpm-lock.yaml", "src-tauri/**"] };
-const hostPlatform = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : process.platform;
-
-function git(cwd, ...args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-}
-
-// RightKit QA is mandatory for every app: fixtures declare it at the latest published version unless a test opts out.
-function withQaAdoption(pkg, qa = true) {
-  if (!qa) return pkg;
-  const latest = versions.registry?.npm?.["@rightkit/qa"] ?? versions.stagedNpm["@rightkit/qa"];
-  return { ...pkg, devDependencies: { ...pkg.devDependencies, "@rightkit/qa": latest } };
-}
-
-// A pnpm lock that resolves every exact @rightkit/* pin of the fixture package, with a deterministic integrity.
-export function pnpmLockFor(pkg) {
-  const pins = Object.entries({ ...pkg.dependencies, ...pkg.devDependencies }).filter(([name, spec]) => name.startsWith("@rightkit/") && /^\d+\.\d+\.\d+$/.test(spec));
-  return `lockfileVersion: '9.0'\n${pins.length ? `\npackages:\n\n${pins.map(([name, version]) => `  '${name}@${version}':\n    resolution: {integrity: sha512-${Buffer.from(`${name}@${version}`).toString("hex")}==}\n`).join("\n")}` : ""}`;
-}
-
-function fixture({ signed = true, publish = false, signingContract = "windows-raw-exe-authenticode-before-nsis-v1", prePackageFiles = ["raw.exe"], signFiles = ["fixture.exe"], macSigning = false, macNotarize = { file: "fixture.zip" }, packageJson, packageCommand, cargoManifest, cargoConfig, repoCargoConfig, siblingCargoManifest, buildInputs = defaultBuildInputs, platform = "win", hostedWorkflows, includeCargoSources = true, qa = true } = {}) {
-  const fixtureRoot = tempRoot("right-release-test-");
-  const dir = repoCargoConfig ? path.join(fixtureRoot, "apps", "fixture") : fixtureRoot;
-  mkdirSync(dir, { recursive: true });
-  const config = path.join(dir, "right-release.config.mjs");
-  const fixturePackage = withQaAdoption(packageJson ?? {
-    name: "fixture",
-    scripts: { [`release:patch:${platform}`]: `right-release --platform ${platform} --tier patch` },
-    packageManager: versions.packageManager,
-    dependencies: {
-      "@rightkit/license": versions.npm["@rightkit/license"],
-      "@rightkit/logs": versions.npm["@rightkit/logs"],
-    },
-    devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
-  }, qa);
-  writeFileSync(path.join(dir, "package.json"), JSON.stringify(fixturePackage, null, 2));
-  writeFileSync(
-    config,
-    `export default ${JSON.stringify({
-      schema: 1,
-      app: "fixture",
-      packageManager: "pnpm",
-      checks: [],
-      ...(hostedWorkflows ? { hostedWorkflows } : {}),
-      targets: {
-        [platform]: {
-          ...(buildInputs ? { buildInputs } : {}),
-          signed,
-          package: packageCommand ?? { cmd: "node", args: ["-e", "process.exit(0)"] },
-          ...(publish ? { publish: { cmd: "node", args: ["publish-update.mjs"] } } : {}),
-          artifacts: [],
-          ...(platform === "win" ? { signingContract, prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles, files: signFiles } } : {}),
-          ...(platform === "mac" && macSigning ? { signingContract: "macos-developer-id-notarized-portable-v1", prePackage: { cmd: "node", args: ["-e", "process.exit(0)"] }, sign: { prePackageFiles: ["fixture"] }, notarize: macNotarize } : {}),
-          updater: { artifacts: [{ file: "fixture.exe", signature: "fixture.exe.sig", platform: "windows-x86_64", key: "fixture/fixture.exe" }] },
-          hardening: [],
-        },
-      },
-    })};\n`,
-  );
-  writeFileSync(path.join(dir, "pnpm-lock.yaml"), pnpmLockFor(fixturePackage), "utf8");
-  const tauriDir = path.join(dir, "src-tauri");
-  mkdirSync(tauriDir, { recursive: true });
-  if (includeCargoSources) {
-    writeFileSync(path.join(tauriDir, "Cargo.toml"), `[package]\nname = "fixture-tauri"\nversion = "0.0.0"\nedition = "2021"\n[lib]\npath = "lib.rs"\n${profileTemplate}`, "utf8");
-    writeFileSync(path.join(tauriDir, "Cargo.lock"), "# fixture lock\n", "utf8");
-  }
-  writeFileSync(path.join(tauriDir, "lib.rs"), "pub fn fixture() {}\n", "utf8");
-  if (cargoManifest) {
-    const crates = [...cargoManifest.matchAll(/^(rightkit-[a-z0-9-]+)\s*=\s*"=([^"]+)"/gm)];
-    writeFileSync(path.join(dir, "Cargo.lock"), `version = 4\n${crates.map(([, name, version]) => `\n[[package]]\nname = "${name}"\nversion = "${version}"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${createHash("sha256").update(`${name}@${version}`).digest("hex")}"\n`).join("")}`, "utf8");
-    writeFileSync(path.join(dir, "Cargo.toml"), `${cargoManifest}\n[lib]\npath = "fixture.rs"\n${profileTemplate}`, "utf8");
-    writeFileSync(path.join(dir, "fixture.rs"), "", "utf8");
-  }
-  if (cargoConfig) {
-    const cargoDir = path.join(dir, ".cargo");
-    mkdirSync(cargoDir, { recursive: true });
-    writeFileSync(path.join(cargoDir, "config.toml"), cargoConfig, "utf8");
-  }
-  if (repoCargoConfig) {
-    const cargoDir = path.join(fixtureRoot, ".cargo");
-    mkdirSync(cargoDir, { recursive: true });
-    writeFileSync(path.join(cargoDir, "config.toml"), repoCargoConfig, "utf8");
-  }
-  if (siblingCargoManifest) {
-    const sibling = path.join(fixtureRoot, "docs", "archived-workspace");
-    mkdirSync(sibling, { recursive: true });
-    writeFileSync(path.join(sibling, "Cargo.toml"), siblingCargoManifest, "utf8");
-  }
-  git(fixtureRoot, "init", "--initial-branch", "main");
-  git(fixtureRoot, "config", "user.email", "release-test@example.com");
-  git(fixtureRoot, "config", "user.name", "Release Test");
-  git(fixtureRoot, "add", ".");
-  git(fixtureRoot, "commit", "-m", "initial");
-  return config;
-}
 
 function addFrontendDist(config, files, targetExtra) {
   const dir = path.dirname(config);
@@ -184,15 +82,6 @@ function lockFixture() {
   return { dir, config };
 }
 
-function managedEnv(config, { worker = false, platform = "win", registry = {} } = {}) {
-  // The doctor's free-space floor is about the machine running the tests, not the code under test.
-  // The registries are answered offline from the fixture's own locks; a worker run carries the admitted state the
-  // controller (build-release.mjs) would have left for this exact release.
-  return { ...process.env, RIGHT_RELEASE_MIN_FREE_GB: "1", ...(config ? registryEnv(path.dirname(config), registry) : {}), ...(config && worker ? admittedWorkerEnv(config, platform) : {}) };
-}
-
-const lastPlatform = (args, fallback) => (args.lastIndexOf("--platform") >= 0 ? args[args.lastIndexOf("--platform") + 1] : fallback);
-
 function run(config, ...args) {
   const argv = [release, "--config", config, "--platform", "win", "--dry-run", ...args];
   return spawnSync(process.execPath, argv, {
@@ -208,26 +97,19 @@ function runRaw(config, ...args) {
   });
 }
 
-function runDoctorWith(config, registry, ...args) {
-  return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
-    encoding: "utf8",
-    env: managedEnv(config, { registry }),
-  });
-}
-
-function runDoctor(config, ...args) {
-  return spawnSync(process.execPath, [cli, "doctor", "--config", config, "--platform", hostPlatform, ...args], {
-    encoding: "utf8",
-    env: managedEnv(config),
-  });
-}
-
 // Fixture repos have no enrolled protected trust (and no origin), so ownership must fail
 // closed; every other doctor check must still pass.
 function assertDoctorFailsClosedOnlyOnOwnership(result) {
   const output = `${result.stdout}\n${result.stderr}`;
   const otherFailures = output.split(/\r?\n/).filter((line) => /^\s*\[(?:FAIL|ERROR)\] /.test(line) && !/^\s*\[FAIL\] ownership: /.test(line));
   assert.deepEqual(otherFailures, [], output);
+  // The config findings are not [FAIL] rows: the doctor prints each as a "right-release: <text>" line on stderr, so a finding that is
+  // not the ownership one is read there. What stderr may carry besides is the summary and the lines that are not findings.
+  const stderrFindings = result.stderr.split(/\r?\n/).filter((line) => /^right-release: /.test(line) && !/^right-release: (?:preflight found \d+ blocking problem\(s\); the build would fail on these$|NOT RUN |WARNING |note )/.test(line));
+  assert.deepEqual(stderrFindings, [], output);
+  // And the doctor's own count of blocking problems is the ownership rows and nothing else.
+  const ownershipFailures = (result.stdout.match(/^\s*\[FAIL\] ownership: /gm) ?? []).length;
+  assert.equal(Number(/^right-release: preflight found (\d+) blocking problem\(s\)/m.exec(result.stderr)?.[1] ?? 0), ownershipFailures, output);
   // Without a protected ownership enrollment on this host (a clean CI runner), ownership is an advisory WARN that does
   // not block, so the doctor exits 0. An enrolled host reports the blocking ownership FAIL and a non-zero exit instead.
   if (/^\s*\[WARN\] ownership: WARNING: ownership approval enrollment is pending/m.test(output)) {
@@ -1940,18 +1822,6 @@ test("build refusal text for a gate finding is unchanged", () => {
 
 // E01 / R01: one doctor run (and one build run) lists every independent config finding; a check that needs a failed one is
 // BLOCKED by it; nothing builds after a finding. Fixture configs are plain modules: edit, then commit so the doctor accepts them.
-function editConfig(config, edit) {
-  const text = readFileSync(config, "utf8");
-  const prefix = "export default ";
-  const value = JSON.parse(text.slice(prefix.length, text.lastIndexOf(";")));
-  edit(value);
-  writeFileSync(config, `${prefix}${JSON.stringify(value)};\n`);
-  const dir = path.dirname(config);
-  git(dir, "add", ".");
-  git(dir, "commit", "-m", "edit config");
-  return config;
-}
-
 test("doctor lists every independent config finding in one run, including updater.keyFile", () => {
   const config = editConfig(fixture({ platform: hostPlatform, qa: false, macSigning: hostPlatform === "mac" }), (value) => {
     value.targets[hostPlatform].signed = false;
@@ -1968,15 +1838,16 @@ test("doctor lists every independent config finding in one run, including update
   assert.match(result.stdout, /^preflight:/m);
 });
 
-test("doctor reports what a failed check blocks as BLOCKED by it", () => {
+test("doctor reports what a failed check keeps from running as not run because it failed, and counts only the failed check", () => {
   const config = editConfig(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }), (value) => {
     delete value.targets[hostPlatform];
   });
   const result = runDoctor(config, "--gates");
   assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stderr, new RegExp(`has no ${hostPlatform} release target`));
-  assert.match(result.stderr, /the target checks .* BLOCKED by target/);
-  assert.match(result.stderr, /build-inputs BLOCKED by target/);
+  assert.match(result.stderr, /the target checks .* not run because target failed/);
+  assert.match(result.stderr, /build-inputs not run because target failed/);
+  assert.doesNotMatch(result.stderr, /BLOCKED by/, "a check that did not run is not a blocking problem of its own");
   assert.match(result.stdout, /\[FAIL\] gate:prebuild-gates: BLOCKED by target/);
   // a handled finding, never an uncaught exception with a stack
   assert.doesNotMatch(result.stderr, /\n\s+at .*\.mjs:\d+/);
@@ -1998,4 +1869,142 @@ test("the build reports every config finding together, refuses updater.keyFile a
 
 test("release.mjs never forwards a key file to sign-updater", () => {
   assert.doesNotMatch(readFileSync(release, "utf8"), /--key-file|updater\?\.keyFile \?/);
+});
+
+// ---- A-05: the package rules are independent findings, not the first of 21 process exits -------------------------------------------
+const fixturePackage = (extra = {}) => ({
+  name: "fixture",
+  scripts: { [`release:patch:${hostPlatform}`]: `right-release --platform ${hostPlatform} --tier patch` },
+  packageManager: versions.packageManager,
+  dependencies: { "@rightkit/license": versions.npm["@rightkit/license"], "@rightkit/logs": versions.npm["@rightkit/logs"] },
+  devDependencies: { "@rightkit/release": versions.npm["@rightkit/release"] },
+  ...extra,
+});
+
+function withWorkflow(config, name = "ci.yml") {
+  const dir = path.dirname(config);
+  mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
+  writeFileSync(path.join(dir, ".github", "workflows", name), "name: ci\non: push\njobs: {}\n");
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "add a workflow");
+  return config;
+}
+
+test("doctor prints three package-contract violations and a hosted-workflow violation in one run, exits 1, with no stack trace", () => {
+  const config = withWorkflow(fixture({
+    platform: hostPlatform,
+    macSigning: hostPlatform === "mac",
+    packageJson: fixturePackage({
+      scripts: { "release:patch": "node ../tools/right-release/cli.mjs build" },
+      packageManager: "pnpm@9.0.0",
+      dependencies: { "@rightkit/license": "git+https://github.com/bogusyogi/rightkit.git" },
+    }),
+  }));
+  const result = runDoctor(config);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, new RegExp(`^right-release: fixture packageManager must be ${versions.packageManager}, got pnpm@9\\.0\\.0$`, "m"));
+  assert.match(result.stderr, /^right-release: fixture package\.json must call the right-release bin, not parent-workspace release source$/m);
+  assert.match(result.stderr, /^right-release: fixture @rightkit\/license must come from the published npm package, not git\+https:\/\/github\.com\/bogusyogi\/rightkit\.git$/m);
+  assert.match(result.stderr, /^right-release: fixture hosted workflow files are forbidden: ci\.yml /m);
+  // none of the four stopped the run: the machine rows came after them, and nothing says the doctor stopped
+  assert.match(result.stdout, /^preflight:/m);
+  assert.doesNotMatch(result.stderr, /doctor stopped here/);
+  assert.doesNotMatch(result.stderr, /\n\s+at .*\.mjs:\d+/);
+});
+
+test("each package rule blocks only what reads its result: an unreadable package.json is one finding, the rules beside it still run", () => {
+  const config = withWorkflow(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }));
+  const dir = path.dirname(config);
+  writeFileSync(path.join(dir, "package.json"), "{ not json");
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "break package.json");
+  const result = runDoctor(config);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /^right-release: Unexpected token|^right-release: .*JSON/m, "the unreadable package.json is the finding");
+  assert.match(result.stderr, /^right-release: qa-backdoor-contract not run because package-json failed$/m);
+  assert.match(result.stderr, /^right-release: package-manager not run because package-json failed$/m);
+  assert.match(result.stderr, /^right-release: fixture hosted workflow files are forbidden: ci\.yml /m, "the workflow rule does not read package.json and still runs");
+  assert.match(result.stdout, /^preflight:/m);
+});
+
+// ---- A-03: the doctor applies the build's registry admission ------------------------------------------------------------------------
+const STALE = { RK_TEST_LATEST: "@rightkit/license@@99.0.0" };
+
+test("doctor refuses a RightKit pin behind the registry's latest, as the build does; --inspect lists it as information; --admission is the same as the default", () => {
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" });
+  const refused = runDoctorWith(config, STALE);
+  assert.equal(refused.status, 1, `${refused.stdout}\n${refused.stderr}`);
+  assert.match(refused.stderr, new RegExp(`fixture RightKit pins are behind the latest published version \\(build admission refused\\):\\n- @rightkit/license pinned ${versions.npm["@rightkit/license"].replaceAll(".", "\\.")} -> latest 99\\.0\\.0`));
+  assert.doesNotMatch(refused.stdout, /newer RightKit version \(informational\)/);
+  const alias = runDoctorWith(config, STALE, "--admission");
+  assert.equal(alias.status, 1);
+  assert.match(alias.stderr, /RightKit pins are behind the latest published version/);
+  const inspected = runDoctorWith(config, STALE, "--inspect");
+  assert.match(inspected.stdout, /^right-release: newer RightKit version \(informational\): @rightkit\/license pinned \S+ -> latest 99\.0\.0/m);
+  assert.doesNotMatch(inspected.stderr, /build admission refused/);
+  assertDoctorFailsClosedOnlyOnOwnership(inspected);
+  const contradiction = runDoctorWith(config, STALE, "--inspect", "--admission");
+  assert.equal(contradiction.status, 2);
+  assert.match(contradiction.stderr, /--inspect and --admission contradict each other/);
+});
+
+test("one stale RightKit pin is one blocking problem: the checks that read the registry result are listed as not run, never counted, and the doctor-owned row names itself", () => {
+  const config = fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" });
+  const result = runDoctorWith(config, STALE);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /^right-release: rightkit-registry: fixture RightKit pins are behind the latest published version \(build admission refused\):$/m, "A-01: the doctor names the row");
+  for (const name of ["rightkit-pin-specs", "rightkit-release-supported", "rightkit-cargo-contract"]) {
+    assert.match(result.stderr, new RegExp(`^right-release: ${name} not run because rightkit-registry failed$`, "m"), name);
+  }
+  assert.doesNotMatch(result.stderr, /BLOCKED by/);
+  // the count is the failed machine rows plus the one stale pin, whatever this host's machine rows say
+  const machineFailures = (result.stdout.match(/^\s*\[FAIL\] /gm) ?? []).length;
+  assert.equal(/^right-release: preflight found (\d+) blocking problem/m.exec(result.stderr)?.[1], String(machineFailures + 1), result.stderr);
+});
+
+test("a clean fixture doctor --inspect exits 0 with no finding other than ownership, with the guard's cargo and with hosted CI's", () => {
+  // On hosted CI the broker guard does not answer a bare `cargo`, so the fixture's cargo shim must answer `cargo metadata` itself.
+  for (const ci of ["false", "true"]) {
+    const config = fixture({
+      platform: hostPlatform,
+      macSigning: hostPlatform === "mac",
+      cargoManifest: `[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n[dependencies]\nrightkit-license = "=0.1.2"`,
+    });
+    const result = spawnSync(process.execPath, [release, "--doctor", "--config", config, "--platform", hostPlatform, "--inspect"], { encoding: "utf8", env: managedEnv(config, { env: { CI: ci } }) });
+    const output = `CI=${ci}\n${result.stdout}\n${result.stderr}`;
+    assertDoctorFailsClosedOnlyOnOwnership(result);
+    assert.doesNotMatch(output, /not valid JSON|Unexpected token|rightkit-cargo-contract/, output);
+    assert.match(result.stdout, /^rightkit-registry: \d+ exact pins verified against the registries \(cargo 1, npm \d+\)/m, `the Cargo pin was read through cargo metadata\n${output}`);
+    // Exit 0 when ownership is only a warning on this host; otherwise exit 1 for the one ownership problem and nothing else.
+    const ownershipBlocks = /^\s*\[FAIL\] ownership: /m.test(result.stdout);
+    assert.equal(result.status, ownershipBlocks ? 1 : 0, output);
+    assert.equal(/^right-release: preflight found (\d+) blocking problem/m.exec(result.stderr)?.[1] ?? "0", ownershipBlocks ? "1" : "0", output);
+  }
+});
+
+test("--inspect and --strict belong to the doctor", () => {
+  const config = fixture({ platform: "win" });
+  for (const flag of ["--inspect", "--strict"]) {
+    const result = runRaw(config, "--platform", "win", "--dry-run", flag);
+    assert.equal(result.status, 2, flag);
+    assert.match(result.stderr, new RegExp(`${flag} is valid only with --doctor`));
+  }
+});
+
+// ---- A-04: the declared lint and typecheck, with NOT RUN said out loud ---------------------------------------------------------------
+test("doctor says NOT RUN for declared checks it cannot run, never a pass, and --strict makes that a blocking problem", () => {
+  const config = fixture({
+    platform: hostPlatform,
+    macSigning: hostPlatform === "mac",
+    configExtra: { checks: ["typecheck"] },
+    packageJson: fixturePackage({ scripts: { typecheck: "tsc --noEmit", [`release:patch:${hostPlatform}`]: "right-release" } }),
+  });
+  const relaxed = runDoctor(config);
+  assert.match(relaxed.stderr, /^right-release: NOT RUN declared-checks-run: not installed: no node_modules in /m);
+  assert.doesNotMatch(relaxed.stderr, /declared-checks-run: check/);
+  assertDoctorFailsClosedOnlyOnOwnership(relaxed);
+  const strict = runDoctor(config, "--strict");
+  assert.equal(strict.status, 1, `${strict.stdout}\n${strict.stderr}`);
+  assert.match(strict.stderr, /^right-release: NOT RUN declared-checks-run: /m);
+  assert.match(strict.stderr, /preflight found [1-9]\d* blocking problem\(s\); the build would fail on these/);
 });

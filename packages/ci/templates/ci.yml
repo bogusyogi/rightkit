@@ -27,8 +27,8 @@ jobs:
         run: |
           echo "::error::right-git: repository is private; managed public-only workflows must not run here."
           exit 1
-${CI_SUPERSEDE_JOB}  test:
-    needs: [private-repo-guard]
+${CHECK_JOB}${CI_SUPERSEDE_JOB}  test:
+    needs: [private-repo-guard, check]
     strategy:
       fail-fast: false
       matrix:

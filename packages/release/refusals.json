@@ -1,0 +1,1743 @@
+{
+  "schema": 1,
+  "maxBuildOnly": 0,
+  "entries": [
+    {
+      "key": "release.mjs::check::9c0211c5",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "release.mjs::check::9edd5a8c",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "release.mjs::<module>::14d1d078",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "release.mjs::<module>::0d80ab37",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "release.mjs::<module>::c1564581",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release.mjs::<module>::050d4b08",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release.mjs::<module>::cd871fc4",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release.mjs::<module>::a1f4604d",
+      "class": "doctor-covered",
+      "doctorRow": "config-identity",
+      "reason": "the doctor stops at this statement; config-identity raises the same text for the build"
+    },
+    {
+      "key": "release.mjs::<module>::750d2a78",
+      "class": "doctor-covered",
+      "doctorRow": "updater-key-file"
+    },
+    {
+      "key": "release.mjs::<module>::1d09c5ac",
+      "class": "runtime-only",
+      "reason": "worker handoff: the snapshot the build controller admitted for this release; the doctor resolves live"
+    },
+    {
+      "key": "release.mjs::<module>::1d09c5ac#2",
+      "class": "runtime-only",
+      "reason": "worker handoff: the snapshot the build controller admitted for this release; the doctor resolves live"
+    },
+    {
+      "key": "release.mjs::<module>::9aa4aa7c",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "release.mjs::<module>::9631483e",
+      "class": "doctor-covered",
+      "doctorRow": "target"
+    },
+    {
+      "key": "release.mjs::<module>::a3a60839",
+      "class": "doctor-covered",
+      "doctorRow": "target"
+    },
+    {
+      "key": "release.mjs::<module>::19bc11b6",
+      "class": "doctor-covered",
+      "doctorRow": "target-signed"
+    },
+    {
+      "key": "release.mjs::<module>::b6b0ec09",
+      "class": "doctor-covered",
+      "doctorRow": "media-sidecar"
+    },
+    {
+      "key": "release.mjs::<module>::9631483e#2",
+      "class": "doctor-covered",
+      "doctorRow": "media-sidecar",
+      "proof": {
+        "file": "media-sidecar.test.mjs",
+        "test": "config refuses unknown keys, escaping paths, bad arch, missing notices and bad contact, all at once"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::fc7ad7e5",
+      "class": "doctor-covered",
+      "doctorRow": "external-bin"
+    },
+    {
+      "key": "release.mjs::<module>::9631483e#3",
+      "class": "doctor-covered",
+      "doctorRow": "external-bin",
+      "proof": {
+        "file": "external-bin.test.mjs",
+        "test": "config: bad names, paths, keys and ffmpeg name clashes are refused together"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::b185b599",
+      "class": "doctor-covered",
+      "doctorRow": "win-signing-contract"
+    },
+    {
+      "key": "release.mjs::<module>::72e6ff3b",
+      "class": "doctor-covered",
+      "doctorRow": "win-prepackage"
+    },
+    {
+      "key": "release.mjs::<module>::5c80e8fa",
+      "class": "doctor-covered",
+      "doctorRow": "win-sign-prepackage-files"
+    },
+    {
+      "key": "release.mjs::<module>::7356fb0d",
+      "class": "doctor-covered",
+      "doctorRow": "win-sign-entries"
+    },
+    {
+      "key": "release.mjs::<module>::6c723c02",
+      "class": "doctor-covered",
+      "doctorRow": "win-nsis-raw-exe"
+    },
+    {
+      "key": "release.mjs::<module>::7b2b24ea",
+      "class": "doctor-covered",
+      "doctorRow": "win-nsis-sign-files"
+    },
+    {
+      "key": "release.mjs::<module>::a711ede5",
+      "class": "doctor-covered",
+      "doctorRow": "win-distinct-files"
+    },
+    {
+      "key": "release.mjs::<module>::4eccdd82",
+      "class": "doctor-covered",
+      "doctorRow": "win-portable-sign-files"
+    },
+    {
+      "key": "release.mjs::<module>::03d9c2d9",
+      "class": "doctor-covered",
+      "doctorRow": "mac-signing-contract"
+    },
+    {
+      "key": "release.mjs::<module>::47e24a74",
+      "class": "doctor-covered",
+      "doctorRow": "mac-prepackage"
+    },
+    {
+      "key": "release.mjs::<module>::fba6d505",
+      "class": "doctor-covered",
+      "doctorRow": "mac-sign-prepackage-files"
+    },
+    {
+      "key": "release.mjs::<module>::a3a368de",
+      "class": "doctor-covered",
+      "doctorRow": "mac-signing",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "macOS signing matrix: a missing entitlements file or malformed matrix fails release validation naming the field"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::04a47601",
+      "class": "doctor-covered",
+      "doctorRow": "mac-notarize-file"
+    },
+    {
+      "key": "release.mjs::<module>::fdeac0b9",
+      "class": "doctor-covered",
+      "doctorRow": "mac-notarize-app"
+    },
+    {
+      "key": "release.mjs::<module>::65f2175a",
+      "class": "doctor-covered",
+      "doctorRow": "mac-notarize-staple"
+    },
+    {
+      "key": "release.mjs::<module>::ad9fce9d",
+      "class": "doctor-covered",
+      "doctorRow": "mac-swift-dmg",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "swiftpm mac preflight rejects a prePackage that builds the DMG with appBeforePackage on"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::97ed2ef3",
+      "class": "doctor-covered",
+      "doctorRow": "mac-dmg-spec",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "targets.mac.dmg.spec is validated at release time"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::4f5d3bc1",
+      "class": "doctor-covered",
+      "doctorRow": "mac-dmg-spec",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "targets.mac.dmg.spec is validated at release time"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::b9ede172",
+      "class": "doctor-covered",
+      "doctorRow": "mac-dmg-spec",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "targets.mac.dmg.spec is validated at release time"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::126561e1",
+      "class": "doctor-covered",
+      "doctorRow": "android-target"
+    },
+    {
+      "key": "release.mjs::<module>::d609d169",
+      "class": "doctor-covered",
+      "doctorRow": "ios-target"
+    },
+    {
+      "key": "release.mjs::<module>::18101eef",
+      "class": "doctor-covered",
+      "doctorRow": "ios-prepare-manifest",
+      "proof": {
+        "file": "ios-cargoless-build.test.mjs",
+        "test": "a cargoless iOS target with prepare commands and no nativeAssembly.cargoManifest is refused with the fix named"
+      }
+    },
+    {
+      "key": "release.mjs::<module>::ecc60c05",
+      "class": "runtime-only",
+      "reason": "unreachable: --upload is refused at argument parsing, and publishBlocked is read only for an upload"
+    },
+    {
+      "key": "release.mjs::<module>::6760c175",
+      "class": "doctor-covered",
+      "doctorRow": "dirty-inputs"
+    },
+    {
+      "key": "release.mjs::<module>::f946d21b",
+      "class": "runtime-only",
+      "reason": "plumbing: relays the findings of the admission rows to the doctor's list"
+    },
+    {
+      "key": "release.mjs::<module>::8b8c6558",
+      "class": "doctor-covered",
+      "doctorRow": "artifact-storage"
+    },
+    {
+      "key": "release.mjs::<module>::cbde29b1",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "release.mjs::<module>::cbde29b1#2",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "release.mjs::<module>::574f800e",
+      "class": "doctor-covered",
+      "doctorRow": "package-command"
+    },
+    {
+      "key": "release.mjs::<module>::50e9518c",
+      "class": "runtime-only",
+      "reason": "unreachable: --upload is refused at argument parsing (combined build+upload was removed)"
+    },
+    {
+      "key": "release.mjs::<module>::ea7768c6",
+      "class": "doctor-covered",
+      "doctorRow": "sidecar-app-entry"
+    },
+    {
+      "key": "release.mjs::<module>::41ab2ed9",
+      "class": "doctor-covered",
+      "doctorRow": "sidecar-app-entry"
+    },
+    {
+      "key": "release.mjs::<module>::4b3d60c0",
+      "class": "doctor-covered",
+      "doctorRow": "win-updater-artifacts"
+    },
+    {
+      "key": "release.mjs::<module>::196216d8",
+      "class": "runtime-only",
+      "reason": "needs the scan of the build's payload"
+    },
+    {
+      "key": "release.mjs::assertNoQaControlBinaries::574980b1",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::frontendBundleDirs::a543d460",
+      "class": "doctor-covered",
+      "doctorRow": "frontend-config-readable"
+    },
+    {
+      "key": "release.mjs::assertNoWebBundleMocksInFrontend::574980b1",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::fail::cbde29b1",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "release.mjs::git::2e785ce9",
+      "class": "runtime-only",
+      "reason": "git invocation failed; decided by the repository state at invocation"
+    },
+    {
+      "key": "release.mjs::assertSharedSccachePrerequisite::fef867bf",
+      "class": "doctor-covered",
+      "doctorRow": "host-cache-mode",
+      "reason": "the doctor runs this statement for an explicit shared mode; host-cache-mode also covers the platform default the build resolves"
+    },
+    {
+      "key": "release.mjs::mustExist::ab530a13",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::runNativeFinalizer::96f9215e",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::runNativeFinalizer::9209e3da",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::runNativeFinalizer::8a41b40c",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::runNativeFinalizer::8a41b40c#2",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::runNativeFinalizer::33d09344",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::completeNativeFinalization::e2443256",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::completeNativeFinalization::1b39a578",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::nativeSignedArtifacts::4ef85b61",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::nativeSignedArtifacts::65a2f351",
+      "class": "runtime-only",
+      "reason": "needs the finalizer's output or the built archive"
+    },
+    {
+      "key": "release.mjs::runInstall::44799c7c",
+      "class": "runtime-only",
+      "reason": "reachable only through the worker's --install flag, which the build never passes"
+    },
+    {
+      "key": "release.mjs::validatePackageManagerPin::fdd755aa",
+      "class": "doctor-covered",
+      "doctorRow": "package-manager"
+    },
+    {
+      "key": "release.mjs::validateNoParentWorkspaceScripts::3e9d37f9",
+      "class": "doctor-covered",
+      "doctorRow": "package-workspace-scripts"
+    },
+    {
+      "key": "release.mjs::validateRightKitPinSpecs::e51b1675",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-pin-specs"
+    },
+    {
+      "key": "release.mjs::validateRightKitReleaseSupported::829ca1c3",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-release-supported"
+    },
+    {
+      "key": "release.mjs::validateDeclaredWorkflowBlock::3f7a69ab",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateDeclaredWorkflowBlock::0c33a018",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateDeclaredWorkflowBlock::27db3780",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateDeclaredWorkflowBlock::ac44f6b6",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::refuse::c5c5aeb9",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::65b93942",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::918f55fe",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::9181081d",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::fc933b69",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::5b5d8c34",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::96a81041",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::cda5b859",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::08e616ae",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::4fb65f20",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::85729488",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::validateHostedWorkflows::4d678dd4",
+      "class": "doctor-covered",
+      "doctorRow": "hosted-workflows"
+    },
+    {
+      "key": "release.mjs::prepareMediaSidecar::97df15c9",
+      "class": "doctor-covered",
+      "doctorRow": "media-sidecar-plan"
+    },
+    {
+      "key": "release.mjs::prepareMediaSidecar::305b8f0a",
+      "class": "doctor-covered",
+      "doctorRow": "media-sidecar-plan",
+      "reason": "media-sidecar-plan reads a catalog the config names; media-sidecar-catalog (host) asks cargo metadata for the one the app compiled against"
+    },
+    {
+      "key": "release.mjs::prepareMediaSidecar::c23d3877",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacSidecar::c23d3877",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacSidecar::4f7131d6",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacSidecar::69690815",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacSidecar::48a62540",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacSidecar::68b482d3",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyExternalBins::39bd9864",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacExternalBin::d114096b",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacExternalBin::592319e2",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::finishMacExternalBin::c99cad0e",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::signMacos::574980b1",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::notarizeAppBeforePackage::cd08dc75",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosSigningReceipt::51885ad9",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosSigningReceipt::243d4ee8",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosSigningReceipt::574980b1",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosSigningReceipt::2e29542c",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosSigningSettings::243d4ee8",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosSigningSettings::4e9b0180",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyMacosNotarizationReceipt::574980b1",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsEmbedding::32a43ab8",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsEmbedding::17365860",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsEmbedding::b527fc2f",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsEmbedding::574980b1",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsReceipt::5bc8f298",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsReceipt::a7cf0175",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsReceipt::2d8bd41f",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::verifyWindowsReceipt::5cd23cc4",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "release.mjs::run::cbde29b1",
+      "class": "runtime-only",
+      "reason": "a child step of the build failed or timed out"
+    },
+    {
+      "key": "release.mjs::run::cbde29b1#2",
+      "class": "runtime-only",
+      "reason": "a child step of the build failed or timed out"
+    },
+    {
+      "key": "build-release.mjs::<module>::e1ea9730",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "build-release.mjs::<module>::6cdae81d",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "build-release.mjs::<module>::bbcd3b2a",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "build-release.mjs::<module>::1e06c6bc",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "build-release.mjs::<module>::c1564581",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::050d4b08",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::<module>::105ff2d6",
+      "class": "doctor-covered",
+      "doctorRow": "config-identity"
+    },
+    {
+      "key": "build-release.mjs::<module>::4b3eb58f",
+      "class": "doctor-covered",
+      "doctorRow": "config-identity"
+    },
+    {
+      "key": "build-release.mjs::<module>::ba0cbff9",
+      "class": "doctor-covered",
+      "doctorRow": "package-command"
+    },
+    {
+      "key": "build-release.mjs::<module>::5921bfd5",
+      "class": "doctor-covered",
+      "doctorRow": "target"
+    },
+    {
+      "key": "build-release.mjs::<module>::c14a85f7",
+      "class": "doctor-covered",
+      "doctorRow": "ios-target"
+    },
+    {
+      "key": "build-release.mjs::<module>::2fd29437",
+      "class": "doctor-covered",
+      "doctorRow": "android-target"
+    },
+    {
+      "key": "build-release.mjs::<module>::3835d85d",
+      "class": "doctor-covered",
+      "doctorRow": "dirty-inputs"
+    },
+    {
+      "key": "build-release.mjs::<module>::2129df2b",
+      "class": "doctor-covered",
+      "doctorRow": "preflight",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "doctor lists every independent config finding in one run, including updater.keyFile"
+      }
+    },
+    {
+      "key": "build-release.mjs::<module>::091951f9",
+      "class": "runtime-only",
+      "reason": "internal consistency of the preflight's ownership evidence, produced by the preflight just run"
+    },
+    {
+      "key": "build-release.mjs::<module>::d7e843b4",
+      "class": "runtime-only",
+      "reason": "internal consistency of the preflight's ownership evidence, produced by the preflight just run"
+    },
+    {
+      "key": "build-release.mjs::<module>::2847d47a",
+      "class": "runtime-only",
+      "reason": "internal consistency: the release environment sets the cache owner token itself"
+    },
+    {
+      "key": "build-release.mjs::<module>::b94488cb",
+      "class": "runtime-only",
+      "reason": "the RightKit registry snapshot of a resume or re-run, or the registry refusal the build already raised in admission; a resume reads recorded evidence, not the registry"
+    },
+    {
+      "key": "build-release.mjs::<module>::b94488cb#2",
+      "class": "runtime-only",
+      "reason": "the RightKit registry snapshot of a resume or re-run, or the registry refusal the build already raised in admission; a resume reads recorded evidence, not the registry"
+    },
+    {
+      "key": "build-release.mjs::preflight::5e43da55",
+      "class": "doctor-covered",
+      "doctorRow": "host-preflight-env"
+    },
+    {
+      "key": "build-release.mjs::prepare::96fafacb",
+      "class": "doctor-covered",
+      "doctorRow": "preflight",
+      "reason": "the preflight target-bridge row reports a real directory where the bridge link goes",
+      "proof": {
+        "file": "release-cache-mode-target.test.mjs",
+        "test": "a foreign target fails closed on developer hosts"
+      }
+    },
+    {
+      "key": "build-release.mjs::admit::050d4b08",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::admit::cd871fc4",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "build-release.mjs::admit::cbde29b1",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "build-release.mjs::admit::cbde29b1#2",
+      "class": "runtime-only",
+      "reason": "plumbing: reports or exits for the findings of other rules, a refusal of nothing of its own"
+    },
+    {
+      "key": "build-release.mjs::hashInputs::1d18d5c4",
+      "class": "doctor-covered",
+      "doctorRow": "input-key-collision"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::69f8fc09",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::3b9b1913",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::0028c412",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::d096e24c",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::fc511c94",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::6da22b6d",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::ba20c2bb",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::5e468cfc",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::03e08c20",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::bd0070ea",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::5e24aff8",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::a9fbf41d",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::a2687878",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::a06f92d7",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::5e24aff8#2",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::866016a2",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::117fc95e",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::731e6957",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::b8d3d086",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::4d9554de",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::8f4035e6",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::d24048a0",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::5e24aff8#3",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::89ddbdc7",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::sealRelease::02003c46",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "build-release.mjs::acquireLock::68c41794",
+      "class": "runtime-only",
+      "reason": "state: another release holds the platform lock"
+    },
+    {
+      "key": "build-release.mjs::assertDiskSpace::23c05163",
+      "class": "doctor-covered",
+      "doctorRow": "preflight",
+      "reason": "the preflight disk row reports free space with the same floor",
+      "proof": {
+        "file": "preflight.test.mjs",
+        "test": "the disk floor is 25 GB by default and RIGHT_RELEASE_MIN_FREE_GB overrides it for the doctor check only"
+      }
+    },
+    {
+      "key": "build-release.mjs::assertExecutables::15171ff7",
+      "class": "doctor-covered",
+      "doctorRow": "host-tools",
+      "reason": "host-preflight-env asks for the executables the target adds"
+    },
+    {
+      "key": "build-release.mjs::assertSccacheVersion::15f6283e",
+      "class": "doctor-covered",
+      "doctorRow": "host-cache-mode"
+    },
+    {
+      "key": "build-release.mjs::commandOutput::e207193a",
+      "class": "doctor-covered",
+      "doctorRow": "host-tools"
+    },
+    {
+      "key": "build-release.mjs::commandOutputAt::cb2bdfdc",
+      "class": "runtime-only",
+      "reason": "git invocation failed; decided by the repository state at invocation"
+    },
+    {
+      "key": "build-release.mjs::runChecked::38e62985",
+      "class": "doctor-covered",
+      "doctorRow": "host-preflight-env"
+    },
+    {
+      "key": "build-release.mjs::runConfiguredReleaseCheck::0a28b9aa",
+      "class": "doctor-covered",
+      "doctorRow": "pre-seal-command"
+    },
+    {
+      "key": "build-release.mjs::runConfiguredReleaseCheck::de2eab98",
+      "class": "runtime-only",
+      "reason": "the app's preSeal check runs against the candidate bytes"
+    },
+    {
+      "key": "release-invocation.mjs::git::0e5f7fa2",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release-invocation.mjs::assertPrimaryReleaseCheckout::9f74b012",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release-invocation.mjs::assertPrimaryReleaseCheckout::c03a4301",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release-invocation.mjs::assertPrimaryReleaseCheckout::021578ff",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (primary checkout, config path, branch), which the doctor and the build check with the same statement first"
+    },
+    {
+      "key": "release-invocation.mjs::resolveConfiguredBuildInputs::b2abbbf6",
+      "class": "doctor-covered",
+      "doctorRow": "build-inputs"
+    },
+    {
+      "key": "release-invocation.mjs::assertNativeIosPrepareHasManifest::44c62aef",
+      "class": "doctor-covered",
+      "doctorRow": "ios-prepare-manifest",
+      "proof": {
+        "file": "doctor-parity.test.mjs",
+        "test": "a native iOS prepare that is not bare cargo commands is refused once a Rust manifest is declared"
+      }
+    },
+    {
+      "key": "release-invocation.mjs::assertNativeIosPrepareHasManifest::9f8ba504",
+      "class": "doctor-covered",
+      "doctorRow": "ios-prepare-manifest",
+      "proof": {
+        "file": "ios-cargoless-build.test.mjs",
+        "test": "a cargoless iOS target with prepare commands and no nativeAssembly.cargoManifest is refused with the fix named"
+      }
+    },
+    {
+      "key": "release-invocation.mjs::resolveReleaseBuildInputs::a0b46ef8",
+      "class": "doctor-covered",
+      "doctorRow": "build-inputs"
+    },
+    {
+      "key": "release-invocation.mjs::resolveReleaseBuildInputs::190c8520",
+      "class": "doctor-covered",
+      "doctorRow": "build-inputs"
+    },
+    {
+      "key": "release-invocation.mjs::resolveReleaseBuildInputs::0d1a22b8",
+      "class": "doctor-covered",
+      "doctorRow": "build-inputs"
+    },
+    {
+      "key": "release-invocation.mjs::resolveReleaseBuildInputs::64972703",
+      "class": "doctor-covered",
+      "doctorRow": "build-inputs"
+    },
+    {
+      "key": "release-invocation.mjs::dirtyBuildInputs::1c581826",
+      "class": "doctor-covered",
+      "doctorRow": "build-inputs"
+    },
+    {
+      "key": "prebuild-gates.mjs::git::0e5f7fa2",
+      "class": "runtime-only",
+      "reason": "git invocation failed; decided by the repository state at invocation"
+    },
+    {
+      "key": "prebuild-gates.mjs::evaluatePrebuildGates::3f257f5c",
+      "class": "doctor-informational",
+      "doctorRow": "--gates",
+      "reason": "the doctor runs evaluatePrebuildGates only under --gates (opt-in); the build always runs it at the worker checkpoint",
+      "proof": {
+        "file": "prebuild-gates.test.mjs",
+        "test": "a gate that reads a failed gate's output is BLOCKED by it, not skipped and not run on bad input"
+      }
+    },
+    {
+      "key": "prebuild-gates.mjs::evaluatePrebuildGates::fed578f1",
+      "class": "doctor-informational",
+      "doctorRow": "--gates",
+      "reason": "the doctor runs evaluatePrebuildGates only under --gates (opt-in); the build always runs it at the worker checkpoint",
+      "proof": {
+        "file": "prebuild-gates.test.mjs",
+        "test": "a gate that reads a failed gate's output is BLOCKED by it, not skipped and not run on bad input"
+      }
+    },
+    {
+      "key": "prebuild-gates.mjs::evaluatePrebuildGates::0cd44041",
+      "class": "doctor-informational",
+      "doctorRow": "--gates",
+      "reason": "the doctor runs evaluatePrebuildGates only under --gates (opt-in); the build always runs it at the worker checkpoint",
+      "proof": {
+        "file": "doctor-parity.test.mjs",
+        "test": "the source switch inventory gates refuse an invalid nonShipped list and an iOS prepare that runs outside the scan roots"
+      }
+    },
+    {
+      "key": "prebuild-gates.mjs::evaluatePrebuildGates::e7c90f0b",
+      "class": "doctor-informational",
+      "doctorRow": "--gates",
+      "reason": "the doctor runs evaluatePrebuildGates only under --gates (opt-in); the build always runs it at the worker checkpoint",
+      "proof": {
+        "file": "doctor-parity.test.mjs",
+        "test": "the source switch inventory gates refuse an invalid nonShipped list and an iOS prepare that runs outside the scan roots"
+      }
+    },
+    {
+      "key": "prebuild-gates.mjs::evaluatePrebuildGates::f11b5d7e",
+      "class": "doctor-informational",
+      "doctorRow": "--gates",
+      "reason": "the doctor runs evaluatePrebuildGates only under --gates (opt-in); the build always runs it at the worker checkpoint",
+      "proof": {
+        "file": "release.test.mjs",
+        "test": "doctor --gates fails a missing switches.json like the build, and --gates needs --doctor"
+      }
+    },
+    {
+      "key": "source-gate.mjs::assertCleanSource::149bfac0",
+      "class": "runtime-only",
+      "reason": "the working tree's git status at invocation; the doctor reports dirty build inputs as its own rows"
+    },
+    {
+      "key": "source-gate.mjs::assertCleanSource::cf3ffe4f",
+      "class": "runtime-only",
+      "reason": "the working tree's git status at invocation; the doctor reports dirty build inputs as its own rows"
+    },
+    {
+      "key": "nsis-upgrade-contract.mjs::assertNsisInPlaceUpgradeContract::b70c6a3f",
+      "class": "doctor-covered",
+      "doctorRow": "nsis-upgrade-contract"
+    },
+    {
+      "key": "nsis-upgrade-contract.mjs::assertNsisInPlaceUpgradeContract::df3e85c6",
+      "class": "doctor-covered",
+      "doctorRow": "nsis-upgrade-contract"
+    },
+    {
+      "key": "nsis-upgrade-contract.mjs::assertNsisInPlaceUpgradeContract::2eb9ea61",
+      "class": "doctor-covered",
+      "doctorRow": "nsis-upgrade-contract"
+    },
+    {
+      "key": "nsis-upgrade-contract.mjs::assertNsisInPlaceUpgradeContract::c58b93ce",
+      "class": "doctor-covered",
+      "doctorRow": "nsis-upgrade-contract"
+    },
+    {
+      "key": "nsis-upgrade-contract.mjs::readJson::89f1fcd2",
+      "class": "doctor-covered",
+      "doctorRow": "nsis-upgrade-contract"
+    },
+    {
+      "key": "nsis-upgrade-contract.mjs::readJson::5cb8a9e9",
+      "class": "doctor-covered",
+      "doctorRow": "nsis-upgrade-contract"
+    },
+    {
+      "key": "publish-update.mjs::<module>::6cdae81d",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "publish-update.mjs::<module>::4d1c3bdc",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "publish-update.mjs::<module>::a9b49334",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "publish-update.mjs::<module>::743e4b50",
+      "class": "doctor-covered",
+      "doctorRow": "distribution-provider"
+    },
+    {
+      "key": "publish-update.mjs::<module>::574980b1",
+      "class": "runtime-only",
+      "reason": "an upload step (repository, token, signature, registration) failed against the sealed release or the service"
+    },
+    {
+      "key": "publish-update.mjs::<module>::b9fb3f4d",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::c6d33ee8",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::c6d33ee8#2",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::cf81cdc7",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::artifactFile::dfd7cb5b",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::signatureText::cf81cdc7",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::git::38f543ef",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::7393a370",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::b460aa5c",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::1acd0fdb",
+      "class": "runtime-only",
+      "reason": "needs the sealed release or the upload tier chosen at upload time"
+    },
+    {
+      "key": "publish-update.mjs::<module>::574980b1#2",
+      "class": "runtime-only",
+      "reason": "an upload step (repository, token, signature, registration) failed against the sealed release or the service"
+    },
+    {
+      "key": "publish-update.mjs::<module>::47402884",
+      "class": "doctor-covered",
+      "doctorRow": "config-identity",
+      "reason": "the build and the doctor refuse a config without a version"
+    },
+    {
+      "key": "publish-update.mjs::<module>::574980b1#3",
+      "class": "runtime-only",
+      "reason": "an upload step (repository, token, signature, registration) failed against the sealed release or the service"
+    },
+    {
+      "key": "publish-update.mjs::<module>::47402884#2",
+      "class": "doctor-covered",
+      "doctorRow": "config-identity",
+      "reason": "the build and the doctor refuse a config without a version"
+    },
+    {
+      "key": "publish-update.mjs::<module>::47402884#3",
+      "class": "doctor-covered",
+      "doctorRow": "config-identity",
+      "reason": "the build and the doctor refuse a config without a version"
+    },
+    {
+      "key": "publish-update.mjs::assertCurrentKey::f316ae53",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes",
+      "reason": "seal-routes holds a private (r2-rightapps) release to the same key shapes before the build"
+    },
+    {
+      "key": "publish-update.mjs::assertVersionedKey::b978026a",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes",
+      "reason": "seal-routes holds a private (r2-rightapps) release to the same key shapes before the build"
+    },
+    {
+      "key": "publish-update.mjs::patchInstallerKey::71b3845f",
+      "class": "doctor-covered",
+      "doctorRow": "seal-routes",
+      "reason": "seal-routes holds a private (r2-rightapps) release to the same key shapes before the build"
+    },
+    {
+      "key": "publish-update.mjs::register::574980b1",
+      "class": "runtime-only",
+      "reason": "an upload step failed against the service, or plumbing"
+    },
+    {
+      "key": "publish-update.mjs::fail::cbde29b1",
+      "class": "runtime-only",
+      "reason": "an upload step failed against the service, or plumbing"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::ecb9ace3",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::f5f5e0a9",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::c095450f",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::b19a9672",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::8c298741",
+      "class": "doctor-covered",
+      "doctorRow": "host-secret-env"
+    },
+    {
+      "key": "sign-updater.mjs::runSignUpdater::8f7eb280",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-windows.mjs::<module>::c03132fd",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-windows.mjs::<module>::87f647ac",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-windows.mjs::<module>::13dac344",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-win",
+      "reason": "off a Windows host the row says NOT RUN, which is never a pass"
+    },
+    {
+      "key": "sign-windows.mjs::<module>::d7fbc793",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-windows.mjs::<module>::51557a37",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-win"
+    },
+    {
+      "key": "sign-windows.mjs::<module>::0adaa6c0",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-win"
+    },
+    {
+      "key": "sign-windows.mjs::metadataPath::e433338a",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-win"
+    },
+    {
+      "key": "sign-windows.mjs::metadataPath::96c665f2",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-win"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::c6e9a190",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::5249c94f",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::450655ba",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::d522b96e",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::87f647ac",
+      "class": "runtime-only",
+      "reason": "command-line usage of this entry point; not a property of the app's files or the host"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::574980b1",
+      "class": "runtime-only",
+      "reason": "a malformed signing manifest the build wrote itself"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::0578d2b6",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac",
+      "reason": "off a Mac the row says NOT RUN, which is never a pass"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::574980b1#2",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac",
+      "reason": "the Developer ID identity is resolved on the Mac that signs; host-signing-mac asks the same question"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::d7fbc793",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::e3a2f164",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-macos.mjs::<module>::b94488cb",
+      "class": "runtime-only",
+      "reason": "needs the output of the build (an artifact, a receipt, a signed or sealed file) that does not exist before the build"
+    },
+    {
+      "key": "sign-macos.mjs::run::cb2bdfdc",
+      "class": "runtime-only",
+      "reason": "codesign failed on the artifact, or plumbing"
+    },
+    {
+      "key": "sign-macos.mjs::fail::cbde29b1",
+      "class": "runtime-only",
+      "reason": "codesign failed on the artifact, or plumbing"
+    },
+    {
+      "key": "macos-signing-identity.mjs::resolveMacosDeveloperIdIdentity::b0d31704",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac"
+    },
+    {
+      "key": "macos-signing-identity.mjs::resolveMacosDeveloperIdIdentity::e4c9ff84",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac"
+    },
+    {
+      "key": "macos-signing-identity.mjs::resolveMacosDeveloperIdIdentity::d5b72a63",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac"
+    },
+    {
+      "key": "notary-auth.mjs::notarytoolAuthArgs::797eeada",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac"
+    },
+    {
+      "key": "notary-auth.mjs::notarytoolAuthArgs::8814c39b",
+      "class": "doctor-covered",
+      "doctorRow": "host-signing-mac"
+    },
+    {
+      "key": "protected-credentials.mjs::protectedSecretStoreCommand::39275d94",
+      "class": "runtime-only",
+      "reason": "a protected credential store read (cloudflare token, QA receipt key) at the step that needs it; the updater key never leaves the provider"
+    },
+    {
+      "key": "protected-credentials.mjs::readProtectedFile::0f3dd91d",
+      "class": "runtime-only",
+      "reason": "a protected credential store read (cloudflare token, QA receipt key) at the step that needs it; the updater key never leaves the provider"
+    },
+    {
+      "key": "protected-credentials.mjs::read::39275d94",
+      "class": "runtime-only",
+      "reason": "a protected credential store read (cloudflare token, QA receipt key) at the step that needs it; the updater key never leaves the provider"
+    },
+    {
+      "key": "protected-credentials.mjs::read::9c3039bb",
+      "class": "runtime-only",
+      "reason": "a protected credential store read (cloudflare token, QA receipt key) at the step that needs it; the updater key never leaves the provider"
+    },
+    {
+      "key": "protected-credentials.mjs::read::9c3039bb#2",
+      "class": "runtime-only",
+      "reason": "a protected credential store read (cloudflare token, QA receipt key) at the step that needs it; the updater key never leaves the provider"
+    },
+    {
+      "key": "protected-credentials.mjs::resolveEnvBackedSecret::100e6384",
+      "class": "runtime-only",
+      "reason": "a protected credential store read (cloudflare token, QA receipt key) at the step that needs it; the updater key never leaves the provider"
+    },
+    {
+      "key": "protected-credentials.mjs::execWithUpdaterCredential::8c298741",
+      "class": "doctor-covered",
+      "doctorRow": "host-secret-env"
+    },
+    {
+      "key": "protected-credentials.mjs::execWithUpdaterCredential::1e1ff446",
+      "class": "runtime-only",
+      "reason": "an internal contract of the credential exec wrapper (absolute native child)"
+    },
+    {
+      "key": "protected-credentials.mjs::execWithUpdaterCredential::377e4555",
+      "class": "doctor-covered",
+      "doctorRow": "host-updater-credential"
+    },
+    {
+      "key": "managed-host-secrets.mjs::refuseManagedEnvSecret::7be3bf21",
+      "class": "doctor-covered",
+      "doctorRow": "host-secret-env"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::cargoLockEntries::3c867946",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::pnpmLockEntries::3c867946",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::getJson::d529efd2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::getJson::d529efd2#2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::b7895d53",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::bdc7dd18",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::b7895d53#2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::d529efd2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::d529efd2#2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::d529efd2#3",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::resolveRightKitPins::d87f1796",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::loadSnapshot::0c574662",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertSnapshotIntegrity::0c574662",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertSnapshotIntegrity::0c574662#2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertSnapshotIntegrity::0c574662#3",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertAdmissionSnapshot::0c574662",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertAdmissionSnapshot::0c574662#2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertSnapshotCoversLocks::4668602b",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::refuse::1d09c5ac",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::prepareRightKitResolution::0a6a3419",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::prepareRightKitResolution::cb6e4fe4",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertManifestRegistryEvidence::584bf263",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertManifestRegistryEvidence::017db7b0",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertManifestRegistryEvidence::65b9abd2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertManifestRegistryEvidence::e8ee1606",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertRegistryEvidence::17a51fc2",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertRegistryEvidence::be964a6b",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "rightkit-registry-resolver.mjs::assertRegistryEvidence::916141b0",
+      "class": "doctor-covered",
+      "doctorRow": "rightkit-registry"
+    },
+    {
+      "key": "release-state.mjs::commandOutputPortable::bfd39b57",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::commandOutputPortable::96cf30a5",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::watchProgress::ef01e419",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::releaseEnvironment::c83b4b91",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::releaseEnvironment::032b1c4d",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::releaseEnvironment::913cc838",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::e9d584cd",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::e0fa7819",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::d325cef3",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::25c61be3",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::c16a44c2",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::e1ff5359",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::09a32b42",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::0d510859",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::verifySealedRelease::4a5e7ae6",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runBuildStateMachine::5765d755",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runBuildStateMachine::fdfa2578",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runBuildStateMachine::718b7bcb",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runBuildStateMachine::3ab6e278",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runBuildStateMachine::dd213d5a",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runUploadStateMachine::d1e83ffd",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runUploadStateMachine::4293d5a8",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runUploadStateMachine::f968e16c",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::runUploadStateMachine::dd19db82",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::validateUploadRoutes::9962689a",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::validateUploadRoutes::b8fd3833",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    },
+    {
+      "key": "release-state.mjs::validateUploadRoutes::797ed97c",
+      "class": "runtime-only",
+      "reason": "the build state machine and sealed-release verification: decided from the state root, checkpoints and sealed bytes of this run"
+    }
+  ]
+}
