@@ -30,10 +30,10 @@ const lockWith = (versions: Record<string, string>) =>
 const cratesRoutes = (latest: Record<string, string>) =>
   Object.fromEntries(Object.entries(latest).map(([name, v]) => [`https://crates.io/api/v1/crates/${name}`, { crate: { max_stable_version: v } }]));
 
-/** Simulates `rightkit cargo update -p <name> --precise <ver>` by rewriting Cargo.lock. */
+/** Simulates `rustright cargo update -p <name> --precise <ver>` by rewriting Cargo.lock. */
 function cargoUpdateFake(repo: string) {
   return (argv: string[], options: { cwd: string }) => {
-    if (argv[0] !== "rightkit" || argv[1] !== "cargo") return undefined;
+    if (argv[0] !== "rustright" || argv[1] !== "cargo") return undefined;
     const name = argv[argv.indexOf("-p") + 1].split("@")[0];
     const version = argv[argv.indexOf("--precise") + 1];
     const lock = path.join(repo, "Cargo.lock");
@@ -49,7 +49,7 @@ async function applyIn(repo: string, deps: ApplyDeps, options: { only?: string[]
 }
 
 describe("apply: cargo", () => {
-  it("rewrites the version in place, refreshes the lock through `rightkit cargo`, and reports before/after", async () => {
+  it("rewrites the version in place, refreshes the lock through `rustright cargo`, and reports before/after", async () => {
     const repo = mkRepo({
       ".rightkit/update.json": manifest([{ kind: "cargo", manifest: "Cargo.toml" }]),
       "Cargo.toml": CARGO_TOML,
@@ -68,7 +68,7 @@ describe("apply: cargo", () => {
 
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toBe(CARGO_TOML.replace('serde = "1.0.100"', 'serde = "1.0.229"'));
     expect(fs.readFileSync(path.join(repo, "Cargo.lock"), "utf8")).toContain('name = "serde"\nversion = "1.0.229"');
-    expect(calls.filter((c) => c[0] === "rightkit")).toEqual([["rightkit", "cargo", "update", "-p", "serde", "--precise", "1.0.229"]]);
+    expect(calls.filter((c) => c[0] === "rustright")).toEqual([["rustright", "cargo", "update", "-p", "serde", "--precise", "1.0.229"]]);
     // Never a bare cargo.
     expect(calls.some((c) => c[0] === "cargo")).toBe(false);
 
@@ -90,13 +90,13 @@ describe("apply: cargo", () => {
       "Cargo.lock": lock,
     });
     const { fetch } = mockFetch(cratesRoutes({ serde: "1.0.229", anyhow: "1.0.0", tokio: "1.2.3", rand: "0.8.5" }));
-    const { run } = fakeRun((argv) => (argv[0] === "rightkit" ? fail("error: no matching package") : undefined));
+    const { run } = fakeRun((argv) => (argv[0] === "rustright" ? fail("error: no matching package") : undefined));
     const outcome = await applyIn(repo, { fetch, run });
 
     expect(outcome.exitCode).toBe(1);
     expect(outcome.report!.changes).toEqual([]);
     expect(outcome.report!.failed[0]).toMatchObject({ name: "serde" });
-    expect(outcome.report!.failed[0].reason).toMatch(/rightkit cargo update failed/);
+    expect(outcome.report!.failed[0].reason).toMatch(/rustright cargo update failed/);
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toBe(CARGO_TOML);
     expect(fs.readFileSync(path.join(repo, "Cargo.lock"), "utf8")).toBe(lock);
   });
@@ -108,7 +108,7 @@ describe("apply: cargo", () => {
       "Cargo.lock": lockWith({ serde: "1.0.100" }),
     });
     const { fetch } = mockFetch(cratesRoutes({ serde: "1.0.229", anyhow: "1.0.0", tokio: "1.2.3", rand: "0.8.5" }));
-    const { run } = fakeRun((argv) => (argv[0] === "rightkit" ? ok() : undefined));
+    const { run } = fakeRun((argv) => (argv[0] === "rustright" ? ok() : undefined));
     const outcome = await applyIn(repo, { fetch, run });
     expect(outcome.report!.failed[0].reason).toMatch(/does not contain serde 1.0.229/);
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toBe(CARGO_TOML);
@@ -128,7 +128,7 @@ describe("apply: cargo", () => {
     expect(outcome.report!.changes).toEqual([]);
     expect(outcome.report!.needsMigration.map((r) => `${r.name}:${r.before}->${r.latest}`).sort()).toEqual(["rand:0.8.5->0.9.1", "serde:1.0.100->2.0.0"]);
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toBe(CARGO_TOML);
-    expect(calls.some((c) => c[0] === "rightkit")).toBe(false);
+    expect(calls.some((c) => c[0] === "rustright")).toBe(false);
     // held.json lists them for an agent lane.
     const held = JSON.parse(fs.readFileSync(path.join(repo, ".rightkit/update/held.json"), "utf8"));
     expect(held.needsMigration.map((r: { name: string }) => r.name).sort()).toEqual(["rand", "serde"]);
@@ -150,7 +150,7 @@ describe("apply: cargo", () => {
     expect(outcome.report!.changes).toEqual([]);
     expect(outcome.report!.held.map((r) => r.name)).toEqual(["serde"]);
     expect(outcome.report!.needsMigration.map((r) => r.name)).toEqual(["itoa"]);
-    expect(calls.some((c) => c[0] === "rightkit")).toBe(false);
+    expect(calls.some((c) => c[0] === "rustright")).toBe(false);
   });
 
   it("--only restricts the run to named dependencies, and unknown names are an error", async () => {
@@ -198,7 +198,7 @@ describe("apply: cargo", () => {
     const { run, calls } = fakeRun(cargoUpdateFake(repo));
     const outcome = await applyIn(repo, { fetch, run });
     expect(outcome.report!.changes).toHaveLength(2);
-    expect(calls.filter((c) => c[0] === "rightkit")).toHaveLength(1);
+    expect(calls.filter((c) => c[0] === "rustright")).toHaveLength(1);
   });
 
   it("dry-run changes nothing, runs nothing and writes no report", async () => {
@@ -212,9 +212,9 @@ describe("apply: cargo", () => {
     const outcome = await applyIn(repo, { fetch, run }, { dryRun: true });
     expect(outcome.report!.dryRun).toBe(true);
     expect(outcome.report!.changes[0]).toMatchObject({ name: "serde", status: "planned", after: "1.0.229" });
-    expect(outcome.report!.changes[0].commands[0].slice(0, 3)).toEqual(["rightkit", "cargo", "update"]);
+    expect(outcome.report!.changes[0].commands[0].slice(0, 3)).toEqual(["rustright", "cargo", "update"]);
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toBe(CARGO_TOML);
-    expect(calls.some((c) => c[0] === "rightkit")).toBe(false);
+    expect(calls.some((c) => c[0] === "rustright")).toBe(false);
     expect(fs.existsSync(path.join(repo, ".rightkit/update"))).toBe(false);
   });
 
@@ -230,7 +230,7 @@ describe("apply: cargo", () => {
     const outcome = await applyIn(repo, { fetch, run });
     expect(outcome.exitCode).toBe(1);
     expect(outcome.report!.failed[0].reason).toMatch(/uncommitted changes: Cargo.toml/);
-    expect(calls.some((c) => c[0] === "rightkit")).toBe(false);
+    expect(calls.some((c) => c[0] === "rustright")).toBe(false);
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toMatch(/my own edit/);
   });
 

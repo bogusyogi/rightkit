@@ -121,7 +121,7 @@ a JSON line before and after (`{"event":"e2e_suite_completed","suite":"tooling",
 (repeatable) selects suites; a group name such as `journeys` selects all its chunks. `--runner vitest -- run --project unit`
 runs a runner once with the arguments after `--` (watch mode, one project); `-- <args>` after `--suite` is allowed when exactly
 one suite is selected. `--list [--json]` prints the resolved commands and runs nothing. Wrap it as the repository needs, for
-example `rightkit storage run --app <app> -- right-release test`.
+example `rustright storage run --app <app> -- right-release test`.
 
 ### `right-release build --web` (or `web-build`)
 
@@ -242,7 +242,7 @@ right-release install-app --dmg <path.dmg> [--app-name Pulse.app] [--bundle-id d
 
 It mounts the image read-only and hidden (`-nobrowse`), verifies the app (`codesign --verify --deep --strict`, `spctl --assess`, `stapler validate`, bundle id, and Team ID against the installed copy; a Team ID change is refused) before touching the installed copy, stages a `ditto` copy beside it in the destination and verifies that copy, quits the running instance with SIGTERM (15 s, then SIGKILL), swaps the staged copy in (one atomic exchange when the `rightkit-swap` helper is found, otherwise two journaled renames; the old bundle is restored on failure), re-verifies the installed copy, only then moves the old bundle to `~/.Trash/<App> <timestamp>.app`, and relaunches only if it was running or `--relaunch` is given, using `open -g -j -b` (background, hidden, never activated). `--json` emits one lifecycle event per line (`start`, `verified`, `quit`, `replaced`, `relaunched`, `done`/`failed`, among others). `right-release install-app --recover [--dest <dir>] [--app-name <App.app>] [--json]` rolls an interrupted install forward or back from its journal; every install runs that recovery first. Win32 exits with "not implemented on win32". Exit codes: 0 ok, 1 failed, 2 usage, 3 unsupported platform.
 
-The shipped `bin/darwin/rightkit-swap` is Developer ID signed. Local publish adds it via `right-release publish npm --package @rightkit/release --local` on the Mac (managed `rightkit cargo build --release -p rightkit-fs --bin rightkit-swap`, `codesign --options runtime --timestamp`, strict verify). CI qualification adds it via `publish.yml` build-swap → sign-swap → pack (`docs/CI.md`); sign-swap needs `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD` & `APPLE_DEVELOPER_ID` in the `release` environment, & stays blocked until root provisions the certificate pair. Exporting that identity requires an Aqua login session: SSH export fails `errSecInteractionNotAllowed` (-25308) & the Aqua signing agent exposes only codesign/updater/notarize/staple, no key export — do not retry either route. `install-app` refuses a helper that exists but is not validly signed (`SWAP_HELPER_UNSIGNED`, naming the fix); with no helper at all it uses the journaled two-rename fallback and logs it (`swap-fallback`, `replaced {swap}`).
+The shipped `bin/darwin/rightkit-swap` is Developer ID signed. Local publish adds it via `right-release publish npm --package @rightkit/release --local` on the Mac (managed `rustright cargo build --release -p rightkit-fs --bin rightkit-swap`, `codesign --options runtime --timestamp`, strict verify). CI qualification adds it via `publish.yml` build-swap → sign-swap → pack (`docs/CI.md`); sign-swap needs `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD` & `APPLE_DEVELOPER_ID` in the `release` environment, & stays blocked until root provisions the certificate pair. Exporting that identity requires an Aqua login session: SSH export fails `errSecInteractionNotAllowed` (-25308) & the Aqua signing agent exposes only codesign/updater/notarize/staple, no key export — do not retry either route. `install-app` refuses a helper that exists but is not validly signed (`SWAP_HELPER_UNSIGNED`, naming the fix); with no helper at all it uses the journaled two-rename fallback and logs it (`swap-fallback`, `replaced {swap}`).
 
 Development builds (from `@rightkit/ci` `devArtifact`, Developer ID-signed but not notarized) install with `--dev` and exactly one of `--dmg`, `--zip <path.zip>` (extracted with `ditto -x -k`), or `--app <path.app>`: `right-release install-app --dev --zip dev-mac.zip`. `--dev` still requires `codesign --verify --deep --strict`, a Team ID, no Team ID change, and a bundle-id match; it skips only `spctl` and `stapler`, removes `com.apple.quarantine` from the new bundle only, prints `DEV BUILD (not notarized)`, and sets `dev: true` on every JSON event.
 
@@ -414,7 +414,7 @@ Updater artifacts are declared as for R2 but need no `key`; `platform` must be a
 ```js
 targets: {
   win: {
-    updater: { keyFile: "%APPDATA%/RightKit/updater.key", artifacts: [
+    updater: { artifacts: [
       { file: "src-tauri/target/release/bundle/nsis/Ember_1.2.3_x64-setup.exe", signature: "src-tauri/target/release/bundle/nsis/Ember_1.2.3_x64-setup.exe.sig", platform: "windows-x86_64" },
     ] },
     artifacts: ["dist/Ember-1.2.3-portable-win.zip"], // portable zips seal alongside; they are not in latest.json
@@ -424,6 +424,8 @@ targets: {
   ] } },
 }
 ```
+
+Updater signing keys are never named in the config: `sign-updater` reads the minisign key from the OS credential provider (`rightkit-credentials`, namespace `rightsuite-updater-key`; see `protected-credentials.mjs`). `targets.<platform>.updater.keyFile` is refused at config validation (`RELEASE_CONFIG_UPDATER_KEY_FILE`, listed by `right-release doctor` and the build with every other finding) and is never forwarded to the signer, so remove it from apps that still set it.
 
 NSIS, MSI, `.app.tar.gz` and AppImage bundles all work the same way (any file signed by `sign-updater`). With no sealed installer the installer platform-trust check is skipped (reported in the output); installer-bearing seals still run it. The app side: `plugins.updater.endpoints` is the `latest.json` URL above and `plugins.updater.pubkey` is the suite updater public key (see `@rightkit/app-update` README).
 

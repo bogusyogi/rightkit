@@ -20,7 +20,7 @@
 //!   quiet drop: skipping is not a way to meet a platform requirement. The required ids per
 //!   platform are frozen in `required-journeys.json` next to `selection.json`.
 //! * **Source identity and build (steps 2 and 3).** [`prepare`] measures the checkout, runs the
-//!   adapter's `build` argv through `rightkit cargo` (validated compile-only, see
+//!   adapter's `build` argv through `rustright cargo` (validated compile-only, see
 //!   [`build_record::validate_build_command`]), measures the checkout again and writes the record
 //!   ([`build_record::record_build`]). The runner owns no target directory: the copies in the run
 //!   store are all it keeps.
@@ -116,7 +116,7 @@ fn refusal_reason(flag: &str) -> &'static str {
             "survivors fail the scenario in a qualifying run; they are never killed quietly"
         }
         _ => {
-            "the broker (`rightkit cargo`, via `rightkit-qa journeys run`) is the only compile path"
+            "the broker (`rustright cargo`, via `rightkit-qa journeys run`) is the only compile path"
         }
     }
 }
@@ -2816,18 +2816,18 @@ app = "fixtureapp"
 
 [[adapter]]
 name = "fx"
-build = ["rightkit", "cargo", "test", "-p", "fx", "--no-run", "--features", "qa", "--message-format=json"]
+build = ["rustright", "cargo", "test", "-p", "fx", "--no-run", "--features", "qa", "--message-format=json"]
 executable = { role = "adapter", cargo_target = "journeys_adapter" }
 artifacts = [{ role = "app", cargo_package = "fxapp" }]
 
 [[adapter]]
 name = "other"
-build = ["rightkit", "cargo", "build", "-p", "other"]
+build = ["rustright", "cargo", "build", "-p", "other"]
 executable = { role = "adapter", cargo_target = "other" }
 
 [[adapter]]
 name = "prebuilt"
-build = ["rightkit", "cargo", "build", "-p", "p"]
+build = ["rustright", "cargo", "build", "-p", "p"]
 executable = { role = "adapter", path = "bin/adapter" }
 
 [[journey]]
@@ -3217,7 +3217,7 @@ data = "generated"
 
     const FIXTURE_APP_SECTIONS: &str = r#"
 [build]
-command = ["rightkit", "cargo", "build", "-p", "fxapp", "--features", "qa"]
+command = ["rustright", "cargo", "build", "-p", "fxapp", "--features", "qa"]
 features = ["qa"]
 artifacts = [{ role = "app", cargo_package = "fxapp" }]
 
@@ -3302,7 +3302,7 @@ untagged_baseline = 0
                 r#"{"reason":"build-finished","success":true}"#.to_string(),
             ]
             .join("\n"),
-            stderr: format!("rightkit: request {REQ}\n[rightkit] target warm at start\n"),
+            stderr: format!("rustright: request {REQ}\n[rustright] target warm at start\n"),
             timed_out: false,
         }
     }
@@ -3360,7 +3360,7 @@ untagged_baseline = 0
         // A feature set the build did not use: the record is stale.
         let plan2 = BuildPlan::new(
             &p.plan.name,
-            &argv("rightkit cargo test -p fx --no-run --features qa,extra --message-format=json"),
+            &argv("rustright cargo test -p fx --no-run --features qa,extra --message-format=json"),
             p.plan.cwd.clone(),
             p.plan.artifacts.clone(),
         )
@@ -3472,7 +3472,7 @@ untagged_baseline = 0
     }
 
     #[test]
-    #[ignore = "needs the real rightkit broker and an app root: set RKQA_REAL_BROKER_APP_ROOT (and RKQA_REAL_BROKER_TIER); RK Dell runs it in the post-go batch"]
+    #[ignore = "needs the real RustRight broker and an app root: set RKQA_REAL_BROKER_APP_ROOT (and RKQA_REAL_BROKER_TIER); RK Dell runs it in the post-go batch"]
     fn real_broker_prepare_only() {
         let Ok(root) = std::env::var("RKQA_REAL_BROKER_APP_ROOT") else {
             return;
@@ -3513,7 +3513,7 @@ version = 1
 app = "fixtureapp"
 
 [build]
-command = ["rightkit", "cargo", "build", "-p", "fxapp", "--features", "qa"]
+command = ["rustright", "cargo", "build", "-p", "fxapp", "--features", "qa"]
 features = ["qa"]
 artifacts = [
   { role = "engine", cargo_target = "fxengine", qa_marker = false },
@@ -3541,7 +3541,7 @@ app = "fixtureapp"
 
 [[adapter]]
 name = "fx"
-build = ["rightkit", "cargo", "test", "-p", "fx", "--no-run", "--features", "qa", "--message-format=json"]
+build = ["rustright", "cargo", "test", "-p", "fx", "--no-run", "--features", "qa", "--message-format=json"]
 executable = { role = "adapter", cargo_target = "journeys_adapter" }
 artifacts = [{ role = "app", cargo_package = "fxapp" }]
 
@@ -3623,7 +3623,7 @@ data = "generated"
                 r#"{"reason":"build-finished","success":true}"#.to_string(),
             ]
             .join("\n"),
-            stderr: format!("rightkit: request {REQ}\n"),
+            stderr: format!("rustright: request {REQ}\n"),
             timed_out: false,
         }
     }

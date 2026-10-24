@@ -135,7 +135,7 @@ fn engine_scripts_must_be_two_top_level_managed_calls() {
         .unwrap()
         .to_string();
     // The retired one-call shape must fail the gate.
-    let retired = "    \"build:engine\": \"rightkit cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- build-engine\",";
+    let retired = "    \"build:engine\": \"rustright cargo run -q --manifest-path Cargo.toml -p rightapp-tools -- build-engine\",";
     fs::write(&pkg_path, original.replace(&release, retired)).unwrap();
     let bad = run(&dir, &["check"]);
     assert!(

@@ -170,7 +170,7 @@ async function applyCargo(ctx: Ctx, entry: CheckEntry, newRequirement: string, f
   const files = [manifestRel, lockRel ?? (dirRel === "." ? "Cargo.lock" : `${dirRel}/Cargo.lock`)];
   const commands: string[][] = [];
   const notes: string[] = [];
-  const argvFor = (pkg: string) => ["rightkit", "cargo", "update", "-p", pkg, "--precise", full];
+  const argvFor = (pkg: string) => ["rustright", "cargo", "update", "-p", pkg, "--precise", full];
   commands.push(argvFor(entry.name));
 
   if (ctx.dryRun) {
@@ -211,7 +211,7 @@ async function applyCargo(ctx: Ctx, entry: CheckEntry, newRequirement: string, f
       }
       if (result.code !== 0) {
         const why = result.error ?? (result.timedOut ? "timed out" : result.stderr.trim().split("\n").slice(-6).join(" | ") || `exit ${result.code}`);
-        throw new Error(`rightkit cargo update failed: ${why}`);
+        throw new Error(`rustright cargo update failed: ${why}`);
       }
       const lockText = fs.readFileSync(toAbs(ctx.repo, lockRel), "utf8");
       if (!lockHasVersion(lockText, entry.name, full)) throw new Error(`${lockRel} does not contain ${entry.name} ${full} after the update`);

@@ -50,7 +50,7 @@ export function developmentEnvironment(env = process.env) {
       result[pathKey] = [agentBin, result[pathKey]].filter(Boolean).join(path.delimiter);
     }
     // Same default as the agent-bin `rightkit` shim: children that run the managed client directly
-    // (resolveCommand("rightkit"), build scripts) must not lose the broker endpoint.
+    // (resolveCommand("rustright"), build scripts) must not lose the broker endpoint.
     const socket = discoverBrokerSocket(result);
     if (!result.RIGHTKIT_BUILD_BROKER_SOCKET && socket && existsSync(socket)) result.RIGHTKIT_BUILD_BROKER_SOCKET = socket;
   }
@@ -298,7 +298,8 @@ function execute(command, { root, env, dryRun, run, label }) {
 export function resolveCommand(command, args, { root, env = process.env } = {}) {
   if (command === "node") return { command: process.execPath, args };
   if (command === "pnpm") return { command: process.execPath, args: [resolvePnpmCli({ root, env }), ...args] };
-  if (command === "rightkit") {
+  if (command === "rightkit") throw new Error("`rightkit` is the retired name of the RustRight client (rustright#91); use rustright (cmd: \"rustright\")");
+  if (command === "rustright") {
     const client = managedRuntimeClient(env);
     if (!client) throw new Error("installed RightKit runtime client is unavailable for development command");
     const socket = discoverBrokerSocket(env);

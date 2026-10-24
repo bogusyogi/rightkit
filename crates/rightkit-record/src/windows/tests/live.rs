@@ -4,12 +4,12 @@
 //!
 //! Run:
 //! ```text
-//! rightkit cargo build --release --bin rightkit-record-helper
+//! rustright cargo build --release --bin rightkit-record-helper
 //! RK_RECORD_WINDOWS_HELPER=<path to rightkit-record-helper.exe> \
 //! RK_RECORD_FFMPEG_DIR=<dir holding ffmpeg.exe and ffprobe.exe> \
-//!   rightkit cargo test -p rightkit-record --lib windows::live -- --ignored --test-threads=1
+//!   rustright cargo test -p rightkit-record --lib windows::live -- --ignored --test-threads=1
 //! ```
-//! Under `rightkit cargo test` these names reach the test only because the workspace-root
+//! Under `rustright cargo test` these names reach the test only because the workspace-root
 //! `.rightkit-test-env.json` declares them (`RIGHTKIT_*` names can never be declared).
 //! `RK_RECORD_WINDOWS_TARGET` overrides the rk2 target path. `RK_RECORD_KEEP=1` keeps the bundle.
 

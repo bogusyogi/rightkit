@@ -3,7 +3,7 @@
 //! Real-world PDF corpus QA harness (test-only, `#[ignore]` — run explicitly):
 //!
 //! ```sh
-//! rightkit cargo test corpus_qa_matrix -- --ignored --nocapture
+//! rustright cargo test corpus_qa_matrix -- --ignored --nocapture
 //! ```
 //!
 //! Iterates every `*.pdf` under `RK_PDF_CORPUS_DIR` (default `../../../.qa-corpus`, i.e. the repo root) and exercises the real

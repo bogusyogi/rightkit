@@ -14,7 +14,7 @@ dest="$root/agent-bin/right-ctl"
 build_log="$(mktemp)"
 trap 'rm -f "$build_log" "$dest.tmp"' EXIT
 
-rightkit cargo build -p rightkit-agent-tools --release --bin right-ctl --message-format=json > "$build_log"
+rustright cargo build -p rightkit-agent-tools --release --bin right-ctl --message-format=json > "$build_log"
 
 # Collect the executable(s) cargo reported for the right-ctl bin target. Exactly one must exist.
 bin="$(python3 -I -c '

@@ -40,7 +40,7 @@ test("broker guard propagates to child Node processes through NODE_OPTIONS", { s
 
 test("broker guard refuses live broker launches and broker socket connects", { skip: skipWhenOptedIn }, (t) => {
   managedCargoOnPath(t);
-  assert.throws(() => childProcess.spawnSync("rightkit", ["cargo", "build"]), /RightKit broker guard: a test tried to reach the live RightKit build broker/);
+  assert.throws(() => childProcess.spawnSync("rustright", ["cargo", "build"]), /RightKit broker guard: a test tried to reach the live RightKit build broker/);
   assert.throws(() => childProcess.spawnSync("cargo", ["build"]), /RightKit broker guard/);
   assert.throws(() => childProcess.execFileSync("rustright", ["cargo", "build"]), /RightKit broker guard/);
   assert.throws(() => net.connect({ path: path.join(root, "broker.sock") }), /RightKit broker guard: .*broker socket/);

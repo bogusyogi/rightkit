@@ -9,7 +9,7 @@ const LOCK = '[[package]]\nname = "a"\nversion = "1.0.0"\n';
 
 function cargoFake(repo: string) {
   return (argv: string[]) => {
-    if (argv[0] !== "rightkit") return undefined;
+    if (argv[0] !== "rustright") return undefined;
     const version = argv[argv.indexOf("--precise") + 1];
     fs.writeFileSync(path.join(repo, "Cargo.lock"), LOCK.replace("1.0.0", version));
     return ok();
@@ -91,7 +91,7 @@ describe("run: the scheduled pipeline", () => {
     const d = drive(repo, ["run", "--repo", repo, "--quiet"]);
     expect(await d.go()).toBe(1);
     expect(String(d.events().at(-1)!.outcome)).toMatch(/refused: working tree is not clean \(wip\.txt\)/);
-    expect(d.calls.some((c) => c[0] === "rightkit")).toBe(false);
+    expect(d.calls.some((c) => c[0] === "rustright")).toBe(false);
     expect(fs.readFileSync(path.join(repo, "Cargo.toml"), "utf8")).toBe('[dependencies]\na = "1.0.0"\n');
   });
 

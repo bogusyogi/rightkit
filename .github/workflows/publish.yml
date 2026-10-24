@@ -104,6 +104,10 @@ jobs:
         with:
           node-version: "26.8.1"
           package-manager-cache: false
+      # Step 1 of docs/PIPELINE-ARCHITECTURE.md (P1): seconds, committed files only, before any tool install or scan; every
+      # other job needs scans, so a red check starts no build lane.
+      - name: Preflight (committed files only)
+        run: node live/scripts/preflight.mjs
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
           version: 11.24.0

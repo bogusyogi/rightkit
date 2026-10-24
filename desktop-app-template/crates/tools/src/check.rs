@@ -163,7 +163,7 @@ pub fn run(root: &Path) -> Result<()> {
     for (key, cmd) in pkg["scripts"].as_object().into_iter().flatten() {
         let cmd = cmd.as_str().unwrap_or("");
         need(
-            !cmd.contains("build-engine") && !cmd.contains("rightkit rustc"),
+            !cmd.contains("build-engine") && !cmd.contains("rustright rustc"),
             format!("script {key} nests a retired or broker-nesting engine call ({cmd})"),
         );
     }
@@ -514,7 +514,7 @@ pub fn run(root: &Path) -> Result<()> {
 
 /// The one script shape for an engine profile: a managed build, then a managed stage. Two top-level calls.
 fn engine_script(engine: &str, tools: &str, flags: &str) -> String {
-    format!("rightkit cargo build --locked --manifest-path Cargo.toml -p {engine} {flags} && rightkit cargo run -q --manifest-path Cargo.toml -p {tools} -- stage-engine {flags}")
+    format!("rustright cargo build --locked --manifest-path Cargo.toml -p {engine} {flags} && rustright cargo run -q --manifest-path Cargo.toml -p {tools} -- stage-engine {flags}")
 }
 
 fn collect(dir: &Path, out: &mut Vec<std::path::PathBuf>, exts: &[&str]) {

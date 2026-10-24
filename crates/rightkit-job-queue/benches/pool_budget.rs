@@ -6,7 +6,7 @@
 //! `RIGHTKIT_RUNTIME_SCRATCH_ROOT` when set (CI runtime qualification), else the platform
 //! scratch volume for manual runs on a host that has one.
 //!
-//! Run: `rightkit cargo test --profile release-iterate -p rightkit-job-queue --features store,supervisor --bench pool_budget -- 10000 30`
+//! Run: `rustright cargo test --profile release-iterate -p rightkit-job-queue --features store,supervisor --bench pool_budget -- 10000 30`
 
 use rightkit_child_process::{observe_idle_with_threads, process_usage, BudgetLabels};
 use rightkit_job_queue::{

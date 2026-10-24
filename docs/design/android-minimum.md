@@ -22,7 +22,7 @@ Status: design. Everything below is read from source. Nothing has been compiled 
 | JDK / AGP / Kotlin | JBR 17+ from Android Studio / 8.7.3 / 2.0.21 | `TOOLCHAIN.md` |
 | Bootstrap | `scripts/bootstrap-android.(ps1\|sh)`: check by default, `-Install` adds targets, cargo-ndk, sdkmanager packages; never accepts licences | `TOOLCHAIN.md` |
 
-Who provides the NDK. The Android Studio SDK Manager supplies the SDK and NDK once per host (a person installs Android Studio and accepts licences). `rightkit-android`'s bootstrap script verifies and, where safe, installs the pinned pieces. The broker side belongs to RustRight: the managed `rightkit cargo` must accept `--target aarch64-linux-android` and find the NDK linker; that is tracked at https://github.com/Orthic-Labs/rustright/issues/8 and device runs wait on it. Wiring `tools/setup-workspace.py` to the bootstrap pins file is a follow-up for that script's owner.
+Who provides the NDK. The Android Studio SDK Manager supplies the SDK and NDK once per host (a person installs Android Studio and accepts licences). `rightkit-android`'s bootstrap script verifies and, where safe, installs the pinned pieces. The broker side belongs to RustRight: the managed `rustright cargo` must accept `--target aarch64-linux-android` and find the NDK linker; that is tracked at https://github.com/Orthic-Labs/rustright/issues/8 and device runs wait on it. Wiring `tools/setup-workspace.py` to the bootstrap pins file is a follow-up for that script's owner.
 
 Build hosts: one dev build per host, owner chat only. Dell (lead: win) is preferred for CI-style compile checks. Android compile lanes in CI (`cargo ndk ... check`) are the first proof for every row below; no crate is "built for Android" until that lane is green.
 

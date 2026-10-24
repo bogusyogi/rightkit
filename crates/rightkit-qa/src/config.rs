@@ -14,7 +14,7 @@
 //! [engine]
 //! binary = { darwin = "target/debug/genright-engine", windows = "target/debug/genright-engine.exe" }
 //! package = "genright-engine"
-//! build = ["rightkit", "cargo", "build", "-p", "genright-engine"]
+//! build = ["rustright", "cargo", "build", "-p", "genright-engine"]
 //! data_dir_env = "GENRIGHT_APP_DATA"     # required: a launch with no isolated data dir is refused
 //! # data_dir_arg = "--data-dir"          # or name the dir in the step's arguments
 //! # forbidden_args = ["--use-user-library"]   # flags that select the real library: refused

@@ -15,7 +15,7 @@ export default {
     { kind: "cargo-bin", package: "heardright-dump-helper", platforms: ["win"] },
     { kind: "ffmpeg", tools: ["ffmpeg", "ffprobe"], catalog: "../rightkit/crates/rightkit-ffmpeg/catalog/artifacts.json",
       notices: { dir: "src-tauri/resources/third-party/ffmpeg", sourceOfferContact: "https://example.com/source" },
-      stage: { cmd: "rightkit", args: ["cargo", "run", "-p", "..."] } },
+      stage: { cmd: "rustright", args: ["cargo", "run", "-p", "..."] } },
     { kind: "onnxruntime", version: "1.24.4", catalog: "../rightkit/crates/rightkit-ffmpeg/catalog/native-libraries.json",
       as: "libonnxruntime.dylib" },
     { kind: "resource", from: "models/voice.onnx", to: "src-tauri/resources/models/voice.onnx", sha256: "<64 hex>" },
@@ -33,7 +33,7 @@ paths, non-hex digests, two entries writing the same file, and bare `cargo` in a
 
 | kind | what it does |
 | --- | --- |
-| `cargo-bin` | `rightkit cargo build --locked -p <package> --bin <bin> --target <triple> --profile <profile> [--features a,b]`. Copies the executable to `<stageDir>/<name>-<triple>[.exe]`. `bin` and `name` default to `package`; `profile` defaults to `release`. Optional `sha256` pins the built binary (only meaningful for reproducible builds). |
+| `cargo-bin` | `rustright cargo build --locked -p <package> --bin <bin> --target <triple> --profile <profile> [--features a,b]`. Copies the executable to `<stageDir>/<name>-<triple>[.exe]`. `bin` and `name` default to `package`; `profile` defaults to `release`. Optional `sha256` pins the built binary (only meaningful for reproducible builds). |
 | `ffmpeg` | Uses `media-sidecar.mjs`: picks the approved catalog row per tool, runs the optional `stage` command, copies the notice set and the LGPL source offer, checks the staged file against the row's `contentSha256`. Same keys as `mediaSidecar` plus `platforms`. |
 | `onnxruntime` | Picks the `approved` or `pinned` row of `native-libraries.json` for `version` and the target os/arch, downloads the pinned archive (digest checked before use), extracts the library (digest checked), writes it to `resourceDir` (default `src-tauri/resources/runtime`, name `as` or the catalog `artifactFileName`) and the notices to `licenseDir` (default `<resourceDir>/LICENSES`). Not an externalBin. Archives are cached in `.cache/onnxruntime`. |
 | `resource` | Copies one file `from` to `to` (both inside the app) and verifies the optional `sha256`. `from` may also be a directory: it is copied recursively into `to` and every file is hashed into the receipt (one row per file; `sha256` and `machO` are refused for a directory). |
@@ -91,7 +91,7 @@ Tests use fakes only (`stage-sidecar.test.mjs`).
 
 `right-release stage-sidecar [--target <triple>] [--app-root <dir>] [--config <file>]`: load the `sidecars` key from
 `right-release.config.mjs`, resolve the target with `resolveTargetTriple({ target })` (`--target`, then
-`TAURI_ENV_TARGET_TRIPLE`, then `rightkit rustc -vV`), call `stageSidecars`, print the staged paths. Apps then call it
+`TAURI_ENV_TARGET_TRIPLE`, then `rustright rustc -vV`), call `stageSidecars`, print the staged paths. Apps then call it
 from `beforeBuildCommand` instead of their own scripts.
 
 ## Not covered
@@ -107,7 +107,7 @@ in a dev-specific manifest; selecting between manifests is the caller's job.
 selects. The wrapper form accepts a default for entries without their own: `{ sidecars: [...], profiles: { dev, release } }`.
 
 **Catalog sources.** `ffmpeg` and `onnxruntime` `catalog` accepts a path relative to the app, an absolute path,
-`{ crate: "rightkit-ffmpeg", file? }` (the crate directory comes from `rightkit cargo metadata`, so a path or registry
+`{ crate: "rightkit-ffmpeg", file? }` (the crate directory comes from `rustright cargo metadata`, so a path or registry
 dependency both work; `file` defaults to `catalog/artifacts.json` for ffmpeg and `catalog/native-libraries.json` for
 onnxruntime) or `{ npm: "<pkg>/<file>" }` (found by walking up `node_modules` from the app, scoped packages allowed). A bad
 spec is reported against its own entry (`sidecars[2] (onnxruntime): catalog.crate must be ...`) alongside every other
@@ -174,7 +174,7 @@ host: `RIGHTKIT_BUILD_BROKER_SOCKET` or the agent-bin PATH, or `RIGHTSUITE_HEAVY
 stage-sidecar in recipe `prepare`, before the Tauri build. Manifests with only `resource`, `remote`, `command` and path
 catalogs are unaffected. `RIGHTKIT_STAGE_SIDECAR_ALLOW_NESTED=1` skips the check.
 
-**Managed target roots.** The build output directory is resolved through `rightkit cargo metadata --format-version 1
+**Managed target roots.** The build output directory is resolved through `rustright cargo metadata --format-version 1
 --no-deps` (`target_directory`, which cargo derives from `CARGO_TARGET_DIR` or the broker's managed root) when the
 build's own artifact stream names no executable. Candidates are, in order: the explicit `CARGO_TARGET_DIR` of the calling
 environment (resolved against the app root) and then `target_directory`, each as `<root>/<triple>/<profile>/<bin>` then

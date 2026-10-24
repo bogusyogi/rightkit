@@ -134,7 +134,7 @@ pnpm install --frozen-lockfile
 pnpm --dir apps/membrane-hub install --frozen-lockfile
 # a comment: node scripts/should-not-run.mjs
 cargo test --manifest-path engine/Cargo.toml
-rightkit cargo build
+rustright cargo build
 pnpm test
 pnpm test:random
 RIGHT_RELEASE_OFFLINE=1 pnpm --dir apps/membrane-hub test

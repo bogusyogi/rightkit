@@ -37,7 +37,7 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039", "rightkit-qa?/wv2-0_39"]
 
 [dependencies]
 rightkit-automation = { version = "0.6.0", path = "../rightkit-automation" }
-rightkit-qa = { version = "0.8.0", path = "../rightkit-qa", optional = true, default-features = false }
+rightkit-qa = { version = "0.9.0", path = "../rightkit-qa", optional = true, default-features = false }
 tauri = { version = "2", optional = true }
 
 # tests/offscreen_macos.rs talks to the embedded server's service directly.

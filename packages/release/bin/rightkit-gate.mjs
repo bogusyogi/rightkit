@@ -750,13 +750,13 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
 
 // ---- command resolution -------------------------------------------------------------------------------------
 
-// Cargo only through the broker: `rightkit cargo`, or a `cargo` on PATH that is the managed shim (it runs cargo-guard.mjs).
+// Cargo only through the broker: `rustright cargo`, or a `cargo` on PATH that is the managed shim (it runs cargo-guard.mjs).
 function resolveCargoCommand(o) {
   const which = (cmd) => {
     const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
     return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   };
-  if (which("rightkit").length) return ["rightkit", "cargo"];
+  if (which("rustright").length) return ["rustright", "cargo"];
   const first = which("cargo")[0];
   if (first) { try { if (o.readFile(first).includes("cargo-guard.mjs")) return ["cargo"]; } catch { /* unreadable: not the shim */ } }
   return null;
@@ -900,12 +900,12 @@ export async function main(argv, io = {}) {
   const readLive = (f) => o.readFile(f);
 
   // Units come from the live checkout (cargo reads it); a dirty checkout then blocks below.
-  let rust; let npm; let cargoCommand = ["rightkit", "cargo"];
+  let rust; let npm; let cargoCommand = ["rustright", "cargo"];
   try {
     const manifests = tracked("Cargo.toml");
     if (manifests.length) {
       cargoCommand = resolveCargoCommand(o);
-      if (!cargoCommand) { o.err(`${tag} BLOCKED: neither \`rightkit\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`); return 1; }
+      if (!cargoCommand) { o.err(`${tag} BLOCKED: neither \`rustright\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`); return 1; }
       if (!o.exists(path.join(root, GRANT_FILE))) { o.err(`${tag} BLOCKED: no local compile grant (${GRANT_FILE}); the broker refuses cargo, so the Rust units cannot be discovered or scanned`); return 1; }
     }
     // Untracked (not ignored) manifests only: git does not descend into ignored directories, so this stays cheap. A member of a

@@ -189,7 +189,7 @@ metadata. New contract:
 
 ## Synthetic tests
 
-These are the crate's unit tests in `src/`. Run them with `rightkit cargo test -p rightkit-tts-qwen`.
+These are the crate's unit tests in `src/`. Run them with `rustright cargo test -p rightkit-tts-qwen`.
 
 Unit fixtures use tiny local GGUFs & tensors. Coverage includes independent
 2048/1024 metadata, 4→2 projection math/bias, cached/recompute equivalence for

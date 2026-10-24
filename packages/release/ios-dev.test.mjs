@@ -116,11 +116,11 @@ test("devicectl devices: a named ready device is accepted; an unready one, an un
   assert.equal(deviceReadiness(DEVICES[1]).ready, false);
 });
 
-function fakeXcrun({ failStep, sims = SIMS, devices = DEVICES, launchResult = { result: { process: { processIdentifier: 42 } } }, rightkit } = {}) {
+function fakeXcrun({ failStep, sims = SIMS, devices = DEVICES, launchResult = { result: { process: { processIdentifier: 42 } } }, rustright } = {}) {
   const calls = [];
   const run = (cmd, args, options = {}) => {
     calls.push({ cmd, args: [...args], options });
-    if (cmd === "rightkit") return rightkit ?? { status: 1, stdout: "" };
+    if (cmd === "rustright") return rustright ?? { status: 1, stdout: "" };
     if (args[0] === "simctl" && args[1] === "list") return { status: 0, stdout: simctlJson(sims) };
     if (args[0] === "devicectl" && args[1] === "list") { writeFileSync(args[args.indexOf("--json-output") + 1], JSON.stringify({ result: { devices } })); return { status: 0, stdout: "" }; }
     if (args[0] === "devicectl" && args.includes("launch")) { writeFileSync(args[args.indexOf("--json-output") + 1], JSON.stringify(launchResult)); }
@@ -131,9 +131,9 @@ function fakeXcrun({ failStep, sims = SIMS, devices = DEVICES, launchResult = { 
   return { calls, run };
 }
 
-test("prepare resolves the simulator or device and the storage before any build, from rightkit storage when a run root exists", () => {
+test("prepare resolves the simulator or device and the storage before any build, from rustright storage when a run root exists", () => {
   const tmp = tempRoot("rk-ios-dev-");
-  const xcrun = fakeXcrun({ rightkit: { status: 0, stdout: JSON.stringify(["-derivedDataPath", "/runs/1/DerivedData", "-resultBundlePath", "/runs/1/r.xcresult"]) } });
+  const xcrun = fakeXcrun({ rustright: { status: 0, stdout: JSON.stringify(["-derivedDataPath", "/runs/1/DerivedData", "-resultBundlePath", "/runs/1/r.xcresult"]) } });
   const sim = prepareIosDevelopment(validateIosDevelopment(base({ install: simulator({ device: "iPhone 17 Pro" }) }), { root }), { root, env: { RIGHTKIT_RUN_ROOT: "/runs/1" }, run: xcrun.run, tmpRoot: tmp });
   assert.equal(sim.install.resolved.id, SIM_UDID);
   assert.equal(slashed(sim.install.app), "/runs/1/DerivedData/Build/Products/Debug-iphonesimulator/Pulse.app");

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  StageSidecarError, builtBinaryCandidates, defaultExtractMember, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
+  StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
@@ -47,8 +47,8 @@ function fakeRun({ onBuild, targetDir = path.resolve("/rk-fake-target") } = {}) 
   const calls = [];
   const run = (command, args, options) => {
     calls.push({ command, args, options });
-    if (command === "rightkit" && args[0] === "cargo" && args[1] === "metadata") return { status: 0, stdout: JSON.stringify({ target_directory: targetDir }), stderr: "" };
-    if (command === "rightkit" && args[0] === "cargo" && args[1] === "build") return { status: 0, stderr: "", ...onBuild(args) };
+    if (command === "rustright" && args[0] === "cargo" && args[1] === "metadata") return { status: 0, stdout: JSON.stringify({ target_directory: targetDir }), stderr: "" };
+    if (command === "rustright" && args[0] === "cargo" && args[1] === "build") return { status: 0, stderr: "", ...onBuild(args) };
     return { status: 0, stdout: "", stderr: "" };
   };
   return { run, calls };
@@ -84,13 +84,22 @@ test("validation reports every problem at once with a typed error", () => {
   assert.throws(() => validateSidecarManifest({ sidecars: [{ kind: "resource", from: "a", to: "b" }], stageDir: "../out" }, { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
 });
 
+test("the retired client name is refused in a stage command and by the default runner, never resolved", () => {
+  const retired = ["right", "kit"].join(""); // spelled at runtime: the retired-alias rule refuses the literal
+  assert.throws(
+    () => validateSidecarManifest([{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: { dir: "n", sourceOfferContact: "a@b.co" }, stage: { cmd: retired, args: ["cargo", "run"] } }], { target: MAC }),
+    (error) => error.code === "STAGE_SIDECAR_CONFIG_INVALID" && /retired name of the RustRight client/.test(error.message),
+  );
+  assert.throws(() => defaultRun(retired, ["cargo", "metadata"], { cwd: "." }), /retired name of the RustRight client/);
+});
+
 test("builtBinaryCandidates prefers the explicit-target layout, then the plain one", () => {
   const dirs = builtBinaryCandidates({ targetDir: "/t", triple: MAC, profile: "dev", bin: "eng", windows: false });
   assert.deepEqual(dirs, [path.join("/t", MAC, "debug", "eng"), path.join("/t", "debug", "eng")]);
   assert.equal(builtBinaryCandidates({ targetDir: "/t", triple: WIN, profile: "release", bin: "eng", windows: true })[0], path.join("/t", WIN, "release", "eng.exe"));
 });
 
-test("cargo-bin builds through rightkit cargo, stages <name>-<triple>, writes a receipt", async () => {
+test("cargo-bin builds through rustright cargo, stages <name>-<triple>, writes a receipt", async () => {
   const { fs, files, log } = fakeFs();
   const exe = path.resolve("/rk-fake-target", MAC, "release", "mailright-engine");
   const { run, calls } = fakeRun({ onBuild: () => { files.set(exe, Buffer.from("engine-bytes")); return { stdout: stream("mailright-engine", exe) }; } });
@@ -98,7 +107,7 @@ test("cargo-bin builds through rightkit cargo, stages <name>-<triple>, writes a 
   const staged = at("src-tauri", "binaries", `mailright-engine-${MAC}`);
   assert.equal(fs.readFileSync(staged).toString(), "engine-bytes");
   assert.deepEqual(result.externalBinNames, ["mailright-engine"]);
-  assert.ok(calls.every((call) => call.command === "rightkit" && call.args[0] === "cargo"), "never bare cargo");
+  assert.ok(calls.every((call) => call.command === "rustright" && call.args[0] === "cargo"), "never bare cargo");
   const build = calls[0].args;
   for (const flag of ["--locked", "-p", "mailright-engine", "--target", MAC, "--profile", "release", "--features", "a,pkg/b"]) assert.ok(build.includes(flag), flag);
   assert.deepEqual(log.chmods.map(([, mode]) => mode), [0o755]);
@@ -239,13 +248,13 @@ function ffmpegFixture({ stagedBytes = "ffmpeg-bytes", contentSha256 = sha("ffmp
   };
   const { fs, files, log } = fakeFs({ [path.join(crateDir, "notices", "LGPL-2.1.txt")]: "LGPL text" });
   const run = (command, args) => {
-    if (command === "rightkit" && args[0] === "ffmpeg-stage") files.set(at("src-tauri", "binaries", `ffmpeg-${MAC}`), Buffer.from(stagedBytes));
+    if (command === "rustright" && args[0] === "ffmpeg-stage") files.set(at("src-tauri", "binaries", `ffmpeg-${MAC}`), Buffer.from(stagedBytes));
     return { status: 0, stdout: "", stderr: "" };
   };
   return { fs, log, run, crateDir, catalog: { schemaVersion: 1, artifacts: [row] } };
 }
 
-const ffmpegManifest = [{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: { dir: "src-tauri/resources/third-party/ffmpeg", sourceOfferContact: "https://example.test/source" }, stage: { cmd: "rightkit", args: ["ffmpeg-stage"] } }];
+const ffmpegManifest = [{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: { dir: "src-tauri/resources/third-party/ffmpeg", sourceOfferContact: "https://example.test/source" }, stage: { cmd: "rustright", args: ["ffmpeg-stage"] } }];
 
 test("ffmpeg stages through media-sidecar, writes licence notices and verifies the catalog digest", async () => {
   const fixture = ffmpegFixture();
@@ -352,7 +361,7 @@ test("cargo-bin profile pair is chosen by RIGHTKIT_BUILD_MODE, with a top-level 
   assert.throws(() => validateSidecarManifest({ sidecars: entry, profiles: "release" }, { target: MAC }), /profiles/);
 });
 
-test("the dev mode builds with the dev profile through rightkit cargo", async () => {
+test("the dev mode builds with the dev profile through rustright cargo", async () => {
   const { fs, files } = fakeFs();
   const exe = path.resolve("/rk-fake-target", MAC, "release-iterate", "eng");
   const { run, calls } = fakeRun({ onBuild: () => { files.set(exe, Buffer.from("dev-bytes")); return { stdout: stream("eng", exe) }; } });
@@ -414,7 +423,7 @@ test("onnxruntime resolves a { crate } catalog through the metadata listing and 
       }),
     });
     assert.equal(result.files[0].sha256, sha("lib"));
-    assert.equal(calls.some((call) => call.command === "rightkit" && call.args[1] === "metadata"), "crate" in catalog);
+    assert.equal(calls.some((call) => call.command === "rustright" && call.args[1] === "metadata"), "crate" in catalog);
   }
 });
 
@@ -469,7 +478,7 @@ test("universal-apple-darwin builds both slices and lipo-creates <name>-universa
   const seen = [];
   const run = (command, args, options) => {
     seen.push({ command, args, options });
-    if (command === "rightkit" && args[1] === "build") {
+    if (command === "rustright" && args[1] === "build") {
       const triple = args[args.indexOf("--target") + 1];
       files.set(exeFor(triple), Buffer.from(`slice-${triple}`));
       return { status: 0, stderr: "", stdout: stream("eng", exeFor(triple)) };
@@ -482,7 +491,7 @@ test("universal-apple-darwin builds both slices and lipo-creates <name>-universa
     return { status: 0, stdout: "", stderr: "" };
   };
   const result = await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest: [{ kind: "cargo-bin", package: "eng" }], deps: deps({ fs, run }) });
-  const targets = seen.filter((call) => call.command === "rightkit").map((call) => call.args[call.args.indexOf("--target") + 1]);
+  const targets = seen.filter((call) => call.command === "rustright").map((call) => call.args[call.args.indexOf("--target") + 1]);
   assert.deepEqual(targets, ["aarch64-apple-darwin", "x86_64-apple-darwin"]);
   const create = seen.find((call) => call.command === "lipo" && call.args[0] === "-create");
   assert.deepEqual(create.args.filter((arg) => arg.startsWith(path.resolve("/rk-fake-target"))), [exeFor("aarch64-apple-darwin"), exeFor("x86_64-apple-darwin")]);
@@ -496,7 +505,7 @@ test("universal-apple-darwin builds both slices and lipo-creates <name>-universa
 
 test("universal: a thin lipo result and a failing lipo are refused", async () => {
   const build = (files, command, args) => {
-    if (command !== "rightkit") return undefined;
+    if (command !== "rustright") return undefined;
     const exe = path.resolve("/rk-fake-target", args[args.indexOf("--target") + 1], "eng");
     files.set(exe, Buffer.from("s"));
     return { status: 0, stderr: "", stdout: stream("eng", exe) };
@@ -1038,7 +1047,7 @@ test("universal ffmpeg stages each arch slice, runs the stage command per slice 
   const { fs, files, log } = fakeFs(initial);
   const stageCalls = [];
   const run = (command, args) => {
-    if (command === "rightkit" && args[0] === "ffmpeg-stage") {
+    if (command === "rustright" && args[0] === "ffmpeg-stage") {
       stageCalls.push(args);
       const [, triple, stageDir] = args;
       files.set(path.resolve(APP, stageDir, `ffmpeg-${triple}`), Buffer.from(triple.startsWith("aarch64") ? "arm-ffmpeg" : "x86-ffmpeg"));
@@ -1047,7 +1056,7 @@ test("universal ffmpeg stages each arch slice, runs the stage command per slice 
     if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
     return { status: 0, stdout: "", stderr: "" };
   };
-  const manifest = [{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: NOTICES, stage: { cmd: "rightkit", args: ["ffmpeg-stage", "{triple}", "{stageDir}"] } }];
+  const manifest = [{ kind: "ffmpeg", tools: ["ffmpeg"], catalog: "c/artifacts.json", notices: NOTICES, stage: { cmd: "rustright", args: ["ffmpeg-stage", "{triple}", "{stageDir}"] } }];
   const result = await stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs, run, loadMediaCatalog: () => ({ catalog, crateDir }) }) });
   assert.deepEqual(stageCalls, [["ffmpeg-stage", "aarch64-apple-darwin", ".right-release/slices/aarch64-apple-darwin"], ["ffmpeg-stage", "x86_64-apple-darwin", ".right-release/slices/x86_64-apple-darwin"]]);
   assert.equal(fs.readFileSync(at("src-tauri", "binaries", `ffmpeg-${UNIVERSAL}`)).toString(), "fat-ffmpeg");
@@ -1061,7 +1070,7 @@ test("universal ffmpeg stages each arch slice, runs the stage command per slice 
   validateStageSidecarReceipt(result.receipt, { target: UNIVERSAL, names: ["ffmpeg"] });
   assert.deepEqual(planSidecarStaging({ manifest, target: UNIVERSAL, env: {} }).entries[0].outputs, [`src-tauri/binaries/ffmpeg-${UNIVERSAL}`]);
   const thin = { ...fakeFs(initial) };
-  const thinRun = (command, args) => (command === "lipo" && args[0] === "-archs" ? { status: 0, stdout: "arm64\n" } : command === "rightkit" ? (thin.files.set(path.resolve(APP, args[2], `ffmpeg-${args[1]}`), Buffer.from(args[1].startsWith("aarch64") ? "arm-ffmpeg" : "x86-ffmpeg")), { status: 0 }) : command === "lipo" ? (thin.files.set(args[args.indexOf("-output") + 1], Buffer.from("x")), { status: 0 }) : { status: 0 });
+  const thinRun = (command, args) => (command === "lipo" && args[0] === "-archs" ? { status: 0, stdout: "arm64\n" } : command === "rustright" ? (thin.files.set(path.resolve(APP, args[2], `ffmpeg-${args[1]}`), Buffer.from(args[1].startsWith("aarch64") ? "arm-ffmpeg" : "x86-ffmpeg")), { status: 0 }) : command === "lipo" ? (thin.files.set(args[args.indexOf("-output") + 1], Buffer.from("x")), { status: 0 }) : { status: 0 });
   await assert.rejects(stageSidecars({ appRoot: APP, target: UNIVERSAL, manifest, deps: deps({ fs: thin.fs, run: thinRun, loadMediaCatalog: () => ({ catalog, crateDir }) }) }), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
 });
 

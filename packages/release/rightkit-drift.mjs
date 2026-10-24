@@ -91,7 +91,7 @@ export function applyRightkitAdoption(appRoot, versions = loadRightkitVersions()
     for (const file of byFile.keys()) {
       const dir = path.join(appRoot, path.dirname(file));
       if (file.endsWith("package.json")) run("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], dir);
-      else run("rightkit", ["cargo", "metadata", "--format-version", "1", "--manifest-path", path.join(appRoot, file)], dir);
+      else run("rustright", ["cargo", "metadata", "--format-version", "1", "--manifest-path", path.join(appRoot, file)], dir);
     }
   }
   return drift;

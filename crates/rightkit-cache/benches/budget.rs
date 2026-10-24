@@ -4,7 +4,7 @@
 //! (the cap holds about 65,000, so about a third are evicted by the LRU), read 100,000 keys back
 //! (hits on the newest, misses on the evicted), then hold the cache open and idle for the idle window.
 //!
-//! Run: `rightkit cargo bench -p rightkit-cache --bench budget`
+//! Run: `rustright cargo bench -p rightkit-cache --bench budget`
 //! Optional: `-- <entries> <idle_seconds>` (defaults 100000 and 30).
 
 use rightkit_cache::{Config, DiskCache, Key};

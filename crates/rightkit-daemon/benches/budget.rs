@@ -6,7 +6,7 @@
 //! monitor (blocked on a one-second timed wait, one stat of `takeover.json` per wake) runs the
 //! whole time; its cost is what the idle figures show.
 //!
-//! Run: `rightkit cargo bench -p rightkit-daemon --bench budget`
+//! Run: `rustright cargo bench -p rightkit-daemon --bench budget`
 //! Optional: `-- <connections> <requests> <idle_seconds>` (defaults 64, 20000 and 30).
 
 use rightkit_child_process::{observe_idle, process_usage, BudgetLabels};

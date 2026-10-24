@@ -692,16 +692,16 @@
     "rightkit-child-process": {
       "pkId": "PK02",
       "id": "ci/consumers/rightkit-child-process/src/main.rs",
-      "dependency": "rightkit-child-process = { version = \"=0.5.5\" }",
+      "dependency": "rightkit-child-process = { version = \"=0.5.6\" }",
       "extraDependencies": [],
       "gateEvidence": "the child is the consumer executable itself (std::env::current_exe with a --child mode argument): no shell, network, files or ffmpeg; the strict incomplete-capture Err path is not exercised (not deterministic on a trivial child)",
       "consumes": "PK02 plan (01-packages.md:116-129): ScrapeRight and CodeRight runners; public items exercised: run (crates/rightkit-child-process/src/run.rs:192), run_with_stdin (src/run.rs:173), run_command (src/run.rs:249), run_command_capture (src/run.rs:271), RunOptions (src/run.rs:64), CaptureOptions (src/run.rs:105), OwnedCommand::new and command_mut (src/owned.rs:167,216); 0.5.5 descriptor policy surface: OwnedCommand::inherit_all_descriptors and inherit_fd (src/owned.rs:255,273)",
       "files": {
-        "Cargo.toml": "9094bfcf7129df9212f9083568d15b1e73de66d6dd12c866920e9979f28096cf",
-        "README.md": "32f28f7d77462a21e5b404a41b07529279ac75d191aea1784351aab4dedd3923",
-        "src/main.rs": "2c0516340c6c15f8a273988facd0a00fcf88600ee1352332bf6ae31a0639d699"
+        "Cargo.toml": "4326c50351f1a2815db17d727ae1d94814a102361a75d99595de519d12a4259a",
+        "README.md": "0a5dc86cf156e30e6bbb834bad3f1efa6ebd19a400ad3173571af56b1207d40f",
+        "src/main.rs": "3aa62c5ad97d74cbb61587fd71d898dc98901fe82481f7ea4a5364e6f3c5564d"
       },
-      "aggregateSha256": "e46f1b991e40ba6bc2988e6eaea8483fe53eba08eb484d07047af295f2348ffb"
+      "aggregateSha256": "b866beb09e1b4baf80db1baaef0e1bb3b03f56124caf6a07a84b2401fe579a54"
     },
     "rightkit-onnx": {
       "pkId": "PK18",
@@ -793,18 +793,18 @@
     "rightkit-qa": {
       "pkId": "PK14",
       "id": "ci/consumers/rightkit-qa/src/main.rs",
-      "dependency": "rightkit-qa = { version = \"=0.8.0\" }",
+      "dependency": "rightkit-qa = { version = \"=0.9.0\" }",
       "extraDependencies": [
         "serde_json = \"1\""
       ],
       "gateEvidence": "no assets needed; in-memory values only; default features only; no ci/asset-gated.json entry needed",
       "consumes": "PK14-4 named QA glue consumers per 01-packages.md: MailRight tauri_run.rs:109 QA registration, HeardRight and ScrapeRight journey runners; exercised modules: scenario, config, settings, check, storage, util (crates/rightkit-qa/src/lib.rs)",
       "files": {
-        "Cargo.toml": "b5204cb6331bb49b08caedcc59c0220503dd3e324983370bf2f62a03070e3990",
-        "README.md": "0ab46afbb7fafe2120f98250a1d95f8b2998669ce0abe86a7e90876ce8456863",
-        "src/main.rs": "68e904af5d9651f746f82072dc5acecc01d1b277603ea9daa482fbd38066617d"
+        "Cargo.toml": "b8bca8d2cbb43570132529b97de08b86470487b02351b2ded99c4eccf10c7f4c",
+        "README.md": "8000b33fdbbff98ab5788c6b0d68de681c057b1fbb6b681d5227ca4b30a01750",
+        "src/main.rs": "a76e393f405c5f496ea260bfb07536419d272bb6217967e05381faeccdda976a"
       },
-      "aggregateSha256": "d404c09b61a89b787228a4175128558134445c485e8ad90feabf197d2333ad69"
+      "aggregateSha256": "7bfac0dc711711e620b98af0e5444411388904cfae94ca81045c68cad468f6f7"
     },
     "rightkit-sandbox": {
       "pkId": "PK12",

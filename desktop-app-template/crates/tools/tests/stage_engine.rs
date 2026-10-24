@@ -1,4 +1,4 @@
-//! Real-process tests of `stage-engine`. The tools binary is copied to where `rightkit cargo run` leaves
+//! Real-process tests of `stage-engine`. The tools binary is copied to where `rustright cargo run` leaves
 //! it (`<target>/debug/`), a stand-in engine is written where cargo would put it, and the staged copy is
 //! checked. Nothing here calls cargo or the broker: staging must work with no process calls at all.
 use std::fs;

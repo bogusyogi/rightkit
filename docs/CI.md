@@ -1,5 +1,8 @@
 # RightKit CI
 
+The pipeline this document implements (check → build → qualify → release) and its invariants are in
+[`PIPELINE-ARCHITECTURE.md`](PIPELINE-ARCHITECTURE.md); this file is the mechanics.
+
 Pushes to `main` & pull requests run static validation. Native Windows & macOS qualification
 starts through broker-admitted `workflow_dispatch` requests. `publish.yml` qualifies sealed archives;
 `publish-direct.yml` uploads every green qualification run's sealed bytes as soon as it completes;
@@ -35,12 +38,19 @@ What is implemented today:
   and run no repository code; class B scans (clippy, check, doc, tsc, tests, the repository's docs
   generator) start only after class A passes. Content scans run on the exported HEAD. A required
   tool that is missing fails the scan.
-- `scripts/local-gate.mjs` (the pre-push hook) invokes `rightkit-gate --pre-push`: all applicable
+- `scripts/preflight.mjs` runs first: in the pre-push hook, as the first step of `ci.yml`'s `plan` job (every
+  other job needs `plan`), at the start of `rk-pipeline preflight` and `loop` (before any canary, compile or dispatch)
+  and as the first step of `publish.yml`'s `scans` job (every other job needs `scans`). It reads only the committed files of HEAD: no network, cargo, pnpm, broker or compile, a few
+  seconds on any host. Its rules are the predicates the later stages already refuse with (consumer recipe hashes,
+  npm surface & import closures, version copies, dispatcher helper digests, consumer locks, CRLF vs `.gitattributes`,
+  file-URL paths, generated docs), run for every unit rather than only the one being published. Each `FAIL` line names
+  the file and the change. `node scripts/preflight.mjs --list` lists the rules; `--commit <rev>` checks another commit, `--repo <dir>` another repository and `--worktree` what a compile would see.
+- `scripts/local-gate.mjs` (the pre-push hook, after preflight) invokes `rightkit-gate --pre-push`: all applicable
   class A scans, focused `scripts/ci` tests & deterministic `generated-docs` checks before each push
   (Adrian 2026-10-22, #911). Native compile, clippy, rustdoc & package tests remain mandatory in
   publication qualification. Direct `rightkit-gate` invocation retains full class A & B coverage;
   generated app hooks also retain that default. Pre-push mode needs the committed local
-  compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rightkit cargo`, or
+  compile grant (`.rightkit-local-build.json`). Cargo runs only through the broker: `rustright cargo`, or
   the managed `cargo` shim (`cargo-guard.mjs`); plain cargo is refused. A deferred scan fails the gate,
   and so does a checkout that differs from HEAD where the broker scans read it. A change to a root
   workspace file (`Cargo.lock`, `Cargo.toml`, toolchain, `.cargo/`, pnpm lock or workspace) puts every
@@ -89,7 +99,7 @@ What is implemented today:
 the repository itself and covers all of it; what it cannot scan it names, never skips quietly.
 
 - **Rust.** Every tracked `Cargo.toml` that is a workspace root, or a standalone package not inside another workspace, is its own Cargo
-  workspace, read with its own `cargo metadata --no-deps --locked` through the broker (`rightkit cargo` or the managed shim). A manifest below
+  workspace, read with its own `cargo metadata --no-deps --locked` through the broker (`rustright cargo` or the managed shim). A manifest below
   a workspace that is not one of its members is tried on its own (an `exclude`d crate is a real workspace); when cargo refuses it there it
   is a fixture or vendored crate, and the run prints it as skipped. A workspace member whose manifest is untracked or ignored, and an untracked
   `Cargo.toml`, are skipped with a note too. A manifest outside every workspace that cargo refuses stops the gate.
@@ -394,7 +404,7 @@ What runs, per crate, per host:
 - **The trusted workloads.** `workloadsFor(crate)` from `scripts/ci/runtime-qualify.mjs` (the table of pinned `cargo test
   --locked --profile release-iterate ... --bench ...` commands, features, trailing arguments, env names, profiles), never the
   candidate's list: `crates/<crate>/benches/workloads.json` must equal that table or the run refuses. Each command runs
-  through the broker (`rightkit cargo`), after a warm `--no-run` build that is never part of a window.
+  through the broker (`rustright cargo`), after a warm `--no-run` build that is never part of a window.
 - **The measured source.** The checkout is clean and at the candidate commit before and after every run (HEAD is on
   `origin/main`, as for the rest of local qualification). Every file the measurement depends on is hashed from the git
   blobs of that commit into `bindings`, as CI's `bindSource` does, and the whole harness helper closure

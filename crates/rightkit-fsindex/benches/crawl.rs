@@ -1,5 +1,5 @@
 //! Crawl benchmark on a temp tree: getattrlistbulk crawl (1..8 threads) versus a
-//! plain `read_dir` + `metadata` walk. Run: `rightkit cargo bench -p rightkit-fsindex`.
+//! plain `read_dir` + `metadata` walk. Run: `rustright cargo bench -p rightkit-fsindex`.
 //! Set FSINDEX_BENCH_DIRS / FSINDEX_BENCH_FILES_PER_DIR to resize (default 2000 x 25).
 
 #[cfg(target_os = "macos")]

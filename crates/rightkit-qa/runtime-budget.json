@@ -45,7 +45,7 @@
         "unit": "commands",
         "count": 10000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-qa --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-qa --bench budget",
       "observed": {
         "residentMemoryBytes": 12181504,
         "idleCpuPercent": 0.052,
@@ -72,7 +72,7 @@
         "unit": "commands",
         "count": 10000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-qa --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-qa --bench budget",
       "observed": {
         "residentMemoryBytes": 14532608,
         "idleCpuPercent": 0,

@@ -62,7 +62,7 @@ Illustrative; not compiled as a doctest. For compiled usage, see `tests/e2e.rs`.
 
 ## Verification
 
-Run through the RightKit wrapper: `rightkit cargo test -p rightkit-tts`. Add `--features engine` to cover the QTS worker.
+Run through the RightKit wrapper: `rustright cargo test -p rightkit-tts`. Add `--features engine` to cover the QTS worker.
 
 ## Suites that need local assets (skipped on hosted CI)
 

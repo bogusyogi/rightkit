@@ -1,13 +1,15 @@
 # Changelog
 
-## 0.5.5 (unpublished)
+## 0.5.6 (unpublished)
 
-ADR-0001 (shared E2E runner), W2-0. rightkit-qa 0.8.0 requires these, so they ship in 0.5.5 with #835 below. Compiled and tested on Windows (RK Dell) and macOS (RK Mac), 2026-10-24.
+ADR-0001 (shared E2E runner), W2-0. rightkit-qa 0.9.0 requires these (`rightkit-child-process >= 0.5.6`). Compiled and tested on Windows (RK Dell) and macOS (RK Mac), 2026-10-24.
 
 - Added `WindowsJob::process_ids() -> io::Result<Vec<u32>>` (Windows): the process ids of every process currently in the job, grandchildren included, read with `QueryInformationJobObject(JobObjectBasicProcessIdList)`. The buffer starts at 32 ids and grows on `ERROR_MORE_DATA` (to the count the OS reports, plus room for arrivals, or doubled), up to 8 queries before it fails. Order is unspecified; the list is a snapshot, so a caller that wants a run's survivors reads it before cleanup and checks each id's identity afterwards. A descendant created with `CREATE_BREAKAWAY_FROM_JOB` in a job that allows it has left the job and is not listed. Additive, no existing signature or behaviour changes; no new re-export (the method rides on `WindowsJob`).
 - Added `OwnedChild::tree_members() -> io::Result<Vec<u32>>`: the pids of everything the child left running besides the leader, read without signalling or reaping, so a caller can record survivors before a kill removes the evidence. Windows: every member of the retained job (grandchildren included, also after the leader exited) plus parent-link descendants. Unix: members of the leader's process group while the leader is unreaped, plus parent-link descendants (`descendant_identities`). The leader is never listed; order is unspecified; the list is a snapshot. A listing that fails, or that the host cannot give in full (macOS: more than 256 group members, or `proc_listpids` failing while the group exists), is `Err`, never an empty or partial tree. Platform semantics differ as described: on Windows the whole job, on Unix the group. The rightkit-qa floor that needs it is the release that carries this entry.
 - Test: `tree_listing_tests` in `src/owned.rs` (all hosts): an unknown listing is an error, a known one (empty included) passes through.
 - Tests (Windows, unit tests in `src/windows_job.rs`, the test binary re-run as a helper assigned to the job): a breakaway spawn inside a no-breakaway job fails with `ERROR_ACCESS_DENIED` (5) and the child never exists (the job lists only the helper); the pid list holds every live member including a grandchild, also through a one-slot first buffer that forces the growth path; an empty job lists nothing.
+
+## 0.5.5 (unpublished)
 
 Orthic-Labs/rightkit#835. Written without compiling or running Cargo; the owner chat compiles and runs the tests.
 

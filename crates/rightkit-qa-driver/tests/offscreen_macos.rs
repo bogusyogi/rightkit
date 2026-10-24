@@ -3,7 +3,7 @@
 //!
 //! `#[ignore]` by default because it creates a real (off-screen) window and needs a window server
 //! session. Run explicitly, Mac only:
-//!   rightkit cargo test -p rightkit-qa-driver --features offscreen-private-spi --test offscreen_macos -- --ignored
+//!   rustright cargo test -p rightkit-qa-driver --features offscreen-private-spi --test offscreen_macos -- --ignored
 //! The window is placed past the right edge of ALL displays and never ordered on a display; the fixture
 //! exits on its own after 90 s and `OffscreenLaunch` kills it on drop/end. Fatal signals in the fixture
 //! exit silently (no crash dialog). The test asserts the frontmost app did not change.
@@ -85,7 +85,7 @@ fn identity_cross_check_survives_after_end() {
 ///    0x0 frame is fully occluded, which silently turns this case into the first one.
 ///
 /// Builds the Tauri control fixture (own workspace) itself unless `RK_CONTROL_TEST_APP` names a binary:
-///   rightkit cargo test -p rightkit-qa-driver --features offscreen-private-spi,qa-control \
+///   rustright cargo test -p rightkit-qa-driver --features offscreen-private-spi,qa-control \
 ///     --test offscreen_macos hidden_press -- --ignored
 /// The app is bundled and launched with `open -g -j -n` (no activation); the test asserts the frontmost
 /// app never changed and the window never became key or visible.

@@ -9,7 +9,7 @@
 //!   set changes at 400 changes per second for 60 s. Reports process CPU, directory reads and
 //!   re-lists per second, and how long the index takes to converge after the churn stops.
 //!
-//! Run: `rightkit cargo bench -p rightkit-fsindex --bench budget` (both), or
+//! Run: `rustright cargo bench -p rightkit-fsindex --bench budget` (both), or
 //! `... --bench budget -- mem 1000000` / `-- churn 50000` for one.
 
 #[cfg(target_os = "macos")]

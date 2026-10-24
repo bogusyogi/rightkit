@@ -352,11 +352,12 @@ export function admitInvocation(step, options = {}) {
   if (name === "right-release") return admitRightRelease(args, label);
   if (name === "pnpm") return admitPnpm(args, inner, label, chain);
   if (name === "node") return admitNode(args, inner, label);
-  if (name === "rightkit") {
-    if (args[0] !== "cargo" || !CARGO_SUBCOMMANDS.has(args[1])) return refuse("R1-managed-client", `${label}: only rightkit cargo ${[...CARGO_SUBCOMMANDS].join("|")} is admitted`);
-    return shellSafeArgs(args, label) ?? admit(`rightkit-cargo-${args[1]}`, "managed-cargo");
+  if (name === "rightkit") return refuse("R1-retired-client", `${label}: rightkit is the retired name of the RustRight client (rustright#91); use rustright ${args.slice(0, 2).join(" ")}`);
+  if (name === "rustright") {
+    if (args[0] !== "cargo" || !CARGO_SUBCOMMANDS.has(args[1])) return refuse("R1-managed-client", `${label}: only rustright cargo ${[...CARGO_SUBCOMMANDS].join("|")} is admitted`);
+    return shellSafeArgs(args, label) ?? admit(`rustright-cargo-${args[1]}`, "managed-cargo");
   }
-  if (name === "cargo" || name === "rustc" || name === "rustdoc") return refuse("R1-bare-cargo", `${label}: run Cargo through the managed client (rightkit cargo ...), never bare ${name}`);
+  if (name === "cargo" || name === "rustc" || name === "rustdoc") return refuse("R1-bare-cargo", `${label}: run Cargo through the managed client (rustright cargo ...), never bare ${name}`);
   if (name === "tauri") return refuse("R1-direct-tauri", `${label}: run the Tauri CLI as pnpm exec tauri ..., or through right-release; a bare tauri is not an approved installed runtime`);
   if (PACKAGE_MANAGERS.has(name)) return refuse("R1-package-manager", `${label}: ${name} is not allowed; the workspace uses pnpm`);
   if (INTERPRETERS.has(name)) return refuse("R1-interpreter", `${label}: ${name} runs script text or a script file the app owns; only an admitted shared generator may do that`);

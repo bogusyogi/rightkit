@@ -6,7 +6,7 @@
 //! commands, keep the sidecar open, then idle for the idle window. The figures are the harness
 //! process's own; the engine child is a separate process.
 //!
-//! Run: `rightkit cargo bench -p rightkit-qa --bench budget`
+//! Run: `rustright cargo bench -p rightkit-qa --bench budget`
 //! Optional: `-- <commands> <idle_seconds>` (defaults 10000 and 30).
 
 use rightkit_child_process::{observe_idle_with_threads, process_usage, BudgetLabels};

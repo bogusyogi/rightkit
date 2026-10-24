@@ -10,10 +10,10 @@
 // repository has none. A deferred scan is listed by name (result.deferred, scanDeferrals), is never a
 // pass (result.ok and result.complete are false while any scan is deferred) and cannot become a SCAN_B receipt.
 // Content scans run on the exported HEAD (contentRoot). Only a scan that inherently needs the live
-// checkout uses liveRoot: `rightkit cargo` scans (the broker binds to the registered checkout), the
+// checkout uses liveRoot: `rustright cargo` scans (the broker binds to the registered checkout), the
 // tsc, eslint and package tests (need installed node_modules).
 // Class B runs only when every selected class A scan passed (SCAN_B is distinct from SCAN_A and
-// follows it). Rust commands go through `rightkit cargo`, JavaScript tools through `pnpm exec`.
+// follows it). Rust commands go through `rustright cargo`, JavaScript tools through `pnpm exec`.
 // The runner takes injectable spawn/exists/readFile/readdir so tests execute nothing real. The
 // result is a plain object (per-scan status, tool versions, scanSetDigest) usable as receipt content
 // (packages/release/pipeline-receipts.mjs); it carries no authority by itself.
@@ -210,7 +210,7 @@ const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
 const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-index\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP)\.md)$/;
 const PROBES = Object.freeze({
-  rustfmt: ["--version"], node: ["--version"], rightkit: ["cargo", "--version"], pnpm: ["--version"],
+  rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
   actionlint: ["-version"], "right-git": ["--version"], swift: ["--version"],
 });
 
@@ -223,7 +223,7 @@ function commandText(d) {
 /**
  * The scan plan for a change: derived from the changed files plus the manifests they belong to.
  * `contentRoot` is a clean export of the commit (pure content checks); `liveRoot` is the checkout the
- * managed `rightkit cargo` and `pnpm` run in. A scan whose files did not change is not planned.
+ * managed `rustright cargo` and `pnpm` run in. A scan whose files did not change is not planned.
  */
 export function planScans({
   changed = [], contentRoot, liveRoot = contentRoot, exists = fs.existsSync, readFile = (f) => fs.readFileSync(f, "utf8"),
@@ -232,8 +232,8 @@ export function planScans({
   // CI shards (one crate per runner, where the port, pipe, desktop and wall-clock conflicts that force the serial lane do not exist)
   // and records a note naming them (Adrian 2026-10-22: compile locally on the warm cache, qualify the conflicting tests on VMs).
   quietTests = "local",
-  // The command prefix every cargo scan runs through: `rightkit cargo` on a managed host, plain `cargo` in CI.
-  cargoCommand = ["rightkit", "cargo"],
+  // The command prefix every cargo scan runs through: `rustright cargo` on a managed host, plain `cargo` in CI.
+  cargoCommand = ["rustright", "cargo"],
   // Physical containment: a changed path whose real path leaves the real content root (a symlink) is refused.
   realpath = (p) => fs.realpathSync(p),
   // Bytes of a changed file for the input digest (defaults to readFile; the gates pass the raw reader).
@@ -262,8 +262,8 @@ export function planScans({
   rustLocks = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
-  if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rightkit", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
-    throw new TypeError('planScans: cargoCommand must be ["rightkit", "cargo"] or ["cargo"]');
+  if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
+    throw new TypeError('planScans: cargoCommand must be ["rustright", "cargo"] or ["cargo"]');
   }
   const refusals = []; const accepted = [];
   for (const raw of new Set(changed)) {
@@ -583,7 +583,7 @@ export function planScans({
   const deferred = [];
   if (!localCompile) {
     scans = scans.map((x) => {
-      if (x.tool !== "rightkit" && !(x.tool === "cargo" && cargoCommand.length === 1)) return x;
+      if (x.tool !== "rustright" && !(x.tool === "cargo" && cargoCommand.length === 1)) return x;
       deferred.push(x.id);
       return { ...x, deferred: "no local compile grant; the broker refuses this scan" };
     });

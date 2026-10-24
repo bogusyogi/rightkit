@@ -11,8 +11,8 @@ import {
 } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
 
-const CONTENT = path.join(path.sep, "c", "rightkit");
-const LIVE = path.join(path.sep, "l", "rightkit");
+const CONTENT = path.join(path.sep, "c", "rustright");
+const LIVE = path.join(path.sep, "l", "rustright");
 const norm = (p) => p.replaceAll("\\", "/");
 
 function fakeFs(contentFiles, liveFiles = {}) {
@@ -42,13 +42,13 @@ const planFor = (changed, extra = {}, opts = {}) => {
 };
 const ids = (plan, cls) => plan.scans.filter((s) => !cls || s.class === cls).map((s) => s.id);
 
-test("plan: a changed crate selects class A and class B scans, through rightkit cargo", () => {
+test("plan: a changed crate selects class A and class B scans, through rustright cargo", () => {
   const { plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const a = ids(plan, "A"); const b = ids(plan, "B");
   for (const id of ["rustfmt:2024", "toml-parse", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "changelog-version:foo", "license", "secret-scan"]) assert.ok(a.includes(id), `class A has ${id}`);
   for (const id of ["check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"]) assert.ok(b.includes(id), `class B has ${id}`);
   assert.ok(!b.includes("check:foo"), "default clippy already type-checks every target: no separate default check");
-  for (const s of plan.scans.filter((s) => s.tool === "rightkit")) assert.equal(s.args[0], "cargo", `${s.id} runs through rightkit cargo`);
+  for (const s of plan.scans.filter((s) => s.tool === "rustright")) assert.equal(s.args[0], "cargo", `${s.id} runs through rustright cargo`);
   const doc = plan.scans.find((s) => s.id === "doc:foo");
   assert.deepEqual(doc.args.slice(-3), ["--", "-D", "warnings"]);
   assert.ok(doc.args.includes("rustdoc") && doc.args.includes("--lib"));
@@ -127,21 +127,29 @@ test("runner: all scans pass and the result is a plain receipt-ready object", as
   assert.equal(result.ok, true, JSON.stringify(scanFailures(result)));
   assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
   assert.equal(result.scanSetDigest, plan.scanSetDigest);
-  assert.ok(result.toolVersions.rightkit);
+  assert.ok(result.toolVersions.rustright);
   assert.ok(result.scans.every((s) => s.status === "pass"));
   const order = result.scans.map((s) => s.class).join("");
   assert.match(order, /^A+B+$/, "class A runs before class B");
 });
 
+test("runner: the rustright version recorded for the cache is cargo's, so a toolchain upgrade invalidates cached passes", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = [];
+  await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
+  const probes = log.filter(([command]) => command === "rustright" || command === "cargo").filter((call) => call.includes("--version"));
+  assert.deepEqual(probes, [["rustright", "cargo", "--version"]], "`rustright --version` would record the client, not the toolchain");
+});
+
 test("runner: a missing required tool FAILS, never skips", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
-  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ missing: ["rightkit"] }) }));
+  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ missing: ["rustright"] }) }));
   assert.equal(result.ok, false);
   const metadata = result.scans.find((s) => s.id === "cargo-metadata");
   assert.equal(metadata.status, "fail");
   assert.equal(metadata.code, "TOOL_MISSING");
   assert.match(metadata.detail, /never skipped/);
-  assert.equal(result.toolVersions.rightkit, null);
+  assert.equal(result.toolVersions.rustright, null);
   assert.ok(!result.scans.some((s) => s.status === "skipped"));
 });
 
@@ -265,12 +273,12 @@ test("plan: a crate directory name with shell metacharacters becomes a failing p
 
 test("spawn never uses a shell: Windows shims accept only allowlisted arguments", async () => {
   const env = { Path: "C:\\bin;C:\\tools", PATHEXT: ".COM;.EXE;.BAT;.CMD", ComSpec: "C:\\Windows\\System32\\cmd.exe" };
-  const present = new Set(["C:\\bin\\pnpm.cmd", "C:\\tools\\rightkit.exe", "C:\\tools\\rightkit.cmd", "C:\\bin\\other.cmd"].map((p) => path.win32.normalize(p)));
+  const present = new Set(["C:\\bin\\pnpm.cmd", "C:\\tools\\rustright.exe", "C:\\tools\\rustright.cmd", "C:\\bin\\other.cmd"].map((p) => path.win32.normalize(p)));
   const exists = (p) => present.has(path.win32.normalize(p));
   const inv = (command, args, over = {}) => resolveInvocation(command, args, { platform: "win32", env, exists, execPath: "node.exe", ...over });
   // .exe is preferred over .cmd and started directly, with the argument as one argv element.
-  const exe = inv("rightkit", ["cargo", "metadata", "& echo X"]);
-  assert.match(exe.file, /rightkit\.exe$/i);
+  const exe = inv("rustright", ["cargo", "metadata", "& echo X"]);
+  assert.match(exe.file, /rustright\.exe$/i);
   assert.deepEqual(exe.args, ["cargo", "metadata", "& echo X"]);
   assert.equal(exe.verbatim, false);
   // A .cmd shim never receives a shell metacharacter.
@@ -329,38 +337,38 @@ test("plan: a crate or package directory name with a shell metacharacter is refu
     const fs = fakeFs(files, files);
     const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32" });
     assert.ok(plan.scans.some((s) => s.id.startsWith("path-policy:")), `${name} is refused`);
-    for (const s of plan.scans.filter((x) => x.tool === "rightkit" || x.tool === "pnpm" || x.tool === "cargo")) {
+    for (const s of plan.scans.filter((x) => x.tool === "rustright" || x.tool === "pnpm" || x.tool === "cargo")) {
       assert.ok(!s.args.some((a) => a.includes(name)), `${name} reaches no shell-routed argv (${s.id})`);
     }
     const log = [];
     await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ log }) }));
-    const shellRouted = log.filter((c) => ["rightkit", "pnpm", "cargo"].includes(path.basename(c[0])));
+    const shellRouted = log.filter((c) => ["rustright", "pnpm", "cargo"].includes(path.basename(c[0])));
     assert.ok(!shellRouted.some((c) => c.slice(1).some((a) => a.includes(name))), `${name} never spawned through rightkit or pnpm`);
   }
 });
 
 test("resolveInvocation: Windows .cmd shims take only strictly plain arguments; anything else is refused, not escaped", () => {
-  const exists = (p) => ["C:\\bin\\rightkit.cmd", "C:\\bin\\pnpm.cmd", "C:\\bin\\tool.exe"].includes(p);
+  const exists = (p) => ["C:\\bin\\rustright.cmd", "C:\\bin\\pnpm.cmd", "C:\\bin\\tool.exe"].includes(p);
   const env = { Path: "C:\\bin", PATHEXT: ".EXE;.CMD", ComSpec: "C:\\Windows\\System32\\cmd.exe" };
   const inv = (command, args) => resolveInvocation(command, args, { platform: "win32", env, exists, execPath: "node.exe" });
   for (const bad of ["a&b", "a|b", "a^b", "a%b", 'a"b', "a b", "a>b", "a<b", "a;b", "a`b", "a$b", "a(b", "a!b", "*", "a\nb"]) {
-    const r = inv("rightkit", ["cargo", `crates/${bad}`]);
+    const r = inv("rustright", ["cargo", `crates/${bad}`]);
     assert.ok(r.error, `${JSON.stringify(bad)} refused`);
     assert.match(r.error.message, /refusing/);
     assert.equal(r.file, undefined);
   }
-  const ok = inv("rightkit", ["cargo", "metadata", "--format-version", "1", "-p", "rightkit-fs", "crates/foo/Cargo.toml"]);
+  const ok = inv("rustright", ["cargo", "metadata", "--format-version", "1", "-p", "rightkit-fs", "crates/foo/Cargo.toml"]);
   assert.equal(ok.error, undefined);
   assert.equal(ok.verbatim, true);
   assert.equal(ok.file, "C:\\Windows\\System32\\cmd.exe");
   assert.deepEqual(ok.args.slice(0, 3), ["/d", "/s", "/c"]);
-  assert.equal(ok.args[3], '""C:\\bin\\rightkit.cmd" cargo metadata --format-version 1 -p rightkit-fs crates/foo/Cargo.toml"');
+  assert.equal(ok.args[3], '""C:\\bin\\rustright.cmd" cargo metadata --format-version 1 -p rightkit-fs crates/foo/Cargo.toml"');
   // A real executable is never routed through cmd.exe, so its arguments are not shell-parsed.
   assert.deepEqual(inv("tool", ["a&b"]), { file: "C:\\bin\\tool.exe", args: ["a&b"], verbatim: false });
   // A shim whose own path is unsafe is refused.
-  assert.ok(resolveInvocation("rightkit", ["cargo"], { platform: "win32", env: { Path: "C:\\b&d" }, exists: (p) => p === "C:\\b&d\\rightkit.cmd", execPath: "node.exe" }).error);
+  assert.ok(resolveInvocation("rustright", ["cargo"], { platform: "win32", env: { Path: "C:\\b&d" }, exists: (p) => p === "C:\\b&d\\rustright.cmd", execPath: "node.exe" }).error);
   // POSIX passes arguments through untouched (spawned without a shell).
-  assert.deepEqual(resolveInvocation("rightkit", ["cargo", "a&b"], { platform: "linux" }), { file: "rightkit", args: ["cargo", "a&b"], verbatim: false });
+  assert.deepEqual(resolveInvocation("rustright", ["cargo", "a&b"], { platform: "linux" }), { file: "rustright", args: ["cargo", "a&b"], verbatim: false });
 });
 
 test("runner: class B alone is refused without valid class A evidence, and runs with it", async () => {
@@ -386,13 +394,13 @@ test("runner: class B alone is refused without valid class A evidence, and runs 
   assert.equal((await runScans(other, deps({ ...fakeFs(crateFiles, crateFiles), classes: ["B"], priorClassA: a }))).scans.every((s) => s.code === "CLASS_A_REQUIRED"), true);
 });
 
-test("plan: cargoCommand selects the cargo prefix (rightkit cargo locally, plain cargo in CI)", () => {
+test("plan: cargoCommand selects the cargo prefix (rustright cargo locally, plain cargo in CI)", () => {
   const ci = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoCommand: ["cargo"] }).plan;
   const cargoScans = ci.scans.filter((s) => s.tool === "cargo");
   assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
   assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, "cargo deny check");
-  assert.ok(!ci.scans.some((s) => s.tool === "rightkit"));
+  assert.ok(!ci.scans.some((s) => s.tool === "rustright"));
   assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { cargoCommand: ["sh", "-c"] }), /cargoCommand/);
 });
 
@@ -649,7 +657,7 @@ test("cargoDir: cargo scans run in the workspace directory and its lock and conf
   const opts = { rustUnits: [{ name: "a", dir: "ws/core" }, { name: "b", dir: "ws/ui" }], npmUnits: [], cargoDir: "ws" };
   const one = planFor(["ws/core/src/lib.rs"], files, opts).plan;
   assert.ok(one.scans.some((s) => s.id === "clippy:a") && !one.scans.some((s) => s.id === "clippy:b"));
-  for (const s of one.scans.filter((x) => x.tool === "rightkit")) assert.equal(s.cwd, "ws", s.id);
+  for (const s of one.scans.filter((x) => x.tool === "rustright")) assert.equal(s.cwd, "ws", s.id);
   const lock = planFor(["ws/Cargo.lock"], files, opts).plan;
   assert.ok(lock.scans.some((s) => s.id === "clippy:a") && lock.scans.some((s) => s.id === "clippy:b"));
   const stray = planFor(["Cargo.lock"], files, opts).plan;
@@ -914,7 +922,7 @@ test("requiredScanIds: every id it requires is planned by planScans, and the per
     };
     if (!withLib) delete all["crates/foo/src/lib.rs"];
     const fs = fakeFs(all, all);
-    const plan = planScans({ changed: Object.keys(all), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: true, crateFeatures, localCompile: true, cargoCommand: ["rightkit", "cargo"] });
+    const plan = planScans({ changed: Object.keys(all), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32", includeTests: true, crateFeatures, localCompile: true, cargoCommand: ["rustright", "cargo"] });
     const planned = new Set(ids(plan));
     const required = requiredScanIds({ units: ["foo", "bar"], crateFeatures, exists: (p) => fs.exists(path.join(CONTENT, p)), includeTests: true });
     for (const id of required) assert.ok(planned.has(id), id + " is required but not planned (lib=" + withLib + ", " + JSON.stringify(crateFeatures) + ")");
@@ -1052,7 +1060,7 @@ test("workspaces: reverse dependents come from each workspace's own lock, never 
 test("workspaces: a workspace directory or crate that is not a plain name is refused, never run", () => {
   const bad = planFor(["README.md"], { "README.md": "x" }, { rustUnits: [{ name: "x:a", crate: "a", dir: "x", cargoDir: "../x" }], npmUnits: [] }).plan;
   assert.ok(bad.scans.some((s) => s.id.startsWith("path-policy:") && /cargoDir/.test(s.detail)));
-  assert.ok(!bad.scans.some((s) => s.tool === "rightkit"));
+  assert.ok(!bad.scans.some((s) => s.tool === "rustright"));
   const evil = planFor(["x/src/lib.rs"], { "x/Cargo.toml": manifest, "x/src/lib.rs": "" }, { rustUnits: [{ name: "x:a b", crate: "a b", dir: "x", cargoDir: "x" }], npmUnits: [] }).plan;
   assert.ok(evil.scans.some((s) => s.id.startsWith("path-policy:") && /not a plain name/.test(s.detail)));
   assert.ok(!evil.scans.some((s) => s.args.includes("a b")));
@@ -1064,7 +1072,7 @@ test("workspaces: without a per-unit cargoDir the plan is the old single-workspa
   const files = { "ws/core/Cargo.toml": manifest, "ws/core/src/lib.rs": "", "ws/Cargo.lock": "version = 4\n" };
   const p = planFor(["ws/Cargo.lock"], files, { rustUnits: [{ name: "a", dir: "ws/core" }], npmUnits: [], cargoDir: "ws" }).plan;
   assert.ok(ids(p).includes("cargo-metadata") && ids(p).includes("cargo-deny") && ids(p).includes("clippy:a"));
-  for (const s of p.scans.filter((x) => x.tool === "rightkit")) assert.equal(s.cwd, "ws", s.id);
+  for (const s of p.scans.filter((x) => x.tool === "rustright")) assert.equal(s.cwd, "ws", s.id);
 });
 
 test("root npm package: it is a unit like any other, but a file inside a nested Rust unit does not trigger it", () => {

@@ -254,7 +254,30 @@ export function validateReleaseConfigShape(config, { file = RELEASE_CONFIG_FILE,
   for (const key of ["targets", "development", "buildInputs", "distribution"]) {
     if (config[key] !== undefined && !isObject(config[key])) fail("RELEASE_CONFIG_SCHEMA", `${file}: ${key} must be an object`, { file });
   }
+  const fieldProblems = releaseConfigFieldProblems(config);
+  if (fieldProblems.length) fail(fieldProblems[0].code, fieldProblems.map((problem) => `${file}: ${problem.detail}`).join("\n"), { file, pointers: fieldProblems.map((problem) => problem.pointer) });
   return config;
+}
+
+/**
+ * Field-level refusals that need no other part of the config, so a caller (the loader, the doctor) can list them next to every other
+ * finding: `[{ name, code, pointer, detail }]`. Today: `targets.<t>.updater.keyFile`. Updater minisign keys come from the OS credential
+ * provider (`protected-credentials.mjs`, secret "updater-signing-key", namespace `rightsuite-updater-key`; `sign-updater.mjs` refuses
+ * `--key-file`), so a config that names a key file could only fail mid-signing. It is refused up front instead, and never forwarded.
+ */
+export function releaseConfigFieldProblems(config) {
+  const problems = [];
+  if (!isObject(config) || !isObject(config.targets)) return problems;
+  for (const [name, target] of Object.entries(config.targets)) {
+    if (!isObject(target) || !isObject(target.updater) || !Object.prototype.hasOwnProperty.call(target.updater, "keyFile")) continue;
+    problems.push({
+      name: "updater-key-file",
+      code: "RELEASE_CONFIG_UPDATER_KEY_FILE",
+      pointer: `/targets/${pointerKey(name)}/updater/keyFile`,
+      detail: `targets.${name}.updater.keyFile is not supported: updater signing keys come from the OS credential provider (rightkit-credentials, namespace rightsuite-updater-key; see protected-credentials.mjs and sign-updater.mjs), never from a key file. Remove updater.keyFile from the release config.`,
+    });
+  }
+  return problems;
 }
 
 function packageScripts(appRoot, readText) {
@@ -266,7 +289,7 @@ function packageScripts(appRoot, readText) {
 
 /**
  * Load, validate and expand a release config. Returns `{ config, configPath, appRoot, sha256, inputs, lineOf }`. Throws ReleaseConfigError
- * (RELEASE_CONFIG_LEGACY_EXECUTABLE | _NOT_JSON | _NOT_FOUND | _INVALID_JSON | _SCHEMA | _KEY | _TEMPLATE | _M24). `validatePipeline: false`
+ * (RELEASE_CONFIG_LEGACY_EXECUTABLE | _NOT_JSON | _NOT_FOUND | _INVALID_JSON | _SCHEMA | _KEY | _UPDATER_KEY_FILE | _TEMPLATE | _M24). `validatePipeline: false`
  * skips only the M24 command admission (the pipeline scanner reports those findings itself); nothing else is optional.
  * File access, the generator registry, the environment and the home directory are injectable for tests.
  */

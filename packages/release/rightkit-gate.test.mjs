@@ -88,12 +88,12 @@ test("rustUnits: names and directories come from cargo metadata, run through the
   const calls = [];
   const spawn = (cmd, args, opts) => { calls.push([cmd, args, opts.cwd]); return ok(meta(root, ".", [["b", "tools/b", []], ["a", "crates/a"]])); };
   const tracked = () => ["Cargo.toml", "crates/a/Cargo.toml", "tools/b/Cargo.toml", "fixtures/old/Cargo.toml"];
-  const found = discoverRustUnits({ root, spawn, cargoCommand: ["rightkit", "cargo"], tracked, readFile: (f) => fs.readFileSync(f, "utf8") });
+  const found = discoverRustUnits({ root, spawn, cargoCommand: ["rustright", "cargo"], tracked, readFile: (f) => fs.readFileSync(f, "utf8") });
   assert.deepEqual(found.units, [{ name: "a", dir: "crates/a", publish: true }, { name: "b", dir: "tools/b", publish: false }]);
   assert.equal(found.cargoDir, ".");
   assert.deepEqual(found.uncovered, ["fixtures/old/Cargo.toml"], "a crate outside the workspace is reported, not silently dropped");
   assert.deepEqual(calls[0][1], ["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"]);
-  assert.equal(calls[0][0], "rightkit");
+  assert.equal(calls[0][0], "rustright");
   assert.equal(path.normalize(calls[0][2]), path.normalize(root));
 });
 
@@ -199,7 +199,7 @@ test("install-hook points node at the installed package when it is in node_modul
 // ---- the gate with injected spawn ------------------------------------------------------------------------------
 
 const HEAD = "a".repeat(40);
-function repoSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", cargoLines = "/bin/rightkit\n" } = {}) {
+function repoSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", cargoLines = "/bin/rustright\n" } = {}) {
   const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
   return (cmd, args) => {
     log.push([cmd, ...args]);
@@ -210,8 +210,8 @@ function repoSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", cargoLines 
       if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? "Cargo.toml\0crates/a/Cargo.toml\0crates/b/Cargo.toml\0" : "");
       if (args[0] === "diff") return ok(diff);
     }
-    if (cmd === "where" || cmd === "which") return args[0] === "rightkit" ? ok(cargoLines) : no();
-    if (cmd === "rightkit" && args[1] === "metadata") return ok(metadata);
+    if (cmd === "where" || cmd === "which") return args[0] === "rustright" ? ok(cargoLines) : no();
+    if (cmd === "rustright" && args[1] === "metadata") return ok(metadata);
     return no(`unexpected ${cmd} ${line}`);
   };
 }
@@ -261,11 +261,11 @@ test("--plan prints the plan for a fake repo from its own units and runs nothing
   const out = c.out.join("\n");
   assert.match(out, /rust units: a=crates\/a, b=crates\/b; npm units: none/);
   assert.match(out, /\[B\] clippy:a :: .*clippy -p a /);
-  assert.match(out, /rightkit cargo clippy -p a --no-deps --all-targets --locked -- -D warnings/);
+  assert.match(out, /rustright cargo clippy -p a --no-deps --all-targets --locked -- -D warnings/);
   assert.match(out, /\[A\] cargo-package-list:a /);
   assert.doesNotMatch(out, /clippy:b|cargo-package-list:b/);
   assert.doesNotMatch(out, /deferred/, "the compile grant is present");
-  assert.ok(!log.some((l) => l[0] === "rightkit" && l[1] === "cargo" && l[2] !== "metadata"), "only discovery ran through cargo");
+  assert.ok(!log.some((l) => l[0] === "rustright" && l[1] === "cargo" && l[2] !== "metadata"), "only discovery ran through cargo");
   assert.ok(!log.some((l) => l.includes("archive") || l.includes("status") || l.includes("tar")), "a plan exports and checks nothing");
 });
 
@@ -277,13 +277,13 @@ test("the gate blocks without a local compile grant: Rust units cannot be discov
   assert.match(c.err.join("\n"), /BLOCKED: no local compile grant/);
 });
 
-test("the gate blocks when neither rightkit nor the managed cargo shim resolves", async (t) => {
+test("the gate blocks when neither rustright nor the managed cargo shim resolves", async (t) => {
   const root = mkRepo(gateFiles(), t);
   const c = capture();
   const code = await main(["--plan"], { ...c.io, spawn: repoSpawn(root, { cargoLines: "" }), cwd: root, env: {} });
-  // `where rightkit` answers nothing: the only fallback is a cargo shim, and `where cargo` fails here.
+  // `where rustright` answers nothing: the only fallback is a cargo shim, and `where cargo` fails here.
   assert.equal(code, 1);
-  assert.match(c.err.join("\n"), /neither `rightkit` nor the managed cargo shim/);
+  assert.match(c.err.join("\n"), /neither `rustright` nor the managed cargo shim/);
 });
 
 test("pre-push: the pushed commit must be the checked-out HEAD, before anything else runs", async (t) => {
@@ -293,7 +293,7 @@ test("pre-push: the pushed commit must be the checked-out HEAD, before anything 
   const code = await main([], { ...c.io, spawn: repoSpawn(root, { log }), cwd: root, env: {}, readStdin: () => line });
   assert.equal(code, 1);
   assert.match(c.err.join("\n"), /BLOCKED: pushing bbbbbbbbbb to refs\/heads\/main, but HEAD is aaaaaaaaaa/);
-  assert.ok(!log.some((l) => l[0] === "rightkit"), "no cargo ran");
+  assert.ok(!log.some((l) => l[0] === "rustright"), "no cargo ran");
 });
 
 test("--version prints the package version", async () => {
@@ -600,7 +600,7 @@ const discover = (root, table, manifests, { locks = null, ...extra } = {}) => {
   const calls = [];
   const lockFiles = locks ?? manifests.map((m) => m.replace(/Cargo\.toml$/, "Cargo.lock"));
   const tracked = (name) => (name === "Cargo.lock" ? lockFiles : manifests);
-  const found = discoverRustWorkspaces({ root, spawn: metaSpawn(root, table, calls), cargoCommand: ["rightkit", "cargo"], tracked, ...extra });
+  const found = discoverRustWorkspaces({ root, spawn: metaSpawn(root, table, calls), cargoCommand: ["rustright", "cargo"], tracked, ...extra });
   return { found, calls };
 };
 
@@ -660,7 +660,7 @@ test("rustWorkspaces: the root workspace and every standalone workspace below it
     ["hub/src-tauri:app", "app", "hub/src-tauri", "hub/src-tauri", true],
   ]);
   assert.deepEqual(calls.map((c) => c.cwd), [".", "engine", "hub/src-tauri"], "one cargo metadata per workspace, in the workspace, shallowest first; members are not asked again");
-  for (const c of calls) { assert.equal(c.cmd, "rightkit"); assert.deepEqual(c.args, ["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"]); }
+  for (const c of calls) { assert.equal(c.cmd, "rustright"); assert.deepEqual(c.args, ["cargo", "metadata", "--no-deps", "--format-version", "1", "--locked"]); }
   assert.deepEqual(found.skipped, []);
   assert.equal(rustUnitName(".", "core"), "core"); assert.equal(rustUnitName("a/b", "c"), "a/b:c");
 });
@@ -766,7 +766,7 @@ function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untra
   const table = { ".": { root: ".", members: [["a", "crates/a"]] }, "hub/src-tauri": { root: "hub/src-tauri", members: [["app", "hub/src-tauri"]] }, "fixtures/old": { fail: "error: not a member" } };
   const cargo = metaSpawn(root, table, log);
   return (cmd, args, opts = {}) => {
-    if (cmd === "rightkit" && args[1] === "metadata") return cargo(cmd, args, opts);
+    if (cmd === "rustright" && args[1] === "metadata") return cargo(cmd, args, opts);
     const line = args.join(" ");
     if (cmd === "git") {
       if (line === "rev-parse --show-toplevel") return ok(root);
@@ -775,7 +775,7 @@ function multiSpawn(root, { log = [], diff = "hub/src-tauri/src/lib.rs\n", untra
       if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${tracked.join("\0")}\0` : args.at(-1).endsWith("Cargo.lock") ? `${locks.join("\0")}\0` : "");
       if (args[0] === "diff") return ok(diff);
     }
-    if (cmd === "where" || cmd === "which") return args[0] === "rightkit" ? ok("/bin/rightkit\n") : no();
+    if (cmd === "where" || cmd === "which") return args[0] === "rustright" ? ok("/bin/rustright\n") : no();
     return no(`unexpected ${cmd} ${line}`);
   };
 }
@@ -792,7 +792,7 @@ test("--plan with several workspaces: each unit runs in its own workspace, the f
   assert.equal(code, 0, c.err.join("\n"));
   const out = c.out.join("\n");
   assert.match(out, /rust units: a=crates\/a, hub\/src-tauri:app=hub\/src-tauri \(workspaces \., hub\/src-tauri\)/);
-  assert.match(out, /\[B\] clippy:hub\/src-tauri:app :: rightkit cargo clippy -p app --no-deps --all-targets --locked -- -D warnings/);
+  assert.match(out, /\[B\] clippy:hub\/src-tauri:app :: rustright cargo clippy -p app --no-deps --all-targets --locked -- -D warnings/);
   assert.match(out, /\[A\] cargo-package-list:hub\/src-tauri:app :: /);
   assert.match(out, /\[A\] cargo-metadata:hub\/src-tauri :: /);
   assert.doesNotMatch(out, /clippy:a\b|cargo-package-list:a\b/, "the root workspace's crate did not change");

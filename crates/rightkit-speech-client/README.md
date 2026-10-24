@@ -29,7 +29,7 @@ Published version: see the generated `INDEX.md` at the repository root. Referenc
 
 ## Example
 
-The compiled example is `examples/hr_fake_host.rs`, which implements both host sides from raw JSON. For wire-level acceptance, see `tests/contract.rs`, `tests/e2e.rs`, and `tests/windows_pipe.rs`. Run the example with `rightkit cargo run -p rightkit-speech-client --example hr_fake_host`.
+The compiled example is `examples/hr_fake_host.rs`, which implements both host sides from raw JSON. For wire-level acceptance, see `tests/contract.rs`, `tests/e2e.rs`, and `tests/windows_pipe.rs`. Run the example with `rustright cargo run -p rightkit-speech-client --example hr_fake_host`.
 
 ## Contract extensions (capability-gated)
 

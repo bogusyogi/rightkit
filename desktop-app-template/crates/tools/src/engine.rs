@@ -2,7 +2,7 @@
 //! `src-tauri/binaries/<engine>-<target-triple>[.exe]`.
 //!
 //! Staging makes no process calls. The build is a separate top-level managed call that package.json
-//! runs first (`rightkit cargo build -p <engine> --release|--profile release-iterate`), because a
+//! runs first (`rustright cargo build -p <engine> --release|--profile release-iterate`), because a
 //! managed RightKit request refuses broker calls nested inside it (exit 125). `stage-engine` then
 //! finds the executable cargo wrote beside this tools binary and copies it.
 use crate::{read, Result};
@@ -104,6 +104,6 @@ pub fn stage(root: &Path, args: &[String]) -> Result<()> {
 pub fn build_retired() -> Result<()> {
     Err("build-engine cannot run inside a managed RightKit request: nested broker calls are refused (exit 125). \
 Use the two top-level calls instead: `pnpm build:engine` (release) or `pnpm build:engine:dev` (release-iterate), \
-which run `rightkit cargo build -p <engine>` and then `rightkit cargo run -p rightapp-tools -- stage-engine`."
+which run `rustright cargo build -p <engine>` and then `rustright cargo run -p rightapp-tools -- stage-engine`."
         .into())
 }

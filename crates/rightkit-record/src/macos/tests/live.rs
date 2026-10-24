@@ -6,9 +6,9 @@
 //! Run:
 //! ```text
 //! helpers/macos/build.sh                      # builds and ad-hoc signs both binaries
-//! rightkit cargo test -p rightkit-record --no-run
+//! rustright cargo test -p rightkit-record --no-run
 //! # then run the test binary from a session whose responsible process holds Screen Recording
-//! # permission (the Claude app, Terminal, ...), not through the rightkit build broker:
+//! # permission (the Claude app, Terminal, ...), not through the rustright build broker:
 //! RIGHTKIT_RECORD_MACOS_HELPER=$PWD/helpers/macos/.build/out/Products/Release/rightkit-record-macos-helper \
 //!   <test binary> macos::live -- --ignored --test-threads=1
 //! ```

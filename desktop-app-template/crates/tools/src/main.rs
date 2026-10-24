@@ -6,7 +6,7 @@
 //!   rightapp-tools check                            manifest-consistency gate (no install, no network)
 //!   rightapp-tools init --slug s --name N [--org o] rename the template into a real app
 //!
-//! Run through managed RightKit Cargo: `rightkit cargo run -q -p rightapp-tools -- <command>`.
+//! Run through managed RightKit Cargo: `rustright cargo run -q -p rightapp-tools -- <command>`.
 //! No command here calls the RightKit broker: a managed request refuses nested broker calls.
 mod brand;
 mod check;

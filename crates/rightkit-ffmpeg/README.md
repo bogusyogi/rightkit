@@ -75,10 +75,10 @@ Availability is defined by `catalog/artifacts.json`, not by this README. Check t
 Run through the RightKit wrapper, per the workspace's `docs/rules/rightkit.md`:
 
 ```text
-rightkit cargo test -p rightkit-ffmpeg --all-targets
-rightkit cargo fmt --check
-rightkit cargo clippy -p rightkit-ffmpeg --all-targets -- -D warnings
-rightkit cargo package -p rightkit-ffmpeg --allow-dirty --no-verify --list
+rustright cargo test -p rightkit-ffmpeg --all-targets
+rustright cargo fmt --check
+rustright cargo clippy -p rightkit-ffmpeg --all-targets -- -D warnings
+rustright cargo package -p rightkit-ffmpeg --allow-dirty --no-verify --list
 ```
 
 ## Publication

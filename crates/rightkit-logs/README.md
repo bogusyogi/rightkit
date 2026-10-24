@@ -176,8 +176,8 @@ Pure Rust with `cfg` gates for macOS and Windows helpers (`system`). The `http` 
 ## Verification
 
 ```text
-rightkit cargo test -p rightkit-logs --target <native-target>
-rightkit cargo fmt --check --manifest-path crates/rightkit-logs/Cargo.toml
+rustright cargo test -p rightkit-logs --target <native-target>
+rustright cargo fmt --check --manifest-path crates/rightkit-logs/Cargo.toml
 ```
 
 Tests: `tests/contract.rs` (event shape, collection and redaction) and `tests/outbox_e2e.rs` (consented outbox end to end). With `--features tracing`, `tests/tracing.rs` covers the layer, JSON shape, guard flush, retention and collection, and `tests/tracing_install.rs` covers the global install.

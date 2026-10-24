@@ -34,29 +34,29 @@ export function assertGuiSigningSession({ operation, env = process.env, run = sp
 }
 
 /**
- * DerivedData and result-bundle paths. With RIGHTKIT_RUN_ROOT set they come from `rightkit storage xcode-args --run-root <root>`
+ * DerivedData and result-bundle paths. With RIGHTKIT_RUN_ROOT set they come from `rustright storage xcode-args --run-root <root>`
  * (a JSON argv list holding -derivedDataPath and -resultBundlePath), the same source CodeRight and HeardRight use. Without a
  * managed run the fallback is a directory under the right-release state root, never an in-repo DerivedData.
  */
 export function resolveXcodeStorage({ env = process.env, run = spawnSync, cwd = process.cwd(), fallbackRoot }) {
   const runRoot = typeof env.RIGHTKIT_RUN_ROOT === "string" ? env.RIGHTKIT_RUN_ROOT.trim() : "";
   if (!runRoot) {
-    if (!fallbackRoot) throw new IosHostError("IOS_STORAGE_UNAVAILABLE", "no RIGHTKIT_RUN_ROOT and no fallback storage root; run via: rightkit storage run --app <app> -- right-release ...");
+    if (!fallbackRoot) throw new IosHostError("IOS_STORAGE_UNAVAILABLE", "no RIGHTKIT_RUN_ROOT and no fallback storage root; run via: rustright storage run --app <app> -- right-release ...");
     return { derivedData: path.join(fallbackRoot, "DerivedData"), resultBundle: undefined, source: "fallback" };
   }
-  const result = run("rightkit", ["storage", "xcode-args", "--run-root", runRoot], { cwd, env, encoding: "utf8", windowsHide: true, shell: false, timeout: 30_000 });
-  if (result.error || result.status !== 0) throw new IosHostError("IOS_STORAGE_FAILED", `rightkit storage xcode-args failed (${result.status ?? "unavailable"})`);
+  const result = run("rustright", ["storage", "xcode-args", "--run-root", runRoot], { cwd, env, encoding: "utf8", windowsHide: true, shell: false, timeout: 30_000 });
+  if (result.error || result.status !== 0) throw new IosHostError("IOS_STORAGE_FAILED", `rustright storage xcode-args failed (${result.status ?? "unavailable"})`);
   let args;
   try { args = JSON.parse(String(result.stdout ?? "")); } catch { args = null; }
-  if (!Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string")) throw new IosHostError("IOS_STORAGE_FAILED", "rightkit storage xcode-args returned no argv list");
+  if (!Array.isArray(args) || !args.length || args.some((arg) => typeof arg !== "string")) throw new IosHostError("IOS_STORAGE_FAILED", "rustright storage xcode-args returned no argv list");
   const value = (flag, required) => {
     const index = args.indexOf(flag);
     if (index < 0 || index + 1 >= args.length) {
-      if (required) throw new IosHostError("IOS_STORAGE_FAILED", `rightkit storage xcode-args is missing ${flag}`);
+      if (required) throw new IosHostError("IOS_STORAGE_FAILED", `rustright storage xcode-args is missing ${flag}`);
       return undefined;
     }
     const found = args[index + 1];
-    if (!path.isAbsolute(found)) throw new IosHostError("IOS_STORAGE_FAILED", `rightkit storage xcode-args ${flag} is not an absolute path`);
+    if (!path.isAbsolute(found)) throw new IosHostError("IOS_STORAGE_FAILED", `rustright storage xcode-args ${flag} is not an absolute path`);
     return found;
   };
   return { derivedData: value("-derivedDataPath", true), resultBundle: value("-resultBundlePath", false), source: "rightkit-storage" };

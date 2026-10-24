@@ -294,7 +294,7 @@ test("one host: scans first, then qualify-only per unit, a verified bundle, hone
   assert.deepEqual([b.name, b.status, b.sha256, b.bytesVerified], ["rightkit-b", "allowed-exclusion", null, false]);
   assert.equal(result.scans.passed, true);
   // Scans: whole-workspace scans plus only the units' crates, class A then B, nothing deferred, through the plan builder.
-  assert.deepEqual(rig.calls.plan.changed, ["Cargo.lock", "crates/rightkit-a/src/lib.rs"]); assert.deepEqual(rig.calls.plan.cargoCommand, ["rightkit", "cargo"]); assert.equal(rig.calls.plan.includeTests, false); assert.equal(rig.calls.plan.liveRoot, rig.root);
+  assert.deepEqual(rig.calls.plan.changed, ["Cargo.lock", "crates/rightkit-a/src/lib.rs"]); assert.deepEqual(rig.calls.plan.cargoCommand, ["rustright", "cargo"]); assert.equal(rig.calls.plan.includeTests, false); assert.equal(rig.calls.plan.liveRoot, rig.root);
   assert.deepEqual(rig.calls.scans[0].units, ["rightkit-a", "rightkit-b"]); assert.equal(rig.calls.scans[0].sourceCommit, COMMIT); assert.equal(rig.calls.scans[0].headCommit, COMMIT);
   assert.ok(fs.existsSync(path.join(out, "host-result.json")) && !fs.readdirSync(out).some((name) => /^(export|meta)-/.test(name)), "no scratch is left in the bundle");
 });

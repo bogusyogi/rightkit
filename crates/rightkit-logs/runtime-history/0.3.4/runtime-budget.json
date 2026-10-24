@@ -45,7 +45,7 @@
         "unit": "lines",
         "count": 200000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
       "observed": {
         "residentMemoryBytes": 11304960,
         "idleCpuPercent": 0.052,
@@ -72,7 +72,7 @@
         "unit": "lines",
         "count": 200000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
       "observed": {
         "residentMemoryBytes": 35110912,
         "idleCpuPercent": 0,
@@ -99,7 +99,7 @@
         "unit": "lines",
         "count": 200000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
       "observed": {
         "residentMemoryBytes": 35651584,
         "idleCpuPercent": 0,
@@ -126,7 +126,7 @@
         "unit": "lines",
         "count": 200000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-logs --features tracing --bench budget",
       "observed": {
         "residentMemoryBytes": 12767232,
         "idleCpuPercent": 0.052,

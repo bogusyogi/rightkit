@@ -52,7 +52,7 @@ const RULES = [
   { id: "xcode-archive", stage: "package", names: ["xcodebuild"], flagged: (rest) => rest.some((arg) => /^(?:archive|-exportArchive|-archivePath|-exportOptionsPlist)$/.test(arg)) },
 ];
 
-/** `rightkit cargo publish` reaches the same crates.io upload through the managed client. */
+/** `rustright cargo publish` reaches the same crates.io upload through the managed client. */
 const MANAGED_CLIENT_RULE = { id: "cargo-publish", stage: "upload" };
 
 /** Wrapper words that run another command: skipped so the tool behind them is the one classified. */
@@ -87,12 +87,16 @@ export function segmentTokens(segment) {
   return tokens;
 }
 
+/** The RustRight client's names. `rightkit` is its retired name (rustright#91): never admitted (pipeline-admission.mjs refuses
+ * it, scripts/preflight.mjs retired-alias fails it), but still recognised here, so a script that uses it is classified, never missed. */
+export const MANAGED_CLIENT_NAMES = Object.freeze(["rustright", "rightkit"]);
+
 /** Classify one command's tokens against the R3 inventory: `{ id, stage, tool }` for a pipeline tool run in a write form, else null. */
 export function classifyTokens(tokens) {
   if (!tokens.length) return null;
   const name = commandBaseName(tokens[0]);
   const rest = tokens.slice(1);
-  if (name === "rightkit" && rest[0] === "cargo" && rest[1] === "publish") return { ...MANAGED_CLIENT_RULE, tool: "rightkit cargo publish" };
+  if (MANAGED_CLIENT_NAMES.includes(name) && rest[0] === "cargo" && rest[1] === "publish") return { ...MANAGED_CLIENT_RULE, tool: "rustright cargo publish" };
   for (const rule of RULES) {
     if (rule.names.includes(name) && rule.flagged(rest)) return { id: rule.id, stage: rule.stage, tool: [name, ...rest.slice(0, 2)].join(" ").trim() };
   }
@@ -103,7 +107,7 @@ export function classifyTokens(tokens) {
 export function dispatchesRightKit(tokens) {
   if (!tokens.length) return false;
   const name = commandBaseName(tokens[0]);
-  if (name === "rightkit" || name === "right-release") return true;
+  if (MANAGED_CLIENT_NAMES.includes(name) || name === "right-release") return true;
   return tokens.some((token) => /(?:^|[\\/])(?:@rightkit[\\/]release[\\/]cli[\\/]right-release|right-release)(?:\.mjs)?$/i.test(token));
 }
 
@@ -127,13 +131,13 @@ export function scanTextForPipelineTools(text, { kind = "shell" } = {}) {
       for (const literal of line.matchAll(/["'`]([^"'`\n]{1,200})["'`]/g)) {
         const tokens = literal[1].trim().split(/\s+/);
         const first = commandBaseName(tokens[0]);
-        const rule = names.get(first) ?? (first === "rightkit" ? MANAGED_CLIENT_RULE : null);
+        const rule = names.get(first) ?? (MANAGED_CLIENT_NAMES.includes(first) ? MANAGED_CLIENT_RULE : null);
         if (!rule) continue;
         // The arguments are the rest of this literal, then the next few literals of the same call (an argv array).
         const tail = line.slice(literal.index + literal[0].length, literal.index + literal[0].length + 240);
         const following = [...tail.matchAll(/["'`]([^"'`\n]{0,120})["'`]/g)].map((match) => match[1]);
         const rest = [...tokens.slice(1), ...following].map((arg) => arg.trim()).filter(Boolean);
-        const hit = first === "rightkit" ? classifyTokens([first, ...rest]) : rule.flagged(rest) ? { id: rule.id, stage: rule.stage, tool: first } : null;
+        const hit = MANAGED_CLIENT_NAMES.includes(first) ? classifyTokens([first, ...rest]) : rule.flagged(rest) ? { id: rule.id, stage: rule.stage, tool: first } : null;
         if (hit) found.push({ line: index + 1, ...hit, text: line.trim().slice(0, 160) });
       }
     });

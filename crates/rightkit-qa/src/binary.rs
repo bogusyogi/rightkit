@@ -1,8 +1,8 @@
 //! Find the dev build of the app under test, wherever the build put it.
 //!
-//! `right-release dev` and `rightkit cargo build` run through the RightKit build broker, which builds
+//! `right-release dev` and `rustright cargo build` run through the RightKit build broker, which builds
 //! into its own target root (`<managed root>/rightkit-build-control/ws/<key>/g/<gen>/<leaf>/<triple>/<profile>/`)
-//! and does not forward app env such as `MAILRIGHT_APP_BINARY` into a later `rightkit cargo test`. A
+//! and does not forward app env such as `MAILRIGHT_APP_BINARY` into a later `rustright cargo test`. A
 //! journey run there could not find the executable, and every app hand-rolled discovery.
 //!
 //! [`resolve`] tries, in order, and reports which source won ([`BinarySource`]):

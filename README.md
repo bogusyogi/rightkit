@@ -235,4 +235,4 @@ Inject `fetchImpl` only if you need a non-global fetch. The SDK's own suites (`s
 
 ## Build broker
 
-The build broker (`rightkit cargo|rustc|rustdoc`) is the Rust product RustRight (repo `bogusyogi/rustright`, binary `rustright`, alias `rightkit`); see [RustRight](../rustright/README.md). The Node broker packages were removed on 2026-10-09. `packages/build-control-policy` stays here and carries the agent permission hooks.
+The build broker (`rustright cargo|rustc|rustdoc`) is the Rust product RustRight (repo `bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); see [RustRight](../rustright/README.md). The Node broker packages were removed on 2026-10-09. `packages/build-control-policy` stays here and carries the agent permission hooks.

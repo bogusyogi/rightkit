@@ -30,7 +30,7 @@ export function releaseProgressLimits(env = process.env, { livenessOwnerTimeoutM
 
 function runRightkitControl(args, { cwd, env, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve) => {
-    const control = spawn("rightkit", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32" });
+    const control = spawn("rustright", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, shell: process.platform === "win32" });
     let output = "";
     let timedOut = false;
     const append = (chunk) => { output = `${output}${chunk}`.slice(-64 * 1024); };

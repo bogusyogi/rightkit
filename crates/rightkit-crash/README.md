@@ -118,10 +118,10 @@ The helper is this crate's `rightkit-dump-helper` binary. An app builds it and s
 its executable:
 
 ```text
-rightkit cargo build --release -p rightkit-crash --bin rightkit-dump-helper
+rustright cargo build --release -p rightkit-crash --bin rightkit-dump-helper
 ```
 
-With rightkit-crash from crates.io, `rightkit cargo install rightkit-crash --bin rightkit-dump-helper --root <dir>` builds the same binary.
+With rightkit-crash from crates.io, `rustright cargo install rightkit-crash --bin rightkit-dump-helper --root <dir>` builds the same binary.
 
 The helper can ship under the app's own name, for example as a Tauri `externalBin` or a
 renamed copy. Tell the crate which name to use before the first capture:
@@ -143,7 +143,7 @@ the capture returns `None` and the structured report is still written.
 Run through the managed Rust wrapper (see `docs/rules/rightkit.md`):
 
 ```text
-rightkit cargo test -p rightkit-crash --target <native-target>
+rustright cargo test -p rightkit-crash --target <native-target>
 ```
 
 ## Version and changes

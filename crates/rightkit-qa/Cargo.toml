@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-qa"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Rust QA harness for Right Suite apps: engine black-box scenarios, hidden native UI driving (the in-app control server is the dev-only `control` feature), Rust-test scenario wrapper, dynamic paid-provider mocks, loudness/WAV/PNG/frame validators, run lock, orphan sweep, hashed evidence."
@@ -34,7 +34,7 @@ wv2-0_39 = ["dep:windows_062", "dep:webview2_com_039"]
 rightkit-fs = { version = "0.4.4", path = "../rightkit-fs", default-features = false, features = ["digest", "fs"] }
 rightkit-sidecar = { version = "0.3.0", path = "../rightkit-sidecar" }
 rightkit-daemon = { version = "0.4.0", path = "../rightkit-daemon" }
-rightkit-child-process = { version = "0.5.5", path = "../rightkit-child-process" }
+rightkit-child-process = { version = "0.5.6", path = "../rightkit-child-process" }
 rightkit-browser = { version = "0.3.0", path = "../rightkit-browser", optional = true }
 # Generic input, admission, lease and key code (and `macos::background::frontmost_*` for the guard).
 rightkit-automation = { version = "0.6.0", path = "../rightkit-automation" }

@@ -405,8 +405,11 @@ export function writeReceipt(out, sha, receipt) {
   return file;
 }
 
-/** The whole canary for one release SHA. Never throws for a judged outcome: returns { code, verdict, receiptFile, lines }. */
-export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, deps = {} } = {}) {
+/** The whole canary for one release SHA. Never throws for a judged outcome: returns { code, verdict, receiptFile, lines }.
+ * `expectSha` (--sha) is the commit the caller already checked: the canary refuses unless HEAD is that commit when it
+ * starts, and a run whose HEAD moved before the verdict is incomplete, never green (a second chat may commit to this
+ * checkout while it runs). */
+export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, expectSha = null, deps = {} } = {}) {
   const lines = [];
   const say = (l) => lines.push(l);
   const run = deps.exec ?? exec;
@@ -415,6 +418,7 @@ export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, d
   const dirty = await run("git", ["-C", root, "status", "--porcelain", "--untracked-files=no"]);
   const sha = headRun.stdout.trim();
   if (!ok(headRun) || !/^[0-9a-f]{40}$/.test(sha)) return { code: EXIT.usage, verdict: "usage", lines: ["rk-release-canary: cannot read HEAD"] };
+  if (expectSha && sha !== expectSha) return { code: EXIT.usage, verdict: "usage", lines: [`rk-release-canary: HEAD is ${sha.slice(0, 12)}, not the checked ${String(expectSha).slice(0, 12)}; nothing canaried`] };
   if (!ok(dirty) || dirty.stdout.trim()) return { code: EXIT.usage, verdict: "usage", lines: ["rk-release-canary: tracked files are modified; the canary proves a commit, not a working tree"] };
 
   const pkg = readJson(path.join(root, "packages", "release", "package.json"));
@@ -471,6 +475,12 @@ export async function runCanary({ root = ROOT, out = DEFAULT_OUT, unit = UNIT, d
     for (const c of leg.receipt.cells) cells[c.side]?.push(c);
   }
   const result = compareAll({ matrix, candidateCells: cells.candidate, baselineCells: cells.baseline, expected, version, repos, admissionRefused });
+  const headAfter = (await run("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim();
+  if (headAfter !== sha) {
+    receipt.stages.head = { ok: false, problems: [`HEAD moved from ${sha.slice(0, 12)} to ${headAfter.slice(0, 12)} while the canary ran`] };
+    say(receipt.stages.head.problems[0]);
+    return finish("incomplete", { cells: result.cells });
+  }
   for (const c of result.cells) for (const f of c.findings) if (f.severity !== "report" || ["pre-existing-fail", "pre-existing-fatal", "fixed", "fixed-row", "unproven"].includes(f.kind) || f.excusedBy) say(`${f.severity.toUpperCase().padEnd(10)} ${c.id}/${c.platform} ${f.kind}${f.match && f.kind !== "unproven" ? ` ${JSON.stringify(f.match)}` : ""}${f.excusedBy ? ` (expected: ${f.excusedBy.issue})` : ""}${f.reportOnly ? " [report-only app]" : ""}`);
   return finish(result.verdict, { cells: result.cells, representative: result.representative, staleExpected: result.staleExpected });
 }
@@ -480,6 +490,7 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const take = () => { const v = argv[i + 1]; if (v === undefined || v.startsWith("--")) throw new Error(`${argv[i]} needs a value`); i += 1; return v; };
     if (argv[i] === "--unit") opts.unit = take();
+    else if (argv[i] === "--sha") { opts.expectSha = take(); if (!/^[0-9a-f]{40}$/.test(opts.expectSha)) throw new Error("--sha needs a full 40-hex commit"); }
     else if (argv[i] === "--out") opts.out = path.resolve(take());
     else throw new Error(`unknown argument ${argv[i]}`);
   }

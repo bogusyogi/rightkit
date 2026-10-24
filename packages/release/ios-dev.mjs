@@ -13,7 +13,7 @@
 //           | { kind: "device",     device: "<devicectl identifier>", bundleId, productName?, launch?: true, launchArgs?: [] },
 //   }
 // The build commands are generated from the config (a hand-written `build` is refused). The device is chosen by id only, never
-// "the only device": `install.device`, `--serial` or RIGHTKIT_IOS_DEVICE. DerivedData comes from `rightkit storage xcode-args`.
+// "the only device": `install.device`, `--serial` or RIGHTKIT_IOS_DEVICE. DerivedData comes from `rustright storage xcode-args`.
 import * as nodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -102,7 +102,7 @@ export function validateIosDevelopment(target, { root, env = process.env } = {})
     install = { ...descriptor, productName: descriptor.productName ?? target.scheme, launchArgs: [...(descriptor.launchArgs ?? [])] };
   }
   const normalized = { project, projectSpec, scheme: target.scheme, configuration, teamId: target.teamId, extraBuildSettings, prepare, install };
-  return { ...normalized, build: iosDevelopmentBuildCommands(normalized, { root, storage: { derivedData: "<rightkit storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>" }) };
+  return { ...normalized, build: iosDevelopmentBuildCommands(normalized, { root, storage: { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, destinationId: "<device or simulator id>" }) };
 }
 
 const destinationFor = (install, id) => (install?.kind === "device" ? `id=${id}` : `platform=iOS Simulator,id=${id}`);

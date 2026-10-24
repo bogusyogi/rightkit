@@ -2,7 +2,7 @@
 //! ids, text delivery with read-back proof, tier 3 key messages, per-window
 //! capture, safety gates, and cleanup. Frontmost must be unchanged throughout.
 //!
-//! Run (Windows host): rightkit cargo run -p rightkit-automation --example win_smoke
+//! Run (Windows host): rustright cargo run -p rightkit-automation --example win_smoke
 //! Env: RKA_OUT=<dir> for evidence (default: %TEMP%\rka-proof)
 
 use rightkit_automation::*;

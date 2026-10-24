@@ -176,7 +176,8 @@ export function brokerLaunch(file) {
 function cargoArguments(file, argv) {
   const base = (String(file).split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
   if (base === "cargo") return argv;
-  if ((base === "rustright" || base === "rightkit") && argv[0] === "cargo") return argv.slice(1);
+  // The retired name is caught too: a test that launches it would still reach an older installed broker.
+  if ((base === "rustright" || base === "rightkit" /* retired client name, caught here, never run */) && argv[0] === "cargo") return argv.slice(1);
   return null;
 }
 

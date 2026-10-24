@@ -176,7 +176,7 @@ mod windows_impl {
     use crate::winapi::windows::core::Interface;
 
     /// WebView2 side of the same policy. NOT compiled on this (macOS) host: compile and verify on
-    /// the Windows agent with `rightkit cargo check -p rightkit-tauri-shell` (see API.md).
+    /// the Windows agent with `rustright cargo check -p rightkit-tauri-shell` (see API.md).
     pub fn apply<R: Runtime>(webview: &Webview<R>, h: &Hardening, decision: WebviewDecision) {
         let h = h.clone();
         let content = decision != WebviewDecision::Deny;

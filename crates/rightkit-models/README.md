@@ -365,7 +365,7 @@ JS interoperability fixture regeneration (test-only deterministic key):
 
 ```sh
 node crates/rightkit-models/tests/fixtures/generate-runtime-vectors.mjs
-rightkit cargo test -p rightkit-models --features rightapps
+rustright cargo test -p rightkit-models --features rightapps
 ```
 
-Test-only commands. Run Rust through `rightkit cargo` per the workspace's `docs/rules/rightkit.md`.
+Test-only commands. Run Rust through `rustright cargo` per the workspace's `docs/rules/rightkit.md`.

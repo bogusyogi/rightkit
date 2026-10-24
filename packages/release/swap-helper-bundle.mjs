@@ -37,7 +37,7 @@ export function isSwapHelperSigned(file, { execFileSync = nodeExecFileSync } = {
 }
 
 /**
- * Local-pack step. darwin: build through the managed cargo wrapper (`run("cargo", ...)` is `rightkit cargo` in
+ * Local-pack step. darwin: build through the managed cargo wrapper (`run("cargo", ...)` is `rustright cargo` in
  * local-publish), copy to <packageDir>/bin/darwin/rightkit-swap, Developer ID sign with the shared identity
  * resolver and `macCodesignArgs` (--options runtime --timestamp), verify strictly, write a sha256 receipt.
  * Anywhere else: refuse unless the helper is present and its receipt matches its bytes. Fails closed with SwapHelperError.
@@ -66,7 +66,7 @@ export function prepareSwapHelper({
   }
   const fail = (code, message) => { throw new SwapHelperError(code, message); };
   const built = run("cargo", SWAP_HELPER_CARGO_ARGS, { cwd: workspaceRoot, env });
-  if (built.error || built.status !== 0) fail("SWAP_HELPER_BUILD_FAILED", `rightkit cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} failed (${built.error?.message ?? `exit ${built.status}`})\n${tail(`${built.stdout ?? ""}\n${built.stderr ?? ""}`)}`);
+  if (built.error || built.status !== 0) fail("SWAP_HELPER_BUILD_FAILED", `rustright cargo ${SWAP_HELPER_CARGO_ARGS.join(" ")} failed (${built.error?.message ?? `exit ${built.status}`})\n${tail(`${built.stdout ?? ""}\n${built.stderr ?? ""}`)}`);
   const meta = run("cargo", ["metadata", "--format-version", "1", "--no-deps"], { cwd: workspaceRoot, env });
   let targetDir;
   try { targetDir = JSON.parse(meta.stdout).target_directory; } catch { /* refused below */ }

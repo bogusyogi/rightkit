@@ -4,7 +4,7 @@
 //!
 //! ```sh
 //! RK_PDF_CORPUS_DIR=/Volumes/D/claude/viewright/.qa-corpus \
-//!   rightkit cargo test -p rightkit-pdf --test corpus_coverage -- --ignored --nocapture
+//!   rustright cargo test -p rightkit-pdf --test corpus_coverage -- --ignored --nocapture
 //! ```
 //!
 //! For page 1 of every `*.pdf` in the corpus it runs the replacement ViewRight's QA runs: take an

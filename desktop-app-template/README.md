@@ -52,7 +52,7 @@ without Adrian. Read `docs/rules/release-signing.md` before step 8 and `docs/rul
 before any Rust command.
 
 1. **Copy and rename.** Copy this directory to the new repo root, then
-   `rightkit cargo run -q -p rightapp-tools -- init --slug <lowercase> --name "<Product Name>" --org <reverse.dns.prefix>`.
+   `rustright cargo run -q -p rightapp-tools -- init --slug <lowercase> --name "<Product Name>" --org <reverse.dns.prefix>`.
    It rewrites `RightApp`/`rightapp`/`RIGHTAPP`/identifier and runs the gate.
 2. **Brand.** Run `/brand <code>`; put the approved palette in `assets/brand/brand.json`
    (token names `brand`, `brand-*`), then `pnpm brand:sync`. Add the real logo/icon master,
@@ -72,7 +72,7 @@ before any Rust command.
    Tauri plugin generations.
 5. **Engine.** Staging the sidecar is two top-level managed calls, never one that nests a broker call
    (a managed RightKit request refuses nested broker calls, exit 125). `pnpm build:engine` (release) runs
-   `rightkit cargo build -p <engine> --release` then `rightkit cargo run -p rightapp-tools -- stage-engine --release`;
+   `rustright cargo build -p <engine> --release` then `rustright cargo run -p rightapp-tools -- stage-engine --release`;
    `pnpm build:engine:dev` does the same with `--profile release-iterate`. `stage-engine` makes no process
    calls: it finds the built engine beside its own tools binary and copies it to
    `src-tauri/binaries/<engine>-<triple>`. `right-release dev` runs `tauri build`; its dev config overrides
@@ -114,7 +114,7 @@ before any Rust command.
     `rightkit-versions.json`, the gate fails until you pin it exactly, delete its stand-in, and delete its
     `placeholders.json` entry. `@rightkit/app-shell` and `rightkit-jobs` are adopted.
 13. **Verify before first commit:** `pnpm check:template`, `pnpm typecheck`, `pnpm build`,
-    `rightkit cargo test`, `pnpm test:e2e`.
+    `rustright cargo test`, `pnpm test:e2e`.
 
 ## Verified for this checkout
 

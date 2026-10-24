@@ -218,7 +218,7 @@ export function touchesWorkflows(changedPaths) {
  * Check 14 (local-ci-command): from a `scripts/ci/run-ci.sh`-style one-CI-command
  * script, return the lines to run locally before a push — those starting with
  * `node ` or `pnpm test` (an optional `VAR=value ` prefix is allowed). Lines that
- * install dependencies or invoke `cargo`/`rightkit` are skipped: the local
+ * install dependencies or invoke `cargo`/`rustright` are skipped: the local
  * preflight has no toolchain and RightKit forbids cargo on the public repos.
  * Comments and blank lines are ignored.
  */

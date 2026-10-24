@@ -154,6 +154,24 @@ test("ownership failure or omission blocks aggregate while empty compile baselin
   } finally { fs.rmSync(scratch, { recursive: true, force: true }); }
 });
 
+test("the evidence plan travels to the summary as the ci-plan artifact, never as a job output", () => {
+  // Run 40034020934: a 132 KB `evidence` output made the summary step's NEEDS string too long to start bash.
+  const plan = WORKFLOW.jobs.plan;
+  assert.equal(plan.outputs.evidence, undefined);
+  const upload = plan.steps.find((step) => step.name === "Upload evidence plan");
+  assert.equal(upload.if, "${{ github.event_name == 'workflow_dispatch' }}");
+  assert.equal(upload.with.name, "ci-plan");
+  assert.equal(upload.with.path, "${{ runner.temp }}/ci-plan/evidence.json");
+  assert.equal(upload.with["if-no-files-found"], "error");
+  const summary = WORKFLOW.jobs.summary.steps;
+  const download = summary.find((step) => step.with?.name === "ci-plan");
+  assert.ok(download?.uses?.startsWith("actions/download-artifact@"));
+  assert.equal(download.with.path, "ci-plan");
+  assert.ok(summary.indexOf(download) < summary.findIndex((step) => step.id === "verdict"));
+  assert.equal(summary.find((step) => step.id === "verdict").env.EVIDENCE_PLAN, "ci-plan/evidence.json");
+  for (const job of Object.values(WORKFLOW.jobs)) for (const value of Object.values(job.outputs ?? {})) assert.doesNotMatch(String(value), /outputs\.evidence/);
+});
+
 test("shared baselines use authenticated Actions history rather than cache markers", () => {
   const plan = WORKFLOW.jobs.plan;
   assert.deepEqual(plan.permissions, { contents: "read", actions: "read" });
@@ -161,7 +179,7 @@ test("shared baselines use authenticated Actions history rather than cache marke
   assert.equal(resolve.if, "github.event_name != 'pull_request'");
   assert.deepEqual(resolve.env, { GITHUB_TOKEN: "${{ github.token }}" });
   assert.equal(resolve.run, "node scripts/ci/last-green.mjs resolve --out last-green.json");
-  assert.equal(plan.steps.find((step) => step.id === "plan").run, 'node scripts/ci/ci-plan.mjs --last-green "$RUNNER_TEMP/last-green.json"');
+  assert.equal(plan.steps.find((step) => step.id === "plan").run, 'node scripts/ci/ci-plan.mjs --last-green "$RUNNER_TEMP/last-green.json" --evidence-out "$RUNNER_TEMP/ci-plan/evidence.json"');
   for (const job of [plan, WORKFLOW.jobs["mark-green-windows"], WORKFLOW.jobs["mark-green-macos"]]) {
     assert.ok(!job.steps.some((step) => step.uses?.startsWith("actions/cache")), "cache cannot transport green proof");
   }

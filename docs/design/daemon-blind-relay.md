@@ -43,7 +43,7 @@ Reuse the enrolled Ed25519 device key for signatures; add a separately generated
 
 ### 3.3 Session crypto
 
-`Noise_IK_25519_ChaChaPoly_SHA256`. Device is initiator (knows `host_x25519` from pairing), host is responder. After the handshake the host learns the device static key, looks it up in `state.devices` (present, not revoked, scope `link`), else closes. Prologue is `"rk-relay/1" || room_id`. The daemon has `ring` only, which has no Noise, so this adds the `snow` crate. **ASK ADRIAN**: new dependency `snow` (recommended) vs hand-rolled Noise on `ring` (not recommended). Run `rightkit owns` and the dependency allowlist process first.
+`Noise_IK_25519_ChaChaPoly_SHA256`. Device is initiator (knows `host_x25519` from pairing), host is responder. After the handshake the host learns the device static key, looks it up in `state.devices` (present, not revoked, scope `link`), else closes. Prologue is `"rk-relay/1" || room_id`. The daemon has `ring` only, which has no Noise, so this adds the `snow` crate. **ASK ADRIAN**: new dependency `snow` (recommended) vs hand-rolled Noise on `ring` (not recommended). Run `rustright owns` and the dependency allowlist process first.
 
 ## 4. Protocol `rk-relay/1`
 

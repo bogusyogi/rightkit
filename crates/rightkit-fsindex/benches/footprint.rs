@@ -3,7 +3,7 @@
 //! Generates N entries (default 2,000,000; pass a count after `--` or set FSINDEX_SYNTH_ENTRIES) directly into the
 //! memory-mapped columns, commits, then measures a *fresh child process* that reopens the
 //! store: phys_footprint / resident size before and after a name search and a size query.
-//! Run: `rightkit cargo bench -p rightkit-fsindex --bench footprint`.
+//! Run: `rustright cargo bench -p rightkit-fsindex --bench footprint`.
 
 #[cfg(target_os = "macos")]
 mod mac {

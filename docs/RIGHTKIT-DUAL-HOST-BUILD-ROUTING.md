@@ -68,7 +68,7 @@ installs complete tree, so failed validation/extraction cannot change active slo
 ```text
 Mac agent
   |
-  | rightkit remote windows cargo <check|clippy|test|build>
+  | rustright remote windows cargo <check|clippy|test|build>
   v
 Mac coordinator
   |-- synthetic worktree snapshot
@@ -82,7 +82,7 @@ Windows managed replica pool (default: 3 stable slots/repository)
   |-- durable slot lease owns source after claim
   |-- hash verification + safe extraction
   |-- atomic source replacement
-  `-- rightkit cargo ...
+  `-- rustright cargo ...
               |
               v
 Windows local RightKit broker
@@ -162,8 +162,8 @@ Default route:
    not silent, so platform coverage remains truthful.
 5. Same snapshot + same normalized command may be coalesced later; unrelated jobs queue normally.
 
-Routing is explicit, not shell-transparent: plain `rightkit cargo ...` always targets current host.
-Mac agents must choose `rightkit remote windows cargo ...` for portable validation. Windows
+Routing is explicit, not shell-transparent: plain `rustright cargo ...` always targets current host.
+Mac agents must choose `rustright remote windows cargo ...` for portable validation. Windows
 unreachability is typed failure; it never silently becomes local validation.
 
 `tauri dev` remains local because it is interactive, owns local windows/ports, watches source, &
@@ -235,7 +235,7 @@ remains unknown rather than evidence of idleness.
 
 ## 10. Initial deliverable
 
-- `rightkit remote windows cargo <check|clippy|test|build> [args...]` coordinator;
+- `rustright remote windows cargo <check|clippy|test|build> [args...]` coordinator;
 - zero-config workspace transport defaults to SSH alias `win`, the managed `runtime-current\rustright.exe` worker (RustRight; no Node), & managed remote-input root; `RIGHTKIT_REMOTE_WINDOWS_*` overrides remain for
   host migration;
 - detached SUBMIT plus STATUS/CANCEL by remote request ID; no watch/poll path for agents;

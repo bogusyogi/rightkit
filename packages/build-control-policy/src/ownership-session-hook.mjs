@@ -15,7 +15,7 @@ export function renderSessionCatalog(manifest = catalog, versionManifest = versi
     return `- ${item.capability} → ${item.package}: ${resolvedVersions || 'no published version recorded'}; ${ownershipDetection(item)}`;
   });
   if (manifest.internalOwners?.length) rows.push('Internal owners (not app capabilities):', ...manifest.internalOwners.map((item) => `- ${item.package}: ${item.reason}`));
-  return ['RightKit ownership index (availability from rightkit-versions.json; dependency declarations do not prove integration):', ...rows, 'Lookup details: `rightkit owns <capability>`'].join('\n');
+  return ['RightKit ownership index (availability from rightkit-versions.json; dependency declarations do not prove integration):', ...rows, 'Lookup details: `rustright owns <capability>`'].join('\n');
 }
 
 function availabilityFrom(item, versionManifest) {

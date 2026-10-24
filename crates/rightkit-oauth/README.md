@@ -173,7 +173,7 @@ rightkit-http = "0.3.0"
 Daemons can omit `secrets` and `system-sources` (`default-features = false`): the `server` feature does not enable `secrets`, and a headless daemon may have no OS credential store (on Linux, no Secret Service on the session bus).
 All methods are synchronous; call on a blocking executor in an async HTTP route.
 
-Illustrative; not compiled as a doctest. The example at `examples/server_axum.rs` is the compiled reference (`cargo run --example server_axum --features server-example`, through `rightkit cargo`).
+Illustrative; not compiled as a doctest. The example at `examples/server_axum.rs` is the compiled reference (`cargo run --example server_axum --features server-example`, through `rustright cargo`).
 
 ```rust,ignore
 use std::{sync::Arc, time::Duration};
@@ -330,13 +330,13 @@ tenant binding, callback rate limits & safe token-persistence recovery.
 From RightKit root, with managed broker available:
 
 ```sh
-rightkit cargo test -p rightkit-oauth
-rightkit cargo test -p rightkit-oauth --no-default-features
-rightkit cargo test -p rightkit-oauth --all-features
-rightkit cargo clippy -p rightkit-oauth --all-targets --all-features -- -D warnings
-rightkit cargo clippy -p rightkit-oauth --all-targets -- -D warnings
-rightkit cargo fmt -p rightkit-oauth --check
-rightkit cargo package -p rightkit-oauth --no-verify --allow-dirty --list
+rustright cargo test -p rightkit-oauth
+rustright cargo test -p rightkit-oauth --no-default-features
+rustright cargo test -p rightkit-oauth --all-features
+rustright cargo clippy -p rightkit-oauth --all-targets --all-features -- -D warnings
+rustright cargo clippy -p rightkit-oauth --all-targets -- -D warnings
+rustright cargo fmt -p rightkit-oauth --check
+rustright cargo package -p rightkit-oauth --no-verify --allow-dirty --list
 ```
 
 Server tests cover state lifecycle, PKCE exchange, nonce validation, auth variants, encrypted

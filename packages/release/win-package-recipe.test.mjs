@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { WIN_PACKAGE_PHASES, WinPackageConfigError, WinPackageRecipeError, runWinPackageRecipe, validateWinPackage } from "./win-package-recipe.mjs";
+import { WIN_PACKAGE_PHASES, WinPackageConfigError, WinPackageRecipeError, defaultWinPackageDeps, runWinPackageRecipe, validateWinPackage } from "./win-package-recipe.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 
 // Fakes only: no signtool, no makensis, no tauri, no real file system, explicit env objects.
 const appRoot = path.resolve("/rk-fake-app");
@@ -16,7 +18,7 @@ function baseTarget(overrides = {}) {
   return {
     signingContract: "windows-raw-exe-authenticode-before-nsis-v1",
     sign: { prePackageFiles: [RAW], files: [INSTALLER] },
-    updater: { keyFile: "%APPDATA%\\ViewRight\\updater.key" },
+    updater: { artifacts: [] },
     winPackage: { installer: "nsis", productName: "Demo", updater: true, sidecars: [SIDECAR] },
     ...overrides,
   };
@@ -91,7 +93,7 @@ test("a complete config validates and resolves every path under the app root", (
   assert.deepEqual([...plan.sidecars], [at("resources", "helper.exe")]);
   assert.equal(plan.perMachine, false);
   assert.equal(plan.triple, "x86_64-pc-windows-msvc");
-  assert.equal(plan.updaterKeyFile, "%APPDATA%\\ViewRight\\updater.key");
+  assert.ok(!("updaterKeyFile" in plan), "the plan carries no updater key file");
 });
 
 test("invalid configuration throws a typed error naming every problem", () => {
@@ -179,7 +181,7 @@ test("the updater signature is made after the installer is signed, over the inst
   assert.ok(order.indexOf("sign-updater") > order.indexOf("sign-installer"));
   const call = w.events.find((event) => event.step === "sign-updater");
   assert.equal(call.file, at(...INSTALLER.split("/")));
-  assert.equal(call.options.keyFile, "%APPDATA%\\ViewRight\\updater.key");
+  assert.ok(!("keyFile" in call.options), "no key file is passed to the updater signer");
 });
 
 test("updater:false skips the updater phase and perMachine selects the install mode", () => {
@@ -298,4 +300,24 @@ test("the recipe refuses to run off Windows, and a dry run performs no signing e
   assert.ok(!steps(dry).includes("marker"));
   assert.ok(!steps(dry).includes("verify-embedded"));
   assert.equal(receipt.rawExe.signedSha256, null);
+});
+
+test("updater.keyFile is refused at validation: updater keys come from the OS credential provider", () => {
+  const target = baseTarget({ updater: { keyFile: "%APPDATA%\\ViewRight\\updater.key" } });
+  assert.throws(() => validateWinPackage({ appRoot, config: {}, target }), (error) => {
+    assert.ok(error instanceof WinPackageConfigError);
+    assert.match(error.message, /target\.updater\.keyFile is not supported/);
+    assert.match(error.message, /OS credential provider/);
+    return true;
+  });
+});
+
+test("the real signUpdater never forwards a key file (sign-updater refuses --key-file)", () => {
+  // The one real effect here is the sign-updater dry run (no key, no signing, no network) in an empty directory.
+  const cwd = tempRoot("right-release-win-updater-");
+  const deps = defaultWinPackageDeps({ appRoot: cwd, target: baseTarget(), env: { ...process.env } });
+  // A forwarded --key-file would make sign-updater throw "--key-file is removed" and the call fail with its exit status.
+  assert.doesNotThrow(() => deps.signUpdater(path.join(cwd, "Demo-setup.exe"), { keyFile: "%APPDATA%\\ViewRight\\updater.key", dryRun: true }));
+  const source = readFileSync(new URL("./win-package-recipe.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /--key-file/);
 });

@@ -5,7 +5,7 @@
 //!   cargo feature ([`Harness::with_feature_tiers`]) or the settings key
 //!   ([`Harness::with_tier_key`], default `RIGHTKIT_QA_TIER`, a comma list or `all`);
 //! * **requires-skip**: `env:NAME` (answered by the [`Settings`] file, so it survives
-//!   `rightkit cargo`), `file:path`, `cmd:program`, `platform:darwin|windows`; plus a runtime
+//!   `rustright cargo`), `file:path`, `cmd:program`, `platform:darwin|windows`; plus a runtime
 //!   [`Scenario::skip`] for prerequisites only discoverable inside the test;
 //! * **skip accounting**: libtest reports a skipped test as `ok`, so every outcome is printed
 //!   (`[qa] PASS|SKIP|FAIL name`) and appended to `<evidence root>/summary.jsonl`;
@@ -236,7 +236,7 @@ impl Harness {
     }
 
     /// Per-product cap on the bytes this app's QA homes may hold, set in code: it wins over
-    /// `RIGHTKIT_QA_ROOT_CAP_BYTES` (which a test run under `rightkit cargo` never receives), and `0`
+    /// `RIGHTKIT_QA_ROOT_CAP_BYTES` (which a test run under `rustright cargo` never receives), and `0`
     /// disables it. Only this app's homes count; other products' homes never block the run. The
     /// default is 4 GB. The harness sweeps dead homes when it is built and checks the limits once,
     /// at the first scenario that runs, so call this before running a scenario. A refusal panics

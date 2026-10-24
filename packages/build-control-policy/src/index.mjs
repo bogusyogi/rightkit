@@ -7,11 +7,13 @@ import { localDevelopmentPolicy, localDevelopmentCargoAllowed } from './local-de
 const tools = new Set(['cargo', 'rustc', 'rustdoc']);
 const githubActionsOnly = 'github-actions-only';
 const dynamicOperation = /(?:^|[:_-])(?:compile|test|build|package|pack|sign|qualif(?:y|ication)|smoke|release|candidate|finalize)(?:$|[:_-])/i;
-// `rustright` is the build CLI and broker; `rightkit` stays admitted as the shim during the rename.
-const managedCli = new Set(['rustright', 'rightkit']);
+// `rustright` is the build CLI and broker. `rightkit`, its retired name (rustright#91), is refused by name (RETIRED_CLI),
+// never passed through as an ordinary program.
+const managedCli = new Set(['rustright']);
+const RETIRED_CLI = 'rightkit';
 const basename = (value) => value.replace(/\\/g, '/').split('/').pop().replace(/\.(?:exe|cmd)$/i, '').toLowerCase();
 // The bare entrypoint name, or the same binary inside the trusted agent-bin directory.
-const entrypointName = /^(?:rustright|rightkit)(?:\.(?:cmd|exe))?$/i;
+const entrypointName = /^rustright(?:\.(?:cmd|exe))?$/i;
 const managedEntrypoint = (word) => entrypointName.test(word) || entrypointName.test(word.replace(/^.*[\\/]/, '')) && trustedAgentPath(word);
 const trustedAgentPath = (value) => /(?:\.rightkit-managed|rightkitmanagedagent)[\\/]agent-bin/i.test(value);
 
@@ -378,7 +380,7 @@ export function githubActionsOnlyViolation(command, { cwd = process.cwd(), envir
     if (resolve(cwd) === policy.root && /^pnpm(?:\.cmd)? --dir apps[\\/]membrane-hub run release:build:win:unsigned$/.test(text)) return null;
     if (resolve(cwd) === hub && (/^pnpm(?:\.cmd)? run release:build:win:unsigned$/.test(text)
       || /^node scripts[\\/]release-build-windows\.mjs --unsigned$/.test(text))) return null;
-    const managed = /^(?:pnpm(?:\.cmd)? exec )?(?:rustright|rightkit)(?:\.cmd)? (cargo|rustc|rustdoc) (.+)$/.exec(text);
+    const managed = /^(?:pnpm(?:\.cmd)? exec )?rustright(?:\.cmd)? (cargo|rustc|rustdoc) (.+)$/.exec(text);
     if (managed) {
       const argv = managed[2].match(/"[^"]*"|'[^']*'|[^\s]+/g)?.map((arg) => arg.replace(/^["']|["']$/g, '')) ?? [];
       if (localDevelopmentCargoAllowed({ root: policy.root, workspace: cwd, operation: managed[1], argv, platform })) return null;
@@ -395,6 +397,7 @@ export function managedBuildViolation(command) {
     if (toolName(name)) return name;
     if (name === 'rustup' && rustupTool(argv)) return 'rustup-run';
     if (name === 'alias' && argv.slice(1).some((arg) => toolName(arg.slice(arg.indexOf('=') + 1).split(/\s/)[0]))) return 'alias';
+    if (name === RETIRED_CLI) return `retired-client:${name}`;
     if (managedCli.has(name)) {
       const remote = argv[1] === 'remote';
       const tool = toolName(argv[remote ? 3 : 1]);
@@ -420,6 +423,9 @@ export function rustRightManagedHost({ platform = process.platform } = {}) {
 }
 
 function denialMessage(blocked) {
+  if (blocked.startsWith('retired-client:')) {
+    return `[HOOK:rustright-managed-build:block]\nWhy: \`${blocked.slice('retired-client:'.length)}\` is the retired name of the RustRight client (rustright#91).\nRequired: Run the same command as rustright ("rustright cargo ...", "rustright status <id>", ...).`;
+  }
   if (blocked.startsWith('github-actions-only:')) {
     return `[HOOK:rustright-managed-build:block]\nWhy: Local public-repository execution forbidden: ${blocked.slice('github-actions-only:'.length)}\nRequired: Push changes & use managed GitHub Actions (RustRight does not run public-repository builds locally).`;
   }

@@ -59,7 +59,7 @@
         "unit": "entries",
         "count": 1000000
       },
-      "command": "rightkit cargo test --profile release-iterate -p rightkit-fsindex --bench budget",
+      "command": "rustright cargo test --profile release-iterate -p rightkit-fsindex --bench budget",
       "observed": {
         "residentMemoryBytes": 9322496,
         "idleCpuPercent": 0.004,

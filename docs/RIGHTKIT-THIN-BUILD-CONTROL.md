@@ -1,6 +1,6 @@
 # RightKit Thin Build Control — Canonical Architecture & Migration Plan
 
-**Status:** live on macOS and Windows; predecessor core removed. The Node implementation described here was itself removed on 2026-10-09 and replaced by the Rust broker RustRight (`bogusyogi/rustright`, binary `rustright`, alias `rightkit`); read this document as the architecture reference, not as a map of current files.
+**Status:** live on macOS and Windows; predecessor core removed. The Node implementation described here was itself removed on 2026-10-09 and replaced by the Rust broker RustRight (`bogusyogi/rustright`, binary `rustright`; its old `rightkit` alias is retired); read this document as the architecture reference, not as a map of current files.
 **Authority:** this document supersedes the previous build-control architecture and remediation plans for implementation decisions.  
 **Purpose:** preserve aggressive Rust/Cargo cache reuse while preventing autonomous agents from competing for the same workstation, spawning unmanaged build trees, or leaving unsafe orphaned writers behind.
 
@@ -10,7 +10,7 @@
 
 macOS and Windows broker entrypoints construct `ThinJobService`. Installed shims keep
 the v2 protocol and runtime-identity handshake; product repositories still use
-`rightkit cargo ...`.
+`rustright cargo ...`.
 
 Current host configuration:
 
@@ -496,7 +496,7 @@ both `host.cargoBuildJobs` & `host.compileBudgetUnits` alongside hardware facts.
 Examples:
 
 ```text
-rightkit rustup target add <registered-target>
+rustright rustup target add <registered-target>
 ```
 
 Properties:
@@ -510,8 +510,8 @@ requested target must exist in broker targetTriples
 macOS bootstrap registers `aarch64-apple-darwin`,
 `x86_64-apple-darwin`, `aarch64-apple-ios`, &
 `aarch64-apple-ios-sim`. A new app targeting one of these needs no broker
-change: provision missing std through `rightkit rustup target add <target>`,
-then build through `rightkit cargo ... --target <target>`. Physical iPhone
+change: provision missing std through `rustright rustup target add <target>`,
+then build through `rustright cargo ... --target <target>`. Physical iPhone
 builds use `aarch64-apple-ios`; Apple Silicon Simulator builds use
 `aarch64-apple-ios-sim`.
 
@@ -754,7 +754,7 @@ The installed RightKit shims remain the agent entrypoint.
 Product repositories should continue invoking:
 
 ```bash
-rightkit cargo ...
+rustright cargo ...
 ```
 
 or resolving the managed Cargo shim first on `PATH`.
@@ -1149,11 +1149,11 @@ simple retired-generation GC
 
 These are the actual product.
 
-`rightkit list` is one-shot discovery for in-flight roots plus recent terminal
+`rustright list` is one-shot discovery for in-flight roots plus recent terminal
 requests. Live summaries include request ID, command, workspace, state, elapsed
-time, output bytes, last output time, & attached-client count. `rightkit status
+time, output bytes, last output time, & attached-client count. `rustright status
 <request-id>` returns same live context or durable terminal receipt;
-`rightkit attach <request-id>` replays bounded broker output and returns terminal
+`rustright attach <request-id>` replays bounded broker output and returns terminal
 result. Client disconnect never cancels broker ownership or discards receipt.
 Agents must recover detached work through these commands rather than resubmit.
 

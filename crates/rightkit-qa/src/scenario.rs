@@ -36,7 +36,7 @@ pub struct Scenario {
     /// `engine`, `ui`, or `browser`: which binary the scenario needs.
     #[serde(default = "engine")]
     pub target: String,
-    /// `env:NAME`, `file:path`, `cmd:program`, `platform:darwin|windows`.
+    /// `env:NAME`, `file:path`, `cmd:program`, `platform:darwin|macos|windows|linux`.
     #[serde(default)]
     pub requires: Vec<String>,
     /// A scenario that may legitimately be skipped when `requires` is unmet. Every other
@@ -194,13 +194,31 @@ pub fn tier_selected(scenario_tier: &str, selected: &str) -> bool {
             .any(|t| sel.contains(&t))
 }
 
-/// `Some(reason)` when a `platform:<os>` requirement names another OS than the host. The suite
-/// skips such a scenario even when it is mandatory: it can never run here.
+/// Canonical name of a `platform:<value>` requirement value, or `None` for an unknown one.
+/// `macos` (the journey manifest's vocabulary) is an alias of `darwin` (what `util::platform()`
+/// returns), so both spellings select the same host.
+fn canonical_platform(value: &str) -> Option<&'static str> {
+    match value {
+        "darwin" | "macos" => Some("darwin"),
+        "windows" => Some("windows"),
+        "linux" => Some("linux"),
+        _ => None,
+    }
+}
+
+/// `Some(reason)` when a `platform:<os>` requirement names a known OS other than the host's. The
+/// suite skips such a scenario even when it is mandatory: it can never run here. An UNKNOWN platform
+/// value is not a mismatch (it is a typo, not another OS): it is left to [`unmet_requirement_with`],
+/// which reports it as an unmet requirement so it can never skip silently as `OtherPlatform`.
 pub fn platform_mismatch(requires: &[String]) -> Option<String> {
     let host = crate::util::platform().ok();
     requires.iter().find_map(|r| {
         let (kind, value) = r.split_once(':')?;
-        (kind == "platform" && host != Some(value)).then(|| format!("platform is not {value}"))
+        if kind != "platform" {
+            return None;
+        }
+        let wanted = canonical_platform(value)?;
+        (host != Some(wanted)).then(|| format!("platform is not {value}"))
     })
 }
 
@@ -215,7 +233,8 @@ pub fn unmet_requirement(requires: &[String], app_root: &Path) -> Option<String>
 /// Like [`unmet_requirement`], with `env:X` answered by `lookup` (for example
 /// `|k| settings.get(k)` over a [`crate::settings::Settings`], which survives managed cargo).
 /// Kinds: `env:NAME`, `file:path` (relative to `app_root` or absolute), `cmd:program` (on `PATH`
-/// or a path), `platform:darwin|windows`.
+/// or a path), `platform:darwin|macos|windows|linux` (`macos` is an alias of `darwin`; an unknown
+/// value is an unmet requirement, like an unknown kind).
 pub fn unmet_requirement_with(
     requires: &[String],
     app_root: &Path,
@@ -230,8 +249,13 @@ pub fn unmet_requirement_with(
             "file" => (!app_root.join(value).exists() && !Path::new(value).exists())
                 .then(|| format!("missing file {value}")),
             "cmd" => (!command_exists(value)).then(|| format!("missing command {value}")),
-            "platform" => (crate::util::platform().ok() != Some(value))
-                .then(|| format!("platform is not {value}")),
+            "platform" => match canonical_platform(value) {
+                Some(wanted) => (crate::util::platform().ok() != Some(wanted))
+                    .then(|| format!("platform is not {value}")),
+                None => Some(format!(
+                    "unknown platform '{value}' (expected darwin, macos, windows or linux)"
+                )),
+            },
             other => Some(format!("unknown requirement kind '{other}'")),
         };
         if missing.is_some() {
@@ -2367,6 +2391,93 @@ mod token_and_skip_tests {
             Gate::Fail { reason } => assert!(reason.contains("mandatory"), "{reason}"),
             other => panic!("expected a failed gate, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn platform_macos_is_an_alias_of_darwin() {
+        assert_eq!(canonical_platform("macos"), Some("darwin"));
+        assert_eq!(canonical_platform("darwin"), Some("darwin"));
+        assert_eq!(canonical_platform("windows"), Some("windows"));
+        assert_eq!(canonical_platform("linux"), Some("linux"));
+        assert_eq!(canonical_platform("macosx"), None);
+
+        let root = std::env::temp_dir();
+        let req = |v: &str| vec![format!("platform:{v}")];
+        // Both spellings decide identically on every host.
+        assert_eq!(
+            platform_mismatch(&req("macos")).is_some(),
+            platform_mismatch(&req("darwin")).is_some()
+        );
+        assert_eq!(
+            unmet_requirement(&req("macos"), &root).is_some(),
+            unmet_requirement(&req("darwin"), &root).is_some()
+        );
+        let gate = |v: &str| {
+            requirement_gate(
+                &load(&format!("requires = [\"platform:{v}\"]")).unwrap(),
+                &root,
+            )
+        };
+        if cfg!(target_os = "macos") {
+            // The false green this fixes: `platform:macos` must RUN on a Mac, not skip forever.
+            assert_eq!(gate("macos"), Gate::Run);
+            assert_eq!(gate("darwin"), Gate::Run);
+            assert!(matches!(
+                gate("windows"),
+                Gate::Skip {
+                    kind: SkipKind::OtherPlatform,
+                    ..
+                }
+            ));
+        } else {
+            // Another OS is still an OtherPlatform skip for the alias.
+            for v in ["macos", "darwin"] {
+                assert!(
+                    matches!(
+                        gate(v),
+                        Gate::Skip {
+                            kind: SkipKind::OtherPlatform,
+                            ..
+                        }
+                    ),
+                    "{v}: {:?}",
+                    gate(v)
+                );
+            }
+        }
+        if cfg!(windows) {
+            assert_eq!(gate("windows"), Gate::Run);
+        }
+    }
+
+    #[test]
+    fn an_unknown_platform_value_is_an_unmet_requirement_never_a_silent_skip() {
+        let root = std::env::temp_dir();
+        let reqs = vec!["platform:macosx".to_string()];
+        // Not another OS, so not an OtherPlatform skip (which every run tolerates).
+        assert_eq!(platform_mismatch(&reqs), None);
+        let reason = unmet_requirement(&reqs, &root).expect("unknown platform must be unmet");
+        assert!(reason.contains("unknown platform 'macosx'"), "{reason}");
+        // Same handling as an unknown requirement kind: mandatory fails, optional skips as Optional.
+        let gate = |header: &str| requirement_gate(&load(header).unwrap(), &root);
+        match gate("requires = [\"platform:macosx\"]") {
+            Gate::Fail { reason } => assert!(reason.contains("unknown platform"), "{reason}"),
+            other => panic!("expected a failed gate, got {other:?}"),
+        }
+        assert!(matches!(
+            gate("optional = true\nrequires = [\"platform:macosx\"]"),
+            Gate::Skip {
+                kind: SkipKind::Optional,
+                ..
+            }
+        ));
+        // An unknown value after a valid host-or-other platform requirement is still reported.
+        let mixed = vec!["platform:macos".to_string(), "platform:typo".to_string()];
+        assert_eq!(
+            platform_mismatch(&mixed).is_some(),
+            !cfg!(target_os = "macos")
+        );
+        assert!(unmet_requirement(&mixed, &root).is_some());
     }
 }
 

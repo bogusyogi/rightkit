@@ -1912,5 +1912,69 @@ test("build refusal text for a gate finding is unchanged", () => {
   const config = fixture({ platform: "win", packageCommand: FORBIDDEN_PACKAGE });
   const result = run(config);
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /^right-release: release\/update build refused: it enables a test-automation or debugging feature \(test-mode, qa-native, [^)]*\); none may ship:\n- target\.package: enables feature `test-mode`\nRemove the feature from the release build command, the app's default features and its tauri dependency; dev builds \(`right-release dev`\) may keep it\. No app may ship devtools unless it is on the allow-list in devtools-policy\.json and declares `devtools: "content-only"` \(rightkit-tauri-shell DevToolsPolicy::ContentOnly\)\.\n$/m);
+  assert.match(result.stderr, /^right-release: release\/update build refused: it enables a test-automation or debugging feature \(test-mode, qa-native, [^)]*\); none may ship:\n- target\.package: enables feature `test-mode`\nRemove the feature from the release build command, the app's default features and its tauri dependency; dev builds \(`right-release dev`\) may keep it\. No app may ship devtools unless it is on the allow-list in devtools-policy\.json and declares `devtools: "content-only"` \(rightkit-tauri-shell DevToolsPolicy::ContentOnly\)\.\n/m);
+  // E01: the build reports every gate finding of the run (the first one's text is unchanged above), not only the first.
+  assert.match(result.stderr, /\nright-release: feature closure: release code must not contain or read a test/);
+});
+
+// E01 / R01: one doctor run (and one build run) lists every independent config finding; a check that needs a failed one is
+// BLOCKED by it; nothing builds after a finding. Fixture configs are plain modules: edit, then commit so the doctor accepts them.
+function editConfig(config, edit) {
+  const text = readFileSync(config, "utf8");
+  const prefix = "export default ";
+  const value = JSON.parse(text.slice(prefix.length, text.lastIndexOf(";")));
+  edit(value);
+  writeFileSync(config, `${prefix}${JSON.stringify(value)};\n`);
+  const dir = path.dirname(config);
+  git(dir, "add", ".");
+  git(dir, "commit", "-m", "edit config");
+  return config;
+}
+
+test("doctor lists every independent config finding in one run, including updater.keyFile", () => {
+  const config = editConfig(fixture({ platform: hostPlatform, qa: false, macSigning: hostPlatform === "mac" }), (value) => {
+    value.targets[hostPlatform].signed = false;
+    value.targets[hostPlatform].updater.keyFile = "%APPDATA%/RightKit/updater.key";
+  });
+  const result = runDoctor(config);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  // three unrelated findings, one run
+  assert.match(result.stderr, /must declare signed: true; unsigned release targets are forbidden/);
+  assert.match(result.stderr, new RegExp(`targets\\.${hostPlatform}\\.updater\\.keyFile is not supported: updater signing keys come from the OS credential provider`));
+  assert.match(result.stderr, /RightKit QA|@rightkit\/qa/i);
+  assert.match(result.stderr, /preflight found [3-9]\d* blocking problem\(s\)/);
+  // the doctor went on to its machine rows instead of stopping at the first one
+  assert.match(result.stdout, /^preflight:/m);
+});
+
+test("doctor reports what a failed check blocks as BLOCKED by it", () => {
+  const config = editConfig(fixture({ platform: hostPlatform, macSigning: hostPlatform === "mac" }), (value) => {
+    delete value.targets[hostPlatform];
+  });
+  const result = runDoctor(config, "--gates");
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, new RegExp(`has no ${hostPlatform} release target`));
+  assert.match(result.stderr, /the target checks .* BLOCKED by target/);
+  assert.match(result.stderr, /build-inputs BLOCKED by target/);
+  assert.match(result.stdout, /\[FAIL\] gate:prebuild-gates: BLOCKED by target/);
+  // a handled finding, never an uncaught exception with a stack
+  assert.doesNotMatch(result.stderr, /\n\s+at .*\.mjs:\d+/);
+});
+
+test("the build reports every config finding together, refuses updater.keyFile and runs nothing after a finding", () => {
+  const config = editConfig(fixture({ platform: "win" }), (value) => {
+    value.targets.win.signed = false;
+    value.targets.win.updater.keyFile = "%APPDATA%/RightKit/updater.key";
+  });
+  const result = run(config);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /must declare signed: true; unsigned release targets are forbidden/);
+  assert.match(result.stderr, /targets\.win\.updater\.keyFile is not supported[^\n]*OS credential provider/);
+  // no build step started: the header and every step line come after the checkpoint
+  assert.doesNotMatch(result.stdout, /right-release \d+\.\d+\.\d+: fixture win package/);
+  assert.doesNotMatch(result.stdout, /right-release: done/);
+});
+
+test("release.mjs never forwards a key file to sign-updater", () => {
+  assert.doesNotMatch(readFileSync(release, "utf8"), /--key-file|updater\?\.keyFile \?/);
 });

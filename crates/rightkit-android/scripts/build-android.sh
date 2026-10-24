@@ -2,7 +2,7 @@
 # Builds librightkit_android.so per ABI with cargo-ndk and generates the Kotlin bindings.
 #
 # Writes android/src/main/jniLibs/<abi>/ and android/src/main/uniffi-generated/ (both git-ignored)
-# and a BUILD-RECEIPT.txt. Runs cargo through $RIGHTKIT_CARGO when set (for example "rightkit cargo"),
+# and a BUILD-RECEIPT.txt. Runs cargo through $RIGHTKIT_CARGO when set (for example "rustright cargo"),
 # otherwise "cargo". Run it through the owner chat only. It has not been run by its author.
 #
 # Usage: build-android.sh [--debug] [--crate PACKAGE] [--library LIBNAME]

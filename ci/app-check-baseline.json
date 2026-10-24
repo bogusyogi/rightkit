@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "about": "Ratchet for the files-only app checks G13-G20 of scripts/preflight.mjs. known.<repo> (lowercased --repo basename; rightkit for this checkout) lists the identities `rule|file|subject` (no line numbers) of findings that exist today: preflight prints them as KNOWN and does not fail. A new finding fails; a listed identity that is no longer found fails as STALE, so the list only shrinks. Never add an entry to hide a new defect: fix it. A person pastes `node scripts/preflight.mjs --repo <dir> --worktree --print-baseline` here; preflight never writes this file.",
+  "known": {
+    "rightkit": [
+      "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macos",
+      "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macosx",
+      "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:typo",
+      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__",
+      "switches-inventory|desktop-app-template/right-release.config.mjs|desktop-app-template"
+    ],
+    "coderight": [
+      "switches-inventory|apps/coderight-tauri/right-release.config.mjs|apps/coderight-tauri"
+    ],
+    "cutright": [
+      "switches-inventory|apps/cutright/right-release.config.mjs|apps/cutright"
+    ],
+    "genright": [
+      "switches-inventory|right-release.config.mjs|."
+    ],
+    "mailright": [
+      "switches-inventory|right-release.config.mjs|."
+    ],
+    "viewright": [
+      "switches-inventory|right-release.config.mjs|."
+    ]
+  }
+}

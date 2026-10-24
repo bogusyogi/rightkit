@@ -57,6 +57,7 @@ import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
 import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
+import { releaseConfigFieldProblems } from "./release-config.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -135,6 +136,36 @@ const opts = {
   resumeFrom: null,
 };
 
+// E01: every independent problem of one run is collected and reported together; the doctor and the build share it.
+// `check` / `reject` record a finding and continue; a check whose input comes from a failed one is not run on that bad input
+// but recorded as `BLOCKED by <check>`; a throw inside a check is a finding, never a crash. `fail` stays for what cannot
+// continue (it prints what was collected first). The build stops at one checkpoint (before the release lock, install, checks and
+// compile) when any finding exists, so no build step or other side effect ever follows a failed check.
+const problems = []; // { name, detail }
+const failedChecks = new Set();
+function reject(name, detail) {
+  failedChecks.add(name);
+  problems.push({ name, detail });
+}
+function rejectBlocked(name, blockers, what = name) {
+  const blocker = blockers.find((candidate) => failedChecks.has(candidate));
+  if (!blocker) return false;
+  reject(name, `${what} BLOCKED by ${blocker}`);
+  return true;
+}
+async function check(name, after, run) {
+  if (rejectBlocked(name, after)) return { ok: false };
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    reject(name, error instanceof Error ? error.message : `${name} threw a non-Error value: ${String(error)}`);
+    return { ok: false };
+  }
+}
+const printProblems = () => {
+  for (const problem of problems.splice(0)) console.error(`right-release: ${problem.detail}`);
+};
+
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if (arg === "--") continue;
@@ -183,9 +214,12 @@ if (opts.doctor) {
   if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
   doctorInvocation = { repoRoot, commit };
 }
-const config = (await import(pathToFileURL(configPath))).default;
+let config;
+try { config = (await import(pathToFileURL(configPath))).default; } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
 if (!config) usage(2, `config did not export default: ${configPath}`);
 if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<missing>"} (expected 1)`);
+// Field-level config refusals (updater.keyFile: keys come from the OS credential provider) are listed with every other finding.
+for (const refusal of releaseConfigFieldProblems(config)) reject(refusal.name, refusal.detail);
 
 // Hosted-workflow policy patterns: defined before the top-level await below uses them.
 const SIGN_EXISTING_SECRETS = new Set(["APPLE_CERTIFICATE_BASE64", "APPLE_CERTIFICATE_PASSWORD", "APPLE_KEYCHAIN_PASSWORD"]);
@@ -209,7 +243,7 @@ const nativeFinalizer = resolveNativeFinalizerConfig(nativeAssembly);
 // (build-release.mjs). This worker, a resume and the upload consume only that admitted snapshot, through the release's own
 // state root and admission record; a snapshot from anywhere else is refused. The standalone doctor resolves live.
 const rightKitSnapshotFile = process.env[SNAPSHOT_ENV] || null;
-let rightKitResolution;
+let rightKitResolution = null; // null when the registry resolution failed (recorded as the `rightkit-registry` finding)
 try {
   const lockInventory = () => {
     try {
@@ -241,10 +275,12 @@ try {
     admission: opts.doctor && opts.admission,
   });
 } catch (error) {
-  if (!(error instanceof RightKitRegistryError)) throw error;
-  fail(`${config.app ?? path.basename(root)} ${error.recoverable ? "RECOVERABLE " : ""}${error.message}`);
+  rightKitResolution = null;
+  reject("rightkit-registry", error instanceof RightKitRegistryError
+    ? `${config.app ?? path.basename(root)} ${error.recoverable ? "RECOVERABLE " : ""}${error.message}`
+    : `RightKit registry resolution threw: ${error instanceof Error ? error.message : String(error)}`);
 }
-{
+if (rightKitResolution) {
   const { newer, tasks, warnings, notes } = rightKitResolution.freshness;
   const out = opts.doctor ? console.log : console.error;
   for (const line of newer) out(`right-release: newer RightKit version (informational): ${line}`);
@@ -252,88 +288,127 @@ try {
   for (const line of warnings) console.error(`right-release: WARNING ${line}`);
   for (const line of notes) console.error(`right-release: note ${line}`);
 }
-rightKitVerifiedNpm = rightKitResolution.verified.npm;
+if (rightKitResolution) rightKitVerifiedNpm = rightKitResolution.verified.npm;
+// The contracts below are independent of each other; the two that read the proven RightKit versions need the registry resolution.
 // A SwiftPM app or a native iOS app without a package.json has no Node package contract to validate.
-if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
-  await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
-}
-validateRightKitCargoContract(root, mergeVerifiedVersions(RIGHTKIT_CARGO_ALLOWED, rightKitResolution.verified.cargo), config.app ?? path.basename(root));
+await check("rightkit-package-contract", ["rightkit-registry"], async () => {
+  if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
+    await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
+  }
+});
+await check("rightkit-cargo-contract", ["rightkit-registry"], () => {
+  validateRightKitCargoContract(root, mergeVerifiedVersions(RIGHTKIT_CARGO_ALLOWED, rightKitResolution.verified.cargo), config.app ?? path.basename(root));
+});
 // One standard dev profile and panic = "unwind" in every app (templates/cargo-profiles.toml).
-assertCargoProfileContract(root, config.app ?? path.basename(root));
+await check("cargo-profile-contract", [], () => assertCargoProfileContract(root, config.app ?? path.basename(root)));
 // RightKit QA is mandatory for every app (also SwiftPM apps without a package.json): no QA lane refuses the release.
-assertQaAdoption({ appRoot: root, app: config.app });
+await check("qa-adoption", [], () => assertQaAdoption({ appRoot: root, app: config.app }));
 let target = config.targets?.[opts.platform];
 // Declarative winPackage / macPackage (#345) expand to the same hook shape every gate below already checks.
-try { target = expandPackageRecipeTarget(target, { platform: opts.platform, appRoot: root, config }); } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
-if (!target) fail(`${config.app ?? "app"} has no ${opts.platform} release target`);
-const legalContract = config.legal
+// When it fails, `target` is not usable: every check that reads it is reported as BLOCKED by `target`.
+await check("target", [], () => {
+  let expanded;
+  try { expanded = expandPackageRecipeTarget(target, { platform: opts.platform, appRoot: root, config }); } catch (error) { throw new Error(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
+  if (!expanded) throw new Error(`${config.app ?? "app"} has no ${opts.platform} release target`);
+  target = expanded;
+});
+const legalCheck = await check("legal-contract", [], () => (config.legal
   ? assertLegalReleaseContract(root, config.legal, config.app ?? path.basename(root), opts.platform)
-  : null;
-if (target.signed !== true) {
-  fail(`${config.app ?? "app"} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
-}
+  : null));
+const legalContract = legalCheck.ok ? legalCheck.value : null;
 let macSigning; // validated macOS sign.prePackageFiles / sign.nestedCode (mac only)
 let mediaSidecarConfig = null; // validated targets.<mac|win>.mediaSidecar (rightkit-ffmpeg decode sidecar)
-if (target.mediaSidecar !== undefined) {
-  if (opts.platform !== "mac" && opts.platform !== "win") fail(`${config.app ?? "app"} ${opts.platform} does not support mediaSidecar (mac and win only)`);
-  try { mediaSidecarConfig = validateMediaSidecarConfig(target.mediaSidecar, { platform: opts.platform }); } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
-}
 let externalBinConfig = null; // validated targets.<mac|win>.externalBin (generic Tauri externalBin sidecars, #270)
-if (target.externalBin !== undefined) {
-  if (opts.platform !== "mac" && opts.platform !== "win") fail(`${config.app ?? "app"} ${opts.platform} does not support externalBin (mac and win only)`);
-  try { externalBinConfig = validateExternalBinConfig(target.externalBin, { platform: opts.platform, reservedNames: mediaSidecarConfig?.tools ?? [] }); } catch (error) { fail(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
-}
-if (opts.platform === "win") {
-  const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
-  const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
-  const isMsix = target.signingContract === MSIX_SIGNING_CONTRACT;
-  if (!isNsis && !isPortable && !isMsix) fail(`${config.app ?? "app"} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT}, ${WINDOWS_PORTABLE_SIGNING_CONTRACT} or ${MSIX_SIGNING_CONTRACT}`);
-  if (isMsix) {
-    try { assertValidMsixTarget(target, config.app ?? "app"); } catch (error) { fail(error.message); }
-  } else {
-  if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} win must declare prePackage for the raw EXE build`);
-  if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} win must declare at least one sign.prePackageFiles raw EXE`);
-  if (target.sign.prePackageFiles.some((file) => typeof file !== "string") || target.sign.nestedCode !== undefined) fail(`${config.app ?? "app"} win sign.prePackageFiles entries must be path strings; object entries and sign.nestedCode are macOS-only`);
-  if (isNsis && target.sign.prePackageFiles.length !== 1) fail(`${config.app ?? "app"} win NSIS must declare exactly one sign.prePackageFiles raw EXE`);
-  if (isNsis && !target.sign?.files?.length) fail(`${config.app ?? "app"} win NSIS must declare sign.files for installer signing`);
-  if (isNsis && target.sign.prePackageFiles.some((file) => target.sign.files.includes(file))) fail(`${config.app ?? "app"} win raw EXE and installer signing files must be distinct`);
-  if (isPortable && target.sign?.files?.length) fail(`${config.app ?? "app"} win portable release must sign every executable through sign.prePackageFiles and omit sign.files`);
-  }
-}
-if (opts.platform === "mac") {
-  if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) fail(`${config.app ?? "app"} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
-  if (!target.prePackage?.cmd) fail(`${config.app ?? "app"} mac must declare prePackage to materialize Developer ID signing files`);
-  if (!target.sign?.prePackageFiles?.length) fail(`${config.app ?? "app"} mac must declare at least one sign.prePackageFiles`);
-  const macSignConfig = mediaSidecarConfig || externalBinConfig
-    ? { ...target.sign, nestedCode: { ...(mediaSidecarConfig ? mediaSidecarNestedCode(mediaSidecarConfig) : {}), ...(externalBinConfig ? externalBinNestedCode(externalBinConfig) : {}), ...(target.sign.nestedCode ?? {}) } }
-    : target.sign;
-  try { macSigning = validateMacSigningConfig(macSignConfig, { root }); } catch (error) { fail(`${config.app ?? "app"} mac ${error.message}`); }
-  if (!target.notarize?.file) fail(`${config.app ?? "app"} mac must declare notarize.file`);
-  if (target.notarize.appBeforePackage && !target.notarize.app) fail(`${config.app ?? "app"} mac notarize.appBeforePackage requires notarize.app`);
-  if (target.notarize.staple === false && (target.notarize.app || /\.(dmg|pkg)$/i.test(target.notarize.file))) {
-    fail(`${config.app ?? "app"} mac notarize.staple: false applies only to an archive of bare executables (no notarize.app, not a .dmg/.pkg)`);
-  }
-  const swiftDmgError = swiftMacDmgConfigError({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: config.app ?? "app" });
-  if (swiftDmgError) fail(swiftDmgError);
-  if (target.dmg && typeof target.dmg === "object" && target.dmg.spec !== undefined) {
-    try {
-      if (typeof target.dmg.spec !== "string" || !target.dmg.spec) throw new Error("dmg.spec must be a path string");
-      const specOptions = readDmgSpec(path.resolve(root, target.dmg.spec), { app: target.notarize.app });
-      for (const asset of [specOptions.background, specOptions.volumeIcon]) if (asset && !existsSync(asset)) throw new Error(`referenced file not found: ${asset}`);
-    } catch (error) { fail(`${config.app ?? "app"} mac targets.mac.dmg.spec: ${error.message}`); }
-  }
-}
 let androidTarget; // validated Android AAB target (android only; see android-release.mjs)
-if (opts.platform === "android") {
-  try { androidTarget = validateAndroidTarget(target, { root }); } catch (error) { fail(`${config.app ?? "app"} android ${error.message}`); }
-}
 let iosSpec; // validated iOS iosPackage spec (ios only; package-recipe-targets.mjs expands targets.ios, ios-package-recipe.mjs runs it)
-if (opts.platform === "ios") {
-  if (target.recipe?.kind !== "iosPackage") fail(`${config.app ?? "app"} ios must declare targets.ios.iosPackage; there is no hand-written iOS package script`);
-  iosSpec = target.recipe.spec;
-  if (nativeIos) { try { assertNativeIosPrepareHasManifest(iosSpec, config, root); } catch (error) { fail(`${config.app ?? "app"} ios ${error.message}`); } }
+const app = config.app ?? "app";
+// Everything below reads the expanded target. Each independent refusal is its own finding; a check that needs the output of
+// another (mac signing reads the sidecar config, the iOS prepare check reads the iOS spec) is BLOCKED by it, never run on it.
+if (!rejectBlocked("target-checks", ["target"], "the target checks (signed, mediaSidecar, externalBin, publishBlocked and the platform signing and package contract)")) {
+  if (target.signed !== true) reject("target-signed", `${app} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
+  if (target.mediaSidecar !== undefined) {
+    if (opts.platform !== "mac" && opts.platform !== "win") reject("media-sidecar", `${app} ${opts.platform} does not support mediaSidecar (mac and win only)`);
+    else await check("media-sidecar", [], () => {
+      try { mediaSidecarConfig = validateMediaSidecarConfig(target.mediaSidecar, { platform: opts.platform }); } catch (error) { throw new Error(`${app} ${opts.platform} ${error.message}`); }
+    });
+  }
+  if (target.externalBin !== undefined) {
+    if (opts.platform !== "mac" && opts.platform !== "win") reject("external-bin", `${app} ${opts.platform} does not support externalBin (mac and win only)`);
+    else await check("external-bin", ["media-sidecar"], () => {
+      try { externalBinConfig = validateExternalBinConfig(target.externalBin, { platform: opts.platform, reservedNames: mediaSidecarConfig?.tools ?? [] }); } catch (error) { throw new Error(`${app} ${opts.platform} ${error.message}`); }
+    });
+  }
+  if (opts.platform === "win") {
+    const isNsis = target.signingContract === WINDOWS_NSIS_SIGNING_CONTRACT;
+    const isPortable = target.signingContract === WINDOWS_PORTABLE_SIGNING_CONTRACT;
+    const isMsix = target.signingContract === MSIX_SIGNING_CONTRACT;
+    if (!isNsis && !isPortable && !isMsix) reject("win-signing-contract", `${app} win must declare signingContract: ${WINDOWS_NSIS_SIGNING_CONTRACT}, ${WINDOWS_PORTABLE_SIGNING_CONTRACT} or ${MSIX_SIGNING_CONTRACT}`);
+    if (isMsix) {
+      await check("win-msix", [], () => assertValidMsixTarget(target, app));
+    } else {
+      // The NSIS and portable rules below depend on which contract the target declares.
+      if (failedChecks.has("win-signing-contract")) reject("win-contract-rules", "the win NSIS and portable rules (sign.files, distinct raw EXE and installer files) BLOCKED by win-signing-contract");
+      if (!target.prePackage?.cmd) reject("win-prepackage", `${app} win must declare prePackage for the raw EXE build`);
+      const rawFiles = target.sign?.prePackageFiles;
+      if (!rawFiles?.length) reject("win-sign-prepackage-files", `${app} win must declare at least one sign.prePackageFiles raw EXE`);
+      else {
+        if (rawFiles.some((file) => typeof file !== "string") || target.sign.nestedCode !== undefined) reject("win-sign-entries", `${app} win sign.prePackageFiles entries must be path strings; object entries and sign.nestedCode are macOS-only`);
+        if (isNsis && rawFiles.length !== 1) reject("win-nsis-raw-exe", `${app} win NSIS must declare exactly one sign.prePackageFiles raw EXE`);
+      }
+      if (isNsis && !target.sign?.files?.length) reject("win-nsis-sign-files", `${app} win NSIS must declare sign.files for installer signing`);
+      if (isNsis && rawFiles?.length && target.sign?.files?.length && rawFiles.some((file) => target.sign.files.includes(file))) reject("win-distinct-files", `${app} win raw EXE and installer signing files must be distinct`);
+      if (isPortable && target.sign?.files?.length) reject("win-portable-sign-files", `${app} win portable release must sign every executable through sign.prePackageFiles and omit sign.files`);
+    }
+  }
+  if (opts.platform === "mac") {
+    if (target.signingContract !== MACOS_PORTABLE_SIGNING_CONTRACT) reject("mac-signing-contract", `${app} mac must declare signingContract: ${MACOS_PORTABLE_SIGNING_CONTRACT}`);
+    if (!target.prePackage?.cmd) reject("mac-prepackage", `${app} mac must declare prePackage to materialize Developer ID signing files`);
+    if (!target.sign?.prePackageFiles?.length) reject("mac-sign-prepackage-files", `${app} mac must declare at least one sign.prePackageFiles`);
+    else if (!rejectBlocked("mac-signing", ["media-sidecar", "external-bin"], `${app} mac signing config validation (it reads the sidecar and externalBin configs)`)) {
+      await check("mac-signing", [], () => {
+        const macSignConfig = mediaSidecarConfig || externalBinConfig
+          ? { ...target.sign, nestedCode: { ...(mediaSidecarConfig ? mediaSidecarNestedCode(mediaSidecarConfig) : {}), ...(externalBinConfig ? externalBinNestedCode(externalBinConfig) : {}), ...(target.sign.nestedCode ?? {}) } }
+          : target.sign;
+        try { macSigning = validateMacSigningConfig(macSignConfig, { root }); } catch (error) { throw new Error(`${app} mac ${error.message}`); }
+      });
+    }
+    if (!target.notarize?.file) reject("mac-notarize-file", `${app} mac must declare notarize.file`);
+    else {
+      if (target.notarize.appBeforePackage && !target.notarize.app) reject("mac-notarize-app", `${app} mac notarize.appBeforePackage requires notarize.app`);
+      if (target.notarize.staple === false && (target.notarize.app || /\.(dmg|pkg)$/i.test(target.notarize.file))) {
+        reject("mac-notarize-staple", `${app} mac notarize.staple: false applies only to an archive of bare executables (no notarize.app, not a .dmg/.pkg)`);
+      }
+    }
+    await check("mac-swift-dmg", [], () => {
+      const swiftDmgError = swiftMacDmgConfigError({ target, projectType: resolveProjectType({ appRoot: root, config, target }), appName: app });
+      if (swiftDmgError) throw new Error(swiftDmgError);
+    });
+    if (target.dmg && typeof target.dmg === "object" && target.dmg.spec !== undefined && !rejectBlocked("mac-dmg-spec", ["mac-notarize-file"], `${app} mac targets.mac.dmg.spec validation (it reads notarize.app)`)) {
+      await check("mac-dmg-spec", [], () => {
+        try {
+          if (typeof target.dmg.spec !== "string" || !target.dmg.spec) throw new Error("dmg.spec must be a path string");
+          const specOptions = readDmgSpec(path.resolve(root, target.dmg.spec), { app: target.notarize.app });
+          for (const asset of [specOptions.background, specOptions.volumeIcon]) if (asset && !existsSync(asset)) throw new Error(`referenced file not found: ${asset}`);
+        } catch (error) { throw new Error(`${app} mac targets.mac.dmg.spec: ${error.message}`); }
+      });
+    }
+  }
+  if (opts.platform === "android") {
+    await check("android-target", [], () => {
+      try { androidTarget = validateAndroidTarget(target, { root }); } catch (error) { throw new Error(`${app} android ${error.message}`); }
+    });
+  }
+  if (opts.platform === "ios") {
+    if (target.recipe?.kind !== "iosPackage") reject("ios-target", `${app} ios must declare targets.ios.iosPackage; there is no hand-written iOS package script`);
+    else {
+      iosSpec = target.recipe.spec;
+      if (nativeIos) await check("ios-prepare-manifest", [], () => {
+        try { assertNativeIosPrepareHasManifest(iosSpec, config, root); } catch (error) { throw new Error(`${app} ios ${error.message}`); }
+      });
+    }
+  }
+  if (opts.upload && target.publishBlocked) reject("publish-blocked", `${app} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 }
-if (opts.upload && target.publishBlocked) fail(`${config.app ?? "app"} ${opts.platform} publish blocked: ${target.publishBlocked}`);
 /**
  * Assemble preflight inputs from the app's own files. Kept here (not in
  * preflight.mjs) so the check module stays free of release.mjs's config shape.
@@ -381,24 +456,25 @@ function releasePreflight({ config, configPath, root, repoRoot, platform, native
 }
 
 if (opts.doctor) {
-  const { buildInputs, nativeLayout: resolvedNativeLayout, cargoLockPaths: pinnedCargoLocks } = resolveReleaseBuildInputs({
+  // Every check below is independent unless it names what it needs; a failed input blocks (never feeds) what reads it.
+  const inputs = await check("build-inputs", ["target"], () => resolveReleaseBuildInputs({
     repoRoot: doctorInvocation.repoRoot,
     appRoot: root,
     configPath,
     config,
     target,
+  }));
+  await check("dirty-inputs", ["build-inputs"], () => {
+    const dirtyInputs = dirtyBuildInputs(doctorInvocation.repoRoot, inputs.value.buildInputs, doctorInvocation.commit);
+    if (dirtyInputs.length > 0) throw new Error(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   });
-  const dirtyInputs = dirtyBuildInputs(doctorInvocation.repoRoot, buildInputs, doctorInvocation.commit);
-  if (dirtyInputs.length > 0) {
-    fail(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
-  }
   console.log(`right-release ${VERSION}`);
   console.log(`config: ${configPath}`);
   console.log(`app: ${config.app}`);
   console.log(`platform: ${opts.platform}`);
   console.log(`tier: ${opts.tier ?? "<required for release/publish>"}`);
   console.log(`packageManager: ${config.packageManager}`);
-  console.log(`rightkit-registry: ${rightKitResolution.summary}`);
+  if (rightKitResolution) console.log(`rightkit-registry: ${rightKitResolution.summary}`);
   console.log(`workdir: ${workdir}`);
   console.log(`hardeningscan: ${HARDENING_SCAN}`);
   if (sccacheVersion) console.log(`sccache: ${sccacheVersion}`);
@@ -407,48 +483,79 @@ if (opts.doctor) {
     console.log(`legalAcceptance: ${legalContract.acceptanceVersion}`);
     console.log(`legalManifestSha256: ${legalContract.manifestSha256}`);
   }
-  if (target.sign?.files?.length) console.log(`sign: ${target.sign.files.join(", ")}`);
-  if (target.publishBlocked) console.log(`publishBlocked: ${target.publishBlocked}`);
+  if (!failedChecks.has("target")) {
+    if (target.sign?.files?.length) console.log(`sign: ${target.sign.files.join(", ")}`);
+    if (target.publishBlocked) console.log(`publishBlocked: ${target.publishBlocked}`);
+  }
   const managedRoot = process.env.RIGHTKIT_MANAGED_ROOT;
-  const installerCopyFindings = findInstallerCopyScripts({
-    appRoot: root,
-    workspaceRoot: process.env.RIGHTKIT_WORKSPACE_ROOT ?? path.resolve(doctorInvocation.repoRoot, ".."),
+  await check("artifact-storage", [], () => {
+    const installerCopyFindings = findInstallerCopyScripts({
+      appRoot: root,
+      workspaceRoot: process.env.RIGHTKIT_WORKSPACE_ROOT ?? path.resolve(doctorInvocation.repoRoot, ".."),
+    });
+    const storageFindings = [
+      ...installerCopyFindings,
+      ...findLargeRepositorySubdirectories({ appRoot: root, managedRoot, declared: config.storage?.declaredStores ?? [], thresholdBytes: Number(process.env.RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES ?? DEFAULT_STORAGE_THRESHOLD_BYTES) }),
+    ];
+    if (storageFindings.length) {
+      console.log("artifact-storage: report-only storage findings detected:");
+      for (const finding of storageFindings) console.log(`  - ${finding.path}: ${finding.reason}`);
+      throw new Error(`artifact-storage found ${storageFindings.length} repository storage finding(s); move outputs to RIGHT_RELEASE_ARTIFACT_DIR`);
+    } else console.log("artifact-storage: no installer-copy scripts detected");
   });
-  const storageFindings = [
-    ...installerCopyFindings,
-    ...findLargeRepositorySubdirectories({ appRoot: root, managedRoot, declared: config.storage?.declaredStores ?? [], thresholdBytes: Number(process.env.RIGHTKIT_ARTIFACT_STORAGE_THRESHOLD_BYTES ?? DEFAULT_STORAGE_THRESHOLD_BYTES) }),
-  ];
-  if (storageFindings.length) {
-    console.log("artifact-storage: report-only storage findings detected:");
-    for (const finding of storageFindings) console.log(`  - ${finding.path}: ${finding.reason}`);
-    fail(`artifact-storage found ${storageFindings.length} repository storage finding(s); move outputs to RIGHT_RELEASE_ARTIFACT_DIR`);
-  } else console.log("artifact-storage: no installer-copy scripts detected");
 
   // Config above, MACHINE below. Printing config never told anyone whether this
-  // box could finish a build; these checks do.
-  const checks = releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform, nativeLayout: resolvedNativeLayout, pinnedCargoLocks });
-  console.log("preflight:");
-  console.log(formatPreflight(checks));
-  const failures = preflightFailures(checks);
+  // box could finish a build; these checks do. The machine preflight reads the resolved build inputs, so it is
+  // BLOCKED when those could not be resolved.
+  let failures = [];
+  const machine = await check("preflight", ["target", "build-inputs"], () => {
+    const { nativeLayout: resolvedNativeLayout, cargoLockPaths: pinnedCargoLocks } = inputs.value;
+    return releasePreflight({ config, configPath, root, repoRoot: doctorInvocation.repoRoot, platform: opts.platform, nativeLayout: resolvedNativeLayout, pinnedCargoLocks });
+  });
+  if (machine.ok) {
+    console.log("preflight:");
+    console.log(formatPreflight(machine.value));
+    failures = preflightFailures(machine.value);
+  }
   // --gates: run the build's pre-build source gates (release-switch scan, feature closure, release dependencies,
-  // devtools, production mode) over this app and report each finding as a FAIL row.
-  const gateFindings = opts.gates
-    ? evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun }).findings
-    : [];
+  // devtools, production mode) over this app and report each finding as a FAIL row. They read the expanded target
+  // (and, on iOS, the iOS spec), so a failed one of those blocks them.
+  let gateFindings = [];
+  if (opts.gates) {
+    const blocker = ["target", ...(opts.platform === "ios" ? ["ios-target"] : [])].find((name) => failedChecks.has(name));
+    gateFindings = blocker
+      ? [{ name: "prebuild-gates", detail: `BLOCKED by ${blocker}` }]
+      : evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun }).findings;
+  }
+  const configProblems = problems.length;
+  // The config findings (stderr, as every early refusal always was) and the gate rows (stdout) of this one run.
+  printProblems();
   if (gateFindings.length) {
     console.log(gateFindings.map((finding) => `  [FAIL] gate:${finding.name}: ${finding.detail}`).join("\n"));
   }
-  if (failures.length + gateFindings.length > 0) {
-    fail(`preflight found ${failures.length + gateFindings.length} blocking problem(s); the build would fail on these`);
+  const total = failures.length + gateFindings.length + configProblems;
+  if (total > 0) {
+    console.error(`right-release: preflight found ${total} blocking problem(s); the build would fail on these`);
+    process.exit(1);
   }
   process.exit(0);
 }
 
 let prePackScanned = false; // set once a pre-pack payload scan has seen a native binary
+// One checkpoint for the build: every config finding of this run and every source-gate finding are reported together, and
+// nothing below (lock, install, checks, compile, signing) runs while any exists.
 // Source-level gates (release-switch scan, devtools, feature closure, release dependencies, production mode) live in
-// prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. The build fails on the first finding.
-const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText } = evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun });
-if (prebuildFindings.length) fail(prebuildFindings[0].detail);
+// prebuild-gates.mjs so `doctor --gates` runs the exact same code in the same order. They read the expanded target (and the
+// iOS spec), so a failed one of those blocks them.
+const prebuildBlocker = ["target", ...(opts.platform === "ios" ? ["ios-target"] : [])].find((name) => failedChecks.has(name));
+const { findings: prebuildFindings, devtoolsAllowance, inventoryText: releaseSwitchInventoryText } = prebuildBlocker
+  ? { findings: [{ name: "prebuild-gates", detail: `BLOCKED by ${prebuildBlocker}` }], devtoolsAllowance: { mode: "denied" }, inventoryText: null }
+  : evaluatePrebuildGates({ root, config, target, platform: opts.platform, iosSpec, nativeIos, nativeAssembly, nativeFinalizer, strict: !opts.dryRun });
+if (problems.length || prebuildFindings.length) {
+  printProblems();
+  for (const finding of prebuildFindings) console.error(`right-release: ${finding.detail.startsWith("BLOCKED by ") ? `gate ${finding.name}: ` : ""}${finding.detail}`);
+  process.exit(1);
+}
 
 const releaseLock = acquireReleaseLock(root, config.app ?? path.basename(root), opts.platform, opts.tier);
 const mode = "package";
@@ -627,7 +734,8 @@ if (opts.platform === "win" && target.signingContract === WINDOWS_NSIS_SIGNING_C
   if (target.postSign) await runCommands(target.postSign, root);
   const updaterFiles = [...new Set((target.updater?.artifacts ?? []).map((artifact) => resolveReleaseArtifactPath(root, artifact.file)))];
   if (!updaterFiles.length) fail(`${config.app} win must declare updater.artifacts for post-code-signing minisign`);
-  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...(target.updater?.keyFile ? ["--key-file", String(target.updater.keyFile)] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
+  // The key comes from the OS credential provider inside sign-updater; targets.win.updater.keyFile is refused at config validation and never forwarded.
+  await run("node", [SIGN_UPDATER, ...(opts.dryRun ? ["--dry-run"] : []), ...updaterFiles.flatMap((file) => ["--file", file])], root);
 }
 
 if (target.postSign && opts.platform !== "win" && (opts.platform !== "mac" || runMacPhase("post-sign"))) {
@@ -749,7 +857,9 @@ function resolveReleaseArtifactPath(root, declared) {
 }
 
 function fail(message) {
+  printProblems();
   console.error(`right-release: ${message}`);
+  if (opts.doctor) console.error("right-release: doctor stopped here: this problem prevents the checks after it from running; fix it and run the doctor again to see the rest");
   process.exit(1);
 }
 

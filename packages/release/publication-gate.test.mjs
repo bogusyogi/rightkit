@@ -4,7 +4,7 @@ import test from 'node:test';
 import { batchClippyMissingFeatureSets, checkPublicationGate, enforcePublicationGate, provenGateSteps, validatePublicationEvidence } from './publication-gate.mjs';
 
 const SHA = 'a'.repeat(40);
-const run = (os, over = {}) => ({ host: { os, arch: 'arm64' }, commit: SHA, artifactSha256: 'b'.repeat(64), command: 'rightkit cargo test -p x --all-targets', passed: 12, failed: 0, features: ['default'], operator: 'adrdsouza', timestamp: '2026-10-06T00:00:00Z', ...over });
+const run = (os, over = {}) => ({ host: { os, arch: 'arm64' }, commit: SHA, artifactSha256: 'b'.repeat(64), command: 'rustright cargo test -p x --all-targets', passed: 12, failed: 0, features: ['default'], operator: 'adrdsouza', timestamp: '2026-10-06T00:00:00Z', ...over });
 const evidence = (over = {}) => ({ schema: 1, kind: 'cargo', name: 'rightkit-sync', version: '0.1.0', commit: SHA, artifactSha256: 'b'.repeat(64), runs: [run('darwin'), run('win32')], ...over });
 const base = (ev, { head = SHA, dirty = '' } = {}) => ({
   kind: 'cargo', name: 'rightkit-sync', version: '0.1.0', packagePath: '/p', evidencePath: '/e.json',
@@ -126,7 +126,7 @@ test('every missing run field is named', () => {
 });
 
 test('a failing run on a host is not masked by a passing run on the same host', () => {
-  const masked = checkPublicationGate(base(evidence({ runs: [run('darwin'), run('win32'), run('win32', { failed: 3, command: 'rightkit cargo test --features x' })] })));
+  const masked = checkPublicationGate(base(evidence({ runs: [run('darwin'), run('win32'), run('win32', { failed: 3, command: 'rustright cargo test --features x' })] })));
   assert.equal(masked.ok, false);
   assert.match(masked.missing.join('\n'), /Windows run receipt 1 invalid: failed \(must be 0\)/);
   const stale = checkPublicationGate(base(evidence({ runs: [run('darwin'), run('win32'), run('win32', { commit: 'c'.repeat(40) })] })));

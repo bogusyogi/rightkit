@@ -129,7 +129,7 @@ impl BuildArtifact {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuildDecl {
-    /// The broker argv: `rightkit cargo build ...` or `rightkit cargo test ... --no-run ...`.
+    /// The broker argv: `rustright cargo build ...` or `rustright cargo test ... --no-run ...`.
     #[serde(default)]
     pub command: Vec<String>,
     /// The QA feature set. It must equal the `--features` named in `command`.
@@ -1131,7 +1131,7 @@ mod plugin_tests {
     }
 
     /// A build with the app (QA-marked) and a plugin artifact that is not QA-marked.
-    const BUILD_WITH_PLUGIN: &str = "[build]\ncommand = [\"rightkit\", \"cargo\", \"build\", \"-p\", \"fxapp\", \"--features\", \"qa\"]\nfeatures = [\"qa\"]\nartifacts = [{ role = \"app\", cargo_package = \"fxapp\" }, { role = \"plugin\", cargo_package = \"fxplug\", qa_marker = false }]\n";
+    const BUILD_WITH_PLUGIN: &str = "[build]\ncommand = [\"rustright\", \"cargo\", \"build\", \"-p\", \"fxapp\", \"--features\", \"qa\"]\nfeatures = [\"qa\"]\nartifacts = [{ role = \"app\", cargo_package = \"fxapp\" }, { role = \"plugin\", cargo_package = \"fxplug\", qa_marker = false }]\n";
 
     #[test]
     fn a_plugin_names_a_build_record_role_and_a_bad_declaration_is_an_issue() {
@@ -1183,7 +1183,7 @@ mod plugin_tests {
             "{app:?}"
         );
         let marked = issues_for(
-            "[build]\ncommand = [\"rightkit\", \"cargo\", \"build\"]\nartifacts = [{ role = \"helper\", cargo_package = \"h\" }]\n[plugin]\nrole = \"helper\"\n",
+            "[build]\ncommand = [\"rustright\", \"cargo\", \"build\"]\nartifacts = [{ role = \"helper\", cargo_package = \"h\" }]\n[plugin]\nrole = \"helper\"\n",
         );
         assert!(marked.iter().any(|i| i.contains("QA-marked")), "{marked:?}");
     }

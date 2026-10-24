@@ -378,7 +378,7 @@ const plannedTrust = (spec) => {
 };
 
 /** The ordered plan (pure; no secret is part of any argument). Used by --dry-run and by the run itself. */
-export function iosPackagePlan(spec, { root, buildNumber = "<YYYYMMDDNN>", storage = { derivedData: "<rightkit storage xcode-args -derivedDataPath>" }, receiptDir }) {
+export function iosPackagePlan(spec, { root, buildNumber = "<YYYYMMDDNN>", storage = { derivedData: "<rustright storage xcode-args -derivedDataPath>" }, receiptDir }) {
   const optionsFile = path.join(receiptDir, "ios-export-options.plist");
   return {
     steps: [
@@ -504,7 +504,7 @@ export function scanForbiddenStrings(dir, strings, fs = nodeFs) {
  *   scanFiles(label, files, o)   release.mjs's assertNoQaControlBinaries (QA rules plus the release-switch binary layer)
  *   detectSession / route        GUI signing session seams (ios-host.mjs)
  *   gitHead()                    the source commit; it must not change during the build
- *   storage()                    DerivedData and result bundle (rightkit storage xcode-args)
+ *   storage()                    DerivedData and result bundle (rustright storage xcode-args)
  *   scanForbidden(dir, strings)  forbidden-string scan
  *   counterDir                   where the per-app build number counter lives (the vault state root under right-release build)
  */

@@ -34,8 +34,8 @@ build/ios/              # the archive and export directories named by iosPackage
 - Archive, export and a device build run in the GUI (Aqua) signing session: automatic signing needs the unlocked login keychain.
   An SSH or other non-Aqua session is refused with `IOS_GUI_SESSION_REQUIRED` (the signing agent protocol has no xcodebuild
   request, so there is nothing to route to; run from the logged-in desktop session).
-- DerivedData and the result bundle come from `rightkit storage xcode-args --run-root $RIGHTKIT_RUN_ROOT` (run the command under
-  `rightkit storage run --app <app> --`). Without a managed run the fallback is `.right-release/ios/DerivedData`, never an
+- DerivedData and the result bundle come from `rustright storage xcode-args --run-root $RIGHTKIT_RUN_ROOT` (run the command under
+  `rustright storage run --app <app> --`). Without a managed run the fallback is `.right-release/ios/DerivedData`, never an
   in-repo build folder.
 
 ## `targets.ios`

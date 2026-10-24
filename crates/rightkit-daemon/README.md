@@ -27,7 +27,7 @@ Published version: see `INDEX.md` at the repository root. Release notes: see `CH
 
 ## Example
 
-The compiled examples live in `examples/` (`svc_host.rs`, `svc_call.rs`, `svc_claim.rs`, `svc_mute.rs`, `svc_race.rs`, `svc_fakehost.rs`, `svc_verify_client.rs`). Run them through `rightkit cargo run -p rightkit-daemon --example <name>`.
+The compiled examples live in `examples/` (`svc_host.rs`, `svc_call.rs`, `svc_claim.rs`, `svc_mute.rs`, `svc_race.rs`, `svc_fakehost.rs`, `svc_verify_client.rs`). Run them through `rustright cargo run -p rightkit-daemon --example <name>`.
 
 ## Convention
 

@@ -89,7 +89,7 @@ resolve never supplies a trusted key. Production public key was not inspected.
 ## Round 2 verification
 
 - RightKit JS: `TMPDIR=/private/tmp node --test packages/release/runtime-artifact-manifest.test.mjs packages/release/model-promote.test.mjs` — **27 passed**.
-- Rust: `rightkit cargo test -p rightkit-models --features rightapps` — **78 passed**;
+- Rust: `rustright cargo test -p rightkit-models --features rightapps` — **78 passed**;
   managed native macOS run, including signed artifact-ID & retained legacy vectors.
 - RightSites focused manifest/registration/resolve unit tests — **45 passed**.
 - Full API unit suite — **1107 passed, 66 skipped, 1 failed** (1174 total).
