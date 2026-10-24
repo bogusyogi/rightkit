@@ -1,15 +1,47 @@
 {
-  "$comment": "Single list of every shared capability the template cannot yet consume by exact published version. Each entry is gated: `check` fails when a placeholder's package is listed in rightkit-versions.json at all (published or staged), and when its stand-in file is gone. When a package is listed: pin it exactly, delete the stand-in, delete the entry. Nothing else in the template is a local copy of shared code.",
-  "npm": {},
-  "cargo": {},
-  "harness": {
-    "rightkit-qa": {
-      "blockedOn": "distribution of the `rightkit-qa` binary to app checkouts (crate is publish=false; apps invoke the managed binary)",
-      "standIn": "none (rightkit-qa.toml + tests/scenarios are the real configuration)"
+  "$comment": "What an app generated from this template must still replace or wire before it can ship. Shared capabilities are never placeholders: each one is an exact published pin. packages/release/template-contract.test.mjs fails when a listed marker is gone from its file, when the template carries a placeholder marker that is not listed, and when a declaredOnly owner is wired in source but still listed.",
+  "replace": [
+    {
+      "file": "src-tauri/tauri.conf.json",
+      "marker": "PLACEHOLDER-UPDATE-HOST.invalid",
+      "with": "the app's update manifest URL (the release provider's public host)"
+    },
+    {
+      "file": "src-tauri/tauri.conf.json",
+      "marker": "PLACEHOLDER-REPLACE-WITH-SUITE-UPDATER-PUBKEY",
+      "with": "the suite updater public key, copied from a shipped app (never generate keys); right-release.config.json reads distribution.updaterPublicKey from this file"
+    },
+    {
+      "file": "src-tauri/icons/README.md",
+      "marker": "PLACEHOLDER icons",
+      "with": "the full icon set, from `pnpm exec tauri icon <approved-master.png>` (adds icon.icns); delete this README"
+    },
+    {
+      "file": "legal-snapshot.config.json",
+      "marker": ".example/legal/",
+      "with": "the app's public legal host, then `pnpm exec legal-snapshot`"
+    },
+    {
+      "file": "legal/PRODUCT_SCHEDULE.md",
+      "with": "reviewed product schedule text (refunds, plans), then `pnpm exec legal-snapshot`"
+    },
+    {
+      "file": "legal/PRIVACY_NOTICE.md",
+      "with": "reviewed privacy notice text for what the app actually receives, then `pnpm exec legal-snapshot`"
+    },
+    {
+      "file": "assets/brand/brand.json",
+      "with": "the approved palette from /brand <code>, then `pnpm brand:sync`"
     }
-  },
-  "scripts": {
-    "scripts/package-placeholder.mjs": "Windows NSIS packaging (rightkit:package:win) and the mac development install script are Node release tooling (right-release): copy GenRight scripts/{win-nsis,install-macos-development}.mjs; fails loudly until then. mac signing/notarization is scripts/build-mac-notarized.sh (real)",
-    "src-tauri/tauri.conf.json plugins.updater": "endpoint + pubkey are placeholders; use the suite updater pubkey and the app's R2/GitHub endpoint"
-  }
+  ],
+  "declaredOnly": [
+    { "owner": "rightkit-db", "ecosystem": "cargo", "rows": ["M9"], "manifest": "crates/engine/Cargo.toml", "source": "crates/engine/src", "blockedOn": "the engine opens no database until the app has product state" },
+    { "owner": "rightkit-app-settings", "ecosystem": "cargo", "rows": ["M10"], "manifest": "src-tauri/Cargo.toml", "source": "src-tauri/src", "blockedOn": "bogusyogi/rightkit#1147" },
+    { "owner": "@rightkit/settings-ui", "ecosystem": "npm", "rows": ["M10"], "manifest": "package.json", "source": "src", "blockedOn": "bogusyogi/rightkit#1147" },
+    { "owner": "rightkit-license", "ecosystem": "cargo", "rows": ["M12", "M13"], "manifest": "src-tauri/Cargo.toml", "source": "src-tauri/src", "blockedOn": "a registered appKey, host and key per app (bogusyogi/rightkit#1147)" },
+    { "owner": "@rightkit/license", "ecosystem": "npm", "rows": ["M12"], "manifest": "package.json", "source": "src", "blockedOn": "a registered appKey, host and key per app (bogusyogi/rightkit#1147)" },
+    { "owner": "@rightkit/legal-ui", "ecosystem": "npm", "rows": ["M14"], "manifest": "package.json", "source": "src", "blockedOn": "the legal receipt and its trust roots (bogusyogi/rightkit#1147)" },
+    { "owner": "@rightkit/onboarding", "ecosystem": "npm", "rows": ["M14"], "manifest": "package.json", "source": "src", "blockedOn": "the legal receipt and its trust roots (bogusyogi/rightkit#1147)" },
+    { "owner": "rightkit-http", "ecosystem": "cargo", "rows": ["M17"], "manifest": "src-tauri/Cargo.toml", "source": "src-tauri/src", "blockedOn": "the licence exchange (bogusyogi/rightkit#1147)" }
+  ]
 }
