@@ -188,21 +188,36 @@ fn is_code_at(src: &str, at: usize) -> bool {
         || line.starts_with("//"))
 }
 
+/// Byte offset of the `{` that opens the innermost block enclosing `end`, skipping the balanced
+/// `{ ... }` groups of earlier sibling statements. `None` at top level.
+fn enclosing_open_brace(src: &str, end: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, b) in src.as_bytes()[..end].iter().enumerate().rev() {
+        match b {
+            b'}' => depth += 1,
+            b'{' if depth == 0 => return Some(i),
+            b'{' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Whether the code at `at` sits under an accepted qa-native gate. The gate may sit on the
-/// statement itself, or on an enclosing function or block, so the walk moves outward
-/// through `{` boundaries and stops at the first `;` or `}`.
+/// statement itself, or on an enclosing function or block, so the walk checks the statement head
+/// (back to the previous `;`, `{` or `}`) and then moves outward to the enclosing `{`, past any
+/// statements that precede the call inside the same block, up to a bounded nesting depth.
 fn is_gated(src: &str, at: usize) -> bool {
     let mut end = at;
     for _ in 0..8 {
-        let found = src[..end].rfind([';', '{', '}']);
-        let head_start = found.map_or(0, |p| p + 1);
+        let head_start = src[..end].rfind([';', '{', '}']).map_or(0, |p| p + 1);
         let head = compact(&src[head_start..end]);
         if QA_NATIVE_GATES.iter().any(|gate| head.contains(*gate)) {
             return true;
         }
-        match found {
-            Some(p) if src.as_bytes()[p] == b'{' => end = p,
-            _ => return false,
+        match enclosing_open_brace(src, end) {
+            Some(p) => end = p,
+            None => return false,
         }
     }
     false
@@ -751,5 +766,62 @@ rightkit-tauri-shell = { version = "0.4", default-features = false }
     fn rejects_missing_registration() {
         let issues = control(CARGO, "fn main(){}", &[]);
         assert!(any_contains(&issues, "must register"), "{issues:?}");
+    }
+
+    const REGISTER: &str =
+        "rightkit_qa_driver::embedded::Control::<tauri::Wry>::new().build_if_enabled()";
+
+    #[test]
+    fn accepts_registration_after_another_statement_in_a_gated_block() {
+        let rust = format!(
+            "fn run() {{\n    #[cfg(feature = \"qa-native\")]\n    {{\n        let b = Builder::new();\n        b.setup();\n        if let Some(p) = {REGISTER} {{ b.plugin(p); }}\n    }}\n}}"
+        );
+        assert_eq!(control(CARGO, &rust, &[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn accepts_registration_in_a_nested_block_of_a_gated_function() {
+        let rust = format!(
+            "#[cfg(feature = \"qa-native\")]\nfn register(b: Builder) -> Builder {{\n    let x = 1;\n    if x == 1 {{\n        let y = 2;\n        for _ in 0..y {{\n            let z = 3;\n            if let Some(p) = {REGISTER} {{ return b.plugin(p); }}\n        }}\n    }}\n    b\n}}"
+        );
+        assert_eq!(control(CARGO, &rust, &[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rejects_registration_after_a_statement_in_an_ungated_block() {
+        let rust = format!(
+            "fn run() {{\n    {{\n        let b = Builder::new();\n        if let Some(p) = {REGISTER} {{ b.plugin(p); }}\n    }}\n}}"
+        );
+        let issues = control(CARGO, &rust, &[]);
+        assert!(any_contains(&issues, "is unconditional"), "{issues:?}");
+    }
+
+    #[test]
+    fn a_gate_on_a_sibling_block_or_function_does_not_cover_the_registration() {
+        let sibling_block = format!(
+            "fn run() {{\n    #[cfg(feature = \"qa-native\")]\n    {{ other(); }}\n    {{\n        let b = Builder::new();\n        if let Some(p) = {REGISTER} {{ b.plugin(p); }}\n    }}\n}}"
+        );
+        let issues = control(CARGO, &sibling_block, &[]);
+        assert!(any_contains(&issues, "is unconditional"), "{issues:?}");
+        let sibling_fn = format!(
+            "#[cfg(feature = \"qa-native\")]\nfn gated() {{ one(); }}\nfn run() {{\n    let b = Builder::new();\n    if let Some(p) = {REGISTER} {{ b.plugin(p); }}\n}}"
+        );
+        let issues = control(CARGO, &sibling_fn, &[]);
+        assert!(any_contains(&issues, "is unconditional"), "{issues:?}");
+    }
+
+    #[test]
+    fn a_gate_deeper_than_the_walk_bound_is_not_trusted() {
+        let mut rust = String::from("#[cfg(feature = \"qa-native\")]\nfn run() {\n");
+        for _ in 0..9 {
+            rust.push_str("{ let a = 1;\n");
+        }
+        rust.push_str(&format!("let r = {REGISTER};\n"));
+        for _ in 0..9 {
+            rust.push_str("}\n");
+        }
+        rust.push_str("}\n");
+        let issues = control(CARGO, &rust, &[]);
+        assert!(any_contains(&issues, "is unconditional"), "{issues:?}");
     }
 }

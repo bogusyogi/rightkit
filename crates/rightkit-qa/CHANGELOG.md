@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed (`platform:` requirement vocabulary): a scenario's `requires = ["platform:macos"]` now runs on a Mac. `macos` is an alias of `darwin` (the journey manifest says `macos`, `util::platform()` says `darwin`), so it no longer skips forever as `OtherPlatform`. `linux` is a known value. An unknown value (for example `platform:macosx`) is an unmet requirement with "unknown platform ..." (a mandatory scenario fails, an `optional` one skips as `Optional`), the same as an unknown requirement kind; it is never an `OtherPlatform` skip.
+- Fixed (guard, `is_gated`): a `rightkit_qa::embedded::Control` registration that follows another statement inside a `#[cfg(feature = "qa-native")] { ... }` block is now recognised as gated (the walk moves outward past preceding sibling statements to the enclosing block, up to the existing nesting bound). An ungated registration, or one covered only by a sibling block's gate, is still refused, and a missing registration still fails.
 - Docs (ADR-0001, rev 3): `docs/design/ADR-0001-shared-e2e-runner.md` records the single-runner decision with Sage's conditions C1 to C11 and rulings D-a to D-g, with evidence under `docs/design/adr-0001-evidence/`. `docs/E2E-TESTING-STANDARD.md` section 8 maps D1 to D11 to what the ADR keeps and changes. This README documents "Running journeys (ADR-0001)". This entry changes no code.
 - In progress (ADR-0001 Wave 2), not released, not yet compiled or tested by this entry:
   - W2-0: a job-pid API in `rightkit-child-process`, so a worker can record every live job member as a survivor before cleanup (breakaway is denied).

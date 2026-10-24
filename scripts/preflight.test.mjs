@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { cargoPackage, lockPathPackages, RULES, runRules } from "./preflight.mjs";
+import { applyBaseline, baselineKnown, cargoPackage, cargoTestTargets, lockPathPackages, main, RULES, runRules } from "./preflight.mjs";
 
 const tree = (t, files) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "rk-preflight-test-"));
@@ -247,4 +247,204 @@ test("P11: retireAliasText rewrites to rustright and is idempotent", async () =>
   assert.equal(once.count, 3);
   assert.equal(once.text, `rustright cargo test && rustright status x\n["rustright", "cargo", "build"]\n`);
   assert.equal(retireAliasText(once.text).count, 0);
+});
+
+// ---- G13-G20: app defects from files alone, and the ratchet --------------------------------------------------------------
+const identities = (failures) => failures.map((f) => f.identity).sort();
+
+test("G13 qa-platform: a platform requirement other than darwin or windows skips forever", (t) => {
+  const failures = run("qa-platform", t, {
+    "tests/bad.rs": '    // "platform:linux" in a comment is prose\nlet r = vec!["platform:macos", "platform:darwin"];\nlet s = ["platform:windows", "platform:Windows"];\n',
+    "tests/good.rs": 'let r = ["platform:darwin", "platform:windows", "env:HOME"];\n',
+    "vendor/x/y.rs": 'let r = "platform:macos";\n',
+    "notes.md": '"platform:macos"\n',
+  });
+  assert.deepEqual(identities(failures), ["qa-platform|tests/bad.rs|platform:Windows", "qa-platform|tests/bad.rs|platform:macos"]);
+  assert.match(failures.find((f) => f.subject === "platform:Windows").problem, /^tests\/bad\.rs:3 requirement "platform:Windows" never matches/);
+  assert.match(failures.find((f) => f.subject === "platform:macos").problem, /^tests\/bad\.rs:2 /);
+  assert.match(failures[0].fix, /platform:darwin/);
+});
+
+test("G14 test-harness: a [[test]] with a top-level main needs harness = false; #[test] files are fine", (t) => {
+  const failures = run("test-harness", t, {
+    "engine/Cargo.toml": [
+      '[package]\nname = "e"\n',
+      '[[test]]\nname = "matrix_runner"\npath = "tests/matrix/runner.rs"\n',
+      '[[test]]\nname = "matrix_ok"\npath = "tests/matrix/ok.rs"\nharness = false\n',
+      '[[test]]\nname = "plain"\n',
+      '[[test]]\nname = "implicit"\n# a table with no path: tests/implicit.rs\n',
+      '[[bin]]\nname = "b"\npath = "tests/bin_main.rs"\n',
+    ].join("\n"),
+    "engine/tests/matrix/runner.rs": "fn main() {\n    run();\n}\n",
+    "engine/tests/matrix/ok.rs": "fn main() {}\n",
+    "engine/tests/plain.rs": "#[test]\nfn works() {}\nmod m { fn main() {} }\n",
+    "engine/tests/implicit.rs": "pub async fn main() {}\n",
+    "engine/tests/bin_main.rs": "fn main() {}\n",
+  });
+  assert.deepEqual(identities(failures), ["test-harness|engine/Cargo.toml|implicit", "test-harness|engine/Cargo.toml|matrix_runner"]);
+  assert.match(failures.find((f) => f.subject === "matrix_runner").problem, /^engine\/Cargo\.toml:4 \[\[test\]\] matrix_runner defines fn main but does not set harness = false/);
+  assert.deepEqual(cargoTestTargets('[[test]]\nname = "a"\nharness = false # why\n[dependencies]\nharness = false\n'), [{ name: "a", path: undefined, harness: false, line: 1 }]);
+});
+
+test("G15 scenario-skip: SKIP then return inside a scenario file is a skip that reports green", (t) => {
+  const skip = (extra) => `    println!("SKIP: no display");\n${extra}`;
+  const failures = run("scenario-skip", t, {
+    "crates/ui/tests/a.rs": `fn a() { Suite::new().scenario("x"); }\nfn t1() {\n${skip("    return;\n")}}\nfn t2() {\n    eprintln!("SKIP second");\n    if x {\n\n        return;\n    }\n}\nfn t3() {\n    println!("SKIP far");\n    a();\n    b();\n    c();\n    return;\n}\nfn t4() {\n    println!("SKIP: fine");\n    assert!(ok);\n}\n// println!("SKIP: comment");\n`,
+    "crates/ui/tests/no_scenario.rs": `fn t() {\n${skip("    return;\n")}}\n`,
+  });
+  assert.deepEqual(identities(failures), ["scenario-skip|crates/ui/tests/a.rs|crates/ui/tests/a.rs#1", "scenario-skip|crates/ui/tests/a.rs|crates/ui/tests/a.rs#2"]);
+  assert.match(failures[0].problem, /^crates\/ui\/tests\/a\.rs:3 prints SKIP and returns/);
+});
+
+test("G16 release-config: an unknown provider, an updater keyFile and an undefined Cargo profile", (t) => {
+  const bad = [
+    'export default {',
+    '  distribution: { provider: "r2" },',
+    '  targets: [{ updater: { artifacts: [], keyFile: process.env.KEY } }],',
+    '  build: { args: ["--", "--profile", "release-iterate", "--profile", "dev", "--profile", "defined-here"] },',
+    '  other: process.env.PROFILE ?? "fast-dev",',
+    '  // provider: "nope", keyFile: "x"',
+    '};',
+  ].join("\n");
+  const failures = run("release-config", t, {
+    "app/right-release.config.mjs": bad,
+    "app/Cargo.toml": '[workspace]\n[profile.defined-here]\ninherits = "dev"\n',
+    "good/right-release.config.mjs": 'export default { distribution: { provider: \'github-releases\' }, a: ["--profile", "release-iterate"], u: { updater: { artifacts: [] } } };\n',
+    "good/Cargo.toml": '[workspace]\n[profile.release-iterate.package."*"]\nopt-level = 1\n',
+    "node_modules/x/right-release.config.mjs": 'export default { distribution: { provider: "bad" } };\n',
+  });
+  assert.deepEqual(identities(failures), [
+    "release-config|app/right-release.config.mjs|keyFile:process.env.KEY",
+    "release-config|app/right-release.config.mjs|profile:fast-dev",
+    "release-config|app/right-release.config.mjs|profile:release-iterate",
+    "release-config|app/right-release.config.mjs|provider:r2",
+  ]);
+  assert.match(failures.find((f) => f.subject === "profile:release-iterate").problem, /^app\/right-release\.config\.mjs:4 Cargo profile "release-iterate" is not dev, release, test or bench/);
+  assert.match(failures.find((f) => f.subject === "provider:r2").problem, /publish-update\.mjs/);
+});
+
+test("G16 release-config: the nearest workspace Cargo.toml decides, up to the repository root", (t) => {
+  const config = 'export default { a: ["--profile", "p1"] };\n';
+  const files = { "apps/x/right-release.config.mjs": config, "apps/x/Cargo.toml": '[package]\nname = "member"\n[profile.p1]\n', "Cargo.toml": '[workspace]\nmembers = ["apps/x"]\n' };
+  assert.equal(run("release-config", t, files).length, 1, "a member's own [profile] is ignored by cargo; the workspace root has none");
+  assert.deepEqual(run("release-config", t, { ...files, "Cargo.toml": '[workspace]\n[profile.p1]\n' }), []);
+  assert.deepEqual(run("release-config", t, { "apps/x/right-release.config.mjs": config, "engine/Cargo.toml": "[workspace]\n[profile.p1]\n" }), [], "no manifest on the way up: any manifest's profile counts");
+});
+
+test("G17 skip-checks and G18 qa-dev-server read package.json scripts", (t) => {
+  const files = {
+    "package.json": JSON.stringify({ scripts: { release: "right-release build --skip-checks", ok: "right-release build", other: "node x.mjs --skip-checks", qa: "tauri dev", "qa:e2e": "pnpm exec tauri dev --features qa", dev: "tauri dev", "qa-build": "tauri build --debug" } }),
+    "app/package.json": JSON.stringify({ scripts: { ship: "pnpm exec right-release upload --skip-checks --tier patch" } }),
+    "node_modules/x/package.json": JSON.stringify({ scripts: { release: "right-release --skip-checks", qa: "tauri dev" } }),
+    "broken/package.json": "{ not json",
+  };
+  assert.deepEqual(identities(run("skip-checks", t, files)), ["skip-checks|app/package.json|ship", "skip-checks|package.json|release"]);
+  const qa = run("qa-dev-server", t, files);
+  assert.deepEqual(identities(qa), ["qa-dev-server|package.json|qa", "qa-dev-server|package.json|qa:e2e"]);
+  assert.match(qa[0].problem, /^package\.json:1 script "qa" runs `tauri dev`/);
+});
+
+test("G19 ffmpeg-release-escape: allow_in_release_builds only in tests and crates/rightkit-ffmpeg", (t) => {
+  const failures = run("ffmpeg-release-escape", t, {
+    "src/encode.rs": "fn ok() {}\nlet cfg = Gate { allow_in_release_builds: true };\n",
+    "src/commented.rs": "// allow_in_release_builds is refused\nfn ok() {}\n",
+    "src/with_tests.rs": "fn real() {}\n#[cfg(test)]\nmod tests {\n    fn t() { Gate { allow_in_release_builds: true }; }\n}\n",
+    "src/all_test.rs": "#![cfg(test)]\nfn t() { Gate { allow_in_release_builds: true }; }\n",
+    "tests/ffmpeg.rs": "Gate { allow_in_release_builds: true };\n",
+    "crates/app/tests/x.rs": "Gate { allow_in_release_builds: true };\n",
+    "crates/rightkit-ffmpeg/src/gate.rs": "pub allow_in_release_builds: bool,\n",
+  });
+  assert.deepEqual(identities(failures), ["ffmpeg-release-escape|src/encode.rs|src/encode.rs"]);
+  assert.match(failures[0].problem, /^src\/encode\.rs:2 uses allow_in_release_builds outside test code/);
+});
+
+test("G20 switches-inventory: a release config directory needs switches.json or an existing releaseSwitches.inventory", (t) => {
+  const failures = run("switches-inventory", t, {
+    "right-release.config.mjs": "export default {};\n",
+    "app/right-release.config.mjs": "export default {};\n",
+    "app/switches.json": "{}\n",
+    "other/right-release.config.mjs": 'export default { releaseSwitches: { inventory: "config/inv.json" } };\n',
+    "other/config/inv.json": "{}\n",
+    "missing/right-release.config.mjs": 'export default {\n  releaseSwitches: { inventory: "nope.json" },\n};\n',
+    "node_modules/x/right-release.config.mjs": "export default {};\n",
+  });
+  assert.deepEqual(identities(failures), ["switches-inventory|missing/right-release.config.mjs|missing", "switches-inventory|right-release.config.mjs|."]);
+  assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.mjs:2 has no switches inventory \(missing\/nope\.json does not exist\)/);
+});
+
+test("G01 recipe rules do not apply to an app: no recipe inventory or version feed means nothing to check", (t) => {
+  const { root } = tree(t, { "crates/app-core/Cargo.toml": '[package]\nname = "app-core"\nversion = "0.1.0"\n', "packages/ui/package.json": JSON.stringify({ name: "@app/ui", version: "1.0.0" }) });
+  assert.deepEqual(runRules({ root, files: [], only: ["consumer-recipe", "npm-recipe"] }).failures, []);
+});
+
+// ---- the ratchet: ci/app-check-baseline.json ------------------------------------------------------------------------------
+const appRepo = (t, files) => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rk-preflight-app-"));
+  t.after(() => fs.rmSync(parent, { recursive: true, force: true }));
+  const repo = path.join(parent, "AppRepo"); // the baseline key is the lowercased basename: "apprepo"
+  fs.mkdirSync(repo);
+  git(repo, "init", "-q");
+  for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"]]) git(repo, "config", k, v);
+  for (const [file, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true }); fs.writeFileSync(path.join(repo, file), text); }
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "app");
+  return { repo, parent };
+};
+const preflight = async (argv) => { const lines = []; const errs = []; const code = await main(argv, { out: (l) => lines.push(l), err: (l) => errs.push(l) }); return { code, lines, text: lines.join("\n"), errs }; };
+const writeBaseline = (parent, known) => { const file = path.join(parent, "baseline.json"); fs.writeFileSync(file, JSON.stringify({ schema: 1, about: "t", known })); return file; };
+const BAD_QA = { "tests/q.rs": 'let r = ["platform:macos"];\n' };
+const KNOWN_ID = "qa-platform|tests/q.rs|platform:macos";
+
+test("ratchet: a listed finding is KNOWN and passes; an unlisted one fails; a listed identity that is gone is STALE and fails", async (t) => {
+  const { repo, parent } = appRepo(t, { ...BAD_QA, "tests/r.rs": 'let r = ["platform:linux"];\n' });
+  const args = (known, ...more) => ["--repo", repo, "--worktree", "--only", "qa-platform", "--baseline", writeBaseline(parent, known), ...more];
+  // new: not listed at all
+  const fresh = await preflight(args({}));
+  assert.equal(fresh.code, 1);
+  assert.match(fresh.text, /^FAIL qa-platform \(G13\): tests\/q\.rs:1 /m);
+  // partly listed: the listed one is KNOWN, the other still fails
+  const partial = await preflight(args({ apprepo: [KNOWN_ID] }));
+  assert.equal(partial.code, 1);
+  assert.match(partial.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
+  assert.match(partial.text, /^FAIL qa-platform \(G13\): tests\/r\.rs:1 /m);
+  // all listed: green, and the summary says how many are tolerated
+  const known = await preflight(args({ apprepo: [KNOWN_ID, "qa-platform|tests/r.rs|platform:linux"] }));
+  assert.equal(known.code, 0, known.text);
+  assert.doesNotMatch(known.text, /^FAIL/m);
+  assert.match(known.text, /^preflight: \w+ passed 1 rules .*\(2 known finding\(s\)/m);
+  // another repository's entries do not excuse this one
+  assert.equal((await preflight(args({ otherapp: [KNOWN_ID, "qa-platform|tests/r.rs|platform:linux"] }))).code, 1);
+  // stale: the identity is listed, nothing finds it
+  const stale = await preflight(args({ apprepo: [KNOWN_ID, "qa-platform|tests/r.rs|platform:linux", "qa-platform|tests/gone.rs|platform:macos"] }));
+  assert.equal(stale.code, 1);
+  assert.match(stale.text, /^STALE baseline entry qa-platform\|tests\/gone\.rs\|platform:macos: .*remove it from ci\/app-check-baseline\.json/m);
+  // --only another rule leaves this rule's entries alone (they cannot be judged stale by a run that skipped the rule)
+  const other = await preflight(["--repo", repo, "--worktree", "--only", "skip-checks", "--baseline", writeBaseline(parent, { apprepo: [KNOWN_ID] })]);
+  assert.equal(other.code, 0, other.text);
+});
+
+test("ratchet: --print-baseline prints the current identities as JSON and writes nothing; a bad baseline is exit 2", async (t) => {
+  const { repo, parent } = appRepo(t, { ...BAD_QA, "package.json": JSON.stringify({ scripts: { qa: "tauri dev" } }) });
+  const file = writeBaseline(parent, { apprepo: ["qa-platform|stale|x"] });
+  const before = fs.readFileSync(file, "utf8");
+  const printed = await preflight(["--repo", repo, "--worktree", "--print-baseline", "--baseline", file]);
+  assert.equal(printed.code, 0);
+  assert.deepEqual(JSON.parse(printed.text), ["qa-dev-server|package.json|qa", KNOWN_ID]);
+  assert.equal(fs.readFileSync(file, "utf8"), before, "preflight never writes the baseline");
+  fs.writeFileSync(file, "{ nope");
+  const broken = await preflight(["--repo", repo, "--worktree", "--baseline", file]);
+  assert.equal(broken.code, 2);
+  assert.match(broken.errs.join("\n"), /cannot read the baseline/);
+  assert.equal((await preflight(["--repo", repo, "--worktree", "--baseline", path.join(parent, "absent.json")])).code, 2, "an explicit --baseline must exist");
+  assert.throws(() => baselineKnown(JSON.stringify({ known: { a: "x" } }), "a"));
+  assert.deepEqual(baselineKnown(null, "a"), []);
+});
+
+test("ratchet: applyBaseline splits findings and only rules that ran can go stale; this checkout's baseline is exactly its current findings", () => {
+  const found = [{ rule: "r1", identity: "r1|f|a" }, { rule: "r1", identity: "r1|f|b" }, { rule: "r2", problem: "no identity" }];
+  const { fresh, known, stale } = applyBaseline(found, ["r1|f|a", "r1|f|gone", "r2|f|gone"], ["r1"]);
+  assert.deepEqual([fresh.map((f) => f.identity), known.map((f) => f.identity), stale], [["r1|f|b", undefined], ["r1|f|a"], ["r1|f|gone"]]);
+  const baseline = JSON.parse(fs.readFileSync(new URL("../ci/app-check-baseline.json", import.meta.url), "utf8"));
+  assert.equal(baseline.schema, 1);
+  assert.deepEqual(Object.keys(baseline.known).sort(), ["coderight", "cutright", "genright", "mailright", "rightkit", "viewright"], "one entry per repository with known debt; apps with none are absent");
 });
