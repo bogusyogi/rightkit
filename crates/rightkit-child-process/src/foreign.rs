@@ -849,6 +849,10 @@ mod sys {
             },
         };
 
+        /// How long a process whose TerminateProcess failed may take to finish exiting before the
+        /// failure stands.
+        const EXITING_GRACE_MS: u32 = 2_000;
+
         /// A kernel handle closed on drop.
         struct Owned(HANDLE);
         impl Drop for Owned {
@@ -941,7 +945,15 @@ mod sys {
                 return Ok(SignalResult::IdentityMismatch);
             }
             // SAFETY: the handle is open with PROCESS_TERMINATE.
-            unsafe { TerminateProcess(process.0, 1) }.map_err(os_error)?;
+            if let Err(error) = unsafe { TerminateProcess(process.0, 1) } {
+                // TerminateProcess fails with ACCESS_DENIED while the process is already exiting (as in
+                // `process_windows::terminate`). The same handle proves the exit: give it a bounded moment.
+                // SAFETY: the handle is open with PROCESS_SYNCHRONIZE.
+                if unsafe { WaitForSingleObject(process.0, EXITING_GRACE_MS) }.0 == 0 {
+                    return Ok(SignalResult::Gone);
+                }
+                return Err(os_error(error));
+            }
             Ok(SignalResult::Delivered)
         }
 
