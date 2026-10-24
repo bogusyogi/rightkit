@@ -3,7 +3,8 @@
 // (bogusyogi/rightkit#385): renames the desktop app template into a real app, in place. Ports PostRight's
 // crates/tools/src/init.rs. The template identity (`RightApp`, `rightapp`, `RIGHTAPP`, `app.rightsuite.rightapp`)
 // is rewritten in text files; nothing else is touched and no gate or build is run.
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -131,10 +132,42 @@ export function renameText(text, { name, id, slug }) {
     .replaceAll(LOWER, slug);
 }
 
-/** Rename the template under `root`. Returns the identity and the changed file paths (relative, sorted). */
+export const LEGAL_MANIFEST = "legal/legal-manifest.json";
+const sha256Hex = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+/**
+ * Recompute the `sha256` of every document and appendix of a legal manifest from the bytes `read(relativePath)` returns (paths are
+ * relative to the manifest's directory; `read` returns Buffer, string or null for a missing file). Returns `{ text, changed, stale,
+ * material }`: the manifest text with the new digests (2-space JSON, as `legal-snapshot` writes it), the entries whose digest moved,
+ * and which of those are material agreements. Material documents feed the acceptance digest in src/generated/legal-contract.json, which
+ * only `legal-snapshot` can recompute, so the caller warns about them.
+ */
+export function rehashLegalManifest(text, read) {
+  const manifest = JSON.parse(text);
+  const changed = [];
+  const material = [];
+  for (const entry of [...(manifest.documents ?? []), ...(manifest.appendices ?? [])]) {
+    const bytes = typeof entry?.path === "string" ? read(entry.path) : null;
+    if (bytes === null || bytes === undefined) continue;
+    const digest = sha256Hex(typeof bytes === "string" ? Buffer.from(bytes) : bytes);
+    if (entry.sha256 === digest) continue;
+    entry.sha256 = digest;
+    changed.push(entry.path);
+    if (entry.material === true) material.push(entry.path);
+  }
+  return { text: changed.length ? `${JSON.stringify(manifest, null, 2)}\n` : text, changed, material };
+}
+
+/**
+ * Rename the template under `root`. Returns the identity, the changed file paths (relative, sorted) and `warnings`.
+ * The rename changes the bytes of text the legal manifest hashes (the privacy notice and the npm appendix carry the product name), so the
+ * manifest's digests are recomputed from the renamed bytes in the same pass.
+ */
 export function initTemplate(root, options) {
   const identity = resolveIdentity(options);
   const changed = [];
+  const warnings = [...identity.warnings];
+  const renamed = new Map();
   for (const file of walkTextFiles(root)) {
     if (path.basename(file) === SELF) continue;
     let before;
@@ -145,11 +178,38 @@ export function initTemplate(root, options) {
     }
     const after = path.basename(file) === LOCK_FILE ? reidentifyCargoLock(before, identity) : renameText(before, identity);
     if (after === before) continue;
+    renamed.set(path.resolve(file), after);
     if (!options.dryRun) writeFileSync(file, after);
     changed.push(path.relative(root, file).split(path.sep).join("/"));
   }
-  return { ...identity, changed: changed.sort() };
+  const manifestFile = path.join(root, ...LEGAL_MANIFEST.split("/"));
+  if (existsSync(manifestFile)) {
+    const legalDir = path.dirname(manifestFile);
+    const read = (relative) => {
+      const target = path.resolve(legalDir, relative);
+      if (renamed.has(target)) return renamed.get(target);
+      try { return readFileSync(target); } catch { return null; }
+    };
+    const rehashed = rehashLegalManifest(renamed.get(path.resolve(manifestFile)) ?? readFileSync(manifestFile, "utf8"), read);
+    if (rehashed.changed.length) {
+      if (!options.dryRun) writeFileSync(manifestFile, rehashed.text);
+      if (!changed.includes(LEGAL_MANIFEST)) changed.push(LEGAL_MANIFEST);
+    }
+    for (const material of rehashed.material) {
+      warnings.push(`the rename changed the material legal document legal/${material}, which feeds src/generated/legal-contract.json; run \`pnpm exec legal-snapshot\` to regenerate the acceptance contract`);
+    }
+  }
+  return { ...identity, changed: changed.sort(), warnings };
 }
+
+/** What a person does after init: the steps no command can do for them, in order. */
+export const NEXT_STEPS = Object.freeze([
+  "pnpm install                      (installs the pinned packages and, through `prepare`, the pre-push hook)",
+  "right-release doctor              (the build's own checks for this app, as rows)",
+  "set the app's public legal host in legal-snapshot.config.json, replace legal/PRODUCT_SCHEDULE.md and legal/PRIVACY_NOTICE.md with reviewed text, then `pnpm exec legal-snapshot`",
+  "register the repository on each host: add it to packages/release/ownership-repositories.json in RightKit (and its byte copy under packages/build-control-policy), then run `right-release ownership trust-refresh` on the Mac and the Dell (a person with administrator rights; an agent cannot)",
+  "README.md in the template: \"Create a new app (checklist)\"",
+]);
 
 export function runInitCommand(argv, io = { stdout: console.log, stderr: console.error }) {
   const opts = parseInitArgs(argv);
@@ -157,6 +217,10 @@ export function runInitCommand(argv, io = { stdout: console.log, stderr: console
   for (const warning of result.warnings) io.stderr(`warning: ${warning}`);
   io.stdout(`right-release init${opts.dryRun ? " --dry-run" : ""}: ${result.changed.length} file(s) ${opts.dryRun ? "would change" : "changed"}`);
   for (const file of result.changed) io.stdout(`  ${file}`);
+  if (!opts.dryRun) {
+    io.stdout("next:");
+    for (const step of NEXT_STEPS) io.stdout(`  ${step}`);
+  }
   return result;
 }
 

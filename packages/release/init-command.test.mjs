@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { initTemplate, parseInitArgs, reidentifyCargoLock, resolveIdentity, runInitCommand, sortCargoLock } from "./init-command.mjs";
+import { NEXT_STEPS, initTemplate, parseInitArgs, reidentifyCargoLock, rehashLegalManifest, resolveIdentity, runInitCommand, sortCargoLock } from "./init-command.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 
 const TITLE = ["Right", "App"].join("");
@@ -144,4 +144,88 @@ test("initTemplate re-identifies Cargo.lock (it has no text extension) and the c
   assert.deepEqual(lockNames(readFileSync(path.join(root, "Cargo.lock"), "utf8")), ["bytes", "rightkit-job-queue", "serde_json", "zeta", "zeta-protocol"]);
   const committed = readFileSync(new URL("../../desktop-app-template/Cargo.lock", import.meta.url), "utf8");
   assert.equal(sortCargoLock(committed), committed, "the template lock is in cargo's order, so the sorter changes nothing it did not rename");
+});
+
+// ---- the legal manifest digests follow the renamed bytes ----------------------------------------------------------------------
+import { createHash } from "node:crypto";
+const sha = (text) => createHash("sha256").update(text).digest("hex");
+function legalFixture() {
+  const root = fixture();
+  mkdirSync(path.join(root, "legal"), { recursive: true });
+  const docs = {
+    "EULA.md": "Suite terms, no product name.\n",
+    "PRIVACY_NOTICE.md": `# ${TITLE} Privacy Notice\n`,
+    "THIRD_PARTY_NPM_LICENSES.html": `<p>Build provenance: ${TITLE} 0.1.0</p>\n`,
+  };
+  for (const [name, text] of Object.entries(docs)) writeFileSync(path.join(root, "legal", name), text);
+  const manifest = {
+    schema: 2, appKey: LOWER, productName: TITLE,
+    documents: [
+      { id: "eula", role: "eula", path: "EULA.md", material: true, sha256: sha(docs["EULA.md"]) },
+      { id: "privacy", role: "privacy_notice", path: "PRIVACY_NOTICE.md", material: false, sha256: sha(docs["PRIVACY_NOTICE.md"]) },
+    ],
+    appendices: [{ id: "npm", title: "npm", path: "THIRD_PARTY_NPM_LICENSES.html", sha256: sha(docs["THIRD_PARTY_NPM_LICENSES.html"]) }],
+  };
+  writeFileSync(path.join(root, "legal", "legal-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { root, docs };
+}
+const readManifest = (root) => JSON.parse(readFileSync(path.join(root, "legal", "legal-manifest.json"), "utf8"));
+
+test("initTemplate recomputes the legal manifest digests of documents and appendices the rename changed, and only those", () => {
+  const { root } = legalFixture();
+  const result = initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright" });
+  const manifest = readManifest(root);
+  const bytes = (name) => readFileSync(path.join(root, "legal", name));
+  assert.equal(manifest.documents[0].sha256, sha(bytes("EULA.md")), "an identity-free document keeps its digest");
+  assert.equal(manifest.documents[1].sha256, sha(bytes("PRIVACY_NOTICE.md")));
+  assert.equal(manifest.appendices[0].sha256, sha(bytes("THIRD_PARTY_NPM_LICENSES.html")));
+  assert.match(bytes("PRIVACY_NOTICE.md").toString("utf8"), /^# Heard Right Privacy Notice/);
+  assert.equal(manifest.appKey, "heardright");
+  assert.ok(result.changed.includes("legal/legal-manifest.json"));
+  assert.deepEqual(result.warnings.filter((w) => /material legal document/.test(w)), []);
+  assert.deepEqual(initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright" }).changed, [], "a second run changes nothing");
+});
+
+test("a dry run reports the manifest as changed and writes nothing", () => {
+  const { root } = legalFixture();
+  const before = readFileSync(path.join(root, "legal", "legal-manifest.json"), "utf8");
+  const result = initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright", dryRun: true });
+  assert.ok(result.changed.includes("legal/legal-manifest.json"));
+  assert.equal(readFileSync(path.join(root, "legal", "legal-manifest.json"), "utf8"), before);
+  assert.match(readFileSync(path.join(root, "legal", "PRIVACY_NOTICE.md"), "utf8"), new RegExp(`^# ${TITLE}`));
+});
+
+test("a rename that changes a material legal document warns that the acceptance contract needs legal-snapshot", () => {
+  const { root } = legalFixture();
+  writeFileSync(path.join(root, "legal", "EULA.md"), `The ${TITLE} terms.\n`);
+  const manifest = readManifest(root);
+  manifest.documents[0].sha256 = sha(`The ${TITLE} terms.\n`);
+  writeFileSync(path.join(root, "legal", "legal-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  const result = initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright" });
+  assert.equal(readManifest(root).documents[0].sha256, sha("The Heard Right terms.\n"));
+  assert.ok(result.warnings.some((w) => /material legal document legal\/EULA\.md/.test(w) && /legal-snapshot/.test(w)), result.warnings.join("\n"));
+});
+
+test("rehashLegalManifest leaves a manifest whose digests already match byte for byte, and skips a file it cannot read", () => {
+  const text = `${JSON.stringify({ documents: [{ path: "a.md", sha256: sha("a") }, { path: "gone.md", sha256: "x" }] }, null, 2)}\n`;
+  const same = rehashLegalManifest(text, (file) => (file === "a.md" ? "a" : null));
+  assert.deepEqual([same.changed, same.text], [[], text]);
+  const moved = rehashLegalManifest(text, (file) => (file === "a.md" ? "b" : null));
+  assert.deepEqual(moved.changed, ["a.md"]);
+  assert.equal(JSON.parse(moved.text).documents[0].sha256, sha("b"));
+  assert.equal(JSON.parse(moved.text).documents[1].sha256, "x");
+});
+
+test("init prints the steps no command can do, including the host registration and trust-refresh a person runs", () => {
+  const root = fixture();
+  const lines = [];
+  runInitCommand(["--name", "Heard Right", "--id", "app.orthiclabs.heardright", "--dir", root], { stdout: (l) => lines.push(l), stderr: () => {} });
+  const text = lines.join("\n");
+  assert.match(text, /^next:$/m);
+  for (const step of NEXT_STEPS) assert.ok(text.includes(step), step);
+  assert.match(text, /ownership-repositories\.json/);
+  assert.match(text, /right-release ownership trust-refresh/);
+  const dry = [];
+  runInitCommand(["--name", "Heard Right", "--id", "app.orthiclabs.heardright", "--dir", fixture(), "--dry-run"], { stdout: (l) => dry.push(l), stderr: () => {} });
+  assert.ok(!dry.join("\n").includes("next:"), "a dry run prints no next steps");
 });
