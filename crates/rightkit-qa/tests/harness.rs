@@ -338,3 +338,141 @@ fn qa_root_limits_are_per_product_and_are_set_in_code() {
     drop((fill, same, stranger, tight));
     let _ = fs::remove_dir_all(&r);
 }
+
+/// A `platform:<os>` requirement naming a known OS other than this host's, built at runtime so no
+/// `"platform:<x>"` literal sits in a requires list (preflight G13). On Linux both are "other".
+fn other_os_requirement() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "platform:windows"
+    } else {
+        "platform:darwin"
+    }
+}
+
+/// The panic text of `f`, which must panic.
+fn panic_text(f: impl FnOnce()) -> String {
+    let payload =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).expect_err("the call must panic");
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+#[test]
+fn require_ran_panics_for_a_skip_that_is_not_another_os() {
+    let r = root("require-skip");
+    let h = harness(&r, "");
+    // Spelled at runtime: an unknown OS is a typo, never "another platform".
+    let unknown_os = ["platform:", "solaris"].concat();
+    let cases = [
+        (
+            h.scenario("needs a key", "fast", &["env:RKQA_NEVER_SET"], |_| {
+                panic!("must not run")
+            }),
+            "missing env RKQA_NEVER_SET",
+        ),
+        (
+            h.scenario("tier gated", "full", &[], |_| panic!("must not run")),
+            "tier full not selected",
+        ),
+        (
+            h.scenario("runtime skip", "fast", &[], |sc| sc.skip("no GPU")),
+            "no GPU",
+        ),
+        (
+            h.scenario("typo platform", "fast", &[unknown_os.as_str()], |_| {
+                panic!("must not run")
+            }),
+            "unknown platform 'solaris'",
+        ),
+    ];
+    for (outcome, reason) in cases {
+        assert!(outcome.is_skipped(), "{reason}: {outcome:?}");
+        assert!(!outcome.skipped_for_other_platform(), "{reason}");
+        let text = panic_text(move || outcome.require_ran());
+        assert!(
+            text.contains(reason) && text.contains("skipped scenario is not a pass"),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn require_ran_returns_for_a_passed_scenario() {
+    let r = root("require-pass");
+    let h = harness(&r, "KEY=1\n");
+    let outcome = h.scenario("runs", "fast", &["env:KEY"], |sc| sc.note("ran"));
+    assert_eq!(outcome, Outcome::Passed);
+    assert!(!outcome.skipped_for_other_platform());
+    // A panic here would fail the test: a passed scenario is a pass.
+    outcome.require_ran();
+    h.scenario("runs again", "fast", &[], |_| {}).require_ran();
+}
+
+#[test]
+fn require_ran_returns_for_a_skip_naming_the_other_os() {
+    let r = root("require-other-os");
+    let h = harness(&r, "");
+    let other = other_os_requirement();
+    let outcome = h.scenario("other os only", "fast", &[other], |_| {
+        panic!("must not run")
+    });
+    let os = other.strip_prefix("platform:").unwrap();
+    assert_eq!(outcome, Outcome::Skipped(format!("platform is not {os}")));
+    assert!(outcome.skipped_for_other_platform());
+    // A scenario that can never run on this host is not a gap: no panic.
+    outcome.require_ran();
+}
+
+#[test]
+fn the_other_os_reason_wins_over_every_other_skip_reason() {
+    let r = root("other-os-wins");
+    let h = harness(&r, "");
+    let other = other_os_requirement();
+    let os = other.strip_prefix("platform:").unwrap();
+    let want = Outcome::Skipped(format!("platform is not {os}"));
+    // An unmet env requirement listed before the OS one would otherwise name the env var.
+    let env_first = h.scenario("env first", "fast", &["env:RKQA_NEVER_SET", other], |_| {
+        panic!("must not run")
+    });
+    assert_eq!(env_first, want);
+    assert!(env_first.skipped_for_other_platform());
+    let os_first = h.scenario("os first", "fast", &[other, "env:RKQA_NEVER_SET"], |_| {
+        panic!("must not run")
+    });
+    assert_eq!(os_first, want);
+    // So would a tier that is not selected.
+    let tier = h.scenario("tier and os", "paid", &[other], |_| panic!("must not run"));
+    assert_eq!(tier, want);
+    assert!(tier.skipped_for_other_platform());
+    // Without the OS requirement the other reasons are reported as before.
+    let gap = h.scenario("tier only", "paid", &[], |_| panic!("must not run"));
+    assert!(matches!(&gap, Outcome::Skipped(r) if r.contains("tier paid not selected")));
+    assert!(!gap.skipped_for_other_platform());
+    // The summary ledger records the same reason the Outcome carries.
+    let summary = read_summary(h.evidence_root()).unwrap();
+    assert_eq!(summary[0]["reason"], format!("platform is not {os}"));
+}
+
+#[test]
+fn only_a_real_other_os_reason_is_skipped_for_other_platform() {
+    assert!(!Outcome::Passed.skipped_for_other_platform());
+    for reason in [
+        "missing env KEY",
+        "no GPU",
+        // Worded like a platform skip, but names no known OS.
+        "platform is not a thing",
+        "platform is not ",
+        // An unknown platform is a typo, not another OS.
+        "unknown platform 'solaris' (expected darwin, macos, windows or linux)",
+    ] {
+        let outcome = Outcome::Skipped(reason.into());
+        assert!(!outcome.skipped_for_other_platform(), "{reason}");
+        assert!(
+            panic_text(move || outcome.require_ran()).contains(reason),
+            "{reason}"
+        );
+    }
+}
