@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { NEXT_STEPS, initTemplate, parseInitArgs, reidentifyCargoLock, rehashLegalManifest, resolveIdentity, runInitCommand, sortCargoLock } from "./init-command.mjs";
+import { NEXT_STEPS, initTemplate, parseInitArgs, reidentifyCargoLock, rehashLegalManifest, renameText, resolveIdentity, runInitCommand, sortCargoLock } from "./init-command.mjs";
 import { tempRoot } from "./test-support/temp-roots.mjs";
 
 const TITLE = ["Right", "App"].join("");
@@ -45,6 +45,12 @@ test("initTemplate rewrites the template identity in text files only", () => {
     `{"identifier":"app.orthiclabs.heardright","env":"HEARDRIGHT_HOME"}\n`);
   assert.ok(readFileSync(path.join(root, "node_modules", "dep", "index.mjs"), "utf8").includes(LOWER));
   assert.equal(readFileSync(path.join(root, "logo.png"), "utf8"), LOWER);
+});
+
+test("renameText leaves the RightApps distribution service alone: only the template identity renames", () => {
+  const identity = { name: "Play Right", id: "app.orthiclabs.playright", slug: "playright" };
+  const text = [`"provider": "r2-${LOWER}s"`, `${TITLE}s registry`, `${UPPER}S_HOST`, `${LOWER}-engine ${LOWER}_protocol ${UPPER}_HOME ${TITLE}_0.1.0 app.rightsuite.${LOWER}`, `${LOWER}s.`, `${LOWER}store`].join("\n");
+  assert.equal(renameText(text, identity), [`"provider": "r2-${LOWER}s"`, `${TITLE}s registry`, `${UPPER}S_HOST`, "playright-engine playright_protocol PLAYRIGHT_HOME Play Right_0.1.0 app.orthiclabs.playright", `${LOWER}s.`, "playrightstore"].join("\n"));
 });
 
 test("dry run reports changes and writes nothing; a second run changes nothing", () => {

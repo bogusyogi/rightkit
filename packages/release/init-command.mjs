@@ -123,13 +123,21 @@ export function walkTextFiles(dir, out = []) {
   return out;
 }
 
+// `rightapps` is not the template identity: it is the RightApps distribution service (the `r2-rightapps` provider), which every app
+// keeps. A spelling followed by a whole-word `s` is therefore left alone; `rightapp-engine`, `rightapp_protocol`, `RIGHTAPP_HOME` and
+// the rest of the identity still rename.
+const spelling = (word) => new RegExp(`${word}(?![sS](?![A-Za-z0-9]))`, "g");
+const UPPER_WORD = spelling(UPPER);
+const TITLE_WORD = spelling(TITLE);
+const LOWER_WORD = spelling(LOWER);
+
 /** Rewrite the template identity in one string; the bundle id first, then the three spellings. */
 export function renameText(text, { name, id, slug }) {
   return text
     .replaceAll(TEMPLATE_ID, id)
-    .replaceAll(UPPER, slug.toUpperCase())
-    .replaceAll(TITLE, name)
-    .replaceAll(LOWER, slug);
+    .replace(UPPER_WORD, () => slug.toUpperCase())
+    .replace(TITLE_WORD, () => name)
+    .replace(LOWER_WORD, () => slug);
 }
 
 export const LEGAL_MANIFEST = "legal/legal-manifest.json";
