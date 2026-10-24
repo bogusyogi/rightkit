@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-agents-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-agents = { version = "=0.2.0", default-features = false, features = ["claude", "codex"] }
+serde_json = "1"
