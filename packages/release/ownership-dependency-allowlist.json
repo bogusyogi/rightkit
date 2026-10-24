@@ -399,6 +399,7 @@
         "cargo:base64",
         "cargo:block2",
         "cargo:chrono",
+        "cargo:clap",
         "cargo:dirs",
         "cargo:futures",
         "cargo:getrandom",
