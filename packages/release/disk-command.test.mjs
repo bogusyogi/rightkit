@@ -177,7 +177,8 @@ test("run: check, dry plan, move, then warns when still under the floor", async 
 test("committed policy: Dell paths, win-temp sweep, backup leftovers, .rightkit-managed report-only", () => {
   const { writers, protectedSegments } = readDiskPolicy();
   const win = (id) => writers.find((w) => w.id === id && w.platform === "win");
-  assert.equal(win("win-sccache").path, "D:\\.rightkit-managed\\rightkit-build-control\\global");
+  // the sccache row follows RustRight's compiler-cache dir, which holds the 55 GB sccache part of the 250 GB build budget
+  assert.equal(win("win-sccache").path, "D:\\.rightkit-managed\\rightkit-build-control\\global\\compiler-cache");
   assert.equal(win("win-shared-models").path, "${LOCALAPPDATA}\\Orthic Labs\\shared\\models");
   assert.deepEqual([win("win-temp").action, win("win-temp").unit, win("win-temp").path], ["sweep", "children", "${TEMP}"]);
   for (const w of writers.filter((x) => x.path.includes(".rightkit-managed"))) assert.equal(w.action, "report", w.id);
@@ -1136,4 +1137,45 @@ test("writerTouchesPath: a writer below the entry accounts for it as well", () =
   assert.equal(writerCoversPath(w("/Volumes/D/.rightkit-managed/runs"), "/Volumes/D/.rightkit-managed", mac), false);
   assert.equal(writerTouchesPath(w("/Volumes/D/*-DELETE-ME"), "/Volumes/D/x-DELETE-ME", mac), true);
   assert.equal(writerTouchesPath(w("/Volumes/D/.rightkit-managed/runs"), "/Volumes/D/other", mac), false);
+});
+
+// ---- writers for every root on the agent volume ----------------------------------------------------------------------------
+
+test("committed policy: the agent-volume roots have writers on both hosts, .rightkit-managed rows only report, build budget caps", () => {
+  const { writers, protectedSegments } = readDiskPolicy();
+  const on = (platform) => writers.filter((w) => w.platform === platform);
+  for (const platform of ["mac", "win"]) {
+    const ids = on(platform).map((w) => w.id);
+    assert.equal(new Set(ids).size, ids.length, `${platform} writer ids are unique`);
+    const w = (id) => on(platform).find((x) => x.id === id);
+    for (const id of ["agent-tmp", "agent-cache", "dev-cache", "agent-home", "build-home", "build-home-tmp", "managed-runs", "managed-artifacts", "remote-workspaces", "holding-volume", "scratch-total"]) assert.ok(w(id), `${platform} ${id}`);
+    for (const id of ["agent-tmp", "build-home-tmp"]) assert.deepEqual([w(id).action, w(id).unit, w(id).staleDays], ["sweep", "children", 1], `${platform} ${id}`);
+    assert.equal(w("agent-home").action, "report", "agent homes hold chat state: never swept");
+    for (const x of on(platform).filter((y) => y.path.includes(".rightkit-managed") || y.path.includes(".rightkit-swept"))) assert.equal(x.action, "report", `${platform} ${x.id}`);
+    for (const x of on(platform).filter((y) => y.action === "sweep")) assert.equal(protectedSegments.some((s) => x.path.split(/[\\/]/).includes(s)), false, `${platform} ${x.id}`);
+    assert.equal(w("build-control-targets").capBytes, 250_000_000_000, `${platform} the whole RustRight build budget`);
+  }
+  assert.equal(on("mac").find((w) => w.id === "build-control-sccache").capBytes, 55_000_000_000);
+  assert.equal(on("win").find((w) => w.id === "win-sccache").capBytes, 55_000_000_000);
+  assert.equal(on("win").find((w) => w.id === "build-control-targets").path, "D:\\.rightkit-managed\\rightkit-build-control");
+  // planSweep dedupes units by first writer: the 1-day rows must come before win-temp, which uses the default window
+  const winTemp = writers.findIndex((w) => w.id === "win-temp");
+  for (const id of ["agent-tmp", "build-home-tmp"]) for (const platform of ["mac", "win"]) assert.ok(writers.findIndex((w) => w.id === id && w.platform === platform) < winTemp, `${platform} ${id} precedes win-temp`);
+});
+
+test("agent-tmp wins over win-temp when TEMP is redirected to the same directory: idle one day moves, a younger child stays", () => {
+  const { root, policy } = fixture();
+  const temp = path.join(root, "agent-cache", "tmp");
+  file(path.join(temp, "idle-2d", "f"), 10, AGE(2));
+  file(path.join(temp, "young-12h", "f"), 10, AGE(0.5));
+  const committed = readDiskPolicy().writers;
+  // the committed rows (their order, window and unit), pointed at a fixture directory
+  policy.writers = ["agent-tmp", "win-temp"].map((id) => ({ ...committed.find((w) => w.id === id && w.platform === "win"), ...(id === "agent-tmp" ? { path: temp } : {}) }));
+  policy.floors.win = policy.floors.mac; policy.heavyVolume.win = policy.heavyVolume.mac;
+  const plan = planSweep({ policy, platform: "win32", env: { TEMP: temp }, inUse: () => false, size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => [c.writer, path.basename(c.path)]), [["agent-tmp", "idle-2d"]]);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith("young-12h")).reason, "fresh");
+  // without the committed order the 7-day default of win-temp would have kept both
+  const reversed = planSweep({ policy: { ...policy, writers: [...policy.writers].reverse() }, platform: "win32", env: { TEMP: temp }, inUse: () => false, size: () => 10 });
+  assert.deepEqual(reversed.candidates, []);
 });

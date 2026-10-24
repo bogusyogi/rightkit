@@ -226,8 +226,9 @@ function schedule(sub, { stdout, cli, platform = process.platform, env = process
       stdout(`${installed.unchanged ? "kept" : "installed"} @rightkit/release ${installed.version ?? "?"} in ${installed.stable}`);
       const bound = scheduleSpec({ platform, cli: installed.cli });
       mkdirSync(path.dirname(bound.file), { recursive: true });
-      mkdirSync("/Volumes/D/claude/tmp/swept", { recursive: true });
-      ensureScratchRoots({ policy: readDiskPolicy(), platform, env });
+      const policy = readDiskPolicy();
+      mkdirSync(policy.heavyVolume[platformKey(platform)], { recursive: true });
+      ensureScratchRoots({ policy, platform, env });
       writeFileSync(bound.file, bound.plist);
       spawnSync("launchctl", ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
       const r = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, bound.file], { encoding: "utf8" });
