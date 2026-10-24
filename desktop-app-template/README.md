@@ -11,6 +11,11 @@ the release-switch scan, the Cargo, QA and legal contracts and `right-release ow
 `packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
 `right-release init`.
 
+**Pin sequencing.** The pinned `@rightkit/release` 0.6.4 reads only `right-release.config.mjs` and has no `check` command; the JSON
+release config is loaded by every command from 0.6.5. Until 0.6.5 is published and the pin moves (bogusyogi/rightkit#1148), run
+`right-release` from a RightKit checkout (`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of
+`pnpm release:*` and `pnpm dev:build:*`.
+
 ## What is in it
 
 | Area | Files | What it does |

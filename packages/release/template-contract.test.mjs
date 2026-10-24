@@ -229,6 +229,17 @@ test("the pre-push hook is committed, executable and what the pinned `rightkit-g
   if (tree.status === 0 && tree.stdout.trim()) assert.match(tree.stdout, /^100644 /, "package.json is a plain file");
 });
 
+test("the README names the release the template waits for exactly while the pin is older than this tree's", () => {
+  // @rightkit/release 0.6.4 loads only right-release.config.mjs and has no `check`; the JSON config (M24) is loaded by every command
+  // from this tree's version. The README says so while the pin lags and must stop saying it the day the pin catches up.
+  const pinned = readJson("package.json").devDependencies["@rightkit/release"];
+  const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
+  const stated = read("README.md").includes("**Pin sequencing.**");
+  assert.equal(stated, pinned !== treeVersion, pinned === treeVersion
+    ? "the pin is this tree's release: delete the 'Pin sequencing' paragraph from the template README"
+    : `the template pins @rightkit/release ${pinned}, older than this tree's ${treeVersion}: the README must say which release its commands need`);
+});
+
 test("the template is gated for real: no fixture entry, no baseline entry, and its own advisory policy that mirrors RightKit's exceptions", () => {
   const gate = JSON.parse(readFileSync(path.join(REPO, "ci", "gate.config.json"), "utf8"));
   assert.ok(!gate.fixtures.some((dir) => dir === "desktop-app-template" || "desktop-app-template".startsWith(`${dir}/`)), "desktop-app-template must not be a gate fixture: rightkit-gate would skip its scans");
