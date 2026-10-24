@@ -31,6 +31,10 @@ export function renderCheck(result) {
       for (const e of u.uncoveredTopLevel) lines.push(`  ${(e.symlink ? "symlink" : formatBytes(e.bytes)).padStart(9)}  ${e.path}`);
     }
   }
+  if (result.strays?.length) {
+    lines.push(`Stray cargo targets (${result.strays.length}):`);
+    for (const t of result.strays) lines.push(`  ${formatBytes(t.bytes).padStart(9)}  ${String(t.ageDays).padStart(4)}d  ${t.path}`);
+  }
   if (result.unknown?.length) {
     lines.push(`Unknown top-level entries (${result.unknown.length}):`);
     for (const u of result.unknown) lines.push(`  ${(u.symlink ? "symlink" : formatBytes(u.bytes)).padStart(9)}  ${String(u.ageDays).padStart(4)}d  ${u.path}`);

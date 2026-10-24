@@ -19,6 +19,11 @@
   },
   "unknownStaleDays": 3,
   "scratchStaleDays": 1,
+  "strayTargets": {
+    "mac": [{"path": "/Volumes/D/claude", "depth": 4}, {"path": "/Volumes/D/scratch", "depth": 4}],
+    "win": [{"path": "D:\\claude", "depth": 4}, {"path": "D:\\scratch", "depth": 4}]
+  },
+  "strayTargetDays": 1,
   "workspaceRoots": {
     "mac": [{"path": "/Volumes/D/claude"}],
     "win": [{"path": "D:\\claude"}]

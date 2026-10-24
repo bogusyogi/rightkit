@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { KEEP_MARKER, ensureScratchRoots, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
+import { CACHEDIR_SIGNATURE, KEEP_MARKER, ensureScratchRoots, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
@@ -1345,4 +1345,142 @@ test("run logs how many units were kept by a marker", async () => {
   assert.equal(done.kept, 1);
   assert.equal(existsSync(path.join(root, "cache", "kept", "f")), true);
   assert.equal(existsSync(path.join(root, "cache", "old")), false);
+});
+
+// ---- stray cargo targets --------------------------------------------------------------------------------------------------
+
+// A cargo target directory aged `mtimeMs`: debug/ output and, unless untagged, the CACHEDIR.TAG cargo writes at its root.
+function cargoTarget(dir, mtimeMs, { tagged = true } = {}) {
+  file(path.join(dir, "debug", "build.o"), 10, mtimeMs);
+  if (tagged) {
+    writeFileSync(path.join(dir, "CACHEDIR.TAG"), `${CACHEDIR_SIGNATURE}\n# This file is a cache directory tag created by cargo.\n`);
+    utimesSync(path.join(dir, "CACHEDIR.TAG"), mtimeMs / 1000, mtimeMs / 1000);
+  }
+  utimesSync(dir, mtimeMs / 1000, mtimeMs / 1000);
+}
+
+function strayFixture() {
+  const { root, policy } = fixture();
+  const ws = path.join(root, "ws");
+  const now = Date.now();
+  cargoTarget(path.join(ws, "a", "target"), OLD);
+  cargoTarget(path.join(ws, "b", "target"), OLD, { tagged: false });
+  cargoTarget(path.join(ws, "c", "target"), now - 3600_000);
+  cargoTarget(path.join(ws, "d", ".cache", "cargo-target"), OLD);
+  policy.writers = [];
+  policy.protectedSegments = ["Application Support", ".rightkit-managed"];
+  policy.strayTargets = { mac: [{ path: ws, depth: 4 }] };
+  policy.strayTargetDays = 1;
+  return { root, ws, policy, now };
+}
+
+test("stray cargo targets: tagged, idle, untracked targets move; untagged ones, tracked ones, fresh ones and symlinks stay", () => {
+  const { root, ws, policy, now } = strayFixture();
+  // a repository whose target holds a tracked file, a symlinked target, and a tagged target below a protected name
+  const repo = path.join(ws, "e");
+  cargoTarget(path.join(repo, "target"), OLD);
+  gitIn(repo, "init", "-q");
+  gitIn(repo, "add", "-f", "target/CACHEDIR.TAG");
+  gitIn(repo, "-c", "user.email=a@b", "-c", "user.name=n", "commit", "-qm", "track the tag");
+  utimesSync(path.join(repo, "target"), OLD / 1000, OLD / 1000);
+  cargoTarget(path.join(root, "elsewhere", "target"), OLD);
+  mkdirSync(path.join(ws, "f"), { recursive: true });
+  symlinkSync(path.join(root, "elsewhere", "target"), path.join(ws, "f", "target"));
+  cargoTarget(path.join(ws, ".rightkit-managed", "x", "target"), OLD);
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(plan.candidates.map((c) => [c.writer, path.relative(ws, c.path)]), [["stray-cargo-target", path.join("a", "target")], ["stray-cargo-target", path.join("d", ".cache", "cargo-target")]]);
+  const reason = (rel) => plan.skipped.find((s) => s.path === path.join(ws, rel))?.reason;
+  assert.equal(reason(path.join("c", "target")), "fresh");
+  assert.equal(reason(path.join("e", "target")), "tracked");
+  for (const unseen of [path.join("b", "target"), path.join("f", "target"), path.join(".rightkit-managed", "x", "target")]) {
+    assert.equal(plan.skipped.some((s) => s.path === path.join(ws, unseen)) || plan.candidates.some((c) => c.path === path.join(ws, unseen)), false, `${unseen} is not even considered`);
+  }
+  // `--days 0` takes the fresh one as well, but never the tracked one
+  const all = planSweep({ policy, platform: "darwin", now, staleDays: 0, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(all.candidates.map((c) => path.relative(ws, c.path)), [path.join("a", "target"), path.join("c", "target"), path.join("d", ".cache", "cargo-target")]);
+  // an open handle blocks it, and apply moves a stray into holding on its own volume
+  const busy = planSweep({ policy, platform: "darwin", now, openPaths: [path.join(ws, "a", "target", "debug", "build.o")], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.equal(busy.skipped.find((s) => s.path === path.join(ws, "a", "target")).reason, "in-use");
+  policy.holding = { mac: [{ prefix: root, path: path.join(root, "hold") }] };
+  const applied = applySweep({ plan, policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
+  assert.ok(applied.results.every((r) => r.ok));
+  assert.equal(existsSync(path.join(ws, "a", "target")), false);
+  assert.equal(existsSync(path.join(root, "hold", "2026-10-15", "stray-cargo-target", "target", "CACHEDIR.TAG")), true);
+  assert.equal(existsSync(path.join(ws, "b", "target", "debug", "build.o")), true);
+  assert.equal(existsSync(path.join(ws, "e", "target", "CACHEDIR.TAG")), true);
+});
+
+test("findStrayTargets: depth-bounded, real directories only, never inside a target, node_modules, .git or a protected name", () => {
+  const { root } = fixture();
+  const ws = path.join(root, "ws");
+  const now = Date.now();
+  cargoTarget(path.join(ws, "1", "target"), now);
+  cargoTarget(path.join(ws, "1", "2", "3", "target"), now);          // depth 4: found
+  cargoTarget(path.join(ws, "1", "2", "3", "4", "target"), now);     // depth 5: too deep
+  cargoTarget(path.join(ws, "n", "node_modules", "pkg", "target"), now);
+  cargoTarget(path.join(ws, "g", ".git", "x", "target"), now);
+  cargoTarget(path.join(ws, "p", "Application Support", "target"), now);
+  cargoTarget(path.join(ws, "1", "target", "nested", "target"), now); // inside a found target
+  cargoTarget(path.join(ws, "u", "target"), now, { tagged: false });
+  cargoTarget(path.join(ws, "u", "target", "inner", "target"), now);  // inside an untagged target
+  cargoTarget(path.join(ws, "w", ".cache", "cargo-target"), now);
+  cargoTarget(path.join(ws, "w", "cargo-target"), now);               // cargo-target counts only inside .cache
+  // a tag with another signature, an empty tag and a symlinked tag are not cargo's
+  cargoTarget(path.join(ws, "x", "target"), now, { tagged: false });
+  writeFileSync(path.join(ws, "x", "target", "CACHEDIR.TAG"), "Signature: ffffffffffffffffffffffffffffffff\n");
+  cargoTarget(path.join(ws, "y", "target"), now, { tagged: false });
+  writeFileSync(path.join(ws, "y", "target", "CACHEDIR.TAG"), "");
+  cargoTarget(path.join(ws, "z", "target"), now, { tagged: false });
+  symlinkSync(path.join(ws, "1", "target", "CACHEDIR.TAG"), path.join(ws, "z", "target", "CACHEDIR.TAG"));
+  symlinkSync(path.join(ws, "1"), path.join(ws, "linkdir"));         // a linked directory is not walked
+  const rel = (list) => list.map((p) => path.relative(ws, p));
+  assert.deepEqual(rel(findStrayTargets(ws, { depth: 4, protectedSegments: ["Application Support"] })), [path.join("1", "2", "3", "target"), path.join("1", "target"), path.join("w", ".cache", "cargo-target")]);
+  assert.deepEqual(rel(findStrayTargets(ws, { depth: 2, protectedSegments: ["Application Support"] })), [path.join("1", "target")]);
+  assert.deepEqual(findStrayTargets(path.join(ws, "1"), { depth: 4, protectedSegments: ["1"] }), [], "a root that is itself under a protected name yields nothing");
+  assert.deepEqual(findStrayTargets(path.join(root, "absent")), []);
+});
+
+test("stray cargo targets: a unit inside a scratch run moves with the run, and a .keep on the run keeps its target", () => {
+  const { root, policy, now } = strayFixture();
+  const scratch = path.join(root, "scratch");
+  policy.scratchRoots = { mac: [scratch] };
+  policy.scratchStaleDays = 1;
+  policy.strayTargets = { mac: [{ path: scratch, depth: 4 }] };
+  for (const name of ["run-old", "run-kept"]) {
+    cargoTarget(path.join(scratch, name, "repo", "target"), OLD);
+    file(path.join(scratch, name, "repo", "src", "main.rs"), 5, OLD);
+    utimesSync(path.join(scratch, name, "repo"), OLD / 1000, OLD / 1000);
+    utimesSync(path.join(scratch, name), OLD / 1000, OLD / 1000);
+  }
+  file(path.join(scratch, "run-kept", KEEP_MARKER), 0, now - DAY);
+  utimesSync(path.join(scratch, "run-kept"), OLD / 1000, OLD / 1000);
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(plan.candidates.map((c) => [c.writer, path.relative(scratch, c.path)]), [["scratch-root", "run-old"]], "the run moves whole; its target is not moved a second time");
+  assert.equal(plan.skipped.find((s) => s.path.endsWith(path.join("run-old", "repo", "target"))).reason, "nested");
+  assert.equal(plan.skipped.find((s) => s.path === path.join(scratch, "run-kept")).reason, "kept");
+  assert.equal(plan.skipped.find((s) => s.path.endsWith(path.join("run-kept", "repo", "target"))).reason, "kept");
+});
+
+test("check lists stray cargo targets with size and age and warns for each", () => {
+  const { ws, policy, now } = strayFixture();
+  const r = checkDisk({ policy, platform: "darwin", now, size: () => 4096, space: () => ({ freeBytes: 5000, totalBytes: 10000 }), scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(r.strays.map((s) => [path.relative(ws, s.path), s.bytes, s.ageDays >= 29 || s.ageDays === 0]), [[path.join("a", "target"), 4096, true], [path.join("c", "target"), 4096, true], [path.join("d", ".cache", "cargo-target"), 4096, true]]);
+  assert.equal(r.warnings.filter((w) => w.startsWith("stray cargo target")).length, 3);
+  assert.equal(r.warn, true);
+  assert.match(renderCheck(r), /Stray cargo targets \(3\):\n +4 KB +\d+d +.*target/);
+  const none = checkDisk({ policy: { ...policy, strayTargets: undefined }, platform: "darwin", now, size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }), scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(none.strays, []);
+});
+
+test("committed policy: stray target roots on both hosts, one day idle; readDiskPolicy rejects a malformed entry", () => {
+  const policy = readDiskPolicy();
+  assert.equal(policy.strayTargetDays, 1);
+  assert.deepEqual(policy.strayTargets.mac, [{ path: "/Volumes/D/claude", depth: 4 }, { path: "/Volumes/D/scratch", depth: 4 }]);
+  assert.deepEqual(policy.strayTargets.win, [{ path: "D:\\claude", depth: 4 }, { path: "D:\\scratch", depth: 4 }]);
+  const { root, policy: fixturePolicy } = fixture();
+  const pf = path.join(root, "bad.json");
+  for (const entry of [{ depth: 4 }, { path: "/x", depth: 0 }, { path: "/x", depth: 99 }]) {
+    writeFileSync(pf, JSON.stringify({ ...fixturePolicy, strayTargets: { mac: [entry] } }));
+    assert.throws(() => readDiskPolicy(pf), /strayTargets/);
+  }
 });
