@@ -50,6 +50,60 @@ export function resolveIdentity({ name, id, slug }) {
   return { name, id, slug: resolvedSlug, warnings };
 }
 
+// Cargo writes Cargo.lock with its [[package]] tables sorted by name (then version) and each `dependencies` list sorted by name, and
+// `cargo --locked` refuses a lock that differs from what it would write. Renaming the template's own crates moves them in that order,
+// so the lock is re-sorted after the text rename; without it every `--locked` script fails on the first build of the new app.
+const LOCK_FILE = "Cargo.lock";
+const byteOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+const semverParts = (version) => {
+  const [core, pre] = String(version ?? "").split("+")[0].split(/-(.*)/s);
+  return { nums: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre: pre ?? null };
+};
+function compareSemver(a, b) {
+  const x = semverParts(a);
+  const y = semverParts(b);
+  for (let i = 0; i < 3; i += 1) if (x.nums[i] !== y.nums[i]) return (x.nums[i] ?? 0) - (y.nums[i] ?? 0);
+  if (x.pre === y.pre) return 0;
+  if (x.pre === null) return 1;
+  if (y.pre === null) return -1;
+  return byteOrder(x.pre, y.pre);
+}
+const lockField = (block, key) => new RegExp(`^${key} = "([^"]*)"$`, "m").exec(block)?.[1] ?? "";
+/** `"name"`, `"name version"` or `"name version (source)"`: the name and version of one `dependencies` entry. */
+const lockDependency = (line) => {
+  const [name = "", version = ""] = line.trim().replace(/^"|",?$/g, "").split(" ");
+  return { name, version };
+};
+
+/** Sort one lock's [[package]] tables and their `dependencies` lists the way cargo writes them; everything else is kept byte for byte. */
+export function sortCargoLock(text) {
+  const crlf = text.includes("\r\n");
+  const lf = crlf ? text.replace(/\r\n/g, "\n") : text;
+  const first = /^\[\[package\]\]$/m.exec(lf);
+  if (!first) return text;
+  const head = lf.slice(0, first.index);
+  let body = lf.slice(first.index);
+  let tail = "";
+  const other = /^\[(?!\[package\]\]$)/m.exec(body);
+  if (other) {
+    tail = body.slice(other.index);
+    body = body.slice(0, other.index);
+  }
+  const blocks = body.replace(/\n+$/, "").split(/\n\n(?=\[\[package\]\]$)/m).map((block) => block.replace(
+    /^dependencies = \[\n([\s\S]*?)\n\]$/m,
+    (_, list) => `dependencies = [\n${list.split("\n").map((line) => ({ line, ...lockDependency(line) }))
+      .sort((a, b) => byteOrder(a.name, b.name) || compareSemver(a.version, b.version)).map((entry) => entry.line).join("\n")}\n]`,
+  ));
+  blocks.sort((a, b) => byteOrder(lockField(a, "name"), lockField(b, "name")) || compareSemver(lockField(a, "version"), lockField(b, "version")));
+  const out = `${head}${blocks.join("\n\n")}\n${tail ? `\n${tail}` : ""}`;
+  return crlf ? out.replace(/\n/g, "\r\n") : out;
+}
+
+/** Rename the template identity in a Cargo.lock and restore cargo's order, so `cargo --locked` accepts the renamed lock. */
+export function reidentifyCargoLock(text, identity) {
+  return sortCargoLock(renameText(text, identity));
+}
+
 export function walkTextFiles(dir, out = []) {
   let entries;
   try {
@@ -61,7 +115,7 @@ export function walkTextFiles(dir, out = []) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (!SKIP_DIRS.has(entry.name)) walkTextFiles(full, out);
-    } else if (entry.isFile() && TEXT_EXT.has(path.extname(entry.name).slice(1))) {
+    } else if (entry.isFile() && (TEXT_EXT.has(path.extname(entry.name).slice(1)) || entry.name === LOCK_FILE)) {
       out.push(full);
     }
   }
@@ -89,7 +143,7 @@ export function initTemplate(root, options) {
     } catch {
       continue;
     }
-    const after = renameText(before, identity);
+    const after = path.basename(file) === LOCK_FILE ? reidentifyCargoLock(before, identity) : renameText(before, identity);
     if (after === before) continue;
     if (!options.dryRun) writeFileSync(file, after);
     changed.push(path.relative(root, file).split(path.sep).join("/"));
