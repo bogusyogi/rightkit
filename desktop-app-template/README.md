@@ -29,6 +29,7 @@ release config is loaded by every command from 0.6.5. Until 0.6.5 is published a
 | QA | `rightkit-qa.toml`, `journeys.toml`, `tests/scenarios/`, `src-tauri/tests/` | declared user journeys run against the real built app on isolated data (M20, M25); every Rust test is tagged `// rk-test: pure` or `contract` |
 | Switches | `switches.json` | the release switch inventory (M23): every environment read in the sources, with the build feature that compiles it out |
 | Gate | `.githooks/pre-push`, `prepare` script | `rightkit-gate` runs before every push; `pnpm install` installs the hook (A-16) |
+| Line endings | `.gitattributes` | LF in every checkout, Windows included: the legal documents are hashed byte for byte, `Cargo.lock` and `pnpm-lock.yaml` are held by `--locked`, and the hook runs under `sh` |
 | Mandatory set | `rightkit-mandatory.json`, `.rightkit/ownership-exceptions.json` | the desktop profile declaration and an empty exception ledger |
 | Advisory policy | `deny.toml`, `.cargo/audit.toml` | cargo-deny and cargo-audit policy; the ignores mirror RightKit's `ci/advisory-exceptions.json` |
 | Brand | `assets/brand/brand.json` -> `src/brand.css` | token file generated into Tailwind v4 `@theme` (`pnpm brand:sync`) |

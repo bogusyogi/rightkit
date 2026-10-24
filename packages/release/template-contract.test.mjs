@@ -140,6 +140,24 @@ test("the app has a QA lane, a legal block that passes the release legal contrac
   assert.deepEqual(readJson(".rightkit", "ownership-exceptions.json"), { exceptions: [] }, "a fresh app carries no ownership exception");
 });
 
+test("every byte-sensitive file is LF in every checkout: the legal documents, the manifest, the locks and the hook", () => {
+  // The release legal contract hashes the documents and the manifest raw, --locked and --frozen-lockfile compare the locks, and the hook
+  // runs under sh. A Windows checkout with core.autocrlf would otherwise turn all of them into CRLF.
+  const root = instance();
+  const manifest = JSON.parse(readFileSync(path.join(root, "legal", "legal-manifest.json"), "utf8"));
+  const sensitive = [
+    ".githooks/pre-push", "Cargo.lock", "pnpm-lock.yaml", "legal/legal-manifest.json", "src/generated/legal-contract.json", "legal-snapshot.config.json",
+    ...[...(manifest.documents ?? []), ...(manifest.appendices ?? [])].map((entry) => `legal/${entry.path}`),
+  ];
+  assert.ok(sensitive.length >= 10);
+  const attrs = git(root, "check-attr", "eol", "text", "--", ...sensitive);
+  assert.equal(attrs.status, 0, attrs.stderr);
+  const lines = attrs.stdout.trim().split("\n");
+  assert.equal(lines.length, sensitive.length * 2);
+  for (const line of lines) assert.match(line, /: eol: lf$|: text: auto$/, `a CRLF-capable checkout of ${line.split(":")[0]}: the template's .gitattributes must pin eol=lf`);
+  for (const file of sensitive) assert.ok(!readFileSync(path.join(root, ...file.split("/")), "utf8").includes("\r"), `${file} is committed with CR`);
+});
+
 test("every journey and scenario the app declares exists, and every Rust test is tagged", () => {
   const journeys = read("journeys.toml");
   const entries = [...journeys.matchAll(/^entry = "([^"]+)"/gm)].map((m) => m[1]);
