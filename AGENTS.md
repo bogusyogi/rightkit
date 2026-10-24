@@ -72,7 +72,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Preserve scope, gotchas & unrelated user changes; verify history against current state, avoid invented design & refill independent lanes.
 - Parallelize edits, never builds: agents edit disjoint files in the primary checkout on `main`; no worktree, clone or branch; only the owner chat builds, tests or runs cargo (hook-enforced); an idle lane with open issues is a failure. Never create or fork a chat without express approval from Adrian; context limits, goals & handoffs do not grant approval.
 - Compile every app locally, one build per host via RustRight: dev profile, incremental, primary checkout, warm cache, never cold; public repos also qualify on CI in parallel (rustright#96).
-- Track Adrian's requests as GitHub issues in the owning repo, check your open issues every turn & close only with evidence (`docs/rules/issue-workflow.md`).
+- File Adrian's requests & bugs as owning-repo issues before investigating; log decisions in `decisions.md` with the issue link (`docs/rules/issue-workflow.md`).
 - Assign one integration owner per repository; only it changes HEAD, index, receipts, or remote. Keep products as ignored nested checkouts, never gitlinks. Preserve a canonical commit or content-addressed patch before archive; exempt read-only tasks.
 - Lead with outcome, keep replies brief, & omit forced closing filler; never fabricate quotes, statistics, testimonials, stories, or evidence.
 - Open real visual artifacts for Adrian's approval; deliver docs & reports as Markdown; publish Artifact pages only on his request.
@@ -86,7 +86,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Treat Legion checkouts as development-only; bind installed behavior only from stable `current` roots (see `docs/architecture/development-installed-product-boundary.md`).
 - Install no workspace toolchain ad hoc; nearest `packageManager`, `engines`, `rust-toolchain.toml` or repo venv wins; defaults in `docs/rules/rightkit.md`.
 - Use pnpm in pnpm repositories & run package CLIs through `pnpm exec`, never npm or npx.
-- Read `docs/rules/rightkit.md` before any Rust/Cargo command; on Adrian's Mac & Dell, private-repo Rust goes through RustRight (`rustright cargo|rustc|rustdoc <args>`); other hosts (servers, cloud, CI) run plain cargo; only Adrian changes ownership policy.
+- Read `docs/rules/rightkit.md` before any Rust/Cargo command; on Adrian's Mac & Dell, all Rust goes through RustRight (`rustright cargo|rustc|rustdoc <args>`); other hosts (servers, cloud, CI) run plain cargo; only Adrian changes ownership policy.
 - Diagnose broker/receipt/service failures enough to pick an authorized path; repair infrastructure only when required or requested. Package-manager children inherit RightKit.
 - Launch no visible Windows console for background automation.
 - Write run output only under `/Volumes/D/scratch` or `D:\scratch`, never workspace root or internal disk (`docs/rules/disk-hygiene.md`).
@@ -113,7 +113,7 @@ Say "done" only when each requested state is proven, and "independently reviewed
 - Select explicit `patch` or `update`; keep build or seal separate from upload; QA the exact commit first; publish only the exact build Adrian names, & upload no test artifact.
 
 ## RightKit first
-- Before building any app, feature or plan, run `rightkit owns <capability>`; integrate owners, build only gaps.
+- Before building any app, feature or plan, run `rustright owns <capability>`; integrate owners, build only gaps.
 - Solve every cross-app concern with one shared RightKit owner for all apps, never per-app; strip QA, test, mock & dev-control code from release builds entirely, never behind a flag.
 
 ## Scope & completion
