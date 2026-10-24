@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import { parseYaml } from "./workflow-yaml.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+// A Windows checkout may hold CRLF (core.autocrlf): the table parser splits on "\n" and strips the closing "|".
+const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 const workflow = (name) => parseYaml(read(`.github/workflows/${name}`));
 const STATUSES = new Set(["enforced", "partial", "gap"]);
 

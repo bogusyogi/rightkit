@@ -92,6 +92,42 @@ const QA_EVIDENCE_MAX_RETENTION_DAYS = 90;
 // Pinned to the same upload-artifact release the rust-hybrid release-candidate template uses.
 export const UPLOAD_ARTIFACT_PIN = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4";
 const GATE_PATH_RE = /^(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const GATE_KEYS = new Set(["path", "shards", "quick"]);
+const GATE_SHARD_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const GATE_MAX_SHARDS = 16;
+
+// gate.shards (rust-hybrid ci only): the gate runs once per shard per matrix.os runner, as
+// `bash <gate.path> --group <id>`, on one shared Rust cache key, and a ci-summary job passes only when every
+// leg passed. gate.quick: true adds a `quick` job (`bash <gate.path> --quick`) that every leg needs, for the
+// fast deterministic checks. Steps that run inside the ci job once per runner (a non-parallel devArtifact)
+// would run once per shard, so shards require devArtifact.parallel.
+function validateGateShards(manifest, errors) {
+  const { shards, quick } = manifest.gate;
+  if (quick !== undefined && quick !== true) errors.push("gate.quick must be true when set");
+  if (shards === undefined) {
+    if (quick === true) errors.push("gate.quick requires gate.shards");
+    return;
+  }
+  if (!Array.isArray(shards) || shards.length < 2 || shards.length > GATE_MAX_SHARDS) {
+    errors.push(`gate.shards must list 2 to ${GATE_MAX_SHARDS} shards`);
+    return;
+  }
+  const seen = new Set();
+  for (const [index, shard] of shards.entries()) {
+    if (shard === null || typeof shard !== "object" || Array.isArray(shard) || Object.keys(shard).some((key) => key !== "id") || typeof shard.id !== "string" || !GATE_SHARD_ID_RE.test(shard.id)) {
+      errors.push(`gate.shards[${index}] must be { id } with a lowercase id of letters, digits and '-' (at most 32)`);
+    } else if (seen.has(shard.id)) {
+      errors.push(`gate.shards[${index}].id '${shard.id}' is listed twice`);
+    } else {
+      seen.add(shard.id);
+    }
+  }
+  if (manifest.devArtifact !== undefined && manifest.devArtifact?.parallel !== true) {
+    errors.push("gate.shards requires devArtifact.parallel: true (a dev artifact built inside the ci job would be built once per shard)");
+  }
+}
+
+const gateShardIds = (manifest) => (Array.isArray(manifest.gate?.shards) ? manifest.gate.shards.map((shard) => shard.id) : []);
 const RUST_WORKSPACE_PATH_RE = /^(?:\.|(?!.*\.\.)(?!.*\s)[A-Za-z0-9][A-Za-z0-9._/-]*)$/;
 const PACKAGE_SCRIPT_RE = /^[A-Za-z0-9][A-Za-z0-9:_-]*$/;
 const QA_SURFACE_SCRIPT_RE = /qa-native|qa-control|dev-native|dev-inspect|test-mode/i;
@@ -186,8 +222,10 @@ export function validateManifest(manifest) {
     if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate" && lane !== "sign-existing") || !lanes.includes("ci")) {
       errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate', 'regenerate' and 'sign-existing'");
     }
-    if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => key !== "path") || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
-      errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path");
+    if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => !GATE_KEYS.has(key)) || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
+      errors.push("profile 'rust-hybrid' requires gate.path with a safe relative path (gate keys: path, shards, quick)");
+    } else {
+      validateGateShards(manifest, errors);
     }
   } else {
     if (manifest.gate !== undefined) errors.push("gate is only valid for profile 'rust-hybrid'");
@@ -848,7 +886,16 @@ const SUPERSEDE_HEREDOC_END = "RIGHT_GIT_SUPERSEDE_EOF";
  * `supersede` chose to keep: never two runs in progress. Every other event gets a group unique to the
  * run, so pull requests are not serialised against main.
  */
-function ciJobConcurrency() {
+function ciJobConcurrency(manifest = {}) {
+  // With gate.shards every leg is its own concurrency slot (the shard id joins os and node).
+  if (gateShardIds(manifest).length > 0) {
+    return [
+      "    concurrency:",
+      "      group: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && format('{0}-main-{1}-{2}-{3}', github.workflow, matrix.os, matrix.node, matrix.shard) || format('{0}-{1}-{2}-{3}-{4}-{5}', github.workflow, github.run_id, github.run_attempt, matrix.os, matrix.node, matrix.shard) }}",
+      "      cancel-in-progress: false",
+      "",
+    ].join("\n");
+  }
   return [
     "    concurrency:",
     "      group: ${{ github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && format('{0}-main-{1}-{2}', github.workflow, matrix.os, matrix.node) || format('{0}-{1}-{2}-{3}-{4}', github.workflow, github.run_id, github.run_attempt, matrix.os, matrix.node) }}",
@@ -2218,6 +2265,69 @@ export function swiftPrivatePackagesCleanupStep(manifest) {
 }
 
 /**
+ * gate.shards / gate.quick render values. Without shards every value is the text the template held
+ * before the placeholders existed, so the rendered workflow is byte-identical.
+ */
+function gateShardContext(manifest, pm, lane) {
+  const shardIds = gateShardIds(manifest);
+  if (lane !== "ci" || shardIds.length === 0) {
+    return { CI_NEEDS: "[private-repo-guard]", CI_SHARD_KEY: "", GATE_ARGS: "", CI_QUICK_JOB: "", CI_SUMMARY_JOB: "" };
+  }
+  const quick = manifest.gate.quick === true;
+  const quickJob = quick ? [
+    "  quick:",
+    "    # gate.quick: the fast deterministic checks, before any gate shard starts.",
+    "    needs: [private-repo-guard]",
+    "    runs-on: ubuntu-24.04",
+    "    timeout-minutes: 20",
+    "    steps:",
+    "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+    "        with:",
+    "          fetch-depth: 0",
+    "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
+    "        with:",
+    `          node-version: ${JSON.stringify(String(manifest.matrix.node[0]))}`,
+    "          package-manager-cache: false",
+    ...(pm.setup ? [pm.setup] : []),
+    `      - run: ${pm.installCommand}`,
+    "      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0",
+    "        with:",
+    "          components: rustfmt, clippy",
+    `      - run: bash ./${manifest.gate.path} --quick`,
+    "        env:",
+    "          RIGHT_GIT_GATE_QUICK: \"true\"",
+    "",
+  ].join("\n") : "";
+  const needs = quick ? "[ci, quick]" : "[ci]";
+  const summaryJob = [
+    "",
+    "  ci-summary:",
+    "    # gate.shards: passes only when every shard passed on every runner" + (quick ? " and the quick checks passed." : "."),
+    `    needs: ${needs}`,
+    "    if: ${{ always() }}",
+    "    runs-on: ubuntu-24.04",
+    "    timeout-minutes: 5",
+    "    steps:",
+    "      - name: Every gate shard passed on every runner",
+    "        env:",
+    "          CI_RESULT: ${{ needs.ci.result }}",
+    ...(quick ? ["          QUICK_RESULT: ${{ needs.quick.result }}"] : []),
+    "        run: |",
+    "          set -euo pipefail",
+    "          test \"$CI_RESULT\" = success",
+    ...(quick ? ["          test \"$QUICK_RESULT\" = success"] : []),
+    "",
+  ].join("\n");
+  return {
+    CI_NEEDS: quick ? "[private-repo-guard, quick]" : "[private-repo-guard]",
+    CI_SHARD_KEY: "-${{ matrix.shard }}",
+    GATE_ARGS: " --group ${{ matrix.shard }}",
+    CI_QUICK_JOB: quickJob,
+    CI_SUMMARY_JOB: summaryJob,
+  };
+}
+
+/**
  * Optional QA evidence upload, rendered after the rust-hybrid gate step.
  * Returns "" when qaEvidencePath is unset, so the rendered workflow stays
  * byte-identical to a manifest without the key.
@@ -2230,7 +2340,7 @@ export function qaEvidenceStep(manifest) {
     "        if: always()",
     `        uses: ${UPLOAD_ARTIFACT_PIN}`,
     "        with:",
-    "          name: qa-evidence-${{ matrix.os || runner.os }}-${{ github.run_attempt }}",
+    `          name: qa-evidence-\${{ matrix.os || runner.os }}${gateShardIds(manifest).length > 0 ? "-${{ matrix.shard }}" : ""}-\${{ github.run_attempt }}`,
     `          path: \${{ runner.temp }}/${manifest.qaEvidencePath}`,
     `          retention-days: ${retentionDays}`,
     "          if-no-files-found: ignore",
@@ -2256,6 +2366,8 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       `        os: ${yamlFlowStringList([ciOs])}`,
     ];
 
+  const shardIds = gateShardIds(manifest);
+  if (shardIds.length > 0) ciMatrixOs.push(`        shard: ${yamlFlowStringList(shardIds)}`);
   const cacheKeyLine = rustCacheKeyLine(manifest, lane);
   const context = {
     OS_MATRIX: yamlFlowStringList(manifest.matrix.os),
@@ -2298,7 +2410,8 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       : "",
     CI_CONCURRENCY_GROUP: manifest.concurrency?.mainPushes === "queue" ? CI_GROUP_PER_REF : CI_GROUP_SUPERSEDE,
     CI_SUPERSEDE_JOB: manifest.concurrency?.mainPushes === "queue" ? "" : supersedeJob(manifest),
-    CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(),
+    CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(manifest),
+    ...gateShardContext(manifest, pm, lane),
     RUST_CACHE_KEY: cacheKeyLine ? `${cacheKeyLine}\n` : "",
   };
 

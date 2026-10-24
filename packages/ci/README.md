@@ -68,6 +68,33 @@ Set `"ciAllOs": true` to run the rust-hybrid `ci` gate on every `matrix.os` runn
 
 Omit the key, or set it to `false`, and the rendered `ci.yml` keeps one runner, preferring the first `windows-*` entry. `ciAllOs: true` is rejected for other profiles.
 
+## Parallel gate shards (rust-hybrid)
+
+A gate that runs everything in one step on each runner is as slow as the sum of its parts. `gate.shards` splits it. The repository compiles locally for a warm cache; this is about running GitHub qualification in parallel.
+
+```json
+{
+  "profile": "rust-hybrid",
+  "ciAllOs": true,
+  "gate": {
+    "path": "scripts/gate.sh",
+    "quick": true,
+    "shards": [{ "id": "workspace" }, { "id": "linters" }, { "id": "rust-tools" }]
+  }
+}
+```
+
+- **Shards.** Each shard is one more `matrix.shard` value, so the gate runs once per shard per runner as `bash <path> --group <id>`. `fail-fast: false` still applies, and all legs share one Rust cache key, so one leg's build warms the others.
+- **Per-leg state.** Each leg keeps its own last-green marker and its own QA evidence artifact (the shard id is in both names). On a default-branch push each leg is its own concurrency slot.
+- **`quick: true`.** Adds a `quick` job (`bash <path> --quick`, on `ubuntu-24.04`) for the fast deterministic checks. Every leg needs it, so a formatting or record error stops the run before any shard starts.
+- **`ci-summary`.** Passes only when every leg passed (and `quick`, when set). Use it as the one required status check: matrix job names change with the shard list.
+- **Validation.**
+  - 2 to 16 shards.
+  - Ids are lowercase letters, digits and `-`, at most 32 characters, and unique.
+  - `quick` needs `shards`.
+  - A `devArtifact` must use `parallel: true`, because a dev artifact staged inside the ci job would be built once per shard.
+- **Without `shards`.** The rendered `ci.yml` is byte-identical.
+
 ## Incremental CI and dev artifacts (rust-hybrid)
 
 Both keys are opt-in; unset, the rendered `ci.yml` is byte-identical.

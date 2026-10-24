@@ -1,5 +1,5 @@
 //! Outbound address policy: address classification and the SSRF guard behind every
-//! [`crate::Client`] and [`crate::AsyncClient`] request.
+//! [`crate::Client`] and `AsyncClient` request.
 //!
 //! The classification mirrors `rightkit-browser`'s `policy.rs` (`classify_ip`,
 //! `AddressClass`) with the same semantics, so a browser page and an HTTP call reach the
@@ -483,7 +483,7 @@ pub struct AddressPolicy {
     resolver: Option<ResolverHook>,
 }
 
-/// Why [`AddressPolicy::resolve_vetted_async`] refused a host.
+/// Why `AddressPolicy::resolve_vetted_async` refused a host.
 #[derive(Debug)]
 pub enum ResolveError {
     /// A private address (RFC 1918, CGNAT or unique-local) that the policy would admit once the

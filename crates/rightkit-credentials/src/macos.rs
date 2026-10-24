@@ -34,7 +34,7 @@
 //!   switched and the file deleted by another process between the check and the add, and the add
 //!   would then store the secret in the new default. Creation is refused until it can be bound to
 //!   its destination. Reads and deletes still work on it.
-//! * Throwaway test keychains ([`IsolatedKeychain`], and [`KeychainBackend::open_isolated_file`],
+//! * Throwaway test keychains (`IsolatedKeychain`, and `KeychainBackend::open_isolated_file`,
 //!   which accepts only a fixture this crate made): writes are allowed, but ONLY in this crate's
 //!   own unit tests and when the non-default `isolated-test-keychain` feature is enabled
 //!   (the end-to-end suite and the CLI's `--isolated-keychain` enable it). Without that feature
@@ -340,7 +340,7 @@ impl KeychainBackend {
     /// A write is ALWAYS refused with `Error::Unavailable`, even when this keychain is the current
     /// default (see the module docs: the OS add falls back to the default keychain if this file
     /// goes missing, and no check made before the add can exclude that). For a throwaway test
-    /// keychain use [`Self::open_isolated_file`].
+    /// keychain use `Self::open_isolated_file`.
     pub fn open_file(path: &Path, password: Option<&str>) -> Result<Self> {
         Self::open_file_with(path, password, false)
     }

@@ -439,9 +439,13 @@ async function rustGate(selection, config, consumers = new Map()) {
     // Keep rustdoc qualification when local pre-push runs only static checks. Use configured rows
     // rather than blanket all-features: several crates have mutually exclusive feature families.
     const docSets = [...new Map([...featureSets, ...checkSets].map((features) => [JSON.stringify(features), features])).values()];
+    // A crate that does not compile (clippy or check red) cannot run its tests; skip them and keep the red result.
+    // A rustdoc failure does not stop the tests: they run and report beside it, so one run shows every failure of
+    // the unit instead of hiding the test results behind the doc step until the next attempt.
+    const compiled = results.slice(preflightStart).every((result) => result.ok);
     for (const features of docSets) await run(`rust:${name}`, "cargo", ["doc", "-p", name, "--no-deps", ...features], { timeoutMinutes, env: { ...env, RUSTDOCFLAGS: `${process.env.RUSTDOCFLAGS ?? ""} -D warnings`.trim() } });
     // Failed preflight keeps its red result; unrelated units still run.
-    if (results.slice(preflightStart).some((result) => !result.ok)) continue;
+    if (!compiled) continue;
     env = { ...env, ...(await ortEnvFor(name)) };
     for (const features of featureSets) {
       await run(`rust:${name}`, "cargo", ["test", "-p", name, ...features, "--no-fail-fast", "--", "--show-output"], { timeoutMinutes, env });

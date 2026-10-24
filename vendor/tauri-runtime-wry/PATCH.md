@@ -66,5 +66,8 @@ design doc. Do not create the tag `trw-2.12.2-rk1` until the regression test pas
    the vendor directory instead, and tell the apps to drop their `[patch]` entry.
 4. Update the base version above and name the new tag `trw-<ver>-rk<n>` (bump `rk<n>` for a RightKit-only
    change on the same upstream version).
+   Re-record `vendor/upstream-files.json`: every verbatim `.rs` file under `files` with its new sha256, and
+   `src/lib.rs` under `patched` with `base` (the new upstream file's sha256) and `sha256` (the patched bytes).
+   The class A rustfmt scan checks any vendored file whose bytes no longer match its record (rightkit#915).
 5. On Windows, from a scratch workspace that patches to this directory, run the lib test named
    `worker_handle_clone_drop_preserves_live_event_loop_context` in package `tauri-runtime-wry`.

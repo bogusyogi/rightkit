@@ -207,8 +207,14 @@ fn a_passing_backup_check_lets_the_migration_run() {
     let dir = tempfile::tempdir().unwrap();
     let path = fresh(&dir);
     let conn = at_version_one(&path);
+    // The backup runs under a monotonic deadline (busy_timeout, 5 s by default). A hosted Windows
+    // runner once spent longer than that on this tiny copy (native run 40073029556); 5/5 local
+    // Windows runs take 0.1 s. Give the backup room so the test proves the check, not runner speed.
+    let mut backup_options = DbOptions::new(&path);
+    backup_options.busy_timeout = std::time::Duration::from_secs(60);
     let options = MigrateOptions {
         verify_backup: Some(accept),
+        backup_options: Some(backup_options),
         ..MigrateOptions::default()
     };
     migrate(&conn, Some(&path), &migrations(), &options).unwrap();

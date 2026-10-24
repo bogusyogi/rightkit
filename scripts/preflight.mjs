@@ -719,7 +719,8 @@ export async function main(argv, { out = (s) => process.stdout.write(`${s}\n`), 
     commit = argv.includes("--worktree") ? worktreeTree(repo, root) : git(["rev-parse", "--verify", `${arg("--commit") ?? "HEAD"}^{commit}`], { cwd: repo }).trim();
     const archive = spawnSync("git", ["archive", "--format=tar", commit], { cwd: repo, maxBuffer: 2 * 1024 * 1024 * 1024 });
     if (archive.status !== 0) throw new Error(`git archive ${commit} failed: ${String(archive.stderr).trim()}`);
-    const untar = spawnSync("tar", ["-x", "-f", "-", "-C", root], { input: archive.stdout, maxBuffer: 64 * 1024 * 1024 });
+    // Extract with the scratch dir as cwd: GNU tar (Git for Windows) reads a `C:\\...` argument as a remote host:path.
+    const untar = spawnSync("tar", ["-x", "-f", "-"], { cwd: root, input: archive.stdout, maxBuffer: 64 * 1024 * 1024 });
     if (untar.status !== 0) throw new Error(`tar could not extract ${commit}: ${String(untar.stderr).trim()}`);
   } catch (error) {
     err(`preflight: could not export the commit to check: ${error.message}`);

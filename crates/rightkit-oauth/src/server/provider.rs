@@ -57,7 +57,7 @@ impl ServerProvider {
     }
 
     /// Facebook Login, including Instagram Graph via Facebook Login (not Instagram Login).
-    /// https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/
+    /// <https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/>
     /// UNVERIFIED: docs returned HTTP 429 on 2026-10-08; endpoint templates, POST auth,
     /// comma scopes and absent web PKCE need confirmation against the registered app.
     /// Caller explicitly selects a supported Graph version; no guessed default version.
@@ -88,11 +88,11 @@ impl ServerProvider {
         Ok(p)
     }
 
-    /// https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow
+    /// <https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow>
     /// Web confidential-client flow uses secret_post. PKCE's separate native endpoint
     /// requires partner enablement; do not substitute it for the public web redirect.
-    /// https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow-native
-    /// OIDC scopes: https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2
+    /// <https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow-native>
+    /// OIDC scopes: <https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/sign-in-with-linkedin-v2>
     pub fn linkedin(
         client_id: impl Into<String>,
         secret: impl Into<String>,
@@ -110,8 +110,8 @@ impl ServerProvider {
         p
     }
 
-    /// https://developers.tiktok.com/docs/en/login-kit-web
-    /// https://developers.tiktok.com/docs/en/oauth-user-access-token-management
+    /// <https://developers.tiktok.com/docs/en/login-kit-web>
+    /// <https://developers.tiktok.com/docs/en/oauth-user-access-token-management>
     /// Web flow uses client_key, comma scopes and secret_post. Documented PKCE is
     /// mobile/desktop only; do not send it with the confidential web registration.
     pub fn tiktok(
@@ -132,8 +132,8 @@ impl ServerProvider {
         p
     }
 
-    /// https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/
-    /// https://github.com/pinterest/api-quickstart/blob/main/bash/scripts/get_access_token.sh
+    /// <https://developers.pinterest.com/docs/getting-started/set-up-authentication-and-authorization/>
+    /// <https://github.com/pinterest/api-quickstart/blob/main/bash/scripts/get_access_token.sh>
     /// Confidential web flow uses Basic auth and comma scopes; web PKCE is not documented.
     pub fn pinterest(
         client_id: impl Into<String>,

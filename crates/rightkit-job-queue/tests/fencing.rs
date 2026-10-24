@@ -33,8 +33,9 @@ type Report = mpsc::Receiver<(i64, Vec<String>)>;
 /// Stall limit of the watchdog. Only the first attempt is meant to exceed it (it blocks on the
 /// gate below, without a sign of life), so it costs one limit of wall time. Later attempts must
 /// beat it under host load: their first store write can take well over the 100 ms this once was,
-/// which fenced the second attempt too and paused it with a stale-generation error.
-const STALL: Duration = Duration::from_millis(500);
+/// which fenced the second attempt too and paused it with a stale-generation error. 500 ms still
+/// fenced it once on a hosted Windows runner (native run 40073029556); 2 s costs 2 s per test.
+const STALL: Duration = Duration::from_secs(2);
 
 /// First attempt stalls past the watchdog, then keeps writing through its
 /// control (as a zombie worker would). Later attempts complete at once.

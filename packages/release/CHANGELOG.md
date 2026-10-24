@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased (ADR-0001 item 10, W4-A)
+## 0.6.5 (unpublished staging)
+
+- **The class A rustfmt scan passes on a full run (rightkit#915).** With no last-green baseline the shared CI scans every tracked file, and two kinds of file could never pass, so no full native run went green and none ever recorded the baseline that would end full runs. A patched `vendor/` file keeps upstream formatting while its bytes match a reviewed `patched` record in `vendor/upstream-files.json` (`base`: the upstream file's sha256; `sha256`: the patched bytes; `note`: the `vendor/` file describing the patch); an incomplete record, a record outside `vendor/`, or any later edit puts it back under rustfmt. Generated Rust (bindgen output, or rustfmt's `@generated` marker in the first five lines) is not rustfmt-checked. `vendor/upstream-files.json` now records the 15 verbatim `tauri-runtime-wry` 2.12.2 sources (checked against the published crate) and its patched `src/lib.rs`. Tests: 73/73 in `deterministic-scans.test.mjs`; a full-tree plan's `rustfmt:2021` (1,834 files) and `rustfmt:2024` (13 files) rows pass.
+
+## 0.6.4 (2026-10-24, npm; publish run 40070329055)
+
+Shipped in 0.6.4 (ADR-0001 item 10, W4-A):
 
 - **E01: the doctor and the build report every problem in one run.** The doctor's config, adoption and contract checks and `evaluatePrebuildGates` collect every independent finding instead of stopping at the first; a check fed by a failed one is reported `BLOCKED by <check>`, and a throw inside a check is a finding, never a crash. The build has one checkpoint before the release lock, install, checks and compile: it prints every finding and runs nothing after any.
 - **R01: `targets.<platform>.updater.keyFile` is refused and never forwarded.** `sign-updater` has no `--key-file` (updater keys come from the OS credential provider), so `release.mjs` and `win-package-recipe.mjs` no longer pass it and the Windows release no longer fails mid-signing. The release config loader, `validateWinPackage` and `release.mjs` (at config load, before any check or build step) refuse the field by name (`RELEASE_CONFIG_UPDATER_KEY_FILE`); the doctor lists it with every other finding.
@@ -13,7 +19,7 @@
 - **Tests:** the doctor golden test drops the host-dependent `sccache` preflight row as it drops `disk` and `compiler-cache` (it failed on every host without sccache, including the publish verify hosts); the trusted `local-publish.mjs` descriptor in `scripts/ci/runtime-supplement.mjs` is re-pinned after the `rustright cargo` rename (the computed loader is unchanged).
 - Not changed here: callers (`build-release`, `upload-release`, `publish-update`, `github-release`) do not pass `app`, so the app is derived from the release id (`appOfReleaseId`); `ownership-policy-bundle.mjs` should list `qa-admission-policy.json` and the new modules so the policy joins the protected bundle.
 
-## 0.6.4 (unpublished staging)
+Staged earlier under 0.6.4:
 
 - **`right-release doctor --gates` runs the build's pre-build source gates (a doctor-only canary missed rightkit#926 because the doctor exits before the build's gates).** The gates moved from `release.mjs` into `prebuild-gates.mjs` (`evaluatePrebuildGates`), which the build and the doctor both call in the same order: release-switch scan inputs, devtools and forbidden build features, production mode, release dependencies, the feature closure (`cargo tree`), then the source switch inventory (a missing `switches.json` is a finding, as in the build). The doctor prints each finding as `[FAIL] gate:<name>` after its preflight rows and counts it as a failure; `--gates` is valid only with `--doctor`, and doctor output without it is unchanged. The build stops on the first finding with the same refusal text as before.
 
