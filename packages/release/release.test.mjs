@@ -1881,12 +1881,12 @@ test("the release worker refuses a missing, arbitrary, foreign, fabricated or st
 // doctor --gates: the doctor runs the build's pre-build source gates (prebuild-gates.mjs) in the same order.
 const FORBIDDEN_PACKAGE = { cmd: "cargo", args: ["build", "--features", "test-mode"] };
 
-// Host- and run-dependent lines are dropped; what remains is the doctor's stable output.
+// Host- and run-dependent lines are dropped (the Windows signing header and signtool row among them); what remains is the doctor's stable output.
 function normalizeDoctor(output, config) {
   return output
     .split(path.dirname(config)).join("<DIR>")
     .split(/\r?\n/)
-    .filter((line) => !/^(rightkit-registry|workdir|hardeningscan|config):|\] (disk|ownership|target-bridge|compiler-cache|sccache):|^\s+fix: |^\s*$/.test(line))
+    .filter((line) => !/^(rightkit-registry|workdir|hardeningscan|config|sign):|\] (disk|ownership|target-bridge|compiler-cache|sccache|signtool):|^\s+fix: |^\s*$/.test(line))
     .join("\n")
     .replace(/^right-release \d+\.\d+\.\d+/m, "right-release <version>")
     .replace(/^platform: .*/m, "platform: <host>");
@@ -1897,7 +1897,8 @@ test("doctor without --gates keeps its output (golden) and prints no gate rows",
   const result = runDoctor(config);
   const output = `${result.stdout}`;
   assert.doesNotMatch(output, /gate:/);
-  const golden = readFileSync(new URL("./test-support/doctor-golden.txt", import.meta.url), "utf8");
+  // A Windows checkout may convert the golden file's line endings; its content is what is compared.
+  const golden = readFileSync(new URL("./test-support/doctor-golden.txt", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.equal(normalizeDoctor(output, config).trim(), golden.trim());
 });
 

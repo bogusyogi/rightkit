@@ -60,3 +60,10 @@ vendor/tauri-runtime-wry/** -text
 /packages/build-control-policy/src/*.json text eol=lf
 # Byte-compared with packages/release/rightkit-ownership.json (LF) by rightkit-ownership tests::embedded_catalog_matches_canonical_source.
 /crates/rightkit-ownership/catalog/*.json text eol=lf
+# The Right Suite API contract and its projections are compared byte for byte with what scripts/gen-suite-api.mjs
+# writes (LF; deterministic-scans suite-api): never convert them on a Windows checkout.
+/contracts/right-suite-api.v1.json text eol=lf
+/crates/rightkit-license/src/suite_api_generated.rs text eol=lf
+/crates/rightkit-license/test-vectors/right-suite-api.v1.json text eol=lf
+/packages/app-update/src/suite-api.generated.ts text eol=lf
+/packages/release/suite-api.generated.mjs text eol=lf

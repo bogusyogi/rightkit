@@ -697,7 +697,7 @@ export function validateNonShipped({ root, treeText, nonShipped, recipeCommands 
     const guardedBy = [...frontendDirs].find((g) => within(abs, g) || within(g, abs));
     if (guardedBy) { bad(label, `dir \`${dir}\` overlaps the app's root frontend (${path.relative(base, guardedBy)}: src/, public/ or a directory named by index.html, vite.config or tsconfig); it cannot be declared non-shipped`); return; }
     const buildRef = [...buildRefs].find((r) => within(abs, r) || within(r, abs));
-    if (buildRef) { bad(label, `dir \`${dir}\` contains or sits inside a build-time input (${path.relative(base, buildRef)}: named by a tauri.conf.json before*Command or a package.json build script, which runs during the release build); it cannot be declared non-shipped`); return; }
+    if (buildRef) { bad(label, `dir \`${dir}\` contains or sits inside a build-time input (${path.relative(base, buildRef).split(path.sep).join("/")}: named by a tauri.conf.json before*Command or a package.json build script, which runs during the release build); it cannot be declared non-shipped`); return; }
     if (typeof reason === "string" && reason.trim() !== "") roots.push(path.relative(base, abs));
   });
   return { findings, roots: findings.length ? [] : roots };
