@@ -26,7 +26,7 @@
 
 Rust QA harness for Right Suite applications. It owns declarative scenarios (`harness::Harness::scenario`), engine and app control (`control`; the in-app server behind the dev-only `control` feature), run locking and orphan sweeps, isolated app profiles and temp companions (`storage`), process handling, paid-provider mocks (`mock`), loudness, WAV, and PNG validators, and hashed evidence.
 
-**Use it** in an app's end-to-end and UI tests, through `rustright cargo test`, when the test must run the real engine or the installed app and record evidence.
+**Use it** in an app's end-to-end and UI tests, compiled through the broker and run outside it with `rightkit-qa run-tests` (never executed under `rustright cargo test`, which holds a broker slot for the whole run), when the test must run the real engine or the installed app and record evidence.
 
 **Do not use it** as a general test runner or as a substitute for unit tests. Scenarios that launch a real app need an interactive user session: a macOS login session (see the macOS UI section below) or a Windows desktop session (see the Windows section).
 
@@ -144,7 +144,7 @@ Each home carries `.rightkit-home.json` (owner pid, start time). A home is remov
 
 ## Settings under `rustright cargo`
 
-`rustright cargo test` starts the test binary with a scrubbed environment and refuses nested managed builds. Do not pass knobs as environment variables. Use this pattern instead:
+`rustright cargo test` starts the test binary with a scrubbed environment and refuses nested managed builds. Do not pass knobs as environment variables there. Use this pattern instead (a test run outside the broker with `rightkit-qa run-tests` keeps the caller's environment and takes `--env KEY=VALUE` or `[run_tests] env`, but the settings file works the same in both):
 
 1. Declare tiers as cargo features of the test crate (`full = []`, `paid = []`), and pass them with `Harness::with_feature_tiers(&[("full", cfg!(feature = "full")), ("paid", cfg!(feature = "paid"))])`. Run them with `rustright cargo test -p my-e2e --features full,paid`. The `fast` tier always runs.
 2. Put knobs in a `KEY=VALUE` settings file and read them through `settings::Settings` (`get`, `require`, `get_bool`, `get_u64`, `get_f64`, `get_list`, `get_path`). `requires = ["env:KEY"]` is answered from the same file.
@@ -159,12 +159,37 @@ Search order (the first existing file wins; files are not merged):
 
 A non-empty process environment variable overrides the file for a single key. This only applies to direct, unmanaged settings. The harness reads `RIGHTKIT_QA_TIER` to override tier selection (`Harness::with_tier_key` renames it); legacy `RIGHTKIT_QA_EVIDENCE` is accepted by settings for compatibility but managed harness runs always write evidence under their managed run root.
 
-## UI scenarios against a real app (macOS)
+## Running tests outside the broker (`run-tests`)
 
-Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rustright cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `scripts/run-ui-tests.sh` does both and keeps your shell's environment:
+The broker compiles; it does not run end-to-end tests. A test binary that runs minutes inside `rustright cargo test` holds a broker slot for all of them (Pulse, 2026-10-23: 55 minutes with 15 builds queued behind it), and a real-app test cannot even start there (no GUI session, scrubbed environment). `rightkit-qa run-tests` is the one shared form of the copies the apps wrote by hand (`scripts/run-ui-tests.sh`, PostRight `run-e2e.sh`, ViewRight `qa-native.sh`, Pulse `gate.sh` with `run-test-bins.py`):
 
 ```sh
-rightkit/scripts/run-ui-tests.sh -p cutright-e2e --test ui -- --nocapture
+rightkit-qa run-tests --app genright -p genright-e2e --test fast_smoke -- --test-threads=1 --nocapture
+```
+
+1. **Compile** `cargo test --no-run --message-format=json <cargo args>` through `rustright cargo` when it resolves on `PATH` (plain cargo on a host without it, unless `--require-broker`), or read an existing listing with `--from-cargo-json <file>` and compile nothing. The command passes the same compile-only validator as `journeys run`.
+2. **Run** every test executable of the listing outside any broker job: from its package directory as cargo does, up to `--parallel` (default 2) at a time, each under its own deadline (`--binary-timeout-s`, default 1800) and all under a total one (`--total-timeout-s`, default 7200), the whole process tree killed at a deadline and when `run-tests` itself dies. Arguments after `--` go to every binary (`--skip`, `--exact`, a filter, `--nocapture`); `--env KEY=VALUE`, `--unset-env`, `--cwd package|workspace|<dir>` and `--isolate-tmp` control what each one sees.
+3. **Record** one receipt, `rightkit.run-tests.receipt/1`, with each binary's argv, exit, duration, output files and `test result:` counts, in the managed run storage under `runs/<app>-run-tests/<run id>/` (a separate app key, so its retention never evicts the app's journeys receipt), and print one summary line per binary.
+
+Exit 0 when every binary passed; 1 when one failed, timed out or could not start (also: `--deny-ignored` with an ignored test, or a run in which no test ran unless `--allow-empty`); 2 for a setup error, including a compile that listed no test binary; 3 when the compile failed. Defaults live in `rightkit-qa.toml`:
+
+```toml
+[run_tests]
+parallel = 2
+binary_timeout_s = 1800
+total_timeout_s = 7200
+test_args = ["--test-threads=1"]   # used when the command line has no `--`
+env = { GENRIGHT_QA = "1" }
+```
+
+The flags, the config keys, the receipt and the check rule that refuses E2E under `cargo test` are in `docs/run-tests.md`.
+
+## UI scenarios against a real app (macOS)
+
+Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rustright cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `rightkit-qa run-tests` does both and keeps your shell's environment (see "Running tests outside the broker" below):
+
+```sh
+rightkit-qa run-tests --app cutright -p cutright-e2e --test ui -- --nocapture
 ```
 
 On macOS, `control::launch` stages raw binaries & supplied `.app` bundles under `<appRoot>/apps/<launch-id>/`, then passes every harness-owned home/temp/profile path through `open --env NAME=VALUE`. `HOME`/`USERPROFILE` point to `appRoot`; data/profile keys point to `appRoot/data`; `TMPDIR`/`TMP`/`TEMP` point to `appRoot/tmp`. `RIGHTKIT_SUITE_ROOT` points to `appRoot/suite-<launch-id-prefix>` (including `runtime/<service>/service.json`); live stdout/stderr use `appRoot/app-<launch-id-prefix>.log`. The launcher cwd & harness scratch directories also use `appRoot`.
