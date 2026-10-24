@@ -381,8 +381,31 @@ test("G21 speech-link: import Speech is refused in the Speech-free targets and a
     [`${base}/Sources/RightKitArtifacts/D.swift`]: "// import Speech\nimport RightKitSpeech\n",
     [`${base}/Sources/RightKitAppleSpeech/E.swift`]: "import Speech\n",
     [`${base}/Tests/RightKitAppleSpeechTests/F.swift`]: "import Speech\n",
+    [`${base}/Sources/RightKitSpeech/G.swift`]: "public import Speech\n",
+    [`${base}/Sources/RightKitAudio/H.swift`]: "internal import Speech\n",
+    [`${base}/Sources/RightKitArtifacts/I.swift`]: "package import Speech\n",
+    [`${base}/Sources/RightKitSpeech/J.swift`]: "private import Speech\n",
+    [`${base}/Sources/RightKitSpeech/K.swift`]: "fileprivate import Speech\n",
+    [`${base}/Tests/RightKitSpeechTests/L.swift`]: "@preconcurrency public import Speech\n",
+    [`${base}/Sources/RightKitSpeech/M.swift`]: "@_implementationOnly import Speech\n",
+    [`${base}/Sources/RightKitAudio/N.swift`]: "@_spi(Internal) import Speech\n",
+    [`${base}/Sources/RightKitArtifacts/O.swift`]: "open import Speech\n",
+    [`${base}/Sources/RightKitAppleSpeech/P.swift`]: "public import Speech\n",
   });
-  assert.deepEqual(failures.map((f) => f.file).sort(), [`${base}/Sources/RightKitAudio/B.swift`, `${base}/Sources/RightKitSpeech/A.swift`, `${base}/Tests/RightKitSpeechTests/C.swift`]);
+  assert.deepEqual(failures.map((f) => f.file).sort(), [
+    `${base}/Sources/RightKitArtifacts/I.swift`,
+    `${base}/Sources/RightKitArtifacts/O.swift`,
+    `${base}/Sources/RightKitAudio/B.swift`,
+    `${base}/Sources/RightKitAudio/H.swift`,
+    `${base}/Sources/RightKitAudio/N.swift`,
+    `${base}/Sources/RightKitSpeech/A.swift`,
+    `${base}/Sources/RightKitSpeech/G.swift`,
+    `${base}/Sources/RightKitSpeech/J.swift`,
+    `${base}/Sources/RightKitSpeech/K.swift`,
+    `${base}/Sources/RightKitSpeech/M.swift`,
+    `${base}/Tests/RightKitSpeechTests/C.swift`,
+    `${base}/Tests/RightKitSpeechTests/L.swift`,
+  ].sort());
   assert.match(failures.find((f) => f.file.endsWith("A.swift")).problem, /A\.swift:2 imports Speech/);
 });
 

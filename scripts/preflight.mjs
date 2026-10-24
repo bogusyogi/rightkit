@@ -628,7 +628,7 @@ function switchesInventory({ root, files }) {
 // Store policy). Apple Speech lives in RightKitAppleSpeech. The link probe (swift/RightKitSwift/LinkProbes/SpeechNoApple) is the
 // proof; this is the seconds-fast early signal.
 const SPEECH_FREE = /^swift\/RightKitSwift\/(?:Sources\/(?:RightKitSpeech|RightKitAudio|RightKitArtifacts)|Tests\/RightKitSpeechTests)\/.+\.swift$/;
-const IMPORT_SPEECH = /^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*import[ \t]+(?:(?:struct|class|enum|protocol|typealias|func|var|let)[ \t]+)?Speech\b/m;
+const IMPORT_SPEECH = /^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*(?:(?:public|internal|package|private|fileprivate|open)[ \t]+)?import[ \t]+(?:(?:struct|class|enum|protocol|typealias|func|var|let)[ \t]+)?Speech\b/m;
 function speechLink({ root, files }) {
   const out = [];
   for (const file of files.filter((f) => SPEECH_FREE.test(f))) {

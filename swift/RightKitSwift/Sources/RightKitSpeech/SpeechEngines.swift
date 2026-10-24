@@ -305,7 +305,7 @@ public struct SpeechEngineSelector: Sendable {
     /// The requested engine, or an error naming why it cannot run. Never substitutes another engine.
     public func resolve(_ requested: SpeechEngineKind) throws -> any SpeechTranscribing {
         do { return try make(requested) } catch {
-            throw SpeechError.engineUnavailable("\(requested.rawValue): \(error.localizedDescription)")
+            throw SpeechError.engineUnavailable("\(requested.rawValue): \(failureReason(error))")
         }
     }
 
@@ -314,9 +314,16 @@ public struct SpeechEngineSelector: Sendable {
     public func resolveWithFallback(_ requested: SpeechEngineKind) throws -> any SpeechTranscribing {
         var failures: [String] = []
         for kind in [requested] + SpeechEngineKind.allCases.filter({ $0 != requested }) {
-            do { return try make(kind) } catch { failures.append("\(kind.rawValue): \(error.localizedDescription)") }
+            do { return try make(kind) } catch { failures.append("\(kind.rawValue): \(failureReason(error))") }
         }
         throw SpeechError.engineUnavailable(failures.joined(separator: "; "))
+    }
+
+    /// The reason alone for an engine failure: the callers add the engine name, so an `engineUnavailable` reason is not
+    /// wrapped in its own prefix a second time.
+    private func failureReason(_ error: Error) -> String {
+        if case let SpeechError.engineUnavailable(reason) = error { return reason }
+        return error.localizedDescription
     }
 
     private func make(_ kind: SpeechEngineKind) throws -> any SpeechTranscribing {
@@ -331,7 +338,7 @@ public struct SpeechEngineSelector: Sendable {
             return try WhisperEngine(modelDirectory: dir, conditioning: conditioning)
         case .apple:
             guard let factory = registeredEngines[.apple] else {
-                throw SpeechError.engineUnavailable("apple: not linked; add RightKitAppleSpeech and call registerAppleSpeech()")
+                throw SpeechError.engineUnavailable("not linked; add RightKitAppleSpeech and call registerAppleSpeech()")
             }
             return try factory()
         }
