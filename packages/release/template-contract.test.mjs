@@ -4,19 +4,20 @@
 // instance, then checks the template files the evaluators cannot see (pins, the committed hook, advisory policy, placeholders).
 // Every assertion names the thing that breaks the day it regresses.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "./background-process.mjs";
 import { hookText } from "./bin/rightkit-gate.mjs";
+import { assertNoRightKitCargoOverrides } from "./cargo-contract.mjs";
 import { assertCargoProfileContract } from "./cargo-profile-contract.mjs";
-import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { initTemplate, sortCargoLock } from "./init-command.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
 import { loadGeneratorRegistry } from "./pipeline-generators.mjs";
 import { scanApp } from "./pipeline-scan.mjs";
 import { assertQaAdoption } from "./qa-contract.mjs";
+import { RENAMED_AWAY, RENAMED_AWAY_NPM } from "./renamed-away.mjs";
 import { loadReleaseConfigSync } from "./release-config.mjs";
 import { parseInventory, sourceSwitchFindings } from "./release-switch-scan.mjs";
 import { checkApp } from "./ownership-mandatory-set.mjs";
@@ -110,10 +111,13 @@ test("the QA read of the engine path is compiled out of every build without qa-n
   assert.match(manifest, /rightkit-qa = \{[^}]*optional = true/, "rightkit-qa is an optional dependency, present only with qa-native");
 });
 
-test("the Cargo workspace passes the RightKit Cargo contract: exact published pins and the single dev profile", { skip: spawnSync("cargo", ["--version"]).status !== 0 && "cargo is not installed on this host" }, () => {
+test("the Cargo workspace keeps the RightKit Cargo contract: no override or source replacement, and the single dev profile", () => {
+  // `validateRightKitCargoContract` also asks `cargo metadata`, which no test may launch (the broker guard); the pins it would compare are
+  // checked from the manifests in the pin test below, and the override and profile contracts are pure file scans.
   const root = instance();
-  const published = new Map(Object.entries({ ...versions.legacyCargo, ...versions.cargo, ...versions.stagedCargo }));
-  assert.equal(validateRightKitCargoContract(root, published, "template"), 4, "workspace root + src-tauri + protocol + engine");
+  for (const manifest of ["Cargo.toml", "src-tauri/Cargo.toml", "crates/engine/Cargo.toml", "crates/protocol/Cargo.toml"]) {
+    assertNoRightKitCargoOverrides(path.join(root, ...manifest.split("/")), root, `template/${manifest}`);
+  }
   assertCargoProfileContract(root, "template");
 });
 
@@ -125,6 +129,8 @@ test("the app has a QA lane, a legal block that passes the release legal contrac
   assert.deepEqual(warnings, [], "the QA pins are current");
   const { config } = loadReleaseConfigSync(path.join(root, "right-release.config.json"), { registry: loadGeneratorRegistry() });
   for (const platform of ["win", "mac"]) assertLegalReleaseContract(root, config.legal, "playright", platform);
+  // The template itself, not only an instance, satisfies the mandatory set (what `right-release ownership-mandatory <dir> --enforce` checks).
+  assert.equal(checkApp(TEMPLATE, {}).violations, 0);
   const report = checkApp(root, {});
   assert.equal(report.profile, "desktop");
   assert.deepEqual(report.problems, []);
@@ -280,4 +286,21 @@ test("placeholders.json lists exactly the placeholders the template carries, and
   // Every mandatory-set owner the instance declares and no source file uses must be named here, or the README overstates what is wired.
   const readme = read("README.md");
   for (const owner of placeholders.declaredOnly) assert.ok(readme.includes(owner.owner.replace("@rightkit/", "").replace("rightkit-", "")), `README.md does not mention ${owner.owner}`);
+});
+
+test("no retired crate or npm name appears anywhere in the template (the owner renames of 2026-10-14)", () => {
+  const retired = [...RENAMED_AWAY.keys(), ...RENAMED_AWAY_NPM.keys()];
+  const hits = [];
+  for (const file of walk(TEMPLATE, (f) => !/\.(png|ico|icns|html)$/.test(f) || f.endsWith("index.html"))) {
+    const text = readFileSync(file, "utf8");
+    for (const name of retired) {
+      // `rightkit-shell` is a retired crate; `rightkit-tauri-shell` is its successor and must not match. Underscore spellings are the crate idents.
+      const spellings = [name, name.replaceAll("-", "_")];
+      for (const spelling of spellings) {
+        const escaped = spelling.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+        if (new RegExp(`(?<![\\w@/-])${escaped}(?![\\w-])`).test(text)) hits.push(`${path.relative(TEMPLATE, file)}: ${spelling}`);
+      }
+    }
+  }
+  assert.deepEqual(hits, []);
 });
