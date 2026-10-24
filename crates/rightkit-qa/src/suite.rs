@@ -1229,7 +1229,7 @@ fn runtime_opt_path(rt: &serde_json::Map<String, Value>, key: &str) -> Option<Pa
 
 /// The worker's side of a qualifying run: `rightkit-qa worker <world dir>` calls this (through
 /// [`crate::worker_main::main`]) with the spec the runner wrote. It rebuilds the scenario's
-/// environment from the spec's `runtime` section ([`worker_runtime`]), loads the scenario from the
+/// environment from the spec's `runtime` section (`worker_runtime`), loads the scenario from the
 /// file the runner selected (refused when it is not the same bytes), runs it in the world the runner
 /// built, and reports the verdict, the engine starts, the survivors, the timing per step kind and the
 /// artifacts it hashed. The verdict a worker reports is advice: the runner decides from this and from

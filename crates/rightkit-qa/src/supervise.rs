@@ -78,7 +78,7 @@ pub struct SuperviseOptions {
 ///   `<home base>/rightkit-qa-apps/<app>/<name>.app` (`control::stage_bundle`). The path is fixed per
 ///   app, not per run, so an entry here can also be another scenario's or the user's instance; the
 ///   scan only takes a process that started after this worker did and that does not carry another
-///   world's marker (see [`scan_bundles`]).
+///   world's marker (see `scan_bundles`).
 pub fn app_bundles_of(spec: &ScenarioSpec) -> Vec<PathBuf> {
     let mut bundles: Vec<PathBuf> = spec
         .scenario
