@@ -134,16 +134,16 @@ const APP: &str = "right-qa";
 /// The per-run control token (ADR-0001 ruling D-e).
 ///
 /// The runner mints a random token, writes it into a user-only file (`World::control_token_file`)
-/// and names that file to the app in [`ENV_AUTH_FILE`]. The in-app control server (`embedded`)
+/// and names that file to the app in [`ENV_AUTH_FILE`](token::ENV_AUTH_FILE). The in-app control server (`embedded`)
 /// reads the file once at start and refuses every order that does not carry the same token in
-/// [`PARAM`]. The environment carries a path, never the token itself, so the credential-key
+/// [`PARAM`](token::PARAM). The environment carries a path, never the token itself, so the credential-key
 /// refusal of `check_env` still holds. Threat model: this stops accidental ad-hoc driving of a
 /// QA app (a stray `right-ctl`, a second runner), it is not protection against another process of
 /// the same user, who can read the file.
 ///
-/// Fail closed (ADR-0001 item 7): a server launched without [`ENV_AUTH_FILE`] refuses every order,
+/// Fail closed (ADR-0001 item 7): a server launched without [`ENV_AUTH_FILE`](token::ENV_AUTH_FILE) refuses every order,
 /// since no token can be required of a caller; a server launched with it but unable to use the file
-/// does not start. A launch that names no file mints one ([`for_launch`]), so the app it starts still
+/// does not start. A launch that names no file mints one ([`for_launch`](token::for_launch)), so the app it starts still
 /// accepts its own orders.
 pub mod token {
     use crate::util::{err, Error, Result};

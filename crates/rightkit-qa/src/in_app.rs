@@ -8,7 +8,7 @@
 //! (discovery file, current-user-only Unix socket or named pipe, per-app request allowlist).
 //! There is no TCP. A server launched with `RIGHTKIT_QA_CONTROL_TOKEN_FILE` (the QA runner always does,
 //! ADR-0001 D-e) also requires the per-run control token on every order: give the bridge the token
-//! file with [`ServiceBridge::with_token_file`]. Register it with
+//! file with [`ServiceBridge::with_token_file`](crate::in_app::ServiceBridge::with_token_file). Register it with
 //! `rightkit_automation::Automation::add_in_app`. Moved from `rightkit-automation`'s former
 //! `in_app` client (0.3.0, feature `in-app`).
 

@@ -22,7 +22,7 @@
     },
     "pnpm": {
       "note": "The npm rows install with --store-dir pinned to the store node_modules was installed from. The adapter's cleared environment makes pnpm default to <HOME>/Library/pnpm/store, which differs from the workspace's store and makes pnpm demand a modules purge (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY observed 2026-10-23).",
-      "version": "11.24.0",
+      "version": "11.25.0",
       "darwin": {
         "storeDir": "/Volumes/D/.pnpm-store/v11"
       }

@@ -45,7 +45,7 @@ function runBody(step) {
 
 test("pnpm: both ci templates print the patch step directly after the frozen install", () => {
   for (const profile of ["node", "rust"]) {
-    const out = render(profile, manifestFor(profile, "pnpm@11.24.0"));
+    const out = render(profile, manifestFor(profile, "pnpm@11.25.0"));
     assert.equal(out.split(STEP_NAME).length - 1, 1, `${profile}: exactly one patch step`);
     assert.equal(out.split(INSTALL_LINE).length - 1, 1, `${profile}: exactly one frozen install`);
     assert.ok(out.includes(`${INSTALL_LINE}\n${STEP_NAME}`), `${profile}: step follows the install`);
@@ -55,7 +55,7 @@ test("pnpm: both ci templates print the patch step directly after the frozen ins
 
 test("pnpm: the patch step is the only difference from a render without it", () => {
   for (const profile of ["node", "rust"]) {
-    const manifest = manifestFor(profile, "pnpm@11.24.0");
+    const manifest = manifestFor(profile, "pnpm@11.25.0");
     const step = lockfilePatchStep(manifest);
     const withStep = render(profile, manifest);
     const withoutStep = render(profile, manifest, { PNPM_LOCK_PATCH_STEP: "" });
@@ -76,7 +76,7 @@ test("npm and yarn: no patch step and no pnpm lockfile reference in either ci te
 });
 
 test("patch step runs only after a failed install, never masks it, and prints the lockfile diff", () => {
-  const step = lockfilePatchStep(manifestFor("node", "pnpm@11.24.0"));
+  const step = lockfilePatchStep(manifestFor("node", "pnpm@11.25.0"));
   assert.match(step, /^\n {6}- name: /);
   assert.match(step, /\n {8}if: failure\(\)\n/);
   const body = runBody(step);
@@ -89,7 +89,7 @@ test("patch step behaves on a real stale, fresh and failing lockfile", (t) => {
   if (process.platform === "win32") return t.skip("POSIX shell behaviour");
   const git = spawnSync("git", ["--version"], { encoding: "utf8" });
   if (git.error) return t.skip("git not installed");
-  const body = runBody(lockfilePatchStep(manifestFor("node", "pnpm@11.24.0")));
+  const body = runBody(lockfilePatchStep(manifestFor("node", "pnpm@11.25.0")));
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "right-git-pnpm-lock-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo");
@@ -149,8 +149,8 @@ test("rendered pnpm ci workflows pass actionlint with the patch step", (t) => {
   fs.mkdirSync(path.join(dir, ".github", "workflows"), { recursive: true });
   fs.writeFileSync(path.join(dir, ".github", "actionlint.yaml"), "self-hosted-runner:\n  labels:\n    - xcode-*\n");
   const files = [
-    ["node-pnpm.yml", render("node", manifestFor("node", "pnpm@11.24.0"))],
-    ["rust-pnpm.yml", render("rust", manifestFor("rust", "pnpm@11.24.0"))],
+    ["node-pnpm.yml", render("node", manifestFor("node", "pnpm@11.25.0"))],
+    ["rust-pnpm.yml", render("rust", manifestFor("rust", "pnpm@11.25.0"))],
   ].map(([name, text]) => {
     const file = path.join(dir, ".github", "workflows", name);
     fs.writeFileSync(file, text);

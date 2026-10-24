@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Per-repo dependency updater: check, apply, gate and land for cargo, pnpm, swiftpm and external-tool pins, plus a scheduled run (launchd, Task Scheduler).",
   "license": "MIT OR Apache-2.0",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "private": false,
   "type": "module",
   "main": "dist/index.js",

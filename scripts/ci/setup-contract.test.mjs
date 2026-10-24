@@ -70,7 +70,7 @@ test("shared setup keeps install enabled by default and caches only pnpm store",
   const cache = steps.find((step) => step.name === "Cache pnpm store");
   assert.equal(cache.uses, "actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809");
   assert.equal(cache.with.path, "${{ steps.pnpm-store.outputs.path }}");
-  assert.equal(cache.with.key, "${{ runner.os }}-pnpm-11.24.0-${{ hashFiles('pnpm-lock.yaml') }}");
+  assert.equal(cache.with.key, "${{ runner.os }}-pnpm-11.25.0-${{ hashFiles('pnpm-lock.yaml') }}");
   assert.equal(steps.find((step) => step.id === "pnpm-store").run, 'echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"');
 });
 

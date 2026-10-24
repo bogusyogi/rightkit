@@ -1407,7 +1407,7 @@ pub(crate) fn copy_tree(source: &Path, target: &Path) -> Result<()> {
 
 /// A plain file in a run directory that says its owner asked to keep the run's data
 /// (`SuiteOptions::keep_data`): the run's home and worlds are what the caller reads after the run.
-/// Both removal paths honour it ([`prune_unlocked`] and `retention::prune_runs`), whatever the
+/// Both removal paths honour it (`prune_unlocked` and `retention::prune_runs`), whatever the
 /// run's outcome, age or count, so a later or concurrent run of the same app cannot remove it.
 pub const KEEP_DATA_FILE: &str = ".rightkit-keep-data";
 

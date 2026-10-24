@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Cloudflare Worker (D1 + R2) implementing the server side of rightkit-sync-http/1: opaque encrypted records, per-account auth, version preconditions, paged change feeds, rate limits, account erase and tombstone compaction.",
   "license": "MIT OR Apache-2.0",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "private": true,
   "type": "module",
   "scripts": {

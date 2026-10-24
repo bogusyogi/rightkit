@@ -7,7 +7,7 @@ const VALID_MINIMAL = {
   compile: "github-actions-only",
   lanes: ["ci"],
   matrix: { os: ["ubuntu-latest"], node: ["22.13"] },
-  packageManager: "pnpm@11.24.0",
+  packageManager: "pnpm@11.25.0",
   templateVersion: "1.0.0",
 };
 

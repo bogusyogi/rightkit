@@ -2,7 +2,7 @@
 
 Recipe ID: `tauri-shell-installed-transport-consumer`. Candidate source contract: `@rightkit/tauri-shell@0.1.2`, `packages/tauri-shell/src/index.ts`. Entry imports only installed public root. Memory invoke/listen transport exercises actual shell wrapper behavior; it does not impersonate Tauri or qualify native PK04/PK08/PK13 host services.
 
-Runner copies this directory to fresh external scratch directory on Windows & macOS for both R2(a) packed archive & R2(b) registry-fetched archive. Add Linux only where locked package matrix requires it. Use provisioned Node & pinned `pnpm@11.24.0`; no ambient workspace resolution, install hooks or self-install in consumer. Install exact archive in separate runner step:
+Runner copies this directory to fresh external scratch directory on Windows & macOS for both R2(a) packed archive & R2(b) registry-fetched archive. Add Linux only where locked package matrix requires it. Use provisioned Node & pinned `pnpm@11.25.0`; no ambient workspace resolution, install hooks or self-install in consumer. Install exact archive in separate runner step:
 
 ```powershell
 pnpm add --save-exact --ignore-scripts "$env:RIGHTKIT_CONSUMER_ARTIFACT"

@@ -36,5 +36,5 @@
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/ci"
   },
-  "packageManager": "pnpm@11.24.0"
+  "packageManager": "pnpm@11.25.0"
 }
