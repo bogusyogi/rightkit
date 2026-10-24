@@ -378,6 +378,17 @@ export function hasFreshContent(root, cutoffMs) {
   return false;
 }
 
+// A directory the agent wants to keep carries a `.keep` file; it protects the directory for `keepMarkerDays` (default 14) after
+// its last touch. An expired marker is ignored, so the unit ages out by the normal rules; a symlink named .keep proves nothing.
+// Directory units only: a marker beside a file would itself be swept as a scratch child.
+export const KEEP_MARKER = ".keep";
+export function keptByMarker(unit, now, days, lstat = lstatSync) {
+  try {
+    const st = lstat(path.join(unit, KEEP_MARKER));
+    return st.isFile() && !st.isSymbolicLink() && st.mtimeMs > now - days * 86400_000;
+  } catch { return false; }
+}
+
 export function isProtectedPath(candidate, policy) {
   const segments = candidate.split(/[\\/]/);
   return (policy.protectedSegments ?? []).some((p) => segments.includes(p));
@@ -421,6 +432,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   const candidates = [];
   const skipped = [];
   const seen = new Set();
+  const keepDays = policy.keepMarkerDays ?? 14;
   const lockCheck = inUse ?? (key === "win" ? windowsLockProbe : (p) => inUseByOpenPaths(p, openPaths));
   // Sweep writers, plus report writers with `escalate` when they are over cap by its factor (pure caches: idle children go).
   for (const writer of policy.writers.filter((w) => w.platform === key && (w.action === "sweep" || w.escalate))) {
@@ -455,6 +467,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       if (symlinkAncestor(unit, literal)) { skipped.push({ ...base, reason: "symlink-ancestor" }); continue; }
       if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); continue; }
       if (writer.skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); continue; }
+      if (keptByMarker(unit, now, keepDays)) { skipped.push({ ...base, reason: "kept" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
       candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
@@ -479,6 +492,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     if (st.isSymbolicLink()) { skipped.push({ ...base, reason: "symlink" }); return; }
     if (!isInsideRoot(unit, root)) { skipped.push({ ...base, reason: "outside-root" }); return; }
     if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); return; }
+    if (keptByMarker(unit, now, keepDays)) { skipped.push({ ...base, reason: "kept" }); return; }
     if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); return; }
     if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); return; }
     candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });

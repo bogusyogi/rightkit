@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lutimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { ensureScratchRoots, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
+import { KEEP_MARKER, ensureScratchRoots, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
@@ -1271,4 +1271,78 @@ test("purge: an item swept today is held a full window by the real moves, then g
 test("committed policy: scratch idles one day, holding lasts one day, workspace-unknown keeps three", () => {
   const policy = readDiskPolicy();
   assert.deepEqual([policy.scratchStaleDays, policy.holdingDays, policy.unknownStaleDays], [1, 1, 3]);
+});
+
+// ---- .keep markers --------------------------------------------------------------------------------------------------------
+
+test(".keep marker protects a stale idle unit for 14 days, then expires; a symlinked .keep protects nothing", () => {
+  const { root, policy } = fixture();
+  const scratch = path.join(root, "scratch");
+  policy.scratchRoots = { mac: [scratch] };
+  policy.scratchStaleDays = 1;
+  const now = Date.now();
+  const unit = (name, markerAgeDays) => {
+    file(path.join(scratch, name, "data"), 10, OLD);
+    if (markerAgeDays !== undefined) file(path.join(scratch, name, KEEP_MARKER), 0, now - markerAgeDays * DAY);
+    utimesSync(path.join(scratch, name), OLD / 1000, OLD / 1000);
+  };
+  unit("kept", 13); unit("expired", 15); unit("plain");
+  // a symlink named .keep, itself old, pointing at a fresh real file
+  unit("linked");
+  file(path.join(root, "elsewhere", "marker"), 0, now);
+  symlinkSync(path.join(root, "elsewhere", "marker"), path.join(scratch, "linked", KEEP_MARKER));
+  lutimesSync(path.join(scratch, "linked", KEEP_MARKER), OLD / 1000, OLD / 1000);
+  utimesSync(path.join(scratch, "linked"), OLD / 1000, OLD / 1000);
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10 });
+  assert.deepEqual(plan.candidates.map((c) => path.basename(c.path)).sort(), ["expired", "linked", "plain"]);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith(`${path.sep}kept`)).reason, "kept");
+  assert.match(renderSweep(plan), /skipped: 1 kept/);
+  // the policy sets the marker lifetime
+  policy.keepMarkerDays = 20;
+  const longer = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10 });
+  assert.deepEqual(longer.candidates.map((c) => path.basename(c.path)).sort(), ["linked", "plain"]);
+  assert.equal(longer.skipped.find((s) => s.path.endsWith(`${path.sep}expired`)).reason, "kept");
+});
+
+test(".keep marker protects a sweep-writer unit and a workspace-unknown entry the same way", () => {
+  const { ws, policy } = workspaceFixture();
+  const now = Date.now();
+  // kids: children of base/cache, idle past the 7-day default window
+  const cache = policy.writers.find((w) => w.id === "kids").path;
+  file(path.join(cache, "kept", "data"), 10, OLD); file(path.join(cache, "kept", KEEP_MARKER), 0, now - 13 * DAY); utimesSync(path.join(cache, "kept"), OLD / 1000, OLD / 1000);
+  file(path.join(cache, "gone", "data"), 10, OLD);
+  file(path.join(ws, "stale", KEEP_MARKER), 0, now - 1 * DAY); utimesSync(path.join(ws, "stale"), OLD / 1000, OLD / 1000);
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, workspaceSweep: true });
+  assert.deepEqual(plan.candidates.map((c) => `${c.writer}:${path.basename(c.path)}`).sort(), ["kids:gone"]);
+  assert.deepEqual(plan.skipped.filter((s) => s.reason === "kept").map((s) => path.basename(s.path)).sort(), ["kept", "stale"]);
+});
+
+test("keptByMarker: only a regular .keep file newer than the lifetime protects; a file unit and a missing marker do not", () => {
+  const { root } = fixture();
+  const now = Date.now();
+  file(path.join(root, "u", KEEP_MARKER), 0, now - 3 * DAY);
+  assert.equal(keptByMarker(path.join(root, "u"), now, 14), true);
+  assert.equal(keptByMarker(path.join(root, "u"), now, 3), false, "exactly at the lifetime it has expired");
+  assert.equal(keptByMarker(path.join(root, "u"), now, 2), false);
+  assert.equal(keptByMarker(path.join(root, "nothing"), now, 14), false);
+  file(path.join(root, "a-file"), 1, OLD);
+  assert.equal(keptByMarker(path.join(root, "a-file"), now, 14), false);
+  mkdirSync(path.join(root, "d", KEEP_MARKER), { recursive: true });
+  assert.equal(keptByMarker(path.join(root, "d"), now, 14), false, "a directory named .keep is not a marker");
+});
+
+test("run logs how many units were kept by a marker", async () => {
+  const { root, heavy, policy } = fixture();
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  file(path.join(root, "cache", "kept", "f"), 10, OLD);
+  file(path.join(root, "cache", "kept", KEEP_MARKER), 0, Date.now() - DAY);
+  utimesSync(path.join(root, "cache", "kept"), OLD / 1000, OLD / 1000);
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  await runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) }, purge: { bases: [] } } });
+  const events = readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  const done = events.find((e) => e.event === "disk.run.ok");
+  assert.equal(done.kept, 1);
+  assert.equal(existsSync(path.join(root, "cache", "kept", "f")), true);
+  assert.equal(existsSync(path.join(root, "cache", "old")), false);
 });

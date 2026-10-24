@@ -606,7 +606,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
     const after = check();
     const warn = after.warn;
-    logEvent(logFile, { event: warn ? "disk.floor.warn" : "disk.run.ok", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes });
+    logEvent(logFile, { event: warn ? "disk.floor.warn" : "disk.run.ok", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length });
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
     return { exitCode: !self.ok ? 2 : warn ? DISK_EXIT_WARNING : 0, before, after, applied, purged, selfCheck: self };
   }
