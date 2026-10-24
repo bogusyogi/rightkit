@@ -51,6 +51,9 @@ export function expandPolicyPath(value, { env = process.env, home = os.homedir()
   return out;
 }
 
+// One path segment of a policy pattern: `*` matches any run of characters inside that segment only.
+const globSegment = (part) => new RegExp(`^${part.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+
 // Expand a policy path whose segments may contain `*` wildcards into existing paths.
 export function expandGlob(pattern, sep = path.sep) {
   const parts = pattern.split(/[\\/]/);
@@ -64,7 +67,7 @@ export function expandGlob(pattern, sep = path.sep) {
         if (existsSync(candidate)) next.push(candidate);
         continue;
       }
-      const rx = new RegExp(`^${part.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+      const rx = globSegment(part);
       let names = [];
       try { names = readdirSync(base); } catch { continue; }
       for (const name of names) if (rx.test(name)) next.push(path.join(base, name));
@@ -157,6 +160,27 @@ export function writerMatches(writer, ctx) {
   const pattern = expandPolicyPath(writer.path, ctx);
   return expandGlob(pattern);
 }
+
+// How a writer's path pattern relates to `target`, compared as text (nothing is read from disk, symlinks and redirected
+// environment variables are not resolved): "covers" when the pattern is the target or one of its ancestors, "within" when
+// the target is an ancestor of the pattern, null when they diverge. A pattern that needs an unset variable (`${TEMP}`)
+// proves nothing and relates to nothing.
+function writerPathRelation(writer, target, { platform = process.platform, home = "/home/x", env = {} } = {}) {
+  let pattern;
+  try { pattern = expandPolicyPath(writer.path, { env, home }); } catch { return null; }
+  const key = platformKey(platform);
+  const split = (value) => value.split(/[\\/]/).filter(Boolean).map((part) => fold(part, key));
+  const patternParts = split(pattern);
+  const targetParts = split(target);
+  for (let i = 0; i < Math.min(patternParts.length, targetParts.length); i += 1) if (!globSegment(patternParts[i]).test(targetParts[i])) return null;
+  return patternParts.length <= targetParts.length ? "covers" : "within";
+}
+
+/** True when the writer's path is `target` or an ancestor of it, so a write to `target` belongs to that writer. */
+export const writerCoversPath = (writer, target, options) => writerPathRelation(writer, target, options) === "covers";
+
+/** True when the writer's path is `target`, an ancestor of it, or lies below it: the entry is accounted for by some writer. */
+export const writerTouchesPath = (writer, target, options) => writerPathRelation(writer, target, options) !== null;
 
 
 // ---- Workspace roots (allowlist) and scratch roots ------------------------------------------------------------------
@@ -254,7 +278,39 @@ export function scanWorkspaceRoots({ policy, platform = process.platform, env = 
   return { unknown, skipped };
 }
 
-export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots } = {}) {
+// Top-level names of an agent volume that are the operating system's, not data: never reported as uncovered.
+export const DEFAULT_VOLUME_IGNORE = [".Trashes", ".fseventsd", ".Spotlight-V100", ".TemporaryItems", ".DocumentRevisions-V100", ".DS_Store", ".VolumeIcon.icns", "$RECYCLE.BIN", "System Volume Information", "lost+found"];
+
+/** What an agent volume holds beyond its writers: used bytes minus the bytes of the outermost writer paths on that volume
+ * (a writer nested inside another, or two writers on one path, count once), and the top-level entries no writer names or
+ * contains. An estimate: statfs counts allocated blocks, snapshots and clones included. Null when the volume is not there. */
+function unmanagedOnVolume(floor, { measured, policy, platform, env, home, size, readdir }) {
+  const key = platformKey(platform);
+  const dev = deviceOf(floor.path);
+  if (dev === null) return null;
+  const byPath = new Map();
+  for (const m of measured) if (deviceOf(m.path) === dev) byPath.set(fold(m.path, key), m);
+  const onVolume = [...byPath.entries()];
+  const outer = onVolume.filter(([p]) => !onVolume.some(([o]) => o !== p && p.startsWith(o + path.sep)));
+  const writerBytes = outer.reduce((sum, [, m]) => sum + m.bytes, 0);
+  const usedBytes = floor.totalBytes - floor.freeBytes;
+  const ignore = new Set((policy.volumeIgnore ?? DEFAULT_VOLUME_IGNORE).map((n) => fold(n, key)));
+  const writersHere = policy.writers.filter((w) => w.platform === key);
+  const uncoveredTopLevel = [];
+  let names = [];
+  try { names = readdir(floor.path); } catch { /* unreadable volume root: nothing to list */ }
+  for (const name of [...names].sort()) {
+    if (ignore.has(fold(name, key))) continue;
+    const full = path.join(floor.path, name);
+    if (writersHere.some((w) => writerTouchesPath(w, full, { platform, home, env }))) continue;
+    let symlink = false;
+    try { symlink = lstatSync(full).isSymbolicLink(); } catch { continue; }
+    uncoveredTopLevel.push({ name, path: full, symlink, bytes: symlink ? 0 : size(full) });
+  }
+  return { floor: floor.id ?? floor.label, usedBytes, writerBytes, unmanagedBytes: Math.max(0, usedBytes - writerBytes), uncoveredTopLevel };
+}
+
+export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots, readdir = readdirSync } = {}) {
   const key = platformKey(platform);
   const floorPolicies = floorList(policy, key);
   if (!floorPolicies.length) throw new Error(`disk policy: no floor for ${key}`);
@@ -266,14 +322,18 @@ export function checkDisk({ policy, platform = process.platform, env = process.e
   });
   const floor = floors[0];
   const writers = [];
+  const measured = [];
   for (const writer of policy.writers.filter((w) => w.platform === key)) {
+    const category = writer.category ?? writer.id;
     let matches;
     try { matches = writerMatches(writer, { env, home }); } catch (error) {
-      writers.push({ id: writer.id, action: writer.action, error: error.message, bytes: 0, capBytes: writer.capBytes, over: false, matches: 0 });
+      writers.push({ id: writer.id, category, action: writer.action, error: error.message, bytes: 0, capBytes: writer.capBytes, over: false, matches: 0 });
       continue;
     }
-    const bytes = matches.reduce((sum, m) => sum + size(m), 0);
-    writers.push({ id: writer.id, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes: writer.capBytes, over: bytes > writer.capBytes });
+    const sized = matches.map((m) => ({ path: m, bytes: size(m) }));
+    const bytes = sized.reduce((sum, m) => sum + m.bytes, 0);
+    measured.push(...sized);
+    writers.push({ id: writer.id, category, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes: writer.capBytes, over: bytes > writer.capBytes });
   }
   const warnings = [];
   for (const f of floors) {
@@ -281,11 +341,17 @@ export function checkDisk({ policy, platform = process.platform, env = process.e
     else if (f.warn) warnings.push(`${f.label} free ${formatBytes(f.freeBytes)} is below the ${formatBytes(f.thresholdBytes)} floor`);
   }
   for (const w of writers) if (w.over) warnings.push(`${w.id} holds ${formatBytes(w.bytes)} over its ${formatBytes(w.capBytes)} cap`);
+  const unmanaged = [];
+  for (const f of floors.filter((x) => x.agentVolume && !x.absent)) {
+    const entry = unmanagedOnVolume(f, { measured, policy, platform, env, home, size, readdir });
+    if (entry) unmanaged.push(entry);
+  }
+  for (const u of unmanaged) for (const e of u.uncoveredTopLevel) warnings.push(`no writer covers ${e.path} (${e.symlink ? "symlink" : formatBytes(e.bytes)}): add one to disk-policy.json`);
   const scanned = scan({ policy, platform, env, home });
   const unknown = scanned.unknown.map((u) => ({ root: u.root, name: u.name, path: u.path, symlink: u.symlink, bytes: u.symlink ? 0 : size(u.path), ageDays: Math.max(0, Math.floor((now - u.mtimeMs) / 86400_000)) }));
   for (const u of unknown) warnings.push(`unknown top-level entry ${u.path} (${u.symlink ? "symlink" : formatBytes(u.bytes)}, ${u.ageDays}d old): track it or add it to workspaceAllowlist (sweep only moves it on a host that ran \`disk allow-workspace-sweep\`)`);
   for (const s of scanned.skipped) warnings.push(`workspace root ${s.path}: tracked paths cannot be read from git, so unknown entries are not evaluated or swept`);
-  return { schema: 1, platform: key, floor, floors, writers, unknown, warnings, warn: warnings.length > 0 };
+  return { schema: 1, platform: key, floor, floors, writers, unmanaged, unknown, warnings, warn: warnings.length > 0 };
 }
 
 export function formatBytes(n) {

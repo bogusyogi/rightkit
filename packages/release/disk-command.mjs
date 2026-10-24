@@ -24,6 +24,13 @@ export function renderCheck(result) {
     const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}`;
     lines.push(`  ${w.id.padEnd(28)} ${w.action.padEnd(6)} ${size}${w.over ? "  OVER CAP" : ""}`);
   }
+  for (const u of result.unmanaged ?? []) {
+    lines.push(`  unmanaged remainder on ${u.floor}  ${formatBytes(u.unmanagedBytes)} (estimate: used ${formatBytes(u.usedBytes)} - writers ${formatBytes(u.writerBytes)})`);
+    if (u.uncoveredTopLevel.length) {
+      lines.push(`Uncovered top-level on ${u.floor} (${u.uncoveredTopLevel.length}):`);
+      for (const e of u.uncoveredTopLevel) lines.push(`  ${(e.symlink ? "symlink" : formatBytes(e.bytes)).padStart(9)}  ${e.path}`);
+    }
+  }
   if (result.unknown?.length) {
     lines.push(`Unknown top-level entries (${result.unknown.length}):`);
     for (const u of result.unknown) lines.push(`  ${(u.symlink ? "symlink" : formatBytes(u.bytes)).padStart(9)}  ${String(u.ageDays).padStart(4)}d  ${u.path}`);

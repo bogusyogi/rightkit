@@ -8,7 +8,7 @@ const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding:
 import { ensureScratchRoots, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -1042,4 +1042,98 @@ test("committed policy: Mac has a /Volumes/D floor of 250 GiB flagged agentVolum
   const win = floorList(policy, "win");
   assert.equal(win.length, 1);
   assert.deepEqual([win[0].id, win[0].path, win[0].agentVolume, win[0].warnFreePercent], ["win-d", "D:\\", true, 10]);
+});
+
+// ---- unmanaged remainder and uncovered top-level entries of the agent volume -------------------------------------------------
+
+function unmanagedFixture() {
+  const { root, policy } = fixture();
+  const sizes = { a: 100, "a/b": 40, c: 50, zzz: 7 };
+  for (const rel of ["a/b", "c", "zzz", ".Trashes", "$RECYCLE.BIN", "System Volume Information"]) mkdirSync(path.join(root, rel), { recursive: true });
+  policy.floors = { mac: [{ id: "agent", path: root, label: "agent volume", warnFreeBytes: 1, agentVolume: true }] };
+  policy.writers = ["a", "a/b", "c"].map((rel) => ({ id: `w-${rel.replace("/", "-")}`, platform: "mac", path: path.join(root, rel), capBytes: 1000, action: "report" }));
+  const size = (p) => sizes[path.relative(root, p).split(path.sep).join("/")] ?? 1;
+  return { root, policy, size, space: () => ({ freeBytes: 600, totalBytes: 1000 }) };
+}
+
+test("check: the unmanaged remainder is used minus the de-duplicated writer bytes on the agent volume", () => {
+  const { root, policy, size, space } = unmanagedFixture();
+  // a writer on another device is not on this volume, and a second writer on the same path is not counted twice
+  const elsewhere = process.platform !== "win32" && deviceOf("/dev") !== deviceOf(root) ? [{ id: "other-volume", platform: "mac", path: "/dev", capBytes: 1 << 30, action: "report" }] : [];
+  policy.writers.push({ id: "again", platform: "mac", path: path.join(root, "c"), capBytes: 1000, action: "report" }, ...elsewhere);
+  const r = checkDisk({ policy, platform: "darwin", size: (p) => (p === "/dev" ? 999 : size(p)), space });
+  assert.equal(r.unmanaged.length, 1);
+  assert.deepEqual({ ...r.unmanaged[0], uncoveredTopLevel: undefined }, { floor: "agent", usedBytes: 400, writerBytes: 150, unmanagedBytes: 250, uncoveredTopLevel: undefined });
+  // writers are unchanged by the accounting and carry a category
+  assert.deepEqual(r.writers.map((w) => [w.id, w.category, w.bytes]).slice(0, 3), [["w-a", "w-a", 100], ["w-a-b", "w-a-b", 40], ["w-c", "w-c", 50]]);
+});
+
+test("check: a writer category replaces its id as the report category", () => {
+  const { policy, size, space } = unmanagedFixture();
+  policy.writers[0].category = "agent-cache";
+  const r = checkDisk({ policy, platform: "darwin", size, space });
+  assert.deepEqual(r.writers.map((w) => w.category), ["agent-cache", "w-a-b", "w-c"]);
+});
+
+test("check: a top-level entry no writer names or contains is listed and warned; covered, nested-covered and OS entries are not", () => {
+  const { root, policy, size, space } = unmanagedFixture();
+  // a writer deeper than the entry covers it (the entry is then an ancestor of a writer), like .rightkit-managed over its children
+  mkdirSync(path.join(root, "managed", "runs"), { recursive: true });
+  policy.writers.push({ id: "managed-runs", platform: "mac", path: path.join(root, "managed", "runs"), capBytes: 1000, action: "report" });
+  const r = checkDisk({ policy, platform: "darwin", size, space });
+  const u = r.unmanaged[0];
+  assert.deepEqual(u.uncoveredTopLevel, [{ name: "zzz", path: path.join(root, "zzz"), symlink: false, bytes: 7 }]);
+  assert.equal(r.warnings.some((w) => w.includes(`no writer covers ${path.join(root, "zzz")}`) && w.includes("add one to disk-policy.json")), true);
+  assert.equal(r.warn, true);
+  for (const covered of ["a", "c", "managed", ".Trashes", "$RECYCLE.BIN", "System Volume Information"]) assert.equal(u.uncoveredTopLevel.some((e) => e.name === covered), false, covered);
+  // volumeIgnore replaces the default list
+  policy.volumeIgnore = ["zzz"];
+  const ignored = checkDisk({ policy, platform: "darwin", size, space });
+  assert.deepEqual(ignored.unmanaged[0].uncoveredTopLevel.map((e) => e.name), ["$RECYCLE.BIN", ".Trashes", "System Volume Information"]);
+});
+
+test("check: a symlink at the volume top level is listed without being followed; a missing or unflagged floor adds nothing", () => {
+  const { root, policy, size, space } = unmanagedFixture();
+  symlinkSync(path.join(root, "c"), path.join(root, "link"));
+  const r = checkDisk({ policy, platform: "darwin", size: (p) => { assert.notEqual(p, path.join(root, "link"), "a symlink is not sized"); return size(p); }, space });
+  assert.deepEqual(r.unmanaged[0].uncoveredTopLevel.map((e) => [e.name, e.symlink, e.bytes]), [["link", true, 0], ["zzz", false, 7]]);
+  policy.floors = { mac: [{ id: "agent", path: path.join(root, "not-mounted"), label: "agent volume", warnFreeBytes: 1, agentVolume: true }, { id: "plain", path: root, label: "plain", warnFreeBytes: 1 }] };
+  const none = checkDisk({ policy, platform: "darwin", size, space: (p) => { if (p.endsWith("not-mounted")) throw new Error("ENOENT"); return space(); } });
+  assert.deepEqual(none.unmanaged, []);
+});
+
+test("check output shows the unmanaged remainder and the uncovered top-level entries", () => {
+  const { policy, size, space } = unmanagedFixture();
+  const text = renderCheck(checkDisk({ policy, platform: "darwin", size, space }));
+  assert.match(text, /unmanaged remainder on agent {2}\d+ KB \(estimate: used \d+ KB - writers \d+ KB\)/);
+  assert.match(text, /Uncovered top-level on agent \(1\):\n +\d+ KB {2}.*zzz/);
+  assert.equal(renderCheck({ floor: { label: "x", freeBytes: 2048, totalBytes: 4096, thresholdBytes: 1024 }, writers: [], warnings: [] }).split("\n").length, 1, "a result without floors, unmanaged or unknown still renders");
+});
+
+test("writerCoversPath: an ancestor or equal path covers, a sibling does not, `*` stays inside one segment", () => {
+  const w = (p) => ({ id: "w", platform: "mac", path: p });
+  const mac = { platform: "darwin" };
+  assert.equal(writerCoversPath(w("/Volumes/D/agent-cache"), "/Volumes/D/agent-cache/tmp", mac), true, "ancestor");
+  assert.equal(writerCoversPath(w("/Volumes/D/agent-cache"), "/Volumes/D/agent-cache", mac), true, "equal");
+  assert.equal(writerCoversPath(w("/Volumes/D/agent-cache/tmp"), "/Volumes/D/agent-cache", mac), false, "a descendant does not cover its ancestor");
+  assert.equal(writerCoversPath(w("/Volumes/D/agent-cache"), "/Volumes/D/agent-cachex/tmp", mac), false, "sibling with a shared prefix");
+  assert.equal(writerCoversPath(w("/Volumes/D/*/tmp"), "/Volumes/D/a/tmp/x", mac), true);
+  assert.equal(writerCoversPath(w("/Volumes/D/*/tmp"), "/Volumes/D/a/b/tmp", mac), false, "`*` is one segment");
+  assert.equal(writerCoversPath(w("/Volumes/D/scratch/legion*"), "/Volumes/D/scratch/legion-1/x", mac), true);
+  assert.equal(writerCoversPath(w("/Volumes/D/scratch/legion*"), "/Volumes/D/scratch/rk-1", mac), false);
+  assert.equal(writerCoversPath(w("/Volumes/D/Claude"), "/Volumes/D/claude/x", mac), false, "mac is case-sensitive");
+  assert.equal(writerCoversPath(w("D:\\Agent-Cache"), "d:\\agent-cache\\TMP", { platform: "win32" }), true, "windows is case-insensitive and accepts both separators");
+  assert.equal(writerCoversPath(w("${TEMP}"), "/anything/at/all", mac), false, "an unset variable proves nothing");
+  assert.equal(writerCoversPath(w("${TEMP}"), "/tmp/x", { ...mac, env: { TEMP: "/tmp" } }), true, "a set variable is expanded");
+  assert.equal(writerCoversPath(w("~/Library/Caches/pnpm"), "/Users/a/Library/Caches/pnpm/v3", { ...mac, home: "/Users/a" }), true, "~ expands against the given home");
+  assert.equal(writerCoversPath(w("~/Library/Caches/pnpm"), "/Users/b/Library/Caches/pnpm/v3", { ...mac, home: "/Users/a" }), false);
+});
+
+test("writerTouchesPath: a writer below the entry accounts for it as well", () => {
+  const w = (p) => ({ id: "w", platform: "mac", path: p });
+  const mac = { platform: "darwin" };
+  assert.equal(writerTouchesPath(w("/Volumes/D/.rightkit-managed/runs"), "/Volumes/D/.rightkit-managed", mac), true);
+  assert.equal(writerCoversPath(w("/Volumes/D/.rightkit-managed/runs"), "/Volumes/D/.rightkit-managed", mac), false);
+  assert.equal(writerTouchesPath(w("/Volumes/D/*-DELETE-ME"), "/Volumes/D/x-DELETE-ME", mac), true);
+  assert.equal(writerTouchesPath(w("/Volumes/D/.rightkit-managed/runs"), "/Volumes/D/other", mac), false);
 });
