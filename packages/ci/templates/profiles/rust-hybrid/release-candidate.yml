@@ -40,8 +40,8 @@ jobs:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: exit 1
-  admission:
-    needs: [private-repo-guard]
+${CHECK_JOB}  admission:
+    needs: [private-repo-guard, check]
     # Ownership approval supports only macOS and Windows; Linux fails "unsupported platform: linux".
     runs-on: macos-15
     permissions:

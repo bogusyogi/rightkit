@@ -16,6 +16,7 @@ import {
   generateAdoption,
   generateLocal,
 } from "../../scripts/generate-index.mjs";
+import { PORT_MATRIX_OUTPUTS, generatePortMatrix } from "../../scripts/generate-port-matrix.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_REPO_ROOT = resolve(HERE, "..", "..");
@@ -781,6 +782,16 @@ function checkGenerated({ repoRoot, appsRoot, apps, findings }) {
   for (const rel of driftOf(repoRoot, adoption)) {
     findings.push(issue("generated", rel, "generated-doc-drift", "committed adoption report differs from the app repos; run generate-index.mjs"));
   }
+  // The port matrix reads the app repos like the adoption report. Its stamp, app directories and HEADs, and per-app check counts
+  // are carried over from the committed docs/port-matrix.json, so only a change in the data itself reads as drift.
+  try {
+    const matrix = generatePortMatrix({ root: repoRoot, workspace: appsRoot, carry: true });
+    for (const rel of driftOf(repoRoot, matrix.outputs)) {
+      findings.push(issue("generated", rel, "generated-doc-drift", "committed port matrix differs from the app repos; run generate-index.mjs"));
+    }
+  } catch (error) {
+    findings.push(issue("generated", PORT_MATRIX_OUTPUTS[2], "generated-doc-drift", `the port matrix could not be regenerated: ${error.message}`));
+  }
   return { local, adoption: Object.values(adoption)[0] };
 }
 
@@ -842,7 +853,7 @@ export async function runInventoryCheck(options = {}) {
       account: { crates: account.crates, npm: account.npm },
       thirdParty: { declarations: thirdParty.declarations, uniquePackages: thirdParty.uniquePackages, lockDuplicates: thirdParty.lockDuplicates },
       apps: { rows: appRows },
-      generated: { checked: ["INDEX.md", "docs/CAPABILITY-MAP.md", "docs/ADOPTION.md"] },
+      generated: { checked: ["INDEX.md", "docs/CAPABILITY-MAP.md", "docs/ADOPTION.md", ...PORT_MATRIX_OUTPUTS] },
       hygiene: { checked: records.length },
     },
   };
