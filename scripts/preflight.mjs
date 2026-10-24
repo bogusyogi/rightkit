@@ -33,8 +33,8 @@
 //   qa-dev-server    G18  a package.json qa* script that runs `tauri dev` (QA would test the dev server, not the app)
 //   ffmpeg-release-escape G19 `allow_in_release_builds` in non-test Rust outside crates/rightkit-ffmpeg
 //   switches-inventory G20 a right-release.config.mjs directory without a switches.json (or its releaseSwitches.inventory)
-//   speech-link      G21  `import Speech` in RightKitSwift's RightKitSpeech, RightKitAudio or RightKitArtifacts sources or in
-//                         RightKitSpeechTests: it links Speech.framework into every app that takes RightKitSpeech
+//   speech-link      G21  `import Speech` anywhere under swift/RightKitSwift/Sources or Tests (Apple Speech is removed, rightkit#978;
+//                         the LinkProbes control fixture is the one sanctioned import)
 //
 // Ratchet: ci/app-check-baseline.json (this checkout's) lists, per repository key (lowercased --repo basename; "rightkit" for
 // this one), the identities `${rule}|${file}|${subject}` (no line numbers) of findings that exist today. A listed finding prints
@@ -623,11 +623,12 @@ function switchesInventory({ root, files }) {
   return out;
 }
 
-// G21: Speech.framework must stay out of RightKitSpeech's dependency closure. swiftc writes the framework into the object file of
-// every module that imports it, so one `import Speech` there links it into every app that takes RightKitSpeech (HeardRight's App
-// Store policy). Apple Speech lives in RightKitAppleSpeech. The link probe (swift/RightKitSwift/LinkProbes/SpeechNoApple) is the
-// proof; this is the seconds-fast early signal.
-const SPEECH_FREE = /^swift\/RightKitSwift\/(?:Sources\/(?:RightKitSpeech|RightKitAudio|RightKitArtifacts)|Tests\/RightKitSpeechTests)\/.+\.swift$/;
+// G21: Speech.framework must stay out of RightKitSwift entirely (rightkit#978: Apple Speech is removed; Parakeet and Whisper are the
+// only engines). swiftc writes the framework into the object file of every module that imports it, so one `import Speech` in any
+// RightKitSwift source or test links it into the apps that take that module (HeardRight's App Store policy). The link probe
+// (swift/RightKitSwift/LinkProbes/SpeechNoApple, exempt here: its SpeechControl target is the one sanctioned import) is the proof;
+// this is the seconds-fast early signal.
+const SPEECH_FREE = /^swift\/RightKitSwift\/(?:Sources|Tests)\/.+\.swift$/;
 const IMPORT_SPEECH = /^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*(?:(?:public|internal|package|private|fileprivate|open)[ \t]+)?import[ \t]+(?:(?:struct|class|enum|protocol|typealias|func|var|let)[ \t]+)?Speech\b/m;
 function speechLink({ root, files }) {
   const out = [];
@@ -635,7 +636,7 @@ function speechLink({ root, files }) {
     const text = readText(root, file);
     if (text === null) continue;
     const hit = IMPORT_SPEECH.exec(blankComments(text));
-    if (hit) out.push({ file, subject: file, problem: `${file}:${lineOf(text, hit.index)} imports Speech: it would link Speech.framework into every app that uses RightKitSpeech`, fix: "move the code into swift/RightKitSwift/Sources/RightKitAppleSpeech (and its tests into Tests/RightKitAppleSpeechTests)" });
+    if (hit) out.push({ file, subject: file, problem: `${file}:${lineOf(text, hit.index)} imports Speech: RightKitSwift must not link Speech.framework (Apple Speech was removed, rightkit#978)`, fix: "delete the import; Parakeet and Whisper are the only speech engines" });
   }
   return out;
 }

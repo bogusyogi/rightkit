@@ -372,15 +372,15 @@ test("G20 switches-inventory: a release config directory needs switches.json or 
   assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.mjs:2 has no switches inventory \(missing\/nope\.json does not exist\)/);
 });
 
-test("G21 speech-link: import Speech is refused in the Speech-free targets and allowed in RightKitAppleSpeech", (t) => {
+test("G21 speech-link: import Speech is refused anywhere under RightKitSwift Sources and Tests, allowed only in the LinkProbes control", (t) => {
   const base = "swift/RightKitSwift";
   const failures = run("speech-link", t, {
     [`${base}/Sources/RightKitSpeech/A.swift`]: "import Foundation\nimport Speech\n",
     [`${base}/Sources/RightKitAudio/B.swift`]: "@preconcurrency import Speech\n",
     [`${base}/Tests/RightKitSpeechTests/C.swift`]: "import struct Speech.SFSpeechRecognizer\n",
     [`${base}/Sources/RightKitArtifacts/D.swift`]: "// import Speech\nimport RightKitSpeech\n",
-    [`${base}/Sources/RightKitAppleSpeech/E.swift`]: "import Speech\n",
-    [`${base}/Tests/RightKitAppleSpeechTests/F.swift`]: "import Speech\n",
+    [`${base}/LinkProbes/SpeechNoApple/Sources/SpeechControl/E.swift`]: "import Speech\n",
+    [`${base}/Sources/RightKitTTS/F.swift`]: "import Speech\n",
     [`${base}/Sources/RightKitSpeech/G.swift`]: "public import Speech\n",
     [`${base}/Sources/RightKitAudio/H.swift`]: "internal import Speech\n",
     [`${base}/Sources/RightKitArtifacts/I.swift`]: "package import Speech\n",
@@ -390,7 +390,7 @@ test("G21 speech-link: import Speech is refused in the Speech-free targets and a
     [`${base}/Sources/RightKitSpeech/M.swift`]: "@_implementationOnly import Speech\n",
     [`${base}/Sources/RightKitAudio/N.swift`]: "@_spi(Internal) import Speech\n",
     [`${base}/Sources/RightKitArtifacts/O.swift`]: "open import Speech\n",
-    [`${base}/Sources/RightKitAppleSpeech/P.swift`]: "public import Speech\n",
+    [`${base}/Tests/RightKitTTSTests/P.swift`]: "public import Speech\n",
   });
   assert.deepEqual(failures.map((f) => f.file).sort(), [
     `${base}/Sources/RightKitArtifacts/I.swift`,
@@ -400,11 +400,13 @@ test("G21 speech-link: import Speech is refused in the Speech-free targets and a
     `${base}/Sources/RightKitAudio/N.swift`,
     `${base}/Sources/RightKitSpeech/A.swift`,
     `${base}/Sources/RightKitSpeech/G.swift`,
+    `${base}/Sources/RightKitTTS/F.swift`,
     `${base}/Sources/RightKitSpeech/J.swift`,
     `${base}/Sources/RightKitSpeech/K.swift`,
     `${base}/Sources/RightKitSpeech/M.swift`,
     `${base}/Tests/RightKitSpeechTests/C.swift`,
     `${base}/Tests/RightKitSpeechTests/L.swift`,
+    `${base}/Tests/RightKitTTSTests/P.swift`,
   ].sort());
   assert.match(failures.find((f) => f.file.endsWith("A.swift")).problem, /A\.swift:2 imports Speech/);
 });

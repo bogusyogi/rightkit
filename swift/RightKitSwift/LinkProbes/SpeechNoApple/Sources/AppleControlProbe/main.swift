@@ -1,7 +1,4 @@
-import Foundation
-import RightKitAppleSpeech
 import RightKitSpeech
+import SpeechControl
 
-var selector = SpeechEngineSelector()
-selector.registerAppleSpeech()
-print(String(describing: type(of: try selector.resolve(.apple))))
+print(SpeechControl.recognizerAvailable(), String(describing: SpeechEngineKind.allCases))

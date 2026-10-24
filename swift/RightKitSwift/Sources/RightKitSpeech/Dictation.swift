@@ -1,8 +1,7 @@
 #if !os(watchOS) // RightKitSpeech is iOS/macOS; the watch recorder is RightKitAudio
 import Foundation
 
-/// Pure composer-dictation rules (CodeRight `Dictation`). Audio capture lives in
-/// `LiveDictationSession` (RightKitAppleSpeech).
+/// Pure composer-dictation rules (CodeRight `Dictation`). Audio capture and recognition belong to the host.
 public enum Dictation {
     private static let maximumPreferredLanguages = 3
 

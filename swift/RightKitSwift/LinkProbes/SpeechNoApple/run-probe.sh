@@ -4,7 +4,7 @@
 #   SpeechNoAppleProbe  must have no Speech.framework load command, no LC_LINKER_OPTION naming Speech in any object file of
 #                       the speech-free modules (RightKitSpeech, RightKitAudio, RightKitArtifacts), and no SFSpeech /
 #                       SpeechAnalyzer / SpeechTranscriber / AssetInventory / $s6Speech symbol.
-#   Positive controls   AppleControlProbe must load Speech.framework and carry SFSpeech symbols; the RightKitAppleSpeech
+#   Positive controls   AppleControlProbe must load Speech.framework and carry SFSpeech symbols; the fixture-local SpeechControl
 #                       object files must name Speech. A control that finds nothing means the scanner is blind: fail.
 set -euo pipefail
 platform="${1:?usage: run-probe.sh macos|ios}"
@@ -78,13 +78,13 @@ if [ -n "$syms" ]; then echo "FAIL: Speech symbols in SpeechNoAppleProbe:"; echo
 
 # Positive controls.
 if ! loads_speech "$control"; then echo "FAIL: control AppleControlProbe does not load Speech.framework (the scan is blind)"; fail=1; fi
-if [ "$(count_objects "$objects" RightKitAppleSpeech)" -eq 0 ]; then
-  echo "FAIL: object control matched zero RightKitAppleSpeech object files under $objects (the scan is blind)"; fail=1
-elif [ -z "$(speech_objects "$objects" RightKitAppleSpeech)" ]; then
-  echo "FAIL: object control: no RightKitAppleSpeech object names Speech (the scan is blind)"; fail=1
+if [ "$(count_objects "$objects" SpeechControl)" -eq 0 ]; then
+  echo "FAIL: object control matched zero SpeechControl object files under $objects (the scan is blind)"; fail=1
+elif [ -z "$(speech_objects "$objects" SpeechControl)" ]; then
+  echo "FAIL: object control: no SpeechControl object names Speech (the scan is blind)"; fail=1
 fi
 sf="$(nm -m "$control" 2>/dev/null | grep 'SFSpeech' || true)"
 if [ -z "$sf" ]; then echo "FAIL: symbol control: AppleControlProbe has no SFSpeech symbol (the scan is blind)"; fail=1; fi
 
-[ "$fail" -eq 0 ] && echo "link probe ($platform): SpeechNoAppleProbe has no Speech; controls: AppleControlProbe has Speech.framework and SFSpeech symbols, RightKitAppleSpeech objects name Speech"
+[ "$fail" -eq 0 ] && echo "link probe ($platform): SpeechNoAppleProbe has no Speech; controls: AppleControlProbe has Speech.framework and SFSpeech symbols, SpeechControl objects name Speech"
 exit "$fail"
