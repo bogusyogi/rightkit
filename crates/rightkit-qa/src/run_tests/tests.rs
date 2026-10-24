@@ -286,6 +286,13 @@ mod runs {
         assert_eq!(o.receipt.schema, RECEIPT_SCHEMA);
         assert_eq!(o.receipt.app, "fx");
         assert_eq!(o.receipt.compile.source, "listing");
+        // Default settings, pinned as literals: the receipt of a run that names none records 2 binaries
+        // at a time and the documented deadlines.
+        let recorded = &o.receipt.settings;
+        assert_eq!(recorded.parallel, 2);
+        assert_eq!(recorded.binary_timeout_s, 1800);
+        assert_eq!(recorded.total_timeout_s, 7200);
+        assert_eq!(recorded.compile_timeout_s, 2700);
         assert_eq!(o.receipt.compile.test_binaries, 2);
         assert_eq!(o.receipt.compile.build_finished, Some(true));
         assert!(o.receipt.compile.listing_sha256.is_some());

@@ -468,6 +468,31 @@ mod tests {
     }
 
     #[test]
+    fn the_documented_defaults_hold_with_no_flag_and_no_config() {
+        // Literals, not the `RunTestsConfig::DEFAULT_*` constants: this pins what docs/run-tests.md
+        // promises (2 binaries at a time, 1800 s per binary, 7200 s in all, 2700 s to compile), so a
+        // changed constant fails here and the docs have to change with it.
+        let root = temp_root("pinned-defaults");
+        let mut cli = parse(&argv("-p fx")).unwrap();
+        cli.root = Some(root.clone());
+        cli.app = Some("fx".into());
+        let o = options(&cli, &no_env).unwrap();
+        assert!(o.config_path.is_none());
+        assert_eq!(o.settings.parallel, 2);
+        assert_eq!(o.settings.binary_timeout, Duration::from_secs(1800));
+        assert_eq!(o.settings.total_timeout, Duration::from_secs(7200));
+        assert_eq!(o.settings.compile_timeout, Duration::from_secs(2700));
+        assert_eq!(o.settings.cwd, CwdMode::Package);
+        assert_eq!(
+            o.settings.unset_env,
+            ["RIGHTKIT_FORWARD_ENV", "RUSTC_WRAPPER"]
+        );
+        assert!(!o.settings.isolate_tmp && !o.settings.deny_ignored && !o.settings.allow_empty);
+        assert!(!o.settings.require_broker);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn the_app_key_is_required_and_comes_from_a_flag_the_config_or_journeys_toml() {
         let root = temp_root("app");
         let mut cli = Cli {

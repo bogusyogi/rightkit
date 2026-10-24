@@ -199,6 +199,11 @@ fn a_passing_test_target_exits_zero_with_a_receipt_and_one_summary_line() {
     assert!(r.verdict.passed && r.verdict.exit_code == 0);
     assert_eq!(r.compile.source, "cargo");
     assert!(!r.compile.managed);
+    // No --parallel, no timeout flag and no config file: the receipt records the documented defaults.
+    assert_eq!(r.settings.parallel, 2);
+    assert_eq!(r.settings.binary_timeout_s, 1800);
+    assert_eq!(r.settings.total_timeout_s, 7200);
+    assert!(r.settings.config.is_none());
     assert_eq!(r.compile.exit, Some(0));
     assert_eq!(r.compile.build_finished, Some(true));
     assert_eq!(r.binaries.len(), 1);
