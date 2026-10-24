@@ -2801,9 +2801,10 @@ mod tests {
     const REQ: &str = "096d6843-aaaa-4bbb-8ccc-0123456789ab";
 
     fn tmp(tag: &str) -> PathBuf {
+        // Canonical: managed paths refuse a symlinked component, and macOS `temp_dir` is under `/var`, a symlink.
         let d = std::env::temp_dir().join(format!("rkqa-run-{tag}-{}", new_id()));
         std::fs::create_dir_all(&d).unwrap();
-        d
+        std::fs::canonicalize(d).unwrap()
     }
 
     fn argv(s: &str) -> Vec<String> {
