@@ -32,9 +32,10 @@ test("lockPathPackages keeps path packages and drops registry ones", () => {
 test("consumer-locks refuses a consumer lock behind its path crate and ignores ungated locks", (t) => {
   const crate = '[package]\nname = "rightkit-a"\nversion = "0.6.1"\n';
   const stale = '[[package]]\nname = "rightkit-a"\nversion = "0.6.0"\n';
-  const failures = run("consumer-locks", t, { "crates/rightkit-a/Cargo.toml": crate, "ci/consumers/wv2/Cargo.lock": stale, "spikes/old/Cargo.lock": stale });
-  assert.equal(failures.length, 1);
+  const failures = run("consumer-locks", t, { "crates/rightkit-a/Cargo.toml": crate, "ci/consumers/wv2/Cargo.lock": stale, "spikes/old/Cargo.lock": stale, "desktop-app-template/Cargo.lock": stale });
+  assert.equal(failures.length, 2, "the template is gated (rightkit-gate builds it --locked); the spike is not");
   assert.match(failures[0].problem, /^ci\/consumers\/wv2\/Cargo\.lock lists rightkit-a 0\.6\.0 but crates\/rightkit-a\/Cargo\.toml is 0\.6\.1/);
+  assert.match(failures[1].problem, /^desktop-app-template\/Cargo\.lock lists rightkit-a 0\.6\.0/);
   assert.match(failures[0].fix, /version = "0\.6\.1"/);
 });
 
@@ -331,6 +332,35 @@ test("G16 release-config: the nearest workspace Cargo.toml decides, up to the re
   assert.deepEqual(run("release-config", t, { "apps/x/right-release.config.mjs": config, "engine/Cargo.toml": "[workspace]\n[profile.p1]\n" }), [], "no manifest on the way up: any manifest's profile counts");
 });
 
+test("G16 release-config: the JSON config (M24) is read too: provider, updater keyFile, recipe and argv profiles, invalid JSON", (t) => {
+  const bad = JSON.stringify({
+    schema: 1,
+    app: "x",
+    distribution: { provider: "r2" },
+    targets: {
+      win: { winPackage: { profile: "release-iterate" }, updater: { artifacts: [], keyFile: "keys/updater.key" } },
+      mac: { macPackage: { profile: "defined-here" } },
+    },
+    development: { targets: { win: { build: [{ cmd: "pnpm", args: ["exec", "tauri", "build", "--", "--profile", "fast-dev"] }] } } },
+    legal: { provider: "not-a-distribution-provider" },
+  }, null, 2);
+  const failures = run("release-config", t, {
+    "app/right-release.config.json": bad,
+    "app/Cargo.toml": '[workspace]\n[profile.defined-here]\ninherits = "dev"\n',
+    "good/right-release.config.json": JSON.stringify({ schema: 1, app: "g", distribution: { provider: "github-releases" }, targets: { win: { updater: { artifacts: [] } } } }),
+    "broken/right-release.config.json": '{ "schema": 1, // comment\n}\n',
+  });
+  assert.deepEqual(identities(failures), [
+    "release-config|app/right-release.config.json|keyFile:\"keys/updater.key\"",
+    "release-config|app/right-release.config.json|profile:fast-dev",
+    "release-config|app/right-release.config.json|profile:release-iterate",
+    "release-config|app/right-release.config.json|provider:r2",
+    "release-config|broken/right-release.config.json|json:invalid",
+  ]);
+  assert.match(failures.find((f) => f.subject === "provider:r2").problem, /^app\/right-release\.config\.json:5 distribution provider "r2"/);
+  assert.match(failures.find((f) => f.subject === "profile:release-iterate").problem, /^app\/right-release\.config\.json:10 Cargo profile "release-iterate"/);
+});
+
 test("G17 skip-checks and G18 qa-dev-server read package.json scripts", (t) => {
   const files = {
     "package.json": JSON.stringify({ scripts: { release: "right-release build --skip-checks", ok: "right-release build", other: "node x.mjs --skip-checks", qa: "tauri dev", "qa:e2e": "pnpm exec tauri dev --features qa", dev: "tauri dev", "qa-build": "tauri build --debug" } }),
@@ -370,6 +400,19 @@ test("G20 switches-inventory: a release config directory needs switches.json or 
   });
   assert.deepEqual(identities(failures), ["switches-inventory|missing/right-release.config.mjs|missing", "switches-inventory|right-release.config.mjs|."]);
   assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.mjs:2 has no switches inventory \(missing\/nope\.json does not exist\)/);
+});
+
+test("G20 switches-inventory: a JSON release config (M24) needs switches.json or its releaseSwitches.inventory too", (t) => {
+  const failures = run("switches-inventory", t, {
+    "right-release.config.json": '{ "schema": 1, "app": "a" }\n',
+    "app/right-release.config.json": '{ "schema": 1, "app": "b" }\n',
+    "app/switches.json": "{}\n",
+    "other/right-release.config.json": '{ "schema": 1, "app": "c", "releaseSwitches": { "inventory": "config/inv.json" } }\n',
+    "other/config/inv.json": "{}\n",
+    "missing/right-release.config.json": '{\n  "schema": 1,\n  "app": "d",\n  "releaseSwitches": { "inventory": "nope.json" }\n}\n',
+  });
+  assert.deepEqual(identities(failures), ["switches-inventory|missing/right-release.config.json|missing", "switches-inventory|right-release.config.json|."]);
+  assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.json:4 has no switches inventory \(missing\/nope\.json does not exist\)/);
 });
 
 test("G21 speech-link: import Speech is refused anywhere under RightKitSwift Sources and Tests, allowed only in the LinkProbes control", (t) => {

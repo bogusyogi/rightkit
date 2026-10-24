@@ -28,11 +28,12 @@
 //   qa-platform      G13  a Rust `"platform:<x>"` requirement that is not darwin or windows, the words rightkit-qa emits (it skips forever)
 //   test-harness     G14  a Cargo.toml [[test]] whose file defines `fn main(` but lacks `harness = false` (libtest ignores it: 0 tests)
 //   scenario-skip    G15  a `.scenario(` test that prints SKIP and returns: a skip that reports green
-//   release-config   G16  right-release.config.mjs: a provider publish-update.mjs refuses, an updater keyFile, an undefined Cargo profile
+//   release-config   G16  right-release.config.json (or a legacy .mjs): a provider publish-update.mjs refuses, an updater keyFile, an
+//                         undefined Cargo profile, JSON right-release cannot load
 //   skip-checks      G17  a package.json script that runs right-release with --skip-checks
 //   qa-dev-server    G18  a package.json qa* script that runs `tauri dev` (QA would test the dev server, not the app)
 //   ffmpeg-release-escape G19 `allow_in_release_builds` in non-test Rust outside crates/rightkit-ffmpeg
-//   switches-inventory G20 a right-release.config.mjs directory without a switches.json (or its releaseSwitches.inventory)
+//   switches-inventory G20 a right-release.config.json (or .mjs) directory without a switches.json (or its releaseSwitches.inventory)
 //   speech-link      G21  `import Speech` anywhere under swift/RightKitSwift/Sources or Tests (Apple Speech is removed, rightkit#978;
 //                         the LinkProbes control fixture is the one sanctioned import)
 //
@@ -294,9 +295,10 @@ function dispatchPins({ root }) {
   return out;
 }
 
-// The locks a gate builds with --locked. desktop-app-template, the spikes and the crates' example apps are built by no gate
-// (scripts/ci/gate.mjs "Not covered by this gate") and keep whatever versions they were last locked at.
-const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock)$/;
+// The locks a gate builds with --locked: the root, the consumers and desktop-app-template (its own workspace, discovered by
+// rightkit-gate). The spikes and the crates' example apps are built by no gate (scripts/ci/gate.mjs "Not covered by this gate")
+// and keep whatever versions they were last locked at.
+const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock|desktop-app-template\/Cargo\.lock)$/;
 
 function consumerLocks({ root, files }) {
   const crates = workspaceCrates(root);
@@ -425,7 +427,17 @@ const lineOf = (text, offset) => text.slice(0, offset).split("\n").length;
 /** `text` with every whole-line `//` comment blanked, offsets and line numbers kept (a URL inside a string is untouched). */
 const blankComments = (text) => text.replace(/^[ \t]*\/\/.*$/gm, (m) => " ".repeat(m.length));
 const rustFiles = (files) => files.filter((f) => f.endsWith(".rs") && scanned(f));
-const configFiles = (files) => files.filter((f) => /(^|\/)right-release\.config\.mjs$/.test(f) && scanned(f));
+// The release config: the data config (right-release.config.json, M24) or a legacy module (right-release.config.mjs) not yet moved.
+const configFiles = (files) => files.filter((f) => /(^|\/)right-release\.config\.(?:mjs|json)$/.test(f) && scanned(f));
+const isJsonConfig = (file) => file.endsWith(".json");
+/** Every `[key, value, parentKey]` of a parsed JSON value, depth first (the walk the JSON release config rules read). */
+function* jsonEntries(node, parentKey = null) {
+  if (Array.isArray(node)) { for (const item of node) yield* jsonEntries(item, parentKey); return; }
+  if (!node || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(node)) { yield [key, value, parentKey]; yield* jsonEntries(value, key); }
+}
+/** The offset of the first `"key"` in JSON text that is followed by `:` (a key, not a string value), else 0. */
+const jsonKeyOffset = (text, key) => Math.max(0, text.search(new RegExp(`"${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\s*:`)));
 const dirOf = (file) => path.posix.dirname(file);
 
 // G13: rightkit-qa's util::platform() emits "darwin" or "windows"; a requirement spelled any other way never matches, so the
@@ -541,19 +553,33 @@ function releaseConfig({ root, files }) {
   for (const file of configFiles(files)) {
     const raw = readText(root, file);
     if (raw === null) continue;
-    const text = blankComments(raw);
+    const text = isJsonConfig(file) ? raw : blankComments(raw);
     const add = (kind, value, offset, why, fix) => out.push({ file, subject: `${kind}:${value}`, problem: `${file}:${lineOf(text, offset)} ${why}`, fix });
-    for (const m of text.matchAll(/\bprovider\s*:\s*(["'`])([^"'`]+)\1/g)) {
-      if (!RELEASE_PROVIDERS.has(m[2])) add("provider", m[2], m.index, `distribution provider "${m[2]}" is refused by packages/release/publish-update.mjs (it takes r2-rightapps or github-releases)`, 'set provider: "r2-rightapps" (private) or "github-releases" (public)');
+    const badProvider = (provider, offset) => add("provider", provider, offset, `distribution provider "${provider}" is refused by packages/release/publish-update.mjs (it takes r2-rightapps or github-releases)`, 'set provider: "r2-rightapps" (private) or "github-releases" (public)');
+    const keyFile = (value, offset) => add("keyFile", value.slice(0, 60), offset, "updater keyFile: sign-updater.mjs refuses --key-file; updater keys come from the OS credential provider", "remove keyFile; the updater key is read from the credential store");
+    const profiles = [];
+    if (isJsonConfig(file)) {
+      let config;
+      try { config = JSON.parse(raw.replace(/^\uFEFF/, "")); } catch (error) {
+        add("json", "invalid", 0, `is not valid JSON (${error.message}): right-release refuses to load it`, "fix the JSON; the release config is strict JSON (no comments or trailing commas)");
+        continue;
+      }
+      for (const [key, value, parent] of jsonEntries(config)) {
+        if (key === "provider" && parent === "distribution" && typeof value === "string" && !RELEASE_PROVIDERS.has(value)) badProvider(value, text.indexOf(JSON.stringify(value)));
+        if (key === "keyFile" && parent === "updater") keyFile(JSON.stringify(value), jsonKeyOffset(text, "keyFile"));
+        if (key === "profile" && (parent === "winPackage" || parent === "macPackage") && typeof value === "string") profiles.push([value, text.indexOf(JSON.stringify(value))]);
+      }
+    } else {
+      for (const m of text.matchAll(/\bprovider\s*:\s*(["'`])([^"'`]+)\1/g)) if (!RELEASE_PROVIDERS.has(m[2])) badProvider(m[2], m.index);
+      for (const m of text.matchAll(/\bupdater\s*:\s*\{/g)) {
+        const block = braceBlock(text, m.index + m[0].length - 1);
+        const key = /\bkeyFile\s*:\s*([^,\n}]+)/.exec(block);
+        if (key) keyFile(key[1].trim(), m.index + key.index);
+      }
     }
-    for (const m of text.matchAll(/\bupdater\s*:\s*\{/g)) {
-      const block = braceBlock(text, m.index + m[0].length - 1);
-      const key = /\bkeyFile\s*:\s*([^,\n}]+)/.exec(block);
-      if (key) add("keyFile", key[1].trim().slice(0, 60), m.index + key.index, "updater keyFile: sign-updater.mjs refuses --key-file; updater keys come from the OS credential provider", "remove keyFile; the updater key is read from the credential store");
-    }
-    const profiles = [...text.matchAll(/(["'])--profile\1\s*,\s*(["'])([^"']+)\2/g)].map((m) => [m[3], m.index])
+    profiles.push(...[...text.matchAll(/(["'])--profile\1\s*,\s*(["'])([^"']+)\2/g)].map((m) => [m[3], m.index])
       .concat([...text.matchAll(/(["'])--profile=([^"']+)\1/g)].map((m) => [m[2], m.index]))
-      .concat([...text.matchAll(/\bPROFILE\s*(?:\?\?|\|\|)\s*(["'])([^"']+)\1/g)].map((m) => [m[2], m.index]));
+      .concat([...text.matchAll(/\bPROFILE\s*(?:\?\?|\|\|)\s*(["'])([^"']+)\1/g)].map((m) => [m[2], m.index])));
     if (profiles.length) {
       const defined = profilesFor(root, files, dirOf(file));
       for (const [name, offset] of profiles) {
@@ -612,10 +638,20 @@ function switchesInventory({ root, files }) {
   for (const file of configFiles(files)) {
     const raw = readText(root, file);
     if (raw === null) continue;
-    const text = blankComments(raw);
+    const text = isJsonConfig(file) ? raw : blankComments(raw);
     const dir = dirOf(file);
-    const block = /\breleaseSwitches\s*:\s*\{/.exec(text);
-    const named = block ? /\binventory\s*:\s*(["'`])([^"'`]+)\1/.exec(braceBlock(text, block.index + block[0].length - 1))?.[2] : undefined;
+    let block;
+    let named;
+    if (isJsonConfig(file)) {
+      let config;
+      try { config = JSON.parse(raw.replace(/^\uFEFF/, "")); } catch { config = null; }
+      const switches = config?.releaseSwitches;
+      if (switches && typeof switches === "object") block = { index: jsonKeyOffset(text, "releaseSwitches") };
+      if (typeof switches?.inventory === "string") named = switches.inventory;
+    } else {
+      block = /\breleaseSwitches\s*:\s*\{/.exec(text);
+      named = block ? /\binventory\s*:\s*(["'`])([^"'`]+)\1/.exec(braceBlock(text, block.index + block[0].length - 1))?.[2] : undefined;
+    }
     const inventory = path.posix.normalize(path.posix.join(dir, named ?? "switches.json"));
     if (fs.existsSync(path.join(root, inventory))) continue;
     out.push({ file, subject: dir, problem: `${file}:${block ? lineOf(text, block.index) : 1} has no switches inventory (${inventory} does not exist)`, fix: named ? `commit ${inventory} or point releaseSwitches.inventory at the app's inventory` : `add ${path.posix.join(dir, "switches.json")} listing the app's QA and dev switches (see packages/release/fixtures/release-switches/app/switches.json)` });
