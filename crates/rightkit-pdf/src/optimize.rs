@@ -19,7 +19,7 @@
 //! 3. **Removes unused objects** (anything not reachable from the trailer) and Flate-compresses
 //!    other uncompressed streams.
 //!
-//! # When it refuses to resample (always reported in [`OptimizeReport::skipped`])
+//! # When it refuses to resample (always reported in [`ImageReport::skipped`])
 //!
 //! The image's resolution is *unknown* ([`SkipReason::NotMeasurable`]) when any of these holds, and
 //! it is then left byte for byte as it was:

@@ -14,7 +14,7 @@
 //! Divergence from ScrapeRight: each observation's `boundingBox` and top
 //! candidate `confidence` are carried out as [`OcrLine`] instead of being
 //! discarded in favour of newline-joined text. Vision's rect is normalized with
-//! a **lower-left** origin; [`to_top_left`] flips it into ViewRight's top-left
+//! a **lower-left** origin; `to_top_left` flips it into ViewRight's top-left
 //! convention.
 
 use std::borrow::Cow;
@@ -89,7 +89,7 @@ pub(crate) enum HealthCheck {
 /// Recognize text in an RGB image via Apple Vision.
 ///
 /// An empty result is disambiguated before it is returned as success — see
-/// [`vision_health`]. Vision reports "I could not run" and "this image has
+/// `vision_health`. Vision reports "I could not run" and "this image has
 /// no text" identically (measured 2026-07-20 in ScrapeRight: a service-starved
 /// Vision and a blank white page BOTH yield `Some(results)` with `count == 0`,
 /// and `performRequests` does not error), so without the self-check a broken

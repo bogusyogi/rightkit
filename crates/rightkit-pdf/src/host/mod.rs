@@ -27,7 +27,7 @@
 //! * The file path is an [`AuthorizedPdfPath`]: the caller proves the app's file broker granted it.
 //!   This module never resolves a page-supplied string.
 //! * The host is read-only: the document is never written; widgets are read-only; link clicks go
-//!   through [`HostHooks::open_link`] (default: refuse); file-launch, script and remote-document
+//!   through `HostHooks::open_link` (default: refuse); file-launch, script and remote-document
 //!   actions are removed from the in-memory annotations.
 //!
 //! # Platforms

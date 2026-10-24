@@ -13,8 +13,8 @@
 //! - [`ApprovedOrigins`], [`check_redirect_target`] and [`RedirectRefusal`]: the redirect origin
 //!   allowlist (`Request::approved_redirect_origins`), its typed error
 //!   ([`HttpError::RedirectRefused`]) and a string-level guard for other transports.
-//! - `async_client` (feature `async`): [`AsyncClient`], the same policy layer on
-//!   reqwest/tokio, with a body [`BodyStream`] and an async [`SseStream`].
+//! - `async_client` (feature `async`): `AsyncClient`, the same policy layer on
+//!   reqwest/tokio, with a body `BodyStream` and an async `SseStream`.
 //! - `testing` (feature): in-process mock server that records exact requests.
 
 #[cfg(feature = "async")]
