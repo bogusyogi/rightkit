@@ -205,10 +205,11 @@ const WORKSPACE_JS_FILE = /^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|
 const ESLINT_FILES = ["eslint.config.js", "eslint.config.mjs", ".eslintrc.json"];
 const ROOT_LINT_FILES = [...ESLINT_FILES, "biome.json"];
 // Everything scripts/generate-index.mjs reads or writes (its header and loadInventory): crate and package manifests and
-// READMEs, the root Cargo.toml (workspace version), the versions and ownership data, the ownership-availability helper it imports, itself, and its outputs.
+// READMEs, the root Cargo.toml (workspace version), the versions and ownership data, the ownership-availability helper it imports, itself,
+// the port matrix generator it imports, and its outputs (the port matrix's MD and HTML are checked for consistency with its JSON).
 // The Right Suite API contract and every projection scripts/gen-suite-api.mjs writes from it (the test-vector copy included).
 const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-suite-api\.mjs|crates\/rightkit-license\/src\/suite_api_generated\.rs|packages\/app-update\/src\/suite-api\.generated\.ts|packages\/release\/suite-api\.generated\.mjs|crates\/rightkit-license\/test-vectors\/right-suite-api\.v1\.json)$/;
-const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-index\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP)\.md)$/;
+const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-(index|port-matrix)\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP|PORT-MATRIX)\.md|docs\/port-matrix\.(html|json))$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
   actionlint: ["-version"], "right-git": ["--version"], swift: ["--version"],

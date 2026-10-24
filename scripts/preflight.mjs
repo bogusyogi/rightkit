@@ -21,8 +21,8 @@
 //   dispatch-pins    G05  the helper digests pinned in scripts/ci/rightkit-dispatch.mjs match the committed helpers
 //   consumer-locks   G08  the root and ci/consumers/** Cargo.lock list each path crate at its crates/<name>/Cargo.toml version
 //                         (cargo --locked refuses a stale one: tauri-shell consumer-0-0, wv2-0_39, 2026-10-23)
-//   generated-docs   G10  scripts/generate-index.mjs --check: INDEX.md and docs/CAPABILITY-MAP.md match the committed sources
-//                         (offline: reads manifests and the version feed only)
+//   generated-docs   G10  scripts/generate-index.mjs --check: INDEX.md and docs/CAPABILITY-MAP.md match the committed sources, and the
+//                         port matrix's MD and HTML are the rendering of its JSON (offline: reads manifests and the version feed only)
 //
 // Ratchet: ci/app-check-baseline.json (this checkout's) lists, per repository key (lowercased --repo basename; "rightkit" for
 // this one), the identities `${rule}|${file}|${subject}` (no line numbers) of findings that exist today. A listed finding prints
@@ -285,7 +285,7 @@ function generatedDocs({ root, files }) {
   const r = spawnSync(process.execPath, [path.join(REPO, "scripts", "generate-index.mjs"), "--check", "--root", root], { encoding: "utf8" });
   if (r.status === 0) return [];
   const drift = `${r.stdout}${r.stderr}`.split("\n").filter((l) => l.startsWith("DRIFT")).map((l) => l.replace(/^DRIFT /, ""));
-  return [{ problem: drift.length ? drift.join("; ") : `scripts/generate-index.mjs --check failed: ${(r.stderr || r.stdout).trim()}`, fix: "node scripts/generate-index.mjs, then commit INDEX.md and docs/CAPABILITY-MAP.md" }];
+  return [{ problem: drift.length ? drift.join("; ") : `scripts/generate-index.mjs --check failed: ${(r.stderr || r.stdout).trim()}`, fix: "node scripts/generate-index.mjs, then commit INDEX.md, docs/CAPABILITY-MAP.md and, for a port matrix drift, docs/PORT-MATRIX.md, docs/port-matrix.html and docs/port-matrix.json" }];
 }
 
 const appRule = (id) => APP_RULES.find((rule) => rule.id === id) ?? (() => { throw new Error(`packages/release/app-check.mjs has no rule ${id}`); })();

@@ -8,6 +8,8 @@ RightKit is the shared library for Right Suite apps. It ships three things:
 
 Current versions and the full crate and package inventory are in [INDEX.md](INDEX.md). It is generated; do not edit it by hand. The table below covers only part of that inventory.
 
+Which package is in which app, and how far each app has ported, is in [docs/PORT-MATRIX.md](docs/PORT-MATRIX.md) (generated with INDEX.md; the same data as a filterable page is [docs/port-matrix.html](docs/port-matrix.html)).
+
 | Package | Runtime | Responsibility |
 |---|---|---|
 | [`@rightkit/ax`](packages/ax) | Node CLI | Agent-experience, plugin, conformance, behavioral, and adversarial gates (`right-ax`) |

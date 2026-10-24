@@ -3,16 +3,24 @@
 //   INDEX.md                crates and npm packages: source, published and staged versions, mismatch flags, owned capabilities
 //   docs/ADOPTION.md        app repos that depend on each package, their pins, and stale or duplicate copies
 //   docs/CAPABILITY-MAP.md  capability -> owner, tier, detection, published availability
+//   docs/PORT-MATRIX.md, docs/port-matrix.html, docs/port-matrix.json
+//                           RightKit packages x apps: class, per-app progress, RK-ready and to-move lists (scripts/generate-port-matrix.mjs)
 // Inputs: crates/*/Cargo.toml, packages/*/package.json, packages/release/rightkit-versions.json,
-// packages/release/rightkit-ownership.json, and the app repos under the workspace root.
-// Run:   node rightkit/scripts/generate-index.mjs           (writes the three files)
-//        node rightkit/scripts/generate-index.mjs --check   (exit 1 when committed files differ)
-// --check-adoption   same comparison for docs/ADOPTION.md, which reads the app repos (not run by the test suite)
-// Test-only options: --root <rightkit dir> --workspace <dir with app repos>
+// packages/release/rightkit-ownership.json, packages/release/ownership-mandatory-set.json, and the app repos under the workspace root.
+// Run:   node rightkit/scripts/generate-index.mjs           (writes the three files and the port matrix)
+//        node rightkit/scripts/generate-index.mjs --check   (exit 1 when committed files differ; the port matrix is checked for
+//                                                            internal consistency only: its MD and HTML must be the rendering of its JSON)
+// --check-adoption   same comparison for docs/ADOPTION.md and the port matrix, which read the app repos (not run by the test suite)
+// Port matrix options: --app-dir <app>=<dir> (repeatable), --with-check (run scripts/preflight.mjs per app), --triage <rows.json>
+// Workspace: --workspace <dir>; without it DEFAULT_WORKSPACE when that exists, else the parent directory of the RightKit root.
+// Test-only options: --root <rightkit dir> --workspace <dir with app repos> --now <iso time>
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ownershipDetection } from "../packages/release/ownership-availability.mjs";
+// generate-port-matrix.mjs imports helpers back from this file. The cycle is safe: both modules use each other's exports only
+// inside functions, never while they are being evaluated.
+import { PORT_MATRIX_OUTPUTS, checkPortMatrixConsistency, generatePortMatrix, parseAppDirArg, printPortMatrixSummary, resolveWorkspace } from "./generate-port-matrix.mjs";
 
 export const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_WORKSPACE = "/Volumes/D/claude";
@@ -24,9 +32,9 @@ export const ADOPTION_OUTPUTS = ["docs/ADOPTION.md"];
 const SKIP_DIRS = new Set(["node_modules", "target", ".cache"]);
 const NPM_SECTIONS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 
-const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+export const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const cell = (text) => String(text ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
-const unquote = (text) => String(text).trim().replace(/^["']|["']$/g, "");
+export const unquote = (text) => String(text).trim().replace(/^["']|["']$/g, "");
 const listOrNone = (items) => (items.length ? items.join(", ") : "none");
 
 // ---------- minimal TOML reader (sections, string/inline-table/array values, dotted keys) ----------
@@ -211,10 +219,10 @@ export function pinStatus(rec, published) {
 
 // ---------- inventory ----------
 
-const versionOf = (value) => (typeof value === "string" ? value : value?.version ?? "");
+export const versionOf = (value) => (typeof value === "string" ? value : value?.version ?? "");
 const STAGED_KEY = { npm: "stagedNpm", cargo: "stagedCargo", swift: "stagedSwift" };
 
-function readJson(file) { return JSON.parse(readFileSync(file, "utf8")); }
+export function readJson(file) { return JSON.parse(readFileSync(file, "utf8")); }
 
 function readmeLine(dir) {
   const file = path.join(dir, "README.md");
@@ -229,7 +237,7 @@ function subdirs(dir) {
 }
 
 
-function loadInventory(root) {
+export function loadInventory(root) {
   const rootWorkspace = existsSync(path.join(root, "Cargo.toml"))
     ? parseToml(readFileSync(path.join(root, "Cargo.toml"), "utf8"))["workspace.package"]?.version ?? "" : "";
   const crates = [];
@@ -269,10 +277,10 @@ function loadInventory(root) {
 }
 
 // Published = registry-recorded, else the release manifest pin. Staged is never published.
-function publishedOf(versions, ecosystem, name) {
+export function publishedOf(versions, ecosystem, name) {
   return versionOf(versions.registry?.[ecosystem]?.[name] ?? versions[ecosystem]?.[name]) || "";
 }
-function stagedOf(versions, ecosystem, name) {
+export function stagedOf(versions, ecosystem, name) {
   return versionOf(versions[STAGED_KEY[ecosystem]]?.[name]) || "";
 }
 
@@ -291,7 +299,7 @@ function versionFlag(pkg, published, staged) {
 
 // ---------- app repo scan ----------
 
-function* manifestsUnder(dir) {
+export function* manifestsUnder(dir) {
   let entries;
   try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
   entries.sort((a, b) => cmp(a.name, b.name));
@@ -304,6 +312,18 @@ function* manifestsUnder(dir) {
       yield path.join(dir, entry.name);
     }
   }
+}
+
+// One manifest's own name and version and its dependency entries; throws when the file does not parse.
+export function readManifestEntries(file) {
+  const ecosystem = path.basename(file) === "Cargo.toml" ? "cargo" : "npm";
+  if (ecosystem === "cargo") {
+    const text = readFileSync(file, "utf8");
+    const pkg = parseToml(text).package;
+    return { ecosystem, ownName: unquote(pkg?.name ?? ""), ownVersion: unquote(pkg?.version ?? ""), entries: cargoDependencies(text) };
+  }
+  const pkg = readJson(file);
+  return { ecosystem, ownName: pkg.name ?? "", ownVersion: pkg.version ?? "", entries: npmDependencies(pkg) };
 }
 
 function scanApps({ workspace, apps, inventory }) {
@@ -320,24 +340,14 @@ function scanApps({ workspace, apps, inventory }) {
     for (const file of manifestsUnder(appDir)) {
       scan.manifests++;
       const rel = path.relative(workspace, file).split(path.sep).join("/");
-      const ecosystem = path.basename(file) === "Cargo.toml" ? "cargo" : "npm";
-      let ownName = "", ownVersion = "", entries = [];
+      let manifest;
       try {
-        if (ecosystem === "cargo") {
-          const text = readFileSync(file, "utf8");
-          ownName = unquote(parseToml(text).package?.name ?? "");
-          ownVersion = unquote(parseToml(text).package?.version ?? "");
-          entries = cargoDependencies(text);
-        } else {
-          const pkg = readJson(file);
-          ownName = pkg.name ?? "";
-          ownVersion = pkg.version ?? "";
-          entries = npmDependencies(pkg);
-        }
+        manifest = readManifestEntries(file);
       } catch {
         scan.parseErrors++;
         continue;
       }
+      const { ecosystem, ownName, ownVersion, entries } = manifest;
       if (known[ecosystem].has(ownName)) vendored.push({ app, manifest: rel, ecosystem, name: ownName, version: ownVersion });
       for (const entry of entries) {
         if (!known[entry.ecosystem].has(entry.name)) continue;
@@ -411,7 +421,7 @@ function renderIndex(inventory) {
   ].join("\n");
 }
 
-function ownedBy(catalog) {
+export function ownedBy(catalog) {
   const map = new Map();
   for (const entry of catalog) {
     if (!map.has(entry.package)) map.set(entry.package, []);
@@ -618,43 +628,67 @@ export function driftOf(root, outputs) {
 }
 
 function parseArgs(argv) {
-  const options = { mode: "write", root: DEFAULT_ROOT, workspace: DEFAULT_WORKSPACE };
+  const options = {
+    mode: "write", root: DEFAULT_ROOT, workspace: DEFAULT_WORKSPACE, workspaceExplicit: false,
+    appDirs: {}, withCheck: false, triage: null, now: null,
+  };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--check") options.mode = "check";
     else if (argv[i] === "--check-adoption") options.mode = "check-adoption";
     else if (argv[i] === "--root") options.root = path.resolve(argv[++i]);
-    else if (argv[i] === "--workspace") options.workspace = path.resolve(argv[++i]);
+    else if (argv[i] === "--workspace") { options.workspace = path.resolve(argv[++i]); options.workspaceExplicit = true; }
+    else if (argv[i] === "--app-dir") Object.assign(options.appDirs, parseAppDirArg(argv[++i]));
+    else if (argv[i] === "--with-check") options.withCheck = true;
+    else if (argv[i] === "--triage") options.triage = path.resolve(argv[++i]);
+    else if (argv[i] === "--now") options.now = argv[++i];
     else throw new Error(`unknown argument: ${argv[i]}`);
   }
+  // Without --workspace: DEFAULT_WORKSPACE when it exists, else the directory that holds this checkout.
+  if (!options.workspaceExplicit) options.workspace = resolveWorkspace(null, options.root);
   return options;
 }
 
-function reportDrift(root, outputs, hint) {
-  const drift = driftOf(root, outputs);
+function reportDrift(root, outputs, hint, extra = [], consistent = []) {
+  const drift = [...driftOf(root, outputs).map((rel) => ({ file: rel, reason: "committed file differs from the generated output" })), ...extra];
   if (drift.length) {
-    for (const rel of drift) console.error(`DRIFT ${rel}: committed file differs from the generated output`);
+    for (const { file, reason } of drift) console.error(`DRIFT ${file}: ${reason}`);
     console.error(hint);
     return 1;
   }
-  console.log(`generated docs are current (${Object.keys(outputs).join(", ")})`);
+  console.log(`generated docs are current (${Object.keys(outputs).join(", ")})${consistent.length ? `; consistent with each other: ${consistent.join(", ")}` : ""}`);
   return 0;
 }
 
+const matrixOptions = (options, extra = {}) => ({
+  root: options.root, workspace: options.workspace, appDirs: options.appDirs, withCheck: options.withCheck, triage: options.triage, now: options.now, ...extra,
+});
+
 export function main(argv) {
   const options = parseArgs(argv);
-  // --check reads only this repository (no app repos), so it is deterministic.
+  // --check reads only this repository (no app repos), so it is deterministic. The port matrix is checked for consistency
+  // only: its committed MD and HTML must be the rendering of its committed JSON.
   if (options.mode === "check") {
-    return reportDrift(options.root, generateLocal(options), "Run: node rightkit/scripts/generate-index.mjs");
+    return reportDrift(options.root, generateLocal(options), "Run: node rightkit/scripts/generate-index.mjs", checkPortMatrixConsistency(options.root), PORT_MATRIX_OUTPUTS);
   }
-  // --check-adoption reads the app repos; run it from the doctor or the inventory check, not from tests.
+  // --check-adoption reads the app repos; run it from the doctor or the inventory check, not from tests. The port matrix is
+  // regenerated with its stamp, app directories, app HEADs and check counts carried over from the committed port-matrix.json.
   if (options.mode === "check-adoption") {
-    return reportDrift(options.root, generateAdoption(options), "Run: node rightkit/scripts/generate-index.mjs (regenerates all three files)");
+    const matrix = generatePortMatrix(matrixOptions(options, { carry: true }));
+    return reportDrift(options.root, { ...generateAdoption(options), ...matrix.outputs },
+      "Run: node rightkit/scripts/generate-index.mjs (regenerates all three files and the port matrix)");
   }
   for (const [rel, content] of Object.entries(generate(options))) {
     mkdirSync(path.dirname(path.join(options.root, rel)), { recursive: true });
     writeFileSync(path.join(options.root, rel), content);
     console.log(`${rel}: ${content.split("\n").length} lines`);
   }
+  const matrix = generatePortMatrix(matrixOptions(options));
+  for (const [rel, content] of Object.entries(matrix.outputs)) {
+    mkdirSync(path.dirname(path.join(options.root, rel)), { recursive: true });
+    writeFileSync(path.join(options.root, rel), content);
+    console.log(`${rel}: ${content.split("\n").length} lines, ${Buffer.byteLength(content)} bytes`);
+  }
+  printPortMatrixSummary(matrix.model);
   return 0;
 }
 

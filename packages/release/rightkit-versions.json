@@ -518,7 +518,7 @@
   "stagedSwift": {
     "rightkit-swift": {
       "url": "https://github.com/Orthic-Labs/rightkit",
-      "version": "0.7.0"
+      "version": "0.8.1"
     }
   },
   "registry": {
