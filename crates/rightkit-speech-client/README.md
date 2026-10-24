@@ -31,6 +31,23 @@ Published version: see the generated `INDEX.md` at the repository root. Referenc
 
 The compiled example is `examples/hr_fake_host.rs`, which implements both host sides from raw JSON. For wire-level acceptance, see `tests/contract.rs`, `tests/e2e.rs`, and `tests/windows_pipe.rs`. Run the example with `rustright cargo run -p rightkit-speech-client --example hr_fake_host`.
 
+## Consumers and HeardRight priority (rightkit#979)
+
+When HeardRight is installed, it is the machine's speech host, and every other Right Suite app
+(ScrapeRight, CodeRight, CutRight, Pulse) transcribes through this client, with no engine of its
+own (`plan_host` finds the installed host). Models are Parakeet and Whisper only (rightkit#978).
+
+- **HeardRight goes first.** While HeardRight dictates, a consumer's file job waits as
+  `Progress::Queued { reason: dictation_active }` and resumes afterwards. `request_id` is the
+  idempotency key, so a resubmitted job attaches or replays instead of running twice.
+- **A consumer's mic button records locally and submits the recording.** The host does not accept
+  live dictation from another app (`recording_started` is answered `ERROR_NOT_ALLOWED`), so the
+  consumer captures audio itself, then calls `transcribe(path, opts)` and shows the text when the
+  job finishes. Capture still follows `capture_ownership` where the host lists it (dictation >
+  Pulse conversation > batch). No consumer runs its own recognizer while HeardRight is installed.
+- **Not covered here:** behaviour with no HeardRight installed comes from each app's existing
+  design. iOS has no cross-app socket host, so this routing applies on macOS and Windows.
+
 ## Contract extensions (capability-gated)
 
 A client uses an extension only when the host lists its capability in `engine_capabilities`; requests to older hosts stay byte-identical to v1.
