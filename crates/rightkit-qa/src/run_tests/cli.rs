@@ -492,6 +492,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// The text between the heading `title` and the next `## ` heading.
+    fn section<'a>(doc: &'a str, title: &str) -> &'a str {
+        let rest = doc
+            .split_once(&format!("\n## {title}"))
+            .unwrap_or_else(|| panic!("docs/run-tests.md has no `## {title}` section"))
+            .1;
+        rest.split("\n## ").next().unwrap()
+    }
+
+    #[test]
+    fn the_docs_run_the_real_app_suites_one_binary_at_a_time() {
+        let doc = include_str!("../../docs/run-tests.md");
+        // `cargo test` ran binaries serially and the default here is 2, so the replacement for each app
+        // whose end-to-end tests drive a real app or desktop session says `--parallel 1`.
+        let table = section(doc, "Replacing the app copies");
+        for app in ["viewright", "heardright", "genright", "pulse"] {
+            let row = table
+                .lines()
+                .find(|l| l.contains(&format!("--app {app} ")))
+                .unwrap_or_else(|| panic!("no replacement line for {app}"));
+            let command = row
+                .split_once("rightkit-qa run-tests")
+                .unwrap_or_else(|| panic!("{app}: no run-tests command in {row}"))
+                .1
+                .split('`')
+                .next()
+                .unwrap();
+            let words: Vec<&str> = command.split_whitespace().collect();
+            assert!(
+                words.windows(2).any(|w| w == ["--parallel", "1"]),
+                "{app}: the replacement line lacks `--parallel 1`: {command}"
+            );
+        }
+        // ... and the Options section says when to choose it.
+        assert!(
+            section(doc, "Options").contains("`[run_tests] parallel = 1`"),
+            "docs/run-tests.md Options does not tell real-app suites to set parallel = 1"
+        );
+    }
+
     #[test]
     fn the_app_key_is_required_and_comes_from_a_flag_the_config_or_journeys_toml() {
         let root = temp_root("app");

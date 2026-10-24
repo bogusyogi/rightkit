@@ -69,6 +69,8 @@ Anything that is not one of these goes to `cargo test --no-run` untouched (`-p f
 | `--run-id <id>` | | a new id | Name the run directory. |
 | `--receipt <file>` | | | Also copy the receipt here, for a gate that wants a fixed path. |
 
+`cargo test` ran the test binaries one after another, and `--parallel` defaults to 2. For end-to-end tests that drive a real app or desktop session, set `[run_tests] parallel = 1` (or pass `--parallel 1`, as the ViewRight, HeardRight, GenRight and Pulse lines below do): two such binaries at once would share one session.
+
 Environment the binaries get: the caller's, minus `unset_env`, plus `CARGO_MANIFEST_DIR` and `CARGO_PKG_NAME` (cargo sets both for a test process and tests read them at run time), plus the isolated temp directory, plus `env`. `RIGHTKIT_UNDER_TEST` is deliberately not set: it is a test-mode activation switch for the app under test, not for every unit test; an app that needs it declares it in `[run_tests] env`.
 
 ```toml
@@ -109,11 +111,11 @@ GENRIGHT_QA = "1"
 |---|---|
 | `rightkit/scripts/run-ui-tests.sh -p cutright-e2e --test ui -- --nocapture` | `rightkit-qa run-tests --app cutright -p cutright-e2e --test ui -- --nocapture` |
 | `postright/scripts/run-e2e.sh scenarios` | `rightkit-qa run-tests --app postright -p postright-e2e --test scenarios -- --test-threads=1 --nocapture` (the package directory is `crates/e2e`, as its `cd` was) |
-| `viewright/scripts/qa-native.sh` step 2 | `rightkit-qa run-tests --app viewright --manifest-path src-tauri/qa-e2e/Cargo.toml --test pdf_edit --test shell --test formats --test upgrade --env VIEWRIGHT_QA_BIN="$VIEWRIGHT_QA_BIN" -- --nocapture` (one compile; the staging of the app binary stays in the script) |
-| Pulse `test_cargo` + `scripts/qa/run-test-bins.py` | `rightkit-qa run-tests --app pulse --root "$PULSE_ROOT" <cargo args> --env PULSE_TEST_CREDENTIALS=memory --binary-timeout-s "${PULSE_TEST_DEADLINE_S:-1800}" --receipt "$PULSE_SCRATCH/run-tests-$target_name.json" -- <test args>`; or keep Pulse's own compile and pass `--from-cargo-json "$listing"`. Pulse's NOT RUN accounting reads `totals.tests.ignored` from the receipt, or sets `--deny-ignored`. |
-| GenRight `test:e2e` | `rustright cargo build -p genright-engine --features test-mode && rightkit-qa run-tests --app genright -p genright-e2e -- --test-threads=1` |
+| `viewright/scripts/qa-native.sh` step 2 | `rightkit-qa run-tests --app viewright --parallel 1 --manifest-path src-tauri/qa-e2e/Cargo.toml --test pdf_edit --test shell --test formats --test upgrade --env VIEWRIGHT_QA_BIN="$VIEWRIGHT_QA_BIN" -- --nocapture` (one compile; the staging of the app binary stays in the script) |
+| Pulse `test_cargo` + `scripts/qa/run-test-bins.py` | `rightkit-qa run-tests --app pulse --parallel 1 --root "$PULSE_ROOT" <cargo args> --env PULSE_TEST_CREDENTIALS=memory --binary-timeout-s "${PULSE_TEST_DEADLINE_S:-1800}" --receipt "$PULSE_SCRATCH/run-tests-$target_name.json" -- <test args>`; or keep Pulse's own compile and pass `--from-cargo-json "$listing"`. Pulse's NOT RUN accounting reads `totals.tests.ignored` from the receipt, or sets `--deny-ignored`. |
+| GenRight `test:e2e` | `rustright cargo build -p genright-engine --features test-mode && rightkit-qa run-tests --app genright --parallel 1 -p genright-e2e -- --test-threads=1` |
 | ScrapeRight `qa:ui-native` | `rightkit-qa run-tests --app scraperight --locked -p scraperight-ui-e2e --test native_journey -- --ignored --nocapture --test-threads=1` |
-| HeardRight `qa:native:journey` | `rightkit-qa run-tests --app heardright --manifest-path ./qa-e2e/Cargo.toml -- --nocapture` |
+| HeardRight `qa:native:journey` | `rightkit-qa run-tests --app heardright --parallel 1 --manifest-path ./qa-e2e/Cargo.toml -- --nocapture` |
 | CutRight `scripts/test.sh` | `rustright cargo test --workspace --exclude cutright-ui-e2e --features cutright-engine/test-mode` (simple tests, in the broker) and `rightkit-qa run-tests --app cutright -p cutright-ui-e2e` (outside it) |
 
 ## Not covered
