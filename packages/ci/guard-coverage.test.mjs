@@ -45,7 +45,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderTemplate } from "./render.mjs";
-import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES } from "./manifest.mjs";
+import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, CHECK_JOB_LANES } from "./manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const templatesDir = path.join(packageRoot, "templates");
@@ -129,6 +129,7 @@ function parseJobs(content) {
       ifExpr: ifLine ? ifLine.trim().slice("if: ".length) : null,
       needs,
       selfGuardStep,
+      block,
     });
   }
   return jobs;
@@ -234,4 +235,68 @@ test("rust-hybrid ci keeps its work behind the public-repository guard", () => {
   const jobs = parseJobs(renderTemplate(template, buildRenderContext(manifest, "/repos/widgets")));
   assert.ok(isGuarded(jobs, "private-repo-guard"));
   assert.ok(isGuarded(jobs, "ci"));
+});
+
+// RightKit check (rightkit#833, A-11), same graph walk: in a lane that compiles or tests (publish-npm included: it rebuilds
+// the tarball from the release tag before it publishes), every job except the guard, the check itself and `supersede` (it only
+// cancels older runs; @rightkit/release admits it only in its exact shape) needs the check job, directly or through a job that
+// does. The check job needs only the guard, so it is guarded like any other job.
+const CHECK_EXEMPT_JOBS = new Set(["private-repo-guard", "check", "supersede"]);
+
+function needsCheck(jobs, jobName, visiting = new Set()) {
+  if (visiting.has(jobName)) return false;
+  visiting.add(jobName);
+  const job = jobs.get(jobName);
+  assert.ok(job, `needs references unknown job '${jobName}'`);
+  if (job.ifExpr && ALWAYS_RE.test(job.ifExpr)) return false; // always() runs the job after a failed or skipped check
+  return job.needs.includes("check") || job.needs.some((need) => needsCheck(jobs, need, visiting));
+}
+
+test("check: every job of a lane that compiles or tests needs the check job; the lanes that do not render none", () => {
+  const rendered = renderAllLanes();
+  for (const lane of KNOWN_LANES) {
+    const jobs = parseJobs(rendered[lane]);
+    if (!CHECK_JOB_LANES.includes(lane)) {
+      assert.ok(!jobs.has("check"), `lane ${lane} is outside CHECK_JOB_LANES and must render no check job`);
+      continue;
+    }
+    assert.ok(jobs.has("check"), `lane ${lane} has no check job`);
+    assert.deepEqual(jobs.get("check").needs, ["private-repo-guard"], `lane ${lane}: the check job needs only the guard`);
+    assert.ok(isGuarded(jobs, "check"), `lane ${lane}: the check job must be private-guarded`);
+    for (const jobName of jobs.keys()) {
+      if (CHECK_EXEMPT_JOBS.has(jobName)) continue;
+      assert.ok(needsCheck(jobs, jobName), `lane ${lane} job '${jobName}' can run although the check job failed or was skipped`);
+    }
+  }
+});
+
+// A job that holds a publish credential (an OIDC token) must not start unless the check passed: no tag whose committed files
+// the check refused reaches the registry.
+test("check: the job that holds the OIDC publish credential cannot start before the check passed", () => {
+  const jobs = parseJobs(renderAllLanes()["publish-npm"]);
+  const holders = [...jobs].filter(([, job]) => job.block.some((line) => /^ {6}id-token: write$/.test(line))).map(([name]) => name);
+  assert.deepEqual(holders, ["publish-npm"], "the lane has exactly one credential-holding job");
+  for (const name of holders) assert.ok(needsCheck(jobs, name), `credential job '${name}' can run although the check job failed or was skipped`);
+  assert.ok(!jobs.get("check").block.some((line) => /id-token|environment:|secrets\./.test(line)), "the check job holds no credential");
+});
+
+test("check: rust-hybrid ci keeps its gate and its dev artifact jobs behind the check job", () => {
+  const manifest = {
+    ...FULL_MANIFEST,
+    lanes: ["ci"],
+    profile: "rust-hybrid",
+    gate: { path: "scripts/gate.sh", quick: true, shards: [{ id: "workspace" }, { id: "linters" }] },
+    matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
+    devArtifact: { mac: "sign", windows: "unsigned", parallel: true, buildScript: "build:dev", macAppPath: "target/release/Pulse.app", windowsGlob: "target/release/*.exe" },
+  };
+  const template = fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
+  const jobs = parseJobs(renderTemplate(template, buildRenderContext(manifest, "/repos/widgets")));
+  assert.deepEqual([...jobs.keys()].slice(0, 2), ["private-repo-guard", "check"]);
+  for (const jobName of jobs.keys()) {
+    if (CHECK_EXEMPT_JOBS.has(jobName)) continue;
+    // ci-summary runs after everything (always()) and reports the result of ci and quick; it gates nothing.
+    if (jobName === "ci-summary") continue;
+    assert.ok(needsCheck(jobs, jobName), `job '${jobName}' can run although the check job failed or was skipped`);
+  }
+  assert.ok(isGuarded(jobs, "check"));
 });

@@ -6,13 +6,15 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { renderTemplate } from "./render.mjs";
-import { buildRenderContext, lockfilePatchStep } from "./manifest.mjs";
+import { buildRenderContext, checkJob, lockfilePatchStep } from "./manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const templatesDir = path.join(packageRoot, "templates");
 
 const TEMPLATES = { node: "ci.yml", rust: "profiles/rust-hybrid/ci.yml" };
 const INSTALL_LINE = "      - run: pnpm install --frozen-lockfile";
+// The check job installs first, without lifecycle scripts, and prints the same hint: with it failing first, the ci job never runs.
+const CHECK_INSTALL_LINE = `${INSTALL_LINE} --ignore-scripts`;
 const STEP_NAME = "      - name: Print pnpm-lock.yaml patch when the lockfile is stale";
 
 const NODE_BASE = {
@@ -43,13 +45,16 @@ function runBody(step) {
   return body.split("\n").map((line) => line.slice(10)).join("\n");
 }
 
-test("pnpm: both ci templates print the patch step directly after the frozen install", () => {
+test("pnpm: both ci templates print the patch step directly after the frozen install, in the check job and in the ci job", () => {
   for (const profile of ["node", "rust"]) {
     const out = render(profile, manifestFor(profile, "pnpm@11.25.0"));
-    assert.equal(out.split(STEP_NAME).length - 1, 1, `${profile}: exactly one patch step`);
-    assert.equal(out.split(INSTALL_LINE).length - 1, 1, `${profile}: exactly one frozen install`);
-    assert.ok(out.includes(`${INSTALL_LINE}\n${STEP_NAME}`), `${profile}: step follows the install`);
-    assert.match(out, /        if: failure\(\)\n/);
+    assert.equal(out.split(STEP_NAME).length - 1, 2, `${profile}: one patch step per job that installs`);
+    assert.equal(out.split(`${INSTALL_LINE}\n`).length - 1, 1, `${profile}: exactly one plain frozen install (the ci job's)`);
+    assert.equal(out.split(`${CHECK_INSTALL_LINE}\n`).length - 1, 1, `${profile}: exactly one frozen install without scripts (the check job's)`);
+    assert.ok(out.includes(`${INSTALL_LINE}\n${STEP_NAME}`), `${profile}: step follows the ci job's install`);
+    assert.ok(out.includes(`${CHECK_INSTALL_LINE}\n${STEP_NAME}`), `${profile}: step follows the check job's install`);
+    assert.ok(out.indexOf(CHECK_INSTALL_LINE) < out.indexOf(`${INSTALL_LINE}\n`), `${profile}: the check job installs first`);
+    assert.equal(out.split("        if: failure()\n").length - 1, 2);
   }
 });
 
@@ -58,9 +63,13 @@ test("pnpm: the patch step is the only difference from a render without it", () 
     const manifest = manifestFor(profile, "pnpm@11.25.0");
     const step = lockfilePatchStep(manifest);
     const withStep = render(profile, manifest);
-    const withoutStep = render(profile, manifest, { PNPM_LOCK_PATCH_STEP: "" });
-    assert.equal(withoutStep.split(INSTALL_LINE).length - 1, 1, `${profile}: install line is unique`);
-    assert.equal(withStep, withoutStep.replace(INSTALL_LINE, INSTALL_LINE + step), `${profile}: only the new step differs`);
+    const withoutStep = render(profile, manifest, { PNPM_LOCK_PATCH_STEP: "", CHECK_JOB: checkJob(manifest, "ci").replace(step, "") });
+    assert.equal(withoutStep.split(`${INSTALL_LINE}\n`).length - 1, 1, `${profile}: ci install line is unique`);
+    assert.equal(withoutStep.split(`${CHECK_INSTALL_LINE}\n`).length - 1, 1, `${profile}: check install line is unique`);
+    const expected = withoutStep
+      .replace(`${INSTALL_LINE}\n`, () => `${INSTALL_LINE}${step}\n`)
+      .replace(`${CHECK_INSTALL_LINE}\n`, () => `${CHECK_INSTALL_LINE}${step}\n`);
+    assert.equal(withStep, expected, `${profile}: only the new steps differ`);
   }
 });
 

@@ -32,20 +32,28 @@ const BOOLEAN_ONLY_FLAGS = new Set(["all"]);
 const args = process.argv.slice(2);
 const first = args[0];
 
+// process.exit() ends the process with whatever stdout and stderr still have queued: on a pipe that had not been read yet (`right-git sync
+// --dry-run | tee log`, a CI log collector) the end of the diff and the result line were lost. A write of nothing completes only after
+// everything written before it, so waiting for both streams puts all output out before the exit code is returned.
+function exitAfterFlush(code) {
+  const flushed = (stream) => new Promise((resolve) => stream.write("", resolve));
+  return Promise.all([flushed(process.stdout), flushed(process.stderr)]).then(() => process.exit(code));
+}
+
 if (!first || first === "-h" || first === "--help") {
   printHelp();
-  process.exit(first ? 0 : 1);
+  await exitAfterFlush(first ? 0 : 1);
 } else if (first === "--version" || first === "-v") {
   const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   console.log(pkg.version);
-  process.exit(0);
+  await exitAfterFlush(0);
 } else if (commands.has(first)) {
   const exitCode = await commands.get(first)(args.slice(1));
-  process.exit(exitCode);
+  await exitAfterFlush(exitCode);
 } else {
   console.error(`right-git: unknown command: ${first}\n`);
   printHelp();
-  process.exit(2);
+  await exitAfterFlush(2);
 }
 
 /** Split argv into positional args and --flag / --flag=value pairs. */
@@ -77,6 +85,12 @@ function printErrors(errors) {
   for (const error of errors || []) console.error(`  ${error}`);
 }
 
+// A sync or install warning (a @rightkit/release pin the rendered check job cannot be proved to have) is printed beside the result,
+// to stderr like an error, and never changes the exit code.
+function printWarnings(warnings) {
+  for (const warning of warnings || []) console.error(`  warn: ${warning}`);
+}
+
 // Advisory lines never change drift's exit code: warnings are settings to fix,
 // notes are checks that could not run here.
 function printAdvisories(result) {
@@ -104,8 +118,10 @@ async function runInstall(argv) {
   if (!result.ok) {
     console.error(`right-git install: failed at stage '${result.stage}'`);
     printErrors(result.errors);
+    printWarnings(result.plan?.warnings);
     return 1;
   }
+  printWarnings(result.plan.warnings);
   console.log(`right-git install: wrote ${result.manifestPath} and synced ${result.plan.changes.length} workflow file(s).`);
   return 0;
 }
@@ -121,8 +137,10 @@ async function runSync(argv) {
   if (!result.ok) {
     console.error(`right-git sync: failed at stage '${result.stage}'`);
     printErrors(result.errors);
+    printWarnings(result.warnings);
     return 1;
   }
+  printWarnings(result.warnings);
   const changed = result.changes.filter((c) => c.action !== "unchanged");
   console.log(changed.length === 0 ? "right-git sync: already up to date." : `right-git sync: ${changed.length} file(s) ${flags["dry-run"] ? "would change" : "changed"}.`);
   return 0;

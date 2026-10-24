@@ -22,8 +22,8 @@ jobs:
         run: |
           echo "::error::right-git: repository is private; managed public-only workflows must not run here."
           exit 1
-  publish-npm:
-    needs: [private-repo-guard]
+${CHECK_JOB}  publish-npm:
+    needs: [private-repo-guard, check]
     runs-on: ubuntu-latest
     environment: release
     permissions:

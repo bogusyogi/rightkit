@@ -24,10 +24,16 @@
 //   rightkit-gate [--base <ref>] [--plan] [--no-cache]
 //                                             run the gate (default base origin/main); --plan prints the scans and runs none;
 //                                             --no-cache (or RK_GATE_CACHE=0) reruns every scan
+//   rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
+//                                             the offline app check (../app-check.mjs): committed files only, no network, compile or
+//                                             broker, every finding in one run. Exit 0 pass, 1 findings, 2 could not run
 //   rightkit-gate install-hook [--force]      write .githooks/pre-push and set core.hooksPath. core.hooksPath hides .git/hooks, so the
-//                                             pre-push hook runs the repository's own .git/hooks/pre-push first and every other hook
-//                                             present in .git/hooks gets a .githooks/<name> trampoline that runs it; the hook finds
-//                                             the gate binary in the root node_modules/.bin, then any workspace package's, then pnpm exec
+//                                             pre-push hook runs the repository's own .git/hooks/pre-push first, then `rightkit-gate
+//                                             check --commit HEAD`, then the gate; every other hook present in .git/hooks gets a
+//                                             .githooks/<name> trampoline that runs it; the hook finds the gate binary in the root
+//                                             node_modules/.bin, then any workspace package's, then pnpm exec. Where @rightkit/release is
+//                                             installed it also writes the advisory ownership pre-commit step (`right-release hooks install`
+//                                             is an alias of this command)
 //
 // From the pre-push hook, git's ref lines arrive on stdin: the commit being pushed must be the checked-out HEAD (broker scans
 // read the live checkout), and the remote's current commit is the diff base. To push an earlier commit of the local stack,
@@ -58,7 +64,7 @@ const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
-const USAGE = `usage: rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | --version`;
+const USAGE = `usage: rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -340,13 +346,15 @@ export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLo
 /**
  * The pre-push hook. git's ref lines arrive on stdin and the gate consumes them, so stdin is buffered once and fed to both the
  * repository's own .git/hooks/pre-push (which core.hooksPath=.githooks would otherwise hide; it runs first and a failure stops the
- * push) and the gate. The gate binary is the root node_modules/.bin/rightkit-gate, else any workspace package's (up to three
- * levels down: tauri-app-next, apps/*, packages/*), else `pnpm exec rightkit-gate`, else node with a package-relative path when
- * pnpm is absent; the line it chose is printed. No absolute path is written: everything is resolved from git at run time.
+ * push) and the gate. Between them runs the app check, `rightkit-gate check --commit HEAD`: seconds, committed files only, so a
+ * red tree stops the push before the gate's scans start; a push that only deletes refs has no content to check and skips it. The
+ * gate binary is the root node_modules/.bin/rightkit-gate, else any workspace package's (up to three levels down: tauri-app-next,
+ * apps/*, packages/*), else `pnpm exec rightkit-gate`, else node with a package-relative path when pnpm is absent; the line it
+ * chose is printed once. No absolute path is written: everything is resolved from git at run time.
  */
 export function hookText(nodePath) {
   return `#!/bin/sh
-# Mandatory local gate before every push (rightkit-gate install-hook). Never bypass with --no-verify.
+# Mandatory local check and gate before every push (rightkit-gate install-hook). Never bypass with --no-verify.
 cd "$(git rev-parse --show-toplevel)" || exit 1
 stdin=$(mktemp "\${TMPDIR:-/tmp}/rightkit-gate.XXXXXX") || exit 1
 trap 'rm -f "$stdin"' EXIT
@@ -358,18 +366,27 @@ if [ -x "$own" ]; then
   "$own" "$@" < "$stdin" || exit $?
 fi
 # The gate binary: the root install, any workspace package's install, then pnpm exec.
+found=""
 for bin in node_modules/.bin/rightkit-gate */node_modules/.bin/rightkit-gate */*/node_modules/.bin/rightkit-gate */*/*/node_modules/.bin/rightkit-gate; do
-  if [ -x "$bin" ]; then
-    echo "rightkit-gate: using $bin" >&2
-    ("$bin" --base origin/main) < "$stdin"; exit $?
-  fi
+  if [ -x "$bin" ]; then found="$bin"; break; fi
 done
-if command -v pnpm >/dev/null 2>&1; then
+if [ -n "$found" ]; then
+  echo "rightkit-gate: using $found" >&2
+  rightkit_gate() { "$found" "$@"; }
+elif command -v pnpm >/dev/null 2>&1; then
   echo "rightkit-gate: using pnpm exec rightkit-gate" >&2
-  (exec pnpm exec rightkit-gate --base origin/main) < "$stdin"; exit $?
+  rightkit_gate() { pnpm exec rightkit-gate "$@"; }
+else
+  echo "rightkit-gate: using node ${nodePath}" >&2
+  rightkit_gate() { node "${nodePath}" "$@"; }
 fi
-echo "rightkit-gate: using node ${nodePath}" >&2
-(exec node "${nodePath}" --base origin/main) < "$stdin"; exit $?
+# The check first, over the committed files of HEAD; a push that only deletes refs has nothing to check.
+if [ -s "$stdin" ] && ! awk '$2 !~ /^0+$/ { found = 1 } END { exit !found }' "$stdin"; then
+  echo "rightkit-gate: only deletions are pushed; nothing to check" >&2
+else
+  rightkit_gate check --commit HEAD < /dev/null >&2 || exit $?
+fi
+rightkit_gate --base origin/main < "$stdin"; exit $?
 `;
 }
 
@@ -780,7 +797,12 @@ function releaseProvider(o, root, git) {
   return null;
 }
 
-function installHook(o, root, force) {
+// The advisory ownership pre-commit step (`right-release hooks install`, ownership-hooks.mjs) runs the pinned @rightkit/release, so
+// it is written only where that is installed. Its own hook and the repository's .git/hooks/pre-commit both keep running.
+const PINNED_CLI = "node_modules/@rightkit/release/cli/right-release.mjs";
+const FOREIGN_PRE_COMMIT = "pre-commit.rightkit-foreign";
+
+async function installHook(o, root, force) {
   const git = (...a) => o.spawn("git", a, { cwd: root });
   const hooksDir = path.join(root, ".githooks");
   const hookPath = path.join(hooksDir, "pre-push");
@@ -797,15 +819,29 @@ function installHook(o, root, force) {
   const gitDirResult = git("rev-parse", "--git-dir");
   let present = [];
   if (!failed(gitDirResult) && text(gitDirResult).trim()) { try { present = o.readdir(path.join(path.resolve(root, text(gitDirResult).trim()), "hooks")); } catch { present = []; } }
+  const gitHooksDir = !failed(gitDirResult) && text(gitDirResult).trim() ? path.join(path.resolve(root, text(gitDirResult).trim()), "hooks") : null;
   const own = present.filter(chainableHook).sort();
-  const skipped = present.filter((name) => !name.endsWith(".sample") && !chainableHook(name)).sort();
+  // The ownership step takes .githooks/pre-commit. The repository's own pre-commit hook keeps running first, through a trampoline
+  // beside it, unless it is the ownership hook a plain `right-release hooks install` wrote (this one replaces that), whose own
+  // chained hook, pre-commit.rightkit-foreign, then runs instead. A name that is no plain hook name is reported, never chained.
+  const ownership = o.exists(path.join(root, PINNED_CLI)) ? await import("../ownership-hooks.mjs") : null;
+  const readHook = (name) => { try { return o.readFile(path.join(gitHooksDir, name)); } catch { return ""; } };
+  const chainName = !ownership ? null : own.includes("pre-commit") && !readHook("pre-commit").includes(ownership.HOOK_MARKER) ? "pre-commit" : present.includes(FOREIGN_PRE_COMMIT) ? FOREIGN_PRE_COMMIT : null;
+  const skipped = present.filter((name) => !name.endsWith(".sample") && !chainableHook(name) && !(ownership && name === FOREIGN_PRE_COMMIT)).sort();
   if (skipped.length) o.err(`rightkit-gate: WARNING: not chaining .git/hooks/${skipped.join(", .git/hooks/")}: not a plain hook file name (letters, digits, - and _ only); run it from a hook of its own.`);
-  const trampolines = own.filter((name) => name !== "pre-push").map((name) => ({ name, file: path.join(hooksDir, name), wanted: trampolineText(name) }));
+  const trampolines = own.filter((name) => name !== "pre-push" && !(ownership && name === "pre-commit")).map((name) => ({ name, file: path.join(hooksDir, name), wanted: trampolineText(name), note: `runs .git/hooks/${name}` }));
+  if (ownership) {
+    trampolines.push({ name: "pre-commit", file: path.join(hooksDir, "pre-commit"), wanted: ownership.renderPreCommitHook(), ownership: true, replaces: [trampolineText("pre-commit")], marker: ownership.HOOK_MARKER, note: "the advisory ownership gate: right-release ownership --staged" });
+    if (chainName) trampolines.push({ name: FOREIGN_PRE_COMMIT, file: path.join(hooksDir, FOREIGN_PRE_COMMIT), wanted: trampolineText(chainName), note: `runs .git/hooks/${chainName}, before the ownership gate` });
+  }
   for (const t of trampolines) {
     t.exists = o.exists(t.file);
-    t.current = t.exists ? o.readFile(t.file).replace(/\r\n/g, "\n") === t.wanted : false;
-    if (t.exists && !t.current && !force) {
-      o.err(`rightkit-gate: .githooks/${t.name} already exists and differs; nothing changed. Review it, or run \`rightkit-gate install-hook --force\` to replace it with a trampoline to .git/hooks/${t.name}.`);
+    const found = t.exists ? o.readFile(t.file).replace(/\r\n/g, "\n") : null;
+    t.current = found === t.wanted;
+    // Our own earlier artifacts are updated in place: a plain trampoline where the ownership hook now goes, and an older ownership hook.
+    const ours = found !== null && (t.current || t.replaces?.includes(found) || (t.marker && found.includes(t.marker)));
+    if (t.exists && !ours && !force) {
+      o.err(`rightkit-gate: .githooks/${t.name} already exists and differs; nothing changed. Review it, or run \`rightkit-gate install-hook --force\` to replace it with ${t.ownership ? "the ownership pre-commit hook" : `a trampoline to .git/hooks/${chainName ?? t.name}`}.`);
       return 1;
     }
   }
@@ -825,7 +861,7 @@ function installHook(o, root, force) {
   else put(hookPath, wanted, `${hasHook ? "replaced" : "wrote"} .githooks/pre-push`, ` (${nodePath} without pnpm)`);
   for (const t of trampolines) {
     if (t.current) done.push(`.githooks/${t.name} already current`);
-    else put(t.file, t.wanted, `${t.exists ? "replaced" : "wrote"} .githooks/${t.name}`, ` (runs .git/hooks/${t.name})`);
+    else put(t.file, t.wanted, `${t.exists ? "replaced" : "wrote"} .githooks/${t.name}`, ` (${t.note})`);
   }
   if (existingPath === ".githooks") done.push("core.hooksPath already .githooks");
   else {
@@ -836,6 +872,7 @@ function installHook(o, root, force) {
   for (const line of done) o.out(`rightkit-gate: ${line}`);
   const chained = own.length ? own.map((name) => (name === "pre-push" ? "pre-push (run first, then the gate)" : name)) : [];
   o.out(`rightkit-gate: chained hooks from .git/hooks: ${chained.length ? chained.join(", ") : "none"}${own.includes("pre-push") ? "" : "; the pre-push hook still runs .git/hooks/pre-push first if one appears later"}`);
+  if (!ownership) o.out(`rightkit-gate: no ownership pre-commit step: ${PINNED_CLI} is not installed here; install @rightkit/release, then run install-hook again`);
   const files = [".githooks/pre-push", ...trampolines.map((t) => `.githooks/${t.name}`)];
   o.out(`rightkit-gate: commit the hooks with executable mode (git add --chmod=+x ${files.join(" ")}); the pre-push hook finds rightkit-gate in node_modules/.bin of the repository root, else of any workspace package, else through \`pnpm exec\`.`);
   const provider = releaseProvider(o, root, git);
@@ -865,14 +902,16 @@ export async function main(argv, io = {}) {
   }
   if (args.includes("--help") || args.includes("-h")) { o.out(USAGE); return 0; }
   const sub = args[0] && !args[0].startsWith("-") ? args[0] : null;
-  if (sub && sub !== "install-hook") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
+  if (sub && sub !== "install-hook" && sub !== "check") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
+  // The app check has its own export and reads no gate state: it needs neither the base ref nor the pushed refs on stdin.
+  if (sub === "check") return (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
   const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: o.cwd });
   if (failed(top) || !text(top).trim()) { o.err("rightkit-gate: not inside a git repository"); return 2; }
   const root = path.resolve(text(top).trim());
   const git = (...a) => o.spawn("git", a, { cwd: root });
-  if (sub === "install-hook") return installHook(o, root, args.includes("--force"));
+  if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
 
   const planOnly = args.includes("--plan");
   let base = option("--base") ?? "origin/main";
