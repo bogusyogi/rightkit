@@ -306,5 +306,15 @@
         "@rightkit/"
       ]
     }
+  },
+  "qa": {
+    "version": "1",
+    "config": "rightkit-qa.toml",
+    "checks": {
+      "smoke.launch": [
+        "app.launch"
+      ]
+    },
+    "journeys": {}
   }
 }

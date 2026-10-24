@@ -15,7 +15,7 @@
     "brand:check": "rightkit-theme generate assets/brand/brand.json --out src/brand.css --format tailwind --check",
     "test": "pnpm run test:rust && pnpm run test:e2e",
     "test:rust": "rustright cargo test --manifest-path Cargo.toml",
-    "test:e2e": "rightkit-qa journeys run",
+    "test:e2e": "pnpm run build && rightkit-qa journeys run",
     "dev:build:win": "right-release dev --platform win",
     "dev:build:mac": "right-release dev --platform mac",
     "release:doctor": "right-release doctor",

@@ -13,8 +13,19 @@ package = "rightapp-engine"
 build = ["rustright", "cargo", "build", "-p", "rightapp-engine", "--features", "test-mode"]
 data_dir_env = "RIGHTKIT_QA_DATA_DIR"
 
+# The real app, launched hidden on the scenario's isolated data and driven by rightkit-qa's control server, which only the
+# off-by-default `qa-native` feature compiles in (never a release build). `custom-protocol` embeds the built frontend (`pnpm
+# build` runs first), because a hidden run has no dev server.
+[ui]
+mode = "hidden"
+feature = "qa-native"
+window_label = "main"
+package = "rightapp"
+build = ["rustright", "cargo", "build", "--manifest-path", "Cargo.toml", "-p", "rightapp", "--features", "qa-native,custom-protocol"]
+cargo_toml = "src-tauri/Cargo.toml"
+rust_sources = ["src-tauri/src/lib.rs"]
+package_json = "package.json"
+workspace_root = "."
+
 [audio]
 system_mute = true
-
-# Native UI scenarios (hidden app driven through rightkit-control) are added with the shell's
-# `qa-native` feature; see README step 11. Until then the engine scenarios are the gate.
