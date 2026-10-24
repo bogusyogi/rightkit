@@ -36,6 +36,13 @@
 //! # peak_mb = 1024                       # configured peak memory of one scenario, in MB
 //! # port_base = 41000                    # first port of the first world's range
 //! # ports_per_world = 16                 # ports each scenario world may bind
+//!
+//! [run_tests]                            # `rightkit-qa run-tests` defaults (every key optional; see [`RunTestsConfig`])
+//! # parallel = 2                         # test binaries run at the same time
+//! # binary_timeout_s = 1800              # one binary's deadline
+//! # total_timeout_s = 7200               # the whole execution phase's deadline
+//! # test_args = ["--test-threads=1"]     # libtest arguments used when the command line gives none after `--`
+//! # env = { GENRIGHT_QA = "1" }          # added to every binary's environment
 //! ```
 use crate::util::{err, platform, require_text, Error, Result};
 use serde::Deserialize;
@@ -202,6 +209,90 @@ impl HostConfig {
     }
 }
 
+/// `[run_tests]`: defaults for `rightkit-qa run-tests`, the command that compiles an app's test
+/// binaries through the broker and runs them outside it. A command-line flag wins over the file, the
+/// file over the built-in default. Unknown keys are refused, so a misspelled `parallel` cannot
+/// silently fall back to the default.
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RunTestsConfig {
+    /// Test binaries run at the same time. Default 2 ([`RunTestsConfig::DEFAULT_PARALLEL`]).
+    pub parallel: Option<usize>,
+    /// Deadline for one test binary, in seconds. Default 1800.
+    pub binary_timeout_s: Option<u64>,
+    /// Deadline for the whole execution phase (not the compile), in seconds. Default 7200.
+    pub total_timeout_s: Option<u64>,
+    /// Deadline for the compile, in seconds. Default 2700 (the journeys build's own bound).
+    pub compile_timeout_s: Option<u64>,
+    /// Libtest arguments used when the command line has none after `--` (for example
+    /// `["--test-threads=1", "--nocapture"]`). An explicit `--` on the command line replaces them.
+    pub test_args: Option<Vec<String>>,
+    /// Where each binary runs: `package` (the default: its package directory, as cargo does),
+    /// `workspace` (the app root) or a directory relative to the app root.
+    pub cwd: Option<String>,
+    /// Added to every binary's environment. `--env KEY=VALUE` on the command line wins per key.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    /// Variables removed from every binary's environment. Default
+    /// `["RIGHTKIT_FORWARD_ENV", "RUSTC_WRAPPER"]`, the build-time variables a test binary must not see.
+    pub unset_env: Option<Vec<String>>,
+    /// Give each binary its own short temp directory (`TMPDIR`, or `TEMP` and `TMP` on Windows),
+    /// removed when it exits. Default off.
+    pub isolate_tmp: Option<bool>,
+    /// A run whose binaries report any ignored test fails: an ignored test is a test that did not
+    /// run. Default off.
+    pub deny_ignored: Option<bool>,
+    /// Refuse to compile anywhere but the broker (`rustright cargo`): a host without it fails
+    /// instead of falling back to plain cargo. Default off.
+    pub require_broker: Option<bool>,
+}
+
+impl RunTestsConfig {
+    pub const DEFAULT_PARALLEL: usize = 2;
+    pub const MAX_PARALLEL: usize = 32;
+    pub const DEFAULT_BINARY_TIMEOUT_S: u64 = 1800;
+    pub const DEFAULT_TOTAL_TIMEOUT_S: u64 = 7200;
+    pub const DEFAULT_COMPILE_TIMEOUT_S: u64 = 2700;
+    /// Build-time variables a test binary does not need and must not inherit (Pulse's gate unsets
+    /// both before it runs the binaries).
+    pub const DEFAULT_UNSET_ENV: [&'static str; 2] = ["RIGHTKIT_FORWARD_ENV", "RUSTC_WRAPPER"];
+
+    pub fn validate(&self) -> Result<()> {
+        if let Some(n) = self.parallel {
+            if !(1..=Self::MAX_PARALLEL).contains(&n) {
+                return err(format!(
+                    "[run_tests] parallel must be between 1 and {}",
+                    Self::MAX_PARALLEL
+                ));
+            }
+        }
+        for (key, value) in [
+            ("binary_timeout_s", self.binary_timeout_s),
+            ("total_timeout_s", self.total_timeout_s),
+            ("compile_timeout_s", self.compile_timeout_s),
+        ] {
+            if value == Some(0) {
+                return err(format!("[run_tests] {key} must be at least 1"));
+            }
+        }
+        if let Some(cwd) = &self.cwd {
+            if cwd.trim().is_empty() {
+                return err(
+                    "[run_tests] cwd must not be empty (package, workspace or a directory)",
+                );
+            }
+        }
+        for key in self.env.keys().chain(self.unset_env.iter().flatten()) {
+            if key.is_empty() || key.contains('=') || key.contains('\0') {
+                return err(format!(
+                    "[run_tests] {key:?} is not a valid environment variable name"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct Raw {
     app: String,
@@ -221,6 +312,9 @@ struct Raw {
     lock: LockConfig,
     #[serde(default)]
     host: HostConfig,
+    /// `[run_tests]`: defaults for `rightkit-qa run-tests` (see [`RunTestsConfig`]).
+    #[serde(default)]
+    run_tests: RunTestsConfig,
     /// `[tiers]` maps a tier name to the tiers it also selects ("all" = every tier).
     #[serde(default)]
     default_tier: Option<String>,
@@ -258,6 +352,7 @@ pub struct QaConfig {
     pub audio: AudioConfig,
     pub lock: LockConfig,
     pub host: HostConfig,
+    pub run_tests: RunTestsConfig,
     pub default_tier: String,
     pub config_path: PathBuf,
     pub plugin: Option<PluginConfig>,
@@ -296,6 +391,7 @@ impl QaConfig {
         let default_tier = raw.default_tier.unwrap_or_else(|| "fast".into());
         validate_tier_list(&default_tier)?;
         raw.host.validate()?;
+        raw.run_tests.validate()?;
         Ok(Self {
             scenario_dirs: raw.scenarios.iter().map(|s| app_root.join(s)).collect(),
             app,
@@ -306,6 +402,7 @@ impl QaConfig {
             audio: raw.audio,
             lock: raw.lock,
             host: raw.host,
+            run_tests: raw.run_tests,
             default_tier,
             config_path: path.to_path_buf(),
             plugin: raw.plugin,
@@ -506,6 +603,48 @@ binaries = {{ macos = \"target/debug/{exe}\", windows = \"target/debug/{exe}\" }
             "worker = 2",
         ] {
             let text = format!("{SAMPLE}\n[host]\n{bad}\n");
+            assert!(QaConfig::parse(&text, p).is_err(), "{bad} was accepted");
+        }
+    }
+
+    #[test]
+    fn run_tests_section_defaults_parses_and_refuses_bad_values() {
+        let p = Path::new("/tmp/x/rightkit-qa.toml");
+        let c = QaConfig::parse(SAMPLE, p).unwrap();
+        assert_eq!(c.run_tests, RunTestsConfig::default());
+        let with = format!(
+            "{SAMPLE}\n[run_tests]\nparallel = 4\nbinary_timeout_s = 600\ntotal_timeout_s = 3000\ncompile_timeout_s = 900\ntest_args = [\"--test-threads=1\", \"--nocapture\"]\ncwd = \"workspace\"\nunset_env = [\"RUSTC_WRAPPER\"]\nisolate_tmp = true\ndeny_ignored = true\nrequire_broker = true\n[run_tests.env]\nGENRIGHT_QA = \"1\"\n"
+        );
+        let c = QaConfig::parse(&with, p).unwrap();
+        let rt = &c.run_tests;
+        assert_eq!(rt.parallel, Some(4));
+        assert_eq!(rt.binary_timeout_s, Some(600));
+        assert_eq!(rt.total_timeout_s, Some(3000));
+        assert_eq!(rt.compile_timeout_s, Some(900));
+        assert_eq!(
+            rt.test_args.as_deref(),
+            Some(&["--test-threads=1".to_string(), "--nocapture".to_string()][..])
+        );
+        assert_eq!(rt.cwd.as_deref(), Some("workspace"));
+        assert_eq!(rt.env.get("GENRIGHT_QA").map(String::as_str), Some("1"));
+        assert_eq!(
+            rt.unset_env.as_deref(),
+            Some(&["RUSTC_WRAPPER".to_string()][..])
+        );
+        assert_eq!(rt.isolate_tmp, Some(true));
+        assert_eq!(rt.deny_ignored, Some(true));
+        assert_eq!(rt.require_broker, Some(true));
+        for bad in [
+            "parallel = 0",
+            "parallel = 33",
+            "binary_timeout_s = 0",
+            "total_timeout_s = 0",
+            "compile_timeout_s = 0",
+            "cwd = \" \"",
+            "unset_env = [\"A=B\"]",
+            "paralel = 2",
+        ] {
+            let text = format!("{SAMPLE}\n[run_tests]\n{bad}\n");
             assert!(QaConfig::parse(&text, p).is_err(), "{bad} was accepted");
         }
     }
