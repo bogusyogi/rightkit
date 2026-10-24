@@ -1,4 +1,4 @@
-// rightkit-child-process 0.5.5 registry consumer, outside the workspace.
+// rightkit-child-process 0.5.6 registry consumer, outside the workspace.
 //
 // The child is this same executable, started through std::env::current_exe with a `--child <mode>`
 // argument, so it exists on every runner without a shell, a network fetch or a second binary.
@@ -140,6 +140,6 @@ fn main() -> Result<(), Failure> {
         );
     }
 
-    println!("rightkit-child-process 0.5.5 registry consumer passed");
+    println!("rightkit-child-process 0.5.6 registry consumer passed");
     Ok(())
 }
