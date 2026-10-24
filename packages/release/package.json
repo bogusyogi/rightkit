@@ -33,6 +33,7 @@
     "LICENSE-MIT",
     "LICENSE-APACHE",
     "!*.test.mjs",
+    "!cli/*.test.mjs",
     "!standalone-clone-evidence.json",
     "!refusals.json"
   ],
