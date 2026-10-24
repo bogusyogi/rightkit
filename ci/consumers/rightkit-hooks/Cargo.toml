@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-hooks-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-hooks = { version = "=0.2.0" }
+serde_json = "1"
