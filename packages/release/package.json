@@ -8,6 +8,38 @@
     "right-release": "cli/right-release.mjs",
     "rightkit-gate": "bin/rightkit-gate.mjs"
   },
+  "exports": {
+    "./bin/rightkit-gate.mjs": "./bin/rightkit-gate.mjs",
+    "./cargo-contract.mjs": "./cargo-contract.mjs",
+    "./cargo-target.mjs": "./cargo-target.mjs",
+    "./cli/right-release.mjs": "./cli/right-release.mjs",
+    "./development.mjs": "./development.mjs",
+    "./direct-bootstrap.mjs": "./direct-bootstrap.mjs",
+    "./disk-policy.mjs": "./disk-policy.mjs",
+    "./dmg-build.mjs": "./dmg-build.mjs",
+    "./engine-locator.mjs": "./engine-locator.mjs",
+    "./github-release.mjs": "./github-release.mjs",
+    "./legal-contract.mjs": "./legal-contract.mjs",
+    "./macos-file-evidence.mjs": "./macos-file-evidence.mjs",
+    "./macos-notarization.mjs": "./macos-notarization.mjs",
+    "./macos-signing-identity.mjs": "./macos-signing-identity.mjs",
+    "./macos-signing-session.mjs": "./macos-signing-session.mjs",
+    "./managed-cargo.mjs": "./managed-cargo.mjs",
+    "./native-release-finalization.mjs": "./native-release-finalization.mjs",
+    "./notary-auth.mjs": "./notary-auth.mjs",
+    "./package.json": "./package.json",
+    "./packaged-app-identity.mjs": "./packaged-app-identity.mjs",
+    "./pe-content.mjs": "./pe-content.mjs",
+    "./publication-gate.mjs": "./publication-gate.mjs",
+    "./qa-build-features.mjs": "./qa-build-features.mjs",
+    "./release-dependencies.mjs": "./release-dependencies.mjs",
+    "./sign-windows.mjs": "./sign-windows.mjs",
+    "./signing-agent-client.mjs": "./signing-agent-client.mjs",
+    "./stage-binary.mjs": "./stage-binary.mjs",
+    "./stage-sidecar.mjs": "./stage-sidecar.mjs",
+    "./supply-chain-evidence.mjs": "./supply-chain-evidence.mjs",
+    "./tauri-bundle-marker.mjs": "./tauri-bundle-marker.mjs"
+  },
   "rightkit": {
     "publishCheck": {
       "binSmoke": {
@@ -55,6 +87,7 @@
   },
   "packageManager": "pnpm@11.25.0",
   "dependencies": {
+    "@rightkit/outdated": "0.2.0",
     "smol-toml": "1.9.1"
   }
 }
