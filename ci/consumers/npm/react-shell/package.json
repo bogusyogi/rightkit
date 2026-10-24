@@ -1,0 +1,14 @@
+{
+  "name": "rightkit-react-shell-server-markup-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  },
+  "dependencies": {
+    "@rightkit/platform-ui": "0.4.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

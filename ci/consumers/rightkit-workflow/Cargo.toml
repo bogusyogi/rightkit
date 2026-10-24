@@ -1,0 +1,12 @@
+[package]
+name = "rightkit-workflow-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-workflow = { version = "=0.2.0", features = ["sequence"] }
+blake3 = "1"
+serde_json = "1"
