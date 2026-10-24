@@ -149,7 +149,11 @@ test("every journey and scenario the app declares exists, and every Rust test is
   }
 });
 
-test("the preflight app rules (G13-G21) pass on the instance with an empty baseline", () => {
+test("`rightkit-gate check` and RightKit's own preflight pass on the instance with an empty baseline", () => {
+  const check = spawnSync(process.execPath, [path.join(here, "bin", "rightkit-gate.mjs"), "check", "--repo", instance(), "--commit", "HEAD"], { cwd: instance(), encoding: "utf8" });
+  assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
+  assert.match(check.stdout + check.stderr, /passed \d+ rules/);
+  assert.doesNotMatch(check.stdout + check.stderr, /KNOWN|STALE/, "a fresh app carries no baseline");
   const result = spawnSync(process.execPath, [path.join(REPO, "scripts", "preflight.mjs"), "--repo", instance()], { encoding: "utf8" });
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout + result.stderr, /passed \d+ rules/);
@@ -194,10 +198,24 @@ test("every RightKit pin is exact and equals the published set; tauri plugin cra
   for (const [name, spec] of Object.entries(npmPins)) assert.ok(workspace.includes(`'${name}@${spec}'`), `${name}@${spec} is missing from minimumReleaseAgeExclude in pnpm-workspace.yaml (the release-age guard would refuse a fresh publish)`);
 });
 
-test("the pre-push hook is committed, executable and byte-identical to what `rightkit-gate install-hook` writes; `prepare` installs it", () => {
+test("the pre-push hook is committed, executable and what the pinned `rightkit-gate install-hook` writes; `prepare` installs it", () => {
   const hook = read(".githooks", "pre-push").replace(/\r\n/g, "\n");
-  assert.equal(hook, hookText("node_modules/@rightkit/release/bin/rightkit-gate.mjs"), "regenerate with `rightkit-gate install-hook --force` after the pin moves");
   assert.equal(readJson("package.json").scripts.prepare, "rightkit-gate install-hook");
+  const pinned = readJson("package.json").devDependencies["@rightkit/release"];
+  const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
+  if (pinned === treeVersion) {
+    // The pin is this tree's own release: the hook is exactly what `install-hook` writes. `prepare` refuses to overwrite a hook that
+    // differs, so a drifted committed hook would fail `pnpm install` in every new app.
+    assert.equal(hook, hookText("node_modules/@rightkit/release/bin/rightkit-gate.mjs"), "regenerate with `rightkit-gate install-hook --force`");
+  } else {
+    // The pin is an earlier release than this tree (the tree's hook may call subcommands the pin lacks): hold the shape every release writes.
+    assert.ok(hook.startsWith("#!/bin/sh\n"));
+    assert.match(hook, /^# Mandatory local .*\(rightkit-gate install-hook\)\. Never bypass with --no-verify\.$/m);
+    assert.match(hook, /cat > "\$stdin"/, "git's ref lines are buffered once and fed to the gate");
+    assert.match(hook, /"\$\(git rev-parse --git-dir\)\/hooks\/pre-push"/, "the repository's own .git/hooks/pre-push still runs (core.hooksPath hides it)");
+    assert.match(hook, /--base origin\/main/);
+    assert.ok(!/(^|[^.\w/-])\/(?:Users|home)\//.test(hook), "no absolute path is written into the hook");
+  }
   if (process.platform !== "win32") assert.ok((statSync(path.join(TEMPLATE, ".githooks", "pre-push")).mode & 0o111) !== 0, "the hook file is not executable");
   const tracked = git(REPO, "ls-files", "-s", "desktop-app-template/.githooks/pre-push");
   if (tracked.status === 0 && tracked.stdout.trim()) assert.match(tracked.stdout, /^100755 /, "git must record the hook as executable, or a fresh clone cannot run it");

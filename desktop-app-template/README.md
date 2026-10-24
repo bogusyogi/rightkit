@@ -5,9 +5,9 @@ The starting point of a Right Suite desktop app: a small, buildable skeleton of 
 every RightKit capability it uses is an exact pin from the published set (`packages/release/rightkit-versions.json` `registry`), and the app
 declares the whole desktop mandatory set (`packages/release/ownership-mandatory-set.json`, profile `desktop`) from its first commit.
 
-A freshly instantiated app passes, with an empty baseline: the app rules of `scripts/preflight.mjs` (the same rules `rightkit-gate check`
-runs once the published `@rightkit/release` has it, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the
-pipeline scan, the release-switch scan, the Cargo, QA and legal contracts and `right-release ownership-mandatory --enforce`.
+A freshly instantiated app passes, with an empty baseline: `rightkit-gate check` (the offline app rules; the published `@rightkit/release`
+carries it from the release after 0.6.4, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the pipeline scan,
+the release-switch scan, the Cargo, QA and legal contracts and `right-release ownership-mandatory --enforce`.
 `packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
 `right-release init`.
 
