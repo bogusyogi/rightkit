@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 import test from "node:test";
@@ -82,13 +83,13 @@ test("per-row attestation: broker status fields must match, then the envelope si
   const status = (over = {}) => ({ receipt: { state: "SUCCEEDED", exitCode: 0, inputBoundary: { status: "unrequested" }, provenance: { schema: "rustright.provenance.v1", signature: { alg: "ES256", keyId: pins.keyId }, payload: { host: pins.host, broker: { brokerDigest: pins.brokerDigest }, nonce, jobId: job, requestDigest: "e".repeat(64), executable: { sha256: pins.cargoSha256 }, result: { status: "SUCCEEDED", exitCode: 0 }, request: { kind: "cargo", requestedArgv: ["check", "-p", "x", "--locked"], manifestDigest: null } } }, ...over } });
   const spawnFor = (doc, verifyStatus = 0) => (cmd, args) => (args[0] === "status" ? { status: 0, stdout: JSON.stringify(doc) } : { status: verifyStatus, stdout: "" });
   const calls = [];
-  const good = verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, tmpDir: process.env.TMPDIR ?? "/tmp", spawnFn: (cmd, args) => { calls.push(args); return spawnFor(status())(cmd, args); } });
+  const good = verifyAttestation(job, { nonce, argv: ["check", "-p", "x", "--locked"], pins, tmpDir: os.tmpdir(), spawnFn: (cmd, args) => { calls.push(args); return spawnFor(status())(cmd, args); } });
   assert.equal(good.verified, true);
   assert.equal(good.signatureVerified, true);
   const verify = calls.find((a) => a[0] === "verify-receipt");
   assert.ok(verify.includes("--public-key") && verify[verify.indexOf("--public-key") + 1] === pins.publicKey, "verifier gets the enrolled public key");
   assert.ok(verify[verify.indexOf("--broker-digest") + 1] === pins.brokerDigest && verify[verify.indexOf("--nonce") + 1] === nonce && verify[verify.indexOf("--job-id") + 1] === job);
-  const bad = (over, n = nonce, argv = ["check", "-p", "x", "--locked"], verifyStatus = 0) => verifyAttestation(job, { nonce: n, argv, pins, tmpDir: process.env.TMPDIR ?? "/tmp", spawnFn: spawnFor(status(over), verifyStatus) }).reason;
+  const bad = (over, n = nonce, argv = ["check", "-p", "x", "--locked"], verifyStatus = 0) => verifyAttestation(job, { nonce: n, argv, pins, tmpDir: os.tmpdir(), spawnFn: spawnFor(status(over), verifyStatus) }).reason;
   assert.equal(bad({}, "c".repeat(64)), "nonce mismatch");
   assert.equal(bad({}, nonce, ["check", "-p", "y", "--locked"]), "argv mismatch");
   const failedSigned = status(); failedSigned.receipt.provenance.payload.result = { status: "FAILED", exitCode: 101 };

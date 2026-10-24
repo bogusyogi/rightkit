@@ -122,6 +122,8 @@ function liveRepo(t, files = { "right-release.config.mjs": "export default {}\n"
   fs.mkdirSync(repo);
   git(repo, "init", "-q", "-b", "trunk");
   git(repo, "config", "user.email", "t@example.com"); git(repo, "config", "user.name", "t");
+  // Hermetic line endings: a global core.autocrlf=true (the Windows runners) would store the CRLF fixtures as LF.
+  git(repo, "config", "core.autocrlf", "false");
   for (const [f, c] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), c); }
   git(repo, "add", "-A"); git(repo, "commit", "-qm", "one");
   git(repo, "remote", "add", "origin", "/somewhere/local/mirror.git");
