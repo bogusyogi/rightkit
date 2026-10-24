@@ -740,6 +740,7 @@ export const BUILD_REFUSES = Object.freeze(["switches-inventory"]);
  * classification test in app-check.test.mjs, so a new command cannot appear unclassified. */
 export const UNCHECKED_COMMANDS = new Map([
   ["check", "is the check"],
+  ["update", "runs @rightkit/outdated over the app's RightKit pins (right-update); reads no release inputs and builds nothing"],
   ["deps", "the shared dependency lane: reads and updates dependency pins, not the app's release inputs"],
   ["hardening", "scans artifacts named on the command line; reads no source tree"],
   ["harden", "alias of hardening"],
