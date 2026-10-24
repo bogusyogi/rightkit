@@ -8,7 +8,7 @@ const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding:
 import { ensureScratchRoots, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -144,7 +144,8 @@ test("--delete is the only path that removes, and --dry-run mutates nothing", as
 
 test("committed policy parses, has floors and no writer inside a protected segment", () => {
   const policy = readDiskPolicy();
-  assert.equal(policy.floors.mac.warnFreeBytes, 40 * 1024 ** 3);
+  // the Mac floors are a list now (internal drive + /Volumes/D), so the internal floor is read by id
+  assert.equal(floorList(policy, "mac").find((f) => f.id === "mac-internal").warnFreeBytes, 40 * 1024 ** 3);
   assert.equal(policy.floors.win.warnFreePercent, 10);
   for (const w of policy.writers.filter((x) => x.action === "sweep")) assert.equal(policy.protectedSegments.some((s) => w.path.split(/[\\/]/).includes(s)), false, w.id);
   assert.match(renderSweep({ staleDays: 7, candidates: [], skipped: [], totalBytes: 0 }), /Dry run/);
@@ -950,4 +951,95 @@ test("selfCheck flags a broken package, a missing dependency and a non-stable sc
   assert.equal(r.exitCode, 2);
   assert.match(lines.join("\n"), /ERROR: disk run self-check: binding is not stable/);
   assert.match(readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8"), /disk\.run\.selfcheck\.fail/);
+});
+
+// ---- floors: a list per platform, an explicit holding source, /Volumes/D ---------------------------------------------------
+
+test("holding source is explicit: reordering or adding floors does not move the volume that may park items cross-volume", () => {
+  const { root, policy } = fixture();
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  const item = path.join(root, "cache", "old");
+  const mount = path.join(root, "dmount");
+  policy.holding = { mac: [{ prefix: root, path: path.join(mount, ".rightkit-swept"), mount }, { prefix: root, path: path.join(root, "hold") }] };
+  const rule = { path: path.join(mount, ".rightkit-swept"), mount };
+  // another device when the host has one (/dev), else the same device: the order check below still must hold
+  const other = process.platform !== "win32" && deviceOf("/dev") !== deviceOf(root) ? "/dev" : path.join(root, "other");
+  const internal = { id: "internal", path: root, label: "internal", warnFreeBytes: 1, holdingSource: true };
+  const agent = { id: "d", path: other, label: "D", warnFreeBytes: 1 };
+  for (const floors of [[agent, internal], [internal, agent]]) {
+    policy.floors = { mac: floors };
+    assert.deepEqual(holdingBases(item, { policy, platform: "darwin" })[0], rule, floors.map((f) => f.id).join(","));
+  }
+  // without a holdingSource flag the first floor decides (the legacy single-object form keeps working)
+  policy.floors = { mac: { path: root, label: "legacy", warnFreeBytes: 1 } };
+  assert.deepEqual(holdingBases(item, { policy, platform: "darwin" })[0], rule);
+  if (other === "/dev") {
+    policy.floors = { mac: [{ ...agent, id: "d" }] };
+    assert.notDeepEqual(holdingBases(item, { policy, platform: "darwin" })[0], rule, "a floor on another volume is not the holding source");
+  }
+});
+
+test("readDiskPolicy rejects a floor without a path, two holding sources and duplicate floor ids", () => {
+  const { root, policy } = fixture();
+  const pf = path.join(root, "bad.json");
+  const attempt = (floors) => { policy.floors = { mac: floors }; writeFileSync(pf, JSON.stringify(policy)); return readDiskPolicy(pf); };
+  assert.throws(() => attempt([{ id: "a", label: "a", warnFreeBytes: 1 }]), /needs a path/);
+  assert.throws(() => attempt([{ id: "a", path: "/a", holdingSource: true }, { id: "b", path: "/b", holdingSource: true }]), /more than one holdingSource/);
+  assert.throws(() => attempt([{ id: "a", path: "/a" }, { id: "a", path: "/b" }]), /unique/);
+  assert.equal(attempt([{ id: "a", path: "/a", holdingSource: true }, { id: "b", path: "/b" }]).floors.mac.length, 2);
+  assert.deepEqual(floorList({ floors: { mac: { path: "/legacy" } } }, "mac"), [{ path: "/legacy" }]);
+  assert.deepEqual(floorList({ floors: {} }, "mac"), []);
+});
+
+test("check evaluates every floor and names the one that warns", () => {
+  const { root, policy } = fixture();
+  const dPath = path.join(root, "d");
+  policy.floors = { mac: [{ id: "internal", path: root, label: "Internal", warnFreeBytes: 1000, holdingSource: true }, { id: "d", path: dPath, label: "Volume D", warnFreeBytes: 1000, hardFreeBytes: 150, agentVolume: true }] };
+  const space = (p) => (p === dPath ? { freeBytes: 100, totalBytes: 10000 } : { freeBytes: 5000, totalBytes: 10000 });
+  const r = checkDisk({ policy, platform: "darwin", size: () => 0, space });
+  assert.equal(r.floors.length, 2);
+  assert.deepEqual(r.floors.map((f) => [f.id, f.warn]), [["internal", false], ["d", true]]);
+  assert.equal(r.floors[1].agentVolume, true);
+  assert.equal(r.floors[1].hardWarn, true, "100 free is under the informational 150 refusal level");
+  assert.equal(r.floor, r.floors[0], "result.floor stays the first floor for existing consumers");
+  assert.equal(r.warnings.some((w) => w.startsWith("Volume D free")), true);
+  assert.equal(r.warnings.some((w) => w.startsWith("Internal free")), false);
+  assert.equal(r.warn, true);
+  const text = renderCheck(r);
+  assert.match(text, /^Internal: .*\n+Volume D: .*WARN.*BUILD REFUSAL LEVEL/m);
+  // a hard level alone never warns
+  const calm = checkDisk({ policy, platform: "darwin", size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) });
+  assert.equal(calm.warn, false);
+  assert.equal(calm.floors[1].hardWarn, false);
+});
+
+test("an unmounted floor volume warns instead of throwing, and the other floors are still evaluated", () => {
+  const { root, policy } = fixture();
+  const dPath = path.join(root, "d");
+  policy.floors = { mac: [{ id: "internal", path: root, label: "Internal", warnFreeBytes: 1000, holdingSource: true }, { id: "d", path: dPath, label: "Volume D", warnFreeBytes: 1000, agentVolume: true }] };
+  const space = (p) => {
+    if (p === dPath) { const e = new Error(`ENOENT: no such file or directory, statfs '${p}'`); e.code = "ENOENT"; throw e; }
+    return { freeBytes: 5000, totalBytes: 10000 };
+  };
+  const r = checkDisk({ policy, platform: "darwin", size: () => 0, space });
+  assert.equal(r.floors[0].warn, false);
+  assert.deepEqual([r.floors[1].absent, r.floors[1].warn, r.floors[1].agentVolume], [true, true, true]);
+  assert.match(r.floors[1].error, /ENOENT/);
+  assert.equal(r.warnings.some((w) => w.includes(`floor volume ${dPath} is not mounted`)), true);
+  assert.equal(r.warn, true);
+  assert.match(renderCheck(r), /Volume D: free space cannot be read .*WARN/);
+});
+
+test("committed policy: Mac has a /Volumes/D floor of 250 GiB flagged agentVolume, internal is the holding source, the holding rule is unchanged", () => {
+  const policy = readDiskPolicy();
+  const mac = floorList(policy, "mac");
+  const d = mac.find((f) => f.path === "/Volumes/D");
+  assert.equal(d.warnFreeBytes, 250 * 1024 ** 3);
+  assert.equal(d.agentVolume, true);
+  assert.equal(d.hardFreeBytes, 200_000_000_000);
+  assert.deepEqual(mac.filter((f) => f.holdingSource).map((f) => f.path), ["/System/Volumes/Data"]);
+  assert.deepEqual(policy.holding.mac[0], { prefix: "/", path: "/Volumes/D/.rightkit-swept", mount: "/Volumes/D" });
+  const win = floorList(policy, "win");
+  assert.equal(win.length, 1);
+  assert.deepEqual([win[0].id, win[0].path, win[0].agentVolume, win[0].warnFreePercent], ["win-d", "D:\\", true, 10]);
 });

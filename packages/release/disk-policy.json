@@ -2,8 +2,11 @@
   "schema": 1,
   "staleDays": 7,
   "floors": {
-    "mac": {"path": "/System/Volumes/Data", "label": "Mac internal", "warnFreeBytes": 42949672960},
-    "win": {"path": "D:\\", "label": "Dell D:", "warnFreeBytes": 429496729600, "warnFreePercent": 10}
+    "mac": [
+      {"id": "mac-internal", "path": "/System/Volumes/Data", "label": "Mac internal", "warnFreeBytes": 42949672960, "holdingSource": true},
+      {"id": "mac-d", "path": "/Volumes/D", "label": "Mac D:", "warnFreeBytes": 268435456000, "hardFreeBytes": 200000000000, "agentVolume": true}
+    ],
+    "win": {"id": "win-d", "path": "D:\\", "label": "Dell D:", "warnFreeBytes": 429496729600, "warnFreePercent": 10, "agentVolume": true}
   },
   "holdingDays": 3,
   "holding": {

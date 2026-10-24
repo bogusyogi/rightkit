@@ -7,9 +7,28 @@ import { spawnSync } from "./background-process.mjs";
 export const DISK_EXIT_WARNING = 3;
 export const DEFAULT_POLICY_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "disk-policy.json");
 
+/** Floors of one platform: `floors.<mac|win>` is a list; a single legacy object is a list of one. */
+export function floorList(policy, key) {
+  return [].concat(policy.floors?.[key] ?? []);
+}
+
+/** Path of the floor whose volume holds the items that may be parked cross-volume (`holdingSource: true`), else the first
+ * floor. Holding must not depend on how many floors a platform has or in which order they are listed. */
+export function holdingSourcePath(policy, key) {
+  const floors = floorList(policy, key);
+  return (floors.find((f) => f.holdingSource) ?? floors[0])?.path;
+}
+
 export function readDiskPolicy(file = DEFAULT_POLICY_FILE) {
   const policy = JSON.parse(readFileSync(file, "utf8"));
   if (policy.schema !== 1 || !Array.isArray(policy.writers)) throw new Error("disk policy: unsupported schema");
+  for (const key of Object.keys(policy.floors ?? {})) {
+    const floors = floorList(policy, key);
+    for (const f of floors) if (!f.path) throw new Error(`disk policy: a ${key} floor needs a path`);
+    if (floors.filter((f) => f.holdingSource).length > 1) throw new Error(`disk policy: ${key} floors name more than one holdingSource`);
+    const ids = floors.map((f) => f.id).filter(Boolean);
+    if (new Set(ids).size !== ids.length) throw new Error(`disk policy: ${key} floor ids must be unique`);
+  }
   for (const w of policy.writers) {
     // `escalate` lets a report-only cache sweep its idle children once it is over cap by `factor` (see planSweep).
     if (!w.escalate) continue;
@@ -94,9 +113,11 @@ export function floorThreshold(floor, totalBytes) {
   return Math.max(floor.warnFreeBytes ?? 0, pct);
 }
 
+// `hardFreeBytes` is informational: the level below which RustRight refuses builds. It never makes a floor warn on its own.
 export function evaluateFloor(floor, space) {
   const thresholdBytes = floorThreshold(floor, space.totalBytes);
-  return { label: floor.label, path: floor.path, ...space, thresholdBytes, warn: space.freeBytes < thresholdBytes };
+  const hard = floor.hardFreeBytes != null ? { hardFreeBytes: floor.hardFreeBytes, hardWarn: space.freeBytes < floor.hardFreeBytes } : {};
+  return { ...(floor.id ? { id: floor.id } : {}), label: floor.label, path: floor.path, ...space, thresholdBytes, warn: space.freeBytes < thresholdBytes, ...hard, ...(floor.agentVolume ? { agentVolume: true } : {}) };
 }
 
 // Literal directory prefix of a policy path: everything before the first wildcard segment
@@ -235,8 +256,15 @@ export function scanWorkspaceRoots({ policy, platform = process.platform, env = 
 
 export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots } = {}) {
   const key = platformKey(platform);
-  const floorPolicy = policy.floors[key];
-  const floor = evaluateFloor(floorPolicy, space(floorPolicy.path));
+  const floorPolicies = floorList(policy, key);
+  if (!floorPolicies.length) throw new Error(`disk policy: no floor for ${key}`);
+  // A volume that cannot be read (an unmounted /Volumes/D) is a warning on its own floor, never a crash that hides the rest.
+  const floors = floorPolicies.map((f) => {
+    try { return evaluateFloor(f, space(f.path)); } catch (error) {
+      return { ...(f.id ? { id: f.id } : {}), label: f.label, path: f.path, absent: true, error: error.message, warn: true, ...(f.agentVolume ? { agentVolume: true } : {}) };
+    }
+  });
+  const floor = floors[0];
   const writers = [];
   for (const writer of policy.writers.filter((w) => w.platform === key)) {
     let matches;
@@ -248,13 +276,16 @@ export function checkDisk({ policy, platform = process.platform, env = process.e
     writers.push({ id: writer.id, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes: writer.capBytes, over: bytes > writer.capBytes });
   }
   const warnings = [];
-  if (floor.warn) warnings.push(`${floor.label} free ${formatBytes(floor.freeBytes)} is below the ${formatBytes(floor.thresholdBytes)} floor`);
+  for (const f of floors) {
+    if (f.absent) warnings.push(`floor volume ${f.path} is not mounted or cannot be read (${f.error})`);
+    else if (f.warn) warnings.push(`${f.label} free ${formatBytes(f.freeBytes)} is below the ${formatBytes(f.thresholdBytes)} floor`);
+  }
   for (const w of writers) if (w.over) warnings.push(`${w.id} holds ${formatBytes(w.bytes)} over its ${formatBytes(w.capBytes)} cap`);
   const scanned = scan({ policy, platform, env, home });
   const unknown = scanned.unknown.map((u) => ({ root: u.root, name: u.name, path: u.path, symlink: u.symlink, bytes: u.symlink ? 0 : size(u.path), ageDays: Math.max(0, Math.floor((now - u.mtimeMs) / 86400_000)) }));
   for (const u of unknown) warnings.push(`unknown top-level entry ${u.path} (${u.symlink ? "symlink" : formatBytes(u.bytes)}, ${u.ageDays}d old): track it or add it to workspaceAllowlist (sweep only moves it on a host that ran \`disk allow-workspace-sweep\`)`);
   for (const s of scanned.skipped) warnings.push(`workspace root ${s.path}: tracked paths cannot be read from git, so unknown entries are not evaluated or swept`);
-  return { schema: 1, platform: key, floor, writers, unknown, warnings, warn: warnings.length > 0 };
+  return { schema: 1, platform: key, floor, floors, writers, unknown, warnings, warn: warnings.length > 0 };
 }
 
 export function formatBytes(n) {
@@ -444,8 +475,8 @@ export function defaultMounted(mount, itemDev) {
 }
 
 // Candidate holding bases for an item, best first: policy per-volume rules (longest prefix), then the item's own volume root.
-// A rule with `mount` is a cross-volume base: it applies only to items on the policy floor's volume (the Mac internal drive),
-// and only while that mount is present (checked at pick time). Entries are `{ path, mount? }`.
+// A rule with `mount` is a cross-volume base: it applies only to items on the volume of the floor flagged `holdingSource`
+// (the Mac internal drive), and only while that mount is present (checked at pick time). Entries are `{ path, mount? }`.
 export function holdingBases(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const key = platformKey(platform);
   const out = [];
@@ -458,7 +489,7 @@ export function holdingBases(candidate, { policy, platform = process.platform, e
   for (const r of rules) {
     if (r.mount) {
       if (floorDev === undefined) {
-        const floorPath = policy.floors?.[key]?.path;
+        const floorPath = holdingSourcePath(policy, key);
         floorDev = floorPath ? deviceOf(expandPolicyPath(floorPath, { env, home })) : null;
       }
       if (floorDev === null || deviceOf(path.dirname(candidate)) !== floorDev) continue;

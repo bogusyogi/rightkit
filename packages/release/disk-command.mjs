@@ -13,8 +13,13 @@ import { evaluateBinding, installStableRoot, readScheduleBinding, selfCheck } fr
 export const LAUNCHD_LABEL = "dev.rightkit.disk-hygiene";
 export const WINDOWS_TASK = "RightKit Disk Hygiene";
 
+function renderFloor(f) {
+  if (f.error) return `${f.label}: free space cannot be read (${f.error})  WARN`;
+  return `${f.label}: ${formatBytes(f.freeBytes)} free of ${formatBytes(f.totalBytes)} (floor ${formatBytes(f.thresholdBytes)})${f.warn ? "  WARN" : ""}${f.hardWarn ? `  BELOW THE ${formatBytes(f.hardFreeBytes)} BUILD REFUSAL LEVEL` : ""}`;
+}
+
 export function renderCheck(result) {
-  const lines = [`${result.floor.label}: ${formatBytes(result.floor.freeBytes)} free of ${formatBytes(result.floor.totalBytes)} (floor ${formatBytes(result.floor.thresholdBytes)})${result.floor.warn ? "  WARN" : ""}`];
+  const lines = (result.floors ?? [result.floor]).map(renderFloor);
   for (const w of result.writers) {
     const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}`;
     lines.push(`  ${w.id.padEnd(28)} ${w.action.padEnd(6)} ${size}${w.over ? "  OVER CAP" : ""}`);
