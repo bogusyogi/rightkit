@@ -70,7 +70,7 @@ export function assertReviewedDoc(doc) {
   }
   assert.deepEqual(check.steps[0], { uses: CHECKOUT, with: { ref: "${{ github.sha }}", path: "verifier", "persist-credentials": "false" } });
   assert.deepEqual(upload.steps[0], { uses: CHECKOUT, with: { ref: "${{ github.sha }}", "persist-credentials": "false", "sparse-checkout": REVIEWED_SPARSE, "sparse-checkout-cone-mode": "false" } });
-  assert.deepEqual(check.steps[2], { uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86", with: { version: "11.24.0", package_json_file: "verifier/package.json", run_install: "false" } });
+  assert.deepEqual(check.steps[2], { uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86", with: { version: "11.25.0", package_json_file: "verifier/package.json", run_install: "false" } });
   keys(check.steps[3], ["name", "run"]);
   assert.equal(check.steps[3].run, "pnpm --dir verifier install --filter rightkit-shared --filter @rightkit/release... --frozen-lockfile --ignore-scripts");
   const baseEnv = { GITHUB_TOKEN: "${{ github.token }}", PUBLISH_CANDIDATE_ID: "${{ inputs.candidate_id }}" };

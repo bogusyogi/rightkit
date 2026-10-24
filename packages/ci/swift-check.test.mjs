@@ -9,7 +9,7 @@ import { renderLanes } from "./sync.mjs";
 import { renderTemplate } from "./render.mjs";
 
 const CHECK = { runner: "macos-15", xcodeVersion: "16.4", projectDirectory: "ios", spec: "project.yml", project: "Widgets.xcodeproj", scheme: "Widgets", xcodegenVersion: "2.44.1" };
-const BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["swift-check"], matrix: { os: ["macos-15"], node: ["26.8.1"] }, packageManager: "pnpm@11.24.0", templateVersion: "1.8.0", swift: { check: CHECK } };
+const BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["swift-check"], matrix: { os: ["macos-15"], node: ["26.8.1"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.8.0", swift: { check: CHECK } };
 const render = (manifest = BASE) => renderLanes(manifest, "/repos/widgets")[0].content;
 
 test("swift-check supports a standalone default-profile manifest with or without private packages", () => {

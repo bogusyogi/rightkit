@@ -1,7 +1,7 @@
 {
   "name": "@rightkit/legal",
   "version": "0.6.3",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "description": "Legal manifest, assent receipt, and release-contract primitives for proprietary Right Suite desktop apps.",
   "license": "MIT OR Apache-2.0",
   "type": "module",

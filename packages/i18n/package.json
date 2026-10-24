@@ -29,5 +29,5 @@
   },
   "publishConfig": { "registry": "https://registry.npmjs.org", "access": "public" },
   "repository": { "type": "git", "url": "git+https://github.com/bogusyogi/rightkit.git", "directory": "packages/i18n" },
-  "packageManager": "pnpm@11.24.0"
+  "packageManager": "pnpm@11.25.0"
 }

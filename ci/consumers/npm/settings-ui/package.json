@@ -2,7 +2,7 @@
   "name": "rightkit-settings-ui-mount-consumer",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "qualify": "node consumer.mjs"
   },

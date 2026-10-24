@@ -5,7 +5,7 @@
       "pkId": "PK11",
       "id": "ci/consumers/npm-logs/consumer.mjs",
       "files": {
-        "ci/consumers/npm-logs/package.json": "f56e0a1f61e891f89fcef727be13ccd705af1a4fa299838c83eaa77e0a1c3e50",
+        "ci/consumers/npm-logs/package.json": "8c150f74a0ef3480f7da60b7638d49472bbc96b557c3b52a298ce8fa471dd059",
         "ci/consumers/npm-logs/README.md": "de869013d91c8490980b3423fc99dc7cb3ca312d4c6189b5950b1deaa6687b0c",
         "ci/consumers/npm-logs/consumer.mjs": "8a398ad2f031d18dd8d927f1d6679cd16e713c0144e35ab06cffa620cbae2b7f",
         "scripts/ci/npm-consumer.mjs": "ec2d94457b4e0e2d1939d8b245224fdc16899ce349e2fddf49f3ada36dc576a5"
@@ -39,9 +39,9 @@
         "./suite-api": {}
       },
       "files": {
-        "ci/consumers/npm/app-update/README.md": "e6c18530765bd8d876fefc8800da1ca2ded1099e310e4a666e10c855031ffa40",
+        "ci/consumers/npm/app-update/README.md": "31f25a85f9cc63db80377b607b16451ca540df7a1ffa63a4bd61feaeac9d6412",
         "ci/consumers/npm/app-update/consumer.mjs": "c1d29b8ead2f4574388beeacd74c84ca6c78c9181854dc2373c7a48bcc8f56b7",
-        "ci/consumers/npm/app-update/package.json": "ff6bbd8955ee8c52d636d20794e8c00b01bf5651c6a5b7fd44521c4e54575b10",
+        "ci/consumers/npm/app-update/package.json": "d2e1a7ff98f819a90818c29b458462688dd05c8231502b806814a1ff7436b04b",
         "ci/consumers/npm/app-update/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
@@ -131,9 +131,9 @@
         ]
       },
       "files": {
-        "ci/consumers/npm/settings-ui/README.md": "57174977e1831f6ed5aefa31e7c47c781df515880d734e8b4dfa1c3ac8e21851",
+        "ci/consumers/npm/settings-ui/README.md": "f69ca190dafb0d88d3b4085690e37686dc721be2c4022c62b31e10e6b200c98e",
         "ci/consumers/npm/settings-ui/consumer.mjs": "6bb455d420a91094e84ea4d417cb352781aff42412a2716a4a25be5e842476ca",
-        "ci/consumers/npm/settings-ui/package.json": "2461ab4540bfd71c284cd962ac8b1d69f9892076ca2bb208a84504f9674fb8d9",
+        "ci/consumers/npm/settings-ui/package.json": "71f10ac471d38a2eceb8a26c618c9af521063b6ad89292e407bed31cb1dde1ea",
         "ci/consumers/npm/settings-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       },
@@ -186,9 +186,9 @@
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/tauri-shell/README.md": "92b88055bf256e6554de4a5330ef0fcab7ff696a65d9303f7a26d073dc08b3a2",
+        "ci/consumers/npm/tauri-shell/README.md": "d8ac76f98eaadab1efc4149cbed69e3801f51400c55b6213913c6edefc43a753",
         "ci/consumers/npm/tauri-shell/consumer.mjs": "3c3207fe0254581feb8e6f2626f0c89a32ebaaec1b15beed85a683d589d8feb0",
-        "ci/consumers/npm/tauri-shell/package.json": "f4797fc0336d4b4f8cc23b6060757bf9ad193d03b35ddd8287023c10338a1b13",
+        "ci/consumers/npm/tauri-shell/package.json": "44b3e3f3aced1ea3c799a1ef2ac235c38492fcafa8b3e02f698f491672572661",
         "ci/consumers/npm/tauri-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
@@ -212,7 +212,7 @@
       "files": {
         "ci/consumers/npm/legal/README.md": "f34c606a490ad478fbf99680b8f79d1430f825fb3bb57a6cce75440c0a9bc310",
         "ci/consumers/npm/legal/consumer.mjs": "88b5ebc6b2c3787d47302046aaf28e67006727794bd162d0e9764d2906323fb5",
-        "ci/consumers/npm/legal/package.json": "412fca5c15c88350f882032c920c3c9b8f2413548d279512cdf428d2f96f4395",
+        "ci/consumers/npm/legal/package.json": "9e5619a1cf811d6e9d1bfb7410c427f2151c581802f9abad4b1b20762e8200d0",
         "ci/consumers/npm/legal/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
@@ -247,7 +247,7 @@
       "files": {
         "ci/consumers/npm/doc-render/README.md": "99f230c0c24ce02d209a1c9df9de0c7390dab78ac5494ddf0e34766de25d68d9",
         "ci/consumers/npm/doc-render/consumer.mjs": "03ec48728c00e08bb8d0637bccf50703971955ab4616b71b9e092eba6bca9fcd",
-        "ci/consumers/npm/doc-render/package.json": "9bfd7a0c02b3a7123319aaefdaf3ab449109dca74fa0e6f152263561a2da5e44",
+        "ci/consumers/npm/doc-render/package.json": "6f679c0175955a1a3f08d5547a066c820855f2d4f119f658955b0eda2ce22f2d",
         "ci/consumers/npm/doc-render/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
@@ -283,7 +283,7 @@
       "files": {
         "ci/consumers/npm/tauri/README.md": "dc61c9f8b3b34d5f45eebf44cfa3e3a275f9ae0653ee66c98b3f1af6732d818d",
         "ci/consumers/npm/tauri/consumer.mjs": "9f02cf75b03879bce155c87aa629b9a98eef3862852910b2c28267a261f933c2",
-        "ci/consumers/npm/tauri/package.json": "356c2c80b7466bbcf19cec801b2eea0cb2b69686d670f3cf38d622ade8dac3ee",
+        "ci/consumers/npm/tauri/package.json": "316189e349f22abf33a63b7968c8d1e429af8f26bb53c824330266c5eb69c6a8",
         "ci/consumers/npm/tauri/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
@@ -334,7 +334,7 @@
       "files": {
         "ci/consumers/npm/release/README.md": "227287d33bc244d26cc037577febcd801bcce225f41f7804cef667a89de0eda9",
         "ci/consumers/npm/release/consumer.mjs": "ab8a2db2674d2012c3d4e1f9c76157d525c60abc434e03d3830e5ad9dd935372",
-        "ci/consumers/npm/release/package.json": "52ccd307f9992035ad0795fe0ea3d9a0756a7a30c5830c05435bd0f34b9074d0",
+        "ci/consumers/npm/release/package.json": "af01377a06862e873b9ea78b367049a15111c32a393153ae9272281c14d6cadd",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }

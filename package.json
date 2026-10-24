@@ -2,7 +2,7 @@
   "name": "rightkit-shared",
   "private": true,
   "description": "Canonical source workspace for shared RightKit npm packages and Rust crates.",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "check:syntax": "node scripts/check-syntax.mjs",
     "test:pdf-ui": "pnpm --filter @rightkit/pdf-ui test",

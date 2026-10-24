@@ -87,7 +87,7 @@
     "url": "git+https://github.com/bogusyogi/rightkit.git",
     "directory": "packages/settings-ui"
   },
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "peerDependenciesMeta": {
     "@rightkit/license": {
       "optional": true

@@ -573,7 +573,7 @@ test("declared-unrelated hosted workflows: admitted when declared and secretless
   git(root, "commit", "-m", "sign in ci");
   const refused = run(config, "--tier=patch");
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /declared-unrelated hosted workflows refused: ci\.yml references secrets MAC_CERT/);
+  assert.match(refused.stderr, /declared-unrelated hosted workflows refused: ci\.yml references secrets other than GITHUB_TOKEN/);
 });
 
 test("accepts one right-git managed CI workflow without granting hosted release authority", () => {
@@ -611,7 +611,7 @@ function declaredWorkflowFixture(workflows) {
   const root = path.dirname(config);
   const workflowDir = path.join(root, ".github", "workflows");
   mkdirSync(workflowDir, { recursive: true });
-  const manifest = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["ubuntu-latest"], node: ["22.13"] }, packageManager: "pnpm@11.24.0", templateVersion: "1.0.0", workflows };
+  const manifest = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["ubuntu-latest"], node: ["22.13"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.0.0", workflows };
   writeFileSync(path.join(root, ".rightgit.json"), JSON.stringify(manifest));
   return { config, root, workflowDir, manifest };
 }
@@ -941,7 +941,7 @@ const SWIFT_NODE_LANES = {
   compile: "github-actions-only",
   lanes: ["ci", "qualification", "package-smoke", "release-candidate", "regenerate"],
   matrix: { os: ["ubuntu-latest", "macos-latest"], node: ["24"] },
-  packageManager: "pnpm@11.24.0",
+  packageManager: "pnpm@11.25.0",
   regenerate: { script: "regenerate" },
   templateVersion: "1.0.0",
   swift: { privatePackages: SWIFT_PRIVATE },
@@ -959,7 +959,7 @@ const SWIFT_RUST_LANES = {
   lanes: ["ci", "release-candidate", "regenerate"],
   gate: { path: "scripts/gate.sh" },
   matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
-  packageManager: "pnpm@11.24.0",
+  packageManager: "pnpm@11.25.0",
   regenerate: { script: "regenerate" },
   candidate: { ...SWIFT_LANE_CANDIDATE, os: ["xcode-27", "windows-2025"] },
   devArtifact: { mac: "unsigned", windows: "unsigned", parallel: true, buildScript: "build:dev", macAppPath: "target/release/bundle/macos/Widgets.app", windowsGlob: "target/release/*.exe" },
@@ -1059,7 +1059,7 @@ const SIGN_EXISTING_MANIFEST = {
   lanes: ["ci", "sign-existing"],
   gate: { path: "scripts/gate.sh" },
   matrix: { os: ["xcode-27", "windows-2025"], node: ["26.8.1"] },
-  packageManager: "pnpm@11.24.0",
+  packageManager: "pnpm@11.25.0",
   templateVersion: "1.2.0",
   signExisting: { macSignManifest: "build/dev-sign.json", macPayloadMetadata: "Legion.app/Contents/Resources/payload.json" },
 };

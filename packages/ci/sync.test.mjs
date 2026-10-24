@@ -60,7 +60,7 @@ test("sync rejects a Membrane-like release chain without root @rightkit/release"
     compile: "github-actions-only",
     lanes: ["ci", "release-candidate"],
     matrix: { os: ["windows-2025", "macos-15"], node: ["22.23.2"] },
-    packageManager: "pnpm@11.24.0",
+    packageManager: "pnpm@11.25.0",
     templateVersion: "1.5.0",
     profile: "rust-hybrid",
     gate: { path: "scripts/ci/run-ci.sh" },

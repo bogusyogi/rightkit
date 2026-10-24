@@ -3,7 +3,7 @@
   "version": "0.1.11",
   "description": "Zero-dependency Chrome for Testing resolver, launcher and graceful close for Right Suite QA harnesses.",
   "license": "MIT OR Apache-2.0",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

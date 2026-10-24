@@ -34,10 +34,35 @@ test("every workflow must be declared with a reason, and every declaration must 
   assert.match(refusal({ "ci.yml": WEB_CI }, { "ci.yml": "web" }), /must say why the workflow exists/);
 });
 
-test("any secret but GITHUB_TOKEN is refused, however it is spelled", () => {
-  for (const reference of ["secrets.APPLE_API_KEY", "secrets . ASC_KEY_ID", "secrets['P12']", "toJSON(secrets)"]) {
-    assert.match(refusal({ "ci.yml": `${WEB_CI}      - run: echo \${{ ${reference} }}\n` }), /secrets|whole secrets context/, reference);
+test("any secret but GITHUB_TOKEN is refused, and so is passing the secrets context on", () => {
+  for (const reference of ["secrets.APPLE_API_KEY", "secrets . ASC_KEY_ID", "secrets['P12']", "toJSON(secrets)", "join(secrets)", "SECRETS.X"]) {
+    assert.match(refusal({ "ci.yml": `${WEB_CI}      - run: echo \${{ ${reference} }}\n` }), /references secrets other than GITHUB_TOKEN/, reference);
   }
+  const inherit = `${WEB_CI}  ship:\n    uses: ./.github/workflows/ship.yml\n    secrets: inherit\n`;
+  assert.match(refusal({ "ci.yml": inherit }), /secrets other than GITHUB_TOKEN/);
+  // a path segment named secrets is not the context
+  assert.equal(refusal({ "ci.yml": `${WEB_CI}      # reads /run/secrets/gateway_accounts\n` }), null);
+});
+
+test("a reusable workflow is refused even without secrets, since the called workflow is not checked", () => {
+  assert.match(refusal({ "ci.yml": `${WEB_CI}  ship:\n    uses: someorg/tools/.github/workflows/ship.yml@0123456789abcdef0123456789abcdef01234567\n` }), /calls the reusable workflow/);
+});
+
+test("a YAML escape that could spell a secret or a command is refused", () => {
+  assert.match(refusal({ "ci.yml": `${WEB_CI}      - run: "echo \${{ s\\u0065crets.ASC_KEY }}"\n` }), /\\x, \\u or \\U escape/);
+  assert.match(refusal({ "ci.yml": `${WEB_CI}      - run: "xcrun notaryt\\x6fol submit a"\n` }), /escape/);
+});
+
+test("every action is commit-pinned (or local, or a docker image by digest)", () => {
+  assert.match(refusal({ "ci.yml": `${WEB_CI}      - uses: actions/checkout@v4\n` }), /actions\/checkout@v4, which is not pinned/);
+  assert.equal(refusal({ "ci.yml": `${WEB_CI}      - uses: ./.github/actions/setup\n      - uses: docker://alpine@sha256:${"a".repeat(64)}\n` }), null);
+});
+
+test("an OIDC token is refused unless the file declares why it mints one", () => {
+  const oidc = `${WEB_CI.replace("  packages: write\n", "  packages: write\n  id-token: write\n")}`;
+  assert.match(refusal({ "ci.yml": oidc }), /id-token: write\) without declaring why/);
+  assert.equal(refusal({ "ci.yml": oidc }, { "ci.yml": { reason: "web and server pipeline", idToken: "cosign keyless signing of the images" } }), null);
+  assert.match(declaredUnrelatedShapeProblems(declaration({ "ci.yml": { reason: "web and server pipeline", idToken: "x", extra: 1 } })).join("; "), /idToken must say why.*extra is not a known field|extra is not a known field.*idToken must say why/);
 });
 
 test("release machinery is refused even inside a comment or a quoted string", () => {
