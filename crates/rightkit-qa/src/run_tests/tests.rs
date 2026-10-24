@@ -474,6 +474,39 @@ mod runs {
     }
 
     #[test]
+    fn a_descendant_a_binary_leaves_running_is_recorded_in_the_receipt_and_killed() {
+        let fx = Fx::new("survivor");
+        let listing = fx.listing(&["a"]);
+        let marker = fx.dir.join("grandchild-lived");
+        // The binary starts a background grandchild that would touch the marker after 2 s, then exits 0
+        // over a green summary while the grandchild still sleeps.
+        let script = format!(
+            "(sleep 2; touch '{m}') >/dev/null 2>&1 & echo '{OK_LINE}'",
+            m = marker.display()
+        );
+        let o = run(&fx.options(&listing, &script)).unwrap();
+        let b = &o.receipt.binaries[0];
+        assert_eq!(b.status, Status::Passed, "{:?}", o.receipt.verdict);
+        assert_eq!(b.exit, Some(0));
+        assert!(
+            !b.survivors.is_empty(),
+            "the sleeping grandchild was not recorded: {b:?}"
+        );
+        assert!(b.survivors.iter().all(|s| s.pid > 1 && !s.name.is_empty()));
+        // The record is in the receipt on disk, not only in the returned value.
+        let on_disk: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&o.receipt_path).unwrap()).unwrap();
+        assert!(!on_disk["binaries"][0]["survivors"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        // ... and it was killed: the marker never appears.
+        std::thread::sleep(Duration::from_millis(2800));
+        assert!(!marker.exists(), "the survivor was not killed");
+        let _ = std::fs::remove_dir_all(&fx.dir);
+    }
+
+    #[test]
     fn libtest_arguments_cwd_and_environment_reach_each_binary() {
         let fx = Fx::new("passthrough");
         let listing = fx.listing(&["alpha"]);

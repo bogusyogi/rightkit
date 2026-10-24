@@ -72,8 +72,9 @@ fn sleeps() {
 }
 "#;
 
-/// The tests in this file. The last one to finish removes the fixture, its target directory included.
-const TESTS: usize = 11;
+/// The tests in this file (the Unix-only ones count on Unix only). The last one to finish removes the
+/// fixture, its target directory included.
+const TESTS: usize = if cfg!(unix) { 12 } else { 10 };
 
 struct Fixture {
     dir: PathBuf,
@@ -107,12 +108,42 @@ fn fixture() -> &'static Fixture {
         std::fs::write(root.join("tests/mixed.rs"), MIXED_RS).unwrap();
         std::fs::write(root.join("tests/only_pass.rs"), ONLY_PASS_RS).unwrap();
         std::fs::write(root.join("tests/slow.rs"), SLOW_RS).unwrap();
+        // Written here, before any test has started a process: a script that is still open for writing
+        // in one thread fails to exec ("Text file busy") when another thread forks at that moment.
+        #[cfg(unix)]
+        write_fake_broker(&dir.join(FAKE_BROKER_DIR));
         Fixture {
             target: dir.join("target"),
             dir,
             root,
         }
     })
+}
+
+/// Directory (under the fixture) holding the stand-in `rustright`.
+#[cfg(unix)]
+const FAKE_BROKER_DIR: &str = "fake-broker";
+
+/// The request id the stand-in broker prints, in the broker's own `rustright: request <id>` line.
+#[cfg(unix)]
+const FAKE_REQUEST_ID: &str = "0123456789abcdef";
+
+/// A `rustright` stand-in for a host with the broker: it takes `rustright cargo test ...`, prints the
+/// request line on stderr and runs the cargo it was asked for. Not a broker (no queue, no slot), only
+/// the two things `run-tests` reads from one: that it is `rustright` on `PATH`, and that line.
+#[cfg(unix)]
+fn write_fake_broker(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let script = dir.join("rustright");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n[ \"$1\" = cargo ] || {{ echo \"fake rustright: expected cargo, got '$1'\" >&2; exit 64; }}\nshift\necho \"rustright: request {FAKE_REQUEST_ID}\" >&2\nexec \"${{CARGO:-cargo}}\" \"$@\"\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 struct Ran {
@@ -149,6 +180,11 @@ impl Ran {
 /// Run `rightkit-qa run-tests --root <fixture> --app rkfixture --build-with cargo ...` with a managed root
 /// of its own (so parallel tests never prune each other's runs) and the receipt copied out.
 fn run_tests(name: &str, extra: &[&str]) -> Ran {
+    run_tests_env(name, extra, &[])
+}
+
+/// [`run_tests`] with extra environment variables for the `rightkit-qa` process.
+fn run_tests_env(name: &str, extra: &[&str], envs: &[(&str, std::ffi::OsString)]) -> Ran {
     let fx = fixture();
     let managed = fx.dir.join(format!("managed-{name}"));
     let receipt_path = fx.dir.join(format!("receipt-{name}.json"));
@@ -161,6 +197,7 @@ fn run_tests(name: &str, extra: &[&str]) -> Ran {
         .args(extra)
         .env("CARGO_TARGET_DIR", &fx.target)
         .env_remove("RUSTC_WRAPPER")
+        .envs(envs.iter().map(|(k, v)| (*k, v)))
         .output()
         .expect("start rightkit-qa");
     let bytes = std::fs::read(&receipt_path).ok();
@@ -530,6 +567,76 @@ fn a_listing_from_cargo_runs_without_a_compile() {
     );
     assert_eq!(ran.code(), 2);
     assert!(ran.receipt().verdict.reasons[0].contains("listed no test executable"));
+}
+
+/// `PATH` with the stand-in broker's directory first.
+#[cfg(unix)]
+fn path_with_fake_broker() -> std::ffi::OsString {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let dirs = std::iter::once(fixture().dir.join(FAKE_BROKER_DIR))
+        .chain(std::env::split_paths(&inherited));
+    std::env::join_paths(dirs).unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_compile_through_the_broker_is_recorded_as_managed_with_its_request_id() {
+    let _done = Done;
+    // No --build-with: `auto` picks the broker because `rustright` resolves on PATH.
+    let ran = run_tests_env(
+        "broker",
+        &["--app", "rkfixture", "--offline", "--test", "only_pass"],
+        &[("PATH", path_with_fake_broker())],
+    );
+    assert_eq!(
+        ran.code(),
+        0,
+        "stdout:\n{}\nstderr:\n{}",
+        ran.stdout(),
+        ran.stderr()
+    );
+    let r = ran.receipt();
+    assert_eq!(r.compile.source, "broker");
+    assert!(r.compile.managed);
+    assert_eq!(r.compile.request_id.as_deref(), Some(FAKE_REQUEST_ID));
+    assert!(r.compile.note.is_none(), "{:?}", r.compile.note);
+    let program = r.compile.program.as_deref().expect("compile program");
+    assert!(
+        Path::new(program).ends_with("fake-broker/rustright"),
+        "{program}"
+    );
+    // The command the broker was given: `rustright cargo test ... --no-run --message-format=json`.
+    assert_eq!(r.compile.argv[0], program);
+    assert_eq!(r.compile.argv[1..3], ["cargo", "test"]);
+    assert!(r.compile.argv.iter().any(|a| a == "--no-run"));
+    assert_eq!(r.compile.exit, Some(0));
+    assert_eq!(r.compile.build_finished, Some(true));
+    assert_eq!(r.binaries[0].status, Status::Passed);
+    // The request line is in the compile's stderr log, where the id came from.
+    let log = ran
+        .managed
+        .join("runs")
+        .join("rkfixture-run-tests")
+        .join(&r.run_id)
+        .join("compile.stderr.log");
+    assert!(std::fs::read_to_string(log)
+        .unwrap()
+        .contains(&format!("rustright: request {FAKE_REQUEST_ID}")));
+    assert!(
+        ran.stdout().contains("run-tests: compiling (broker):"),
+        "{}",
+        ran.stdout()
+    );
+    // The same host with `--build-with cargo` is a plain-cargo compile: unmanaged, no request id.
+    let plain = run_tests_env(
+        "broker-plain",
+        &args(&["--offline", "--test", "only_pass"]),
+        &[("PATH", path_with_fake_broker())],
+    );
+    assert_eq!(plain.code(), 0, "{}", plain.stderr());
+    let p = plain.receipt();
+    assert_eq!(p.compile.source, "cargo");
+    assert!(!p.compile.managed && p.compile.request_id.is_none());
 }
 
 #[test]
