@@ -556,6 +556,26 @@ test("rejects hosted workflow files before release work starts", () => {
   assert.match(result.stderr, /hosted workflow.*forbidden/i);
 });
 
+test("declared-unrelated hosted workflows: admitted when declared and secretless, refused when one can sign", () => {
+  const files = { "ci.yml": "web and server pipeline, unrelated to the released app" };
+  const config = fixture({ hostedWorkflows: { policy: "declared-unrelated", files }, includeCargoSources: false });
+  const root = path.dirname(config);
+  const workflowDir = path.join(root, ".github", "workflows");
+  mkdirSync(workflowDir, { recursive: true });
+  writeFileSync(path.join(workflowDir, "ci.yml"), "name: web\npermissions:\n  contents: read\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pnpm test\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "add web ci");
+  const admitted = run(config, "--tier=patch");
+  assert.equal(admitted.status, 0, admitted.stderr);
+
+  writeFileSync(path.join(workflowDir, "ci.yml"), "name: web\njobs:\n  sign:\n    runs-on: macos-15\n    steps:\n      - run: codesign -s \"${{ secrets.MAC_CERT }}\" App.app\n");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "sign in ci");
+  const refused = run(config, "--tier=patch");
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /declared-unrelated hosted workflows refused: ci\.yml references secrets MAC_CERT/);
+});
+
 test("accepts one right-git managed CI workflow without granting hosted release authority", () => {
   const config = fixture({ hostedWorkflows: "right-git-ci-only", includeCargoSources: false });
   const root = path.dirname(config);
@@ -1866,7 +1886,7 @@ function normalizeDoctor(output, config) {
   return output
     .split(path.dirname(config)).join("<DIR>")
     .split(/\r?\n/)
-    .filter((line) => !/^(rightkit-registry|workdir|hardeningscan|config):|\] (disk|ownership|target-bridge|compiler-cache):|^\s+fix: |^\s*$/.test(line))
+    .filter((line) => !/^(rightkit-registry|workdir|hardeningscan|config):|\] (disk|ownership|target-bridge|compiler-cache|sccache):|^\s+fix: |^\s*$/.test(line))
     .join("\n")
     .replace(/^right-release \d+\.\d+\.\d+/m, "right-release <version>")
     .replace(/^platform: .*/m, "platform: <host>");

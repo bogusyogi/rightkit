@@ -11,6 +11,7 @@ import { validateRightKitCargoContract } from "./cargo-contract.mjs";
 import { assertCargoProfileContract } from "./cargo-profile-contract.mjs";
 import { assertQaAdoption, assertQaBackdoorContract } from "./qa-contract.mjs";
 import { assertLegalReleaseContract } from "./legal-contract.mjs";
+import { DECLARED_UNRELATED_POLICY, declaredUnrelatedRefusal, releaseArtifactPaths } from "./hosted-workflow-policy.mjs";
 import { assertNativeIosPrepareHasManifest, assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { declaredCargoManifest, hasDefaultTauriManifest, resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import {
@@ -293,7 +294,7 @@ if (rightKitResolution) rightKitVerifiedNpm = rightKitResolution.verified.npm;
 // A SwiftPM app or a native iOS app without a package.json has no Node package contract to validate.
 await check("rightkit-package-contract", ["rightkit-registry"], async () => {
   if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
-    await validateRightKitPackageContract(root, config.app, config.hostedWorkflows);
+    await validateRightKitPackageContract(root, config.app, config.hostedWorkflows, releaseArtifactPaths(config));
   }
 });
 await check("rightkit-cargo-contract", ["rightkit-registry"], () => {
@@ -1134,7 +1135,7 @@ function commandTimeoutMs(command) {
     : undefined;
 }
 
-async function validateRightKitPackageContract(root, appName, hostedWorkflows) {
+async function validateRightKitPackageContract(root, appName, hostedWorkflows, artifacts = []) {
   const packageJsonPath = path.join(root, "package.json");
   const pkg = JSON.parse(await readFile(packageJsonPath, "utf8"));
   const scripts = pkg.scripts ?? {};
@@ -1143,7 +1144,7 @@ async function validateRightKitPackageContract(root, appName, hostedWorkflows) {
   if (existsSync(workflowDir)) {
     const workflows = (await readdir(workflowDir)).sort();
     if (workflows.length) {
-      await validateHostedWorkflows(root, appName ?? pkg.name ?? "app", workflows, hostedWorkflows);
+      await validateHostedWorkflows(root, appName ?? pkg.name ?? "app", workflows, hostedWorkflows, artifacts);
     }
   }
   if (pkg.packageManager !== RIGHTKIT_VERSIONS.packageManager) {
@@ -1390,9 +1391,18 @@ function declaredWorkflowPolicyRefusal(appName, workflow, source) {
   if (/^\s*(?:- )?uses:/m.test(lines.filter((l) => !steps.some((b) => b.includes(l))).join("\n"))) refuse("a uses: sits outside a step list");
 }
 
-async function validateHostedWorkflows(root, appName, workflows, policy) {
+async function validateHostedWorkflows(root, appName, workflows, policy, artifacts = []) {
+  // A repository that ships more than the released app (a monorepo's web or server pipeline) declares each workflow and why;
+  // none may reach a secret but GITHUB_TOKEN or run release machinery (hosted-workflow-policy.mjs).
+  if (policy !== null && typeof policy === "object" && policy.policy === DECLARED_UNRELATED_POLICY) {
+    const texts = new Map();
+    for (const file of workflows) texts.set(file, await readFile(path.join(root, ".github", "workflows", file), "utf8"));
+    const refusal = declaredUnrelatedRefusal({ declaration: policy, workflows, read: (file) => texts.get(file), artifacts });
+    if (refusal) fail(`${appName} ${DECLARED_UNRELATED_POLICY} hosted workflows refused: ${refusal}`);
+    return;
+  }
   if (policy !== "right-git-ci-only") {
-    fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")}`);
+    fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")} (set hostedWorkflows to "right-git-ci-only", or to { policy: "${DECLARED_UNRELATED_POLICY}", files: { <file>: <reason> } } when they are a pipeline unrelated to the released app)`);
   }
   const manifestPath = path.join(root, ".rightgit.json");
   let manifest;
