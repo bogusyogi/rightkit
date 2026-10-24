@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertPublic } from "./policy/visibility-gate.mjs";
-import { loadManifest, LANE_FILENAMES, buildRenderContext } from "./manifest.mjs";
+import { loadManifest, LANE_FILENAMES, buildRenderContext, CHECK_JOB_LANES } from "./manifest.mjs";
 import { applyCheckoutOptions } from "./checkout.mjs";
 import { renderWorkflows } from "./workflows.mjs";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
@@ -29,6 +29,44 @@ function releaseChainDependencyError(repoPath, manifest) {
     return "release-candidate releaseChain requires direct devDependency @rightkit/release pinned to a published npm version";
   }
   return null;
+}
+
+// The first @rightkit/release that ships `rightkit-gate check`, the command the check job of every CHECK_JOB_LANES lane runs.
+const GATE_CHECK_FIRST_VERSION = "0.6.5";
+const versionParts = (version) => version.split(".").map(Number);
+const versionBelow = (version, floor) => {
+  const [a, b] = [versionParts(version), versionParts(floor)];
+  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+};
+
+/**
+ * What the repository's @rightkit/release means for the check job the manifest's lanes render: `{ error, warnings }`. The job runs
+ * `rightkit-gate check` from the installed package, so an exact pin below the version that ships it is refused (the rendered
+ * workflow would fail on its first job); a range, a non-registry spec or no dependency at all cannot be proved either way and only
+ * warns, since the install may still resolve a new enough version. No lane that renders a check job: nothing to say.
+ */
+function checkJobDependency(repoPath, manifest) {
+  const lanes = (manifest.lanes ?? []).filter((lane) => CHECK_JOB_LANES.includes(lane));
+  if (lanes.length === 0) return { error: null, warnings: [] };
+  const rendered = `${lanes.length === 1 ? "lane" : "lanes"} ${lanes.join(", ")} ${lanes.length === 1 ? "renders" : "render"} the RightKit check job, which runs rightkit-gate check from the repository's @rightkit/release (${GATE_CHECK_FIRST_VERSION} is the first version that ships it)`;
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(path.join(repoPath, "package.json"), "utf8"));
+  } catch {
+    return { error: null, warnings: [`${rendered}; package.json is not readable here, so the pin cannot be checked`] };
+  }
+  const spec = pkg.devDependencies?.["@rightkit/release"] ?? pkg.dependencies?.["@rightkit/release"];
+  if (typeof spec !== "string") {
+    return { error: null, warnings: [`${rendered}; package.json declares no @rightkit/release dependency, so the job has no gate to run`] };
+  }
+  if (!PUBLISHED_NPM_VERSION.test(spec)) {
+    return { error: null, warnings: [`${rendered}; @rightkit/release is ${JSON.stringify(spec)}, not an exact version, so it cannot be checked to be ${GATE_CHECK_FIRST_VERSION} or later (pin an exact version)`] };
+  }
+  if (versionBelow(spec, GATE_CHECK_FIRST_VERSION)) {
+    return { error: `${rendered}; @rightkit/release is pinned to ${spec}, which has no rightkit-gate check (pin ${GATE_CHECK_FIRST_VERSION} or later)`, warnings: [] };
+  }
+  return { error: null, warnings: [] };
 }
 
 /** Render every lane declared in the manifest. Returns { lane, filename, content }[]. */
@@ -107,6 +145,12 @@ export async function planSync(repoPath, deps = {}, manifestOverride = null) {
     return { ok: false, stage: "dependency", errors: [dependencyError], changes: [] };
   }
 
+  const checkDependency = checkJobDependency(repoPath, loaded.manifest);
+  if (checkDependency.error) {
+    return { ok: false, stage: "dependency", errors: [checkDependency.error], warnings: [], changes: [] };
+  }
+  const warnings = checkDependency.warnings;
+
   const rendered = renderLanes(loaded.manifest, repoPath);
   const wantedFilenames = new Set(rendered.map((r) => r.filename));
   const changes = [];
@@ -136,8 +180,8 @@ export async function planSync(repoPath, deps = {}, manifestOverride = null) {
 
   const conflicts = changes.filter((change) => change.action === "managed-conflict");
   return conflicts.length
-    ? { ok: false, stage: "managed-conflict", errors: conflicts.map((change) => `${change.filename} is unmanaged`), changes }
-    : { ok: true, stage: "planned", errors: [], changes };
+    ? { ok: false, stage: "managed-conflict", errors: conflicts.map((change) => `${change.filename} is unmanaged`), warnings, changes }
+    : { ok: true, stage: "planned", errors: [], warnings, changes };
 }
 
 /** Apply a plan produced by planSync: write/update/remove files on disk. */

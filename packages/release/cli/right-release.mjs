@@ -54,7 +54,17 @@ const commands = new Map([
 
 const args = process.argv.slice(2);
 const first = args[0];
+// The commands that compile, package, sign, ship or inspect a release run the app check (../app-check.mjs, CHECKED_COMMANDS) in this
+// process before they start a child. A red check prints its findings and exits 1; there is no flag that skips it.
+async function requireGreenCheck() {
+  const { guardCommand } = await import("../app-check.mjs");
+  const refused = guardCommand({ args });
+  if (!refused) return;
+  for (const line of refused.lines) console.error(line);
+  process.exit(refused.exitCode);
+}
 if (first === "dev") {
+  await requireGreenCheck();
   import("../development.mjs").then(({ main }) => main(args.slice(1))).catch((error) => {
     console.error(`right-release dev: ${error.code ? `[${error.code}] ` : ""}${error.message}`);
     process.exitCode = 1;
@@ -81,6 +91,8 @@ if (!first || first === "-h" || first === "--help") {
   process.exit(0);
 }
 
+await requireGreenCheck();
+
 if (first === "--version" || first === "-v") {
   run("release.mjs", ["--version"]);
 } else if (first === "doctor") {
@@ -89,6 +101,18 @@ if (first === "--version" || first === "-v") {
   } else {
     run("release.mjs", ["--doctor", ...args.slice(1)]);
   }
+} else if (first === "check") {
+  // The same offline check as `rightkit-gate check`; the repository is the git top-level of --config's folder, else the cwd.
+  const { appDirectory, main } = await import("../app-check.mjs");
+  process.exit(await main(args.slice(1), { label: "check", cwd: appDirectory(args, process.cwd()) }));
+} else if (first === "hooks" && args[1] === "install") {
+  // One installer: `hooks install` is `rightkit-gate install-hook` (pre-push check and gate, ownership pre-commit step) run in the app.
+  const app = args.indexOf("--app");
+  if (app >= 0 && (!args[app + 1] || args[app + 1].startsWith("-"))) {
+    console.error("right-release hooks install: --app needs a directory");
+    process.exit(2);
+  }
+  run("bin/rightkit-gate.mjs", ["install-hook", ...(args.includes("--force") ? ["--force"] : [])], { cwd: app >= 0 ? path.resolve(args[app + 1]) : process.cwd() });
 } else if (first === "hooks") {
   run("ownership-hooks.mjs", args.slice(1));
 } else if (first === "suite-doctor") {
@@ -170,9 +194,9 @@ if (first === "--version" || first === "-v") {
   process.exit(2);
 }
 
-function run(script, scriptArgs) {
+function run(script, scriptArgs, { cwd = process.cwd() } = {}) {
   const child = spawn(process.execPath, [path.join(packageRoot, script), ...scriptArgs], {
-    cwd: process.cwd(),
+    cwd,
     env: process.env,
     stdio: "inherit",
     windowsHide: true,
@@ -308,12 +332,21 @@ Commands:
   apple profile renew [--config <file>] [--profile <file>] [--dry-run]
                                                       Renew macOS profile for current Keychain signer
   signing-agent install|uninstall|status              Manage invisible Aqua-session signing service
-  doctor [--platform mac|win] [--gates]               Inspect one app's release config; --gates also runs the build's pre-build source gates
+  check [--repo <dir>] [--config <file>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
+                                                      The offline app check, same as rightkit-gate check: committed files only, every finding in one run (exit 0 pass, 1 findings, 2 could not run).
+                                                      Build, package, dev, test, web-build, swift-package, recipe-build, stage-sidecar, qa, upload, publish, publish-update, github, doctor,
+                                                      sign-windows, sign-updater, sign-candidate, sign-dev-artifact, addon build and create-mac-updater run it first and start nothing when it is red; there is no flag that skips it.
+                                                      Baseline: .rightkit/app-check-baseline.json (entries carry issue, added and sunset; the sunset is at most 90 days after added)
+  doctor [--platform mac|win] [--gates] [--inspect] [--strict]
+                                                      Inspect one app's release config the way the build would refuse it; --gates also runs the build's pre-build source gates
+                                                      --inspect lists admission findings (newer RightKit versions) as information instead of refusing them
+                                                      --strict makes a row that could not run on this host (NOT RUN) a blocking problem; without it NOT RUN is printed and does not fail
+                                                      --admission is still accepted and does nothing (admission is the default); it cannot be combined with --inspect
   doctor --all                                       Verify all Right Suite app release contracts
   suite-doctor                                       Verify all local Right Suite repositories
   ownership [--app <dir>] [--json]                   Fail on app copies of RightKit-owned capabilities
   ownership --staged [--app <dir>] [--json]          Pre-commit gate: scan the staged index for block-tier findings
-  hooks install [--app <dir>]                        Install the advisory pre-commit ownership gate (pinned @rightkit/release)
+  hooks install [--app <dir>] [--force]              Alias of rightkit-gate install-hook: the pre-push check and gate, and the advisory pre-commit ownership gate (pinned @rightkit/release)
   ownership enroll [--root] [--name <device>] [--root-fingerprint <sha256>] [--app <dir>]
                                                       Enroll one native key or create a signed-device request
   ownership approve-key <fingerprint|request.json>    Approve one pending device key from an active host

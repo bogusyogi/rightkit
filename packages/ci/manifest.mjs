@@ -1225,7 +1225,7 @@ function devPlatformJob({ manifest, id, label, runner, condition, lane, artifact
     swiftConfigure.length > 0
       ? "    # QA gate job, not after it, and reaches only the private Swift package secret."
       : "    # QA gate job, not after it, and never reaches a secret.",
-    "    needs: [private-repo-guard]",
+    "    needs: [private-repo-guard, check]",
     `    if: \${{ ${condition} }}`,
     `    runs-on: ${runner}`,
     "    permissions:",
@@ -2199,6 +2199,76 @@ export function lockfilePatchStep(manifest) {
   ].join("\n");
 }
 
+// Action pins of the check job follow the template it is rendered into, so one workflow never mixes two pin styles:
+// the node-profile lane templates pin by tag, swift-check and the rust-hybrid templates by commit.
+const CHECK_SETUP_NODE_SHA_PIN = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0";
+const CHECK_ACTION_PINS = Object.freeze({
+  tag: Object.freeze({ checkout: "actions/checkout@v5", setupNode: "actions/setup-node@v5" }),
+  swift: Object.freeze({ checkout: "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2", setupNode: CHECK_SETUP_NODE_SHA_PIN }),
+  sha: Object.freeze({ checkout: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", setupNode: CHECK_SETUP_NODE_SHA_PIN }),
+});
+// Lanes whose jobs compile or test the repository and therefore sit behind the check job (rightkit#833, pipeline invariant P1).
+// `publish-npm` is one of them: it checks out the release tag, installs, rebuilds the tarball from source (build-candidate.mjs),
+// runs check-release.mjs and only then publishes, so the check runs on the tag's commit before any of that. The others render
+// without it: `regenerate` exists to repair what the check flags (derived files, lockfiles), `sign-existing` and `supersede`
+// are admitted by @rightkit/release only in their exact rendered shape (`needs: [private-repo-guard]`), and
+// `publish-package-managers` builds and tests nothing (it installs, syntax-checks the committed formula and opens a tap pull
+// request, or submits a WinGet manifest, for a version that is already released).
+export const CHECK_JOB_LANES = Object.freeze(["ci", "qualification", "package-smoke", "release-candidate", "swift-check", "publish-npm"]);
+
+/**
+ * The RightKit check job: the first job of every lane that compiles or tests, so nothing builds or qualifies a tree the
+ * check refused. It needs only the private-repo guard; every other job of the workflow needs it (directly in `needs`, or
+ * through a job that does). It installs the repository's own dependencies without running their scripts, then runs
+ * `rightkit-gate check --commit HEAD` from the installed @rightkit/release (committed files only: no network, compile or
+ * broker), so the repository must depend on a @rightkit/release that has the command. The install is not filtered to
+ * @rightkit/release: `pnpm install --filter` selects workspace projects, and in a consumer @rightkit/release is a registry
+ * dependency, so the filter matches nothing, installs nothing and exits 0. npm and yarn call the bin by its path because
+ * `npm exec` fetches an unknown name from the registry in CI. A release-candidate checks the revision it builds, and
+ * publish-npm checks the release tag it builds and publishes. Returns "" for lanes outside CHECK_JOB_LANES; otherwise the
+ * job text, ending with a newline.
+ */
+export function checkJob(manifest, lane = "ci") {
+  if (!CHECK_JOB_LANES.includes(lane)) return "";
+  const pm = parsePackageManager(manifest.packageManager);
+  const rustHybrid = manifest.profile === "rust-hybrid";
+  const pins = rustHybrid ? CHECK_ACTION_PINS.sha : lane === "swift-check" ? CHECK_ACTION_PINS.swift : CHECK_ACTION_PINS.tag;
+  // The runner of the template's own guard job: the check reads files and needs no platform.
+  const runner = rustHybrid || lane === "swift-check" ? "ubuntu-24.04" : "ubuntu-latest";
+  // The revision the lane builds: a release-candidate's dispatched (or pushed) commit, the release tag publish-npm publishes.
+  const ref = lane === "publish-npm" ? "${{ github.event.release.tag_name }}"
+    : lane !== "release-candidate" ? null
+      : rustHybrid ? "${{ inputs.source_revision }}" : "${{ inputs.source_revision || github.sha }}";
+  // The same frozen install every other job runs (pm.installCommand), without lifecycle scripts; `--ignore-scripts` is a flag of
+  // `pnpm install`, `npm ci` and `yarn install` alike. Only the gate invocation differs per manager.
+  const install = `${pm.installCommand} --ignore-scripts`;
+  const gate = { pnpm: "pnpm exec rightkit-gate", npm: "./node_modules/.bin/rightkit-gate", yarn: "./node_modules/.bin/rightkit-gate" }[pm.name];
+  // The ci job prints the stale-lockfile patch after a failed frozen install; with check first it would never run, so check prints it.
+  const lockfilePatch = lane === "ci" ? lockfilePatchStep(manifest) : "";
+  return [
+    "  check:",
+    "    # RightKit check: committed files only, no compile; every finding in one run. Every other job needs it.",
+    "    needs: [private-repo-guard]",
+    `    runs-on: ${runner}`,
+    "    timeout-minutes: 15",
+    "    steps:",
+    `      - uses: ${pins.checkout}`,
+    "        with:",
+    ...(ref ? [`          ref: ${ref}`] : []),
+    "          fetch-depth: 1",
+    "          persist-credentials: false",
+    `      - uses: ${pins.setupNode}`,
+    "        with:",
+    `          node-version: ${JSON.stringify(String(manifest.matrix.node[0]))}`,
+    "          package-manager-cache: false",
+    ...(pm.setup ? [pm.setup] : []),
+    `      - run: ${install}`,
+    ...(lockfilePatch ? lockfilePatch.slice(1).split("\n") : []),
+    `      - run: ${gate} check --commit HEAD`,
+    "",
+  ].join("\n");
+}
+
 /**
  * swift.privatePackages: configure step, placed directly before the first step
  * in each opted-in job that builds or tests project code (the ci job, the
@@ -2265,19 +2335,19 @@ export function swiftPrivatePackagesCleanupStep(manifest) {
 }
 
 /**
- * gate.shards / gate.quick render values. Without shards every value is the text the template held
- * before the placeholders existed, so the rendered workflow is byte-identical.
+ * gate.shards / gate.quick render values. Without shards the values are the text the template held before the
+ * placeholders existed, plus the `check` job every ci-lane job now needs (see checkJob).
  */
 function gateShardContext(manifest, pm, lane) {
   const shardIds = gateShardIds(manifest);
   if (lane !== "ci" || shardIds.length === 0) {
-    return { CI_NEEDS: "[private-repo-guard]", CI_SHARD_KEY: "", GATE_ARGS: "", CI_QUICK_JOB: "", CI_SUMMARY_JOB: "" };
+    return { CI_NEEDS: "[private-repo-guard, check]", CI_SHARD_KEY: "", GATE_ARGS: "", CI_QUICK_JOB: "", CI_SUMMARY_JOB: "" };
   }
   const quick = manifest.gate.quick === true;
   const quickJob = quick ? [
     "  quick:",
     "    # gate.quick: the fast deterministic checks, before any gate shard starts.",
-    "    needs: [private-repo-guard]",
+    "    needs: [private-repo-guard, check]",
     "    runs-on: ubuntu-24.04",
     "    timeout-minutes: 20",
     "    steps:",
@@ -2319,7 +2389,7 @@ function gateShardContext(manifest, pm, lane) {
     "",
   ].join("\n");
   return {
-    CI_NEEDS: quick ? "[private-repo-guard, quick]" : "[private-repo-guard]",
+    CI_NEEDS: quick ? "[private-repo-guard, check, quick]" : "[private-repo-guard, check]",
     CI_SHARD_KEY: "-${{ matrix.shard }}",
     GATE_ARGS: " --group ${{ matrix.shard }}",
     CI_QUICK_JOB: quickJob,
@@ -2409,6 +2479,7 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       ? `# concurrency.mainPushes queue, recorded exception to one CI run per repo: ${manifest.concurrency.reason.trim()}\n`
       : "",
     CI_CONCURRENCY_GROUP: manifest.concurrency?.mainPushes === "queue" ? CI_GROUP_PER_REF : CI_GROUP_SUPERSEDE,
+    CHECK_JOB: checkJob(manifest, lane),
     CI_SUPERSEDE_JOB: manifest.concurrency?.mainPushes === "queue" ? "" : supersedeJob(manifest),
     CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(manifest),
     ...gateShardContext(manifest, pm, lane),

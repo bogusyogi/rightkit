@@ -17,7 +17,7 @@ jobs:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: exit 1
-${CI_SUPERSEDE_JOB}${CI_QUICK_JOB}  ci:
+${CHECK_JOB}${CI_SUPERSEDE_JOB}${CI_QUICK_JOB}  ci:
     needs: ${CI_NEEDS}
     strategy:
       fail-fast: false

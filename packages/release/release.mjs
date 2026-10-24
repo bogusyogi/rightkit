@@ -59,6 +59,8 @@ import { releaseSwitchInputs } from "./ios-build-context.mjs";
 import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
 import { defaultReleaseConfigFile, importReleaseConfig, releaseConfigFieldProblems } from "./release-config.mjs";
+import { describeRegistryError, formatNotRun, runAdmission } from "./admission.mjs";
+import { sccacheRefusal } from "./admission-host.mjs";
 
 const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const HARDENING_SCAN = path.resolve(TOOL_ROOT, "hardeningscan.mjs");
@@ -132,6 +134,8 @@ const opts = {
   skipChecks: false,
   doctor: false,
   gates: false,
+  inspect: false,
+  strict: false,
   tier: null,
   resume: false,
   resumeFrom: null,
@@ -139,19 +143,37 @@ const opts = {
 
 // E01: every independent problem of one run is collected and reported together; the doctor and the build share it.
 // `check` / `reject` record a finding and continue; a check whose input comes from a failed one is not run on that bad input
-// but recorded as `BLOCKED by <check>`; a throw inside a check is a finding, never a crash. `fail` stays for what cannot
-// continue (it prints what was collected first). The build stops at one checkpoint (before the release lock, install, checks and
-// compile) when any finding exists, so no build step or other side effect ever follows a failed check.
+// but reported as `not run because <check> failed` (one line, not a finding: the failed check is the one blocking problem of that
+// cause); a throw inside a check is a finding, never a crash. `fail` stays for what cannot continue (it prints what was
+// collected first). The build stops at one checkpoint (before the release lock, install, checks and compile) when any finding
+// exists, so no build step or other side effect ever follows a failed check.
 const problems = []; // { name, detail }
+const notRunLines = []; // what a failed check kept from running; reported beside the findings, never counted as one
 const failedChecks = new Set();
+// The three rows only the doctor owns (admission.mjs skips them in its own pass) are not admission findings, so nothing else puts
+// their id before the text. The doctor does, as it does for every admission row: `right-release: <row>: <text>`, the text the
+// build's controller prints after `right-release build: <row>: `.
+const DOCTOR_OWNED_ROWS = new Set(["rightkit-registry", "build-inputs", "dirty-inputs"]);
 function reject(name, detail) {
   failedChecks.add(name);
-  problems.push({ name, detail });
+  problems.push({ name, detail: opts.doctor && DOCTOR_OWNED_ROWS.has(name) ? `${name}: ${detail}` : detail });
+}
+// A validator that runs inside a check() refuses with this instead of calling fail(): the check records it as a finding and the
+// doctor goes on to the next rule. `rowId` names the rule; `problems` lists every finding the rule has when it has more than one.
+class ReleaseRefusal extends Error {
+  constructor(message, rowId, found = [message]) {
+    super(message);
+    this.name = "ReleaseRefusal";
+    this.rowId = rowId;
+    this.problems = found;
+  }
 }
 function rejectBlocked(name, blockers, what = name) {
   const blocker = blockers.find((candidate) => failedChecks.has(candidate));
   if (!blocker) return false;
-  reject(name, `${what} BLOCKED by ${blocker}`);
+  // The check counts as failed for the checks that read it (they are not run either), but it adds no problem of its own.
+  failedChecks.add(name);
+  notRunLines.push(`${what} not run because ${blocker} failed`);
   return true;
 }
 async function check(name, after, run) {
@@ -159,12 +181,14 @@ async function check(name, after, run) {
   try {
     return { ok: true, value: await run() };
   } catch (error) {
-    reject(name, error instanceof Error ? error.message : `${name} threw a non-Error value: ${String(error)}`);
+    if (error instanceof ReleaseRefusal) for (const detail of error.problems) reject(name, detail);
+    else reject(name, error instanceof Error ? error.message : `${name} threw a non-Error value: ${String(error)}`);
     return { ok: false };
   }
 }
 const printProblems = () => {
   for (const problem of problems.splice(0)) console.error(`right-release: ${problem.detail}`);
+  for (const line of notRunLines.splice(0)) console.error(`right-release: ${line}`);
 };
 
 for (let i = 0; i < args.length; i++) {
@@ -180,7 +204,10 @@ for (let i = 0; i < args.length; i++) {
   else if (arg === "--skip-hardening") fail("--skip-hardening is forbidden; use exact artifact/source-bound hardeningAllowances");
   else if (arg === "--doctor") opts.doctor = true;
   else if (arg === "--gates") opts.gates = true;
+  // The doctor applies the build's admission by default; --admission is the old spelling of that, kept so scripts still run.
   else if (arg === "--admission") opts.admission = true;
+  else if (arg === "--inspect") opts.inspect = true;
+  else if (arg === "--strict") opts.strict = true;
   else if (arg === "--resume") opts.resume = true;
   else if (arg === "--resume-from") { opts.resume = true; opts.resumeFrom = args[++i]; }
   else if (arg === "--tier") opts.tier = args[++i];
@@ -194,6 +221,8 @@ for (let i = 0; i < args.length; i++) {
 }
 
 if (opts.gates && !opts.doctor) usage(2, "--gates is valid only with --doctor");
+if ((opts.inspect || opts.strict) && !opts.doctor) usage(2, `${opts.inspect ? "--inspect" : "--strict"} is valid only with --doctor`);
+if (opts.inspect && opts.admission) usage(2, "--inspect and --admission contradict each other: --inspect lists newer RightKit versions as information, --admission refuses them");
 if (opts.upload) fail("combined build+upload was removed; run right-release build, then right-release upload --release <id> --tier patch|update");
 if (opts.tier && !TIERS.has(opts.tier)) usage(2, `invalid --tier: ${opts.tier} (expected patch|update)`);
 const MAC_RESUME_PHASES = ["prepackage", "sign", "package", "post-sign", "harden"];
@@ -272,14 +301,13 @@ try {
     ownership: RIGHTKIT_OWNERSHIP,
     releaseVersion: VERSION,
     boundSnapshot,
-    // The doctor reports newer versions; run as the admission gate (--admission) it refuses a pin behind latest.
-    admission: opts.doctor && opts.admission,
+    // The doctor is the build's own admission: a pin behind latest is refused, as the build refuses it. --inspect is the
+    // informational view (newer versions are listed, not refused).
+    admission: opts.doctor && !opts.inspect,
   });
 } catch (error) {
   rightKitResolution = null;
-  reject("rightkit-registry", error instanceof RightKitRegistryError
-    ? `${config.app ?? path.basename(root)} ${error.recoverable ? "RECOVERABLE " : ""}${error.message}`
-    : `RightKit registry resolution threw: ${error instanceof Error ? error.message : String(error)}`);
+  reject("rightkit-registry", describeRegistryError(error, config.app ?? path.basename(root)));
 }
 if (rightKitResolution) {
   const { newer, tasks, warnings, notes } = rightKitResolution.freshness;
@@ -291,12 +319,18 @@ if (rightKitResolution) {
 }
 if (rightKitResolution) rightKitVerifiedNpm = rightKitResolution.verified.npm;
 // The contracts below are independent of each other; the two that read the proven RightKit versions need the registry resolution.
-// A SwiftPM app or a native iOS app without a package.json has no Node package contract to validate.
-await check("rightkit-package-contract", ["rightkit-registry"], async () => {
-  if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
-    await validateRightKitPackageContract(root, config.app, config.hostedWorkflows, releaseArtifactPaths(config));
-  }
-});
+// A SwiftPM app or a native iOS app without a package.json has no Node package contract to validate. Each package rule is its
+// own finding (a failed one blocks only the rules that read its result), so one run lists every violation.
+if (!((nativeIos || resolveProjectType({ appRoot: root, config, target: config.targets?.[opts.platform] }) === "swiftpm") && !existsSync(path.join(root, "package.json")))) {
+  const packageJson = await check("package-json", [], async () => JSON.parse(await readFile(path.join(root, "package.json"), "utf8")));
+  const packageLabel = () => config.app ?? packageJson.value?.name ?? "app";
+  await check("qa-backdoor-contract", ["package-json"], () => assertQaBackdoorContract(root, packageJson.value.scripts ?? {}));
+  await check("hosted-workflows", [], () => validateHostedWorkflowFiles(root, packageLabel(), config.hostedWorkflows, releaseArtifactPaths(config)));
+  await check("package-manager", ["package-json"], () => validatePackageManagerPin(packageJson.value, packageLabel()));
+  await check("package-workspace-scripts", ["package-json"], () => validateNoParentWorkspaceScripts(packageJson.value, packageLabel()));
+  await check("rightkit-pin-specs", ["package-json", "rightkit-registry"], () => validateRightKitPinSpecs(packageJson.value, packageLabel()));
+  await check("rightkit-release-supported", ["package-json", "rightkit-registry"], () => validateRightKitReleaseSupported(packageJson.value, packageLabel()));
+}
 await check("rightkit-cargo-contract", ["rightkit-registry"], () => {
   validateRightKitCargoContract(root, mergeVerifiedVersions(RIGHTKIT_CARGO_ALLOWED, rightKitResolution.verified.cargo), config.app ?? path.basename(root));
 });
@@ -306,7 +340,7 @@ await check("cargo-profile-contract", [], () => assertCargoProfileContract(root,
 await check("qa-adoption", [], () => assertQaAdoption({ appRoot: root, app: config.app }));
 let target = config.targets?.[opts.platform];
 // Declarative winPackage / macPackage (#345) expand to the same hook shape every gate below already checks.
-// When it fails, `target` is not usable: every check that reads it is reported as BLOCKED by `target`.
+// When it fails, `target` is not usable: every check that reads it is reported as not run because `target` failed.
 await check("target", [], () => {
   let expanded;
   try { expanded = expandPackageRecipeTarget(target, { platform: opts.platform, appRoot: root, config }); } catch (error) { throw new Error(`${config.app ?? "app"} ${opts.platform} ${error.message}`); }
@@ -324,7 +358,7 @@ let androidTarget; // validated Android AAB target (android only; see android-re
 let iosSpec; // validated iOS iosPackage spec (ios only; package-recipe-targets.mjs expands targets.ios, ios-package-recipe.mjs runs it)
 const app = config.app ?? "app";
 // Everything below reads the expanded target. Each independent refusal is its own finding; a check that needs the output of
-// another (mac signing reads the sidecar config, the iOS prepare check reads the iOS spec) is BLOCKED by it, never run on it.
+// another (mac signing reads the sidecar config, the iOS prepare check reads the iOS spec) is not run (reported as such), never run on it.
 if (!rejectBlocked("target-checks", ["target"], "the target checks (signed, mediaSidecar, externalBin, publishBlocked and the platform signing and package contract)")) {
   if (target.signed !== true) reject("target-signed", `${app} ${opts.platform} must declare signed: true; unsigned release targets are forbidden`);
   if (target.mediaSidecar !== undefined) {
@@ -348,7 +382,7 @@ if (!rejectBlocked("target-checks", ["target"], "the target checks (signed, medi
       await check("win-msix", [], () => assertValidMsixTarget(target, app));
     } else {
       // The NSIS and portable rules below depend on which contract the target declares.
-      if (failedChecks.has("win-signing-contract")) reject("win-contract-rules", "the win NSIS and portable rules (sign.files, distinct raw EXE and installer files) BLOCKED by win-signing-contract");
+      rejectBlocked("win-contract-rules", ["win-signing-contract"], "the win NSIS and portable rules (sign.files, distinct raw EXE and installer files)");
       if (!target.prePackage?.cmd) reject("win-prepackage", `${app} win must declare prePackage for the raw EXE build`);
       const rawFiles = target.sign?.prePackageFiles;
       if (!rawFiles?.length) reject("win-sign-prepackage-files", `${app} win must declare at least one sign.prePackageFiles raw EXE`);
@@ -469,6 +503,17 @@ if (opts.doctor) {
     const dirtyInputs = dirtyBuildInputs(doctorInvocation.repoRoot, inputs.value.buildInputs, doctorInvocation.commit);
     if (dirtyInputs.length > 0) throw new Error(`dirty files can change the packaged app; resolve them before release:\n${dirtyInputs.map((file) => `- ${file}`).join("\n")}`);
   });
+  // The build's own admission rows (admission.mjs): the files the build would read and this machine, run with the texts and the
+  // rows the build runs before it takes its lock. The registry, the build inputs and the dirty inputs are this doctor's own steps.
+  let notRun = [];
+  const admission = await check("admission", ["target"], () => runAdmission({
+    root, repoRoot: doctorInvocation.repoRoot, configPath, config, platform: opts.platform, target, tiers: ["files", "host"],
+    mode: "doctor", skipDoctorOwned: true, skipChecks: opts.skipChecks, commit: doctorInvocation.commit,
+  }));
+  if (admission.ok) {
+    for (const finding of admission.value.findings) reject(finding.row, `${finding.row}: ${finding.detail}`);
+    notRun = admission.value.notRun;
+  }
   console.log(`right-release ${VERSION}`);
   console.log(`config: ${configPath}`);
   console.log(`app: ${config.app}`);
@@ -534,7 +579,9 @@ if (opts.doctor) {
   if (gateFindings.length) {
     console.log(gateFindings.map((finding) => `  [FAIL] gate:${finding.name}: ${finding.detail}`).join("\n"));
   }
-  const total = failures.length + gateFindings.length + configProblems;
+  // A row that could not run on this host is not a pass; --strict makes it a blocking problem.
+  for (const line of formatNotRun({ notRun })) console.error(`right-release: ${line}`);
+  const total = failures.length + gateFindings.length + configProblems + (opts.strict ? notRun.length : 0);
   if (total > 0) {
     console.error(`right-release: preflight found ${total} blocking problem(s); the build would fail on these`);
     process.exit(1);
@@ -876,10 +923,7 @@ function assertSharedSccachePrerequisite() {
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   const version = output.match(/\b(\d+)\.(\d+)\.(\d+)\b/);
   const valid = result.status === 0 && version && isAtLeastVersion(version.slice(1).map(Number), [0, 15, 0]);
-  if (!valid) {
-    const found = version ? ` (found ${version[0]})` : "";
-    fail(`shared cache mode requires sccache >= 0.15.0${found}. Install with: cargo install sccache --locked; then verify: sccache --version`);
-  }
+  if (!valid) fail(sccacheRefusal(version?.[0]));
   return version[0];
 }
 
@@ -1135,38 +1179,49 @@ function commandTimeoutMs(command) {
     : undefined;
 }
 
-async function validateRightKitPackageContract(root, appName, hostedWorkflows, artifacts = []) {
-  const packageJsonPath = path.join(root, "package.json");
-  const pkg = JSON.parse(await readFile(packageJsonPath, "utf8"));
-  const scripts = pkg.scripts ?? {};
-  assertQaBackdoorContract(root, scripts);
+// The workflow files of the repository, when it has any, against the hostedWorkflows policy.
+async function validateHostedWorkflowFiles(root, appName, hostedWorkflows, artifacts = []) {
   const workflowDir = path.join(root, ".github", "workflows");
-  if (existsSync(workflowDir)) {
-    const workflows = (await readdir(workflowDir)).sort();
-    if (workflows.length) {
-      await validateHostedWorkflows(root, appName ?? pkg.name ?? "app", workflows, hostedWorkflows, artifacts);
-    }
-  }
+  if (!existsSync(workflowDir)) return;
+  const workflows = (await readdir(workflowDir)).sort();
+  if (workflows.length) await validateHostedWorkflows(root, appName, workflows, hostedWorkflows, artifacts);
+}
+
+function validatePackageManagerPin(pkg, appName) {
   if (pkg.packageManager !== RIGHTKIT_VERSIONS.packageManager) {
-    fail(`${appName ?? pkg.name ?? "app"} packageManager must be ${RIGHTKIT_VERSIONS.packageManager}, got ${pkg.packageManager ?? "<missing>"}`);
+    throw new ReleaseRefusal(`${appName} packageManager must be ${RIGHTKIT_VERSIONS.packageManager}, got ${pkg.packageManager ?? "<missing>"}`, "package-manager");
   }
-  if (JSON.stringify(scripts).includes("../tools/right-release") || JSON.stringify(scripts).includes("../rightkit/packages/release")) {
-    fail(`${appName ?? pkg.name ?? "app"} package.json must call the right-release bin, not parent-workspace release source`);
+}
+
+function validateNoParentWorkspaceScripts(pkg, appName) {
+  const scripts = JSON.stringify(pkg.scripts ?? {});
+  if (scripts.includes("../tools/right-release") || scripts.includes("../rightkit/packages/release")) {
+    throw new ReleaseRefusal(`${appName} package.json must call the right-release bin, not parent-workspace release source`, "package-workspace-scripts");
   }
+}
+
+// Every @rightkit/* dependency, each violation its own line of the finding.
+function validateRightKitPinSpecs(pkg, appName) {
+  const found = [];
   const rightKitDeps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
   for (const [name, specifier] of Object.entries(rightKitDeps).filter(([name]) => name.startsWith("@rightkit/"))) {
     if (FORBIDDEN_RIGHTKIT_SPEC.test(String(specifier))) {
-      fail(`${appName ?? pkg.name ?? "app"} ${name} must come from the published npm package, not ${specifier}`);
+      found.push(`${appName} ${name} must come from the published npm package, not ${specifier}`);
+      continue;
     }
     const allowed = RIGHTKIT_ALLOWED.get(name);
     if (allowed && !rightKitVerifiedNpm.get(name)?.has(specifier) && !rightKitVersionAllowed(allowed, specifier)) {
-      fail(`${appName ?? pkg.name ?? "app"} ${name} must be one of ${[...allowed].join(", ")}, got ${specifier}`);
+      found.push(`${appName} ${name} must be one of ${[...allowed].join(", ")}, got ${specifier}`);
     }
   }
+  if (found.length) throw new ReleaseRefusal(found.join("\n"), "rightkit-pin-specs", found);
+}
+
+function validateRightKitReleaseSupported(pkg, appName) {
   const releaseAllowed = RIGHTKIT_ALLOWED.get("@rightkit/release");
   const releaseSpecifier = pkg.devDependencies?.["@rightkit/release"];
   if (!releaseAllowed || !(rightKitVerifiedNpm.get("@rightkit/release")?.has(releaseSpecifier) || rightKitVersionAllowed(releaseAllowed, releaseSpecifier))) {
-    fail(`${appName ?? pkg.name ?? "app"} must depend on a supported @rightkit/release version in devDependencies`);
+    throw new ReleaseRefusal(`${appName} must depend on a supported @rightkit/release version in devDependencies`, "rightkit-release-supported");
   }
 }
 
@@ -1345,21 +1400,21 @@ async function signExistingRenderRefusal(root, manifest, source) {
 async function validateDeclaredWorkflowBlock(root, appName, manifest, declaredFiles) {
   const validator = (await loadRightKitCiModule(root, "workflows.mjs", "validateWorkflows"))?.validateWorkflows;
   const renderLanes = await loadRightKitCiRenderer(root);
-  if (!validator || !renderLanes) fail(`${appName} right-git-ci-only policy cannot verify .rightgit.json workflows: @rightkit/ci is not available (install @rightkit/ci as a devDependency)`);
+  if (!validator || !renderLanes) throw new ReleaseRefusal(`${appName} right-git-ci-only policy cannot verify .rightgit.json workflows: @rightkit/ci is not available (install @rightkit/ci as a devDependency)`, "hosted-workflows");
   const errors = [];
   validator(manifest, errors);
-  if (errors.length > 0) fail(`${appName} right-git-ci-only policy refuses the .rightgit.json workflows block: ${errors.join("; ")}`);
+  if (errors.length > 0) throw new ReleaseRefusal(`${appName} right-git-ci-only policy refuses the .rightgit.json workflows block: ${errors.join("; ")}`, "hosted-workflows");
   let rendered;
   try {
     rendered = renderLanes(manifest, root);
   } catch (error) {
-    fail(`${appName} right-git-ci-only policy cannot render the .rightgit.json workflows block: ${error.message}`);
+    throw new ReleaseRefusal(`${appName} right-git-ci-only policy cannot render the .rightgit.json workflows block: ${error.message}`, "hosted-workflows");
   }
   for (const file of declaredFiles) {
     const expected = rendered.find((entry) => entry.filename === file)?.content;
     const actual = await readFile(path.join(root, ".github", "workflows", file), "utf8");
     if (typeof expected !== "string" || actual.replace(/\r\n?/g, "\n") !== expected.replace(/\r\n?/g, "\n")) {
-      fail(`${appName} ${file} is not byte-for-byte the @rightkit/ci render of its .rightgit.json workflows entry (run right-git sync)`);
+      throw new ReleaseRefusal(`${appName} ${file} is not byte-for-byte the @rightkit/ci render of its .rightgit.json workflows entry (run right-git sync)`, "hosted-workflows");
     }
   }
 }
@@ -1368,7 +1423,7 @@ async function validateDeclaredWorkflowBlock(root, appName, manifest, declaredFi
 // `contents: read`, no other permissions key exists, no secrets reference, every `uses:` is commit-pinned, and every
 // checkout step sets persist-credentials: false. Steps are split on step-list indentation, not matched as free text.
 function declaredWorkflowPolicyRefusal(appName, workflow, source) {
-  const refuse = (why) => fail(`${appName} right-git managed ${workflow} violates the declared-workflow policy: ${why}`);
+  const refuse = (why) => { throw new ReleaseRefusal(`${appName} right-git managed ${workflow} violates the declared-workflow policy: ${why}`, "hosted-workflows"); };
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const permissionsAt = lines.flatMap((line, i) => (/^\s*permissions\s*:/.test(line) ? [i] : []));
   if (permissionsAt.length !== 1 || lines[permissionsAt[0]] !== "permissions:" || lines[permissionsAt[0] + 1] !== "  contents: read" || /^ {2,}\S/.test(lines[permissionsAt[0] + 2] ?? "")) refuse("permissions must be exactly one top-level `contents: read`");
@@ -1398,18 +1453,18 @@ async function validateHostedWorkflows(root, appName, workflows, policy, artifac
     const texts = new Map();
     for (const file of workflows) texts.set(file, await readFile(path.join(root, ".github", "workflows", file), "utf8"));
     const refusal = declaredUnrelatedRefusal({ declaration: policy, workflows, read: (file) => texts.get(file), artifacts });
-    if (refusal) fail(`${appName} ${DECLARED_UNRELATED_POLICY} hosted workflows refused: ${refusal}`);
+    if (refusal) throw new ReleaseRefusal(`${appName} ${DECLARED_UNRELATED_POLICY} hosted workflows refused: ${refusal}`, "hosted-workflows");
     return;
   }
   if (policy !== "right-git-ci-only") {
-    fail(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")} (set hostedWorkflows to "right-git-ci-only", or to { policy: "${DECLARED_UNRELATED_POLICY}", files: { <file>: <reason> } } when they are a pipeline unrelated to the released app)`);
+    throw new ReleaseRefusal(`${appName} hosted workflow files are forbidden: ${workflows.join(", ")} (set hostedWorkflows to "right-git-ci-only", or to { policy: "${DECLARED_UNRELATED_POLICY}", files: { <file>: <reason> } } when they are a pipeline unrelated to the released app)`, "hosted-workflows");
   }
   const manifestPath = path.join(root, ".rightgit.json");
   let manifest;
   try {
     manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   } catch {
-    fail(`${appName} right-git-ci-only policy requires a valid .rightgit.json`);
+    throw new ReleaseRefusal(`${appName} right-git-ci-only policy requires a valid .rightgit.json`, "hosted-workflows");
   }
   const lanes = manifest?.lanes;
   // Mirrors the `lanes` enum in @rightkit/ci manifest.schema.json.
@@ -1421,29 +1476,29 @@ async function validateHostedWorkflows(root, appName, workflows, policy, artifac
     || !(lanes.includes("ci") || lanes.includes("swift-check"))
     || new Set(lanes).size !== lanes.length
     || lanes.some((lane) => !safeLanes.has(lane))) {
-    fail(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from [${[...safeLanes].map((lane) => `"${lane}"`).join(", ")}] and including "ci" or "swift-check"`);
+    throw new ReleaseRefusal(`${appName} right-git-ci-only policy requires compile=github-actions-only plus unique .rightgit.json lanes drawn from [${[...safeLanes].map((lane) => `"${lane}"`).join(", ")}] and including "ci" or "swift-check"`, "hosted-workflows");
   }
   // Workflows declared under the manifest's `workflows` block (@rightkit/ci workflows.mjs: explicit `file`,
   // else `<name>.yml`) are managed files too, in addition to the lane files.
   const declaredWorkflows = manifest?.workflows;
   if (declaredWorkflows !== undefined && (declaredWorkflows === null || typeof declaredWorkflows !== "object" || Array.isArray(declaredWorkflows))) {
-    fail(`${appName} right-git-ci-only policy requires .rightgit.json workflows to be an object`);
+    throw new ReleaseRefusal(`${appName} right-git-ci-only policy requires .rightgit.json workflows to be an object`, "hosted-workflows");
   }
   const declaredFiles = Object.entries(declaredWorkflows ?? {}).map(([name, config]) => {
-    if (config === null || typeof config !== "object" || Array.isArray(config)) fail(`${appName} right-git-ci-only policy requires .rightgit.json workflows.${name} to be an object`);
+    if (config === null || typeof config !== "object" || Array.isArray(config)) throw new ReleaseRefusal(`${appName} right-git-ci-only policy requires .rightgit.json workflows.${name} to be an object`, "hosted-workflows");
     const file = typeof config?.file === "string" ? config.file : `${name}.yml`;
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.yml$/.test(file)) fail(`${appName} right-git-ci-only policy refuses workflow file name ${JSON.stringify(file)} declared by .rightgit.json`);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.yml$/.test(file)) throw new ReleaseRefusal(`${appName} right-git-ci-only policy refuses workflow file name ${JSON.stringify(file)} declared by .rightgit.json`, "hosted-workflows");
     return file;
   });
   const expectedWorkflows = [...new Set([...lanes.map((lane) => `${lane}.yml`), ...declaredFiles])].sort();
   if (JSON.stringify(workflows) !== JSON.stringify(expectedWorkflows)) {
-    fail(`${appName} right-git-ci-only policy requires workflows declared by .rightgit.json; expected ${expectedWorkflows.join(", ")}, got: ${workflows.join(", ")}`);
+    throw new ReleaseRefusal(`${appName} right-git-ci-only policy requires workflows declared by .rightgit.json; expected ${expectedWorkflows.join(", ")}, got: ${workflows.join(", ")}`, "hosted-workflows");
   }
   if (declaredFiles.length > 0) await validateDeclaredWorkflowBlock(root, appName, manifest, declaredFiles);
   for (const workflow of expectedWorkflows) {
     const source = await readFile(path.join(root, ".github", "workflows", workflow), "utf8");
     if (!source.startsWith("# Managed by right-git")) {
-      fail(`${appName} ${workflow} is not marked as right-git managed`);
+      throw new ReleaseRefusal(`${appName} ${workflow} is not marked as right-git managed`, "hosted-workflows");
     }
     if (declaredFiles.includes(workflow)) declaredWorkflowPolicyRefusal(appName, workflow, source);
     const jobSpan = (jobName) => {
@@ -1530,7 +1585,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy, artifac
       const reason = manifest?.signExisting && typeof manifest.signExisting === "object"
         ? (signExistingRefusal(source) ?? await signExistingRenderRefusal(root, manifest, source))
         : "the manifest declares no signExisting";
-      if (reason !== null) fail(`${appName} right-git managed sign-existing.yml is not the protected sign-existing shape: ${reason}`);
+      if (reason !== null) throw new ReleaseRefusal(`${appName} right-git managed sign-existing.yml is not the protected sign-existing shape: ${reason}`, "hosted-workflows");
       protectedSignExisting = true;
     }
     // @rightkit/ci `swift.privatePackages` credential: allowed only in the workflow/job pairs and on the
@@ -1573,7 +1628,7 @@ async function validateHostedWorkflows(root, appName, workflows, policy, artifac
       || refusedSecrets.length > 0) {
       const reasons = [...new Set(refusedSecrets)];
       const detail = reasons.length > 10 ? [...reasons.slice(0, 10), `${reasons.length - 10} more`] : reasons;
-      fail(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets${detail.length > 0 ? `: ${detail.join("; ")}` : ""}`);
+      throw new ReleaseRefusal(`${appName} right-git managed ${workflow} requests release-capable permissions or secrets${detail.length > 0 ? `: ${detail.join("; ")}` : ""}`, "hosted-workflows");
     }
   }
 }
