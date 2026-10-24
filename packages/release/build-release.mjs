@@ -132,12 +132,15 @@ for (let i = 0; i < args.length; i += 1) {
 if (platform !== "win" && platform !== "mac" && platform !== "android" && platform !== "ios") fail("--platform must be win, mac, android or ios");
 if (resumeFrom && !["prepackage", "sign", "package", "post-sign", "harden"].includes(resumeFrom)) fail("--resume-from must be prepackage, sign, package, post-sign, or harden");
 
-const configPath = path.resolve(configName);
+// Native real paths: Git reports the long form of a Windows short name (RUNNER~1) and the target of a symlinked temp root
+// (macOS /var -> /private/var). The config path is resolved the same way the doctor resolves it (release.mjs), so every path
+// derived from it (app root, build inputs, scan roots) compares equal to what Git reports; a non-canonical app root made the
+// build-inputs qualification drop every input and the clean-source gate speak before the dirty-inputs row.
+const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
+const configPath = nativeReal(path.resolve(configName));
 const invocationRoot = path.dirname(configPath);
 const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
 assertPrimaryReleaseCheckout(repoRoot);
-// Native real paths: Git reports the long form of a Windows short name (RUNNER~1).
-const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
 const relativeConfig = path.relative(nativeReal(repoRoot), nativeReal(configPath)).replaceAll("\\", "/");
 if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
 const appRoot = path.dirname(configPath);

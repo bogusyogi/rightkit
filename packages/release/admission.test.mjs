@@ -567,10 +567,14 @@ test("declared-checks-run with a real process: a check that writes more than spa
   else writeFileSync(path.join(bin, "pnpm"), '#!/bin/sh\nexec node "$(dirname "$0")/pnpm.js" "$@"\n', { mode: 0o755 });
   writeFileSync(path.join(dir, "package.json"), JSON.stringify({ scripts: { lint: "x", failing: "x" } }));
   mkdirSync(path.join(dir, "node_modules"));
+  // One PATH variable only: on Windows process.env can carry both "Path" and "PATH", and a second spelling left in place lets the
+  // real pnpm win over the shim.
   const pathKey = process.platform === "win32" ? "Path" : "PATH";
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^path$/i.test(key)));
+  const upstream = Object.entries(process.env).find(([key]) => /^path$/i.test(key))?.[1] ?? "";
   const run = (checks) => unit("declared-checks-run", {
     root: dir, config: { ...APP, checks }, mode: "doctor", target: {}, spawn: spawnSync, hostPlatform: process.platform,
-    env: { ...process.env, [pathKey]: `${bin}${path.delimiter}${process.env[pathKey] ?? ""}` },
+    env: { ...inherited, [pathKey]: `${bin}${path.delimiter}${upstream}` },
   });
   const green = await run(["lint"]);
   assert.deepEqual(green.details, []);
