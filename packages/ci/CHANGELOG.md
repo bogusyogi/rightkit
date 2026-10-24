@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1 (unpublished)
+
+- **`gate.shards` and `gate.quick` (rust-hybrid `ci`; rightkit#950, Orthic-Labs/legion#117).** A gate that runs everything in one step per runner is as slow as its parts: Legion's macOS gate took 2h35m. The new keys split it:
+  - `gate.shards: [{ id }]` adds a `matrix.shard` dimension, so the gate runs once per shard per runner as `bash <path> --group <id>`, on the same Rust cache key.
+  - Last-green markers, QA evidence artifact names and the default-branch job concurrency group carry the shard id, so legs never share state.
+  - `gate.quick: true` adds a `quick` job (`bash <path> --quick`, `ubuntu-24.04`, 20 minutes) that every leg needs.
+  - A `ci-summary` job (`if: always()`) passes only when every leg passed, and `quick` when set. It is the stable status check, since matrix job names follow the shard list.
+  - Validation: 2 to 16 shards; ids `^[a-z0-9][a-z0-9-]{0,31}$` and unique; `quick` needs `shards`; a `devArtifact` must be `parallel: true`, because one staged inside the ci job would be built once per shard.
+  - Without `shards` the render is byte-identical. Three manifests are pinned by hash to the previous render (`render.test.mjs`), and Legion's own manifest renders identically. The sharded render passes the pinned actionlint 1.7.12.
+
 ## 0.3.0 (2026-10-17)
 
 - `workflows` manifest block (Orthic-Labs/rightkit#465, #437): named workflows rendered by code beside the lane files. `kind: "custom"` takes a filename, `push`/`pull_request` triggers with `paths`, a plain `workflow_dispatch`, `pwsh`/`bash` steps with `workingDirectory`, a named artifact (retention, `if-no-files-found`, `{sha}`/`{run_id}`/`{run_attempt}`/`{os}`/`{matrix.<key>}` tokens), per-workflow sparse checkout and long paths, a per-workflow concurrency group and a `dtolnay/rust-toolchain` version pin. `kind: "swift-host"` runs `swift test` per package on Windows and macOS matrix hosts. `kind: "dispatch-matrix"` renders `workflow_dispatch` inputs, a plan job emitting a matrix, per-item jobs and a collect job; inputs reach scripts as `RIGHT_GIT_INPUT_<NAME>` environment variables. Every rendered workflow pins actions to commit SHAs, requests `contents: read`, refuses private repositories through the shared guard job, sets `persist-credentials: false` on every checkout, keeps the ownership scan and refuses any step that mentions `secrets` or interpolates untrusted event data. New `workflows.mjs`, `workflows.test.mjs`; `manifest.schema.json` documents the block. No manifest without `workflows` renders differently. `@rightkit/release`'s `right-git-ci-only` policy accepts only `<lane>.yml` files, so a repository that declares `workflows` needs that policy extended before its release check passes.

@@ -17,8 +17,8 @@ jobs:
       - name: Refuse private repository
         if: ${{ github.event.repository.private }}
         run: exit 1
-${CI_SUPERSEDE_JOB}  ci:
-    needs: [private-repo-guard]
+${CI_SUPERSEDE_JOB}${CI_QUICK_JOB}  ci:
+    needs: ${CI_NEEDS}
     strategy:
       fail-fast: false
       matrix:
@@ -34,9 +34,9 @@ ${CI_JOB_CONCURRENCY}    steps:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.right-git-last-green
-          key: ${ARTIFACT_PREFIX}-last-green-${{ matrix.os }}-${{ matrix.node }}-${{ github.ref_name }}-${{ github.sha }}
+          key: ${ARTIFACT_PREFIX}-last-green-${{ matrix.os }}-${{ matrix.node }}${CI_SHARD_KEY}-${{ github.ref_name }}-${{ github.sha }}
           restore-keys: |
-            ${ARTIFACT_PREFIX}-last-green-${{ matrix.os }}-${{ matrix.node }}-${{ github.ref_name }}-
+            ${ARTIFACT_PREFIX}-last-green-${{ matrix.os }}-${{ matrix.node }}${CI_SHARD_KEY}-${{ github.ref_name }}-
       - name: Detect Rust-affecting changes
         id: rust-changes
         shell: bash
@@ -102,7 +102,7 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
         if: steps.rust-changes.outputs.required == 'true'
         with:
           version: "v0.16.0"${SWIFT_PRIVATE_CONFIGURE_STEP}
-      - run: bash ./${GATE_PATH}
+      - run: bash ./${GATE_PATH}${GATE_ARGS}
         env:
           RIGHT_GIT_RUST_CHANGED: ${{ steps.rust-changes.outputs.changed }}
           RIGHT_GIT_RUST_REQUIRED: ${{ steps.rust-changes.outputs.required }}
@@ -123,5 +123,5 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.right-git-last-green
-          key: ${ARTIFACT_PREFIX}-last-green-${{ matrix.os }}-${{ matrix.node }}-${{ github.ref_name }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-${QA_EVIDENCE_STEP}
+          key: ${ARTIFACT_PREFIX}-last-green-${{ matrix.os }}-${{ matrix.node }}${CI_SHARD_KEY}-${{ github.ref_name }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+${QA_EVIDENCE_STEP}${CI_SUMMARY_JOB}

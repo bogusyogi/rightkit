@@ -2075,3 +2075,61 @@ test("dev-qualification gates a Windows-only signing job and renders without a r
   assert.match(content, /windows-sign:\n    needs: \[admission, candidate, dev-qualification\]\n/);
   assert.doesNotMatch(content, /macos-sign:/);
 });
+
+// ---- gate.shards / gate.quick (rightkit#950) -------------------------------------------------------------
+const SHARD_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["windows-2025", "macos-15"], node: ["24"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.8.0", profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+const SHARD_TEMPLATE = () => fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
+const shardRender = (manifest) => renderTemplate(SHARD_TEMPLATE(), buildRenderContext(manifest, "/repos/widgets"));
+const SHARDED = { ...SHARD_BASE, ciAllOs: true, gate: { path: "scripts/gate.sh", quick: true, shards: [{ id: "workspace" }, { id: "linters" }, { id: "rust-tools" }] }, qaEvidencePath: "qa-out" };
+
+test("gate without shards renders byte-identically to the render before gate.shards existed", () => {
+  // Hashes taken from the render of these manifests with the code before the gate.shards change.
+  const cases = {
+    "2fa6b1ca7cdeb0a02aad0e557cce1b3db9090c51447c10b686eaec39724ed860": SHARD_BASE,
+    "024669698321f62d72874c69e9274fe4e88920bb56fb083c9283169b9c252d35": { ...SHARD_BASE, ciAllOs: true },
+    "65a46cdd0d8de81027b3e4c7196a9d3f5a1c4d075524cfb76a319504200c9218": { ...SHARD_BASE, ciAllOs: true, concurrency: { mainPushes: "queue", reason: "warm caches" }, qaEvidencePath: "qa-out" },
+  };
+  for (const [hash, manifest] of Object.entries(cases)) {
+    const out = shardRender(manifest);
+    assert.equal(crypto.createHash("sha256").update(out).digest("hex"), hash);
+    assert.doesNotMatch(out, /matrix\.shard|ci-summary|^  quick:/m);
+  }
+});
+
+test("gate.shards renders one leg per shard per runner, a quick job every leg needs and a summary of every leg", () => {
+  assert.deepEqual(validateManifest(SHARDED).errors, []);
+  const out = shardRender(SHARDED);
+  assert.match(out, /^        shard: \["workspace", "linters", "rust-tools"\]$/m);
+  assert.match(out, /^  quick:\n    # gate\.quick[^\n]*\n    needs: \[private-repo-guard\]\n/m);
+  assert.match(out, /^      - run: bash \.\/scripts\/gate\.sh --quick$/m);
+  assert.match(out, /^  ci:\n    needs: \[private-repo-guard, quick\]$/m);
+  assert.match(out, /^      - run: bash \.\/scripts\/gate\.sh --group \$\{\{ matrix\.shard \}\}$/m);
+  // Each leg keeps its own last-green marker and its own evidence artifact.
+  assert.equal((out.match(/last-green-\$\{\{ matrix\.os \}\}-\$\{\{ matrix\.node \}\}-\$\{\{ matrix\.shard \}\}-/g) ?? []).length, 3);
+  assert.match(out, /name: qa-evidence-\$\{\{ matrix\.os \|\| runner\.os \}\}-\$\{\{ matrix\.shard \}\}-\$\{\{ github\.run_attempt \}\}/);
+  // A default-branch push serialises per leg, the shard id included.
+  assert.match(out, /format\('\{0\}-main-\{1\}-\{2\}-\{3\}', github\.workflow, matrix\.os, matrix\.node, matrix\.shard\)/);
+  const summary = out.slice(out.indexOf("  ci-summary:"));
+  assert.match(summary, /needs: \[ci, quick\]\n    if: \$\{\{ always\(\) \}\}/);
+  assert.match(summary, /test "\$CI_RESULT" = success\n          test "\$QUICK_RESULT" = success\n/);
+  // Without quick: no quick job, ci needs only the guard, the summary needs only ci.
+  const noQuick = shardRender({ ...SHARDED, gate: { path: "scripts/gate.sh", shards: SHARDED.gate.shards } });
+  assert.doesNotMatch(noQuick, /^  quick:|QUICK_RESULT/m);
+  assert.match(noQuick, /^  ci:\n    needs: \[private-repo-guard\]$/m);
+  assert.match(noQuick, /^    needs: \[ci\]$/m);
+});
+
+test("gate.shards and gate.quick are validated", () => {
+  const errors = (gate, extra = {}) => validateManifest({ ...SHARD_BASE, ...extra, gate }).errors.join("\n");
+  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "one" }] }), /gate\.shards must list 2 to 16 shards/);
+  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "a" }] }), /gate\.shards\[1\]\.id 'a' is listed twice/);
+  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "B ad" }] }), /gate\.shards\[1\] must be \{ id \}/);
+  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b", args: "x" }] }), /gate\.shards\[1\] must be \{ id \}/);
+  assert.match(errors({ path: "scripts/gate.sh", quick: true }), /gate\.quick requires gate\.shards/);
+  assert.match(errors({ path: "scripts/gate.sh", quick: "yes", shards: [{ id: "a" }, { id: "b" }] }), /gate\.quick must be true when set/);
+  assert.match(errors({ path: "scripts/gate.sh", extra: 1 }), /gate keys: path, shards, quick/);
+  // A dev artifact staged inside the ci job would be built once per shard.
+  const dev = { windows: "unsigned", windowsGlob: "dist/*.exe" };
+  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }, { ciAllOs: true, devArtifact: dev }), /gate\.shards requires devArtifact\.parallel: true/);
+  assert.doesNotMatch(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }, { devArtifact: { ...dev, parallel: true, buildScript: "ci:dev" } }), /gate\.shards/);
+});
