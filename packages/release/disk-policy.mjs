@@ -468,6 +468,8 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   const scanned = scan({ policy, platform, env, home });
   skipped.push(...scanned.skipped);
   const unknownCutoff = now - (staleDays ?? policy.unknownStaleDays ?? 3) * 86400_000;
+  // Scratch is run output the agent owns: it ages out on its own, shorter window, `--days N` still overriding both.
+  const scratchCutoff = now - (staleDays ?? policy.scratchStaleDays ?? policy.unknownStaleDays ?? 3) * 86400_000;
   const consider = (writerId, unit, root, cutoff) => {
     if (seen.has(unit)) return;
     seen.add(unit);
@@ -486,14 +488,14 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     if (!workspaceSweep) { skipped.push({ writer: "workspace-unknown", path: u.path, reason: "report-only" }); continue; }
     consider("workspace-unknown", u.path, u.root, unknownCutoff);
   }
-  // Scratch roots: every child older than 3 days and idle (the same window).
+  // Scratch roots: every child idle for `scratchStaleDays`.
   for (const root of scratchRoots(policy, { platform, env, home })) {
     let rst;
     try { rst = lstatSync(root); } catch { continue; }
     if (rst.isSymbolicLink()) { skipped.push({ writer: "scratch-root", path: root, reason: "symlink-root" }); continue; }
     let names = [];
     try { names = readdirSync(root); } catch { continue; }
-    for (const n of names) consider("scratch-root", path.join(root, n), root, unknownCutoff);
+    for (const n of names) consider("scratch-root", path.join(root, n), root, scratchCutoff);
   }
   return { schema: 1, platform: key, staleDays: effectiveDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
 }
@@ -678,8 +680,21 @@ export function knownHoldingBases({ policy, platform = process.platform, env = p
   return [...bases];
 }
 
-/** Remove date-named holding dirs older than `days`. Only dirs this tool created: the base must carry the holding marker
- * (or, for the legacy heavy dir, the tool's own log), the child must be a real directory named YYYY-MM-DD, never a symlink. */
+// Newest modification time (ms) of a holding dir and of its direct children, symlinks not followed. A move into a dated
+// folder updates the mtime of the folder and of the writer dir inside it, though the moved item keeps its own age. Infinity
+// when the dir cannot be read: what cannot be inspected is not purged.
+function newestWriteMs(dir) {
+  let newest;
+  let names;
+  try { newest = lstatSync(dir).mtimeMs; names = readdirSync(dir); } catch { return Infinity; }
+  for (const name of names) { try { newest = Math.max(newest, lstatSync(path.join(dir, name)).mtimeMs); } catch { /* vanished */ } }
+  return newest;
+}
+
+/** Remove date-named holding dirs a full `days` after their date (`date 00:00Z + days <= now`), and only when nothing was
+ * moved into or written in the dir within the last `days` either, so every item is held at least `days` even though the
+ * folder name carries only a date. Only dirs this tool created: the base must carry the holding marker (or, for the legacy
+ * heavy dir, the tool's own log), the child must be a real directory named YYYY-MM-DD, never a symlink. */
 export function purgeHoldings({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), days = policy.holdingDays ?? 3, dryRun = false, bases, remove = (p) => rmSync(p, { recursive: true, force: true }), size = walkSize } = {}) {
   const key = platformKey(platform);
   const legacy = policy.heavyVolume?.[key];
@@ -702,7 +717,8 @@ export function purgeHoldings({ policy, platform = process.platform, env = proce
       try { dst = lstatSync(dir); } catch { continue; }
       if (!dst.isDirectory() || dst.isSymbolicLink()) continue;
       const stamp = Date.parse(`${name}T00:00:00Z`);
-      if (!Number.isFinite(stamp) || stamp + 86400_000 > cutoff) continue; // the whole day must be older than the window
+      if (!Number.isFinite(stamp) || stamp > cutoff) continue; // the folder's date is a full window old
+      if (newestWriteMs(dir) > cutoff) continue; // but something was moved in (or written) within the window
       const bytes = size(dir);
       try {
         if (!dryRun) { remove(dir); if (logFile) logEvent(logFile, { event: "disk.purge", path: dir, bytes }); }

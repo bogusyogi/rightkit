@@ -316,13 +316,15 @@ test("no holding dir possible on the volume: the item is deleted directly, and t
   assert.match(readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8"), /no holding dir possible/);
 });
 
-test("purge: only tool-created, date-named, older-than-3-day holding dirs go", () => {
+// Folder mtimes matter to the purge now (a dir something was moved into within the window stays), so these fixtures age every
+// dated folder and its content explicitly instead of leaving the current clock on them.
+test("purge: only tool-created, date-named holding dirs a full 3 days past their date go (2026-10-12 now goes too: its date + 3 days has passed)", () => {
   const { root, policy } = fixture();
   const now = Date.parse("2026-10-15T12:00:00Z");
   const base = path.join(root, "hold");
   mkdirSync(base, { recursive: true });
   writeFileSync(path.join(base, HOLDING_MARKER), "");
-  for (const name of ["2026-10-01", "2026-10-11", "2026-10-12", "2026-10-15", "not-a-date", "2026-10-02.tail"]) file(path.join(base, name, "f"), 10);
+  for (const name of ["2026-10-01", "2026-10-11", "2026-10-12", "2026-10-15", "not-a-date", "2026-10-02.tail"]) file(path.join(base, name, "f"), 10, now - 5 * 86400_000);
   const keepTarget = path.join(root, "precious");
   file(path.join(keepTarget, "f"), 10);
   symlinkSync(keepTarget, path.join(base, "2026-09-30"));
@@ -330,23 +332,24 @@ test("purge: only tool-created, date-named, older-than-3-day holding dirs go", (
   const stranger = path.join(root, "stranger");
   file(path.join(stranger, "2026-01-01", "f"), 10);
   const dry = purgeHoldings({ policy, platform: "darwin", now, bases: [base, stranger], dryRun: true });
-  assert.deepEqual(dry.results.map((r) => path.basename(r.path)).sort(), ["2026-10-01", "2026-10-11"]);
+  assert.deepEqual(dry.results.map((r) => path.basename(r.path)).sort(), ["2026-10-01", "2026-10-11", "2026-10-12"]);
   assert.equal(existsSync(path.join(base, "2026-10-01")), true);
   const res = purgeHoldings({ policy, platform: "darwin", now, bases: [base, stranger] });
-  assert.deepEqual(res.results.map((r) => path.basename(r.path)).sort(), ["2026-10-01", "2026-10-11"]);
+  assert.deepEqual(res.results.map((r) => path.basename(r.path)).sort(), ["2026-10-01", "2026-10-11", "2026-10-12"]);
   assert.equal(res.purgedBytes > 0, true);
-  assert.deepEqual(readdirSync(base).sort(), [HOLDING_MARKER, "2026-09-30", "2026-10-02.tail", "2026-10-12", "2026-10-15", "not-a-date"].sort());
+  assert.deepEqual(readdirSync(base).sort(), [HOLDING_MARKER, "2026-09-30", "2026-10-02.tail", "2026-10-15", "not-a-date"].sort());
   assert.equal(existsSync(path.join(keepTarget, "f")), true);
   assert.equal(existsSync(path.join(stranger, "2026-01-01", "f")), true);
   assert.equal(lstatSync(path.join(base, "2026-09-30")).isSymbolicLink(), true);
 });
 
-test("run purges old holding dirs after sweeping", async () => {
+test("run purges old holding dirs after sweeping (the dir's own mtime is old too)", async () => {
   const { root, policy } = fixture();
   const pf = path.join(root, "policy.json");
   writeFileSync(pf, JSON.stringify(policy));
   const base = path.join(root, "hold");
   mkdirSync(path.join(base, "2020-01-01"), { recursive: true });
+  utimesSync(path.join(base, "2020-01-01"), OLD / 1000, OLD / 1000);
   writeFileSync(path.join(base, HOLDING_MARKER), "");
   const lines = [];
   const r = await runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) }, purge: { bases: [base] } } });
@@ -380,7 +383,8 @@ test("real second volume (macOS disk image): the item is renamed within its own 
     const mountReal = realpathSync(mount);
     assert.ok(realpathSync(applied.results[0].destination).startsWith(mountReal + path.sep), applied.results[0].destination);
     assert.equal(existsSync(path.join(os.homedir(), ".rightkit-swept-test-never-created")), false);
-    assert.equal(purgeHoldings({ policy, platform: "darwin", now: Date.parse("2026-10-30T00:00:00Z"), bases: [path.join(mount, ".rightkit-swept")] }).results.length, 1);
+    // the dated folder was just written on the real clock, so "past the window" is measured from there
+    assert.equal(purgeHoldings({ policy, platform: "darwin", now: Date.now() + 10 * 86400_000, bases: [path.join(mount, ".rightkit-swept")] }).results.length, 1);
     assert.equal(existsSync(path.join(mount, ".rightkit-swept", "2026-10-15")), false);
   } finally {
     try { execFileSync("hdiutil", ["detach", mount, "-force", "-quiet"]); } catch { /* ignore */ }
@@ -1178,4 +1182,93 @@ test("agent-tmp wins over win-temp when TEMP is redirected to the same directory
   // without the committed order the 7-day default of win-temp would have kept both
   const reversed = planSweep({ policy: { ...policy, writers: [...policy.writers].reverse() }, platform: "win32", env: { TEMP: temp }, inUse: () => false, size: () => 10 });
   assert.deepEqual(reversed.candidates, []);
+});
+
+// ---- lifetimes: scratch idle 1 day, holding exactly `holdingDays` --------------------------------------------------------------
+
+test("scratch: a child idle 25 hours moves, one idle 23 hours stays, workspace-unknown keeps its 3-day window, --days overrides both", () => {
+  const { base, ws, policy } = workspaceFixture();
+  const scratch = path.join(base, "scratch");
+  policy.scratchRoots = { mac: [scratch] };
+  policy.scratchStaleDays = 1;
+  const now = Date.now();
+  file(path.join(scratch, "idle-25h", "f"), 5, now - 25 * 3600_000);
+  file(path.join(scratch, "idle-23h", "f"), 5, now - 23 * 3600_000);
+  file(path.join(scratch, "idle-2d", "f"), 5, now - 2 * DAY);
+  file(path.join(ws, "young", "f"), 10, now - 2 * DAY); // unknown workspace entry idle 2 days: inside its 3-day window
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 5, workspaceSweep: true });
+  assert.deepEqual(plan.candidates.filter((c) => c.writer === "scratch-root").map((c) => path.basename(c.path)).sort(), ["idle-25h", "idle-2d"]);
+  assert.equal(plan.skipped.find((s) => s.path.endsWith("idle-23h")).reason, "fresh");
+  assert.deepEqual(plan.candidates.filter((c) => c.writer === "workspace-unknown").map((c) => path.basename(c.path)), ["stale"]);
+  assert.equal(plan.skipped.find((s) => s.path === path.join(ws, "young")).reason, "fresh");
+  // `--days N` is one window for everything
+  const wide = planSweep({ policy, platform: "darwin", now, staleDays: 5, openPaths: [], size: () => 5, workspaceSweep: true });
+  assert.deepEqual(wide.candidates.filter((c) => c.writer === "scratch-root"), []);
+  // a policy without scratchStaleDays keeps the old shared window
+  delete policy.scratchStaleDays;
+  const legacy = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 5, workspaceSweep: true });
+  assert.deepEqual(legacy.candidates.filter((c) => c.writer === "scratch-root"), []);
+});
+
+test("purge: a dated folder goes exactly `days` after its date, not a day later", () => {
+  const { root, policy } = fixture();
+  const base = path.join(root, "hold");
+  mkdirSync(base, { recursive: true });
+  writeFileSync(path.join(base, HOLDING_MARKER), "");
+  const old = Date.parse("2026-09-01T00:00:00Z");
+  for (const name of ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-15"]) file(path.join(base, name, "f"), 10, old);
+  const at = (iso, days = 3) => purgeHoldings({ policy, platform: "darwin", now: Date.parse(iso), days, bases: [base], dryRun: true }).results.map((r) => path.basename(r.path)).sort();
+  assert.deepEqual(at("2026-10-15T12:00:00Z"), ["2026-10-11", "2026-10-12"], "10-12 + 3 days = 10-15T00:00Z has passed");
+  assert.deepEqual(at("2026-10-15T00:00:00Z"), ["2026-10-11", "2026-10-12"], "exactly on the boundary");
+  assert.deepEqual(at("2026-10-14T23:59:59Z"), ["2026-10-11"], "one second before it");
+  assert.deepEqual(at("2026-10-16T12:00:00Z", 1), ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-15"], "1 day: every folder dated before the 16th is past its window");
+  assert.deepEqual(at("2026-10-15T12:00:00Z", 1), ["2026-10-11", "2026-10-12", "2026-10-13"], "1 day: today's folder is not");
+  assert.deepEqual(at("2026-10-15T12:00:00Z", 0), ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-15"], "0 days: today's folder goes too");
+});
+
+test("purge: a dated folder something was moved into within the window stays, even when its date is old", () => {
+  const { root, policy } = fixture();
+  const base = path.join(root, "hold");
+  mkdirSync(base, { recursive: true });
+  writeFileSync(path.join(base, HOLDING_MARKER), "");
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const names = (days = 1) => purgeHoldings({ policy, platform: "darwin", now, days, bases: [base], dryRun: true }).results.map((r) => path.basename(r.path)).sort();
+  const oldDay = Date.parse("2026-09-01T00:00:00Z");
+  file(path.join(base, "2026-10-01", "writer", "item"), 10, oldDay);
+  for (const d of [path.join(base, "2026-10-01", "writer"), path.join(base, "2026-10-01")]) utimesSync(d, oldDay / 1000, oldDay / 1000);
+  assert.deepEqual(names(), ["2026-10-01"], "untouched for the window: purged");
+  // the writer dir inside the dated folder was written 2 h ago (an item moved in; the item itself kept its old age)
+  utimesSync(path.join(base, "2026-10-01", "writer"), (now - 2 * 3600_000) / 1000, (now - 2 * 3600_000) / 1000);
+  assert.deepEqual(names(), [], "a direct child written 2 h ago keeps the whole folder for 1 day");
+  // the guard is `newest write <= now - days`: exactly a day old goes, a millisecond younger stays
+  utimesSync(path.join(base, "2026-10-01", "writer"), (now - 86400_000) / 1000, (now - 86400_000) / 1000);
+  assert.deepEqual(names(), ["2026-10-01"]);
+  utimesSync(path.join(base, "2026-10-01", "writer"), (now - 86400_000 + 1000) / 1000, (now - 86400_000 + 1000) / 1000);
+  assert.deepEqual(names(), []);
+  // the folder's own mtime counts as well (an entry added or removed directly in it)
+  utimesSync(path.join(base, "2026-10-01", "writer"), oldDay / 1000, oldDay / 1000);
+  utimesSync(path.join(base, "2026-10-01"), (now - 3600_000) / 1000, (now - 3600_000) / 1000);
+  assert.deepEqual(names(), []);
+  // with 0 days nothing newer than `now` exists, so the emergency pass can empty a folder written an hour ago
+  assert.deepEqual(names(0), ["2026-10-01"]);
+});
+
+test("purge: an item swept today is held a full window by the real moves, then goes (end to end through applySweep)", () => {
+  const { root, policy } = fixture();
+  policy.holdingDays = 1;
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  const plan = planSweep({ policy, platform: "darwin", openPaths: [], size: () => 10 });
+  const movedAt = new Date("2026-10-13T10:00:00Z"); // names the folder; the folder's mtime is the real clock
+  assert.equal(applySweep({ plan, policy, platform: "darwin", date: movedAt }).results[0].ok, true);
+  const base = path.join(root, "hold");
+  const held = (now) => purgeHoldings({ policy, platform: "darwin", now, bases: [base], dryRun: true }).results.length;
+  // the date alone would allow this (10-13 + 1 day), but the move just happened: held
+  assert.equal(held(Date.now()), 0);
+  assert.equal(held(Date.parse("2026-10-20T00:00:00Z")), 0, "a clock behind the move never purges what it cannot show to be a day old");
+  assert.equal(held(Date.now() + 86400_000 + 1000), 1, "a day after the move it is purged");
+});
+
+test("committed policy: scratch idles one day, holding lasts one day, workspace-unknown keeps three", () => {
+  const policy = readDiskPolicy();
+  assert.deepEqual([policy.scratchStaleDays, policy.holdingDays, policy.unknownStaleDays], [1, 1, 3]);
 });
