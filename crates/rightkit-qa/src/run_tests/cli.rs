@@ -533,6 +533,42 @@ mod tests {
     }
 
     #[test]
+    fn the_readme_says_above_and_below_for_a_quoted_section_on_the_right_side() {
+        let readme = include_str!("../../README.md");
+        let lines: Vec<&str> = readme.lines().collect();
+        let mut checked = 0;
+        for (i, line) in lines.iter().enumerate() {
+            for direction in ["above", "below"] {
+                let mut rest = *line;
+                while let Some(at) = rest.find(&format!("\" {direction}")) {
+                    let before = &rest[..at];
+                    rest = &rest[at + 1..];
+                    let Some(open) = before.rfind('"') else {
+                        continue;
+                    };
+                    let title = &before[open + 1..];
+                    let heading = lines
+                        .iter()
+                        .position(|l| l.strip_prefix("## ").is_some_and(|h| h.starts_with(title)))
+                        .unwrap_or_else(|| {
+                            panic!("README line {}: no `## {title}` section", i + 1)
+                        });
+                    let actual = if heading < i { "above" } else { "below" };
+                    assert_eq!(
+                        actual,
+                        direction,
+                        "README line {} says \"{title}\" is {direction}, but its heading is on line {}",
+                        i + 1,
+                        heading + 1
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= 2, "the cross-reference scan found {checked}");
+    }
+
+    #[test]
     fn the_app_key_is_required_and_comes_from_a_flag_the_config_or_journeys_toml() {
         let root = temp_root("app");
         let mut cli = Cli {

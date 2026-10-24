@@ -186,7 +186,7 @@ The flags, the config keys, the receipt and the check rule that refuses E2E unde
 
 ## UI scenarios against a real app (macOS)
 
-Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rustright cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `rightkit-qa run-tests` does both and keeps your shell's environment (see "Running tests outside the broker" below):
+Scenarios that launch a real `.app` (`control::launch`) must run from the user's login session. Under `rustright cargo test`, the test binary runs in the build broker's context, where `open` has no GUI session and exits 1. Build through the broker and run the binary yourself; `rightkit-qa run-tests` does both and keeps your shell's environment (see "Running tests outside the broker" above):
 
 ```sh
 rightkit-qa run-tests --app cutright -p cutright-e2e --test ui -- --nocapture
