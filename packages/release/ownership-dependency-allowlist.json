@@ -403,6 +403,7 @@
         "cargo:futures",
         "cargo:getrandom",
         "cargo:image",
+        "cargo:libc",
         "cargo:objc2",
         "cargo:objc2-foundation",
         "cargo:reqwest",
