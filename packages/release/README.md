@@ -136,11 +136,16 @@ The rules (`right-release check --list` prints their ids and gaps; `scripts/pref
 `rightkit-qa` not optionally (the optional dependency is an app's in-app control server) and has a `.rs` file outside `examples/` that names
 a driver module of it (`harness`, `control`, `suite`, `scenario`, `engine`, `in_app`, `interactive`, `page`, `browser`, `android`); a name
 like `*-e2e` is not evidence. A command selects it by `-p`/`--package`, `--manifest-path`, `--workspace`/`--all` (the members of the
-workspace in the working directory, less `--exclude`), `--test`, or for `cargo run` `--bin`. It looks in `package.json` scripts, shell,
+workspace in the working directory, less `--exclude`), `--test`, or for `cargo run` `--bin`; and by naming nothing at all in a virtual workspace (a
+`[workspace]` with no `[package]`): `cargo test` and `cargo test --manifest-path Cargo.toml` test every member, or the `default-members` when it declares
+them, less `--exclude` (a root that holds a package of its own tests that package only, so a bare run selects nothing there). It looks in `package.json` scripts, shell,
 PowerShell, batch, Node and Python scripts, Makefile and justfile recipes, workflow `run:` steps, git hooks, and code in `README.md`,
 `AGENTS.md`, `CLAUDE.md` and `docs/` (history documents excluded). `--no-run`, `rightkit-qa run-tests`, `rightkit-qa journeys run` and
 `--test qa_surface_guard` are not findings. The identity is `e2e-under-cargo-test|<file>|<script or crate>`. Fix: compile with `--no-run`, then
-`rightkit-qa run-tests -p <crate> [--test <target>] -- <libtest args>`.
+`rightkit-qa run-tests -p <crate> [--test <target>] -- <libtest args>`; a whole-workspace run must also leave the crate out (`--workspace --exclude <crate>`),
+since `--no-run` on the workspace compiles it all and runs none. `cargo run` has no `--no-run`: the finding says to build the program in the broker
+(`rustright cargo build -p <crate> --bin <bin>`, with `--manifest-path` for a crate outside the workspace in the working directory) and run the built binary
+outside it, or `rightkit-qa journeys run`.
 
 Known findings are tolerated only through a baseline: `--baseline <file>`, else the checked tree's `.rightkit/app-check-baseline.json`,
 else (from a RightKit checkout only) `ci/app-check-baseline.json`. The app's own file is always `{ "schema": 1, "known": [{ "id", "issue",
