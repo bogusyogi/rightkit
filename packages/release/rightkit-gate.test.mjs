@@ -1827,3 +1827,26 @@ test("--receipt-out / --receipt-in: a later job on another runner takes the seal
   assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...bad.io, cwd: root, ...io("broker") }), 1);
   assert.match(bad.err.join("\n"), /is not a rightkit\.gate-receipt\/1 receipt/);
 });
+
+test("stage hands only a qualified, unchanged sealed set to the publisher's draft release, then dispatches release.yml", async (t) => {
+  const { root, head } = stageRepo(t);
+  const id = `app-1.0.0-${head.slice(0, 8)}`;
+  let digest = "d".repeat(64);
+  const external = [];
+  const spawn = (cmd, a, opts) => {
+    if (cmd === "gh" || cmd === "tar") { external.push(`${cmd} ${a[0]} ${a[1]}`); return { status: cmd === "gh" && a[1] === "view" ? 1 : 0, stdout: "", stderr: "" }; }
+    return spawnSync(cmd, a, { ...opts, encoding: "utf8" });
+  };
+  const io = { spawn, resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id, manifest: "m", digest }), spawnInherit: () => ({ status: 0 }) };
+  const early = capture();
+  assert.equal(await main(["stage", "--platform", "win"], { ...early.io, cwd: root, ...io }), 1, "nothing qualified yet");
+  assert.match(early.err.join("\n"), /run rightkit-gate --to qualify --platform win first/);
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 0);
+  const ok = capture();
+  assert.equal(await main(["stage", "--platform", "win", "--tier", "patch"], { ...ok.io, cwd: root, ...io }), 0, ok.err.join("\n"));
+  assert.deepEqual(external, [`tar -czf ${external[0].split(" ")[2]}`, `gh release view`, `gh release create`, `gh release upload`, `gh workflow run`]);
+  // The sealed bytes change after qualification: nothing is staged.
+  digest = "e".repeat(64); external.length = 0;
+  assert.equal(await main(["stage", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 1);
+  assert.deepEqual(external, []);
+});

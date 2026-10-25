@@ -83,7 +83,7 @@ const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1153,6 +1153,55 @@ async function runStages(o, args, root, git, io) {
   return 0;
 }
 
+/**
+ * rightkit-gate stage --platform mac|win [--tier patch|update]: hands a qualified sealed set to the trusted publisher. The host signed,
+ * sealed and qualified it (--to qualify); only the publisher holds the R2 write credential. Requires this host's receipt for HEAD with
+ * package and qualify passed on the sealed bytes as they are now. Packs the sealed directory and the receipt into the draft GitHub
+ * release `rightkit-staging-<commit>` (replacing that platform's asset), then, with --tier, dispatches the release workflow for HEAD.
+ */
+function stageForPublisher(o, args, root, git) {
+  const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+  const tag = "rightkit-gate:";
+  const platform = option("--platform");
+  const tier = option("--tier");
+  if (!["mac", "win"].includes(platform)) { o.err(`${tag} stage needs --platform mac|win`); return 2; }
+  if (tier !== undefined && !["patch", "update"].includes(tier)) { o.err(`${tag} stage --tier must be patch or update`); return 2; }
+  const commit = text(git("rev-parse", "HEAD")).trim();
+  const common = text(git("rev-parse", "--git-common-dir")).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  const commonDir = path.resolve(root, common);
+  const receipt = (o.readReceipt ?? readReceipt)({ commonDir, commit });
+  const pack = receipt?.stages?.package; const qual = receipt?.stages?.qualify;
+  const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+  if (!pack?.ok || !qual?.ok || pack.platform !== platform || qual.manifestSha256 !== pack.manifestSha256 || !sealed || sealed.id !== pack.sealed || sealed.digest !== pack.manifestSha256) {
+    o.err(`${tag} BLOCKED: stage needs this host's receipt for ${commit.slice(0, 12)} with package and qualify passed on ${platform} and the sealed set unchanged; run rightkit-gate --to qualify --platform ${platform} first`);
+    return 1;
+  }
+  const releaseTag = `rightkit-staging-${commit}`;
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "rightkit-stage-"));
+  try {
+    const receiptFile = path.join(work, `receipt-${platform}.json`);
+    fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
+    const archive = path.join(work, `sealed-${platform}.tar.gz`);
+    const tar = o.spawn("tar", ["-czf", archive, "-C", root, path.join(".right-release", "sealed", sealed.id, platform)]);
+    if (failed(tar)) { o.err(`${tag} could not pack ${sealed.id}/${platform}`); return 1; }
+    const gh = (...a) => o.spawn("gh", a, { cwd: root });
+    if (failed(gh("release", "view", releaseTag))) {
+      const made = gh("release", "create", releaseTag, "--draft", "--target", commit, "--title", `staging ${commit.slice(0, 12)}`, "--notes", "Sealed and qualified sets for the trusted publisher; not a release.");
+      if (failed(made)) { o.err(`${tag} could not create the draft ${releaseTag}: ${text(made).trim()}`); return 1; }
+    }
+    const up = gh("release", "upload", releaseTag, archive, receiptFile, "--clobber");
+    if (failed(up)) { o.err(`${tag} could not upload to ${releaseTag}: ${text(up).trim()}`); return 1; }
+    o.out(`${tag} staged ${sealed.id}/${platform} (manifest ${sealed.digest.slice(0, 12)}) in draft ${releaseTag}`);
+    if (tier) {
+      const run = gh("workflow", "run", "release.yml", "-f", `source_revision=${commit}`, "-f", `tier=${tier}`, "-f", `platforms=${platform}`);
+      if (failed(run)) { o.err(`${tag} staged, but could not dispatch release.yml: ${text(run).trim()}`); return 1; }
+      o.out(`${tag} dispatched release.yml for ${commit.slice(0, 12)} (${platform}, ${tier}); the publisher verifies the receipt and the bytes, then uploads`);
+    }
+    return 0;
+  } finally { fs.rmSync(work, { recursive: true, force: true }); }
+}
+
 // ---- main ---------------------------------------------------------------------------------------------------
 
 /**
@@ -1175,7 +1224,7 @@ export async function main(argv, io = {}) {
   }
   if (args.includes("--help") || args.includes("-h")) { o.out(USAGE); return 0; }
   const sub = args[0] && !args[0].startsWith("-") ? args[0] : null;
-  if (sub && sub !== "install-hook" && sub !== "check") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
+  if (sub && sub !== "install-hook" && sub !== "check" && sub !== "stage") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
   // `check` is the deterministic stage (Adrian, 2026-10-25: deterministic always first, one door): the app-check rules, then every
   // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
   // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
@@ -1197,6 +1246,7 @@ export async function main(argv, io = {}) {
   const git = (...a) => o.spawn("git", a, { cwd: root });
   if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
   if (option("--to") !== undefined) return await runStages(o, args, root, git, io);
+  if (sub === "stage") return stageForPublisher(o, args, root, git);
 
   const planOnly = args.includes("--plan");
   let base = option("--base") ?? "origin/main";

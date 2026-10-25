@@ -22,7 +22,7 @@ export const KNOWN_LANES = Object.freeze([
 
 // Lanes only the rust-hybrid profile has a template for. They are kept out of KNOWN_LANES so the node
 // profile's per-lane template checks do not look for a template it does not have.
-export const RUST_HYBRID_ONLY_LANES = Object.freeze(["sign-existing"]);
+export const RUST_HYBRID_ONLY_LANES = Object.freeze(["sign-existing", "release"]);
 
 // Rendered filename for each lane, installed under <repo>/.github/workflows/.
 export const LANE_FILENAMES = Object.freeze({
@@ -35,6 +35,7 @@ export const LANE_FILENAMES = Object.freeze({
   "publish-npm": "publish-npm.yml",
   "publish-package-managers": "publish-package-managers.yml",
   regenerate: "regenerate.yml",
+  release: "release.yml",
 });
 
 const PACKAGE_MANAGER_RE = /^(pnpm|npm|yarn)@\d+\.\d+\.\d+$/;
@@ -187,7 +188,7 @@ export function validateManifest(manifest) {
   const profile = manifest.profile === undefined ? "node" : manifest.profile;
   if (profile !== "node" && profile !== "rust-hybrid") errors.push("profile must be 'node' or 'rust-hybrid'");
   if (profile === "rust-hybrid") {
-    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate" && lane !== "sign-existing") || !lanes.includes("ci")) {
+    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate" && lane !== "sign-existing" && lane !== "release") || !lanes.includes("ci")) {
       errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate', 'regenerate' and 'sign-existing'");
     }
     if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => !GATE_KEYS.has(key)) || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
@@ -195,7 +196,7 @@ export function validateManifest(manifest) {
     }
   } else {
     if (manifest.gate !== undefined) errors.push("gate is only valid for profile 'rust-hybrid'");
-    if (lanes.some((lane) => RUST_HYBRID_ONLY_LANES.includes(lane))) errors.push("lane 'sign-existing' is only valid for profile 'rust-hybrid'");
+    if (lanes.some((lane) => RUST_HYBRID_ONLY_LANES.includes(lane))) errors.push(`lanes ${RUST_HYBRID_ONLY_LANES.map((lane) => `'${lane}'`).join(" and ")} are only valid for profile 'rust-hybrid'`);
   }
 
   validateCheckout(manifest.checkout, errors);
@@ -2200,7 +2201,7 @@ const CLASS_A_TOOL_STEPS = Object.freeze([
   "          tar -xzf \"$archive\" -C \"$RUNNER_TEMP/actionlint-bin\" actionlint",
   "          echo \"$RUNNER_TEMP/actionlint-bin\" >> \"$GITHUB_PATH\"",
 ]);
-export const CHECK_JOB_LANES = Object.freeze(["ci", "qualification", "package-smoke", "release-candidate", "swift-check", "publish-npm"]);
+export const CHECK_JOB_LANES = Object.freeze(["ci", "qualification", "package-smoke", "release-candidate", "swift-check", "publish-npm", "release"]);
 
 /**
  * The RightKit check job: the first job of every lane that compiles or tests, so nothing builds or qualifies a tree the
@@ -2223,6 +2224,7 @@ export function checkJob(manifest, lane = "ci") {
   const runner = rustHybrid || lane === "swift-check" ? "ubuntu-24.04" : "ubuntu-latest";
   // The revision the lane builds: a release-candidate's dispatched (or pushed) commit, the release tag publish-npm publishes.
   const ref = lane === "publish-npm" ? "${{ github.event.release.tag_name }}"
+    : lane === "release" ? "${{ inputs.source_revision }}"
     : lane !== "release-candidate" ? null
       : rustHybrid ? "${{ inputs.source_revision }}" : "${{ inputs.source_revision || github.sha }}";
   // The same frozen install every other job runs (pm.installCommand), without lifecycle scripts; `--ignore-scripts` is a flag of
@@ -2410,6 +2412,8 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       : "",
     CI_CONCURRENCY_GROUP: manifest.concurrency?.mainPushes === "queue" ? CI_GROUP_PER_REF : CI_GROUP_SUPERSEDE,
     CHECK_JOB: checkJob(manifest, lane),
+    RELEASE_PUBLICATION_ENVIRONMENT: releaseEnvironment(manifest, "publication"),
+    GATE_BIN: { pnpm: "pnpm exec rightkit-gate", npm: "./node_modules/.bin/rightkit-gate", yarn: "./node_modules/.bin/rightkit-gate" }[pm.name],
     CI_SUPERSEDE_JOB: manifest.concurrency?.mainPushes === "queue" ? "" : supersedeJob(manifest),
     CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(manifest),
     ...gateShardContext(manifest, pm),

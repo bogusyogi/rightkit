@@ -1903,7 +1903,7 @@ test("every template's triggers are safe for the swift credential: none is pull_
     ...fs.readdirSync(templatesDir).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, f)),
     ...fs.readdirSync(path.join(templatesDir, "profiles", "rust-hybrid")).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, "profiles", "rust-hybrid", f)),
   ];
-  assert.equal(templates.length, 12);
+  assert.equal(templates.length, 13);
   for (const file of templates) {
     const onBlock = fs.readFileSync(file, "utf8").split("\njobs:")[0].split(/^on:/m)[1] ?? "";
     assert.doesNotMatch(onBlock.split(/^permissions:/m)[0], /pull_request_target|workflow_run/, path.relative(templatesDir, file));
@@ -2273,7 +2273,7 @@ test("check job: its install is the manager's frozen install without lifecycle s
     const { installCommand } = parsePackageManager(packageManager);
     const manifest = { ...FULL_MANIFEST, packageManager };
     const rendered = renderAllLanes(manifest, "/repos/widgets");
-    for (const lane of CHECK_JOB_LANES) {
+    for (const lane of CHECK_JOB_LANES.filter((name) => name !== "release")) { // release is rust-hybrid only (its own test)
       const steps = checkStepsOf(checkJobsOf(rendered[lane]).get("check"));
       assert.ok(steps.includes(`${installCommand} --ignore-scripts`), `${packageManager} ${lane}`);
       assert.equal(steps.filter((step) => step.startsWith(installCommand)).length, 1, `${packageManager} ${lane}: one install`);
@@ -2300,7 +2300,7 @@ test("check job: npm and yarn call the installed bin by path, and install withou
   };
   for (const [packageManager, [install, gate]] of Object.entries(expected)) {
     const rendered = renderAllLanes({ ...FULL_MANIFEST, packageManager }, "/repos/widgets");
-    for (const lane of CHECK_JOB_LANES) {
+    for (const lane of CHECK_JOB_LANES.filter((name) => name !== "release")) {
       const steps = checkStepsOf(checkJobsOf(rendered[lane]).get("check"));
       assert.equal(steps.at(-1), gate, `${packageManager} ${lane}`);
       assert.ok(steps.includes(install), `${packageManager} ${lane}`);
@@ -2356,4 +2356,21 @@ test("check job: a queue-mode render without devArtifact still gives ci the chec
   const jobs = checkJobsOf(swRender(queued, "ci"));
   assert.deepEqual([...jobs.keys()], ["private-repo-guard", "check", "ci"]);
   assert.deepEqual(jobs.get("ci").needs, ["private-repo-guard", "check"]);
+});
+
+test("release lane: the trusted publisher holds R2 only in its publication job, re-checks class A on the staged commit and publishes through the door", () => {
+  const manifest = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release"], matrix: { os: ["windows-2025"], node: ["24"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.8.0", profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
+  assert.deepEqual(validateManifest(manifest).errors, []);
+  assert.match(validateManifest({ ...manifest, profile: undefined, gate: undefined }).errors.join("\n"), /'release' are only valid for profile 'rust-hybrid'/);
+  const out = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets", "release"));
+  const jobs = checkJobsOf(out);
+  assert.deepEqual([...jobs.keys()], ["private-repo-guard", "check", "publish"]);
+  assert.match(jobs.get("check").text, /ref: \$\{\{ inputs\.source_revision \}\}/, "class A runs on the staged commit");
+  assert.deepEqual(jobs.get("publish").needs, ["private-repo-guard", "check"]);
+  assert.match(jobs.get("publish").text, /^ {4}environment: release$/m);
+  assert.match(jobs.get("publish").text, /pnpm exec rightkit-gate --to release --platform "\$platform" --tier "\$TIER" --receipt-in "\$staged\/receipt-\$platform\.json"/);
+  assert.match(jobs.get("publish").text, /RIGHTKIT_PUBLISHER: github-environment/);
+  for (const [id, job] of jobs) if (id !== "publish") assert.doesNotMatch(job.text, /secrets\./, `${id} holds no secret`);
+  assert.equal((out.match(/secrets\.CLOUDFLARE_API_TOKEN/g) ?? []).length, 1, "the R2 credential appears once, in the publish step");
+  assert.doesNotMatch(out, /right-release (upload|build|publish)/, "nothing reaches right-release around the door");
 });

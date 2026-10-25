@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`release` lane (rust-hybrid): the trusted publisher.** A dispatch-only workflow whose `publish` job, in the protected publication environment, is the only place the R2 write credential (`CLOUDFLARE_API_TOKEN`) exists. A native host signs, seals and qualifies through `rightkit-gate --to qualify`; `rightkit-gate stage --platform <p> --tier <t>` puts the sealed set and receipt in the draft release `rightkit-staging-<commit>` and dispatches this workflow. The workflow runs class A on that commit (check job), then `rightkit-gate --to release --receipt-in` per platform, which takes the receipt only for that commit and source, refuses bytes that differ from the sealed digest or were never qualified, and uploads exactly them; the staging draft is deleted after.
 - **One door in app CI.** The rust-hybrid `ci` job and the `regenerate` re-check run `rightkit-gate --to compile` (class A, then every compile, lint and test scan), never the repository's gate script; `gate.path` is only the Rust-change filter. `gate.shards` and `gate.quick` are refused. The `check` job provisions class A's pinned tools (cargo-deny 0.20.2, cargo-audit 0.22.2, actionlint 1.7.12) so `rightkit-gate check` runs class A in full; a missing tool fails the check. Pins in `render.test.mjs` were retaken deliberately; the consumer recipe's shard scenario now asserts the refusal and its sha256 is re-pinned.
 
 ## 0.3.1 (2026-10-25)
