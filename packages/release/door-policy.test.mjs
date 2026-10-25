@@ -55,3 +55,10 @@ test("dev and test compile too: right-release dev|test and tauri dev are denied 
   }
   assert.equal(doorViolation("rightkit-gate --to dev -- --platform mac"), null);
 });
+
+test("wrapped and option-prefixed forms are judged by what they run", () => {
+  for (const command of ["bash -c 'cargo build --release'", "sh -c \"cd app && cargo test\"", "eval cargo clippy", "cargo -C crates/x build", "cargo --config net.offline=true test", "cargo --color always check", "echo x | xargs cargo build", "right-release --platform mac", "node node_modules/@rightkit/release/cli/right-release.mjs --platform win", "right-release cargo-target", "right-release dmg build", "node node_modules/@rightkit/release/build-release.mjs"]) {
+    assert.ok(doorViolation(command), command);
+  }
+  for (const command of ["bash -c 'git status'", "cargo -C crates/x metadata", "right-release --help", "sh -c 'rightkit-gate --to compile'"]) assert.equal(doorViolation(command), null, command);
+});

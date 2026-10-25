@@ -1736,18 +1736,18 @@ const swRender = (manifest, lane, swift) => {
 // (regenerate x2, publish-package-managers) keep their hashes. SW_PRE_CHECK_BASELINE keeps the previous nine: the new render
 // without the check job still hashes to them.
 const SW_BASELINE = {
-  "node/ci": "6f541c73a509bc8a16e4d01596f3597de5055a424cb370cf69cde5b683491a4e",
-  "node/qualification": "2ffaf14dd3d83d6f8325f2afbeeccb157134fbe0215c86c74d0d081c02cd38b4",
-  "node/package-smoke": "f4280607ac420c4d8cc1e09f74304cc5ab7b1b94c879f079c1fdb2b846ab0342",
-  "node/release-candidate": "df34b26d2e8f30944fc99bf51dfd1418bf10fac8abaec38a70a85212aa8940e4",
+  "node/ci": "7200da76b541be7fd0f00108007758ac6113f7399ae5ff04d6ba629841c035a7",
+  "node/qualification": "0408dce02c41732070797dd7988ca71096013cba84c036e80d45d77abdcb40d7",
+  "node/package-smoke": "9104eb2fc1178f4a6e1f61a5a7e461638becbacb274a26fe8c6845633b68bf90",
+  "node/release-candidate": "299b20f0735a66567ef90ed4f9e8b2520223ca70f29e413e46501a99df9325d4",
   "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
-  "node/publish-npm": "90bc2bed5f1ad72236623e69ca29f0e5e023c285ab84319e1640cd75d59058bd",
+  "node/publish-npm": "ca0ab7504108c586eab671e0536bb22cdc74d9089eb8e891e43661e8217095b4",
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
-  "rust-hybrid/ci": "933f2ae78420cf069adf53df01538134f34f7d22390b97d676cdb21ed8390a7d",
-  "rust-hybrid/release-candidate": "92087ffdcb025a6e90b29979fa5fc0e0349b0545838edecbb35d67fd86c6c80c",
-  "rust-hybrid/regenerate": "1f25412e0ad5f1d378c76e6f54b615bc4ec13e2bbf85133247557458e1cac966",
-  "rust-hybrid-chain/ci": "537e5063dd0bf8ecd9ed95fd2940561655aba954f593d03e05de0b5c6fc36f80",
-  "rust-hybrid-chain/release-candidate": "ca8b90de1e52a81ca298953a239233cca449995d3555e315325028b2eb877f53",
+  "rust-hybrid/ci": "8ae24ad218bdb64862fd6b7ebf6272f2dff6997c10460adf6f050817b3d8d4f4",
+  "rust-hybrid/release-candidate": "55b2fbfdc44e190c083eb32efe52dcffabc8ecad6f8a5c1664979c72348b5547",
+  "rust-hybrid/regenerate": "652000c877dd817e7668c3e56b1a76f9b4019ea45686d9d2d773aba683dc961a",
+  "rust-hybrid-chain/ci": "b12852ff36a8e9818307bf41ef522d3e680e798d01c2cb4650e5d7a7b0256e91",
+  "rust-hybrid-chain/release-candidate": "f1b9cf2bd6af350e70a18ccdbf34882a196b629ffe73ef9974fb31cfe059d565",
 };
 const SW_PRE_CHECK_BASELINE = {
   // 0.4 (one door): the rust-hybrid ci jobs run `rightkit-gate --to compile` instead of the repository gate script, so their
@@ -1759,11 +1759,11 @@ const SW_PRE_CHECK_BASELINE = {
   "node/release-candidate": "6ff48f01cadc95e5e92cc225432aa280a7baac46017ae30e54a165e3db2d1539",
   // The 0.2.41 publish-npm render, before the check job (the lane was exempt for one revision; it builds, so it is not).
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
-  "rust-hybrid/ci": "e0d89b0ae0ac2f982c94e7b894892c6f22941ef57a3cd3f7feab2d8975b3cde1",
+  "rust-hybrid/ci": "919374279ac96f4fd87ac466275183144e0d17772019e8bc11b49970175b512a",
   // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
   // 0.2.46 (#168): plus RIGHTKIT_DEV_SIGNING: "ci-adhoc" on the candidate job. Hash taken from CI 38978333900 (xcode and windows agree).
   "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
-  "rust-hybrid-chain/ci": "5ad16f4a557579c02cf5e4be3684d54ed1a580904b601bc39e6b91edb38133f6",
+  "rust-hybrid-chain/ci": "d6273c87edb3b07b3b9b8fe0ffc481f1e90fdafafbc0f66c359163307fbf7fef",
   // 0.2.46 (#168): the chain candidate job also sets RIGHTKIT_DEV_SIGNING: "ci-adhoc". Hash taken from CI 38986615056 (xcode; the excerpt has no windows).
   "rust-hybrid-chain/release-candidate": "c118e1c555e1de603f61acfde0b4749d519b97ec3815fc53b024b22d1e5cb3b9",
 };
@@ -1903,7 +1903,7 @@ test("every template's triggers are safe for the swift credential: none is pull_
     ...fs.readdirSync(templatesDir).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, f)),
     ...fs.readdirSync(path.join(templatesDir, "profiles", "rust-hybrid")).filter((f) => f.endsWith(".yml")).map((f) => path.join(templatesDir, "profiles", "rust-hybrid", f)),
   ];
-  assert.equal(templates.length, 13);
+  assert.equal(templates.length, 12);
   for (const file of templates) {
     const onBlock = fs.readFileSync(file, "utf8").split("\njobs:")[0].split(/^on:/m)[1] ?? "";
     assert.doesNotMatch(onBlock.split(/^permissions:/m)[0], /pull_request_target|workflow_run/, path.relative(templatesDir, file));
@@ -2273,7 +2273,7 @@ test("check job: its install is the manager's frozen install without lifecycle s
     const { installCommand } = parsePackageManager(packageManager);
     const manifest = { ...FULL_MANIFEST, packageManager };
     const rendered = renderAllLanes(manifest, "/repos/widgets");
-    for (const lane of CHECK_JOB_LANES.filter((name) => name !== "release")) { // release is rust-hybrid only (its own test)
+    for (const lane of CHECK_JOB_LANES) {
       const steps = checkStepsOf(checkJobsOf(rendered[lane]).get("check"));
       assert.ok(steps.includes(`${installCommand} --ignore-scripts`), `${packageManager} ${lane}`);
       assert.equal(steps.filter((step) => step.startsWith(installCommand)).length, 1, `${packageManager} ${lane}: one install`);
@@ -2300,7 +2300,7 @@ test("check job: npm and yarn call the installed bin by path, and install withou
   };
   for (const [packageManager, [install, gate]] of Object.entries(expected)) {
     const rendered = renderAllLanes({ ...FULL_MANIFEST, packageManager }, "/repos/widgets");
-    for (const lane of CHECK_JOB_LANES.filter((name) => name !== "release")) {
+    for (const lane of CHECK_JOB_LANES) {
       const steps = checkStepsOf(checkJobsOf(rendered[lane]).get("check"));
       assert.equal(steps.at(-1), gate, `${packageManager} ${lane}`);
       assert.ok(steps.includes(install), `${packageManager} ${lane}`);
@@ -2356,21 +2356,4 @@ test("check job: a queue-mode render without devArtifact still gives ci the chec
   const jobs = checkJobsOf(swRender(queued, "ci"));
   assert.deepEqual([...jobs.keys()], ["private-repo-guard", "check", "ci"]);
   assert.deepEqual(jobs.get("ci").needs, ["private-repo-guard", "check"]);
-});
-
-test("release lane: the trusted publisher holds R2 only in its publication job, re-checks class A on the staged commit and publishes through the door", () => {
-  const manifest = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci", "release"], matrix: { os: ["windows-2025"], node: ["24"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.8.0", profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
-  assert.deepEqual(validateManifest(manifest).errors, []);
-  assert.match(validateManifest({ ...manifest, profile: undefined, gate: undefined }).errors.join("\n"), /'release' are only valid for profile 'rust-hybrid'/);
-  const out = renderTemplate(fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release.yml"), "utf8"), buildRenderContext(manifest, "/repos/widgets", "release"));
-  const jobs = checkJobsOf(out);
-  assert.deepEqual([...jobs.keys()], ["private-repo-guard", "check", "publish"]);
-  assert.match(jobs.get("check").text, /ref: \$\{\{ inputs\.source_revision \}\}/, "class A runs on the staged commit");
-  assert.deepEqual(jobs.get("publish").needs, ["private-repo-guard", "check"]);
-  assert.match(jobs.get("publish").text, /^ {4}environment: release$/m);
-  assert.match(jobs.get("publish").text, /pnpm exec rightkit-gate --to release --platform "\$platform" --tier "\$TIER" --receipt-in "\$staged\/receipt-\$platform\.json"/);
-  assert.match(jobs.get("publish").text, /RIGHTKIT_PUBLISHER: github-environment/);
-  for (const [id, job] of jobs) if (id !== "publish") assert.doesNotMatch(job.text, /secrets\./, `${id} holds no secret`);
-  assert.equal((out.match(/secrets\.CLOUDFLARE_API_TOKEN/g) ?? []).length, 1, "the R2 credential appears once, in the publish step");
-  assert.doesNotMatch(out, /right-release (upload|build|publish)/, "nothing reaches right-release around the door");
 });

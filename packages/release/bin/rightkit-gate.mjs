@@ -1074,6 +1074,13 @@ async function runStages(o, args, root, git, io) {
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
     toolchain: { node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
+  // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
+  // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
+  // stage anywhere else rather than fail half way through an upload.
+  if (stages.includes("release") && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
+    o.err(`${tag} BLOCKED: --to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify here, then dispatch the release workflow for ${commit.slice(0, 12)}`);
+    return 1;
+  }
   // --receipt-in <file>: the receipt an earlier job of the same pipeline wrote (another runner: CI's package job, then its qualify and
   // publish jobs). It is taken only for this commit and the same source binding (tree, lockfiles, gate); it then stands in for the
   // stages it records, and the sealed bytes on disk must still hash to its manifest digest before anything uses them.
@@ -1098,13 +1105,6 @@ async function runStages(o, args, root, git, io) {
     (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
     if (receiptOut !== undefined) o.writeFile(path.resolve(o.cwd, receiptOut), `${JSON.stringify(receipt, null, 2)}\n`);
   };
-  // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
-  // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
-  // stage anywhere else rather than fail half way through an upload.
-  if (stages.includes("release") && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
-    o.err(`${tag} BLOCKED: --to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify here, then dispatch the release workflow for ${commit.slice(0, 12)}`);
-    return 1;
-  }
 
   const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
   const rightRelease = (stage, cliArgs) => {
@@ -1123,7 +1123,14 @@ async function runStages(o, args, root, git, io) {
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   for (const stage of stages) {
     if ((stage === "check" || stage === "compile") && receipt.stages[stage]?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
-    if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) { o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue; }
+    if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) {
+      o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
+    }
+    // The publisher (another runner, often another OS) cannot repeat installed QA; it takes the qualify result recorded for exactly
+    // these sealed bytes. --to qualify itself always runs it.
+    if (stage === "qualify" && to !== "qualify" && sealedIntact && receipt.stages.qualify?.ok && receipt.stages.qualify.manifestSha256 === sealedNow.digest) {
+      o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
+    }
     let ok = false; const at = new Date().toISOString(); let extra = {};
     if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
     else if (stage === "compile") ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
@@ -1158,8 +1165,10 @@ async function runStages(o, args, root, git, io) {
  * rightkit-gate stage --platform mac|win [--tier patch|update]: hands a qualified sealed set to the trusted publisher. The host signed,
  * sealed and qualified it (--to qualify); only the publisher holds the R2 write credential. Requires this host's receipt for HEAD with
  * package and qualify passed on the sealed bytes as they are now. Packs the sealed directory and the receipt into the draft GitHub
- * release `rightkit-staging-<commit>` (replacing that platform's asset), then, with --tier, dispatches the release workflow for HEAD.
+ * release `rightkit-staging-<commit>` (replacing that platform's asset), then, with --tier, dispatches RightKit's publish-app workflow
+ * (the one trusted publisher for every app) for HEAD.
  */
+const PUBLISHER_REPO = "bogusyogi/rightkit";
 function stageForPublisher(o, args, root, git) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const tag = "rightkit-gate:";
@@ -1195,9 +1204,12 @@ function stageForPublisher(o, args, root, git) {
     if (failed(up)) { o.err(`${tag} could not upload to ${releaseTag}: ${text(up).trim()}`); return 1; }
     o.out(`${tag} staged ${sealed.id}/${platform} (manifest ${sealed.digest.slice(0, 12)}) in draft ${releaseTag}`);
     if (tier) {
-      const run = gh("workflow", "run", "release.yml", "-f", `source_revision=${commit}`, "-f", `tier=${tier}`, "-f", `platforms=${platform}`);
-      if (failed(run)) { o.err(`${tag} staged, but could not dispatch release.yml: ${text(run).trim()}`); return 1; }
-      o.out(`${tag} dispatched release.yml for ${commit.slice(0, 12)} (${platform}, ${tier}); the publisher verifies the receipt and the bytes, then uploads`);
+      // The trusted publisher is RightKit's publish-app workflow: app repositories are private and run no Actions.
+      const slug = text(gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")).trim();
+      const appDir = path.relative(root, o.cwd).replaceAll("\\", "/") || ".";
+      const run = gh("workflow", "run", "publish-app.yml", "-R", PUBLISHER_REPO, "-f", `app=${slug}`, "-f", `app_dir=${appDir}`, "-f", `source_revision=${commit}`, "-f", `tier=${tier}`, "-f", `platforms=${platform}`);
+      if (!slug || failed(run)) { o.err(`${tag} staged, but could not dispatch ${PUBLISHER_REPO} publish-app.yml: ${text(run).trim()}`); return 1; }
+      o.out(`${tag} dispatched ${PUBLISHER_REPO} publish-app.yml for ${slug}@${commit.slice(0, 12)} (${platform}, ${tier}); the publisher re-runs class A, verifies the receipt and the bytes, then uploads`);
     }
     return 0;
   } finally { fs.rmSync(work, { recursive: true, force: true }); }

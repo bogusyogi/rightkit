@@ -1820,6 +1820,15 @@ test("--receipt-out / --receipt-in: a later job on another runner takes the seal
   const qual = capture();
   assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...qual.io, cwd: root, ...io("broker") }), 0, qual.err.join("\n"));
   assert.deepEqual(calls, [`qa --stage installed --platform win --release ${id}`], "check, compile and package stand on the sealed set; only qualify runs");
+  // The publisher: another runner again (ubuntu, no installer can run there); qualify is taken from the receipt for these bytes.
+  const qualified = path.join(root, "..", `receipt-q-${path.basename(root)}.json`);
+  t.after(() => fs.rmSync(qualified, { force: true }));
+  fs.copyFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), qualified);
+  fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true });
+  calls.length = 0;
+  const pub = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch", "--receipt-in", qualified], { ...pub.io, cwd: root, ...io("direct"), env: { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" } }), 0, pub.err.join("\n"));
+  assert.deepEqual(calls, [`upload --release ${id} --platform win --tier patch`], "the publisher only uploads the qualified sealed set");
   // A receipt for another commit, or with another gate, is not taken.
   const foreign = JSON.parse(fs.readFileSync(out, "utf8"));
   fs.writeFileSync(out, JSON.stringify({ ...foreign, binding: { ...foreign.binding, gate: "0".repeat(64) } }));
@@ -1834,7 +1843,7 @@ test("stage hands only a qualified, unchanged sealed set to the publisher's draf
   let digest = "d".repeat(64);
   const external = [];
   const spawn = (cmd, a, opts) => {
-    if (cmd === "gh" || cmd === "tar") { external.push(`${cmd} ${a[0]} ${a[1]}`); return { status: cmd === "gh" && a[1] === "view" ? 1 : 0, stdout: "", stderr: "" }; }
+    if (cmd === "gh" || cmd === "tar") { external.push(`${cmd} ${a[0]} ${a[1]}`); return { status: cmd === "gh" && a[0] === "release" && a[1] === "view" ? 1 : 0, stdout: a[0] === "repo" ? "bogusyogi/app\n" : "", stderr: "" }; }
     return spawnSync(cmd, a, { ...opts, encoding: "utf8" });
   };
   const io = { spawn, resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0, sealedFor: () => ({ id, manifest: "m", digest }), spawnInherit: () => ({ status: 0 }) };
@@ -1844,7 +1853,7 @@ test("stage hands only a qualified, unchanged sealed set to the publisher's draf
   assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 0);
   const ok = capture();
   assert.equal(await main(["stage", "--platform", "win", "--tier", "patch"], { ...ok.io, cwd: root, ...io }), 0, ok.err.join("\n"));
-  assert.deepEqual(external, [`tar -czf ${external[0].split(" ")[2]}`, `gh release view`, `gh release create`, `gh release upload`, `gh workflow run`]);
+  assert.deepEqual(external, [`tar -czf ${external[0].split(" ")[2]}`, `gh release view`, `gh release create`, `gh release upload`, `gh repo view`, `gh workflow run`]);
   // The sealed bytes change after qualification: nothing is staged.
   digest = "e".repeat(64); external.length = 0;
   assert.equal(await main(["stage", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 1);

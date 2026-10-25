@@ -10,6 +10,9 @@ const TAURI_BUILDS = new Set(["build", "dev", "bundle", "android", "ios"]);
 // right-release commands that build, package, sign, qualify or ship (CHECKED_COMMANDS "commit" in app-check.mjs).
 const RELEASE_COMMANDS = new Set(["dev", "test", "stage-sidecar", "release", "build", "package", "qa", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "web-build", "swift-package", "recipe-build", "sign-candidate"]);
 const RUNNERS = new Set(["pnpm", "npm", "npx", "yarn", "bunx", "pnpx"]);
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "fish", "pwsh", "powershell", "cmd"]);
+// cargo's global options that take a value (`cargo -C dir build`, `cargo --config k=v test`): the value is not the subcommand.
+const CARGO_VALUE_OPTIONS = new Set(["-C", "--config", "--color", "-Z", "--manifest-path"]);
 const WRAPPERS = new Set(["env", "command", "exec", "time", "nice", "nohup", "sudo", "timeout"]);
 
 /** Splits a shell command into simple commands (on ; && || | and newlines), each an argv of words. Quotes are respected. */
@@ -42,10 +45,18 @@ function stripWrappers(argv) {
 }
 
 /** The violation a single argv is, or null. */
-function argvViolation(argv) {
+function argvViolation(argv, depth = 0) {
   let a = stripWrappers(argv);
   if (!a.length) return null;
   let tool = base(a[0]);
+  // A command string handed to another shell (`bash -c "cargo build"`, `eval "..."`) is judged as the command it is.
+  if (depth < 4 && (SHELLS.has(tool.toLowerCase()) || tool === "eval")) {
+    const flag = a.findIndex((w, i) => i > 0 && /^(-c|\/c|-Command|-command)$/.test(w));
+    const script = tool === "eval" ? a.slice(1).join(" ") : flag > 0 ? a.slice(flag + 1).join(" ") : null;
+    if (script) for (const inner of simpleCommands(script)) { const v = argvViolation(inner, depth + 1); if (v) return v; }
+    return null;
+  }
+  if (tool === "xargs" && a.length > 1) return argvViolation(a.slice(1).filter((w) => !w.startsWith("-")), depth + 1);
   // pnpm/npx/yarn [exec|dlx] <tool> ...: judge the tool it runs.
   if (RUNNERS.has(tool)) {
     let rest = a.slice(1).filter((w, i, all) => !(w.startsWith("-") || (i > 0 && ["--filter", "-F", "--dir", "-C", "--prefix"].includes(all[i - 1]))));
@@ -57,13 +68,25 @@ function argvViolation(argv) {
   if (tool === "rightkit-gate" || tool === "rustright") return null;
   if (tool === "tauri" && TAURI_BUILDS.has(a[1])) return `tauri ${a[1]}`;
   if (tool === "cargo") {
-    const sub = a.slice(1).find((w) => !w.startsWith("-") && !w.startsWith("+"));
+    let sub = null;
+    for (let i = 1; i < a.length; i++) {
+      if (CARGO_VALUE_OPTIONS.has(a[i])) { i++; continue; }
+      if (!a[i].startsWith("-") && !a[i].startsWith("+")) { sub = a[i]; break; }
+    }
     if (sub === "tauri" && TAURI_BUILDS.has(a[a.indexOf("tauri") + 1])) return `cargo tauri ${a[a.indexOf("tauri") + 1]}`;
     if (sub && CARGO_COMPILES.has(sub) && sub !== "tauri") return `cargo ${sub}`;
     return null;
   }
-  if (tool === "right-release" && RELEASE_COMMANDS.has(a[1])) return `right-release ${a[1]}`;
-  if (tool === "node" && a[1] && /right-release(\.mjs)?$/.test(a[1]) && RELEASE_COMMANDS.has(a[2])) return `right-release ${a[2]}`;
+  const releaseArgs = tool === "right-release" ? a.slice(1) : tool === "node" && a[1] && /right-release(\.mjs)?$/.test(a[1]) ? a.slice(2) : null;
+  if (releaseArgs) {
+    // A flag first (`right-release --platform mac`) is `build`; `cargo-target` and `dmg build` compile too.
+    if (releaseArgs[0]?.startsWith("-") && !["-h", "--help", "-v", "--version"].includes(releaseArgs[0])) return "right-release build";
+    if (RELEASE_COMMANDS.has(releaseArgs[0])) return `right-release ${releaseArgs[0]}`;
+    if (releaseArgs[0] === "cargo-target") return "right-release cargo-target";
+    if (["dmg", "addon"].includes(releaseArgs[0]) && releaseArgs[1] === "build") return `right-release ${releaseArgs[0]} build`;
+  }
+  // The build engine called directly.
+  if (tool === "node" && a[1] && /(^|[\/])(build-release|release|upload-release|publish-update)\.mjs$/.test(a[1])) return "right-release build";
   return null;
 }
 

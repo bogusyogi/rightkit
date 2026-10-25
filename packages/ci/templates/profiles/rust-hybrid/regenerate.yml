@@ -67,6 +67,16 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
           else
             printf 'changed=true\n' >> "$GITHUB_OUTPUT"
           fi
+      - name: Commit the regenerated tree locally (the door works on a commit)
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "right-git/regenerate-${{ github.run_id }}-${{ github.run_attempt }}"
+          git add -A
+          git commit -m "Regenerate derived artifacts"${CLASS_A_TOOLS_STEP}
       - name: Gate the regenerated tree
         if: steps.changes.outputs.changed == 'true'
         run: ${GATE_DOOR}
@@ -86,11 +96,6 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
         run: |
           set -euo pipefail
           branch="right-git/regenerate-${{ github.run_id }}-${{ github.run_attempt }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$branch"
-          git add -A
-          git commit -m "Regenerate derived artifacts"
           git push origin "HEAD:refs/heads/$branch"
           gh pr create --base "$RIGHT_GIT_DEFAULT_BRANCH" --head "$branch" \
             --title "Regenerate derived artifacts" \

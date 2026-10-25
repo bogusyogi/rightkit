@@ -65,7 +65,8 @@ async function requireGreenCheck() {
   const checked = checkedCommandOf(args);
   // dev, test and stage-sidecar work on the uncommitted tree but compile, so they too run only under a door run
   // (rightkit-gate --to dev|test, class A on the working tree first).
-  if (checked && (checkModeFor(args) === "commit" || WORKTREE_COMPILES.has(checked))) {
+  // Gate on the mode, not the key: a flag-first call (`right-release --platform mac`) is a build with no command word.
+  if (checkModeFor(args) === "commit" || (checked && WORKTREE_COMPILES.has(checked))) {
     const { requireDoorRun } = await import("../gate-stages.mjs");
     const { spawnSync } = await import("../background-process.mjs");
     const cwd = appDirectory(args, process.cwd());
@@ -73,7 +74,7 @@ async function requireGreenCheck() {
     const common = gitOut(["rev-parse", "--git-common-dir"]);
     // Outside a git repository the app check below refuses (nothing can be bound to a commit); inside one, only a door run admits.
     if (common) {
-      const refusal = requireDoorRun({ commonDir: path.resolve(cwd, common), commit: gitOut(["rev-parse", "HEAD"]), command: `right-release ${checked}` });
+      const refusal = requireDoorRun({ commonDir: path.resolve(cwd, common), commit: gitOut(["rev-parse", "HEAD"]), command: `right-release ${checked ?? args.join(" ")}`.trim() });
       if (refusal) { console.error(`right-release: ${refusal}`); process.exit(2); }
     }
   }

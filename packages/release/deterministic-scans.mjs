@@ -838,9 +838,10 @@ export function killProcessTree(child, { platform = process.platform, run = spaw
 /**
  * The same invocation as defaultSpawn without blocking, so scans can run side by side. Keeps the last 4 MiB of each stream.
  * With `options.signal` (an AbortSignal), an abort kills the whole process tree and the result carries `cancelled: true`.
+ * With `options.stdoutFile`, stdout is written to that file whole instead of kept in memory.
  */
 export function defaultSpawnAsync(command, args, options = {}) {
-  const { signal, ...rest } = options;
+  const { signal, stdoutFile, ...rest } = options;
   const inv = resolveInvocation(command, args, { env: rest.env ?? process.env });
   if (inv.error) return Promise.resolve({ status: null, stdout: "", stderr: "", error: inv.error });
   if (signal?.aborted) return Promise.resolve({ status: null, stdout: "", stderr: "", error: new Error("cancelled"), cancelled: true });
@@ -854,10 +855,12 @@ export function defaultSpawnAsync(command, args, options = {}) {
     const onAbort = () => killProcessTree(child);
     signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
+    const sink = stdoutFile ? fs.createWriteStream(stdoutFile) : null;
+    if (sink) child.stdout.pipe(sink); else child.stdout.on("data", (c) => { stdout = keep(stdout, c); });
     child.stderr.on("data", (c) => { stderr = keep(stderr, c); });
     child.on("error", (e) => { error = e; });
-    child.on("close", (status) => {
+    child.on("close", async (status) => {
+      if (sink) await new Promise((done) => (sink.writableFinished ? done() : sink.on("finish", done).on("error", done)));
       signal?.removeEventListener("abort", onAbort);
       const cancelled = signal?.aborted === true;
       resolve({ status, stdout, stderr, ...(error ? { error } : cancelled ? { error: new Error("cancelled") } : {}), ...(cancelled ? { cancelled: true } : {}) });
@@ -1241,13 +1244,13 @@ export async function runScans(plan, options = {}) {
             // lockfile decides every version), and handed to cargo-deny as a file.
             if (s.advisoryDb === "deny") {
               const at = args.indexOf("deny");
-              // The whole document is needed: the concurrent spawn keeps only the tail of stdout, so this one call uses the buffered one.
-              const full = deps.spawn === defaultSpawnAsync ? defaultSpawn : deps.spawn;
-              const metadata = await full(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, ...sig });
-              if (!metadata || metadata.error || metadata.status !== 0) { advisory.cleanup?.(); return { ...row, status: "fail", code: "EXIT", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
+              // The whole document is needed (the concurrent spawn keeps only the tail of stdout), so it streams to the file; a
+              // spawn that does not know `stdoutFile` returns stdout, which is written below.
               const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deny-metadata-"));
               const metadataFile = path.join(metadataDir, "metadata.json");
-              fs.writeFileSync(metadataFile, String(metadata.stdout ?? ""));
+              const metadata = await deps.spawn(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, stdoutFile: metadataFile, ...sig });
+              if (!metadata || metadata.error || metadata.status !== 0) { fs.rmSync(metadataDir, { recursive: true, force: true }); advisory.cleanup?.(); return { ...row, status: "fail", code: "EXIT", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
+              if (!fs.existsSync(metadataFile)) fs.writeFileSync(metadataFile, String(metadata.stdout ?? ""));
               advisory.metadataPath = metadataFile;
               const overlayCleanup = advisory.cleanup;
               advisory.cleanup = () => { fs.rmSync(metadataDir, { recursive: true, force: true }); overlayCleanup?.(); };

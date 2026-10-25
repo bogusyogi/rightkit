@@ -22,7 +22,7 @@ export const KNOWN_LANES = Object.freeze([
 
 // Lanes only the rust-hybrid profile has a template for. They are kept out of KNOWN_LANES so the node
 // profile's per-lane template checks do not look for a template it does not have.
-export const RUST_HYBRID_ONLY_LANES = Object.freeze(["sign-existing", "release"]);
+export const RUST_HYBRID_ONLY_LANES = Object.freeze(["sign-existing"]);
 
 // Rendered filename for each lane, installed under <repo>/.github/workflows/.
 export const LANE_FILENAMES = Object.freeze({
@@ -35,7 +35,6 @@ export const LANE_FILENAMES = Object.freeze({
   "publish-npm": "publish-npm.yml",
   "publish-package-managers": "publish-package-managers.yml",
   regenerate: "regenerate.yml",
-  release: "release.yml",
 });
 
 const PACKAGE_MANAGER_RE = /^(pnpm|npm|yarn)@\d+\.\d+\.\d+$/;
@@ -188,7 +187,7 @@ export function validateManifest(manifest) {
   const profile = manifest.profile === undefined ? "node" : manifest.profile;
   if (profile !== "node" && profile !== "rust-hybrid") errors.push("profile must be 'node' or 'rust-hybrid'");
   if (profile === "rust-hybrid") {
-    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate" && lane !== "sign-existing" && lane !== "release") || !lanes.includes("ci")) {
+    if (lanes.some((lane) => lane !== "ci" && lane !== "release-candidate" && lane !== "regenerate" && lane !== "sign-existing") || !lanes.includes("ci")) {
       errors.push("profile 'rust-hybrid' requires lane 'ci' and supports optional lanes 'release-candidate', 'regenerate' and 'sign-existing'");
     }
     if (!manifest.gate || typeof manifest.gate !== "object" || Array.isArray(manifest.gate) || Object.keys(manifest.gate).some((key) => !GATE_KEYS.has(key)) || typeof manifest.gate.path !== "string" || !GATE_PATH_RE.test(manifest.gate.path)) {
@@ -2189,19 +2188,28 @@ const CLASS_A_TOOL_STEPS = Object.freeze([
   "        with:",
   "          tool: cargo-deny@0.20.2,cargo-audit@0.22.2",
   "      - name: Install the pinned workflow linter",
+  "        shell: bash",
   "        env:",
   "          ACTIONLINT_VERSION: \"1.7.12\"",
-  "          ACTIONLINT_SHA256: \"8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8\"",
   "        run: |",
   "          set -euo pipefail",
-  "          archive=\"$RUNNER_TEMP/actionlint.tar.gz\"",
-  "          curl --fail --silent --show-error --location --output \"$archive\" \"https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_\"\"$ACTIONLINT_VERSION\"\"_linux_amd64.tar.gz\"",
-  "          echo \"$ACTIONLINT_SHA256  $archive\" | sha256sum --check --strict",
+  "          case \"$RUNNER_OS-$RUNNER_ARCH\" in",
+  "            Linux-X64) asset=linux_amd64.tar.gz; sum=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;",
+  "            macOS-ARM64) asset=darwin_arm64.tar.gz; sum=aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f ;;",
+  "            macOS-X64) asset=darwin_amd64.tar.gz; sum=5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644 ;;",
+  "            Windows-X64) asset=windows_amd64.zip; sum=6e7241b51e6817ea6a047693d8e6fed13b31819c9a0dd6c5a726e1592d22f6e9 ;;",
+  "            *) echo \"::error::no pinned actionlint for $RUNNER_OS-$RUNNER_ARCH\"; exit 1 ;;",
+  "          esac",
+  "          archive=\"$RUNNER_TEMP/actionlint-$asset\"",
+  "          curl --fail --silent --show-error --location --output \"$archive\" \"https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_\"\"$ACTIONLINT_VERSION\"\"_$asset\"",
+  "          actual=\"$( (sha256sum \"$archive\" 2>/dev/null || shasum -a 256 \"$archive\") | cut -d' ' -f1)\"",
+  "          [ \"$actual\" = \"$sum\" ] || { echo \"::error::actionlint archive checksum mismatch\"; exit 1; }",
   "          mkdir -p \"$RUNNER_TEMP/actionlint-bin\"",
-  "          tar -xzf \"$archive\" -C \"$RUNNER_TEMP/actionlint-bin\" actionlint",
+  "          case \"$asset\" in *.zip) unzip -o -q \"$archive\" actionlint.exe -d \"$RUNNER_TEMP/actionlint-bin\" ;; *) tar -xzf \"$archive\" -C \"$RUNNER_TEMP/actionlint-bin\" actionlint ;; esac",
   "          echo \"$RUNNER_TEMP/actionlint-bin\" >> \"$GITHUB_PATH\"",
 ]);
-export const CHECK_JOB_LANES = Object.freeze(["ci", "qualification", "package-smoke", "release-candidate", "swift-check", "publish-npm", "release"]);
+
+export const CHECK_JOB_LANES = Object.freeze(["ci", "qualification", "package-smoke", "release-candidate", "swift-check", "publish-npm"]);
 
 /**
  * The RightKit check job: the first job of every lane that compiles or tests, so nothing builds or qualifies a tree the
@@ -2224,7 +2232,6 @@ export function checkJob(manifest, lane = "ci") {
   const runner = rustHybrid || lane === "swift-check" ? "ubuntu-24.04" : "ubuntu-latest";
   // The revision the lane builds: a release-candidate's dispatched (or pushed) commit, the release tag publish-npm publishes.
   const ref = lane === "publish-npm" ? "${{ github.event.release.tag_name }}"
-    : lane === "release" ? "${{ inputs.source_revision }}"
     : lane !== "release-candidate" ? null
       : rustHybrid ? "${{ inputs.source_revision }}" : "${{ inputs.source_revision || github.sha }}";
   // The same frozen install every other job runs (pm.installCommand), without lifecycle scripts; `--ignore-scripts` is a flag of
@@ -2412,8 +2419,8 @@ export function buildRenderContext(manifest, repoPath, lane = "ci") {
       : "",
     CI_CONCURRENCY_GROUP: manifest.concurrency?.mainPushes === "queue" ? CI_GROUP_PER_REF : CI_GROUP_SUPERSEDE,
     CHECK_JOB: checkJob(manifest, lane),
-    RELEASE_PUBLICATION_ENVIRONMENT: releaseEnvironment(manifest, "publication"),
-    GATE_BIN: { pnpm: "pnpm exec rightkit-gate", npm: "./node_modules/.bin/rightkit-gate", yarn: "./node_modules/.bin/rightkit-gate" }[pm.name],
+    // The door's compile stage runs class A first on the job's own runner, so that runner needs class A's pinned tools too.
+    CLASS_A_TOOLS_STEP: `\n${CLASS_A_TOOL_STEPS.join("\n")}`,
     CI_SUPERSEDE_JOB: manifest.concurrency?.mainPushes === "queue" ? "" : supersedeJob(manifest),
     CI_JOB_CONCURRENCY: manifest.concurrency?.mainPushes === "queue" ? "" : ciJobConcurrency(manifest),
     ...gateShardContext(manifest, pm),
