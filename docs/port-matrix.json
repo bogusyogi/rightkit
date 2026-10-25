@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-25T05:25:02Z",
-  "rightkitHead": "0997450",
+  "generatedAt": "2026-10-25T03:30:11Z",
+  "rightkitHead": "6348ea4",
   "legend": [
     {
       "state": "adopted",
@@ -166,7 +166,7 @@
           "percent": 69
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 20,
           "current": 18,
           "stale": 2,
@@ -621,7 +621,7 @@
           "percent": 79
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 23,
           "current": 20,
           "stale": 3,
@@ -987,16 +987,398 @@
       "name": "ember",
       "group": "mandatory-set app",
       "dir": "/home/user/ember",
-      "present": false,
-      "head": null,
-      "profile": null,
-      "inMandatorySet": false,
-      "declaration": null,
-      "scan": null,
-      "progress": null,
-      "flags": null,
-      "foundationRows": [],
-      "appleTargets": [],
+      "present": true,
+      "head": "c4ad255",
+      "profile": "desktop",
+      "inMandatorySet": true,
+      "declaration": {
+        "present": true,
+        "error": "",
+        "notApplicable": [
+          {
+            "row": "M3",
+            "ratified": true
+          },
+          {
+            "row": "M4",
+            "ratified": true
+          },
+          {
+            "row": "M6",
+            "ratified": true
+          },
+          {
+            "row": "M7",
+            "ratified": true
+          },
+          {
+            "row": "M9",
+            "ratified": true
+          },
+          {
+            "row": "M12",
+            "ratified": true
+          },
+          {
+            "row": "M13",
+            "ratified": true
+          },
+          {
+            "row": "M22",
+            "ratified": true
+          }
+        ],
+        "ignored": []
+      },
+      "scan": {
+        "manifests": 42,
+        "parseErrors": 0,
+        "pins": 50,
+        "vendored": 0
+      },
+      "progress": {
+        "foundation": {
+          "profile": "desktop",
+          "rowsTotal": 21,
+          "rowsDeclared": 13,
+          "rowsRuled": 8,
+          "rowsOpen": 0,
+          "openRows": [],
+          "ownersRequired": 23,
+          "ownersPinned": 23,
+          "ownersCurrent": 2,
+          "percent": 9
+        },
+        "addons": {
+          "total": 59,
+          "adopted": 9,
+          "current": 2,
+          "stale": 7,
+          "local": 0
+        },
+        "exceptions": {
+          "total": 15,
+          "open": 15,
+          "expired": 0,
+          "withoutIssueOrExpiry": 15,
+          "unmatched": 0
+        },
+        "releasePin": {
+          "state": "stale",
+          "req": "0.4.0",
+          "latest": "0.6.5",
+          "current": false,
+          "dev": true
+        },
+        "check": {
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
+        }
+      },
+      "flags": {
+        "prePushHook": "absent",
+        "switches": false,
+        "journeys": false,
+        "releaseConfig": "code"
+      },
+      "foundationRows": [
+        {
+          "id": "M1",
+          "name": "Window host",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-tauri-shell",
+              "state": "stale"
+            },
+            {
+              "name": "rightkit-device",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/tauri",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M2",
+          "name": "App frame",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "@rightkit/react-shell",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/platform-ui",
+              "state": "adopted"
+            },
+            {
+              "name": "@rightkit/theme",
+              "state": "adopted"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M3",
+          "name": "Engine supervision",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M4",
+          "name": "Window/CLI protocol",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M5",
+          "name": "Other child processes",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-child-process",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M6",
+          "name": "Data location",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M7",
+          "name": "Local services",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M8",
+          "name": "Safe file writes",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-fs",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M9",
+          "name": "Database",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M10",
+          "name": "Settings",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-app-settings",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/settings-ui",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M11",
+          "name": "Secrets",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-credentials",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M12",
+          "name": "Licence/device",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M13",
+          "name": "Pro entitlement",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        },
+        {
+          "id": "M14",
+          "name": "Legal/onboarding",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "@rightkit/legal",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/legal-ui",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/onboarding",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M15",
+          "name": "Logging",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-logs",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/logs",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M16",
+          "name": "Crash reporting",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-crash",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M17",
+          "name": "HTTP",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-http",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M18",
+          "name": "Updates",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "@rightkit/app-update",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M19",
+          "name": "Release tooling",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "@rightkit/release",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M20",
+          "name": "QA",
+          "status": "declared",
+          "ratified": false,
+          "owners": [
+            {
+              "name": "rightkit-qa",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/qa",
+              "state": "stale"
+            },
+            {
+              "name": "@rightkit/qa-chrome",
+              "state": "stale"
+            }
+          ],
+          "missing": []
+        },
+        {
+          "id": "M22",
+          "name": "Agent surface",
+          "status": "ruled",
+          "ratified": true,
+          "owners": [],
+          "missing": []
+        }
+      ],
+      "appleTargets": [
+        {
+          "file": "ios/project.yml",
+          "system": "xcodegen",
+          "name": "Ember",
+          "pinKind": "tag",
+          "pinVersion": "0.8.1",
+          "pinRef": "",
+          "requirement": "exact 0.8.1",
+          "products": [
+            "RightKitAppleCredentials",
+            "RightKitDiagnostics",
+            "RightKitLicense",
+            "RightKitStore"
+          ],
+          "state": "adopted",
+          "detail": "=0.8.1"
+        }
+      ],
       "rkReady": [],
       "toMove": []
     },
@@ -1034,7 +1416,7 @@
           "percent": 63
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 15,
           "current": 13,
           "stale": 2,
@@ -1443,7 +1825,7 @@
           "percent": 97
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 17,
           "current": 16,
           "stale": 1,
@@ -1888,7 +2270,7 @@
           "percent": 76
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 10,
           "current": 8,
           "stale": 2,
@@ -2295,7 +2677,7 @@
           "percent": 67
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 9,
           "current": 8,
           "stale": 1,
@@ -2714,7 +3096,7 @@
           "percent": 69
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 23,
           "current": 21,
           "stale": 2,
@@ -3230,7 +3612,7 @@
           "percent": 76
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 17,
           "current": 16,
           "stale": 1,
@@ -3699,7 +4081,7 @@
           "percent": 78
         },
         "addons": {
-          "total": 62,
+          "total": 59,
           "adopted": 8,
           "current": 7,
           "stale": 1,
@@ -4049,16 +4431,90 @@
       "name": "sellright",
       "group": "release consumer",
       "dir": "/home/user/sellright",
-      "present": false,
-      "head": null,
+      "present": true,
+      "head": "86b050d",
       "profile": null,
       "inMandatorySet": false,
-      "declaration": null,
-      "scan": null,
-      "progress": null,
-      "flags": null,
+      "declaration": {
+        "present": false,
+        "error": "",
+        "notApplicable": [],
+        "ignored": []
+      },
+      "scan": {
+        "manifests": 13,
+        "parseErrors": 0,
+        "pins": 2,
+        "vendored": 0
+      },
+      "progress": {
+        "foundation": {
+          "profile": null,
+          "rowsTotal": 0,
+          "rowsDeclared": 0,
+          "rowsRuled": 0,
+          "rowsOpen": 0,
+          "openRows": [],
+          "ownersRequired": 0,
+          "ownersPinned": 0,
+          "ownersCurrent": 0,
+          "percent": null
+        },
+        "addons": {
+          "total": 89,
+          "adopted": 3,
+          "current": 2,
+          "stale": 1,
+          "local": 0
+        },
+        "exceptions": {
+          "total": 2,
+          "open": 2,
+          "expired": 0,
+          "withoutIssueOrExpiry": 2,
+          "unmatched": 1
+        },
+        "releasePin": {
+          "state": "stale",
+          "req": "0.6.4",
+          "latest": "0.6.5",
+          "current": false,
+          "dev": true
+        },
+        "check": {
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
+        }
+      },
+      "flags": {
+        "prePushHook": "absent",
+        "switches": true,
+        "journeys": false,
+        "releaseConfig": "code"
+      },
       "foundationRows": [],
-      "appleTargets": [],
+      "appleTargets": [
+        {
+          "file": "ios/project.yml",
+          "system": "xcodegen",
+          "name": "SellRightAdmin",
+          "pinKind": "tag",
+          "pinVersion": "0.8.1",
+          "pinRef": "",
+          "requirement": "exact 0.8.1",
+          "products": [
+            "RightKitCredentials",
+            "RightKitDiagnostics",
+            "RightKitUI"
+          ],
+          "state": "adopted",
+          "detail": "=0.8.1"
+        }
+      ],
       "rkReady": [],
       "toMove": []
     },
@@ -4066,14 +4522,71 @@
       "name": "legion",
       "group": "tool consumer",
       "dir": "/home/user/legion",
-      "present": false,
-      "head": null,
+      "present": true,
+      "head": "cfe76b4",
       "profile": null,
       "inMandatorySet": false,
-      "declaration": null,
-      "scan": null,
-      "progress": null,
-      "flags": null,
+      "declaration": {
+        "present": false,
+        "error": "",
+        "notApplicable": [],
+        "ignored": []
+      },
+      "scan": {
+        "manifests": 66,
+        "parseErrors": 0,
+        "pins": 15,
+        "vendored": 0
+      },
+      "progress": {
+        "foundation": {
+          "profile": null,
+          "rowsTotal": 0,
+          "rowsDeclared": 0,
+          "rowsRuled": 0,
+          "rowsOpen": 0,
+          "openRows": [],
+          "ownersRequired": 0,
+          "ownersPinned": 0,
+          "ownersCurrent": 0,
+          "percent": null
+        },
+        "addons": {
+          "total": 89,
+          "adopted": 10,
+          "current": 1,
+          "stale": 9,
+          "local": 0
+        },
+        "exceptions": {
+          "total": 0,
+          "open": 0,
+          "expired": 0,
+          "withoutIssueOrExpiry": 0,
+          "unmatched": 0
+        },
+        "releasePin": {
+          "state": "stale",
+          "req": "0.3.0",
+          "latest": "0.6.5",
+          "current": false,
+          "dev": true
+        },
+        "check": {
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
+        }
+      },
+      "flags": {
+        "prePushHook": "absent",
+        "switches": false,
+        "journeys": false,
+        "releaseConfig": "code"
+      },
       "foundationRows": [],
       "appleTargets": [],
       "rkReady": [],
@@ -4131,8 +4644,11 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.0→0.4.2",
+          "rows": [
+            "M18"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -4200,11 +4716,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4212,7 +4728,7 @@
     {
       "name": "@rightkit/ax",
       "kind": "npm",
-      "class": "add-on",
+      "class": "tool",
       "domain": "qa",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -4235,7 +4751,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -4267,12 +4783,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "0.3.2 dev"
         }
       }
     },
@@ -4300,7 +4816,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -4332,11 +4848,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4367,8 +4883,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.45→0.3.1 dev"
         },
         "genright": {
           "state": "unused",
@@ -4399,12 +4915,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.0→0.3.1 dev"
         }
       }
     },
@@ -4434,7 +4950,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -4466,11 +4982,11 @@
           "detail": "0.2.1"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4478,7 +4994,7 @@
     {
       "name": "@rightkit/hooks",
       "kind": "npm",
-      "class": "add-on",
+      "class": "tool",
       "domain": "agents",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -4509,7 +5025,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -4541,12 +5057,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "0.1.2"
         }
       }
     },
@@ -4576,8 +5092,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.0→0.2.0"
         },
         "genright": {
           "state": "unused",
@@ -4608,11 +5124,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4645,7 +5161,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -4677,11 +5193,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4728,8 +5244,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.6.1→0.6.3",
+          "rows": [
+            "M14"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -4797,11 +5316,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "0.6.3"
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4840,8 +5359,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.0→0.4.1",
+          "rows": [
+            "M14"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -4893,11 +5415,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -4944,8 +5466,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.1→0.3.0",
+          "rows": [
+            "M12"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -5021,11 +5546,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5072,8 +5597,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.5→0.1.6",
+          "rows": [
+            "M15"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -5141,11 +5669,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5176,7 +5704,7 @@
           "detail": "0.3.4"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -5208,11 +5736,11 @@
           "detail": "0.3.4"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5267,8 +5795,11 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.6.1→0.6.3",
+          "rows": [
+            "M14"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -5320,11 +5851,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5355,7 +5886,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -5387,11 +5918,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5422,7 +5953,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -5454,11 +5985,11 @@
           "detail": "0.2.0"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5497,8 +6028,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "0.4.0",
+          "rows": [
+            "M2"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -5558,11 +6092,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5611,8 +6145,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.5.1→0.6.1 dev",
+          "rows": [
+            "M20"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -5672,11 +6209,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5715,8 +6252,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.8→0.1.11 dev",
+          "rows": [
+            "M20"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -5768,12 +6308,12 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.8→0.1.11 dev"
         }
       }
     },
@@ -5827,8 +6367,19 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.7.1→0.7.2; 9 exceptions: no issue, no expiry",
+          "rows": [
+            "M2"
+          ],
+          "exceptions": {
+            "count": 9,
+            "expired": 0,
+            "withoutIssue": 9,
+            "withoutExpiry": 9,
+            "issues": [],
+            "earliestExpiry": ""
+          }
         },
         "genright": {
           "state": "adopted",
@@ -5904,11 +6455,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -5928,9 +6479,9 @@
         "release-tooling"
       ],
       "private": false,
-      "source": "0.6.7",
+      "source": "0.6.6",
       "registry": "0.6.5",
-      "staged": "0.6.7",
+      "staged": "0.6.6",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
@@ -5957,8 +6508,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.0→0.6.5 dev",
+          "rows": [
+            "M19"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -6018,12 +6572,12 @@
           ]
         },
         "sellright": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev"
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.0→0.6.5 dev"
         }
       }
     },
@@ -6069,8 +6623,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.6.1→0.7.0",
+          "rows": [
+            "M10"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -6138,11 +6695,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6173,7 +6730,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -6205,11 +6762,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6264,8 +6821,11 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.3→0.3.0",
+          "rows": [
+            "M1"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -6349,11 +6909,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6400,8 +6960,16 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.1→0.1.3; 2 exceptions: no issue, no expiry",
+          "exceptions": {
+            "count": 2,
+            "expired": 0,
+            "withoutIssue": 2,
+            "withoutExpiry": 2,
+            "issues": [],
+            "earliestExpiry": ""
+          }
         },
         "genright": {
           "state": "stale",
@@ -6464,11 +7032,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6523,8 +7091,11 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "0.3.1",
+          "rows": [
+            "M2"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -6600,11 +7171,19 @@
           }
         },
         "sellright": {
-          "state": "not present",
-          "detail": ""
+          "state": "exception",
+          "detail": "1 exception: no issue, no expiry",
+          "exceptions": {
+            "count": 1,
+            "expired": 0,
+            "withoutIssue": 1,
+            "withoutExpiry": 1,
+            "issues": [],
+            "earliestExpiry": ""
+          }
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6678,8 +7257,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "=0.8.1"
         },
         "genright": {
           "state": "unused",
@@ -6726,11 +7305,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "=0.8.1"
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6769,8 +7348,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "n/a",
+          "detail": "M22 ratified",
+          "rows": [
+            "M22"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -6822,12 +7404,12 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.2→0.3.0"
         }
       }
     },
@@ -6865,7 +7447,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -6897,12 +7479,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.1.0→0.2.0"
         }
       }
     },
@@ -6932,7 +7514,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -6964,11 +7546,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -6999,7 +7581,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7039,11 +7621,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7090,8 +7672,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.4→0.3.0",
+          "rows": [
+            "M10"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -7159,11 +7744,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7194,7 +7779,7 @@
           "detail": "=0.3.0, 2 pins"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7226,11 +7811,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7261,7 +7846,7 @@
           "detail": "=0.3.1, 3 pins"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7293,11 +7878,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7328,7 +7913,7 @@
           "detail": "0.6.0→0.6.1"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7368,11 +7953,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7403,7 +7988,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7451,12 +8036,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.1→0.3.6"
         }
       }
     },
@@ -7486,8 +8071,8 @@
           "detail": "=0.2.3"
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.2→0.2.3"
         },
         "genright": {
           "state": "unused",
@@ -7518,12 +8103,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.0→0.2.3"
         }
       }
     },
@@ -7553,7 +8138,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7585,11 +8170,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7639,8 +8224,12 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.5.2→0.5.6, 4 pins",
+          "rows": [
+            "M3",
+            "M5"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -7707,12 +8296,12 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.0→0.5.6, 3 pins"
         }
       }
     },
@@ -7742,7 +8331,7 @@
           "detail": "=0.2.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7774,11 +8363,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7809,7 +8398,7 @@
           "detail": "=0.1.7, 2 pins"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -7841,11 +8430,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -7892,8 +8481,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.3→0.3.6",
+          "rows": [
+            "M16"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -7953,11 +8545,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8004,8 +8596,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.0→0.4.2",
+          "rows": [
+            "M11"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -8073,11 +8668,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8108,7 +8703,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -8140,11 +8735,11 @@
           "detail": "=0.1.0"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8197,8 +8792,12 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "n/a",
+          "detail": "M6 ratified, M7 ratified",
+          "rows": [
+            "M6",
+            "M7"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -8281,11 +8880,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8324,8 +8923,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "n/a",
+          "detail": "M9 ratified",
+          "rows": [
+            "M9"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -8393,11 +8995,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8455,8 +9057,12 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.1→0.4.0",
+          "rows": [
+            "M1",
+            "M12"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -8547,11 +9153,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8586,7 +9192,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -8618,11 +9224,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8653,7 +9259,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -8685,11 +9291,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8728,8 +9334,8 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.9→0.2.10"
         },
         "genright": {
           "state": "adopted",
@@ -8760,11 +9366,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8795,8 +9401,8 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "=0.4.1"
         },
         "genright": {
           "state": "unused",
@@ -8827,11 +9433,11 @@
           "detail": "=0.4.1"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -8888,8 +9494,19 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.4→0.4.7, 11 pins; 4 exceptions: no issue, no expiry",
+          "rows": [
+            "M8"
+          ],
+          "exceptions": {
+            "count": 4,
+            "expired": 0,
+            "withoutIssue": 4,
+            "withoutExpiry": 4,
+            "issues": [],
+            "earliestExpiry": ""
+          }
         },
         "genright": {
           "state": "adopted",
@@ -8965,12 +9582,12 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.3→0.4.7"
         }
       }
     },
@@ -9000,7 +9617,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9032,11 +9649,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9067,7 +9684,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9099,11 +9716,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9142,7 +9759,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9174,11 +9791,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9209,7 +9826,7 @@
           "detail": "=0.1.2"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9241,11 +9858,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9284,8 +9901,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.6→0.3.8",
+          "rows": [
+            "M17"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -9353,11 +9973,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9388,7 +10008,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9420,11 +10040,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9482,8 +10102,12 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "n/a",
+          "detail": "M3 ratified, M4 ratified",
+          "rows": [
+            "M3",
+            "M4"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -9558,11 +10182,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9613,8 +10237,12 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "n/a",
+          "detail": "M12 ratified, M13 ratified",
+          "rows": [
+            "M12",
+            "M13"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -9705,11 +10333,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9748,7 +10376,7 @@
           "detail": "0.3.0→0.3.1"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9780,11 +10408,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9831,8 +10459,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.3→0.3.5, 2 pins",
+          "rows": [
+            "M15"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -9916,11 +10547,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -9951,7 +10582,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -9983,11 +10614,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10018,8 +10649,8 @@
           "detail": "=0.5.1, 2 pins"
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.2→0.5.1"
         },
         "genright": {
           "state": "adopted",
@@ -10066,11 +10697,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10103,7 +10734,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10135,11 +10766,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10178,7 +10809,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10210,11 +10841,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10245,7 +10876,7 @@
           "detail": "=0.2.3"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10277,11 +10908,11 @@
           "detail": "=0.2.3"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10312,8 +10943,8 @@
           "detail": "=0.2.7, 2 pins"
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.2.3→0.2.7"
         },
         "genright": {
           "state": "adopted",
@@ -10352,11 +10983,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10387,7 +11018,7 @@
           "detail": "=0.2.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10435,11 +11066,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10470,7 +11101,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10510,11 +11141,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10522,7 +11153,7 @@
     {
       "name": "rightkit-ownership",
       "kind": "cargo",
-      "class": "add-on",
+      "class": "tool",
       "domain": "release",
       "mandatoryRows": [],
       "pendingRows": [],
@@ -10546,7 +11177,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10578,12 +11209,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.3.1→0.4.2"
         }
       }
     },
@@ -10614,7 +11245,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10654,11 +11285,11 @@
           "detail": "=0.3.3, 2 pins"
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10689,7 +11320,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10721,11 +11352,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10756,7 +11387,7 @@
           "detail": "=0.3.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10788,11 +11419,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10813,9 +11444,9 @@
         "desktop-qa"
       ],
       "private": false,
-      "source": "0.9.1",
+      "source": "0.9.0",
       "registry": "0.9.0",
-      "staged": "0.9.1",
+      "staged": "0.9.0",
       "dir": "crates/rightkit-qa",
       "toMoveFrom": {},
       "cells": {
@@ -10842,8 +11473,11 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.7.0→0.9.0, 2 pins",
+          "rows": [
+            "M20"
+          ]
         },
         "genright": {
           "state": "stale",
@@ -10903,11 +11537,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -10938,7 +11572,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -10978,11 +11612,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11013,7 +11647,7 @@
           "detail": "=0.3.3"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11045,11 +11679,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11080,7 +11714,7 @@
           "detail": "=0.4.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11112,11 +11746,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11155,7 +11789,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11187,12 +11821,12 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
-          "detail": ""
+          "state": "adopted",
+          "detail": "=0.6.1"
         }
       }
     },
@@ -11230,7 +11864,7 @@
           "detail": "=0.4.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11270,11 +11904,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11305,7 +11939,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11337,11 +11971,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11388,8 +12022,11 @@
           ]
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "n/a",
+          "detail": "M4 ratified",
+          "rows": [
+            "M4"
+          ]
         },
         "genright": {
           "state": "adopted",
@@ -11449,11 +12086,11 @@
           ]
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11484,7 +12121,7 @@
           "detail": "=0.4.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11524,11 +12161,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11559,7 +12196,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11591,11 +12228,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11626,7 +12263,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11666,11 +12303,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11701,7 +12338,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11733,11 +12370,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11792,8 +12429,19 @@
           }
         },
         "ember": {
-          "state": "not present",
-          "detail": ""
+          "state": "stale",
+          "detail": "0.4.0→0.6.0; 2 exceptions: no issue, no expiry",
+          "rows": [
+            "M1"
+          ],
+          "exceptions": {
+            "count": 2,
+            "expired": 0,
+            "withoutIssue": 2,
+            "withoutExpiry": 2,
+            "issues": [],
+            "earliestExpiry": ""
+          }
         },
         "genright": {
           "state": "stale",
@@ -11877,11 +12525,11 @@
           }
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11920,7 +12568,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -11960,11 +12608,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -11995,7 +12643,7 @@
           "detail": "=0.4.0, 8 pins"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12035,11 +12683,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12070,7 +12718,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12102,11 +12750,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12137,7 +12785,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12169,11 +12817,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12204,7 +12852,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12236,11 +12884,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12271,7 +12919,7 @@
           "detail": "=0.1.0"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12303,11 +12951,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12338,7 +12986,7 @@
           "detail": "=0.1.2, 2 pins"
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12370,11 +13018,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12405,7 +13053,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12437,11 +13085,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }
@@ -12472,7 +13120,7 @@
           "detail": ""
         },
         "ember": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "genright": {
@@ -12504,11 +13152,11 @@
           "detail": ""
         },
         "sellright": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         },
         "legion": {
-          "state": "not present",
+          "state": "unused",
           "detail": ""
         }
       }

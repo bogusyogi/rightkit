@@ -2737,6 +2737,11 @@ screenshot = true
     /// A key set by the config `env` and again by the step reaches the launch once, with the
     /// step's value. Passed twice, the launch guard refused the second as an override of a value
     /// the harness owns, so a step could not override the config at all.
+    // Not on macOS: there the launch stages the file as a bundle under the QA home and hands it to
+    // `open` (control.rs `start_process`), so this stand-in for an app that cannot run would reach
+    // LaunchServices. `ui_launch_env_applies_ui_config_data_dir_inputs_then_step_env` holds the
+    // layer order and the single copy of each key on every host.
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn ui_launch_lets_the_step_env_override_the_config_env() {
         let root = std::env::temp_dir().join(format!("rkqa-inputs-dup-{}", util::new_id()));
@@ -2791,9 +2796,15 @@ screenshot = true
             e.0.contains("RIGHTKIT_APP_TOKEN") && e.0.contains("names a credential"),
             "{e}"
         );
-        // The same step without the input gets past the environment check.
-        let e = run_step(&mut ctx, &bare_step("ui_launch", params)).unwrap_err();
-        assert!(!e.0.contains("names a credential"), "{e}");
+        // The same step without the input gets past the environment check. Not on macOS: the launch
+        // would stage the file as a bundle and hand it to `open`.
+        #[cfg(not(target_os = "macos"))]
+        {
+            let e = run_step(&mut ctx, &bare_step("ui_launch", params)).unwrap_err();
+            assert!(!e.0.contains("names a credential"), "{e}");
+        }
+        #[cfg(target_os = "macos")]
+        let _ = params;
         let _ = std::fs::remove_dir_all(&root);
     }
 }

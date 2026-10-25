@@ -158,3 +158,40 @@ test('reviewed closures import legacy-skipped JS exports & retain import and met
   assert.deepEqual(legacy.result.report.skippedImport, ['./dialog']);
   assert.deepEqual(packed.rightkit.publishCheck.skipImport, ['./dialog']);
 });
+
+test('a bin target that is also an exports subpath is smoke-run, never imported: the import check only resolves it', () => {
+  // @rightkit/release 0.6.6 exported ./cli/right-release.mjs, its right-release bin. The CLI reads process.argv at import,
+  // so the verify's import check ran it with the plan file as its command ("unknown command: .../check-...mjs.json").
+  const name = '@rightkit/fixture-cli';
+  const pkg = { name, version: '1.0.0', type: 'module', bin: { 'fixture-cli': 'cli/fixture-cli.mjs' }, exports: { '.': './index.mjs', './cli/fixture-cli.mjs': './cli/fixture-cli.mjs' }, rightkit: { publishCheck: { binSmoke: { 'fixture-cli': ['--version'] } } } };
+  const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rk-bin-target-test-'));
+  const plans = []; const smoked = [];
+  try {
+    fs.mkdirSync(path.join(scratchRoot, 'ci'));
+    fs.writeFileSync(path.join(scratchRoot, 'ci', 'consumer-recipes.json'), JSON.stringify({ npm: {} }));
+    const spawn = (command, args, options) => {
+      if (command === 'fixture-npm') {
+        const dir = path.join(options.cwd, 'node_modules', ...name.split('/'));
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify(pkg));
+        for (const file of declaredEntries(pkg).files) { fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true }); fs.writeFileSync(path.join(dir, file), ''); }
+        return { status: 0 };
+      }
+      if (args.includes('--version')) { smoked.push(args); return { status: 0, stdout: '1.0.0\n', stderr: '' }; }
+      const plan = JSON.parse(fs.readFileSync(args.at(-1), 'utf8'));
+      plans.push(...plan.items);
+      // Importing the CLI runs its command line: a plan that imports it fails the way 0.6.6 did.
+      return { status: 0, stdout: 'RK_CONSUME ' + JSON.stringify(plan.items.map(item => item.subpath === './cli/fixture-cli.mjs' && item.import
+        ? { spec: item.spec, ok: false, imported: false, error: 'unknown command: plan.json' }
+        : { spec: item.spec, ok: true, imported: item.import })) + '\n' };
+    };
+    const result = consumeNpmPortability({ units: [{ name, version: '1.0.0', file: 'fixture.tgz' }], packDir: scratchRoot, scratchRoot, root: scratchRoot, spawn, npm: { command: 'fixture-npm', prefix: [], shell: false } }).get(name);
+    assert.deepEqual(result.problems, []);
+    assert.equal(plans.find(item => item.subpath === './cli/fixture-cli.mjs').import, false, 'the bin target is resolve-only');
+    assert.equal(plans.find(item => item.subpath === '.').import, true, 'every other runtime export is still imported');
+    assert.deepEqual(result.report.binTargets, ['./cli/fixture-cli.mjs']);
+    assert.deepEqual(result.report.resolvedOnly, [`${name}/cli/fixture-cli.mjs`]);
+    assert.deepEqual(result.report.imported, [name]);
+    assert.equal(smoked.length, 1, 'the bin is still run once by the smoke check');
+  } finally { fs.rmSync(scratchRoot, { recursive: true, force: true }); }
+});
