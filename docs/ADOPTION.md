@@ -97,7 +97,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/app-update` | npm | 0.4.2 | 0.4.2 | 8 | coderight, cutright, genright, heardright, mailright, postright, scraperight, viewright | - |
 | `@rightkit/ax` | npm | 0.3.2 | 0.3.2 | 1 | legion | - |
 | `@rightkit/build-control-policy` | private | 0.1.4-phase1 | none recorded | 0 | none | - |
-| `@rightkit/ci` | npm | 0.3.1 | 0.3.1 | 1 | legion | 1 stale |
+| `@rightkit/ci` | npm | 0.3.2 | 0.3.1 | 1 | legion | 1 stale |
 | `@rightkit/doc-render` | npm | 0.2.1 | 0.2.1 | 3 | coderight, scraperight, viewright | - |
 | `@rightkit/hooks` | npm | 0.1.2 | 0.1.2 | 1 | legion | - |
 | `@rightkit/i18n` | npm | 0.2.0 | 0.2.0 | 1 | coderight | - |
