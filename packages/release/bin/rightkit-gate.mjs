@@ -43,7 +43,10 @@
 // process is not in CI (no CI or GITHUB_ACTIONS), the gate defers the Rust gate to host qualification. It reads the Rust units from the
 // tracked manifests (no cargo), runs every scan that needs no broker, prints "rust gate DEFERRED to host qualification" with the Rust
 // units and scans it did not run, exits 0 and writes nothing into the tree. The pull request then needs a HOST RECEIPT before merge; that
-// receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host.
+// receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host. Every pushed ref is judged, whatever its place
+// in the push; git's stdin is split on single ASCII spaces (a ref name may hold Unicode whitespace) and a line that is not four fields defers
+// nothing. The default branch is named by the checkout, the base ref, the remote commits being replaced and origin/HEAD, so a commit cannot
+// unprotect it by editing .rightgit.json. A refusal prints the old message and, on a second line, why nothing was deferred.
 // ci/gate.config.json `rust` (optional) sets per-crate feature sets, exactly as CI's gate reads it.
 // Result cache: a passing class B scan is reused only when its scan id, command, tool version, environment and input digest
 // (the gated commit's git object ids for the crate's workspace closure, the shared build inputs, ci/gate.config.json and every
@@ -211,13 +214,56 @@ export function manifestTables(text) {
   return tables;
 }
 
+/**
+ * The value text of `key` in the top-level table `table` of a manifest read by manifestTables (everything from the `=` on), whether it is
+ * written under `[table]` or as the dotted root key `table.key = ...`; null when absent. No value parsing: tomlString and tomlStrings read it.
+ */
+export function tomlValue(tables, table, key) {
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+  const own = tables.get(table) ?? "";
+  const inTable = new RegExp(`^[ \\t]*${esc(key)}[ \\t]*=[ \\t]*`, "m").exec(own);
+  if (inTable) return own.slice(inTable.index + inTable[0].length);
+  const root = tables.get("preamble") ?? "";
+  const dotted = new RegExp(`^[ \\t]*${esc(table)}\\.${esc(key)}[ \\t]*=[ \\t]*`, "m").exec(root);
+  return dotted ? root.slice(dotted.index + dotted[0].length) : null;
+}
+
+/** True when the manifest has the top-level table `name`: as `[name]`, as a `[name.sub]` table, or as dotted root keys `name.key = ...`. */
+export const hasTomlTable = (tables, name) => tables.has(name) || [...tables.keys()].some((k) => k.startsWith(`${name}.`)) || new RegExp(`^[ \\t]*${name.replace(/\W/g, "\\$&")}\\.`, "m").test(tables.get("preamble") ?? "");
+
+/** The string a TOML value starts with ("basic" or 'literal'); null when the value is not a string. */
+export function tomlString(value) {
+  const m = /^(?:"((?:[^"\\\n]|\\.)*)"|'([^'\n]*)')/.exec(String(value ?? ""));
+  return m ? (m[1] !== undefined ? m[1].replace(/\\(.)/g, "$1") : m[2]) : null;
+}
+
+/**
+ * The strings of the TOML array a value starts with: "basic" and 'literal' strings, across lines, with `#` comments (and any `]` in
+ * them or in a string) skipped. [] when the value is not an array.
+ */
+export function tomlStrings(value) {
+  const s = String(value ?? "");
+  if (s[0] !== "[") return [];
+  const out = [];
+  for (let i = 1; i < s.length;) {
+    const c = s[i];
+    if (c === "]") break;
+    if (c === "#") { while (i < s.length && s[i] !== "\n") i += 1; continue; }
+    if (c === '"' || c === "'") {
+      let j = i + 1; let v = "";
+      while (j < s.length && s[j] !== c && s[j] !== "\n") { if (c === '"' && s[j] === "\\" && j + 1 < s.length) { v += s[j + 1]; j += 2; } else { v += s[j]; j += 1; } }
+      out.push(v); i = j + 1; continue;
+    }
+    i += 1;
+  }
+  return out;
+}
+
 /** The repository-relative directories a workspace manifest `exclude`s (`[workspace] exclude = [...]`); [] when none or unreadable. */
 export function workspaceExcludes(readFile, root, cargoDir) {
   let text;
   try { text = readFile(path.join(root, cargoDir === "." ? "Cargo.toml" : `${cargoDir}/Cargo.toml`)); } catch { return []; }
-  const body = manifestTables(text).get("workspace") ?? "";
-  const list = /^\s*exclude\s*=\s*\[([\s\S]*?)\]/m.exec(body)?.[1] ?? "";
-  return [...list.matchAll(/"([^"]+)"/g)].map((m) => posix(m[1]).replace(/\/+$/, "")).map((d) => (cargoDir === "." ? d : `${cargoDir}/${d}`));
+  return tomlStrings(tomlValue(manifestTables(text), "workspace", "exclude")).map((d) => posix(d).replace(/\/+$/, "")).map((d) => (cargoDir === "." ? d : `${cargoDir}/${d}`));
 }
 
 // The manifest tables whose every effect on a build is also written into Cargo.lock: a changed source ([patch.*]) and workspace
@@ -260,8 +306,8 @@ export function manifestChangeIsLockReflected(before, after) {
  * A member whose Cargo.toml is not tracked (untracked or ignored) is dropped into `skipped`, as are `untracked()` manifests.
  * Returns { present, workspaces: [{ cargoDir, units }], units, cargoDir, skipped: [{ manifest, why }] }; `units` is every workspace's
  * [{ name, crate, dir, publish, cargoDir }] and `cargoDir` the first workspace's (the repository root's when it has one).
- * `metadata(dir)` (optional) replaces the cargo call with a reader of the same { cargoDir, members } shape: the deferred pre-push
- * gate passes manifestWorkspaceMetadata where no broker can run cargo.
+ * `metadata(dir)` (optional) replaces the cargo call with a reader of the same { cargoDir, members } shape (extra fields are ignored): the
+ * deferred pre-push gate passes manifestWorkspaceMetadata where no broker can run cargo.
  */
 export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, untracked = () => [], realpath = fs.realpathSync, fixtures = [], readFile = (f) => fs.readFileSync(f, "utf8"), metadata = null }) {
   const manifests = tracked("Cargo.toml");
@@ -342,57 +388,148 @@ export function isDeferrableRef(ref, extra = []) {
 
 /**
  * Whether the Rust gate defers to host qualification. `refs` are the remote refs of a git pre-push's stdin (deletions included); an
- * empty list is not a pre-push run. Returns { defer, why }. The caller asks only when no broker or shim resolved.
+ * empty list is not a pre-push run. `unparsed` are the stdin lines parsePushLines could not read as four fields: a push whose refs
+ * cannot all be read defers nothing. Every pushed ref is judged, whatever its position. Returns { defer, why }. The caller asks only
+ * when no broker or shim resolved.
  */
-export function rustDeferral({ refs = [], env = {}, protectedBranches = [] }) {
+export function rustDeferral({ refs = [], env = {}, protectedBranches = [], unparsed = [] }) {
   if (envOn(env[DEFER_OPT_OUT_ENV])) return { defer: false, why: `${DEFER_OPT_OUT_ENV} is set` };
   if (envOn(env.CI) || envOn(env.GITHUB_ACTIONS)) return { defer: false, why: "running in CI" };
+  if (unparsed.length) return { defer: false, why: `pre-push stdin line ${unparsed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read` };
   if (!refs.length) return { defer: false, why: "no pushed refs on stdin: not a git pre-push run" };
   const blocking = refs.find((r) => !isDeferrableRef(r, protectedBranches));
-  if (blocking) return { defer: false, why: `${blocking} is not a plain non-protected branch` };
+  if (blocking) return { defer: false, why: `${blocking} is not a plain non-protected branch (main, master, trunk, release/*, the repository's default branch and tags are never deferred)` };
   return { defer: true, why: `only non-protected branches are pushed (${refs.join(", ")}) and this is not CI` };
+}
+
+/**
+ * git's pre-push stdin: one "<local ref> <local sha> <remote ref> <remote sha>" per line, the four fields joined by single ASCII spaces.
+ * Git forbids an ASCII space in a ref name but allows Unicode whitespace (U+00A0, U+2003, U+3000, ...), so the split is on " " alone: a
+ * whitespace split would cut such a ref into extra fields and the line would vanish. Blank lines are skipped; any other line that is not
+ * four non-empty fields is returned in `malformed` ({ number, line }), never dropped. Returns { lines: [{ localRef, localSha, remoteRef,
+ * remoteSha }], malformed }.
+ */
+export function parsePushLines(stdin) {
+  const lines = []; const malformed = [];
+  String(stdin ?? "").split("\n").forEach((raw, index) => {
+    const line = raw.replace(/\r$/, "");
+    if (line === "") return;
+    const f = line.split(" ");
+    if (f.length !== 4 || f.some((x) => x === "")) { malformed.push({ number: index + 1, line }); return; }
+    lines.push({ localRef: f[0], localSha: f[1], remoteRef: f[2], remoteSha: f[3] });
+  });
+  return { lines, malformed };
+}
+
+const rightgitDefaultBranch = (raw) => { try { const d = JSON.parse(String(raw).replace(/^\uFEFF/, "")).defaultBranch; return typeof d === "string" && d ? d : null; } catch { return null; } };
+
+/**
+ * The names this repository calls its default branch, read from every side a push can be judged by, so a commit that edits
+ * `.rightgit.json` cannot unprotect the branch it pushes: the manifest in the checkout, the manifest at origin/HEAD and at each of
+ * `revisions` (the base ref and the remote commits being replaced), and the branch origin/HEAD names. `git(...args)` answers like
+ * spawnSync; a revision git cannot show contributes nothing.
+ */
+export function defaultBranchNames({ git, readCheckout, revisions = [] }) {
+  const names = new Set();
+  const add = (n) => { if (n) names.add(n); };
+  try { add(rightgitDefaultBranch(readCheckout())); } catch { /* no right-git manifest in the checkout */ }
+  // A revision that starts with "-" would be read by git as an option, not a revision.
+  for (const rev of new Set(["origin/HEAD", ...revisions.filter((r) => typeof r === "string" && r && !r.startsWith("-"))])) {
+    const shown = git("show", `${rev}:.rightgit.json`);
+    if (!failed(shown)) add(rightgitDefaultBranch(text(shown)));
+  }
+  const head = git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD");
+  if (!failed(head)) add(/^refs\/remotes\/origin\/(.+)$/.exec(text(head).trim())?.[1]);
+  return [...names];
+}
+
+// The path dependencies a manifest declares: `path = "..."` in a [dependencies], [dev-dependencies], [build-dependencies],
+// [target.*.dependencies] or [workspace.dependencies] table, inline (`foo = { path = "../foo" }`) or under `[dependencies.foo]`.
+function pathDependencies(tables) {
+  const out = [];
+  for (const [name, body] of tables) {
+    if (!/(?:^|\.)(?:dev-|build-)?dependencies(?:\.|$)/.test(name)) continue;
+    for (const m of body.matchAll(/(?:^|[\s{,.])path[ \t]*=[ \t]*(?:"((?:[^"\\\n]|\\.)*)"|'([^'\n]*)')/gm)) out.push(m[1] ?? m[2]);
+  }
+  return out;
 }
 
 /**
  * A cargo-free stand-in for `cargo metadata --no-deps` in one workspace directory, read from the tracked manifests: the same
  * { cargoDir, members } as workspaceMetadata. A workspace root lists its `[package]` and every tracked manifest below it that its
- * `members` globs name and its `exclude` does not; a manifest with no `[workspace]` is a standalone package unless an ancestor
- * workspace owns that directory (cargo refuses it there, so this throws and discoverRustWorkspaces skips it). It does not follow
- * path dependencies that cargo adds to a workspace on its own; the host receipt runs the real metadata.
+ * `members` globs name and its `exclude` does not, then (as cargo does) every tracked package below the root that a member, or the root's
+ * [workspace.dependencies], reaches by a path dependency and `exclude` does not name. A manifest with no `[workspace]` is a standalone
+ * package unless an ancestor workspace owns that directory (cargo refuses it there, so this throws and discoverRustWorkspaces skips it).
+ * Strings may be "basic" or 'literal', arrays may carry comments, and `package.name = ...` / `workspace.members = [...]` dotted keys read like
+ * their tables. It is a reader, not a TOML parser: a manifest a glob or a path dependency reaches but whose package name it cannot read is
+ * returned in `unplaced` (beside { cargoDir, members }), any other it cannot place is reported by unmatchedManifests, and the host receipt runs
+ * the real metadata.
  */
 export function manifestWorkspaceMetadata({ root, dir, tracked, readFile }) {
   const manifestOf = (d) => (d === "." ? "Cargo.toml" : `${d}/Cargo.toml`);
-  const read = (m) => manifestTables(readFile(path.join(root, m)));
+  const cache = new Map();
+  const read = (m) => { if (!cache.has(m)) cache.set(m, manifestTables(readFile(path.join(root, m)))); return cache.get(m); };
+  const hasPackage = (m) => hasTomlTable(read(m), "package");
   const memberOf = (m) => {
-    const body = read(m).get("package");
-    const name = body === undefined ? null : /^\s*name\s*=\s*"([^"]+)"/m.exec(body)?.[1] ?? null;
+    const tables = read(m);
+    const name = tomlString(tomlValue(tables, "package", "name"));
     if (!name) return null;
-    return { name, dir: dirOfManifest(m), manifest: m, publish: !/^\s*publish\s*=\s*(?:false|\[\s*\])\s*(?:#.*)?$/m.test(body) };
+    const publish = tomlValue(tables, "package", "publish");
+    return { name, dir: dirOfManifest(m), manifest: m, publish: !(publish !== null && /^(?:false\b|\[\s*\])/.test(publish)) };
   };
   const all = tracked("Cargo.toml");
   const tables = read(manifestOf(dir));
   const byName = (a, b) => (a.name < b.name ? -1 : 1);
-  if (!tables.has("workspace")) {
+  if (!hasTomlTable(tables, "workspace")) {
     for (let up = dir; up !== "."; ) {
       up = path.posix.dirname(up);
-      if (all.includes(manifestOf(up)) && read(manifestOf(up)).has("workspace")) throw new Error(`current package believes it's in a workspace when it's not (the workspace root is ${up === "." ? "the repository root" : up})`);
+      if (all.includes(manifestOf(up)) && hasTomlTable(read(manifestOf(up)), "workspace")) throw new Error(`current package believes it's in a workspace when it's not (the workspace root is ${up === "." ? "the repository root" : up})`);
     }
     const self = memberOf(manifestOf(dir));
     if (!self) throw new Error(`${manifestOf(dir)} has neither a [package] with a name nor a [workspace]`);
     return { cargoDir: dir, members: [self] };
   }
-  const list = /^\s*members\s*=\s*\[([\s\S]*?)\]/m.exec(tables.get("workspace") ?? "")?.[1] ?? "";
-  const patterns = [...list.matchAll(/"([^"]+)"/g)].map((m) => globToRegExp(m[1]));
+  const patterns = tomlStrings(tomlValue(tables, "workspace", "members")).map((g) => globToRegExp(g));
   const excluded = workspaceExcludes(readFile, root, dir);
-  const members = [];
+  const isExcluded = (d) => excluded.some((x) => d === x || d.startsWith(`${x}/`));
+  const rel = (d) => (d === dir ? "." : dir === "." ? d : d.startsWith(`${dir}/`) ? d.slice(dir.length + 1) : null);
+  const found = new Map(); const unplaced = new Set();
+  const add = (m) => {
+    if (found.has(m)) return false;
+    const member = memberOf(m);
+    if (member) found.set(m, member); else unplaced.add(m);
+    return Boolean(member);
+  };
   for (const m of all) {
     const d = dirOfManifest(m);
-    const rel = d === dir ? "." : dir === "." ? d : d.startsWith(`${dir}/`) ? d.slice(dir.length + 1) : null;
-    if (rel === null || rel === "." || excluded.some((x) => d === x || d.startsWith(`${x}/`)) || !patterns.some((re) => re.test(rel))) continue;
-    members.push(memberOf(m));
+    const r = rel(d);
+    if (r === null || r === "." || isExcluded(d) || !patterns.some((re) => re.test(r))) continue;
+    add(m);
   }
-  if (tables.has("package")) members.push(memberOf(manifestOf(dir)));
-  return { cargoDir: dir, members: members.filter(Boolean).sort(byName) };
+  if (hasPackage(manifestOf(dir))) add(manifestOf(dir));
+  // Path dependencies below the workspace root become members on their own, transitively.
+  const queue = [manifestOf(dir), ...found.keys()];
+  for (let m = queue.pop(); m !== undefined; m = queue.pop()) {
+    for (const p of pathDependencies(read(m))) {
+      const target = path.posix.normalize(path.posix.join(dirOfManifest(m), p)).replace(/\/$/, "");
+      const tm = manifestOf(target);
+      if (rel(target) === null || rel(target) === "." || isExcluded(target) || !all.includes(tm) || found.has(tm) || !hasPackage(tm)) continue;
+      if (add(tm)) queue.push(tm);
+    }
+  }
+  return { cargoDir: dir, members: [...found.values()].sort(byName), unplaced: [...unplaced].sort() };
+}
+
+/**
+ * The tracked Cargo.toml with a package that no unit covers and discoverRustWorkspaces did not skip: what the manifest reader could
+ * not place (an unreadable name, a shape it does not know). A manifest it cannot read at all is listed too. Sorted.
+ */
+export function unmatchedManifests({ root, manifests, rust, readFile }) {
+  const covered = new Set([...rust.units.map((u) => (u.dir === "." ? "Cargo.toml" : `${u.dir}/Cargo.toml`)), ...rust.skipped.map((k) => k.manifest)]);
+  return manifests.filter((m) => {
+    if (covered.has(m)) return false;
+    try { return hasTomlTable(manifestTables(readFile(path.join(root, m))), "package"); } catch { return true; }
+  }).sort();
 }
 
 /** `plan` without the scans in `dropped` (by id), its digests recomputed over what is left, and `note` appended. */
@@ -407,12 +544,20 @@ export function withoutScans(plan, dropped, note) {
   };
 }
 
-/** The lines the gate prints when it defers: the Rust units and scans that did not run, the pushed refs, and who gates the merge. */
-export function deferredBlock({ units, notRun, refs, tag = "rightkit-gate:" }) {
-  return [
-    `${tag} rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units ${units.length ? units.join(", ") : "none found"}; scans not run ${notRun.length ? notRun.join(", ") : "none (no Rust scan was due for this diff)"}; the pull request needs a HOST RECEIPT before merge`,
+/**
+ * The lines the gate prints when it defers: the Rust units and scans that did not run, the pushed refs, and who gates the merge.
+ * `manifests` is the number of tracked Cargo.toml: when it is above zero and no unit was found, the block says the reader found none
+ * and that the scans cannot be named, instead of claiming no Rust scan was due. `unmatched` lists the tracked manifests with a package
+ * that no unit covers (unmatchedManifests); they get a line of their own.
+ */
+export function deferredBlock({ units, notRun, refs, manifests = 0, unmatched = [], tag = "rightkit-gate:" }) {
+  const noUnits = units.length === 0 && manifests > 0;
+  const lines = [
+    `${tag} rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units ${units.length ? units.join(", ") : noUnits ? `none found among the ${manifests} tracked Cargo.toml (read without cargo)` : "none found"}; scans not run ${notRun.length ? notRun.join(", ") : noUnits ? "unknown (no unit was found, so no Rust scan could be planned)" : "none (no Rust scan was due for this diff)"}; the pull request needs a HOST RECEIPT before merge`,
     `${tag}   pushed ${refs.join(", ")} (non-protected, not CI). The HOST RECEIPT (a host with the RustRight broker ran the full gate) stays the merge gate; ${DEFER_OPT_OUT_ENV}=1 keeps the refusal on this host.`,
   ];
+  if (unmatched.length) lines.push(`${tag}   tracked Cargo.toml with a package that matched no unit (the manifest reader runs no cargo; the HOST RECEIPT does): ${unmatched.join(", ")}`);
+  return lines;
 }
 
 /**
@@ -1034,13 +1179,18 @@ export async function main(argv, io = {}) {
   const tag = "rightkit-gate:";
 
   // git pre-push: "<local ref> <local sha> <remote ref> <remote sha>" per pushed ref. A plan reads no stdin.
-  // `pushedRefs` is every remote ref named, deletions included: it decides whether the Rust gate may defer (rustDeferral).
-  const pushedRefs = [];
+  // `pushedRefs` is every remote ref named, deletions included: it decides whether the Rust gate may defer (rustDeferral). The fields are
+  // split on single ASCII spaces only (parsePushLines): a ref name may hold Unicode whitespace, and a line that does not read as four
+  // fields is `unparsed`, which defers nothing, never a line that disappears. `pushedRemoteShas` are the remote commits being replaced.
+  const pushedRefs = []; const pushedRemoteShas = []; let unparsed = [];
+  const askedBase = base;
   if (!planOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
-    const lines = o.readStdin().split(/\r?\n/).map((l) => l.trim().split(/\s+/)).filter((f) => f.length === 4);
-    for (const [, localSha, remoteRef, remoteSha] of lines) {
+    const parsed = parsePushLines(o.readStdin());
+    unparsed = parsed.malformed;
+    for (const { localSha, remoteRef, remoteSha } of parsed.lines) {
       pushedRefs.push(remoteRef);
+      if (!ZERO.test(remoteSha)) pushedRemoteShas.push(remoteSha);
       if (ZERO.test(localSha)) continue; // a delete pushes no content
       if (localSha !== head) {
         o.err(`${tag} BLOCKED: pushing ${localSha.slice(0, 10)} to ${remoteRef}, but HEAD is ${head.slice(0, 10)}; broker scans read the checkout, so check the pushed commit out first (git checkout --detach ${localSha.slice(0, 10)}), push HEAD:<branch>, then return`);
@@ -1058,18 +1208,22 @@ export async function main(argv, io = {}) {
   const readLive = (f) => o.readFile(f);
 
   // Units come from the live checkout (cargo reads it); a dirty checkout then blocks below.
-  let rust; let npm; let cargoCommand = ["rustright", "cargo"]; let deferral = null;
+  let rust; let npm; let cargoCommand = ["rustright", "cargo"]; let deferral = null; let manifests = []; const unplaced = [];
   try {
-    const manifests = tracked("Cargo.toml");
+    manifests = tracked("Cargo.toml");
     if (manifests.length) {
       cargoCommand = resolveCargoCommand(o);
       if (!cargoCommand) {
         // No broker and no shim. A pre-push of non-protected branches outside CI defers the Rust gate to host qualification; anything
         // else refuses exactly as before. The cargo command is then only the text of the argv the deferred scans would have had.
-        let configured = [];
-        try { const d = JSON.parse(o.readFile(path.join(root, ".rightgit.json"))).defaultBranch; if (typeof d === "string" && d) configured = [d]; } catch { /* no right-git manifest: the built-in names only */ }
-        const decision = rustDeferral({ refs: pushedRefs, env: o.env, protectedBranches: configured });
-        if (!decision.defer) { o.err(`${tag} BLOCKED: neither \`rustright\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`); return 1; }
+        // The default branch is named by the checkout, the base, the remote commits being replaced and origin/HEAD, never by the pushed commit alone.
+        const configured = defaultBranchNames({ git, readCheckout: () => o.readFile(path.join(root, ".rightgit.json")), revisions: [askedBase, ...pushedRemoteShas] });
+        const decision = rustDeferral({ refs: pushedRefs, env: o.env, protectedBranches: configured, unparsed });
+        if (!decision.defer) {
+          o.err(`${tag} BLOCKED: neither \`rustright\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`);
+          o.err(`${tag}   not deferred to host qualification: ${decision.why}`);
+          return 1;
+        }
         deferral = decision;
         cargoCommand = ["rustright", "cargo"];
       } else if (!o.exists(path.join(root, GRANT_FILE))) { o.err(`${tag} BLOCKED: no local compile grant (${GRANT_FILE}); the broker refuses cargo, so the Rust units cannot be discovered or scanned`); return 1; }
@@ -1086,7 +1240,7 @@ export async function main(argv, io = {}) {
     try { const f = JSON.parse(o.readFile(path.join(root, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
     rust = discoverRustWorkspaces({
       root, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readLive,
-      ...(deferral ? { metadata: (dir) => manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }) } : {}),
+      ...(deferral ? { metadata: (dir) => { const read = manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }); unplaced.push(...read.unplaced); return read; } } : {}),
     });
     npm = discoverNpmUnits({ root, tracked, readFile: readLive, exists: o.exists });
   } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
@@ -1245,7 +1399,8 @@ export async function main(argv, io = {}) {
     }
     if (deferral) {
       o.out(`${tag} the scans that could run here passed (${changed.length} changed file(s) vs ${base}${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""})`);
-      for (const line of deferredBlock({ units: rust.units.map((u) => u.name), notRun, refs: pushedRefs, tag })) o.err(line);
+      const unmatched = [...new Set([...unplaced, ...unmatchedManifests({ root, manifests, rust, readFile: readLive })])].sort();
+      for (const line of deferredBlock({ units: rust.units.map((u) => u.name), notRun, refs: pushedRefs, manifests: manifests.length, unmatched, tag })) o.err(line);
       return 0;
     }
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);

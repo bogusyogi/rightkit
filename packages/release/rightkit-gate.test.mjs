@@ -10,7 +10,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import {
-  DEFER_OPT_OUT_ENV, EXTERNAL_INPUT_FILE_LIMIT, PROTECTED_BRANCHES, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, deferredBlock, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, isDeferrableRef, lockScope, main, manifestChangeIsLockReflected, manifestTables, manifestWorkspaceMetadata, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustDeferral, rustUnitName, rustUnitOfScanId, trampolineText, withoutScans, workspaceExcludes,
+  DEFER_OPT_OUT_ENV, EXTERNAL_INPUT_FILE_LIMIT, PROTECTED_BRANCHES, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, deferredBlock, defaultBranchNames, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, isDeferrableRef, lockScope, main, manifestChangeIsLockReflected, manifestTables, manifestWorkspaceMetadata, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustDeferral, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, unmatchedManifests, withoutScans, workspaceExcludes,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -1290,7 +1290,9 @@ const snapshot = (root) => fs.readdirSync(root, { recursive: true }).map(String)
 // A repository whose gate runs the whole of main(): git answers from the fixture, `tar` copies it as the exported HEAD, and the
 // scan runner is the recorded fake below, so nothing real runs. `broker`: a rustright on PATH; `shim`: a cargo on PATH that is the
 // managed shim (its file names cargo-guard.mjs, see shimRead).
-function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = false, shim = false, rustfmtAnswers = true } = {}) {
+// `manifests`: what git ls-files answers for Cargo.toml; `shows`: "<rev>:<path>" -> body for `git show`; `originHead`: what
+// `git symbolic-ref refs/remotes/origin/HEAD` answers (null: not set).
+function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = false, shim = false, rustfmtAnswers = true, manifests = ["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml"], shows = {}, originHead = null } = {}) {
   const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
   return (cmd, args, opts = {}) => {
     log.push([cmd, ...args]);
@@ -1298,9 +1300,11 @@ function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = fa
     if (cmd === "git") {
       if (line === "rev-parse --show-toplevel") return ok(root);
       if (line === "rev-parse HEAD") return ok(HEAD);
-      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? "Cargo.toml\0crates/a/Cargo.toml\0crates/b/Cargo.toml\0" : "");
+      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${manifests.join("\0")}\0` : "");
       if (args[0] === "diff") return ok(diff);
       if (args[0] === "status" || args[0] === "archive") return ok();
+      if (args[0] === "show") return shows[args[1]] === undefined ? no("fatal: path does not exist") : ok(shows[args[1]]);
+      if (args[0] === "symbolic-ref") return originHead ? ok(`${originHead}\n`) : no("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref");
       return no(`unexpected ${cmd} ${line}`);
     }
     if (cmd === "tar") { fs.cpSync(root, path.join(opts.cwd, "repo"), { recursive: true }); return ok(); }
@@ -1584,4 +1588,328 @@ test("discoverRustWorkspaces with a metadata reader never asks cargo, and skips 
   assert.match(why("crates/old/Cargo.toml"), /excluded from the Cargo workspace \./);
   assert.match(why("fixtures/f/Cargo.toml"), /fixture directory fixtures/);
   assert.match(why("apps/x/Cargo.toml"), /below the Cargo workspace \. but not one of its members, and cargo refuses it on its own \(current package believes it's in a workspace when it's not/);
+});
+
+// ---- review fixes: git's real stdin shape, every pushed ref, the default branch from the remote's side, the reason, the reader ------------
+
+// Git forbids an ASCII space in a ref name and allows every other non-control character, Unicode whitespace included.
+const UNICODE_SPACES = [["U+00A0 no-break space", " "], ["U+2003 em space", " "], ["U+3000 ideographic space", "　"], ["U+2028 line separator", " "], ["U+FEFF zero-width no-break space", "﻿"]];
+const gitLine = (localRef, remoteRef, { sha = HEAD, remote = ZEROS } = {}) => `${localRef} ${sha} ${remoteRef} ${remote}\n`;
+const benignLine = (name = "benign") => pushLine(`refs/heads/claude/${name}`);
+
+test("parsePushLines: git's four fields split on single ASCII spaces only, so a Unicode space in a ref name stays inside its field; nothing is dropped", () => {
+  for (const [name, space] of UNICODE_SPACES) {
+    const local = `refs/heads/a${space}b`; const remote = `refs/heads/ma${space}in`;
+    const { lines, malformed } = parsePushLines(gitLine(local, remote, { remote: "b".repeat(40) }));
+    assert.deepEqual(malformed, [], name);
+    assert.deepEqual(lines, [{ localRef: local, localSha: HEAD, remoteRef: remote, remoteSha: "b".repeat(40) }], name);
+  }
+  const mixed = parsePushLines(`${gitLine("a b", "refs/heads/main")}\r\n${benignLine()}\n\n`);
+  assert.deepEqual(mixed.lines.map((l) => l.remoteRef), ["refs/heads/main", "refs/heads/claude/benign"], "CRLF endings and blank lines are tolerated");
+  assert.deepEqual(mixed.malformed, []);
+  // Anything that is not four non-empty ASCII-space separated fields is reported, with its line number, never dropped.
+  const bad = parsePushLines(`${benignLine("ok")}three fields here\nfour  fields with two spaces ${ZEROS}\n${HEAD} ${HEAD} a b c d\n \n${"\t"}tab\tseparated\tfields\there\n`);
+  assert.equal(bad.lines.length, 1);
+  assert.deepEqual(bad.malformed.map((m) => m.number), [2, 3, 4, 5, 6]);
+  assert.deepEqual(parsePushLines("").lines, []);
+  assert.deepEqual(parsePushLines(undefined), { lines: [], malformed: [] });
+});
+
+test("deferral refused (HIGH): a local ref name with Unicode whitespace cannot hide a protected ref, a tag or a release branch behind a benign one", async (t) => {
+  for (const [spaceName, space] of UNICODE_SPACES) {
+    const local = `refs/heads/a${space}b`;
+    for (const [name, remoteRef] of [["main", "refs/heads/main"], ["a tag", "refs/tags/v1"], ["release/*", "refs/heads/release/1.0"], ["a ref outside refs/heads", "refs/for/claude/a"]]) {
+      for (const [order, stdin] of [["alone", gitLine(local, remoteRef)], ["before a benign ref", gitLine(local, remoteRef) + benignLine()], ["after a benign ref", benignLine() + gitLine(local, remoteRef)]]) {
+        const r = await pushGate(t, { stdin });
+        assert.equal(r.code, 1, `${spaceName}, ${name}, ${order}`);
+        assert.match(r.err, NO_BROKER, `${spaceName}, ${name}, ${order}`);
+        assert.equal(r.seen.length, 0, `${spaceName}, ${name}, ${order}: no scan ran`);
+        assert.doesNotMatch(r.err, /DEFERRED/, `${spaceName}, ${name}, ${order}`);
+      }
+    }
+  }
+  // The dropped line also skipped the check that the pushed commit is the checked-out HEAD.
+  const elsewhere = await pushGate(t, { stdin: gitLine("refs/heads/a b", "refs/heads/claude/x", { sha: "c".repeat(40) }) });
+  assert.equal(elsewhere.code, 1);
+  assert.match(elsewhere.err, /BLOCKED: pushing cccccccccc to refs\/heads\/claude\/x, but HEAD is aaaaaaaaaa/);
+  assert.equal(elsewhere.seen.length, 0);
+  // A Unicode space in the remote ref is part of its name: that ref is no protected one, and the push defers like any branch.
+  const ok1 = await pushGate(t, { stdin: gitLine("HEAD", "refs/heads/claude/a b") });
+  assert.equal(ok1.code, 0, ok1.err);
+  assert.match(ok1.err, /pushed refs\/heads\/claude\/a b \(non-protected, not CI\)/, "the block names the ref as git sent it");
+  // And a local ref with a Unicode space going to a benign branch still defers: the line is read, not refused.
+  const ok2 = await pushGate(t, { stdin: gitLine("refs/heads/a b", "refs/heads/claude/benign") });
+  assert.equal(ok2.code, 0, ok2.err);
+  assert.match(ok2.err, /pushed refs\/heads\/claude\/benign \(non-protected, not CI\)/);
+});
+
+test("deferral refused: a stdin line that does not read as four fields defers nothing, and the refusal says why", async (t) => {
+  for (const [name, stdin, number] of [
+    ["three fields", `refs/heads/main ${HEAD} refs/heads/main\n${benignLine()}`, 1],
+    ["five fields", `${benignLine()}refs/heads/main ${HEAD} x refs/heads/main ${ZEROS}\n`, 2],
+    ["a doubled space", `refs/heads/x ${HEAD}  refs/heads/main ${ZEROS}\n${benignLine()}`, 1],
+    ["tabs", `refs/heads/x\t${HEAD}\trefs/heads/main\t${ZEROS}\n${benignLine()}`, 1],
+  ]) {
+    const r = await pushGate(t, { stdin });
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, NO_BROKER, name);
+    assert.match(r.err, new RegExp(`not deferred to host qualification: pre-push stdin line ${number} is not "<local ref> <local sha> <remote ref> <remote sha>"`), name);
+    assert.equal(r.seen.length, 0, name);
+  }
+  assert.equal(rustDeferral({ refs: ["refs/heads/claude/x"], env: {}, unparsed: [{ number: 3, line: "x" }] }).defer, false);
+  assert.match(rustDeferral({ refs: ["refs/heads/claude/x"], env: {}, unparsed: [{ number: 3, line: "x" }] }).why, /line 3/);
+  assert.equal(rustDeferral({ refs: ["refs/heads/claude/x"], env: {}, unparsed: [] }).defer, true);
+});
+
+test("deferral refused: every pushed ref is judged, whichever place a protected one has in the push", async (t) => {
+  const protectedRefs = [["main", "refs/heads/main"], ["a tag", "refs/tags/v1"], ["release/2", "refs/heads/release/2"]];
+  for (const [name, ref] of protectedRefs) {
+    for (const [place, stdin] of [
+      ["first of two", pushLine(ref) + benignLine("a")],
+      ["last of two", benignLine("a") + pushLine(ref)],
+      ["middle of three", benignLine("a") + pushLine(ref) + benignLine("b")],
+      ["first of three", pushLine(ref) + benignLine("a") + benignLine("b")],
+      ["last of three", benignLine("a") + benignLine("b") + pushLine(ref)],
+    ]) {
+      const r = await pushGate(t, { stdin });
+      assert.equal(r.code, 1, `${name}, ${place}`);
+      assert.match(r.err, NO_BROKER, `${name}, ${place}`);
+      assert.match(r.err, new RegExp(`not deferred to host qualification: ${ref.replaceAll("/", "\\/")} is not a plain non-protected branch`), `${name}, ${place}`);
+      assert.equal(r.seen.length, 0, `${name}, ${place}`);
+    }
+  }
+});
+
+test("deferral does not need the local compile grant a cloud host never has, and names the same scans as not run with or without it", async (t) => {
+  const { ".rightkit-local-build.json": _grant, ...noGrant } = gateFiles();
+  const without = await pushGate(t, { files: noGrant });
+  assert.equal(without.code, 0, without.err);
+  assert.doesNotMatch(without.out + without.err, /no local compile grant/);
+  assert.ok(!without.seen[0].plan.notes.some((n) => /grant/.test(n)), `no grant note in the plan: ${without.seen[0].plan.notes}`);
+  assert.deepEqual(without.seen[0].plan.deferred, [], "nothing is left deferred for want of the grant");
+  const withIt = await pushGate(t);
+  const notRun = (r) => /scans not run ([^;]+);/.exec(r.err)?.[1];
+  assert.ok(notRun(withIt)?.includes("clippy:a"));
+  assert.equal(notRun(without), notRun(withIt), "the grant changes nothing about what is named as not run");
+  assert.deepEqual(without.seen[0].plan.scans.map((s) => s.id), withIt.seen[0].plan.scans.map((s) => s.id), "or about what runs");
+});
+
+test("deferral: a refusal prints the old message first and the reason on a second line", async (t) => {
+  for (const [name, o, reason] of [
+    ["main", { stdin: pushLine("refs/heads/main") }, /refs\/heads\/main is not a plain non-protected branch \(main, master, trunk, release\/\*, the repository's default branch and tags are never deferred\)$/],
+    ["a tag", { stdin: pushLine("refs/tags/v1") }, /refs\/tags\/v1 is not a plain non-protected branch/],
+    ["--tags with a branch", { stdin: benignLine() + pushLine("refs/tags/v2") }, /refs\/tags\/v2 is not a plain non-protected branch/],
+    ["release/1", { stdin: pushLine("refs/heads/release/1") }, /refs\/heads\/release\/1 is not a plain non-protected branch/],
+    ["CI", { env: { CI: "1" } }, /running in CI$/],
+    ["GITHUB_ACTIONS", { env: { GITHUB_ACTIONS: "true" } }, /running in CI$/],
+    ["the opt-out", { env: { [DEFER_OPT_OUT_ENV]: "1" } }, /RIGHTKIT_GATE_NO_DEFER is set$/],
+    ["no stdin", { stdin: "" }, /no pushed refs on stdin: not a git pre-push run$/],
+    ["--plan", { args: ["--plan"] }, /no pushed refs on stdin: not a git pre-push run$/],
+  ]) {
+    const r = await pushGate(t, o);
+    assert.equal(r.code, 1, name);
+    const lines = r.err.split("\n");
+    assert.equal(lines.length, 2, `${name}: ${r.err}`);
+    assert.equal(lines[0], "rightkit-gate: BLOCKED: neither `rustright` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used", `${name}: the old message, verbatim`);
+    assert.match(lines[1], /^rightkit-gate: {3}not deferred to host qualification: /, name);
+    assert.match(lines[1], reason, name);
+  }
+});
+
+test("deferral: the default branch is read from the base, the remote commit being replaced and origin/HEAD, so a commit cannot unprotect it by editing .rightgit.json", async (t) => {
+  const manifest = (defaultBranch) => JSON.stringify({ schemaVersion: 1, defaultBranch });
+  const edited = gateFiles({ ".rightgit.json": manifest("other") });
+  const REMOTE = "d".repeat(40);
+  const refused = (r, why) => { assert.equal(r.code, 1, r.err); assert.match(r.err, NO_BROKER); assert.match(r.err, why); assert.equal(r.seen.length, 0); };
+  // 1. The pushed commit renames the default branch away; the base ref (origin/main) still names develop.
+  refused(await pushGate(t, { files: edited, stdin: pushLine("refs/heads/develop"), spawnOptions: { shows: { "origin/main:.rightgit.json": manifest("develop") } } }), /refs\/heads\/develop is not a plain non-protected branch/);
+  // 2. The remote commit being replaced (an existing develop) names it, with no base available.
+  refused(await pushGate(t, { files: edited, stdin: pushLine("refs/heads/develop", { remote: REMOTE }), spawnOptions: { shows: { [`${REMOTE}:.rightgit.json`]: manifest("develop") } } }), /refs\/heads\/develop is not a plain non-protected branch/);
+  // 3. origin/HEAD's manifest names it: a new branch push has neither a base nor a remote commit.
+  refused(await pushGate(t, { files: edited, stdin: pushLine("refs/heads/develop"), spawnOptions: { shows: { "origin/HEAD:.rightgit.json": manifest("develop") } } }), /refs\/heads\/develop is not a plain non-protected branch/);
+  // 4. origin/HEAD itself names the default branch, and no .rightgit.json exists anywhere.
+  refused(await pushGate(t, { stdin: pushLine("refs/heads/develop"), spawnOptions: { originHead: "refs/remotes/origin/develop" } }), /refs\/heads\/develop is not a plain non-protected branch/);
+  // 5. The checkout's own value still counts (the earlier behaviour), alongside the others, and the case does not matter.
+  refused(await pushGate(t, { files: gateFiles({ ".rightgit.json": manifest("Develop") }), stdin: pushLine("refs/heads/develop") }), /refs\/heads\/develop is not a plain non-protected branch/);
+  // Nothing else changes: a claude/* branch defers under every one of those setups, and an unreadable remote manifest adds nothing.
+  for (const spawnOptions of [
+    { shows: { "origin/main:.rightgit.json": manifest("develop") } }, { originHead: "refs/remotes/origin/develop" },
+    { shows: { "origin/main:.rightgit.json": "{not json", "origin/HEAD:.rightgit.json": manifest(42) } },
+  ]) {
+    const r = await pushGate(t, { files: edited, stdin: benignLine(), spawnOptions });
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, /rust gate DEFERRED/);
+  }
+});
+
+test("defaultBranchNames: the union of the checkout, origin/HEAD, each revision and the branch origin/HEAD names; a revision git cannot show adds nothing", () => {
+  const manifest = (defaultBranch) => JSON.stringify({ defaultBranch });
+  const shown = { "origin/HEAD:.rightgit.json": manifest("trunk2"), "base:.rightgit.json": `﻿${manifest("develop")}`, "r1:.rightgit.json": manifest("stable") };
+  const asked = [];
+  const git = (...a) => {
+    asked.push(a.join(" "));
+    if (a[0] === "show") return shown[a[1]] === undefined ? no("fatal") : ok(shown[a[1]]);
+    if (a[0] === "symbolic-ref") return ok("refs/remotes/origin/main-line\n");
+    return no();
+  };
+  const names = defaultBranchNames({ git, readCheckout: () => manifest("mine"), revisions: ["base", "r1", "gone", "base"] });
+  assert.deepEqual([...names].sort(), ["develop", "main-line", "mine", "stable", "trunk2"]);
+  assert.equal(asked.filter((a) => a === "show base:.rightgit.json").length, 1, "a revision is shown once");
+  defaultBranchNames({ git, readCheckout: () => "{}", revisions: ["--output=/x", "-p", "", undefined] });
+  assert.ok(!asked.some((a) => /^show -/.test(a)), "a revision that git would read as an option is never passed to it");
+  assert.deepEqual(defaultBranchNames({ git: () => no(), readCheckout: () => { throw new Error("ENOENT"); } }), []);
+  assert.deepEqual(defaultBranchNames({ git: () => no(), readCheckout: () => "[]" }), []);
+  assert.deepEqual(defaultBranchNames({ git: (...a) => (a[0] === "symbolic-ref" ? ok("refs/heads/odd\n") : no()), readCheckout: () => "{}" }), [], "only a refs/remotes/origin/ target names a branch");
+});
+
+test("the installed pre-push hook with real git: a local ref name with Unicode whitespace cannot push main, a tag or release/* past the deferral", { skip: !shAvailable && "no sh" }, async (t) => {
+  // A PATH of symlinks to just what the hook and the gate need, so a rustright or cargo on the developer's PATH cannot change the outcome.
+  const tools = mkRepo({}, t);
+  const exec = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
+  for (const name of ["git", "which", "awk", "mktemp", "cat", "rm", "tar"]) {
+    const found = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).stdout.trim();
+    if (!found) { t.skip(`no ${name} on this host`); return; }
+    fs.symlinkSync(found, path.join(tools, name));
+  }
+  const tmp = mkRepo({}, t);
+  const gateCli = path.join(path.dirname(fileURLToPath(import.meta.url)), "bin", "rightkit-gate.mjs").replaceAll("\\", "/");
+  const shim = `#!/bin/sh\nif [ "$1" = check ]; then exit 0; fi\nexec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"\n`;
+  const root = hookRepo(t, {
+    ".githooks/pre-push": hookText(gateCli),
+    "node_modules/.bin/rightkit-gate": shim, ".gitignore": "node_modules/\n",
+    "Cargo.toml": pkg("app"), "src/lib.rs": "pub fn f() {}\n",
+  });
+  const env = { ...process.env, PATH: tools, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", [DEFER_OPT_OUT_ENV]: "", GIT_TERMINAL_PROMPT: "0" };
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8", env });
+  for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"], ["core.hooksPath", ".githooks"]]) git("config", k, v);
+  const remote = path.join(tmp, "remote.git");
+  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote], { encoding: "utf8", env }).status, 0);
+  git("remote", "add", "origin", remote);
+  git("add", "-A");
+  assert.equal(git("commit", "-q", "-m", "app").status, 0);
+  const odd = "a b";
+  assert.equal(git("branch", odd, "HEAD").status, 0, "git accepts a branch name holding U+00A0");
+  const remoteRefs = () => git("ls-remote", "origin").stdout.trim();
+  for (const [name, refspec] of [["main", "refs/heads/main"], ["a tag", "refs/tags/v1"], ["release/9", "refs/heads/release/9"]]) {
+    const pushed = git("push", "origin", `${odd}:${refspec}`, "HEAD:refs/heads/claude/benign");
+    assert.notEqual(pushed.status, 0, `${name}: the push is refused`);
+    assert.match(pushed.stderr, NO_BROKER, name);
+    assert.match(pushed.stderr, new RegExp(`not deferred to host qualification: ${refspec.replaceAll("/", "\\/")} is not a plain non-protected branch`), name);
+    assert.doesNotMatch(pushed.stderr, /DEFERRED/, name);
+    assert.equal(remoteRefs(), "", `${name}: nothing reached the remote`);
+  }
+  // The same split hid it when the odd ref was the only line, too: still refused.
+  assert.notEqual(git("push", "origin", `${odd}:refs/heads/main`).status, 0);
+  assert.equal(remoteRefs(), "");
+});
+
+test("manifestWorkspaceMetadata reads what cargo accepts: single-quoted strings, a ] in a comment, dotted keys, path dependencies that cargo makes members", (t) => {
+  const readFile = (f) => fs.readFileSync(f, "utf8");
+  const members = (files, dir = ".") => {
+    const root = mkRepo(files, t);
+    const all = Object.keys(files).filter((f) => f.endsWith("Cargo.toml"));
+    return manifestWorkspaceMetadata({ root, dir, tracked: (n) => (n === "Cargo.toml" ? all : []), readFile }).members;
+  };
+  const names = (m) => m.map((x) => x.name);
+  assert.deepEqual(names(members({ "Cargo.toml": "[workspace]\nmembers = ['crates/*']\n", "crates/a/Cargo.toml": "[package]\nname = 'a'\nversion = '1.0.0'\n" })), ["a"], "single-quoted members and name");
+  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\nmembers = [\n  "crates/a", # the a crate ]\n  "crates/b",\n]\n', "crates/a/Cargo.toml": pkg("a"), "crates/b/Cargo.toml": pkg("b") })), ["a", "b"], "a ] in a comment does not end the array");
+  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = [\n  \'crates/old\', # ] vendored\n  "crates/older",\n]\n', "crates/a/Cargo.toml": pkg("a"), "crates/old/Cargo.toml": pkg("old"), "crates/older/Cargo.toml": pkg("older") })), ["a"], "exclude reads the same way");
+  assert.deepEqual(names(members({ "Cargo.toml": 'package.name = "rootpkg"\npackage.version = "1.0.0"\n' })), ["rootpkg"], "dotted package keys in a standalone manifest");
+  assert.deepEqual(names(members({ "Cargo.toml": 'workspace.members = [\n  "crates/*", # ]\n]\nworkspace.exclude = ["crates/old"]\n', "crates/a/Cargo.toml": 'package.name = "a"\n', "crates/old/Cargo.toml": pkg("old") })), ["a"], "dotted workspace keys, multi-line, with a dotted package name in the member");
+  assert.deepEqual(names(members({ "Cargo.toml": '[workspace.package]\nversion = "1"\n[workspace.dependencies]\nserde = "1"\n', "crates/a/Cargo.toml": pkg("a") })), [], "a workspace table without members lists no member and does not throw");
+  assert.equal(members({ "Cargo.toml": "[workspace]\nmembers = [\"a\", \"b\", \"c\", \"d\"]\n", "a/Cargo.toml": pkg("a", "publish = false # not on crates.io\n"), "b/Cargo.toml": pkg("b", "publish = []\n"), "c/Cargo.toml": pkg("c", "publish = ['internal']\n"), "d/Cargo.toml": pkg("d") })
+    .map((m) => `${m.name}:${m.publish}`).join(" "), "a:false b:false c:true d:true", "publish = false or [] is private; a registry list or nothing is publishable");
+  // A path dependency below the workspace root is a member cargo adds on its own, transitively; exclude and the outside of the workspace are not.
+  const deps = members({
+    "Cargo.toml": '[package]\nname = "rootpkg"\n[workspace]\nexclude = ["vendor/skip"]\n[dependencies]\ndep = { path = "crates/dep", version = "1" }\nskip = { path = "vendor/skip" }\n[build-dependencies.tool]\npath = \'tools/tool\'\n[target.\'cfg(unix)\'.dependencies]\nunixy = { path = "crates/unixy" }\n',
+    "crates/dep/Cargo.toml": '[package]\nname = "dep"\n[dev-dependencies]\ninner.path = "../inner"\n',
+    "crates/inner/Cargo.toml": pkg("inner"), "crates/unixy/Cargo.toml": pkg("unixy"), "tools/tool/Cargo.toml": pkg("tool"),
+    "vendor/skip/Cargo.toml": pkg("skip"), "crates/unrelated/Cargo.toml": pkg("unrelated"),
+  });
+  assert.deepEqual(names(deps), ["dep", "inner", "rootpkg", "tool", "unixy"], "dep, inner (through dep), tool and unixy are members; skip is excluded; unrelated is reached by nobody");
+  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\n[workspace.dependencies]\nlib = { path = "libs/lib" }\nweb = "1"\n', "libs/lib/Cargo.toml": pkg("lib") })), ["lib"], "a virtual workspace's [workspace.dependencies] path");
+  assert.deepEqual(names(members({ "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n', "crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\nelsewhere = { path = "../../outside" }\nme = { path = "." }\n' })), ["a"], "a path outside the workspace, or the package itself, adds nothing");
+});
+
+test("tomlValue, tomlString, tomlStrings and hasTomlTable: the manifest reader's pieces", () => {
+  const t1 = manifestTables('package.name = "x"\nworkspace.members = [\n "a", \'b\' # ]\n, "c"]\n[dependencies]\nfoo = "1"\n');
+  assert.equal(tomlString(tomlValue(t1, "package", "name")), "x");
+  assert.deepEqual(tomlStrings(tomlValue(t1, "workspace", "members")), ["a", "b", "c"]);
+  assert.equal(tomlValue(t1, "package", "missing"), null);
+  assert.equal(hasTomlTable(t1, "package"), true);
+  assert.equal(hasTomlTable(t1, "workspace"), true);
+  assert.equal(hasTomlTable(t1, "dependencies"), true);
+  assert.equal(hasTomlTable(t1, "lib"), false);
+  const t2 = manifestTables('[package]\nname = \'it"s\'\ndescription = "name = x"\n[workspace.dependencies]\nserde = "1"\n');
+  assert.equal(tomlString(tomlValue(t2, "package", "name")), 'it"s');
+  assert.equal(hasTomlTable(t2, "workspace"), true, "[workspace.dependencies] makes a workspace");
+  assert.equal(hasTomlTable(t2, "package"), true);
+  assert.equal(tomlString('"a\\"b"'), 'a"b');
+  assert.equal(tomlString("'a\\b'"), "a\\b", "a literal string keeps its backslash");
+  assert.equal(tomlString("12"), null);
+  assert.equal(tomlString(null), null);
+  assert.deepEqual(tomlStrings("true"), []);
+  assert.deepEqual(tomlStrings('["a\\"]b", \'c]\']'), ['a"]b', "c]"], "a ] inside a string does not end the array");
+  assert.deepEqual(tomlStrings("[]"), []);
+  assert.deepEqual(tomlStrings('["unterminated'), ["unterminated"]);
+});
+
+test("workspaceExcludes reads single-quoted, commented and dotted exclude lists", (t) => {
+  const root = mkRepo({ "Cargo.toml": "[workspace]\nexclude = [\n 'old', # ] gone\n \"older/\",\n]\n", "ws/Cargo.toml": 'workspace.exclude = ["x"]\n' }, t);
+  const readFile = (f) => fs.readFileSync(f, "utf8");
+  assert.deepEqual(workspaceExcludes(readFile, root, "."), ["old", "older"]);
+  assert.deepEqual(workspaceExcludes(readFile, root, "ws"), ["ws/x"]);
+  assert.deepEqual(workspaceExcludes(readFile, root, "missing"), []);
+});
+
+test("deferredBlock: with tracked manifests and no unit found it says so instead of claiming no Rust scan was due; unmatched manifests get a line", () => {
+  const none = deferredBlock({ units: [], notRun: [], refs: ["refs/heads/x"], manifests: 3 });
+  assert.match(none[0], /rust units none found among the 3 tracked Cargo\.toml \(read without cargo\); scans not run unknown \(no unit was found, so no Rust scan could be planned\); the pull request needs a HOST RECEIPT before merge$/);
+  assert.doesNotMatch(none.join("\n"), /no Rust scan was due/);
+  assert.equal(none.length, 2);
+  assert.match(deferredBlock({ units: [], notRun: [], refs: ["refs/heads/x"] })[0], /rust units none found; scans not run none \(no Rust scan was due for this diff\)/, "no manifest at all keeps the old words");
+  assert.match(deferredBlock({ units: ["a"], notRun: [], refs: ["refs/heads/x"], manifests: 2 })[0], /rust units a; scans not run none \(no Rust scan was due for this diff\)/, "a unit found and nothing due is the old words too");
+  const some = deferredBlock({ units: ["a"], notRun: ["clippy:a"], refs: ["refs/heads/x"], manifests: 3, unmatched: ["crates/z/Cargo.toml", "crates/y/Cargo.toml"] });
+  assert.equal(some.length, 3);
+  assert.equal(some.filter((l) => /DEFERRED/.test(l)).length, 1, "still one headline");
+  assert.match(some[2], /tracked Cargo\.toml with a package that matched no unit .*: crates\/z\/Cargo\.toml, crates\/y\/Cargo\.toml$/);
+});
+
+test("deferral: a manifest the reader cannot place is named in the block, and no unit found at all is not reported as nothing due", async (t) => {
+  // A triple-quoted name is valid TOML the reader does not read: the workspace has a member it cannot see.
+  const files = { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n', "Cargo.lock": "version = 4\n", "crates/a/Cargo.toml": '[package]\nname = """a"""\nversion = "1.0.0"\n', "crates/a/src/lib.rs": "pub fn a() {}\n", ".rightkit-local-build.json": "{}" };
+  const r = await pushGate(t, { files, spawnOptions: { manifests: ["Cargo.toml", "crates/a/Cargo.toml"] } });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /rust units none found among the 2 tracked Cargo\.toml \(read without cargo\); scans not run unknown \(no unit was found, so no Rust scan could be planned\)/);
+  assert.doesNotMatch(r.err, /no Rust scan was due/);
+  assert.match(r.err, /matched no unit .*: crates\/a\/Cargo\.toml$/m, "named although discoverRustWorkspaces also skips it, for want of a lock");
+  // The same repository with a name the reader can read finds the unit and has no such line.
+  const fine = await pushGate(t, { files: { ...files, "crates/a/Cargo.toml": pkg("a") }, spawnOptions: { manifests: ["Cargo.toml", "crates/a/Cargo.toml"] } });
+  assert.equal(fine.code, 0, fine.err);
+  assert.match(fine.err, /rust units a; scans not run [^;]*clippy:a/);
+  assert.doesNotMatch(fine.err, /matched no unit/);
+});
+
+test("deferral discovers single-quoted, dotted and path-dependency members from the tracked manifests", async (t) => {
+  const files = {
+    "Cargo.toml": "package.name = 'rootpkg'\npackage.version = '1.0.0'\nworkspace.members = ['crates/*'] # ]\n[dependencies]\nviapath = { path = 'tools/viapath' }\n", "Cargo.lock": "version = 4\n",
+    "crates/a/Cargo.toml": pkg("a").replace('"a"', "'a'"), "crates/a/src/lib.rs": "pub fn a() {}\n", "tools/viapath/Cargo.toml": pkg("viapath"),
+  };
+  const r = await pushGate(t, { files, spawnOptions: { manifests: ["Cargo.toml", "crates/a/Cargo.toml", "tools/viapath/Cargo.toml"] } });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /rust units a, rootpkg, viapath; scans not run /);
+  assert.doesNotMatch(r.err, /matched no unit/);
+  const gone = unmatchedManifests({ root: mkRepo(files, t), manifests: ["Cargo.toml", "crates/a/Cargo.toml", "tools/viapath/Cargo.toml"], rust: { units: [{ dir: "." }, { dir: "crates/a" }], skipped: [] }, readFile: (f) => fs.readFileSync(f, "utf8") });
+  assert.deepEqual(gone, ["tools/viapath/Cargo.toml"], "a package no unit covers is unmatched; a unit's manifest is not");
+  assert.deepEqual(unmatchedManifests({ root: "/nowhere", manifests: ["x/Cargo.toml"], rust: { units: [], skipped: [{ manifest: "x/Cargo.toml" }] }, readFile: () => { throw new Error("never read"); } }), [], "a skipped manifest is accounted for");
+  assert.deepEqual(unmatchedManifests({ root: "/nowhere", manifests: ["x/Cargo.toml"], rust: { units: [], skipped: [] }, readFile: () => { throw new Error("unreadable"); } }), ["x/Cargo.toml"], "an unreadable one is not");
+});
+
+test("manifestWorkspaceMetadata returns the manifests a glob or a path dependency reaches but whose package name it cannot read", (t) => {
+  const files = { "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n[workspace.dependencies]\nviadep = { path = "libs/viadep" }\n', "crates/a/Cargo.toml": pkg("a"), "crates/odd/Cargo.toml": '[package]\nname = """odd"""\n', "libs/viadep/Cargo.toml": '[package]\nversion = "1.0.0"\n' };
+  const root = mkRepo(files, t);
+  const all = Object.keys(files);
+  const found = manifestWorkspaceMetadata({ root, dir: ".", tracked: (n) => (n === "Cargo.toml" ? all : []), readFile: (f) => fs.readFileSync(f, "utf8") });
+  assert.deepEqual(found.members.map((m) => m.name), ["a"]);
+  assert.deepEqual(found.unplaced, ["crates/odd/Cargo.toml", "libs/viadep/Cargo.toml"]);
 });
