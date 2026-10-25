@@ -26,6 +26,7 @@ import { spawn as spawnChild, spawnSync } from "./background-process.mjs";
 import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
+import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
@@ -993,18 +994,9 @@ function rustEditionResolver({ contentRoot, exists, readFile }) {
   };
 }
 
-// A crate that can never be published (`publish = false` or `publish = []` in its [package] table) ships its licence
-// to no one, like a package.json with `"private": true`; it needs no license key. An array-of-tables header (`[[bin]]`,
-// `[[package.metadata.x]]`) starts a new table like any other, so a `publish` key under it is not the package's.
-function cargoUnpublished(text) {
-  let table = "";
-  for (const line of text.split(/\r?\n/)) {
-    const header = /^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/.exec(line);
-    if (header) { table = header[1].trim(); continue; }
-    if (table === "package" && /^\s*publish\s*=\s*(?:false\b|\[\s*\])/.test(line)) return true;
-  }
-  return false;
-}
+// A crate that can never be published (`publish = false` or `publish = []` in its [package] table) needs no license key, like a
+// package.json with `"private": true`; cargo-manifest-text.mjs holds the one reading of that rule, which the secret scan shares.
+function cargoUnpublished(text) { return cargoManifestState(text).unpublished; }
 
 const INTERNAL = {
   "json-parse": (s, ctx) => {
@@ -1057,15 +1049,18 @@ const INTERNAL = {
     }
     return bad;
   },
+  // The repository gate reads env templates and test vectors against the reviewed records of the gated commit
+  // (.rightkit/secret-scan-records.json, read from the content root by the scanner); crate packaging stays strict.
+  // Each violation names its repository-relative path, so a unit that is both a crate and a package reports a file once.
   "secret-scan": async (s, ctx) => {
     const scan = await ctx.deps.scanSecrets();
-    const bad = [];
+    const bad = new Set();
     for (const dir of s.dirs) {
       const abs = path.join(ctx.contentRoot, dir);
-      if (!ctx.deps.exists(abs)) { bad.push(`${dir}: directory not found`); continue; }
-      for (const v of scan(abs, { envTemplates: true })) bad.push(`${dir}: ${v}`);
+      if (!ctx.deps.exists(abs)) { bad.add(`${dir}: directory not found`); continue; }
+      for (const v of scan(abs, { envTemplates: true, repoRoot: ctx.contentRoot })) bad.add(v);
     }
-    return bad;
+    return [...bad];
   },
 };
 

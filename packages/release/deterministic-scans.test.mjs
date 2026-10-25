@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -218,7 +218,7 @@ test("internal checks: JSON, changelog heading, license, ownership catalog and s
   assert.match(by("secret-scan").detail, /\.env/);
 });
 
-test("license: a crate that can never be published needs no license key; the secret scan reads env templates by content", async () => {
+test("license: a crate that can never be published needs no license key; the secret scan runs in the repository-gate mode", async () => {
   const crate = (name, tail) => ({ [`crates/${name}/Cargo.toml`]: `[package]\nname = "${name}"\nversion = "1.0.0"\n${tail}`, [`crates/${name}/src/lib.rs`]: "" });
   const files = {
     ...crate("nopub", "publish = false\n"),
@@ -240,7 +240,52 @@ test("license: a crate that can never be published needs no license key; the sec
   assert.doesNotMatch(license.detail, /pkgthenbin/, "publish = false in [package] before a [[bin]] still exempts");
   assert.match(license.detail, /crates\/truepub\/Cargo\.toml/);
   assert.doesNotMatch(license.detail, /nopub|emptypub/);
-  assert.ok(options.length > 0 && options.every((o) => o?.envTemplates === true), "the repository scan asks for env templates by content");
+  assert.ok(options.length > 0 && options.every((o) => o?.envTemplates === true && o.repoRoot === CONTENT), "the repository scan runs in the repository-gate mode, against the gated commit's records");
+});
+
+test("secret-scan: a violation found through two overlapping units is reported once, as the scanner names it", async () => {
+  const files = {
+    "crates/foo/Cargo.toml": '[package]\nname = "foo"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/foo/src/lib.rs": "",
+    "packages/foo/package.json": '{"name":"foo","private":true}',
+  };
+  const fs = fakeFs(files, files);
+  const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+  const dirs = [];
+  const scanSecrets = async () => (dir, opts) => { dirs.push(dir); return [".env.example: env template (sha256 abc) is not recorded", "docs/vec.md:3: content matches a GitHub token (gh*_) (line 3)"]; };
+  const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"], scanSecrets });
+  const secret = result.scans.find((s) => s.id === "secret-scan");
+  assert.equal(secret.status, "fail");
+  assert.ok(dirs.length >= 2, "both units were scanned");
+  assert.equal(secret.detail, ".env.example: env template (sha256 abc) is not recorded; docs/vec.md:3: content matches a GitHub token (gh*_) (line 3)");
+});
+
+test("secret-scan: the gate admits an env template and a fixture only by the records of the gated commit", async (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rk-gate-secret-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+  const template = "API_URL=http://localhost:3000\nPOSTGRES_PASSWORD=postgres\n";
+  const vector = `// fake test vector\nlet t = "${"gh" + "p_" + "A".repeat(24)}";\n`;
+  const put = (name, body) => { mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), body); };
+  put("package.json", '{"name":"app","private":true}');
+  put(".env.example", template);
+  put("src/redact.rs", vector);
+  const run = async () => {
+    const plan = planScans({ changed: [".env.example", "src/redact.rs"], contentRoot: root, liveRoot: root, platform: "linux", includeTests: false, npmUnits: [{ name: "app", dir: "." }] });
+    const result = await runScans(plan, { classes: ["A"], exclude: (scan) => scan.id !== "secret-scan" });
+    return result.scans.find((s) => s.id === "secret-scan");
+  };
+  const refused = await run();
+  assert.equal(refused.status, "fail");
+  assert.match(refused.detail, new RegExp(`\\.env\\.example: env template \\(sha256 ${sha(template)}\\) is not recorded in \\.rightkit/secret-scan-records\\.json; after reviewing`));
+  assert.match(refused.detail, new RegExp(`src/redact\\.rs:2: content matches a GitHub token \\(gh\\*_\\) \\(line 2\\); sha256 ${sha(vector)}`));
+  put(".rightkit/secret-scan-records.json", JSON.stringify({ schema: 1, records: [
+    { path: ".env.example", sha256: sha(template), kind: "env-template", note: "local dev defaults only" },
+    { path: "src/redact.rs", sha256: sha(vector), kind: "fixture", note: "redaction test vector, fake value" },
+  ] }));
+  const admitted = await run();
+  assert.equal(admitted.status, "pass", admitted.detail);
+  put(".env.example", `${template}EXTRA=1\n`);
+  assert.match((await run()).detail, /\.env\.example: env template changed since it was recorded/);
 });
 
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
