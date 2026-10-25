@@ -37,6 +37,21 @@ export function leadFloor(floors) {
   return floors.find((f) => f.agentVolume) ?? floors.find((f) => !f.absent) ?? floors[0];
 }
 
+const floorKey = (f) => f.id ?? f.label;
+
+/** Why an emergency purge must not run yet, or null when it may: `uncalibrated` (no `disk.calibrated` event), `calibration-stale` (the
+ * log holds one, but none lists every agentVolume floor of this policy with the threshold it has now; a floor that cannot be read has
+ * no threshold to compare), `log-unreadable` (any read error but a missing log: nothing proves a calibration, so it counts as none).
+ * The calibration is searched backwards through the whole log, so a busy day of sweep lines cannot bury it. */
+export function calibrationGap({ logFile, floors }) {
+  const agent = floors.filter((f) => f.agentVolume);
+  const covers = (e) => Array.isArray(e.floors) && agent.every((f) => Number.isFinite(f.thresholdBytes) && e.floors.some((r) => r && r.id === floorKey(f) && r.thresholdBytes === f.thresholdBytes));
+  try {
+    if (lastEvent(logFile, ["disk.calibrated"], { accept: covers })) return null;
+    return lastEvent(logFile, ["disk.calibrated"]) ? "calibration-stale" : "uncalibrated";
+  } catch { return "log-unreadable"; }
+}
+
 function renderFloor(f) {
   if (f.error) return `${f.label}: free space cannot be read (${f.error})  WARN`;
   return `${f.label}: ${formatBytes(f.freeBytes)} free of ${formatBytes(f.totalBytes)} (floor ${formatBytes(f.thresholdBytes)})${f.warn ? "  WARN" : ""}${f.hardWarn ? `  BELOW THE ${formatBytes(f.hardFreeBytes)} BUILD REFUSAL LEVEL` : ""}`;
@@ -88,9 +103,9 @@ export function renderSweep(plan, applied, { all = false } = {}) {
   return lines.join("\n");
 }
 
-function parse(rest) {
-  const known = new Set(["--json", "--dry-run", "--delete", "--all", "--days", "--policy", "--auto", "--light"]);
-  const opts = { json: false, dryRun: false, deleteMode: false, all: false, auto: false, light: false, days: undefined, policy: undefined };
+function parse(rest, command) {
+  const known = new Set(["--json", "--dry-run", "--delete", "--all", "--days", "--policy", "--auto", "--light", "--calibrate"]);
+  const opts = { json: false, dryRun: false, deleteMode: false, all: false, auto: false, light: false, calibrate: false, days: undefined, policy: undefined };
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
     if (!known.has(a)) throw new Error(`disk: unknown option ${a}`);
@@ -100,11 +115,13 @@ function parse(rest) {
     else if (a === "--all") opts.all = true;
     else if (a === "--auto") opts.auto = true;
     else if (a === "--light") opts.light = true;
+    else if (a === "--calibrate") opts.calibrate = true;
     else { const v = rest[++i]; if (!v) throw new Error(`disk: ${a} needs a value`); if (a === "--days") opts.days = Number(v); else opts.policy = v; }
   }
   if (opts.days !== undefined && !(opts.days >= 0)) throw new Error("disk: --days must be a non-negative number");
   if (opts.dryRun && opts.deleteMode) throw new Error("disk sweep accepts either --dry-run or --delete");
   if (opts.auto && opts.light) throw new Error("disk run accepts either --auto or --light");
+  if (opts.calibrate && command !== "check") throw new Error("disk: --calibrate is only valid with check");
   return opts;
 }
 
@@ -231,6 +248,8 @@ export function sourceCli({ explicit, env = process.env, self = path.join(here, 
   return resolve({ explicit, env });
 }
 
+const CALIBRATE_NOTICE = "before the first emergency purge can act: run `right-release disk check --json` and compare freeBytes with each floor, then `right-release disk check --calibrate`; until a calibration is recorded an emergency purges nothing";
+
 const AGE_LIMIT_HOURS = 26;
 
 const humanAge = (ms) => (ms < 3600_000 ? `${Math.max(0, Math.round(ms / 60_000))} min` : `${(ms / 3600_000).toFixed(1)} h`);
@@ -286,6 +305,11 @@ function scheduleStatus({ platform, stdout, env = process.env, home: defaultHome
   if (age.lastLight) stdout(`  last light run: ${humanAge(now - Date.parse(age.lastLight.ts))} ago`);
   else stdout("  last light run: none recorded");
   for (const p of age.problems) stdout(`  PROBLEM: ${p}`);
+  // Informational: the emergency purge is simply off until a calibration is recorded, which is not a fault of the job.
+  let calibrated = null;
+  try { calibrated = lastEvent(logFile, ["disk.calibrated"]); } catch { /* an unreadable log counts as no calibration */ }
+  const calibratedAt = calibrated ? Date.parse(calibrated.ts) : NaN;
+  stdout(Number.isFinite(calibratedAt) ? `  calibration: recorded ${humanAge(now - calibratedAt)} ago` : "  calibration: NOT RECORDED (emergency purge disabled)");
   return loaded && age.ok ? 0 : 1;
 }
 
@@ -308,6 +332,7 @@ function schedule(sub, { stdout, cli, platform = process.platform, env = process
       const r = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, bound.file], { encoding: "utf8" });
       if (r.status !== 0) throw new Error(`launchctl bootstrap failed: ${r.stderr}`);
       stdout(`installed ${bound.file} (hourly: full pass after 03:30, light passes otherwise), bound to ${installed.cli}`);
+      stdout(CALIBRATE_NOTICE);
     } else {
       spawnSync("launchctl", ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
       if (existsSync(spec.file)) unlinkSync(spec.file);
@@ -323,6 +348,7 @@ function schedule(sub, { stdout, cli, platform = process.platform, env = process
     const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", bound.script], { encoding: "utf8" });
     if (r.status !== 0) throw new Error(`Register-ScheduledTask failed: ${r.stderr || r.stdout}`);
     stdout(`installed scheduled task "${WINDOWS_TASK}" (hourly, hidden: full pass after 03:30, light passes otherwise), bound to ${installed.cli}`);
+    stdout(CALIBRATE_NOTICE);
   } else {
     spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Unregister-ScheduledTask -TaskName '${WINDOWS_TASK}' -Confirm:$false`], { encoding: "utf8" });
     stdout("uninstalled");
@@ -670,7 +696,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     return { exitCode: 0 };
   }
   if (command === "run-root") return runRootCommand(rest, { env, stdout, platform, deps });
-  const opts = parse(rest);
+  const opts = parse(rest, command);
   const policy = readDiskPolicy(opts.policy);
   const key = platformKey(platform);
   const logFile = path.join(policy.heavyVolume[key], "disk-hygiene.jsonl");
@@ -678,6 +704,30 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
   const check = () => checkDisk({ policy, platform, env, ...deps.check });
   const plan = () => planSweep({ policy, platform, env, staleDays: opts.days, openPaths: platform === "win32" ? null : (deps.openPaths ?? listOpenPaths({ platform })), ...deps.plan });
 
+  if (command === "check" && opts.calibrate) {
+    const nowMs = deps.now ?? Date.now();
+    const floors = checkFloors({ policy, platform, ...(deps.check?.space ? { space: deps.check.space } : {}) });
+    const below = floors.filter((f) => f.agentVolume && f.warn);
+    if (below.length) {
+      // Recording a calibration while the volume is already under its floor would make a chronically low volume an accident.
+      const lines = below.map((f) => (f.error ? `${f.label}: free space cannot be read (${f.error})` : `${f.label}: ${formatBytes(f.freeBytes)} free, ${formatBytes(f.thresholdBytes - f.freeBytes)} below its floor of ${formatBytes(f.thresholdBytes)}`));
+      lines.push("Nothing was recorded: lower the floor in disk-policy.json or free space first, so that running this volume low is a decision, never an accident.");
+      out({ calibrated: false, below: below.map((f) => ({ id: floorKey(f), freeBytes: f.freeBytes ?? null, thresholdBytes: f.thresholdBytes ?? null })) }, lines.join("\n"));
+      return { exitCode: 1, calibrated: false, floors };
+    }
+    const ts = new Date(nowMs).toISOString();
+    const recorded = floors.map((f) => ({ id: floorKey(f), label: f.label, path: f.path, thresholdBytes: f.thresholdBytes ?? null, freeBytes: f.freeBytes ?? null, agentVolume: Boolean(f.agentVolume) }));
+    logEvent(logFile, { ts, event: "disk.calibrated", floors: recorded });
+    // logEvent never throws; read the line back so "recorded" is only ever said about a line that is in the log.
+    let found = false;
+    try { found = Boolean(lastEvent(logFile, ["disk.calibrated"], { accept: (e) => e.ts === ts })); } catch { /* not found */ }
+    if (!found) {
+      out({ calibrated: false, error: `cannot write ${logFile}` }, `Nothing was recorded: ${logFile} cannot be written`);
+      return { exitCode: 1, calibrated: false, floors };
+    }
+    out({ calibrated: true, logFile, floors: recorded }, [`Calibration recorded in ${logFile}:`, ...recorded.map((f) => `  ${f.label}: ${f.freeBytes === null ? "free space unreadable" : `${formatBytes(f.freeBytes)} free`}, floor ${f.thresholdBytes === null ? "unknown" : formatBytes(f.thresholdBytes)}${f.agentVolume ? " (agent volume)" : ""}`), "Emergency purge is enabled while these floors stay as they are; changing a floor needs a new calibration."].join("\n"));
+    return { exitCode: 0, calibrated: true, floors: recorded };
+  }
   if (command === "check") {
     const result = check();
     out(result, renderCheck(result));
@@ -719,7 +769,15 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     // Only the agent volume running below its soft floor is an emergency: the undo window is spent
     // (days 0, so what this pass just moved is purged too). Warnings from other floors or writers are not.
     const emergencyFloor = (floors) => floors.find((f) => f.agentVolume && f.warn && !f.absent);
-    const emergencyPurge = (squeezed) => {
+    // Purging without an undo window on numbers nobody has looked at is how a mis-set floor would empty every holding folder each
+    // hour, so it waits for a recorded calibration (`disk check --calibrate`). Without one the run is an ordinary run: null.
+    const emergencyPurge = (squeezed, floors) => {
+      const gap = calibrationGap({ logFile, floors });
+      if (gap) {
+        logEvent(logFile, { event: "disk.emergency.skipped", reason: gap, floorId: floorKey(squeezed), freeBytes: squeezed.freeBytes, thresholdBytes: squeezed.thresholdBytes });
+        stdout(`EMERGENCY SKIPPED (${gap}): ${squeezed.label} is below its floor but no calibration is recorded; run \`right-release disk check --json\`, compare freeBytes with the floor, then \`right-release disk check --calibrate\``);
+        return null;
+      }
       // Only the holding bases on the squeezed volume: emptying another volume's undo window would free nothing here.
       const bases = holdingBasesOnVolume(squeezed.path, { policy, platform, env, ...(deps.deviceOf ? { deviceOf: deps.deviceOf } : {}) });
       const purged = purgeHoldings({ policy, platform, env, days: 0, bases, ...deps.purge });
@@ -734,7 +792,8 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
       // scan, no stray walk, and lsof only once a candidate exists. It purges nothing but in the emergency.
       ensureScratchRoots({ policy, platform, env });
       const floorOptions = { policy, platform, ...(deps.check?.space ? { space: deps.check.space } : {}) };
-      const squeezed = emergencyFloor(checkFloors(floorOptions));
+      const floorsBefore = checkFloors(floorOptions);
+      const squeezed = emergencyFloor(floorsBefore);
       let lockCheck = {};
       if (platform !== "win32" && !deps.plan?.inUse) {
         if (deps.openPaths !== undefined) lockCheck = { openPaths: deps.openPaths };
@@ -742,11 +801,11 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
       }
       const p = planSweep({ policy, platform, env, staleDays: opts.days, light: true, ...lockCheck, ...deps.plan });
       const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
-      const purged = squeezed ? emergencyPurge(squeezed) : null;
+      const purged = squeezed ? emergencyPurge(squeezed, floorsBefore) : null;
       const floors = checkFloors(floorOptions);
       const lead = leadFloor(floors);
       if (logReadError) stdout(`WARNING: the run log ${logFile} cannot be read (${logReadError.message}), so this run stays light`);
-      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floorId: lead.id ?? lead.label, ...(logReadError ? { logReadError: logReadError.message } : {}), floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
+      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floorId: lead.id ?? lead.label, ...(logReadError ? { logReadError: logReadError.message } : {}), floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(purged), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
       stdout(`light pass: moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length}), ${lead.absent ? `${lead.label} is not readable` : `${lead.label} ${formatBytes(lead.freeBytes)} free`}`);
       return { exitCode: 0, pass: "light", plan: p, applied, purged, floors, selfCheck: self };
     }
@@ -759,9 +818,8 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
     stdout(`moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length})`);
     const squeezed = emergencyFloor(before.floors ?? [before.floor]);
-    let purged;
-    if (squeezed) purged = emergencyPurge(squeezed);
-    else {
+    let purged = squeezed ? emergencyPurge(squeezed, before.floors ?? [before.floor]) : null;
+    if (!purged) {
       purged = purgeHoldings({ policy, platform, env, ...deps.purge });
       stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
     }
@@ -779,7 +837,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
     return { exitCode: warn ? DISK_EXIT_WARNING : 0, pass: "full", before, after, applied, purged, selfCheck: self };
   }
-  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run [--auto|--light]|run-root <name> [--days N] [--release]|schedule install|uninstall|status|agent-env [--root dir] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]|probe  [--json]");
+  throw new Error("disk usage: check [--calibrate]|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run [--auto|--light]|run-root <name> [--days N] [--release]|schedule install|uninstall|status|agent-env [--root dir] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]|probe  [--json]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -1507,13 +1507,25 @@ function emergencyFixture({ agentVolume = true } = {}) {
   file(path.join(today, "moved", "f"), 10, now - 3600_000);
   utimesSync(today, (now - 3600_000) / 1000, (now - 3600_000) / 1000); // the injected clock is the fixture's "now", not the real one
   writeFileSync(path.join(base, HOLDING_MARKER), "");
-  const run = (freeBytes) => runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes, totalBytes: 10000 }) }, purge: { bases: [base], now } } });
+  const lines = [];
+  const run = (freeBytes) => runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes, totalBytes: 10000 }) }, purge: { bases: [base], now } } });
   const events = () => readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  return { today, run, events };
+  const calibrateRun = (freeBytes, args = []) => runDiskCommand(["check", "--calibrate", ...args, "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { check: { space: () => ({ freeBytes, totalBytes: 10000 }) } } });
+  return { root, heavy, pf, today, run, calibrateRun, events, lines };
+}
+
+// The line `disk check --calibrate` writes: every floor of the policy with the threshold it had then.
+function calibrationLine(floors = [{ id: "d", label: "fixture", thresholdBytes: 1000, freeBytes: 5000, agentVolume: true }], ts = "2026-10-14T09:00:00.000Z") {
+  return `${JSON.stringify({ ts, event: "disk.calibrated", floors })}\n`;
+}
+function calibrate(heavy, ...args) {
+  mkdirSync(heavy, { recursive: true });
+  appendFileSync(path.join(heavy, "disk-hygiene.jsonl"), calibrationLine(...args));
 }
 
 test("run: below the agent volume's soft floor the holding folders are purged the same day and the event says so", async () => {
-  const { today, run, events } = emergencyFixture();
+  const { heavy, today, run, events } = emergencyFixture();
+  calibrate(heavy);
   const r = await run(1);
   assert.equal(existsSync(today), false);
   assert.equal(r.purged.results.length, 1);
@@ -1535,6 +1547,167 @@ test("run: a floor that is not the agent volume warning is not an emergency", as
   assert.equal(r.exitCode, 3);
   assert.equal(existsSync(today), true);
   assert.equal(events().some((x) => x.event === "disk.run.emergency"), false);
+});
+
+// ---- emergency purge needs a recorded calibration (`disk check --calibrate`) ----------------------------------------------------
+
+const SKIP_TEXT = /EMERGENCY SKIPPED \(([a-z-]+)\): fixture is below its floor but no calibration is recorded; run `right-release disk check --json`, compare freeBytes with the floor, then `right-release disk check --calibrate`/;
+
+test("run: an uncalibrated emergency purges nothing and logs the skip, in the full pass", async () => {
+  const { today, run, events, lines } = emergencyFixture();
+  const r = await run(1);
+  assert.equal(r.exitCode, 3);
+  assert.equal(existsSync(today), true); // today's folder is inside its normal holding window
+  const skipped = events().filter((e) => e.event === "disk.emergency.skipped");
+  assert.equal(skipped.length, 1);
+  assert.deepEqual([skipped[0].reason, skipped[0].floorId, skipped[0].freeBytes, skipped[0].thresholdBytes], ["uncalibrated", "d", 1, 1000]);
+  assert.equal(events().some((e) => e.event === "disk.run.emergency"), false);
+  assert.equal(SKIP_TEXT.exec(lines.join("\n"))?.[1], "uncalibrated");
+  assert.doesNotMatch(lines.join("\n"), /EMERGENCY: the agent volume/);
+});
+
+test("run: an uncalibrated emergency otherwise runs as an ordinary pass: the normal holding window purges what has aged out", async () => {
+  const { base, run, events } = lightFixture({ freeBytes: 1 });
+  const today = path.join(base, "2026-10-15");
+  file(path.join(today, "moved", "f"), 10, Date.now());
+  const r = await run([], { plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 1, totalBytes: 10000 }) } });
+  assert.equal(r.pass, "full");
+  assert.equal(existsSync(path.join(base, "2020-01-01")), false); // past its window: the ordinary purge, not the emergency one
+  assert.equal(existsSync(today), true); // inside the window: an emergency would have taken it
+  assert.equal(events().find((e) => e.event === "disk.emergency.skipped").reason, "uncalibrated");
+});
+
+test("run --light: an uncalibrated emergency purges nothing, logs the skip and still sweeps normally", async () => {
+  const { root, base, run, events, lines } = lightFixture({ freeBytes: 1 });
+  const today = path.join(base, "2026-10-15");
+  file(path.join(today, "moved", "f"), 10, Date.parse("2026-10-15T11:00:00Z"));
+  const r = await run(["--light"], { purge: { bases: [base], now: Date.parse("2026-10-15T12:00:00Z") } });
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.purged, null);
+  assert.equal(existsSync(today), true);
+  assert.equal(existsSync(path.join(base, "2020-01-01")), true);
+  assert.equal(existsSync(path.join(root, "ltmp", "old")), false); // the light sweep itself ran as always
+  const e = events();
+  assert.equal(e.some((x) => x.event === "disk.run.emergency"), false);
+  assert.deepEqual([e.find((x) => x.event === "disk.emergency.skipped").reason, e.find((x) => x.event === "disk.emergency.skipped").floorId], ["uncalibrated", "d"]);
+  assert.equal(e.at(-1).event, "disk.run.light");
+  assert.equal(e.at(-1).emergency, false);
+  assert.match(lines.join("\n"), SKIP_TEXT);
+});
+
+test("check --calibrate while the agent volume is below its floor records nothing, names the floor and exits 1", async () => {
+  const { heavy, calibrateRun, lines } = emergencyFixture();
+  const r = await calibrateRun(1);
+  assert.equal(r.exitCode, 1);
+  assert.equal(existsSync(path.join(heavy, "disk-hygiene.jsonl")), false);
+  const text = lines.join("\n");
+  assert.match(text, /fixture: .* free, .* below its floor of /);
+  assert.match(text, /lower the floor in disk-policy\.json or free space first/);
+  assert.doesNotMatch(text, /Calibration recorded/);
+});
+
+test("check --calibrate with the agent volume above its floor records every floor and exits 0", async () => {
+  const { root, heavy, calibrateRun, lines, run, today, events } = emergencyFixture();
+  const r = await calibrateRun(5000);
+  assert.equal(r.exitCode, 0);
+  const line = events().find((e) => e.event === "disk.calibrated");
+  assert.deepEqual(line.floors, [{ id: "d", label: "fixture", path: root, thresholdBytes: 1000, freeBytes: 5000, agentVolume: true }]);
+  assert.match(lines.join("\n"), /Calibration recorded in .*disk-hygiene\.jsonl:\n {2}fixture: .* free, floor .* \(agent volume\)/);
+  // the line it wrote is the one the emergency looks for
+  await run(1);
+  assert.equal(existsSync(today), false);
+  assert.equal(events().some((e) => e.event === "disk.run.emergency"), true);
+  assert.equal(events().some((e) => e.event === "disk.emergency.skipped"), false);
+  assert.ok(existsSync(heavy));
+});
+
+test("check --calibrate: only an agent volume below its floor blocks it, and an unwritable log is not reported as recorded", async () => {
+  const { root, heavy, policy } = fixture();
+  const internal = path.join(root, "internal");
+  mkdirSync(internal);
+  policy.floors = { mac: [{ id: "internal", path: internal, label: "internal", warnFreeBytes: 1000, holdingSource: true }, { id: "d", path: root, label: "D", warnFreeBytes: 1000, agentVolume: true }] };
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  const space = (p) => (p === internal ? { freeBytes: 1, totalBytes: 10000 } : { freeBytes: 5000, totalBytes: 10000 });
+  const lines = [];
+  const calibrateRun = () => runDiskCommand(["check", "--calibrate", "--json", "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { check: { space } } });
+  const r = await calibrateRun();
+  assert.equal(r.exitCode, 0); // the internal drive warning is not the agent volume's
+  const out = JSON.parse(lines[0]);
+  assert.equal(out.calibrated, true);
+  assert.deepEqual(out.floors.map((f) => [f.id, f.thresholdBytes, f.freeBytes, f.agentVolume]), [["internal", 1000, 1, false], ["d", 1000, 5000, true]]);
+  rmSync(heavy, { recursive: true });
+  writeFileSync(heavy, "a file where the log directory should be");
+  lines.length = 0;
+  const failed = await calibrateRun();
+  assert.equal(failed.exitCode, 1);
+  assert.equal(JSON.parse(lines[0]).calibrated, false);
+});
+
+test("--calibrate is only valid with check", async () => {
+  const { pf } = emergencyFixture();
+  for (const command of ["sweep", "purge", "run"]) {
+    await assert.rejects(runDiskCommand([command, "--calibrate", "--policy", pf], { platform: "darwin", stdout: () => {} }), /--calibrate is only valid with check/);
+  }
+});
+
+test("run: changing a floor's threshold, or adding an agent volume floor, makes the calibration stale and the emergency is skipped", async () => {
+  const lowered = emergencyFixture();
+  calibrate(lowered.heavy, [{ id: "d", label: "fixture", thresholdBytes: 500, freeBytes: 5000, agentVolume: true }]); // calibrated at 500, the policy now says 1000
+  await lowered.run(1);
+  assert.equal(existsSync(lowered.today), true);
+  assert.equal(lowered.events().find((e) => e.event === "disk.emergency.skipped").reason, "calibration-stale");
+  assert.equal(lowered.events().some((e) => e.event === "disk.run.emergency"), false);
+  // a calibration that does not list the floor at all is stale as well
+  const other = emergencyFixture();
+  calibrate(other.heavy, [{ id: "elsewhere", label: "x", thresholdBytes: 1000, freeBytes: 5000, agentVolume: true }]);
+  await other.run(1);
+  assert.equal(existsSync(other.today), true);
+  assert.equal(other.events().find((e) => e.event === "disk.emergency.skipped").reason, "calibration-stale");
+  // a calibration that matches (an older line included) is honoured
+  const ok = emergencyFixture();
+  calibrate(ok.heavy);
+  calibrate(ok.heavy, [{ id: "d", label: "fixture", thresholdBytes: 500, freeBytes: 5000, agentVolume: true }], "2026-10-15T09:00:00.000Z");
+  await ok.run(1);
+  assert.equal(existsSync(ok.today), false);
+});
+
+test("run: a run log that cannot be read is uncalibrated, never calibrated", async () => {
+  const { heavy, today, run, lines } = emergencyFixture();
+  mkdirSync(path.join(heavy, "disk-hygiene.jsonl"), { recursive: true }); // EISDIR on read
+  const r = await run(1);
+  assert.equal(r.exitCode, 3);
+  assert.equal(existsSync(today), true);
+  assert.equal(SKIP_TEXT.exec(lines.join("\n"))?.[1], "log-unreadable");
+  // ... while a log that does not exist yet is simply uncalibrated
+  const fresh = emergencyFixture();
+  await fresh.run(1);
+  assert.equal(fresh.events().find((e) => e.event === "disk.emergency.skipped").reason, "uncalibrated");
+});
+
+test("run: a calibration under more than 4 MiB of later sweep lines is still found", async () => {
+  const { heavy, today, run, events } = emergencyFixture();
+  calibrate(heavy);
+  const log = path.join(heavy, "disk-hygiene.jsonl");
+  appendFileSync(log, fillerLine("2026-10-15T10:00:00.000Z").repeat(12000));
+  assert.ok(statSync(log).size > 4 * 1024 * 1024, "the filler pushes the calibration out of the last 4 MiB");
+  await run(1);
+  assert.equal(existsSync(today), false);
+  assert.equal(events().some((e) => e.event === "disk.emergency.skipped"), false);
+});
+
+test("schedule status says whether a calibration is recorded and how old it is", async () => {
+  const none = statusFixture([{ event: "disk.run.ok", pass: "full", ago: 3 }]);
+  assert.match((await none.status()).text, /calibration: NOT RECORDED \(emergency purge disabled\)/);
+  const done = statusFixture([{ event: "disk.run.ok", pass: "full", ago: 3 }]);
+  appendFileSync(done.logFile, calibrationLine(undefined, new Date(Date.parse("2026-10-24T12:00:00Z") - 2 * 3600_000).toISOString()));
+  const r = await done.status();
+  assert.match(r.text, /calibration: recorded 2\.0 h ago/);
+  assert.doesNotMatch(r.text, /NOT RECORDED/);
+  assert.equal(r.exitCode, 0); // an uncalibrated job is a notice, not a failed job
+  const unreadable = statusFixture(null);
+  mkdirSync(unreadable.logFile); // EISDIR
+  assert.match((await unreadable.status()).text, /PROBLEM: the run log/);
 });
 
 // ---- hourly job: fullPassDue, `run --auto|--light` -------------------------------------------------------------------------
@@ -1581,9 +1754,10 @@ function lightFixture({ freeBytes = 5000 } = {}) {
   file(path.join(base, "2020-01-01", "x"), 10, OLD);
   writeFileSync(path.join(base, HOLDING_MARKER), "");
   const forbidden = () => { throw new Error("the light pass must not do this"); };
-  const run = (args, extra = {}) => runDiskCommand(["run", ...args, "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10, scan: forbidden, strays: forbidden }, check: { size: forbidden, space: () => ({ freeBytes, totalBytes: 10000 }) }, purge: { bases: [base] }, ...extra } });
+  const lines = [];
+  const run = (args, extra = {}) => runDiskCommand(["run", ...args, "--policy", pf], { platform: "darwin", stdout: (l) => lines.push(l), deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10, scan: forbidden, strays: forbidden }, check: { size: forbidden, space: () => ({ freeBytes, totalBytes: 10000 }) }, purge: { bases: [base] }, ...extra } });
   const events = () => readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
-  return { root, heavy, base, run, events };
+  return { root, heavy, base, run, events, lines };
 }
 
 test("run --light: no du, no workspace scan, no stray walk and no purge; only the light writers and the scratch roots are swept; it logs disk.run.light", async () => {
@@ -1609,7 +1783,8 @@ test("run --light: no du, no workspace scan, no stray walk and no purge; only th
 });
 
 test("run --light: exit 0 below a floor too (only a failed self-check fails it), and below the agent volume's floor it purges, as the full pass does", async () => {
-  const { root, base, run, events } = lightFixture({ freeBytes: 1 });
+  const { root, heavy, base, run, events } = lightFixture({ freeBytes: 1 });
+  calibrate(heavy);
   const today = path.join(base, "2026-10-15");
   file(path.join(today, "moved", "f"), 10, Date.parse("2026-10-15T11:00:00Z"));
   utimesSync(today, Date.parse("2026-10-15T11:00:00Z") / 1000, Date.parse("2026-10-15T11:00:00Z") / 1000);
@@ -2216,6 +2391,7 @@ function twoVolumeFixture() {
   for (const base of [holdD, holdC]) { file(path.join(base, "2020-01-01", "w", "f"), 10, OLD); writeFileSync(path.join(base, HOLDING_MARKER), ""); }
   const deviceOfFake = (p) => (p.startsWith(other) ? 2 : 1);
   const run = (args, { device = deviceOfFake, freeBytes = 1 } = {}) => runDiskCommand(["run", ...args, "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], deviceOf: device, purge: { now: Date.now() + 3600_000 }, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes, totalBytes: 10000 }) } } });
+  calibrate(heavy);
   return { root, heavy, other, holdD, holdC, run, dated: (base) => existsSync(path.join(base, "2020-01-01")) };
 }
 
