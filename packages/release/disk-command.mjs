@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 import {
-  DISK_EXIT_WARNING, applySweep, checkDisk, checkFloors, ensureScratchRoots, formatBytes, inUseByOpenPaths, lastEvent, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, readRecentEvents, setWorkspaceSweepAllowed,
+  DISK_EXIT_WARNING, applySweep, checkDisk, checkFloors, ensureScratchRoots, formatBytes, holdingBasesOnVolume, inUseByOpenPaths, lastEvent, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, readRecentEvents, setWorkspaceSweepAllowed,
   createRunRoot, releaseRunRoot,
 } from "./disk-policy.mjs";
 import { buildDiskReport, measureScratchUnits, reportDue } from "./disk-report.mjs";
@@ -699,7 +699,9 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     // (days 0, so what this pass just moved is purged too). Warnings from other floors or writers are not.
     const emergencyFloor = (floors) => floors.find((f) => f.agentVolume && f.warn && !f.absent);
     const emergencyPurge = (squeezed) => {
-      const purged = purgeHoldings({ policy, platform, env, days: 0, ...deps.purge });
+      // Only the holding bases on the squeezed volume: emptying another volume's undo window would free nothing here.
+      const bases = holdingBasesOnVolume(squeezed.path, { policy, platform, env, ...(deps.deviceOf ? { deviceOf: deps.deviceOf } : {}) });
+      const purged = purgeHoldings({ policy, platform, env, days: 0, bases, ...deps.purge });
       stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
       stdout("EMERGENCY: the agent volume is below its soft floor, holding folders were purged without their undo window");
       logEvent(logFile, { event: "disk.run.emergency", floor: squeezed.id ?? squeezed.label, freeBytes: squeezed.freeBytes, purgedBytes: purged.purgedBytes });

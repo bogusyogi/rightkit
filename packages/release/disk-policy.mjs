@@ -972,6 +972,16 @@ export function knownHoldingBases({ policy, platform = process.platform, env = p
   return [...bases];
 }
 
+/** The holding bases (every known one plus the legacy heavy dir) that live on the volume holding `volumePath`: the ones whose purge
+ * frees that volume. An emergency on one volume must not empty another volume's undo window. None when that volume cannot be read. */
+export function holdingBasesOnVolume(volumePath, { policy, platform = process.platform, env = process.env, home = os.homedir(), deviceOf: deviceFor = deviceOf } = {}) {
+  const key = platformKey(platform);
+  const legacy = policy.heavyVolume?.[key];
+  const device = deviceFor(volumePath);
+  if (device === null || device === undefined) return [];
+  return [...new Set([...knownHoldingBases({ policy, platform, env, home }), ...(legacy ? [legacy] : [])])].filter((base) => deviceFor(base) === device);
+}
+
 // Newest modification time (ms) of a holding dir and of its direct children, symlinks not followed. A move into a dated
 // folder updates the mtime of the folder and of the writer dir inside it, though the moved item keeps its own age. Infinity
 // when the dir cannot be read: what cannot be inspected is not purged.

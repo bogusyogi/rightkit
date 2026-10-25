@@ -9,7 +9,7 @@ const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding:
 import { CACHEDIR_SIGNATURE, KEEP_MARKER, MAX_LEASE_DAYS, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, holdingBasesOnVolume, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -2198,5 +2198,55 @@ test("apply: a stray target whose run root was kept or leased since the plan sta
   assert.equal(existsSync(path.join(scratch, "rk-k", "repo", "target")), true);
   assert.equal(existsSync(path.join(scratch, "rk-l", "repo", "target")), true);
   assert.equal(existsSync(path.join(scratch, "rk-x", "repo", "target")), false);
+});
+
+// Two volumes: `root` is the squeezed agent volume (device 1) with its holding base `holdD`; `other` stands for the internal drive or C:
+// (device 2) with `holdC`. Both bases carry a long-expired dated folder, so only the purge decision decides what remains.
+function twoVolumeFixture() {
+  const { root, heavy, policy } = fixture();
+  const other = mkdtempSync(path.join(os.tmpdir(), "rk-other-"));
+  const holdD = path.join(root, "holdD");
+  const holdC = path.join(other, "holdC");
+  policy.floors = { mac: [{ id: "d", path: root, label: "fixture", warnFreeBytes: 1000, agentVolume: true }] };
+  policy.holding = { mac: [{ prefix: root, path: holdD }, { prefix: other, path: holdC }] };
+  policy.writers = [];
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  for (const base of [holdD, holdC]) { file(path.join(base, "2020-01-01", "w", "f"), 10, OLD); writeFileSync(path.join(base, HOLDING_MARKER), ""); }
+  const deviceOfFake = (p) => (p.startsWith(other) ? 2 : 1);
+  const run = (args, { device = deviceOfFake, freeBytes = 1 } = {}) => runDiskCommand(["run", ...args, "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], deviceOf: device, purge: { now: Date.now() + 3600_000 }, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes, totalBytes: 10000 }) } } });
+  return { root, heavy, other, holdD, holdC, run, dated: (base) => existsSync(path.join(base, "2020-01-01")) };
+}
+
+test("emergency purge empties only the holding bases on the squeezed volume, in the full pass and the light pass", async () => {
+  for (const args of [[], ["--light"]]) {
+    const { holdD, holdC, run, dated } = twoVolumeFixture();
+    const r = await run(args);
+    assert.equal(r.exitCode === 0 || r.exitCode === 3, true);
+    assert.equal(dated(holdD), false, `${args}: the squeezed volume's holding is purged`);
+    assert.equal(dated(holdC), true, `${args}: the other volume's holding keeps its undo window`);
+  }
+  // with both bases on one volume the same emergency purges both: the volume, not the base, decides
+  const same = twoVolumeFixture();
+  await same.run([], { device: () => 1 });
+  assert.equal(same.dated(same.holdD), false);
+  assert.equal(same.dated(same.holdC), false);
+  // a volume whose device cannot be read purges nothing
+  const unknown = twoVolumeFixture();
+  await unknown.run([], { device: () => null });
+  assert.equal(unknown.dated(unknown.holdD), true);
+  assert.equal(unknown.dated(unknown.holdC), true);
+});
+
+test("holdingBasesOnVolume: the known bases and the legacy heavy dir on that volume's device, nothing else", () => {
+  const { root, heavy, policy } = fixture();
+  const other = path.join(root, "elsewhere");
+  policy.holding = { mac: [{ prefix: root, path: path.join(root, "hold") }, { prefix: root, path: path.join(other, "hold") }] };
+  const device = (p) => (p.startsWith(other) ? 7 : 1);
+  const bases = holdingBasesOnVolume(root, { policy, platform: "darwin", deviceOf: device });
+  assert.equal(bases.includes(path.join(root, "hold")), true);
+  assert.equal(bases.includes(heavy), true); // the legacy heavy dir sits on the squeezed volume here
+  assert.equal(bases.some((b) => b.startsWith(other)), false);
+  assert.deepEqual(holdingBasesOnVolume(root, { policy, platform: "darwin", deviceOf: () => null }), []);
 });
 
