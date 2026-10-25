@@ -605,6 +605,113 @@ test("generated Rust (bindgen output or an @generated marker in the first five l
   assert.ok(checked.includes("crates/foo/src/hand.rs"), "the word 'generated' alone does not count");
 });
 
+// rustfmt runs each file under the edition its crate declares; a crate that inherits it (`edition.workspace = true`) takes the owning
+// workspace root's [workspace.package] edition (Pulse core/examples/chat_vectors.rs uses let-chains, Ember has 40 such manifests).
+const rustfmtEditions = (plan) => Object.fromEntries(plan.scans.filter((s) => s.id.startsWith("rustfmt:")).map((s) => [s.id.slice("rustfmt:".length), s.args.filter((a) => a.endsWith(".rs"))]));
+const editionRefusals = (plan) => plan.scans.filter((s) => s.internal === "refuse" && /rustfmt edition/.test(s.detail));
+
+test("rustfmt edition: edition.workspace = true resolves through the owning workspace root, in both manifest spellings", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["core", "tools/*"]\n\n[workspace.package]\nversion = "1.0.0"\nedition = "2024"\n',
+    "core/Cargo.toml": '[package]\nname = "core"\nedition.workspace = true\n',
+    "core/examples/chat_vectors.rs": "fn main() { if let Some(a) = b() && a {} }\n",
+    "tools/dotted/Cargo.toml": '[package]\nname = "dotted"\nedition.workspace = true # inherited\n',
+    "tools/dotted/src/lib.rs": "pub fn d() {}\n",
+    "tools/inline/Cargo.toml": '[package]\nname = "inline"\nedition = { workspace = true }\n',
+    "tools/inline/src/lib.rs": "pub fn i() {}\n",
+    "tools/literal/Cargo.toml": '[package]\nname = "literal"\nedition = "2018"\n',
+    "tools/literal/src/lib.rs": "pub fn l() {}\n",
+  };
+  const { plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), {
+    2018: ["tools/literal/src/lib.rs"],
+    2024: ["core/examples/chat_vectors.rs", "tools/dotted/src/lib.rs", "tools/inline/src/lib.rs"],
+  }, "inherited editions are the workspace's, a literal edition is the crate's own");
+  assert.deepEqual(editionRefusals(plan), []);
+});
+
+test("rustfmt edition: the nearest workspace root owns the crate, and a root package that is its own workspace inherits from itself", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["a"]\n[workspace.package]\nedition = "2024"\n',
+    "apps/inner/Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nedition = "2021"\n',
+    "apps/inner/crates/m/Cargo.toml": '[package]\nname = "m"\nedition.workspace = true\n',
+    "apps/inner/crates/m/src/lib.rs": "pub fn m() {}\n",
+    "solo/Cargo.toml": '[package]\nname = "solo"\nedition.workspace = true\n[workspace]\n[workspace.package]\nedition = "2018"\n',
+    "solo/src/lib.rs": "pub fn s() {}\n",
+    // A key under another table is not the package's edition, and a [package.metadata] edition does not hide the inheritance.
+    "meta/Cargo.toml": '[package]\nname = "meta"\nedition.workspace = true\n[package.metadata.docs]\nedition = "2015"\n[dependencies.x]\nedition = "2015"\n',
+    "meta/src/lib.rs": "pub fn t() {}\n",
+  };
+  const { plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), { 2018: ["solo/src/lib.rs"], 2021: ["apps/inner/crates/m/src/lib.rs"], 2024: ["meta/src/lib.rs"] });
+});
+
+test("rustfmt edition: an inheritance that cannot be followed fails the gate with a finding and is never rustfmt-checked under 2021", async () => {
+  const files = {
+    // No workspace anywhere above the crate.
+    "lone/Cargo.toml": '[package]\nname = "lone"\nedition.workspace = true\n',
+    "lone/src/lib.rs": "pub fn l() {}\n",
+    "lone/src/more.rs": "pub fn m() {}\n",
+    // A workspace root that declares no [workspace.package] edition, and one whose edition is not a literal year.
+    "ws/Cargo.toml": '[workspace]\nmembers = ["noedition"]\n[workspace.package]\nversion = "1.0.0"\n',
+    "ws/noedition/Cargo.toml": '[package]\nname = "noedition"\nedition = { workspace = true }\n',
+    "ws/noedition/src/lib.rs": "pub fn n() {}\n",
+    "ok/Cargo.toml": '[package]\nname = "ok"\nedition = "2021"\n',
+    "ok/src/lib.rs": "pub fn o() {}\n",
+  };
+  const { fs, plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), { 2021: ["ok/src/lib.rs"] }, "the unresolvable crates' files are not checked under a guessed edition");
+  const refusals = editionRefusals(plan);
+  assert.equal(refusals.length, 2, "one finding per manifest, not per file");
+  assert.ok(refusals.every((r) => r.class === "A" && r.id.startsWith("path-policy:")));
+  assert.match(refusals.map((r) => r.detail).join("\n"), /rustfmt edition of lone\/Cargo\.toml: lone\/Cargo\.toml sets edition\.workspace = true, but no Cargo\.toml at or above it declares a \[workspace\]/);
+  assert.match(refusals.map((r) => r.detail).join("\n"), /rustfmt edition of ws\/noedition\/Cargo\.toml: .*workspace root ws\/Cargo\.toml declares no literal \[workspace\.package\] edition/);
+  const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"] });
+  assert.equal(result.ok, false, "the gate fails on an edition it cannot resolve");
+  const failed = scanFailures(result).join("\n");
+  assert.match(failed, /lone\/Cargo\.toml/);
+  assert.match(failed, /ws\/Cargo\.toml/);
+});
+
+test("rustfmt edition: an edition entry in a spelling the scan does not recognise is a finding, never a skipped line", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\n[workspace.package]\nedition = 2024\n',
+    "num/Cargo.toml": '[package]\nname = "num"\nedition = 2021\n',
+    "num/src/lib.rs": "pub fn n() {}\n",
+    "inherit/Cargo.toml": '[package]\nname = "inherit"\nedition.workspace = true\n',
+    "inherit/src/lib.rs": "pub fn i() {}\n",
+    "quoted/Cargo.toml": '[package]\nname = "quoted"\n"edition" = "2018"\n',
+    "quoted/src/lib.rs": "pub fn q() {}\n",
+    "off/Cargo.toml": '[package]\nname = "off"\nedition.workspace = false\n',
+    "off/src/lib.rs": "pub fn o() {}\n",
+  };
+  const { plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), { 2018: ["quoted/src/lib.rs"] }, "a quoted key is the same key");
+  const details = editionRefusals(plan).map((r) => r.detail).join("\n");
+  assert.match(details, /rustfmt edition of num\/Cargo\.toml: num\/Cargo\.toml has an edition entry the scan cannot read \(edition = 2021\)/);
+  assert.match(details, /rustfmt edition of off\/Cargo\.toml: off\/Cargo\.toml has an edition entry the scan cannot read \(edition\.workspace = false\)/);
+  assert.match(details, /rustfmt edition of inherit\/Cargo\.toml: inherit\/Cargo\.toml sets edition\.workspace = true, but its workspace root Cargo\.toml has a \[workspace\.package\] edition entry the scan cannot read \(edition = 2024\)/);
+  assert.equal(editionRefusals(plan).length, 3);
+});
+
+test("rustfmt edition: an unreadable manifest in the chain is a finding, not a default", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\n[workspace.package]\nedition = "2024"\n',
+    "a/Cargo.toml": '[package]\nname = "a"\nedition.workspace = true\n',
+    "a/src/lib.rs": "pub fn a() {}\n",
+    "b/Cargo.toml": '[package]\nname = "b"\nedition = "2021"\n',
+    "b/src/lib.rs": "pub fn b() {}\n",
+  };
+  const base = fakeFs(files, files);
+  const unreadable = (target) => ({ ...base, readFile: (p) => { if (norm(p) === norm(path.join(CONTENT, target))) throw new Error("EACCES: permission denied"); return base.readFile(p); } });
+  const member = planScans({ changed: ["a/src/lib.rs"], contentRoot: CONTENT, liveRoot: LIVE, ...unreadable("a/Cargo.toml"), platform: "linux" });
+  assert.deepEqual(rustfmtEditions(member), {});
+  assert.match(editionRefusals(member)[0].detail, /a\/Cargo\.toml cannot be read \(EACCES/);
+  const root = planScans({ changed: ["a/src/lib.rs", "b/src/lib.rs"], contentRoot: CONTENT, liveRoot: LIVE, ...unreadable("Cargo.toml"), platform: "linux" });
+  assert.deepEqual(rustfmtEditions(root), { 2021: ["b/src/lib.rs"] });
+  assert.match(editionRefusals(root)[0].detail, /sets edition\.workspace = true, but Cargo\.toml cannot be read \(EACCES/);
+});
+
 test("a crate with no default-feature clippy set keeps its default check", () => {
   const { plan } = planFor(["crates/foo/src/lib.rs"], {}, { crateFeatures: { foo: { featureSets: [["--features", "x"]], checkFeatureSets: [] } } });
   assert.ok(plan.scans.some((s) => s.id === "check:foo"));

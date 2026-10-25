@@ -535,21 +535,16 @@ export function planScans({
   };
   const rustFiles = files.filter((f) => f.endsWith(".rs") && !verbatimUpstream(f) && !recordedPatch(f) && !generatedRust(f));
   const byEdition = new Map();
+  const editionOf = rustEditionResolver({ contentRoot, exists, readFile });
+  const refusedEditions = new Set();
   for (const f of rustFiles) {
-    let dir = path.dirname(path.join(contentRoot, f));
-    let edition = "2021";
-    while (dir.startsWith(path.normalize(contentRoot))) {
-      const manifest = path.join(dir, "Cargo.toml");
-      if (exists(manifest)) {
-        const m = readFile(manifest).match(/^edition\s*=\s*"(\d{4})"/m);
-        if (m) edition = m[1];
-        break;
-      }
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
+    const found = editionOf(f);
+    if (found.problem) {
+      // Never guess an edition: a file whose edition cannot be resolved is not rustfmt-checked under a default, the gate fails on it.
+      if (!refusedEditions.has(found.manifest)) { refusedEditions.add(found.manifest); refuse(`rustfmt edition of ${found.manifest}`, found.problem); }
+      continue;
     }
-    byEdition.set(edition, [...(byEdition.get(edition) ?? []), f]);
+    byEdition.set(found.edition, [...(byEdition.get(found.edition) ?? []), f]);
   }
   for (const [edition, group] of [...byEdition].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
     add({ id: `rustfmt:${edition}`, class: A, tool: "rustfmt", args: ["--check", "--edition", edition, ...group.sort()], root: "content" });
@@ -916,6 +911,86 @@ async function defaultLoadYaml() {
 }
 async function defaultScanSecrets() {
   return (await import("./publish-cargo.mjs")).scanCrateForSecrets;
+}
+
+// What rustfmt needs from a Cargo.toml, read by table so an `edition` under [package.metadata.x] or [dependencies.x] is not the
+// package's: `pkg` is the [package] edition (a literal year, or "workspace" for `edition.workspace = true` / `edition = { workspace = true }`),
+// `ws` the [workspace.package] edition literal, `isWorkspace` whether the manifest declares a [workspace]. An `edition` entry in one of
+// those two tables that is none of the recognised spellings (`edition = 2021`, `edition.workspace = false`) is kept as `pkgBad` / `wsBad`
+// (the line), never skipped, so it cannot fall back to a default. Keys before any table header count as [package] keys (the fixtures of
+// this package's tests write manifests that way; cargo itself rejects them).
+export function cargoEditions(text) {
+  const out = { pkg: undefined, ws: undefined, pkgBad: undefined, wsBad: undefined, isWorkspace: false };
+  let table = "";
+  for (const raw of String(text).split(/\r?\n/)) {
+    const header = /^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/.exec(raw);
+    if (header) {
+      table = header[1].trim();
+      if (table === "workspace" || table.startsWith("workspace.")) out.isWorkspace = true;
+      continue;
+    }
+    if (table !== "" && table !== "package" && table !== "workspace.package") continue;
+    const line = raw.replace(/^(\s*)(["'])edition\2/, "$1edition");
+    if (!/^\s*edition\s*(?:[.=]|$)/.test(line)) continue;
+    let value;
+    if (/^\s*edition\.workspace\s*=\s*true\s*(?:#.*)?$/.test(line) || /^\s*edition\s*=\s*\{\s*workspace\s*=\s*true\s*\}\s*(?:#.*)?$/.test(line)) value = "workspace";
+    else value = (/^\s*edition\s*=\s*(?:"(\d{4})"|'(\d{4})')\s*(?:#.*)?$/.exec(line) || []).slice(1).find(Boolean);
+    if (table === "workspace.package") {
+      if (value !== undefined && value !== "workspace") out.ws = value; else out.wsBad = raw.trim();
+    } else if (value !== undefined) out.pkg = value;
+    else out.pkgBad = raw.trim();
+  }
+  return out;
+}
+
+/**
+ * The edition rustfmt must run a Rust file under: `{ edition }`, or `{ manifest, problem }` when it cannot be resolved.
+ * The nearest Cargo.toml at or above the file decides. A literal `edition = "NNNN"` is that edition; `edition.workspace = true`
+ * (or `edition = { workspace = true }`) is the `[workspace.package] edition` of the owning workspace root, the nearest manifest at or
+ * above it that declares `[workspace]`, which is the manifest itself for a root package. An inheritance that cannot be followed
+ * (no workspace root, an unreadable manifest, or a root with no literal `[workspace.package] edition`) is a `problem`, never a default.
+ * A manifest that names no edition at all, and a file below no manifest, keep rustfmt's "2021" as before.
+ */
+function rustEditionResolver({ contentRoot, exists, readFile }) {
+  const root = path.normalize(contentRoot);
+  const inside = (dir) => { const rel = path.relative(root, dir); return rel === "" || !(rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)); };
+  const rel = (dir) => posix(path.relative(root, path.join(dir, "Cargo.toml")));
+  const parsed = new Map();
+  const manifestAt = (dir) => {
+    if (!parsed.has(dir)) {
+      let value;
+      try { value = cargoEditions(readFile(path.join(dir, "Cargo.toml"))); } catch (e) { value = { unreadable: String(e?.message ?? e).split("\n")[0] }; }
+      parsed.set(dir, value);
+    }
+    return parsed.get(dir);
+  };
+  const ancestors = function* (start) {
+    for (let dir = start; inside(dir); dir = path.dirname(dir)) {
+      yield dir;
+      if (path.dirname(dir) === dir) return;
+    }
+  };
+  return (file) => {
+    const dir = [...ancestors(path.dirname(path.join(root, file)))].find((d) => exists(path.join(d, "Cargo.toml")));
+    if (dir === undefined) return { edition: "2021" };
+    const manifest = rel(dir);
+    const info = manifestAt(dir);
+    if (info.unreadable) return { manifest, problem: `${manifest} cannot be read (${info.unreadable}), so its edition is unknown` };
+    if (info.pkgBad !== undefined) return { manifest, problem: `${manifest} has an edition entry the scan cannot read (${info.pkgBad}); write edition = "NNNN" or edition.workspace = true` };
+    if (info.pkg === undefined) return { edition: info.ws ?? "2021" };
+    if (info.pkg !== "workspace") return { edition: info.pkg };
+    const inherits = `${manifest} sets edition.workspace = true`;
+    for (const up of ancestors(dir)) {
+      if (!exists(path.join(up, "Cargo.toml"))) continue;
+      const w = manifestAt(up);
+      if (w.unreadable) return { manifest, problem: `${inherits}, but ${rel(up)} cannot be read (${w.unreadable}), so its edition is unknown` };
+      if (!w.isWorkspace) continue;
+      if (w.wsBad !== undefined) return { manifest, problem: `${inherits}, but its workspace root ${rel(up)} has a [workspace.package] edition entry the scan cannot read (${w.wsBad})` };
+      if (w.ws === undefined) return { manifest, problem: `${inherits}, but its workspace root ${rel(up)} declares no literal [workspace.package] edition = "NNNN" to inherit` };
+      return { edition: w.ws };
+    }
+    return { manifest, problem: `${inherits}, but no Cargo.toml at or above it declares a [workspace], so there is no [workspace.package] edition to inherit` };
+  };
 }
 
 // A crate that can never be published (`publish = false` or `publish = []` in its [package] table) ships its licence
