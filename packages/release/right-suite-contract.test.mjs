@@ -570,7 +570,7 @@ test("RightKit exposes one current version manifest", () => {
   // recordPublished rewrites the staged table on every publish; assert its shape, not a snapshot.
   for (const [name, version] of Object.entries(versions.stagedCargo)) assert.match(version, /^\d+\.\d+\.\d+$/, `stagedCargo ${name}`);
   for (const [name, list] of Object.entries(versions.legacyCargo ?? {})) for (const version of list) assert.match(version, /^\d+\.\d+\.\d+$/, `legacyCargo ${name}`);
-  assert.deepEqual(versions.stagedSwift, { "rightkit-swift": { url: "https://github.com/Orthic-Labs/rightkit", version: "0.7.0" } });
+  assert.deepEqual(versions.stagedSwift, { "rightkit-swift": { url: "https://github.com/Orthic-Labs/rightkit", version: "0.8.1" } });
   getCurrentCargoVersionContract();
 });
 

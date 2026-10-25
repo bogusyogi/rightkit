@@ -5,6 +5,9 @@
 # test through the broker, then executes the binary here, with this shell's environment.
 #
 #   scripts/run-ui-tests.sh -p cutright-e2e --test ui [--features full] [-- <libtest args>]
+#
+# Superseded by `rightkit-qa run-tests` (crates/rightkit-qa/docs/run-tests.md): the same compile-in-the-broker, run-outside
+# step with deadlines, parallelism, a receipt and the process tree killed at a deadline. Delete this script once its callers move.
 set -eu
 build_args=""
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do build_args="$build_args $1"; shift; done

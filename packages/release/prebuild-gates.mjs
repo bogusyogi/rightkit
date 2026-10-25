@@ -1,6 +1,6 @@
 // Source-level release gates that run before a build starts. The build (release.mjs) and `doctor --gates` call the
 // same function, so the doctor can never pass a config the build refuses. Gate order is part of the contract.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { assertReleaseDependencies } from "./release-dependencies.mjs";
@@ -145,11 +145,15 @@ export function evaluatePrebuildGates({ root, config, target, platform, iosSpec,
   let sourceRoots;
   let skipRoots;
   let repoTop;
+  let appRootReal;
+  const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
   if (releaseSwitchInventoryText != null) {
     gate("source-switch-roots", ["closure-commands", ...(strict ? ["feature-closure"] : [])], () => {
       if (platform === "ios") {
         repoTop = git(root, ["rev-parse", "--show-toplevel"]);
-        const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: root, target: config.targets?.ios }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
+        // Git reports the canonical path; a caller's root may be a symlink or a Windows short name (hosted temp roots).
+        appRootReal = nativeReal(root);
+        const swiftSide = (iosOwnershipScope({ repoRoot: repoTop, appRoot: appRootReal, target: config.targets?.ios }) ?? []).filter((dir) => dir !== ".rightkit").map((dir) => path.join(repoTop, dir));
         sourceRoots = [...new Set([...swiftSide, ...localCrateDirsFromTree(treeText, repoTop)])].sort();
         console.log(`right-release: source switch scan (ios): ${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}`);
       } else {
@@ -162,7 +166,7 @@ export function evaluatePrebuildGates({ root, config, target, platform, iosSpec,
     if (platform === "ios") {
       gate("source-switch-prepare", ["source-switch-roots"], () => {
         for (const step of config.targets?.ios?.iosPackage?.prepare ?? []) {
-          const cwd = path.resolve(root, step?.cwd ?? ".");
+          const cwd = path.resolve(appRootReal, step?.cwd ?? ".");
           if (!sourceRoots.some((dir) => cwd === dir || cwd.startsWith(dir + path.sep))) throw new Error(`source switch inventory: targets.ios.iosPackage.prepare runs in ${path.relative(repoTop, cwd) || "."}, outside the iOS scan roots (${sourceRoots.map((dir) => path.relative(repoTop, dir) || ".").join(", ")}); list that directory in targets.ios.ownershipScope`);
         }
       });

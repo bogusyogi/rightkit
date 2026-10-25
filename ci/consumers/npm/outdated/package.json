@@ -1,0 +1,12 @@
+{
+  "name": "rightkit-outdated-external-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": { "consumer": "node consumer.mjs" },
+  "dependencies": {
+    "@rightkit/ci": "0.3.0",
+    "smol-toml": "1.9.1"
+  }
+}

@@ -2,46 +2,7 @@
   "schema": 1,
   "about": "Publishable units with no reviewed consumer recipe (scripts/preflight.mjs consumer-recipe and npm-recipe, G01). Every publishable crate and public npm package has a recipe or is listed here; a unit leaves this list in the commit that adds its recipe, and a unit about to publish must have one whatever this list says. Listed 2026-10-24 from the tree.",
   "uncovered": {
-    "cargo": {
-      "rightkit-agents": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-audio": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-cache": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-channel-memory": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-compose": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-contracts": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-crypto": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-file-watch": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-hooks": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-hotkeys": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-identity": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-mcp": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-ocr": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-platform-rules": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-review": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-search": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-send": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-sync": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-time": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-transcript": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-tts": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-tts-qwen": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-tts-qwen-sys": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-typeset": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-vad": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "rightkit-workflow": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json"
-    },
-    "npm": {
-      "@rightkit/ax": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/hooks": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/i18n": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/legal-ui": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/license": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/media-ui": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/outdated": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/pdf-ui": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/platform-ui": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/react-shell": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json",
-      "@rightkit/theme": "no reviewed consumer recipe yet; publication refuses this unit until one is written, reviewed and listed in ci/consumer-recipes.json"
-    }
+    "cargo": {},
+    "npm": {}
   }
 }

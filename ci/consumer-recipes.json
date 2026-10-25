@@ -409,6 +409,286 @@
         "ci/consumers/npm/ci/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }
+    },
+    "@rightkit/ax": {
+      "pkId": "PK45",
+      "id": "ci/consumers/npm/ax/consumer.mjs",
+      "recipeId": "ax-plugin-gates-report-consumer",
+      "scenarios": 13,
+      "surface": [
+        "./ax/adversarial",
+        "./ax/behavioral",
+        "./ax/conformance",
+        "./ax/ownership-review",
+        "./ax/report",
+        "./ax/static",
+        "./manifest",
+        "./plugin/hooks",
+        "./plugin/marketplace",
+        "./plugin/portable-core",
+        "./plugin/scaffold",
+        "./plugin/skill-gate",
+        "./plugin/validate"
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/ax/README.md": "bdc0f6c26a3b6706b433c94364c961b3ea8eb7a71c6594e657ddbcc580083ed1",
+        "ci/consumers/npm/ax/consumer.mjs": "e5dc3431773e944ca587c9c494483377e9f1c9190c24407e554375f0104ea6f3",
+        "ci/consumers/npm/ax/package.json": "5ccfd47c8981f8e6fb8bc5f16de35d226cbcd43e559ae4c3f4666040ac21719f",
+        "ci/consumers/npm/ax/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/hooks": {
+      "pkId": "PK46",
+      "id": "ci/consumers/npm/hooks/consumer.mjs",
+      "recipeId": "hooks-normalize-dispatch-bin-consumer",
+      "scenarios": 8,
+      "surface": [
+        "."
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/hooks/README.md": "0420c4ac438b9248386ccfa3a41af5a01b1514d462daa3e755c8db0c0fe79859",
+        "ci/consumers/npm/hooks/consumer.mjs": "a5356599cf8ec61b740cd60a6dafe5a712a1db8b590a0ecaa2038d21e4716a33",
+        "ci/consumers/npm/hooks/package.json": "b0c4f1c7b91b16f3330ba4a05ff0dbeec7445f74ac44ff2a8c67106b481ba2ab",
+        "ci/consumers/npm/hooks/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/i18n": {
+      "pkId": "PK47",
+      "id": "ci/consumers/npm/i18n/consumer.mjs",
+      "recipeId": "i18n-catalog-provider-ssr-consumer",
+      "scenarios": 7,
+      "surface": [
+        "."
+      ],
+      "closure": {
+        "install": {
+          "@testing-library/dom": "10.4.2",
+          "@testing-library/react": "16.3.3",
+          "jsdom": "30.1.3",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/i18n/README.md": "b547d8ee0c5d03413dd56749b73a9d31e778e1c0001d7bce427cf7d5a289c4fc",
+        "ci/consumers/npm/i18n/consumer.mjs": "df135ea2cf0863ba69f76a8a2a615d7ce1eec761b6267a7d9b2dafbbdbea27e1",
+        "ci/consumers/npm/i18n/package.json": "a6984a73ba515ab807fa48398d2ae70acb19b3c0b89a7aed9d8eb0119b58dc68",
+        "ci/consumers/npm/i18n/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/legal-ui": {
+      "pkId": "PK10",
+      "id": "ci/consumers/npm/legal-ui/consumer.mjs",
+      "recipeId": "legal-ui-server-markup-consumer",
+      "scenarios": 7,
+      "surface": [
+        ".",
+        "./legal-ui.css"
+      ],
+      "closure": {
+        "install": {
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/legal-ui/README.md": "3be53fde66b12993b01d918da85eac9741f3ef008267c88358473a2ffbebf5c8",
+        "ci/consumers/npm/legal-ui/consumer.mjs": "f56ffe58499943c0867ac28de43ff9ce94cd7e59b73bc0f895c5e1d0d066504d",
+        "ci/consumers/npm/legal-ui/package.json": "c6c3891911939bd6196f08021e8614b9116c5c1474f41db3bc597dbadd9c276d",
+        "ci/consumers/npm/legal-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/license": {
+      "pkId": "PK05",
+      "id": "ci/consumers/npm/license/consumer.mjs",
+      "recipeId": "license-native-client-views-consumer",
+      "scenarios": 8,
+      "surface": [
+        ".",
+        "./testing"
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/license/README.md": "6f8e9c91166dc2684c7b34b90f12e4e654226796800e3795397a9250202e1c9d",
+        "ci/consumers/npm/license/consumer.mjs": "2b5f2df3ac508f2087d22e01e61970bb73b250f63767a5f13f1502cd2c3ca356",
+        "ci/consumers/npm/license/package.json": "1a618f9257912933548d76abc364d6c94240f3a722031b3ae31deaec6695c008",
+        "ci/consumers/npm/license/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/media-ui": {
+      "pkId": "PK48",
+      "id": "ci/consumers/npm/media-ui/consumer.mjs",
+      "recipeId": "media-ui-player-markup-image-pipeline-consumer",
+      "scenarios": 10,
+      "surface": [
+        ".",
+        "./image",
+        "./styles.css"
+      ],
+      "closure": {
+        "install": {
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "declaredOnly": [
+          "fabric",
+          "react-image-crop"
+        ]
+      },
+      "files": {
+        "ci/consumers/npm/media-ui/README.md": "7fe2effda66969bf9c39fcf0eb3332a942047a9373f7f23ffdd3871bf23d1417",
+        "ci/consumers/npm/media-ui/consumer.mjs": "9fd8822bf99dc9546db7ba86ca752e3036426669880dc98e4a4259680c18fc05",
+        "ci/consumers/npm/media-ui/package.json": "6401a0545c02ad23589d4cfacd61d6cb1574040201714b9ea4d630dced87a4b6",
+        "ci/consumers/npm/media-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/outdated": {
+      "pkId": "PK49",
+      "id": "ci/consumers/npm/outdated/consumer.mjs",
+      "recipeId": "outdated-check-apply-gate-land-consumer",
+      "scenarios": 14,
+      "surface": [
+        "."
+      ],
+      "closure": {
+        "install": {
+          "@rightkit/ci": "0.3.0",
+          "smol-toml": "1.9.1"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/outdated/README.md": "89a962f787385361f31cadb3f936cb7bbf4d864252bc1c7fc38feb6278cc262e",
+        "ci/consumers/npm/outdated/consumer.mjs": "e7bb367bc701fac60d9f83967702e3c6c82d2b58ed8a38ab4adf794e6b9e275d",
+        "ci/consumers/npm/outdated/package.json": "b9c40be952e79ce736d4f25d7a1f68af99557b4319edfdb4e964371ccf3e79ef",
+        "ci/consumers/npm/outdated/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/pdf-ui": {
+      "pkId": "PK50",
+      "id": "ci/consumers/npm/pdf-ui/consumer.mjs",
+      "recipeId": "pdf-ui-viewer-markup-headless-consumer",
+      "scenarios": 10,
+      "surface": [
+        ".",
+        "./styles.css"
+      ],
+      "closure": {
+        "install": {
+          "pdfjs-dist": "6.4.299",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/pdf-ui/README.md": "ebceb3da872e2c45869b5b7965d37d1371eb422ae8ace5c6933ab5cb1a9a998a",
+        "ci/consumers/npm/pdf-ui/consumer.mjs": "b29247d38c20564ee8ee7eb54811ff6594d6c946c76ff42f79f16f33a99eae57",
+        "ci/consumers/npm/pdf-ui/package.json": "40c7d65670b1eca2331794d9092d9d4ded6f664b69f370c62f5fd888ac71a407",
+        "ci/consumers/npm/pdf-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/platform-ui": {
+      "pkId": "PK09",
+      "id": "ci/consumers/npm/platform-ui/consumer.mjs",
+      "recipeId": "platform-ui-chords-headless-qa-consumer",
+      "scenarios": 12,
+      "surface": [
+        ".",
+        "./headless",
+        "./qa",
+        "./react"
+      ],
+      "closure": {
+        "install": {
+          "@tauri-apps/plugin-os": "2.4.0",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/platform-ui/README.md": "529cad97cb28d6ae470612fb3ec624a3230410230ae80913e56c9ec8958b720f",
+        "ci/consumers/npm/platform-ui/consumer.mjs": "83a279045253444eea0a5b999c05082555fafecf961d4ad39c2578b64278cad8",
+        "ci/consumers/npm/platform-ui/package.json": "f391104eaf38878a10f9a7445c828fb6c70d1ca1286099303740fcdc181230a3",
+        "ci/consumers/npm/platform-ui/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/react-shell": {
+      "pkId": "PK09",
+      "id": "ci/consumers/npm/react-shell/consumer.mjs",
+      "recipeId": "react-shell-registries-and-server-markup-consumer",
+      "scenarios": 13,
+      "surface": [
+        ".",
+        "./headless",
+        "./react",
+        "./shell.css",
+        "./shell.layered.css",
+        "./shell.structure.css",
+        "./shell.visual.css",
+        "./suite-aliases.css"
+      ],
+      "closure": {
+        "install": {
+          "@rightkit/platform-ui": "0.4.0",
+          "react": "19.3.1",
+          "react-dom": "19.3.1"
+        },
+        "declaredOnly": [
+          "@tauri-apps/plugin-os"
+        ]
+      },
+      "files": {
+        "ci/consumers/npm/react-shell/README.md": "4a1d21e0f4e2b44154ffaaa4d5bfc49c660375b2c26358743d060728d9a79b53",
+        "ci/consumers/npm/react-shell/consumer.mjs": "3b073a3849629443c25a495343a64414abd8c8243b7c48860daaa1dd649848fb",
+        "ci/consumers/npm/react-shell/package.json": "e974e26d85526fe4f5dee5a2de94853bddbcad7b6bc345641a4f310a989a90bc",
+        "ci/consumers/npm/react-shell/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
+    },
+    "@rightkit/theme": {
+      "pkId": "PK09",
+      "id": "ci/consumers/npm/theme/consumer.mjs",
+      "recipeId": "theme-brand-tokens-cli-consumer",
+      "scenarios": 8,
+      "surface": [
+        ".",
+        "./node"
+      ],
+      "closure": {
+        "install": {},
+        "declaredOnly": []
+      },
+      "files": {
+        "ci/consumers/npm/theme/README.md": "828bb128917f3dca82ad7ceab9c3bec34dffb80d3da2682b19f4054cf47be633",
+        "ci/consumers/npm/theme/consumer.mjs": "fd0b22b98665a8fc9e3ee887442632f955e0f0cb142b8b22fc1a704088e3e85d",
+        "ci/consumers/npm/theme/package.json": "f5968d66bbc91fd4b163d2f44f8caea1c0c911d94ec8acc5cdb88db95e49ed25",
+        "ci/consumers/npm/theme/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
+        "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
+      }
     }
   },
   "cargo": {
@@ -1034,6 +1314,240 @@
         "Cargo.toml": "9e4347f8ba4635c6331ccaf599095df5aff289417deed52afb1a7b419af48895",
         "README.md": "b6615409fe6230ce89f536708e07002b33df0b9712c828baca6335480662e47a",
         "src/main.rs": "af9e5de71bcd646a770d34f76853e42621347b156f0a5cd6e440f138022c36fa"
+      }
+    },
+    "rightkit-agents": {
+      "pkId": "PK28",
+      "id": "ci/consumers/rightkit-agents/src/main.rs",
+      "files": {
+        "Cargo.toml": "c683b62342dee0590e77b6f0263ee70586b1a0d100fe340c9323bb7969bd62c7",
+        "README.md": "a67aa3abc0e051a43df83f7379b20291d9187b0b1f89454ef8f471ed292668d3",
+        "src/main.rs": "d0ee057750c9a58a6654a81431108a0cb56b2d43294874568e581764baf426ec"
+      }
+    },
+    "rightkit-audio": {
+      "pkId": "PK19",
+      "id": "ci/consumers/rightkit-audio/src/main.rs",
+      "files": {
+        "Cargo.toml": "12de8855647695316f5681fb036d8a72f697555bd8a3a53e37e5dd009f81be36",
+        "README.md": "42869e1224950fb899a3d0e3ae1d9c4f7f9dbb67d1a2e2c3fe4af5478d21f1da",
+        "src/main.rs": "4b72845c51037eb3321a5a5fc5dee303809a9bd2e756d6893b7890e6504e841c"
+      }
+    },
+    "rightkit-cache": {
+      "pkId": "PK29",
+      "id": "ci/consumers/rightkit-cache/src/main.rs",
+      "files": {
+        "Cargo.toml": "32567d39398769c2b014a962025f14b8f5bd65ab7ef26321406cdad9d5cb96dc",
+        "README.md": "78d9ab0abe35176ce9a4593aaf2d16aaf7aeb44c1e8d0d02dfd4dc71d23fff18",
+        "src/main.rs": "4a4e49201d9aa204a747b41a5dc80c5a391dcdee653ded5685da14b9618af903"
+      }
+    },
+    "rightkit-channel-memory": {
+      "pkId": "PK30",
+      "id": "ci/consumers/rightkit-channel-memory/src/main.rs",
+      "files": {
+        "Cargo.toml": "fb6d0fe3159ebb0b937e01dc0f6c060d9e84de15340ec515bdeea772940f8b3f",
+        "README.md": "6c31330bb62d20a717d96ff8e931c010f5133c264640b9d7ed9646f54f4c8937",
+        "src/main.rs": "6fe8e5d03a8b2c03f98d1515f9d2b6c07fb37df52f694ee0d42e6d00cf1b986e"
+      }
+    },
+    "rightkit-compose": {
+      "pkId": "PK19",
+      "id": "ci/consumers/rightkit-compose/src/main.rs",
+      "files": {
+        "Cargo.toml": "711460794d5412c2c9dc87cdbba73365ea59dbebfe50685402e269ae4cf78af5",
+        "README.md": "0dd0253c602acb3ceebd6b884645332d9e7edf241956178cf47d1ca9b87912fd",
+        "src/main.rs": "28d2a8cd4e86716d2c8e1dc189f59d3a1e7de79e0e1db8e51a351d12f5b275a2"
+      }
+    },
+    "rightkit-contracts": {
+      "pkId": "PK31",
+      "id": "ci/consumers/rightkit-contracts/src/main.rs",
+      "files": {
+        "Cargo.toml": "476f26941482b7da908d89ae7e11bf334780c6fb6af795722c34ade10b7d362b",
+        "README.md": "f534f4fdce7d602790f1f5d548e86c3f911de2bd4791498429b4fb6f5272ed66",
+        "src/main.rs": "186f617dc8f8714646e4e788a27e13a25ecf3d7a284ad01ec46a9466e4e7a4de"
+      }
+    },
+    "rightkit-crypto": {
+      "pkId": "PK32",
+      "id": "ci/consumers/rightkit-crypto/src/main.rs",
+      "files": {
+        "Cargo.toml": "3dbf4292dcf56066237a7553838fb41bf413859b588d5844f47a227220344aa5",
+        "README.md": "1cb809f489d3ee7454c88c590092c08595d7db8c2e1ef38c9188a3d2313a28da",
+        "src/main.rs": "5c4e27f9e08af95376d73428ee706e1ae6f1725e173c149b3c4af45c840cf56b"
+      }
+    },
+    "rightkit-file-watch": {
+      "pkId": "PK33",
+      "id": "ci/consumers/rightkit-file-watch/src/main.rs",
+      "files": {
+        "Cargo.toml": "ee3aacbcbd32e2a7d189683b4635348dd2ce3d784bb93a35ea036a65c3402078",
+        "README.md": "e13d02b6e7adbfdfacd4f1911c82673e26ae77a3de8a63c2f9b6e27a8fb6d48a",
+        "src/main.rs": "4200a1a8a7c63fd6957f48cc47197ea252f11906f3ca7b73ea864e9039d3eb50"
+      }
+    },
+    "rightkit-hooks": {
+      "pkId": "PK34",
+      "id": "ci/consumers/rightkit-hooks/src/main.rs",
+      "files": {
+        "Cargo.toml": "d5dfa8e0156c7837146736924078d1ff7d09e877a11da7adadf4cc61a2b6cf3b",
+        "README.md": "7b92ba222bcda5c0a6a37ab7de9c0433cdaa220a0c21ba576b81945ec9b0e8b9",
+        "src/main.rs": "81b3c522d503e3cd84fc0be1efef048e20a4c99ab09f663df910f03b042d1e5b"
+      }
+    },
+    "rightkit-hotkeys": {
+      "pkId": "PK35",
+      "id": "ci/consumers/rightkit-hotkeys/src/main.rs",
+      "files": {
+        "Cargo.toml": "f198aec467d5693b4691ff87fa6bdcc3429e601a29cd29c3a8334fccad8cc1f8",
+        "README.md": "468fc0e790e2dc15b7d9d715264b0fead9c24c65b01434d8f0f98c23fbffc92e",
+        "src/main.rs": "eb0e115f3f873734de4c475297891486291b7b2dd86f4a6d437f746b17f6d482"
+      }
+    },
+    "rightkit-identity": {
+      "pkId": "PK36",
+      "id": "ci/consumers/rightkit-identity/src/main.rs",
+      "files": {
+        "Cargo.toml": "fb0ddc6426bd54f4c19577abc8e8c267fbc20944259bd7764745b502282f2950",
+        "README.md": "702a574eec8c823db2b077aafa5bf09a7da3e5a9f9a1c148d7bfec2db783c9e7",
+        "src/main.rs": "9e336a7967ca7d397ddcaecd792de3778dbcc69c9f6569818d268ad0c4f024f3"
+      }
+    },
+    "rightkit-mcp": {
+      "pkId": "PK37",
+      "id": "ci/consumers/rightkit-mcp/src/main.rs",
+      "files": {
+        "Cargo.toml": "71e4b0c2db7de10931bf295b7bd1debd241232feeb48a33dcd6b9a1faf7a7965",
+        "README.md": "2a879657c74d42ef62b535ad98bdf0e40daea30ec272033b043c9bf0baad6fa4",
+        "src/main.rs": "c24f0aac42ed0ef0dbc5ea4ff6b75110a36472f874af308eba59eafd2f2a38b6"
+      }
+    },
+    "rightkit-ocr": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-ocr/src/main.rs",
+      "files": {
+        "Cargo.toml": "23786883033fd89a83a56ac71c2f36f2cb5f63b3db5ca5e80d6296efe4bc4221",
+        "README.md": "8dabc5ce1c514848df4e9905a92108514e22bed405a666dbf823be9a26585950",
+        "src/main.rs": "b8225a68b1f985cf0f9d600d8ff4aa9049748bfd7160571b173956df67b11901"
+      }
+    },
+    "rightkit-platform-rules": {
+      "pkId": "PK38",
+      "id": "ci/consumers/rightkit-platform-rules/src/main.rs",
+      "files": {
+        "Cargo.toml": "3d6a1b4d3150848ed6ebf71955f1fbbb3cd142d86cf52ec472dd322cc1901c1d",
+        "README.md": "a5486e116627f6908f8a63b25b3c53f801ddd8f8c1a71498fa80a20a4c7a31e2",
+        "src/main.rs": "91a883d8ad8b921ac865b77ff75c8e11ce711e9aff2b251e3e7c3eae8324145c"
+      }
+    },
+    "rightkit-review": {
+      "pkId": "PK39",
+      "id": "ci/consumers/rightkit-review/src/main.rs",
+      "files": {
+        "Cargo.toml": "304af351bdc12344669ff227942a83431adbac06d48ebf477720d7ea8aa370d8",
+        "README.md": "4486fdd078a6939cca04dc8e23c7e6a207cdf436cec9e08c5e7eb221c8e16420",
+        "src/main.rs": "aa49830c7ce3a030e70eae18ee2015d1e26dc535af421448c2e5d3313451a696"
+      }
+    },
+    "rightkit-search": {
+      "pkId": "PK40",
+      "id": "ci/consumers/rightkit-search/src/main.rs",
+      "files": {
+        "Cargo.toml": "cfc55301ab23f312a30d8c5729d4e06c6bdb1f20116903e2e12c7b618f755ad7",
+        "README.md": "0ebdf7d0077620309017a5e663f35d5cdf67a44b1080e62ebccb2428e77a342e",
+        "src/main.rs": "4aadf55d19cb48b083d6efa2ee6a6aa5d1c964ae40ead25c4652060218cca4ee"
+      }
+    },
+    "rightkit-send": {
+      "pkId": "PK41",
+      "id": "ci/consumers/rightkit-send/src/main.rs",
+      "files": {
+        "Cargo.toml": "0a9e29dff43b3050151ee222464bbb177e5c042dfb4c632af828479c74136fe7",
+        "README.md": "4ac2defc64de85b84f5e468b7ec006ad7a4ba9b9fd77250e87a05575ec256849",
+        "src/main.rs": "aec4304118ee9f71aaed65920806fcfcea152651cf3214a75c4ed3e2c98896f7"
+      }
+    },
+    "rightkit-sync": {
+      "pkId": "PK42",
+      "id": "ci/consumers/rightkit-sync/src/main.rs",
+      "files": {
+        "Cargo.toml": "c9e787438be18eb1e64194a5919456ace55414bb13ff5a87afb5706a5b2ae68a",
+        "README.md": "5e3d4287e5be083ad886c5e4ba17f9b51082eeb6078a0f4ec2c20531b27e41fc",
+        "src/main.rs": "0bd1ed376ef7a3785de034c11df1c31518cf8bb526730c444a8e30eee3334103"
+      }
+    },
+    "rightkit-time": {
+      "pkId": "PK43",
+      "id": "ci/consumers/rightkit-time/src/main.rs",
+      "files": {
+        "Cargo.toml": "25ea0f30550e6d5c834109dd547da2752a1ddefea240b688a1ddca8c6279b7de",
+        "README.md": "c3748246bcfa54dc359f4b19f7fa90edf3c8600f6ebd564b787015be470b2aa4",
+        "src/main.rs": "ce0fcfc3d624c5e62eef79ea73206b64bcbfecdc044fd6a36c8e508931fde9f3"
+      }
+    },
+    "rightkit-transcript": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-transcript/src/main.rs",
+      "files": {
+        "Cargo.toml": "8146acd80352ef964c6e1a0a802a832f1f24d6ddc63ebca3cd6c05499a62c2a5",
+        "README.md": "f8294916cab1e38b6038879e02b161f2b42c907741ef32e16a37f7f3a1e7b492",
+        "src/main.rs": "e5f9dc04a125096b79f4fd9063c00111860eb5d6ee613670722ebfe9f65b487c"
+      }
+    },
+    "rightkit-tts": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-tts/src/main.rs",
+      "files": {
+        "Cargo.toml": "9733ea55ef214096972f26ee0f6b6cbddbcad8d1d8574f9c5494b450568899fa",
+        "README.md": "a108a5840a4372211888543d95309c08abe5b2a6d1bb40a0719cdc9b5bda79bc",
+        "src/main.rs": "18db5ee59d651776bfba4069ebe80f69415d96e5527c21259f4ffc342c10c981"
+      }
+    },
+    "rightkit-tts-qwen": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-tts-qwen/src/main.rs",
+      "files": {
+        "Cargo.toml": "c32ad356e115faf90e5d61de1e8e10a777d5469d62276a658648f2a964341dce",
+        "README.md": "d5b89a3a12dce46567cab153f645e83a3ba0125a0d119efd66fcdc42550d11d0",
+        "src/main.rs": "a518a1c6f2653cd5235593826fe01fa68e79494a5ed00cf8de9c2ec3ee2ba414"
+      }
+    },
+    "rightkit-tts-qwen-sys": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-tts-qwen-sys/src/main.rs",
+      "files": {
+        "Cargo.toml": "856c4fc743402207c5f2ccc176a140002286201b0ffb28ff15c23756d8968f4e",
+        "README.md": "c3b41560ddfdf3c504fc12a5e03f11248ca8aee9e755f34530d68e253a44a343",
+        "src/main.rs": "80d9c02f5a0b1f26503b7c26366e3d52b86776a77e9840a7d411d798e516901d"
+      }
+    },
+    "rightkit-typeset": {
+      "pkId": "PK19",
+      "id": "ci/consumers/rightkit-typeset/src/main.rs",
+      "files": {
+        "Cargo.toml": "f2319b3326d0b36b39a038498a326057dc41853fc5c21e0470eea0a71f815f03",
+        "README.md": "22d296137906abee7d7ec958dc1184bdc8d7a254922cd169640c85b1e996e7d7",
+        "src/main.rs": "86a32680388819d35d154012125dfe435bc5da4cc784ab4a54196334c65ed70b"
+      }
+    },
+    "rightkit-vad": {
+      "pkId": "PK18",
+      "id": "ci/consumers/rightkit-vad/src/main.rs",
+      "files": {
+        "Cargo.toml": "9d4ac1cb32b193db2540f81400cb210752b7071ec8ef909756f06f6bd5f71f7f",
+        "README.md": "bb8f1be94b65de701cf26f95c148b3df95b60f1b2d136ece93f34d7126416604",
+        "src/main.rs": "e485e400ac52fbdaa88d4c8e7533ca8ed5e2fa2d405ef73e397fa5328281ef58"
+      }
+    },
+    "rightkit-workflow": {
+      "pkId": "PK44",
+      "id": "ci/consumers/rightkit-workflow/src/main.rs",
+      "files": {
+        "Cargo.toml": "b73b21f0bc5fd8c40c75c6421c2e952caef592d8feed7649be8f152589331895",
+        "README.md": "02b787bd0efe3bfd5db4f45fa2fa34e2ddb1b2bc2e92f479a123eb5f421cab73",
+        "src/main.rs": "91d8a63d6af927194ef2fffc9135aaa4330683c471ac2ebb985496ac1a425c32"
       }
     }
   }
