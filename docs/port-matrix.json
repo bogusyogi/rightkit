@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-24T22:57:24Z",
-  "rightkitHead": "823f5fb",
+  "generatedAt": "2026-10-25T00:44:07Z",
+  "rightkitHead": "8161f88",
   "legend": [
     {
       "state": "adopted",
@@ -182,7 +182,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.2",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -617,8 +617,8 @@
           ],
           "ownersRequired": 28,
           "ownersPinned": 27,
-          "ownersCurrent": 23,
-          "percent": 82
+          "ownersCurrent": 22,
+          "percent": 79
         },
         "addons": {
           "total": 59,
@@ -635,10 +635,10 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
@@ -939,7 +939,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1066,7 +1066,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.4.0",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -1432,7 +1432,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.3",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -1821,8 +1821,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -1839,10 +1839,10 @@
           "unmatched": 1
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
@@ -2151,7 +2151,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2266,8 +2266,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 23,
-          "percent": 79
+          "ownersCurrent": 22,
+          "percent": 76
         },
         "addons": {
           "total": 59,
@@ -2284,10 +2284,10 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
@@ -2596,7 +2596,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2693,7 +2693,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.2",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -3112,7 +3112,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.3",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -3628,7 +3628,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.3",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -4077,8 +4077,8 @@
           ],
           "ownersRequired": 27,
           "ownersPinned": 25,
-          "ownersCurrent": 22,
-          "percent": 81
+          "ownersCurrent": 21,
+          "percent": 78
         },
         "addons": {
           "total": 59,
@@ -4095,10 +4095,10 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
@@ -4388,7 +4388,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -4463,8 +4463,8 @@
         "addons": {
           "total": 89,
           "adopted": 3,
-          "current": 3,
-          "stale": 0,
+          "current": 2,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
@@ -4475,10 +4475,10 @@
           "unmatched": 1
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
@@ -4554,8 +4554,8 @@
         "addons": {
           "total": 89,
           "adopted": 10,
-          "current": 2,
-          "stale": 8,
+          "current": 1,
+          "stale": 9,
           "local": 0
         },
         "exceptions": {
@@ -4568,7 +4568,7 @@
         "releasePin": {
           "state": "stale",
           "req": "0.3.0",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
@@ -4869,7 +4869,7 @@
       ],
       "private": false,
       "source": "0.3.1",
-      "registry": "0.3.0",
+      "registry": "0.3.1",
       "staged": "0.3.1",
       "dir": "packages/ci",
       "toMoveFrom": {},
@@ -4884,7 +4884,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.2.45→0.3.0 dev"
+          "detail": "0.2.45→0.3.1 dev"
         },
         "genright": {
           "state": "unused",
@@ -4919,8 +4919,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "adopted",
-          "detail": "0.3.0 dev"
+          "state": "stale",
+          "detail": "0.3.0→0.3.1 dev"
         }
       }
     },
@@ -6480,14 +6480,14 @@
       ],
       "private": false,
       "source": "0.6.6",
-      "registry": "0.6.4",
+      "registry": "0.6.5",
       "staged": "0.6.6",
       "dir": "packages/release",
       "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
-          "detail": "0.6.2→0.6.4 dev; 4 exceptions: no issue, no expiry",
+          "detail": "0.6.2→0.6.5 dev; 4 exceptions: no issue, no expiry",
           "rows": [
             "M19"
           ],
@@ -6501,36 +6501,36 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.6.4 dev",
+          "detail": "0.4.0→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.6.3→0.6.4 dev",
+          "detail": "0.6.3→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "mailright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev; 1 exception: no issue, no expiry",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev; 1 exception: no issue, no expiry",
           "rows": [
             "M19"
           ],
@@ -6545,39 +6545,39 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.2→0.6.4 dev",
+          "detail": "0.6.2→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.6.3→0.6.4, 2 pins dev",
+          "detail": "0.6.3→0.6.5, 2 pins dev",
           "rows": [
             "M19"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.3→0.6.4 dev",
+          "detail": "0.6.3→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "viewright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "sellright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev"
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.3.0→0.6.4 dev"
+          "detail": "0.3.0→0.6.5 dev"
         }
       }
     },
