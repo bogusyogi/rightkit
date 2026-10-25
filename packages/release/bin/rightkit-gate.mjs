@@ -74,7 +74,7 @@ import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorC
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
 import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
-import { spawnSync as spawnInherit } from "node:child_process";
+import { spawnSync as spawnInherit } from "../background-process.mjs";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;

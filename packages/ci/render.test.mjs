@@ -66,13 +66,14 @@ test("rust-hybrid ci renders its pinned package manager and gate", () => {
   assert.doesNotMatch(content, /toolchain:/);
   assert.match(content, /group: \$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name == 'push'[^\n]*github\.run_id \|\| github\.ref \}\}/);
   assert.match(content, /cancel-in-progress: \$\{\{ !\(github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch\) \}\}/);
-  assert.match(content, /bash \.\/scripts\/gate\.sh/);
+  assert.match(content, /pnpm exec rightkit-gate --to compile/);
+  assert.doesNotMatch(content, /bash \.\/scripts\/gate\.sh/, "the ci job runs the one door, never the repository's script");
   assert.match(content, /name: Detect Rust-affecting changes\n        id: rust-changes/);
   assert.match(content, /RIGHT_GIT_DIFF_BASE: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha \|\| '' \}\}/);
   assert.doesNotMatch(content, /github\.event\.before/, "a push never diffs against the previous push: a failed run would be skipped over");
   assert.match(content, /actions\/cache\/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6\.1\.0[\s\S]*restore-keys: \|\n            widgets-last-green-\$\{\{ matrix\.os \}\}-\$\{\{ matrix\.node \}\}-\$\{\{ github\.ref_name \}\}-\n      - name: Detect Rust-affecting changes/);
   assert.match(content, /GITHUB_EVENT_NAME" != "pull_request"[\s\S]*base=""[\s\S]*\.right-git-last-green\/sha[\s\S]*merge-base --is-ancestor[\s\S]*git cat-file -e/, "no marker or a non-ancestor marker leaves changed=true");
-  assert.match(content, /bash \.\/scripts\/gate\.sh[\s\S]*name: Record last green commit marker\n        if: github\.event_name != 'pull_request'[\s\S]*actions\/cache\/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6\.1\.0[\s\S]*github\.run_attempt \}\}\n/, "the marker is written only after the gate passed, as the job's last steps");
+  assert.match(content, /pnpm exec rightkit-gate --to compile[\s\S]*name: Record last green commit marker\n        if: github\.event_name != 'pull_request'[\s\S]*actions\/cache\/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6\.1\.0[\s\S]*github\.run_attempt \}\}\n/, "the marker is written only after the gate passed, as the job's last steps");
   assert.match(content, /changed=true[\s\S]*\^0\{40\}\$[\s\S]*git cat-file -e[\s\S]*git diff --name-only --diff-filter=ACDMRTUXB/);
   assert.match(content, /--diff-filter=ACDMRTUXB/, "deleted Rust inputs must trigger Rust setup");
   assert.match(content, /\*\.rs\|Cargo\.toml[\s\S]*scripts\/gate\.sh/);
@@ -979,7 +980,7 @@ test("rust-hybrid ci uploads QA evidence after the gate only when qaEvidencePath
   assert.match(unset, /CARGO_PROFILE_TEST_DEBUG: "0"\n      - name: Record last green commit marker[\s\S]*github\.run_attempt \}\}\n$/);
 
   const set = renderTemplate(template, buildRenderContext({ ...structuredClone(base), qaEvidencePath: "pulse-hub-qa" }, "/repos/widgets"));
-  assert.ok(set.indexOf("bash ./scripts/gate.sh") < set.indexOf("- name: Upload QA evidence"), "upload must follow the gate step");
+  assert.ok(set.indexOf("pnpm exec rightkit-gate --to compile") < set.indexOf("- name: Upload QA evidence"), "upload must follow the gate step");
   assert.match(
     set,
     /      - name: Upload QA evidence\n        if: always\(\)\n        uses: actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4\n        with:\n          name: qa-evidence-\$\{\{ matrix\.os \|\| runner\.os \}\}-\$\{\{ github\.run_attempt \}\}\n          path: \$\{\{ runner\.temp \}\}\/pulse-hub-qa\n          retention-days: 7\n          if-no-files-found: ignore\n$/,
@@ -1089,7 +1090,7 @@ test("regenerate lane is dispatch-only, pushes only to right-git/regenerate-<run
     assert.doesNotMatch(out, /secrets\.|HEAD:main|HEAD:refs\/heads\/main|pull_request:|push:\n/);
     assert.equal((out.match(/git push/g) ?? []).length, 1);
     if (profile === "rust-hybrid") {
-      assert.match(out, /run: bash \.\/scripts\/gate\.sh\n/);
+      assert.match(out, /run: pnpm exec rightkit-gate --to compile\n/);
       assert.match(out, /dtolnay\/rust-toolchain@/);
     } else {
       assert.match(out, /run: pnpm run test\n/);
@@ -1521,7 +1522,7 @@ test("swift.privatePackages unset renders nothing new in either ci template", ()
 test("rust-hybrid ci: configure follows the toolchain and precedes the gate; cleanup runs always after it", () => {
   const out = renderRustCi({ ...INCREMENTAL_BASE, swift: { privatePackages: SWIFT_ONE } });
   const configure = out.indexOf(CONFIGURE_HEAD);
-  const gate = out.indexOf("      - run: bash ./scripts/gate.sh\n");
+  const gate = out.indexOf("      - run: pnpm exec rightkit-gate --to compile\n");
   const cleanup = out.indexOf(CLEANUP_HEAD);
   assert.ok(out.indexOf("Swatinem/rust-cache") < configure && configure < gate && gate < cleanup, "order: toolchain, configure, gate, cleanup");
   assert.match(out.slice(cleanup), /        if: \$\{\{ always\(\) \}\}\n/);
@@ -1735,20 +1736,22 @@ const swRender = (manifest, lane, swift) => {
 // (regenerate x2, publish-package-managers) keep their hashes. SW_PRE_CHECK_BASELINE keeps the previous nine: the new render
 // without the check job still hashes to them.
 const SW_BASELINE = {
-  "node/ci": "b77c5cc708bb608b734fc625e2e5a530aa7b731eb1cbf9b0555ac65a60e33f87",
-  "node/qualification": "4de77f9b79bd793c178e0bb6918ab6f64445bac31d850530cae5931b25e7af13",
-  "node/package-smoke": "81bf4be5c464a33927eb760146e87c0ca65c5967705c168b6f2c787079e0e3b4",
-  "node/release-candidate": "6d3665cca5c16cc723ace37b55b8d186ed0148e702ad08ca9d2abccec8ca00ab",
+  "node/ci": "6f541c73a509bc8a16e4d01596f3597de5055a424cb370cf69cde5b683491a4e",
+  "node/qualification": "2ffaf14dd3d83d6f8325f2afbeeccb157134fbe0215c86c74d0d081c02cd38b4",
+  "node/package-smoke": "f4280607ac420c4d8cc1e09f74304cc5ab7b1b94c879f079c1fdb2b846ab0342",
+  "node/release-candidate": "df34b26d2e8f30944fc99bf51dfd1418bf10fac8abaec38a70a85212aa8940e4",
   "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
-  "node/publish-npm": "95ad0e370e30fcf0784975e1b7a20ba549446894112fd9b7510d1b7dfdb1034c",
+  "node/publish-npm": "90bc2bed5f1ad72236623e69ca29f0e5e023c285ab84319e1640cd75d59058bd",
   "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
-  "rust-hybrid/ci": "179245d47bd20517c5a33e69cbecf3a90691fafc847d38743b100b85c7f53bb4",
-  "rust-hybrid/release-candidate": "2ccb303653a9988438c079136e67688e07833e0e14c43ce3d9a50e745a325011",
-  "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
-  "rust-hybrid-chain/ci": "8e839a2c54265fbd1908e34d370fd349915cf8ce09d6dbb7f82f52855f19d4f6",
-  "rust-hybrid-chain/release-candidate": "c268375fd3f2fb186bfd89c755af6b5f933bbf8cce82101998db077bcd27e8fb",
+  "rust-hybrid/ci": "933f2ae78420cf069adf53df01538134f34f7d22390b97d676cdb21ed8390a7d",
+  "rust-hybrid/release-candidate": "92087ffdcb025a6e90b29979fa5fc0e0349b0545838edecbb35d67fd86c6c80c",
+  "rust-hybrid/regenerate": "1f25412e0ad5f1d378c76e6f54b615bc4ec13e2bbf85133247557458e1cac966",
+  "rust-hybrid-chain/ci": "537e5063dd0bf8ecd9ed95fd2940561655aba954f593d03e05de0b5c6fc36f80",
+  "rust-hybrid-chain/release-candidate": "ca8b90de1e52a81ca298953a239233cca449995d3555e315325028b2eb877f53",
 };
 const SW_PRE_CHECK_BASELINE = {
+  // 0.4 (one door): the rust-hybrid ci jobs run `rightkit-gate --to compile` instead of the repository gate script, so their
+  // pre-check hashes were retaken; everything else in those renders is unchanged.
   // 0.2.49 (#338): the three ci lanes render the supersede job and job-level concurrency (hashes from the Dell render; the other nine lanes match CI byte for byte).
   "node/ci": "1e44d86e2d9c46f21992ca236da797a7f8751e8622902157fbaa87e28e9b3431",
   "node/qualification": "730cc94fde3400079c2a4e66effed0e8957de2b75576d13f02b9398059ccc921",
@@ -1756,11 +1759,11 @@ const SW_PRE_CHECK_BASELINE = {
   "node/release-candidate": "6ff48f01cadc95e5e92cc225432aa280a7baac46017ae30e54a165e3db2d1539",
   // The 0.2.41 publish-npm render, before the check job (the lane was exempt for one revision; it builds, so it is not).
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
-  "rust-hybrid/ci": "c402bac02c72fbda2cab5b8ee5968bab9ed63a8770489c5749e6d7f2ba3d27d8",
+  "rust-hybrid/ci": "e0d89b0ae0ac2f982c94e7b894892c6f22941ef57a3cd3f7feab2d8975b3cde1",
   // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
   // 0.2.46 (#168): plus RIGHTKIT_DEV_SIGNING: "ci-adhoc" on the candidate job. Hash taken from CI 38978333900 (xcode and windows agree).
   "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
-  "rust-hybrid-chain/ci": "db27d518a4268dfa6481e943a11457348f5f34221e860ea1172b343eb7975068",
+  "rust-hybrid-chain/ci": "5ad16f4a557579c02cf5e4be3684d54ed1a580904b601bc39e6b91edb38133f6",
   // 0.2.46 (#168): the chain candidate job also sets RIGHTKIT_DEV_SIGNING: "ci-adhoc". Hash taken from CI 38986615056 (xcode; the excerpt has no windows).
   "rust-hybrid-chain/release-candidate": "c118e1c555e1de603f61acfde0b4749d519b97ec3815fc53b024b22d1e5cb3b9",
 };
@@ -1837,7 +1840,7 @@ test("swift.privatePackages steps: position, always-run cleanup, and the secret 
     ["node/qualification", "qualification", ["RightKit ownership (protected registry roots)", "Configure private Swift package access", "run: pnpm run test:all", "Remove private Swift package access"]],
     ["node/release-candidate", "candidate", ["RightKit ownership (protected registry roots)", "Configure private Swift package access", "run: node --test tests/release-candidate.test.mjs", "run: node scripts/release/build-candidate.mjs --platform current --out \"${{ runner.temp }}/widgets-rc\"", "run: node scripts/release/check-release.mjs \"${{ runner.temp }}/widgets-rc\"", "Remove private Swift package access", "uses: actions/upload-artifact@v4"]],
     ["node/regenerate", "regenerate", ["RightKit ownership (protected registry roots)", "Configure private Swift package access", "Regenerate derived artifacts", "Test the regenerated tree", "Remove private Swift package access", "Open a pull request with the regenerated files"]],
-    ["rust-hybrid/ci", "ci", ["uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11", "Configure private Swift package access", "run: bash ./scripts/gate.sh", "Remove private Swift package access", "Record last green commit marker"]],
+    ["rust-hybrid/ci", "ci", ["uses: Mozilla-Actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11", "Configure private Swift package access", "run: pnpm exec rightkit-gate --to compile", "Remove private Swift package access", "Record last green commit marker"]],
     ["rust-hybrid/ci", "dev-artifact-mac", ["uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2", "Configure private Swift package access", "Build dev app", "Remove private Swift package access", "Package unsigned dev app (macOS)", "Upload unsigned dev app for signing (macOS)"]],
     ["rust-hybrid/release-candidate", "candidate", ["Initialize candidate stage summary", "Configure private Swift package access", "Build unsigned release candidate", "Check unsigned release candidate", "Remove private Swift package access", "Finalize candidate stage summary", "Upload unsigned candidate handoff"]],
     ["rust-hybrid/regenerate", "regenerate", ["uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2", "Configure private Swift package access", "Regenerate derived artifacts", "Gate the regenerated tree", "Remove private Swift package access", "Open a pull request with the regenerated files"]],
@@ -2113,61 +2116,15 @@ test("dev-qualification gates a Windows-only signing job and renders without a r
 const SHARD_BASE = { schemaVersion: 1, compile: "github-actions-only", lanes: ["ci"], matrix: { os: ["windows-2025", "macos-15"], node: ["24"] }, packageManager: "pnpm@11.25.0", templateVersion: "1.8.0", profile: "rust-hybrid", gate: { path: "scripts/gate.sh" } };
 const SHARD_TEMPLATE = () => fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/ci.yml"), "utf8");
 const shardRender = (manifest) => renderTemplate(SHARD_TEMPLATE(), buildRenderContext(manifest, "/repos/widgets"));
-const SHARDED = { ...SHARD_BASE, ciAllOs: true, gate: { path: "scripts/gate.sh", quick: true, shards: [{ id: "workspace" }, { id: "linters" }, { id: "rust-tools" }] }, qaEvidencePath: "qa-out" };
 
-test("gate without shards renders byte-identically to the render before gate.shards existed", () => {
-  // `before` hashes were taken from the render of these manifests with the code before the gate.shards change. 0.3.1
-  // (rightkit#833, A-11) adds the check job to every such render, so `now` hashes were taken again from the new render,
-  // deliberately; the new render without the check job (withoutCheckJob) must still hash to `before`.
-  const cases = [
-    { before: "2fa6b1ca7cdeb0a02aad0e557cce1b3db9090c51447c10b686eaec39724ed860", now: "7950da4396d7caec43e0250643df78170590965dc15b80903600a28d0cc9388e", manifest: SHARD_BASE },
-    { before: "024669698321f62d72874c69e9274fe4e88920bb56fb083c9283169b9c252d35", now: "c10f05aba1e581718a41c00adae55b6bc90595754bd8de4a36fdae18e050bf3d", manifest: { ...SHARD_BASE, ciAllOs: true } },
-    { before: "65a46cdd0d8de81027b3e4c7196a9d3f5a1c4d075524cfb76a319504200c9218", now: "fb7128f646ab6b4bd2ff697d4eef06c549edc2be659f957cdaf94230bc1975c1", manifest: { ...SHARD_BASE, ciAllOs: true, concurrency: { mainPushes: "queue", reason: "warm caches" }, qaEvidencePath: "qa-out" } },
-  ];
-  for (const { before, now, manifest } of cases) {
-    const out = shardRender(manifest);
-    assert.equal(crypto.createHash("sha256").update(out).digest("hex"), now);
-    assert.equal(crypto.createHash("sha256").update(withoutCheckJob(out)).digest("hex"), before);
-    assert.doesNotMatch(out, /matrix\.shard|ci-summary|^  quick:/m);
-  }
-});
-
-test("gate.shards renders one leg per shard per runner, a quick job every leg needs and a summary of every leg", () => {
-  assert.deepEqual(validateManifest(SHARDED).errors, []);
-  const out = shardRender(SHARDED);
-  assert.match(out, /^        shard: \["workspace", "linters", "rust-tools"\]$/m);
-  assert.match(out, /^  quick:\n    # gate\.quick[^\n]*\n    needs: \[private-repo-guard, check\]\n/m);
-  assert.match(out, /^      - run: bash \.\/scripts\/gate\.sh --quick$/m);
-  assert.match(out, /^  ci:\n    needs: \[private-repo-guard, check, quick\]$/m);
-  assert.match(out, /^      - run: bash \.\/scripts\/gate\.sh --group \$\{\{ matrix\.shard \}\}$/m);
-  // Each leg keeps its own last-green marker and its own evidence artifact.
-  assert.equal((out.match(/last-green-\$\{\{ matrix\.os \}\}-\$\{\{ matrix\.node \}\}-\$\{\{ matrix\.shard \}\}-/g) ?? []).length, 3);
-  assert.match(out, /name: qa-evidence-\$\{\{ matrix\.os \|\| runner\.os \}\}-\$\{\{ matrix\.shard \}\}-\$\{\{ github\.run_attempt \}\}/);
-  // A default-branch push serialises per leg, the shard id included.
-  assert.match(out, /format\('\{0\}-main-\{1\}-\{2\}-\{3\}', github\.workflow, matrix\.os, matrix\.node, matrix\.shard\)/);
-  const summary = out.slice(out.indexOf("  ci-summary:"));
-  assert.match(summary, /needs: \[ci, quick\]\n    if: \$\{\{ always\(\) \}\}/);
-  assert.match(summary, /test "\$CI_RESULT" = success\n          test "\$QUICK_RESULT" = success\n/);
-  // Without quick: no quick job, ci needs only the guard, the summary needs only ci.
-  const noQuick = shardRender({ ...SHARDED, gate: { path: "scripts/gate.sh", shards: SHARDED.gate.shards } });
-  assert.doesNotMatch(noQuick, /^  quick:|QUICK_RESULT/m);
-  assert.match(noQuick, /^  ci:\n    needs: \[private-repo-guard, check\]$/m);
-  assert.match(noQuick, /^    needs: \[ci\]$/m);
-});
-
-test("gate.shards and gate.quick are validated", () => {
-  const errors = (gate, extra = {}) => validateManifest({ ...SHARD_BASE, ...extra, gate }).errors.join("\n");
-  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "one" }] }), /gate\.shards must list 2 to 16 shards/);
-  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "a" }] }), /gate\.shards\[1\]\.id 'a' is listed twice/);
-  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "B ad" }] }), /gate\.shards\[1\] must be \{ id \}/);
-  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b", args: "x" }] }), /gate\.shards\[1\] must be \{ id \}/);
-  assert.match(errors({ path: "scripts/gate.sh", quick: true }), /gate\.quick requires gate\.shards/);
-  assert.match(errors({ path: "scripts/gate.sh", quick: "yes", shards: [{ id: "a" }, { id: "b" }] }), /gate\.quick must be true when set/);
-  assert.match(errors({ path: "scripts/gate.sh", extra: 1 }), /gate keys: path, shards, quick/);
-  // A dev artifact staged inside the ci job would be built once per shard.
-  const dev = { windows: "unsigned", windowsGlob: "dist/*.exe" };
-  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }, { ciAllOs: true, devArtifact: dev }), /gate\.shards requires devArtifact\.parallel: true/);
-  assert.doesNotMatch(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }, { devArtifact: { ...dev, parallel: true, buildScript: "ci:dev" } }), /gate\.shards/);
+test("gate.shards and gate.quick are gone: the ci job runs the one door once per runner", () => {
+  const errors = (gate) => validateManifest({ ...SHARD_BASE, gate }).errors.join("\n");
+  assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }), /gate\.shards and gate\.quick are gone/);
+  assert.match(errors({ path: "scripts/gate.sh", quick: true }), /gate\.shards and gate\.quick are gone/);
+  assert.deepEqual(validateManifest(SHARD_BASE).errors, []);
+  const out = shardRender(SHARD_BASE);
+  assert.doesNotMatch(out, /matrix\.shard|ci-summary|^  quick:|bash \.\/scripts\/gate\.sh/m);
+  assert.equal(out.match(/^      - run: pnpm exec rightkit-gate --to compile$/gm)?.length, 1);
 });
 
 // ---- RightKit check job (rightkit#833, A-11) -------------------------------------------------------------
@@ -2191,7 +2148,7 @@ const checkRunsOn = (job) => /^ {4}runs-on: (\S+)$/m.exec(job.text)?.[1];
 
 // Each case: a name, the rendered workflow, and the job that is the lane's own first job after the check.
 const checkNode = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
-const CHECK_RUST_SHARDED = { ...SW_RUST_CHAIN, gate: { path: "scripts/gate.sh", quick: true, shards: [{ id: "workspace" }, { id: "linters" }] } };
+const CHECK_RUST_SHARDED = { ...SW_RUST_CHAIN, devArtifact: { ...SW_RUST_CHAIN.devArtifact, parallel: true, buildScript: "ci:dev" } };
 const CHECK_CASES = [
   ["node/ci", checkNode.ci, "test"],
   ["node/qualification", checkNode.qualification, "qualification"],
@@ -2200,7 +2157,7 @@ const CHECK_CASES = [
   ["node/swift-check", checkNode["swift-check"], "swift-check"],
   ["node/publish-npm", checkNode["publish-npm"], "publish-npm"],
   ["rust-hybrid/ci", swRender(SW_RUST, "ci"), "ci"],
-  ["rust-hybrid/ci sharded with quick", swRender(CHECK_RUST_SHARDED, "ci"), "ci"],
+  ["rust-hybrid/ci with parallel dev artifacts", swRender(CHECK_RUST_SHARDED, "ci"), "ci"],
   ["rust-hybrid/release-candidate", swRender(SW_RUST_CHAIN, "release-candidate"), "admission"],
 ];
 
@@ -2231,9 +2188,7 @@ test("check job: ci, test and quick list it in needs, and so does every other jo
   const plain = checkJobsOf(swRender(SW_RUST, "ci"));
   assert.deepEqual(plain.get("ci").needs, ["private-repo-guard", "check"]);
   const sharded = checkJobsOf(swRender(CHECK_RUST_SHARDED, "ci"));
-  assert.deepEqual(sharded.get("quick").needs, ["private-repo-guard", "check"]);
-  assert.deepEqual(sharded.get("ci").needs, ["private-repo-guard", "check", "quick"]);
-  assert.deepEqual(sharded.get("ci-summary").needs, ["ci", "quick"], "the summary reports ci and quick; a failed check leaves both skipped, which it reports as failed");
+  assert.deepEqual(sharded.get("ci").needs, ["private-repo-guard", "check"]);
   // devArtifact.parallel compiles in jobs of their own; they wait for the check too. Signing still waits for ci.
   for (const job of ["dev-artifact-mac", "dev-artifact-windows"]) assert.deepEqual(sharded.get(job).needs, ["private-repo-guard", "check"], job);
   assert.deepEqual(sharded.get("dev-mac-sign").needs, ["ci", "dev-artifact-mac"]);
@@ -2258,7 +2213,8 @@ test("check job: installs without lifecycle scripts, then runs rightkit-gate che
     assert.doesNotMatch(job.text, /--filter|secrets\.|right-release|\bnpm exec|\bnpx\b/, `${name}: no filter (it matches no project in a consumer), secret or registry fetch`);
     assert.match(job.text, /^ {4}timeout-minutes: \d+$/m, `${name}: bounded`);
     assert.equal(checkRunsOn(job), checkRunsOn(jobs.get("private-repo-guard")), `${name}: runs where the guard runs`);
-    assert.match(job.text, /^ {4}# RightKit check: committed files only/m, name);
+    assert.match(job.text, /^ {4}# RightKit check: class A over committed files only/m, name);
+    assert.ok(steps.includes("Install the pinned class A scan tools") && steps.includes("Install the pinned workflow linter"), `${name}: class A tools are provisioned, never skipped`);
   }
 });
 
@@ -2383,7 +2339,7 @@ test("check job: every lane is behind it or exempt for a stated reason, and an e
   ];
   for (const [name, workflow] of exempt) {
     assert.equal(withoutCheckJob(workflow), workflow, `${name} renders no check job and no check dependency`);
-    assert.doesNotMatch(workflow, /^ {2}check:$|rightkit-gate|, check\]/m, name);
+    assert.doesNotMatch(workflow, /^ {2}check:$|rightkit-gate check|, check\]/m, name);
   }
   // An exempt lane builds nothing: the steps that make a lane behind-the-check (the build and the release check) are absent.
   for (const [name, workflow] of exempt) assert.doesNotMatch(workflow, /build-candidate\.mjs|check-release\.mjs|cargo build|pnpm (?:run )?build/, `${name} must not build`);

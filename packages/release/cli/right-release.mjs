@@ -58,14 +58,14 @@ const first = args[0];
 // The commands that compile, package, sign, ship or inspect a release run the app check (../app-check.mjs, CHECKED_COMMANDS) in this
 // process before they start a child. A red check prints its findings and exits 1; there is no flag that skips it.
 async function requireGreenCheck() {
-  const { guardCommand, checkedCommandOf, CHECKED_COMMANDS, appDirectory } = await import("../app-check.mjs");
+  const { guardCommand, checkedCommandOf, checkModeFor, appDirectory } = await import("../app-check.mjs");
   // One door (Adrian, 2026-10-25): a commit-bound command (build, package, release, qa, upload, publish, signing) runs only when
   // rightkit-gate --to launched it for HEAD, after class A and the compile stage passed. Worktree commands (dev, test, doctor, ...)
   // are local conveniences: they ship nothing, and their compiles still pass the broker's class A admission.
   const checked = checkedCommandOf(args);
-  if (checked && CHECKED_COMMANDS.get(checked) === "commit") {
+  if (checked && checkModeFor(args) === "commit") {
     const { requireDoorRun } = await import("../gate-stages.mjs");
-    const { spawnSync } = await import("node:child_process");
+    const { spawnSync } = await import("../background-process.mjs");
     const cwd = appDirectory(args, process.cwd());
     const gitOut = (a) => { const r = spawnSync("git", a, { cwd, encoding: "utf8" }); return r.status === 0 ? r.stdout.trim() : ""; };
     const common = gitOut(["rev-parse", "--git-common-dir"]);

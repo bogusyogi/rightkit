@@ -102,7 +102,7 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
         if: steps.rust-changes.outputs.required == 'true'
         with:
           version: "v0.16.0"${SWIFT_PRIVATE_CONFIGURE_STEP}
-      - run: bash ./${GATE_PATH}${GATE_ARGS}
+      - run: ${GATE_DOOR}
         env:
           RIGHT_GIT_RUST_CHANGED: ${{ steps.rust-changes.outputs.changed }}
           RIGHT_GIT_RUST_REQUIRED: ${{ steps.rust-changes.outputs.required }}

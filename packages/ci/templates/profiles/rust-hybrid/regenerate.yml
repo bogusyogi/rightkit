@@ -69,7 +69,7 @@ ${RUST_CACHE_KEY}          cache-workspace-crates: ${CI_CACHE_WORKSPACE_CRATES}
           fi
       - name: Gate the regenerated tree
         if: steps.changes.outputs.changed == 'true'
-        run: bash ./${GATE_PATH}
+        run: ${GATE_DOOR}
         env:
           RIGHT_GIT_RUST_CHANGED: "true"
           RIGHT_GIT_RUST_REQUIRED: "true"

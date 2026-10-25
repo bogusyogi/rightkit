@@ -10,6 +10,7 @@
     "rightkit-agent-hook": "bin/rightkit-agent-hook.mjs"
   },
   "exports": {
+    "./bin/rightkit-agent-hook.mjs": "./bin/rightkit-agent-hook.mjs",
     "./bin/rightkit-gate.mjs": "./bin/rightkit-gate.mjs",
     "./cargo-contract.mjs": "./cargo-contract.mjs",
     "./cargo-target.mjs": "./cargo-target.mjs",
