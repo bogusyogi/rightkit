@@ -11,11 +11,11 @@
 //!    (`rustright cargo ...`) when it resolves on `PATH`, else plain cargo (a cloud host; `require_broker`
 //!    refuses that), or take an existing listing (`--from-cargo-json`). The compile argv passes the same
 //!    validator the journeys build uses: compile-only, no `--target-dir`.
-//! 2. **Select** the test executables from the `compiler-artifact` records ([`artifacts`]).
+//! 2. **Select** the test executables from the `compiler-artifact` records ([`artifacts`](crate::run_tests::artifacts)).
 //! 3. **Run** each one outside any broker job, from its package directory as cargo does, with bounded
 //!    parallelism, a per-binary and a total deadline, the process tree killed on a deadline, libtest
-//!    arguments passed through, and environment and working directory under control ([`ExecCtx`]).
-//! 4. **Record** one JSON receipt, `rightkit.run-tests.receipt/1` ([`receipt`]), in the managed run storage
+//!    arguments passed through, and environment and working directory under control (`ExecCtx`).
+//! 4. **Record** one JSON receipt, `rightkit.run-tests.receipt/1` ([`receipt`](crate::run_tests::receipt)), in the managed run storage
 //!    (`<managed root>/runs/<app>-run-tests/<run id>/`), with every binary's output in files beside it.
 //!
 //! Exit codes: 0 every binary passed; 1 a binary failed, timed out or could not start, or a run rule
