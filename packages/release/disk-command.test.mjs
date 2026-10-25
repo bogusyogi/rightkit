@@ -3,6 +3,7 @@ import { existsSync, lutimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
 import { CACHEDIR_SIGNATURE, KEEP_MARKER, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
@@ -2034,4 +2035,13 @@ test("committed policy: per-owner scratch caps, and readDiskPolicy rejects a mal
     writeFileSync(pf, JSON.stringify({ ...base, scratchPrefixCaps: caps }));
     assert.throws(() => readDiskPolicy(pf), /scratchPrefixCaps/);
   }
+});
+
+test("right-release help loads and lists the hourly run modes, run-root and the 26 h status rule", () => {
+  const r = spawnSync(process.execPath, [fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url)), "help"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /disk run \[--auto\|--light\]/);
+  assert.match(r.stdout, /disk run-root <name> \[--days N\]/);
+  assert.match(r.stdout, /disk run-root --release <name>/);
+  assert.match(r.stdout, /Hourly launchd job .* running "disk run --auto".* 26 h/);
 });
