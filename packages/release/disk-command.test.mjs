@@ -2037,8 +2037,8 @@ test("committed policy: per-owner scratch caps, and readDiskPolicy rejects a mal
   }
 });
 
-test("right-release help loads and lists the hourly run modes, run-root and the 26 h status rule", () => {
-  const r = spawnSync(process.execPath, [fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url)), "help"], { encoding: "utf8" });
+test("right-release --help loads and lists the hourly run modes, run-root and the 26 h status rule", () => {
+  const r = spawnSync(process.execPath, [fileURLToPath(new URL("./cli/right-release.mjs", import.meta.url)), "--help"], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /disk run \[--auto\|--light\]/);
   assert.match(r.stdout, /disk run-root <name> \[--days N\]/);
