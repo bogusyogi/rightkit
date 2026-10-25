@@ -368,6 +368,28 @@ impl Dir {
         share_file: u32,
         check: Check,
     ) -> Result<File> {
+        self.open_at_with_retention(
+            entry_name,
+            access,
+            disposition,
+            options,
+            share_file,
+            check,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn open_at_with_retention(
+        &self,
+        entry_name: &OsStr,
+        access: u32,
+        disposition: u32,
+        options: u32,
+        share_file: u32,
+        check: Check,
+        retain_name: bool,
+    ) -> Result<File> {
         let shown = Path::new(entry_name);
         let mut wide = component(entry_name)?;
         let len = u16::try_from(wide.len() * 2)
@@ -392,11 +414,11 @@ impl Dir {
         } else {
             None
         };
-        // A descriptor-bearing creation is verified and, on failure, removed through this same
-        // handle before callers can write bytes. Existing/inherited-policy opens retain exactly
-        // their requested rights.
+        // A temporary creation needs DELETE for failed-verification cleanup. A permanent lock
+        // must keep its name on error and omit DELETE: other StateDir readers intentionally do
+        // not share deletion, and must be able to open while the creator retains its handle.
         let creation_security_access = if security.is_some() {
-            READ_CONTROL | DELETE
+            READ_CONTROL | if retain_name { 0 } else { DELETE }
         } else {
             0
         };
@@ -439,8 +461,15 @@ impl Dir {
             let error =
                 io::Error::from_raw_os_error(unsafe { RtlNtStatusToDosError(result) } as i32);
             if create_only && error.kind() == io::ErrorKind::AlreadyExists {
-                return self
-                    .open_at_with(entry_name, access, FILE_OPEN, options, share_file, check);
+                return self.open_at_with_retention(
+                    entry_name,
+                    access,
+                    FILE_OPEN,
+                    options,
+                    share_file,
+                    check,
+                    retain_name,
+                );
             }
             return Err(if error.kind() == io::ErrorKind::AlreadyExists {
                 FsError::AlreadyExists(shown.to_path_buf())
@@ -456,28 +485,38 @@ impl Dir {
         const FILE_CREATED: usize = 2;
         // SAFETY: successful NtCreateFile transfers ownership of this handle.
         let file = unsafe { File::from_raw_handle(raw) };
+        #[cfg(feature = "testing")]
+        if retain_name {
+            super::testing::after_empty_create(&file)?;
+        }
         let checked = match check {
             Check::NoReparse => attributes(&file, shown),
             Check::ReparseLink => link_attributes(&file, shown),
         };
         if let Err(error) = checked {
-            if security.is_some() && status.information == FILE_CREATED {
+            if !retain_name && security.is_some() && status.information == FILE_CREATED {
                 let _ = discard_unverified_owner_only(&file, shown);
             }
             return Err(error);
         }
-        // A descriptor is only supplied for FILE_CREATE, so this retained handle is new. Check
-        // before StateDir writes bytes; any failure disposes this exact empty object.
+        // A descriptor is only supplied for FILE_CREATE, so this handle is new. Failed
+        // temporary entries are disposed; a visible final lock name is never removed here.
         if security.is_some() {
             if status.information != FILE_CREATED {
-                let _ = discard_unverified_owner_only(&file, shown);
+                if !retain_name {
+                    let _ = discard_unverified_owner_only(&file, shown);
+                }
                 return Err(FsError::Unavailable(
                     "NtCreateFile did not report a new private entry",
                 ));
             }
-            if let Err(error) = verify_owner_only_handle(&file, shown) {
-                let _ = discard_unverified_owner_only(&file, shown);
-                return Err(error);
+            // Direct permanent creation verifies this same handle in finish_read_open, once,
+            // with the same strict predicate as an opted-in later reader.
+            if !retain_name {
+                if let Err(error) = verify_owner_only_handle(&file, shown) {
+                    let _ = discard_unverified_owner_only(&file, shown);
+                    return Err(error);
+                }
             }
         }
         Ok(file)
@@ -602,13 +641,19 @@ impl Dir {
     /// Open a regular child for reading. `share_read_only` opens with `FILE_SHARE_READ` alone, so no
     /// other handle may write, delete or rename the file while this one is open (and the open fails
     /// with a sharing violation while somebody holds it for write).
-    pub fn open_read_with(&self, name: &str, share_read_only: bool) -> Result<File> {
+    /// `require_owner_only` adds READ_CONTROL for the subsequent check on this exact handle.
+    /// Ordinary pinned reads retain their existing access mask.
+    pub fn open_read_with(&self, name: &str, options: &crate::handle::ReadOptions) -> Result<File> {
         self.open_at_with(
             OsStr::new(name),
-            1,
+            1 | if options.require_owner_only {
+                READ_CONTROL
+            } else {
+                0
+            },
             FILE_OPEN,
             NON_DIRECTORY_FILE,
-            if share_read_only {
+            if options.share_read_only {
                 FILE_SHARE_READ
             } else {
                 SHARE_READ_WRITE
@@ -617,13 +662,16 @@ impl Dir {
         )
     }
 
-    pub fn create_new(&self, name: &str) -> Result<File> {
-        self.open_at(
+    pub fn create_new(&self, name: &str, retain_name: bool) -> Result<File> {
+        self.open_at_with_retention(
             OsStr::new(name),
-            0x0012_0116,
+            0x0012_0116, // FILE_GENERIC_WRITE
             FILE_CREATE,
             NON_DIRECTORY_FILE,
-        ) // FILE_GENERIC_WRITE
+            SHARE_READ_WRITE,
+            Check::NoReparse,
+            retain_name,
+        )
     }
 
     fn rename(&self, from: &str, to: &str, replace: bool) -> Result<()> {

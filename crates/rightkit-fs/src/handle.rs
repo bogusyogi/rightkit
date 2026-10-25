@@ -7,8 +7,8 @@
 //! - [`link_count`]: how many hard links the file has. A file with more than one is reachable by
 //!   another name, possibly outside the folder it was found in.
 //! - [`open_read_nofollow`] and [`ReadOptions`]: open a regular file for reading without following
-//!   a symlink or reparse point at the final component, optionally requiring a single hard link and
-//!   (Windows) refusing writers while it is open.
+//!   a symlink or reparse point at the final component, optionally requiring a single hard link,
+//!   owner-only access, and (Windows) refusing writers while it is open.
 //!
 //! A file's identity (volume and index, on every platform, directories included) is
 //! [`crate::FileKey`].
@@ -36,6 +36,12 @@ pub struct ReadOptions {
     /// from a first name by looking at the path). The check is made on the open handle, so it
     /// describes the file that was opened. A hard link made after the open is not seen.
     pub require_single_link: bool,
+    /// Verify ownership and private access on this open handle, without changing permissions.
+    /// Unix requires the effective user as owner, no group/other mode bits, and on macOS no ACL
+    /// `allow` entry. Windows requires the protected single-user DACL this crate creates (the
+    /// strict predicate documented by [`crate::private::is_owner_only_strict`]). Unsupported
+    /// platforms fail closed. This is a snapshot: later permission changes are not prevented.
+    pub require_owner_only: bool,
     /// Windows: open with `FILE_SHARE_READ` only, so while the handle is open nobody else can open
     /// the file for writing, deleting or renaming it, and the open itself fails with a sharing
     /// violation while somebody else holds it open for write. The bytes cannot change under the
@@ -49,6 +55,7 @@ impl ReadOptions {
     pub const fn new() -> Self {
         Self {
             require_single_link: false,
+            require_owner_only: false,
             share_read_only: false,
         }
     }
@@ -56,6 +63,12 @@ impl ReadOptions {
     /// Require exactly one hard link; see [`ReadOptions::require_single_link`].
     pub const fn require_single_link(mut self, yes: bool) -> Self {
         self.require_single_link = yes;
+        self
+    }
+
+    /// Verify private ownership and access; see [`ReadOptions::require_owner_only`].
+    pub const fn require_owner_only(mut self, yes: bool) -> Self {
+        self.require_owner_only = yes;
         self
     }
 
@@ -182,7 +195,7 @@ pub fn link_count(file: &File) -> io::Result<u64> {
 }
 
 /// Checks made on a freshly opened read handle, shared by every no-follow read open: a regular file,
-/// and one hard link when asked. `shown` names the entry in errors.
+/// and one hard link and owner-only access when asked. `shown` names the entry in errors.
 pub(crate) fn finish_read_open(file: File, shown: &Path, options: &ReadOptions) -> Result<File> {
     let meta = file.metadata().map_err(|e| FsError::io(shown, e))?;
     if !meta.is_file() {
@@ -192,6 +205,9 @@ pub(crate) fn finish_read_open(file: File, shown: &Path, options: &ReadOptions) 
     clear_nonblock(&file).map_err(|e| FsError::io(shown, e))?;
     if options.require_single_link && link_count(&file).map_err(|e| FsError::io(shown, e))? != 1 {
         return Err(FsError::HardLinked(shown.to_path_buf()));
+    }
+    if options.require_owner_only {
+        crate::private::verify_owner_only_handle(&file, shown)?;
     }
     Ok(file)
 }

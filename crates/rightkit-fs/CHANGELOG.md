@@ -35,6 +35,12 @@
 
 ## 0.4.6 — unpublished staging
 
+- Add `StateDir::create_new_empty` for permanent empty lock files and opt-in
+  `ReadOptions::require_owner_only` checks on the opened handle. Direct creation
+  keeps its final name after any post-create error, performs no durability flush,
+  and adds no dependencies. The implementation comes from a 0.4.4 consumer patch
+  tested on macOS arm64; this upstream revision and native Linux and Windows
+  checks have not been run.
 - Transaction backup durability: the hard-link backup of a file about to be overwritten is now
   flushed (file and parent directory) before the live overwrite, so a crash cannot leave the live
   file replaced with no durable backup (`src/transaction.rs`). Regressions cover the order and a
