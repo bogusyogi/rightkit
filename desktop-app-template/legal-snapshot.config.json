@@ -1,0 +1,25 @@
+{
+  "appKey": "rightapp",
+  "productName": "RightApp",
+  "licensor": "Damned Ventures LLC",
+  "effectiveDate": "2026-10-24",
+  "acceptanceVersion": "rightapp-2026-10-24-v1",
+  "draftAcceptanceVersion": "rightapp-2026-10-24-draft-v1",
+  "sourceRoot": "../rightkit/legal",
+  "documents": [
+    { "id": "license", "role": "license", "title": "Right Suite Desktop License: Ownership Notice", "version": "1.0", "path": "LICENSE.md", "source": "LICENSE.md", "publicUrl": "https://rightapp.example/legal/license/", "treatment": "agree", "material": true },
+    { "id": "eula", "role": "eula", "title": "Right Suite End User License Agreement", "version": "1.1", "path": "EULA.md", "source": "EULA.md", "publicUrl": "https://rightapp.example/legal/eula/", "treatment": "agree", "material": true },
+    { "id": "acceptable-use", "role": "acceptable_use", "title": "Right Suite Acceptable Use Policy", "version": "1.0", "path": "ACCEPTABLE_USE.md", "source": "ACCEPTABLE_USE.md", "publicUrl": "https://rightapp.example/legal/acceptable-use/", "treatment": "agree", "material": true },
+    { "id": "product-schedule", "role": "product_schedule", "title": "RightApp Product Schedule", "version": "1", "path": "PRODUCT_SCHEDULE.md", "publicUrl": "https://rightapp.example/legal/product-schedule/", "treatment": "agree", "material": true },
+    { "id": "privacy", "role": "privacy_notice", "title": "RightApp Privacy Notice", "version": "1", "path": "PRIVACY_NOTICE.md", "publicUrl": "https://rightapp.example/legal/privacy/", "treatment": "acknowledge", "material": false },
+    { "id": "notices", "role": "third_party_notices", "title": "RightApp Third-Party Notices", "version": "1", "path": "THIRD_PARTY_NOTICES.md", "publicUrl": "https://rightapp.example/legal/notices/", "treatment": "notice", "material": false }
+  ],
+  "appendices": [
+    { "id": "npm", "title": "RightApp npm third-party licenses", "path": "THIRD_PARTY_NPM_LICENSES.html" }
+  ],
+  "notices": {
+    "template": "NOTICES.template.md",
+    "path": "THIRD_PARTY_NOTICES.md",
+    "hashes": { "lock": "pnpm-lock.yaml", "cargoLock": "Cargo.lock", "npmAppendix": "legal/THIRD_PARTY_NPM_LICENSES.html" }
+  }
+}

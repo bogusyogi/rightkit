@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { enforcePublicationGate, defaultEvidencePath, provenGateSteps, singleHostOfPolicy, batchClippyMissingFeatureSets } from "./publication-gate.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
@@ -12,6 +13,7 @@ import { recordPublished, workspaceFeedOptions } from "./rightkit-sync.mjs";
 import { readCargoPackage } from "./crate-graph.mjs";
 import { runtimeBudgetCheck, RUNTIME_BUDGET_CODE } from "./runtime-budgets.mjs";
 import { formatPreflight, PREFLIGHT_FAIL } from "./preflight.mjs";
+import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 const FORBIDDEN_PACKAGE_PATH = /(^|\/)(?:\.env(?:\.[^/]*)?|target(?:\/.*)?|node_modules(?:\/.*)?|[^/]+\.(?:p8|p12|pem|key))$/i;
 const SECRET_PATTERNS = [
@@ -139,7 +141,202 @@ export function packageFileViolations(files) {
     .filter((file) => FORBIDDEN_PACKAGE_PATH.test(file));
 }
 
-export function scanCrateForSecrets(crateDir) {
+// ---- the secret scan ---------------------------------------------------------------------------------------------------
+//
+// Strict (the default): a crate package, its archive and the local-publish batch scan. `scanCrateForSecrets(dir)` returns the
+// relative paths that are refused by name (FORBIDDEN_PACKAGE_PATH, which includes every .env* file, so env templates too) or whose
+// content matches SECRET_PATTERNS. Nothing published needs a template or a test vector, and the records file below is never read.
+//
+// Repository gate (`{ envTemplates: true }`, deterministic-scans.mjs "secret-scan"): the units of a commit that is not being
+// published. An app legitimately commits env templates (`.env.example`) and test vectors for its own redaction and screening code,
+// and no content heuristic tells a placeholder from a pasted credential, so a file is admitted by a reviewed record, not by a guess.
+// `.rightkit/secret-scan-records.json` in the repository:
+//   { "schema": 1, "records": [ { "path": "<repo-relative>", "sha256": "<hex of the bytes, CRLF read as LF>", "kind": "env-template" | "fixture", "note": "<what it holds and why it is safe>" } ] }
+//  - an env template (.env.example, .env.<name>.example, .env.sample, .env.template) is admitted only by a record of kind
+//    "env-template" whose sha256 is the file's: any edit needs a new record, which is the review, in the pull request diff;
+//  - any other file whose content matches SECRET_PATTERNS is admitted only by a record of kind "fixture" with the file's sha256;
+//  - never recordable: .env and every .env.* that is not a template, *.pem, *.p8, *.p12, *.key (refused by name, and a record naming
+//    one is itself a violation); a template that is not UTF-8 (NUL bytes, a UTF-16 mark), that holds a PEM private key header or one
+//    of the other high-precision credential shapes below, or that sits inside a publishable crate or package is refused even when recorded;
+//  - a malformed records file is a violation and admits nothing.
+// Each violation is `<path>[:<line>]: <reason>`; a hit names the line and the shape, never the matched text.
+export const SECRET_SCAN_RECORDS_FILE = ".rightkit/secret-scan-records.json";
+const RECORD_KINDS = Object.freeze(["env-template", "fixture"]);
+const RECORD_KEYS = Object.freeze(["path", "sha256", "kind", "note"]);
+const RECORD_NOTE_PLACEHOLDER = "<what it holds and why it is safe>";
+const ENV_TEMPLATE = /(^|\/)\.env(?:\.[^/]*)?\.(?:example|sample|template)$/i;
+// Labels of SECRET_PATTERNS, index for index.
+const SECRET_PATTERN_LABELS = Object.freeze(["a PEM private key header", "an AWS access key id (AKIA)", "a GitHub token (gh*_)", "an npm token (npm_)"]);
+// Credential shapes that are never a placeholder, matched in env templates besides SECRET_PATTERNS. Every expression is linear:
+// each quantified class is followed by a delimiter it cannot match or by the end of the match.
+const TEMPLATE_SHAPES = Object.freeze([
+  [/-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/, "a PEM private key header"],
+  [/github_pat_[A-Za-z0-9_]{22,}/, "a GitHub fine-grained token (github_pat_)"],
+  [/sk_live_[A-Za-z0-9]{16,}/, "a Stripe live key (sk_live_)"],
+  [/xox[abprs]-[A-Za-z0-9-]{10,}/, "a Slack token (xox*-)"],
+  [/AIza[0-9A-Za-z_-]{35}/, "a Google API key (AIza)"],
+  [/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+/, "a Slack webhook URL"],
+]);
+const FILE_SHAPES = Object.freeze(SECRET_PATTERNS.map((pattern, index) => [pattern, SECRET_PATTERN_LABELS[index]]));
+const TEMPLATE_ALL_SHAPES = Object.freeze([...FILE_SHAPES, ...TEMPLATE_SHAPES]);
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+const neverRecordable = (relative) => FORBIDDEN_PACKAGE_PATH.test(relative) && !ENV_TEMPLATE.test(relative);
+const sha256Hex = (bytes) => createHash("sha256").update(bytes).digest("hex");
+// A record's digest reads CRLF as LF, so one record holds on every host: `git archive` (the gate's export) writes CRLF on a
+// Windows host with `core.autocrlf=true` or `core.eol=crlf` for `text=auto` files and LF elsewhere. The content checks still read
+// the bytes as exported; a lone CR is kept, so no other byte is ever ignored.
+const recordDigest = (bytes) => sha256Hex(Buffer.from(Buffer.from(bytes).toString("latin1").replace(/\r\n/g, "\n"), "latin1"));
+const recordLine = (relative, sha256, kind) => JSON.stringify({ path: relative, sha256, kind, note: RECORD_NOTE_PLACEHOLDER });
+const repoRelativePath = (p) => p !== "" && p !== "." && !p.includes("\\") && !p.includes("\0") && !p.startsWith("/") && !/^[A-Za-z]:/.test(p) && !p.endsWith("/")
+  && path.posix.normalize(p) === p && !p.split("/").includes("..");
+
+/** `{ records: Map<path, { sha256, kind, note }>, problems: string[] }` from the text of the records file (undefined: no file). A record with a problem admits nothing. */
+export function parseSecretScanRecords(text) {
+  const records = new Map();
+  const problems = [];
+  const bad = (message) => problems.push(`${SECRET_SCAN_RECORDS_FILE}: ${message}`);
+  if (text === undefined) return { records, problems };
+  let doc;
+  try { doc = JSON.parse(String(text).replace(/^﻿/, "")); } catch (error) { bad(`is not valid JSON (${error.message})`); return { records, problems }; }
+  if (doc === null || typeof doc !== "object" || Array.isArray(doc)) { bad('must be an object { "schema": 1, "records": [...] }'); return { records, problems }; }
+  for (const key of Object.keys(doc)) if (key !== "schema" && key !== "records") bad(`has an unknown key ${JSON.stringify(key)}`);
+  if (doc.schema !== 1) { bad(`schema must be 1 (found ${JSON.stringify(doc.schema)}); no record is read`); return { records, problems }; }
+  if (!Array.isArray(doc.records)) { bad('"records" must be an array'); return { records, problems }; }
+  const counts = new Map();
+  const valid = [];
+  doc.records.forEach((record, index) => {
+    if (record === null || typeof record !== "object" || Array.isArray(record)) { bad(`record ${index} must be an object`); return; }
+    const label = typeof record.path === "string" ? `record ${index} (${JSON.stringify(record.path)})` : `record ${index}`;
+    let ok = true;
+    const fail = (message) => { bad(`${label}: ${message}`); ok = false; };
+    for (const key of Object.keys(record)) if (!RECORD_KEYS.includes(key)) fail(`has an unknown key ${JSON.stringify(key)}`);
+    if (typeof record.path !== "string" || !repoRelativePath(record.path)) fail('"path" must be a normalised repository-relative path with forward slashes');
+    if (typeof record.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(record.sha256)) fail('"sha256" must be 64 hex characters, the sha256 of the file bytes with CRLF read as LF');
+    if (!RECORD_KINDS.includes(record.kind)) fail(`"kind" must be one of ${RECORD_KINDS.join(", ")}`);
+    if (typeof record.note !== "string" || record.note.trim() === "" || record.note.trim() === RECORD_NOTE_PLACEHOLDER) fail('"note" must say what the file holds and why it is safe');
+    if (typeof record.path === "string") counts.set(record.path, (counts.get(record.path) ?? 0) + 1);
+    if (!ok) return;
+    if (neverRecordable(record.path)) fail("names a path that can never be recorded (.env and every .env.* that is not a template, *.pem, *.p8, *.p12, *.key)");
+    else if (record.kind === "env-template" && !ENV_TEMPLATE.test(record.path)) fail('kind "env-template" names a path that is not an env template (.env.example, .env.<name>.example, .env.sample, .env.template)');
+    else if (record.kind === "fixture" && ENV_TEMPLATE.test(record.path)) fail('kind "fixture" cannot admit an env template; record it as "env-template"');
+    else valid.push(record);
+  });
+  for (const [recorded, count] of counts) if (count > 1) bad(`${JSON.stringify(recorded)} is recorded ${count} times; keep one record per path`);
+  for (const record of valid) if (counts.get(record.path) === 1) records.set(record.path, { sha256: record.sha256.toLowerCase(), kind: record.kind, note: record.note });
+  return { records, problems };
+}
+
+// The records file of the repository being scanned, read as data: a regular file whose real path stays inside the repository.
+function readSecretScanRecords(repoRoot) {
+  const file = path.join(repoRoot, SECRET_SCAN_RECORDS_FILE);
+  try {
+    if (!fs.lstatSync(file).isFile()) return { problems: [`${SECRET_SCAN_RECORDS_FILE}: is not a regular file`] };
+    const relative = path.relative(fs.realpathSync(repoRoot), fs.realpathSync(file));
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return { problems: [`${SECRET_SCAN_RECORDS_FILE}: resolves outside the repository`] };
+    return parseSecretScanRecords(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return parseSecretScanRecords(undefined);
+    return { problems: [`${SECRET_SCAN_RECORDS_FILE}: cannot be read (${error?.code ?? error?.message})`] };
+  }
+}
+
+/** Why a file is not UTF-8 text (NUL bytes, a UTF-16 byte-order mark, an invalid sequence), or null. */
+function notUtf8(bytes) {
+  if (bytes.length >= 2 && ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))) return "starts with a UTF-16 byte-order mark";
+  if (bytes.includes(0)) return "contains NUL bytes";
+  try { UTF8.decode(bytes); } catch { return "is not valid UTF-8"; }
+  return null;
+}
+
+/**
+ * `[{ label, lines }]` for the shapes that match `text`: at most the first five matching lines of each, found in one pass.
+ * After a hit the search resumes on the next line, so the work is linear in the text however many matches a line holds.
+ */
+function contentHits(text, shapes) {
+  const hits = new Map();
+  for (const [shape, label] of shapes) {
+    const pattern = new RegExp(shape.source, `${shape.flags.replace("g", "")}g`);
+    const lines = hits.get(label) ?? [];
+    let line = 1;
+    let newline = text.indexOf("\n");
+    for (let match = pattern.exec(text); match !== null && lines.length < 5; match = pattern.exec(text)) {
+      while (newline !== -1 && newline < match.index) { line += 1; newline = text.indexOf("\n", newline + 1); }
+      if (!lines.includes(line)) lines.push(line);
+      pattern.lastIndex = newline === -1 ? text.length : newline + 1;
+    }
+    if (lines.length) hits.set(label, lines);
+  }
+  const found = [...hits].map(([label, lines]) => ({ label, lines: [...lines].sort((a, b) => a - b).slice(0, 5) }));
+  return found.sort((a, b) => a.lines[0] - b.lines[0] || (a.label < b.label ? -1 : 1));
+}
+
+const hitsText = (hits) => hits.map((hit) => `${hit.label} (line${hit.lines.length > 1 ? "s" : ""} ${hit.lines.join(", ")})`).join("; ");
+const firstLine = (hits) => Math.min(...hits.flatMap((hit) => hit.lines));
+
+// The publishable crate or package that holds `file`, or null: the nearest Cargo.toml and the nearest package.json at or above
+// it, up to the repository root. A crate is publishable when its [package] does not say publish = false / []; a package when its
+// package.json is not "private": true. A manifest that cannot be read counts as publishable.
+function publishableOwner(file, repoRoot) {
+  const root = path.resolve(repoRoot);
+  const shown = (dir) => path.relative(root, dir).replaceAll("\\", "/") || ".";
+  let cargoDecided = false;
+  let npmDecided = false;
+  for (let dir = path.dirname(path.resolve(file)); ; dir = path.dirname(dir)) {
+    const outside = path.relative(root, dir);
+    if (outside === ".." || outside.startsWith(`..${path.sep}`) || path.isAbsolute(outside)) return null;
+    if (!cargoDecided && fs.existsSync(path.join(dir, "Cargo.toml"))) {
+      cargoDecided = true;
+      let state = null;
+      try { state = cargoManifestState(fs.readFileSync(path.join(dir, "Cargo.toml"), "utf8")); } catch { /* unreadable: publishable */ }
+      if (state === null || (state.hasPackage && !state.unpublished)) return `the publishable crate at ${shown(dir)} (its Cargo.toml [package] does not say publish = false)`;
+    }
+    if (!npmDecided && fs.existsSync(path.join(dir, "package.json"))) {
+      npmDecided = true;
+      let manifest = null;
+      try { manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8").replace(/^﻿/, "")); } catch { /* unreadable: publishable */ }
+      if (manifest?.private !== true) return `the publishable package at ${shown(dir)} (its package.json is not "private": true)`;
+    }
+    if ((cargoDecided && npmDecided) || dir === root || path.dirname(dir) === dir) return null;
+  }
+}
+
+function envTemplateViolations(relative, file, bytes, records, repoRoot) {
+  const owner = publishableOwner(file, repoRoot);
+  const encoding = notUtf8(bytes);
+  const hits = encoding === null ? contentHits(bytes.toString("utf8"), TEMPLATE_ALL_SHAPES) : [];
+  const refused = [];
+  if (owner) refused.push(`${relative}: env template inside ${owner}; a publishable unit never carries one (refused by name, as at publish time and in the archive scan). Move it out of the unit, or mark the unit unpublished`);
+  if (encoding) refused.push(`${relative}: env template ${encoding}, so it cannot be read as UTF-8 text; refused even when recorded. Save it as UTF-8`);
+  if (hits.length) refused.push(`${relative}:${firstLine(hits)}: env template matches ${hitsText(hits)}; refused even when recorded. Replace the value with a placeholder`);
+  if (refused.length) return refused;
+  const sha256 = recordDigest(bytes);
+  const record = records.get(relative);
+  if (record?.kind === "env-template" && record.sha256 === sha256) return [];
+  const line = recordLine(relative, sha256, "env-template");
+  if (record?.kind === "env-template") return [`${relative}: env template changed since it was recorded (recorded sha256 ${record.sha256}, now ${sha256}); after reviewing the change, replace its record in ${SECRET_SCAN_RECORDS_FILE} with: ${line}`];
+  return [`${relative}: env template (sha256 ${sha256}) is not recorded in ${SECRET_SCAN_RECORDS_FILE}; after reviewing that it holds only names and placeholders, add this record: ${line}`];
+}
+
+function fileViolations(relative, bytes, records) {
+  const hits = contentHits(bytes.toString("utf8"), FILE_SHAPES);
+  if (!hits.length) return [];
+  const sha256 = recordDigest(bytes);
+  const record = records.get(relative);
+  if (record?.kind === "fixture" && record.sha256 === sha256) return [];
+  const line = recordLine(relative, sha256, "fixture");
+  const where = `${relative}:${firstLine(hits)}: content matches ${hitsText(hits)}`;
+  if (record?.kind === "fixture") return [`${where}; its fixture record is out of date (recorded sha256 ${record.sha256}, now ${sha256}). After reviewing the change, replace its record in ${SECRET_SCAN_RECORDS_FILE} with: ${line}`];
+  return [`${where}; sha256 ${sha256}. If this is a redaction or screening test vector and not a credential, review it and add this record to ${SECRET_SCAN_RECORDS_FILE}: ${line}`];
+}
+
+/**
+ * Files under `crateDir` that must not be committed or packaged. Strict by default: bare relative paths. With `envTemplates: true`
+ * (the repository gate) the reviewed records of `<repoRoot>/.rightkit/secret-scan-records.json` apply and each violation is a
+ * `<repo-relative path>[:<line>]: <reason>` line; `repoRoot` (default `crateDir`) is the root those paths and the records are relative to.
+ */
+export function scanCrateForSecrets(crateDir, { envTemplates = false, repoRoot = crateDir } = {}) {
+  if (envTemplates) return scanRepositoryForSecrets(crateDir, repoRoot);
   const violations = [];
   for (const file of walkFiles(crateDir)) {
     const relative = path.relative(crateDir, file).replaceAll("\\", "/");
@@ -147,9 +344,24 @@ export function scanCrateForSecrets(crateDir) {
       violations.push(relative);
       continue;
     }
-    const bytes = fs.readFileSync(file);
-    const text = bytes.toString("utf8");
+    const text = fs.readFileSync(file).toString("utf8");
     if (SECRET_PATTERNS.some((pattern) => pattern.test(text))) violations.push(relative);
+  }
+  return [...new Set(violations)].sort();
+}
+
+function scanRepositoryForSecrets(dir, repoRoot) {
+  const { records = new Map(), problems = [] } = readSecretScanRecords(repoRoot);
+  const violations = [...problems];
+  for (const file of walkFiles(dir)) {
+    const inDir = path.relative(dir, file).replaceAll("\\", "/");
+    const relative = path.relative(repoRoot, file).replaceAll("\\", "/");
+    if (neverRecordable(inDir)) {
+      violations.push(`${relative}: refused by name (an .env file, a key or certificate file, or build output); it is never committed and cannot be recorded`);
+      continue;
+    }
+    const bytes = fs.readFileSync(file);
+    violations.push(...(ENV_TEMPLATE.test(inDir) ? envTemplateViolations(relative, file, bytes, records, repoRoot) : fileViolations(relative, bytes, records)));
   }
   return [...new Set(violations)].sort();
 }

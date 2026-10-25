@@ -6,8 +6,7 @@
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macos",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macosx",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:typo",
-      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__",
-      "switches-inventory|desktop-app-template/right-release.config.mjs|desktop-app-template"
+      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__"
     ],
     "coderight": [
       "switches-inventory|apps/coderight-tauri/right-release.config.mjs|apps/coderight-tauri"

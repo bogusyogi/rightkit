@@ -1,23 +1,29 @@
 # One Cargo workspace, one lockfile, one target tree (HeardRight/GenRight/ScrapeRight convention).
-# Profiles live HERE only: Cargo honours the root's profile.
+# Profiles live HERE only (Cargo honours the root's profile) and are copied verbatim from
+# packages/release/templates/cargo-profiles.toml; the RightKit ownership scanner flags any deviation.
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/protocol", "crates/engine", "crates/tools"]
+members = ["src-tauri", "crates/protocol", "crates/engine"]
 
 [profile.dev]
-debug = "line-tables-only"
-
-[profile.dev.package."*"]
-debug = false
-
-# Fast dev packaging profile named by right-release.config.mjs `development` targets.
-[profile.release-iterate]
-inherits = "release"
 opt-level = 1
-lto = false
-codegen-units = 16
-incremental = true
+debug = "line-tables-only"
 strip = "none"
+debug-assertions = true
+overflow-checks = true
+lto = "off"
+panic = "unwind"
+incremental = true
+codegen-units = 256
+rpath = false
 
-[profile.release-iterate.package."*"]
+# Dependencies: non-incremental so sccache can cache them across apps.
+[profile.dev.package."*"]
 incremental = false
+codegen-units = 16
+
+# No test-profile overrides: test inherits dev.
+# The retired release-iterate profile must not appear: delete it and its package overrides.
+
+[profile.release]
+panic = "unwind"
