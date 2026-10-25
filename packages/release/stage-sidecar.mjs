@@ -157,6 +157,8 @@ function relativePath(value, label, errors, { allowRoot = false } = {}) {
 
 /** A relative output path in comparison form: no "." or empty segments, lower case (Windows and macOS are case-insensitive). */
 const canonicalOutput = (value) => String(value).replaceAll("\\", "/").split("/").filter((segment) => segment !== "" && segment !== ".").join("/").toLowerCase();
+/** The claim in `claimed` that `key` equals, contains or sits inside (outputs may not be nested inside each other). */
+const findClaimClash = (claimed, key) => claimed.find((other) => other.key === key || other.key.startsWith(`${key}/`) || key.startsWith(`${other.key}/`));
 /** `output` equals `protectedPath` or is an ancestor of it (so writing or cleaning `output` would reach it). */
 const reaches = (output, protectedPath) => output === protectedPath || protectedPath.startsWith(`${output}/`);
 
@@ -336,7 +338,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
   const claimed = [];
   const claim = (output, label) => {
     const key = canonicalOutput(output);
-    const clash = claimed.find((other) => other.key === key || other.key.startsWith(`${key}/`) || key.startsWith(`${other.key}/`));
+    const clash = findClaimClash(claimed, key);
     if (clash?.key === key) errors.push(`${label} writes ${output}, which ${clash.label} already writes`);
     else if (clash) errors.push(`${label} writes ${output}, which overlaps ${clash.output} that ${clash.label} writes (outputs may not be nested inside each other)`);
     else claimed.push({ key, output, label });
@@ -555,7 +557,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
     if (hit) errors.push(`${label} writes ${output}, which is or contains ${hit}; stage-sidecar never overwrites or cleans the app's stage directory, receipt, cache, .git, src, src-tauri, node_modules or package.json`);
   }
   if (errors.length) fail("STAGE_SIDECAR_CONFIG_INVALID", `invalid sidecars configuration:\n${errors.map((line) => `- ${line}`).join("\n")}`, { errors });
-  return { target: t, stageDir, receiptPath, wipeStageDir: wrapper.wipeStageDir === true, entries };
+  return { target: t, stageDir, receiptPath, wipeStageDir: wrapper.wipeStageDir === true, entries, claims: claimed };
 }
 
 const sha256Of = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -851,7 +853,11 @@ async function fetchFfmpegSources(entry, ctx, plan, arch) {
   for (const file of plan.files) {
     const spec = ffmpegSourceFor(entry.sources, file.tool, arch);
     if (!spec) continue;
-    if (fs.existsSync(file.stagedPath) && catalogContentDigest(fs.readFileSync(file.stagedPath), arch) === file.contentSha256) { ctx.log(`stage-sidecar: ${rel(ctx, file.stagedPath)} already staged`); continue; }
+    if (fs.existsSync(file.stagedPath) && catalogContentDigest(fs.readFileSync(file.stagedPath), arch) === file.contentSha256) {
+      ctx.log(`stage-sidecar: ${rel(ctx, file.stagedPath)} already staged`);
+      if (!ctx.windows) fs.chmodSync(file.stagedPath, 0o755);
+      continue;
+    }
     if (spec.path) {
       const local = resolveLocalFfmpegSource(ctx, spec, file.tool);
       const actual = catalogContentDigest(fs.readFileSync(local), arch);
@@ -1080,7 +1086,7 @@ function planNativeSet(entry, ctx, loaded, t) {
   if (!entry.files) {
     // Every serving row is staged; a row of the same library and arch that does not serve is left out, and said so (an incomplete set is not silent).
     for (const row of loaded.catalog?.libraries ?? []) {
-      if (row.library === entry.library && row.version === entry.version && row.os === t.os && row.arch === t.arch && !SERVING_STATUS.has(row.status)) ctx.log(`stage-sidecar: not staging ${row.id} (${row.status}); only approved or pinned rows are staged`);
+      if (row.library === entry.library && row.version === entry.version && row.os === t.os && row.arch === t.arch && !SERVING_STATUS.has(row.status)) ctx.warn(`stage-sidecar: not staging ${row.id} (${row.status}); only approved or pinned rows are staged`);
     }
   } else {
     primary = entry.files.map((name) => {
@@ -1134,7 +1140,12 @@ function nativeDigestMismatch(entry, row, bytes, { fromSource }) {
       }
       return undefined;
     }
-    const actual = catalogContentDigest(bytes, row.arch);
+    // A thin row pins one slice of one thin file: a universal Mach-O (a good slice beside a foreign one) is not that file.
+    const identity = contentIdentity(bytes);
+    if (identity.format === "macho-universal" || identity.slices.length !== 1) {
+      return { what: "file identity", expected: `a thin ${row.arch} file with content digest ${row.contentSha256}`, actual: `a ${identity.format === "macho-universal" ? "universal Mach-O" : "file"} with ${identity.slices.length} slices (${identity.slices.map((slice) => slice.arch ?? "none").join(", ")}); a thin row accepts exactly one slice` };
+    }
+    const actual = digestFor(identity, row.arch) ?? identity.slices[0].sha256;
     return actual === row.contentSha256 ? undefined : { what: "content digest", expected: row.contentSha256, actual };
   } catch (error) {
     if (!(error instanceof ContentDigestError)) throw error;
@@ -1197,13 +1208,20 @@ async function prepareNativeFile(entry, ctx, loaded, item, { destDir, scratchDir
   return { ...prepared, from: library };
 }
 
-/** Write one verified file (unless it is already staged) and its notices; the staged bytes are re-read for the receipt. */
-function commitNativeFile(ctx, prepared) {
+/** Write one verified file (unless it is already staged) and its notices; the staged bytes are re-verified against the row and re-read for the receipt. */
+function commitNativeFile(entry, ctx, prepared) {
   const { fs } = ctx;
   const { row, dest, from } = prepared;
-  if (from) copyInto(ctx, from, dest, { executable: false });
-  else ctx.log(`stage-sidecar: ${rel(ctx, dest)} already staged`);
-  if (row.hostProof === "never-run") ctx.log(`stage-sidecar: warning: ${row.id} has hostProof never-run: its bytes were pinned but never loaded or run on a ${row.os} host, so ${path.basename(dest)} is staged but not host-proven`);
+  if (from) {
+    copyInto(ctx, from, dest, { executable: false });
+    // The source was read again for the copy: hold the staged bytes to the row too, so a file that changed after it was verified is never left staged.
+    const mismatch = nativeDigestMismatch(entry, row, fs.readFileSync(dest), { fromSource: Boolean(entry.source) });
+    if (mismatch) {
+      fs.rmSync(dest, { force: true });
+      failNativeMismatch(row, `${rel(ctx, dest)} (copied from ${from}, which changed after it was verified)`, mismatch);
+    }
+  } else ctx.log(`stage-sidecar: ${rel(ctx, dest)} already staged`);
+  if (row.hostProof === "never-run") ctx.warn(`stage-sidecar: warning: ${row.id} has hostProof never-run: its bytes were pinned but never loaded or run on a ${row.os} host, so ${path.basename(dest)} is staged but not host-proven`);
   const staged = fs.readFileSync(dest);
   const notices = prepared.notices.map(({ source, dest: out }) => {
     fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -1223,7 +1241,7 @@ async function stageNativeSet(entry, ctx, loaded, items, { destDir, beforeWrite 
     const prepared = [];
     for (const item of items) prepared.push(await prepareNativeFile(entry, ctx, loaded, item, { destDir, scratchDirs }));
     if (beforeWrite) for (const file of prepared) beforeWrite(file);
-    return prepared.map((file) => commitNativeFile(ctx, file));
+    return prepared.map((file) => commitNativeFile(entry, ctx, file));
   } finally {
     for (const dir of scratchDirs) ctx.removeDir(dir);
   }
@@ -1247,10 +1265,54 @@ function nativeReceiptRow(entry, ctx, file, extra = {}) {
   };
 }
 
-async function stageNativeLibrary(entry, ctx) {
-  const { appRoot, fs, target } = ctx;
+/** The native catalog of an entry, loaded once per run (the claim pre-pass and the staging share it). */
+async function loadNativeCatalogOf(entry, ctx) {
+  if (ctx.nativeCatalogs.has(entry)) return ctx.nativeCatalogs.get(entry);
+  const { appRoot, fs } = ctx;
   const loaded = await (ctx.loadNativeCatalog({ entry, appRoot }) ?? (entry.catalogSpec ? readJsonCatalog(resolveCatalogFile(entry.catalogSpec, ctx, entry.kind), appRoot, fs, "native-libraries") : undefined));
   if (!loaded) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", `${entry.kind} needs a catalog path (the rightkit-ffmpeg native-libraries.json) or deps.loadNativeCatalog`);
+  ctx.nativeCatalogs.set(entry, loaded);
+  return loaded;
+}
+
+/**
+ * Validation claims only the file names a config states, but a native-library or onnxruntime entry writes what its catalog rows name (and
+ * the alias stages the DirectML companion beside the library by default), so another entry can write the same file. Before anything is
+ * written, plan each such entry without effects (a catalog or row problem is skipped here and raised in order by the staging itself), claim
+ * the planned file names beside the validation claims, and refuse a file two entries write, naming both and the remedy.
+ */
+async function claimNativeOutputs(plan, ctx) {
+  const natives = plan.entries.filter((entry) => !entry.skipped && (entry.kind === "onnxruntime" || entry.kind === "native-library"));
+  if (!natives.length) return;
+  const claimed = [...plan.claims];
+  const quiet = { ...ctx, log: () => {}, warn: () => {} };
+  const errors = [];
+  for (const entry of natives) {
+    const label = `sidecars[${entry.index}] (${entry.kind})`;
+    let items;
+    try {
+      const loaded = await loadNativeCatalogOf(entry, ctx);
+      items = (ctx.target.arch === "universal" ? SLICES.map((triple) => parseTargetTriple(triple)) : [ctx.target]).flatMap((t) => planNativeSet(entry, quiet, loaded, t));
+    } catch { continue; }
+    for (const item of items) {
+      const output = `${entry.resourceDir}/${item.outName}`;
+      const key = canonicalOutput(output);
+      const clash = findClaimClash(claimed, key);
+      if (!clash) { claimed.push({ key, output, label, ...(item.companionOf ? { companion: true } : {}) }); continue; }
+      if (clash.label === label) continue;
+      // The alias and native-library stage companions by default: whichever side is one is told how to stand down.
+      const companionLabel = item.companionOf ? label : clash.companion ? clash.label : undefined;
+      const remedy = companionLabel ? `; drop the other entry's copy, or set companions: false on ${companionLabel} to stage the library alone` : "";
+      const what = item.companionOf ? `the ${item.row.library} companion ${item.outName} of ${item.companionOf}` : `${item.outName} (catalog row ${item.row.id})`;
+      errors.push(`${label} stages ${what} into ${entry.resourceDir}, which ${clash.label} also writes (${clash.output})${remedy}`);
+    }
+  }
+  if (errors.length) fail("STAGE_SIDECAR_CONFIG_INVALID", `invalid sidecars configuration:\n${[...new Set(errors)].map((line) => `- ${line}`).join("\n")}`, { errors });
+}
+
+async function stageNativeLibrary(entry, ctx) {
+  const { appRoot, fs, target } = ctx;
+  const loaded = await loadNativeCatalogOf(entry, ctx);
   const rowOf = (file, extra) => nativeReceiptRow(entry, ctx, file, extra);
   if (target.arch !== "universal") {
     const staged = await stageNativeSet(entry, ctx, loaded, planNativeSet(entry, ctx, loaded, target));
@@ -1669,7 +1731,8 @@ export function planSidecarStaging({ manifest, target, env = process.env } = {})
 /**
  * Stage every configured sidecar for `target` (a Rust triple) and write the staging receipt.
  * Returns { receipt, receiptPath, files, externalBinNames }. `deps` (all optional) injects every effect:
- * fs (existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, chmodSync, statSync, readdirSync, rmSync), run, fetch (https downloads of `remote`), fetchBytes, extractMember, loadMediaCatalog, loadNativeCatalog, makeTempDir, removeDir, now, pid, log, env.
+ * fs (existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync, chmodSync, statSync, readdirSync, rmSync), run, fetch (https downloads of `remote`), fetchBytes, extractMember, loadMediaCatalog, loadNativeCatalog, makeTempDir, removeDir, now, pid, log (progress), warn (warnings; defaults to log), env.
+ * The API is quiet by default; the `right-release stage-sidecar` command passes `warn` so the CLI prints warnings on stderr.
  */
 export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {}) {
   if (typeof appRoot !== "string" || !path.isAbsolute(appRoot)) fail("STAGE_SIDECAR_CONFIG_INVALID", "appRoot must be an absolute path");
@@ -1685,6 +1748,9 @@ export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {
     host: deps.host ?? { os: { darwin: "macos", win32: "windows", linux: "linux" }[process.platform] ?? process.platform, arch: { arm64: "aarch64", x64: "x86_64" }[process.arch] ?? process.arch },
     approvalDigest: deps.approvalDigest ?? ((file, algorithm) => approvalDigest(file, algorithm)),
     log: deps.log ?? (() => {}),
+    // Warnings (a never-run row, a row left out) go to deps.warn; without one they join the progress log, so a caller that sets only `log` still sees them.
+    warn: deps.warn ?? deps.log ?? (() => {}),
+    nativeCatalogs: new Map(),
     fetchBytes: deps.fetchBytes ?? defaultFetchBytes,
     fetch: deps.fetch ?? ((...args) => globalThis.fetch(...args)),
     extractMember: deps.extractMember ?? ((args) => defaultExtractMember({ ...args, run })),
@@ -1693,6 +1759,7 @@ export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {
     makeTempDir: deps.makeTempDir ?? (() => nodeFs.mkdtempSync(path.join(os.tmpdir(), "rightkit-stage-"))),
     removeDir: deps.removeDir ?? ((dir) => nodeFs.rmSync(dir, { recursive: true, force: true })),
   };
+  await claimNativeOutputs(plan, ctx);
   const files = [];
   const skipped = [];
   for (const entry of plan.entries) {

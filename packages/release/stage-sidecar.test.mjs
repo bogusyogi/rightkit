@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -2582,4 +2584,136 @@ test("--check lists the runtime paths of an ffmpeg resourceDir entry, flat on ev
   const lines = formatSidecarPlan(plan(MAC));
   assert.ok(lines.some((line) => line.includes(`${RUNTIME}/ffmpeg, ${RUNTIME}/ffprobe`) && !line.includes("(externalBin)")), lines.join("\n"));
   assert.equal(plan(MAC, [{ ...entry, platforms: ["win"] }]).entries[0].skipped, true);
+});
+
+// ---- review fixes: warnings reach the CLI, thin rows take one slice, staged bytes are re-verified, runtime exec bit, companion clashes
+
+const COMMAND = fileURLToPath(new URL("./stage-sidecar-command.mjs", import.meta.url));
+
+test("the stage-sidecar command prints the never-run warning and the 'not staging' notice on stderr, and --json stays clean on stdout", () => {
+  const app = mkdtempSync(path.join(os.tmpdir(), "rk-stage-cli-"));
+  try {
+    const bytes = Buffer.from("pdfium for the cli test");
+    const row = { id: "pdfium-cli-1-windows-x64", library: "pdfium", version: "1", os: "windows", arch: "x86_64", status: "pinned", linkage: "dynamic-library", artifactFileName: "pdfium.dll", sha256: sha(bytes), licenseSpdx: "BSD-3-Clause", noticeFiles: ["third-party/pdfium-BSD.txt"], hostProof: "never-run" };
+    const planned = { id: "pdfium-cli-1-windows-x64-extra", library: "pdfium", version: "1", os: "windows", arch: "x86_64", status: "planned", linkage: "dynamic-library", artifactFileName: "pdfium-extra.dll" };
+    for (const dir of ["catalog", "third-party", "builds"]) mkdirSync(path.join(app, dir));
+    writeFileSync(path.join(app, "catalog", "native-libraries.json"), JSON.stringify({ libraries: [row, planned] }));
+    writeFileSync(path.join(app, "third-party", "pdfium-BSD.txt"), "notice");
+    writeFileSync(path.join(app, "builds", "pdfium.dll"), bytes);
+    writeFileSync(path.join(app, "right-release.config.mjs"), `export default { sidecars: [{ kind: "native-library", library: "pdfium", version: "1", catalog: "catalog/native-libraries.json", source: { dir: "builds" } }] };\n`);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("TAURI_ENV_")));
+    const run = (...extra) => spawnSync(process.execPath, [COMMAND, "--config", path.join(app, "right-release.config.mjs"), "--target", WIN, ...extra], { encoding: "utf8", env });
+    const plain = run();
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.stderr, /warning: pdfium-cli-1-windows-x64 has hostProof never-run/);
+    assert.match(plain.stderr, /not staging pdfium-cli-1-windows-x64-extra \(planned\)/);
+    assert.doesNotMatch(plain.stdout, /warning|not staging/, "stdout keeps the staged-file list");
+    assert.match(plain.stdout, /staged src-tauri\/resources\/runtime\/pdfium\.dll/);
+    const json = run("--json");
+    assert.equal(json.status, 0, json.stderr);
+    assert.equal(JSON.parse(json.stdout).files[0].hostProof, "never-run", "--json stdout is one JSON document");
+    assert.match(json.stderr, /hostProof never-run/);
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+});
+
+test("stageSidecars is quiet by default, and deps.warn takes the warnings while deps.log keeps the progress lines", async () => {
+  const solo = winOrtFixture();
+  const warnings = [];
+  await solo.stage([ORT_WIN_ENTRY], { warn: (line) => warnings.push(line) });
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings[0].includes(ORT_WIN_ID) && warnings[1].includes(DML_ID), warnings.join("\n"));
+  assert.deepEqual(solo.messages.filter((line) => /warning/.test(line)), [], "a separate warn handler gets the warnings, not log");
+  // With no handler at all the API writes nothing to the console: the CLI opts in.
+  const quiet = winOrtFixture();
+  const written = [];
+  const originals = [console.error, console.warn, console.log, process.stderr.write];
+  console.error = console.warn = console.log = (...args) => written.push(args.join(" "));
+  process.stderr.write = (chunk) => { written.push(String(chunk)); return true; };
+  try { await quiet.stage([ORT_WIN_ENTRY], { log: undefined }); } finally { [console.error, console.warn, console.log, process.stderr.write] = originals; }
+  assert.deepEqual(written, []);
+});
+
+test("a thin native-library row refuses a universal Mach-O (a good slice beside a foreign one), from source.dir and in place of the staged-file shortcut", async () => {
+  const good = machoCpu(CPU_ARM64, Buffer.from("good arm64 payload"), null);
+  const foreign = machoCpu(CPU_X86_64, Buffer.from("foreign x86_64 payload"), null);
+  const fat = fatOf([[CPU_ARM64, good], [CPU_X86_64, foreign]]);
+  assert.equal(contentOf(fat, "aarch64"), contentOf(good), "premise: the fat file's arm64 slice is the pinned thin file");
+  const name = "libwhisper.1.9.3.dylib";
+  const row = rowOf("whisper-cpp-1.9.3-macos-arm64", "whisper-cpp", "1.9.3", "macos", "aarch64", good, { artifactFileName: name, contentSha256: contentOf(good) });
+  const kitOf = (files) => nativeKit({ rows: [row], files, target: MAC });
+  const sliceRefusal = (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && /universal Mach-O with 2 slices \(aarch64, x86_64\)/.test(error.message);
+
+  const fromSource = kitOf({ [sourceAt(name)]: fat });
+  await assert.rejects(fromSource.stage([WHISPER_ENTRY]), sliceRefusal);
+  assert.deepEqual(fromSource.written(), [], "nothing is staged from a fat file");
+
+  // The staged-file shortcut applies the same check: a fat staged file is replaced from a good source, never kept.
+  const shortcut = kitOf({ [runtimeAt(name)]: fat, [sourceAt(name)]: good });
+  const result = await shortcut.stage([WHISPER_ENTRY]);
+  assert.deepEqual(shortcut.fs.readFileSync(runtimeAt(name)), good, "the fat staged file did not pass as already staged");
+  assert.ok(shortcut.log.copies.some((copy) => copy.startsWith(runtimeAt(name))));
+  assert.equal(result.files[0].sha256, sha(good));
+  assert.equal(shortcut.messages.some((line) => /already staged/.test(line)), false);
+  // With a fat source as well there is nothing good to stage.
+  await assert.rejects(kitOf({ [runtimeAt(name)]: fat, [sourceAt(name)]: fat }).stage([WHISPER_ENTRY]), sliceRefusal);
+  // A thin file is still accepted, as is a re-signed copy of it.
+  assert.equal((await kitOf({ [sourceAt(name)]: good }).stage([WHISPER_ENTRY])).files[0].sha256, sha(good));
+});
+
+test("native-library holds the staged bytes to the row: a file that changes between its verification and the copy is refused and removed", async () => {
+  const swapAfterFirstRead = (kit, file, bytes) => {
+    let done = false;
+    return { ...kit.fs, readFileSync: (target) => { const read = kit.fs.readFileSync(target); if (!done && path.resolve(target) === path.resolve(file)) { done = true; kit.files.set(path.resolve(file), bytes); } return read; } };
+  };
+  const name = "libwhisper.1.9.3.dylib";
+  const changed = Buffer.from(bytesOfLibrary(name)); changed[0x1000] ^= 1;
+  const local = whisperGgmlFixture();
+  await assert.rejects(local.stage([WHISPER_ENTRY], { fs: swapAfterFirstRead(local, sourceAt(name), changed) }), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === contentOf(bytesOfLibrary(name)) && error.details.actual === contentOf(changed) && /changed after it was verified/.test(error.message));
+  assert.equal(local.fs.existsSync(runtimeAt(name)), false, "the unverified copy is removed");
+  assert.deepEqual(local.written(), [], "and no notice or receipt is written");
+  // The same window exists for a file unpacked from the pinned archive.
+  const archived = winOrtFixture();
+  const unpacked = path.join(path.resolve("/rk-native-scratch-1"), ...ORT_MEMBER.split("/"));
+  await assert.rejects(archived.stage([{ ...ORT_WIN_ENTRY, companions: false }], { fs: swapAfterFirstRead(archived, unpacked, peOf(0x8664, 0x99)) }), { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /changed after it was verified/ });
+  assert.equal(archived.fs.existsSync(runtimeAt("onnxruntime.dll")), false);
+  // Unchanged files still stage.
+  assert.equal((await whisperGgmlFixture().stage([WHISPER_ENTRY])).files.length, 1);
+});
+
+test("ffmpeg resourceDir: an already-staged runtime file that matches its row is made executable (0o755) instead of left at its old mode", async () => {
+  const seeded = { [path.join(runtimeDirAt, "ffmpeg")]: "mac-ffmpeg", [path.join(runtimeDirAt, "ffprobe")]: "mac-ffprobe" };
+  const kit = runtimeKit({ rows: MAC_ROWS, members: MAC_MEMBERS, seeded });
+  const result = await kit.stage([runtimeEntry({ sources: kit.sources })]);
+  assert.deepEqual(result.files.map((file) => file.path), [`${RUNTIME}/ffmpeg`, `${RUNTIME}/ffprobe`]);
+  assert.deepEqual(kit.log.copies.filter((copy) => copy.startsWith(runtimeDirAt)), [], "nothing is rewritten: both files already match");
+  for (const tool of ["ffmpeg", "ffprobe"]) assert.ok(kit.log.chmods.some(([file, mode]) => file === path.join(runtimeDirAt, tool) && mode === 0o755), `${tool} is chmod 0755 on the already-staged path`);
+  const win = runtimeKit({ target: WIN, rows: [["ffmpeg", "decode", "windows", "x86_64", "win-ffmpeg"], ["ffprobe", "decode", "windows", "x86_64", "win-ffprobe"]], members: { "ffmpeg.exe": "win-ffmpeg", "ffprobe.exe": "win-ffprobe" }, seeded: { [path.join(runtimeDirAt, "ffmpeg.exe")]: "win-ffmpeg", [path.join(runtimeDirAt, "ffprobe.exe")]: "win-ffprobe" } });
+  await win.stage([runtimeEntry({ sources: win.sources })]);
+  assert.deepEqual(win.log.chmods, [], "no exec bit on Windows");
+});
+
+test("the alias stages its DirectML companion by default: another entry that writes DirectML.dll into the same directory is refused before anything is written", async () => {
+  const dml = `${RUNTIME}/DirectML.dll`;
+  const alias = { kind: "onnxruntime", version: "1.24.4", ...NATIVE_CATALOG_ENTRY };
+  const refused = async (manifest, other) => {
+    const kit = winOrtFixture();
+    kit.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
+    await assert.rejects(kit.stage(manifest), (error) => error.code === "STAGE_SIDECAR_CONFIG_INVALID"
+      && error.message.includes(`sidecars[${manifest.indexOf(alias)}] (onnxruntime)`) && error.message.includes(other) && error.message.includes("companions: false") && error.message.includes("DirectML.dll") && error.details.errors.length === 1, JSON.stringify(manifest));
+    assert.deepEqual([kit.written(), kit.fetched], [[], []], "no file of either entry was written or downloaded");
+  };
+  await refused([{ kind: "resource", from: "vendor/DirectML.dll", to: dml }, alias], "sidecars[0] (resource)");
+  await refused([alias, { kind: "remote", name: "dml", url: "https://example.test/DirectML.dll", sha256: sha("d"), dest: dml }], "sidecars[1] (remote)");
+  await refused([alias, { kind: "native-library", library: "directml", version: "1.15.4", ...NATIVE_CATALOG_ENTRY }], "sidecars[1] (native-library)");
+  // The remedy works: without the companion the other entry owns the file and both stage.
+  const kit = winOrtFixture();
+  kit.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
+  const result = await kit.stage([{ kind: "resource", from: "vendor/DirectML.dll", to: dml }, { ...alias, companions: false }]);
+  assert.deepEqual(result.files.map((file) => file.name), ["DirectML.dll", "onnxruntime.dll"]);
+  // A different directory does not clash.
+  const apart = winOrtFixture();
+  apart.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
+  assert.equal((await apart.stage([{ kind: "resource", from: "vendor/DirectML.dll", to: "src-tauri/resources/other/DirectML.dll" }, alias])).files.length, 3);
 });

@@ -60,7 +60,8 @@ async function main() {
     return;
   }
   const target = resolveTargetTriple({ target: opts.target, cwd: appRoot });
-  const result = await stageSidecars({ appRoot, manifest: config.sidecars, target });
+  // Warnings (a never-run row, a catalog row that is not staged) go to stderr; stdout stays the staged-file list or the --json document.
+  const result = await stageSidecars({ appRoot, manifest: config.sidecars, target, deps: { warn: (line) => console.error(line) } });
   if (opts.json) console.log(JSON.stringify(result, null, 2));
   else {
     for (const file of result.files ?? []) console.log(`right-release stage-sidecar: staged ${typeof file === "string" ? file : file.path ?? JSON.stringify(file)}`);

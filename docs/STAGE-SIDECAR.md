@@ -80,7 +80,8 @@ the externalBin layout. Without `resourceDir` nothing changes.
   touches a `resourceDir` file (a stale triple-named leftover of an earlier externalBin layout in `stageDir` is still wiped).
 - **The `sources` route fits `resourceDir` best.** Each declared tool is fetched, its member digest is checked against the approved
   row, and only then copied to `<resourceDir>/<tool>`, so a swapped archive stages nothing. A file already in `resourceDir` that matches
-  its row is left alone; one that does not is replaced.
+  its row is not rewritten, but it is made executable (`0o755` off Windows) like a fresh copy, so a file left at another mode by an
+  earlier run or a checkout does not stay unrunnable; one that does not match is replaced.
 - **A `stage` command and `resourceDir`.** The command runs as before (`cwd` the app root) and its arguments are not rewritten on a thin
   target, so `{stageDir}` is not substituted there. Because the entry verifies `<resourceDir>/<tool>`, a command used with `resourceDir`
   must write the tools there itself (pass it the directory); a command that still writes `<stageDir>/<tool>-<triple>` (what
@@ -111,7 +112,11 @@ the externalBin layout. Without `resourceDir` nothing changes.
 - **Companions.** A row's `companions` (catalog row ids; the Windows onnxruntime row names `directml-1.15.4-windows-x64`) are staged
   beside it into the same `resourceDir`, with their own notices in `licenseDir` and their own receipt row (`companionOf` is the parent row
   id). Each id must exist, serve the same os and arch, and be `approved` or `pinned` (else `STAGE_SIDECAR_NOT_APPROVED` naming the id),
-  and may not list companions of its own. `companions: false` stages the library alone.
+  and may not list companions of its own. `companions: false` stages the library alone. The file names come from the catalog, so
+  validation cannot claim them: before anything is written, staging plans every `onnxruntime` and `native-library` entry (catalog read once,
+  no effects) and refuses, with `STAGE_SIDECAR_CONFIG_INVALID`, a file that another entry (a `resource`, `remote`, another native entry)
+  also writes into the same directory. The message names both entries and, for a companion, the remedy: drop the other entry's copy,
+  or set `companions: false` on the entry that stages the companion.
 - **Bytes.** From the row's pinned archive: downloaded through `deps.fetchBytes` into `cacheDir` (default `.cache/native-library`; add it to
   `.gitignore`), digest checked before use, and the one member unpacked by `archive.member` (an archive path, which tells the same-named
   members of a nupkg apart: `runtimes/win-x64/native/onnxruntime.dll`, `bin/x64-win/DirectML.dll`, `bin/pdfium.dll`), else the bare
@@ -125,7 +130,11 @@ the externalBin layout. Without `resourceDir` nothing changes.
   read from `source.dir` is not byte-identical to the pinned bytes by construction (it may have been re-signed), so it must match the
   content digest when the row has one, else the whole-file `sha256`. The content digest is the signature-independent digest of
   `content-digest.mjs` (Authenticode rule for PE, canonical image for Mach-O); a universal row pins `contentSha256ByArch`
-  (`{ aarch64, x86_64 }`) and every slice is checked. A malformed recognized format is refused, never hashed plainly. A row that pins no
+  (`{ aarch64, x86_64 }`) and every slice is checked. A thin row (`contentSha256`) takes a file with exactly one slice: a universal Mach-O,
+  such as a good slice for the row's arch beside a foreign one, is refused (`STAGE_SIDECAR_HASH_MISMATCH`), from an archive, from
+  `source.dir` and as an already-staged file. A malformed recognized format is refused, never hashed plainly. After the copy the staged
+  bytes are held to the same row again (the source was read a second time for the copy): a file that changed after it was verified is
+  removed and refused, never left staged. A row that pins no
   digest never serves. A file already in `resourceDir` is kept only when it passes the same check, never because it exists. The receipt's
   `sha256` is the whole-file hash of the staged file. The `onnxruntime` alias keeps its original check, the whole-file `sha256` of the
   extracted library (its rows must carry one).
@@ -142,8 +151,9 @@ the externalBin layout. Without `resourceDir` nothing changes.
 **Rows never run on a host.** A row with `hostProof: "never-run"` (only legal on a row that is not `approved`: pinned or planned) has
 digests that were measured from the upstream bytes, but nobody has loaded or run the file on a host of that OS. A pinned never-run row
 stages and loads normally, because that is how host proof gets produced; the marker travels so nobody mistakes the file for proven.
-Staging prints a warning naming the row, and the receipt row carries `hostProof: "never-run"` (the Windows onnxruntime, DirectML and
-PDFium rows today). An `approved` row that carries it, or any other value, is refused: approving a row after a host run removes the marker.
+Staging prints a warning naming the row (the `right-release stage-sidecar` command writes it to stderr, so `--json` stays clean on stdout;
+a row of the library that is left out because it is not approved or pinned is reported the same way, as `not staging <row>`), and the
+receipt row carries `hostProof: "never-run"` (the Windows onnxruntime, DirectML and PDFium rows today). An `approved` row that carries it, or any other value, is refused: approving a row after a host run removes the marker.
 
 ### Build output layout
 
@@ -199,8 +209,10 @@ os or arch, a row with an inconsistent field or no digest), `_BINARY_NOT_FOUND` 
 `stageSidecars({ appRoot, manifest, target, deps })` returns `{ receipt, receiptPath, files, externalBinNames }`.
 Other exports: `validateSidecarManifest`, `parseTargetTriple`, `resolveTargetTriple`, `builtBinaryCandidates`,
 `validateStageSidecarReceipt`, `StageSidecarError`. `deps` (all optional) injects `fs`, `run(command, args, { cwd, env })`,
-`fetchBytes`, `extractMember`, `loadMediaCatalog`, `loadNativeCatalog`, `makeTempDir`, `removeDir`, `now`, `pid`, `log`, `env`.
-Tests use fakes only (`stage-sidecar.test.mjs`).
+`fetchBytes`, `extractMember`, `loadMediaCatalog`, `loadNativeCatalog`, `makeTempDir`, `removeDir`, `now`, `pid`, `log`, `warn`, `env`.
+The API is quiet by default: progress lines go to `log`, warnings (a never-run row, a row not staged) to `warn`, which falls back to
+`log` when only `log` is given. The command passes `warn` and prints to stderr. Tests use fakes only (`stage-sidecar.test.mjs`), plus one
+run of the command itself in a temporary app.
 
 ## CLI wiring (for release owner)
 
