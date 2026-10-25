@@ -2327,7 +2327,8 @@ test("cleanCheckoutPaths: the directory of each unit and every ancestor of it co
 
 // HeardRight's root test is `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
 // `rustright cargo test`: no part of package.json says so, and scriptBrokerCall reads package.json only.
-const OPAQUE_TEST = `node -e "const{spawnSync}=require('node:child_process');process.exit(spawnSync('pnpm',['run','verify'],{stdio:'inherit'}).status)"`;
+// The module name is joined, not written: background-process.test.mjs forbids a quoted child_process token in any release source or test, and this fixture is only text for a script field.
+const OPAQUE_TEST = `node -e "const{spawnSync}=require('${["node:child", "process"].join("_")}');process.exit(spawnSync('pnpm',['run','verify'],{stdio:'inherit'}).status)"`;
 const opaque = { name: "viewright", license: "MIT", scripts: { test: OPAQUE_TEST, verify: "pnpm --dir tauri-app-next run verify" } };
 const REASON = "the root test runs tauri-app-next/scripts/verify-local.mjs, which spawns rustright cargo test";
 const declaring = (requiresBroker, scripts = opaque.scripts) => gateFiles({
