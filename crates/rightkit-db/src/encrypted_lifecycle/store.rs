@@ -1211,6 +1211,8 @@ impl EncryptedStore {
             retain_previous: false,
             pending: None,
             id: next_id(),
+            // Recorded for diagnosis only: no check reads a restore's root identities back (only
+            // relocation compares them), so the infallible snapshot is enough here.
             old_root: RootIdentity::capture(&cfg.db.path),
             new_root: Some(RootIdentity::capture(replacement)),
             relocation: None,
