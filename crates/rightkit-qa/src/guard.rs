@@ -649,8 +649,9 @@ fn window_label_issues(conf: &Value, rust_source: &str, declared: Option<&str>) 
         issues.push(format!(
             "the control server targets the window \"main\" but the first window in \
              tauri.conf.json is \"{first}\": register Control with `.window(\"{first}\")`, or set \
-             `window_label = \"{first}\"` under [ui] in rightkit-qa.toml (rightkit-qa exports it \
-             to the app as RIGHTKIT_QA_WINDOW_LABEL)"
+             `window_label = \"{first}\"` under [ui] in rightkit-qa.toml (the config-driven \
+             `ui_launch` step exports it to the app as RIGHTKIT_QA_WINDOW_LABEL; a Rust test that \
+             calls `control::launch` must put RIGHTKIT_QA_WINDOW_LABEL in its `LaunchSpec::env`)"
         ));
     }
     if let Some(label) = declared {
