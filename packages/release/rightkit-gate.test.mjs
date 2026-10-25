@@ -1769,8 +1769,9 @@ test("--to release: package seals, qualify and release use exactly that sealed s
       return { status: 0 };
     },
   };
+  const publisher = { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" };
   const c = capture();
-  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io }), 0, c.err.join("\n"));
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env: publisher }), 0, c.err.join("\n"));
   assert.deepEqual(calls.map((x) => x.args), [
     "qa --stage source --platform win", "build --platform win",
     `qa --stage installed --platform win --release app-1.0.0-${head.slice(0, 8)}`,
@@ -1785,4 +1786,44 @@ test("--to release: package seals, qualify and release use exactly that sealed s
   sealedDigest = "e".repeat(64);
   const changed = capture();
   assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...changed.io, cwd: root, ...io, sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: sealedDigest }), spawnInherit: () => ({ status: 0 }) }), 0, "package runs again and binds the new seal");
+});
+
+test("--to release refuses outside the trusted publisher: a host or agent never writes R2", async (t) => {
+  const { root } = stageRepo(t);
+  const ran = [];
+  const io = { resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => 0, spawnInherit: () => { ran.push("right-release"); return { status: 0 }; } };
+  for (const env of [{ ...process.env, GITHUB_ACTIONS: undefined, RIGHTKIT_PUBLISHER: undefined }, { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: undefined }, { ...process.env, GITHUB_ACTIONS: undefined, RIGHTKIT_PUBLISHER: "github-environment" }]) {
+    const c = capture();
+    assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env }), 1);
+    assert.match(c.err.join("\n"), /runs only in the trusted publisher/);
+  }
+  assert.deepEqual(ran, [], "nothing ran before the refusal");
+});
+
+test("--receipt-out / --receipt-in: a later job on another runner takes the sealed stages and does not rebuild; a foreign receipt is refused", async (t) => {
+  const { root, head } = stageRepo(t);
+  const id = `app-1.0.0-${head.slice(0, 8)}`;
+  const calls = [];
+  const io = (executor) => ({
+    resolveExecutor: () => ({ kind: executor, cargo: ["cargo"] }), runCheck: async () => { calls.push("check"); return 0; }, runCompile: async () => { calls.push("compile"); return 0; },
+    sealedFor: () => ({ id, manifest: "m", digest: "d".repeat(64) }),
+    spawnInherit: (cmd, a) => { calls.push(a.slice(1).join(" ")); return { status: 0 }; },
+  });
+  const out = path.join(root, "..", `receipt-${path.basename(root)}.json`);
+  t.after(() => fs.rmSync(out, { force: true }));
+  const pack = capture();
+  assert.equal(await main(["--to", "package", "--platform", "win", "--receipt-out", out], { ...pack.io, cwd: root, ...io("direct") }), 0, pack.err.join("\n"));
+  assert.deepEqual(calls, ["check", "compile", "qa --stage source --platform win", "build --platform win"]);
+  // The qualification runner: a fresh receipt store, another executor; the imported receipt binds the same source and sealed bytes.
+  fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true });
+  calls.length = 0;
+  const qual = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...qual.io, cwd: root, ...io("broker") }), 0, qual.err.join("\n"));
+  assert.deepEqual(calls, [`qa --stage installed --platform win --release ${id}`], "check, compile and package stand on the sealed set; only qualify runs");
+  // A receipt for another commit, or with another gate, is not taken.
+  const foreign = JSON.parse(fs.readFileSync(out, "utf8"));
+  fs.writeFileSync(out, JSON.stringify({ ...foreign, binding: { ...foreign.binding, gate: "0".repeat(64) } }));
+  const bad = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win", "--receipt-in", out], { ...bad.io, cwd: root, ...io("broker") }), 1);
+  assert.match(bad.err.join("\n"), /is not a rightkit\.gate-receipt\/1 receipt/);
 });

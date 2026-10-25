@@ -92,6 +92,11 @@ export function sameBinding(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** Same source: tree, lockfiles and gate digest equal (the host's toolchain and executor may differ). */
+export function sameSource(a, b) {
+  return Boolean(a && b) && a.tree === b.tree && a.gate === b.gate && JSON.stringify(a.locks) === JSON.stringify(b.locks);
+}
+
 /** The sealed release directory build-release wrote for `commit` on `platform`: { id, manifest, digest } or null. */
 export function sealedFor({ root, commit, platform, readdir = fs.readdirSync, readFile = (f) => fs.readFileSync(f) }) {
   const base = path.join(root, ".right-release", "sealed");

@@ -73,7 +73,7 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
-import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
+import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 
 const ZERO = /^0+$/;
@@ -83,7 +83,7 @@ const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
-const USAGE = `usage: rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1073,9 +1073,37 @@ async function runStages(o, args, root, git, io) {
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
     toolchain: { node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
+  // --receipt-in <file>: the receipt an earlier job of the same pipeline wrote (another runner: CI's package job, then its qualify and
+  // publish jobs). It is taken only for this commit and the same source binding (tree, lockfiles, gate); it then stands in for the
+  // stages it records, and the sealed bytes on disk must still hash to its manifest digest before anything uses them.
+  const receiptIn = option("--receipt-in");
+  if (receiptIn !== undefined) {
+    let imported = null;
+    try { imported = JSON.parse(o.readFile(path.resolve(o.cwd, receiptIn))); } catch { /* refused below */ }
+    if (!imported || imported.schema !== RECEIPT_SCHEMA || imported.commit !== commit || !sameSource(imported.binding, binding)) {
+      o.err(`${tag} BLOCKED: --receipt-in ${receiptIn} is not a ${RECEIPT_SCHEMA} receipt for ${commit.slice(0, 12)} with this tree, these lockfiles and this gate`);
+      return 1;
+    }
+    (o.writeReceipt ?? writeReceipt)({ commonDir, receipt: imported });
+  }
   const previous = (o.readReceipt ?? readReceipt)({ commonDir, commit });
-  const receipt = previous && sameBinding(previous.binding, binding) ? previous : { schema: RECEIPT_SCHEMA, commit, binding, stages: {} };
-  const save = () => (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
+  // Same host and inputs: every recorded stage counts. Same source on another host: only the stages bound to sealed bytes (package and
+  // later) carry over; check and compile run again here.
+  const receipt = previous && sameBinding(previous.binding, binding) ? previous
+    : previous && sameSource(previous.binding, binding) ? { ...previous, binding, stages: Object.fromEntries(Object.entries(previous.stages ?? {}).filter(([k]) => k !== "check" && k !== "compile")) }
+      : { schema: RECEIPT_SCHEMA, commit, binding, stages: {} };
+  const receiptOut = option("--receipt-out");
+  const save = () => {
+    (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
+    if (receiptOut !== undefined) o.writeFile(path.resolve(o.cwd, receiptOut), `${JSON.stringify(receipt, null, 2)}\n`);
+  };
+  // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
+  // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
+  // stage anywhere else rather than fail half way through an upload.
+  if (stages.includes("release") && !(o.env.GITHUB_ACTIONS === "true" && o.env.RIGHTKIT_PUBLISHER === "github-environment")) {
+    o.err(`${tag} BLOCKED: --to release runs only in the trusted publisher (the release workflow's protected publication job). Run --to qualify here, then dispatch the release workflow for ${commit.slice(0, 12)}`);
+    return 1;
+  }
 
   const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
   const rightRelease = (stage, cliArgs) => {
@@ -1088,8 +1116,13 @@ async function runStages(o, args, root, git, io) {
   };
 
   o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}: ${stages.join(" -> ")}; executor ${executor.kind}`);
+  // A later stage on the sealed bytes: check, compile and package already passed for them (in this receipt) and the bytes on disk are
+  // the ones they sealed, so they are not run again.
+  const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+  const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   for (const stage of stages) {
     if ((stage === "check" || stage === "compile") && receipt.stages[stage]?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    if ((stage === "check" || stage === "compile" || stage === "package") && sealedIntact) { o.out(`${tag} [${stage}] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue; }
     let ok = false; const at = new Date().toISOString(); let extra = {};
     if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
     else if (stage === "compile") ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
