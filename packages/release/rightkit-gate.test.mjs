@@ -1850,3 +1850,23 @@ test("stage hands only a qualified, unchanged sealed set to the publisher's draf
   assert.equal(await main(["stage", "--platform", "win"], { ...capture().io, cwd: root, ...io }), 1);
   assert.deepEqual(external, []);
 });
+
+test("--to dev|test: class A on the working tree first, then right-release dev|test under a live door run with the passed arguments", async (t) => {
+  const { root, head } = stageRepo(t);
+  fs.writeFileSync(path.join(root, "uncommitted.txt"), "work in progress\n");
+  const calls = [];
+  const io = (checkCode) => ({
+    resolveExecutor: directExecutor, runCheck: async () => { calls.push("check"); return checkCode; },
+    spawnInherit: (cmd, a, opts) => { calls.push({ args: a.slice(1).join(" "), door: requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit: head, command: "x" }) }); return { status: 0 }; },
+  });
+  const red = capture();
+  assert.equal(await main(["--to", "dev", "--", "--platform", "mac"], { ...red.io, cwd: root, ...io(1) }), 1);
+  assert.deepEqual(calls, ["check"], "class A red: nothing compiles");
+  calls.length = 0;
+  const green = capture();
+  assert.equal(await main(["--to", "dev", "--", "--platform", "mac"], { ...green.io, cwd: root, ...io(0) }), 0, green.err.join("\n"));
+  assert.deepEqual(calls, ["check", { args: "dev --platform mac", door: null }], "a dirty tree is fine for dev; it ran inside a live door run");
+  calls.length = 0;
+  assert.equal(await main(["--to", "test"], { ...capture().io, cwd: root, ...io(0) }), 0);
+  assert.deepEqual(calls.map((c) => c.args ?? c), ["check", "test"]);
+});

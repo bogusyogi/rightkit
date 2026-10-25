@@ -83,7 +83,7 @@ const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
-const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
+const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
 
@@ -1046,6 +1046,7 @@ async function runStages(o, args, root, git, io) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const tag = "rightkit-gate:";
   const to = option("--to");
+  if (to === "dev" || to === "test") return await runWorktreeCompile(o, args, root, git, io, to);
   const stages = stagesTo(to);
   if (!stages) { o.err(`${tag} --to must be one of ${STAGES.join(", ")}`); return 2; }
   const platform = option("--platform");
@@ -1200,6 +1201,34 @@ function stageForPublisher(o, args, root, git) {
     }
     return 0;
   } finally { fs.rmSync(work, { recursive: true, force: true }); }
+}
+
+/**
+ * rightkit-gate --to dev|test [-- <right-release dev|test arguments>]: the door for the local compiles that work on the uncommitted tree.
+ * Class A runs over the working tree first (nothing compiles while it is red), then `right-release dev|test` runs under a live door
+ * run, the only way it runs at all. The executor is the same as every other stage: the broker where there is one (its own admission
+ * checks again), plain cargo on an unmanaged host, never around a managed host's broker.
+ */
+async function runWorktreeCompile(o, args, root, git, io, to) {
+  const tag = "rightkit-gate:";
+  const passthrough = args.includes("--") ? args.slice(args.indexOf("--") + 1) : [];
+  const commit = text(git("rev-parse", "HEAD")).trim();
+  const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
+  const common = text(git("rev-parse", "--git-common-dir")).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  o.out(`${tag} --to ${to} on the working tree of ${commit.slice(0, 12)}: check (class A) -> right-release ${to}; executor ${executor.kind}`);
+  const checked = await (o.runCheck ?? (() => main(["check", "--worktree"], { ...io, cwd: root })))();
+  if (checked !== 0) { o.err(`${tag} --to ${to} stopped at check: nothing compiled`); return 1; }
+  const commonDir = path.resolve(root, common);
+  const run = startRun({ commonDir, commit, tree, stage: to });
+  try {
+    const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
+    const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, to, ...passthrough], { cwd: o.cwd, env: { ...o.env, ...run.env } });
+    return r.status === 0 ? 0 : 1;
+  } finally { endRun(run); }
 }
 
 // ---- main ---------------------------------------------------------------------------------------------------

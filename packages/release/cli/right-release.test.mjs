@@ -303,7 +303,7 @@ test("dmg build has no repository: it dispatches from a directory that is no git
   }
 });
 
-test("one door: every commit-bound command refuses without a live rightkit-gate run for HEAD and starts nothing; worktree commands are not locked", (t) => {
+test("one door: every commit-bound command refuses without a live rightkit-gate run for HEAD and starts nothing; dev, test and stage-sidecar compile, so they are locked too", (t) => {
   const repo = app(t);
   for (const [name, args] of GUARDED) {
     if (CHECKED_COMMANDS.get(name) !== "commit") continue;
@@ -316,7 +316,8 @@ test("one door: every commit-bound command refuses without a live rightkit-gate 
   const stale = runCli(t, repo, ["build", "--platform", "win"], { door: false });
   assert.equal(stale.status, 2);
   const dev = runCli(t, repo, ["dev", "--platform", "win", "--dry-run"], { door: false });
-  assert.notEqual(dev.stderr.includes("runs only through the one door"), true, "dev is a local convenience, not a release stage");
+  assert.equal(dev.status, 2);
+  assert.ok(dev.stderr.includes("runs only through the one door"), "dev compiles, so it runs only under the door (rightkit-gate --to dev)");
 });
 
 test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, --list, and --config picks the repository", (t) => {

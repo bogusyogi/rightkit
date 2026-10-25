@@ -27,6 +27,7 @@ import { checkAdvisoryExceptions } from "./advisory-exceptions.mjs";
 import { canonicalJson, digestScanSet, requiredScanIds, rustCratePlan, rustScanId } from "./scan-digest.mjs";
 import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
+import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
@@ -391,6 +392,8 @@ export function planScans({
   // The same per Cargo workspace: { [cargoDir]: parsedLock }. A workspace without an entry here (and not the global `cargoDir`) plans
   // no reverse dependents.
   rustLocks = null,
+  // The pinned RustSec advisory database ({ url, commit }, advisory-db.json): cargo-deny and cargo-audit read exactly that commit and never fetch.
+  advisoryPin = null,
 } = {}) {
   if (!contentRoot) throw new TypeError("planScans: contentRoot is required");
   if (!Array.isArray(cargoCommand) || cargoCommand.length === 0 || !["rustright", "cargo"].includes(cargoCommand[0]) || cargoCommand.slice(1).some((a) => a !== "cargo")) {
@@ -614,8 +617,12 @@ export function planScans({
     for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
   for (const ws of [...configWs].sort()) {
-    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "check") });
-    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit") });
+    // Offline against the pinned database. The pin commit is part of the command (env), so a pin change is a different scan, and the
+    // placeholders are filled at run time from the materialised checkout (runScans).
+    const pin = advisoryPin ?? (advisoryPin = readAdvisoryPin());
+    const pinEnv = { RK_ADVISORY_DB_COMMIT: pin.commit };
+    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
+    add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
   for (const r of jsRoots) {
     // Class A runs no repository hooks: `install` accepts --ignore-pnpmfile and --ignore-scripts; `audit` accepts
@@ -1086,7 +1093,7 @@ export async function runScans(plan, options = {}) {
   const selected = plan.scans.filter((s) => classes.includes(s.class) && !exclude(s));
   const ordered = [...selected.filter((s) => s.class === SCAN_CLASS.A), ...selected.filter((s) => s.class === SCAN_CLASS.B)];
   const ctx = { deps, contentRoot, read: (f) => deps.readFile(path.join(contentRoot, f)) };
-  const toolVersions = {}; const probed = new Map();
+  const toolVersions = {}; const probed = new Map(); const advisoryDbs = new Map();
   const results = [];
   // options.cache = { read(key), write(key, row), digest(scan) => string | null } (null: not cacheable, which is how the live class A checks opt out).
   const cache = options.cache && typeof options.cache.read === "function" && typeof options.cache.write === "function" && typeof options.cache.digest === "function" ? options.cache : null;
@@ -1170,6 +1177,25 @@ export async function runScans(plan, options = {}) {
     results.push(...slots);
   }
 
+  // The pinned advisory database, materialised once per run on first use (a failure is remembered and refuses every advisory scan).
+  function prepareAdvisory(s) {
+    const key = s.advisoryPin.commit;
+    if (!advisoryDbs.has(key)) {
+      try {
+        const ensure = deps.ensureAdvisoryDb ?? ensureAdvisoryDb;
+        advisoryDbs.set(key, { dir: ensure({ cacheRoot: deps.advisoryCacheRoot ?? advisoryCacheRoot({ env: deps.env, platform: deps.platform }), pin: s.advisoryPin }) });
+      } catch (e) { advisoryDbs.set(key, { error: e }); }
+    }
+    const db = advisoryDbs.get(key);
+    if (db.error) throw db.error;
+    if (s.advisoryDb !== "deny") return { dbDir: db.dir };
+    const prepare = deps.prepareDenyOverlay ?? prepareDenyOverlay;
+    let denyToml = "";
+    try { denyToml = deps.readFile(path.join(rootDir(s.root), s.cwd ?? "", "deny.toml")); } catch { /* no deny.toml: the overlay carries only the database location */ }
+    const overlay = prepare({ denyToml, dbDir: db.dir, pin: s.advisoryPin });
+    return { dbDir: db.dir, configPath: overlay.configPath, cleanup: overlay.cleanup };
+  }
+
   // `extraEnv` (the quiet lease id) reaches the child but never the cache key: a lease changes nothing a scan proves.
   async function scanRow(s, extraEnv = null) {
     const row = { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "fail" };
@@ -1207,7 +1233,13 @@ export async function runScans(plan, options = {}) {
               return { ...row, status: "pass", cached: true, detail: `cached ${String(hit.at ?? "").slice(0, 10) || "earlier"}` };
             }
           }
-          const r = await deps.spawn(p.command, s.args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig });
+          let advisory = null; let args = s.args;
+          if (s.advisoryDb) {
+            try { advisory = prepareAdvisory(s); } catch (e) { return { ...row, status: "fail", code: "ADVISORY_DB", detail: e.message }; }
+            args = args.map((a) => (a === "{advisoryDb}" ? advisory.dbDir : a === "{advisoryDenyConfig}" ? advisory.configPath : a));
+          }
+          let r;
+          try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig }); } finally { advisory?.cleanup?.(); }
           if (signal?.aborted && (!r || r.error || r.status !== 0)) return { ...row, status: "not-run", code: "CANCELLED", detail: "cancelled while running" };
           if (!r || r.error) { status = "fail"; code = "SPAWN_ERROR"; detail = r?.error?.message ?? "no result"; }
           else if (r.status !== 0) { status = "fail"; code = "EXIT"; detail = tail(r) || `exit ${r.status}`; }

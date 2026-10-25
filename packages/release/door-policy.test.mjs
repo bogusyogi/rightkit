@@ -21,7 +21,7 @@ test("one door: the door itself, the broker, read-only cargo and ordinary comman
   for (const command of [
     "rightkit-gate --to compile", "pnpm exec rightkit-gate --to package --platform mac", "npx rightkit-gate check --commit HEAD",
     "rustright cargo build", "rustright cargo test -p a", "cargo fmt --all -- --check", "cargo metadata --no-deps --format-version 1",
-    "cargo update -p serde --precise 1.0.1", "cargo tree", "cargo --version", "right-release check", "right-release dev --platform win",
+    "cargo update -p serde --precise 1.0.1", "cargo tree", "cargo --version", "right-release check",
     "git commit -m 'cargo build fixed'", "echo \"pnpm tauri build\"", "grep -rn 'cargo test' docs", "pnpm install --frozen-lockfile", "pnpm run lint", "",
   ]) assert.equal(doorViolation(command), null, command);
 });
@@ -45,4 +45,13 @@ test("the agent hook binary: stdin JSON in, the decision out; unreadable input a
   assert.equal(run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "pnpm tauri build" } })).hookSpecificOutput.permissionDecision, "deny");
   assert.deepEqual(run(JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" } })), {});
   assert.deepEqual(run("not json"), {});
+});
+
+test("dev and test compile too: right-release dev|test and tauri dev are denied with the --to dev|test door", () => {
+  for (const [command, door] of [["pnpm exec right-release dev --platform mac", "--to dev"], ["right-release test", "--to test"], ["npx tauri dev", "--to dev"], ["right-release stage-sidecar", "--to package"]]) {
+    const v = doorViolation(command);
+    assert.ok(v, command);
+    assert.ok(doorDenial(v).includes(`rightkit-gate ${door}`), `${command}: ${doorDenial(v)}`);
+  }
+  assert.equal(doorViolation("rightkit-gate --to dev -- --platform mac"), null);
 });

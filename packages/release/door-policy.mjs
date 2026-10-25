@@ -8,7 +8,7 @@ import path from "node:path";
 const CARGO_COMPILES = new Set(["build", "b", "check", "c", "clippy", "test", "t", "run", "r", "bench", "doc", "d", "rustc", "install", "tauri"]);
 const TAURI_BUILDS = new Set(["build", "dev", "bundle", "android", "ios"]);
 // right-release commands that build, package, sign, qualify or ship (CHECKED_COMMANDS "commit" in app-check.mjs).
-const RELEASE_COMMANDS = new Set(["release", "build", "package", "qa", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "web-build", "swift-package", "recipe-build", "sign-candidate"]);
+const RELEASE_COMMANDS = new Set(["dev", "test", "stage-sidecar", "release", "build", "package", "qa", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "web-build", "swift-package", "recipe-build", "sign-candidate"]);
 const RUNNERS = new Set(["pnpm", "npm", "npx", "yarn", "bunx", "pnpx"]);
 const WRAPPERS = new Set(["env", "command", "exec", "time", "nice", "nohup", "sudo", "timeout"]);
 
@@ -78,8 +78,9 @@ export function doorViolation(command) {
 }
 
 export function doorDenial(violation) {
-  const stage = /^right-release (upload|publish|publish-update|github)$/.test(violation) ? "release" : /^right-release qa$/.test(violation) ? "qualify" : /^right-release /.test(violation) || /^(cargo )?tauri (build|bundle|android|ios)$/.test(violation) ? "package" : "compile";
-  return `[HOOK:one-door:block]\nWhy: \`${violation}\` builds outside the one door. Every check, compile, test, package and release goes through rightkit-gate, class A first.\nRequired: rightkit-gate --to ${stage}${stage === "package" || stage === "qualify" || stage === "release" ? " --platform mac|win" : ""}${stage === "release" ? " --tier patch|update" : ""} (on a machine with the RustRight broker, \`rustright cargo ...\` is also admitted: the broker runs class A first).`;
+  const stage = /^right-release (dev|test)$/.test(violation) ? violation.slice("right-release ".length) : /^(cargo )?tauri dev$/.test(violation) ? "dev"
+    : /^right-release (upload|publish|publish-update|github)$/.test(violation) ? "release" : /^right-release qa$/.test(violation) ? "qualify" : /^right-release /.test(violation) || /^(cargo )?tauri (build|bundle|android|ios)$/.test(violation) ? "package" : "compile";
+  return `[HOOK:one-door:block]\nWhy: \`${violation}\` builds outside the one door. Every check, compile, test, package and release goes through rightkit-gate, class A first.\nRequired: rightkit-gate --to ${stage}${stage === "package" || stage === "qualify" || stage === "release" ? " --platform mac|win" : ""}${stage === "dev" || stage === "test" ? " -- <arguments>" : ""}${stage === "release" ? " --tier patch|update" : ""} (on a machine with the RustRight broker, \`rustright cargo ...\` is also admitted: the broker runs class A first).`;
 }
 
 /** Claude Code PreToolUse decision for one hook input. */

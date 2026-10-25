@@ -123,7 +123,7 @@ function fakeSpawn({ missing = [], failing = [], log = [] } = {}) {
     return { status: 0, stdout: "", stderr: "" };
   };
 }
-const deps = (over = {}) => ({ spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ...over });
+const deps = (over = {}) => ({ spawn: fakeSpawn(), ...fakeFs({}), findRustfmt: () => "rustfmt", loadToml: async () => () => ({}), scanSecrets: async () => () => [], env: {}, execPath: "node", ensureAdvisoryDb: () => "/cache/advisory-db/pinned", prepareDenyOverlay: () => ({ configPath: "/tmp/rk-deny/deny.toml", cleanup() {} }), ...over });
 
 test("runner: all scans pass and the result is a plain receipt-ready object", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
@@ -167,7 +167,7 @@ test("runner: missing rustfmt and missing TOML parser fail", async () => {
 test("runner: a failed class A scan leaves class B not-run", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
   const log = [];
-  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ failing: ["deny check"], log }) }));
+  const result = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ failing: ["deny --offline"], log }) }));
   assert.equal(result.scans.find((s) => s.id === "cargo-deny").status, "fail");
   const b = result.scans.filter((s) => s.class === "B");
   assert.ok(b.length > 0 && b.every((s) => s.status === "not-run"));
@@ -473,7 +473,9 @@ test("plan: cargoCommand selects the cargo prefix (rustright cargo locally, plai
   const cargoScans = ci.scans.filter((s) => s.tool === "cargo");
   assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
-  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, "cargo deny check");
+  const PIN = "21d909e4c8bd4e14c7aea58bf980c881a0053ab1";
+  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --offline --config {advisoryDenyConfig} check`);
+  assert.equal(cargoScans.find((s) => s.id === "cargo-audit").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo audit --db {advisoryDb} --no-fetch`);
   assert.ok(!ci.scans.some((s) => s.tool === "rustright"));
   assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { cargoCommand: ["sh", "-c"] }), /cargoCommand/);
 });
@@ -1587,4 +1589,29 @@ test("pnpm roots: a root that is not a plain repository-relative directory, or a
   assert.ok(ids(outside).some((i) => i.startsWith("path-policy:")), "a unit whose root does not hold it");
   assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmRoots: "apps/a" }), /npmRoots must be/);
   assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmUnits: [{ name: "a", dir: "apps/a", root: 3 }] }), /string root/);
+});
+
+test("advisory scans: cargo-deny and cargo-audit run offline against the pinned database, and a pin change is a different scan", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = []; const ensured = [];
+  const result = await runScans(plan, deps({ ...fs, classes: ["A"], spawn: fakeSpawn({ log }), ensureAdvisoryDb: (o) => { ensured.push(o); return "/cache/advisory-db/pinned"; } }));
+  assert.equal(result.ok, true);
+  assert.equal(ensured.length, 1, "materialised once for both scans");
+  assert.equal(ensured[0].pin.commit, "21d909e4c8bd4e14c7aea58bf980c881a0053ab1");
+  assert.deepEqual(log.find((c) => c.includes("deny") && c.includes("check")).slice(2), ["deny", "--offline", "--config", "/tmp/rk-deny/deny.toml", "check"]);
+  assert.deepEqual(log.find((c) => c.includes("audit") && c.includes("--db")).slice(2), ["audit", "--db", "/cache/advisory-db/pinned", "--no-fetch"]);
+  const other = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { advisoryPin: { url: "https://github.com/rustsec/advisory-db", commit: "b".repeat(40) } }).plan;
+  assert.notEqual(other.scans.find((s) => s.id === "cargo-deny").command, plan.scans.find((s) => s.id === "cargo-deny").command);
+});
+
+test("advisory scans: an unavailable pinned database fails both scans and no tool runs", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const log = [];
+  const result = await runScans(plan, deps({ ...fs, classes: ["A"], spawn: fakeSpawn({ log }), ensureAdvisoryDb: () => { throw new Error("advisory database x is not available"); } }));
+  for (const id of ["cargo-deny", "cargo-audit"]) {
+    const row = result.scans.find((s) => s.id === id);
+    assert.equal(row.status, "fail"); assert.equal(row.code, "ADVISORY_DB"); assert.match(row.detail, /not available/);
+  }
+  assert.ok(!log.some((c) => c.includes("--offline") || c.includes("--no-fetch")));
+  assert.equal(result.ok, false);
 });
