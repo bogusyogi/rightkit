@@ -150,6 +150,10 @@ jobs:
       - name: Install workspace dependencies without lifecycle scripts for the class B type and lint scans
         working-directory: live
         run: pnpm install --frozen-lockfile --ignore-scripts
+      # Seconds, before any compile, signing or pack: every exported module imports in a fresh process without doing
+      # anything (the sealed-byte import check in verify used to find this 27 minutes in; run 40168412670, #1189).
+      - name: Exported modules import without side effects
+        run: node live/scripts/ci/exports-import-effects.mjs --root live
       - name: Run deterministic scans over requested units & shared inputs
         env:
           SCAN_CONTENT_ROOT: ${{ github.workspace }}/source

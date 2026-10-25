@@ -447,6 +447,28 @@ function tmpdirRealpath({ root, files }) {
   return out;
 }
 
+// G27: a version the registry already serves stays accepted while a newer one is staged. The feed lists what is published
+// (registry), what is staged and what older published versions installs may still carry (legacy); dropping a published
+// version from legacy while staging its successor fails right-suite-contract inside the full packages/release suite, which
+// first runs minutes into a native verify (rightkit#1188 dropped @rightkit/qa-chrome 0.1.11; #1190). Same rule, files only.
+const semverParts = (v) => String(v).split(/[.+-]/).slice(0, 3).map((n) => Number.parseInt(n, 10) || 0);
+const olderThan = (a, b) => { const x = semverParts(a), y = semverParts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
+function feedLegacy({ root }) {
+  const out = [];
+  const feed = readJson(root, "packages/release/rightkit-versions.json");
+  if (!feed) return out;
+  for (const [registry, stagedKey, legacyKey] of [["npm", "stagedNpm", "legacyNpm"], ["cargo", "stagedCargo", "legacyCargo"]]) {
+    for (const [name, published] of Object.entries(feed.registry?.[registry] ?? {})) {
+      const staged = feed[stagedKey]?.[name];
+      if (!staged || !olderThan(published, staged)) continue;
+      if (!(feed[legacyKey]?.[name] ?? []).includes(published)) {
+        out.push({ subject: name, problem: `packages/release/rightkit-versions.json: ${name} ${published} is published (registry.${registry}) and ${staged} is staged (${stagedKey}), but ${legacyKey}["${name}"] does not list ${published}; installs still carrying ${published} would be refused`, fix: `add "${published}" to ${legacyKey}["${name}"] in packages/release/rightkit-versions.json and its byte-identical copy packages/build-control-policy/src/ownership-session-versions.json` });
+      }
+    }
+  }
+  return out;
+}
+
 const appRule = (id) => APP_RULES.find((rule) => rule.id === id) ?? (() => { throw new Error(`packages/release/app-check.mjs has no rule ${id}`); })();
 const APP_RULES_FIRST = ["eol-policy", "file-url", "retired-alias"];
 
@@ -457,6 +479,7 @@ export const RULES = Object.freeze([
   { id: "npm-recipe", gap: "G01", run: npmRecipes },
   { id: "npm-surface", gap: "G02", run: npmSurface },
   { id: "version-pins", gap: "G03", run: versionPins },
+  { id: "feed-legacy", gap: "G27", run: feedLegacy },
   { id: "dispatch-pins", gap: "G05", run: dispatchPins },
   { id: "consumer-locks", gap: "G08", run: consumerLocks },
   appRule("file-url"),

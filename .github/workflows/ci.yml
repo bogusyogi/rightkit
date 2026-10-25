@@ -327,6 +327,15 @@ jobs:
           echo "$RUNNER_TEMP/actionlint-bin" >> "$GITHUB_PATH"
       # Class A scans run for EVERY change (Rust, npm, workflow, scripts, docs), never only for crates: with no base they
       # cover every tracked file. Shard and closure jobs need this job and receive its result (RK_SCANS_JOB_RESULT).
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.25.0
+          run_install: false
+      - name: Install workspace dependencies without lifecycle scripts (for the import-effects check)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      # Seconds; hygiene gates every native shard, so a module that runs at import stops the run before any runner starts.
+      - name: Exported modules import without side effects
+        run: node scripts/ci/exports-import-effects.mjs
       - name: Class A deterministic scans (every change)
         shell: bash
         env:

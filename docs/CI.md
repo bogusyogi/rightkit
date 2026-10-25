@@ -95,7 +95,7 @@ What is implemented today:
   commit passed as data.
 - `packages/release/pipeline-receipts.mjs` verifies stage receipts (ADMISSION to PUBLISHED); the
   broker signs them. Nothing in CI or the gate issues or checks them yet.
-- `local-publish.mjs` does not use the module yet; it follows once its pin is updated.
+- `local-publish.mjs` does not use the module yet; it follows once its pin is updated. `feed-legacy` (G27) refuses a staged version whose published predecessor is missing from `legacyNpm`/`legacyCargo` (rightkit#1188 dropped qa-chrome 0.1.11; right-suite-contract only saw it minutes into a native verify). After the dependency install and before any compile, signing or pack, `scripts/ci/exports-import-effects.mjs` imports every exported module of every package in a fresh process and refuses one that does anything at import (publish.yml `scans`, ci.yml `hygiene`); the sealed-byte import check in `verify` found this 27 minutes in (run 40168412670).
 
 ### The gate in other repositories (`rightkit-gate`)
 
