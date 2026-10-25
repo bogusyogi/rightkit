@@ -1484,3 +1484,48 @@ test("committed policy: stray target roots on both hosts, one day idle; readDisk
     assert.throws(() => readDiskPolicy(pf), /strayTargets/);
   }
 });
+
+// ---- emergency purge -------------------------------------------------------------------------------------------------------
+
+// A policy whose only floor is the agent volume (or, with agentVolume false, an ordinary volume) and a holding base with a
+// dated folder for "today" holding bytes, so the run's purge decision is the only thing that can remove it.
+function emergencyFixture({ agentVolume = true } = {}) {
+  const { root, heavy, policy } = fixture();
+  policy.floors = { mac: [{ id: "d", path: root, label: "fixture", warnFreeBytes: 1000, ...(agentVolume ? { agentVolume: true } : {}) }] };
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  const base = path.join(root, "hold");
+  const now = Date.parse("2026-10-15T12:00:00Z");
+  const today = path.join(base, "2026-10-15");
+  file(path.join(today, "moved", "f"), 10, now - 3600_000);
+  utimesSync(today, (now - 3600_000) / 1000, (now - 3600_000) / 1000); // the injected clock is the fixture's "now", not the real one
+  writeFileSync(path.join(base, HOLDING_MARKER), "");
+  const run = (freeBytes) => runDiskCommand(["run", "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes, totalBytes: 10000 }) }, purge: { bases: [base], now } } });
+  const events = () => readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  return { today, run, events };
+}
+
+test("run: below the agent volume's soft floor the holding folders are purged the same day and the event says so", async () => {
+  const { today, run, events } = emergencyFixture();
+  const r = await run(1);
+  assert.equal(existsSync(today), false);
+  assert.equal(r.purged.results.length, 1);
+  const e = events().find((x) => x.event === "disk.run.emergency");
+  assert.deepEqual([e.floor, e.freeBytes], ["d", 1]);
+  assert.ok(e.purgedBytes > 0);
+});
+
+test("run: above the soft floor today's holding folder is kept and no emergency is logged", async () => {
+  const { today, run, events } = emergencyFixture();
+  await run(5000);
+  assert.equal(existsSync(today), true);
+  assert.equal(events().some((x) => x.event === "disk.run.emergency"), false);
+});
+
+test("run: a floor that is not the agent volume warning is not an emergency", async () => {
+  const { today, run, events } = emergencyFixture({ agentVolume: false });
+  const r = await run(1);
+  assert.equal(r.exitCode, 3);
+  assert.equal(existsSync(today), true);
+  assert.equal(events().some((x) => x.event === "disk.run.emergency"), false);
+});

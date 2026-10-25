@@ -606,8 +606,16 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     stdout(renderSweep(p));
     const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
     stdout(`moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length})`);
-    const purged = purgeHoldings({ policy, platform, env, ...deps.purge });
+    // Only the agent volume running below its soft floor is an emergency: the undo window is spent
+    // (days 0, so what this pass just moved is purged too). Warnings from other floors or writers are not.
+    const squeezed = (before.floors ?? [before.floor]).find((f) => f.agentVolume && f.warn && !f.absent);
+    const emergency = Boolean(squeezed);
+    const purged = purgeHoldings({ policy, platform, env, ...(emergency ? { days: 0 } : {}), ...deps.purge });
     stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
+    if (emergency) {
+      stdout("EMERGENCY: the agent volume is below its soft floor, holding folders were purged without their undo window");
+      logEvent(logFile, { event: "disk.run.emergency", floor: squeezed.id ?? squeezed.label, freeBytes: squeezed.freeBytes, purgedBytes: purged.purgedBytes });
+    }
     const after = check();
     const warn = after.warn;
     logEvent(logFile, { event: warn ? "disk.floor.warn" : "disk.run.ok", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length });
