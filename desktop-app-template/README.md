@@ -6,15 +6,19 @@ every RightKit capability it uses is an exact pin from the published set (`packa
 declares the whole desktop mandatory set (`packages/release/ownership-mandatory-set.json`, profile `desktop`) from its first commit.
 
 A freshly instantiated app passes, with an empty baseline: `rightkit-gate check` (the offline app rules; the published `@rightkit/release`
-carries it from the release after 0.6.4, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the pipeline scan,
+has carried it since 0.6.5, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the pipeline scan,
 the release-switch scan, the Cargo, QA and legal contracts and `right-release ownership-mandatory --enforce`.
 `packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
 `right-release init`.
 
-**Pin sequencing.** The pinned `@rightkit/release` 0.6.4 reads only `right-release.config.mjs` and has no `check` command; the JSON
-release config is loaded by every command from 0.6.5. Until 0.6.5 is published and the pin moves (bogusyogi/rightkit#1148), run
-`right-release` from a RightKit checkout (`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of
-`pnpm release:*` and `pnpm dev:build:*`.
+**Pin sequencing.** The pin is the latest published `@rightkit/release`, 0.6.5: the registry check refuses a pin the registry does not
+have, the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. 0.6.5 has
+the `check` command but reads only `right-release.config.mjs`; the JSON release config is loaded by every command from 0.6.6, which is
+not published yet. Until it is, run `right-release` from a RightKit checkout
+(`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of `pnpm release:*` and `pnpm dev:build:*`. The
+commit that records 0.6.6 in `rightkit-versions.json` also moves this pin to 0.6.6 (with `pnpm-lock.yaml`, the lock hashes in
+`legal/THIRD_PARTY_NOTICES.md` and `legal/legal-manifest.json`, and the hook if `install-hook` writes a different one) and deletes
+this paragraph (bogusyogi/rightkit#1148).
 
 **Installing inside the RightKit repository.** This directory sits inside RightKit's own git repository, so `prepare`
 (`rightkit-gate install-hook`) acts on the hooks at that repository's root, not on the template: it finds RightKit's own

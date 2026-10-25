@@ -321,14 +321,43 @@ test("the README warns that `prepare` acts on the enclosing repository, because 
 });
 
 test("the README names the release the template waits for exactly while the pin is older than this tree's", () => {
-  // @rightkit/release 0.6.4 loads only right-release.config.mjs and has no `check`; the JSON config (M24) is loaded by every command
-  // from this tree's version. The README says so while the pin lags and must stop saying it the day the pin catches up.
+  // The pin is the latest published release. 0.6.5 has `check` but loads only right-release.config.mjs (it was published without the
+  // loader); the JSON config (M24) is loaded by every command from this tree's version. The README says so while the pin lags, and must
+  // stop saying it the day the pin catches up.
   const pinned = readJson("package.json").devDependencies["@rightkit/release"];
   const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
   const stated = read("README.md").includes("**Pin sequencing.**");
   assert.equal(stated, pinned !== treeVersion, pinned === treeVersion
     ? "the pin is this tree's release: delete the 'Pin sequencing' paragraph from the template README"
     : `the template pins @rightkit/release ${pinned}, older than this tree's ${treeVersion}: the README must say which release its commands need`);
+  if (stated) {
+    const paragraph = /\*\*Pin sequencing\.\*\*[\s\S]*?\n\n/.exec(read("README.md"))?.[0] ?? "";
+    assert.ok(paragraph.includes(pinned), `the Pin sequencing paragraph must name the pin ${pinned}`);
+    assert.ok(paragraph.includes(treeVersion), `the Pin sequencing paragraph must name the release its commands wait for, ${treeVersion}`);
+  }
+});
+
+// 0.6.5 was published (2026-10-25, publish run 40145700832) without the JSON release config loader; 0.6.6 is the first release that has it.
+// Every place that says which release loads it names that one, and the changelog files the lane under it, never under a published heading.
+const JSON_CONFIG_FIRST_RELEASE = "0.6.6";
+test("the JSON release config loader is stated as shipping in the first release that has it, not in the published 0.6.5", () => {
+  const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
+  const cmp = (a, b) => { const [x, y] = [a, b].map((v) => v.split(".").map(Number)); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
+  assert.ok(cmp(treeVersion, JSON_CONFIG_FIRST_RELEASE) >= 0, `this tree (${treeVersion}) is behind the release that carries the loader`);
+  const sections = readFileSync(path.join(here, "CHANGELOG.md"), "utf8").split(/^## /m).slice(1);
+  const bullet = "**Every command loads `right-release.config.json` (M24)";
+  const holding = sections.filter((section) => section.includes(bullet)).map((section) => section.split("\n", 1)[0]);
+  assert.equal(holding.length, 1, `the loader is changelogged once, found under: ${holding.join(" | ")}`);
+  assert.ok(holding[0].startsWith(`${JSON_CONFIG_FIRST_RELEASE} `), `the loader bullet sits under "${holding[0]}", not under ${JSON_CONFIG_FIRST_RELEASE}`);
+  const published = sections.filter((section) => /^\d+\.\d+\.\d+ \(\d{4}-\d{2}-\d{2}/.test(section));
+  for (const section of published) assert.ok(!section.includes("right-release.config.json"), `the published "${section.split("\n", 1)[0]}" section claims the JSON config loader`);
+  // The template README and the pipeline document: whichever release they name as loading the JSON config is the first one.
+  const claims = [
+    ["desktop-app-template/README.md", read("README.md")],
+    ["docs/PIPELINE-ARCHITECTURE.md", readFileSync(path.join(REPO, "docs", "PIPELINE-ARCHITECTURE.md"), "utf8")],
+  ].flatMap(([file, body]) => [...body.matchAll(/loaded by every command from (\d+\.\d+\.\d+)|from (\d+\.\d+\.\d+) every command loads a JSON config/g)].map((m) => [file, m[1] ?? m[2]]));
+  assert.ok(claims.length >= 2, "the README and the pipeline document each say which release loads the JSON config");
+  for (const [file, version] of claims) assert.equal(version, JSON_CONFIG_FIRST_RELEASE, `${file} says the JSON config loads from ${version}`);
 });
 
 test("the template is gated for real: no fixture entry, no baseline entry, and its own advisory policy that mirrors RightKit's exceptions", () => {
