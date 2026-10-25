@@ -1651,3 +1651,18 @@ test("json-parse reads tsconfig, jsconfig and .vscode settings as JSON with comm
   assert.match(row.detail, /package\.json/);
   assert.doesNotMatch(row.detail, /tsconfig/);
 });
+
+test("advisory exceptions: an app workspace whose deny.toml ignores an advisory needs its own ledger, checked like RightKit's", async () => {
+  const deny = "[advisories]\nignore = [\n  { id = \"RUSTSEC-2024-0429\", reason = \"Linux only\" },\n]\n";
+  // An app: no ci/advisory-exceptions.json (that file is RightKit's own ledger for its root workspace).
+  const appFiles = Object.fromEntries(Object.entries({ ...crateFiles, "deny.toml": deny }).filter(([k]) => k !== "ci/advisory-exceptions.json"));
+  const fs = fakeFs(appFiles, appFiles);
+  const plan = planScans({ changed: ["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "win32" });
+  const scan = plan.scans.find((s) => s.id.startsWith("advisory-exceptions") && s.exceptionsFile);
+  assert.ok(scan, plan.scans.map((s) => s.id).join(" "));
+  assert.equal(scan.exceptionsFile, ".rightkit/advisory-exceptions.json");
+  const result = await runScans(plan, deps({ ...fs }));
+  const row = result.scans.find((s) => s.id === scan.id);
+  assert.equal(row.status, "fail");
+  assert.match(row.detail, /\.rightkit\/advisory-exceptions\.json/);
+});

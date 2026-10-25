@@ -625,6 +625,16 @@ export function planScans({
 
   // Exceptions expire by date, not by change: checked on every run, whatever changed.
   if (exists(path.join(contentRoot, "ci/advisory-exceptions.json"))) add({ id: "advisory-exceptions", class: A, internal: "advisory-exceptions" });
+  // An app's advisory exceptions follow the same policy as RightKit's own: a Cargo workspace whose deny.toml or .cargo/audit.toml
+  // ignores an advisory needs its ledger, <workspace>/.rightkit/advisory-exceptions.json, with owner, evidence, an unexpired
+  // reviewBy, the exact affected versions and dependents in that workspace's Cargo.lock, and a person's approval; deny.toml and
+  // audit.toml must match it exactly.
+  for (const ws of workspaces) {
+    if (typeof ws !== "string") continue;
+    const dir = ws === "." ? "" : ws;
+    const ignores = ["deny.toml", ".cargo/audit.toml"].some((f) => { try { return /\bignore\s*=\s*\[[^\]]*\S[^\]]*\]/s.test(readFile(path.join(contentRoot, dir, f))); } catch { return false; } });
+    if (ignores && !(dir === "" && exists(path.join(contentRoot, "ci/advisory-exceptions.json")))) add({ id: `advisory-exceptions${dir ? `:${dir}` : ""}`, class: A, internal: "advisory-exceptions", dir, exceptionsFile: ".rightkit/advisory-exceptions.json" });
+  }
   // Like generated-docs, planned only when a changed file is one of the contract's inputs or projections. The generator runs from
   // the trusted scanner checkout (the import below); the exported contract and projections are data it checks.
   if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) add({ id: "suite-api", class: A, internal: "suite-api" });
@@ -1051,7 +1061,9 @@ const INTERNAL = {
   refuse: (s) => [s.detail],
   // Every RustSec exception is dated, scoped to the locked versions and identical in deny.toml and
   // .cargo/audit.toml (ci/advisory-exceptions.json; Astra 2026-10-22). Expiry fails every run.
-  "advisory-exceptions": (s, ctx) => checkAdvisoryExceptions({ root: ctx.contentRoot, readFile: ctx.read }),
+  "advisory-exceptions": (s, ctx) => (s.dir === undefined
+    ? checkAdvisoryExceptions({ root: ctx.contentRoot, readFile: ctx.read })
+    : checkAdvisoryExceptions({ root: path.join(ctx.contentRoot, s.dir), readFile: (p) => ctx.read(path.join(s.dir, p)), exceptionsFile: s.exceptionsFile }).map((problem) => `${s.dir || "."}: ${problem}`)),
   // Every Right Suite API projection must equal what the generator writes from the contract. The pure check is imported from the
   // scanner's own checkout (scripts/ sits beside packages/release), never from the content root.
   "suite-api": async (s, ctx) => {
