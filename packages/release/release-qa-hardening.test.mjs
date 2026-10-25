@@ -1,18 +1,19 @@
 // ADR-0001 item 10 (W4-A): release admission hardening and the per-app warn -> refuse switch.
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "./background-process.mjs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { admitInstalledQa, admitSourceQa, appOfReleaseId } from "./release-qa-audit.mjs";
-import { runQa } from "./release-qa-command.mjs";
+import { installedDirNames, runQa } from "./release-qa-command.mjs";
 import { criticalJourneyIds, hardenQaReceipt, validateJourneysReceipt } from "./release-qa-hardening.mjs";
 import {
   checkPolicyTransition, loadAdmissionPolicy, QA_ADMISSION_POLICY_FILE, QaPolicyError, setAdmissionMode, validateAdmissionPolicy,
 } from "./release-qa-policy.mjs";
 import { loadQaFloor, QaAdmissionError, sourceIdentity, validateAppQaConfig, validateQaFloor } from "./release-qa-receipt.mjs";
 import {
-  accepting, gateOpts, gitFixture, here, journeysReceiptJson, MANIFEST_TOML, OTHER_RUNNER_SHA, policyWith, refusing, releaseIdOf, RUNNER_SHA, SHA, writeHardenedReceipt,
+  accepting, BUNDLE, gateOpts, gitFixture, here, journeysReceiptJson, MANIFEST_TOML, OTHER_RUNNER_SHA, policyWith, refusing, releaseIdOf, RUNNER_SHA, SHA, store, writeHardenedReceipt,
 } from "./release-qa-fixtures.mjs";
 
 const REFUSE = { demo: { mode: "refuse", since: "2026-10-24", set_by: "adrian" } };
@@ -61,6 +62,29 @@ test("an unapproved or unlisted runner digest is refused", () => withRepo((root,
   const empty = admitSourceQa(gateOpts(root, releaseId), { warn: (line) => lines.push(line), policy: policyWith({ approvedRunners: [] }) });
   assert.equal(empty.status, "rejected");
   assert.match(empty.reason, /no rightkit-qa runner digest is approved/);
+}));
+
+test("C4-01: a runner approved only for another platform is refused; no platform or the matching platform passes", () => withRepo((root, releaseId) => {
+  const only = (platform) => policyWith({ approvedRunners: [{ sha256: RUNNER_SHA, version: "0.8.0", platform }] });
+  writeHardenedReceipt(root, { releaseId });
+  const lines = [];
+  const warned = admitSourceQa(gateOpts(root, releaseId), { warn: (line) => lines.push(line), policy: only("win") });
+  assert.equal(warned.status, "rejected");
+  assert.match(warned.reason, /rightkit-qa runner sha256 e{16} is approved only for win, this is mac/);
+  assert.equal(lines.length, 1);
+  assert.throws(() => admitSourceQa(gateOpts(root, releaseId), { warn: noWarn, policy: policyWith({ apps: REFUSE, approvedRunners: only("win").policy.approvedRunners }) }),
+    (error) => error instanceof QaAdmissionError && /approved only for win, this is mac/.test(error.message));
+  const passes = (policy) => admitSourceQa(gateOpts(root, releaseId), { warn: noWarn, policy }).status;
+  assert.equal(passes(only("mac")), "passed");
+  assert.equal(passes(only(undefined)), "passed", "an entry with no platform approves every platform");
+  const both = policyWith({ approvedRunners: [{ sha256: RUNNER_SHA, version: "0.8.0", platform: "win" }, { sha256: RUNNER_SHA, version: "0.8.0", platform: "mac" }] });
+  assert.equal(passes(both), "passed");
+  // The same runner sealing a windows release needs a windows approval.
+  writeHardenedReceipt(root, { releaseId, platform: "win" });
+  const winWarned = admitSourceQa(gateOpts(root, releaseId, "win"), { warn: () => {}, policy: only("mac") });
+  assert.equal(winWarned.status, "rejected");
+  assert.match(winWarned.reason, /approved only for mac, this is win/);
+  assert.equal(admitSourceQa(gateOpts(root, releaseId, "win"), { warn: noWarn, policy: only("win") }).status, "passed");
 }));
 
 test("one skipped release-critical journey is refused in refuse mode and warned in warn mode", () => withRepo((root, releaseId) => {
@@ -233,4 +257,57 @@ test("an app absent from the policy is warn; the missing-receipt refusal is a th
 test("the shipped policy file and runner approvals are plain data in the package", () => {
   const shipped = JSON.parse(readFileSync(path.join(here, QA_ADMISSION_POLICY_FILE), "utf8"));
   assert.deepEqual(validateAdmissionPolicy(shipped), []);
+});
+
+test("installedDirNames: the product folder below LOCALAPPDATA from development.targets.win.install.expectedInstalledPath", () => {
+  const env = { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" };
+  const config = (expectedInstalledPath) => ({ development: { targets: { win: { install: { kind: "tauri", expectedInstalledPath } } } } });
+  const names = (file, environment = env) => installedDirNames(config(file), environment);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\PostRight\\postright.exe"), ["PostRight"]);
+  // Either separator, any case, a trailing separator on LOCALAPPDATA, and the key spelled any way (Windows env is case-insensitive).
+  assert.deepEqual(names("c:/users/A/appdata/local/PostRight/Bin/postright.exe"), ["PostRight"]);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\PostRight\\postright.exe", { LocalAppData: "c:\\users\\a\\appdata\\local\\" }), ["PostRight"]);
+  // Already a runner root, outside LOCALAPPDATA, or the exe directly in LOCALAPPDATA: nothing.
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\Programs\\PostRight\\postright.exe"), []);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\programs\\x.exe"), []);
+  assert.deepEqual(names("C:\\Program Files\\PostRight\\postright.exe"), []);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\LocalLow\\PostRight\\postright.exe"), []);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\postright.exe"), []);
+  // Relative, dot segments and a name the runner would reject (it could widen the root) are not used.
+  assert.deepEqual(names("PostRight\\postright.exe"), []);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\..\\Temp\\x\\postright.exe"), []);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\Post;Right\\postright.exe"), []);
+  // No LOCALAPPDATA (mac host, CI) or a relative one, and no declared path: nothing.
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\PostRight\\postright.exe", {}), []);
+  assert.deepEqual(names("C:\\Users\\a\\AppData\\Local\\PostRight\\postright.exe", { LOCALAPPDATA: "AppData\\Local" }), []);
+  assert.deepEqual(installedDirNames({}, env), []);
+  assert.deepEqual(installedDirNames(undefined, env), []);
+  assert.deepEqual(installedDirNames(config(undefined), env), []);
+  assert.deepEqual(installedDirNames(config(42), env), []);
+});
+
+test("runQa hands the runner RIGHTKIT_QA_INSTALLED_DIRS from the config's installed path", async () => {
+  const root = gitFixture();
+  try {
+    const exe = "C:\\Users\\a\\AppData\\Local\\PostRight\\postright.exe";
+    const write = (development) => {
+      const qa = { version: "1", config: "rightkit-qa.toml", checks: { "smoke.launch": ["app.launch"], journey: ["journey.*"] } };
+      writeFileSync(path.join(root, "right-release.config.mjs"), `export default ${JSON.stringify({ app: "demo", version: "1.0.0", qa, ...(development ? { development } : {}) })};\n`);
+      writeFileSync(path.join(root, "rightkit-qa.toml"), "app = 'demo'\n");
+      writeFileSync(path.join(root, "rightkit-qa"), "#!/bin/sh\n");
+      for (const args of [["add", "-A"], ["commit", "-q", "-m", "qa"]]) assert.equal(spawnSync("git", args, { cwd: root, encoding: "utf8" }).status, 0);
+    };
+    const seen = [];
+    const run = (env) => runQa({ stage: "source", platform: "win", configPath: path.join(root, "right-release.config.mjs"), deps: {
+      skipPrimaryCheckout: true, quiet: true, credentialStore: store, policyBundleDigest: BUNDLE, runnerFile: path.join(root, "rightkit-qa"), env,
+      spawnRunner: (_command, _args, options) => { seen.push(options.env.RIGHTKIT_QA_INSTALLED_DIRS); return { status: 0, stdout: "", stderr: "" }; },
+    } });
+    write({ targets: { win: { install: { kind: "tauri", productName: "PostRight", targetTriple: "x86_64-pc-windows-msvc", expectedInstalledPath: exe } } } });
+    await run({ LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" });
+    assert.deepEqual(seen, ["PostRight"]);
+    // Nothing to declare (no LOCALAPPDATA): the variable is left as the host has it, not invented.
+    seen.length = 0;
+    await run({});
+    assert.deepEqual(seen, [process.env.RIGHTKIT_QA_INSTALLED_DIRS]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

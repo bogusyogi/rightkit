@@ -7,7 +7,8 @@
 //              passed", not "one matching check passed".
 //   admit side `hardenQaReceipt` re-checks the sealed receipt at admission, independently of what the run side
 //              claimed: platform and release id, the approved runner digest, the critical journey set recomputed
-//              from the manifest committed at the receipt's commit, and the signing/test-execution separation.
+//              from the manifest committed at the receipt's commit, and the signing/test-execution separation. The
+//              runner digest must be approved for the platform being sealed or published (qa-admission-policy.json).
 //
 // Signing outside test execution, what is checked here: the receipt records the pids of the test processes it
 // spawned and the window in which they ran; admission refuses a receipt whose window does not end before the
@@ -119,10 +120,16 @@ export function hardenQaReceipt({
   if (receipt.platform !== platform) refuse(`receipt is for platform ${receipt.platform}, this is ${platform}`);
   if (receipt.releaseId !== releaseId) refuse(`receipt is for release ${receipt.releaseId}, this is ${releaseId}`);
 
-  // 2. The qualifying runner is pinned by an approved digest.
+  // 2. The qualifying runner is pinned by an approved digest, approved for this platform (an entry with no platform
+  //    approves every platform).
   const approved = approvedRunnerDigests(policy);
   if (!approved.length) refuse("no rightkit-qa runner digest is approved in qa-admission-policy.json");
-  if (!approved.includes(receipt.runner?.sha256)) refuse(`rightkit-qa runner sha256 ${String(receipt.runner?.sha256).slice(0, 16)} is not an approved runner`);
+  const digest = receipt.runner?.sha256;
+  if (!approved.includes(digest)) refuse(`rightkit-qa runner sha256 ${String(digest).slice(0, 16)} is not an approved runner`);
+  const entries = policy.approvedRunners.filter((runner) => runner.sha256 === digest);
+  if (!entries.some((runner) => !runner.platform || runner.platform === platform)) {
+    refuse(`rightkit-qa runner sha256 ${digest.slice(0, 16)} is approved only for ${[...new Set(entries.map((runner) => runner.platform))].sort().join(", ")}, this is ${platform}`);
+  }
 
   // 3. The journey floor id means every release-critical journey required on this platform passed.
   const mapping = floor?.journeys;

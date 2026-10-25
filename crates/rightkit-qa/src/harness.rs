@@ -1,4 +1,4 @@
-//! Scenario wrapper for plain Rust integration tests (`#[test] fn x() { h.scenario(...) }`).
+//! Scenario wrapper for plain Rust tests (`#[test] fn x() { h.scenario(...).require_ran() }`).
 //!
 //! What the declarative TOML runner gives a scenario, for Rust tests:
 //! * **tier gating**: `fast` always runs; `full`, `paid` (or any name) run when selected by a
@@ -8,7 +8,9 @@
 //!   `rustright cargo`), `file:path`, `cmd:program`, `platform:darwin|windows`; plus a runtime
 //!   [`Scenario::skip`] for prerequisites only discoverable inside the test;
 //! * **skip accounting**: libtest reports a skipped test as `ok`, so every outcome is printed
-//!   (`[qa] PASS|SKIP|FAIL name`) and appended to `<evidence root>/summary.jsonl`;
+//!   (`[qa] PASS|SKIP|FAIL name`) and appended to `<evidence root>/summary.jsonl`, and the
+//!   returned [`Outcome`] is `#[must_use]`: end a test with [`Outcome::require_ran`] so a
+//!   scenario that skipped fails the test instead of passing it;
 //! * **per-scenario evidence**: `<evidence root>/<scenario-slug>/` holds the scenario's files and
 //!   a hashed `evidence.json` [`Bundle`] (artifacts recorded with [`Scenario::keep`]);
 //! * **orphan check**: every process started through [`Scenario::tracker`] must be gone when the
@@ -26,13 +28,14 @@
 //! fn export_is_loud_enough() {
 //!     h().scenario("export loudness", "full", &["cmd:ffmpeg"], |sc| {
 //!         sc.note("measuring");
-//!     });
+//!     })
+//!     .require_ran();
 //! }
 //! ```
 use crate::evidence::{Bundle, CheckStatus, RunStatus};
 use crate::lock::{acquire, LockOptions};
 use crate::process::Tracker;
-use crate::scenario::{tier_selected, unmet_requirement_with};
+use crate::scenario::{platform_mismatch, tier_selected, unmet_requirement_with};
 use crate::settings::Settings;
 use crate::util::{new_id, sha256_hex, Result};
 use serde_json::{json, Value};
@@ -50,7 +53,34 @@ pub const DEFAULT_TIER_KEY: &str = "RIGHTKIT_QA_TIER";
 pub const EVIDENCE_KEY: &str = "RIGHTKIT_QA_EVIDENCE";
 
 /// How a scenario ended without failing (a failure panics, so libtest marks the test failed).
+///
+/// libtest reports a test whose scenario skipped as `ok`, so a caller that drops a
+/// [`Outcome::Skipped`] turns a scenario that never ran into a green test. The type is
+/// `#[must_use]` for that reason: end the test with [`Outcome::require_ran`], or inspect the value.
+///
+/// Dropping the outcome of [`Harness::scenario`] is a compile error under
+/// `#![deny(unused_must_use)]`:
+///
+/// ```compile_fail
+/// #![deny(unused_must_use)]
+/// use rightkit_qa::harness::Harness;
+/// fn export_is_loud_enough(h: &Harness) {
+///     h.scenario("export loudness", "full", &["cmd:ffmpeg"], |_| {});
+/// }
+/// ```
+///
+/// The same code compiles once the outcome is consumed, which is why the example above fails for
+/// that reason alone:
+///
+/// ```no_run
+/// #![deny(unused_must_use)]
+/// use rightkit_qa::harness::Harness;
+/// fn export_is_loud_enough(h: &Harness) {
+///     h.scenario("export loudness", "full", &["cmd:ffmpeg"], |_| {}).require_ran();
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a skipped scenario is not a pass: call .require_ran() on it, or inspect the Outcome"]
 pub enum Outcome {
     Passed,
     Skipped(String),
@@ -59,6 +89,37 @@ pub enum Outcome {
 impl Outcome {
     pub fn is_skipped(&self) -> bool {
         matches!(self, Outcome::Skipped(_))
+    }
+
+    /// True only for a skip because the scenario requires a known OS other than the host's
+    /// (`platform:<os>`): such a scenario can never run here, so skipping it is correct and not
+    /// a gap. A skip for any other reason is false, and so is an `unknown platform` requirement
+    /// (a typo, not another OS).
+    ///
+    /// The reason is matched back through [`platform_mismatch`], the function that produces it, so
+    /// the two cannot drift: a reason that names no known OS, or the host's own, is not an
+    /// other-platform skip, however a runtime [`Scenario::skip`] words it.
+    pub fn skipped_for_other_platform(&self) -> bool {
+        let Outcome::Skipped(reason) = self else {
+            return false;
+        };
+        reason
+            .strip_prefix("platform is not ")
+            .and_then(|os| platform_mismatch(&[format!("platform:{os}")]))
+            .is_some_and(|expected| expected == *reason)
+    }
+
+    /// Consume the outcome as the end of a test whose scenario must have run: returns for
+    /// [`Outcome::Passed`] and for a skip because the scenario is for another OS
+    /// ([`Outcome::skipped_for_other_platform`]); panics for any other skip, naming its reason.
+    ///
+    /// Returns `()`, not `Self`, so a chain that ends here is not itself a dropped outcome.
+    pub fn require_ran(self) {
+        if let Outcome::Skipped(reason) = &self {
+            if !self.skipped_for_other_platform() {
+                panic!("scenario skipped: {reason}. A skipped scenario is not a pass.");
+            }
+        }
     }
 }
 
@@ -381,7 +442,12 @@ impl Harness {
         let started = Instant::now();
         let dir = self.evidence_root.join(slug(name));
         let selected = self.selected_tiers();
-        let gate = if !tier_selected(tier, &selected) {
+        // A scenario for another OS reports that reason whatever else would skip it (tier, env,
+        // file, command), so a caller can always tell it from a gap on this host.
+        let reqs: Vec<String> = requires.iter().map(|s| s.to_string()).collect();
+        let gate = if let Some(reason) = platform_mismatch(&reqs) {
+            Some(reason)
+        } else if !tier_selected(tier, &selected) {
             Some(format!("tier {tier} not selected (selected: {selected})"))
         } else {
             self.unmet(requires)

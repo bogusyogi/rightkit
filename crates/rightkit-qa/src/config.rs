@@ -30,6 +30,9 @@
 //! # workspace_root = "src-tauri"         # cargo workspace the broker built, relative to app_root
 //! # pointer_file = ".rightkit-qa-app-binary"
 //! # binary_env = "GENRIGHT_APP_BINARY"
+//! # env_keys = ["GENRIGHT_PROFILE"]      # non-secret app env keys a macOS launch may carry
+//! # installed_dirs = ["GenRight"]        # Windows: %LOCALAPPDATA% folders of an installed copy
+//!                                        # (default: productName in src-tauri/tauri.conf.json)
 //!
 //! [host]                                 # the scenario pool (ADR-0001 item 2); every key optional
 //! # workers = 2                          # pool size; absent: min(cores, commit headroom / peak_mb), capped by the OS start value
@@ -123,6 +126,19 @@ pub struct UiConfig {
     pub pointer_file: Option<String>,
     /// The app's own env var for the executable (checked after `RIGHTKIT_QA_APP_BINARY`).
     pub binary_env: Option<String>,
+    /// App-specific, non-secret env keys a macOS launch may carry besides `RIGHTKIT_*` (`open
+    /// --env K=V` shows the values in argv, so the harness refuses every other key there). Each
+    /// key must be listed in the app's `switches.json` as a release-forbidden switch, so the
+    /// release scan proves it absent from shipped binaries; `guard` checks that. A key that names
+    /// a credential is refused here and again at launch.
+    #[serde(default)]
+    pub env_keys: Vec<String>,
+    /// Product folder names under `%LOCALAPPDATA%` that hold an installed copy of this app on
+    /// Windows (the installed-app guard refuses to drive them). Default: the `productName` of
+    /// `<app_root>/src-tauri/tauri.conf.json`, else of `<app_root>/tauri.conf.json`
+    /// ([`QaConfig::installed_product_dirs`]); an explicit list, even an empty one, replaces it.
+    #[serde(default)]
+    pub installed_dirs: Option<Vec<String>>,
 }
 
 impl Default for UiConfig {
@@ -144,6 +160,8 @@ impl Default for UiConfig {
             workspace_root: None,
             pointer_file: None,
             binary_env: None,
+            env_keys: vec![],
+            installed_dirs: None,
         }
     }
 }
@@ -364,7 +382,11 @@ impl QaConfig {
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path)
             .map_err(|e| Error(format!("cannot read {}: {e}", path.display())))?;
-        Self::parse(&text, path)
+        let cfg = Self::parse(&text, path)?;
+        // The installed-app guard must know this app's product folders before anything launches.
+        // Here, not in `parse`, which stays free of process-wide effects.
+        crate::installed::declare_product_dirs(cfg.installed_product_dirs());
+        Ok(cfg)
     }
 
     pub fn parse(text: &str, path: &Path) -> Result<Self> {
@@ -388,6 +410,7 @@ impl QaConfig {
             return err("ui.window_label is required");
         }
         crate::control::Mode::parse(&raw.ui.mode)?;
+        validate_env_keys(&raw.ui.env_keys)?;
         let default_tier = raw.default_tier.unwrap_or_else(|| "fast".into());
         validate_tier_list(&default_tier)?;
         raw.host.validate()?;
@@ -427,6 +450,22 @@ impl QaConfig {
         spec.args = p.args.clone();
         spec.hello_timeout = std::time::Duration::from_millis(timeout);
         Ok(Some(spec))
+    }
+
+    /// Product folder names under `%LOCALAPPDATA%` that hold an installed copy of this app: the
+    /// explicit `[ui] installed_dirs`, else the `productName` of
+    /// `<app_root>/src-tauri/tauri.conf.json`, else of `<app_root>/tauri.conf.json` (the first
+    /// that names one). A missing, unreadable or unparsable file, or one with no `productName`,
+    /// gives an empty list, never an error.
+    pub fn installed_product_dirs(&self) -> Vec<String> {
+        if let Some(dirs) = &self.ui.installed_dirs {
+            return dirs.clone();
+        }
+        ["src-tauri/tauri.conf.json", "tauri.conf.json"]
+            .iter()
+            .find_map(|rel| product_name_of(&self.app_root.join(rel)))
+            .into_iter()
+            .collect()
     }
 
     pub fn engine_binary(&self) -> Result<Option<PathBuf>> {
@@ -511,6 +550,38 @@ impl QaConfig {
             env,
         })
     }
+}
+
+/// The non-empty `productName` of a Tauri config file; `None` when it cannot be read or parsed as
+/// JSON, or names no product. A leading byte-order mark is skipped.
+fn product_name_of(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let text = text.trim_start_matches('\u{feff}');
+    let json: serde_json::Value = serde_json::from_str(text).ok()?;
+    let name = json.get("productName")?.as_str()?.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// `[ui] env_keys`: each key is a plain environment variable name (ASCII letters, digits and
+/// `_`, not starting with a digit) that names no credential. It uses the launch's own credential
+/// word list ([`crate::control::key_names_credential`]), so config and launch cannot disagree.
+fn validate_env_keys(keys: &[String]) -> Result<()> {
+    for key in keys {
+        let well_formed = !key.is_empty()
+            && !key.starts_with(|c: char| c.is_ascii_digit())
+            && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !well_formed {
+            return err(format!(
+                "[ui] env_keys: {key:?} is not an environment variable name (ASCII letters, digits and '_', not starting with a digit)"
+            ));
+        }
+        if crate::control::key_names_credential(key) {
+            return err(format!(
+                "[ui] env_keys: {key} names a credential; secrets are never passed to a launched app through its command line or environment"
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub fn validate_tier_list(list: &str) -> Result<()> {
@@ -697,5 +768,153 @@ mod plugin_config_tests {
         assert!(nobin.plugin_spec().is_err());
         // Unknown keys are refused by the parser.
         assert!(parse("[plugin]\nbinary = { darwin = \"p\" }\nbogus = 1\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod ui_declaration_tests {
+    use super::*;
+
+    const BASE: &str = "app = \"demo\"\n";
+
+    fn parse_ui(ui: &str) -> Result<QaConfig> {
+        let text = format!("{BASE}[ui]\n{ui}\n");
+        QaConfig::parse(&text, Path::new("/nonexistent-cfg/rightkit-qa.toml"))
+    }
+
+    /// A temp app root holding `files` (relative path, text); the config sits beside them.
+    fn app_root(files: &[(&str, &str)]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("rkqa-ui-{}", crate::util::new_id()));
+        for (rel, text) in files {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn config_in(root: &Path, ui: &str) -> QaConfig {
+        let text = format!("{BASE}[ui]\n{ui}\n");
+        QaConfig::parse(&text, &root.join("rightkit-qa.toml")).unwrap()
+    }
+
+    #[test]
+    fn env_keys_default_to_empty_and_parse() {
+        assert!(QaConfig::parse(BASE, Path::new("/nonexistent-cfg/c.toml"))
+            .unwrap()
+            .ui
+            .env_keys
+            .is_empty());
+        assert!(UiConfig::default().env_keys.is_empty());
+        let c = parse_ui("env_keys = [\"DEMO_PROFILE\", \"_demo2\"]").unwrap();
+        assert_eq!(c.ui.env_keys, vec!["DEMO_PROFILE", "_demo2"]);
+    }
+
+    #[test]
+    fn a_credential_named_env_key_is_refused_at_parse() {
+        for key in [
+            "DEMO_API_KEY",
+            "demo_token",
+            "DEMO_PASSWORD",
+            "DEMO_SECRET_X",
+        ] {
+            let e = parse_ui(&format!("env_keys = [\"{key}\"]")).unwrap_err();
+            assert!(e.0.contains("names a credential"), "{key}: {e}");
+            assert!(e.0.contains(key), "{key}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_malformed_env_key_is_refused_at_parse() {
+        for key in [
+            "",
+            "1DEMO",
+            "DEMO-MODE",
+            "DEMO MODE",
+            " DEMO",
+            "DEMO=1",
+            "D\u{e9}MO",
+        ] {
+            let e = parse_ui(&format!("env_keys = [\"{key}\"]")).unwrap_err();
+            assert!(e.0.contains("env_keys"), "{key:?}: {e}");
+        }
+        // One bad key among good ones refuses the whole list.
+        assert!(parse_ui("env_keys = [\"DEMO_OK\", \"bad key\"]").is_err());
+    }
+
+    #[test]
+    fn installed_product_dirs_reads_the_product_name_of_the_tauri_config() {
+        let root = app_root(&[(
+            "src-tauri/tauri.conf.json",
+            r#"{ "productName": "Demo App", "identifier": "app.demo" }"#,
+        )]);
+        let c = config_in(&root, "");
+        assert_eq!(c.installed_product_dirs(), vec!["Demo App".to_string()]);
+        // With no src-tauri config the app root's own is used; src-tauri wins when both name one.
+        let flat = app_root(&[("tauri.conf.json", r#"{ "productName": "Flat" }"#)]);
+        assert_eq!(config_in(&flat, "").installed_product_dirs(), vec!["Flat"]);
+        let both = app_root(&[
+            ("src-tauri/tauri.conf.json", r#"{ "productName": "Inner" }"#),
+            ("tauri.conf.json", r#"{ "productName": "Outer" }"#),
+        ]);
+        assert_eq!(config_in(&both, "").installed_product_dirs(), vec!["Inner"]);
+        for dir in [root, flat, both] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn an_explicit_installed_dirs_wins_over_the_tauri_config() {
+        let root = app_root(&[(
+            "src-tauri/tauri.conf.json",
+            r#"{ "productName": "FromTauri" }"#,
+        )]);
+        let c = config_in(&root, "installed_dirs = [\"One\", \"Two\"]");
+        assert_eq!(c.installed_product_dirs(), vec!["One", "Two"]);
+        // An explicit empty list is a choice too: nothing is declared.
+        let none = config_in(&root, "installed_dirs = []");
+        assert!(none.installed_product_dirs().is_empty());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn installed_product_dirs_is_empty_when_no_config_names_a_product() {
+        let missing = app_root(&[]);
+        assert!(config_in(&missing, "").installed_product_dirs().is_empty());
+        for text in [
+            "not json at all",
+            "{}",
+            r#"{ "productName": 7 }"#,
+            r#"{ "productName": "  " }"#,
+        ] {
+            let root = app_root(&[("src-tauri/tauri.conf.json", text)]);
+            assert!(
+                config_in(&root, "").installed_product_dirs().is_empty(),
+                "{text}"
+            );
+            let _ = std::fs::remove_dir_all(root);
+        }
+        let _ = std::fs::remove_dir_all(missing);
+    }
+
+    #[test]
+    fn load_declares_the_installed_product_dirs_and_parse_does_not() {
+        // A name no other test declares: the declared list is process-wide.
+        let name = "RkQaCfgLoadProbe";
+        let tauri = format!("{{ \"productName\": \"{name}\" }}");
+        let root = app_root(&[("src-tauri/tauri.conf.json", tauri.as_str())]);
+        let path = root.join("rightkit-qa.toml");
+        std::fs::write(&path, BASE).unwrap();
+        let declared = || crate::installed::declared_product_dirs();
+        QaConfig::parse(BASE, &path).unwrap();
+        assert!(!declared().iter().any(|d| d == name), "parse declared it");
+        let c = QaConfig::load(&path).unwrap();
+        assert_eq!(c.installed_product_dirs(), vec![name.to_string()]);
+        assert!(
+            declared().iter().any(|d| d == name),
+            "load did not declare it"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }
