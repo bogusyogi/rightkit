@@ -1335,8 +1335,8 @@ export async function main(argv, io = {}) {
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
     const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
-    // RightKit checking itself: its own rules (consumer recipes, npm surface, version copies, dispatcher pins, consumer locks,
-    // generated docs: scripts/preflight.mjs) are class A for the RightKit repository. They run only when this gate is that
+    // RightKit checking itself: its own rules (line endings, consumer recipes, npm surface, version copies and the version feed, dispatcher
+    // pins, consumer locks, generated docs, temp paths: scripts/preflight.mjs) and its exports' import safety are class A for the RightKit repository. They run only when this gate is that
     // repository's own in-tree copy, so a gate checking any other repository (the broker's pinned one included) never runs
     // that repository's code.
     let selfRules = 0;
@@ -1346,6 +1346,13 @@ export async function main(argv, io = {}) {
     if (root && self.startsWith(root + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs"))) {
       const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { cwd: root, env: o.env });
       selfRules = r.status === 0 ? 0 : 1;
+      // And its exports import cleanly (scripts/ci/exports-import-effects.mjs: every exported module imported in a fresh, permission-
+      // limited process; an import that prints, exits or reads its argv fails), which publish.yml's scans job ran alone before.
+      const effects = path.join(root, "scripts", "ci", "exports-import-effects.mjs");
+      if (o.exists(effects)) {
+        const e = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [effects], { cwd: root, env: o.env });
+        if (e.status !== 0) selfRules = 1;
+      }
     }
     return Math.max(appCheck, classA, selfRules);
   }
