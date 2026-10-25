@@ -214,6 +214,25 @@ test("internal checks: JSON, changelog heading, license, ownership catalog and s
   assert.match(by("secret-scan").detail, /\.env/);
 });
 
+test("license: a crate that can never be published needs no license key; the secret scan reads env templates by content", async () => {
+  const crate = (name, tail) => ({ [`crates/${name}/Cargo.toml`]: `[package]\nname = "${name}"\nversion = "1.0.0"\n${tail}`, [`crates/${name}/src/lib.rs`]: "" });
+  const files = {
+    ...crate("nopub", "publish = false\n"),
+    ...crate("emptypub", "publish = [ ]\n"),
+    ...crate("metapub", "\n[package.metadata.x]\npublish = false\n"),
+    ...crate("truepub", "publish = true\n"),
+  };
+  const fs = fakeFs(files, files);
+  const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+  const options = [];
+  const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"], scanSecrets: async () => (dir, opts) => { options.push(opts); return []; } });
+  const license = result.scans.find((s) => s.id === "license");
+  assert.match(license.detail, /crates\/metapub\/Cargo\.toml/, "publish = false outside [package] does not exempt");
+  assert.match(license.detail, /crates\/truepub\/Cargo\.toml/);
+  assert.doesNotMatch(license.detail, /nopub|emptypub/);
+  assert.ok(options.length > 0 && options.every((o) => o?.envTemplates === true), "the repository scan asks for env templates by content");
+});
+
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
   const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { localCompile: false });
   const broker = ["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "check-features:foo:0", "clippy:foo", "doc:foo", "test:rust:foo"];

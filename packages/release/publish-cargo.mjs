@@ -139,11 +139,16 @@ export function packageFileViolations(files) {
     .filter((file) => FORBIDDEN_PACKAGE_PATH.test(file));
 }
 
-export function scanCrateForSecrets(crateDir) {
+// A committed env template (`.env.example`, `.env.test.example`, `.env.sample`, `.env.template`) holds key names for
+// people to copy. The repository gate (`envTemplates: true`) reads it like any other file, for credentials, instead of
+// refusing it by name; a crate package and its archive still refuse it by name, since nothing published needs it.
+const ENV_TEMPLATE = /(^|\/)\.env(?:\.[^/]*)?\.(?:example|sample|template)$/i;
+
+export function scanCrateForSecrets(crateDir, { envTemplates = false } = {}) {
   const violations = [];
   for (const file of walkFiles(crateDir)) {
     const relative = path.relative(crateDir, file).replaceAll("\\", "/");
-    if (FORBIDDEN_PACKAGE_PATH.test(relative)) {
+    if (FORBIDDEN_PACKAGE_PATH.test(relative) && !(envTemplates && ENV_TEMPLATE.test(relative))) {
       violations.push(relative);
       continue;
     }

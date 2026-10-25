@@ -116,6 +116,19 @@ test("package inspection rejects secret and build-output paths", () => {
   ]), [".env", "keys/signing.p8", "target/release/app"]);
 });
 
+test("secret scan: an env template is refused by name in a crate, read by content in the repository gate", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-envtpl-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "sub"));
+  writeFileSync(path.join(root, ".env.example"), "API_URL=\nAPI_TOKEN=\n");
+  writeFileSync(path.join(root, "sub", ".env.test.example"), "TOKEN=" + "gh" + "p_" + "B".repeat(24) + "\n");
+  writeFileSync(path.join(root, ".env.sample"), "A=\n");
+  writeFileSync(path.join(root, ".env"), "A=1\n");
+  writeFileSync(path.join(root, ".env.local"), "A=1\n");
+  assert.deepEqual(scanCrateForSecrets(root), [".env", ".env.example", ".env.local", ".env.sample", "sub/.env.test.example"]);
+  assert.deepEqual(scanCrateForSecrets(root, { envTemplates: true }), [".env", ".env.local", "sub/.env.test.example"], "a template with a credential is still found; .env and .env.local stay refused by name");
+});
+
 test("secret scan detects credentials beside NUL bytes while accepting benign binary assets", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-secrets-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

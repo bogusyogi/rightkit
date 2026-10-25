@@ -753,6 +753,18 @@ async function defaultScanSecrets() {
   return (await import("./publish-cargo.mjs")).scanCrateForSecrets;
 }
 
+// A crate that can never be published (`publish = false` or `publish = []` in its [package] table) ships its licence
+// to no one, like a package.json with `"private": true`; it needs no license key.
+function cargoUnpublished(text) {
+  let table = "";
+  for (const line of text.split(/\r?\n/)) {
+    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+    if (header) { table = header[1].trim(); continue; }
+    if (table === "package" && /^\s*publish\s*=\s*(?:false\b|\[\s*\])/.test(line)) return true;
+  }
+  return false;
+}
+
 const INTERNAL = {
   "json-parse": (s, ctx) => {
     const bad = [];
@@ -797,7 +809,7 @@ const INTERNAL = {
     for (const f of s.files) {
       const text = ctx.read(f);
       if (f.endsWith("Cargo.toml")) {
-        if (!/^\s*(license|license-file)\s*(=|\.workspace)/m.test(text)) bad.push(`${f}: no license or license-file`);
+        if (!/^\s*(license|license-file)\s*(=|\.workspace)/m.test(text) && !cargoUnpublished(text)) bad.push(`${f}: no license or license-file`);
       } else {
         try { const m = JSON.parse(text); if (m.private !== true && !(typeof m.license === "string" && m.license.trim()) && !m.licenses) bad.push(`${f}: no license field`); } catch (e) { bad.push(`${f}: ${e.message}`); }
       }
@@ -810,7 +822,7 @@ const INTERNAL = {
     for (const dir of s.dirs) {
       const abs = path.join(ctx.contentRoot, dir);
       if (!ctx.deps.exists(abs)) { bad.push(`${dir}: directory not found`); continue; }
-      for (const v of scan(abs)) bad.push(`${dir}: ${v}`);
+      for (const v of scan(abs, { envTemplates: true })) bad.push(`${dir}: ${v}`);
     }
     return bad;
   },
