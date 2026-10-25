@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **New (`update-license`): updater key rotation (C3-14).** `TauriUpdateConfig::suite(app, timeout)` takes the feed and the key from the Right Suite contract, `TauriUpdateTransport::suite(app_handle, app, timeout)` and `with_suite_keys()` accept every key the contract lists: a release signed by another accepted key that has not ended is checked with that key (a second manifest request, authorized separately); an unlisted, ended or unreadable-signature release is refused before any download, and a server that changes its answer between the two requests is refused. A transport built with `new` accepts only its config's key, as before.
+- **Deprecated (`update-license`):** `TauriUpdateConfig::right_suite(app, public_key, timeout)`; the key is the contract's, not the app's.
+
 ## 0.6.0 (2026-10-23)
 
 - **BREAKING (source): `UpdatePolicy` gains the public field `release_status_url: Option<Url>`.** Apps building it with `UpdatePolicy::new(hosts)` (all current apps) are unaffected; a full struct literal must add the field.

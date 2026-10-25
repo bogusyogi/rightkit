@@ -1,25 +1,31 @@
 #!/usr/bin/env node
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { signMacUpdaterFiles } from "./macos-signing-session.mjs";
 import { refuseManagedEnvSecrets } from "./managed-host-secrets.mjs";
 import { execWithUpdaterCredential } from "./protected-credentials.mjs";
 import { resolvePnpmCli } from "./development.mjs";
+import { UPDATER_KEY_ID_RE, updaterSignatureKeyId } from "./github-updater-release.mjs";
 
 export const UPDATER_SIGNING_SECRET = "updater-signing-key";
 
 export function runSignUpdater(args, {
   env = process.env, platform = process.platform, cwd = process.cwd(),
   execCredential = execWithUpdaterCredential, resolvePnpm = resolvePnpmCli,
-  signMac = signMacUpdaterFiles, exists = existsSync, remove = rmSync, log = console.log,
+  signMac = signMacUpdaterFiles, exists = existsSync, remove = rmSync, read = (file) => readFileSync(file, "utf8"), log = console.log,
 } = {}) {
   const files = [];
   let dryRun = false;
+  let keyId;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--file") {
       if (!args[i + 1] || args[i + 1].startsWith("--")) throw new Error("--file requires an artifact path");
       files.push(path.resolve(cwd, args[++i]));
+    } else if (args[i] === "--key-id") {
+      if (keyId !== undefined) throw new Error("--key-id may be given only once");
+      if (!UPDATER_KEY_ID_RE.test(args[i + 1] ?? "")) throw new Error("--key-id requires the 16 upper-case hex digits of the updater key id");
+      keyId = args[++i];
     } else if (args[i] === "--key-file") throw new Error("--key-file is removed: updater keys come from the OS credential provider");
     else if (args[i] === "--dry-run") dryRun = true;
     else throw new Error(`unknown argument: ${args[i]}`);
@@ -38,9 +44,19 @@ export function runSignUpdater(args, {
   for (const key of Object.keys(signingEnv)) {
     if (["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"].includes(key.toUpperCase())) delete signingEnv[key];
   }
+  // The credential store holds whichever key was last provisioned, so the signature, not the request, says what signed the file.
+  const assertSignedByExpectedKey = (file) => {
+    if (keyId === undefined) return;
+    let found = null;
+    try { found = updaterSignatureKeyId(read(`${file}.sig`)); } catch { /* an unreadable signature is refused below */ }
+    if (found !== keyId) throw new Error(`updater signature ${file}.sig was not made by updater key ${keyId} (found ${found ?? "unreadable"})`);
+  };
   for (const file of files) {
     log(`${dryRun ? "[dry-run] " : ""}pnpm exec tauri signer sign ${file}`);
-    if (dryRun) continue;
+    if (dryRun) {
+      if (keyId !== undefined) log(`[dry-run] ${file}.sig must be made by updater key ${keyId}`);
+      continue;
+    }
     remove(`${file}.sig`, { force: true });
     if (platform === "darwin") continue;
     const result = execCredential(process.execPath,
@@ -51,8 +67,12 @@ export function runSignUpdater(args, {
       error.exitCode = result.status ?? 1;
       throw error;
     }
+    assertSignedByExpectedKey(file);
   }
-  if (!dryRun && platform === "darwin") signMac(files, { env: signingEnv, cwd });
+  if (!dryRun && platform === "darwin") {
+    signMac(files, { env: signingEnv, cwd });
+    for (const file of files) assertSignedByExpectedKey(file);
+  }
   return { files, dryRun };
 }
 

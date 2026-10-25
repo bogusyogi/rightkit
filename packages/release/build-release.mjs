@@ -52,7 +52,7 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_RECEIPT_NAME, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
-import { assertUpdaterSignature } from "./github-updater-release.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust } from "./github-updater-release.mjs";
 
 // The iOS lane's own packaging code, kept out of the win/mac fingerprint for the same reason as the Android one.
 const IOS_PIPELINE_FINGERPRINT = createHash("sha256")
@@ -688,17 +688,24 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   }
   if (sources.size === 0) fail(`nothing to seal: declare installer.artifacts, updater.artifacts or artifacts for the ${platform} target`);
   for (const file of sources.keys()) if (!existsSync(file)) fail(`cannot seal missing artifact: ${file}`);
-  // Every minisign updater requires an explicit trust root & full-byte signature
-  // verification before any seal directory or artifact copy is created.
+  // Every minisign updater is checked against a trust root, by key id and over the full bytes, before any seal directory or
+  // artifact copy is created. A Right Suite app's root is the Right Suite contract's; any other app must declare its own key.
   const updaterPublicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target?.updater?.pubkey ?? target?.updater?.publicKey;
   if ((target.updater?.artifacts?.length ?? 0) > 0 && target.updater?.kind !== "appinstaller") {
-    if (typeof updaterPublicKey !== "string" || !updaterPublicKey.trim()) fail("updater public key is required to verify updater artifacts before sealing");
+    if (!isSuiteUpdaterApp(config.app) && (typeof updaterPublicKey !== "string" || !updaterPublicKey.trim())) fail("updater public key is required to verify updater artifacts before sealing");
+    let trust;
+    try { trust = resolveUpdaterTrust({ app: config.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config.distribution?.updaterKeyId }); }
+    catch (error) { fail(`updater trust rejected at seal: ${error.message}`); }
     for (const artifact of target.updater?.artifacts ?? []) {
       const source = resolveArtifactPath(artifact.file);
       const signature = readFileSync(resolveArtifactPath(artifact.signature), "utf8").trim();
       if (!signature) fail(`updater signature is empty, refusing to seal: ${artifact.signature}`);
-      try { assertUpdaterSignature(readFileSync(source), signature, updaterPublicKey, `signature of ${path.basename(artifact.file)}`); }
-      catch (error) { fail(`updater signature rejected at seal: ${error.message}`); }
+      const label = `signature of ${path.basename(artifact.file)}`;
+      // The id comes first: a signature by another key would otherwise fail verification without saying whose it is.
+      try {
+        assertUpdaterKeyId(signature, trust.keyId, label, { app: config.app });
+        assertUpdaterSignature(readFileSync(source), signature, trust.publicKey, label);
+      } catch (error) { fail(`updater signature rejected at seal: ${error.message}`); }
     }
   }
   // Android: the build receipt must describe exactly the AAB being sealed (bytes re-hashed) and its signer must be the pinned

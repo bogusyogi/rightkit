@@ -131,6 +131,10 @@ test("seal-routes: what the seal reads from the config, decided before anything 
   assert.deepEqual((await unit("seal-routes", { config: config(), target: { artifacts: [42] } })).details, ["target.artifacts entries must be paths or { file }"]);
   assert.deepEqual((await unit("seal-routes", { config: config({ distribution: { provider: "r2-rightapps" } }), target: good })).details, ["updater public key is required to verify updater artifacts before sealing"]);
   assert.deepEqual((await unit("seal-routes", { config: config({ distribution: { provider: "r2-rightapps" } }), target: { ...good, updater: { ...good.updater, pubkey: "RWQkey" } } })).details, []);
+  // a Right Suite app declares no updater key: its trust root is the Right Suite contract's, in any spelling of the app name
+  for (const app of ["mailright", "MailRight"]) {
+    assert.deepEqual((await unit("seal-routes", { config: config({ app, distribution: { provider: "r2-rightapps" } }), target: good })).details, [], `${app} needs no declared updater key`);
+  }
   assert.deepEqual((await unit("seal-routes", { config: config(), target: { updater: { artifacts: [{ file: "a.exe", key: "app/updates/windows/current/a.exe" }] } } })).details, ["updater artifact a.exe must declare the signature file sign-updater writes next to it"]);
   // the route key: required unless github-releases names it from the file; the TypeError the seal threw after compile and signing
   const keyless = { updater: { artifacts: [{ file: "a.exe", signature: "a.exe.sig" }] } };

@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 import { unmanagedEnv } from "./test-support/unmanaged-env.mjs";
-import { RIGHT_SUITE_LEGACY_HOSTS } from "./suite-api.generated.mjs";
+import { RIGHT_SUITE_LEGACY_HOSTS, RIGHT_SUITE_UPDATER_SIGNING_KEY_ID } from "./suite-api.generated.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust } from "./github-updater-release.mjs";
 
 const publisher = fileURLToPath(new URL("./publish-update.mjs", import.meta.url));
 
@@ -306,4 +309,115 @@ test("patch uploads the versioned MSIX install source and refuses a malformed ve
   const bad = mk("fixture/installers/windows/current/Fixture_1.2.3.0.msix");
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /versionedKey/);
+});
+
+// A real minisign key whose public text and signatures carry `keyIdHex`, standing in for keys the contract does not list.
+function minisignKey(keyIdHex) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const keyIdLe = Buffer.from(keyIdHex, "hex").reverse();
+  const publicKeyText = Buffer.from(`untrusted comment: minisign public key: ${keyIdHex}\n${Buffer.concat([Buffer.from("Ed"), keyIdLe, publicKey.export({ format: "der", type: "spki" }).subarray(-32)]).toString("base64")}\n`).toString("base64");
+  const sign = (bytes) => {
+    const raw = Buffer.concat([Buffer.from("Ed"), keyIdLe, cryptoSign(null, bytes, privateKey)]);
+    const comment = "timestamp:1\tfile:fixture";
+    const global = cryptoSign(null, Buffer.concat([raw.subarray(10), Buffer.from(comment)]), privateKey);
+    return Buffer.from(`untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: ${comment}\n${global.toString("base64")}\n`).toString("base64");
+  };
+  return { keyId: keyIdHex, publicKeyText, sign };
+}
+
+// Runs the production signature gate of publish-update.mjs (the declared-key read through the per-artifact checks) over stubs
+// for the sealed release, which a script that reads the git checkout and the vault cannot otherwise be driven through.
+// `keys` replaces the contract's key list so a suite app can be signed for; leave it out to use the real contract.
+const publisherSource = readFileSync(publisher, "utf8").replace(/\r\n/g, "\n");
+function sealedGate({ app, distribution = {}, updater = {}, bytes, signature, keys }) {
+  const start = publisherSource.indexOf("const updaterPublicKey = ");
+  const end = publisherSource.indexOf("let releaseToken = null;");
+  assert.ok(start >= 0 && end > start, "the signature gate must sit before the release token is read");
+  return runInNewContext(`${publisherSource.slice(start, end)}\ntrust;`, {
+    path,
+    config: { app, distribution },
+    target: { updater },
+    artifacts: [{ file: "Fixture.exe", signature: "Fixture.exe.sig" }],
+    sealed: {},
+    appInstallerKind: updater.kind === "appinstaller",
+    signatureFor: () => signature,
+    verifiedArtifact: () => ({}),
+    assertArtifactUnchanged: () => bytes,
+    resolveUpdaterTrust: (options) => resolveUpdaterTrust(keys ? { ...options, keys } : options),
+    assertUpdaterKeyId: (text, id, label, options) => assertUpdaterKeyId(text, id, label, keys ? { ...options, keys } : options),
+    assertUpdaterSignature,
+  });
+}
+
+const gateBytes = Buffer.from("signed updater");
+const listed = (...keys) => keys.map((key) => ({ kid: key.keyId, publicKey: key.publicKeyText, notAfter: null, notAfterUnix: null }));
+
+test("a sealed publish for a suite app needs no key declaration and accepts the key its id names", () => {
+  const current = minisignKey("1111111111111111");
+  const trust = sealedGate({ app: "mailright", distribution: { updaterKeyId: current.keyId }, bytes: gateBytes, signature: current.sign(gateBytes), keys: listed(current) });
+  assert.equal(trust.keyId, current.keyId);
+  assert.equal(trust.publicKey, current.publicKeyText);
+  // Naming the key is not enough: the bytes must still verify under it.
+  assert.throws(
+    () => sealedGate({ app: "mailright", distribution: { updaterKeyId: current.keyId }, bytes: Buffer.from("tampered"), signature: current.sign(gateBytes), keys: listed(current) }),
+    /PUBLICATION_SIGNATURE_INVALID/,
+  );
+});
+
+test("a sealed publish for a suite app refuses a signature by another key id, even a listed one", () => {
+  const current = minisignKey("1111111111111111");
+  const other = minisignKey("2222222222222222");
+  assert.throws(
+    () => sealedGate({ app: "mailright", distribution: { updaterKeyId: current.keyId }, bytes: gateBytes, signature: other.sign(gateBytes), keys: listed(current, other) }),
+    (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && /signature of Fixture\.exe was not made by updater key 1111111111111111 \(found 2222222222222222\)/.test(error.message),
+  );
+});
+
+test("a sealed publish for a suite app with no updaterKeyId is pinned to the contract signing key", () => {
+  const stranger = minisignKey("3333333333333333");
+  assert.throws(
+    () => sealedGate({ app: "pulse", bytes: gateBytes, signature: stranger.sign(gateBytes) }),
+    (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && error.message.includes(`was not made by updater key ${RIGHT_SUITE_UPDATER_SIGNING_KEY_ID} (found 3333333333333333)`),
+  );
+});
+
+test("a sealed publish for a suite app refuses a declared key that is not the contract's, from any config field", () => {
+  const contract = minisignKey("1111111111111111");
+  const own = minisignKey("2222222222222222");
+  const base = { app: "scraperight", bytes: gateBytes, signature: own.sign(gateBytes), keys: listed(contract) };
+  const refused = (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && /suite apps do not declare their own/.test(error.message);
+  for (const field of ["updaterPublicKey", "updaterPubkey"]) {
+    assert.throws(() => sealedGate({ ...base, distribution: { [field]: own.publicKeyText, updaterKeyId: contract.keyId } }), refused);
+  }
+  for (const field of ["pubkey", "publicKey"]) {
+    assert.throws(() => sealedGate({ ...base, distribution: { updaterKeyId: contract.keyId }, updater: { [field]: own.publicKeyText } }), refused);
+  }
+});
+
+test("a sealed publish for a suite app refuses a key id the contract does not accept", () => {
+  const own = minisignKey("1111111111111111");
+  assert.throws(
+    () => sealedGate({ app: "cutright", distribution: { updaterKeyId: own.keyId }, bytes: gateBytes, signature: own.sign(gateBytes) }),
+    (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && /is not an updater key in the Right Suite contract/.test(error.message),
+  );
+});
+
+test("a sealed publish for an app outside the suite still fails closed without a declared key, and a declared key needs no id", () => {
+  const own = minisignKey("1111111111111111");
+  const signature = own.sign(gateBytes);
+  assert.throws(() => sealedGate({ app: "ember", bytes: gateBytes, signature }), (error) => error.code === "PUBLICATION_SIGNATURE_UNVERIFIABLE");
+  const trust = sealedGate({ app: "ember", distribution: { updaterPublicKey: own.publicKeyText }, bytes: gateBytes, signature });
+  assert.deepEqual({ ...trust }, { keyId: undefined, publicKey: own.publicKeyText, suite: false });
+  assert.throws(() => sealedGate({ app: "ember", distribution: { updaterPublicKey: own.publicKeyText, updaterKeyId: "2222222222222222" }, bytes: gateBytes, signature }), /PUBLICATION_SIGNATURE_KEY_MISMATCH/);
+  assert.throws(() => sealedGate({ app: "ember", distribution: { updaterPublicKey: own.publicKeyText }, bytes: Buffer.from("tampered"), signature }), /PUBLICATION_SIGNATURE_INVALID/);
+});
+
+test("a sealed publish of an MSIX update resolves no trust, as it has no minisign signature", () => {
+  assert.equal(sealedGate({ app: "mailright", updater: { kind: "appinstaller" }, bytes: gateBytes, signature: "msix-authenticode-sha256:00" }), null);
+});
+
+test("the github lane pins each manifest signature to the id resolved from the contract, not to the raw config", () => {
+  assert.match(publisherSource, /assertUpdaterKeyId\(signature, trust\.keyId, `signature of \$\{name\}`, \{ app: config\.app \}\)/);
+  assert.doesNotMatch(publisherSource, /assertUpdaterKeyId\([^)]*config\.distribution\.updaterKeyId/);
+  assert.match(publisherSource, /resolveUpdaterTrust\(\{ app: config\.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config\.distribution\.updaterKeyId \}\)/);
 });

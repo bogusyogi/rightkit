@@ -7,8 +7,8 @@ use rightkit_license::{
     authenticate_token, evaluate_lifecycle, verify_token, AntiRollbackClock, ClockError,
     ClockState, ClockStore, Entitlement, EntitlementStage, LicenseKind, LicenseRequirement,
     Lifecycle, LifecycleContext, LifecycleMessageFormatter, LifecycleMessageKind,
-    LifecycleMessages, LifecyclePolicy, MemoryClockStore, ProcessAnchor, StoredCredential,
-    VerifyError,
+    LifecycleMessages, LifecyclePolicy, MemoryClockStore, ProcessAnchor, RevokedIds,
+    StoredCredential, VerifyError,
 };
 
 fn ent(
@@ -1009,4 +1009,60 @@ fn an_unauthenticated_token_never_reaches_the_clock_messages() {
         *seen.lock().unwrap(),
         vec![LifecycleMessageKind::InvalidToken]
     );
+}
+
+#[test]
+fn a_listed_entitlement_id_is_revoked_before_expiry_and_before_the_clock_is_read() {
+    let key = pubkey();
+    let revoked = RevokedIds::new().with("lic_1");
+    let other = RevokedIds::new().with("lic_2");
+    let token = Claims::term(9_000, 20_000).token();
+
+    // Not listed: an ordinary live term, which initialises the clock.
+    let store = MemoryClockStore::new();
+    let clock = clock_at(&store, "p1", 10_000);
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_revoked_ids(&other);
+    let live = evaluate_lifecycle(&ctx, &clock, signed(&token), 10_000).unwrap();
+    assert_eq!(
+        (live.lifecycle, live.grants_access()),
+        (Lifecycle::Active, true)
+    );
+
+    // Listed: revoked, with the authenticated entitlement and a message, and the clock untouched.
+    let store = MemoryClockStore::new();
+    let clock = clock_at(&store, "p1", 10_000);
+    let ctx = LifecycleContext::new(&key, APP, DEVICE).with_revoked_ids(&revoked);
+    let report = evaluate_lifecycle(&ctx, &clock, signed(&token), 10_000).unwrap();
+    assert_eq!(report.lifecycle, Lifecycle::Revoked);
+    assert!(!report.grants_access());
+    assert_eq!(report.entitlement.as_ref().unwrap().id, "lic_1");
+    assert!(report.message.is_some());
+    assert_eq!(
+        store.load().unwrap(),
+        None,
+        "a revoked token never writes the ledger"
+    );
+
+    // Still revoked, not expired, once the token's time has passed.
+    let late = evaluate_lifecycle(&ctx, &clock, signed(&token), 99_000).unwrap();
+    assert_eq!(late.lifecycle, Lifecycle::Revoked);
+
+    // Still revoked, not "clock repair required", when the ledger says time ran backwards.
+    let store = MemoryClockStore::new();
+    store
+        .save(&ClockState {
+            highest_seen: 500_000,
+            trusted_process: "p0".into(),
+            last_server_iat: 0,
+        })
+        .unwrap();
+    let clock = clock_at(&store, "p1", 10_000);
+    let rolled_back = evaluate_lifecycle(&ctx, &clock, signed(&token), 10_000).unwrap();
+    assert_eq!(rolled_back.lifecycle, Lifecycle::Revoked);
+
+    // A token that does not authenticate is never matched against the list: its id is unverified.
+    let forged = Claims::term(9_000, 20_000).token_signed_by(&common::other_signing_key());
+    let forged = evaluate_lifecycle(&ctx, &clock, signed(&forged), 10_000).unwrap();
+    assert_eq!(forged.lifecycle, Lifecycle::Invalid);
+    assert!(forged.entitlement.is_none());
 }

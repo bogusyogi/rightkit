@@ -53,6 +53,7 @@ mod ops;
 mod order;
 mod persist;
 mod reader;
+mod snapshot;
 mod time;
 mod types;
 #[cfg(feature = "update-auth")]
@@ -142,6 +143,8 @@ impl LicenseClient {
         self.core.is_none()
     }
 
+    // Only the update authorizer reaches the core from outside this module.
+    #[cfg_attr(not(feature = "update-auth"), allow(dead_code))]
     pub(crate) fn core(&self) -> Option<&Arc<Core>> {
         self.core.as_ref()
     }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `updaterKeyIdOfSignature` trims ASCII whitespace only, as the Rust and JavaScript readers do (`String.trim` also stripped U+FEFF); the shared vectors have both boundary cases.
+
+- `./suite-api` gains `updaterKeys()`, `updaterSigningKeyId()`, `updaterKeyIdOfSignature(signature)` and `selectUpdaterKey(signature, nowUnix?, keys?)`, with the types `UpdaterKey` and `UpdaterKeyRefusal`, over the contract's list of accepted updater keys. They read the key id out of a minisign release signature as `latest.json` carries it and pick the listed key it names, or refuse it as `malformed`, `unknown-key` or `key-expired`; a key with an end date is refused when no clock is given. They mirror `rightkit-license` `suite_api`, so a release the native host accepts is a release they accept, and they verify no signature: the updater plugin does. Additive, Breaking: none.
+- `./suite-api` also re-exports the contract's new trust-root constants from the generated projection: `RIGHT_SUITE_LICENSE_PUBLIC_KEY_HEX`, `RIGHT_SUITE_UPDATER_SIGNING_KEY_ID`, `RIGHT_SUITE_UPDATER_PUBLIC_KEYS`, `RIGHT_SUITE_APP_KEYS`, `RIGHT_SUITE_APP_LICENSE_HOSTS` and `RIGHT_SUITE_PENDING_NATIVE_UPDATER`.
+- Docs: the README entry table lists `./suite-api`, and the updater key paragraph now describes the contract's key list, the single signing key and the rotation order.
+
 ## 0.4.1 — unpublished staging
 
 - Added `@rightkit/app-update/native`: the safe-DTO bridge to the native `rightkit_update_*` commands of the rightkit-tauri-shell `update` feature (M12/G1 v3.1-v3.2). It provides check, status/reconnect, download progress, install, cancel and dispose, projects only whitelisted DTO fields and closed enums, and uses fixed error text. No URL, header, token or path crosses IPC. The existing exports are unchanged.

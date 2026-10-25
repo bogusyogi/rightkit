@@ -253,3 +253,64 @@ fn unavailable_store_never_becomes_absence() {
     assert!(adapter.delete().is_err());
     assert!(DeviceService::new(adapter).get_or_create().is_err());
 }
+
+#[cfg(feature = "license-client")]
+mod license_source {
+    use super::*;
+    use rightkit_license::{DeviceIdError, DeviceIdSource};
+
+    fn source(store: Store) -> Arc<dyn DeviceIdSource> {
+        // The licence client takes `Arc<dyn DeviceIdSource>`: the service must be Send + Sync.
+        Arc::new(DeviceService::new(
+            CredentialStore::new(store, ACCOUNT).unwrap(),
+        ))
+    }
+
+    #[test]
+    fn device_service_is_a_device_id_source() {
+        let raw = store(Arc::new(MemoryBackend::new()));
+        let source = source(raw.clone());
+        let id = source.device_id().unwrap();
+        assert_eq!(source.device_id().unwrap(), id, "one id, created once");
+        // The hash is the lowercase hex SHA-256 of that id, the only form the lease routes get.
+        let hash = source.device_id_hash().unwrap();
+        assert_eq!(hash, rightkit_device::device_id_hash(&id));
+        assert_eq!(hash.len(), 64);
+        assert!(hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+        assert_ne!(hash, id);
+        // The id is the one the credential store holds, and a second service over the same store agrees.
+        let stored = CredentialStore::new(raw.clone(), ACCOUNT)
+            .unwrap()
+            .get()
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some(id.as_str()));
+        assert_eq!(self::source(raw).device_id().unwrap(), id);
+    }
+
+    #[test]
+    fn an_unavailable_store_is_an_error_and_never_a_fresh_device_id() {
+        let raw = store(Arc::new(rightkit_credentials::UnavailableBackend(
+            "offline",
+        )));
+        let source = source(raw);
+        assert_eq!(source.device_id(), Err(DeviceIdError));
+        assert_eq!(source.device_id_hash(), Err(DeviceIdError));
+    }
+
+    #[test]
+    fn a_stored_value_that_is_not_a_device_id_fails_closed_instead_of_being_replaced() {
+        let raw = store(Arc::new(MemoryBackend::new()));
+        raw.set(ACCOUNT, &Secret::from_string("bad\nvalue"))
+            .unwrap();
+        let source = source(raw.clone());
+        assert_eq!(source.device_id(), Err(DeviceIdError));
+        let kept = raw.get(ACCOUNT).unwrap().unwrap();
+        assert_eq!(
+            kept.expose_str().unwrap(),
+            "bad\nvalue",
+            "the malformed value is left alone"
+        );
+    }
+}
