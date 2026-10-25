@@ -23,8 +23,8 @@
 import { createSign } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { describeAabProblems, scanAabBuffer } from "./android-aab-scan.mjs";
 import { sealedManifestAllowsContentDevtools } from "./devtools-policy.mjs";
 import { targetDistribution } from "./target-distribution.mjs";
@@ -190,7 +190,7 @@ const git = (cwd, args) => {
 };
 
 // Local checks only; no network, no secret. The sealed release is the only input: build-free by construction.
-export async function authorizePlayUpload({ releaseId, configName = "right-release.config.mjs", cwd = process.cwd() }) {
+export async function authorizePlayUpload({ releaseId, cwd = process.cwd(), configName = defaultReleaseConfigFile(cwd) }) {
   if (!RELEASE_ID.test(releaseId ?? "")) refuse("PLAY_RELEASE_REQUIRED", "--release <sealed-id> is required");
   const repoRoot = git(cwd, ["rev-parse", "--show-toplevel"]);
   assertPrimaryReleaseCheckout(repoRoot);
@@ -198,8 +198,8 @@ export async function authorizePlayUpload({ releaseId, configName = "right-relea
   assertCleanSource({ status: git(repoRoot, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]), commandId: "right-release upload" });
   const configPath = path.resolve(cwd, configName);
   if (!existsSync(configPath)) refuse("PLAY_CONFIG_INVALID", `release config is required: ${configName}`);
-  // The config is a module that runs on import: loaded only after the tree is proven clean.
-  const config = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
+  // A legacy config is a module that runs on import (a JSON config is data): loaded only after the tree is proven clean.
+  const config = await importReleaseConfig(configPath, { query: `upload=${Date.now()}` });
   const distribution = validatePlayDistribution(targetDistribution(config, "android"));
   const sealedDir = path.join(repoRoot, ".right-release", "sealed", releaseId, "android");
   const sealed = verifyPublicationRelease({ sealedDir, repoRoot, appRoot: path.dirname(configPath), commit, app: config.app, version: config.version, platform: "android", configPath, releaseId });

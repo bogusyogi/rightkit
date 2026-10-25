@@ -1275,7 +1275,7 @@ const CREDENTIAL_WORDS: [&str; 8] = [
     "CREDENTIAL",
 ];
 
-/// True when `key` contains a credential word ([`CREDENTIAL_WORDS`]), ignoring case.
+/// True when `key` contains a credential word (`CREDENTIAL_WORDS`), ignoring case.
 pub fn key_names_credential(key: &str) -> bool {
     let up = key.to_ascii_uppercase();
     CREDENTIAL_WORDS.iter().any(|w| up.contains(w))

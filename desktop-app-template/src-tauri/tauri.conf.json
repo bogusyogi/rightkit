@@ -7,8 +7,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:5190",
-    "beforeDevCommand": "pnpm build:engine && pnpm dev",
-    "beforeBuildCommand": "pnpm build && pnpm build:engine"
+    "beforeBuildCommand": "pnpm build"
   },
   "app": {
     "windows": [
@@ -21,7 +20,8 @@
         "minHeight": 560,
         "resizable": true,
         "center": true,
-        "decorations": false
+        "decorations": false,
+        "visible": false
       }
     ],
     "security": {

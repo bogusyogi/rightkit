@@ -230,11 +230,22 @@ function admitRuntime(bin, rest, options, label) {
     case "right-release": return admitRightRelease(rest, label);
     case "tauri": return admitTauri(rest, options, label);
     case "vite": return rest[0] === "build" ? (VITE_OPTIONS(rest.slice(1), label) ?? admit("vite-build", "runtime")) : rest.length === 1 && rest[0] === "--version" ? admit("vite-version", "runtime") : refuse("R1-option", `${label}: only vite build and vite --version are admitted`);
+    case "rightkit-gate": return admitRightKitGate(rest, label);
     case "tsc": return shellSafeArgs(rest, label) ?? admit("tsc", "runtime");
     case "vitest": return rest[0] === "run" || (rest.length === 1 && rest[0] === "--version") ? (shellSafeArgs(rest, label) ?? admit("vitest", "runtime")) : refuse("R1-option", `${label}: only vitest run is admitted`);
     case "eslint": return shellSafeArgs(rest, label) ?? admit("eslint", "runtime");
     default: return refuse("R1-runtime", `${label}: "${bin}" is not an approved installed runtime for pnpm exec`);
   }
+}
+
+/**
+ * `rightkit-gate install-hook`: writes the committed pre-push hook and sets core.hooksPath, so an app's `prepare` script may run it.
+ * It builds, signs, packages and uploads nothing. The gate itself (`rightkit-gate`, `--base`) compiles and is run by the hook, never
+ * by a release config; only the installer and the version probe are admitted.
+ */
+function admitRightKitGate(args, label) {
+  if (args.length === 1 && (args[0] === "install-hook" || args[0] === "--version")) return admit(`rightkit-gate-${args[0].replace(/^--/, "")}`, "owner");
+  return refuse("R1-owner-subcommand", `${label}: only rightkit-gate install-hook (and --version) is an admitted pipeline command; the gate itself runs from the pre-push hook`);
 }
 
 function admitRightRelease(args, label) {
@@ -350,6 +361,7 @@ export function admitInvocation(step, options = {}) {
   const tool = classifyTokens([name, ...args]);
   if (tool) return refuse("R3-pipeline-tool", `${label}: ${tool.tool} is a ${tool.stage} tool; build, sign, notarize, package and upload run only inside RightKit`);
   if (name === "right-release") return admitRightRelease(args, label);
+  if (name === "rightkit-gate") return admitRightKitGate(args, label);
   if (name === "pnpm") return admitPnpm(args, inner, label, chain);
   if (name === "node") return admitNode(args, inner, label);
   if (name === "rightkit") return refuse("R1-retired-client", `${label}: rightkit is the retired name of the RustRight client (rustright#91); use rustright ${args.slice(0, 2).join(" ")}`);

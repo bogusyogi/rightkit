@@ -631,7 +631,7 @@ function report(selection) {
     "",
     rows.some((r) => r.skipped) ? `Unproven on this runner (tests skipped for a missing asset or precondition; skipped is not passed${UNIT_MODE ? " unless the unit is named in allow_missing_assets" : ""}): ${rows.filter((r) => r.skipped).map((r) => `${r.id} (${r.skipped})`).join(", ")}` : "",
     nowGreen.length ? `Now green, remove from ci/known-red.json (${HOST}): ${nowGreen.map((r) => r.id).join(", ")}` : "",
-    "Not covered by this gate: desktop-app-template, swift/ios-app-template, spikes.",
+    "Not covered by this gate: swift/ios-app-template, spikes. desktop-app-template is its own locked Cargo workspace and npm project; rightkit-gate discovers and scans it (deny, audit, compile, test), this runner-side gate does not build it.",
   ].join("\n");
   fs.mkdirSync(EVIDENCE, { recursive: true });
   fs.writeFileSync(path.join(EVIDENCE, "summary.md"), lines);

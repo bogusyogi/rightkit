@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `right-release test [--config <file>] [--suite <name>[,<name>]]... [--runner <name>] [--list] [--json] [-- <args>]`
-// runs the app's declared test suites from `right-release.config.mjs`, one after another, and stops at the first failure.
+// runs the app's declared test suites from its release config (`right-release.config.json`), one after another, and stops at the first failure.
 //
 //   tests: {
 //     eventPrefix: "e2e",                       // optional; events are `<prefix>_suite_started` / `<prefix>_suite_completed`
@@ -26,6 +26,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "./background-process.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -34,7 +35,7 @@ const PREFIX = /^[a-z][a-z0-9_]*$/;
 const uniq = (...lists) => [...new Set(lists.flatMap((list) => list ?? []))];
 
 export function parseTestArgs(argv) {
-  const opts = { config: "right-release.config.mjs", suites: [], runner: undefined, list: false, json: false, passthrough: [] };
+  const opts = { config: defaultReleaseConfigFile(), suites: [], runner: undefined, list: false, json: false, passthrough: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--") { opts.passthrough = argv.slice(i + 1); break; }

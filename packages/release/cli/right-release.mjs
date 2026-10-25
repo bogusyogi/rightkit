@@ -13,6 +13,7 @@ const commands = new Map([
   ["publish", "upload-release.mjs"],
   ["upload", "upload-release.mjs"],
   ["deps", "deps.mjs"],
+  ["update", "outdated-command.mjs"],
   ["publish-update", "publish-update.mjs"],
   ["hardening", "hardeningscan.mjs"],
   ["harden", "hardeningscan.mjs"],
@@ -377,6 +378,8 @@ Commands:
   disk run-root --release <name>                     End a run-root lease
   disk schedule install|uninstall|status             Hourly launchd job (Mac) / hidden Task Scheduler entry (Windows) running "disk run --auto", bound to the stable per-user copy; status fails when no full pass finished in 26 h
   deps --check|--audit|--update                      Shared dependency lane
+  update check|apply|gate|land|discard|run|schedule [--repo <path>]
+                                                      Run the pinned @rightkit/outdated updater (right-update) that moves stale pins; reads .rightkit/update.json
   hardening <artifact...>                            Run the Right Suite hardening scan
   lsclean <AppName.app>                              Clear macOS LaunchServices duplicates
   generate-dmg-background <options>                 Generate the branded multi-resolution DMG background

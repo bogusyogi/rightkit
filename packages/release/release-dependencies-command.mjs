@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertReleaseDependencies } from "./release-dependencies.mjs";
 import { nodeHostTriple } from "./stage-sidecar-command.mjs";
 import { expandPackageRecipeTarget } from "./package-recipe-targets.mjs";
 
 /** Standalone policy check: host target by default, all declared release targets on request. */
 export async function main(argv, { cwd = process.cwd(), platform = process.platform, arch = process.arch, run } = {}) {
-  let configPath = "right-release.config.mjs", selected, allTargets = false;
+  let configPath = defaultReleaseConfigFile(cwd), selected, allTargets = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (["--config", "--platform"].includes(arg)) {
@@ -20,7 +21,7 @@ export async function main(argv, { cwd = process.cwd(), platform = process.platf
   if (allTargets && selected) throw new Error("use --platform or --all-targets");
   const file = path.resolve(cwd, configPath);
   const root = path.dirname(file);
-  const config = (await import(pathToFileURL(file).href)).default;
+  const config = await importReleaseConfig(file);
   if (config?.releaseDependencies === undefined) throw new Error("check-release-dependencies requires releaseDependencies in config");
   const host = { darwin: "mac", win32: "win", linux: "linux" }[platform];
   const platforms = allTargets ? Object.keys(config.targets ?? {}) : [selected ?? host];

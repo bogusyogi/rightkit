@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { prepareGitHubRelease, publishGitHubRelease } from "./github-release.mjs";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { authorizeGitHubUpload } from "./github-upload-gate.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
@@ -12,7 +13,7 @@ let platform = process.platform === "win32" ? "win" : process.platform === "darw
 let releaseId = "";
 let tier = "";
 let repo = "";
-let configName = "right-release.config.mjs";
+let configName = defaultReleaseConfigFile();
 let dryRun = false;
 let apply = false;
 
@@ -87,7 +88,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]\n       right-release upload --platform android --release <sealed-id> [--config right-release.config.mjs] [--apply]   (Play internal track; dry run unless --apply)\n       right-release upload --platform ios --release <sealed-id> [--config right-release.config.mjs] [--apply]   (TestFlight; dry run unless --apply)");
+  console.log("usage: right-release upload --release <sealed-id> --platform win|mac --tier patch|update [--config right-release.config.json] [--repo owner/repo] [--dry-run]\n       right-release upload --platform android --release <sealed-id> [--config right-release.config.json] [--apply]   (Play internal track; dry run unless --apply)\n       right-release upload --platform ios --release <sealed-id> [--config right-release.config.json] [--apply]   (TestFlight; dry run unless --apply)");
   process.exit(code);
 }
 

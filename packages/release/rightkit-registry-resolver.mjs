@@ -29,6 +29,7 @@ import { parse as parseToml } from "smol-toml";
 import { isExcludedScanDirectory } from "./cargo-contract.mjs";
 import { resolveSharedCacheRoot } from "./cache-policy.mjs";
 import { parsePnpmYaml } from "./ownership-lockfiles.mjs";
+import { UPDATE_COMMAND } from "./outdated-command.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 
 export const SNAPSHOT_SCHEMA = 1;
@@ -42,7 +43,9 @@ export const REGISTRIES = Object.freeze({
 const CRATES_IO_SOURCES = new Set(["registry+https://github.com/rust-lang/crates.io-index", "registry+https://index.crates.io/"]);
 const EXACT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const USER_AGENT = "right-release-resolver/1 (https://github.com/bogusyogi/rightkit)";
-const FIX = "run `right-update run` (@rightkit/outdated 0.2.0) to move the pin";
+// The updater is @rightkit/outdated, a dependency of this package; `right-release update` runs its bin (pnpm links only an
+// app's direct dependencies' bins, so `pnpm exec right-update` does not exist in an app that has just @rightkit/release).
+export const FIX = `run \`${UPDATE_COMMAND}\` (the pinned @rightkit/outdated updater; it reads .rightkit/update.json) to move the pin`;
 const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_TIMEOUT_MS = 15000;
 const CONCURRENCY = 6;
@@ -589,7 +592,7 @@ function matchesPattern(name, pattern) {
 }
 /**
  * Holds named in the nearest .rightkit/update.json (app root up to the repository boundary). A hold is a migration
- * lane task for right-update; it is reported next to a stale pin and never grants permission to seal it.
+ * lane task for the updater (right-update); it is reported next to a stale pin and never grants permission to seal it.
  * Only holds the file itself declares are read (policy.held, policy.tier.held); no built-in pattern is applied here.
  */
 export function readUpdateHolds(root) {
