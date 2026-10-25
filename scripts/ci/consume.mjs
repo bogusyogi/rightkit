@@ -212,10 +212,16 @@ function consumeNpmInstallation({ units, packDir, scratchRoot = os.tmpdir(), spa
       out.problems.push(...smokePlan.problems);
       const smoke = runBinSmoke({ unit, dir, checks: smokePlan.checks, spawn, node, cwd: scratch, env: childEnv });
       out.problems.push(...smoke.problems);
+      // A bin target is a program: it reads its command line at import, so the smoke check above runs it and the import
+      // check only resolves it. (@rightkit/release 0.6.6 exported cli/right-release.mjs; importing it ran the CLI with the
+      // plan file as its command.) This holds under reviewed closures too, which otherwise import every runtime export.
+      const binTargets = new Set(declared.bins);
+      const isBinTarget = (s) => s.runtime.length > 0 && s.runtime.every((file) => binTargets.has(file));
+      const binTargetSubpaths = declared.subpaths.filter(isBinTarget).map((s) => s.subpath);
       const items = declared.subpaths
         .filter((s) => s.runtime.length > 0 && (!onlySubpaths || onlySubpaths.includes(s.subpath)))
-        .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skippedImport.includes(s.subpath), ...(s.testConditions !== null && s.testConditions !== undefined ? { expectBlocked: true, testConditions: s.testConditions } : {}) }));
-      const report = { entries: items.length, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
+        .map((s) => ({ spec: s.spec, subpath: s.subpath, import: !skippedImport.includes(s.subpath) && !isBinTarget(s), ...(s.testConditions !== null && s.testConditions !== undefined ? { expectBlocked: true, testConditions: s.testConditions } : {}) }));
+      const report = { entries: items.length, imported: [], resolvedOnly: [], productionRejected: [], conditionalImports: [], skippedImport, binTargets: binTargetSubpaths, patterns: declared.patterns, bins: declared.bins, binSmoke: smoke.report, filesChecked: declared.files.length, noJsEntry: items.length === 0 };
       out.report = report;
       if (closure) report.installClosure = closure.evidence;
       if (items.length === 0) continue;
@@ -302,7 +308,7 @@ export function consumeNpmPortability(options) {
         const row = result.report;
         report.entries += row.entries ?? 0;
         for (const field of ["imported", "resolvedOnly", "productionRejected", "conditionalImports"]) report[field].push(...(row[field] ?? []));
-        for (const field of ["skippedImport", "patterns", "bins", "binSmoke", "filesChecked", "noJsEntry"]) if (row[field] !== undefined) report[field] = row[field];
+        for (const field of ["skippedImport", "binTargets", "patterns", "bins", "binSmoke", "filesChecked", "noJsEntry"]) if (row[field] !== undefined) report[field] = row[field];
         report.importClosures.push({ install: group.install, subpaths: group.subpaths, entries: row.entries ?? 0, installed: row.installClosure ?? null });
       }
       const expected = declared.subpaths.filter(item => item.runtime.length > 0).length;
