@@ -151,7 +151,7 @@ export function packageFileViolations(files) {
 // published. An app legitimately commits env templates (`.env.example`) and test vectors for its own redaction and screening code,
 // and no content heuristic tells a placeholder from a pasted credential, so a file is admitted by a reviewed record, not by a guess.
 // `.rightkit/secret-scan-records.json` in the repository:
-//   { "schema": 1, "records": [ { "path": "<repo-relative>", "sha256": "<hex of the exact bytes>", "kind": "env-template" | "fixture", "note": "<what it holds and why it is safe>" } ] }
+//   { "schema": 1, "records": [ { "path": "<repo-relative>", "sha256": "<hex of the bytes, CRLF read as LF>", "kind": "env-template" | "fixture", "note": "<what it holds and why it is safe>" } ] }
 //  - an env template (.env.example, .env.<name>.example, .env.sample, .env.template) is admitted only by a record of kind
 //    "env-template" whose sha256 is the file's: any edit needs a new record, which is the review, in the pull request diff;
 //  - any other file whose content matches SECRET_PATTERNS is admitted only by a record of kind "fixture" with the file's sha256;
@@ -183,6 +183,10 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true });
 
 const neverRecordable = (relative) => FORBIDDEN_PACKAGE_PATH.test(relative) && !ENV_TEMPLATE.test(relative);
 const sha256Hex = (bytes) => createHash("sha256").update(bytes).digest("hex");
+// A record's digest reads CRLF as LF, so one record holds on every host: `git archive` (the gate's export) writes CRLF on a
+// Windows host with `core.autocrlf=true` or `core.eol=crlf` for `text=auto` files and LF elsewhere. The content checks still read
+// the bytes as exported; a lone CR is kept, so no other byte is ever ignored.
+const recordDigest = (bytes) => sha256Hex(Buffer.from(Buffer.from(bytes).toString("latin1").replace(/\r\n/g, "\n"), "latin1"));
 const recordLine = (relative, sha256, kind) => JSON.stringify({ path: relative, sha256, kind, note: RECORD_NOTE_PLACEHOLDER });
 const repoRelativePath = (p) => p !== "" && p !== "." && !p.includes("\\") && !p.includes("\0") && !p.startsWith("/") && !/^[A-Za-z]:/.test(p) && !p.endsWith("/")
   && path.posix.normalize(p) === p && !p.split("/").includes("..");
@@ -208,7 +212,7 @@ export function parseSecretScanRecords(text) {
     const fail = (message) => { bad(`${label}: ${message}`); ok = false; };
     for (const key of Object.keys(record)) if (!RECORD_KEYS.includes(key)) fail(`has an unknown key ${JSON.stringify(key)}`);
     if (typeof record.path !== "string" || !repoRelativePath(record.path)) fail('"path" must be a normalised repository-relative path with forward slashes');
-    if (typeof record.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(record.sha256)) fail('"sha256" must be 64 hex characters, the sha256 of the exact file bytes');
+    if (typeof record.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(record.sha256)) fail('"sha256" must be 64 hex characters, the sha256 of the file bytes with CRLF read as LF');
     if (!RECORD_KINDS.includes(record.kind)) fail(`"kind" must be one of ${RECORD_KINDS.join(", ")}`);
     if (typeof record.note !== "string" || record.note.trim() === "" || record.note.trim() === RECORD_NOTE_PLACEHOLDER) fail('"note" must say what the file holds and why it is safe');
     if (typeof record.path === "string") counts.set(record.path, (counts.get(record.path) ?? 0) + 1);
@@ -306,7 +310,7 @@ function envTemplateViolations(relative, file, bytes, records, repoRoot) {
   if (encoding) refused.push(`${relative}: env template ${encoding}, so it cannot be read as UTF-8 text; refused even when recorded. Save it as UTF-8`);
   if (hits.length) refused.push(`${relative}:${firstLine(hits)}: env template matches ${hitsText(hits)}; refused even when recorded. Replace the value with a placeholder`);
   if (refused.length) return refused;
-  const sha256 = sha256Hex(bytes);
+  const sha256 = recordDigest(bytes);
   const record = records.get(relative);
   if (record?.kind === "env-template" && record.sha256 === sha256) return [];
   const line = recordLine(relative, sha256, "env-template");
@@ -317,7 +321,7 @@ function envTemplateViolations(relative, file, bytes, records, repoRoot) {
 function fileViolations(relative, bytes, records) {
   const hits = contentHits(bytes.toString("utf8"), FILE_SHAPES);
   if (!hits.length) return [];
-  const sha256 = sha256Hex(bytes);
+  const sha256 = recordDigest(bytes);
   const record = records.get(relative);
   if (record?.kind === "fixture" && record.sha256 === sha256) return [];
   const line = recordLine(relative, sha256, "fixture");

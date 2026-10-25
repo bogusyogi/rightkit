@@ -164,7 +164,7 @@ The class A `secret-scan` scan reads every file of each changed crate and packag
 
 ```json
 { "schema": 1, "records": [
-  { "path": ".env.example", "sha256": "<hex of the exact bytes>", "kind": "env-template", "note": "local development defaults only, no credential" },
+  { "path": ".env.example", "sha256": "<hex of the bytes, CRLF read as LF>", "kind": "env-template", "note": "local development defaults only, no credential" },
   { "path": "engine/src/redaction.rs", "sha256": "<hex>", "kind": "fixture", "note": "redaction test vectors, fake values" }
 ] }
 ```

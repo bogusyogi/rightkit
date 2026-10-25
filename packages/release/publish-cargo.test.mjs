@@ -133,7 +133,8 @@ const SHAPES = {
   webhook: () => "hooks.slack" + ".com/services/" + "T01234567/B01234567/abcdefGHIJKL",
 };
 const RECORDS = ".rightkit/secret-scan-records.json";
-const sha = (data) => digestBytes(Buffer.isBuffer(data) ? data : Buffer.from(data));
+// A record digest reads CRLF as LF (publish-cargo.mjs recordDigest); LF content is unchanged by it.
+const sha = (data) => digestBytes(Buffer.from((Buffer.isBuffer(data) ? data : Buffer.from(data)).toString("latin1").replace(/\r\n/g, "\n"), "latin1"));
 
 function tree(t, files) {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-secret-scan-"));
@@ -161,6 +162,19 @@ test("secret scan: a crate package stays strict; it refuses every template by na
   putRecords(root, records(record(root, ".env.example", "env-template"), record(root, "src/vector.rs", "fixture")));
   assert.deepEqual(scanCrateForSecrets(root), [".env", ".env.example", ".env.local", ".env.sample", ".env.template", "keys/a.p12", "keys/cert.pem", "src/vector.rs", "sub/.env.test.example"],
     "templates are refused by name and the recorded fixture is still flagged: the records file admits nothing outside the repository gate");
+});
+
+test("secret scan: a record reads CRLF as LF, so the same record holds on an LF host and on a Windows CRLF export", (t) => {
+  const lf = "API_URL=http://localhost:3000\nAPI_TOKEN=\n";
+  const vector = `// fake ${SHAPES.ghp()}\nfn f() {}\n`;
+  const root = tree(t, { ".env.example": lf, "src/vector.rs": vector });
+  putRecords(root, records(record(root, ".env.example", "env-template"), record(root, "src/vector.rs", "fixture")));
+  assert.deepEqual(gate(root), [], "recorded on the LF export");
+  writeFileSync(path.join(root, ".env.example"), lf.replace(/\n/g, "\r\n"));
+  writeFileSync(path.join(root, "src/vector.rs"), vector.replace(/\n/g, "\r\n"));
+  assert.deepEqual(gate(root), [], "the same records admit the CRLF export (git archive with core.autocrlf=true)");
+  writeFileSync(path.join(root, ".env.example"), lf.replace("\n", "\r"));
+  assert.match(gate(root).join("\n"), /\.env\.example: env template changed since it was recorded/, "a lone CR is a real change, not a line ending");
 });
 
 test("secret scan: in the repository gate an env template is admitted only by a record of its exact bytes", (t) => {
