@@ -1,0 +1,15 @@
+# @rightkit/platform-ui npm consumer (npm.@rightkit/platform-ui)
+
+Packed-archive consumer for `@rightkit/platform-ui` 0.4.0 (the workspace version). The unit is installed only from the sealed `file:` archive. The reviewed closure pins `react` 19.3.1, `react-dom` 19.3.1 (server rendering only) and `@tauri-apps/plugin-os` 2.4.0, the optional OS-plugin peer, so the native platform load runs against the real plugin module.
+
+Surface (exact `exports` keys): `.`, `./headless`, `./qa` and `./react`. The consumer asserts the sorted export names of every entry and that the `./headless` closure contains no import of any `@tauri-apps` package.
+
+Scenarios (12): export surface; chord display tokens for macOS, Windows, Linux, iOS and unknown, `ctrlormeta`, side-specific modifiers and label overrides; platform capabilities, window-control labels and the window and fullscreen adapters; host-injected platform read synchronously, then the native value through a fake `__TAURI_OS_PLUGIN_INTERNALS__` bridge, including the disagreement warning and caching; the QA entry (query and environment overrides, the `qa=1` flag, bootstrap and clearing, native-wins and fallback options); `Kbd` and `usePlatform` server markup; the toast bus; ranking and geometry; list navigation helpers; the exit-transition state machine; the dismiss and focus-trap cores on fake event targets; hooks rendering their initial state on the server.
+
+What it proves: the pure helpers return the documented values, the root entry reads the host-injected platform before the native value arrives and lets the native value win afterwards, the QA entry alone honours overrides, `Kbd` renders the exact keyboard markup, and the framework-free cores add and remove exactly the listeners they own. The only Tauri surface is the one function the OS plugin reads, `window.__TAURI_OS_PLUGIN_INTERNALS__.platform`, supplied by the recipe.
+
+What it does not prove: a Tauri WebView or a native host answering. Hooks run on the server, so their effect bodies (listeners attached by `useDismiss`, `useFocusTrap`, `useModalDismiss`, timers in `useExitTransition`, scrolling in `useListNavigation`) are not run through React; the equivalent cores are exercised directly instead. The branch where the OS plugin is absent is not run because the plugin is installed. Real focus, real DOM geometry and the `onFocusOut` and scroll dismissal paths are not exercised. The browser-derived platform fallback is avoided on purpose, because it reads the host's `navigator`.
+
+Required environment: `RIGHTKIT_CONSUMER_ARTIFACT`, `RIGHTKIT_CONSUMER_ARTIFACT_SHA256`, `RIGHTKIT_CONSUMER_EXPECTED_VERSION` and `RIGHTKIT_CONSUMER_RESOLUTION` (`packed` or `fetched`). The runner provides them. `provenance.mjs` is the shared byte-identical helper that binds every installed file to the supplied archive; React is imported through it so the consumer and the unit share one copy.
+
+No network, no credentials, no user data. Output is one JSON line; exit 0 only when all twelve scenarios pass. `nativeHostQualified` is always false.

@@ -1,4 +1,366 @@
 {
   "schema": 1,
-  "entries": []
+  "_comment": "Findings the @rightkit/release canary excuses for exactly one candidate version (scripts/ci/rk-release-canary.mjs expectedMatch): exact version, app, platform, check and match; each names the issue that removes it. A candidate crash can never be expected.",
+  "entries": [
+    {
+      "version": "0.6.5",
+      "app": "heardright",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; heardright main fails the check (retired-alias x23, G12 file-url x15, G13, G18, G19, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/heardright#295"
+    },
+    {
+      "version": "0.6.5",
+      "app": "heardright",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; heardright main fails the check (retired-alias x23, G12 file-url x15, G13, G18, G19, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/heardright#295"
+    },
+    {
+      "version": "0.6.5",
+      "app": "heardright",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; heardright main fails the check (retired-alias x23, G12 file-url x15, G13, G18, G19, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/heardright#295"
+    },
+    {
+      "version": "0.6.5",
+      "app": "heardright",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; heardright main fails the check (retired-alias x23, G12 file-url x15, G13, G18, G19, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/heardright#295"
+    },
+    {
+      "version": "0.6.5",
+      "app": "mailright",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; mailright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/mailright#82"
+    },
+    {
+      "version": "0.6.5",
+      "app": "mailright",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; mailright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/mailright#82"
+    },
+    {
+      "version": "0.6.5",
+      "app": "mailright",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; mailright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/mailright#82"
+    },
+    {
+      "version": "0.6.5",
+      "app": "mailright",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; mailright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/mailright#82"
+    },
+    {
+      "version": "0.6.5",
+      "app": "viewright",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; viewright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/viewright#381"
+    },
+    {
+      "version": "0.6.5",
+      "app": "viewright",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; viewright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/viewright#381"
+    },
+    {
+      "version": "0.6.5",
+      "app": "viewright",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; viewright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/viewright#381"
+    },
+    {
+      "version": "0.6.5",
+      "app": "viewright",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; viewright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/viewright#381"
+    },
+    {
+      "version": "0.6.5",
+      "app": "scraperight",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; scraperight main fails the check (retired-alias x9, G16 release-config x3), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/scraperight#275"
+    },
+    {
+      "version": "0.6.5",
+      "app": "scraperight",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; scraperight main fails the check (retired-alias x9, G16 release-config x3), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/scraperight#275"
+    },
+    {
+      "version": "0.6.5",
+      "app": "scraperight",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; scraperight main fails the check (retired-alias x9, G16 release-config x3), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/scraperight#275"
+    },
+    {
+      "version": "0.6.5",
+      "app": "scraperight",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; scraperight main fails the check (retired-alias x9, G16 release-config x3), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/scraperight#275"
+    },
+    {
+      "version": "0.6.5",
+      "app": "cutright",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; cutright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/cutright#148"
+    },
+    {
+      "version": "0.6.5",
+      "app": "cutright",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; cutright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/cutright#148"
+    },
+    {
+      "version": "0.6.5",
+      "app": "cutright",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; cutright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/cutright#148"
+    },
+    {
+      "version": "0.6.5",
+      "app": "cutright",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; cutright main fails the check (G20 switches-inventory), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/cutright#148"
+    },
+    {
+      "version": "0.6.5",
+      "app": "coderight-tauri",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; coderight main fails the check (retired-alias x32, G14 test-harness x14, G20, G16, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/coderight#397"
+    },
+    {
+      "version": "0.6.5",
+      "app": "coderight-tauri",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; coderight main fails the check (retired-alias x32, G14 test-harness x14, G20, G16, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/coderight#397"
+    },
+    {
+      "version": "0.6.5",
+      "app": "coderight-tauri",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; coderight main fails the check (retired-alias x32, G14 test-harness x14, G20, G16, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/coderight#397"
+    },
+    {
+      "version": "0.6.5",
+      "app": "coderight-tauri",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; coderight main fails the check (retired-alias x32, G14 test-harness x14, G20, G16, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/coderight#397"
+    },
+    {
+      "version": "0.6.5",
+      "app": "genright",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; genright main fails the check (retired-alias x13, G20, G17, G12), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/genright#288"
+    },
+    {
+      "version": "0.6.5",
+      "app": "genright",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; genright main fails the check (retired-alias x13, G20, G17, G12), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/genright#288"
+    },
+    {
+      "version": "0.6.5",
+      "app": "genright",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; genright main fails the check (retired-alias x13, G20, G17, G12), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/genright#288"
+    },
+    {
+      "version": "0.6.5",
+      "app": "genright",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; genright main fails the check (retired-alias x13, G20, G17, G12), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/genright#288"
+    },
+    {
+      "version": "0.6.5",
+      "app": "postright",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; postright main fails the check (retired-alias x11, G16 release-config), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/postright#424"
+    },
+    {
+      "version": "0.6.5",
+      "app": "postright",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; postright main fails the check (retired-alias x11, G16 release-config), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/postright#424"
+    },
+    {
+      "version": "0.6.5",
+      "app": "postright",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; postright main fails the check (retired-alias x11, G16 release-config), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/postright#424"
+    },
+    {
+      "version": "0.6.5",
+      "app": "postright",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; postright main fails the check (retired-alias x11, G16 release-config), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/postright#424"
+    },
+    {
+      "version": "0.6.5",
+      "app": "pulse",
+      "platform": "win",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; pulse main fails the check (retired-alias x12, G12 file-url x4), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/pulse#450"
+    },
+    {
+      "version": "0.6.5",
+      "app": "pulse",
+      "platform": "win",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; pulse main fails the check (retired-alias x12, G12 file-url x4), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/pulse#450"
+    },
+    {
+      "version": "0.6.5",
+      "app": "pulse",
+      "platform": "mac",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; pulse main fails the check (retired-alias x12, G12 file-url x4), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/pulse#450"
+    },
+    {
+      "version": "0.6.5",
+      "app": "pulse",
+      "platform": "mac",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; pulse main fails the check (retired-alias x12, G12 file-url x4), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/pulse#450"
+    },
+    {
+      "version": "0.6.5",
+      "app": "pulse",
+      "platform": "ios",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; pulse main fails the check (retired-alias x12, G12 file-url x4), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/pulse#450"
+    },
+    {
+      "version": "0.6.5",
+      "app": "pulse",
+      "platform": "ios",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; pulse main fails the check (retired-alias x12, G12 file-url x4), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/pulse#450"
+    },
+    {
+      "version": "0.6.5",
+      "app": "coderight-ios",
+      "platform": "ios",
+      "check": "fatal-signature-changed",
+      "match": "the app check found problems in <path>; nothing was started. Fix the above and commit, then run it again.",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; coderight main fails the check (retired-alias x32, G14 test-harness x14, G20, G16, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/coderight#397"
+    },
+    {
+      "version": "0.6.5",
+      "app": "coderight-ios",
+      "platform": "ios",
+      "check": "pass-to-not-pass",
+      "match": "pass->fatal",
+      "reason": "0.6.5 runs the app check before the doctor (P1) and an installed package has no central baseline; coderight main fails the check (retired-alias x32, G14 test-harness x14, G20, G16, G04), so the candidate refuses where 0.6.4 ran the doctor rows. The doctor rows are proven on the Mac and Dell once the check is green there.",
+      "issue": "bogusyogi/coderight#397"
+    }
+  ]
 }

@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-24T20:44:37Z",
-  "rightkitHead": "d72c00b",
+  "generatedAt": "2026-10-25T00:47:59Z",
+  "rightkitHead": "f241fb9",
   "legend": [
     {
       "state": "adopted",
@@ -125,22 +125,7 @@
       "packages": 2
     }
   ],
-  "triage": {
-    "moveRows": 275,
-    "totalRows": 532,
-    "skipped": 0,
-    "apps": [
-      "coderight",
-      "cutright",
-      "genright",
-      "heardright",
-      "mailright",
-      "postright",
-      "pulse",
-      "scraperight",
-      "viewright"
-    ]
-  },
+  "triage": null,
   "apps": [
     {
       "name": "coderight",
@@ -197,38 +182,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.2",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 48,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "eol-policy": {
-              "fail": 1,
-              "known": 0
-            },
-            "release-config": {
-              "fail": 1,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 32,
-              "known": 0
-            },
-            "switches-inventory": {
-              "fail": 0,
-              "known": 1
-            },
-            "test-harness": {
-              "fail": 14,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -604,155 +568,7 @@
         }
       ],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "@rightkit/react-shell",
-          "count": 15,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-daemon",
-          "count": 12,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-sandbox",
-          "count": 7,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "RightKitSwift",
-          "count": 4,
-          "exists": true,
-          "kind": "swift",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-license",
-          "count": 4,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-llm",
-          "count": 4,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-agents",
-          "count": 3,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-child-process",
-          "count": 3,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-fs",
-          "count": 3,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-http",
-          "count": 3,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/app-update",
-          "count": 2,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/release",
-          "count": 2,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/theme",
-          "count": 2,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-search",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/qa",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/tauri",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-credentials",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-job-queue",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-oauth",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-time",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "cutright",
@@ -801,8 +617,8 @@
           ],
           "ownersRequired": 28,
           "ownersPinned": 27,
-          "ownersCurrent": 23,
-          "percent": 82
+          "ownersCurrent": 22,
+          "percent": 79
         },
         "addons": {
           "total": 59,
@@ -819,24 +635,19 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 0,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "switches-inventory": {
-              "fail": 0,
-              "known": 1
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -1128,7 +939,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -1170,78 +981,14 @@
       ],
       "appleTargets": [],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "@rightkit/react-shell",
-          "count": 4,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-qa",
-          "count": 4,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-job-queue",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/onboarding",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/tauri",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/theme",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-ffmpeg",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-fs",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "ember",
       "group": "mandatory-set app",
-      "dir": "/home/user/orthic-labs/ember",
+      "dir": "/home/user/ember",
       "present": true,
-      "head": "d95ba26",
+      "head": "c4ad255",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1319,26 +1066,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.4.0",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 2,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "retired-alias": {
-              "fail": 1,
-              "known": 0
-            },
-            "switches-inventory": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -1694,34 +1432,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.3",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 15,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "file-url": {
-              "fail": 1,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 13,
-              "known": 0
-            },
-            "skip-checks": {
-              "fail": 1,
-              "known": 0
-            },
-            "switches-inventory": {
-              "fail": 0,
-              "known": 1
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -2063,22 +1784,7 @@
       ],
       "appleTargets": [],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "@rightkit/react-shell",
-          "count": 9,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "heardright",
@@ -2115,8 +1821,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 29,
-          "percent": 100
+          "ownersCurrent": 28,
+          "percent": 97
         },
         "addons": {
           "total": 59,
@@ -2133,44 +1839,19 @@
           "unmatched": 1
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 42,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "eol-policy": {
-              "fail": 1,
-              "known": 0
-            },
-            "ffmpeg-release-escape": {
-              "fail": 1,
-              "known": 0
-            },
-            "file-url": {
-              "fail": 15,
-              "known": 0
-            },
-            "qa-dev-server": {
-              "fail": 1,
-              "known": 0
-            },
-            "qa-platform": {
-              "fail": 1,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 23,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -2470,7 +2151,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -2548,78 +2229,7 @@
         }
       ],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 8,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-license",
-          "count": 3,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-credentials",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-fs",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/release",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-app-settings",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-automation",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-crash",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-ffmpeg",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-logs",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "mailright",
@@ -2656,8 +2266,8 @@
           "openRows": [],
           "ownersRequired": 29,
           "ownersPinned": 29,
-          "ownersCurrent": 23,
-          "percent": 79
+          "ownersCurrent": 22,
+          "percent": 76
         },
         "addons": {
           "total": 59,
@@ -2674,24 +2284,19 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 0,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "switches-inventory": {
-              "fail": 0,
-              "known": 1
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -2991,7 +2596,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -3028,64 +2633,7 @@
       ],
       "appleTargets": [],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "@rightkit/react-shell",
-          "count": 6,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-daemon",
-          "count": 6,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/release",
-          "count": 2,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/theme",
-          "count": 2,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/settings-ui",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-license",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-time",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "postright",
@@ -3145,26 +2693,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.2",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 12,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "release-config": {
-              "fail": 1,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 11,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -3508,71 +3047,7 @@
       ],
       "appleTargets": [],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "@rightkit/react-shell",
-          "count": 6,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-job-queue",
-          "count": 5,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-daemon",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/onboarding",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-fs",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-logs",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-qa",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-spend",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "pulse",
@@ -3637,26 +3112,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.3",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 16,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "file-url": {
-              "fail": 4,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 12,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -4105,162 +3571,7 @@
           "statusText": "duplicate of owner RightKitSwift product RightKitHub (source 0.9.0, not published)"
         }
       ],
-      "toMove": [
-        {
-          "package": "RightKitSwift",
-          "count": 18,
-          "exists": true,
-          "kind": "swift",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/react-shell",
-          "count": 12,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/release",
-          "count": 8,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-daemon",
-          "count": 6,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/qa",
-          "count": 5,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-overlay",
-          "count": 5,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-overlay-win",
-          "count": 5,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 5,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/theme",
-          "count": 3,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/onboarding",
-          "count": 2,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-credentials",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-crypto",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-hooks",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/app-update",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-android",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-automation",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-browser",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-crash",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-db",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-device",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-sandbox",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-search",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "scraperight",
@@ -4317,26 +3628,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.6.3",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 12,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "release-config": {
-              "fail": 3,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 9,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -4711,85 +4013,7 @@
         }
       ],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "rightkit-fs",
-          "count": 3,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-license",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-models",
-          "count": 2,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/tauri",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-browser",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-logs",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-pdf",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-speech-client",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-sync",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-transcript",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "viewright",
@@ -4853,8 +4077,8 @@
           ],
           "ownersRequired": 27,
           "ownersPinned": 25,
-          "ownersCurrent": 22,
-          "percent": 81
+          "ownersCurrent": 21,
+          "percent": 78
         },
         "addons": {
           "total": 59,
@@ -4871,24 +4095,19 @@
           "unmatched": 0
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 0,
-          "known": 1,
-          "stale": 0,
-          "byRule": {
-            "switches-inventory": {
-              "fail": 0,
-              "known": 1
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -5169,7 +4388,7 @@
           "owners": [
             {
               "name": "@rightkit/release",
-              "state": "adopted"
+              "state": "stale"
             }
           ],
           "missing": []
@@ -5206,57 +4425,7 @@
       ],
       "appleTargets": [],
       "rkReady": [],
-      "toMove": [
-        {
-          "package": "rightkit-tauri-shell",
-          "count": 5,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/react-shell",
-          "count": 4,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/legal-ui",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/qa",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "@rightkit/settings-ui",
-          "count": 1,
-          "exists": true,
-          "kind": "npm",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-license",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        },
-        {
-          "package": "rightkit-qa",
-          "count": 1,
-          "exists": true,
-          "kind": "cargo",
-          "status": "move into existing package"
-        }
-      ]
+      "toMove": []
     },
     {
       "name": "sellright",
@@ -5294,8 +4463,8 @@
         "addons": {
           "total": 89,
           "adopted": 3,
-          "current": 3,
-          "stale": 0,
+          "current": 2,
+          "stale": 1,
           "local": 0
         },
         "exceptions": {
@@ -5306,28 +4475,19 @@
           "unmatched": 1
         },
         "releasePin": {
-          "state": "adopted",
+          "state": "stale",
           "req": "0.6.4",
-          "latest": "0.6.4",
-          "current": true,
+          "latest": "0.6.5",
+          "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 7,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "file-url": {
-              "fail": 6,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -5394,8 +4554,8 @@
         "addons": {
           "total": 89,
           "adopted": 10,
-          "current": 2,
-          "stale": 8,
+          "current": 1,
+          "stale": 9,
           "local": 0
         },
         "exceptions": {
@@ -5408,30 +4568,17 @@
         "releasePin": {
           "state": "stale",
           "req": "0.3.0",
-          "latest": "0.6.4",
+          "latest": "0.6.5",
           "current": false,
           "dev": true
         },
         "check": {
-          "status": "ran",
-          "reason": "",
-          "fail": 22,
-          "known": 0,
-          "stale": 0,
-          "byRule": {
-            "release-config": {
-              "fail": 2,
-              "known": 0
-            },
-            "retired-alias": {
-              "fail": 19,
-              "known": 0
-            },
-            "switches-inventory": {
-              "fail": 1,
-              "known": 0
-            }
-          }
+          "status": "not run",
+          "reason": "--with-check not passed",
+          "fail": null,
+          "known": null,
+          "stale": null,
+          "byRule": {}
         }
       },
       "flags": {
@@ -5464,10 +4611,7 @@
       "registry": "0.4.2",
       "staged": "0.4.2",
       "dir": "packages/app-update",
-      "toMoveFrom": {
-        "coderight": 2,
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -5725,7 +4869,7 @@
       ],
       "private": false,
       "source": "0.3.1",
-      "registry": "0.3.0",
+      "registry": "0.3.1",
       "staged": "0.3.1",
       "dir": "packages/ci",
       "toMoveFrom": {},
@@ -5740,7 +4884,7 @@
         },
         "ember": {
           "state": "stale",
-          "detail": "0.2.45→0.3.0 dev"
+          "detail": "0.2.45→0.3.1 dev"
         },
         "genright": {
           "state": "unused",
@@ -5775,8 +4919,8 @@
           "detail": ""
         },
         "legion": {
-          "state": "adopted",
-          "detail": "0.3.0 dev"
+          "state": "stale",
+          "detail": "0.3.0→0.3.1 dev"
         }
       }
     },
@@ -6198,9 +5342,7 @@
       "registry": "0.4.1",
       "staged": "0.4.1",
       "dir": "packages/legal-ui",
-      "toMoveFrom": {
-        "viewright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -6620,11 +5762,7 @@
       "registry": "0.6.3",
       "staged": "0.6.3",
       "dir": "packages/onboarding",
-      "toMoveFrom": {
-        "cutright": 1,
-        "postright": 1,
-        "pulse": 2
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -6982,11 +6120,7 @@
       "registry": "0.6.1",
       "staged": "0.6.1",
       "dir": "packages/qa",
-      "toMoveFrom": {
-        "coderight": 1,
-        "pulse": 5,
-        "viewright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -7200,15 +6334,7 @@
       "registry": "0.7.2",
       "staged": "0.7.2",
       "dir": "packages/react-shell",
-      "toMoveFrom": {
-        "coderight": 15,
-        "cutright": 4,
-        "genright": 9,
-        "mailright": 6,
-        "postright": 6,
-        "pulse": 12,
-        "viewright": 4
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -7354,19 +6480,14 @@
       ],
       "private": false,
       "source": "0.6.5",
-      "registry": "0.6.4",
+      "registry": "0.6.5",
       "staged": "0.6.5",
       "dir": "packages/release",
-      "toMoveFrom": {
-        "coderight": 2,
-        "heardright": 1,
-        "mailright": 2,
-        "pulse": 8
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
-          "detail": "0.6.2→0.6.4 dev; 4 exceptions: no issue, no expiry",
+          "detail": "0.6.2→0.6.5 dev; 4 exceptions: no issue, no expiry",
           "rows": [
             "M19"
           ],
@@ -7380,36 +6501,36 @@
           }
         },
         "cutright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "ember": {
           "state": "stale",
-          "detail": "0.4.0→0.6.4 dev",
+          "detail": "0.4.0→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "genright": {
           "state": "stale",
-          "detail": "0.6.3→0.6.4 dev",
+          "detail": "0.6.3→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "heardright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "mailright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev; 1 exception: no issue, no expiry",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev; 1 exception: no issue, no expiry",
           "rows": [
             "M19"
           ],
@@ -7424,39 +6545,39 @@
         },
         "postright": {
           "state": "stale",
-          "detail": "0.6.2→0.6.4 dev",
+          "detail": "0.6.2→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "pulse": {
           "state": "stale",
-          "detail": "0.6.3→0.6.4, 2 pins dev",
+          "detail": "0.6.3→0.6.5, 2 pins dev",
           "rows": [
             "M19"
           ]
         },
         "scraperight": {
           "state": "stale",
-          "detail": "0.6.3→0.6.4 dev",
+          "detail": "0.6.3→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "viewright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev",
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev",
           "rows": [
             "M19"
           ]
         },
         "sellright": {
-          "state": "adopted",
-          "detail": "0.6.4 dev"
+          "state": "stale",
+          "detail": "0.6.4→0.6.5 dev"
         },
         "legion": {
           "state": "stale",
-          "detail": "0.3.0→0.6.4 dev"
+          "detail": "0.3.0→0.6.5 dev"
         }
       }
     },
@@ -7477,10 +6598,7 @@
       "registry": "0.7.0",
       "staged": "0.7.0",
       "dir": "packages/settings-ui",
-      "toMoveFrom": {
-        "mailright": 1,
-        "viewright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -7670,11 +6788,7 @@
       "registry": "0.3.0",
       "staged": "0.3.0",
       "dir": "packages/tauri",
-      "toMoveFrom": {
-        "coderight": 1,
-        "cutright": 1,
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -7944,12 +7058,7 @@
       "registry": "0.3.1",
       "staged": "0.3.1",
       "dir": "packages/theme",
-      "toMoveFrom": {
-        "coderight": 2,
-        "cutright": 1,
-        "mailright": 2,
-        "pulse": 3
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -8129,10 +7238,7 @@
         "RightKitWatch",
         "RightKitWatchBridge"
       ],
-      "toMoveFrom": {
-        "coderight": 4,
-        "pulse": 18
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -8322,9 +7428,7 @@
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-agents",
-      "toMoveFrom": {
-        "coderight": 3
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -8466,9 +7570,7 @@
       "registry": "0.3.0",
       "staged": "0.3.0",
       "dir": "crates/rightkit-android",
-      "toMoveFrom": {
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -8545,9 +7647,7 @@
       "registry": "0.3.0",
       "staged": "0.3.0",
       "dir": "crates/rightkit-app-settings",
-      "toMoveFrom": {
-        "heardright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -8802,10 +7902,7 @@
       "registry": "0.6.1",
       "staged": "0.6.1",
       "dir": "crates/rightkit-automation",
-      "toMoveFrom": {
-        "heardright": 1,
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -8880,10 +7977,7 @@
       "registry": "0.3.6",
       "staged": "0.3.6",
       "dir": "crates/rightkit-browser",
-      "toMoveFrom": {
-        "pulse": 1,
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -9103,9 +8197,7 @@
       "registry": "0.5.6",
       "staged": "0.5.6",
       "dir": "crates/rightkit-child-process",
-      "toMoveFrom": {
-        "coderight": 3
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -9364,10 +8456,7 @@
       "registry": "0.3.6",
       "staged": "0.3.6",
       "dir": "crates/rightkit-crash",
-      "toMoveFrom": {
-        "heardright": 1,
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -9482,11 +8571,7 @@
       "registry": "0.4.2",
       "staged": "0.4.2",
       "dir": "crates/rightkit-credentials",
-      "toMoveFrom": {
-        "coderight": 1,
-        "heardright": 2,
-        "pulse": 2
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -9607,9 +8692,7 @@
       "registry": "0.1.0",
       "staged": "0.1.0",
       "dir": "crates/rightkit-crypto",
-      "toMoveFrom": {
-        "pulse": 2
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -9682,12 +8765,7 @@
       "registry": "0.4.0",
       "staged": "0.4.0",
       "dir": "crates/rightkit-daemon",
-      "toMoveFrom": {
-        "coderight": 12,
-        "mailright": 6,
-        "postright": 2,
-        "pulse": 6
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -9828,9 +8906,7 @@
       "registry": "0.5.2",
       "staged": "0.5.2",
       "dir": "crates/rightkit-db",
-      "toMoveFrom": {
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -9946,9 +9022,7 @@
       "registry": "0.4.0",
       "staged": "0.4.0",
       "dir": "crates/rightkit-device",
-      "toMoveFrom": {
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -10241,10 +9315,7 @@
       "registry": "0.2.10",
       "staged": "0.2.10",
       "dir": "crates/rightkit-ffmpeg",
-      "toMoveFrom": {
-        "cutright": 1,
-        "heardright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -10390,13 +9461,7 @@
       "registry": "0.4.7",
       "staged": "0.4.7",
       "dir": "crates/rightkit-fs",
-      "toMoveFrom": {
-        "coderight": 3,
-        "cutright": 1,
-        "heardright": 2,
-        "postright": 1,
-        "scraperight": 3
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -10675,9 +9740,7 @@
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-hooks",
-      "toMoveFrom": {
-        "pulse": 2
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "exception",
@@ -10821,9 +9884,7 @@
       "registry": "0.3.8",
       "staged": "0.3.8",
       "dir": "crates/rightkit-http",
-      "toMoveFrom": {
-        "coderight": 3
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -11006,11 +10067,7 @@
       "registry": "0.5.1",
       "staged": "0.5.1",
       "dir": "crates/rightkit-job-queue",
-      "toMoveFrom": {
-        "coderight": 1,
-        "cutright": 2,
-        "postright": 5
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -11153,13 +10210,7 @@
       "registry": "0.2.5",
       "staged": "0.2.5",
       "dir": "crates/rightkit-license",
-      "toMoveFrom": {
-        "coderight": 4,
-        "heardright": 3,
-        "mailright": 1,
-        "scraperight": 2,
-        "viewright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -11306,9 +10357,7 @@
       "registry": "0.3.1",
       "staged": "0.3.1",
       "dir": "crates/rightkit-llm",
-      "toMoveFrom": {
-        "coderight": 4
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -11385,11 +10434,7 @@
       "registry": "0.3.5",
       "staged": "0.3.5",
       "dir": "crates/rightkit-logs",
-      "toMoveFrom": {
-        "heardright": 1,
-        "postright": 1,
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -11593,9 +10638,7 @@
       "registry": "0.5.1",
       "staged": "0.5.1",
       "dir": "crates/rightkit-models",
-      "toMoveFrom": {
-        "scraperight": 2
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -11747,9 +10790,7 @@
       "registry": "0.10.0",
       "staged": "0.10.0",
       "dir": "crates/rightkit-oauth",
-      "toMoveFrom": {
-        "coderight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -11966,9 +11007,7 @@
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-overlay",
-      "toMoveFrom": {
-        "pulse": 5
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -12051,9 +11090,7 @@
       "registry": "0.1.0",
       "staged": "0.1.0",
       "dir": "crates/rightkit-overlay-win",
-      "toMoveFrom": {
-        "pulse": 5
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -12197,9 +11234,7 @@
       "registry": "0.3.3",
       "staged": "0.3.3",
       "dir": "crates/rightkit-pdf",
-      "toMoveFrom": {
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -12413,11 +11448,7 @@
       "registry": "0.9.0",
       "staged": "0.9.0",
       "dir": "crates/rightkit-qa",
-      "toMoveFrom": {
-        "cutright": 4,
-        "postright": 1,
-        "viewright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -12739,10 +11770,7 @@
       "registry": "0.6.1",
       "staged": "0.6.1",
       "dir": "crates/rightkit-sandbox",
-      "toMoveFrom": {
-        "coderight": 7,
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -12817,10 +11845,7 @@
       "registry": "0.4.0",
       "staged": "0.4.0",
       "dir": "crates/rightkit-search",
-      "toMoveFrom": {
-        "coderight": 2,
-        "pulse": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -13085,9 +12110,7 @@
       "registry": "0.4.0",
       "staged": "0.4.0",
       "dir": "crates/rightkit-speech-client",
-      "toMoveFrom": {
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -13162,9 +12185,7 @@
       "registry": "0.2.0",
       "staged": "0.2.0",
       "dir": "crates/rightkit-spend",
-      "toMoveFrom": {
-        "postright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -13231,9 +12252,7 @@
       "registry": "0.2.2",
       "staged": "0.2.2",
       "dir": "crates/rightkit-sync",
-      "toMoveFrom": {
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",
@@ -13377,17 +12396,7 @@
       "registry": "0.6.0",
       "staged": "0.6.0",
       "dir": "crates/rightkit-tauri-shell",
-      "toMoveFrom": {
-        "coderight": 2,
-        "cutright": 2,
-        "genright": 1,
-        "heardright": 8,
-        "mailright": 2,
-        "postright": 1,
-        "pulse": 5,
-        "scraperight": 1,
-        "viewright": 5
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "stale",
@@ -13540,10 +12549,7 @@
       "registry": "0.1.0",
       "staged": "0.1.0",
       "dir": "crates/rightkit-time",
-      "toMoveFrom": {
-        "coderight": 1,
-        "mailright": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "adopted",
@@ -13626,9 +12632,7 @@
       "registry": "0.4.0",
       "staged": "0.4.0",
       "dir": "crates/rightkit-transcript",
-      "toMoveFrom": {
-        "scraperight": 1
-      },
+      "toMoveFrom": {},
       "cells": {
         "coderight": {
           "state": "unused",

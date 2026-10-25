@@ -17,6 +17,9 @@
 //! rightkit-qa sweep
 //! rightkit-qa prune-runs [--app <key>] [--root <managed root>] [--dry-run]
 //! rightkit-qa verify  <evidence.json>
+//! rightkit-qa run-tests [cargo test args] [--parallel N] [--binary-timeout-s N] [--total-timeout-s N]
+//!                     [--from-cargo-json <file>] [--env K=V]... [--cwd package|workspace|<dir>] [-- <libtest args>]
+//!                     (compile the test binaries in the broker, run them outside it, write one receipt)
 //! rightkit-qa journeys check [--root <app root>]
 //! rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>]
 //!                     [--results <results.jsonl>] [--evidence-root <dir>] [--allow-dirty]
@@ -630,7 +633,7 @@ fn journeys_run(a: &Args) -> Result<i32> {
     Ok(report.exit_code())
 }
 
-const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|journeys> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage\nrun `rightkit-qa --version` for the version";
+const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage";
 
 /// The line `rightkit-qa --version` (or `-V`) prints, or `None` when the command line asks for no
 /// version. It is decided before any config is read.
@@ -644,6 +647,8 @@ fn version_request(args: &[String]) -> Option<String> {
 /// `worker` is the runner's own child command (its argument is a world directory), so it never asks.
 fn help_request(args: &[String]) -> Option<String> {
     let is_help = |s: &String| s == "--help" || s == "-h";
+    // Arguments after a `--` belong to a test binary (`run-tests -- --help`), never to this command.
+    let args = args.split(|a| a == "--").next().unwrap_or(args);
     if !args.iter().any(is_help) {
         return None;
     }
@@ -671,6 +676,7 @@ fn command_usage(cmd: &str) -> String {
         "homes" => "usage: rightkit-qa homes [--config rightkit-qa.toml] ...",
         "clean" => "usage: rightkit-qa clean [--config rightkit-qa.toml] ...",
         "verify" => "usage: rightkit-qa verify <evidence.json>",
+        "run-tests" => return rightkit_qa::run_tests::cli::USAGE.to_string(),
         _ => return GENERAL_USAGE.to_string(),
     };
     line.to_string()
@@ -732,8 +738,9 @@ fn run() -> Result<i32> {
         Some("clean") => clean(&a),
         Some("verify") => verify(&a),
         Some("journeys") => journeys(&a),
+        Some("run-tests") => rightkit_qa::run_tests::cli::main(&a.0[1..]),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|worker|guard|sweep|prune-runs|homes|clean|verify|journeys> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|worker|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }
@@ -769,6 +776,7 @@ mod help_tests {
             "homes",
             "clean",
             "verify",
+            "run-tests",
         ] {
             for flag in ["--help", "-h"] {
                 let text = help_request(&argv(&format!("{cmd} {flag}")))
@@ -809,6 +817,16 @@ mod help_tests {
         assert!(help_request(&argv("run --config rightkit-qa.toml")).is_none());
         assert!(help_request(&argv("journeys run --qualifying")).is_none());
         assert!(help_request(&argv("")).is_none());
+    }
+
+    #[test]
+    fn run_tests_help_is_only_asked_before_the_libtest_arguments() {
+        let text = help_request(&argv("run-tests -p fx --help")).expect("help");
+        assert!(text.contains("--from-cargo-json"), "{text}");
+        // After `--` the flag belongs to the test binary.
+        assert!(help_request(&argv("run-tests -p fx -- --help")).is_none());
+        assert!(help_request(&argv("run-tests -- -h")).is_none());
+        assert!(help_request(&argv("run-tests --help -- --nocapture")).is_some());
     }
 
     #[test]

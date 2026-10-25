@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-time-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-time = { version = "=0.1.0" }
