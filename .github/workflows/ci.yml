@@ -354,6 +354,8 @@ jobs:
         run: node scripts/ci/secret-scan.mjs --crates "$SCAN_CRATES" --dirs "$SCAN_PACKAGES"
       # Importing an export executes candidate code: this runs only after every file-only class A step (scans, Cargo.lock/rustfmt, secret scan) passed. Hygiene gates every
       # native shard, so a module that runs at import stops the run before any runner starts.
+      - name: Install every workspace package's dependencies for the import check (frozen, no lifecycle scripts)
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Exported modules import without side effects (after class A)
         run: node scripts/ci/exports-import-effects.mjs --report "$RUNNER_TEMP/import-effects/report.json"
       # ci.yml has no sealed-byte stage: the dist/ exports the probe leaves INCOMPLETE are closed only by publish.yml's verify.
