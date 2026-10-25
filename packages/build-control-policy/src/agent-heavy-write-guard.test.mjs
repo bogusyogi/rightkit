@@ -50,7 +50,10 @@ function fakeFs({ dirs, links = {}, mounts, files = {} }) {
 }
 // Run roots under /Volumes/D/scratch (the lease file is `.rightkit-run.json`, as `right-release disk run-root <name>` writes it).
 const LEASE = '.rightkit-run.json';
-const lease = (name, until = '2999-01-01T00:00:00.000Z', extra = {}) => JSON.stringify({ schema: 1, name, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: until, ...extra });
+// The suite runs on a fixed clock (seam below): a lease may last at most 30 days from its createdAt, so the live ones end 2026-10-31.
+const NOW = Date.parse('2026-10-25T12:00:00.000Z');
+const LIVE_UNTIL = '2026-10-31T00:00:00.000Z';
+const lease = (name, until = LIVE_UNTIL, extra = {}) => JSON.stringify({ schema: 1, name, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: until, ...extra });
 const scratch = '/Volumes/D/scratch';
 const fs = fakeFs({
   files: {
@@ -59,7 +62,7 @@ const fs = fakeFs({
     [`${scratch}/run-expired/${LEASE}`]: lease('run-expired', '2020-01-01T00:00:00.000Z'),
     [`${scratch}/run-garbage/${LEASE}`]: '{not json',
     [`${scratch}/run-schema2/${LEASE}`]: lease('run-schema2', undefined, { schema: 2 }),
-    [`${scratch}/run-noname/${LEASE}`]: JSON.stringify({ schema: 1, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: '2999-01-01T00:00:00.000Z' }),
+    [`${scratch}/run-noname/${LEASE}`]: JSON.stringify({ schema: 1, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: LIVE_UNTIL }),
     [`${scratch}/run-baddate/${LEASE}`]: lease('run-baddate', 'tomorrow'),
     [`${scratch}/run-numdate/${LEASE}`]: lease('run-numdate', 32503680000000),
     [`${scratch}/run-null/${LEASE}`]: 'null',
@@ -70,6 +73,12 @@ const fs = fakeFs({
     [`/Volumes/D/claude/runs/r1/${LEASE}`]: lease('r1'), // a run-root parent configured through RIGHTKIT_SCRATCH_ROOTS
     [`${home}/work/runx/${LEASE}`]: lease('runx'), // a leased directory on the internal volume
     [`${scratch}/run-empty/${LEASE}`]: '',
+    [`${scratch}/run-long/${LEASE}`]: lease('run-long', '2026-12-31T00:00:00.000Z'), // 91 days
+    [`${scratch}/run-31d/${LEASE}`]: lease('run-31d', '2026-11-01T00:00:00.000Z'), // 30 days plus the one day of tolerance
+    [`${scratch}/run-31d-over/${LEASE}`]: lease('run-31d-over', '2026-11-01T00:00:00.001Z'),
+    [`${scratch}/run-future/${LEASE}`]: lease('run-future', '2026-12-20T00:00:00.000Z', { createdAt: '2026-12-01T00:00:00.000Z' }), // created in the future
+    [`${scratch}/run-far-future/${LEASE}`]: lease('run-far-future', '2999-01-20T00:00:00.000Z', { createdAt: '2999-01-01T00:00:00.000Z' }),
+    [`${scratch}/run-copied/${LEASE}`]: lease('run1'), // run1's lease file copied into another directory
   },
   dirs: [
     `${scratch}/run2`, `${scratch}/run1-evil`, `${scratch}/run-dirlease/${LEASE}`, `${scratch}/run-linklease`, `${scratch}/run-escape`,
@@ -84,6 +93,7 @@ const fs = fakeFs({
     [`${scratch}/run-escape/out`]: '/Volumes/D/claude/app', // a link inside a (not yet leased) run root
     [`${scratch}/run1/to-claude`]: '/Volumes/D/claude/app', // a link inside a leased run root that leaves it
     [`${scratch}/run1/to-run2`]: `${scratch}/run2`,
+    [`${scratch}/run1/alias`]: `${scratch}/run1/${LEASE}`, // a symlink whose target is the lease file
     [`${scratch}/run1/dangling`]: '/Volumes/D/nowhere',
     '/Volumes/Macintosh HD': '/',
     '/Volumes/D/scratch/to-internal': `${home}/work`,
@@ -117,7 +127,7 @@ ${name}	${pushUrl} (push)
   runner.calls = calls;
   return runner;
 }
-const seam = (cwd = '/Volumes/D/claude/app', extra = {}) => ({ fs, home, cwd, env: {}, gitRunner: fakeGit(), ...extra });
+const seam = (cwd = '/Volumes/D/claude/app', extra = {}) => ({ fs, home, cwd, env: {}, gitRunner: fakeGit(), clock: () => NOW, ...extra });
 const check = (command, cwd, extra) => heavyCommandViolation(command, seam(cwd, extra));
 const denied = (command, rule, cwd, extra) => {
   const found = check(command, cwd, extra);
@@ -134,7 +144,7 @@ const cache = `${home}/Library/Caches/cutright`;
 const hook = (tool_name, tool_input, cwd = home) => heavyWriteHookDecision({ tool_name, tool_input, cwd, platform: 'darwin' }, seam(cwd));
 
 test('rules are named and each denial names the agent-volume alternative', () => {
-  assert.deepEqual(HEAVY_WRITE_RULES.map((rule) => rule.id), ['simctl-no-simulators', 'xcodebuild-derived-data', 'xcodebuild-output', 'internal-heavy-path', 'non-agent-volume', 'undeterminable-destination', 'repo-create-outside-run-root', 'download-outside-run-root']);
+  assert.deepEqual(HEAVY_WRITE_RULES.map((rule) => rule.id), ['simctl-no-simulators', 'xcodebuild-derived-data', 'xcodebuild-output', 'internal-heavy-path', 'non-agent-volume', 'undeterminable-destination', 'repo-create-outside-run-root', 'download-outside-run-root', 'run-lease-forgery']);
   const decision = hook('Bash', { command: 'xcrun simctl create A t' });
   assert.equal(decision.hookSpecificOutput.permissionDecision, 'deny');
   const reason = decision.hookSpecificOutput.permissionDecisionReason;
@@ -1649,6 +1659,7 @@ const url = 'https://example.com/x';
 const ws = '/Volumes/D/claude/app';
 const runRule = 'repo-create-outside-run-root';
 const dlRule = 'download-outside-run-root';
+const leaseRule = 'run-lease-forgery';
 
 test('policy constants match release/disk-policy.json, and a lease written by right-release is a lease to the guard', async () => {
   const guard = await import('./agent-heavy-write-guard.mjs');
@@ -1788,14 +1799,15 @@ test('only a regular, well formed, unexpired lease makes a run root', () => {
   denied(`git clone ${repo} ${ext}/x`, runRule, ws, { fs: unstattable });
   // the lease file is never a destination (it is written only by `right-release disk run-root`)
   for (const dest of [`${ext}/${LEASE}`, `${ext}/${LEASE}/x`]) {
-    const found = denied(`curl -o ${dest} ${url}`, dlRule);
+    const leaseFile = dest.endsWith(LEASE); // the lease itself: the forgery rule; something below a directory of that name: the run-root rule
+    const found = denied(`curl -o ${dest} ${url}`, leaseFile ? leaseRule : dlRule);
     assert.match(found.why, /lease file/);
-    denied(`git clone ${repo} ${dest}`, runRule);
-    denied(`wget -O ${dest} ${url}`, dlRule);
+    denied(`git clone ${repo} ${dest}`, leaseFile ? leaseRule : runRule);
+    denied(`wget -O ${dest} ${url}`, leaseFile ? leaseRule : dlRule);
   }
-  denied(`curl --output-dir ${ext}/${LEASE} -O ${url}`, dlRule);
-  denied(`wget -P ${ext}/${LEASE} ${url}`, dlRule);
-  denied(`curl -o ${scratch}/run2/${LEASE} --create-dirs ${url}`, dlRule); // forging a lease where none exists
+  denied(`curl --output-dir ${ext}/${LEASE} -O ${url}`, leaseRule);
+  denied(`wget -P ${ext}/${LEASE} ${url}`, leaseRule);
+  denied(`curl -o ${scratch}/run2/${LEASE} --create-dirs ${url}`, leaseRule); // forging a lease where none exists
 });
 
 test('the run-root parents come from RIGHTKIT_SCRATCH_ROOTS, and a run root must be on an agent volume', () => {
@@ -2119,3 +2131,118 @@ test('wget --spider and curl -o inside --output-dir write nothing outside the ru
   denied(`wget --spider -e dir_prefix=/Volumes/D/claude ${url}`, 'undeterminable-destination', ws);
 });
 
+test('the lease file is never a write destination, by any writer or tool, however the path is spelled', () => {
+  const forged = `${scratch}/forged/${LEASE}`;
+  const body = '{"schema":1,"name":"forged","createdAt":"2026-10-25T00:00:00Z","leaseUntil":"2026-11-20T00:00:00Z"}';
+  const forgeries = [
+    `echo '${body}' > ${forged}`, `echo '${body}' >> ${forged}`, `echo '${body}' >| ${forged}`, `echo '${body}' &> ${forged}`,
+    `printf '%s' '${body}' > "${forged}"`, `cat x > '${forged}'`, `echo x > ${scratch}/forged/./${LEASE}`, `echo x > ${scratch}/forged//${LEASE}`,
+    `echo '${body}' | tee ${forged}`, `echo '${body}' | tee -a ${forged}`, `echo x | tee ${scratch}/ok.txt ${forged}`,
+    `cp lease.json ${forged}`, `cp -f lease.json ${forged}`, `cp -p lease.json ${forged}`,
+    `mv lease.json ${forged}`, `install -m 644 lease.json ${forged}`, `rsync -a lease.json ${forged}`, `ditto lease.json ${forged}`,
+    `ln -s ${ext}/${LEASE} ${forged}`, `touch ${forged}`, `truncate -s 0 ${forged}`, `mkdir ${forged}`,
+    `dd if=lease.json of=${forged}`, `sed -i '' s/a/b/ ${forged}`, `sed -n 'w ${forged}' lease.json`, `find . -maxdepth 0 -fprint ${forged}`,
+    `tar -cf ${forged} -C /tmp .`, `curl -o ${forged} ${url}`, `wget -O ${forged} ${url}`, `git clone ${repo} ${forged}`,
+    `echo x > ${scratch}/forged/${LEASE.toUpperCase()}`, `echo x > ${scratch}/forged/.RightKit-Run.json`, // APFS ignores case
+    `echo x > ${ext}/sub/../${LEASE}`, `echo x > ${scratch}/run1/alias`, // ".." and a symlink whose target is the lease
+    `bash -c "echo x > ${forged}"`, `sudo tee ${forged}`, `env X=1 cp a ${forged}`, `eval 'echo x > ${forged}'`, `X=1 echo x > ${forged}`,
+  ];
+  for (const command of forgeries) {
+    const found = check(command, ws);
+    assert.ok(found, `expected a denial for: ${command}`);
+    assert.ok([leaseRule, dlRule, runRule].includes(found.rule), `${command}: ${found.rule} ${found.why}`);
+    if (found.rule === leaseRule) assert.match(found.required, /right-release disk run-root <name>/);
+  }
+  // the forgery rule itself (not a run-root rule) for every plain writer, with a refusal that says who creates a lease
+  for (const command of forgeries.filter((candidate) => !/curl|wget|git clone/.test(candidate))) {
+    const found = denied(command, leaseRule);
+    assert.match(found.why, /lease file/);
+    assert.match(found.required, /created only by `right-release disk run-root <name>`/);
+  }
+  // relative names resolve against the cwd, which here is a real run root
+  denied(`echo x > ${LEASE}`, leaseRule, ext);
+  denied(`echo x > ./${LEASE}`, leaseRule, ext);
+  denied(`cd ${ext} && echo x > ${LEASE}`, leaseRule, ws);
+  denied(`cd ${ext} && cp lease.json ${LEASE}`, leaseRule, ws);
+  denied(`cd ${ext} && tee ${LEASE}`, leaseRule, ws);
+  denied(`cp lease.json ${LEASE}`, leaseRule, ext);
+  denied(`echo x > ${LEASE}`, leaseRule, ws); // wherever the cwd is, the name decides
+  // a rewrite hint is not a way around: dynamic names stay refused by the unresolved-destination rule
+  denied(`echo x > ${scratch}/forged/$NAME`, 'undeterminable-destination');
+  denied(`echo x > ${scratch}/forged/.rightkit-run.$EXT`, 'undeterminable-destination');
+  // near misses and reads are not writes to the lease
+  allowed(`echo x > ${ext}/${LEASE}.bak`);
+  allowed(`echo x > ${ext}/x${LEASE}`);
+  allowed(`echo x > ${ext}/rightkit-run.json`);
+  allowed(`cat ${ext}/${LEASE}`);
+  allowed(`cat ${ext}/${LEASE} > ${ext}/copy.txt`);
+  allowed(`cp ${ext}/sub/keep.txt ${ext}/notes.txt`);
+  allowed(`echo x > ${ext}/notes.txt`);
+  allowed(`curl -o ${ext}/${LEASE}.txt ${url}`);
+});
+
+test('Write, Edit, MultiEdit and apply_patch cannot create or replace a lease file', () => {
+  const forged = `${scratch}/forged/${LEASE}`;
+  const found = heavyPathViolation(forged, seam(ws));
+  assert.equal(found?.rule, leaseRule);
+  assert.match(found.required, /right-release disk run-root <name>/);
+  for (const file of [forged, `${ext}/${LEASE}`, `${ext}/sub/../${LEASE}`, `${scratch}/forged/${LEASE.toUpperCase()}`, `${ext}/alias`, `${scratch}/run-linklease/${LEASE}`, LEASE]) {
+    assert.equal(heavyPathViolation(file, seam(ext))?.rule, leaseRule, file);
+    for (const tool of ['Write', 'Edit', 'MultiEdit']) {
+      const decision = hook(tool, { file_path: file }, ext);
+      assert.equal(decision?.hookSpecificOutput.permissionDecision, 'deny', `${tool} ${file}`);
+      assert.match(decision.hookSpecificOutput.permissionDecisionReason, /\[run-lease-forgery\]/);
+      assert.match(decision.hookSpecificOutput.permissionDecisionReason, /right-release disk run-root <name>/);
+    }
+    for (const verb of ['Add File', 'Update File', 'Delete File']) {
+      const decision = hook('apply_patch', { patch: `*** Begin Patch\n*** ${verb}: ${file}\n+x\n*** End Patch` }, ext);
+      assert.equal(decision?.hookSpecificOutput.permissionDecision, 'deny', `apply_patch ${verb} ${file}`);
+    }
+    const moved = hook('apply_patch', { patch: `*** Begin Patch\n*** Update File: ${ext}/a.txt\n*** Move to: ${file}\n*** End Patch` }, ext);
+    assert.equal(moved?.hookSpecificOutput.permissionDecision, 'deny', `apply_patch Move to ${file}`);
+  }
+  for (const file of [`${ext}/notes.txt`, `${ext}/${LEASE}.bak`, `${ext}/sub/keep.txt`]) {
+    assert.equal(heavyPathViolation(file, seam(ext)), null, file);
+    assert.equal(hook('Write', { file_path: file }, ext), null, file);
+  }
+  assert.equal(hook('apply_patch', { patch: `*** Begin Patch\n*** Add File: ${ext}/notes.txt\n+x\n*** End Patch` }, ext), null);
+});
+
+test('curl -O and wget saved under a URL named like the lease file are refused', () => {
+  const lease = `https://example.com/dir/${LEASE}`;
+  denied(`curl -O --output-dir ${ext} ${lease}`, leaseRule);
+  denied(`curl --remote-name-all --output-dir ${ext} ${url} ${lease}`, leaseRule);
+  denied(`curl -O ${lease}?token=1`, leaseRule, ext);
+  denied(`curl -O ${lease.toUpperCase().replace('HTTPS', 'https')}`, leaseRule, ext);
+  denied(`curl -O https://example.com/%2Erightkit-run.json`, leaseRule, ext);
+  denied(`curl -O --url ${lease}`, leaseRule, ext);
+  denied(`curl -O ${url} --next -O ${lease}`, leaseRule, ext);
+  denied(`wget -P ${ext} ${lease}`, leaseRule);
+  denied(`wget ${lease}`, leaseRule, ext);
+  denied(`wget -P ${ext} ${url} ${lease}#frag`, leaseRule);
+  // an explicit file name makes the URL irrelevant
+  allowed(`curl -o ${ext}/x ${lease}`);
+  allowed(`wget -O ${ext}/x ${lease}`);
+  allowed(`curl -O --output-dir ${ext} ${url}/${LEASE}.json`);
+  allowed(`wget --spider ${lease}`, ws);
+});
+
+test('a lease must name its own run root and last at most 30 days, starting no later than tomorrow', () => {
+  const clone = (name) => check(`git clone ${repo} ${scratch}/${name}/x`, ws);
+  assert.equal(clone('run1'), null);
+  assert.equal(clone('run-31d'), null); // exactly 30 days plus one day of tolerance
+  for (const name of ['run-long', 'run-31d-over', 'run-future', 'run-far-future', 'run-copied']) {
+    const found = denied(`git clone ${repo} ${scratch}/${name}/x`, runRule);
+    assert.match(found.why, /run root/, name);
+    denied(`curl -o ${scratch}/${name}/x ${url}`, dlRule);
+    denied(`wget -P ${scratch}/${name} ${url}`, dlRule);
+    denied(`git worktree add ${scratch}/${name}/wt`, runRule);
+    denied(`hf download org/m --local-dir ${scratch}/${name}/m`, dlRule);
+  }
+  assert.match(denied(`git clone ${repo} ${scratch}/run-long/x`, runRule).why, /more than 30 days/);
+  assert.match(denied(`git clone ${repo} ${scratch}/run-copied/x`, runRule).why, /names "run1", not this run root/);
+  assert.match(denied(`git clone ${repo} ${scratch}/run-future/x`, runRule).why, /created in the future/);
+  // the one-day tolerance on createdAt moves with the clock
+  assert.equal(check(`git clone ${repo} ${scratch}/run-future/x`, ws, { clock: () => Date.parse('2026-11-30T00:00:00.000Z') }), null);
+  assert.equal(check(`git clone ${repo} ${scratch}/run-future/x`, ws, { clock: () => Date.parse('2026-11-30T00:00:00.000Z') - 1 })?.rule, runRule);
+});

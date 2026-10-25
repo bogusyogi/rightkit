@@ -24,6 +24,10 @@
 //     `leaseUntil` is still in the future; `right-release disk run-root <name>` creates it. The run root itself, a
 //     sibling, a symlinked run directory or lease, an expired, unreadable or malformed lease, and any `..` are refused.
 //     The lease is read through the fs seam and the guard never writes it. Primary checkouts are created by hand, not by an agent.
+//   * The lease is created only by `right-release disk run-root <name>`: ANY write destination named `.rightkit-run.json`
+//     (redirects, tee, cp/mv/install/rsync/ditto/tar/unzip, sed -i, dd of=, Write/Edit/apply_patch paths, curl -O and wget
+//     of a URL with that file name) is refused, a lease must carry the name of its own directory, and one that lasts more
+//     than MAX_LEASE_DAYS (30) after its createdAt, or was created in the future, is not a lease.
 //   * There is NO textual prefilter: every command and path is parsed and every destination is resolved.
 //   * There is no full shell emulator. A construct is either resolved exactly or REFUSED with a message that says how
 //     to rewrite it ("split into separate commands", "use an absolute path"). Refusal is always acceptable; a false
@@ -59,6 +63,9 @@ export const WORKSPACE_ROOT = '/Volumes/D/claude';
 export const RUN_ROOT_PARENT = '/Volumes/D/scratch';
 /** Written by `right-release disk run-root <name>` as {"schema":1,"name","createdAt","leaseUntil"}; the sweep skips a run root while it is in the future. */
 export const RUN_LEASE_FILE = '.rightkit-run.json';
+/** `right-release disk run-root --days N` accepts at most this many days (packages/release/disk-policy.mjs MAX_LEASE_DAYS); a lease that claims more is not one. */
+export const MAX_LEASE_DAYS = 30;
+const DAY_MS = 86_400_000;
 const RUN_COMMAND = 'right-release disk run-root <name>';
 export const HEAVY_WRITE_RULES = Object.freeze([
   Object.freeze({ id: 'simctl-no-simulators', summary: 'simctl create|clone is denied; use the shared iPhone 18 Pro' }),
@@ -69,6 +76,7 @@ export const HEAVY_WRITE_RULES = Object.freeze([
   Object.freeze({ id: 'undeterminable-destination', summary: 'a construct whose destination cannot be resolved exactly is refused with a rewrite hint, never guessed' }),
   Object.freeze({ id: 'repo-create-outside-run-root', summary: `git clone and git worktree add write only below a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
   Object.freeze({ id: 'download-outside-run-root', summary: `curl, wget and hf/huggingface-cli download write only into a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
+  Object.freeze({ id: 'run-lease-forgery', summary: `any write to a file named ${RUN_LEASE_FILE} is denied; the lease is created only by \`${RUN_COMMAND}\`` }),
 ]);
 
 const DYN = Symbol('dynamic');
@@ -234,6 +242,10 @@ function protectedRoots(ctx) {
     { id: 'RightKit shared/models', root: path.join(ctx.home, 'Library/Application Support/Orthic Labs/shared/models') },
   ];
 }
+// A lease is created only by `right-release disk run-root`: a file with the lease's name is never a write destination, however the
+// path is spelled (APFS ignores case) or reached (a symlink resolves to it).
+const isLeaseFile = (file) => path.basename(file).toLowerCase() === RUN_LEASE_FILE;
+const leaseHit = (value) => (isLeaseFile(value) ? { rule: 'run-lease-forgery', what: `${value}, a run lease file; the lease is created only by \`${RUN_COMMAND}\`` } : null);
 /** null, or { rule, what } for a destination that is internal-heavy, on a non-agent volume, or cannot be resolved. */
 function protectedHit(candidate, ctx) {
   const roots = protectedRoots(ctx);
@@ -261,14 +273,16 @@ function protectedHit(candidate, ctx) {
     return null;
   };
   const lexical = path.normalize(candidate);
+  const named = leaseHit(lexical);
+  if (named) return named;
   if (candidate.split('/').includes('..')) {
     const physical = physicalResolve(candidate, ctx.fs); // ".." after a symlink means the real parent, not the lexical one
     if (physical.error) return { rule: 'undeterminable-destination', what: physical.error };
-    return matches(physical.real) ?? matches(lexical);
+    return leaseHit(physical.real) ?? matches(physical.real) ?? matches(lexical);
   }
   const resolved = resolveDestination(lexical, ctx.fs);
   if (resolved.error) return { rule: 'undeterminable-destination', what: resolved.error };
-  return matches(resolved.real);
+  return leaseHit(resolved.real) ?? matches(resolved.real);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -458,6 +472,7 @@ const AGENT_NOTE = `Agent volume: ${AGENT_VOLUME} only (run outputs in ${SCRATCH
 const requiredFor = {
   simctl: `Do not create simulators on this host: boot, install and launch on the shared iPhone 18 Pro instead. ${AGENT_NOTE}`,
   xcodebuild: `Pass -derivedDataPath ${DERIVED_DATA} (and any -archivePath / -resultBundlePath under ${SCRATCH_EXAMPLE}/). Read-only queries (-help, -version, -list, -showsdks, -showBuildSettings) are not affected. ${AGENT_NOTE}`,
+  lease: `Do not write ${RUN_LEASE_FILE} yourself: a run root's lease is created only by \`${RUN_COMMAND}\` (\`--days N\`, at most ${MAX_LEASE_DAYS}). ${AGENT_NOTE}`,
   path: `Write on the agent volume instead: ${SCRATCH_EXAMPLE}/ for run output, ${DERIVED_DATA} for DerivedData, or the RightKit-configured agent store for caches and models. ${AGENT_NOTE}`,
 };
 const refuse = (why, hint) => violation('undeterminable-destination', why, `${hint} ${AGENT_NOTE}`);
@@ -688,7 +703,7 @@ function protectedWrite(word, scope, ctx, via, prefixOnly = false) {
   const absolute = absolutePath(text, scope.cwd);
   if (!absolute) return refuse(`${via}: the destination "${text}" is relative and the working directory is not known (an earlier cd may not have run)`, 'Use an absolute path, or put the cd in the same && chain as the command ("cd /Volumes/D/x && cmd").');
   const hit = protectedHit(absolute, ctx);
-  return hit ? violation(hit.rule, `${via} writes to ${hit.what}`, hit.rule === 'undeterminable-destination' ? `${SPLIT} ${AGENT_NOTE}` : requiredFor.path) : null;
+  return hit ? violation(hit.rule, `${via} writes to ${hit.what}`, hit.rule === 'undeterminable-destination' ? `${SPLIT} ${AGENT_NOTE}` : hit.rule === 'run-lease-forgery' ? requiredFor.lease : requiredFor.path) : null;
 }
 const cwdWord = (scope) => (scope.cwd ? { v: scope.cwd, dyn: false } : null);
 
@@ -717,6 +732,11 @@ function runLease(run, ctx) {
   try { lease = JSON.parse(ctx.fs.readFile(file)); } catch (error) { return { why: `${file} cannot be read as a lease (${error?.code ?? error?.message})` }; }
   const [created, until] = [lease?.createdAt, lease?.leaseUntil].map((value) => (typeof value === 'string' ? Date.parse(value) : NaN));
   if (lease?.schema !== 1 || typeof lease.name !== 'string' || !Number.isFinite(created) || !Number.isFinite(until)) return { why: `${file} is not a schema 1 lease` };
+  // A lease is bound to its own directory (a copied lease file names another run root) and to the window `disk run-root` can
+  // write: at most MAX_LEASE_DAYS from its creation, which itself cannot lie in the future (one day of clock skew is tolerated).
+  if (lease.name !== path.basename(run)) return { why: `the lease in ${file} names "${lease.name}", not this run root` };
+  if (until - created > (MAX_LEASE_DAYS + 1) * DAY_MS) return { why: `the lease in ${file} lasts more than ${MAX_LEASE_DAYS} days (${lease.createdAt} to ${lease.leaseUntil}), which \`${RUN_COMMAND}\` never writes` };
+  if (created > ctx.clock() + DAY_MS) return { why: `the lease in ${file} was created in the future (${lease.createdAt})` };
   if (!(until > ctx.clock())) return { why: `the lease in ${file} ended at ${lease.leaseUntil}` };
   return { lease };
 }
@@ -900,6 +920,14 @@ function tarRule(args, scope, ctx) {
   return null;
 }
 
+/** True when a URL word's last path segment (as written, or percent-decoded as curl does for -O) is the lease file's name. An unresolved word is judged by its literal text. */
+function urlNamesLease(word) {
+  const segment = word.v.replace(/[?#].*$/, '').split('/').at(-1);
+  let decoded = segment;
+  try { decoded = decodeURIComponent(segment); } catch { /* keep the raw segment */ }
+  return [segment, decoded].some((name) => name.toLowerCase() === RUN_LEASE_FILE);
+}
+
 function writerRule(program, args, scope, ctx) {
   const spec = WRITERS[program];
   const parsed = parseOptions(args, { ...spec, strict: true });
@@ -953,6 +981,7 @@ function writerRule(program, args, scope, ctx) {
     const operations = [[]];
     for (const opt of parsed.opts) { if (opt.name === 'next' || opt.name === ':') operations.push([]); else operations.at(-1).push(opt); }
     const remoteNameAll = has('remote-name-all');
+    let implicit = false;
     for (const operation of operations) {
       const named = (...names) => operation.some((opt) => names.includes(opt.name));
       const dirs = operation.filter((opt) => opt.name === 'output-dir' && opt.value).map((opt) => opt.value);
@@ -967,12 +996,15 @@ function writerRule(program, args, scope, ctx) {
       }
       // Implicit output: -O/--remote-name/--remote-name-all/-J write into --output-dir, else the working directory.
       if (named('O', 'remote-name', 'J') || remoteNameAll) {
+        implicit = true;
         if (dirs.length) continue;
         const here = cwdWord(scope);
         if (here) targets.push({ word: here, via: 'curl -O/--remote-name-all (writes into the working directory)', directory: true });
         else return refuse('curl -O/--remote-name-all writes into a working directory that is not known', 'Use "curl -o <absolute file>" or --output-dir with an absolute path.');
       }
     }
+    // -O names the file after the URL: a URL that ends in the lease file's name would write one.
+    if (implicit) for (const word of [...operands, ...valuesOf('url')]) if (urlNamesLease(word)) return violation('run-lease-forgery', `curl -O would save ${word.v} as ${RUN_LEASE_FILE}, a run lease file; the lease is created only by \`${RUN_COMMAND}\``, requiredFor.lease);
   }
   if (spec.dest === 'wget') {
     const document = parsed.opts.find((opt) => opt.name === 'O' || opt.name === 'output-document')?.value;
@@ -983,6 +1015,7 @@ function writerRule(program, args, scope, ctx) {
     if (has('config')) return refuse('wget --config: the config file can set any output path', 'Pass the options on the command line instead of a config file.');
     for (const word of valuesOf('e', 'execute')) if (word.dyn || !/^\s*(?:robots|use_proxy|http_proxy|https_proxy|ftp_proxy|no_proxy|tries|wait|waitretry|timeout|content_disposition|check_certificate|retry_connrefused)\s*=/i.test(word.v)) return refuse(`wget -e/--execute ${word.dyn ? '(built from a shell expansion)' : word.v}: a wgetrc command can set any output path`, 'Use the dedicated wget options (-O, -P) instead of -e.');
     for (const prefix of prefixes) targets.push({ word: prefix, via: 'wget -P', directory: true });
+    if (!document && !spiderOnly) for (const word of operands) if (urlNamesLease(word)) return violation('run-lease-forgery', `wget would save ${word.v} as ${RUN_LEASE_FILE}, a run lease file; the lease is created only by \`${RUN_COMMAND}\``, requiredFor.lease);
     // -i FILE writes into the working directory with no URL operand, and -b without a log file writes wget-log there. A plain
     // --spider fetch saves nothing (a recursive or page-requisites one briefly writes the pages it scans, so it keeps the rule).
     const writesHere = !spiderOnly && (operands.length || has('i', 'input-file'));
@@ -2049,7 +2082,7 @@ export function heavyPathViolation(file, options = {}) {
     const absolute = absolutePath(expanded.replace(/\\/g, '/'), ctx.cwd);
     if (!absolute) return refuse(`the edit target ${file} is relative and the working directory is not known`, 'Use an absolute path.');
     const hit = protectedHit(absolute, ctx);
-    return hit ? violation(hit.rule, `the edit targets ${hit.what}`, requiredFor.path) : null;
+    return hit ? violation(hit.rule, `the edit targets ${hit.what}`, hit.rule === 'run-lease-forgery' ? requiredFor.lease : requiredFor.path) : null;
   } catch { return refuse(`the edit target ${file} could not be inspected`, 'Use an absolute path.'); }
 }
 
