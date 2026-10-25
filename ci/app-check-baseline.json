@@ -9,12 +9,7 @@
       "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__",
       "shell-csp|crates/rightkit-qa/examples/control-test-app/tauri.conf.json|base:csp-missing",
       "shell-csp|crates/rightkit-tauri-shell/example-app/tauri.conf.json|base:csp-missing",
-      "shell-csp|spikes/rk2-macos/fixture-app/tauri.conf.json|base:csp-missing",
-      "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-close",
-      "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-minimize",
-      "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-toggle-maximize",
-      "shell-window-hidden|desktop-app-template/src-tauri/tauri.conf.json|base:main",
-      "switches-inventory|desktop-app-template/right-release.config.mjs|desktop-app-template"
+      "shell-csp|spikes/rk2-macos/fixture-app/tauri.conf.json|base:csp-missing"
     ],
     "coderight": [
       "switches-inventory|apps/coderight-tauri/right-release.config.mjs|apps/coderight-tauri"

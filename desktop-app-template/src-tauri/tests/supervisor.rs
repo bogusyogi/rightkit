@@ -1,4 +1,4 @@
-//! Real-process supervision through rightkit-jobs' EngineSupervisor, using the shell's engine
+//! Real-process supervision through rightkit-job-queue's EngineSupervisor, using the shell's engine
 //! configuration. A hung engine cannot hold a call past its deadline, the timed-out command is never
 //! replayed, the next call restarts the engine, and a crash loop ends at the restart budget.
 #![cfg(unix)]
@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 
 use rightapp::engine_config;
-use rightkit_jobs::EngineSupervisor;
+use rightkit_job_queue::EngineSupervisor;
 use serde_json::json;
 
 fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
@@ -18,9 +18,10 @@ fn script(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
     p
 }
 
-/// The rightkit-jobs serve contract's `hello` frame, the first line of every generation.
+/// The rightkit-job-queue serve contract's `hello` frame, the first line of every generation.
 const HELLO: &str = r#"echo '{"type":"hello","engine":"fake","version":"0","contract_version":1}'"#;
 
+// rk-test: contract
 #[test]
 fn hung_engine_times_out_then_restarts_without_replay() {
     let dir = std::env::temp_dir().join(format!("rightapp-sup-{}", std::process::id()));
@@ -73,6 +74,7 @@ done"#,
     let _ = fs::remove_dir_all(&dir);
 }
 
+// rk-test: contract
 #[test]
 fn restart_budget_is_bounded() {
     let dir = std::env::temp_dir().join(format!("rightapp-sup-budget-{}", std::process::id()));

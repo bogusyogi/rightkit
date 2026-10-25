@@ -6,6 +6,7 @@ import os from "node:os";
 import { readVerifiedArtifact, assertArtifactUnchanged, digestBytes, verifyArtifactFile } from "./publication-artifacts.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
 import { admitInstalledQa } from "./release-qa-audit.mjs";
 import { addonManifestSha256, validateAddonConfig, validateAddonManifest } from "./addon-contract.mjs";
@@ -368,7 +369,7 @@ function runCombined(command, args, commandRunner = spawnSync) {
 
 function usage(code) {
   console.log([
-    "usage: right-release github --release <sealed-id> --tier patch|update --platform mac|win [--config right-release.config.mjs] [--repo owner/repo] [--dry-run]",
+    "usage: right-release github --release <sealed-id> --tier patch|update --platform mac|win [--config right-release.config.json] [--repo owner/repo] [--dry-run]",
     "       right-release github --addon <config> --platform mac|win [--repo owner/repo] [--dry-run]",
   ].join("\n"));
   process.exit(code);
@@ -379,7 +380,8 @@ if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(
   const args = process.argv.slice(2);
   const options = { platform: process.platform === "win32" ? "win" : "mac", releaseId: "", addon: "", repo: "", dryRun: false };
   let tier = "";
-  let configName = "right-release.config.mjs";
+  const defaultConfigName = defaultReleaseConfigFile();
+  let configName = defaultConfigName;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--platform") options.platform = args[++index];
     else if (args[index] === "--release") options.releaseId = args[++index];
@@ -393,7 +395,7 @@ if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(
     else throw new Error(`unknown argument: ${args[index]}`);
   }
   if (Boolean(options.releaseId) === Boolean(options.addon)) usage(2);
-  if (options.addon && (tier || configName !== "right-release.config.mjs")) throw new Error("--tier and --config apply to --release only; an add-on takes its configuration from --addon");
+  if (options.addon && (tier || configName !== defaultConfigName)) throw new Error("--tier and --config apply to --release only; an add-on takes its configuration from --addon");
   let plan;
   if (options.addon) {
     const repoRoot = runCommand("git", ["rev-parse", "--show-toplevel"]);

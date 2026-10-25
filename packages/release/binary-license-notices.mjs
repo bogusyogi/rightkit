@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { CommandSpecError, loadAppConfig, relativeInside } from "./command-spec.mjs";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { escapeHtml } from "./npm-license-notices.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
@@ -123,7 +124,7 @@ export function generateBinaryNotices({ appRoot, config, flags = {}, check = fal
 }
 
 export function parseBinaryNoticeArgs(argv) {
-  const opts = { config: "right-release.config.mjs", output: undefined, productName: undefined, receipt: undefined, check: false };
+  const opts = { config: defaultReleaseConfigFile(), output: undefined, productName: undefined, receipt: undefined, check: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--config" || arg === "--output" || arg === "--product-name" || arg === "--receipt") {

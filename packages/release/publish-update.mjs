@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "./background-process.mjs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { pruneReleaseObjects } from "./prune-r2.mjs";
 import { loadReleaseToken } from "./release-token.mjs";
 import { registerRightAppsRelease } from "./rightapps-register.mjs";
 import { recordPublishedVersion } from "./artifact-storage.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertCleanSource } from "./source-gate.mjs";
 import { verifyPublicationRelease, PublicationError, assertArtifactUnchanged, digestBytes } from "./publication-artifacts.mjs";
@@ -24,7 +25,7 @@ const PUBLIC_BASE = process.env.RIGHTAPPS_PUBLIC_DOWNLOAD_BASE || RIGHT_SUITE_PU
 const PIPELINE_VERSION = JSON.parse(await readFile(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 let tier = process.env.RIGHT_RELEASE_TIER || "";
 const args = process.argv.slice(2);
-let configName = "right-release.config.mjs";
+let configName = defaultReleaseConfigFile();
 let platform = process.platform === "win32" ? "win" : "mac";
 let dryRun = false;
 let releaseId = "";
@@ -45,7 +46,8 @@ if (tier !== "patch" && tier !== "update") fail("tier is required (--tier patch|
 if (!["win", "mac"].includes(platform)) throw new PublicationError("PUBLICATION_PLATFORM_INVALID", "--platform must be win or mac");
 const configPath = path.resolve(configName);
 const root = path.dirname(configPath);
-const config = (await import(pathToFileURL(configPath))).default;
+let config;
+try { config = await importReleaseConfig(configPath); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
 const provider = config?.distribution?.provider;
 if (provider !== "r2-rightapps" && provider !== "github-releases") {
   fail("release config distribution.provider must be r2-rightapps or github-releases");

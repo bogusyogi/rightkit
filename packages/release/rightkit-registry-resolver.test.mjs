@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { assertPublishedRightKitCargoDependencies } from "./cargo-contract.mjs";
 import {
-  RightKitRegistryError, SNAPSHOT_FILE, assertManifestRegistryEvidence, evaluateRightKitFreshness, loadAdmittedSnapshot, loadSnapshot,
+  FIX, RightKitRegistryError, SNAPSHOT_FILE, assertManifestRegistryEvidence, evaluateRightKitFreshness, loadAdmittedSnapshot, loadSnapshot,
   prepareRightKitResolution, registryManifestFields, resolveRightKitPins, rightKitLockInventory, snapshotDigest, verifiedVersionMaps, writeAdmissionRecord,
 } from "./rightkit-registry-resolver.mjs";
 import { rightKitVersionAllowed } from "./rightkit-version-policy.mjs";
@@ -173,12 +174,37 @@ test("admission refuses a stale pin even when .rightkit/update.json holds it; th
   write({ held: ["@rightkit/bar"] });
   const doctor = await prepareRightKitResolution(opts(root, reg));
   assert.deepEqual(doctor.freshness.refusals, []);
-  assert.match(doctor.freshness.newer[0], /@rightkit\/bar pinned 0\.4\.1 -> latest 0\.5\.0.*right-update run/);
+  assert.match(doctor.freshness.newer[0], /@rightkit\/bar pinned 0\.4\.1 -> latest 0\.5\.0.*`pnpm exec right-release update run`/);
+  assert.ok(doctor.freshness.newer[0].includes(FIX), "the stale-pin line carries the shared remedy");
   assert.match(doctor.freshness.tasks[0], /migration lane task, not current and not permission to seal/);
   // Unheld and equal-to-latest pins are not tasks.
   write({});
   const equal = await prepareRightKitResolution({ ...opts(root, registry({ cargo: { "rightkit-foo": [cargoRow("0.2.0", CK("2"))] }, npm: { "@rightkit/bar": npmDoc({ "0.4.1": INTEGRITY("1") }, "0.4.1") }, latest: { cargo: { "rightkit-foo": "0.2.0" } } })), admission: true });
   assert.deepEqual(equal.freshness, { refusals: [], newer: [], tasks: [], warnings: [], notes: [] });
+});
+
+test("the stale-pin remedy names a command this package ships, backed by a dependency it declares", () => {
+  // C4-17: the refusal used to say `right-update run`, a bin no app has (pnpm links only direct dependencies' bins).
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const command = /`([^`]+)`/.exec(FIX)?.[1];
+  assert.equal(command, "pnpm exec right-release update run");
+  assert.doesNotMatch(FIX, /right-update/, "an app has no right-update on its path");
+  assert.doesNotMatch(FIX, /\d+\.\d+\.\d+/, "a hard-coded version in the text goes stale; the dependency pin is the version");
+  // `pnpm exec right-release <subcommand> ...`: the subcommand is one the CLI dispatches, to a module that exists.
+  const [, , bin, subcommand, ...rest] = command.split(" ");
+  assert.equal(bin, "right-release");
+  const cli = readFileSync(path.join(here, "cli", "right-release.mjs"), "utf8");
+  const module = new RegExp(`\\["${subcommand}", "([^"]+)"\\]`).exec(cli)?.[1];
+  assert.equal(module, "outdated-command.mjs", `right-release ${subcommand} is not wired in cli/right-release.mjs`);
+  assert.ok(Object.hasOwn(JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).bin, bin), `${bin} is a bin of this package`);
+  assert.deepEqual(rest, ["run"]);
+  // The updater the command runs is a pinned dependency of this package, and it is the package that ships right-update.
+  const pkg = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8"));
+  assert.match(pkg.dependencies["@rightkit/outdated"] ?? "", /^\d+\.\d+\.\d+$/, "@rightkit/outdated must be an exact dependency");
+  const outdated = JSON.parse(readFileSync(path.join(here, "..", "outdated", "package.json"), "utf8"));
+  assert.equal(outdated.name, "@rightkit/outdated");
+  assert.equal(typeof outdated.bin?.["right-update"], "string");
+  assert.equal(pkg.dependencies["@rightkit/outdated"], outdated.version, "the pin is the workspace version of the updater");
 });
 
 test("the built-in right-update held pattern (sign|secur|licen|credential) is not read: it neither holds nor excuses a pin", async (t) => {

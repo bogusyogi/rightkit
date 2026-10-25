@@ -11,16 +11,22 @@
 //!    (`rustright cargo ...`) when it resolves on `PATH`, else plain cargo (a cloud host; `require_broker`
 //!    refuses that), or take an existing listing (`--from-cargo-json`). The compile argv passes the same
 //!    validator the journeys build uses: compile-only, no `--target-dir`.
-//! 2. **Select** the test executables from the `compiler-artifact` records ([`artifacts`](crate::run_tests::artifacts)).
+//! 2. **Select** the test executables from the `compiler-artifact` records
+//!    ([`artifacts`](crate::run_tests::artifacts)).
 //! 3. **Run** each one outside any broker job, from its package directory as cargo does, with bounded
 //!    parallelism, a per-binary and a total deadline, the process tree killed on a deadline, libtest
 //!    arguments passed through, and environment and working directory under control (`ExecCtx`).
-//! 4. **Record** one JSON receipt, `rightkit.run-tests.receipt/1` ([`receipt`](crate::run_tests::receipt)), in the managed run storage
+//! 4. **Record** one JSON receipt, `rightkit.run-tests.receipt/1`
+//!    ([`receipt`](crate::run_tests::receipt)), in the managed run storage
 //!    (`<managed root>/runs/<app>-run-tests/<run id>/`), with every binary's output in files beside it.
 //!
 //! Exit codes: 0 every binary passed; 1 a binary failed, timed out or could not start, or a run rule
 //! failed; 2 the run could not be set up (including: the compile listed no test binary); 3 the compile
 //! failed. The whole file set is described in `docs/run-tests.md`.
+// The links above are crate paths on purpose: `lib.rs` also documents `pub mod run_tests;` with an outer
+// `///` line, and rustdoc then resolves the links of this whole combined text from the crate root, where a
+// bare `artifacts` or `receipt` is not in scope. `ExecCtx` is `pub(crate)`, so it is a code span (a link
+// from public docs to a private item is a rustdoc error under `-D warnings`).
 /// Terminal output that never panics: with stdout or stderr closed (`run-tests | head`), a `println!` would
 /// panic inside a worker thread and take the receipt with it. (Under `cfg(test)` the print macros are used,
 /// because only they are captured by the test harness.)

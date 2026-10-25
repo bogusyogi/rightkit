@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AppShell, type NavGroup } from "@rightkit/app-shell/react";
+import type { NavGroup } from "@rightkit/react-shell";
+import { AppShell } from "@rightkit/react-shell/react";
 import { invoke } from "./lib/host";
 import { detectPlatform } from "./lib/platform";
 import { shellBridge } from "./lib/shell";

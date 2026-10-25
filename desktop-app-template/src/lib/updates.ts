@@ -1,7 +1,7 @@
-import { createAutoUpdateClient } from "@rightkit/updates";
+import { createAutoUpdateClient } from "@rightkit/app-update";
 import { check } from "@tauri-apps/plugin-updater";
 
-// Policy (patch vs update tier, eligibility) is @rightkit/updates; this adapter only supplies the
+// Policy (patch vs update tier, eligibility) is @rightkit/app-update; this adapter only supplies the
 // host `check`. Licensed apps add `isEligible`/`getHeaders` from their license client.
 export const updates = createAutoUpdateClient({
   check: async () => {

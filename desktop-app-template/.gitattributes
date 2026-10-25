@@ -1,0 +1,7 @@
+# Bytes that are hashed, locked or executed must be identical on every host, Windows included: the legal documents and manifest are
+# compared by sha256 (the release legal contract), Cargo.lock and pnpm-lock.yaml are held by --locked and --frozen-lockfile, and the
+# committed pre-push hook runs under sh. Git converts nothing to CRLF here, whatever core.autocrlf says.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary

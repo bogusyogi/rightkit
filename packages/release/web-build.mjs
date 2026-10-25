@@ -15,9 +15,10 @@
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { CommandSpecError, loadAppConfig, resolveInvocation, validateStep } from "./command-spec.mjs";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 
 export function parseWebBuildArgs(argv) {
-  const opts = { config: "right-release.config.mjs", dryRun: false };
+  const opts = { config: defaultReleaseConfigFile(), dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--config") {
