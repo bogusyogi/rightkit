@@ -699,15 +699,24 @@ mod tests {
     #[cfg(unix)]
     mod with_a_fake_ffmpeg {
         use super::*;
-        use rightkit_ffmpeg::DevFfmpeg;
+
+        /// The stand-in binary. `DevFfmpeg::unverified` needs rightkit-ffmpeg's `dev-overrides`
+        /// feature, which this crate's tests do not enable, so it implements `FfmpegBinary` itself.
+        struct FakeFfmpeg(PathBuf);
+
+        impl FfmpegBinary for FakeFfmpeg {
+            fn ffmpeg_path(&self) -> &Path {
+                &self.0
+            }
+        }
 
         /// A shell stand-in for ffmpeg: `body` runs with the arguments in `$@`.
-        fn fake(dir: &Path, body: &str) -> DevFfmpeg {
+        fn fake(dir: &Path, body: &str) -> FakeFfmpeg {
             use std::os::unix::fs::PermissionsExt;
             let path = dir.join("fake-ffmpeg");
             std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-            DevFfmpeg::unverified(path)
+            FakeFfmpeg(path)
         }
 
         /// Writes the number of stdin bytes it received to the output file (the last argument).

@@ -151,22 +151,57 @@ impl FfmpegBinary for VerifiedFfmpeg {
 
 /// An FFmpeg path that has NOT been checked against the artifact catalog.
 ///
-/// Policy by build mode (see [`BuildMode`]): development builds may construct it freely.
-/// Release builds must go through [`DevFfmpeg::try_unverified`], which refuses with
-/// [`MediaError::UnverifiedRefusedInRelease`], unless the caller opts in explicitly with
-/// [`DevFfmpeg::allow_in_release_builds`]. [`DevFfmpeg::unverified`] is kept for
-/// development and tests and is not refused in release builds.
+/// Policy by build mode (see [`BuildMode`]): [`DevFfmpeg::try_unverified`] refuses with
+/// [`MediaError::UnverifiedRefusedInRelease`] in any build without the `dev-overrides` feature.
+/// `DevFfmpeg::unverified`, which has no mode check, is compiled only in this crate's own test
+/// builds and with `dev-overrides`. This crate's development fallbacks
+/// ([`crate::verified_or_development`], [`crate::resolve_ffmpeg_handle`]) check the mode before
+/// they build one. No other constructor exists and a release build has no escape: it runs a
+/// catalog-verified binary or none.
+///
+/// ```
+/// use rightkit_ffmpeg::DevFfmpeg;
+///
+/// // The control for the proofs below: the mode-checked constructor is always there.
+/// let _ = DevFfmpeg::try_unverified("ffmpeg");
+/// ```
+///
+/// `DevFfmpeg::allow_in_release_builds`, the explicit release escape of earlier versions, is
+/// removed in every build:
+///
+/// ```compile_fail,E0599
+/// let _ = rightkit_ffmpeg::DevFfmpeg::allow_in_release_builds("ffmpeg");
+/// ```
+#[cfg_attr(
+    not(feature = "dev-overrides"),
+    doc = "
+Without the `dev-overrides` feature `DevFfmpeg::unverified` does not exist either, so no code
+outside a test build of this crate can turn a bare path into a `DevFfmpeg` without the mode check:
+
+```compile_fail,E0599
+let _ = rightkit_ffmpeg::DevFfmpeg::unverified(\"ffmpeg\");
+```
+"
+)]
 #[derive(Clone, Debug)]
 pub struct DevFfmpeg(PathBuf);
 
 impl DevFfmpeg {
-    /// Development and test use only; it is not refused in release builds. Prefer
-    /// [`DevFfmpeg::try_unverified`] anywhere a release build could reach it.
-    pub fn unverified(path: impl Into<PathBuf>) -> Self {
+    /// A development binary the caller has already decided may run: the callers in this crate
+    /// check [`BuildMode::Development`] first.
+    pub(crate) fn mode_gated(path: impl Into<PathBuf>) -> Self {
         Self(path.into())
     }
 
-    /// [`DevFfmpeg::unverified`], refused with [`MediaError::UnverifiedRefusedInRelease`]
+    /// Development and test use only; there is no build-mode check. Compiled only in test builds
+    /// of this crate and with the `dev-overrides` feature, so a release build of an app cannot
+    /// name it. Prefer [`DevFfmpeg::try_unverified`] anywhere a release build could reach it.
+    #[cfg(any(test, feature = "dev-overrides"))]
+    pub fn unverified(path: impl Into<PathBuf>) -> Self {
+        Self::mode_gated(path)
+    }
+
+    /// A `DevFfmpeg` for `path`, refused with [`MediaError::UnverifiedRefusedInRelease`]
     /// in any build without the `dev-overrides` feature.
     pub fn try_unverified(path: impl Into<PathBuf>) -> Result<Self, MediaError> {
         Self::try_unverified_in(path, BuildMode::from_build_features())
@@ -174,15 +209,9 @@ impl DevFfmpeg {
 
     fn try_unverified_in(path: impl Into<PathBuf>, mode: BuildMode) -> Result<Self, MediaError> {
         match mode {
-            BuildMode::Development => Ok(Self(path.into())),
+            BuildMode::Development => Ok(Self::mode_gated(path)),
             BuildMode::Release => Err(MediaError::UnverifiedRefusedInRelease),
         }
-    }
-
-    /// The explicit escape for a release build that must run a non-catalog binary. Nothing
-    /// here verifies the reason; the call site owns it, so say why in a comment there.
-    pub fn allow_in_release_builds(path: impl Into<PathBuf>) -> Self {
-        Self(path.into())
     }
 }
 
@@ -300,15 +329,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn release_builds_refuse_try_unverified_and_need_the_explicit_escape() {
+    fn release_builds_refuse_try_unverified_and_no_other_constructor_is_public_there() {
         assert!(matches!(
             DevFfmpeg::try_unverified_in("ffmpeg", BuildMode::Release),
             Err(MediaError::UnverifiedRefusedInRelease)
         ));
-        assert!(DevFfmpeg::try_unverified_in("ffmpeg", BuildMode::Development).is_ok());
-        // The escape is an explicit constructor, not a flag on the refused path.
-        let escaped = DevFfmpeg::allow_in_release_builds("ffmpeg");
-        assert_eq!(escaped.ffmpeg_path(), Path::new("ffmpeg"));
+        let allowed = DevFfmpeg::try_unverified_in("ffmpeg", BuildMode::Development).unwrap();
+        assert_eq!(allowed.ffmpeg_path(), Path::new("ffmpeg"));
+        // The crate's own fallbacks build one through the mode-gated constructor.
+        assert_eq!(
+            DevFfmpeg::mode_gated("dev-ffmpeg").ffmpeg_path(),
+            Path::new("dev-ffmpeg")
+        );
     }
 
     fn texts(cmd: &FfmpegCommand) -> Vec<String> {

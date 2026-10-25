@@ -17,8 +17,9 @@ default = ["native"]
 # Consumed by asr/ort/vad tests; FFmpeg-only consumers can opt out.
 native = []
 # DEVELOPMENT/QA BUILDS ONLY. `BuildMode::from_build_features()` and `DevFfmpeg::try_unverified` allow
-# UNVERIFIED (non-catalog) binaries. Never implied by a build profile (a dev profile has debug_assertions on
-# and still refuses) and never a default feature. An app enables it only from its QA/test configuration.
+# UNVERIFIED (non-catalog) binaries, and `DevFfmpeg::unverified` (no mode check) is compiled only with it.
+# Never implied by a build profile (a dev profile has debug_assertions on and still refuses) and never a
+# default feature. An app enables it only from its QA/test configuration.
 dev-overrides = []
 
 [dependencies]

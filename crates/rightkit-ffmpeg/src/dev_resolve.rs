@@ -153,7 +153,7 @@ pub fn resolve_for_development() -> Option<(DevResolved, ResolutionKind)> {
         Err(e) => format!("no approved catalog artifact for this host: {e}"),
     };
     Some((
-        DevResolved::Dev(DevFfmpeg::unverified(first.clone())),
+        DevResolved::Dev(DevFfmpeg::mode_gated(first.clone())),
         ResolutionKind::DevUnverified {
             path: first,
             reason: catalog_reason,

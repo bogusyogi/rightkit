@@ -1,18 +1,21 @@
 //! Public inventory/qualification APIs through real owned child processes.
 #![cfg(unix)]
 
+mod common;
+
+use common::TestBinary;
 use rightkit_ffmpeg::encoders::{
     qualify_encoder, select_qualified_delivery, Encoder, EncoderError, EncoderInventory,
 };
-use rightkit_ffmpeg::{CancellationToken, DevFfmpeg, RunError};
+use rightkit_ffmpeg::{CancellationToken, RunError};
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
 
 const T: Duration = Duration::from_secs(3);
 
-fn script(path: &Path, body: &str) -> DevFfmpeg {
+fn script(path: &Path, body: &str) -> TestBinary {
     fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    DevFfmpeg::unverified(path)
+    TestBinary::new(path)
 }
 
 #[test]
@@ -74,7 +77,7 @@ fn inventory_and_qualification_propagate_cancel_timeout_and_spawn_failures() {
         qualify_encoder(&binary, "h264_mf", short, &cancel),
         Err(RunError::TimedOut(_))
     ));
-    let missing = DevFfmpeg::unverified(dir.path().join("missing"));
+    let missing = TestBinary::new(dir.path().join("missing"));
     assert!(matches!(
         EncoderInventory::probe_cached(&missing, T, &cancel),
         Err(EncoderError::Probe(RunError::Spawn(_)))
