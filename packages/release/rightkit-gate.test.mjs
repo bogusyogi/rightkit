@@ -12,6 +12,10 @@ import { digestScanSet } from "./scan-digest.mjs";
 import {
   DEFER_OPT_OUT_ENV, EXTERNAL_INPUT_FILE_LIMIT, PROTECTED_BRANCHES, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, deferredBlock, defaultBranchNames, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, isDeferrableRef, lockScope, main, manifestChangeIsLockReflected, manifestTables, manifestWorkspaceMetadata, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustDeferral, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, unmatchedManifests, withoutScans, workspaceExcludes,
 } from "./bin/rightkit-gate.mjs";
+import * as gateModule from "./bin/rightkit-gate.mjs";
+
+// Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
+const { discoverPnpmRoots } = gateModule;
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
 const no = (stderr = "") => ({ status: 1, stdout: "", stderr });
@@ -1292,7 +1296,7 @@ const snapshot = (root) => fs.readdirSync(root, { recursive: true }).map(String)
 // managed shim (its file names cargo-guard.mjs, see shimRead).
 // `manifests`: what git ls-files answers for Cargo.toml; `shows`: "<rev>:<path>" -> body for `git show`; `originHead`: what
 // `git symbolic-ref refs/remotes/origin/HEAD` answers (null: not set).
-function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = false, shim = false, rustfmtAnswers = true, manifests = ["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml"], shows = {}, originHead = null } = {}) {
+function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = false, shim = false, rustfmtAnswers = true, manifests = ["Cargo.toml", "crates/a/Cargo.toml", "crates/b/Cargo.toml"], shows = {}, originHead = null, tracked = {} } = {}) {
   const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
   return (cmd, args, opts = {}) => {
     log.push([cmd, ...args]);
@@ -1300,7 +1304,10 @@ function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = fa
     if (cmd === "git") {
       if (line === "rev-parse --show-toplevel") return ok(root);
       if (line === "rev-parse HEAD") return ok(HEAD);
-      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? `${manifests.join("\0")}\0` : "");
+      if (args[0] === "ls-files") {
+        const named = tracked[path.posix.basename(args.at(-1))]; // `tracked`: other tracked files by name ({ "package.json": [...] })
+        return ok(named ? `${named.join("\0")}\0` : args.at(-1).endsWith("Cargo.toml") ? `${manifests.join("\0")}\0` : "");
+      }
       if (args[0] === "diff") return ok(diff);
       if (args[0] === "status" || args[0] === "archive") return ok();
       if (args[0] === "show") return shows[args[1]] === undefined ? no("fatal: path does not exist") : ok(shows[args[1]]);
@@ -2012,4 +2019,242 @@ test("manifestWorkspaceMetadata returns the manifests a glob or a path dependenc
   const found = manifestWorkspaceMetadata({ root, dir: ".", tracked: (n) => (n === "Cargo.toml" ? all : []), readFile: (f) => fs.readFileSync(f, "utf8") });
   assert.deepEqual(found.members.map((m) => m.name), ["a"]);
   assert.deepEqual(found.unplaced, ["crates/odd/Cargo.toml", "libs/viadep/Cargo.toml"]);
+});
+
+// ---- gate false positives found by full-gate dry runs on real app branches (0.6.6) ----------------------------------------------------------
+// FP3 several independent pnpm roots (CodeRight); FP2 an npm test script that runs the broker, on a host without it (ViewRight, PostRight).
+
+// A repository as a file map: tracked(name) lists the files with that name, as `git ls-files :(glob)**/name` would.
+const pnpmFixture = (files) => {
+  const map = new Map(Object.entries(files).map(([k, v]) => [norm(path.join("/r", k)), v]));
+  return {
+    root: "/r", exists: (p) => map.has(norm(p)), readFile: (p) => map.get(norm(p)),
+    tracked: (name) => [...map.keys()].map((k) => k.slice("/r/".length)).filter((k) => path.posix.basename(k) === name),
+  };
+};
+const lock = "lockfileVersion: '9.0'\n";
+const codeRight = {
+  "apps/coderight-tauri/package.json": '{"name":"coderight-tauri","scripts":{"test":"vitest run"}}', "apps/coderight-tauri/pnpm-lock.yaml": lock,
+  "apps/coderight-web/package.json": '{"name":"coderight-web","scripts":{"test":"vitest run"}}', "apps/coderight-web/pnpm-lock.yaml": lock,
+  "src-tauri/Cargo.toml": pkg("coderight"), "README.md": "x",
+};
+
+test("pnpm roots: CodeRight's two independent roots are found, the repository root is not one, and each root's package is a unit named from its directory", () => {
+  const fixture = pnpmFixture(codeRight);
+  assert.deepEqual(discoverPnpmRoots(fixture), ["apps/coderight-tauri", "apps/coderight-web"]);
+  assert.deepEqual(discoverNpmUnits(fixture), [
+    { name: "apps-coderight-tauri", dir: "apps/coderight-tauri", root: "apps/coderight-tauri" },
+    { name: "apps-coderight-web", dir: "apps/coderight-web", root: "apps/coderight-web" },
+  ], "it returned [] before, so the gate planned no tsc, lint or test scan and a failing lockfile and audit at the repository root");
+});
+
+test("pnpm roots: a lock beside no package.json, inside node_modules, deeper than six levels or untracked is no root; a workspace file beside a package.json is", () => {
+  const files = {
+    "a/pnpm-lock.yaml": lock, // no package.json beside it
+    "b/node_modules/dep/package.json": '{"name":"dep"}', "b/node_modules/dep/pnpm-lock.yaml": lock,
+    "c/d/e/f/g/h/i/package.json": '{"name":"deep"}', "c/d/e/f/g/h/i/pnpm-lock.yaml": lock, // seven levels
+    "c/d/e/f/g/h/package.json": '{"name":"six"}', "c/d/e/f/g/h/pnpm-lock.yaml": lock, // six levels
+    "w/package.json": '{"name":"w"}', "w/pnpm-workspace.yaml": "packages: []\n",
+  };
+  const fixture = pnpmFixture(files);
+  assert.deepEqual(discoverPnpmRoots(fixture), ["c/d/e/f/g/h", "w"]);
+  const untracked = { ...fixture, tracked: (name) => fixture.tracked(name).filter((p) => !p.startsWith("w/")) };
+  assert.deepEqual(discoverPnpmRoots(untracked), ["c/d/e/f/g/h"], "only tracked files make a root");
+  assert.deepEqual(discoverPnpmRoots({ ...fixture, tracked: () => ["w/package.json", "w/pnpm-lock.yaml", "a/package.json"] }), ["w"], "a lister that ignores the name is filtered by file name");
+  assert.deepEqual(discoverNpmUnits(pnpmFixture({})), []);
+});
+
+test("pnpm roots: the repository root is a root with a package.json or a workspace file, as before; nested roots come with their own workspace members", () => {
+  const files = {
+    "package.json": '{"name":"@rk/root"}', "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n  - 'apps/**'\n", "pnpm-lock.yaml": lock,
+    "packages/a/package.json": '{"name":"@rk/a"}',
+    "apps/web/package.json": '{"name":"web"}', // a glob of the root workspace
+    "tpl/package.json": '{"name":"tpl"}', "tpl/pnpm-workspace.yaml": 'packages:\n  - "."\n  - "packages/*"\n', "tpl/pnpm-lock.yaml": lock,
+    "tpl/packages/ui/package.json": '{"name":"ui"}',
+    "apps/inner/package.json": '{"name":"inner"}', "apps/inner/pnpm-lock.yaml": lock, // a nested root below a root glob: the deeper root owns it
+  };
+  const fixture = pnpmFixture(files);
+  assert.deepEqual(discoverPnpmRoots(fixture), [".", "apps/inner", "tpl"]);
+  assert.deepEqual(discoverNpmUnits(fixture), [
+    { name: "apps-inner", dir: "apps/inner", root: "apps/inner" },
+    { name: "rk-a", dir: "packages/a" },
+    { name: "web", dir: "apps/web" },
+    { name: "tpl", dir: "tpl", root: "tpl" },
+    { name: "tpl-packages-ui", dir: "tpl/packages/ui", root: "tpl" },
+  ].sort((x, y) => (x.dir < y.dir ? -1 : 1)), "the repository root's units keep their package names and carry no root; the others are named from their directory");
+  const noPackage = pnpmFixture({ "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n", "packages/a/package.json": '{"name":"a"}' });
+  assert.deepEqual(discoverPnpmRoots(noPackage), ["."], "a workspace file without a root package.json is a root, as before");
+  assert.deepEqual(discoverNpmUnits(noPackage), [{ name: "a", dir: "packages/a" }]);
+});
+
+test("pnpm roots: the walk is bounded and a collision or an unreadable manifest is an error, never a silent gap", () => {
+  const many = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`apps/a${i}/package.json`, `{"name":"a${i}"}`]).concat(Array.from({ length: 65 }, (_, i) => [`apps/a${i}/pnpm-lock.yaml`, lock])));
+  assert.throws(() => discoverPnpmRoots(pnpmFixture(many)), /65 pnpm roots \(the gate covers at most 64/);
+  assert.throws(() => discoverNpmUnits(pnpmFixture({ "x/a-b/package.json": "{}", "x/a-b/pnpm-lock.yaml": lock, "x-a/b/package.json": "{}", "x-a/b/pnpm-lock.yaml": lock })), /two npm units are named x-a-b/);
+  assert.throws(() => discoverNpmUnits(pnpmFixture({ "apps/z/package.json": "{nope", "apps/z/pnpm-lock.yaml": lock })), /^Error: apps\/z\/package\.json: /);
+  assert.deepEqual(discoverNpmUnits(pnpmFixture({ "apps/z/package.json": "﻿{\"name\":\"z\"}", "apps/z/pnpm-lock.yaml": lock })).map((u) => u.name), ["apps-z"], "a byte order mark is skipped");
+});
+
+// The whole of main() over a repository of JavaScript only: git answers from the fixture, the scan runner records the plan.
+const jsRepo = (extra = {}) => ({
+  ...codeRight, "src-tauri/Cargo.toml": undefined,
+  "apps/coderight-tauri/tsconfig.json": "{}", "apps/coderight-tauri/biome.json": "{}", "apps/coderight-tauri/src/a.ts": "",
+  "apps/coderight-web/tsconfig.json": "{}", "apps/coderight-web/eslint.config.js": "", "apps/coderight-web/src/b.ts": "",
+  ...extra,
+});
+const stripUndefined = (files) => Object.fromEntries(Object.entries(files).filter(([, v]) => v !== undefined));
+const trackedJs = { "package.json": ["apps/coderight-tauri/package.json", "apps/coderight-web/package.json"], "pnpm-lock.yaml": ["apps/coderight-tauri/pnpm-lock.yaml", "apps/coderight-web/pnpm-lock.yaml"] };
+
+test("gate: a repository of independent pnpm roots plans the lockfile and audit per root, and tsc, the linter it configures and the tests per unit", async (t) => {
+  const r = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port"), files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-tauri/package.json\napps/coderight-web/src/b.ts\n" },
+  });
+  assert.equal(r.code, 0, r.err);
+  const scans = r.seen[0].plan.scans; const ids = scans.map((s) => s.id);
+  for (const id of [
+    "pnpm-lockfile:apps/coderight-tauri", "pnpm-audit:apps/coderight-tauri", "pnpm-lockfile:apps/coderight-web", "pnpm-audit:apps/coderight-web",
+    "tsc:apps-coderight-tauri", "biome:apps-coderight-tauri", "test:npm:apps-coderight-tauri", "tsc:apps-coderight-web", "eslint:apps-coderight-web", "test:npm:apps-coderight-web",
+  ]) assert.ok(ids.includes(id), `${id} planned: ${ids.join(" ")}`);
+  assert.ok(!ids.includes("pnpm-lockfile") && !ids.includes("pnpm-audit"), "nothing at the repository root, which holds no package.json (No package.json found)");
+  assert.ok(!ids.includes("eslint:apps-coderight-tauri") && !ids.includes("biome:apps-coderight-web"), "a Biome app is not linted with ESLint, nor an ESLint app with Biome");
+  assert.equal(scans.find((s) => s.id === "pnpm-audit:apps/coderight-web").cwd, "apps/coderight-web");
+  assert.equal(scans.find((s) => s.id === "tsc:apps-coderight-tauri").cwd, "apps/coderight-tauri");
+  assert.deepEqual(scans.find((s) => s.id === "test:npm:apps-coderight-web").args, ["--dir", "apps/coderight-web", "run", "test"]);
+  assert.match(r.out, /\d+ scan\(s\) for 2 changed file\(s\)/);
+  assert.deepEqual(r.after, r.before, "the tree is what it was");
+  // The checkout must equal HEAD where these scans read it: each root's install graph and linter configuration is checked, not only the units' directories.
+  const status = r.log.find((l) => l[0] === "git" && l[1] === "status");
+  for (const p of ["apps/coderight-web/pnpm-lock.yaml", "apps/coderight-tauri/package.json", "apps/coderight-web/.npmrc", "apps/coderight-tauri/biome.json", "apps/coderight-web/eslint.config.js", "apps/coderight-web/biome.jsonc"]) assert.ok(status.includes(p), `${p} is checked against HEAD`);
+});
+
+test("gate --plan: lists the pnpm roots' units with their root-carrying names and the per-root scans", async (t) => {
+  const root = mkRepo(stripUndefined(jsRepo()), t);
+  const c = capture();
+  const code = await main(["--plan", "--base", "origin/main"], { ...c.io, spawn: pushSpawn(root, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" }), cwd: root, env: {} });
+  assert.equal(code, 0, c.err.join("\n"));
+  const out = c.out.join("\n");
+  assert.match(out, /npm units: apps-coderight-tauri=apps\/coderight-tauri, apps-coderight-web=apps\/coderight-web/);
+  assert.match(out, /\[A\] pnpm-lockfile:apps\/coderight-web :: .*pnpm install --frozen-lockfile/);
+  assert.doesNotMatch(out, /pnpm-lockfile:apps\/coderight-tauri/, "only the root whose files changed");
+});
+
+test("gate: a repository with no pnpm root plans no pnpm scan, whatever package.json changed", async (t) => {
+  const r = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port"), files: stripUndefined({ "docs/site/package.json": '{"name":"site"}', "README.md": "x" }),
+    spawnOptions: { manifests: [], tracked: { "package.json": ["docs/site/package.json"] }, diff: "docs/site/package.json\n" },
+  });
+  assert.equal(r.code, 0, r.err);
+  assert.ok(!r.seen[0].plan.scans.some((s) => /^pnpm-|^tsc:|^test:npm:/.test(s.id)), r.seen[0].plan.scans.map((s) => s.id).join(" "));
+});
+
+test("cache digest: a unit of a nested pnpm root keys on that root's install graph, resolves workspace dependencies inside its root, and a one-root repository keeps its key", () => {
+  const manifests = {
+    "apps/foo/packages/ui/package.json": JSON.stringify({ name: "ui", dependencies: { core: "workspace:*" } }),
+    "apps/foo/packages/core/package.json": '{"name":"core"}',
+    "apps/bar/package.json": '{"name":"core"}', // the same package name in another root
+  };
+  const units = [
+    { name: "apps-bar", dir: "apps/bar", root: "apps/bar" },
+    { name: "apps-foo-packages-core", dir: "apps/foo/packages/core", root: "apps/foo" },
+    { name: "apps-foo-packages-ui", dir: "apps/foo/packages/ui", root: "apps/foo" },
+  ];
+  const make = (ids, tree = "t1") => buildCacheDigest({ objectId: (p) => ids[p] ?? null, headTree: tree, rustUnits: [], npmUnits: units, listFiles: () => [], readBlob: (p) => { if (!(p in manifests)) throw new Error(`no ${p}`); return manifests[p]; } });
+  const base = { "apps/foo/packages/ui": "u1", "apps/foo/packages/core": "c1", "apps/bar": "b1", "apps/foo/pnpm-lock.yaml": "fl1", "apps/bar/pnpm-lock.yaml": "bl1" };
+  const ui = { id: "test:npm:apps-foo-packages-ui", class: "B" };
+  assert.equal(make(base, "t1")(ui), make(base, "t2")(ui), "not keyed on the tree");
+  assert.notEqual(make({ ...base, "apps/foo/pnpm-lock.yaml": "fl2" })(ui), make(base)(ui), "the unit's own root's lock is an input (it sits above the member's directory)");
+  assert.equal(make({ ...base, "apps/bar/pnpm-lock.yaml": "bl2" })(ui), make(base)(ui), "another root's lock is not");
+  assert.notEqual(make({ ...base, "apps/foo/packages/core": "c2" })(ui), make(base)(ui), "its workspace dependency, found inside its own root");
+  assert.equal(make({ ...base, "apps/bar": "b2" })(ui), make(base)(ui), "the same package name in another root is not that dependency");
+  assert.notEqual(make({ ...base, "apps/foo/.npmrc": "n1" })(ui), make(base)(ui), "the root's .npmrc");
+  // Linter configuration of an ancestor directory counts when the commit has it, and a commit without one keeps its key.
+  assert.notEqual(make({ ...base, "apps/foo/eslint.config.cjs": "e1" })(ui), make(base)(ui), "an ESLint config of the root, under a name the shared list lacks");
+  assert.notEqual(make({ ...base, "apps/biome.jsonc": "b1" })(ui), make(base)(ui), "a Biome config of an ancestor directory");
+  const biome = { id: "biome:apps-bar", class: "B" };
+  assert.equal(make(base, "t1")(biome), make(base, "t2")(biome), "a biome scan is keyed like eslint and tsc: its package, not the tree");
+  assert.notEqual(make({ ...base, "apps/bar": "b2" })(biome), make(base)(biome));
+  // One root: the shared list is what it always was, whatever lint config names the commit lacks.
+  const one = buildCacheDigest({ objectId: (p) => ({ "packages/p": "p1", "pnpm-lock.yaml": "l" })[p] ?? null, headTree: "t", rustUnits: [], npmUnits: [{ name: "p", dir: "packages/p" }], listFiles: () => [], readBlob: () => '{"name":"p"}' });
+  const shared = JSON.parse(one({ id: "tsc:p", class: "B" })).shared.map(([p]) => p);
+  assert.deepEqual(shared, ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", "tsconfig.json", "tsconfig.base.json", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json", "biome.json", "vitest.config.ts", "vitest.config.mjs", "vitest.workspace.ts"]);
+});
+
+// ---- FP2: an npm test script that runs the broker, on a host without it -------------------------------------------------------------------------------------
+
+const viewright = {
+  name: "viewright", license: "MIT",
+  scripts: { test: "pnpm test:edge && pnpm test:e2e", "test:edge": "vitest run", "test:e2e": "rustright storage run --app viewright -- right-release test" },
+};
+const viewrightFiles = (scripts = viewright.scripts) => gateFiles({ "package.json": JSON.stringify({ ...viewright, scripts }), "src/app.ts": "" });
+const viewrightSpawn = { tracked: { "package.json": ["package.json"] }, diff: "package.json\ncrates/a/src/lib.rs\n" };
+const E2E_COMMAND = "rustright storage run --app viewright -- right-release test";
+
+test("deferral: an npm test scan whose script chain runs rustright is deferred with the Rust gate, named with its reason, and never reported as passed", async (t) => {
+  const r = await pushGate(t, { files: viewrightFiles(), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  const ids = r.seen[0].plan.scans.map((s) => s.id);
+  assert.ok(!ids.includes("test:npm:viewright"), "it is not run (pnpm run test would end in: command not found: rustright)");
+  assert.ok(ids.includes("license") && ids.includes("json-parse"), "the other scans still run");
+  const headline = r.err.split("\n").find((l) => /rust gate DEFERRED/.test(l));
+  assert.match(headline, /scans not run [^;]*test:npm:viewright/, "listed by name in the DEFERRED block");
+  assert.match(r.err, new RegExp(`npm test scan\\(s\\) deferred with the Rust gate, never run and never passed, because the package script runs rustright and this host has no broker: test:npm:viewright \\(script test -> test:e2e: ${E2E_COMMAND.replaceAll(".", "\\.")}\\)`));
+  assert.match(r.out, /note: no RustRight broker on this host: 6 Rust scan\(s\) are deferred to host qualification, not run and not passed; 1 npm test scan\(s\) whose script runs the broker or cargo are deferred with them, not run and not passed: test:npm:viewright/);
+  assert.doesNotMatch(r.out, /\[\d+\/\d+\] pass +test:npm:viewright/, "never reported as passed");
+  assert.deepEqual(r.seen[0].plan.deferred, [], "nothing is left in the plan as deferred");
+  assert.equal(r.seen[0].plan.scanSetDigest, digestScanSet(r.seen[0].plan.scans), "the plan digest describes what runs");
+  assert.deepEqual(r.after, r.before, "the tree is byte for byte what it was");
+});
+
+test("deferral: plain cargo in a test script chain is the unmanaged toolchain on such a host, and is deferred the same way (PostRight's test:rust)", async (t) => {
+  const scripts = { test: "pnpm run test:rust && pnpm run test:e2e", "test:rust": "rustright cargo build -p x && rustright cargo test --workspace", "test:e2e": "cargo test -p e2e" };
+  const r = await pushGate(t, { files: viewrightFiles(scripts), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  assert.ok(!r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"));
+  assert.match(r.err, /because the package script runs rustright and this host has no broker: test:npm:viewright \(script test -> test:rust: rustright cargo build -p x\)/);
+  const cargoOnly = await pushGate(t, { files: viewrightFiles({ test: "cargo test" }), spawnOptions: viewrightSpawn });
+  assert.match(cargoOnly.err, /the package script runs cargo and this host has no broker: test:npm:viewright \(script test: cargo test\)/);
+});
+
+test("deferral: an npm test script that never reaches the broker still runs on a host without it", async (t) => {
+  const r = await pushGate(t, { files: viewrightFiles({ test: "pnpm test:edge", "test:edge": "vitest run" }), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  assert.ok(r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), "it runs");
+  assert.doesNotMatch(r.err, /npm test scan\(s\) deferred/);
+  assert.match(r.err, /scans not run [^;]*cargo-metadata/, "the Rust scans are still deferred");
+  assert.doesNotMatch(r.out, /npm test scan\(s\) whose script/);
+});
+
+test("deferral unchanged for the npm test scan: a host with the broker, CI, a protected ref and the opt-out run it as before", async (t) => {
+  const withBroker = await pushGate(t, { files: viewrightFiles(), spawnOptions: { ...viewrightSpawn, broker: true } });
+  assert.equal(withBroker.code, 0, withBroker.err);
+  const brokerScan = withBroker.seen[0].plan.scans.find((s) => s.id === "test:npm:viewright");
+  assert.ok(brokerScan, "a host that has the broker runs the test scan");
+  assert.equal(brokerScan.brokerCall.tool, "rustright");
+  assert.doesNotMatch(withBroker.err, /DEFERRED|npm test scan\(s\) deferred/);
+  assert.doesNotMatch(withBroker.out, /npm test scan\(s\) whose script/);
+  const shim = await pushGate(t, { files: viewrightFiles(), spawnOptions: { ...viewrightSpawn, shim: true }, readFile: shimRead });
+  assert.ok(shim.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), "the managed shim counts as the broker");
+  for (const [name, o] of [
+    ["CI", { env: { CI: "1" } }], ["GITHUB_ACTIONS", { env: { GITHUB_ACTIONS: "true" } }], ["the opt-out", { env: { [DEFER_OPT_OUT_ENV]: "1" } }],
+    ["a protected ref", { stdin: pushLine("refs/heads/main") }], ["a release branch", { stdin: pushLine("refs/heads/release/1.0") }],
+  ]) {
+    const r = await pushGate(t, { files: viewrightFiles(), spawnOptions: viewrightSpawn, ...o });
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, NO_BROKER, `${name}: it refuses as before, nothing is deferred`);
+    assert.equal(r.seen.length, 0, `${name}: nothing ran, so the npm test scan is neither skipped nor reported passed`);
+    assert.doesNotMatch(r.err, /npm test scan\(s\) deferred/, name);
+  }
+});
+
+test("deferredBlock: npm test scans get a line of their own with the tool, the script chain and the command; without them the block is what it was", () => {
+  const base = { units: ["a"], notRun: ["clippy:a", "test:npm:viewright"], refs: ["refs/heads/claude/x"] };
+  const plain = deferredBlock({ ...base, npmCalls: [] });
+  assert.deepEqual(plain, deferredBlock(base));
+  assert.equal(plain.length, 2);
+  const withNpm = deferredBlock({ ...base, npmCalls: [{ id: "test:npm:viewright", tool: "rustright", via: ["test", "test:e2e"], command: E2E_COMMAND }, { id: "test:npm:other", tool: "cargo", via: ["test"], command: "cargo test" }] });
+  assert.deepEqual(withNpm.slice(0, 2), plain);
+  assert.equal(withNpm.length, 3);
+  assert.equal(withNpm[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright or cargo and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:other (script test: cargo test)`);
+  assert.match(withNpm[0], /scans not run clippy:a, test:npm:viewright;/, "named in the headline too");
 });

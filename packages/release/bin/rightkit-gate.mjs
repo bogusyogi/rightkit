@@ -3,7 +3,7 @@
 // "local deterministic checks ... mandatory for all builds"). Runs from the pre-push hook that `rightkit-gate install-hook`
 // writes, so it never depends on an agent remembering. Every applicable scan for the pushed change runs through the one
 // scan module (../deterministic-scans.mjs); Rust units come from `cargo metadata` (one run per Cargo workspace), npm units from
-// pnpm-workspace.yaml, so the layout is the repository's own. CI still compiles, lints and tests everything.
+// the pnpm roots' workspace files, so the layout is the repository's own. CI still compiles, lints and tests everything.
 //
 // Layout it covers (nothing is partly covered silently):
 //   - Rust: every tracked Cargo.toml that is a workspace root or a standalone package not inside another workspace is its own Cargo
@@ -12,8 +12,11 @@
 //     workspace's own Cargo.lock, and ci/gate.config.json `rust` may key its feature sets by `<cargoDir>:<crate>` or by the plain crate
 //     name. A tracked Cargo.toml that is not a member and cannot stand alone, a member that is untracked or ignored, and an untracked
 //     Cargo.toml are skipped with a note on the first lines of the run, never silently.
-//   - npm: the pnpm-workspace.yaml globs over tracked package.json files; when that file is absent, has no `packages:` or declares ".",
-//     the root package.json is a unit too (tsc, eslint and test rows like any package).
+//   - npm: every pnpm root (discoverPnpmRoots: the repository root, and any tracked directory with a pnpm-lock.yaml or pnpm-workspace.yaml
+//     beside a package.json, outside node_modules) has its own units: the pnpm-workspace.yaml globs over tracked package.json files; when that
+//     file is absent, has no `packages:` or declares ".", the root's package.json is a unit too. pnpm-lockfile and pnpm-audit run once per
+//     root in its directory (`pnpm-lockfile:<root>` below the repository root), and each unit gets tsc, the linter it configures (eslint
+//     or biome, by config file) and its tests like any package. A unit of a root below the repository root is named from its directory.
 //
 // Release evidence for a PRODUCT repository (an app): the pin's "a release qualified locally on both hosts" is the app's own
 // `right-release` release QA run on both hosts (docs/CI.md "Release evidence for an app"). `right-release qualify cargo` qualifies
@@ -42,8 +45,9 @@
 // stdin names only non-protected branches (not main, master, trunk, release/*, the .rightgit.json defaultBranch, or a tag) and the
 // process is not in CI (no CI or GITHUB_ACTIONS), the gate defers the Rust gate to host qualification. It reads the Rust units from the
 // tracked manifests (no cargo), runs every scan that needs no broker, prints "rust gate DEFERRED to host qualification" with the Rust
-// units and scans it did not run, exits 0 and writes nothing into the tree. The pull request then needs a HOST RECEIPT before merge; that
-// receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host. Every pushed ref is judged, whatever its place
+// units and scans it did not run, exits 0 and writes nothing into the tree. An npm test scan whose package script chain runs `rustright` or
+// `cargo` (planScans marks it `brokerCall`) cannot run there either and is deferred the same way, named with its reason. The pull request then
+// needs a HOST RECEIPT before merge; that receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host. Every pushed ref is judged, whatever its place
 // in the push; git's stdin is split on single ASCII spaces (a ref name may hold Unicode whitespace) and a line that is not four fields defers
 // nothing. The default branch is named by the checkout, the base ref, the remote commits being replaced and origin/HEAD, so a commit cannot
 // unprotect it by editing .rightgit.json. A refusal prints the old message and, on a second line, why nothing was deferred.
@@ -62,7 +66,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
+import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 
 const ZERO = /^0+$/;
@@ -124,31 +128,77 @@ const unitName = (pkgName, dir) => {
   return SAFE_NAME.test(n) ? n : dir === "." ? "root" : dir.replace(/\//g, "-");
 };
 
+// The bounds of the pnpm root walk. A lock deeper than this is a buried fixture, not an app; more roots than this is refused, because covering
+// some of them would hide the rest.
+const PNPM_ROOT_MAX_DEPTH = 6;
+const PNPM_ROOT_MAX_COUNT = 64;
+
+/** Tracked files with exactly this name (a lister that ignores the name is filtered here). */
+const trackedNamed = (tracked, name) => tracked(name).map(posix).filter((p) => path.posix.basename(p) === name);
+
 /**
- * npm units: pnpm-workspace.yaml globs over tracked package.json files, else the root package.json. The root package.json is a
- * unit as well when the workspace file is absent, has no `packages:` (or an empty one) or declares "." (or "./"); with a
- * `packages:` list that does not name the root it is only the workspace's own manifest and is not a unit.
+ * The pnpm roots of the repository, sorted: "." when the repository root holds a pnpm-workspace.yaml or a package.json, and every other
+ * tracked directory (outside node_modules, at most 6 levels deep) that holds a pnpm-lock.yaml or a pnpm-workspace.yaml beside a
+ * package.json. A repository such as CodeRight (apps/coderight-tauri and apps/coderight-web, each with its own lock, nothing at the root) has
+ * two; a plain repository has "." only. A walk over the tracked files, never the file system: nothing in node_modules or untracked is a root.
+ */
+export function discoverPnpmRoots({ root, tracked, exists }) {
+  const manifestDirs = new Set(trackedNamed(tracked, "package.json").map((p) => path.posix.dirname(p)));
+  const roots = new Set();
+  if (exists(path.join(root, "pnpm-workspace.yaml")) || exists(path.join(root, "package.json"))) roots.add(".");
+  for (const file of [...trackedNamed(tracked, "pnpm-lock.yaml"), ...trackedNamed(tracked, "pnpm-workspace.yaml")]) {
+    const dir = path.posix.dirname(file);
+    const parts = dir.split("/");
+    if (dir === "." || parts.includes("node_modules") || parts.length > PNPM_ROOT_MAX_DEPTH || !manifestDirs.has(dir)) continue;
+    roots.add(dir);
+  }
+  if (roots.size > PNPM_ROOT_MAX_COUNT) throw new Error(`${roots.size} pnpm roots (the gate covers at most ${PNPM_ROOT_MAX_COUNT}, and covering some would hide the rest)`);
+  return [...roots].sort();
+}
+
+/**
+ * npm units, per pnpm root (discoverPnpmRoots). Within a root: pnpm-workspace.yaml globs over the tracked package.json files, else the root's
+ * own package.json. The root package.json is a unit as well when the workspace file is absent, has no `packages:` (or an empty one) or declares
+ * "." (or "./"); with a `packages:` list that does not name the root it is only the workspace's own manifest and is not a unit. A directory
+ * belongs to the deepest root that holds it. The repository root's units are named from their package names (`@scope/x` -> `scope-x`, a
+ * collision falls back to the directory) and carry no `root`, exactly as in a repository with one root. The units of any other root are named
+ * from their directory (`apps/coderight-web` -> `apps-coderight-web`), so their scan ids carry the root path, and carry `root`.
  */
 export function discoverNpmUnits({ root, tracked, readFile, exists }) {
-  let dirs;
-  const workspaceFile = path.join(root, "pnpm-workspace.yaml");
-  if (exists(workspaceFile)) {
-    const globs = parseWorkspaceGlobs(readFile(workspaceFile));
-    const inc = globs.filter((g) => !g.startsWith("!")).map(globToRegExp);
-    const exc = globs.filter((g) => g.startsWith("!")).map((g) => globToRegExp(g.slice(1)));
-    const positive = globs.filter((g) => !g.startsWith("!"));
-    const rootDeclared = positive.length === 0 || positive.some((g) => g === "." || g === "./");
-    dirs = tracked("package.json").map((p) => path.posix.dirname(p)).filter((d) => (d === "." ? rootDeclared : inc.some((r) => r.test(d))) && !exc.some((r) => r.test(d)));
-  } else dirs = exists(path.join(root, "package.json")) ? ["."] : [];
-  dirs = [...new Set(dirs)].sort();
-  const rows = dirs.map((dir) => {
+  const roots = discoverPnpmRoots({ root, tracked, exists });
+  const manifestDirs = [...new Set(trackedNamed(tracked, "package.json").map((p) => path.posix.dirname(p)))];
+  const within = (rootDir, dir) => (rootDir === "." ? dir : dir === rootDir ? "." : dir.startsWith(`${rootDir}/`) ? dir.slice(rootDir.length + 1) : null);
+  const joined = (rootDir, rel) => (rootDir === "." ? rel : rel === "." ? rootDir : `${rootDir}/${rel}`);
+  const ownerOf = (dir) => roots.reduce((best, r) => (within(r, dir) !== null && (best === null || r.length > best.length) ? r : best), null);
+  const found = new Map();
+  for (const rootDir of roots) {
+    let dirs;
+    const workspaceFile = path.join(root, joined(rootDir, "pnpm-workspace.yaml"));
+    if (exists(workspaceFile)) {
+      const globs = parseWorkspaceGlobs(readFile(workspaceFile));
+      const inc = globs.filter((g) => !g.startsWith("!")).map(globToRegExp);
+      const exc = globs.filter((g) => g.startsWith("!")).map((g) => globToRegExp(g.slice(1)));
+      const positive = globs.filter((g) => !g.startsWith("!"));
+      const rootDeclared = positive.length === 0 || positive.some((g) => g === "." || g === "./");
+      dirs = manifestDirs.map((d) => within(rootDir, d)).filter((rel) => rel !== null && (rel === "." ? rootDeclared : inc.some((r) => r.test(rel))) && !exc.some((r) => r.test(rel))).map((rel) => joined(rootDir, rel));
+    } else dirs = exists(path.join(root, joined(rootDir, "package.json"))) ? [rootDir] : [];
+    for (const dir of dirs) if (ownerOf(dir) === rootDir) found.set(dir, rootDir);
+  }
+  const rows = [...found.keys()].sort().map((dir) => {
     let manifest;
     try { manifest = JSON.parse(readFile(path.join(root, dir, "package.json")).replace(/^﻿/, "")); } catch (e) { throw new Error(`${dir}/package.json: ${e.message}`); }
-    return { dir, name: unitName(manifest.name, dir) };
+    const rootDir = found.get(dir);
+    return { dir, root: rootDir, name: rootDir === "." ? unitName(manifest.name, dir) : dir.replace(/\//g, "-") };
   });
   const count = new Map();
   for (const r of rows) count.set(r.name, (count.get(r.name) ?? 0) + 1);
-  return rows.map((r) => ({ name: count.get(r.name) > 1 ? unitName("", r.dir === "." ? "root" : r.dir) : r.name, dir: r.dir }));
+  const named = rows.map((r) => ({ ...r, name: count.get(r.name) > 1 && r.root === "." ? unitName("", r.dir === "." ? "root" : r.dir) : r.name }));
+  const taken = new Set();
+  for (const r of named) {
+    if (taken.has(r.name)) throw new Error(`two npm units are named ${r.name} (${r.dir}); rename one of the packages`);
+    taken.add(r.name);
+  }
+  return named.map((r) => ({ name: r.name, dir: r.dir, ...(r.root === "." ? {} : { root: r.root }) }));
 }
 
 const dirOfManifest = (m) => path.posix.dirname(m);
@@ -551,15 +601,18 @@ export function withoutScans(plan, dropped, note) {
  * The lines the gate prints when it defers: the Rust units and scans that did not run, the pushed refs, and who gates the merge.
  * `manifests` is the number of tracked Cargo.toml: when it is above zero and no unit was found, the block says the reader found none
  * and that the scans cannot be named, instead of claiming no Rust scan was due. `unmatched` lists the tracked manifests with a package
- * that no unit covers (unmatchedManifests); they get a line of their own.
+ * that no unit covers (unmatchedManifests); they get a line of their own. `npmCalls` are the npm test scans deferred with the Rust
+ * gate because their package script runs `rustright` or `cargo` ([{ id, tool, via, command }]); `notRun` names them too, and a line of their
+ * own gives each one's reason.
  */
-export function deferredBlock({ units, notRun, refs, manifests = 0, unmatched = [], tag = "rightkit-gate:" }) {
+export function deferredBlock({ units, notRun, refs, manifests = 0, unmatched = [], tag = "rightkit-gate:", npmCalls = [] }) {
   const noUnits = units.length === 0 && manifests > 0;
   const lines = [
     `${tag} rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units ${units.length ? units.join(", ") : noUnits ? `none found among the ${manifests} tracked Cargo.toml (read without cargo)` : "none found"}; scans not run ${notRun.length ? notRun.join(", ") : noUnits ? "unknown (no unit was found, so no Rust scan could be planned)" : "none (no Rust scan was due for this diff)"}; the pull request needs a HOST RECEIPT before merge`,
     `${tag}   pushed ${refs.join(", ")} (non-protected, not CI). The HOST RECEIPT (a host with the RustRight broker ran the full gate) stays the merge gate; ${DEFER_OPT_OUT_ENV}=1 keeps the refusal on this host.`,
   ];
   if (unmatched.length) lines.push(`${tag}   tracked Cargo.toml with a package that matched no unit (the manifest reader runs no cargo; the HOST RECEIPT does): ${unmatched.join(", ")}`);
+  if (npmCalls.length) lines.push(`${tag}   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs ${[...new Set(npmCalls.map((c) => c.tool))].join(" or ")} and this host has no broker: ${npmCalls.map((c) => `${c.id} (script ${c.via.join(" -> ")}: ${c.command})`).join("; ")}`);
   return lines;
 }
 
@@ -825,7 +878,7 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  *   when declared. Without a declaration, a closure source that navigates out of its crate at run time without a literal path
  *   (externalInputs `leavesCrate`: workspace root, current_dir, a bare "..", the manifest directory's parent) keys the scan on the
  *   whole HEAD tree, since its tests may read anything.
- * - An npm package scan (test:npm, tsc, eslint) keys on the package's workspace closure (its `workspace:` dependencies,
+ * - An npm package scan (test:npm, tsc, eslint, biome) keys on the package's workspace closure (its `workspace:` dependencies,
  *   transitively, by package name) and the root npm inputs; test:scripts-ci on scripts/, ci/, .github/, packages/release and the
  *   root install graph. Every other class B scan (generated-docs, swift-build) uses the whole tree.
  * - Class A: cargo-deny, cargo-audit, pnpm-audit, pnpm-lockfile and advisory-exceptions are never cached (live answers); rustfmt,
@@ -834,6 +887,9 @@ const plainRelative = (p) => typeof p === "string" && p !== "" && !path.posix.is
  */
 // Root npm inputs every package scan reads: the install graph and the shared tool configuration.
 const SHARED_NPM_INPUTS = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", "tsconfig.json", "tsconfig.base.json", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json", "biome.json", "vitest.config.ts", "vitest.config.mjs", "vitest.workspace.ts"];
+// ESLint and Biome look their configuration up from the package directory through every ancestor. A config in an ancestor directory (or of another
+// name than the shared list above) is part of a package's key only when the commit has it, so a repository without one keeps the key it had.
+const LINT_CONFIG_NAMES = [...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
 // The gate's own test suite reads the CI scripts, the gate config and the release package it imports from.
 const SCRIPTS_CI_INPUTS = ["scripts", "ci", ".github", "packages/release", "package.json", "pnpm-lock.yaml"];
 
@@ -854,7 +910,7 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
   };
   let npmByPkgName = null;
   const npmClosure = (unit) => {
-    if (npmByPkgName === null) { npmByPkgName = new Map(); for (const u of npmUnits) { const m = npmManifest(u); if (m?.name) npmByPkgName.set(m.name, u); } }
+    if (npmByPkgName === null) { npmByPkgName = new Map(); for (const u of npmUnits) { const m = npmManifest(u); if (m?.name) npmByPkgName.set(`${u.root ?? "."}\0${m.name}`, u); } }
     const seen = new Map([[unit.name, unit]]); const stack = [unit]; let unresolved = false;
     while (stack.length) {
       const u = stack.pop(); const m = npmManifest(u);
@@ -862,13 +918,25 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
         for (const [name, spec] of Object.entries(m[section] ?? {})) {
           if (!/^(workspace:|link:|file:)/.test(String(spec))) continue;
-          const dep = npmByPkgName.get(name);
+          const dep = npmByPkgName.get(`${u.root ?? "."}\0${name}`);
           if (!dep) { unresolved = true; continue; }
           if (!seen.has(dep.name)) { seen.set(dep.name, dep); stack.push(dep); }
         }
       }
     }
     return { members: [...seen.values()].sort((a, b) => (a.name < b.name ? -1 : 1)), unresolved };
+  };
+  // The npm inputs shared by a set of units: the repository root's (always, null when absent: the key a one-root repository has always had),
+  // the same files of every other pnpm root the units belong to, and the linter configuration of their ancestor directories that the commit has.
+  const sharedNpmInputs = (members) => {
+    const required = new Set(SHARED_NPM_INPUTS); const optional = new Set();
+    for (const m of members) {
+      if ((m.root ?? ".") !== ".") for (const p of SHARED_NPM_INPUTS) required.add(inWs(m.root, p));
+      for (const dir of ancestorDirsOf(m.dir)) if (dir !== m.dir) for (const f of LINT_CONFIG_NAMES) optional.add(inWs(dir, f));
+    }
+    const nested = [...required].filter((p) => !SHARED_NPM_INPUTS.includes(p)).sort();
+    const extra = [...optional].filter((p) => !required.has(p)).sort();
+    return [...SHARED_NPM_INPUTS, ...nested].map((p) => [p, idOf(p)]).concat(extra.map((p) => [p, idOf(p)]).filter(([, id]) => id !== null && id !== undefined));
   };
   // A unit belongs to the Cargo workspace it names (rustUnits[].cargoDir, else the global one) and is a package of that workspace's
   // own lock under its crate name (rustUnits[].crate, else its name); its closure never crosses into another workspace.
@@ -924,11 +992,11 @@ export function buildCacheDigest({ objectId, headTree, rustUnits = [], npmUnits 
       if (!unit) {
         if (typeof readBlob !== "function") return whole();
         // npm package scans: the package's workspace closure plus the root npm inputs.
-        const npmMatch = /^(test:npm|tsc|eslint):(.+)$/.exec(scan.id);
+        const npmMatch = /^(test:npm|tsc|eslint|biome):(.+)$/.exec(scan.id);
         if (npmMatch && npmByUnit.has(npmMatch[2])) {
           const { members, unresolved } = npmClosure(npmByUnit.get(npmMatch[2]));
           if (unresolved) return whole();
-          return canonicalJson({ kind: "npm", id: scan.id, members: members.map((m) => [m.name, m.dir, idOf(m.dir)]), shared: SHARED_NPM_INPUTS.map((p) => [p, idOf(p)]) });
+          return canonicalJson({ kind: "npm", id: scan.id, members: members.map((m) => [m.name, m.dir, idOf(m.dir)]), shared: sharedNpmInputs(members) });
         }
         if (scan.id === "test:scripts-ci") return canonicalJson({ kind: "dirs", id: scan.id, inputs: SCRIPTS_CI_INPUTS.map((p) => [p, idOf(p)]) });
         return whole();
@@ -1216,7 +1284,7 @@ export async function main(argv, io = {}) {
   const readLive = (f) => o.readFile(f);
 
   // Units come from the live checkout (cargo reads it); a dirty checkout then blocks below.
-  let rust; let npm; let cargoCommand = ["rustright", "cargo"]; let deferral = null; let manifests = []; const unplaced = [];
+  let rust; let npm; let npmRoots = []; let cargoCommand = ["rustright", "cargo"]; let deferral = null; let manifests = []; const unplaced = [];
   try {
     manifests = tracked("Cargo.toml");
     if (manifests.length) {
@@ -1251,14 +1319,18 @@ export async function main(argv, io = {}) {
       ...(deferral ? { metadata: (dir) => { const read = manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }); unplaced.push(...(read.unplaced ?? [])); return read; } } : {}),
     });
     npm = discoverNpmUnits({ root, tracked, readFile: readLive, exists: o.exists });
+    npmRoots = discoverPnpmRoots({ root, tracked, exists: o.exists });
   } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
   for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
 
   // Broker scans (cargo, pnpm) read the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
   // otherwise hide a committed failure. Any change or untracked file under those paths blocks the gate.
   if (!planOnly) {
+    // The install graph and linter configuration of a pnpm root: the repository root's, and those of every other root (its units' directories
+    // hold only the units, and a workspace member's lock sits above it).
+    const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
     const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
-      "deny.toml", "clippy.toml", "rustfmt.toml", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", "eslint.config.js", "eslint.config.mjs", ".eslintrc.json", "biome.json"])];
+      "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
     const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
     const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`]
       : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules") && !l.includes(GRANT_FILE));
@@ -1312,20 +1384,26 @@ export async function main(argv, io = {}) {
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,
-      rustUnits: rust.units, npmUnits: npm, cargoDir: ".", rustLocks, crateFeatures,
+      rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
       localCompile: deferral ? true : o.exists(path.join(root, GRANT_FILE)),
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
     // Deferred Rust gate: every scan that goes through the broker is taken out of the plan and named; rustfmt too when this host has
     // none (it is a Rust-toolchain scan, not a content scan, on such a host). Every other scan stays exactly as planned.
-    let notRun = []; let deferNote = null;
+    let notRun = []; let deferNote = null; let npmCalls = [];
     if (deferral) {
       const rustfmt = (o.findRustfmt ?? usableRustfmt)(o);
       const dropped = plan.scans.filter((s) => s.tool === "rustright" || (s.tool === "rustfmt" && !rustfmt));
-      notRun = dropped.map((s) => s.id);
-      plan = withoutScans(plan, dropped);
-      deferNote = `no RustRight broker on this host: ${notRun.length} Rust scan(s) are deferred to host qualification, not run and not passed${rustfmt ? "" : " (rustfmt is not usable on this host either)"}`;
+      // An npm test scan whose script runs `rustright` or `cargo` through its package script chain (planScans marks it `brokerCall`: ViewRight's
+      // test:e2e is `rustright storage run ... -- right-release test`) cannot run on this host either. It goes the way of the Rust scans, named
+      // with its reason and never passed. On a host with the broker, in CI, on a protected ref or with the opt-out there is no deferral and it runs.
+      const npmDropped = plan.scans.filter((s) => s.brokerCall && s.tool === "pnpm" && !dropped.includes(s));
+      npmCalls = npmDropped.map((s) => ({ id: s.id, ...s.brokerCall }));
+      notRun = [...dropped, ...npmDropped].map((s) => s.id);
+      plan = withoutScans(plan, [...dropped, ...npmDropped]);
+      deferNote = `no RustRight broker on this host: ${dropped.length} Rust scan(s) are deferred to host qualification, not run and not passed${rustfmt ? "" : " (rustfmt is not usable on this host either)"}`
+        + (npmDropped.length ? `; ${npmDropped.length} npm test scan(s) whose script runs the broker or cargo are deferred with them, not run and not passed: ${npmDropped.map((s) => s.id).join(", ")}` : "");
     }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
@@ -1408,7 +1486,7 @@ export async function main(argv, io = {}) {
     if (deferral) {
       o.out(`${tag} the scans that could run here passed (${changed.length} changed file(s) vs ${base}${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""})`);
       const unmatched = [...new Set([...unplaced, ...unmatchedManifests({ root, manifests, rust, readFile: readLive })])].sort();
-      for (const line of deferredBlock({ units: rust.units.map((u) => u.name), notRun, refs: pushedRefs, manifests: manifests.length, unmatched, tag })) o.err(line);
+      for (const line of deferredBlock({ units: rust.units.map((u) => u.name), notRun, refs: pushedRefs, manifests: manifests.length, unmatched, npmCalls, tag })) o.err(line);
       return 0;
     }
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);
