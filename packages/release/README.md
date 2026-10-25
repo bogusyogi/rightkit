@@ -89,7 +89,7 @@ On desktop (non-iOS) targets the source walk covers the whole app root, so app t
 | Ownership | `ownership`, `ownership-approval`, `ownership-report`, `ownership-mandatory`, `adoption-evidence` |
 | Test | `test` (the app's declared suites) |
 | Legal | `license-notices npm`, `license-notices cargo`, `license-notices binaries` |
-| Other | `dev`, `doctor`, `suite-doctor`, `qa`, `dmg`, `cache`, `apple`, `inventory`, `model`, `addon`, `hooks`, `lsclean`, `generate-dmg-background`, `publish cargo`, `publish npm`, `publish swift` |
+| Other | `dev`, `doctor`, `suite-doctor`, `qa`, `dmg`, `cache`, `disk` (see "Disk hygiene on the agent volume"), `apple`, `inventory`, `model`, `addon`, `hooks`, `lsclean`, `generate-dmg-background`, `publish cargo`, `publish npm`, `publish swift` |
 
 ## Declared test suites, web build, npm notices and artifact mirroring
 
@@ -529,6 +529,36 @@ No agent may write to the internal drive (C: on Windows, the internal disk on ma
 ```
 
 `outcome` is `allowed` (file created and removed), `blocked` (`EACCES`, `EPERM` or `EROFS`) or `error` (directory missing or another failure; `code` says which). `code` is `null` when allowed, except `UNLINK_<code>` when the probe file could not be removed. `internalWritable` is true when profile, local-temp or os-temp is `allowed`.
+
+## Disk hygiene on the agent volume (`disk check`, `sweep`, `run`, `run-root`, `schedule`)
+
+One job keeps the agent volume (`/Volumes/D` on macOS, `D:\` on Windows) from filling. `right-release disk schedule install` installs it: an hourly launchd job (`StartInterval` 3600) on macOS, one hourly repetition trigger in a hidden Task Scheduler entry on Windows. Both run `right-release disk run --auto` from a stable per-user copy of the CLI. `right-release disk schedule status` exits 1 when the binding is broken, the job is not loaded, or no full pass finished in the last 26 hours.
+
+- **Full pass** (`disk run`, or `--auto` once a day, on the first run after 03:30 local time): the self-check, `disk check`, the sweep (stale idle data moves to holding), the purge of expired holding folders, and the warnings. Once per UTC day it also appends one `disk.report` event. Logged as `disk.run.ok`, or `disk.floor.warn` when a floor warns.
+- **Light pass** (`disk run --light`, and `--auto` on every other hour): stat-only. It reads the free space of the floors and sweeps the writers marked `light` and the scratch roots. It sizes no writer, walks no workspace, looks for no stray target and purges nothing. Logged as `disk.run.light`.
+- **Emergency**: a floor flagged `agentVolume` that warns (on macOS, `/Volumes/D` below its 250 GiB soft floor) purges every holding folder at once, with no undo window (`disk.run.emergency`). A warning from any other floor or writer never purges.
+
+`right-release disk check [--json]` lists each writer's size against its cap and each floor's free space (exit 3 on a warning). It also lists the unmanaged remainder of each agent volume, the top-level entries no writer covers, and the stray cargo targets (a `target` or `.cache/cargo-target` directory tagged with `CACHEDIR.TAG` outside RustRight's roots, up to depth 4 under `claude` and `scratch`). `right-release disk sweep [--dry-run] [--days N] [--delete]` moves what is due; `--delete` removes instead of moving, and `disk purge [--dry-run] [--days N]` removes expired holding folders on demand.
+
+Lifetimes, from `packages/release/disk-policy.json`:
+
+| Data | Idle or held for | Policy key |
+| --- | --- | --- |
+| Scratch child (`/Volumes/D/scratch/<name>`) | 1 day | `scratchStaleDays` |
+| Stray cargo target | 1 day, and never while git tracks something in it | `strayTargetDays` |
+| Holding folder `.rightkit-swept/YYYY-MM-DD` | the date plus 1 day has passed, and nothing in it was written in the last day | `holdingDays` |
+| Sweep writers (caches, temp, DerivedData) | 7 days, or the writer's own `staleDays` | `staleDays` |
+| Unknown top-level entry of a workspace root | 3 days; reported only, unless the host ran `disk allow-workspace-sweep` | `unknownStaleDays` |
+| Directory holding a `.keep` file | 14 days after the marker's last write; a symlink named `.keep` counts for nothing | `keepMarkerDays` |
+| Run root with a live lease | until `leaseUntil` | `disk run-root --days` (default 3) |
+
+A holding folder is a date-named directory under `.rightkit-swept` at the root of the item's own volume. Items from the Mac internal disk park in `/Volumes/D/.rightkit-swept` while that volume is mounted. The sweep moves a unit only when nothing in it is fresher than its window, no `.keep` marker or live lease protects it, and no process has it open.
+
+**Run roots.** `right-release disk run-root <name> [--days N] [--json]` leases `<scratch>/<name>` (`/Volumes/D/scratch/<name>` or `D:\scratch\<name>`): it creates the directory and writes `.rightkit-run.json` (`{"schema":1,"name","createdAt","leaseUntil"}`). Renewing keeps `createdAt`. `right-release disk run-root --release <name>` removes the lease, and the directory then ages out by the scratch rules. Creation is refused, with nothing written, while the scratch root is over its `scratch-total` cap or the owner prefix (the part of the name before its first `-`) is over its `scratchPrefixCaps` entry (`legion` 40 GiB, `rk` 30 GiB, `pulse` 20 GiB, `hr` 20 GiB). The build-control heavy-write guard admits `git clone`, `git worktree add` and curl, wget and `hf`/`huggingface-cli download` outputs only below a live lease (see `packages/build-control-policy/README.md`); the guard reads this file format and never writes it.
+
+**Build budget.** A writer whose `budget` names parts (`sccache` for the compiler-cache rows, `total` for `build-control-targets`) takes its cap from RustRight's `buildBudget`, read from `rustright doctor --json --no-scan` (20 s timeout, no shell, nothing cached). The writer reports `capSource: "rustright"` when it does. Without RustRight the writer keeps its policy `capBytes` and reports `capSource: "policy"`. The byte caps of the rows this change adds are proposals pending the host inventory.
+
+**Daily report.** The `disk.report` event in `disk-hygiene.jsonl` (`schema` 1) carries free space and floors, bytes by category, growth since the previous report, the largest units and the growers, over-cap writers, unmanaged bytes, uncovered top-level entries, scratch bytes by owner and a steady-state estimate. Its field names are frozen in `disk-report.test.mjs`, because Pulse's Storage card reads them. It does not yet count refusals or summarise the broker's GC passes.
 
 ## RightKit pins are proven against the registries (`rightkit-registry-resolver.mjs`)
 
