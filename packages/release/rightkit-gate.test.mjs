@@ -1793,11 +1793,18 @@ test("defaultBranchNames: the union of the checkout, origin/HEAD, each revision 
 function realHookRepo(t, { files, message = "app" }) {
   const tools = mkRepo({}, t);
   const exec = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
+  // On Windows sh answers MSYS paths and an MSYS tool needs its runtime DLL beside it, so PATH is the Git for Windows directories that
+  // hold the tools (cygpath -w), which carry no rustright or cargo; elsewhere it is a directory of symlinks to just these tools.
+  const toolDirs = new Set();
   for (const name of ["git", "which", "awk", "mktemp", "cat", "rm", "tar"]) {
     const found = spawnSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).stdout.trim();
     if (!found) { t.skip(`no ${name} on this host`); return null; }
-    fs.symlinkSync(found, path.join(tools, name));
+    if (process.platform !== "win32") { fs.symlinkSync(found, path.join(tools, name)); continue; }
+    const dir = spawnSync("sh", ["-c", 'cygpath -w "$(dirname "$1")"', "sh", found], { encoding: "utf8" }).stdout.trim();
+    if (!dir) { t.skip(`cannot map ${found} to a Windows path`); return null; }
+    toolDirs.add(dir);
   }
+  const toolPath = process.platform === "win32" ? [...toolDirs].join(path.delimiter) : tools;
   const tmp = mkRepo({}, t);
   const gateCli = path.join(path.dirname(fileURLToPath(import.meta.url)), "bin", "rightkit-gate.mjs").replaceAll("\\", "/");
   const shim = `#!/bin/sh\nif [ "$1" = check ]; then exit 0; fi\nexec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"\n`;
@@ -1805,7 +1812,9 @@ function realHookRepo(t, { files, message = "app" }) {
     ".githooks/pre-push": hookText(gateCli),
     "node_modules/.bin/rightkit-gate": shim, ".gitignore": "node_modules/\n", "README.md": "# app\n",
   });
-  const env = { ...process.env, PATH: tools, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", [DEFER_OPT_OUT_ENV]: "", GIT_TERMINAL_PROMPT: "0" };
+  // Windows spells it Path; a second PATH key beside it would leave which one wins to the platform.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "PATH"));
+  const env = { ...inherited, PATH: toolPath, GIT_EXEC_PATH: exec.stdout.trim(), CI: "", GITHUB_ACTIONS: "", [DEFER_OPT_OUT_ENV]: "", GIT_TERMINAL_PROMPT: "0" };
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8", env });
   for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"], ["core.hooksPath", ".githooks"]]) git("config", k, v);
   const remote = path.join(tmp, "remote.git");

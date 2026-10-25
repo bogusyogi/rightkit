@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 (unpublished staging)
+
+- `launchChromeForTesting` adds `--no-sandbox` when it runs as root on Linux (containers, cloud hosts), where Chrome refuses to start with its sandbox; a caller that passes the flag keeps it once. New export: `rootSandboxArgs`.
+
 ## 0.1.11
 
 - Chrome for Testing 155.0.8059.39 -> 156.0.8078.47 (current Stable): archive and executable SHA-256 pins recomputed from the official downloads.

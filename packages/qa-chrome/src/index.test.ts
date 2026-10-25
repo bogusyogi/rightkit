@@ -20,11 +20,26 @@ import {
   removeDirInChild,
   signalTree,
   resolveChromeForTesting,
+  rootSandboxArgs,
   settleProfileProcesses,
 } from './index.js';
 
 const scratch = mkdtempSync(path.join(tmpdir(), 'rk-qa-cft-test-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+describe('rootSandboxArgs', () => {
+  it('turns the sandbox off only for root on Linux, where Chrome refuses to start with it', () => {
+    expect(rootSandboxArgs('linux', 0)).toEqual(['--no-sandbox']);
+    expect(rootSandboxArgs('linux', 1000)).toEqual([]);
+    expect(rootSandboxArgs('linux', undefined)).toEqual([]);
+    expect(rootSandboxArgs('darwin', 0)).toEqual([]);
+    expect(rootSandboxArgs('win32', undefined)).toEqual([]);
+  });
+  it('adds nothing when the caller already passed --no-sandbox, so the flag is never doubled', () => {
+    expect(rootSandboxArgs('linux', 0, ['--headless=new', '--no-sandbox'])).toEqual([]);
+    expect(rootSandboxArgs('linux', 0, ['--headless=new'])).toEqual(['--no-sandbox']);
+  });
+});
 
 function touch(file: string): string {
   mkdirSync(path.dirname(file), { recursive: true });
