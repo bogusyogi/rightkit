@@ -61,25 +61,52 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   assert.ok(io.logs.some((l) => /INCOMPLETE: @rk\/wild \. \(\.\/dist\/index\.js\)/.test(l)), io.logs.join("\n"));
   assert.match(io.logs.at(-1), /INCOMPLETE \(no --report/);
   const reportFile = path.join(dir, "out", "report.json"); const io2 = { logs: [], errs: [] };
-  assert.equal(main(["--report", reportFile, dir], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }), 0);
+  assert.equal(main(["--root", dir, "--report", reportFile, dir], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }), 0);
   assert.match(io2.logs.at(-1), /INCOMPLETE \(handed to the sealed-byte check\)/);
-  const read = readIncompleteReport(reportFile);
-  assert.deepEqual(read.report.incomplete.map((r) => [r.package, r.key, r.target]), [["@rk/wild", ".", "./dist/index.js"]]);
+  // The report binds to the probed checkout: outside a git checkout it records no commit and is unusable downstream.
+  const raw = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.deepEqual(raw.incomplete.map((r) => [r.package, r.key, r.target]), [["@rk/wild", ".", "./dist/index.js"]]);
+  assert.equal(raw.commit, null); assert.equal(raw.clean, false); assert.match(readIncompleteReport(reportFile).problem, /no checkout commit\/tree recorded/);
+  assert.match(raw.probe, /^[0-9a-f]{64}$/); assert.equal(raw.node, process.version);
+  const SHA40 = "a".repeat(40);
+  const good = { schema: "rightkit.import-effects/1", commit: SHA40, tree: "b".repeat(40), clean: true, dirty: 0, probe: raw.probe, node: raw.node, checked: 0, findings: 0, incomplete: raw.incomplete, covered: [] };
+  const rf = (patch) => { write(dir, "r.json", JSON.stringify({ ...good, ...patch })); return readIncompleteReport(path.join(dir, "r.json"), { commit: SHA40, tree: "b".repeat(40) }); };
+  // Source closure: a dirty checkout, a missing tree, or another tree is unbound mutable state and refused.
+  assert.match(rf({ clean: false, dirty: 2 }).problem, /not exactly its commit \(2 changed\/untracked path\(s\)\); unbound mutable state is refused/);
+  assert.match(rf({ tree: null }).problem, /no checkout commit\/tree recorded/);
+  assert.match(rf({ tree: "c".repeat(40) }).problem, /written for tree c{40}, not this checkout's b{40}/);
+  assert.match(rf({ probe: "short" }).problem, /no probe code digest/);
+  const read = rf({}); assert.ok(read.report, JSON.stringify(read));
   assert.match(readIncompleteReport(path.join(dir, "missing.json")).problem, /cannot be read/);
-  write(dir, "bad.json", JSON.stringify({ schema: "rightkit.import-effects/1", incomplete: [{ key: 1 }] }));
-  assert.match(readIncompleteReport(path.join(dir, "bad.json")).problem, /is not rightkit\.import-effects\/1/);
+  // Residuals from the slice 3 review: a red probe, bad counts, malformed rows and a stale commit are all unusable.
+  assert.match(rf({ findings: 1 }).problem, /findings is 1/);
+  assert.match(rf({ checked: 3 }).problem, /checked \(3\) must equal/);
+  assert.match(rf({ checked: -1 }).problem, /checked/);
+  assert.match(rf({ incomplete: [{ key: 1 }] }).problem, /incomplete rows must be/);
+  assert.match(rf({ incomplete: [{ package: "@rk/wild", key: ".", target: "dist/index.js" }] }).problem, /incomplete rows must be/);
+  assert.match(rf({ covered: "x" }).problem, /covered rows must be/);
+  assert.match(rf({ schema: "other" }).problem, /wrong schema/);
+  assert.match(rf({ commit: "0".repeat(40) }).problem, /written for commit 0{40}, not the dispatched a{40}/);
   // The closure: a sealed-byte import check that imported the export closes it; one that did not leaves a refusal.
   assert.deepEqual(closeIncomplete({ report: read.report, name: "@rk/wild", importedSpecs: ["@rk/wild"] }), []);
   assert.match(closeIncomplete({ report: read.report, name: "@rk/wild", importedSpecs: ["@rk/wild/other"] })[0], /INCOMPLETE not closed: @rk\/wild \(\.\/dist\/index\.js\)/);
   assert.deepEqual(closeIncomplete({ report: { incomplete: [{ package: "@rk/other", key: "./x", target: "./dist/x.js" }] }, name: "@rk/wild", importedSpecs: [] }), [], "another package's rows are not this unit's");
-  // Forged COMPLETE: a report that lists nothing for a package whose sealed package.json exports build output is refused.
+  // Forged COMPLETE: a report that accounts for nothing although the sealed package.json exports build output is refused.
   const sealedPkg = { name: "@rk/wild", exports: { ".": "./dist/index.js", "./x": "./dist/x.js", "./src": "./src/s.mjs" } };
-  assert.deepEqual(expectedIncomplete(sealedPkg).map((e) => e.key), [".", "./x"]);
-  const forged = closeIncomplete({ report: { incomplete: [] }, name: "@rk/wild", importedSpecs: ["@rk/wild", "@rk/wild/x"], expected: expectedIncomplete(sealedPkg) });
-  assert.equal(forged.length, 2); assert.match(forged[0], /does not list \. \(\.\/dist\/index\.js\) as INCOMPLETE/);
-  assert.deepEqual(closeIncomplete({ report: { incomplete: [{ package: "@rk/wild", key: "." }, { package: "@rk/wild", key: "./x" }] }, name: "@rk/wild", importedSpecs: ["@rk/wild", "@rk/wild/x"], expected: expectedIncomplete(sealedPkg) }), []);
-  // A report written for another commit is refused.
-  assert.match(readIncompleteReport(reportFile, { commit: "abc" }).problem ?? "", /written for commit \(none\), not the dispatched abc/);
+  assert.deepEqual(expectedIncomplete(sealedPkg).map((e) => [e.key, e.pattern]), [[".", false], ["./x", false]]);
+  const specs = ["@rk/wild", "@rk/wild/x"];
+  const forged = closeIncomplete({ report: { incomplete: [], covered: [] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) });
+  assert.equal(forged.length, 2); assert.match(forged[0], /accounts for neither an INCOMPLETE nor a covered \. \(\.\/dist\/index\.js\)/);
+  const rows = [{ package: "@rk/wild", key: ".", target: "./dist/index.js" }, { package: "@rk/wild", key: "./x", target: "./dist/x.js" }];
+  assert.deepEqual(closeIncomplete({ report: { incomplete: rows, covered: [] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) }), [], "every row imported from the tarball closes");
+  // Positive control (review residual): a pre-built dist the probe imported itself is a covered row, not a false reject.
+  assert.deepEqual(closeIncomplete({ report: { incomplete: [rows[1]], covered: [rows[0]] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) }), []);
+  // Target binding: a row whose target differs from the sealed package's is not this candidate's.
+  assert.match(closeIncomplete({ report: { incomplete: [{ ...rows[0], target: "./dist/other.js" }, rows[1]], covered: [] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) })[0], /binds \. to \.\/dist\/other\.js, the sealed package to \.\/dist\/index\.js/);
+  // Wildcard build output can never be closed (neither side imports a pattern): refused, not silently passed.
+  const wild = { name: "@rk/wild", exports: { "./*": "./dist/*.js" } };
+  assert.deepEqual(expectedIncomplete(wild), [{ key: "./*", target: "./dist/*.js", pattern: true }]);
+  assert.match(closeIncomplete({ report: { incomplete: [], covered: [] }, name: "@rk/wild", importedSpecs: [], expected: expectedIncomplete(wild) })[0], /wildcard export \.\/\* → \.\/dist\/\*\.js points at build output; .* cannot be closed/);
 });
 
 test("exports-import-effects: an import that writes a file or starts a process without printing anything is refused by the read-only probe (simulation A5.07b)", (t) => {

@@ -470,7 +470,9 @@ function spy(fake = {}) {
 
 // The scans job's import-effects report (nothing INCOMPLETE): verify of npm units refuses without one.
 const IMPORT_EFFECTS_REPORT = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")), "report.json");
-fs.writeFileSync(IMPORT_EFFECTS_REPORT, JSON.stringify({ schema: "rightkit.import-effects/1", commit: SHA, checked: 1, findings: 0, incomplete: [] }));
+// (the test git spy answers SHA to every rev-parse, so the checkout tree is SHA too.)
+const REPORT_OK = { schema: "rightkit.import-effects/1", commit: SHA, tree: SHA, clean: true, dirty: 0, probe: "a".repeat(64), node: "v26.8.1", checked: 0, findings: 0, incomplete: [], covered: [] };
+fs.writeFileSync(IMPORT_EFFECTS_REPORT, JSON.stringify(REPORT_OK));
 const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", RK_IMPORT_EFFECTS_REPORT: IMPORT_EFFECTS_REPORT, ...extra });
 
 test("upload payload preflight checks npm semantics through real tar without registry access", () => {
@@ -1199,10 +1201,15 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: "" }), /RK_IMPORT_EFFECTS_REPORT is not set/);
   const badReport = path.join(runTemp, "bad-report.json"); fs.writeFileSync(badReport, JSON.stringify({ schema: "other", incomplete: [] }));
   await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: badReport }), /is not rightkit\.import-effects\/1/);
-  const staleReport = path.join(runTemp, "stale-report.json"); fs.writeFileSync(staleReport, JSON.stringify({ schema: "rightkit.import-effects/1", commit: "0".repeat(40), checked: 1, findings: 0, incomplete: [] }));
-  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: staleReport }), /written for commit 0{40}, not the dispatched/);
+  const reportWith = (name, patch) => { const f = path.join(runTemp, `${name}.json`); fs.writeFileSync(f, JSON.stringify({ ...REPORT_OK, ...patch })); return f; };
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("stale", { commit: "0".repeat(40) }) }), /written for commit 0{40}, not the dispatched/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("tree", { tree: "1".repeat(40) }) }), /written for tree 1{40}, not this checkout's/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("red", { findings: 2 }) }), /findings is 2; a red probe is not carried forward/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("dirty", { clean: false, dirty: 3 }) }), /not exactly its commit \(3 changed\/untracked/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("noprobe", { probe: "x" }) }), /no probe code digest/);
   const receipt = await run();
   assert.equal(seenIncomplete?.schema, "rightkit.import-effects/1");
+  assert.deepEqual(receipt.importEffects, { commit: SHA, tree: SHA, probe: "a".repeat(64), node: "v26.8.1", checked: 0, incomplete: 0 }, "the receipt records the source closure the sealed bytes were verified against");
   assert.equal(receipt.host, "windows");
   assert.equal(receipt.manifestRunId, "77");
   assert.equal(receipt.manifestRunAttempt, "1");

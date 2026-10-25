@@ -698,7 +698,11 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   let incompleteReport = null;
   if (registry === "npm") {
     if (!env.RK_IMPORT_EFFECTS_REPORT) problems.push("RK_IMPORT_EFFECTS_REPORT is not set: the scans job's import-effects report (INCOMPLETE exports) is required to verify npm units");
-    else { const read = readIncompleteReport(env.RK_IMPORT_EFFECTS_REPORT, { commit }); if (read.problem) problems.push(read.problem); else incompleteReport = read.report; }
+    else {
+      const tree = String(spawn("git", ["rev-parse", "HEAD^{tree}"], { cwd: ROOT, encoding: "utf8" }).stdout ?? "").trim();
+      const read = readIncompleteReport(env.RK_IMPORT_EFFECTS_REPORT, { commit, tree: /^[0-9a-f]{40}$/.test(tree) ? tree : "(unreadable)" });
+      if (read.problem) problems.push(read.problem); else incompleteReport = read.report;
+    }
   }
   // Linux verifies ONLY the units whose plan requires it, re-derived here from the reviewed ci/linux-required.json
   // (never from the plan output alone). The gate evidence must cover exactly that set, and a Linux run with nothing
@@ -756,7 +760,8 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
     rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, archiveScan: archiveScans.get(unit.name), bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [], ...canonicalPublicationEvidence({ unit, row, summary: gate.summary, registry, commit, tree: gate.sourceGate.tree, env }) });
   }
   if (problems.length) throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`);
-  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, sourceGate: gate.sourceGate, units: rows };
+  const importEffects = incompleteReport ? { commit: incompleteReport.commit, tree: incompleteReport.tree, probe: incompleteReport.probe, node: incompleteReport.node, checked: incompleteReport.checked, incomplete: incompleteReport.incomplete.length } : null;
+  const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, importEffects, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, sourceGate: gate.sourceGate, units: rows };
   const out = path.join(env.RUNNER_TEMP || os.tmpdir(), "verify-receipt");
   fs.mkdirSync(out, { recursive: true });
   fs.writeFileSync(path.join(out, `verify-${hostId}.json`), `${JSON.stringify(receipt, null, 2)}\n`);

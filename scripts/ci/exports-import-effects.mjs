@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -53,7 +54,7 @@ export function expandWildcard(dir, key, target) {
 /** Check one package directory. Returns { name, checked, notChecked: [{ key, why }], findings: [{ key, problem, fix }] }. */
 export function checkPackage(dir, { spawn = spawnSync, node = process.execPath } = {}) {
   const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
-  const result = { name: pkg.name, checked: 0, notChecked: [], findings: [] };
+  const result = { name: pkg.name, checked: 0, notChecked: [], covered: [], findings: [] };
   if (!pkg.exports) return result;
   const bins = new Set(Object.values(typeof pkg.bin === "string" ? { [pkg.name]: pkg.bin } : (pkg.bin ?? {})).map((b) => `./${String(b).replace(/^\.\//, "")}`));
   const skipImport = pkg.rightkit?.publishCheck?.skipImport ?? [];
@@ -77,6 +78,7 @@ export function checkPackage(dir, { spawn = spawnSync, node = process.execPath }
       result.findings.push({ key, problem: `${pkg.name}: export ${key} → ${target} does not exist in the source tree and is not build output under ./dist/`, fix: "fix the export target; a missing non-dist target is a broken surface, not something to skip" });
       continue;
     }
+    result.covered.push({ key, target });
     const ran = spawn(node, [...PROBE_FLAGS, "--input-type=module", "-e", `await import(${JSON.stringify(pathToFileURL(file).href)}); process.stdout.write("RK_IMPORTED");`], { cwd: dir, encoding: "utf8", env, timeout: 30_000, input: "", windowsHide: true });
     result.checked++;
     const quiet = ran.status === 0 && ran.stdout === "RK_IMPORTED" && (ran.stderr ?? "") === "";
@@ -107,16 +109,20 @@ export function main(argv, io = { log: console.log, error: console.error }) {
     else if (argv[i].startsWith("-")) { io.error(`exports-import-effects: unknown option ${argv[i]}`); return 2; }
     else dirs.push(path.resolve(root, argv[i]));
   }
-  let findings = 0; let checked = 0; const incomplete = [];
+  let findings = 0; let checked = 0; const incomplete = []; const covered = [];
   for (const dir of dirs.length ? dirs : packageDirs(root)) {
     const r = checkPackage(dir);
     checked += r.checked;
     for (const n of r.notChecked) { incomplete.push({ package: r.name, key: n.key, target: n.target, why: n.why }); io.log(`INCOMPLETE: ${r.name} ${n.key} (${n.target}): ${n.why}`); }
+    for (const c of r.covered) covered.push({ package: r.name, key: c.key, target: c.target });
     for (const f of r.findings) { findings++; io.error(`FAIL exports-import-effects: ${f.problem}\n  fix: ${f.fix}`); }
   }
   if (reportFile) {
     fs.mkdirSync(path.dirname(reportFile), { recursive: true });
-    fs.writeFileSync(reportFile, `${JSON.stringify({ schema: REPORT_SCHEMA, commit: process.env.GITHUB_SHA ?? null, checked, findings, incomplete }, null, 2)}\n`);
+    // Bound to the checkout that was probed (its HEAD commit and tree id), not to an environment variable or a ref name.
+    const closure = checkoutIdentity(root);
+    if (!closure.clean) io.log(`exports-import-effects: the probed checkout is not exactly commit ${closure.commit ?? "(none)"} (${closure.dirty ?? "no git"} changed/untracked path(s)); the report records that and no verify will accept it`);
+    fs.writeFileSync(reportFile, `${JSON.stringify({ schema: REPORT_SCHEMA, ...closure, checked, findings, incomplete, covered }, null, 2)}\n`);
   }
   const state = findings ? "RED" : incomplete.length ? (reportFile ? "INCOMPLETE (handed to the sealed-byte check)" : "INCOMPLETE (no --report: nothing downstream can close it)") : "green";
   io.log(`exports-import-effects: ${state}; ${checked} exported module(s) imported in fresh processes; ${incomplete.length} export(s) incomplete; ${findings} finding(s)`);
@@ -125,27 +131,66 @@ export function main(argv, io = { log: console.log, error: console.error }) {
   return 0;
 }
 
-/** Read a --report file. Returns { report } or { problem }. With `commit`, the report must have been written for that commit. */
-export function readIncompleteReport(file, { commit = null } = {}) {
+/**
+ * The source closure the probe ran against: HEAD commit and tree id of the checkout at `root`, whether the working tree is exactly
+ * that tree (`clean`: no modified tracked file, no untracked non-ignored file — either could change what imports), the digest of the
+ * probe's own code and the Node that ran it. A report from a dirty or non-git root records that and is unusable downstream: the
+ * evidence would describe mutable state no one can re-derive.
+ */
+export function checkoutIdentity(root, { spawn = spawnSync, node = process.version } = {}) {
+  const git = (...args) => { const r = spawn("git", ["-C", root, ...args], { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024 }); return r.status === 0 ? String(r.stdout ?? "") : null; };
+  const rev = (what) => { const v = (git("rev-parse", what) ?? "").trim(); return /^[0-9a-f]{40}$/.test(v) ? v : null; };
+  const status = git("status", "--porcelain", "--untracked-files=all");
+  const dirty = status === null ? null : status.split(/\r?\n/).filter(Boolean);
+  const probe = crypto.createHash("sha256").update(fs.readFileSync(fileURLToPath(import.meta.url))).digest("hex");
+  return { commit: rev("HEAD"), tree: rev("HEAD^{tree}"), clean: dirty !== null && dirty.length === 0, dirty: dirty === null ? null : dirty.length, probe, node };
+}
+
+const ROW_OK = (r) => typeof r?.package === "string" && typeof r?.key === "string" && typeof r?.target === "string" && r.target.startsWith("./");
+/**
+ * Read a --report file. Returns { report } or { problem }. The report is usable only when it is the probe's schema, carries a 40-hex
+ * commit, reports 0 findings (a red probe is never carried forward as "incomplete"), has integer counts and well-formed rows. With
+ * `commit`, it must have been written for that commit (the probed checkout's HEAD, compared to the dispatched commit).
+ */
+export function readIncompleteReport(file, { commit = null, tree = null } = {}) {
   let report;
   try { report = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return { problem: `import-effects report ${file} cannot be read: ${e.message}` }; }
-  if (report?.schema !== REPORT_SCHEMA || !Array.isArray(report.incomplete) || report.incomplete.some((r) => typeof r?.package !== "string" || typeof r?.key !== "string")) return { problem: `import-effects report ${file} is not ${REPORT_SCHEMA}` };
-  if (commit !== null && report.commit !== commit) return { problem: `import-effects report ${file} was written for commit ${report.commit ?? "(none)"}, not the dispatched ${commit}` };
+  const bad = (why) => ({ problem: `import-effects report ${file} is not ${REPORT_SCHEMA}: ${why}` });
+  if (report?.schema !== REPORT_SCHEMA) return bad("wrong schema");
+  if (!Array.isArray(report.incomplete) || !report.incomplete.every(ROW_OK)) return bad("incomplete rows must be { package, key, target }");
+  if (!Array.isArray(report.covered) || !report.covered.every(ROW_OK)) return bad("covered rows must be { package, key, target }");
+  if (!Number.isInteger(report.checked) || report.checked < 0 || report.checked !== report.covered.length) return bad(`checked (${report.checked}) must equal the number of covered rows (${report.covered?.length})`);
+  if (report.findings !== 0) return bad(`findings is ${report.findings}; a red probe is not carried forward`);
+  if (!/^[0-9a-f]{40}$/.test(report.commit ?? "") || !/^[0-9a-f]{40}$/.test(report.tree ?? "")) return bad("no checkout commit/tree recorded");
+  if (report.clean !== true) return bad(`the probed checkout was not exactly its commit (${report.dirty ?? "unknown"} changed/untracked path(s)); unbound mutable state is refused`);
+  if (!/^[0-9a-f]{64}$/.test(report.probe ?? "") || typeof report.node !== "string") return bad("no probe code digest / Node version recorded");
+  if (commit !== null && report.commit !== commit) return { problem: `import-effects report ${file} was written for commit ${report.commit}, not the dispatched ${commit}` };
+  if (tree !== null && report.tree !== tree) return { problem: `import-effects report ${file} was written for tree ${report.tree}, not this checkout's ${tree}` };
   return { report };
 }
 
-/** The dist/ runtime exports a sealed package.json declares: every one must be in the report's INCOMPLETE rows for that package, or the report is not the probe's (forged COMPLETE). */
+/**
+ * The dist/ runtime exports a sealed package.json declares, each { key, target, pattern }: every one must be accounted for by the
+ * report (an INCOMPLETE row closed by the tarball import, or a covered row the probe imported itself), with the same target, or
+ * the report is not this candidate's (forged COMPLETE). A wildcard key is returned with pattern: true; it can never be closed,
+ * because neither the probe nor the tarball check imports a pattern, so the closure refuses it.
+ */
 export function expectedIncomplete(pkg) {
   const out = [];
-  for (const { key, target } of runtimeTargets(pkg.exports ?? {})) if (!key.includes("*") && /\.(?:[cm]?js)$/.test(target) && target.startsWith("./dist/")) out.push({ key, target });
+  for (const { key, target } of runtimeTargets(pkg.exports ?? {})) if (/\.(?:[cm]?js)$/.test(target.replace("*", "x")) && target.startsWith("./dist/")) out.push({ key, target, pattern: key.includes("*") || target.includes("*") });
   return out;
 }
 
 /** The sealed-byte stage's closure: every INCOMPLETE export of `name` must appear among the specs the tarball import actually imported. */
 export function closeIncomplete({ report, name, importedSpecs, expected = null }) {
   const problems = [];
-  const keys = new Set(report.incomplete.filter((r) => r.package === name).map((r) => r.key));
-  for (const e of expected ?? []) if (!keys.has(e.key)) problems.push(`${name}: the import-effects report does not list ${e.key} (${e.target}) as INCOMPLETE although the sealed package exports it from build output; the report is not this candidate's`);
+  const rows = new Map([...(report.covered ?? []), ...report.incomplete].filter((r) => r.package === name).map((r) => [r.key, r]));
+  for (const e of expected ?? []) {
+    if (e.pattern) { problems.push(`${name}: wildcard export ${e.key} → ${e.target} points at build output; neither the source probe nor the sealed-tarball check imports a pattern, so it cannot be closed: enumerate the exports`); continue; }
+    const row = rows.get(e.key);
+    if (!row) problems.push(`${name}: the import-effects report accounts for neither an INCOMPLETE nor a covered ${e.key} (${e.target}) although the sealed package exports it from build output; the report is not this candidate's`);
+    else if (row.target !== e.target) problems.push(`${name}: the import-effects report binds ${e.key} to ${row.target}, the sealed package to ${e.target}; the report is not this candidate's`);
+  }
   for (const row of report.incomplete.filter((r) => r.package === name)) {
     const spec = row.key === "." ? name : `${name}/${row.key.replace(/^\.\//, "")}`;
     if (!importedSpecs.includes(spec)) problems.push(`${name}: INCOMPLETE not closed: ${spec} (${row.target ?? row.key}) was left to the sealed-byte check by the source probe and the sealed tarball import check did not import it`);
