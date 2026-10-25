@@ -2107,3 +2107,24 @@ test("the multi-root pre-push hook (real sh): a package deeper than the glob, th
   assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n--base origin/main\n");
   assert.match(viaNode.stderr, /rightkit-gate: using node apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs/);
 });
+
+test("--to compile stages every declared sidecar first, under the door run, and compiles nothing when staging fails", async (t) => {
+  const { root, head } = stageRepo(t);
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  fs.mkdirSync(path.join(root, "app"), { recursive: true });
+  fs.writeFileSync(path.join(root, "app", "right-release.config.mjs"), "export default { sidecars: [] };\n");
+  fs.writeFileSync(path.join(root, "right-release.config.mjs"), "export default {};\n");
+  git("add", "-A"); git("commit", "-q", "-m", "configs");
+  const commit = git("rev-parse", "HEAD").stdout.trim();
+  const calls = [];
+  const io = (status) => ({
+    resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => { calls.push("compile"); return 0; },
+    spawnInherit: (cmd, a, opts) => { calls.push({ args: a.slice(1).join(" "), door: requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit, command: "x" }) }); return { status }; },
+  });
+  assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io(0) }), 0);
+  assert.deepEqual(calls, [{ args: "stage-sidecar --config app/right-release.config.mjs", door: null }, "compile"], "only the config that declares sidecars is staged, inside a live door run, before the compile");
+  fs.rmSync(path.join(root, ".git", "rightkit-gate"), { recursive: true, force: true }); calls.length = 0;
+  assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io(1) }), 1);
+  assert.deepEqual(calls.map((c) => c.args ?? c), ["stage-sidecar --config app/right-release.config.mjs"], "a failed staging compiles nothing");
+  assert.ok(head);
+});

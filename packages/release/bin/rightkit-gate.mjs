@@ -1190,7 +1190,16 @@ async function runStages(o, args, root, git, io) {
     }
     let ok = false; const at = new Date().toISOString(); let extra = {};
     if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
-    else if (stage === "compile") ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
+    else if (stage === "compile") {
+      // A Tauri crate with externalBin needs its sidecars in src-tauri/binaries before it compiles (its build script refuses
+      // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
+      const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
+      const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)))
+        .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(root, f))); } catch { return false; } });
+      ok = true;
+      for (const config of sidecarConfigs) if (!rightRelease(stage, ["stage-sidecar", "--config", config])) { ok = false; break; }
+      if (ok) ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
+    }
     else if (stage === "package") {
       ok = rightRelease(stage, ["qa", "--stage", "source", "--platform", platform]) && rightRelease(stage, ["build", "--platform", platform]);
       const sealed = ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
