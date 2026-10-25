@@ -103,28 +103,109 @@ export const REPORT_SCHEMA = "rightkit.import-effects/1";
 export const EXIT_INCOMPLETE = 3;
 
 /**
- * The immutable source closure the probe runs against: `git archive HEAD` of `root`, extracted to a fresh directory (no untracked,
- * ignored or locally modified file can reach it), with the live checkout's installed dependencies linked in (root and per-package
- * node_modules) and bound by the lockfile in the tree plus pnpm's installed-state digest. Returns { dir, deps } or { problem }.
+ * The immutable closure the probe runs against: `git archive <commit>` (the exact commit captured before anything ran) extracted
+ * to a fresh directory, then `pnpm install --frozen-lockfile --ignore-scripts --offline` INSIDE it. Nothing from the live checkout
+ * is linked in: workspace packages resolve to the exported (committed) sources, and every third-party byte comes from the
+ * content-addressed store as the tree's lockfile names it (pnpm verifies each package against the lockfile's integrity hash).
+ * The report binds the dependency closure by bytes: a sha256 over every installed file's path and content under node_modules
+ * (`deps.store`), plus the lockfile digest, the installed-state file and the pnpm version. Returns { dir, deps } or { problem }.
  */
-export function exportTree(root, { spawn = spawnSync, mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")) } = {}) {
+export function exportTree(root, { commit, spawn = spawnSync, mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")) } = {}) {
+  if (!/^[0-9a-f]{40}$/.test(commit ?? "")) return { problem: "exportTree needs the exact commit to archive" };
   const dir = mkdtemp();
   const tar = path.join(dir, "tree.tar");
-  const archived = spawn("git", ["-C", root, "archive", "--format=tar", "-o", tar, "HEAD"], { encoding: "utf8", windowsHide: true });
-  if (archived.error || archived.status !== 0) return { problem: `git archive HEAD of ${root} failed: ${(archived.stderr || archived.error?.message || "").trim()}` };
+  const archived = spawn("git", ["-C", root, "archive", "--format=tar", "-o", tar, commit], { encoding: "utf8", windowsHide: true });
+  if (archived.error || archived.status !== 0) return { problem: `git archive ${commit} of ${root} failed: ${(archived.stderr || archived.error?.message || "").trim()}` };
   const extracted = spawn("tar", ["-xf", tar, "-C", dir], { encoding: "utf8", windowsHide: true });
   if (extracted.error || extracted.status !== 0) return { problem: `extracting the exported tree failed: ${(extracted.stderr || extracted.error?.message || "").trim()}` };
   fs.rmSync(tar, { force: true });
-  // Dependencies: the tree's lockfile (already part of the tree id) and the installed state the live checkout links in.
   const sha = (f) => { try { return crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch { return null; } };
-  const deps = { lock: sha(path.join(dir, "pnpm-lock.yaml")), installed: sha(path.join(root, "node_modules", ".modules.yaml")), linked: [] };
-  const packageRoots = fs.existsSync(path.join(dir, "packages")) ? fs.readdirSync(path.join(dir, "packages"), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join("packages", e.name)) : [];
-  for (const rel of [".", ...packageRoots]) {
-    const live = path.join(root, rel, "node_modules");
-    if (fs.existsSync(live) && !fs.existsSync(path.join(dir, rel, "node_modules"))) { fs.symlinkSync(live, path.join(dir, rel, "node_modules"), "dir"); deps.linked.push(rel); }
+  // `--package-import-method=copy`: every dependency file is a private copy inside the export, never a hardlink or symlink into
+  // the content-addressed store or the live checkout, so a later mutation of either cannot reach the probed bytes and the digest
+  // below is over the bytes that were actually imported. `--ignore-scripts`: no lifecycle script or build hook runs (nothing is
+  // compiled here; compiles are admitted elsewhere, after class A).
+  const INSTALL = ["install", "--frozen-lockfile", "--ignore-scripts", "--offline", "--package-import-method=copy"];
+  const deps = { lock: sha(path.join(dir, "pnpm-lock.yaml")), pnpm: null, installed: null, store: null, files: 0, hardlinks: 0, externalLinks: 0, install: `pnpm ${INSTALL.join(" ")}` };
+  if (deps.lock) {
+    const env = { ...process.env, CI: "1", NODE_OPTIONS: "", npm_config_frozen_lockfile: "true", npm_config_package_import_method: "copy" };
+    const version = spawn("pnpm", ["--version"], { encoding: "utf8", windowsHide: true, cwd: dir, env });
+    deps.pnpm = version.status === 0 ? String(version.stdout).trim() : null;
+    const installed = spawn("pnpm", INSTALL, { encoding: "utf8", windowsHide: true, cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
+    if (installed.error || installed.status !== 0) return { problem: `installing the exported tree's dependencies offline from the lockfile failed (the store must already hold them; run pnpm install in the checkout first): ${tail(installed.stderr || installed.stdout || installed.error?.message)}` };
+    // Every node_modules the install produced (the workspace root's and each package's), by bytes. pnpm's `.modules.yaml`
+    // carries a prune timestamp, so it is digested separately as installed-state metadata and left out of the byte digest.
+    const digest = hashInstalled(dir);
+    deps.installed = digest.installed; deps.store = digest.sha256; deps.files = digest.files; deps.hardlinks = digest.hardlinks; deps.externalLinks = digest.externalLinks;
   }
   return { dir, deps };
 }
+
+/** pnpm state metadata with its timestamp fields and the export's own path removed; every other field stays. */
+export function normalizeInstalledMetadata(name, text, exportDir) {
+  const real = (() => { try { return fs.realpathSync(exportDir); } catch { return exportDir; } })();
+  const unpath = (t) => t.split(real).join("<export>").split(exportDir).join("<export>");
+  if (name === ".modules.yaml") return unpath(text.split(/\r?\n/).filter((l) => !/^\s*prunedAt:/.test(l)).join("\n"));
+  if (name === ".pnpm-workspace-state-v1.json") {
+    try { const j = JSON.parse(text); delete j.lastValidatedTimestamp; return unpath(JSON.stringify(j, null, 1)); } catch { return unpath(text); }
+  }
+  return unpath(text);
+}
+
+/** Digest of every node_modules directory under an exported tree (root and per package). */
+export function hashInstalled(dir) {
+  const roots = [];
+  const find = (d, depth) => { let entries = []; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of entries) { if (!e.isDirectory() || e.isSymbolicLink()) continue; if (e.name === "node_modules") roots.push(path.join(d, e.name)); else if (depth < 4 && e.name !== ".git") find(path.join(d, e.name), depth + 1); } };
+  find(dir, 0);
+  const h = crypto.createHash("sha256"); const meta = crypto.createHash("sha256"); let files = 0; let hardlinks = 0; let externalLinks = 0; let metaFiles = 0;
+  for (const nm of roots.sort()) {
+    const rel = path.relative(dir, nm);
+    // pnpm's state files are part of the closure (they decide layout and what counts as installed), with only their demonstrated
+    // non-semantic fields normalized: `prunedAt` and `lastValidatedTimestamp` (timestamps) and the export's own temp path (keys of
+    // the workspace state). Everything else in them, and every other byte, is digested as is.
+    const META = [".modules.yaml", ".pnpm-workspace-state-v1.json"];
+    const d = hashTree(nm, { root: dir, skip: (r) => META.includes(r) });
+    h.update(`T ${rel}\0${d.sha256}\0`); files += d.files; hardlinks += d.hardlinks; externalLinks += d.externalLinks;
+    for (const m of META) {
+      let text; try { text = fs.readFileSync(path.join(nm, m), "utf8"); } catch { continue; }
+      const normalized = normalizeInstalledMetadata(m, text, dir);
+      h.update(`M ${rel}/${m}\0${normalized}\0`); meta.update(`M ${rel}/${m}\0${normalized}\0`); files++; metaFiles++;
+    }
+  }
+  return { sha256: h.digest("hex"), files, hardlinks, externalLinks, installed: metaFiles ? meta.digest("hex") : null, roots: roots.length };
+}
+
+/**
+ * sha256 over every regular file under `dir` (sorted relative path + bytes; symlinks by their target text), counting files whose
+ * bytes are shared with somewhere else (hardlinks, nlink > 1) and symlinks that leave `root` (mutable external links).
+ */
+export function hashTree(dir, { root = dir, skip = () => false } = {}) {
+  const h = crypto.createHash("sha256"); let files = 0; let hardlinks = 0; let externalLinks = 0;
+  const realRoot = fs.realpathSync(root);
+  const resolved = new Set(); // link targets already digested (cycle guard; a target reached twice is digested once)
+  const walk = (d, rel) => {
+    let entries = []; try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const p = path.join(d, e.name); const r = `${rel}${e.name}`;
+      if (skip(r)) continue;
+      if (e.isSymbolicLink()) {
+        const target = fs.readlinkSync(p); h.update(`L ${r}\0${target}\0`); files++;
+        let real = null; try { real = fs.realpathSync(p); } catch { real = null; }
+        if (real === null || !(real === realRoot || real.startsWith(`${realRoot}${path.sep}`))) { externalLinks++; continue; }
+        // The resolved closure: a link inside the export (a workspace package) is bound by its target's bytes too, not only by its text.
+        if (resolved.has(real)) { h.update(`R ${r}\0${path.relative(realRoot, real)}\0seen\0`); continue; }
+        resolved.add(real);
+        h.update(`R ${r}\0${path.relative(realRoot, real)}\0`);
+        const st = fs.statSync(real);
+        if (st.isDirectory()) walk(real, `${r}/`); else { h.update(fs.readFileSync(real)); h.update("\0"); files++; }
+      }
+      else if (e.isDirectory()) walk(p, `${r}/`);
+      else if (e.isFile()) { h.update(`F ${r}\0`); h.update(fs.readFileSync(p)); h.update("\0"); files++; if (fs.statSync(p).nlink > 1) hardlinks++; }
+    }
+  };
+  walk(dir, "");
+  return { sha256: h.digest("hex"), files, hardlinks, externalLinks };
+}
+const tail = (t, n = 400) => String(t ?? "").trim().split("\n").slice(-6).join(" | ").slice(-n);
 
 export function main(argv, io = { log: console.log, error: console.error }, deps = {}) {
   const { spawn = spawnSync, identity = checkoutIdentity, exporter = exportTree, probe = checkPackage, between = null } = deps;
@@ -140,7 +221,7 @@ export function main(argv, io = { log: console.log, error: console.error }, deps
   const before = identity(root, { spawn });
   let probeRoot = root; let closure = { kind: "working-dir", exported: null, deps: null };
   if (!noExport && before.commit) {
-    const exported = exporter(root, { spawn });
+    const exported = exporter(root, { commit: before.commit, spawn });
     if (exported.problem) { io.error(`exports-import-effects: ${exported.problem}`); return 2; }
     probeRoot = exported.dir; closure = { kind: "exported-tree", exported: exported.dir, deps: exported.deps };
   }
@@ -205,7 +286,11 @@ export function readIncompleteReport(file, { commit = null, tree = null, probe =
   if (!/^[0-9a-f]{40}$/.test(report.commit ?? "") || !/^[0-9a-f]{40}$/.test(report.tree ?? "")) return bad("no checkout commit/tree recorded");
   if (report.closure?.kind !== "exported-tree") return bad("the probe ran on a working directory, not on the exported commit; unbound mutable inputs are refused");
   if (report.stable !== true) return bad("the checkout's HEAD moved while the probe ran; the report is not bound to one commit");
-  if (!/^[0-9a-f]{64}$/.test(report.closure.deps?.lock ?? "") || !/^[0-9a-f]{64}$/.test(report.closure.deps?.installed ?? "")) return bad("the dependency closure (lockfile and installed state) is not recorded");
+  const d = report.closure.deps ?? {};
+  const hex64 = (v) => /^[0-9a-f]{64}$/.test(v ?? "");
+  if (!hex64(d.lock) || !hex64(d.store) || typeof d.pnpm !== "string" || !Number.isInteger(d.files) || d.files < 0 || !(d.installed === null || hex64(d.installed))) return bad("the dependency closure (lockfile digest, pnpm version, installed-state and installed-bytes digests) is not recorded");
+  if (d.hardlinks !== 0 || d.externalLinks !== 0) return bad(`the installed dependencies are not private copies (${d.hardlinks ?? "?"} hardlinked file(s), ${d.externalLinks ?? "?"} link(s) leaving the export); mutable external bytes are refused`);
+  if (d.install !== "pnpm install --frozen-lockfile --ignore-scripts --offline --package-import-method=copy") return bad("the dependencies were not installed frozen, offline, without scripts, as private copies");
   if (!/^[0-9a-f]{64}$/.test(report.probe ?? "") || typeof report.node !== "string") return bad("no probe code digest / Node version recorded");
   if (probe !== null && report.probe !== probe) return { problem: `import-effects report ${file} was written by probe ${report.probe.slice(0, 12)}…, not the trusted ${String(probe).slice(0, 12)}…` };
   if (node !== null && report.node !== node) return { problem: `import-effects report ${file} was written under Node ${report.node}, not the qualified ${node}` };

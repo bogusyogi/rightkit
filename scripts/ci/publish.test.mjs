@@ -472,7 +472,7 @@ function spy(fake = {}) {
 const IMPORT_EFFECTS_REPORT = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")), "report.json");
 // (the test git spy answers SHA to every rev-parse, so the checkout tree is SHA too.)
 const TRUSTED_PROBE = crypto.createHash("sha256").update(fs.readFileSync(new URL("./exports-import-effects.mjs", import.meta.url))).digest("hex");
-const REPORT_OK = { schema: "rightkit.import-effects/1", commit: SHA, tree: SHA, clean: true, dirty: 0, probe: TRUSTED_PROBE, node: process.version, stable: true, closure: { kind: "exported-tree", deps: { lock: "d".repeat(64), installed: "d".repeat(64), linked: ["."] } }, checked: 0, findings: 0, incomplete: [], covered: [] };
+const REPORT_OK = { schema: "rightkit.import-effects/1", commit: SHA, tree: SHA, clean: true, dirty: 0, probe: TRUSTED_PROBE, node: process.version, stable: true, closure: { kind: "exported-tree", deps: { lock: "d".repeat(64), installed: "d".repeat(64), store: "d".repeat(64), files: 7, hardlinks: 0, externalLinks: 0, pnpm: "11.25.0", install: "pnpm install --frozen-lockfile --ignore-scripts --offline --package-import-method=copy" } }, checked: 0, findings: 0, incomplete: [], covered: [] };
 fs.writeFileSync(IMPORT_EFFECTS_REPORT, JSON.stringify(REPORT_OK));
 const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", RK_IMPORT_EFFECTS_REPORT: IMPORT_EFFECTS_REPORT, ...extra });
 
@@ -1215,7 +1215,10 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("unstable", { stable: false }) }), /HEAD moved while the probe ran/);
   const receipt = await run();
   assert.equal(seenIncomplete?.schema, "rightkit.import-effects/1");
-  assert.deepEqual(receipt.importEffects, { commit: SHA, tree: SHA, closure: "exported-tree", deps: { lock: "d".repeat(64), installed: "d".repeat(64) }, liveCheckoutClean: true, probe: TRUSTED_PROBE, node: process.version, checked: 0, incomplete: 0 }, "the receipt records the source closure the sealed bytes were verified against");
+  assert.deepEqual(receipt.importEffects, { commit: SHA, tree: SHA, closure: "exported-tree", deps: { lock: "d".repeat(64), installed: "d".repeat(64), store: "d".repeat(64), files: 7, pnpm: "11.25.0", install: "pnpm install --frozen-lockfile --ignore-scripts --offline --package-import-method=copy" }, liveCheckoutClean: true, probe: TRUSTED_PROBE, node: process.version, checked: 0, incomplete: 0 }, "the receipt records the source closure the sealed bytes were verified against");
+  // Dependencies that are not private copies, or not installed frozen/offline/scriptless, make the report unusable.
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("hardlinks", { closure: { ...REPORT_OK.closure, deps: { ...REPORT_OK.closure.deps, hardlinks: 3 } } }) }), /not private copies \(3 hardlinked/);
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: reportWith("install", { closure: { ...REPORT_OK.closure, deps: { ...REPORT_OK.closure.deps, install: "pnpm install" } } }) }), /not installed frozen, offline, without scripts, as private copies/);
   assert.equal(receipt.host, "windows");
   assert.equal(receipt.manifestRunId, "77");
   assert.equal(receipt.manifestRunAttempt, "1");
