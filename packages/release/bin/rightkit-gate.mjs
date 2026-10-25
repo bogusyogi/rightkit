@@ -87,6 +87,8 @@ const text = (r) => String(r?.stdout ?? "");
 const failed = (r) => !r || Boolean(r.error) || r.status !== 0;
 const why = (r) => String(r?.error?.message ?? r?.stderr ?? "").trim().split(/\r?\n/).slice(-3).join(" | ");
 
+// A green `check --only` view: app rules passed but no class A scan ran. Distinct from 0 so no caller can admit it as a full check.
+export const PARTIAL_EXIT = 3;
 const USAGE = `usage: rightkit-gate --to check|compile|package|qualify|release [--platform mac|win] [--tier patch|update] [--receipt-in <file>] [--receipt-out <file>] | rightkit-gate --to dev|test [-- <right-release args>] | rightkit-gate stage --platform mac|win [--tier patch|update] | rightkit-gate [--base <ref>] [--plan] [--no-cache] [--pre-push] | rightkit-gate install-hook [--force] | rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>] | --version`;
 
 // ---- pure helpers (exported for tests) ----------------------------------------------------------------------
@@ -1342,8 +1344,10 @@ export async function main(argv, io = {}) {
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
       // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
-      if (!args.includes("--list") && !args.includes("--print-baseline")) o.err("rightkit-gate: PARTIAL: app rules only (--only); no class A scan ran, so this is not a class A result");
-      return appCheck;
+      // A green partial view exits PARTIAL_EXIT (3), never 0, so a caller that admits only exit 0 rejects it by status alone.
+      if (args.includes("--list") || args.includes("--print-baseline")) return appCheck;
+      o.err("rightkit-gate: PARTIAL: app rules only (--only); no class A scan ran, so this is not a class A result");
+      return appCheck === 0 ? PARTIAL_EXIT : appCheck;
     }
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
@@ -1371,11 +1375,20 @@ export async function main(argv, io = {}) {
       if (selfRules === 0 && o.exists(effects)) {
         const requested = args.includes("--worktree") ? null : option("--commit") ?? "HEAD";
         const at = (rev) => { const v = o.spawn("git", ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], { cwd: root }); return failed(v) ? null : text(v).trim(); };
+        // The probe exports HEAD, so a working tree whose tracked or untracked (unignored) files differ from HEAD is refused too.
+        const dirty = () => { const st = o.spawn("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: root }); return failed(st) || text(st).trim() !== ""; };
         if (requested !== null && at(requested) !== at("HEAD")) {
           o.err(`rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD (${String(at("HEAD")).slice(0, 12)}), not the requested ${requested}; check out that commit to check it`);
           selfRules = 1;
+        } else if (requested === null && dirty()) {
+          o.err("rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD, and the working tree differs from it; commit or stash the changes, or check --commit HEAD");
+          selfRules = 1;
         } else {
-          const e = launch(process.execPath, [effects], { cwd: root, env: o.env });
+          // Like CI's scans job: exports that resolve to build output are INCOMPLETE here and handed, through --report, to the
+          // sealed-byte check that publication runs; without --report the probe exits 3 and a green tree could never pass.
+          const common = o.spawn("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: root });
+          const report = path.join(failed(common) ? path.join(root, ".git") : text(common).trim(), "rightkit-gate", "import-effects", "report.json");
+          const e = launch(process.execPath, [effects, "--report", report], { cwd: root, env: o.env });
           if (e.status !== 0) selfRules = 1;
         }
       }

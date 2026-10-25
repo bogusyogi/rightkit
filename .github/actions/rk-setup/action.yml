@@ -46,6 +46,14 @@ runs:
       id: pnpm-store
       if: ${{ inputs.install-dependencies == 'true' }}
       shell: bash
+      # A probe of the store, before the protected install: run with pnpmfile hooks, scripts and corepack auto-pinning off, like
+      # every other pnpm call ahead of class A.
+      env:
+        npm_config_ignore_scripts: "true"
+        npm_config_ignore_pnpmfile: "true"
+        pnpm_config_ignore_scripts: "true"
+        pnpm_config_ignore_pnpmfile: "true"
+        COREPACK_ENABLE_AUTO_PIN: "0"
       run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
     - name: Cache pnpm store
       if: ${{ inputs.install-dependencies == 'true' }}

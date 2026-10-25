@@ -13,7 +13,7 @@
 
 set -eu
 
-here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+here=$(CDPATH="" cd -- "$(dirname -- "$0")" && pwd)
 install=0
 sdk_root=""
 while [ $# -gt 0 ]; do
@@ -75,6 +75,7 @@ fi
 # ---- sdkmanager and licences -----------------------------------------------------------------
 sdkmanager=""
 if [ -d "$sdk_root/cmdline-tools" ]; then
+    # shellcheck disable=SC2012  # ls over build-output names this script controls (no spaces); the order of the listing is what is wanted
     for d in $(ls -1 "$sdk_root/cmdline-tools" | sort -r); do
         if [ -x "$sdk_root/cmdline-tools/$d/bin/sdkmanager" ]; then
             sdkmanager="$sdk_root/cmdline-tools/$d/bin/sdkmanager"; break
@@ -107,6 +108,7 @@ if [ "$install" -eq 1 ] && [ -n "$to_install" ]; then
         # shellcheck disable=SC2086
         "$sdkmanager" "--sdk_root=$sdk_root" $to_install
         for id in $to_install; do did "$id"; done
+        # shellcheck disable=SC2086  # unquoted on purpose: the argument is a glob or a word list
         missing=$((missing - $(echo $to_install | wc -w)))
     else
         echo "SKIPPED   SDK package install: needs sdkmanager and accepted licences (see above)"

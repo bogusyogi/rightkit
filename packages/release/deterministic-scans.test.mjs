@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import { spawnSync } from "./background-process.mjs";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -1809,6 +1810,12 @@ test("pnpm-audit runs the consumer's own declared policy, never a weaker one; wi
   assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --audit-level=moderate" } }), ["audit", "--audit-level", "moderate"]);
   assert.deepEqual(scanArgs({ name: "app", license: "MIT" }), ["audit"], "no declared policy: all dependencies, all severities");
   assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --prod && curl evil" } }), ["audit"], "anything but plain flags is not a policy");
+  // Several declarations: the strictest wins, whatever their order.
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { quick: "pnpm audit --prod --audit-level high", strict: "pnpm audit" } }), ["audit"], "a later full audit is not hidden by an earlier narrow one");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { strict: "pnpm audit", quick: "pnpm audit --prod --audit-level high" } }), ["audit"]);
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { a: "pnpm audit --prod --audit-level high", b: "pnpm audit --prod --audit-level moderate" } }), ["audit", "--prod", "--audit-level", "moderate"], "same scope, lowest level");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { a: "pnpm audit --prod", b: "pnpm audit --dev --audit-level critical" } }), ["audit"], "different scopes: every dependency; one without a level: every severity");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { a: "pnpm audit --audit-level=critical", b: "pnpm audit --prod && curl evil" } }), ["audit", "--audit-level", "critical"], "a non-policy script declares nothing");
 });
 
 test("tool version probes run outside the repository with pnpm hooks and corepack auto-pinning off; the scans themselves keep their own roots", async () => {
@@ -1827,4 +1834,27 @@ test("tool version probes run outside the repository with pnpm hooks and corepac
   // Positive control: the audit scan itself still runs in the repository's content root.
   const audit = calls.find((c) => c.command === "pnpm" && c.args[0] === "audit");
   assert.ok(audit && audit.cwd.startsWith(CONTENT), "the scan runs where its lockfile is");
+});
+
+test("shellcheck: every tracked .sh/.bash script is a class A scan; a zsh script is left to its own shell", () => {
+  const files = { "deploy/release.sh": "#!/usr/bin/env bash\necho hi\n", "tools/x.bash": "#!/bin/bash\n", "spikes/run-all.sh": "#!/bin/zsh\necho z\n" };
+  const { plan } = planFor(Object.keys(files), files, { all: true });
+  const scan = plan.scans.find((s) => s.id === "shellcheck");
+  assert.equal(scan.class, "A");
+  assert.deepEqual(scan.args.filter((a) => !a.startsWith("--")), ["deploy/release.sh", "tools/x.bash"]);
+});
+
+test("shellcheck (real binary): SellRight's historical findings fail, intentional idioms documented in place pass", { skip: spawnSync("shellcheck", ["--version"]).status !== 0 && "shellcheck is not installed on this host" }, () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-shellcheck-"));
+  try {
+    const write = (name, text) => { writeFileSync(path.join(dir, name), text); return name; };
+    const run = (name) => spawnSync("shellcheck", ["--format=gcc", "--external-sources", name], { cwd: dir, encoding: "utf8" });
+    // Negatives: the codes SellRight's CI failed on (job 116846431233: SC2154, SC2030/SC2031; job 108638700363: SC2016).
+    assert.match(run(write("unassigned.sh", "#!/bin/bash\necho \"$deploy_host\"\n")).stdout, /SC2154/);
+    assert.match(run(write("subshell.sh", "#!/bin/bash\nx=1\n( x=2 )\necho \"$x\"\n( x=3; echo \"$x\" ) | cat\necho \"$x\"\n")).stdout, /SC203[01]/);
+    assert.match(run(write("quotes.sh", "#!/bin/bash\necho 'value: $HOME'\n")).stdout, /SC2016/);
+    // Positives: the same idioms written on purpose and said so, and a clean script.
+    assert.equal(run(write("intent.sh", "#!/bin/bash\n# shellcheck disable=SC2016  # literal on purpose: the inner shell expands it\nbash -c 'echo $HOME'\n")).status, 0);
+    assert.equal(run(write("clean.sh", "#!/bin/bash\nset -euo pipefail\nhost=${1:?host}\necho \"$host\"\n")).status, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

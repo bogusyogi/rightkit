@@ -10,7 +10,7 @@ import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
-import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes } from "./bin/rightkit-gate.mjs";
+import { EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hasTomlTable, hookText, lockScope, main, manifestChangeIsLockReflected, PARTIAL_EXIT, manifestTables, parsePushLines, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, tomlString, tomlStrings, tomlValue, trampolineText, workspaceExcludes } from "./bin/rightkit-gate.mjs";
 import * as gateModule from "./bin/rightkit-gate.mjs";
 
 // Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
@@ -2150,7 +2150,7 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   // Positive control: green app rules and class A on HEAD run RightKit's rules for HEAD, then the import check.
   const green = await run({ args: ["--commit", "HEAD"] });
   assert.equal(green.code, 0, green.err);
-  assert.deepEqual(green.launched, ["scripts/preflight.mjs --repo . --commit HEAD", "scripts/ci/exports-import-effects.mjs"]);
+  assert.deepEqual(green.launched, ["scripts/preflight.mjs --repo . --commit HEAD", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json"]);
   // Negative: a red app rule or a red class A scan executes none of the repository's own scripts.
   const redApp = await run({ appCheck: 1, args: ["--commit", "HEAD"] });
   assert.equal(redApp.code, 1); assert.deepEqual(redApp.launched, []);
@@ -2167,6 +2167,21 @@ test("RightKit self-check: the door runs RightKit's own rules for the requested 
   git("rm", "-q", "bad.json"); git("commit", "-q", "-m", "fix");
   const redRules = await run({ args: ["--commit", "HEAD"], status: 1 });
   assert.equal(redRules.code, 1); assert.equal(redRules.launched.length, 1);
+  // --worktree: a clean tree equals HEAD, so the HEAD-bound import probe runs (positive control) ...
+  const clean = await run({ args: ["--worktree"] });
+  assert.equal(clean.code, 0, clean.err);
+  assert.deepEqual(clean.launched, ["scripts/preflight.mjs --repo . --worktree", "scripts/ci/exports-import-effects.mjs --report .git/rightkit-gate/import-effects/report.json"]);
+  // ... but a tracked edit or an untracked file makes the tree differ from HEAD, and the probe refuses instead of proving other bytes.
+  fs.writeFileSync(path.join(root, "good.json"), "{\"edited\":true}\n");
+  const dirtyTracked = await run({ args: ["--worktree"] });
+  assert.equal(dirtyTracked.code, 1, dirtyTracked.err);
+  assert.deepEqual(dirtyTracked.launched, ["scripts/preflight.mjs --repo . --worktree"], "no import probe of HEAD for a modified tree");
+  assert.match(dirtyTracked.err, /working tree differs from it/);
+  git("checkout", "--", "good.json");
+  fs.writeFileSync(path.join(root, "extra.json"), "{}\n");
+  const dirtyUntracked = await run({ args: ["--worktree"] });
+  assert.equal(dirtyUntracked.code, 1, dirtyUntracked.err);
+  assert.equal(dirtyUntracked.launched.length, 1, "an untracked file also refuses the probe");
 });
 
 test("class A of an older commit runs cargo's scans on that commit's Cargo files, never the live checkout's", async (t) => {
@@ -2204,8 +2219,20 @@ test("class A of an older commit runs cargo's scans on that commit's Cargo files
 
 test("a partial check (--only) says it is not a class A result, and the door and the broker always run the full check", async () => {
   const c = capture();
-  await main(["check", "--only", "release-config"], { ...c.io, cwd: process.cwd(), appCheck: async () => 0 });
+  assert.equal(await main(["check", "--only", "release-config"], { ...c.io, cwd: process.cwd(), appCheck: async () => 0 }), PARTIAL_EXIT);
+  assert.notEqual(PARTIAL_EXIT, 0);
   assert.match(c.err.join("\n"), /PARTIAL: app rules only/);
+  assert.equal(await main(["check", "--only", "release-config"], { ...capture().io, cwd: process.cwd(), appCheck: async () => 1 }), 1, "a red partial stays red");
+  assert.equal(await main(["check", "--list"], { ...capture().io, cwd: process.cwd(), appCheck: async () => 0 }), 0, "a listing is not a verdict");
+  // Real process: a consumer that admits only exit status 0 (the broker, the --to check stage, CI `run:`) rejects a green partial view.
+  const bin = fileURLToPath(new URL("./bin/rightkit-gate.mjs", import.meta.url));
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-partial-")));
+  try {
+    for (const a of [["init", "-q"], ["config", "user.email", "t@example.test"], ["config", "user.name", "t"], ["commit", "-q", "--allow-empty", "-m", "one"]]) spawnSync("git", a, { cwd: repo });
+    const real = spawnSync(process.execPath, [bin, "check", "--only", "release-config"], { cwd: repo, encoding: "utf8" });
+    assert.equal(real.status, PARTIAL_EXIT, real.stderr);
+    assert.match(real.stderr, /PARTIAL/);
+  } finally { fs.rmSync(repo, { recursive: true, force: true }); }
   // The door's check stage and the broker's admission call the full form.
   const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
   assert.match(src, /main\(\["check", "--commit", "HEAD"\]/, "--to check runs the full check");

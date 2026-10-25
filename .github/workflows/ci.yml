@@ -331,8 +331,13 @@ jobs:
         with:
           version: 11.25.0
           run_install: false
-      - name: Install workspace dependencies without lifecycle scripts (for the import-effects check)
-        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install workspace dependencies without lifecycle scripts or pnpmfile hooks (for the import-effects check)
+        env:
+          npm_config_ignore_scripts: "true"
+          npm_config_ignore_pnpmfile: "true"
+          pnpm_config_ignore_scripts: "true"
+          pnpm_config_ignore_pnpmfile: "true"
+        run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
       - name: Class A deterministic scans (every change)
         shell: bash
         env:

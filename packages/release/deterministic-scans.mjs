@@ -49,7 +49,7 @@ export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
 export const CLASS_A_SCAN_PREFIXES = Object.freeze([
   "rustfmt", "node-check", "json-parse", "toml-parse", "yaml-parse", "ownership-catalog",
-  "actionlint", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
+  "actionlint", "shellcheck", "pnpm-lockfile", "pnpm-audit", "cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list",
   "changelog-version", "license", "secret-scan", "path-policy", "advisory-exceptions", "suite-api",
 ]);
 export const CLASS_B_SCAN_PREFIXES = Object.freeze([
@@ -669,6 +669,12 @@ export function planScans({
   // actionlint lints every run: script with shellcheck only when shellcheck is found, and otherwise passes silently; class A
   // requires it (`requires`), so a host without it fails the scan instead of skipping the shell checks.
   if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: ["shellcheck"], args: [...actionlintConfig, ...workflowFiles], root: "content" });
+  // Standalone shell scripts (SellRight's deploy scripts failed SC2154, SC2030/2031 and SC2016 in CI): every tracked .sh/.bash file,
+  // with ShellCheck's own defaults and the repository's .shellcheckrc (data, not code). actionlint covers only workflow run: blocks.
+  // A script whose shebang names another shell (zsh, fish) is not ShellCheck's to judge, so it is left out, never failed.
+  const otherShell = (f) => { try { return /^#!.*\b(zsh|fish|pwsh|powershell)\b/.test(String(readFile(path.join(contentRoot, f))).split("\n", 1)[0]); } catch { return false; } };
+  const shellFiles = files.filter((f) => /\.(sh|bash)$/.test(f) && !/(^|\/)node_modules\//.test(f) && !otherShell(f)).sort();
+  if (shellFiles.length) add({ id: "shellcheck", class: A, tool: "shellcheck", args: ["--format=gcc", "--external-sources", ...shellFiles], root: "content" });
   // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
   // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 
@@ -699,17 +705,28 @@ export function planScans({
     add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
     add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
-  // The audit policy is the consumer's own: when the root's package.json declares a script that is exactly `pnpm audit <flags>`, those
-  // flags (only --prod, --dev, --audit-level <low|moderate|high|critical> are accepted) are the scan's; otherwise every dependency at every
-  // severity. The gate never runs a weaker audit than the repository declares (RightSites declares `pnpm audit --prod`: all severities).
+  // The audit policy is the consumer's own: every package.json script that is exactly `pnpm audit <flags>` (only --prod, --dev,
+  // --audit-level <low|moderate|high|critical> are accepted) declares one, and the scan runs the strictest of them all: a dependency
+  // scope only when every declaration names that same scope, and the lowest audit level any declares (one without a level means low).
+  // With none declared, every dependency at every severity. The gate never runs a weaker audit than the repository declares
+  // (RightSites declares `pnpm audit --prod`: production dependencies, all severities).
+  const LEVELS = ["low", "moderate", "high", "critical"];
   const consumerAuditFlags = (r) => {
     let scripts = {};
     try { scripts = JSON.parse(readFile(path.join(contentRoot, r, "package.json"))).scripts ?? {}; } catch { /* none: the strict default */ }
+    const declared = [];
     for (const cmd of Object.values(scripts)) {
       const m = /^\s*pnpm\s+audit((?:\s+(?:--prod|--dev|--audit-level(?:=|\s+)(?:low|moderate|high|critical)))*)\s*$/.exec(String(cmd));
-      if (m) return m[1].trim().split(/\s+|=/).filter(Boolean);
+      if (!m) continue;
+      const words = m[1].trim().split(/\s+|=/).filter(Boolean);
+      const at = words.indexOf("--audit-level");
+      const scope = words.includes("--prod") && !words.includes("--dev") ? "--prod" : words.includes("--dev") && !words.includes("--prod") ? "--dev" : null;
+      declared.push({ scope, level: at < 0 ? 0 : LEVELS.indexOf(words[at + 1]) });
     }
-    return [];
+    if (!declared.length) return [];
+    const scope = declared.every((d) => d.scope === declared[0].scope) ? declared[0].scope : null;
+    const level = Math.min(...declared.map((d) => d.level));
+    return [...(scope ? [scope] : []), ...(level > 0 ? ["--audit-level", LEVELS[level]] : [])];
   };
   for (const r of jsRoots) {
     // Class A runs no repository hooks: `install` accepts --ignore-pnpmfile and --ignore-scripts; `audit` accepts

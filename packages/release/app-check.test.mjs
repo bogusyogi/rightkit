@@ -1570,7 +1570,7 @@ test("the packed tarball ships app-check.mjs and no tests, and its rightkit-gate
   const red = run("--commit", "HEAD");
   assert.equal(red.status, 1, red.stdout + red.stderr);
   assert.deepEqual(findingLines(red.stdout).filter((l) => l.startsWith("FAIL")).map((l) => l.split(":")[0]), ["FAIL qa-platform (G13)", "FAIL skip-checks (G17)"]);
-  assert.equal(run("--commit", "HEAD", "--only", "speech-link").status, 0);
+  assert.equal(run("--commit", "HEAD", "--only", "speech-link").status, 3, "a green partial view exits PARTIAL_EXIT, never 0");
 });
 
 test("app-check.mjs and the commands that use it are outside the import closure of the protected ownership policy bundle", async () => {
