@@ -6,8 +6,9 @@
 //
 //   sidecars: [
 //     { kind: "cargo-bin", package: "mailright-engine", bin?, name?, profile?: "release" | { dev, release }, features?, manifestPath?, sha256?, dest?, clean?, platforms? },
-//     { kind: "ffmpeg", variant?, tools?, notices: { dir, sourceOfferContact }, catalog, stage?, bundleDir? },
-//     { kind: "onnxruntime", version, catalog, resourceDir?: "src-tauri/resources/runtime", as?, licenseDir?, cacheDir? },
+//     { kind: "ffmpeg", variant?, variants?, tools?, notices: { dir, sourceOfferContact }, catalog, stage?, bundleDir?, resourceDir?, sources?, probe? },
+//     { kind: "onnxruntime", version, catalog, resourceDir?: "src-tauri/resources/runtime", as?, licenseDir?, cacheDir?, companions? },   // the alias of native-library { library: "onnxruntime" }
+//     { kind: "native-library", library: "onnxruntime" | "directml" | "pdfium" | "whisper-cpp" | "ggml" | "sherpa-onnx", version, catalog, resourceDir?, licenseDir?, cacheDir?, as?, files?, companions?, source?: { dir }, platforms? },
 //     { kind: "resource", from, to, sha256?, machO?, clean?, platforms? },   // `from` may be a directory (copied recursively, every file hashed)
 //     { kind: "command", name, cmd, args?, cwd?, output, externalBin: true | (false with dest), dest?, clean?, platforms? },
 //     { kind: "remote", name, url (https), sha256, dest | to, size?, extract?, memberSha256?, executable?, clean?, platforms? },
@@ -22,11 +23,13 @@
 // `catalog` is a relative path, an absolute path, { crate: "rightkit-ffmpeg", file? } (resolved through `rustright cargo
 // metadata`) or { npm: "<pkg>/<file>" }. The wrapper form { sidecars, profiles: { dev, release } } sets the default cargo
 // profile pair; RIGHTKIT_BUILD_MODE (dev|release, default release) selects. The target `universal-apple-darwin` builds
-// both slices of a cargo-bin and lipo-creates `<name>-universal-apple-darwin`. `ffmpeg` and `onnxruntime` do the same from their
-// per-arch catalog rows (each slice staged under .right-release/slices/<triple>, then lipo-merged; an onnxruntime `universal` macOS row is staged once, lipo -archs checked, no merge), a `cmake` entry builds with
+// both slices of a cargo-bin and lipo-creates `<name>-universal-apple-darwin`. `ffmpeg`, `onnxruntime` and `native-library` do the same from their
+// per-arch catalog rows (each slice staged under .right-release/slices/<triple>, then lipo-merged; a `universal` macOS row is staged once, lipo -archs checked, no merge), a `cmake` entry builds with
 // CMAKE_OSX_ARCHITECTURES="arm64;x86_64". A `prebuilt` entry does it from per-arch host-built inputs (`from: { aarch64, x86_64 }`, or the
 // staged `<name>-<slice triple>` files), each verified against its own manifest entry and then lipo-merged. An `ffmpeg` source may be a
-// local path (`sources.ffmpeg: { path: "../vendor/ffmpeg-lgpl" }`) instead of a pinned https archive.
+// local path (`sources.ffmpeg: { path: "../vendor/ffmpeg-lgpl" }`) instead of a pinned https archive. An `ffmpeg` entry with `resourceDir`
+// stages `<resourceDir>/<tool>[.exe]` (no target triple, not an externalBin) from the same rows, with the same lipo merge, notices, digest
+// check, sources, probe and receipt; `bundleDir` belongs to the externalBin layout, so the two keys are refused together.
 //
 // It never signs (release.mjs signs staged files) and never calls bare cargo. Every effect goes through `deps`.
 import { createHash } from "node:crypto";
@@ -38,7 +41,7 @@ import { resolveCommand } from "./development.mjs";
 import { managedHost } from "./managed-cargo.mjs";
 import { APPROVAL_MACHO_STRIP_LINKEDIT_V1, APPROVAL_RAW_SHA256, approvalDigest } from "./macho-approval-hash.mjs";
 import {
-  planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
+  bundledFileName, planMediaSidecar, sourceOfferText, stagedFileName, validateMediaSidecarConfig, verifyStagedSidecars, writeMediaSidecarNotices,
 } from "./media-sidecar.mjs";
 import { ContentDigestError, contentIdentity, digestFor } from "./content-digest.mjs";
 
@@ -60,7 +63,7 @@ export class StageSidecarError extends Error {
 const fail = (code, message, details) => { throw new StageSidecarError(code, message, details); };
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 const SHA256 = /^[0-9a-f]{64}$/;
-const KINDS = new Set(["cargo-bin", "ffmpeg", "onnxruntime", "resource", "command", "remote", "cmake", "prebuilt"]);
+const KINDS = new Set(["cargo-bin", "ffmpeg", "onnxruntime", "native-library", "resource", "command", "remote", "cmake", "prebuilt"]);
 export const NESTED_BROKER_CODE = "STAGE_SIDECAR_NESTED_BROKER";
 export const REMOTE_CACHE_DIR = ".right-release/cache/remote";
 /** Per-arch staging for a universal ffmpeg or onnxruntime entry: `<SLICE_ROOT>/<triple>/...`, merged with lipo afterwards. */
@@ -95,10 +98,17 @@ export function normalizeArchiveMember(member) {
   if (segments.length > 1 && !segments.every((segment) => MEMBER_SEGMENT.test(segment))) return { error: "has a segment with characters outside A-Z a-z 0-9 _ . + @ ~ -" };
   return { value, byPath: segments.length > 1 };
 }
+/** Native-catalog libraries a `native-library` entry stages from rows (dynamic libraries); the others are served by another route. */
+const NATIVE_LIBRARIES = Object.freeze(["onnxruntime", "directml", "pdfium", "whisper-cpp", "ggml", "sherpa-onnx"]);
+const STATIC_CRATE_ROUTE = "is a static crate: depend on it through Cargo (its catalog row pins the crate checksum); there is no file to stage";
+const NATIVE_OTHER_ROUTE = Object.freeze({ ffmpeg: "has its own kind: use { kind: \"ffmpeg\", ... }", "sqlite-vec": STATIC_CRATE_ROUTE, libgit2: STATIC_CRATE_ROUTE });
+/** A catalog version token (1.24.4, chromium/8021): only compared with the rows, never used as a path. */
+const NATIVE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+/-]{0,63}$/;
 const KEYS = Object.freeze({
   "cargo-bin": ["kind", "package", "bin", "name", "profile", "features", "manifestPath", "sha256", "dest", "clean", "platforms"],
-  ffmpeg: ["kind", "variant", "variants", "tools", "notices", "catalog", "stage", "bundleDir", "sources", "probe", "platforms"],
-  onnxruntime: ["kind", "version", "catalog", "resourceDir", "as", "licenseDir", "cacheDir", "platforms"],
+  ffmpeg: ["kind", "variant", "variants", "tools", "notices", "catalog", "stage", "bundleDir", "resourceDir", "sources", "probe", "platforms"],
+  onnxruntime: ["kind", "version", "catalog", "resourceDir", "as", "licenseDir", "cacheDir", "companions", "platforms"],
+  "native-library": ["kind", "library", "version", "catalog", "resourceDir", "licenseDir", "cacheDir", "as", "files", "companions", "source", "platforms"],
   resource: ["kind", "from", "to", "sha256", "machO", "clean", "platforms"],
   command: ["kind", "name", "cmd", "args", "cwd", "output", "externalBin", "dest", "clean", "platforms"],
   remote: ["kind", "name", "url", "sha256", "dest", "to", "size", "extract", "memberSha256", "executable", "clean", "platforms"],
@@ -152,16 +162,19 @@ const reaches = (output, protectedPath) => output === protectedPath || protected
 
 /**
  * Paths stage-sidecar never writes to or cleans, app-relative: the stage directory, the receipt, the remote cache and the
- * `.right-release` state, onnxruntime cache directories, and the app's source and dependency roots. A destination that equals
+ * `.right-release` state, onnxruntime and native-library cache directories, and the app's source and dependency roots. A destination that equals
  * or contains one of these is refused (validation, and again just before any delete).
  */
 function protectedOutputPaths({ stageDir, receiptPath, entries = [] }) {
-  const cacheDirs = entries.filter((entry) => entry.kind === "onnxruntime" && entry.cacheDir).map((entry) => entry.cacheDir);
+  const cacheDirs = entries.filter((entry) => (entry.kind === "onnxruntime" || entry.kind === "native-library") && entry.cacheDir).map((entry) => entry.cacheDir);
   return [stageDir, receiptPath, ".right-release", REMOTE_CACHE_DIR, ".git", "src", "src-tauri", "node_modules", "package.json", ...cacheDirs].filter(Boolean).map(canonicalOutput);
 }
 
 /** `<name>-<triple>[.exe]`, with `<name>-universal-apple-darwin` for the universal target. */
 const stagedName = (name, t) => (t.arch === "universal" ? `${name}-${UNIVERSAL}` : stagedFileName(name, t.os, t.arch));
+
+/** An ffmpeg tool's app-relative output: `<resourceDir>/<tool>[.exe]` for a resourceDir entry (no triple, not an externalBin), else `<stageDir>/<tool>-<triple>[.exe]`. */
+const ffmpegOutput = (entry, stageDir, tool, t) => (entry.resourceDir ? `${entry.resourceDir}/${bundledFileName(tool, t.os)}` : `${stageDir}/${stagedName(tool, t)}`);
 
 /** RIGHTKIT_BUILD_MODE: dev | release (default release). Anything else is refused. */
 export function resolveBuildMode(env = process.env) {
@@ -183,7 +196,7 @@ function parseProfile(value, label, errors) {
   return { dev: value.dev, release: value.release };
 }
 
-const CATALOG_DEFAULT_FILE = Object.freeze({ ffmpeg: "catalog/artifacts.json", onnxruntime: "catalog/native-libraries.json" });
+const CATALOG_DEFAULT_FILE = Object.freeze({ ffmpeg: "catalog/artifacts.json", onnxruntime: "catalog/native-libraries.json", "native-library": "catalog/native-libraries.json" });
 
 /**
  * A catalog reference: a relative path (inside the app), an absolute path, { crate, file? } or { npm: "<pkg>/<file>" }.
@@ -244,6 +257,19 @@ function parseLocalSource(value, label, errors) {
   if (!normalized.split("/").some((segment) => segment !== "" && segment !== "." && segment !== "..")) { errors.push(`${label}.path must name a file or directory, not the app root or a bare parent: ${raw}`); return undefined; }
   if (value.member !== undefined && (typeof value.member !== "string" || !NAME.test(value.member))) errors.push(`${label}.member must be the bare file name of the binary inside the directory`);
   return { path: normalized.replace(/\/+$/, ""), ...(typeof value.member === "string" ? { member: value.member } : {}) };
+}
+
+/**
+ * A `native-library` `source.dir`: the directory holding the shipped file under its catalog artifactFileName (rows with no archive,
+ * measured from a retained build). Relative to the app root and MAY step out of it, or absolute. Nothing is downloaded from it.
+ */
+function parseSourceDir(raw, label, errors) {
+  const normalized = typeof raw === "string" ? raw.replaceAll("\\", "/") : "";
+  if (typeof raw !== "string" || !raw.trim()) { errors.push(`${label} must be a non-empty directory path (relative to the app root, or absolute)`); return undefined; }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)) { errors.push(`${label} must be a directory path, not a URL (a source dir is never downloaded)`); return undefined; }
+  if (path.isAbsolute(raw) || /^[A-Za-z]:[\\/]/.test(raw)) return raw;
+  if (/^[A-Za-z]:/.test(raw) || !normalized.split("/").some((segment) => segment !== "" && segment !== "." && segment !== "..")) { errors.push(`${label} must name a directory (relative to the app root, or absolute), not the app root, a bare parent or a drive-relative path: ${raw}`); return undefined; }
+  return normalized.replace(/\/+$/, "");
 }
 
 const parseFfmpegSource = (value, label, errors) => (isObject(value) && "path" in value ? parseLocalSource(value, label, errors) : parseArchiveSource(value, label, errors));
@@ -353,7 +379,7 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (!skipped) { if (dest) claim(dest, where); else if (typeof name === "string" && stageDir) claim(stagedClaim(name), where); }
       Object.assign(entry, { package: item.package, bin, name, profile, features: [...features], ...(manifestPath ? { manifestPath } : {}), ...(item.sha256 ? { sha256: item.sha256 } : {}), ...(dest ? { dest } : {}), ...(clean ? { clean } : {}) });
     } else if (item.kind === "ffmpeg") {
-      const { kind: _kind, platforms: _platforms, catalog: rawCatalog, sources: rawSources, probe: rawProbe, ...rest } = item;
+      const { kind: _kind, platforms: _platforms, catalog: rawCatalog, sources: rawSources, probe: rawProbe, resourceDir: rawResourceDir, ...rest } = item;
       if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "cargo") errors.push(`${where}: stage.cmd must not be bare cargo; use { cmd: "rustright", args: ["cargo", ...] }`);
       if (rest.stage !== undefined && isObject(rest.stage) && rest.stage.cmd === "rightkit") errors.push(`${where}: stage.cmd "rightkit" is the retired name of the RustRight client (rustright#91); use { cmd: "rustright", args: ["cargo", ...] }`);
       const catalogSpec = parseCatalogSpec(rawCatalog, `${where}: catalog`, errors, "ffmpeg");
@@ -362,6 +388,10 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
       if (rawProbe === true) entry.probe = true;
       const sources = parseFfmpegSources(rawSources, where, errors, { universal: t.arch === "universal" });
       if (sources) entry.sources = sources;
+      // `resourceDir` stages flat files (<resourceDir>/ffmpeg[.exe]); `bundleDir` is the key of the externalBin layout, so the two never combine.
+      const resourceDir = rawResourceDir === undefined ? undefined : relativePath(rawResourceDir, `${where}: resourceDir`, errors);
+      if (rawResourceDir !== undefined && item.bundleDir !== undefined) errors.push(`${where}: bundleDir and resourceDir cannot be combined: bundleDir places an externalBin in the app bundle, resourceDir stages flat files (drop bundleDir)`);
+      if (resourceDir) entry.resourceDir = resourceDir;
       if (!skipped) {
         const mediaErrors = (error) => errors.push(...String(error.message).split("\n").filter((line) => line.startsWith("- ")).map((line) => `${where}: ${line.slice(2)}`).concat(error.message.startsWith("invalid") ? [] : [`${where}: ${error.message}`]));
         if (t.arch === "universal") {
@@ -372,24 +402,53 @@ export function validateSidecarManifest(raw, { target, mode = "release" } = {}) 
               return { triple, arch: slice.arch, media: validateMediaSidecarConfig({ ...rest, arch: slice.arch, stageDir: `${SLICE_ROOT}/${triple}` }, { platform: t.platform, hostArch: slice.arch }) };
             });
             entry.media = entry.slices[0].media;
-            for (const tool of entry.media.tools) claim(stagedClaim(tool), where);
+            for (const tool of entry.media.tools) claim(ffmpegOutput(entry, stageDir, tool, t), where);
           } catch (error) { mediaErrors(error); }
         } else {
           try {
             const config = validateMediaSidecarConfig({ ...rest, arch: t.arch, stageDir }, { platform: t.platform, hostArch: t.arch });
-            for (const tool of config.tools) claim(`${stageDir}/${stagedFileName(tool, t.os, t.arch)}`, where);
+            for (const tool of config.tools) claim(ffmpegOutput(entry, stageDir, tool, t), where);
             entry.media = config;
           } catch (error) { mediaErrors(error); }
         }
       }
-    } else if (item.kind === "onnxruntime") {
-      if (typeof item.version !== "string" || !/^\d+\.\d+\.\d+$/.test(item.version)) errors.push(`${where}: version must be x.y.z`);
+    } else if (item.kind === "onnxruntime" || item.kind === "native-library") {
+      // `onnxruntime` is the alias of `native-library` with library onnxruntime: one code path, the alias keeps its own keys and receipt kind.
+      const native = item.kind === "native-library";
+      const library = native ? item.library : "onnxruntime";
+      if (native) {
+        if (typeof library !== "string" || !library) errors.push(`${where}: library is required (one of ${NATIVE_LIBRARIES.join(", ")})`);
+        else if (Object.hasOwn(NATIVE_OTHER_ROUTE, library)) errors.push(`${where}: library ${library} ${NATIVE_OTHER_ROUTE[library]}`);
+        else if (!NATIVE_LIBRARIES.includes(library)) errors.push(`${where}: unknown library ${JSON.stringify(library)} (one of ${NATIVE_LIBRARIES.join(", ")})`);
+        if (typeof item.version !== "string" || !NATIVE_VERSION.test(item.version)) errors.push(`${where}: version must be a catalog version token (letters, digits and . _ + / -), such as 1.24.4 or chromium/8021`);
+      } else if (typeof item.version !== "string" || !/^\d+\.\d+\.\d+$/.test(item.version)) errors.push(`${where}: version must be x.y.z`);
       const resourceDir = relativePath(item.resourceDir ?? DEFAULT_ORT_RESOURCE_DIR, `${where}: resourceDir`, errors);
       const licenseDir = relativePath(item.licenseDir ?? (resourceDir ? `${resourceDir}/LICENSES` : "x"), `${where}: licenseDir`, errors);
-      const cacheDir = relativePath(item.cacheDir ?? ".cache/onnxruntime", `${where}: cacheDir`, errors);
-      const catalogSpec = parseCatalogSpec(item.catalog, `${where}: catalog`, errors, "onnxruntime");
+      const cacheDir = relativePath(item.cacheDir ?? (native ? ".cache/native-library" : ".cache/onnxruntime"), `${where}: cacheDir`, errors);
+      const catalogSpec = parseCatalogSpec(item.catalog, `${where}: catalog`, errors, item.kind);
       if (item.as !== undefined && (typeof item.as !== "string" || !NAME.test(item.as))) errors.push(`${where}: as must be a bare file name`);
-      Object.assign(entry, { version: item.version, resourceDir, licenseDir, cacheDir, ...(catalogSpec ? { catalogSpec } : {}), ...(item.as ? { as: item.as } : {}) });
+      if (item.companions !== undefined && typeof item.companions !== "boolean") errors.push(`${where}: companions must be a boolean`);
+      let files;
+      let source;
+      if (native) {
+        if (item.files !== undefined) {
+          if (!Array.isArray(item.files) || !item.files.length || item.files.some((file) => typeof file !== "string" || !NAME.test(file))) errors.push(`${where}: files must be a non-empty list of bare file names (catalog artifactFileName values)`);
+          else if (new Set(item.files).size !== item.files.length) errors.push(`${where}: files names a file twice`);
+          else files = [...item.files];
+          if (item.as !== undefined && Array.isArray(item.files) && item.files.length !== 1) errors.push(`${where}: as renames one file, so files must list exactly one (it lists ${item.files.length})`);
+        }
+        if (item.source !== undefined) {
+          if (!isObject(item.source)) errors.push(`${where}: source must be { dir }`);
+          else {
+            for (const key of Object.keys(item.source)) if (key !== "dir") errors.push(`${where}: source: unknown key ${JSON.stringify(key)} (allowed: dir)`);
+            source = parseSourceDir(item.source.dir, `${where}: source.dir`, errors);
+            if (source) source = { dir: source };
+          }
+        }
+        // Only the names known now are claimed; a catalog-driven entry (no files, no as) writes whatever its rows name.
+        if (!skipped && resourceDir) for (const name of typeof item.as === "string" ? [item.as] : (files ?? [])) claim(`${resourceDir}/${name}`, where);
+      }
+      Object.assign(entry, { library, version: item.version, resourceDir, licenseDir, cacheDir, companions: item.companions !== false, ...(catalogSpec ? { catalogSpec } : {}), ...(item.as ? { as: item.as } : {}), ...(files ? { files } : {}), ...(source ? { source } : {}) });
     } else if (item.kind === "command") {
       const name = item.name;
       if (typeof name !== "string" || !NAME.test(name) || /\.exe$/i.test(name) || name !== path.basename(name)) errors.push(`${where}: name must be a bare sidecar name (no path, no .exe, no target triple)`);
@@ -841,11 +900,13 @@ function probeFfmpegBinary(ctx, { file, tool, target }) {
 /**
  * Stage one architecture of an ffmpeg entry: plan the catalog rows, fetch declared sources, run the optional stage command,
  * write the notices (unless a universal merge writes them once for every slice), verify each staged file against its row.
- * Returns { plan, rows }; each row is a receipt row.
+ * `flat` (a thin target of a `resourceDir` entry) moves each file to `<resourceDir>/<tool>[.exe]`; a universal slice stays
+ * `<SLICE_ROOT>/<triple>/<tool>-<triple>[.exe]` and only its merge result is flat. Returns { plan, rows }; each row is a receipt row.
  */
-async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices }) {
+async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices, flat = false }) {
   const { appRoot, run, env, fs } = ctx;
-  const plan = planMediaSidecar({ config, catalog: resolved.catalog, crateDir: resolved.crateDir, crateVersion: resolved.crateVersion, catalogBytes: resolved.catalogBytes, root: appRoot });
+  const planned = planMediaSidecar({ config, catalog: resolved.catalog, crateDir: resolved.crateDir, crateVersion: resolved.crateVersion, catalogBytes: resolved.catalogBytes, root: appRoot });
+  const plan = flat ? { ...planned, files: planned.files.map((file) => ({ ...file, stagedPath: path.resolve(appRoot, entry.resourceDir, file.bundledName) })) } : planned;
   await fetchFfmpegSources(entry, ctx, plan, t.arch);
   if (config.stage) {
     const universal = ctx.target.arch === "universal";
@@ -863,12 +924,12 @@ async function stageFfmpegSlice(entry, ctx, resolved, { config, t, writeNotices 
     const contentDigest = catalogContentDigest(fs.readFileSync(file.stagedPath), t.arch);
     if (contentDigest !== file.contentSha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${file.tool} staged with content digest ${contentDigest}, the approved catalog row ${file.artifactId} says ${file.contentSha256}`, { expected: file.contentSha256, actual: contentDigest });
     const probe = entry.probe ? probeFfmpegBinary(ctx, { file: file.stagedPath, tool: file.tool, target: t }) : undefined;
-    return { kind: "ffmpeg", name: file.tool, path: rel(ctx, file.stagedPath), sha256: file.preSignSha256, sizeBytes: file.preSignSizeBytes, changed: null, catalogRow: file.artifactId, version: file.version, catalogContentSha256: file.contentSha256, ...(file.variant ? { variant: file.variant } : {}), externalBin: true, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}) };
+    return { kind: "ffmpeg", name: file.tool, path: rel(ctx, file.stagedPath), sha256: file.preSignSha256, sizeBytes: file.preSignSizeBytes, changed: null, catalogRow: file.artifactId, version: file.version, catalogContentSha256: file.contentSha256, ...(file.variant ? { variant: file.variant } : {}), externalBin: !flat, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}) };
   });
   return { plan, rows };
 }
 
-/** universal-apple-darwin: stage each arch slice under SLICE_ROOT, then lipo-merge every tool into <stageDir>/<tool>-universal-apple-darwin. */
+/** universal-apple-darwin: stage each arch slice under SLICE_ROOT, then lipo-merge every tool into <stageDir>/<tool>-universal-apple-darwin (<resourceDir>/<tool> for a resourceDir entry). */
 async function stageFfmpegUniversal(entry, ctx, resolved) {
   const { appRoot, fs } = ctx;
   const results = [];
@@ -889,12 +950,12 @@ async function stageFfmpegUniversal(entry, ctx, resolved) {
   const notices = noticeFiles.map((file) => ({ name: path.basename(file), path: rel(ctx, file), sha256: sha256Of(fs.readFileSync(file)) }));
   return entry.media.tools.map((tool) => {
     const parts = results.map(({ slice, rows }) => ({ slice, row: rows.find((row) => row.name === tool) }));
-    const dest = path.resolve(appRoot, ctx.stageDir, stagedName(tool, ctx.target));
+    const dest = path.resolve(appRoot, ffmpegOutput(entry, ctx.stageDir, tool, ctx.target));
     const merged = lipoMergeInto(ctx, parts.map(({ row }) => path.resolve(appRoot, row.path)), dest, `ffmpeg sidecar ${tool}`, { executable: true });
     const probe = entry.probe ? probeFfmpegBinary(ctx, { file: dest, tool, target: ctx.target }) : undefined;
     return {
       kind: "ffmpeg", name: tool, path: rel(ctx, dest), ...merged, sourceSha256: merged.sha256, catalogRow: parts.map(({ row }) => row.catalogRow).join("+"), version: parts[0].row.version,
-      externalBin: true, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}),
+      externalBin: !entry.resourceDir, license: "LGPL-2.1-or-later", notices, ...(probe ? { probe } : {}),
       slices: parts.map(({ slice, row }) => ({ triple: slice.triple, sha256: row.sha256, catalogRow: row.catalogRow, catalogContentSha256: row.catalogContentSha256 })),
     };
   });
@@ -910,7 +971,7 @@ async function stageFfmpeg(entry, ctx) {
       resolved = readJsonCatalog(resolveCatalogFile(entry.catalogSpec, ctx, "ffmpeg"), appRoot, fs, "rightkit-ffmpeg");
     }
     if (target.arch === "universal") return await stageFfmpegUniversal(entry, ctx, resolved);
-    return (await stageFfmpegSlice(entry, ctx, resolved, { config, t: target, writeNotices: true })).rows;
+    return (await stageFfmpegSlice(entry, ctx, resolved, { config, t: target, writeNotices: true, flat: Boolean(entry.resourceDir) })).rows;
   } catch (error) {
     if (error instanceof StageSidecarError || error instanceof ContentDigestError) throw error;
     return fail("STAGE_SIDECAR_FFMPEG_FAILED", `ffmpeg sidecar (${target.triple}): ${error.message}`, { cause: error, causeCode: error.code });
@@ -920,124 +981,313 @@ async function stageFfmpeg(entry, ctx) {
 /** Catalog statuses that may serve a staged library; `stale-unverified` and `planned` rows never do. */
 const SERVING_STATUS = new Set(["approved", "pinned"]);
 
+/** An aarch64 or x86_64 macOS target: a `universal` row serves it when no exact row does. */
+const appleThin = (t) => t.os === "macos" && (t.arch === "aarch64" || t.arch === "x86_64");
+/** Does `row` serve target `t`: the exact (os, arch), or a macOS `universal` row for an Apple thin target. */
+const rowServes = (row, t) => row.os === t.os && (row.arch === t.arch || (appleThin(t) && row.arch === "universal"));
+
 /**
- * The one onnxruntime catalog row that serves target `t` (mirrors rightkit-onnx provision.rs select()): an approved or pinned
- * exact-(os, arch) row wins; only when none exists does a macOS `universal` row (both Apple slices) serve an aarch64 or x86_64
- * target. A stale-unverified or planned row is never selected. With nothing serving, the typed error names the exact-arch row's
- * status when there is one, else the missing row.
+ * The catalog rows of the entry's library and version that serve target `t` (mirrors rightkit-onnx provision.rs select()): the approved or
+ * pinned exact-(os, arch) rows win; only when none exists do the macOS `universal` rows (both Apple slices) serve an aarch64 or x86_64
+ * target. A stale-unverified or planned row is never selected. With nothing serving, the typed error names the exact-arch row's status
+ * when there is one, else the missing row. The onnxruntime alias stages one file, so it takes exactly one row.
  */
-function selectOnnxRuntimeRow(loaded, entry, t, where) {
-  const candidates = (loaded.catalog?.libraries ?? []).filter((row) => row.library === "onnxruntime" && row.version === entry.version && row.os === t.os);
+function selectNativeRows(loaded, entry, t, where) {
+  const candidates = (loaded.catalog?.libraries ?? []).filter((row) => row.library === entry.library && row.version === entry.version && row.os === t.os);
   const serving = candidates.filter((row) => SERVING_STATUS.has(row.status));
   const exact = serving.filter((row) => row.arch === t.arch);
-  const appleThin = t.os === "macos" && (t.arch === "aarch64" || t.arch === "x86_64");
-  const hits = exact.length ? exact : appleThin ? serving.filter((row) => row.arch === "universal") : [];
-  if (hits.length === 1) return hits[0];
-  if (hits.length > 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${hits.length} ${where} rows`);
+  const hits = exact.length ? exact : appleThin(t) ? serving.filter((row) => row.arch === "universal") : [];
+  if (hits.length > 1 && entry.kind === "onnxruntime") return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${hits.length} ${where} rows`);
+  if (hits.length) return hits;
   const unserved = candidates.filter((row) => row.arch === t.arch);
   if (unserved.length === 0) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has no ${where} row`);
-  if (unserved.length > 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${unserved.length} ${where} rows`);
-  return fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${unserved[0].id} is ${unserved[0].status}, not approved or pinned`);
+  if (unserved.length === 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${unserved[0].id} is ${unserved[0].status}, not approved or pinned`);
+  return fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} rows ${unserved.map((row) => `${row.id} (${row.status})`).join(", ")} are not approved or pinned`);
+}
+
+/** The rows a row's `companions` name (staged beside it): each must exist, serve the same os and arch, and be approved or pinned. */
+function nativeCompanionRows(loaded, parent, t) {
+  if (parent.companions === undefined) return [];
+  if (!Array.isArray(parent.companions) || parent.companions.some((id) => typeof id !== "string" || !id)) return fail("STAGE_SIDECAR_NOT_APPROVED", `the row ${parent.id} lists companions that are not catalog row ids`);
+  return parent.companions.map((id) => {
+    const found = (loaded.catalog?.libraries ?? []).filter((row) => row.id === id);
+    if (found.length !== 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the companion ${id} of ${parent.id} matches ${found.length} native catalog rows, expected exactly one`);
+    const [row] = found;
+    if (!rowServes(row, t)) return fail("STAGE_SIDECAR_NOT_APPROVED", `the companion ${id} of ${parent.id} is a ${row.os}/${row.arch} row, it does not serve ${t.os}/${t.arch}`);
+    if (!SERVING_STATUS.has(row.status)) return fail("STAGE_SIDECAR_NOT_APPROVED", `the companion ${id} of ${parent.id} is ${row.status}, not approved or pinned`);
+    if (Array.isArray(row.companions) && row.companions.length) return fail("STAGE_SIDECAR_NOT_APPROVED", `the companion ${id} of ${parent.id} lists companions of its own, which are not staged`);
+    return row;
+  });
+}
+
+/**
+ * A catalog row that cannot be staged is refused before anything is downloaded or written. The onnxruntime alias checks the whole-file
+ * sha256 only (its rows must carry one); a `native-library` row may pin sha256, contentSha256 or contentSha256ByArch (universal rows) and
+ * needs at least one, so a row with no digest never serves. hostProof is only "never-run", and never on an approved row.
+ */
+function checkNativeRow(entry, row, where) {
+  const bad = (message) => fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} ${message}`);
+  const native = entry.kind === "native-library";
+  if (row.hostProof !== undefined && (row.hostProof !== "never-run" || row.status === "approved")) bad(`carries hostProof ${JSON.stringify(row.hostProof)}; only "never-run" is defined, and never on an approved row`);
+  if (!native && row.sha256 === undefined) bad("has no sha256");
+  if (row.artifactFileName === undefined) bad("has no artifactFileName");
+  if (typeof row.artifactFileName !== "string" || !NAME.test(row.artifactFileName)) bad(`has an artifactFileName that is not a bare file name: ${JSON.stringify(row.artifactFileName)}`);
+  const digest = (value, name) => { if (value !== undefined && !(typeof value === "string" && SHA256.test(value))) bad(`${name} is not a lowercase 64-hex SHA-256`); };
+  digest(row.sha256, "sha256");
+  if (native) {
+    digest(row.contentSha256, "contentSha256");
+    if (row.contentSha256ByArch !== undefined) {
+      if (!isObject(row.contentSha256ByArch) || Object.keys(row.contentSha256ByArch).sort().join() !== SOURCE_ARCHES.join()) bad("contentSha256ByArch must be exactly { aarch64, x86_64 }");
+      for (const arch of SOURCE_ARCHES) digest(row.contentSha256ByArch[arch], `contentSha256ByArch.${arch}`);
+    }
+    if (row.arch === "universal" && row.contentSha256 !== undefined) bad("is a universal row: it pins contentSha256ByArch, not contentSha256");
+    if (row.arch !== "universal" && row.contentSha256ByArch !== undefined) bad("pins contentSha256ByArch, which only a universal row carries");
+    if (row.sha256 === undefined && row.contentSha256 === undefined && row.contentSha256ByArch === undefined) bad("pins no digest (sha256, contentSha256 or contentSha256ByArch), so it never serves");
+  }
+  // A native-library entry may stage from source.dir, so an archive is optional there (and checked when present); the alias always downloads.
+  if (row.archive !== undefined || !native) {
+    const { archive } = row;
+    if (!isObject(archive) || typeof archive.url !== "string" || !/^https:\/\/[^\s/]+\/\S*$/.test(archive.url) || typeof archive.sha256 !== "string" || !SHA256.test(archive.sha256)) bad("has no valid archive (an https url and a sha256 digest)");
+    if (!archiveFileName(archive.url)) bad("has an archive url that names no file");
+  }
+}
+
+/** The cached archive's file name: the last segment of the URL path ("" when it has none). */
+function archiveFileName(url) {
+  try { return path.posix.basename(new URL(url).pathname); } catch { return ""; }
 }
 
 /**
  * The archive member of a catalog row: archive.member when present; else, for a macOS `.zip` archive, `<archive name without
  * .zip>/lib/<artifactFileName>` (as provision.rs derives it); else the bare artifactFileName.
  */
-function onnxRuntimeMember(row) {
+function nativeArchiveMember(row) {
   if (row.archive.member !== undefined) return row.archive.member;
-  const archiveName = path.posix.basename(new URL(row.archive.url).pathname);
+  const archiveName = archiveFileName(row.archive.url);
   if (row.os === "macos" && archiveName.endsWith(".zip")) return `${archiveName.slice(0, -".zip".length)}/lib/${row.artifactFileName}`;
   return row.artifactFileName;
 }
 
 /**
- * Stage one architecture of onnxruntime: the approved or pinned catalog row for `t`, its archive (digest-checked), the library
- * (digest-checked) into `destDir` (default the entry's resourceDir), and the notices. Returns { row, dest, outName, notices }.
+ * Plan one target's files without any effect: the rows to stage (every serving row of the library, or the `files` named, each exactly
+ * once), then the companion rows of each. Returns [{ row, outName, where, companionOf? }]; every row has passed checkNativeRow.
+ * `as` renames the one file the library stages (a companion keeps its catalog name: it is loaded by that name).
  */
-async function stageOnnxRuntimeSlice(entry, ctx, loaded, t, { destDir } = {}) {
+function planNativeSet(entry, ctx, loaded, t) {
+  const where = `${entry.library} ${entry.version} ${t.os}/${t.arch}`;
+  const hits = selectNativeRows(loaded, entry, t, where);
+  let primary = hits;
+  if (!entry.files) {
+    // Every serving row is staged; a row of the same library and arch that does not serve is left out, and said so (an incomplete set is not silent).
+    for (const row of loaded.catalog?.libraries ?? []) {
+      if (row.library === entry.library && row.version === entry.version && row.os === t.os && row.arch === t.arch && !SERVING_STATUS.has(row.status)) ctx.log(`stage-sidecar: not staging ${row.id} (${row.status}); only approved or pinned rows are staged`);
+    }
+  } else {
+    primary = entry.files.map((name) => {
+      const named = hits.filter((row) => row.artifactFileName === name);
+      if (named.length === 1) return named[0];
+      if (named.length > 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${named.length} ${where} rows for ${name}`);
+      const unserved = (loaded.catalog?.libraries ?? []).find((row) => row.library === entry.library && row.version === entry.version && row.os === t.os && row.arch === t.arch && row.artifactFileName === name);
+      return fail("STAGE_SIDECAR_NOT_APPROVED", unserved ? `the ${where} row ${unserved.id} for ${name} is ${unserved.status}, not approved or pinned` : `the native catalog has no ${where} row for ${name}`);
+    });
+  }
+  for (const row of primary) {
+    const same = primary.filter((other) => (other.artifactFileName ?? other.id) === (row.artifactFileName ?? row.id));
+    if (same.length > 1) return fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog has ${same.length} ${where} rows for ${row.artifactFileName}`);
+  }
+  if (entry.as && primary.length > 1) fail("STAGE_SIDECAR_CONFIG_INVALID", `as ${JSON.stringify(entry.as)} renames one file, but the ${where} rows stage ${primary.length} (${primary.map((row) => row.artifactFileName).join(", ")}); drop as, or name one file in files`);
+  const items = primary.map((row) => ({ row, outName: entry.as ?? row.artifactFileName, where }));
+  if (entry.companions) {
+    for (const parent of primary) {
+      for (const row of nativeCompanionRows(loaded, parent, t)) {
+        if (!items.some((item) => item.row.id === row.id)) items.push({ row, outName: row.artifactFileName, where: `${row.library} ${row.version} ${t.os}/${t.arch}`, companionOf: parent.id });
+      }
+    }
+  }
+  for (const item of items) checkNativeRow(entry, item.row, item.where);
+  for (const item of items) {
+    const clash = items.find((other) => other !== item && other.outName.toLowerCase() === item.outName.toLowerCase());
+    if (clash) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} rows ${item.row.id} and ${clash.row.id} both stage ${item.outName}`);
+  }
+  return items;
+}
+
+/**
+ * The digest `bytes` must match for `row`, or the first disagreement { what, expected, actual }. `fromSource` is a copy read from
+ * source.dir (not byte-identical to the pinned archive by construction, and possibly re-signed): it is held to the content digest when
+ * the row pins one, else to the whole-file sha256. A file extracted from the pinned archive must equal the whole-file sha256 the row
+ * has AND its content digest. The onnxruntime alias keeps the whole-file check only. A malformed recognized format is a mismatch.
+ */
+function nativeDigestMismatch(entry, row, bytes, { fromSource }) {
+  const checkContent = entry.kind === "native-library" && (row.contentSha256 !== undefined || row.contentSha256ByArch !== undefined);
+  if (row.sha256 !== undefined && !(fromSource && checkContent)) {
+    const actual = sha256Of(bytes);
+    if (actual !== row.sha256) return { what: "sha256", expected: row.sha256, actual };
+  }
+  if (!checkContent) return undefined;
+  try {
+    if (row.contentSha256ByArch) {
+      const identity = contentIdentity(bytes);
+      for (const arch of SOURCE_ARCHES) {
+        const actual = digestFor(identity, arch);
+        if (actual !== row.contentSha256ByArch[arch]) return { what: `${arch} content digest`, expected: row.contentSha256ByArch[arch], actual };
+      }
+      return undefined;
+    }
+    const actual = catalogContentDigest(bytes, row.arch);
+    return actual === row.contentSha256 ? undefined : { what: "content digest", expected: row.contentSha256, actual };
+  } catch (error) {
+    if (!(error instanceof ContentDigestError)) throw error;
+    return { what: "content digest", expected: row.contentSha256 ?? SOURCE_ARCHES.map((arch) => row.contentSha256ByArch[arch]).join("+"), reason: error.message };
+  }
+}
+
+const failNativeMismatch = (row, label, mismatch) => fail("STAGE_SIDECAR_HASH_MISMATCH",
+  `${label} has ${mismatch.what} ${mismatch.actual ?? `unreadable (${mismatch.reason ?? "no matching slice"})`}, the catalog row ${row.id} pins ${mismatch.expected}; nothing staged`, { expected: mismatch.expected, actual: mismatch.actual ?? null });
+
+/**
+ * Verify one planned file and find its bytes; nothing is written except the verified archive cache. A file already staged is kept only
+ * when it passes the same digest check as a fresh one (never trusted because it exists). Otherwise the bytes come from `source.dir`
+ * (read and checked against the row before anything is copied), or from the row's pinned archive (digest checked before use, one member
+ * unpacked into a scratch directory the caller removes). Returns the item with its notice copies, destination and `from` (undefined when already staged).
+ */
+async function prepareNativeFile(entry, ctx, loaded, item, { destDir, scratchDirs }) {
   const { appRoot, fs } = ctx;
-  const where = `onnxruntime ${entry.version} ${t.os}/${t.arch}`;
-  const row = selectOnnxRuntimeRow(loaded, entry, t, where);
-  for (const key of ["sha256", "artifactFileName"]) if (typeof row[key] !== "string" || !row[key]) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} has no ${key}`);
-  if (!SHA256.test(row.sha256) || !SHA256.test(row.archive?.sha256 ?? "") || typeof row.archive?.url !== "string") fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} lacks a valid library digest or archive url and digest`);
+  const { row, outName, where } = item;
   if (!Array.isArray(row.noticeFiles) || !row.noticeFiles.length) fail("STAGE_SIDECAR_NOTICE_MISSING", `the ${where} row ${row.id} lists no notice files; the licence must ship with the library`);
-  const crateDir = loaded.crateDir;
   const notices = row.noticeFiles.map((file) => {
     const normalized = String(file).replaceAll("\\", "/");
     if (path.isAbsolute(file) || normalized.split("/").includes("..")) fail("STAGE_SIDECAR_NOTICE_MISSING", `notice file path escapes the catalog crate: ${file}`);
-    return { source: path.join(crateDir, ...normalized.split("/")), dest: path.resolve(appRoot, entry.licenseDir, path.posix.basename(normalized)) };
+    return { source: path.join(loaded.crateDir, ...normalized.split("/")), dest: path.resolve(appRoot, entry.licenseDir, path.posix.basename(normalized)) };
   });
   for (const { source } of notices) if (!fs.existsSync(source)) fail("STAGE_SIDECAR_NOTICE_MISSING", `notice file not found: ${source}`);
 
   // The archive member is the catalog's archive.member (an archive path) when present, else the library file name; the output name never comes from it.
-  const member = onnxRuntimeMember(row);
-  const memberCheck = normalizeArchiveMember(member);
-  if (memberCheck.error) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} has an invalid archive member ${JSON.stringify(member)}: ${memberCheck.error}`);
-  const outName = entry.as ?? row.artifactFileName;
-  const dest = path.resolve(appRoot, destDir ?? entry.resourceDir, outName);
-  if (fs.existsSync(dest) && sha256Of(fs.readFileSync(dest)) === row.sha256) {
-    ctx.log(`stage-sidecar: ${rel(ctx, dest)} already staged`);
-  } else {
-    const archive = path.resolve(appRoot, entry.cacheDir, path.posix.basename(new URL(row.archive.url).pathname));
-    if (!(fs.existsSync(archive) && sha256Of(fs.readFileSync(archive)) === row.archive.sha256)) {
-      const bytes = await ctx.fetchBytes(row.archive.url);
-      const actual = sha256Of(bytes);
-      if (actual !== row.archive.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${row.archive.url} downloaded as ${actual}, the catalog pins ${row.archive.sha256}; nothing staged`, { expected: row.archive.sha256, actual });
-      fs.mkdirSync(path.dirname(archive), { recursive: true });
-      fs.writeFileSync(archive, bytes);
-    }
-    const scratch = ctx.makeTempDir();
-    try {
-      const library = await ctx.extractMember({ archive, fileName: member, destDir: scratch });
-      const actual = sha256Of(fs.readFileSync(library));
-      if (actual !== row.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${member} extracted as ${actual}, the catalog pins ${row.sha256}; nothing staged`, { expected: row.sha256, actual });
-      copyInto(ctx, library, dest, { executable: false });
-    } finally {
-      ctx.removeDir(scratch);
-    }
+  let member;
+  if (!entry.source && row.archive) {
+    member = nativeArchiveMember(row);
+    const memberCheck = normalizeArchiveMember(member);
+    if (memberCheck.error) fail("STAGE_SIDECAR_NOT_APPROVED", `the ${where} row ${row.id} has an invalid archive member ${JSON.stringify(member)}: ${memberCheck.error}`);
   }
-  const noticeOut = notices.map(({ source, dest: out }) => {
+  const dest = path.resolve(appRoot, destDir ?? entry.resourceDir, outName);
+  const prepared = { ...item, dest, notices };
+  if (fs.existsSync(dest) && !nativeDigestMismatch(entry, row, fs.readFileSync(dest), { fromSource: Boolean(entry.source) })) return prepared;
+
+  if (entry.source) {
+    const file = path.resolve(appRoot, entry.source.dir, row.artifactFileName);
+    if (!(fs.existsSync(file) && fs.statSync(file).isFile())) fail("STAGE_SIDECAR_BINARY_NOT_FOUND", `the ${where} row ${row.id} is staged from source.dir ${entry.source.dir}, which has no ${row.artifactFileName} (looked at ${file}); nothing is downloaded for a source dir`, { file });
+    const mismatch = nativeDigestMismatch(entry, row, fs.readFileSync(file), { fromSource: true });
+    if (mismatch) failNativeMismatch(row, file, mismatch);
+    return { ...prepared, from: file };
+  }
+  if (!row.archive) fail("STAGE_SIDECAR_CONFIG_INVALID", `the ${where} row ${row.id} has no archive, so it is staged from a local build: set source: { dir } on this entry to the directory holding ${row.artifactFileName}`);
+  const archive = path.resolve(appRoot, entry.cacheDir, archiveFileName(row.archive.url));
+  if (!(fs.existsSync(archive) && sha256Of(fs.readFileSync(archive)) === row.archive.sha256)) {
+    const bytes = await ctx.fetchBytes(row.archive.url);
+    const actual = sha256Of(bytes);
+    if (actual !== row.archive.sha256) fail("STAGE_SIDECAR_HASH_MISMATCH", `${row.archive.url} downloaded as ${actual}, the catalog pins ${row.archive.sha256}; nothing staged`, { expected: row.archive.sha256, actual });
+    fs.mkdirSync(path.dirname(archive), { recursive: true });
+    fs.writeFileSync(archive, bytes);
+  }
+  const scratch = ctx.makeTempDir();
+  scratchDirs.push(scratch);
+  const library = await ctx.extractMember({ archive, fileName: member, destDir: scratch });
+  const mismatch = nativeDigestMismatch(entry, row, fs.readFileSync(library), { fromSource: false });
+  if (mismatch) failNativeMismatch(row, member, mismatch);
+  return { ...prepared, from: library };
+}
+
+/** Write one verified file (unless it is already staged) and its notices; the staged bytes are re-read for the receipt. */
+function commitNativeFile(ctx, prepared) {
+  const { fs } = ctx;
+  const { row, dest, from } = prepared;
+  if (from) copyInto(ctx, from, dest, { executable: false });
+  else ctx.log(`stage-sidecar: ${rel(ctx, dest)} already staged`);
+  if (row.hostProof === "never-run") ctx.log(`stage-sidecar: warning: ${row.id} has hostProof never-run: its bytes were pinned but never loaded or run on a ${row.os} host, so ${path.basename(dest)} is staged but not host-proven`);
+  const staged = fs.readFileSync(dest);
+  const notices = prepared.notices.map(({ source, dest: out }) => {
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.copyFileSync(source, out);
     return { name: path.basename(out), path: rel(ctx, out), sha256: sha256Of(fs.readFileSync(out)) };
   });
-  return { row, dest, outName, notices: noticeOut };
+  return { ...prepared, sha256: sha256Of(staged), sizeBytes: staged.length, notices };
 }
 
-async function stageOnnxRuntime(entry, ctx) {
+/**
+ * Stage one planned set (one target or one universal slice) in two phases: every file is verified first (`beforeWrite` may veto a
+ * verified file), then everything is written, so a bad file leaves nothing of the set behind. Scratch directories are always removed.
+ */
+async function stageNativeSet(entry, ctx, loaded, items, { destDir, beforeWrite } = {}) {
+  const scratchDirs = [];
+  try {
+    const prepared = [];
+    for (const item of items) prepared.push(await prepareNativeFile(entry, ctx, loaded, item, { destDir, scratchDirs }));
+    if (beforeWrite) for (const file of prepared) beforeWrite(file);
+    return prepared.map((file) => commitNativeFile(ctx, file));
+  } finally {
+    for (const dir of scratchDirs) ctx.removeDir(dir);
+  }
+}
+
+/** Is this file's receipt row evidence from the pinned archive (not source.dir)? */
+const fromArchive = (entry, row) => !entry.source && row.archive !== undefined;
+
+/** The digests a `native-library` row pins, for its receipt row. */
+const pinnedContent = (row) => ({ ...(row.contentSha256 ? { contentSha256: row.contentSha256 } : {}), ...(row.contentSha256ByArch ? { contentSha256ByArch: { ...row.contentSha256ByArch } } : {}) });
+
+/** The receipt row of one staged file (a thin target, or a universal row staged once). The alias keeps its original row shape. */
+function nativeReceiptRow(entry, ctx, file, extra = {}) {
+  const { row } = file;
+  const alias = entry.kind === "onnxruntime";
+  return {
+    kind: entry.kind, ...(alias ? {} : { library: row.library }), name: file.outName, path: rel(ctx, file.dest), sha256: file.sha256, sizeBytes: file.sizeBytes, changed: null,
+    catalogRow: row.id, version: row.version, ...(fromArchive(entry, row) ? { archiveSha256: row.archive.sha256 } : {}), ...(alias ? {} : pinnedContent(row)),
+    license: row.licenseSpdx ?? null, notices: file.notices, externalBin: false,
+    ...(row.hostProof ? { hostProof: row.hostProof } : {}), ...(file.companionOf ? { companionOf: file.companionOf } : {}), ...extra,
+  };
+}
+
+async function stageNativeLibrary(entry, ctx) {
   const { appRoot, fs, target } = ctx;
-  const loaded = await (ctx.loadNativeCatalog({ entry, appRoot }) ?? (entry.catalogSpec ? readJsonCatalog(resolveCatalogFile(entry.catalogSpec, ctx, "onnxruntime"), appRoot, fs, "native-libraries") : undefined));
-  if (!loaded) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", "onnxruntime needs a catalog path (the rightkit-ffmpeg native-libraries.json) or deps.loadNativeCatalog");
+  const loaded = await (ctx.loadNativeCatalog({ entry, appRoot }) ?? (entry.catalogSpec ? readJsonCatalog(resolveCatalogFile(entry.catalogSpec, ctx, entry.kind), appRoot, fs, "native-libraries") : undefined));
+  if (!loaded) fail("STAGE_SIDECAR_CATALOG_UNREADABLE", `${entry.kind} needs a catalog path (the rightkit-ffmpeg native-libraries.json) or deps.loadNativeCatalog`);
+  const rowOf = (file, extra) => nativeReceiptRow(entry, ctx, file, extra);
   if (target.arch !== "universal") {
-    const { row, dest, outName, notices } = await stageOnnxRuntimeSlice(entry, ctx, loaded, target);
-    return [{ kind: "onnxruntime", name: outName, path: rel(ctx, dest), sha256: row.sha256, sizeBytes: fs.statSync(dest).size, changed: null, catalogRow: row.id, version: row.version, archiveSha256: row.archive.sha256, license: row.licenseSpdx ?? null, notices, externalBin: false }];
+    const staged = await stageNativeSet(entry, ctx, loaded, planNativeSet(entry, ctx, loaded, target));
+    return staged.map((file) => rowOf(file));
   }
-  // universal-apple-darwin: one macOS `universal` row serving both slices is staged once, in place, with no lipo merge.
-  const selected = SLICES.map((triple) => selectOnnxRuntimeRow(loaded, entry, parseTargetTriple(triple), `onnxruntime ${entry.version} macos/${triple.split("-")[0]}`));
-  if (selected.some((row) => row.arch === "universal")) {
-    if (selected[0] !== selected[1]) fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog mixes a universal row with exact-arch rows (${selected.map((row) => row.id).join(", ")}); universal-apple-darwin takes either one universal row or one row per arch`);
-    const staged = await stageOnnxRuntimeSlice(entry, ctx, loaded, parseTargetTriple(SLICES[0]));
-    requireUniversalFile(ctx, staged.dest, `onnxruntime ${entry.version} ${staged.row.id}`);
-    return [{
-      kind: "onnxruntime", name: staged.outName, path: rel(ctx, staged.dest), sha256: staged.row.sha256, sizeBytes: fs.statSync(staged.dest).size, changed: null, sourceSha256: staged.row.sha256,
-      catalogRow: staged.row.id, version: entry.version, archiveSha256: staged.row.archive.sha256, license: staged.row.licenseSpdx ?? null, notices: staged.notices, externalBin: false,
-      slices: SLICES.map((triple) => ({ triple, sha256: staged.row.sha256, catalogRow: staged.row.id, archiveSha256: staged.row.archive.sha256 })),
-    }];
+  const plans = SLICES.map((triple) => ({ triple, items: planNativeSet(entry, ctx, loaded, parseTargetTriple(triple)) }));
+  const rows = plans.flatMap((plan) => plan.items.map((item) => item.row));
+  // universal-apple-darwin: `universal` rows serving both slices are staged once, in place, with no lipo merge (nothing mixes with exact-arch rows).
+  if (rows.some((row) => row.arch === "universal")) {
+    if (!rows.every((row) => row.arch === "universal") || plans[0].items.map((item) => item.row.id).join() !== plans[1].items.map((item) => item.row.id).join()) {
+      fail("STAGE_SIDECAR_NOT_APPROVED", `the native catalog mixes a universal row with exact-arch rows (${[...new Set(rows.map((row) => row.id))].join(", ")}); universal-apple-darwin takes either one universal row or one row per arch`);
+    }
+    const label = (file) => `${file.row.library} ${file.row.version} ${file.row.id}`;
+    const staged = await stageNativeSet(entry, ctx, loaded, plans[0].items, { beforeWrite: (file) => requireUniversalFile(ctx, file.from ?? file.dest, label(file)) });
+    return staged.map((file) => rowOf(file, {
+      sourceSha256: file.sha256,
+      slices: SLICES.map((triple, index) => ({ triple, sha256: file.sha256, catalogRow: file.row.id, ...(fromArchive(entry, file.row) ? { archiveSha256: file.row.archive.sha256 } : {}), ...(entry.kind === "native-library" && file.row.contentSha256ByArch ? { contentSha256: file.row.contentSha256ByArch[SOURCE_ARCHES[index]] } : {}) })),
+    }));
   }
-  // Otherwise each arch row is staged thin under SLICE_ROOT, then merged into the entry's resource file.
+  // Otherwise each arch's files are staged thin under SLICE_ROOT, then merged file by file into the entry's resource directory.
   const slices = [];
-  for (const triple of SLICES) slices.push({ triple, ...(await stageOnnxRuntimeSlice(entry, ctx, loaded, parseTargetTriple(triple), { destDir: `${SLICE_ROOT}/${triple}` })) });
-  const names = [...new Set(slices.map((slice) => slice.outName))];
-  if (names.length !== 1) fail("STAGE_SIDECAR_NOT_APPROVED", `the arch rows name different library files (${names.join(", ")}); set "as" so one universal file name is staged`);
-  const dest = path.resolve(appRoot, entry.resourceDir, names[0]);
-  const merged = lipoMergeInto(ctx, slices.map((slice) => slice.dest), dest, `onnxruntime ${entry.version}`);
-  const notices = [...new Map(slices.flatMap((slice) => slice.notices).map((notice) => [notice.path, notice])).values()];
-  return [{
-    kind: "onnxruntime", name: names[0], path: rel(ctx, dest), ...merged, sourceSha256: merged.sha256, catalogRow: slices.map((slice) => slice.row.id).join("+"), version: entry.version,
-    license: slices[0].row.licenseSpdx ?? null, notices, externalBin: false,
-    slices: slices.map((slice) => ({ triple: slice.triple, sha256: slice.row.sha256, catalogRow: slice.row.id, archiveSha256: slice.row.archive.sha256 })),
-  }];
+  for (const plan of plans) slices.push({ triple: plan.triple, files: await stageNativeSet(entry, ctx, loaded, plan.items, { destDir: `${SLICE_ROOT}/${plan.triple}` }) });
+  const [first, second] = slices.map((slice) => slice.files.map((file) => file.outName));
+  if ([...first].sort().join("\n") !== [...second].sort().join("\n")) fail("STAGE_SIDECAR_NOT_APPROVED", `the arch rows name different library files (aarch64: ${first.join(", ")}; x86_64: ${second.join(", ")}); each file needs one name on both arches (a single file can be renamed with "as")`);
+  return first.map((name) => {
+    const parts = slices.map((slice) => ({ triple: slice.triple, file: slice.files.find((file) => file.outName === name) }));
+    const dest = path.resolve(appRoot, entry.resourceDir, name);
+    const merged = lipoMergeInto(ctx, parts.map(({ file }) => file.dest), dest, `${parts[0].file.row.library} ${parts[0].file.row.version}`);
+    const hostProof = parts.find(({ file }) => file.row.hostProof)?.file.row.hostProof;
+    const alias = entry.kind === "onnxruntime";
+    return {
+      kind: entry.kind, ...(alias ? {} : { library: parts[0].file.row.library }), name, path: rel(ctx, dest), ...merged, sourceSha256: merged.sha256, catalogRow: parts.map(({ file }) => file.row.id).join("+"), version: parts[0].file.row.version,
+      license: parts[0].file.row.licenseSpdx ?? null, notices: [...new Map(parts.flatMap(({ file }) => file.notices).map((notice) => [notice.path, notice])).values()], externalBin: false,
+      ...(hostProof ? { hostProof } : {}), ...(parts[0].file.companionOf ? { companionOf: parts.map(({ file }) => file.companionOf).join("+") } : {}),
+      slices: parts.map(({ triple, file }) => ({ triple, sha256: file.sha256, catalogRow: file.row.id, ...(fromArchive(entry, file.row) ? { archiveSha256: file.row.archive.sha256 } : {}), ...(!alias && file.row.contentSha256 ? { contentSha256: file.row.contentSha256 } : {}) })),
+    };
+  });
 }
 
 /** Every file under `dir`, sorted, as paths relative to it (forward slashes). */
@@ -1345,7 +1595,8 @@ async function stagePrebuilt(entry, ctx) {
 /**
  * `wipeStageDir`: remove top-level files in stageDir named exactly `<name>-<current triple>[.exe]` for a name this manifest
  * declares (a cargo-bin, command or ffmpeg tool) that this run did not produce, such as an entry now skipped on this platform
- * or now placed at `dest`. Never recursive; other triples, notices, directories, temporaries and unrelated files are left alone.
+ * or now placed at `dest` or an ffmpeg `resourceDir`. Never recursive; other triples, notices, directories, temporaries and unrelated files
+ * are left alone, and it only ever lists stageDir, so a `resourceDir` file is never a candidate.
  */
 function wipeStaleStageDir(ctx, plan, produced) {
   const dir = path.resolve(ctx.appRoot, ctx.stageDir);
@@ -1399,14 +1650,16 @@ export function planSidecarStaging({ manifest, target, env = process.env } = {})
     if (["cargo-bin", "command", "cmake", "prebuilt"].includes(entry.kind)) return [entry.dest ?? `${plan.stageDir}/${stagedName(entry.name, t)}`];
     if (entry.kind === "remote") return [entry.dest];
     if (entry.kind === "resource") return [entry.to];
-    if (entry.kind === "onnxruntime") return [`${entry.resourceDir}/${entry.as ?? "<catalog artifactFileName>"}`];
-    return (entry.media?.tools ?? []).map((tool) => `${plan.stageDir}/${stagedName(tool, t)}`);
+    // Without a catalog at check time: the files named, else the one name `as` gives, else what the catalog row will say.
+    if (entry.kind === "onnxruntime" || entry.kind === "native-library") return (entry.files && !entry.as ? entry.files : [entry.as ?? "<catalog artifactFileName>"]).map((name) => `${entry.resourceDir}/${name}`);
+    return (entry.media?.tools ?? []).map((tool) => ffmpegOutput(entry, plan.stageDir, tool, t));
   };
   const entries = plan.entries.map((entry) => ({
     index: entry.index, kind: entry.kind, skipped: entry.skipped, ...(entry.platforms ? { platforms: entry.platforms } : {}),
-    ...(entry.skipped ? {} : { outputs: outputsOf(entry), externalBin: ["cargo-bin", "command", "cmake", "prebuilt"].includes(entry.kind) ? !entry.dest : entry.kind === "ffmpeg" }),
+    ...(entry.skipped ? {} : { outputs: outputsOf(entry), externalBin: ["cargo-bin", "command", "cmake", "prebuilt"].includes(entry.kind) ? !entry.dest : entry.kind === "ffmpeg" && !entry.resourceDir }),
     ...(entry.kind === "cargo-bin" ? { package: entry.package, bin: entry.bin, profile: entry.profile } : {}),
     ...(entry.kind === "remote" ? { url: entry.url } : {}),
+    ...(entry.kind === "native-library" ? { library: entry.library, version: entry.version } : {}),
     ...(entry.kind === "cmake" ? { repo: entry.repo, commit: entry.commit } : {}),
     ...(entry.clean ? { clean: true } : {}),
   }));
@@ -1446,7 +1699,7 @@ export async function stageSidecars({ appRoot, manifest, target, deps = {} } = {
     if (entry.skipped) { skipped.push({ kind: entry.kind, index: entry.index, platforms: entry.platforms }); continue; }
     const staged = entry.kind === "cargo-bin" ? stageCargoBin(entry, ctx)
       : entry.kind === "ffmpeg" ? await stageFfmpeg(entry, ctx)
-        : entry.kind === "onnxruntime" ? await stageOnnxRuntime(entry, ctx)
+        : entry.kind === "onnxruntime" || entry.kind === "native-library" ? await stageNativeLibrary(entry, ctx)
           : entry.kind === "command" ? stageCommand(entry, ctx)
             : entry.kind === "remote" ? await stageRemote(entry, ctx)
               : entry.kind === "cmake" ? stageCmake(entry, ctx)
@@ -1482,6 +1735,9 @@ export function validateStageSidecarReceipt(receipt, expected = {}) {
     if (typeof file.name !== "string" || !file.name || typeof file.path !== "string" || !file.path) bad("file without a name or path");
     if (!SHA256.test(file.sha256 ?? "")) bad(`${file.name}.sha256 must be a SHA-256`);
     if (!Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < (file.kind === "resource" ? 0 : 1)) bad(`${file.name}.sizeBytes must be positive`);
+    if (file.kind === "native-library" && (typeof file.library !== "string" || !file.library)) bad(`${file.name} has no library`);
+    if (file.hostProof !== undefined && file.hostProof !== "never-run") bad(`${file.name}.hostProof must be "never-run"`);
+    if (file.companionOf !== undefined && (typeof file.companionOf !== "string" || !file.companionOf)) bad(`${file.name}.companionOf must be a catalog row id`);
   }
   if (new Set(receipt.files.map((file) => file.path)).size !== receipt.files.length) bad("duplicate staged path");
   if (expected.target && receipt.target !== expected.target) bad(`target ${receipt.target} is not ${expected.target}`);
