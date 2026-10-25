@@ -14,9 +14,10 @@ import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs"
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { ANDROID_SIGNING_CONTRACT, androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_SIGNING_CONTRACT, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
-import { assertUpdaterSignature } from "./github-updater-release.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust } from "./github-updater-release.mjs";
 import { ADMISSION_ROWS, runAdmission } from "./admission.mjs";
 import { editConfig, fixture, managedEnv } from "./test-support/fixture.mjs";
+import { RIGHT_SUITE_UPDATER_SIGNING_KEY_ID } from "./suite-api.generated.mjs";
 
 // LF whatever the checkout: the patterns below span lines.
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8").replace(/\r\n/g, "\n");
@@ -36,10 +37,15 @@ function updaterSealFixture(t, algorithm = "Ed") {
   fs.writeFileSync(path.join(root, "updater.bin"), bytes);
   fs.writeFileSync(path.join(root, "updater.sig"), envelope);
   const copies = [];
+  // Keys pushed here replace the contract's list, so a suite app can be sealed with a key the tests hold; empty means the real contract.
+  const contractKeys = [];
+  const withContractKeys = (options) => (contractKeys.length ? { ...options, keys: contractKeys } : options);
   const start = source.indexOf("function sealRelease(");
   const end = source.indexOf("\nfunction collectToolVersions", start);
   const seal = runInNewContext(`${source.slice(start, end)}\nsealRelease;`, {
     ...fs, path, process, assertUpdaterSignature,
+    resolveUpdaterTrust: (options) => resolveUpdaterTrust(withContractKeys(options)),
+    assertUpdaterKeyId: (text, id, label, options) => assertUpdaterKeyId(text, id, label, withContractKeys(options)),
     hashFile: (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
     copyFileSync: (from, to) => { copies.push([from, to]); fs.copyFileSync(from, to); },
     writeJson: (file, value) => fs.writeFileSync(file, JSON.stringify(value)),
@@ -51,8 +57,30 @@ function updaterSealFixture(t, algorithm = "Ed") {
     config: { app: "fixture", version: "1.0.0", distribution: { updaterPublicKey: publicKeyText } },
     target: { updater: { artifacts: [{ file: "updater.bin", signature: "updater.sig", key: "fixture/updates/current/updater.bin", platform: "windows-x86_64" }] } },
     inputHashes: {}, toolVersions: {}, cacheKey: "fixture" };
-  return { root, bytes, options, seal, copies };
+  // The fixture writes 0102030405060708 as the on-disk (little-endian) id bytes, so the textual id minisign prints is the reverse.
+  return { root, bytes, options, seal, copies, contractKeys, keyId: "0807060504030201", publicKeyText };
 }
+
+// A real minisign key whose public text and signatures carry `keyIdHex`, standing in for keys the contract does not list.
+function minisignKey(keyIdHex) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const keyIdLe = Buffer.from(keyIdHex, "hex").reverse();
+  const publicKeyText = Buffer.from(`untrusted comment: minisign public key: ${keyIdHex}\n${Buffer.concat([Buffer.from("Ed"), keyIdLe, publicKey.export({ format: "der", type: "spki" }).subarray(-32)]).toString("base64")}\n`).toString("base64");
+  const sign = (bytes) => {
+    const raw = Buffer.concat([Buffer.from("Ed"), keyIdLe, cryptoSign(null, bytes, privateKey)]);
+    const comment = "timestamp:1\tfile:fixture";
+    const global = cryptoSign(null, Buffer.concat([raw.subarray(10), Buffer.from(comment)]), privateKey);
+    return Buffer.from(`untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: ${comment}\n${global.toString("base64")}\n`).toString("base64");
+  };
+  return { keyId: keyIdHex, publicKeyText, sign };
+}
+
+const contractEntry = (keyId, publicKey) => ({ kid: keyId, publicKey, notAfter: null, notAfterUnix: null });
+const assertNothingSealed = (fixture) => {
+  assert.equal(fixture.copies.length, 0);
+  assert.equal(fs.existsSync(fixture.options.sealedDir), false);
+  assert.equal(fs.existsSync(`${fixture.options.sealedDir}.tmp-${process.pid}`), false);
+};
 
 test("updater seal refuses absent, blank & non-string keys before copying or creating a seal", (t) => {
   for (const key of [undefined, "", " \t\n", 123]) {
@@ -84,8 +112,9 @@ for (const algorithm of ["Ed", "ED"]) {
 }
 
 test("installer-only & appinstaller seals need no minisign public key", (t) => {
-  for (const kind of ["installer-only", "appinstaller"]) {
+  for (const app of ["fixture", "pulse"]) for (const kind of ["installer-only", "appinstaller"]) {
     const fixture = updaterSealFixture(t);
+    fixture.options.config.app = app;
     delete fixture.options.config.distribution.updaterPublicKey;
     fixture.options.target = kind === "installer-only"
       ? { installer: { artifacts: [{ file: "updater.bin", key: "fixture/installers/current/fixture.exe" }] } }
@@ -93,6 +122,55 @@ test("installer-only & appinstaller seals need no minisign public key", (t) => {
     fixture.seal(fixture.options);
     assert.ok(fs.existsSync(path.join(fixture.options.sealedDir, "release-manifest.json")));
   }
+});
+
+test("a suite app seals an updater with no key declared, under the contract key its id names", (t) => {
+  const fixture = updaterSealFixture(t);
+  fixture.contractKeys.push(contractEntry(fixture.keyId, fixture.publicKeyText));
+  fixture.options.config = { app: "mailright", version: "1.0.0", distribution: { updaterKeyId: fixture.keyId } };
+  fixture.seal(fixture.options);
+  assert.deepEqual(fs.readFileSync(path.join(fixture.options.sealedDir, "updater.bin")), fixture.bytes);
+  assert.equal(fixture.copies.length, 2);
+});
+
+test("a suite app seal refuses a signature by another key id before copying or creating a seal", (t) => {
+  const fixture = updaterSealFixture(t);
+  const other = minisignKey("0A0B0C0D0E0F1011");
+  fixture.contractKeys.push(contractEntry(fixture.keyId, fixture.publicKeyText), contractEntry(other.keyId, other.publicKeyText));
+  fixture.options.config = { app: "mailright", version: "1.0.0", distribution: { updaterKeyId: fixture.keyId } };
+  fs.writeFileSync(path.join(fixture.root, "updater.sig"), other.sign(fixture.bytes));
+  assert.throws(() => fixture.seal(fixture.options), /updater signature rejected at seal: \[PUBLICATION_SIGNATURE_KEY_MISMATCH\] signature of updater\.bin was not made by updater key 0807060504030201 \(found 0A0B0C0D0E0F1011\)/);
+  assertNothingSealed(fixture);
+});
+
+test("a suite app seal with no updaterKeyId is pinned to the contract signing key", (t) => {
+  const fixture = updaterSealFixture(t);
+  fixture.options.config = { app: "pulse", version: "1.0.0", distribution: {} };
+  assert.throws(() => fixture.seal(fixture.options), (error) => error.message.includes(`was not made by updater key ${RIGHT_SUITE_UPDATER_SIGNING_KEY_ID} (found 0807060504030201)`) && /PUBLICATION_SIGNATURE_KEY_MISMATCH/.test(error.message));
+  assertNothingSealed(fixture);
+});
+
+test("a suite app seal refuses a declared key or a key id the contract does not hold", (t) => {
+  for (const [distribution, message] of [
+    [(fixture) => ({ updaterPublicKey: fixture.publicKeyText }), /updater trust rejected at seal: .*suite apps do not declare their own/],
+    [(fixture) => ({ updaterKeyId: fixture.keyId }), /updater trust rejected at seal: .*is not an updater key in the Right Suite contract/],
+  ]) {
+    const fixture = updaterSealFixture(t);
+    fixture.options.config = { app: "viewright", version: "1.0.0", distribution: distribution(fixture) };
+    assert.throws(() => fixture.seal(fixture.options), message);
+    assertNothingSealed(fixture);
+  }
+});
+
+test("an app outside the suite is held to its configured updaterKeyId at seal", (t) => {
+  const pinned = updaterSealFixture(t);
+  pinned.options.config.distribution.updaterKeyId = "0A0B0C0D0E0F1011";
+  assert.throws(() => pinned.seal(pinned.options), /updater signature rejected at seal: \[PUBLICATION_SIGNATURE_KEY_MISMATCH\].*found 0807060504030201/);
+  assertNothingSealed(pinned);
+  const matching = updaterSealFixture(t);
+  matching.options.config.distribution.updaterKeyId = matching.keyId;
+  matching.seal(matching.options);
+  assert.equal(matching.copies.length, 2);
 });
 
 // Execute the production preflight guard without starting the CLI's build flow.
@@ -239,10 +317,12 @@ test("hardening checkpoint and seal status derive from the worker scan targets, 
   assert.deepEqual([...hardeningScanTargets({ hardening: [], artifacts: ["a"] })], [], "an explicit empty hardening list means the worker scans nothing");
 });
 
-test("seal verifies updater signatures over exact bytes with a required declared public key", () => {
-  assert.match(source, /import \{ assertUpdaterSignature \} from "\.\/github-updater-release\.mjs"/);
+test("seal verifies updater signatures over exact bytes under the key the Right Suite contract or the app's declaration resolves", () => {
+  assert.match(source, /import \{ assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust \} from "\.\/github-updater-release\.mjs"/);
   assert.match(source, /config\.distribution\?\.updaterPublicKey \?\? config\.distribution\?\.updaterPubkey \?\? target\?\.updater\?\.pubkey \?\? target\?\.updater\?\.publicKey/);
-  assert.match(source, /assertUpdaterSignature\(readFileSync\(source\), signature, updaterPublicKey/);
+  assert.match(source, /resolveUpdaterTrust\(\{ app: config\.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config\.distribution\?\.updaterKeyId \}\)/);
+  assert.match(source, /assertUpdaterKeyId\(signature, trust\.keyId, label, \{ app: config\.app \}\)/);
+  assert.match(source, /assertUpdaterSignature\(readFileSync\(source\), signature, trust\.publicKey, label\)/);
   assert.match(source, /updater signature rejected at seal/);
   const sealGate = source.indexOf("updater signature rejected at seal");
   const firstCopy = source.indexOf("copyFileSync(source, path.join(temp, name))");

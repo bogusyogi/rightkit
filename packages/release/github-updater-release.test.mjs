@@ -15,8 +15,10 @@ import {
   githubTag,
   mergeLatestJson,
   publishGitHubUpdaterRelease,
+  resolveUpdaterTrust,
   updaterSignatureKeyId,
 } from "./github-updater-release.mjs";
+import { RIGHT_SUITE_APP_KEYS, RIGHT_SUITE_UPDATER_PUBLIC_KEYS, RIGHT_SUITE_UPDATER_SIGNING_KEY_ID } from "./suite-api.generated.mjs";
 
 // A Tauri .sig: base64 of a minisign signature file whose second line is base64 of "Ed" + key id (LE) + 64 bytes.
 function signatureFor(keyIdHex) {
@@ -24,6 +26,20 @@ function signatureFor(keyIdHex) {
   const raw = Buffer.concat([Buffer.from("Ed"), keyId, Buffer.alloc(64, 7)]);
   const text = `untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: t\n${Buffer.alloc(64, 9).toString("base64")}\n`;
   return Buffer.from(text).toString("base64");
+}
+
+// A real minisign key whose public text and signatures carry `keyIdHex`, standing in for keys the contract does not list.
+function minisignKey(keyIdHex) {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const keyIdLe = Buffer.from(keyIdHex, "hex").reverse();
+  const publicKeyText = Buffer.from(`untrusted comment: minisign public key: ${keyIdHex}\n${Buffer.concat([Buffer.from("Ed"), keyIdLe, publicKey.export({ format: "der", type: "spki" }).subarray(-32)]).toString("base64")}\n`).toString("base64");
+  const sign = (bytes) => {
+    const raw = Buffer.concat([Buffer.from("Ed"), keyIdLe, cryptoSign(null, bytes, privateKey)]);
+    const comment = "timestamp:1\tfile:fixture";
+    const global = cryptoSign(null, Buffer.concat([raw.subarray(10), Buffer.from(comment)]), privateKey);
+    return Buffer.from(`untrusted comment: signature from tauri secret key\n${raw.toString("base64")}\ntrusted comment: ${comment}\n${global.toString("base64")}\n`).toString("base64");
+  };
+  return { keyId: keyIdHex, publicKeyText, sign };
 }
 
 const win = { signature: signatureFor("29395F9FF466261D"), url: "https://github.com/Orthic-Labs/ember/releases/download/v1.0.0/Ember_1.0.0_x64-setup.exe" };
@@ -61,9 +77,110 @@ test("signature key id is read from the minisign signature and pinned to the sui
   assert.equal(updaterSignatureKeyId(win.signature), "29395F9FF466261D");
   assert.equal(updaterSignatureKeyId("not a signature"), null);
   assertUpdaterKeyId(win.signature, "29395F9FF466261D");
+  // No `app`: an undefined id is a no-op only for an app outside the Right Suite (a suite app is enforced below).
   assertUpdaterKeyId(win.signature, undefined);
   assert.throws(() => assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), "29395F9FF466261D"), /PUBLICATION_SIGNATURE_KEY_MISMATCH/);
   assert.throws(() => assertUpdaterKeyId(win.signature, "29395f9ff466261d"), /16 upper-case hex/);
+});
+
+test("a suite app resolves the contract signing key by default and needs no declared key", () => {
+  const signing = RIGHT_SUITE_UPDATER_PUBLIC_KEYS.find((key) => key.kid === RIGHT_SUITE_UPDATER_SIGNING_KEY_ID);
+  assert.ok(signing, "the contract lists its own signing key");
+  for (const app of RIGHT_SUITE_APP_KEYS) {
+    assert.deepEqual(resolveUpdaterTrust({ app }), { keyId: RIGHT_SUITE_UPDATER_SIGNING_KEY_ID, publicKey: signing.publicKey, suite: true }, app);
+  }
+});
+
+test("a suite app may name any unexpired contract key id and gets that key's text", () => {
+  const current = minisignKey("1111111111111111");
+  const next = minisignKey("2222222222222222");
+  const keys = [{ kid: current.keyId, publicKey: current.publicKeyText, notAfter: null, notAfterUnix: null }, { kid: next.keyId, publicKey: next.publicKeyText, notAfter: null, notAfterUnix: null }];
+  assert.deepEqual(resolveUpdaterTrust({ app: "mailright", configuredKeyId: next.keyId, keys }), { keyId: next.keyId, publicKey: next.publicKeyText, suite: true });
+  assert.deepEqual(resolveUpdaterTrust({ app: "mailright", configuredKeyId: RIGHT_SUITE_UPDATER_SIGNING_KEY_ID }).keyId, RIGHT_SUITE_UPDATER_SIGNING_KEY_ID);
+  // The default is the contract's signing key, so a list that does not hold it leaves no default to resolve.
+  assert.throws(() => resolveUpdaterTrust({ app: "mailright", keys }), /PUBLICATION_SIGNATURE_KEY_MISMATCH.*not an updater key in the Right Suite contract/);
+});
+
+test("a suite app refuses a key id the contract does not list, however it is spelled", () => {
+  for (const configuredKeyId of ["0123456789ABCDEF", RIGHT_SUITE_UPDATER_SIGNING_KEY_ID.toLowerCase(), "29395F9FF466261", "", 123, false]) {
+    assert.throws(() => resolveUpdaterTrust({ app: "pulse", configuredKeyId }), (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && /is not an updater key in the Right Suite contract/.test(error.message), String(configuredKeyId));
+  }
+});
+
+test("a contract key is refused from the first second its notAfterUnix names", () => {
+  const retired = minisignKey("3333333333333333");
+  const notAfterUnix = Date.parse("2027-01-01T00:00:00Z") / 1000;
+  const keys = [{ kid: retired.keyId, publicKey: retired.publicKeyText, notAfter: "2026-12-31", notAfterUnix }];
+  const trust = resolveUpdaterTrust({ app: "viewright", configuredKeyId: retired.keyId, keys, now: notAfterUnix - 1 });
+  assert.equal(trust.publicKey, retired.publicKeyText);
+  for (const now of [notAfterUnix, notAfterUnix + 86400]) {
+    assert.throws(() => resolveUpdaterTrust({ app: "viewright", configuredKeyId: retired.keyId, keys, now }), (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && /ended \(notAfter 2026-12-31\)/.test(error.message));
+  }
+  // `now` defaults to the clock: a key that ended long ago is refused without injecting it.
+  const expired = [{ kid: retired.keyId, publicKey: retired.publicKeyText, notAfter: "2000-01-01", notAfterUnix: Date.parse("2000-01-02T00:00:00Z") / 1000 }];
+  assert.throws(() => resolveUpdaterTrust({ app: "viewright", configuredKeyId: retired.keyId, keys: expired }), /no longer accepted/);
+});
+
+test("a suite app may repeat the contract key text but never declare another key", () => {
+  const signing = RIGHT_SUITE_UPDATER_PUBLIC_KEYS.find((key) => key.kid === RIGHT_SUITE_UPDATER_SIGNING_KEY_ID);
+  for (const configuredPublicKey of [undefined, null, "", "  \n", signing.publicKey]) {
+    assert.equal(resolveUpdaterTrust({ app: "coderight", configuredPublicKey }).publicKey, signing.publicKey, JSON.stringify(configuredPublicKey));
+  }
+  const foreign = minisignKey("4444444444444444").publicKeyText;
+  for (const configuredPublicKey of [foreign, `${signing.publicKey}\n`, ` ${signing.publicKey}`, signing.publicKey.slice(0, -4), 123, {}]) {
+    assert.throws(() => resolveUpdaterTrust({ app: "coderight", configuredPublicKey }), (error) => error.code === "PUBLICATION_SIGNATURE_KEY_MISMATCH" && /not the Right Suite contract key for 29395F9FF466261D; suite apps do not declare their own/.test(error.message));
+  }
+  // The declared key is judged against the key the id selects, not against every listed key.
+  const other = minisignKey("5555555555555555");
+  const keys = [{ kid: signing.kid, publicKey: signing.publicKey, notAfter: null, notAfterUnix: null }, { kid: other.keyId, publicKey: other.publicKeyText, notAfter: null, notAfterUnix: null }];
+  assert.throws(() => resolveUpdaterTrust({ app: "coderight", configuredPublicKey: other.publicKeyText, configuredKeyId: signing.kid, keys }), /suite apps do not declare their own/);
+  assert.equal(resolveUpdaterTrust({ app: "coderight", configuredPublicKey: other.publicKeyText, configuredKeyId: other.keyId, keys }).publicKey, other.publicKeyText);
+});
+
+test("an app outside the suite keeps its declared key and an optional key id", () => {
+  const ember = minisignKey("6666666666666666");
+  assert.deepEqual(resolveUpdaterTrust({ app: "ember", configuredPublicKey: ember.publicKeyText }), { keyId: undefined, publicKey: ember.publicKeyText, suite: false });
+  assert.deepEqual(resolveUpdaterTrust({ app: "ember", configuredPublicKey: ember.publicKeyText, configuredKeyId: ember.keyId }), { keyId: ember.keyId, publicKey: ember.publicKeyText, suite: false });
+  // The contract's keys and clock play no part: an id the contract does not list is the app's own business.
+  assert.equal(resolveUpdaterTrust({ app: "ember", configuredPublicKey: ember.publicKeyText, configuredKeyId: ember.keyId, keys: [], now: Number.MAX_SAFE_INTEGER }).keyId, ember.keyId);
+  assert.equal(resolveUpdaterTrust({ app: undefined, configuredPublicKey: ember.publicKeyText }).suite, false);
+});
+
+test("an app outside the suite with no declared key is unverifiable, never silently trusted", () => {
+  for (const configuredPublicKey of [undefined, null, "", " \t\n", 123]) {
+    assert.throws(() => resolveUpdaterTrust({ app: "ember", configuredPublicKey }), (error) => error.code === "PUBLICATION_SIGNATURE_UNVERIFIABLE" && /updater public key is required/.test(error.message), JSON.stringify(configuredPublicKey));
+  }
+});
+
+test("a suite app's key id is enforced even when the caller passes none", () => {
+  const bySigningKey = signatureFor(RIGHT_SUITE_UPDATER_SIGNING_KEY_ID);
+  assertUpdaterKeyId(bySigningKey, undefined, "x", { app: "genright" });
+  assertUpdaterKeyId(bySigningKey, RIGHT_SUITE_UPDATER_SIGNING_KEY_ID, "x", { app: "genright" });
+  assert.throws(() => assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), undefined, "the sig", { app: "genright" }), /PUBLICATION_SIGNATURE_KEY_MISMATCH.*the sig was not made by updater key 29395F9FF466261D \(found 0123456789ABCDEF\)/);
+  assert.throws(() => assertUpdaterKeyId("not a signature", undefined, "x", { app: "genright" }), /found unreadable/);
+  // An id the contract does not accept is refused for a suite app even when the signature carries it.
+  assert.throws(() => assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), "0123456789ABCDEF", "x", { app: "genright" }), /not an updater key in the Right Suite contract/);
+  // Outside the suite an undefined id stays a no-op and an explicit one is pinned, with or without `app`.
+  assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), undefined, "x", { app: "ember" });
+  assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), "0123456789ABCDEF", "x", { app: "ember" });
+  assert.throws(() => assertUpdaterKeyId(bySigningKey, "0123456789ABCDEF", "x", { app: "ember" }), /PUBLICATION_SIGNATURE_KEY_MISMATCH/);
+  assert.throws(() => assertUpdaterKeyId(bySigningKey, "29395f9ff466261d", "x", { app: "ember" }), /16 upper-case hex/);
+});
+
+test("trust resolved for a suite app accepts its key's signature and refuses another listed key's", () => {
+  const current = minisignKey("7777777777777777");
+  const rotated = minisignKey("8888888888888888");
+  const keys = [{ kid: current.keyId, publicKey: current.publicKeyText, notAfter: null, notAfterUnix: null }, { kid: rotated.keyId, publicKey: rotated.publicKeyText, notAfter: null, notAfterUnix: null }];
+  const bytes = Buffer.from("final artifact bytes");
+  const trust = resolveUpdaterTrust({ app: "postright", configuredKeyId: current.keyId, keys });
+  const own = current.sign(bytes);
+  assertUpdaterKeyId(own, trust.keyId, "sig", { app: "postright", keys });
+  assertUpdaterSignature(bytes, own, trust.publicKey);
+  // A signature by the other listed key is a valid signature, but not the one this release is pinned to.
+  const foreign = rotated.sign(bytes);
+  assert.equal(verifyMinisignSignature(bytes, foreign, rotated.publicKeyText), true);
+  assert.throws(() => assertUpdaterKeyId(foreign, trust.keyId, "sig", { app: "postright", keys }), /PUBLICATION_SIGNATURE_KEY_MISMATCH.*not made by updater key 7777777777777777 \(found 8888888888888888\)/);
+  assert.throws(() => assertUpdaterSignature(bytes, foreign, trust.publicKey), /PUBLICATION_SIGNATURE_INVALID/);
 });
 
 test("minisign signatures verify cryptographically over the exact bytes (Ed and ED prehash)", () => {
@@ -207,4 +324,13 @@ test("a dry run makes no gh call", () => {
   });
   assert.equal(result.status, "would-publish");
   assert.equal(gh.calls.length, 0);
+});
+
+// The same vectors rightkit-license (Rust) and @rightkit/app-update (TypeScript) read a signature's key id against, so the
+// three readers cannot drift apart. contracts/ holds the original; crates/rightkit-license/test-vectors/ a byte copy.
+test("updaterSignatureKeyId reads exactly what the shared signature vectors say", () => {
+  const vectors = JSON.parse(readFileSync(new URL("../../contracts/updater-signature-vectors.v1.json", import.meta.url), "utf8"));
+  assert.equal(vectors.schema, "updater-signature-key-id.v1");
+  assert.ok(vectors.cases.length >= 15);
+  for (const vector of vectors.cases) assert.equal(updaterSignatureKeyId(vector.signature), vector.keyId, vector.name);
 });

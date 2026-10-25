@@ -758,7 +758,7 @@ for (const app of apps) {
     const tauri = JSON.parse(readFileSync(path.join(root, app.tauri), "utf8"));
     assert.equal(tauri.plugins.updater.pubkey, pubkey);
     if (app.key === "scraperight") {
-      // ScrapeRight is outside the Right Suite API contract and keeps its own host.
+      // ScrapeRight is in the registry as a pending native updater (C3-08) and keeps its own host until it migrates.
       assert.deepEqual(tauri.plugins.updater.endpoints, [
         `https://scraperight.cc/v1/apps/${app.key}/releases/latest.json?platform={{target}}`,
       ]);

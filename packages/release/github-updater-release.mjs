@@ -5,12 +5,14 @@
 // key file), sealed, and re-verified by `verifyPublicationRelease`. This module only turns the same
 // `platforms` map the r2 lane builds ({ <platform>: { signature, url } }) into a Tauri v2 static `latest.json`
 // and uploads it, with the bundles and their `.sig` files, as assets of the GitHub release `v<version>`, so
-// `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` resolves. It adds no key and no trust root.
+// `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` resolves. It adds no key and no trust root:
+// a Right Suite app's updater keys come from the Right Suite contract (`resolveUpdaterTrust`), never from the app's config.
 import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PublicationError, digestBytes, readVerifiedArtifact, verifyArtifactFile } from "./publication-artifacts.mjs";
 import { inspectRemoteAsset, runCommand } from "./github-release.mjs";
+import { RIGHT_SUITE_APP_KEYS, RIGHT_SUITE_UPDATER_PUBLIC_KEYS, RIGHT_SUITE_UPDATER_SIGNING_KEY_ID } from "./suite-api.generated.mjs";
 
 const REPO_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const SEMVER_RE = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
@@ -18,7 +20,7 @@ const SEMVER_RE = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z
 const ASSET_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}$/;
 // Tauri v2 updater platform keys: <os>-<arch>, optionally <os>-<arch>-<installer>.
 const PLATFORM_RE = /^(?:windows|darwin|linux)-(?:x86_64|aarch64|i686|armv7)(?:-(?:nsis|msi|app|appimage|deb|rpm))?$/;
-const KEY_ID_RE = /^[0-9A-F]{16}$/;
+export const UPDATER_KEY_ID_RE = /^[0-9A-F]{16}$/;
 
 export const LATEST_JSON_NAME = "latest.json";
 
@@ -122,8 +124,8 @@ export function verifyMinisignSignature(bytes, signatureText, publicKeyText) {
 }
 
 /**
- * Require a cryptographically valid minisign signature over `bytes` under the declared public key.
- * The key-id check (`assertUpdaterKeyId`) is supplementary only; this is the seal/upload gate.
+ * Require a cryptographically valid minisign signature over `bytes` under `publicKeyText` (for a suite app, the
+ * contract key `resolveUpdaterTrust` returns). The key-id check (`assertUpdaterKeyId`) names the wrong key; this is the seal/upload gate.
  */
 export function assertUpdaterSignature(bytes, signatureText, publicKeyText, label = "updater signature") {
   if (!verifyMinisignSignature(bytes, signatureText, publicKeyText)) {
@@ -131,10 +133,47 @@ export function assertUpdaterSignature(bytes, signatureText, publicKeyText, labe
   }
 }
 
-/** Refuses a signature made by any key other than the configured suite key id (distribution.updaterKeyId). */
-export function assertUpdaterKeyId(signatureText, expectedKeyId, label = "updater signature") {
+const isSuiteUpdaterApp = (app) => RIGHT_SUITE_APP_KEYS.includes(app);
+
+/**
+ * The updater trust a sealed signature is checked against: `{ keyId, publicKey, suite }`. `now` is unix seconds and `keys` the
+ * accepted-key list, both injectable for tests.
+ *
+ * A Right Suite app (RIGHT_SUITE_APP_KEYS) takes its key from the contract so a config cannot swap the trust root: the key id is
+ * the configured `distribution.updaterKeyId` or else the contract's signing key, it must be a listed, unexpired key, and a declared
+ * public key must be that key's exact contract text. Any other app (Ember has its own updater key) keeps the declared key as the
+ * only trust root and the key id stays optional.
+ */
+export function resolveUpdaterTrust({ app, configuredPublicKey, configuredKeyId, now = Math.floor(Date.now() / 1000), keys = RIGHT_SUITE_UPDATER_PUBLIC_KEYS } = {}) {
+  if (!isSuiteUpdaterApp(app)) {
+    if (typeof configuredPublicKey !== "string" || !configuredPublicKey.trim()) {
+      throw new PublicationError("PUBLICATION_SIGNATURE_UNVERIFIABLE", `updater public key is required to verify updater artifacts: ${app ?? "this app"} is not a Right Suite app and declares no updater public key (distribution.updaterPublicKey); refusing an unverified signature`);
+    }
+    return { keyId: configuredKeyId, publicKey: configuredPublicKey, suite: false };
+  }
+  const keyId = configuredKeyId ?? RIGHT_SUITE_UPDATER_SIGNING_KEY_ID;
+  const accepted = UPDATER_KEY_ID_RE.test(keyId) ? keys.find((key) => key.kid === keyId) : undefined;
+  if (!accepted) {
+    throw new PublicationError("PUBLICATION_SIGNATURE_KEY_MISMATCH", `updater key ${JSON.stringify(keyId)} is not an updater key in the Right Suite contract (key ids are 16 upper-case hex digits; accepted: ${keys.map((key) => key.kid).join(", ")}); omit distribution.updaterKeyId to use the signing key`);
+  }
+  if (accepted.notAfterUnix != null && accepted.notAfterUnix <= now) {
+    throw new PublicationError("PUBLICATION_SIGNATURE_KEY_MISMATCH", `updater key ${keyId} ended${accepted.notAfter ? ` (notAfter ${accepted.notAfter})` : ""} in the Right Suite contract and is no longer accepted`);
+  }
+  const declared = configuredPublicKey !== undefined && configuredPublicKey !== null && !(typeof configuredPublicKey === "string" && !configuredPublicKey.trim());
+  if (declared && configuredPublicKey !== accepted.publicKey) {
+    throw new PublicationError("PUBLICATION_SIGNATURE_KEY_MISMATCH", `the declared updater public key is not the Right Suite contract key for ${keyId}; suite apps do not declare their own`);
+  }
+  return { keyId, publicKey: accepted.publicKey, suite: true };
+}
+
+/**
+ * Refuses a signature made by any key other than `expectedKeyId`. Pass `trust.keyId` from `resolveUpdaterTrust`. An undefined id
+ * is a no-op only for an app outside the Right Suite; with `app` set to a suite app the id is resolved and enforced even when omitted.
+ */
+export function assertUpdaterKeyId(signatureText, expectedKeyId, label = "updater signature", { app, now, keys } = {}) {
+  if (isSuiteUpdaterApp(app)) expectedKeyId = resolveUpdaterTrust({ app, configuredKeyId: expectedKeyId, now, keys }).keyId;
   if (expectedKeyId === undefined) return;
-  if (!KEY_ID_RE.test(expectedKeyId)) throw new PublicationError("PUBLICATION_SIGNATURE_KEY_MISMATCH", "distribution.updaterKeyId must be 16 upper-case hex digits");
+  if (!UPDATER_KEY_ID_RE.test(expectedKeyId)) throw new PublicationError("PUBLICATION_SIGNATURE_KEY_MISMATCH", "distribution.updaterKeyId must be 16 upper-case hex digits");
   const actual = updaterSignatureKeyId(signatureText);
   if (actual !== expectedKeyId) throw new PublicationError("PUBLICATION_SIGNATURE_KEY_MISMATCH", `${label} was not made by updater key ${expectedKeyId} (found ${actual ?? "unreadable"})`);
 }

@@ -431,13 +431,13 @@ Supported: `title`, `icon` (`.icns` volume icon), `background` (PNG or TIFF), `i
 
 ## GitHub Releases updater lane (`publish-update`, `github-releases`)
 
-A public app with an in-app Tauri updater publishes with `right-release publish-update --release <sealed-id> --platform win|mac --tier update` and `distribution: { provider: "github-releases", repository: "<owner>/<repo>", updaterKeyId?: "29395F9FF466261D" }`. It is the r2-rightapps lane with a different destination, not a second signer: the updater bundles are signed by `sign-updater.mjs` with the Right Suite updater key (the one every app uses; no per-app key or trust root), sealed with their `.sig` files, and re-verified by `verifyPublicationRelease` before anything is uploaded. The lane then:
+A public app with an in-app Tauri updater publishes with `right-release publish-update --release <sealed-id> --platform win|mac --tier update` and `distribution: { provider: "github-releases", repository: "<owner>/<repo>", updaterKeyId?: "29395F9FF466261D" }`. It is the r2-rightapps lane with a different destination, not a second signer: the updater bundles are signed by `sign-updater.mjs` with the Right Suite updater key (the one every suite app uses; no per-app key or trust root, see "Updater trust roots" below), sealed with their `.sig` files, and re-verified by `verifyPublicationRelease` before anything is uploaded. The lane then:
 
 - builds the same `platforms` map the R2 lane builds (`{ <target>: { signature, url } }`), with each `url` the GitHub asset URL `https://github.com/<owner>/<repo>/releases/download/v<version>/<asset>`;
 - uploads each sealed bundle and `.sig` to release `v<version>` (created when missing, never a draft), byte-verifying every asset by download, and refusing, not overwriting, a remote asset whose bytes differ;
 - writes a Tauri v2 static `latest.json` (`version`, `notes`, `pub_date`, `platforms`) and uploads it last, merged with the other platform's entries already on that release (the win and mac runs share one `latest.json`; a different version on the release is refused), so `https://github.com/<owner>/<repo>/releases/latest/download/latest.json` resolves.
 
-`updaterKeyId` is optional; when set, a sealed signature made by any other key refuses the publish (`PUBLICATION_SIGNATURE_KEY_MISMATCH`). Notes come from `RIGHT_RELEASE_NOTES`. `--dry-run` prints the upload plan and the manifest with no network call. Uploads use `gh` (already authenticated); no RightApps token is read.
+A sealed signature made by any key other than the resolved `updaterKeyId` refuses the publish (`PUBLICATION_SIGNATURE_KEY_MISMATCH`); a Right Suite app resolves it from the contract even when the config names none (below). Notes come from `RIGHT_RELEASE_NOTES`. `--dry-run` prints the upload plan and the manifest with no network call. Uploads use `gh` (already authenticated); no RightApps token is read.
 
 Updater artifacts are declared as for R2 but need no `key`; `platform` must be a Tauri updater target (`windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`, optionally with an installer suffix such as `-nsis`, `-msi`, `-app`, `-appimage`) and file names must match `[A-Za-z0-9._+-]` so GitHub does not rename them:
 
@@ -456,6 +456,17 @@ targets: {
 ```
 
 Updater signing keys are never named in the config: `sign-updater` reads the minisign key from the OS credential provider (`rightkit-credentials`, namespace `rightsuite-updater-key`; see `protected-credentials.mjs`). `targets.<platform>.updater.keyFile` is refused at config validation (`RELEASE_CONFIG_UPDATER_KEY_FILE`, listed by `right-release doctor` and the build with every other finding) and is never forwarded to the signer, so remove it from apps that still set it.
+
+### Updater trust roots (Right Suite apps)
+
+A Right Suite app (`coderight`, `cutright`, `genright`, `heardright`, `mailright`, `postright`, `pulse`, `scraperight`, `viewright`) takes its updater trust from `contracts/right-suite-api.v1.json` (`updaterPublicKeys`, `updaterSigningKeyId`), never from its release config:
+
+- Do not declare `distribution.updaterPublicKey` (or `updaterPubkey`, `targets.<platform>.updater.pubkey`, `publicKey`). The seal (`build`) and `publish-update` verify every `.sig` against the contract's key text, so a suite app publishes with no key declaration. A declared key that is not exactly a contract key text refuses with `PUBLICATION_SIGNATURE_KEY_MISMATCH` (`suite apps do not declare their own`), and the config check reports it as `RELEASE_CONFIG_UPDATER_PUBLIC_KEY`.
+- `distribution.updaterKeyId` defaults to the contract's `updaterSigningKeyId` and is always enforced: the signature's key id must equal it, at seal and at publish. It must be a key the contract lists whose `notAfter` has not passed; any other id refuses with `PUBLICATION_SIGNATURE_KEY_MISMATCH` (the config check reports a malformed or unlisted id as `RELEASE_CONFIG_UPDATER_KEY_ID`). Name it only to publish with a listed key other than the signing key.
+- An app outside the suite (Ember has its own updater key) keeps declaring `distribution.updaterPublicKey`; without one a sealed publish or seal fails closed (`PUBLICATION_SIGNATURE_UNVERIFIABLE`). Its `updaterKeyId` stays optional, and when set it is pinned at seal as well as at publish.
+- `sign-updater --key-id <16 upper-case hex digits>` reads each produced `.sig` back and refuses a signature made by any other key, naming the file, the expected id and the found id, so a credential store holding the wrong key fails at signing rather than at seal. `--dry-run` prints the expected id and signs nothing. Without `--key-id` the signature is not read back.
+
+Rotation order: (1) add the new key to `updaterPublicKeys` in the contract and regenerate the projections; (2) ship a release signed by the current key (`updaterSigningKeyId` unchanged), so the installed apps now know both keys; (3) change `updaterSigningKeyId` to the new key id and sign with the new key (`sign-updater --key-id <new id>`). Give the old key a `notAfter` to stop accepting it. The full runbook is `docs/SUITE-TRUST-ROOTS.md`.
 
 NSIS, MSI, `.app.tar.gz` and AppImage bundles all work the same way (any file signed by `sign-updater`). With no sealed installer the installer platform-trust check is skipped (reported in the output); installer-bearing seals still run it. The app side: `plugins.updater.endpoints` is the `latest.json` URL above and `plugins.updater.pubkey` is the suite updater public key (see `@rightkit/app-update` README).
 

@@ -21,6 +21,7 @@ import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { collectConfigCommands, formatFindings, validateConfigPipeline } from "./pipeline-config.mjs";
 import { loadGeneratorRegistry } from "./pipeline-generators.mjs";
+import { RIGHT_SUITE_APP_KEYS, RIGHT_SUITE_UPDATER_PUBLIC_KEYS } from "./suite-api.generated.mjs";
 
 export const RELEASE_CONFIG_FILE = "right-release.config.json";
 export const LEGACY_RELEASE_CONFIG_FILE = "right-release.config.mjs";
@@ -259,16 +260,31 @@ export function validateReleaseConfigShape(config, { file = RELEASE_CONFIG_FILE,
   return config;
 }
 
+// The same rule as UPDATER_KEY_ID_RE in github-updater-release.mjs, kept here because that module's import graph loads the release state
+// machine, which this loader must not depend on.
+const UPDATER_KEY_ID = /^[0-9A-F]{16}$/;
+// A typed template ({ "$fromJson": ... }) is a string only after expansion, so the raw-phase check leaves it to the final one.
+const isTemplateNode = (value) => isObject(value) && Object.keys(value).some((key) => key.startsWith("$"));
+const isBlank = (value) => value === undefined || value === null || (typeof value === "string" && !value.trim());
+
 /**
  * Field-level refusals that need no other part of the config, so a caller (the loader, the doctor) can list them next to every other
- * finding: `[{ name, code, pointer, detail }]`. Today: `targets.<t>.updater.keyFile`. Updater minisign keys come from the OS credential
- * provider (`protected-credentials.mjs`, secret "updater-signing-key", namespace `rightsuite-updater-key`; `sign-updater.mjs` refuses
- * `--key-file`), so a config that names a key file could only fail mid-signing. It is refused up front instead, and never forwarded.
+ * finding: `[{ name, code, pointer, detail }]`.
+ *
+ * `targets.<t>.updater.keyFile`: updater minisign keys come from the OS credential provider (`protected-credentials.mjs`, secret
+ * "updater-signing-key", namespace `rightsuite-updater-key`; `sign-updater.mjs` refuses `--key-file`), so a config that names a key
+ * file could only fail mid-signing. It is refused up front instead, and never forwarded.
+ *
+ * `distribution.updaterKeyId` must be 16 upper-case hex digits and, for a Right Suite app, a key the Right Suite contract accepts; a
+ * Right Suite app must not declare an updater public key of its own (`distribution.updaterPublicKey`, `updaterPubkey`,
+ * `targets.<t>.updater.pubkey` or `publicKey`) unless it is exactly a contract key's text. Publish and seal refuse the same things
+ * (`resolveUpdaterTrust`); here they are found before a build starts.
  */
 export function releaseConfigFieldProblems(config) {
   const problems = [];
-  if (!isObject(config) || !isObject(config.targets)) return problems;
-  for (const [name, target] of Object.entries(config.targets)) {
+  if (!isObject(config)) return problems;
+  const targets = isObject(config.targets) ? Object.entries(config.targets) : [];
+  for (const [name, target] of targets) {
     if (!isObject(target) || !isObject(target.updater) || !Object.prototype.hasOwnProperty.call(target.updater, "keyFile")) continue;
     problems.push({
       name: "updater-key-file",
@@ -276,6 +292,35 @@ export function releaseConfigFieldProblems(config) {
       pointer: `/targets/${pointerKey(name)}/updater/keyFile`,
       detail: `targets.${name}.updater.keyFile is not supported: updater signing keys come from the OS credential provider (rightkit-credentials, namespace rightsuite-updater-key; see protected-credentials.mjs and sign-updater.mjs), never from a key file. Remove updater.keyFile from the release config.`,
     });
+  }
+  const suiteApp = RIGHT_SUITE_APP_KEYS.includes(config.app);
+  const distribution = isObject(config.distribution) ? config.distribution : {};
+  const keyId = distribution.updaterKeyId;
+  if (keyId !== undefined && !isTemplateNode(keyId)) {
+    const accepted = RIGHT_SUITE_UPDATER_PUBLIC_KEYS.map((key) => key.kid);
+    const detail = typeof keyId !== "string" || !UPDATER_KEY_ID.test(keyId)
+      ? `distribution.updaterKeyId must be the 16 upper-case hex digits of a minisign key id, got ${JSON.stringify(keyId)}.`
+      : suiteApp && !accepted.includes(keyId)
+        ? `distribution.updaterKeyId ${keyId} is not an updater key in the Right Suite contract (accepted: ${accepted.join(", ")}). Remove it to sign with the contract's signing key.`
+        : null;
+    if (detail) problems.push({ name: "updater-key-id", code: "RELEASE_CONFIG_UPDATER_KEY_ID", pointer: "/distribution/updaterKeyId", detail });
+  }
+  if (suiteApp) {
+    const contractTexts = RIGHT_SUITE_UPDATER_PUBLIC_KEYS.map((key) => key.publicKey);
+    const declared = (pointer, label, value) => {
+      if (isBlank(value) || isTemplateNode(value) || contractTexts.includes(value)) return;
+      problems.push({
+        name: "updater-public-key",
+        code: "RELEASE_CONFIG_UPDATER_PUBLIC_KEY",
+        pointer,
+        detail: `${label} is not a Right Suite contract key: ${config.app} is a suite app and takes its updater keys from the contract (contracts/right-suite-api.v1.json), so remove ${label}.`,
+      });
+    };
+    for (const field of ["updaterPublicKey", "updaterPubkey"]) declared(`/distribution/${field}`, `distribution.${field}`, distribution[field]);
+    for (const [name, target] of targets) {
+      if (!isObject(target) || !isObject(target.updater)) continue;
+      for (const field of ["pubkey", "publicKey"]) declared(`/targets/${pointerKey(name)}/updater/${field}`, `targets.${name}.updater.${field}`, target.updater[field]);
+    }
   }
   return problems;
 }
@@ -289,7 +334,7 @@ function packageScripts(appRoot, readText) {
 
 /**
  * Load, validate and expand a release config. Returns `{ config, configPath, appRoot, sha256, inputs, lineOf }`. Throws ReleaseConfigError
- * (RELEASE_CONFIG_LEGACY_EXECUTABLE | _NOT_JSON | _NOT_FOUND | _INVALID_JSON | _SCHEMA | _KEY | _UPDATER_KEY_FILE | _TEMPLATE | _M24). `validatePipeline: false`
+ * (RELEASE_CONFIG_LEGACY_EXECUTABLE | _NOT_JSON | _NOT_FOUND | _INVALID_JSON | _SCHEMA | _KEY | _UPDATER_KEY_FILE | _UPDATER_KEY_ID | _UPDATER_PUBLIC_KEY | _TEMPLATE | _M24). `validatePipeline: false`
  * skips only the M24 command admission (the pipeline scanner reports those findings itself); nothing else is optional.
  * File access, the generator registry, the environment and the home directory are injectable for tests.
  */

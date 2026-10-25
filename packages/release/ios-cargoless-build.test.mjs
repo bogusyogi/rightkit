@@ -17,7 +17,7 @@ import { devtoolsEvidence, resolveDevtoolsAllowance } from "./devtools-policy.mj
 import { MEDIA_SIDECAR_RECEIPT_NAME, validateMediaSidecarConfig, validateMediaSidecarReceipt, windowsSidecarSigningProblems } from "./media-sidecar.mjs";
 import { validateNotarizationReceipt } from "./macos-notarization.mjs";
 import { androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
-import { assertUpdaterSignature } from "./github-updater-release.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust } from "./github-updater-release.mjs";
 import { runInNewContext } from "node:vm";
 import { featureClosureFindings, resolveFeatureClosure } from "./release-switch-scan.mjs";
 import { assertNoForbiddenBuildFeatures, resolveCargoManifestPath } from "./qa-build-features.mjs";
@@ -775,7 +775,7 @@ function productionFunctions() {
     renameSync: (...a) => nodeFs.renameSync(...a), chmodSync: (...a) => nodeFs.chmodSync(...a),
     resolveArtifactDir, materializeArtifacts, completeArtifactLease, retainArtifacts, devtoolsEvidence, resolveDevtoolsAllowance,
     MEDIA_SIDECAR_RECEIPT_NAME, validateMediaSidecarConfig, validateMediaSidecarReceipt, windowsSidecarSigningProblems, validateNotarizationReceipt,
-    verifyAndroidReceipt, androidSealEntry, verifyIosReceipt, iosSealEntry, assertUpdaterSignature,
+    verifyAndroidReceipt, androidSealEntry, verifyIosReceipt, iosSealEntry, assertUpdaterSignature, assertUpdaterKeyId, resolveUpdaterTrust,
     fail: (message) => { throw new Error(message); },
   };
   return runInNewContext(`${names.map(take).join("\n")}\n({ ${names.join(", ")} })`, context);
