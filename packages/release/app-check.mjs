@@ -24,6 +24,18 @@
 //   speech-link      G21  `import Speech` anywhere under swift/RightKitSwift/Sources or Tests (Apple Speech is removed, rightkit#978;
 //                         the LinkProbes control fixture is the one sanctioned import)
 //
+// The shell contract (shell-contract.mjs, SHELL_CONTRACT_RULES, appended after speech-link) reads an app's Tauri config, capabilities,
+// Rust and renderer sources:
+//   shell-window-hidden      SC-R1  a startup window of any platform config that is not `visible: false`
+//   shell-plugin-order       SC-R2  the shell plugin installed from setup, or after a non-QA plugin
+//   shell-handler            SC-R3  an invoked rk_shell_* command that no handler registers
+//   shell-csp                SC-R4  a CSP without default-src 'self', frame-ancestors 'none', connect-src, or with script unsafe-inline/eval
+//   shell-grants             SC-R5  a core:window:allow-* grant next to the shell's own window command
+//   qa-window-label          SC-R6  the shell's main_label, the QA Control's window and the created windows disagree
+//   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
+//   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
+//   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
+//
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
 //   1. --baseline <file>, which must exist; else
@@ -43,6 +55,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const readText = (root, rel) => { try { return fs.readFileSync(path.join(root, rel), "utf8"); } catch { return null; } };
@@ -416,6 +429,7 @@ export const RULES = Object.freeze([
   { id: "ffmpeg-release-escape", gap: "G19", run: ffmpegReleaseEscape },
   { id: "switches-inventory", gap: "G20", run: switchesInventory },
   { id: "speech-link", gap: "G21", run: speechLink },
+  ...SHELL_CONTRACT_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
