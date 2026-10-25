@@ -271,3 +271,10 @@ test("parseContract refuses client paths that are missing, repeated, off /v1 or 
 test("the signature vectors are one file: the contracts/ original and the crate's byte copy are identical", () => {
   assert.equal(real("crates/rightkit-license/test-vectors/updater-signature-vectors.v1.json"), real("contracts/updater-signature-vectors.v1.json"));
 });
+
+test(".gitattributes pins the contract, every projection and the shared signature vectors to LF: a Windows checkout would break the byte comparisons", () => {
+  const pinned = [CONTRACT_PATH, ...PROJECTIONS, "contracts/updater-signature-vectors.v1.json", "crates/rightkit-license/test-vectors/updater-signature-vectors.v1.json"];
+  const attrs = spawnSync("git", ["check-attr", "eol", "--", ...pinned], { cwd: ROOT, encoding: "utf8" });
+  assert.equal(attrs.status, 0, attrs.stderr);
+  assert.deepEqual(attrs.stdout.trim().split("\n").filter((line) => !line.endsWith(": eol: lf")), [], "each is `eol=lf`");
+});
