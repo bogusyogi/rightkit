@@ -194,13 +194,43 @@ rightkit-qa run-tests --app cutright -p cutright-e2e --test ui -- --nocapture
 
 On macOS, `control::launch` stages raw binaries & supplied `.app` bundles under `<appRoot>/apps/<launch-id>/`, then passes every harness-owned home/temp/profile path through `open --env NAME=VALUE`. `HOME`/`USERPROFILE` point to `appRoot`; data/profile keys point to `appRoot/data`; `TMPDIR`/`TMP`/`TEMP` point to `appRoot/tmp`. `RIGHTKIT_SUITE_ROOT` points to `appRoot/suite-<launch-id-prefix>` (including `runtime/<service>/service.json`); live stdout/stderr use `appRoot/app-<launch-id-prefix>.log`. The launcher cwd & harness scratch directories also use `appRoot`.
 
-Caller-supplied `LaunchSpec::env` still rejects credential keys & allows only `RIGHTKIT_*` keys on macOS, plus the app keys the config declares in `[ui] env_keys = ["APP_QA_FLAG", ...]` (non-secret; `launch_declared`; a declared key that names a credential is still refused, and `rightkit-qa guard` requires each declared key to be a release-forbidden switch, class S1 to S4, in the app's `switches.json`). Absolute caller paths must live inside `appRoot`; callers cannot replace suite/service identity or move isolation paths outside it. `${data_dir}` & `${evidence_dir}` scenario templates use internal companion paths; artifacts are copied into managed evidence before hashing so disposal cannot invalidate them. App-specific QA knobs should use `RIGHTKIT_<APP>_*` keys honoured only in debug QA builds.
+Caller-supplied `LaunchSpec::env` still rejects credential keys & allows only `RIGHTKIT_*` keys on macOS, plus the app keys the config declares in `[ui] env_keys = ["APP_QA_FLAG", ...]` (non-secret; `launch_declared`; a declared key that names a credential is still refused, and `rightkit-qa guard` requires each declared key to be a release-forbidden switch, class S1 to S4, in the app's `switches.json`). Absolute caller paths must live inside `appRoot`; callers cannot replace suite/service identity or move isolation paths outside it. `${data_dir}` & `${evidence_dir}` scenario templates use internal companion paths; artifacts are copied into managed evidence before hashing so disposal cannot invalidate them. App-specific QA knobs are scenario `inputs` (`RIGHTKIT_<APP>_*` keys read with `test_selector!`, honoured only in test-mode QA builds); see [Per-app QA inputs](#per-app-qa-inputs).
 
 Focus for keyboard and accessibility scenarios: a hidden window is never key, so `:focus`, `:focus-visible` and `document.hasFocus()` do not match. Opt in with `focus = true` on `ui_launch` (or `[ui] focus = true`, or `LaunchSpec { focus: true, .. }`); default is off. After the page is ready the harness calls the control method `focus` (also `Control::focus_window`). macOS: activates the app, makes the window key and the webview first responder, and leaves the window's frame and alpha alone, so an off-screen window stays off-screen; activation can change the frontmost app, so a focused launch does not claim `owned_never_frontmost` and `ui_stop` skips that proof. Windows: enables Chromium focus emulation (`Emulation.setFocusEmulationEnabled`) and moves WebView2 focus into the page; there is deliberately no `SetForegroundWindow`, so the user's foreground window is untouched. The launcher also sets `RIGHTKIT_QA_FOCUS=1`.
 
 Hidden launches: the app must not take focus itself. When `RIGHTKIT_QA_HIDDEN=1`, skip any `set_focus()`/`show()` on startup, and build with `activate_ignoring_other_apps(false)` on macOS (see `crates/rightkit-qa/examples/control-test-app/src/main.rs`). Compare paths with `std::fs::canonicalize`: the QA data dir lives under `/var/folders`, which macOS resolves to `/private/var/folders`.
 
 `Control::wait_for_text(Some("#status"), "Ready", timeout)` waits for visible text (`None` searches the whole body).
+
+## Per-app QA inputs
+
+An app sometimes needs a QA-only input that a scenario chooses, such as which data source a QA build reads. Three parts make it safe:
+
+1. **The app reads it with `rightkit_daemon::test_selector!(mode, "RIGHTKIT_<APP>_<NAME>")`**, never `std::env::var`. The value is `Some` only in a `test-mode` build during a test run. A release build compiles the read out and the name is not in the binary. A read through `std::env::var` carries no such gate of its own and must be fenced by hand (PostRight's read of `RIGHTKIT_QA_APP_DATA_SOURCE` sits behind its `qa-native` feature and `mode.is_test()`); `test_selector!` is the one reader that brings the gate with it.
+2. **The app declares the key in its `switches.json`** as a QA switch (class S1 to S4 with `compiledOut` `feature:test-mode`; see `packages/release/README.md`).
+3. **A scenario sets it in an `[inputs]` table**, or `inputs = { .. }`, placed before the first `[[step]]` (an inline `inputs = { .. }` written after one belongs to that step and is ignored):
+
+```toml
+name = "postright engine source"
+target = "ui"
+
+[inputs]
+RIGHTKIT_POSTRIGHT_DATA_SOURCE = "engine"
+
+[[step]]
+kind = "ui_launch"
+```
+
+The `RIGHTKIT_` prefix is required because a macOS launch carries only `RIGHTKIT_*` keys. `Scenario::load` refuses the file with `<path>: inputs.<KEY>: <why>` when an entry breaks one of these rules:
+
+| Part | Rule |
+| --- | --- |
+| Key shape | `RIGHTKIT_` then upper-case letters and digits in words joined by single underscores (`^RIGHTKIT_[A-Z0-9]+(_[A-Z0-9]+)*$`), at most 64 bytes. |
+| Key owner | Not a name `rightkit-qa` or `rightkit-daemon` sets or reads itself: the control channel and token file, the pool world (`RIGHTKIT_QA_WORLD*`, ports, tokens), `RIGHTKIT_UNDER_TEST`, the test roots (`RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_QA_HOME`, `RIGHTKIT_SUITE_ROOT`, `RIGHTKIT_RUN_ROOT`), what the workspace sets for every launch, and the runner's own settings. The list is `RESERVED_INPUT_KEYS` in `src/scenario.rs`. |
+| Key meaning | Names no credential: no `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY`, `PRIVATE_KEY` or `CREDENTIAL` anywhere in the name (the launch guard's list, `control::key_names_credential`). Secrets never travel in a launch environment. |
+| Value | A string (a number, boolean or array is a load error) of at most 1024 bytes with no NUL, CR or LF. Taken literally: no `${...}` expansion; an absolute path must still lie inside the QA app home, which the launch refuses otherwise. |
+
+`ui_launch` applies them to the launched app's environment, in this order, a later layer replacing an earlier value for the same key: `[ui].env`, the config `env`, the data-dir variable (`[engine].data_dir_env`), the scenario `inputs`, then the step's own `env`. So a step can still override an input for one launch. Inputs reach the app only through `ui_launch`; an engine `cli` or sidecar step takes its own `env`. The launch guards still apply to the result: an absolute path value must lie inside the QA app home, and a key the harness already gave the app a different value for is refused at launch.
 
 ## Finding the dev build
 
@@ -249,6 +279,8 @@ if let Some(plugin) = rightkit_qa::embedded::Control::<tauri::Wry>::new().build_
     builder = builder.plugin(plugin);
 }
 ```
+
+The plugin binds the window named by `.window("label")`, else by the launcher's `[ui] window_label`, else the window the app declares in its Tauri config (`main` if declared, else the first window whose `create` is not `false`), else `main`. `rightkit-qa` always exports `[ui] window_label` (default `main`), so an app launched by the runner whose window is not `main` sets `[ui] window_label`; the declared-window step serves a control build started without the runner. An app that builds its window only in code is not in the config and sets one of the first two.
 
 **Contract check.** `rightkit-qa guard [--backend control|wdio] [--app-root <dir>] [--config <toml>]` (`src/guard.rs`) reads the app's `Cargo.toml` and Rust sources and fails on: a registration with no `qa-native` gate (`use` lines and comments are ignored); a `rightkit-qa` (or legacy `rightkit-qa-driver`) dependency that is not optional, or that enables `control` (`qa-control`) without being optional; a missing `qa-native` feature, or one that does not enable `dep:rightkit-qa` and `rightkit-qa/control` (or list `control` in the dependency's features); `qa-native` reachable from `default`, directly or through another feature; any other feature that enables the dependency; a missing runtime flag; and a release or build package script that enables `qa-native`. It also rejects rightkit-tauri-shell developer inspection in a shipped build: `dev-inspect`, `rightkit-tauri-shell/dev-inspect` or `dev-native` reachable from `default`, a non-optional `rightkit-tauri-shell` dependency that lists `dev-inspect`, and a release-named package script that enables `dev-inspect` or `dev-native`. It also checks what the QA build would actually run: a `build.devUrl` in `tauri.conf.json` needs tauri's `custom-protocol` feature reachable from `qa-native` (else QA drives the dev server, not the built app); a `qa`/`test`/`e2e` script that builds with `qa-native` may not run `tauri dev`, and must build the frontend first when a `devUrl` exists; a first window not labelled `main` needs `.window("<label>")` in the registration or `[ui] window_label`; and each `[ui] env_keys` entry must be a release-forbidden switch in `switches.json`. With `--app-root <dir>` no config is needed: the guard finds `src-tauri/Cargo.toml` (else `Cargo.toml`), `tauri.conf.json`, `package.json` and `switches.json` itself and reads every `*.rs` under the crate's `src`, so an app needs no wrapper test and a registration in a second file is seen. `--config` adds `[ui]` overrides (`cargo_toml`, `rust_sources`, `package_json`, `window_label`, `env_keys`). Each message names the file and the change to make. The check cannot prove that a release build lacks the server; `right-release`'s marker scan does that.
 

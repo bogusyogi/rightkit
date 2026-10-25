@@ -16,8 +16,8 @@ Shared Tauri desktop shell for Right Suite applications. It owns hardened webvie
 | `content-devtools` | off | `tauri/devtools` | Required by `DevToolsPolicy::ContentOnly`. Only an app on the `right-release` allow-list (today ViewRight) may ship it; see "DevTools policy". Never a default feature. |
 | `dev-overrides` | off | none | Development and QA builds only: `NavPolicy::default()` treats loopback (localhost, 127.0.0.1, [::1]) http(s) URLs as internal. Not implied by a build profile (installed dev builds with debug assertions get the release default, `allow_loopback: false`); an app sets it from an optional QA/dev feature. Never a default feature. |
 | `host-services` | off | `rightkit-app-settings` 0.3.0 | Shared host services (`src/host/`): settings bridge, write-only API-key slots, legal receipt, and the `HostCallerPolicy` that gates them. Adds the `rightkit_settings_*`, `rightkit_secrets_*`, `rightkit_legal_receipt_*` and `rightkit_preview_*` commands. |
-| `logs` | off | `rightkit-logs` 0.3.4 | Renderer log commands `rightkit_logs_write`, `rightkit_logs_collect`, `rightkit_logs_clear` (`src/logs_commands.rs`). |
-| `crash` | off | `rightkit-crash` 0.3.4 (`window-errors`) | `watchdog::crash_capture` and `CrashCaptureOptions`: a stall capture that writes a crash report through `rightkit-crash`. With `host-services`, also `rightkit_crash_window_error`, the renderer error sink (`src/host/crash.rs`). |
+| `logs` | off | `rightkit-logs` 0.3.4 | Renderer log commands `rightkit_logs_write`, `rightkit_logs_collect`, `rightkit_logs_clear` (`src/logs_commands.rs`). `LogsConfig::clear_sources` makes clear cover the app's other logs, and `LogsConfig::settings` fills the bundle's `metadata.settings` (see Logs below). |
+| `crash` | off | `rightkit-crash` 0.3.4 (`window-errors`) | `watchdog::crash_capture` and `CrashCaptureOptions`: a stall capture that writes a crash report through `rightkit-crash`. Also `rightkit_crash_window_error`, the renderer error sink (`src/crash_commands.rs`), with or without `host-services` (see Crash below). |
 | `models` | off | implies `host-services`; `rightkit-models` 0.5.0 | Native model store commands `rightkit_models_list`, `_install`, `_cancel`, `_remove` (`src/host/models.rs`). IPC accepts only a declared model id. |
 | `pdf-host` | off | implies `host-services`; `rightkit-pdf` 0.3.3 (`host`) | Native PDF view: seven `rightkit_pdf_*` commands (`src/pdf_host.rs`). PDFKit on macOS; `unsupported` on other platforms. |
 | `license` | off | implies `host-services`; `rightkit-license` 0.2.4 (`update-auth`) | Five `rightkit_license_*` commands. The views they return carry no token, key or device id. |
@@ -141,6 +141,7 @@ There is no development-build hole and no `dev-inspect` cargo feature: it was re
 - `close_behavior(CloseBehavior::HideToBackground)`, `on_visibility`, `qa_instance_exempt`,
   `second_instance_reveal`, `show_on_ready` (explicit beats `RIGHTKIT_QA_HIDDEN`), `internal_scheme`.
 - `Shell::lifecycle_plugin()`: the lifecycle without hardening, navigation policy, presence, watchdog or window state.
+  For an app that owns its windows, prefer `Shell::host_windows_plugin()`, which keeps hardening and the navigation policy (see Profiles below).
 - `WindowStateStore` standalone with `restore_with`; `AutostartOptions::{startup_wm_class, config_home, macos_unsupported}`.
 - macOS login item through `SMAppService.mainApp` (macOS 13+): `AutostartOptions::macos_backend(MacosBackend::ServiceManagement)` (default `LaunchAgent`, unchanged). `rk_shell_autostart` then returns `loginItem` (`notRegistered | enabled | requiresApproval | notFound`); on `requiresApproval` (`enabled` is false) call `rk_shell_open_login_items_settings` / `login_item::open_login_items_settings()` to send the user to System Settings > Login Items. Needs a signed `.app` bundle; carries no launch arguments (detect the login launch yourself) and no `LowPriorityIO` (use `login_item::set_background_io`). An existing LaunchAgent plist is removed and replaced at startup; macOS 12 and older, an unbundled executable and a redirected `RIGHTKIT_SHELL_HOME` / `config_home` keep the LaunchAgent. Mac-only behaviour is verified on a Mac.
 - `NotificationRequest.bypassDoNotDisturb`; `rk_shell_capabilities`.
@@ -167,6 +168,73 @@ let plugin = ShellPlugin::builder()
 
 An opted-out command family answers `unsupported`. `PathBroker` needs no plugin: create one
 in your own state and call its grant and `require_*` methods from your own commands.
+
+### Profiles
+
+Each profile replaces the module set. `on` / `off` says whether the module is installed.
+
+| Profile | `JsHardening` | `NavigationPolicy` | `WindowState` | `ShowOnReady` | `RevealOnReopen` | `Watchdog` | `Presence` | `Broker` | `Stream` | `Recovery` | `Frameless` | `Clipboard` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `Shell::plugin()`, `ShellPlugin::builder().build()` | on | on | on | on | on | on | on | on | on | on | on | on |
+| `.host_windows()`, `Shell::host_windows_plugin()` | on | on | off | off | on | off | off | on | on | on | on | on |
+| `.lifecycle_only()`, `Shell::lifecycle_plugin()` (legacy) | off | off | off | off | on | off | off | on | on | on | on | on |
+| `.install_state_only()` | off | off | off | off | on | off | off | on | on | on | on | on |
+
+- `.without(m)`: the first row minus `m`; every other column stays as in that row.
+- `.host_windows()`: the app owns its windows and keeps the webview policy. Use it for an app that
+  creates its own windows.
+- `.lifecycle_only()`: prefer `.host_windows()`. `lifecycle_only` also removes JS hardening and the
+  navigation policy. An app that chose it only to own its windows loses both without meaning to.
+- `.host_windows()` and `.lifecycle_only()` both leave `ShowOnReady` and the cache repair off by
+  default. `show_on_ready(true)` and `repair_cache(true)` turn them back on. `with(Module::ShowOnReady)`
+  turns `ShowOnReady` on under any profile. `install_state_only()` keeps the cache repair on by default.
+- Composition: `without(m)` removes one module and `with(m)` adds it back, both on the current set.
+  A profile drops the `with` and `without` calls made before it, and adjusts only the calls made after
+  it. For example, `ShellPlugin::builder().shell(..).host_windows().with(Module::WindowState).build()`
+  keeps the webview policy and restores window state.
+
+### Logs
+
+`logs_commands::install(app, LogsConfig::new(..))` registers the runtime behind `rightkit_logs_write`,
+`rightkit_logs_collect` and `rightkit_logs_clear`; `handler![..]` lists the three commands.
+
+- **Clear covers every log the app owns.** `LogsRuntime::clear()` clears the renderer log (`renderer`)
+  and then each `LogsConfig::clear_sources` entry in order, and never stops at a failure. It returns a
+  `ClearReport { cleared, failed: [{ source, error }] }`; the error text is scrubbed (user names and URL secrets removed).
+  `rightkit_logs_clear` answers the report when every source cleared and rejects with
+  `clear failed for: <source> (<error>), ...` when any did not, so the `@rightkit/logs` client never
+  mistakes a partial clear for a full one.
+- `ClearSource::jsonl("engine", path)` removes a JSONL log and its rotated generation.
+  `ClearSource::new("shell", move || guard.clear())` clears a `tracing` family through the app's
+  `Arc<rightkit_logs::TracingGuard>`; the shell does not enable the `tracing` feature of `rightkit-logs`.
+- **Settings in the bundle.** `LogsConfig::settings = Some(SettingsSnapshot::new(|| json!({..})))` is
+  called on each collect and its value goes to `metadata.settings`, key-redacted with
+  `LogsConfig::redaction` and scrubbed. A closure that panics yields
+  `{"error":"settings snapshot unavailable"}`. Without one the field stays `{}`.
+
+```rust
+let guard = Arc::new(rightkit_logs::install_tracing(TracingFileConfig::new(dir, "shell"))?);
+let mut config = LogsConfig::new("MyApp", env!("CARGO_PKG_VERSION"), app_data.join("logs/events.jsonl"));
+config.clear_sources = vec![
+    ClearSource::jsonl("engine", app_data.join("logs/engine.jsonl")),
+    ClearSource::new("shell", { let guard = Arc::clone(&guard); move || guard.clear() }),
+];
+config.settings = Some(SettingsSnapshot::new(move || json!({ "theme": "dark" })));
+logs_commands::install(app.handle(), config)?;
+```
+
+### Crash
+
+Feature `crash` registers `rightkit_crash_window_error`, the sink for `installWindowCrashCapture`
+errors, without `host-services`: call `crash_commands::install(app.handle(), CrashConfig::new(..),
+WindowErrorGate::default())` in setup and list nothing, `handler![..]` does. The caller must be an app
+webview (`caller_gate::require_app_caller`); `rightkit-crash` bounds, scrubs and rate-limits the report,
+and nothing is returned to the page. With no sink and no host service the command answers
+`unsupported` ("renderer crash capture is not configured").
+
+When `host-services` is on and a `CrashHostService` is registered (`HostServicesBuilder::crash`), that
+service still takes the report behind the central caller policy; it wins over a sink
+(`crash_commands::crash_route`).
 
 ### Site-root scheme
 

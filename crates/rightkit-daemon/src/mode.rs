@@ -230,6 +230,13 @@ impl Mode {
 /// The only sanctioned reader of an override selector: `test_selector!(mode, "NAME")` returns the
 /// variable's value for a test run and `None` otherwise. In a build without `test-mode` it expands
 /// to `None` and the name literal does not appear in the binary.
+///
+/// It is also the reader for an app's own QA inputs (which data source a QA build uses, say): read
+/// `test_selector!(mode, "RIGHTKIT_<APP>_<NAME>")`, never `std::env::var`, so a release build
+/// neither reads the variable nor carries its name. Keep the `RIGHTKIT_` prefix, because a macOS
+/// QA launch passes only `RIGHTKIT_*` keys, and declare the key in the app's `switches.json`. A
+/// scenario sets the input with the `[inputs]` table of `rightkit-qa`, which refuses a malformed
+/// key, a name the harness uses itself and a credential name (`rightkit_qa::scenario::Scenario::inputs`).
 #[cfg(feature = "test-mode")]
 #[macro_export]
 macro_rules! test_selector {

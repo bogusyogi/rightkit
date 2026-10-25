@@ -1,12 +1,15 @@
 {
   "schema": 1,
-  "about": "Ratchet for the files-only app checks G13-G20 of scripts/preflight.mjs. known.<repo> (lowercased --repo basename; rightkit for this checkout) lists the identities `rule|file|subject` (no line numbers) of findings that exist today: preflight prints them as KNOWN and does not fail. A new finding fails; a listed identity that is no longer found fails as STALE, so the list only shrinks. Never add an entry to hide a new defect: fix it. A person pastes `node scripts/preflight.mjs --repo <dir> --worktree --print-baseline` here; preflight never writes this file.",
+  "about": "Ratchet for the files-only app checks G13-G20 of scripts/preflight.mjs and for the shell-contract rules SC-R1..SC-R9 of packages/release/shell-contract.mjs, which preflight runs too. known.<repo> (lowercased --repo basename; rightkit for this checkout) lists the identities `rule|file|subject` (no line numbers) of findings that exist today: preflight prints them as KNOWN and does not fail. A new finding fails; a listed identity that is no longer found fails as STALE, so the list only shrinks. Never add an entry to hide a new defect: fix it. A person pastes `node scripts/preflight.mjs --repo <dir> --worktree --print-baseline` here; preflight never writes this file.",
   "known": {
     "rightkit": [
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macos",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macosx",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:typo",
-      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__"
+      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__",
+      "shell-csp|crates/rightkit-qa/examples/control-test-app/tauri.conf.json|base:csp-missing",
+      "shell-csp|crates/rightkit-tauri-shell/example-app/tauri.conf.json|base:csp-missing",
+      "shell-csp|spikes/rk2-macos/fixture-app/tauri.conf.json|base:csp-missing"
     ],
     "coderight": [
       "engine-record-store|engine/bins/coderight/src/license.rs|from_record_store",

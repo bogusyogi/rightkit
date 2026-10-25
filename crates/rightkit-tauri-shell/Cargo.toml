@@ -114,6 +114,8 @@ harness = false
 
 [dev-dependencies]
 tempfile = "3"
+# A real `TracingGuard` for the logs clear test; the shell itself does not enable the feature.
+rightkit-logs = { version = "0.3.4", path = "../rightkit-logs", default-features = false, features = ["tracing"] }
 tauri = { version = "2", features = ["test"] }
 # The redirect fixture builds a bare reqwest client (rustls-no-provider); production gets the ring provider installed by
 # tauri-plugin-updater, so the test installs the same one (ring, already in the lock).

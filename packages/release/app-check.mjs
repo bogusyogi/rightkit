@@ -36,6 +36,17 @@
 //                         another key, or an unparseable file)
 //   engine-record-store C3-05 a call to from_record_store outside crates/rightkit-license: the owner binary hands the engine a
 //                         snapshot through rightkit_credentials::handoff instead
+// The shell contract (shell-contract.mjs, SHELL_CONTRACT_RULES, appended after e2e-under-cargo-test) reads an app's Tauri config, capabilities,
+// Rust and renderer sources:
+//   shell-window-hidden      SC-R1  a startup window of any platform config that is not `visible: false`
+//   shell-plugin-order       SC-R2  the shell plugin installed from setup, or after a non-QA plugin
+//   shell-handler            SC-R3  an invoked rk_shell_* command that no handler registers
+//   shell-csp                SC-R4  a CSP without default-src 'self', frame-ancestors 'none', connect-src, or with script unsafe-inline/eval
+//   shell-grants             SC-R5  a core:window:allow-* grant that the shell's own window command mirrors
+//   qa-window-label          SC-R6  the shell's main_label, the QA Control's window and the created windows disagree
+//   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
+//   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)
+//   legal-receipt-native     SC-R9  an Onboarding legal gate whose receipt is not the native service
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -56,6 +67,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -951,6 +963,7 @@ export const RULES = Object.freeze([
   { id: "suite-key-literal", gap: "C3-04", run: ({ root, files }) => suiteKeyLiteral(root, files) },
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
+  ...SHELL_CONTRACT_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------

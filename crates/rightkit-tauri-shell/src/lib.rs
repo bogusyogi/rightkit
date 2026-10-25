@@ -23,6 +23,8 @@ pub mod broker;
 pub mod caller_gate;
 pub mod clipboard;
 pub mod commands;
+#[cfg(feature = "crash")]
+pub mod crash_commands;
 pub mod deep_link;
 pub mod devtools;
 #[cfg(feature = "engine")]
@@ -765,8 +767,18 @@ impl Shell {
     /// or native hardening, no navigation policy, no presence thread, no watchdog and no
     /// window-state restore or save. The same as
     /// `ShellPlugin::builder().shell(self).lifecycle_only()`. [`Shell::plugin`] is unchanged.
+    /// Prefer [`Shell::host_windows_plugin`]: lifecycle_only also removes JS hardening and the
+    /// navigation policy.
     pub fn lifecycle_plugin(self) -> TauriPlugin<Wry> {
         ShellPlugin::builder().shell(self).lifecycle_only()
+    }
+
+    /// The shell for an app that owns its windows: [`ShellPluginBuilder::host_windows`]. The
+    /// lifecycle and the webview policy (JS hardening, navigation policy) stay on; window-state
+    /// restore, show-on-ready, presence and the watchdog are off. The same as
+    /// `ShellPlugin::builder().shell(self).host_windows().build()`. [`Shell::plugin`] is unchanged.
+    pub fn host_windows_plugin(self) -> TauriPlugin<Wry> {
+        ShellPlugin::builder().shell(self).host_windows().build()
     }
 
     /// The single Tauri plugin that installs the whole shell, with every module enabled. Add it FIRST
@@ -1371,8 +1383,9 @@ fn setup(
 /// `rightkit_tauri_shell::handler![my_command, other]`.
 ///
 /// Feature `host-services` adds the `rightkit_settings_*` and `rightkit_secrets_*` commands, feature
-/// `license` the five `rightkit_license_*` commands, and feature `logs` the `rightkit_logs_*`
-/// commands, so an app lists none of them. Every one of them
+/// `license` the five `rightkit_license_*` commands, feature `logs` the `rightkit_logs_*` commands
+/// and feature `crash` the renderer error sink `rightkit_crash_window_error` (with or without
+/// `host-services`), so an app lists none of them. Every one of them
 /// refuses a caller the installed `host::HostCallerPolicy` does not trust (the shell-wide app
 /// caller gate when no host services are installed, for the log commands), and answers
 /// `permission_denied` or `unsupported` until the app installs the service it needs.
@@ -1599,21 +1612,21 @@ macro_rules! __rk_handler_models {
     ($($cmd:tt)*) => { $crate::__rk_handler_crash![$($cmd)*] };
 }
 
-/// Prepends the renderer crash sink, not the watchdog's independent crash adapter.
+/// Prepends the renderer crash sink (feature `crash`), not the watchdog's independent crash adapter.
 #[doc(hidden)]
 #[macro_export]
-#[cfg(all(feature = "host-services", feature = "crash"))]
+#[cfg(feature = "crash")]
 macro_rules! __rk_handler_crash {
     ($($cmd:tt)*) => {
         $crate::__rk_handler_pdf![
-            $crate::host::crash::rightkit_crash_window_error,
+            $crate::crash_commands::rightkit_crash_window_error,
             $($cmd)*
         ]
     };
 }
 #[doc(hidden)]
 #[macro_export]
-#[cfg(not(all(feature = "host-services", feature = "crash")))]
+#[cfg(not(feature = "crash"))]
 macro_rules! __rk_handler_crash {
     ($($cmd:tt)*) => { $crate::__rk_handler_pdf![$($cmd)*] };
 }

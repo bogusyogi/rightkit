@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "exports": {
+    "EVENTS": [],
+    "SURFACE_COMMAND": [
+      "rk_shell_set_surface"
+    ],
+    "PREVIEW_COMMANDS": [],
+    "LEGAL_RECEIPT_COMMANDS": [],
+    "UPDATE_COMMANDS": [],
+    "UPDATE_PROGRESS_EVENT": [],
+    "DEFAULT_QUIT_TIMEOUT_MS": [],
+    "asShellError": [],
+    "tauriTransport": [],
+    "createShell": [
+      "rk_shell_capabilities",
+      "rk_shell_finish_quit",
+      "rk_shell_ready",
+      "rk_shell_status",
+      "rk_shell_quit",
+      "rk_shell_open_external",
+      "rk_shell_window",
+      "rk_shell_open_window",
+      "rk_shell_traffic_lights",
+      "rk_shell_set_menu_item_enabled",
+      "rk_shell_set_menu_item_checked",
+      "rk_shell_set_menu_state",
+      "rk_shell_set_tray",
+      "rk_shell_autostart",
+      "rk_shell_open_login_items_settings",
+      "rk_shell_clipboard_read",
+      "rk_shell_clipboard_write",
+      "rk_shell_clipboard_item",
+      "rk_shell_notify",
+      "rk_shell_notify_status",
+      "rk_shell_notify_clear",
+      "rk_shell_badge",
+      "rk_shell_presence",
+      "rk_shell_set_dnd",
+      "rk_shell_presence_prefs",
+      "rk_shell_presence_probe",
+      "rk_shell_presence_evaluate",
+      "rk_shell_idle_status",
+      "rk_shell_idle_note",
+      "rk_shell_path_require",
+      "rk_shell_path_revoke",
+      "rk_shell_path_grant_recent",
+      "rk_shell_path_regrant_saved",
+      "rk_shell_stream_grant",
+      "rk_shell_open_paths_ready",
+      "rk_shell_associations_status",
+      "rk_shell_associations_set",
+      "rk_shell_open_default_apps",
+      "rk_shell_print",
+      "rk_shell_recovery_save",
+      "rk_shell_recovery_load",
+      "rk_shell_recovery_clear",
+      "rk_shell_site_grant",
+      "rk_shell_site_revoke",
+      "rk_shell_engine_call",
+      "rk_shell_engine_call_tagged",
+      "rk_shell_engine_status",
+      "rk_shell_set_theme"
+    ]
+  },
+  "members": {
+    "ready": [
+      "rk_shell_ready"
+    ],
+    "status": [
+      "rk_shell_status"
+    ],
+    "capabilities": [],
+    "quit": [
+      "rk_shell_quit"
+    ],
+    "onQuitRequested": [],
+    "openExternal": [
+      "rk_shell_open_external"
+    ],
+    "window.do": [
+      "rk_shell_window"
+    ],
+    "window.minimize": [
+      "rk_shell_window"
+    ],
+    "window.toggleMaximize": [
+      "rk_shell_window"
+    ],
+    "window.close": [
+      "rk_shell_window"
+    ],
+    "window.startDrag": [
+      "rk_shell_window"
+    ],
+    "window.open": [
+      "rk_shell_open_window"
+    ],
+    "window.trafficLights": [
+      "rk_shell_traffic_lights"
+    ],
+    "menu.setEnabled": [
+      "rk_shell_set_menu_item_enabled"
+    ],
+    "menu.setChecked": [
+      "rk_shell_set_menu_item_checked"
+    ],
+    "menu.setState": [
+      "rk_shell_set_menu_state"
+    ],
+    "menu.onClick": [],
+    "tray.update": [
+      "rk_shell_set_tray"
+    ],
+    "tray.onEvent": [],
+    "tray.onCustom": [],
+    "deepLinks.on": [],
+    "onSecondInstance": [],
+    "onStall": [],
+    "autostart.get": [
+      "rk_shell_autostart"
+    ],
+    "autostart.set": [
+      "rk_shell_autostart"
+    ],
+    "autostart.openLoginItemsSettings": [
+      "rk_shell_open_login_items_settings"
+    ],
+    "clipboard.read": [
+      "rk_shell_clipboard_read"
+    ],
+    "clipboard.write": [
+      "rk_shell_clipboard_write"
+    ],
+    "clipboard.item": [
+      "rk_shell_clipboard_item"
+    ],
+    "notifications.post": [
+      "rk_shell_notify"
+    ],
+    "notifications.status": [
+      "rk_shell_notify_status"
+    ],
+    "notifications.clear": [
+      "rk_shell_notify_clear"
+    ],
+    "notifications.setBadge": [
+      "rk_shell_badge"
+    ],
+    "presence.state": [
+      "rk_shell_presence"
+    ],
+    "presence.setDnd": [
+      "rk_shell_set_dnd"
+    ],
+    "presence.setAuto": [
+      "rk_shell_presence_prefs"
+    ],
+    "presence.probe": [
+      "rk_shell_presence_probe"
+    ],
+    "presence.evaluate": [
+      "rk_shell_presence_evaluate"
+    ],
+    "presence.onChange": [],
+    "idle.status": [
+      "rk_shell_idle_status"
+    ],
+    "idle.note": [
+      "rk_shell_idle_note"
+    ],
+    "idle.onChange": [],
+    "paths.require": [
+      "rk_shell_path_require"
+    ],
+    "paths.revoke": [
+      "rk_shell_path_revoke"
+    ],
+    "paths.grantRecent": [
+      "rk_shell_path_grant_recent"
+    ],
+    "paths.regrantSaved": [
+      "rk_shell_path_regrant_saved"
+    ],
+    "paths.streamUrl": [
+      "rk_shell_stream_grant"
+    ],
+    "openPaths.ready": [
+      "rk_shell_open_paths_ready"
+    ],
+    "openPaths.onOpen": [],
+    "associations.status": [
+      "rk_shell_associations_status"
+    ],
+    "associations.set": [
+      "rk_shell_associations_set"
+    ],
+    "associations.openDefaultApps": [
+      "rk_shell_open_default_apps"
+    ],
+    "print": [
+      "rk_shell_print"
+    ],
+    "onPrintError": [],
+    "recovery.save": [
+      "rk_shell_recovery_save"
+    ],
+    "recovery.load": [
+      "rk_shell_recovery_load"
+    ],
+    "recovery.clear": [
+      "rk_shell_recovery_clear"
+    ],
+    "site.grant": [
+      "rk_shell_site_grant"
+    ],
+    "site.revoke": [
+      "rk_shell_site_revoke"
+    ],
+    "surface.set": [
+      "rk_shell_set_surface"
+    ],
+    "preview.register": [],
+    "preview.revoke": [],
+    "preview.revokeAll": [],
+    "legal.read": [],
+    "legal.create": [],
+    "legal.reset": [],
+    "update.check": [],
+    "update.status": [],
+    "update.download": [],
+    "update.install": [],
+    "update.cancel": [],
+    "update.onProgress": [],
+    "engine.call": [
+      "rk_shell_engine_call"
+    ],
+    "engine.callTagged": [
+      "rk_shell_engine_call_tagged"
+    ],
+    "engine.status": [
+      "rk_shell_engine_status"
+    ],
+    "engine.onEvent": [],
+    "bridge": [
+      "rk_shell_set_theme",
+      "rk_shell_window",
+      "rk_shell_open_external"
+    ]
+  }
+}
