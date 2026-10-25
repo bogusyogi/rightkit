@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { CACHEDIR_SIGNATURE, KEEP_MARKER, ensureScratchRoots, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
+import { CACHEDIR_SIGNATURE, KEEP_MARKER, ensureScratchRoots, readRustrightBudget, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
@@ -1072,7 +1072,9 @@ test("check: the unmanaged remainder is used minus the de-duplicated writer byte
   policy.writers.push({ id: "again", platform: "mac", path: path.join(root, "c"), capBytes: 1000, action: "report" }, ...elsewhere);
   const r = checkDisk({ policy, platform: "darwin", size: (p) => (p === "/dev" ? 999 : size(p)), space });
   assert.equal(r.unmanaged.length, 1);
-  assert.deepEqual({ ...r.unmanaged[0], uncoveredTopLevel: undefined }, { floor: "agent", usedBytes: 400, writerBytes: 150, unmanagedBytes: 250, uncoveredTopLevel: undefined });
+  assert.deepEqual({ ...r.unmanaged[0], uncoveredTopLevel: undefined, writers: undefined }, { floor: "agent", usedBytes: 400, writerBytes: 150, unmanagedBytes: 250, uncoveredTopLevel: undefined, writers: undefined });
+  // the outermost writers are what writerBytes is made of (the daily report's categories): the nested one and the duplicate path are not listed
+  assert.deepEqual(r.unmanaged[0].writers, [{ id: "w-a", category: "w-a", bytes: 100 }, { id: "w-c", category: "w-c", bytes: 50 }]);
   // writers are unchanged by the accounting and carry a category
   assert.deepEqual(r.writers.map((w) => [w.id, w.category, w.bytes]).slice(0, 3), [["w-a", "w-a", 100], ["w-a-b", "w-a-b", 40], ["w-c", "w-c", 50]]);
 });
@@ -1746,4 +1748,103 @@ test("evaluateRunAge: newest full and light events, the 26 h limit is inclusive 
   assert.equal(evaluateRunAge({ events: [at(26, "disk.run.ok")], now }).ok, true);
   assert.equal(evaluateRunAge({ events: [at(26.1, "disk.run.ok")], now }).ok, false);
   assert.deepEqual(evaluateRunAge({ events: [], now }).problems, ["no completed full run recorded"]);
+});
+
+// ---- the daily report line and RustRight's budget ---------------------------------------------------------------------------
+
+test("run appends exactly one disk.report per UTC day on the full pass, none on the light pass; the next day's report carries a delta", async () => {
+  const { run, events } = lightFixture();
+  const full = (nowIso, used = 5000) => run([], { now: Date.parse(nowIso), plan: { size: () => 10 }, check: { size: () => 100, space: () => ({ freeBytes: 10000 - used, totalBytes: 10000 }) } });
+  const reports = () => events().filter((e) => e.event === "disk.report");
+  await full("2026-10-15T03:40:00Z");
+  assert.equal(reports().length, 1);
+  assert.equal(reports()[0].ts, "2026-10-15T03:40:00.000Z");
+  assert.equal(reports()[0].delta, null);
+  assert.equal(reports()[0].usedBytes, 5000);
+  assert.equal(reports()[0].units["scratch/fresh"], 100); // one du per scratch child, through the same size seam as the check
+  await full("2026-10-15T22:00:00Z"); // a second full pass the same UTC day
+  assert.equal(reports().length, 1);
+  await run(["--light"], { now: Date.parse("2026-10-16T04:00:00Z") });
+  assert.equal(reports().length, 1);
+  await full("2026-10-16T03:40:00Z", 5300);
+  assert.equal(reports().length, 2);
+  assert.equal(reports()[1].delta.usedBytes, 300);
+  assert.equal(reports()[1].delta.hours, 24);
+  assert.equal(Object.values(reports()[1].delta.categories).reduce((a, b) => a + b, 0), 300);
+});
+
+test("check: a writer with a budget takes the sum of its RustRight parts as its cap and says so; without RustRight the policy cap stays", () => {
+  const { root, policy } = fixture();
+  policy.writers = [
+    { id: "bc-targets", platform: "mac", path: path.join(root, "bc"), capBytes: 100, action: "report", budget: ["total"] },
+    { id: "bc-sccache", platform: "mac", path: path.join(root, "bc", "sccache"), capBytes: 50, action: "report", budget: ["sccache"] },
+    { id: "bc-two", platform: "mac", path: path.join(root, "two"), capBytes: 1, action: "report", budget: ["targets", "trash"] },
+    { id: "plain", platform: "mac", path: path.join(root, "plain"), capBytes: 5, action: "report" },
+  ];
+  const budget = { targets: 500, sccache: 200, cargoHome: 10, toolchains: 10, trash: 40, slack: 10, totalBytes: 900 };
+  const size = () => 600;
+  const space = () => ({ freeBytes: 5000, totalBytes: 10000 });
+  for (const dir of ["bc", "two", "plain"]) mkdirSync(path.join(root, dir), { recursive: true });
+  mkdirSync(path.join(root, "bc", "sccache"));
+  let reads = 0;
+  const r = checkDisk({ policy, platform: "darwin", size, space, scan: () => ({ unknown: [], skipped: [] }), readBudget: () => { reads += 1; return budget; } });
+  assert.equal(reads, 1); // asked once for all rows
+  const row = (id) => r.writers.find((w) => w.id === id);
+  assert.deepEqual([row("bc-targets").capBytes, row("bc-targets").capSource, row("bc-targets").over], [900, "rustright", false]);
+  assert.deepEqual([row("bc-sccache").capBytes, row("bc-sccache").capSource, row("bc-sccache").over], [200, "rustright", true]);
+  assert.deepEqual([row("bc-two").capBytes, row("bc-two").capSource], [540, "rustright"]);
+  assert.deepEqual([row("plain").capBytes, row("plain").capSource], [5, "policy"]);
+  const without = checkDisk({ policy, platform: "darwin", size, space, scan: () => ({ unknown: [], skipped: [] }), readBudget: () => null });
+  assert.deepEqual(without.writers.map((w) => [w.id, w.capBytes, w.capSource]), [["bc-targets", 100, "policy"], ["bc-sccache", 50, "policy"], ["bc-two", 1, "policy"], ["plain", 5, "policy"]]);
+  assert.match(renderCheck(r), /bc-targets .*cap .* \(RustRight budget\)/);
+  assert.doesNotMatch(renderCheck(without), /RustRight budget/);
+});
+
+test("check does not ask RustRight when no writer follows its budget", () => {
+  const { policy } = fixture();
+  let reads = 0;
+  checkDisk({ policy, platform: "darwin", size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }), scan: () => ({ unknown: [], skipped: [] }), readBudget: () => { reads += 1; return null; } });
+  assert.equal(reads, 0);
+});
+
+test("readRustrightBudget: `rustright doctor --json --no-scan` with a 20 s limit and no shell; any failure is null", () => {
+  const budget = { targets: 160e9, sccache: 55e9, cargoHome: 10e9, toolchains: 10e9, trash: 5e9, slack: 10e9, totalBytes: 250e9, source: { targets: "default" } };
+  const calls = [];
+  const ok = readRustrightBudget({ run: (cmd, args, options) => { calls.push([cmd, args, options]); return { status: 0, stdout: JSON.stringify({ schema: 1, buildBudget: budget }) }; } });
+  assert.deepEqual(ok, budget);
+  assert.deepEqual([calls[0][0], calls[0][1]], ["rustright", ["doctor", "--json", "--no-scan"]]);
+  assert.equal(calls[0][2].timeout, 20_000);
+  assert.equal(calls[0][2].shell, false);
+  const answer = (r) => readRustrightBudget({ run: () => r });
+  assert.equal(answer({ status: 1, stdout: JSON.stringify({ buildBudget: budget }) }), null);
+  assert.equal(answer({ status: null, error: Object.assign(new Error("spawnSync rustright ENOENT"), { code: "ENOENT" }), stdout: "" }), null);
+  assert.equal(answer({ status: null, error: Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }), stdout: "" }), null);
+  assert.equal(answer({ status: 0, stdout: "not json" }), null);
+  assert.equal(answer({ status: 0, stdout: JSON.stringify({ buildBudget: null }) }), null); // a config without a budget block
+  assert.equal(answer({ status: 0, stdout: JSON.stringify({}) }), null);
+  assert.equal(answer({ status: 0, stdout: JSON.stringify({ buildBudget: { ...budget, sccache: "55" } }) }), null);
+  assert.equal(answer({ status: 0, stdout: JSON.stringify({ buildBudget: { ...budget, totalBytes: undefined } }) }), null);
+  assert.equal(readRustrightBudget({ run: () => { throw new Error("boom"); } }), null);
+});
+
+test("readDiskPolicy rejects a budget that is not a non-empty list of RustRight parts", () => {
+  const { root, policy } = fixture();
+  const pf = path.join(root, "bad.json");
+  for (const budget of [[], "total", ["nope"], [1], ["targets", "slackk"]]) {
+    writeFileSync(pf, JSON.stringify({ ...policy, writers: [{ id: "x", platform: "mac", path: root, capBytes: 1, action: "report", budget }] }));
+    assert.throws(() => readDiskPolicy(pf), /budget must list parts/);
+  }
+  writeFileSync(pf, JSON.stringify({ ...policy, writers: [{ id: "x", platform: "mac", path: root, capBytes: 1, action: "report", budget: ["targets", "trash", "total"] }] }));
+  assert.equal(readDiskPolicy(pf).writers[0].budget.length, 3);
+});
+
+test("committed policy: the build-control rows follow RustRight's budget (total, sccache), the scratch total is the scratch category", () => {
+  const { writers } = readDiskPolicy();
+  for (const platform of ["mac", "win"]) {
+    const row = (id) => writers.find((w) => w.id === id && w.platform === platform);
+    assert.deepEqual(row("build-control-targets").budget, ["total"], platform);
+    assert.equal(row("build-control-targets").capBytes, 250e9, platform); // the offline default when RustRight cannot be read
+    assert.deepEqual((row("build-control-sccache") ?? row("win-sccache")).budget, ["sccache"], platform);
+    assert.equal(row("scratch-total").category, "scratch", platform);
+  }
 });

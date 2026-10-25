@@ -8,6 +8,7 @@ import { compareVersions } from "./rightkit-sync.mjs";
 import {
   DISK_EXIT_WARNING, applySweep, checkDisk, checkFloors, ensureScratchRoots, formatBytes, inUseByOpenPaths, lastEvent, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, readRecentEvents, setWorkspaceSweepAllowed,
 } from "./disk-policy.mjs";
+import { buildDiskReport, measureScratchUnits, reportDue } from "./disk-report.mjs";
 import { evaluateBinding, installStableRoot, readScheduleBinding, selfCheck } from "./disk-stable-root.mjs";
 
 export const LAUNCHD_LABEL = "dev.rightkit.disk-hygiene";
@@ -37,7 +38,7 @@ function renderFloor(f) {
 export function renderCheck(result) {
   const lines = (result.floors ?? [result.floor]).map(renderFloor);
   for (const w of result.writers) {
-    const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}`;
+    const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}${w.capSource === "rustright" ? " (RustRight budget)" : ""}`;
     lines.push(`  ${w.id.padEnd(28)} ${w.action.padEnd(6)} ${size}${w.over ? "  OVER CAP" : ""}`);
   }
   for (const u of result.unmanaged ?? []) {
@@ -705,6 +706,12 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     const after = check();
     const warn = after.warn;
     log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length });
+    // One report a UTC day: its per-unit sizes need a du per scratch run, which only the daily pass may afford.
+    const previousReport = lastEvent(logFile, ["disk.report"]);
+    if (reportDue({ lastReportTs: previousReport?.ts, now: nowMs })) {
+      const scratchUnits = measureScratchUnits({ policy, platform, env, ...(deps.check?.size ? { size: deps.check.size } : {}) });
+      log(buildDiskReport({ check: after, previous: previousReport, now: nowMs, policy, scratchUnits, moved: applied.movedBytes, purged: purged.purgedBytes }));
+    }
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
     return { exitCode: warn ? DISK_EXIT_WARNING : 0, pass: "full", before, after, applied, purged, selfCheck: self };
   }

@@ -33,6 +33,7 @@ export function readDiskPolicy(file = DEFAULT_POLICY_FILE) {
     for (const r of roots) if (typeof r.path !== "string" || !(Number.isInteger(r.depth ?? 4) && (r.depth ?? 4) >= 1 && (r.depth ?? 4) <= 8)) throw new Error(`disk policy: a ${key} strayTargets entry needs a path and a depth of 1 to 8`);
   }
   for (const w of policy.writers) {
+    if (w.budget !== undefined && !(Array.isArray(w.budget) && w.budget.length && w.budget.every((n) => n === "total" || BUDGET_PARTS.includes(n)))) throw new Error(`disk policy: ${w.id} budget must list parts of ${[...BUDGET_PARTS, "total"].join("|")}`);
     // `escalate` lets a report-only cache sweep its idle children once it is over cap by `factor` (see planSweep).
     if (!w.escalate) continue;
     const e = w.escalate;
@@ -292,7 +293,7 @@ function unmanagedOnVolume(floor, { measured, policy, platform, env, home, size,
   const dev = deviceOf(floor.path);
   if (dev === null) return null;
   const byPath = new Map();
-  for (const m of measured) if (deviceOf(m.path) === dev) byPath.set(fold(m.path, key), m);
+  for (const m of measured) if (deviceOf(m.path) === dev && !byPath.has(fold(m.path, key))) byPath.set(fold(m.path, key), m);
   const onVolume = [...byPath.entries()];
   const outer = onVolume.filter(([p]) => !onVolume.some(([o]) => o !== p && p.startsWith(o + path.sep)));
   const writerBytes = outer.reduce((sum, [, m]) => sum + m.bytes, 0);
@@ -310,7 +311,8 @@ function unmanagedOnVolume(floor, { measured, policy, platform, env, home, size,
     try { symlink = lstatSync(full).isSymbolicLink(); } catch { continue; }
     uncoveredTopLevel.push({ name, path: full, symlink, bytes: symlink ? 0 : size(full) });
   }
-  return { floor: floor.id ?? floor.label, usedBytes, writerBytes, unmanagedBytes: Math.max(0, usedBytes - writerBytes), uncoveredTopLevel };
+  // `writers` is what the writer total is made of (the report's categories), so used = sum(writers) + unmanaged holds by construction.
+  return { floor: floor.id ?? floor.label, usedBytes, writerBytes, unmanagedBytes: Math.max(0, usedBytes - writerBytes), writers: outer.map(([, m]) => ({ id: m.id, category: m.category, bytes: m.bytes })), uncoveredTopLevel };
 }
 
 /** Free space of every floor of a platform, statfs only (no directory is read). A volume that cannot be read (an unmounted
@@ -326,23 +328,53 @@ export function checkFloors({ policy, platform = process.platform, space = freeS
   });
 }
 
-export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots, readdir = readdirSync, strays = findStrayTargets } = {}) {
+// The parts of RustRight's build budget (`rustright doctor --json` -> `buildBudget`) a writer's `budget` list may name; `total` is
+// the whole budget.
+export const BUDGET_PARTS = ["targets", "sccache", "cargoHome", "toolchains", "trash", "slack"];
+
+/** RustRight's build budget (`buildBudget` of `rustright doctor --json --no-scan`, all parts in bytes), or null when RustRight is
+ * missing, fails, times out or answers with anything else. Nothing is cached and no shell is used. */
+export function readRustrightBudget({ run = spawnSync } = {}) {
+  try {
+    const r = run("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 20_000, shell: false, maxBuffer: 1 << 24 });
+    if (!r || r.error || r.status !== 0) return null;
+    const budget = JSON.parse(String(r.stdout)).buildBudget;
+    if (!budget || typeof budget !== "object") return null;
+    for (const part of [...BUDGET_PARTS, "totalBytes"]) if (!Number.isFinite(budget[part]) || budget[part] < 0) return null;
+    return budget;
+  } catch { return null; }
+}
+
+// A writer's cap: the sum of its `budget` parts when RustRight's budget is readable (`rustright`), else the `capBytes` of the
+// policy (`policy`), so a host without RustRight keeps the committed number.
+function writerCap(writer, budget) {
+  if (!Array.isArray(writer.budget) || !budget) return { capBytes: writer.capBytes, capSource: "policy" };
+  const parts = writer.budget.map((name) => (name === "total" ? budget.totalBytes : budget[name]));
+  if (!parts.every(Number.isFinite)) return { capBytes: writer.capBytes, capSource: "policy" };
+  return { capBytes: parts.reduce((a, b) => a + b, 0), capSource: "rustright" };
+}
+
+export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots, readdir = readdirSync, strays = findStrayTargets, readBudget = readRustrightBudget } = {}) {
   const key = platformKey(platform);
   const floors = checkFloors({ policy, platform, space });
   const floor = floors[0];
   const writers = [];
   const measured = [];
-  for (const writer of policy.writers.filter((w) => w.platform === key)) {
+  const platformWriters = policy.writers.filter((w) => w.platform === key);
+  // RustRight is asked only when a row follows its budget, and once.
+  const budget = platformWriters.some((w) => Array.isArray(w.budget)) ? readBudget() : null;
+  for (const writer of platformWriters) {
     const category = writer.category ?? writer.id;
+    const { capBytes, capSource } = writerCap(writer, budget);
     let matches;
     try { matches = writerMatches(writer, { env, home }); } catch (error) {
-      writers.push({ id: writer.id, category, action: writer.action, error: error.message, bytes: 0, capBytes: writer.capBytes, over: false, matches: 0 });
+      writers.push({ id: writer.id, category, action: writer.action, error: error.message, bytes: 0, capBytes, capSource, over: false, matches: 0 });
       continue;
     }
-    const sized = matches.map((m) => ({ path: m, bytes: size(m) }));
+    const sized = matches.map((m) => ({ path: m, bytes: size(m), id: writer.id, category }));
     const bytes = sized.reduce((sum, m) => sum + m.bytes, 0);
     measured.push(...sized);
-    writers.push({ id: writer.id, category, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes: writer.capBytes, over: bytes > writer.capBytes });
+    writers.push({ id: writer.id, category, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes, capSource, over: bytes > capBytes });
   }
   const warnings = [];
   for (const f of floors) {
