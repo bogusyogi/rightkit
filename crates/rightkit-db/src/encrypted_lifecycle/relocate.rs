@@ -57,15 +57,12 @@ pub enum RelocationReport {
         new_root: PathBuf,
         key_store_switched: bool,
     },
-    /// Publication is final; retained FS cleanup never causes rollback.
+    /// Publication is final; retained FS cleanup never causes rollback. Why each path in
+    /// `cleanup_retained` was kept is [`EncryptedStore::relocation_cleanup_errors`].
     RelocatedCleanupPending {
         old_root: PathBuf,
         new_root: PathBuf,
         cleanup_retained: Vec<PathBuf>,
-        /// Why each path in `cleanup_retained` was kept: the last error of the removal that was
-        /// given up (it carries the OS error, for example `Access is denied. (os error 5)`), or the
-        /// identity check that stopped it. One entry per retained path, in the same order.
-        cleanup_errors: Vec<(PathBuf, String)>,
     },
     NotRelocated {
         error: LifecycleError,
@@ -85,10 +82,9 @@ pub enum RelocationSettlement {
 pub struct RelocationSettlementReport {
     pub copy_retained: Option<PathBuf>,
     pub key_store_residue: bool,
+    /// Why each of these paths was kept: [`RelocationSession::cleanup_errors`], or
+    /// [`EncryptedStore::relocation_cleanup_errors`] for a store a recovery returned.
     pub cleanup_retained: Vec<PathBuf>,
-    /// Why each path in `cleanup_retained` was kept (see
-    /// [`RelocationReport::RelocatedCleanupPending`]): one entry per retained path, in order.
-    pub cleanup_errors: Vec<(PathBuf, String)>,
 }
 
 /// Explicit recovery can open selected destination without ever opening old root.
@@ -411,25 +407,9 @@ impl RelocationCore {
                     next_id()
                 ))
                 .join("candidate.db");
-            self.journal = Some(Journal {
-                kind: TransitionKind::Relocate,
-                state: JournalState::Active,
-                phase: "quiesced".into(),
-                retain_previous: false,
-                pending: None,
-                id: next_id(),
-                old_root: RootIdentity::capture(&self.cfg.db.path),
-                new_root: Some(RootIdentity::capture(&self.plan.new_path)),
-                relocation: Some(RelocationJournal {
-                    candidate: RootIdentity::capture(&candidate),
-                    transaction_root: RootIdentity::capture(root),
-                    transaction_id: None,
-                    published: None,
-                    fs_committed: false,
-                    switched: false,
-                    key_store_residue: false,
-                }),
-            });
+            // Every identity is read before anything is recorded: a root that cannot be read stops
+            // the relocation here, with no journal written to either root.
+            self.journal = Some(self.opening_journal(&candidate)?);
             self.persist()?;
             Ok(())
         })();
@@ -446,6 +426,38 @@ impl RelocationCore {
             self.quiesced = true;
         }
         result
+    }
+    /// The journal a relocation opens with. The database and the transaction root must be there
+    /// and be readable. The destination and the candidate are not there yet, and that is recorded
+    /// as absent; one that cannot be read is the error, not an absent one. An identity that could
+    /// not be read is never stored as "no identity" (see [`RootIdentity::capture`]): the journal
+    /// reader refuses a transaction root without one, and the checks of recovery read the others
+    /// as a root that changed, for ever.
+    fn opening_journal(&self, candidate: &Path) -> Result<Journal, LifecycleError> {
+        let root = self
+            .plan
+            .transaction_root
+            .as_ref()
+            .ok_or_else(|| pending("relocation transaction root missing"))?;
+        Ok(Journal {
+            kind: TransitionKind::Relocate,
+            state: JournalState::Active,
+            phase: "quiesced".into(),
+            retain_previous: false,
+            pending: None,
+            id: next_id(),
+            old_root: RootIdentity::capture_present(&self.cfg.db.path)?,
+            new_root: Some(RootIdentity::try_capture(&self.plan.new_path)?),
+            relocation: Some(RelocationJournal {
+                candidate: RootIdentity::try_capture(candidate)?,
+                transaction_root: RootIdentity::capture_present(root)?,
+                transaction_id: None,
+                published: None,
+                fs_committed: false,
+                switched: false,
+                key_store_residue: false,
+            }),
+        })
     }
     fn check_destination_keys(&mut self) -> Result<(), LifecycleError> {
         let key = self.key.clone();
@@ -506,6 +518,15 @@ impl RelocationCore {
             .as_mut()
             .expect("relocation metadata")
     }
+    /// The one place a relocation copies the database. The whole copy is bounded by the
+    /// size-derived budget every copy of this crate uses; `busy_timeout` only bounds how long a
+    /// busy source is waited for, and a copy that takes longer than it is not an error.
+    fn copy_to(&self, candidate: &Path) -> Result<(), LifecycleError> {
+        let db = self.cfg.keyed(&self.key);
+        let conn = db.open_existing_at(&db.effective_path(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        online_backup_sized(&db, &conn, candidate, None)?;
+        Ok(())
+    }
     fn copy(&mut self) -> Result<(), LifecycleError> {
         if self.settled || self.switched || self.source.is_none() {
             return Err(pending("copy authority is no longer held"));
@@ -530,18 +551,20 @@ impl RelocationCore {
         self.persist()?;
         std::fs::create_dir(workspace).map_err(|e| rightkit_fs::FsError::io(workspace, e))?;
         rightkit_fs::ensure_private_dir(workspace)?;
-        self.metadata_mut().candidate = RootIdentity::capture(&candidate);
-        self.persist()?;
-        let db = self.cfg.keyed(&self.key);
-        let conn = db.open_existing_at(&db.effective_path(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        // The whole copy is bounded by the size-derived budget every copy of this crate uses;
-        // `busy_timeout` only bounds how long a busy source is waited for.
-        online_backup_sized(&db, &conn, &candidate, None)?;
-        drop(conn);
-        let recorded = RootIdentity::capture(&candidate);
-        if recorded.file.is_none() {
-            return Err(pending("cannot capture candidate identity"));
+        // The workspace is new and empty. If its identity cannot be recorded it is removed again,
+        // because no journal names it yet and nothing would clean it up.
+        match RootIdentity::try_capture(&candidate) {
+            Ok(identity) => self.metadata_mut().candidate = identity,
+            Err(error) => {
+                let _ = retry_transient(|| std::fs::remove_dir(workspace));
+                return Err(error);
+            }
         }
+        self.persist()?;
+        self.copy_to(&candidate)?;
+        // The copy was just written: it must be there, and readable. Otherwise the error is
+        // reported and no identity is recorded for it.
+        let recorded = RootIdentity::capture_present(&candidate)?;
         self.metadata_mut().candidate = recorded;
         self.journal.as_mut().expect("journal").phase = "candidate-created".into();
         self.persist()?;
@@ -592,10 +615,7 @@ impl RelocationCore {
                 for item in report.retained {
                     self.retain_for_cleanup(item.path, item.reason);
                 }
-                self.metadata_mut().fs_committed = true;
-                self.metadata_mut().published = Some(RootIdentity::capture(&self.plan.new_path));
-                self.journal.as_mut().expect("journal").phase = "published".into();
-                self.persist()?;
+                self.record_published()?;
             }
             TransactionReport::RolledBack(report) => {
                 self.journal.as_mut().expect("journal").phase = "rolled-back".into();
@@ -627,6 +647,37 @@ impl RelocationCore {
         self.copied = true;
         self.journal.as_mut().expect("journal").phase = "copied".into();
         self.persist()
+    }
+    /// Record the identity of the destination a committed FS transaction published, and mark the
+    /// publication committed. The identity is read first. If the published file cannot be read, or
+    /// is not there, the publication is not recorded as committed: the phase becomes
+    /// `fs-recovery-required`, which abort settlement and explicit recovery already handle
+    /// (recovery proves the file against the candidate and records its identity then), and the
+    /// error is returned. A journal that names a publication without an identity would be
+    /// refused by every later read.
+    fn record_published(&mut self) -> Result<(), LifecycleError> {
+        let published = RootIdentity::capture_present(&self.plan.new_path);
+        let journal = self
+            .journal
+            .as_mut()
+            .ok_or_else(|| pending("relocation journal missing"))?;
+        let metadata = journal
+            .relocation
+            .as_mut()
+            .ok_or_else(|| pending("relocation metadata missing"))?;
+        match published {
+            Ok(identity) => {
+                metadata.fs_committed = true;
+                metadata.published = Some(identity);
+                journal.phase = "published".into();
+                self.persist()
+            }
+            Err(error) => {
+                journal.phase = "fs-recovery-required".into();
+                let _ = self.persist();
+                Err(error)
+            }
+        }
     }
     fn promote_destination(&mut self) -> Result<(), LifecycleError> {
         if !same_recorded(self.metadata().published.as_ref())? {
@@ -741,7 +792,6 @@ impl RelocationCore {
                 .and_then(|j| j.relocation.as_ref())
                 .is_some_and(|m| m.key_store_residue),
             cleanup_retained: self.cleanup.clone(),
-            cleanup_errors: self.cleanup_errors.clone(),
         }
     }
     fn settle(
@@ -943,8 +993,9 @@ impl RelocationCore {
                 ));
             }
             validate_copy(&self.cfg, &self.key, &self.plan.new_path)?;
+            let published = RootIdentity::capture_present(&self.plan.new_path)?;
             self.metadata_mut().fs_committed = true;
-            self.metadata_mut().published = Some(RootIdentity::capture(&self.plan.new_path));
+            self.metadata_mut().published = Some(published);
         }
         if self.metadata().fs_committed && !same_recorded(self.metadata().published.as_ref())? {
             return Err(pending("recorded committed copy changed"));
@@ -977,7 +1028,17 @@ impl RelocationSession {
         &mut self,
         settlement: RelocationSettlement,
     ) -> Result<RelocationSettlementReport, LifecycleError> {
-        self.core.settle(&self.store, settlement)
+        let settled = self.core.settle(&self.store, settlement);
+        self.store
+            .note_relocation_cleanup_errors(self.core.cleanup_errors.clone());
+        settled
+    }
+    /// Why each path the settlement retained (`RelocationSettlementReport::cleanup_retained`) was
+    /// kept, in the same order: the last error of the removal that was given up (it carries the OS
+    /// error text, for example `Access is denied. (os error 5)`), or the identity check that
+    /// stopped it. Empty while nothing was retained.
+    pub fn cleanup_errors(&self) -> &[(PathBuf, String)] {
+        &self.core.cleanup_errors
     }
 }
 impl EncryptedStore {
@@ -994,6 +1055,7 @@ impl EncryptedStore {
     /// Standalone convenience makes its own local selection after verified copy. For daemon
     /// cutover use phased session & durable external root selection instead.
     pub fn relocate(&self, mut plan: RelocationPlan) -> RelocationReport {
+        self.note_relocation_cleanup_errors(Vec::new());
         let cfg = self.config();
         if plan.transaction_root.is_none() {
             plan.transaction_root = Some(
@@ -1028,7 +1090,7 @@ impl EncryptedStore {
             .quiesce(self)
             .and_then(|()| core.copy())
             .and_then(|()| core.reopen(self));
-        match result {
+        let report = match result {
             Ok(()) => match core.settle(self, RelocationSettlement::Committed) {
                 Ok(report) if report.cleanup_retained.is_empty() => RelocationReport::Relocated {
                     old_root: cfg.db.path,
@@ -1039,7 +1101,6 @@ impl EncryptedStore {
                     old_root: cfg.db.path,
                     new_root: core.plan.new_path.clone(),
                     cleanup_retained: report.cleanup_retained,
-                    cleanup_errors: report.cleanup_errors,
                 },
                 Err(error) => {
                     let report = core.report();
@@ -1061,7 +1122,9 @@ impl EncryptedStore {
                     key_store_residue: report.key_store_residue,
                 }
             }
-        }
+        };
+        self.note_relocation_cleanup_errors(core.cleanup_errors.clone());
+        report
     }
 }
 
@@ -1177,6 +1240,7 @@ fn finish_relocation_recovery(
     if core.cleanup.is_empty() {
         core.clear_own_journals();
     }
+    store.note_relocation_cleanup_errors(core.cleanup_errors.clone());
     RelocationRecovery {
         store: Some(store),
         report: core.report(),
@@ -1471,5 +1535,207 @@ mod identity_tests {
         assert_eq!(why, "kept for a test");
         std::fs::remove_file(&root).unwrap();
         assert!(still_there(&root, "kept for a test").is_none());
+    }
+}
+
+/// The steps of a relocation that a store-free harness can reach: the copy, and the identities a
+/// relocation records. A relocation test through the public API cannot give the copy a zero
+/// `busy_timeout` without taking the lock wait away from every other open of the store, and
+/// cannot make a root unreadable between two steps.
+#[cfg(test)]
+mod core_tests {
+    use super::*;
+    use crate::encrypted_lifecycle::keystore::KeyStoreError;
+    use crate::DbOptions;
+    use std::time::Duration;
+
+    /// A key store the steps under test never reach.
+    struct NoKeyStore;
+    impl ProtectedKeyStore for NoKeyStore {
+        fn lock_rotation(
+            &self,
+            _timeout: Duration,
+        ) -> Result<Box<dyn ProtectedKeySession + Send + 'static>, KeyStoreError> {
+            Err(KeyStoreError::other("not used by these tests"))
+        }
+    }
+
+    const PASSPHRASE: &str = "core-tests-passphrase";
+
+    /// A core over a small encrypted database `source.db` in `dir`, whose `busy_timeout` is
+    /// `busy_timeout`, with `dir` as the transaction root and `destination.db` as the destination.
+    fn core_in(dir: &Path, busy_timeout: Duration) -> RelocationCore {
+        let source = dir.join("source.db");
+        let conn = DbOptions::new(&source)
+            .with_passphrase(PASSPHRASE)
+            .open_writer()
+            .unwrap();
+        conn.execute_batch("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (1);")
+            .unwrap();
+        drop(conn);
+        let mut options = DbOptions::new(&source);
+        options.busy_timeout = busy_timeout;
+        let mut plan = RelocationPlan::new(dir.join("destination.db"));
+        plan.transaction_root = Some(dir.to_path_buf());
+        RelocationCore {
+            cfg: EncryptedStoreConfig::new(options, Arc::new(NoKeyStore)),
+            plan,
+            key: Key::new(PASSPHRASE.to_string()),
+            transition: None,
+            source: None,
+            destination: None,
+            journal: None,
+            quiesced: false,
+            copied: false,
+            switched: false,
+            reopened: false,
+            settled: false,
+            cleanup: Vec::new(),
+            cleanup_errors: Vec::new(),
+        }
+    }
+
+    fn rows(path: &Path) -> i64 {
+        DbOptions::new(path)
+            .with_passphrase(PASSPHRASE)
+            .open_existing_writer()
+            .unwrap()
+            .query_row("SELECT count(*) FROM t", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    /// `busy_timeout` is SQLite's lock wait. The relocation copy used to be bounded by it as the
+    /// deadline of the whole copy, so a wait shorter than the copy failed every relocation
+    /// ("backup operation timeout expired"). Zero is shorter than any copy, and it applies here to
+    /// the copy alone, because nothing else of the relocation runs. Reverting `copy_to` to
+    /// `online_backup_to` fails this test with "budget 0ns".
+    #[test]
+    fn the_relocation_copy_is_not_bounded_by_the_sqlite_busy_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_in(dir.path(), Duration::ZERO);
+        let candidate = dir.path().join("candidate.db");
+        core.copy_to(&candidate).unwrap();
+        assert_eq!(rows(&candidate), 1);
+    }
+
+    #[test]
+    fn the_journal_a_relocation_opens_with_is_one_the_reader_accepts() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = core_in(dir.path(), Duration::from_secs(5));
+        // The workspace does not exist yet, so the candidate is recorded as absent.
+        let candidate = dir.path().join(".rkdb-relocate-test").join("candidate.db");
+        let journal = core.opening_journal(&candidate).unwrap();
+        assert!(journal.old_root.file.is_some());
+        assert!(journal.new_root.as_ref().unwrap().file.is_none());
+        let metadata = journal.relocation.as_ref().unwrap();
+        assert!(metadata.candidate.file.is_none());
+        assert!(metadata.transaction_root.file.is_some());
+
+        let source = core.cfg.db.path.clone();
+        let transition = StoreTransition::begin(
+            TransitionKind::Relocate,
+            &[source.as_path(), core.plan.new_path.as_path()],
+            &core.cfg.transition,
+        )
+        .unwrap();
+        transition.write_journal(&journal).unwrap();
+        let read = read_journal(&source).unwrap().expect("the journal reads");
+        assert_eq!(read.old_root, journal.old_root);
+    }
+
+    /// An identity that could not be read is never recorded as "no identity": the journal reader
+    /// refuses a relocation journal without a transaction root identity, and every later check
+    /// would read the other roots as changed.
+    #[test]
+    fn a_root_that_is_missing_or_unreadable_is_the_error_and_nothing_is_recorded() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut core = core_in(dir.path(), Duration::from_secs(5));
+        let candidate = dir.path().join("workspace").join("candidate.db");
+
+        core.plan.transaction_root = Some(dir.path().join("no-such-root"));
+        let error = core.opening_journal(&candidate).unwrap_err();
+        assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
+        core.plan.transaction_root = Some(dir.path().to_path_buf());
+
+        let source = core.cfg.db.path.clone();
+        std::fs::rename(&source, dir.path().join("moved.db")).unwrap();
+        let error = core.opening_journal(&candidate).unwrap_err();
+        assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
+        std::fs::rename(dir.path().join("moved.db"), &source).unwrap();
+
+        // Below a regular file nothing can be opened and nothing "is not there": not-a-directory
+        // on Unix, which is not the not-found that means absent.
+        #[cfg(unix)]
+        {
+            let plain = written(dir.path(), "plain");
+            core.plan.new_path = plain.join("below");
+            let error = core.opening_journal(&candidate).unwrap_err();
+            assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
+            core.plan.new_path = dir.path().join("destination.db");
+            core.plan.transaction_root = Some(plain.join("below"));
+            let error = core.opening_journal(&candidate).unwrap_err();
+            assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
+            core.plan.transaction_root = Some(dir.path().to_path_buf());
+        }
+
+        core.opening_journal(&candidate)
+            .expect("the same roots, readable, give a journal");
+    }
+
+    fn written(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, name.as_bytes()).unwrap();
+        path
+    }
+
+    /// The identity of the published copy is read before the publication is recorded as
+    /// committed. A copy that cannot be read leaves the phase at `fs-recovery-required`, which
+    /// abort settlement and recovery already resolve, and records no committed state.
+    #[test]
+    fn a_published_copy_that_cannot_be_read_is_not_recorded_as_committed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut core = core_in(dir.path(), Duration::from_secs(5));
+        let candidate = dir.path().join("candidate.db");
+        core.journal = Some(core.opening_journal(&candidate).unwrap());
+        let source = core.cfg.db.path.clone();
+        core.transition = Some(
+            StoreTransition::begin(
+                TransitionKind::Relocate,
+                &[source.as_path(), core.plan.new_path.as_path()],
+                &core.cfg.transition,
+            )
+            .unwrap(),
+        );
+
+        // Not there (the publication left nothing to read): the error, nothing committed.
+        let error = core.record_published().unwrap_err();
+        assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
+        assert!(!core.metadata().fs_committed);
+        assert!(core.metadata().published.is_none());
+        assert_eq!(core.journal.as_ref().unwrap().phase, "fs-recovery-required");
+
+        // Readable: the identity is recorded with its file, and the phase moves on.
+        written(dir.path(), "destination.db");
+        core.record_published().unwrap();
+        assert!(core.metadata().fs_committed);
+        let published = core.metadata().published.clone().expect("published");
+        assert!(published.file.is_some());
+        assert_eq!(core.journal.as_ref().unwrap().phase, "published");
+        assert!(same_identity(&published).unwrap());
+    }
+
+    #[test]
+    fn capture_present_reports_what_try_capture_calls_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let there = written(dir.path(), "there.db");
+        let missing = dir.path().join("missing.db");
+        assert!(RootIdentity::capture_present(&there)
+            .unwrap()
+            .file
+            .is_some());
+        let absent = RootIdentity::try_capture(&missing).unwrap();
+        assert!(absent.file.is_none() && absent.dir.is_some(), "{absent:?}");
+        let error = RootIdentity::capture_present(&missing).unwrap_err();
+        assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
     }
 }

@@ -108,12 +108,17 @@ pub struct RootIdentity {
 }
 
 impl RootIdentity {
-    /// The identity of `path` and of its directory now. A root that does not exist has no file
-    /// identity. A transient Windows refusal to open it (a scanner or indexer holding it for a
-    /// moment) is retried within rightkit-fs's bound before it is given up; one that still fails
-    /// afterwards also reads as no identity. This crate's own identity checks do not use that
-    /// result to decide that a root changed: they separate "absent or different" from "could not
-    /// be read" and report the error in the second case.
+    /// The identity of `path` and of its directory now, as an infallible snapshot for display and
+    /// diagnosis. A root that does not exist has no file identity. A transient Windows refusal to
+    /// open it (a scanner or indexer holding it for a moment) is retried within rightkit-fs's
+    /// bound first; a root that still cannot be opened afterwards **also reads as no identity**,
+    /// so the two cases cannot be told apart here.
+    ///
+    /// Because of that, a journal that a later check compares against must not record this
+    /// result: an identity stored as `file: None` is read back as "nothing was recorded", never
+    /// as "unreadable". This crate's relocation journals record through `try_capture` and
+    /// `capture_present`, which return the error instead, and its checks report an unreadable
+    /// root as that error rather than as a changed one.
     pub fn capture(path: &Path) -> Self {
         let file = retry_transient_fs(|| FileKey::of_path(path)).ok();
         let dir = path
@@ -144,6 +149,25 @@ impl RootIdentity {
             file,
             dir,
         })
+    }
+
+    /// [`RootIdentity::try_capture`] for a root that must be there when it is recorded (the
+    /// database being moved, the transaction root, a copy that was just written or published).
+    /// A root that is absent is an error as well: a journal must not carry `file: None` for a file
+    /// the operation depends on. The journal reader refuses a relocation journal whose transaction
+    /// root or published copy has no file identity, and every identity check reads a recorded
+    /// `None` as "not the file that was recorded", so one refusal that outlasts the retry bound at
+    /// record time would become a state that no later retry could clear.
+    pub(crate) fn capture_present(path: &Path) -> Result<Self, LifecycleError> {
+        let identity = Self::try_capture(path)?;
+        if identity.file.is_none() {
+            return Err(rightkit_fs::FsError::io(
+                path,
+                std::io::Error::from(std::io::ErrorKind::NotFound),
+            )
+            .into());
+        }
+        Ok(identity)
     }
 }
 

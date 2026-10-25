@@ -808,15 +808,29 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
         report.cleanup_retained,
         vec![old_journal_path.clone(), new_journal_path.clone()]
     );
-    let explained: Vec<&PathBuf> = report.cleanup_errors.iter().map(|(path, _)| path).collect();
+    let explained: Vec<&PathBuf> = session
+        .cleanup_errors()
+        .iter()
+        .map(|(path, _)| path)
+        .collect();
     assert_eq!(
         explained,
         report.cleanup_retained.iter().collect::<Vec<_>>(),
-        "every retained path says why: {report:?}"
+        "every retained path says why: {report:?} {:?}",
+        session.cleanup_errors()
     );
     assert!(
-        report.cleanup_errors.iter().all(|(_, why)| !why.is_empty()),
-        "{report:?}"
+        session
+            .cleanup_errors()
+            .iter()
+            .all(|(_, why)| !why.is_empty()),
+        "{report:?} {:?}",
+        session.cleanup_errors()
+    );
+    assert_eq!(
+        store.relocation_cleanup_errors(),
+        session.cleanup_errors(),
+        "the store reports the same reasons as the session"
     );
     assert_eq!(fs::read(&old_journal_path).unwrap(), old_journal);
     assert_eq!(fs::read(&new_journal_path).unwrap(), new_journal);
@@ -855,8 +869,8 @@ fn retained_cleanup_carries_the_error_that_kept_it() {
         vec![workspace.clone()],
         "{report:?}"
     );
-    assert_eq!(report.cleanup_errors.len(), 1, "{report:?}");
-    let (path, why) = &report.cleanup_errors[0];
+    assert_eq!(session.cleanup_errors().len(), 1, "{report:?}");
+    let (path, why) = &session.cleanup_errors()[0];
     assert_eq!(path, &workspace);
     assert!(why.contains("os error"), "the OS error is carried: {why}");
     assert!(

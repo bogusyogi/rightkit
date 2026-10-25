@@ -1395,11 +1395,12 @@ fn relocation_reuses_only_same_configured_key_store_arc() {
     let store = EncryptedStore::open(cfg).unwrap();
     let started = std::time::Instant::now();
     let report = store.relocate(RelocationPlan::new(&new_path).with_new_key_store(same));
-    // A `RelocatedCleanupPending` report lists every retained path with the error that kept it,
-    // so the `{report:?}` below names the cause when this recurs.
+    // `relocation_cleanup_errors` names the error that kept each path a `RelocatedCleanupPending`
+    // report lists, so the message below names the cause when this recurs.
     assert!(
         matches!(report, RelocationReport::Relocated { .. }),
-        "expected Relocated, got {report:?} after {:?}",
+        "expected Relocated, got {report:?} (retained: {:?}) after {:?}",
+        store.relocation_cleanup_errors(),
         started.elapsed()
     );
     assert_eq!(count(&store), 1);
@@ -1411,8 +1412,10 @@ fn relocation_reuses_only_same_configured_key_store_arc() {
 /// shorter than any copy. Nothing else touches these files while the test runs, so the missing
 /// lock wait costs nothing here. `restore` and relocation make their copies the same way
 /// (`online_backup_sized`) and are covered where the zero wait can be given to the copy alone:
-/// `tests/restore.rs` hands its options to `restore_database` only, and the budget and the busy
-/// wait are pinned by the unit tests in `src/backup.rs`.
+/// `EncryptedStore::restore` only calls `restore_database_locked`, which `tests/restore.rs`
+/// covers with options of its own; relocation's one copy call is covered by
+/// `the_relocation_copy_is_not_bounded_by_the_sqlite_busy_timeout` (a unit test in
+/// `relocate.rs`); and the budget and the busy wait are pinned by the unit tests in `backup.rs`.
 #[test]
 fn backup_to_is_not_bounded_by_the_sqlite_busy_timeout() {
     let dir = tempfile::tempdir().unwrap();

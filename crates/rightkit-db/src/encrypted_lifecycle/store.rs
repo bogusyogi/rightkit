@@ -794,6 +794,8 @@ pub struct EncryptedStore {
     pub(super) cfg: Mutex<EncryptedStoreConfig>,
     pub(super) live: Mutex<Live>,
     pub(super) pools: Mutex<Vec<Arc<PoolSlot>>>,
+    /// Why the paths the most recent relocation or relocation recovery left behind were kept.
+    pub(super) relocation_cleanup_errors: Mutex<Vec<(PathBuf, String)>>,
 }
 
 impl EncryptedStore {
@@ -816,6 +818,7 @@ impl EncryptedStore {
                 degraded,
             }),
             pools: Mutex::new(Vec::new()),
+            relocation_cleanup_errors: Mutex::new(Vec::new()),
         }
     }
     /// Open the existing encrypted database.
@@ -849,6 +852,7 @@ impl EncryptedStore {
                 degraded,
             }),
             pools: Mutex::new(Vec::new()),
+            relocation_cleanup_errors: Mutex::new(Vec::new()),
         })
     }
 
@@ -859,6 +863,19 @@ impl EncryptedStore {
     /// The database path the store currently serves (it changes after a successful relocation).
     pub fn db_path(&self) -> PathBuf {
         lock_recover(&self.cfg).db.path.clone()
+    }
+
+    /// Why each path the store's most recent relocation (`relocate`, a session's `settle`) or
+    /// relocation recovery left behind was kept, in the same order as the report's
+    /// `cleanup_retained`: the last error of the removal that was given up (it carries the OS
+    /// error text, for example `Access is denied. (os error 5)`), or the identity check that
+    /// stopped it. Empty when nothing was retained, and at the start of every `relocate`.
+    pub fn relocation_cleanup_errors(&self) -> Vec<(PathBuf, String)> {
+        lock_recover(&self.relocation_cleanup_errors).clone()
+    }
+
+    pub(super) fn note_relocation_cleanup_errors(&self, errors: Vec<(PathBuf, String)>) {
+        *lock_recover(&self.relocation_cleanup_errors) = errors;
     }
 
     /// Where the key that opened the store came from.
