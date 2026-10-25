@@ -140,8 +140,8 @@ pub use root_cutover::{
 };
 pub use server::{
     host, host_with_options, CallContext, Emit, Handler, HostError, HostOptions, Hosted,
-    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_MAX_CONNECTIONS,
-    DEFAULT_WRITE_TIMEOUT,
+    ServiceConfig, ServiceEvent, ServiceStatus, DEFAULT_FRAME_LIMIT, DEFAULT_HANDSHAKE_TIMEOUT,
+    DEFAULT_MAX_CONNECTIONS, DEFAULT_RESERVED_SLOTS, DEFAULT_WRITE_TIMEOUT,
 };
 pub use service::{BuildError, Service, ServiceBuilder};
 pub use suite::{
