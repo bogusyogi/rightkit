@@ -630,6 +630,14 @@ export function gitTracksPath(target) {
   return String(listed.stdout).length > 0;
 }
 
+// A `.keep` or a live run-root lease on any directory between `root` and a stray target (a scratch run, a checkout) keeps what is
+// beneath it: "kept", "leased" or null. Asked again when the move is applied.
+function heldAbove(unit, root, now, keepDays) {
+  let held = null;
+  for (let dir = path.dirname(unit); dir !== root && dir.startsWith(root); dir = path.dirname(dir)) held = held ?? (keptByMarker(dir, now, keepDays) ? "kept" : leasedByRunRoot(dir, now) ? "leased" : null);
+  return held;
+}
+
 export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }), scan = scanWorkspaceRoots, strays = findStrayTargets, workspaceSweep = workspaceSweepAllowed({ platform, env, home }), light = false } = {}) {
   const key = platformKey(platform);
   const effectiveDays = staleDays ?? policy.staleDays;
@@ -678,7 +686,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       if (leasedByRunRoot(unit, now)) { skipped.push({ ...base, reason: "leased" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
-      candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
+      candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString(), freshCutoffMs: cutoff });
     }
   }
   // Allowlisted workspace roots: unknown top-level entries older than 3 days and idle.
@@ -701,7 +709,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     if (leasedByRunRoot(unit, now)) { skipped.push({ ...base, reason: "leased" }); return; }
     if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); return; }
     if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); return; }
-    candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
+    candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString(), freshCutoffMs: cutoff });
   };
   // Report-only unless this host opted in (`disk allow-workspace-sweep`): unknown entries are warned about, never moved.
   for (const u of scanned.unknown) {
@@ -723,9 +731,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     let root;
     try { root = expandPolicyPath(entry.path, { env, home }); } catch { continue; }
     for (const unit of strays(root, { depth: entry.depth ?? 4, protectedSegments: policy.protectedSegments })) {
-      // a `.keep` or a live run-root lease on any directory between the root and the target (a scratch run, a checkout) keeps what is beneath it
-      let held = null;
-      for (let dir = path.dirname(unit); dir !== root && dir.startsWith(root); dir = path.dirname(dir)) held = held ?? (keptByMarker(dir, now, keepDays) ? "kept" : leasedByRunRoot(dir, now) ? "leased" : null);
+      const held = heldAbove(unit, root, now, keepDays);
       if (held) { skipped.push({ writer: "stray-cargo-target", path: unit, reason: held }); continue; }
       consider("stray-cargo-target", unit, root, strayCutoff, { skipTracked: true });
     }
@@ -903,14 +909,38 @@ export function logEvent(logFile, event) {
   } catch { /* logging must never fail the sweep */ }
 }
 
-export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, isMounted, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
+// Why an item the plan listed must not be moved now, or null. The plan can be minutes old (a full pass sizes everything in between)
+// and an agent may have kept, leased or touched the unit since: the checks of planSweep run again, per candidate, right before the move.
+function recheckSweep(c, { policy, now }) {
+  const keepDays = policy.keepMarkerDays ?? 14;
+  if (keptByMarker(c.path, now, keepDays)) return "rechecked-keep";
+  if (leasedByRunRoot(c.path, now)) return "rechecked-leased";
+  const above = c.writer === "stray-cargo-target" && c.root ? heldAbove(c.path, c.root, now, keepDays) : null;
+  if (above) return above === "kept" ? "rechecked-keep" : "rechecked-leased";
+  if (Number.isFinite(c.freshCutoffMs) && hasFreshContent(c.path, c.freshCutoffMs)) return "rechecked-fresh";
+  return null;
+}
+
+// Where `source` goes below `holding/<writer>`: its own name, else `<name>.1`, `<name>.2`, ... The same name recurs within one
+// sweep (a `target` in every checkout, one child name under several parents), so the first free suffix is looked up each time.
+function freeDestination(holding, writer, source) {
+  const first = path.join(holding, writer, path.basename(source));
+  let destination = first;
+  for (let n = 1; pathExists(destination); n += 1) destination = `${first}.${n}`;
+  return destination;
+}
+
+export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), now = Date.now(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, isMounted, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
   const logFile = path.join(policy.heavyVolume[platformKey(platform)], "disk-hygiene.jsonl");
   const results = [];
+  const skipped = [];
   for (const c of plan.candidates) {
     try {
       // Re-verify at apply time: still the planned unit, not a symlink, still inside its root.
       if (!c.root || lstatSync(c.path).isSymbolicLink() || !isInsideRoot(c.path, c.root)) throw new Error("refused: path is not a sweepable unit inside its target root");
       if (c.writer === "workspace-unknown" && PROJECT_MARKERS.some((m) => existsSync(path.join(c.path, m)))) throw new Error("refused: a nested git checkout or project directory is never swept");
+      const held = recheckSweep(c, { policy, now });
+      if (held) { skipped.push({ ...c, reason: held }); logEvent(logFile, { event: "disk.sweep.skip", reason: held, ...c }); continue; }
       if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); continue; }
       // An item stays on its own volume: moving it elsewhere frees nothing on the volume that is short of space.
       const holding = pick(c.path, { policy, platform, env, home, date, isMounted });
@@ -920,17 +950,16 @@ export function applySweep({ plan, policy, platform = process.platform, deleteMo
         logEvent(logFile, { event: "disk.sweep.delete", reason: "no holding dir possible on the item's volume", ...c });
         continue;
       }
-      let destination = path.join(holding, c.writer, path.basename(c.path));
-      if (existsSync(destination)) destination = `${destination}.${date.getTime()}`;
+      const destination = freeDestination(holding, c.writer, c.path);
       const how = move(c.path, destination);
       results.push({ ...c, action: "move", destination, how, ok: true });
-      logEvent(logFile, { event: "disk.sweep.move", ...c, destination, how });
+      logEvent(logFile, { event: "disk.sweep.move", ...c, sourceParent: path.dirname(c.path), destination, how });
     } catch (error) {
       results.push({ ...c, action: deleteMode ? "delete" : "move", ok: false, error: error.message });
       logEvent(logFile, { event: "disk.sweep.error", ...c, error: error.message });
     }
   }
-  return { logFile, results, movedBytes: results.filter((r) => r.ok).reduce((s, r) => s + r.bytes, 0) };
+  return { logFile, results, skipped, movedBytes: results.filter((r) => r.ok).reduce((s, r) => s + r.bytes, 0) };
 }
 
 // Holding bases that may exist: policy rule paths, each drive root (Windows) or /Volumes/* and the legacy heavy dir (Mac).

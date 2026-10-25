@@ -77,6 +77,8 @@ export function renderSweep(plan, applied, { all = false } = {}) {
   const reportOnly = plan.skipped.filter((s) => s.reason === "report-only");
   if (reportOnly.length) lines.push(`  workspace-unknown is report-only on this host: ${reportOnly.length} unknown entr${reportOnly.length === 1 ? "y" : "ies"} will not be moved (opt in with: right-release disk allow-workspace-sweep)`);
   if (plan.skipped.length) lines.push(`  skipped: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}`);
+  // Items that were kept, leased or touched between the plan and the move are left where they are.
+  if (applied?.skipped?.length) lines.push(`  left in place at apply time: ${applied.skipped.map((r) => `${path.basename(r.path)} (${r.reason})`).join(", ")}`);
   return lines.join("\n");
 }
 

@@ -2128,3 +2128,75 @@ test("sweep: a forged lease (2999, a copied file, one created in the future) doe
   assert.deepEqual(plan.skipped.filter((x) => x.reason === "leased").map((x) => path.basename(x.path)), ["rk-live"]);
 });
 
+test("apply: the same name from several parents moves every time (a `target` in each checkout), in order .1, .2, and the move log names the source parent", () => {
+  const { root, ws, policy, now } = strayFixture();
+  for (const name of ["e", "f"]) cargoTarget(path.join(ws, name, "target"), OLD);
+  policy.holding = { mac: [{ prefix: root, path: path.join(root, "hold") }] };
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  const targets = plan.candidates.filter((c) => path.basename(c.path) === "target");
+  assert.deepEqual(targets.map((c) => path.relative(ws, path.dirname(c.path))), ["a", "e", "f"]); // c is fresh, b is untagged
+  const date = new Date("2026-10-15T12:00:00Z");
+  const held = path.join(root, "hold", "2026-10-15", "stray-cargo-target");
+  mkdirSync(path.join(held, "target.1"), { recursive: true }); // an earlier sweep's leftover takes the first free suffix away
+  mkdirSync(path.join(held, "target"), { recursive: true });
+  const applied = applySweep({ plan, policy, platform: "darwin", date });
+  assert.deepEqual(applied.results.filter((r) => !r.ok).map((r) => r.error), []); // before: ENOTEMPTY on the third
+  const moved = applied.results.filter((r) => path.basename(r.path) === "target");
+  assert.deepEqual(moved.map((r) => path.relative(held, r.destination)), ["target.2", "target.3", "target.4"]);
+  for (const r of moved) assert.equal(existsSync(path.join(r.destination, "CACHEDIR.TAG")), true);
+  for (const name of ["a", "e", "f"]) assert.equal(existsSync(path.join(ws, name, "target")), false);
+  // no clock value in a name, and the log says where each one came from
+  assert.equal(moved.some((r) => /\.\d{8,}$/.test(r.destination)), false);
+  const lines = readFileSync(applied.logFile, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((e) => e.event === "disk.sweep.move" && path.basename(e.path) === "target");
+  assert.deepEqual(lines.map((e) => path.relative(ws, e.sourceParent)), ["a", "e", "f"]);
+});
+
+test("apply: a candidate kept, leased or touched since the plan is left in place, with a logged reason, and the rest still moves", () => {
+  const { scratch, policy } = leaseFixture();
+  const now = Date.now();
+  policy.holding = { mac: [{ prefix: scratch, path: path.join(path.dirname(scratch), "hold") }] };
+  for (const name of ["rk-keep", "rk-lease", "rk-touch", "rk-free"]) leasedRun(scratch, name, null);
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(plan.candidates.map((c) => path.basename(c.path)).sort(), ["rk-free", "rk-keep", "rk-lease", "rk-touch"]);
+  // after the plan: the agent drops a .keep, runs `disk run-root`, and writes a file
+  writeFileSync(path.join(scratch, "rk-keep", KEEP_MARKER), "");
+  writeFileSync(path.join(scratch, "rk-lease", RUN_LEASE_FILE), JSON.stringify({ schema: 1, name: "rk-lease", createdAt: new Date(now).toISOString(), leaseUntil: new Date(now + DAY).toISOString() }));
+  writeFileSync(path.join(scratch, "rk-touch", "new.txt"), "x");
+  for (const deleteMode of [false, true]) {
+    const applied = applySweep({ plan: deleteMode ? { ...plan, candidates: plan.candidates.filter((c) => path.basename(c.path) !== "rk-free") } : plan, policy, platform: "darwin", deleteMode, date: new Date("2026-10-15T12:00:00Z") });
+    assert.deepEqual(Object.fromEntries(applied.skipped.map((r) => [path.basename(r.path), r.reason])), { "rk-keep": "rechecked-keep", "rk-lease": "rechecked-leased", "rk-touch": "rechecked-fresh" });
+    assert.deepEqual(applied.results.map((r) => [path.basename(r.path), r.ok]), deleteMode ? [] : [["rk-free", true]]);
+    assert.equal(applied.movedBytes, deleteMode ? 0 : 10);
+    for (const name of ["rk-keep", "rk-lease", "rk-touch"]) assert.equal(existsSync(path.join(scratch, name, "f")), true, name);
+    const logged = readFileSync(applied.logFile, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((e) => e.event === "disk.sweep.skip");
+    assert.deepEqual(logged.slice(-3).map((e) => e.reason).sort(), ["rechecked-fresh", "rechecked-keep", "rechecked-leased"]);
+  }
+  assert.equal(existsSync(path.join(scratch, "rk-free")), false);
+  assert.match(renderSweep(plan, { results: [], skipped: [{ path: path.join(scratch, "rk-keep"), reason: "rechecked-keep" }], movedBytes: 0 }), /left in place at apply time: rk-keep \(rechecked-keep\)/);
+});
+
+test("apply: a stray target whose run root was kept or leased since the plan stays; an expired marker or lease does not hold it", () => {
+  const { scratch, policy } = leaseFixture();
+  const now = Date.now();
+  policy.protectedSegments = ["Application Support", ".rightkit-managed"];
+  policy.strayTargets = { mac: [{ path: scratch, depth: 4 }] };
+  policy.strayTargetDays = 1;
+  policy.holding = { mac: [{ prefix: scratch, path: path.join(path.dirname(scratch), "hold") }] };
+  // the scratch run itself is idle for 5 days; the strays are the planned units because the run is held open by something fresh
+  for (const name of ["rk-k", "rk-l", "rk-x"]) {
+    file(path.join(scratch, name, "work", "fresh.txt"), 10); // fresh content keeps the run itself out of the scratch pass
+    cargoTarget(path.join(scratch, name, "repo", "target"), now - 5 * DAY);
+    for (const dir of [path.join(scratch, name, "repo")]) utimesSync(dir, (now - 5 * DAY) / 1000, (now - 5 * DAY) / 1000);
+  }
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(plan.candidates.map((c) => path.relative(scratch, c.path)).sort(), ["rk-k/repo/target", "rk-l/repo/target", "rk-x/repo/target"]);
+  writeFileSync(path.join(scratch, "rk-k", KEEP_MARKER), "");
+  writeFileSync(path.join(scratch, "rk-l", RUN_LEASE_FILE), JSON.stringify({ schema: 1, name: "rk-l", createdAt: new Date(now).toISOString(), leaseUntil: new Date(now + DAY).toISOString() }));
+  const applied = applySweep({ plan, policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
+  assert.deepEqual(Object.fromEntries(applied.skipped.map((r) => [path.relative(scratch, r.path), r.reason])), { "rk-k/repo/target": "rechecked-keep", "rk-l/repo/target": "rechecked-leased" });
+  assert.deepEqual(applied.results.map((r) => [path.relative(scratch, r.path), r.ok]), [["rk-x/repo/target", true]]);
+  assert.equal(existsSync(path.join(scratch, "rk-k", "repo", "target")), true);
+  assert.equal(existsSync(path.join(scratch, "rk-l", "repo", "target")), true);
+  assert.equal(existsSync(path.join(scratch, "rk-x", "repo", "target")), false);
+});
+
