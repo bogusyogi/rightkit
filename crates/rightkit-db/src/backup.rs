@@ -56,6 +56,23 @@ fn budget_for_bytes(bytes: u64) -> Duration {
         .min(COPY_BUDGET_CEILING)
 }
 
+/// One uninterrupted spell of busy or locked steps. `busy_since` is when the spell began (`None`
+/// while the copy is making progress); every step that makes progress ends the spell, so a copy
+/// that is merely slow never spends a wait that belongs to a source that is stuck. Returns how
+/// much of `limit` is left at `now`, or, once `limit` is spent, how long the spell has lasted.
+fn busy_wait_left(
+    busy_since: &mut Option<Instant>,
+    now: Instant,
+    limit: Duration,
+) -> std::result::Result<Duration, Duration> {
+    let waited = now.saturating_duration_since(*busy_since.get_or_insert(now));
+    if waited >= limit {
+        Err(waited)
+    } else {
+        Ok(limit.saturating_sub(waited))
+    }
+}
+
 pub trait BackupProgress {
     /// Called after every step with the pages remaining; return `false` to cancel.
     fn step(&mut self, remaining: i32) -> bool;
@@ -192,19 +209,23 @@ fn backup_within(
                     // and never past the operation deadline.
                     _ => {
                         let now = clock();
-                        let waited = now.saturating_duration_since(*busy_since.get_or_insert(now));
-                        if waited >= options.busy_timeout {
-                            return Err(DbError::Backup(format!(
-                                "backup busy timeout expired after {waited:?} (busy wait {:?})",
-                                options.busy_timeout
-                            )));
-                        }
-                        let remaining = options
-                            .busy_timeout
-                            .saturating_sub(waited)
-                            .min(deadline.saturating_duration_since(now));
+                        let left = busy_wait_left(&mut busy_since, now, options.busy_timeout)
+                            .map_err(|waited| {
+                                DbError::Backup(format!(
+                                    "backup busy timeout expired after {waited:?} (busy wait {:?})",
+                                    options.busy_timeout
+                                ))
+                            })?;
+                        let remaining = left.min(deadline.saturating_duration_since(now));
                         if remaining.is_zero() {
-                            return check_deadline();
+                            // Only the operation deadline can leave nothing to wait for. Report it
+                            // as the error; this arm must never end the closure with `Ok`, which
+                            // would go on to publish a copy that was not finished.
+                            check_deadline()?;
+                            return Err(DbError::Backup(format!(
+                                "backup stopped waiting for a busy source at the operation \
+                                 deadline (budget {budget:?})"
+                            )));
                         }
                         let pause = remaining.min(Duration::from_millis(25));
                         #[cfg(test)]
@@ -361,22 +382,23 @@ fn restore_validated(
     destination: &mut Connection,
 ) -> Result<()> {
     let backup = Backup::new(source, destination)?;
-    let started = Instant::now();
-    let deadline = started.checked_add(options.busy_timeout);
+    // `busy_timeout` bounds one uninterrupted spell of busy or locked steps, and restarts after
+    // every step that makes progress. It used to run from the start of the whole copy, so a busy
+    // spell that began long into a slow restore failed at once.
+    let mut busy_since: Option<Instant> = None;
     loop {
         match backup.step(512)? {
             StepResult::Done => return Ok(()),
-            StepResult::More => {}
+            StepResult::More => busy_since = None,
             StepResult::Busy | StepResult::Locked => {
-                let Some(deadline) = deadline else {
-                    std::thread::sleep(Duration::from_millis(25));
-                    continue;
-                };
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
-                    return Err(DbError::Backup("restore busy timeout expired".into()));
-                }
-                std::thread::sleep(remaining.min(Duration::from_millis(25)));
+                let left = busy_wait_left(&mut busy_since, Instant::now(), options.busy_timeout)
+                    .map_err(|waited| {
+                        DbError::Backup(format!(
+                            "restore busy timeout expired after {waited:?} (busy wait {:?})",
+                            options.busy_timeout
+                        ))
+                    })?;
+                std::thread::sleep(left.min(Duration::from_millis(25)));
             }
             _ => return Err(DbError::Backup("unexpected restore step result".into())),
         }
@@ -1001,5 +1023,75 @@ mod budget_tests {
             .collect::<Vec<_>>();
         assert!(staging.is_empty(), "staging left behind: {staging:?}");
         holder.execute_batch("ROLLBACK;").unwrap();
+    }
+
+    #[test]
+    fn a_busy_spell_is_limited_and_progress_starts_the_wait_again() {
+        let origin = Instant::now();
+        let at = |millis: u64| origin + Duration::from_millis(millis);
+        let limit = Duration::from_millis(50);
+        let mut since = None;
+        assert_eq!(
+            busy_wait_left(&mut since, at(1_000), limit),
+            Ok(Duration::from_millis(50))
+        );
+        assert_eq!(
+            busy_wait_left(&mut since, at(1_020), limit),
+            Ok(Duration::from_millis(30))
+        );
+        assert_eq!(
+            busy_wait_left(&mut since, at(1_050), limit),
+            Err(Duration::from_millis(50))
+        );
+        // A step that made progress ends the spell (the loops set `busy_since = None`), however
+        // late into the copy the next busy step comes.
+        since = None;
+        assert_eq!(
+            busy_wait_left(&mut since, at(90_000), limit),
+            Ok(Duration::from_millis(50)),
+            "the wait counts from the start of this spell, not from the start of the copy"
+        );
+        // No wait at all gives up at the first busy step.
+        let mut since = None;
+        assert_eq!(
+            busy_wait_left(&mut since, at(5), Duration::ZERO),
+            Err(Duration::ZERO)
+        );
+        // A clock that reads earlier than the start of the spell cannot underflow.
+        let mut since = Some(at(100));
+        assert_eq!(busy_wait_left(&mut since, at(10), limit), Ok(limit));
+    }
+
+    #[test]
+    fn a_restore_into_a_destination_that_stays_locked_fails_after_the_busy_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup = dir.path().join("backup.sqlite");
+        drop(tiny_database(&backup, 10));
+        let live = dir.path().join("live.sqlite");
+        let mut destination = tiny_database(&live, 1);
+        destination.busy_timeout(Duration::ZERO).unwrap();
+        // Another connection holds the exclusive lock of the rollback-journal destination.
+        let holder = Connection::open(&live).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE;").unwrap();
+        let mut options = DbOptions::new(&live);
+        options.busy_timeout = Duration::from_millis(60);
+
+        let started = Instant::now();
+        let error = restore_from(&options, &mut destination, &backup).unwrap_err();
+        let waited = started.elapsed();
+
+        let DbError::Backup(text) = &error else {
+            panic!("expected a backup error, got {error:?}");
+        };
+        assert!(text.contains("restore busy timeout expired"), "{text}");
+        assert!(text.contains("busy wait 60ms"), "{text}");
+        assert!(waited >= Duration::from_millis(60), "{waited:?}");
+        assert!(waited < Duration::from_secs(60), "{waited:?}");
+        holder.execute_batch("ROLLBACK;").unwrap();
+        drop(holder);
+        assert_eq!(count_rows(&live), 1, "the live database was not touched");
+        // Unlocked, the same restore completes.
+        restore_from(&options, &mut destination, &backup).unwrap();
+        assert_eq!(count_rows(&live), 10);
     }
 }
