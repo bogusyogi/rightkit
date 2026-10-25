@@ -30,7 +30,7 @@
 //   shell-plugin-order       SC-R2  the shell plugin installed from setup, or after a non-QA plugin
 //   shell-handler            SC-R3  an invoked rk_shell_* command that no handler registers
 //   shell-csp                SC-R4  a CSP without default-src 'self', frame-ancestors 'none', connect-src, or with script unsafe-inline/eval
-//   shell-grants             SC-R5  a core:window:allow-* grant next to the shell's own window command
+//   shell-grants             SC-R5  a core:window:allow-* grant that the shell's own window command mirrors
 //   qa-window-label          SC-R6  the shell's main_label, the QA Control's window and the created windows disagree
 //   devtools-declaration     SC-R7  the five DevTools declaration sites (config, allow-list, Cargo feature, ACL manifest, runtime policy) disagree
 //   shell-lifecycle-external SC-R8  lifecycle_only() in an app that also opens an external webview (hardening and navigation policy are off)

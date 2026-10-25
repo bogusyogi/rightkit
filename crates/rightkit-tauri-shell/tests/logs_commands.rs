@@ -490,3 +490,30 @@ fn a_command_without_registered_state_is_unsupported() {
         other => panic!("expected unsupported, got {other:?}"),
     }
 }
+
+#[test]
+fn a_jsonl_source_with_more_generations_clears_every_rotated_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("engine.jsonl");
+    seed_jsonl(&log);
+    for n in 2..=3 {
+        let mut rotated = log.as_os_str().to_owned();
+        rotated.push(format!(".{n}"));
+        std::fs::write(rotated, "{\"event\":\"older\"}\n").unwrap();
+    }
+    let mut config = LogsConfig::new(
+        "DemoApp",
+        "1.2.3",
+        dir.path().join("logs").join("events.jsonl"),
+    );
+    config.clear_sources = vec![ClearSource::jsonl_generations("engine", &log, 3)];
+    let report = LogsRuntime::new(config).unwrap().clear();
+    assert!(report.is_complete(), "{report:?}");
+    let left: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("engine.jsonl"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+}

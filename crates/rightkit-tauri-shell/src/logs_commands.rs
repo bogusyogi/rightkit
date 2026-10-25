@@ -150,10 +150,21 @@ impl ClearSource {
         }
     }
 
-    /// A JSONL log at `path`: removes that file and its rotated predecessor through
-    /// [`JsonlStore::clear`]. A log that is already absent clears successfully.
+    /// A JSONL log at `path`: removes that file and its one rotated predecessor through
+    /// [`JsonlStore::clear`]. A log that is already absent clears successfully. For a log that
+    /// keeps more rotated files use [`ClearSource::jsonl_generations`].
     pub fn jsonl(name: impl Into<String>, path: impl Into<PathBuf>) -> Self {
-        let store = JsonlStore::new(path, 0);
+        Self::jsonl_generations(name, path, 1)
+    }
+
+    /// Like [`ClearSource::jsonl`] for a log written with `generations` rotated predecessors
+    /// (`.1` through `.N`): every one of them is removed.
+    pub fn jsonl_generations(
+        name: impl Into<String>,
+        path: impl Into<PathBuf>,
+        generations: u32,
+    ) -> Self {
+        let store = JsonlStore::new(path, 0).with_generations(generations);
         Self::new(name, move || store.clear())
     }
 

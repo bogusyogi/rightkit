@@ -208,7 +208,7 @@ An app sometimes needs a QA-only input that a scenario chooses, such as which da
 
 1. **The app reads it with `rightkit_daemon::test_selector!(mode, "RIGHTKIT_<APP>_<NAME>")`**, never `std::env::var`. The value is `Some` only in a `test-mode` build during a test run. A release build compiles the read out and the name is not in the binary. A read through `std::env::var` carries no such gate of its own and must be fenced by hand (PostRight's read of `RIGHTKIT_QA_APP_DATA_SOURCE` sits behind its `qa-native` feature and `mode.is_test()`); `test_selector!` is the one reader that brings the gate with it.
 2. **The app declares the key in its `switches.json`** as a QA switch (class S1 to S4 with `compiledOut` `feature:test-mode`; see `packages/release/README.md`).
-3. **A scenario sets it in an `[inputs]` table**, or `inputs = { .. }`, placed before the first `[[step]]`:
+3. **A scenario sets it in an `[inputs]` table**, or `inputs = { .. }`, placed before the first `[[step]]` (an inline `inputs = { .. }` written after one belongs to that step and is ignored):
 
 ```toml
 name = "postright engine source"
@@ -228,7 +228,7 @@ The `RIGHTKIT_` prefix is required because a macOS launch carries only `RIGHTKIT
 | Key shape | `RIGHTKIT_` then upper-case letters and digits in words joined by single underscores (`^RIGHTKIT_[A-Z0-9]+(_[A-Z0-9]+)*$`), at most 64 bytes. |
 | Key owner | Not a name `rightkit-qa` or `rightkit-daemon` sets or reads itself: the control channel and token file, the pool world (`RIGHTKIT_QA_WORLD*`, ports, tokens), `RIGHTKIT_UNDER_TEST`, the test roots (`RIGHTKIT_QA_DATA_DIR`, `RIGHTKIT_QA_HOME`, `RIGHTKIT_SUITE_ROOT`, `RIGHTKIT_RUN_ROOT`), what the workspace sets for every launch, and the runner's own settings. The list is `RESERVED_INPUT_KEYS` in `src/scenario.rs`. |
 | Key meaning | Names no credential: no `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY`, `PRIVATE_KEY` or `CREDENTIAL` anywhere in the name (the launch guard's list, `control::key_names_credential`). Secrets never travel in a launch environment. |
-| Value | A string (a number, boolean or array is a load error) of at most 1024 bytes with no NUL, CR or LF. Taken literally: no `${...}` expansion. |
+| Value | A string (a number, boolean or array is a load error) of at most 1024 bytes with no NUL, CR or LF. Taken literally: no `${...}` expansion; an absolute path must still lie inside the QA app home, which the launch refuses otherwise. |
 
 `ui_launch` applies them to the launched app's environment, in this order, a later layer replacing an earlier value for the same key: `[ui].env`, the config `env`, the data-dir variable (`[engine].data_dir_env`), the scenario `inputs`, then the step's own `env`. So a step can still override an input for one launch. Inputs reach the app only through `ui_launch`; an engine `cli` or sidecar step takes its own `env`. The launch guards still apply to the result: an absolute path value must lie inside the QA app home, and a key the harness already gave the app a different value for is refused at launch.
 

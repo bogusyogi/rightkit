@@ -35,11 +35,11 @@ How an app wires `rightkit-tauri-shell` is checked from committed files alone, b
 | Rule | Gap | Finding |
 | --- | --- | --- |
 | `shell-window-hidden` | SC-R1 | a window created at startup (desktop targets) without `visible: false`; a platform patch that restates `app.windows` must restate it |
-| `shell-plugin-order` | SC-R2 | the shell plugin installed from `setup`, or behind a non-QA plugin (the shell's `single_instance_plugin` and QA plugins may come first) |
+| `shell-plugin-order` | SC-R2 | the shell plugin installed from `setup`, or behind a non-QA plugin (the shell's `single_instance_plugin` and QA plugins may come first; a shell built with `single_instance(false)` may follow the plugin that arbitrates) |
 | `shell-handler` | SC-R3 | an `rk_shell_*` command the renderer invokes (a literal, the body of an `@rightkit/tauri-shell` import, or the members it reaches on its `createShell()`: `shell.window.close()` is `rk_shell_window`) that is neither listed in `generate_handler!` nor covered by `handler!`; a shell it cannot follow needs at least one listed |
 | `shell-csp` | SC-R4 | no CSP, or one without `default-src 'self'`, `frame-ancestors 'none'` or `connect-src`, or with `unsafe-inline` / `unsafe-eval` in `script-src` (`default-src` when there is none); `style-src 'unsafe-inline'` and `ipc:` are fine |
-| `shell-grants` | SC-R5 | `core:window:allow-*` in a capability while `rk_shell_window` is registered |
-| `qa-window-label` | SC-R6 | QA `Control` bound to a label other than the shell's `main_label` (a bare `Control` binds `main`), or a main label no config or code window carries |
+| `shell-grants` | SC-R5 | a `core:window:allow-*` grant that `rk_shell_window` mirrors (minimize, maximize, unmaximize, toggle-maximize, set-fullscreen, close, hide, show) while that command is registered; start-dragging and verbs the shell has no command for stay allowed |
+| `qa-window-label` | SC-R6 | QA `Control` bound to a label other than the shell's `main_label` (a bare `Control` binds the launcher's `[ui] window_label`, which defaults to `main`, so an app whose window is not `main` names it with `.window(..)`), or a main label no config or code window carries |
 | `devtools-declaration` | SC-R7 | the five sites (release config `devtools: "content-only"`, `devtools-policy.json`, `content-devtools` feature, `build.rs` ACL manifest, `.devtools_policy(ContentOnly)`) disagree once any of the declaration, the feature or the policy is present |
 | `shell-lifecycle-external` | SC-R8 | `lifecycle_only` / `lifecycle_plugin` beside a `WebviewUrl::External` window; `host_windows()` keeps hardening and the navigation policy |
 | `legal-receipt-native` | SC-R9 | `<Onboarding>` (`legalMode` not `none`/`notice`) with no `legalReceipt` or a hand-written one, or a `LegalGate` that stamps the acceptance with the webview clock while the app has no `createNativeLegalReceiptPort` |

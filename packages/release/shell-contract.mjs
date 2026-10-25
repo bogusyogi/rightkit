@@ -543,6 +543,9 @@ const shellPluginOrder = perApp(({ app, root }) => {
         });
         continue;
       }
+      // A shell built with single_instance(false) leaves arbitration to another plugin, which has to come first (CodeRight's
+      // desktop_shell::plugin); the order then guards nothing the shell does, so only the setup-time install is a finding.
+      if (parsed.some((p) => (p.file === f.file || shellFns.some((fn) => fn.file === p.file)) && /\.\s*single_instance\s*\(\s*false\s*\)/.test(p.skel))) continue;
       for (const r of regs.filter((x) => !x.shell && !x.inSetup && x.at < s.at && x.fn === s.fn && !x.qa && !x.single)) {
         const head = squash(/^[^(]*/.exec(r.argCode)[0]) || r.argCode.slice(0, 40);
         out.push({
@@ -747,11 +750,15 @@ const shellGrants = perApp(({ app, root }) => {
   for (const source of inline) for (const cap of Array.isArray(source.json.capabilities) ? source.json.capabilities : []) for (const id of permissionIds(cap)) out.push(grantFinding(source, id));
   return out;
 });
-const permissionIds = (cap) => (isObject(cap) && Array.isArray(cap.permissions) ? cap.permissions : []).map((p) => (typeof p === "string" ? p : isObject(p) ? p.identifier : undefined)).filter((id) => typeof id === "string" && /^core:window:allow-/.test(id));
+// The window grants rk_shell_window mirrors (crates/rightkit-tauri-shell/src/commands.rs: minimize, maximize, unmaximize, toggle-maximize,
+// fullscreen, hide, show, close). A grant with no shell verb (set-size, center, set-focus, ...) has no sanctioned replacement, and
+// allow-start-dragging stays: Tauri's own `data-tauri-drag-region` handler (the shell title bar) calls plugin:window|start_dragging.
+const SHELL_WINDOW_GRANTS = new Set(["minimize", "maximize", "unmaximize", "toggle-maximize", "set-fullscreen", "close", "hide", "show"].map((verb) => `core:window:allow-${verb}`));
+const permissionIds = (cap) => (isObject(cap) && Array.isArray(cap.permissions) ? cap.permissions : []).map((p) => (typeof p === "string" ? p : isObject(p) ? p.identifier : undefined)).filter((id) => typeof id === "string" && SHELL_WINDOW_GRANTS.has(id));
 const grantFinding = (source, id) => ({ file: source.file,
   subject: id,
-  problem: `${source.file}:${lineOfPattern(source.text, new RegExp(`"${escapeRegExp(id)}"`))} grants ${id} while the shell's rk_shell_window command is registered: the shell's window command is the sanctioned window API, and a webview with its own window grants can do what the shell's checks refuse`,
-  fix: `remove "${id}" from this capability and use the shell's own command instead (shell.window.* of @rightkit/tauri-shell; shell.notify.setBadge for a badge)`,
+  problem: `${source.file}:${lineOfPattern(source.text, new RegExp(`"${escapeRegExp(id)}"`))} grants ${id} while the shell's rk_shell_window command is registered: the shell's window command already does this and runs the shell's caller checks, which a webview-level grant bypasses`,
+  fix: `remove "${id}" from this capability and call the shell's window command instead (shell.window.* of @rightkit/tauri-shell)`,
 });
 
 // ---- R6 qa-window-label ------------------------------------------------------------------------------------------------------

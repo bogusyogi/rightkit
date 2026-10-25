@@ -231,6 +231,13 @@ test("R2 shell-plugin-order: CutRight's setup-time install fails", (t) => {
   assert.match(findings[0].problem, /^src-tauri\/src\/lib\.rs:6 installs the shell plugin from setup/);
 });
 
+test("R2: a shell built with single_instance(false) may come after the plugin that arbitrates; a setup-time install still fails", (t) => {
+  const own = `${SHELL_FN.replace('.main_label("hub")', '.main_label("hub").single_instance(false)')}${RUN_FN("tauri::Builder::default().plugin(desktop_shell::plugin()).plugin(shell_plugin())")}`;
+  assert.deepEqual(run("shell-plugin-order", t, { [`${SRC}/src/app_run.rs`]: own }), []);
+  const same = `${SHELL_FN}${RUN_FN("tauri::Builder::default().plugin(desktop_shell::plugin()).plugin(shell_plugin())")}`;
+  assert.deepEqual(subjects(run("shell-plugin-order", t, { [`${SRC}/src/app_run.rs`]: same })), ["before:desktop_shell::plugin"], "without single_instance(false) the same order is a finding");
+});
+
 test("R2: HeardRight's helper-function shape passes while the shell plugin is first, and fails behind another plugin", (t) => {
   const ok = `${SHELL_FN}${RUN_FN("tauri::Builder::default().plugin(shell_plugin())").replace("builder.run", "builder.plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_os::init()).run")}`;
   assert.deepEqual(run("shell-plugin-order", t, { [`${SRC}/src/app_run.rs`]: ok }), []);
@@ -423,25 +430,25 @@ test("R4: a platform file is judged when its own patch restates csp, and not oth
 
 // ---- R5 shell-grants ---------------------------------------------------------------------------------------------------------
 test("R5 shell-grants: core:window:allow-* is refused while rk_shell_window is registered", (t) => {
-  const caps = { permissions: ["core:default", "core:window:default", "core:window:allow-minimize", { identifier: "core:window:allow-close" }, "core:webview:allow-print", "allow-rk-shell-window"] };
+  const caps = { permissions: ["core:default", "core:window:default", "core:window:allow-minimize", { identifier: "core:window:allow-close" }, "core:window:allow-start-dragging", "core:window:allow-set-size", "core:window:allow-center", "core:webview:allow-print", "allow-rk-shell-window"] };
   const files = (rust, extra = {}) => ({ [CONF]: conf([]), [`${SRC}/capabilities/default.json`]: caps, [`${SRC}/src/lib.rs`]: rust, ...extra });
   const findings = wellFormed(run("shell-grants", t, files(RS_HANDLER)));
   assert.deepEqual(ids(findings), [`${SRC}/capabilities/default.json|core:window:allow-close`, `${SRC}/capabilities/default.json|core:window:allow-minimize`]);
   assert.match(findings.find((f) => f.subject.endsWith("minimize")).problem, /^src-tauri\/capabilities\/default\.json:1 grants core:window:allow-minimize/);
-  assert.equal(run("shell-grants", t, files(RS_LIST("rk_shell_window"))).length, 2, "a hand-listed rk_shell_window counts");
+  assert.equal(run("shell-grants", t, files(RS_LIST("rk_shell_window"))).length, 2, "a hand-listed rk_shell_window counts; start-dragging (the drag-region handler) and verbs the shell has no command for (set-size, center) are not findings");
   assert.deepEqual(run("shell-grants", t, files(RS_LIST("rk_shell_quit"))), [], "the shell's window command is not registered");
   assert.deepEqual(run("shell-grants", t, files("pub fn run() {}\n")), []);
 });
 
 test("R5: inline capabilities of the conf and several capability documents are read", (t) => {
   const files = {
-    [CONF]: conf([], { capabilities: ["default", { identifier: "inline", windows: ["main"], permissions: ["core:window:allow-center", "core:event:default"] }] }),
+    [CONF]: conf([], { capabilities: ["default", { identifier: "inline", windows: ["main"], permissions: ["core:window:allow-hide", "core:event:default"] }] }),
     [`${SRC}/capabilities/a.json`]: [{ identifier: "a", permissions: ["core:window:allow-show"] }],
     [`${SRC}/capabilities/b.json`]: "{ broken",
     [`${SRC}/capabilities/c.json`]: "null",
     [`${SRC}/src/lib.rs`]: RS_HANDLER,
   };
-  assert.deepEqual(ids(run("shell-grants", t, files)), [`${CONF}|core:window:allow-center`, `${SRC}/capabilities/a.json|core:window:allow-show`].sort());
+  assert.deepEqual(ids(run("shell-grants", t, files)), [`${CONF}|core:window:allow-hide`, `${SRC}/capabilities/a.json|core:window:allow-show`].sort());
 });
 
 // ---- R6 qa-window-label ------------------------------------------------------------------------------------------------------
@@ -669,7 +676,7 @@ test("a rule that fails on one app reports a rule-error finding with an identity
 test("no rule throws on odd content: bad JSON, odd Rust and JSX, binary files, empty files, wrong types", (t) => {
   const junk = {
     [CONF]: "{ not json", [`${SRC}/tauri.macos.conf.json`]: "null", [`${SRC}/tauri.windows.conf.json`]: '{"app": 3}', [`${SRC}/tauri.linux.conf.json`]: '{"app": {"windows": "x", "security": {"csp": 7, "capabilities": 4}}}',
-    [`${SRC}/capabilities/a.json`]: '{"permissions": [null, 4, {"identifier": 5}, "core:window:allow-x"]}',
+    [`${SRC}/capabilities/a.json`]: '{"permissions": [null, 4, {"identifier": 5}, "core:window:allow-close"]}',
     [`${SRC}/Cargo.toml`]: "[dependencies\nrightkit-tauri-shell = {", [`${SRC}/build.rs`]: "", [`${SRC}/src/lib.rs`]: 'fn ( { .plugin( generate_handler![ "unterminated\n Control::<(',
     [`${SRC}/src/bin.rs`]: "\u0000\u0001\uffff", [`${SRC}/src/empty.rs`]: "", "right-release.config.mjs": "export default {{{", "src/a.tsx": '<Onboarding legalReceipt={ import { Onboarding } from "@rightkit/onboarding"; <Onboarding legalReceipt={x',
     "src/b.ts": "rk_shell_ `unterminated", "src/c.tsx": 'import { LegalGate } from "@rightkit/legal-ui"; <LegalGate onAgree=',
