@@ -124,11 +124,11 @@ The rules (`right-release check --list` prints their ids and gaps; `scripts/pref
 | `qa-platform` | G13 | a Rust `"platform:<x>"` requirement that is not `darwin` or `windows` (the test skips forever) |
 | `test-harness` | G14 | a Cargo `[[test]]` whose file defines `fn main(` but lacks `harness = false` (libtest runs 0 tests) |
 | `scenario-skip` | G15 | a `.scenario(` test that prints SKIP and returns (a skip that reports green) |
-| `release-config` | G16 | `right-release.config.mjs`: a provider `publish-update.mjs` refuses, an updater `keyFile`, an undefined Cargo profile |
+| `release-config` | G16 | `right-release.config.json`, read as data (or a legacy `right-release.config.mjs`): a provider `publish-update.mjs` refuses, an updater `keyFile`, an undefined Cargo profile; JSON that `right-release` cannot load is a finding |
 | `skip-checks` | G17 | a `package.json` script that runs `right-release` with `--skip-checks` |
 | `qa-dev-server` | G18 | a `package.json` `qa*` script that runs `tauri dev` (QA would test the dev server, not the app) |
 | `ffmpeg-release-escape` | G19 | `allow_in_release_builds` in non-test Rust outside `crates/rightkit-ffmpeg` |
-| `switches-inventory` | G20 | a `right-release.config.mjs` directory without a `switches.json` (or its `releaseSwitches.inventory`) |
+| `switches-inventory` | G20 | a directory with a `right-release.config.json`, read as data (or a legacy `right-release.config.mjs`), and no `switches.json` (or its `releaseSwitches.inventory`) |
 | `speech-link` | G21 | `import Speech` under `swift/RightKitSwift/Sources` or `Tests` |
 | `e2e-under-cargo-test` | G22 | `cargo test`, `cargo run` or `cargo nextest` (plain, `rustright cargo`, or the retired `rightkit`) that runs an end-to-end crate in the broker: it holds the compile slot for the whole run |
 
