@@ -142,6 +142,12 @@ replaces that guidance with an install from the feed, which is a new install, no
 Open questions for Adrian: whether `previous` in `latest.json` or per-version manifests; whether repair may run without a prompt; the minimum
 repair version policy. Nothing in this PR depends on them.
 
+## Rollout: what an app meets when it takes the release that carries these rules
+
+`suite-key-literal` (C3-04), `suite-updater-key` (C3-14) and `engine-record-store` (C3-05) are rules of `packages/release/app-check.mjs`, which every gated command of `@rightkit/release` runs first (`rightkit-gate check`, build, test, sign). RightKit's own `ci/app-check-baseline.json` ratchets the findings it knows (rightkit 1, coderight 4, genright 1, heardright 3, mailright 2, postright 1, scraperight 3, viewright 1), but that file applies only when the module is loaded from a RightKit checkout. An app that runs the installed package reads its own `.rightkit/app-check-baseline.json`, where each entry carries an `issue`, an `added` date and a `sunset` at most 90 days later. So when an app moves to the release with these rules, every gated command refuses until the app has migrated to the contract or listed its findings with dated entries. The wave 1 and wave 2 port pull requests add those entries before they pin that release. cutright and pulse have no findings.
+
+Repositories outside the nine apps are not in the baseline: `rightsites` pastes the licence key as a byte array in `packages/rightsuite-api-plugin/src/artifact-delivery/license-gate.ts`, `artifact-delivery/models.ts` and `rightsites-plugin/runtime-artifact-resolve.ts`, and would fail `suite-key-literal` the first time it runs `rightkit-gate check`.
+
 ## What this change does not do
 
 Migrating the nine apps (wave 3), removing the Tauri conf copy, wiring `suite-api-literal` into the build's prebuild gates (it is a preflight
