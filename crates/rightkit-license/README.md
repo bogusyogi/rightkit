@@ -33,13 +33,14 @@ Do not use it to issue or sign licences. Signing belongs to the backend signer.
 
 ## Native client (features `client`, `update-auth`)
 
-`LicenseClient` runs the licence lifecycle natively so no credential reaches a renderer: activate, refresh (with clock re-anchor), deactivate, trial requests, native-only device-lease calls and `import_legacy`, over fixed HTTPS endpoints, with the record stored as a revisioned envelope (`active` or `tombstone`) in the OS credential store. It returns only fixed-schema views (`LicenseView`, `RefreshView`, `TrialView`) and a typed `LicenseError`. Writes are fenced: the per-app operation lock is held for the whole mutation and by the write worker until the credential store has really finished, and every reader (status, the engine `CredentialTokenSource::from_record_store`, `UpdateAuthProvider::authorize`) takes the same lock with a bounded try and fails closed while a write is unresolved. See the `client` module docs and CHANGELOG 0.2.4.
+`LicenseClient` runs the licence lifecycle natively so no credential reaches a renderer: activate, refresh (with clock re-anchor), deactivate, trial requests, native-only device-lease calls and `import_legacy`, over fixed HTTPS endpoints, with the record stored as a revisioned envelope (`active` or `tombstone`) in the OS credential store. It returns only fixed-schema views (`LicenseView`, `RefreshView`, `TrialView`) and a typed `LicenseError`. Writes are fenced: the per-app operation lock is held for the whole mutation and by the write worker until the credential store has really finished, and every reader (status, the engine snapshot `LicenseClient::engine_snapshot`, `UpdateAuthProvider::authorize`) takes the same lock with a bounded try and fails closed while a write is unresolved. See the `client` module docs and CHANGELOG 0.2.4.
 
 ```rust
 use std::sync::Arc;
 use rightkit_license::{LicenseClient, LicenseClientConfig, LicenseSetup, SecretString};
 
-let config = LicenseClientConfig::new("heardright", "heardright.app", "1.4.0", PUBLIC_KEY, store, license_dir)?;
+// A suite app carries neither the key nor the host: both come from the Right Suite contract.
+let config = LicenseClientConfig::suite("heardright", "1.4.0", store, license_dir)?;
 let client = LicenseClient::new(LicenseSetup::configured(config), Arc::new(my_device_source))?;
 let view = client.activate(SecretString::new(key_typed_by_the_user))?; // a LicenseView, no token in it
 ```
@@ -49,6 +50,26 @@ The same `client` feature carries the rest of the licence-adjacent native work, 
 - `AccountSessionClient` is the passwordless account session: `request_sign_in`, `complete_sign_in`, `status`, `refresh`, `sign_out`, `list_devices`, `rename_device`, `remove_device`, and `delete_account` as a typed destructive action that keeps a server refusal (`AccountDeletion::Refused`) and an unprovable outcome (`Indeterminate`) as results and clears the local session only on a 200. The session token is one revisioned credential item that never leaves native code; a result that arrives after a sign-out is discarded, not written. `request_link` and `redeem_link` run on the `LicenseClient` it is built with.
 - `LicenseClient::{bridge_publish, bridge_exchange}` are the Pro bridge (`/v1/licenses/bridge/{from-activation,exchange}`): the bridge token is a native `SecretString`, and the lease an exchange returns goes through every check of a typed-key lease. `LicenseClient::{link_request, link_redeem}` are the device-link codes (`/v1/pro/{app}/devices/windows-link/{request,redeem}`).
 - `LicenseInvalidation` carries every committed licence change to live engine verifiers: `EngineEntitlements::with_invalidation(&client.invalidation())` makes a verifier re-read the stored record after any change instead of serving its cached verdict, and `subscribe` hints another process.
+
+### Suite trust roots (`suite_api`)
+
+`contracts/right-suite-api.v1.json` owns the suite's trust roots, and `suite_api` projects them: `LICENSE_PUBLIC_KEY` (the Ed25519 key that verifies every suite licence token), `app_license_host(app)` (the brand host an app declared; an app that declared none is `NoLicenseHost`, never a guessed host), and the updater keys (`updater_keys()`, `UPDATER_SIGNING_KEY`, `select_updater_key`). `LicenseClientConfig::suite(app, version, store, license_dir)` builds a client from them, so no app pastes a key or a host. The same constants are generated for TypeScript, the release tooling and Swift. Rotation and the migration of each app: `docs/SUITE-TRUST-ROOTS.md`.
+
+### Engine processes: the owner hands over a snapshot
+
+An engine (sidecar, daemon, CLI) never reads the owner's credential store: only the owner binary does (`rightkit-credentials` README, "Helpers, sidecars and CLIs"). The owner reads the stored record through its fenced native source and hands the engine a `rightkit_credentials::handoff` snapshot of three values, `licence.token`, `licence.device` and `licence.clock` (`engine-snapshot` feature, implied by `client`):
+
+```rust
+// Owner: when the engine starts, again after every change (`client.invalidation()`), and to answer the engine's request.
+let reply = client.answer_engine_request(&request); // exactly the three names, snapshot mode
+// Engine: keep it in a cell, verify it again under the suite key and the owner's ledger (read-only).
+let cell = EngineSnapshotCell::new();
+cell.apply(snapshot)?;
+let engine = EngineEntitlements::suite_snapshot("heardright", &cell, license_dir)?;
+engine.require_pro()?; // signature, app, device, expiry, ledger; an incident denylist via with_revoked_ids
+```
+
+The snapshot is never a verdict: the engine has no input for "you are Pro", a failed owner read arrives as unreadable (never Free, never a stale token), and a delivery replaces what the engine held. The anti-rollback ledger must be the file ledger in the licence directory, which the engine only reads. `CredentialTokenSource::from_record_store` is deprecated: it made the engine a second reader of the owner's store.
 
 ### Native engine verification
 

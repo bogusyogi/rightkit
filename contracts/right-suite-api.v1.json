@@ -1,5 +1,5 @@
 {
-  "_comment": "Canonical Right Suite API host contract, owned by RightKit. Edit only here; scripts/gen-suite-api.mjs writes every projection (rightkit-license suite_api_generated.rs, @rightkit/app-update suite-api.generated.ts, @rightkit/release suite-api.generated.mjs) and a byte copy under crates/rightkit-license/test-vectors/. Path templates use {app} for the app key (filled by RightKit) and Tauri's {{target}} placeholder (filled by the updater at runtime). Hosts are bare hostnames; origins include the scheme.",
+  "_comment": "Canonical Right Suite API host and trust-root contract, owned by RightKit. Edit only here; scripts/gen-suite-api.mjs writes every projection (rightkit-license suite_api_generated.rs, @rightkit/app-update suite-api.generated.ts, @rightkit/release suite-api.generated.mjs, RightKitSwift RightSuiteAPI.generated.swift) and a byte copy under crates/rightkit-license/test-vectors/. Path templates use {app} for the app key (filled by RightKit) and Tauri's {{target}} placeholder (filled by the updater at runtime). Hosts are bare hostnames; origins include the scheme. clientPaths are every route the native licence client calls (rightkit-license client/wire.rs, account.rs, subject.rs); {app} is the app key. licensePublicKeyHex is the Ed25519 key that verifies every suite licence token. updaterPublicKeys lists every minisign key a suite app accepts for updates (kid = the 16-hex key id, publicKey = the base64 text tauri.conf.json carries, notAfter = last UTC day the key is accepted); updaterSigningKeyId names the one key releases are signed with today. Rotation: add the new key here, ship a release signed by the old key, then change updaterSigningKeyId (docs/SUITE-TRUST-ROOTS.md). An app entry may omit licenseHost (not declared yet) or artifactHosts (no artifact hosts declared). Ember is not a suite app: it has its own updater key.",
   "schema": "right-suite-api.v1",
   "host": "api.orthiclabs.com",
   "origin": "https://api.orthiclabs.com",
@@ -13,38 +13,86 @@
     "adminReleases": "/v1/admin/apps/releases",
     "adminRuntimeArtifacts": "/v1/admin/apps/runtime-artifacts"
   },
+  "clientPaths": {
+    "licenseActivate": "/v1/licenses/activate",
+    "licenseRefresh": "/v1/licenses/refresh",
+    "licenseDeactivate": "/v1/licenses/deactivate",
+    "licenseTrial": "/v1/licenses/trial",
+    "bridgeFromActivation": "/v1/licenses/bridge/from-activation",
+    "bridgeExchange": "/v1/licenses/bridge/exchange",
+    "bridgeFromPlay": "/v1/licenses/bridge/from-play",
+    "bridgeFromStorekit": "/v1/licenses/bridge/from-storekit",
+    "leaseIssue": "/v1/pro/{app}/devices/lease",
+    "leaseRenew": "/v1/pro/{app}/devices/lease/renew",
+    "leaseRemove": "/v1/pro/{app}/devices/lease/remove",
+    "windowsLinkRequest": "/v1/pro/{app}/devices/windows-link/request",
+    "windowsLinkRedeem": "/v1/pro/{app}/devices/windows-link/redeem",
+    "accountMagicLinkRequest": "/v1/shop/auth/magic-link/request",
+    "accountMagicLinkConsume": "/v1/shop/auth/magic-link/consume",
+    "accountMe": "/v1/shop/auth/me",
+    "accountLogout": "/v1/shop/auth/logout",
+    "accountDevices": "/v1/shop/account/devices",
+    "accountDelete": "/v1/shop/account",
+    "entitlement": "/v1/entitlement"
+  },
   "artifactHostSets": {
     "gated": "rightapps-license-gate.adrdsouza.workers.dev",
     "public": "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
   },
   "publicInstallerBase": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev",
   "artifactPathPrefix": "/{app}",
+  "licensePublicKeyHex": "730732885355c4400c115592a42c91b8b0277d460cb2b5d59c1e2815a74d5d22",
+  "updaterSigningKeyId": "29395F9FF466261D",
+  "updaterPublicKeys": [
+    {
+      "kid": "29395F9FF466261D",
+      "publicKey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlGRjQ2NjI2MUQKUldRZEptYjBuMTg1S1VSUXlBdFM4WmtzaHArYko0U2hRMDVlSDJmSExVZG82Q0hoQ2srUlhqanAK"
+    }
+  ],
   "apps": {
     "coderight": {
       "artifactHosts": [
         "gated",
         "public"
-      ]
+      ],
+      "licenseHost": "coderight.cc"
+    },
+    "cutright": {},
+    "genright": {
+      "licenseHost": "heardright.app"
     },
     "heardright": {
       "artifactHosts": [
         "gated",
         "public"
-      ]
+      ],
+      "licenseHost": "heardright.app"
     },
     "mailright": {
       "artifactHosts": [
         "gated",
         "public"
-      ]
+      ],
+      "licenseHost": "mailright.cc"
+    },
+    "postright": {},
+    "pulse": {},
+    "scraperight": {
+      "licenseHost": "scraperight.cc"
     },
     "viewright": {
       "artifactHosts": [
         "public"
-      ]
+      ],
+      "licenseHost": "viewright.cc"
     }
   },
   "pendingNativeUpdater": [
-    "heardright"
+    "cutright",
+    "genright",
+    "heardright",
+    "postright",
+    "pulse",
+    "scraperight"
   ]
 }

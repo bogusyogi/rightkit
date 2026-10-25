@@ -24,7 +24,11 @@ engine-gate = ["subject-entitlement"]
 # fixed HTTPS endpoints, the envelope-versioned record in the OS credential store, worker-fenced
 # persistence, and the fenced engine token source. Adds `rightkit-http`, `rightkit-credentials` and
 # `zeroize`; the default build is unchanged.
-client = ["dep:rightkit-http", "dep:rightkit-credentials", "dep:zeroize"]
+client = ["dep:rightkit-http", "dep:rightkit-credentials", "dep:zeroize", "engine-snapshot"]
+# Owner-to-engine entitlement snapshot (engine side): `EngineSnapshotCell`, `EngineEntitlements::from_snapshot`
+# and the handoff names `licence.token`, `licence.device`, `licence.clock`. Adds `rightkit-credentials` (the
+# handoff frames) and `zeroize`, and not the HTTP client, so an engine builds it without `client`.
+engine-snapshot = ["dep:rightkit-credentials", "dep:zeroize"]
 # Native update authorization (G1): `UpdateAuthProvider::authorize`, one lock acquisition per request.
 # Adds `url` (2.x, the type of `authorize`'s URL argument and the one the updater plugin uses).
 update-auth = ["client", "dep:url"]

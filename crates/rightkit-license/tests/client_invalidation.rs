@@ -18,6 +18,7 @@ fn key() -> SecretString {
 }
 
 /// An engine verifier over the client's record that caches a verdict for five minutes.
+#[allow(deprecated)] // covers the deprecated fenced record reader until it is removed
 fn engine(f: &Fixture, invalidation: Option<&LicenseInvalidation>) -> EngineEntitlements {
     let config = EngineEntitlementsConfig::new(common::pubkey(), APP, f.dir.path(), || {
         Ok(DEVICE.to_string())

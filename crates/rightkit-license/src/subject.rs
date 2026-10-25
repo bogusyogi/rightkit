@@ -471,7 +471,7 @@ impl SubjectEntitlementSource {
         purchase: &PlayPurchase,
     ) -> Result<SubjectDecision, SubjectEntitlementError> {
         self.bridge(
-            "/v1/licenses/bridge/from-play",
+            crate::suite_api::BRIDGE_FROM_PLAY_PATH,
             json!({
                 "app": self.config.app,
                 "package_name": purchase.package_name,
@@ -485,7 +485,7 @@ impl SubjectEntitlementSource {
     /// module docs.
     pub fn link_storekit(&self, jws: &str) -> Result<SubjectDecision, SubjectEntitlementError> {
         self.bridge(
-            "/v1/licenses/bridge/from-storekit",
+            crate::suite_api::BRIDGE_FROM_STOREKIT_PATH,
             json!({ "app": self.config.app, "jws": jws }),
         )
     }
@@ -498,7 +498,7 @@ impl SubjectEntitlementSource {
         device_id: &str,
     ) -> Result<SubjectDecision, SubjectEntitlementError> {
         self.bridge(
-            "/v1/licenses/bridge/from-activation",
+            crate::suite_api::BRIDGE_FROM_ACTIVATION_PATH,
             json!({
                 "app": self.config.app,
                 "activation_token": activation_token,
@@ -533,8 +533,9 @@ impl SubjectEntitlementSource {
         now: i64,
     ) -> Result<SubjectDecision, SubjectEntitlementError> {
         let url = format!(
-            "{}/v1/entitlement?app={}",
+            "{}{}?app={}",
             self.base(),
+            crate::suite_api::ENTITLEMENT_PATH,
             percent_encode(&self.config.app)
         );
         match self.call(Method::Get, &url, None) {

@@ -3,6 +3,10 @@
 //! licence), the older bare record, and the fencing (the operation lock, a rotation marker, a
 //! write still in flight) all fail closed.
 
+// These tests cover the deprecated fenced record reader until it is removed; the snapshot replaces it
+// (tests/engine_snapshot.rs).
+#![allow(deprecated)]
+
 mod client_support;
 
 use std::sync::atomic::Ordering::SeqCst;

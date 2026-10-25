@@ -39,6 +39,9 @@ impl CredentialTokenSource {
     /// Every read first takes the operation lock (250 ms try) and checks the rotation fence;
     /// see the module docs. Pair it with
     /// [`EngineEntitlementsConfig::with_token_source`](crate::EngineEntitlementsConfig::with_token_source).
+    #[deprecated(
+        note = "an engine never reads the owner's credential store (rightkit-credentials README, \"Helpers, sidecars and CLIs\"): the owner sends it LicenseClient::engine_snapshot over rightkit_credentials::handoff and the engine verifies it with EngineEntitlements::from_snapshot"
+    )]
     pub fn from_record_store(
         store: Store,
         account: impl Into<String>,

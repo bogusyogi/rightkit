@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 use crate::clock::{
     AntiRollbackClock, ClockError, ClockReading, ClockStore, CLOCK_ROLLBACK_TOLERANCE_SECS,
 };
-use crate::{authenticate_token, Entitlement, EntitlementStage, LicenseKind, LicenseRequirement};
+use crate::{
+    authenticate_token, Entitlement, EntitlementStage, LicenseKind, LicenseRequirement, RevokedIds,
+};
 
 /// Where a license stands. `#[non_exhaustive]`: match with a wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -335,6 +337,9 @@ pub struct LifecycleContext<'a> {
     pub messages: LifecycleMessages,
     /// Optional message formatter (default: none). Set with [`Self::with_formatter`].
     formatter: Option<&'a Arc<LifecycleMessageFormatter>>,
+    /// Entitlement ids that never grant access (an incident denylist). Set with
+    /// [`Self::with_revoked_ids`].
+    revoked: Option<&'a RevokedIds>,
 }
 
 impl fmt::Debug for LifecycleContext<'_> {
@@ -346,6 +351,7 @@ impl fmt::Debug for LifecycleContext<'_> {
             .field("requirement", &self.requirement)
             .field("messages", &self.messages)
             .field("formatter", &self.formatter.is_some())
+            .field("revoked_ids", &self.revoked.map(RevokedIds::len))
             .finish_non_exhaustive()
     }
 }
@@ -360,6 +366,7 @@ impl<'a> LifecycleContext<'a> {
             requirement: None,
             messages: LifecycleMessages::default(),
             formatter: None,
+            revoked: None,
         }
     }
 
@@ -415,6 +422,15 @@ impl<'a> LifecycleContext<'a> {
 
     pub fn with_requirement(mut self, requirement: &'a LicenseRequirement) -> Self {
         self.requirement = Some(requirement);
+        self
+    }
+
+    /// Refuse an authenticated entitlement whose id is listed, as [`Lifecycle::Revoked`], before
+    /// any clock or expiry check (so a revoked token reports revoked even after it expired, as
+    /// [`crate::verify_token_not_revoked`] does). The id is read only after the signature
+    /// verified, so a forged token cannot probe or poison the list.
+    pub fn with_revoked_ids(mut self, revoked: &'a RevokedIds) -> Self {
+        self.revoked = Some(revoked);
         self
     }
 }
@@ -559,6 +575,22 @@ pub fn evaluate_lifecycle<S: ClockStore>(
             ));
         }
     };
+
+    if ctx.revoked.is_some_and(|ids| ids.contains(&entitlement.id)) {
+        let message = ctx.text(
+            LifecycleMessageContext::new(LifecycleMessageKind::Revoked, ctx.expected_app)
+                .token(&entitlement),
+            ctx.messages.revoked,
+            || "The server no longer considers this license active.".to_string(),
+        );
+        return Ok(LifecycleReport::for_entitlement(
+            Lifecycle::Revoked,
+            entitlement,
+            None,
+            Some(message),
+            was_initialized,
+        ));
+    }
 
     let reading = clock.reconcile(wall_now, was_initialized)?;
     let (effective_now, trusted) = match &reading {

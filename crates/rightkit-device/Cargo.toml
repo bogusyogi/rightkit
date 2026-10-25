@@ -12,6 +12,9 @@ include = ["src/**", "tests/**", "README.md", "CHANGELOG.md", "LICENSE-MIT", "LI
 [features]
 default = []
 credentials = ["dep:rightkit-credentials"]
+# `impl rightkit_license::DeviceIdSource for DeviceService<CredentialStore>`: the licence client's device source,
+# so an app stops hand-writing the adapter. Needs the licence crate's native client.
+license-client = ["credentials", "rightkit-license/client"]
 
 [dependencies]
 getrandom = "0.4"

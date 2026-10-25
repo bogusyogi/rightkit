@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **New: the contract owns the suite trust roots (rightkit#940, C3-04).** `suite_api` gains `LICENSE_PUBLIC_KEY` (the suite licence key, decoded at compile time), `registered_apps()`, `app_registered(app)`, `app_license_host(app)` (an app with no declared host is `NoLicenseHost`; none is guessed), `updater_keys()`, `UPDATER_SIGNING_KEY`, `signature_key_id`, `updater_public_key_id`, `select_updater_key` and `updater_key_for_signature` (choose the key that checks a release by the key id in its signature; a key past its `notAfter`, and any key when the clock is unreadable, is refused). `LicenseClientConfig::suite(app, version, store, license_dir)` builds a client from them. **Source-breaking for exhaustive matches:** `SuiteApiError` is now `#[non_exhaustive]` and gains `NoLicenseHost`.
+- **New: the licence client's routes come from the contract (C3-07).** Every path in `client/wire.rs`, `client/account.rs` and `subject.rs` is a generated constant from `clientPaths`; the wire is unchanged.
+- **New: owner-to-engine entitlement snapshot (feature `engine-snapshot`, implied by `client`; rightkit#886, C3-05).** `LicenseClient::engine_snapshot()` and `answer_engine_request()` (owner), `EngineSnapshotCell`, `EngineEntitlementsConfig::from_snapshot` / `suite_snapshot`, `EngineEntitlements::from_snapshot` / `suite_snapshot` and `OwnerLedgerReader` (engine, which only reads the owner's file ledger), over the handoff names `licence.token`, `licence.device`, `licence.clock`. Failed owner reads arrive as unreadable, never as Free.
+- **New: incident denylist everywhere.** `EngineEntitlementsConfig::with_revoked_ids`, `NativeEngineEntitlements::with_revoked_ids` and `LifecycleContext::with_revoked_ids` (a listed authenticated id is `Revoked`, before any clock or expiry check). `EngineEntitlementsConfig` also gains `with_clock_initialized` and `with_generation`. **Source-breaking for exhaustive matches:** `EngineEntitlementError` is now `#[non_exhaustive]` and gains `Revoked(String)`.
+- **Deprecated: `CredentialTokenSource::from_record_store`.** It made the engine a second reader of the owner's credential store; use the snapshot.
+- **Fixed: `--features client` without `update-auth` compiled with dead-code warnings** (three items only the update authorizer uses).
+
 ## 0.2.5 (2026-10-23)
 
 - **New: `suite_api`, the Right Suite API host contract (rightkit#940).** Constants generated from `contracts/right-suite-api.v1.json` (`API_HOST`, `API_ORIGIN`, `LEGACY_HOSTS`, path templates, per-app artifact hosts) and `updater_endpoint(app)`, `release_status_url(app)`, `artifact_path_prefix(app)`, `update_check_hosts()`, `artifact_hosts(app)`. App keys must match `^[a-z][a-z0-9-]*$`; an app the contract does not list is refused. Apps stop writing the host themselves.
