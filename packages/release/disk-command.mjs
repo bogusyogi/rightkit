@@ -7,6 +7,7 @@ import { spawnSync } from "./background-process.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 import {
   DISK_EXIT_WARNING, applySweep, checkDisk, checkFloors, ensureScratchRoots, formatBytes, inUseByOpenPaths, lastEvent, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, readRecentEvents, setWorkspaceSweepAllowed,
+  createRunRoot, releaseRunRoot,
 } from "./disk-policy.mjs";
 import { buildDiskReport, measureScratchUnits, reportDue } from "./disk-report.mjs";
 import { evaluateBinding, installStableRoot, readScheduleBinding, selfCheck } from "./disk-stable-root.mjs";
@@ -602,6 +603,40 @@ function probeCommand(rest, { env, stdout, platform, deps }) {
   return { exitCode: report.internalWritable || leftovers.length || problems.length ? 1 : 0, report, problems };
 }
 
+function runRootCommand(rest, { env, stdout, platform, deps }) {
+  const stderr = deps.stderr ?? console.error;
+  const opts = { name: undefined, days: undefined, release: false, json: false, policy: undefined };
+  for (let i = 0; i < rest.length; i += 1) {
+    const a = rest[i];
+    if (a === "--release") opts.release = true;
+    else if (a === "--json") opts.json = true;
+    else if (a === "--days" || a === "--policy") {
+      const v = rest[++i];
+      if (!v) throw new Error(`disk run-root: ${a} needs a value`);
+      if (a === "--days") opts.days = Number(v); else opts.policy = v;
+    } else if (a.startsWith("--")) throw new Error(`disk run-root: unknown option ${a}`);
+    else if (opts.name === undefined) opts.name = a;
+    else throw new Error("disk run-root: one run root name only");
+  }
+  if (opts.name === undefined) throw new Error("disk run-root <name> [--days N] | --release <name>");
+  if (opts.release && opts.days !== undefined) throw new Error("disk run-root: --release takes no --days");
+  const policy = readDiskPolicy(opts.policy);
+  const common = { policy, platform, env, name: opts.name, ...(deps.runRoot ?? {}) };
+  try {
+    if (opts.release) {
+      const r = releaseRunRoot(common);
+      stdout(opts.json ? JSON.stringify(r) : r.released ? `released ${r.path}: the lease is gone, the directory ages out by the scratch rules` : `${r.path} had no lease`);
+      return { exitCode: 0, result: r };
+    }
+    const r = createRunRoot({ ...common, days: opts.days });
+    stdout(opts.json ? JSON.stringify({ path: r.path, ...r.lease }) : `${r.renewed ? "renewed" : "leased"} run root ${r.path} until ${r.lease.leaseUntil}; the sweep skips it until then (end it early: right-release disk run-root --release ${opts.name})`);
+    return { exitCode: 0, result: r };
+  } catch (error) {
+    stderr(error.message);
+    return { exitCode: 1, error: error.message };
+  }
+}
+
 export async function runDiskCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, platform = process.platform, deps = {} } = {}) {
   const [command, ...rest] = args;
   if (command === "agent-env") return agentEnvCommand(rest, { env, stdout, platform, deps });
@@ -617,6 +652,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     stdout(off ? `workspace-unknown sweep revoked on this host (${file}.revoked)` : `workspace-unknown sweep allowed on this host (${file}); review \`disk sweep --dry-run --all\` first, revoke with --off`);
     return { exitCode: 0 };
   }
+  if (command === "run-root") return runRootCommand(rest, { env, stdout, platform, deps });
   const opts = parse(rest);
   const policy = readDiskPolicy(opts.policy);
   const key = platformKey(platform);
@@ -684,7 +720,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
       const purged = squeezed ? emergencyPurge(squeezed) : null;
       const floors = checkFloors(floorOptions);
       const lead = floors.find((f) => f.agentVolume && !f.absent) ?? floors[0];
-      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length });
+      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
       stdout(`light pass: moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length}), ${lead.absent ? `${lead.label} is not readable` : `${lead.label} ${formatBytes(lead.freeBytes)} free`}`);
       return { exitCode: 0, pass: "light", plan: p, applied, purged, floors, selfCheck: self };
     }
@@ -705,7 +741,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     }
     const after = check();
     const warn = after.warn;
-    log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length });
+    log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
     // One report a UTC day: its per-unit sizes need a du per scratch run, which only the daily pass may afford.
     const previousReport = lastEvent(logFile, ["disk.report"]);
     if (reportDue({ lastReportTs: previousReport?.ts, now: nowMs })) {

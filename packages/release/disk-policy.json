@@ -29,6 +29,7 @@
     "win": [{"path": "D:\\claude"}]
   },
   "workspaceAllowlist": [".DS_Store", ".git", "node_modules", "tmp", "reports", "tasks", ".cache", "bin", "repos", "packages", "tests", "schemas", "assets", "migration", "archive", "catalog.db", "catalog.db-shm", "catalog.db-wal", "apple-skill-sources", "foundation-runs", "SEO", ".audit", ".commandcode", ".fastembed_cache", ".legion", ".model-bench", ".pnpm-store", ".pytest_cache", ".research", ".right-release", ".rightkit-managed", ".tether", ".venv-tools", ".vite"],
+  "scratchPrefixCaps": {"legion": 42949672960, "rk": 32212254720, "pulse": 21474836480, "hr": 21474836480},
   "scratchRoots": {
     "mac": ["/Volumes/D/scratch"],
     "win": ["D:\\scratch"]

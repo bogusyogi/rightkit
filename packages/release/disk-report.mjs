@@ -1,7 +1,7 @@
 import { lstatSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { pathSize, platformKey, scratchRoots } from "./disk-policy.mjs";
+import { pathSize, platformKey, scratchOwner, scratchRoots } from "./disk-policy.mjs";
 
 // The daily `disk.report` line of disk-hygiene.jsonl. Pulse's Storage card reads it: the field names below are a contract
 // (frozen in disk-report.test.mjs). Pure apart from `measureScratchUnits`.
@@ -9,8 +9,7 @@ import { pathSize, platformKey, scratchRoots } from "./disk-policy.mjs";
 const UNIT_LIMIT = 50;
 const GROWER_LIMIT = 10;
 
-/** Owner of a scratch run: the name before its first `-` (legion-..., rk-..., pulse-..., hr-...). */
-export const scratchOwner = (name) => name.split("-")[0];
+export { scratchOwner };
 
 /** True when the last report is from another UTC day than `now` (or there is none). */
 export function reportDue({ lastReportTs, now }) {

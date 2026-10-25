@@ -32,6 +32,9 @@ export function readDiskPolicy(file = DEFAULT_POLICY_FILE) {
   for (const [key, roots] of Object.entries(policy.strayTargets ?? {})) {
     for (const r of roots) if (typeof r.path !== "string" || !(Number.isInteger(r.depth ?? 4) && (r.depth ?? 4) >= 1 && (r.depth ?? 4) <= 8)) throw new Error(`disk policy: a ${key} strayTargets entry needs a path and a depth of 1 to 8`);
   }
+  for (const [prefix, cap] of Object.entries(policy.scratchPrefixCaps ?? {})) {
+    if (!RUN_ROOT_NAME.test(prefix) || prefix.includes("-") || !(Number.isFinite(cap) && cap >= 0)) throw new Error(`disk policy: scratchPrefixCaps.${prefix} needs a name without "-" and a byte cap >= 0`);
+  }
   for (const w of policy.writers) {
     if (w.budget !== undefined && !(Array.isArray(w.budget) && w.budget.length && w.budget.every((n) => n === "total" || BUDGET_PARTS.includes(n)))) throw new Error(`disk policy: ${w.id} budget must list parts of ${[...BUDGET_PARTS, "total"].join("|")}`);
     // `escalate` lets a report-only cache sweep its idle children once it is over cap by `factor` (see planSweep).
@@ -442,6 +445,98 @@ export function keptByMarker(unit, now, days, lstat = lstatSync) {
   } catch { return false; }
 }
 
+// ---- Run-root leases ------------------------------------------------------------------------------------------------------
+// A run root is a directory directly under a scratch root that an agent leased with `disk run-root <name>`: it holds
+// `.rightkit-run.json` = {"schema":1,"name","createdAt","leaseUntil"} (ISO times). The sweep leaves a unit with a valid lease alone,
+// and the write-time guard (build-control-policy) lets clones and downloads land only inside a run root. Keep the format: the guard
+// reads exactly this file.
+
+export const RUN_LEASE_FILE = ".rightkit-run.json";
+export const DEFAULT_LEASE_DAYS = 3;
+const RUN_ROOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+
+/** Owner of a scratch run: the name before its first `-` (legion-..., rk-..., pulse-..., hr-...). */
+export const scratchOwner = (name) => name.split("-")[0];
+
+/** The lease of a run-root directory, or null when it has none or the file is not a regular, well-formed lease (a symlink or an
+ * oversized file proves nothing). */
+export function readRunLease(unit, { lstat = lstatSync, readFile = readFileSync } = {}) {
+  try {
+    const file = path.join(unit, RUN_LEASE_FILE);
+    const st = lstat(file);
+    if (!st.isFile() || st.isSymbolicLink() || st.size > 4096) return null;
+    const lease = JSON.parse(readFile(file, "utf8"));
+    if (lease?.schema !== 1 || typeof lease.name !== "string" || !Number.isFinite(Date.parse(lease.createdAt)) || !Number.isFinite(Date.parse(lease.leaseUntil))) return null;
+    return lease;
+  } catch { return null; }
+}
+
+/** True while the unit's lease has not run out. */
+export function leasedByRunRoot(unit, now, options) {
+  const lease = readRunLease(unit, options);
+  return lease !== null && Date.parse(lease.leaseUntil) > now;
+}
+
+function runRootsBase({ policy, platform, env, home }) {
+  const roots = scratchRoots(policy, { platform, env, home });
+  if (!roots.length) throw new Error(`disk run-root: the policy has no scratch root for ${platformKey(platform)}`);
+  return roots[0];
+}
+
+function checkRunRootName(name) {
+  if (typeof name !== "string" || !RUN_ROOT_NAME.test(name) || name.endsWith(".")) throw new Error(`disk run-root: name ${JSON.stringify(name)} must be 1 to 80 letters, digits, dots, dashes or underscores, starting with a letter or digit (the part before the first "-" is the owner)`);
+}
+
+/** Lease `<scratch root>/<name>` for `days`: creates the directory and writes its lease file (renewing keeps `createdAt`). Refused,
+ * with nothing written, while the scratch root as a whole is over the `scratch-total` writer's cap or the name's owner prefix is over
+ * its `scratchPrefixCaps` entry: the agent has to release or remove finished run roots first. */
+export function createRunRoot({ policy, platform = process.platform, env = process.env, home = os.homedir(), name, days = DEFAULT_LEASE_DAYS, now = Date.now(), size = (p) => pathSize(p, { platform }) } = {}) {
+  checkRunRootName(name);
+  if (!(Number.isFinite(days) && days > 0)) throw new Error("disk run-root: --days must be a positive number");
+  const base = runRootsBase({ policy, platform, env, home });
+  if (!ensureScratchRoots({ policy, platform, env, home }).includes(base)) throw new Error(`disk run-root: scratch root ${base} does not exist and cannot be created (is the volume mounted?)`);
+  if (lstatSync(base).isSymbolicLink()) throw new Error(`disk run-root: scratch root ${base} is a symlink`);
+  const key = platformKey(platform);
+  const total = policy.writers.find((w) => w.id === "scratch-total" && w.platform === key);
+  if (total) {
+    const bytes = size(base);
+    if (bytes > total.capBytes) throw new Error(`disk run-root: refused, scratch holds ${formatBytes(bytes)} over its ${formatBytes(total.capBytes)} total cap; release or remove finished run roots in ${base} first`);
+  }
+  const owner = scratchOwner(name);
+  const prefixCap = policy.scratchPrefixCaps?.[owner];
+  if (prefixCap !== undefined) {
+    let names = [];
+    try { names = readdirSync(base); } catch { /* unreadable: nothing counted */ }
+    const bytes = names.filter((n) => scratchOwner(n) === owner).reduce((sum, n) => sum + size(path.join(base, n)), 0);
+    if (bytes > prefixCap) throw new Error(`disk run-root: refused, "${owner}" run roots hold ${formatBytes(bytes)} over their ${formatBytes(prefixCap)} cap; release or remove finished ${owner}-* run roots in ${base} first`);
+  }
+  const dir = path.join(base, name);
+  mkdirSync(dir, { recursive: true });
+  if (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory()) throw new Error(`disk run-root: ${dir} is not a plain directory`);
+  const file = path.join(dir, RUN_LEASE_FILE);
+  try { if (!lstatSync(file).isFile()) throw new Error(`disk run-root: ${file} is not a regular file`); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const existing = readRunLease(dir);
+  const lease = { schema: 1, name, createdAt: existing?.createdAt ?? new Date(now).toISOString(), leaseUntil: new Date(now + days * 86400_000).toISOString() };
+  const temp = `${file}.tmp-${process.pid}`;
+  writeFileSync(temp, `${JSON.stringify(lease)}\n`);
+  renameSync(temp, file);
+  return { path: dir, lease, renewed: existing !== null };
+}
+
+/** End a run root's lease by removing its lease file; the directory stays and ages out by the normal scratch rules. Says whether a
+ * lease was there; throws when the run root does not exist. */
+export function releaseRunRoot({ policy, platform = process.platform, env = process.env, home = os.homedir(), name } = {}) {
+  checkRunRootName(name);
+  const dir = path.join(runRootsBase({ policy, platform, env, home }), name);
+  let st;
+  try { st = lstatSync(dir); } catch { throw new Error(`disk run-root: no run root ${dir}`); }
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`disk run-root: ${dir} is not a plain directory`);
+  const file = path.join(dir, RUN_LEASE_FILE);
+  let had = false;
+  try { had = lstatSync(file).isFile(); if (had) rmSync(file); } catch { /* no lease file */ }
+  return { path: dir, released: had };
+}
+
 // ---- Stray cargo targets --------------------------------------------------------------------------------------------------
 // RustRight owns cargo targets (under .rightkit-managed). A `target` or `.cache/cargo-target` directory that cargo tagged
 // (CACHEDIR.TAG) anywhere else in a workspace or scratch root is a stray. The writer rows have no `**` and no content test,
@@ -570,6 +665,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); continue; }
       if (writer.skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); continue; }
       if (keptByMarker(unit, now, keepDays)) { skipped.push({ ...base, reason: "kept" }); continue; }
+      if (leasedByRunRoot(unit, now)) { skipped.push({ ...base, reason: "leased" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
       candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
@@ -592,6 +688,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); return; }
     if (skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); return; }
     if (keptByMarker(unit, now, keepDays)) { skipped.push({ ...base, reason: "kept" }); return; }
+    if (leasedByRunRoot(unit, now)) { skipped.push({ ...base, reason: "leased" }); return; }
     if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); return; }
     if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); return; }
     candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
@@ -616,10 +713,10 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     let root;
     try { root = expandPolicyPath(entry.path, { env, home }); } catch { continue; }
     for (const unit of strays(root, { depth: entry.depth ?? 4, protectedSegments: policy.protectedSegments })) {
-      // a `.keep` on any directory between the root and the target (a scratch run, a checkout) keeps what is beneath it
-      let held = false;
-      for (let dir = path.dirname(unit); dir !== root && dir.startsWith(root); dir = path.dirname(dir)) held = held || keptByMarker(dir, now, keepDays);
-      if (held) { skipped.push({ writer: "stray-cargo-target", path: unit, reason: "kept" }); continue; }
+      // a `.keep` or a live run-root lease on any directory between the root and the target (a scratch run, a checkout) keeps what is beneath it
+      let held = null;
+      for (let dir = path.dirname(unit); dir !== root && dir.startsWith(root); dir = path.dirname(dir)) held = held ?? (keptByMarker(dir, now, keepDays) ? "kept" : leasedByRunRoot(dir, now) ? "leased" : null);
+      if (held) { skipped.push({ writer: "stray-cargo-target", path: unit, reason: held }); continue; }
       consider("stray-cargo-target", unit, root, strayCutoff, { skipTracked: true });
     }
   }

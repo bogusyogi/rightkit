@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { CACHEDIR_SIGNATURE, KEEP_MARKER, ensureScratchRoots, readRustrightBudget, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
+import { CACHEDIR_SIGNATURE, KEEP_MARKER, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
@@ -1846,5 +1846,192 @@ test("committed policy: the build-control rows follow RustRight's budget (total,
     assert.equal(row("build-control-targets").capBytes, 250e9, platform); // the offline default when RustRight cannot be read
     assert.deepEqual((row("build-control-sccache") ?? row("win-sccache")).budget, ["sccache"], platform);
     assert.equal(row("scratch-total").category, "scratch", platform);
+  }
+});
+
+// ---- run-root leases -------------------------------------------------------------------------------------------------------
+
+// A scratch root with a total cap and per-owner caps; sizes come from a table keyed by the path relative to the root.
+function leaseFixture({ sizes = {}, total = 1000, caps = { rk: 100, legion: 400 } } = {}) {
+  const { root, policy } = fixture();
+  const scratch = path.join(root, "scratch");
+  mkdirSync(scratch);
+  for (const name of Object.keys(sizes)) mkdirSync(path.join(scratch, name)); // the sizes table stands in for their contents
+  policy.scratchRoots = { mac: [scratch] };
+  policy.scratchStaleDays = 1;
+  policy.scratchPrefixCaps = caps;
+  policy.writers = [{ id: "scratch-total", platform: "mac", path: scratch, capBytes: total, action: "report" }];
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  const size = (p) => (p === scratch ? Object.values(sizes).reduce((a, b) => a + b, 0) : sizes[path.relative(scratch, p)] ?? 0);
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  const cmd = async (args, extra = {}) => {
+    const out = []; const err = [];
+    const r = await runDiskCommand(["run-root", ...args, "--policy", pf], { platform: "darwin", stdout: (l) => out.push(l), deps: { runRoot: { size, now }, stderr: (l) => err.push(l), ...extra } });
+    return { ...r, out: out.join("\n"), err: err.join("\n") };
+  };
+  return { root, scratch, policy, pf, size, now, cmd };
+}
+
+test("run-root writes the lease file the guard reads: schema 1, name, createdAt, leaseUntil, three days by default", async () => {
+  const { scratch, now, cmd } = leaseFixture();
+  const r = await cmd(["rk-build-1"]);
+  assert.equal(r.exitCode, 0);
+  const file = path.join(scratch, "rk-build-1", RUN_LEASE_FILE);
+  assert.equal(RUN_LEASE_FILE, ".rightkit-run.json");
+  const lease = JSON.parse(readFileSync(file, "utf8"));
+  assert.deepEqual(lease, { schema: 1, name: "rk-build-1", createdAt: "2026-10-24T12:00:00.000Z", leaseUntil: "2026-10-27T12:00:00.000Z" });
+  assert.deepEqual(Object.keys(lease), ["schema", "name", "createdAt", "leaseUntil"]);
+  assert.equal(lstatSync(file).isFile(), true);
+  assert.match(r.out, /leased run root .*rk-build-1 until 2026-10-27T12:00:00\.000Z/);
+  const days = await cmd(["rk-long", "--days", "10"]);
+  assert.equal(JSON.parse(readFileSync(path.join(scratch, "rk-long", RUN_LEASE_FILE), "utf8")).leaseUntil, "2026-11-03T12:00:00.000Z");
+  assert.equal(days.exitCode, 0);
+  const json = await cmd(["hr-j", "--json"]);
+  assert.deepEqual(JSON.parse(json.out), { path: path.join(scratch, "hr-j"), schema: 1, name: "hr-j", createdAt: new Date(now).toISOString(), leaseUntil: "2026-10-27T12:00:00.000Z" });
+});
+
+test("run-root renews a lease and keeps its createdAt; --release removes the lease file and leaves the directory", async () => {
+  const { scratch, now, cmd } = leaseFixture();
+  await cmd(["rk-a"]);
+  const later = await cmd(["rk-a", "--days", "1"], { runRoot: { size: () => 0, now: now + 86400_000 } });
+  assert.match(later.out, /renewed run root/);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(scratch, "rk-a", RUN_LEASE_FILE), "utf8")), { schema: 1, name: "rk-a", createdAt: new Date(now).toISOString(), leaseUntil: "2026-10-26T12:00:00.000Z" });
+  writeFileSync(path.join(scratch, "rk-a", "work.txt"), "x");
+  const gone = await cmd(["--release", "rk-a"]);
+  assert.equal(gone.exitCode, 0);
+  assert.match(gone.out, /released/);
+  assert.equal(existsSync(path.join(scratch, "rk-a", RUN_LEASE_FILE)), false);
+  assert.equal(existsSync(path.join(scratch, "rk-a", "work.txt")), true);
+  const again = await cmd(["rk-a", "--release"]);
+  assert.equal(again.exitCode, 0);
+  assert.match(again.out, /had no lease/);
+  const missing = await cmd(["--release", "rk-nothing"]);
+  assert.equal(missing.exitCode, 1);
+  assert.match(missing.err, /no run root/);
+});
+
+test("run-root refuses a name that is not a single plain segment and writes nothing", async () => {
+  const { scratch, cmd } = leaseFixture();
+  for (const name of ["../escape", "a/b", "a\\b", ".hidden", "-x", "x y", "", "a".repeat(81), "dot."]) {
+    const r = await cmd([name]);
+    assert.equal(r.exitCode, 1, JSON.stringify(name));
+    assert.match(r.err, /must be 1 to 80 letters/);
+  }
+  assert.deepEqual(readdirSync(scratch), []);
+  await assert.rejects(() => cmd(["rk-x", "--days", "0"]).then((r) => { if (r.exitCode) throw new Error(r.err); }), /positive/);
+  await assert.rejects(() => cmd(["rk-x", "--bogus"]), /unknown option/);
+  await assert.rejects(() => cmd(["a", "b"]), /one run root name only/);
+  await assert.rejects(() => cmd(["--release", "rk-x", "--days", "2"]), /takes no --days/);
+});
+
+test("run-root refuses when the scratch total is over its cap, or the name's owner prefix is over its cap; other owners are unaffected", async () => {
+  const over = leaseFixture({ sizes: { "rk-1": 60, "rk-2": 60, "legion-1": 100 } });
+  const prefix = await over.cmd(["rk-3"]);
+  assert.equal(prefix.exitCode, 1);
+  assert.match(prefix.err, /"rk" run roots hold .* over their .* cap; release or remove finished rk-\* run roots/);
+  assert.equal(existsSync(path.join(over.scratch, "rk-3")), false);
+  assert.equal((await over.cmd(["legion-9"])).exitCode, 0); // 100 of 400
+  assert.equal((await over.cmd(["other-1"])).exitCode, 0); // no cap for this owner
+  const full = leaseFixture({ sizes: { "legion-1": 900, "rk-1": 50, "x-1": 100 } });
+  const total = await full.cmd(["legion-2"]);
+  assert.equal(total.exitCode, 1);
+  assert.match(total.err, /scratch holds .* over its .* total cap/);
+  assert.equal(existsSync(path.join(full.scratch, "legion-2")), false);
+  assert.equal((await full.cmd(["rk-2"])).exitCode, 1); // the total applies to every owner
+  // exactly at the cap is not over it
+  const edge = leaseFixture({ sizes: { "rk-1": 100 }, total: 100 });
+  assert.equal((await edge.cmd(["rk-2"])).exitCode, 0);
+});
+
+test("run-root refuses a symlinked name and a lease path that is not a regular file", async () => {
+  const { root, scratch, cmd } = leaseFixture();
+  symlinkSync(root, path.join(scratch, "rk-link"));
+  assert.equal((await cmd(["rk-link"])).exitCode, 1);
+  mkdirSync(path.join(scratch, "rk-dirlease", RUN_LEASE_FILE), { recursive: true });
+  const r = await cmd(["rk-dirlease"]);
+  assert.equal(r.exitCode, 1);
+  assert.match(r.err, /not a regular file/);
+  assert.equal(existsSync(path.join(root, RUN_LEASE_FILE)), false);
+});
+
+test("createRunRoot and releaseRunRoot: no scratch root for the platform, or no scratch volume, is an error", () => {
+  const { policy, root } = leaseFixture();
+  assert.throws(() => createRunRoot({ policy: { ...policy, scratchRoots: {} }, platform: "darwin", name: "rk-a" }), /no scratch root/);
+  assert.throws(() => createRunRoot({ policy: { ...policy, scratchRoots: { mac: [path.join(root, "no", "such", "scratch")] } }, platform: "darwin", name: "rk-a" }), /does not exist and cannot be created/);
+  assert.throws(() => releaseRunRoot({ policy: { ...policy, scratchRoots: {} }, platform: "darwin", name: "rk-a" }), /no scratch root/);
+});
+
+// A scratch run with a lease file, its contents idle for `idleDays`.
+function leasedRun(scratch, name, lease, idleDays = 5) {
+  file(path.join(scratch, name, "f"), 10, Date.now() - idleDays * 86400_000);
+  if (lease !== null) {
+    writeFileSync(path.join(scratch, name, RUN_LEASE_FILE), typeof lease === "string" ? lease : JSON.stringify(lease));
+    utimesSync(path.join(scratch, name, RUN_LEASE_FILE), (Date.now() - idleDays * 86400_000) / 1000, (Date.now() - idleDays * 86400_000) / 1000);
+  }
+  utimesSync(path.join(scratch, name), (Date.now() - idleDays * 86400_000) / 1000, (Date.now() - idleDays * 86400_000) / 1000);
+}
+
+const leaseOf = (name, untilMs) => ({ schema: 1, name, createdAt: new Date(untilMs - 3 * DAY).toISOString(), leaseUntil: new Date(untilMs).toISOString() });
+
+test("sweep: a scratch run with a valid lease is skipped as leased however idle it is; an expired or unreadable lease protects nothing", () => {
+  const { scratch, policy } = leaseFixture();
+  const now = Date.now();
+  leasedRun(scratch, "rk-live", leaseOf("rk-live", now + DAY));
+  leasedRun(scratch, "rk-expired", leaseOf("rk-expired", now - 3600_000));
+  leasedRun(scratch, "rk-plain", null);
+  leasedRun(scratch, "rk-garbage", "{not json");
+  leasedRun(scratch, "rk-schema2", { ...leaseOf("rk-schema2", now + DAY), schema: 2 });
+  leasedRun(scratch, "rk-nodate", { schema: 1, name: "rk-nodate", createdAt: "x", leaseUntil: "y" });
+  leasedRun(scratch, "rk-huge", JSON.stringify({ ...leaseOf("rk-huge", now + DAY), pad: "x".repeat(5000) }));
+  // a symlinked lease file proves nothing, even when the target is a valid lease
+  leasedRun(scratch, "rk-symlink", null);
+  writeFileSync(path.join(scratch, "elsewhere.json"), JSON.stringify(leaseOf("rk-symlink", now + DAY)));
+  symlinkSync(path.join(scratch, "elsewhere.json"), path.join(scratch, "rk-symlink", RUN_LEASE_FILE));
+  lutimesSync(path.join(scratch, "rk-symlink", RUN_LEASE_FILE), (now - 5 * DAY) / 1000, (now - 5 * DAY) / 1000);
+  utimesSync(path.join(scratch, "rk-symlink"), (now - 5 * DAY) / 1000, (now - 5 * DAY) / 1000);
+  utimesSync(path.join(scratch, "elsewhere.json"), (now - 5 * DAY) / 1000, (now - 5 * DAY) / 1000);
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  const moved = plan.candidates.filter((c) => c.writer === "scratch-root").map((c) => path.basename(c.path)).sort();
+  assert.deepEqual(moved, ["elsewhere.json", "rk-expired", "rk-garbage", "rk-huge", "rk-nodate", "rk-plain", "rk-schema2", "rk-symlink"]);
+  assert.deepEqual(plan.skipped.filter((s) => s.reason === "leased").map((s) => path.basename(s.path)), ["rk-live"]);
+});
+
+test("sweep: a stray cargo target inside a leased run root stays with the run", () => {
+  const { scratch, policy } = leaseFixture();
+  const now = Date.now();
+  policy.protectedSegments = ["Application Support", ".rightkit-managed"];
+  policy.strayTargets = { mac: [{ path: scratch, depth: 4 }] };
+  policy.strayTargetDays = 1;
+  for (const [name, lease] of [["rk-live", leaseOf("rk-live", now + DAY)], ["rk-free", null]]) {
+    leasedRun(scratch, name, lease);
+    cargoTarget(path.join(scratch, name, "repo", "target"), now - 5 * DAY);
+    for (const dir of [path.join(scratch, name, "repo"), path.join(scratch, name)]) utimesSync(dir, (now - 5 * DAY) / 1000, (now - 5 * DAY) / 1000);
+  }
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  const strays = plan.candidates.filter((c) => c.writer === "stray-cargo-target").map((c) => path.relative(scratch, c.path));
+  assert.deepEqual(strays, []); // rk-free's run (scratch child, idle) takes its target along as one unit instead
+  assert.deepEqual(plan.candidates.map((c) => path.basename(c.path)), ["rk-free"]);
+  assert.deepEqual(plan.skipped.filter((s) => s.reason === "leased").map((s) => path.relative(scratch, s.path)).sort(), ["rk-live", path.join("rk-live", "repo", "target")].sort());
+});
+
+test("readRunLease and leasedByRunRoot read only a regular, well-formed lease and compare with the injected clock", () => {
+  const { scratch } = leaseFixture();
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  leasedRun(scratch, "rk-a", leaseOf("rk-a", now + 1000));
+  assert.equal(readRunLease(path.join(scratch, "rk-a")).name, "rk-a");
+  assert.equal(leasedByRunRoot(path.join(scratch, "rk-a"), now), true);
+  assert.equal(leasedByRunRoot(path.join(scratch, "rk-a"), now + 1000), false); // until is exclusive
+  assert.equal(readRunLease(path.join(scratch, "nothing")), null);
+});
+
+test("committed policy: per-owner scratch caps, and readDiskPolicy rejects a malformed cap", () => {
+  const policy = readDiskPolicy();
+  assert.deepEqual(policy.scratchPrefixCaps, { legion: 40 * 1024 ** 3, rk: 30 * 1024 ** 3, pulse: 20 * 1024 ** 3, hr: 20 * 1024 ** 3 });
+  const { root, policy: base } = fixture();
+  const pf = path.join(root, "bad.json");
+  for (const caps of [{ "a-b": 1 }, { rk: -1 }, { rk: "5" }, { "": 1 }]) {
+    writeFileSync(pf, JSON.stringify({ ...base, scratchPrefixCaps: caps }));
+    assert.throws(() => readDiskPolicy(pf), /scratchPrefixCaps/);
   }
 });
