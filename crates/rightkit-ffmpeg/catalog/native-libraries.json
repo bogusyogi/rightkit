@@ -140,7 +140,7 @@
       "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
       "licenseSpdx": "BSD-3-Clause",
       "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt", "third-party/PDFium-chromium-8021-ThirdPartyNotices.txt"],
-      "verification": { "method": "file-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin. 2026-10-24 (cloud session): the archive re-downloaded, sha256 equal to the pin; sha256 is lib/libpdfium.dylib (7203136 bytes) extracted from it. No contentSha256: the content-digest parser refuses this dylib (__LINKEDIT does not run to the end of the file), so a copy re-signed inside an app bundle does not verify at load until the row carries a digest that survives signing. Not loaded here." }
+      "verification": { "method": "file-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin. 2026-10-24 (cloud session): the archive re-downloaded, sha256 equal to the pin; sha256 is lib/libpdfium.dylib (7203136 bytes) extracted from it. This row is pinned and carries no hostProof because ScrapeRight ships this archive in production but this repository has not loaded it. No contentSha256: the content-digest parser refuses this dylib (__LINKEDIT does not run to the end of the file), so a copy re-signed inside an app bundle cannot verify at load until the row carries a digest that survives signing." }
     },
     {
       "id": "pdfium-chromium-8021-macos-x86_64",
@@ -160,7 +160,7 @@
       "sourceUrl": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F8021",
       "licenseSpdx": "BSD-3-Clause",
       "noticeFiles": ["third-party/PDFium-BSD-3-Clause.txt", "third-party/PDFium-chromium-8021-ThirdPartyNotices.txt"],
-      "verification": { "method": "file-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin. 2026-10-24 (cloud session): the archive re-downloaded, sha256 equal to the pin; sha256 is lib/libpdfium.dylib (7506120 bytes) extracted from it. No contentSha256: the content-digest parser refuses this dylib (__LINKEDIT does not run to the end of the file), so a copy re-signed inside an app bundle does not verify at load until the row carries a digest that survives signing. Not loaded here." }
+      "verification": { "method": "file-sha256", "evidence": "ScrapeRight scripts/package-macos-helpers.sh ensure_pdfium pin. 2026-10-24 (cloud session): the archive re-downloaded, sha256 equal to the pin; sha256 is lib/libpdfium.dylib (7506120 bytes) extracted from it. This row is pinned and carries no hostProof because ScrapeRight ships this archive in production but this repository has not loaded it. No contentSha256: the content-digest parser refuses this dylib (__LINKEDIT does not run to the end of the file), so a copy re-signed inside an app bundle cannot verify at load until the row carries a digest that survives signing." }
     },
     {
       "id": "pdfium-chromium-8021-windows-x64",

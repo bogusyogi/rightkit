@@ -251,12 +251,16 @@ impl ResolveOptions {
 /// Verify the one file at `path` against each of `variants` in order (with `verify`, for example
 /// [`verify_bundled_ffmpeg`]) and return the first success.
 ///
-/// It goes on to the next variant only when the error is not-in-catalog
+/// It goes on to the next variant when the error is not-in-catalog
 /// ([`MediaError::is_not_in_catalog`]: the file's digest is not that variant's row, or the
-/// variant has no approved row for this platform). Any other error (the build probe failed, I/O,
-/// the wrong tool, a pending or ambiguous row) says something a different variant cannot fix, and
-/// is returned at once. When every variant is not in the catalog, the first variant's error is
-/// returned. An empty `variants` list is [`MediaError::MissingMetadata`].
+/// variant has no approved row for this platform) and also when it is
+/// [`MediaError::ArtifactPending`] (the variant's only row for this host is pending, so the
+/// variant cannot be used here, and a later variant may be approved: `[export-ass-zimg, decode]`
+/// on a host where only `decode` is approved). Any other error (the build probe failed, I/O,
+/// the wrong tool, an ambiguous row) says something a different variant cannot fix, and is
+/// returned at once. When every variant fails this way, the first variant's error is returned,
+/// so a development fallback (which applies only to a not-in-catalog error) is not offered for a
+/// pending row. An empty `variants` list is [`MediaError::MissingMetadata`].
 pub fn verify_first_of<V, S: AsRef<str>>(
     path: &Path,
     variants: &[S],
@@ -267,7 +271,10 @@ pub fn verify_first_of<V, S: AsRef<str>>(
     for variant in variants {
         match verify(path, variant.as_ref(), timeout) {
             Ok(verified) => return Ok(verified),
-            Err(error) if error.is_not_in_catalog() => {
+            Err(error)
+                if error.is_not_in_catalog()
+                    || matches!(error, MediaError::ArtifactPending { .. }) =>
+            {
                 first_error.get_or_insert(error);
             }
             Err(error) => return Err(error),
@@ -1159,5 +1166,88 @@ mod tests {
             Err(MediaError::MissingMetadata("variants"))
         ));
         assert!(!MediaError::MissingMetadata("variants").is_not_in_catalog());
+    }
+
+    fn pending(id: &str) -> MediaError {
+        MediaError::ArtifactPending { id: id.to_owned() }
+    }
+
+    #[test]
+    fn verify_first_of_skips_a_pending_variant_and_uses_the_next_approved_one() {
+        let (_dir, _exe, bundled, _over) = layout();
+        let asked = Variants::new();
+        // `[export-ass-zimg, decode]` on a host where export-ass-zimg is pending and decode is approved.
+        let used = verify_first_of(
+            &bundled,
+            &["zimg", "decode"],
+            Duration::from_secs(1),
+            asked.verify(|variant| {
+                if variant == "decode" {
+                    Ok(variant.to_owned())
+                } else {
+                    Err(pending("zimg-row"))
+                }
+            }),
+        )
+        .unwrap();
+        assert_eq!(used, "decode");
+        assert_eq!(asked.asked(), ["zimg", "decode"]);
+    }
+
+    #[test]
+    fn verify_first_of_returns_the_first_variants_error_when_every_variant_is_pending() {
+        let (_dir, _exe, bundled, _over) = layout();
+        let asked = Variants::new();
+        let error = verify_first_of(
+            &bundled,
+            &["a", "b"],
+            Duration::from_secs(1),
+            asked.verify(|variant| Err(pending(&format!("row-{variant}")))),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, MediaError::ArtifactPending { id } if id == "row-a"),
+            "{error:?}"
+        );
+        assert_eq!(asked.asked(), ["a", "b"]);
+    }
+
+    #[test]
+    fn verify_first_of_still_returns_any_other_error_at_once_after_a_pending_variant() {
+        let (_dir, _exe, bundled, _over) = layout();
+        let asked = Variants::new();
+        let error = verify_first_of(
+            &bundled,
+            &["a", "b", "c"],
+            Duration::from_secs(1),
+            asked.verify(|variant| match variant {
+                "a" => Err(pending("row-a")),
+                "b" => Err(MediaError::BuildProbeFailed),
+                _ => Ok(variant.to_owned()),
+            }),
+        )
+        .unwrap_err();
+        assert!(matches!(error, MediaError::BuildProbeFailed), "{error:?}");
+        assert_eq!(asked.asked(), ["a", "b"]);
+    }
+
+    #[test]
+    fn a_pending_only_variant_list_gets_no_development_fallback() {
+        let (_dir, exe, _bundled, _over) = layout();
+        let options = ResolveOptions::new().variants(["a", "b"]);
+        let error = run_in(
+            &exe,
+            BuildMode::Development,
+            &options,
+            |_: &Path, variant: &str, _| -> Result<String, MediaError> {
+                Err(pending(&format!("row-{variant}")))
+            },
+        )
+        .map(|_| ())
+        .unwrap_err();
+        assert!(
+            matches!(error, MediaError::ArtifactPending { .. }),
+            "{error:?}"
+        );
     }
 }

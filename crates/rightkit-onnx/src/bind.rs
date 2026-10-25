@@ -51,7 +51,9 @@ pub enum BindVerification {
     /// The native-library catalog: the file must be this host's `onnxruntime` row (an `approved`
     /// or `pinned` one) by name and digest, and every companion file of that row that sits beside
     /// it must match its own row. A companion that is absent is reported, not an error, so a
-    /// CPU-only app can run without the DirectML library. Needs the `catalog` feature.
+    /// CPU-only app can run without the DirectML library; [`BindSpec::require_companions`] turns
+    /// an absent companion into [`VerificationFailure::MissingCompanions`]. Needs the `catalog`
+    /// feature.
     #[cfg(feature = "catalog")]
     Catalog,
 }
@@ -77,11 +79,30 @@ pub struct BindSpec {
     pub verification: BindVerification,
     /// Put the runtime's directory first on `PATH` ([`crate::prepend_runtime_dir_to_path`]) so DLLs
     /// that sit beside it load. Windows resolves a library's own dependencies from `PATH`.
+    ///
+    /// Windows host proof pending: the directory put on `PATH` (and the file named by
+    /// `ORT_DYLIB_PATH`) comes from the selected runtime's canonical path, and
+    /// `std::fs::canonicalize` returns a verbatim path (`\\?\C:\...`) on Windows. The catalog
+    /// check's own `VerifiedLibrary::path` is canonical the same way. This crate has not run a
+    /// verbatim directory as a `PATH` entry (the loader's DLL dependency search) on a Windows
+    /// host, so that this works is unproven. Run it on a Windows host before relying on
+    /// `prepend_path` there, and strip the prefix of a non-UNC path in the app if the DirectML or
+    /// other sibling DLLs do not load.
     pub prepend_path: bool,
     /// Overwrite an existing `ORT_DYLIB_PATH` ([`RuntimeBindingOptions::force_replace`]).
     pub force_replace: bool,
     /// QA only ([`RuntimeBindingOptions::allow_known_bad_runtime`]).
     pub allow_known_bad_runtime: bool,
+    /// With [`BindVerification::Catalog`]: refuse the bind when a companion row of the runtime
+    /// (for example `DirectML.dll` beside the Windows DirectML runtime) has no file beside it,
+    /// with [`BindError::VerificationFailed`] carrying
+    /// [`VerificationFailure::MissingCompanions`]. Nothing is bound. Default `false`: an absent
+    /// companion is only listed in [`CatalogReport::companions_missing`], so a CPU-only app runs
+    /// without it. A companion that is present is always verified, whatever this says. No effect
+    /// with [`BindVerification::Manifest`] (a manifest names no companions). Needs the `catalog`
+    /// feature.
+    #[cfg(feature = "catalog")]
+    pub require_companions: bool,
 }
 
 impl BindSpec {
@@ -97,6 +118,8 @@ impl BindSpec {
             prepend_path: false,
             force_replace: false,
             allow_known_bad_runtime: false,
+            #[cfg(feature = "catalog")]
+            require_companions: false,
         }
     }
 }
@@ -188,6 +211,10 @@ pub enum VerificationFailure {
     Manifest(RuntimeError),
     #[cfg(feature = "catalog")]
     Catalog(NativeCatalogError),
+    /// [`BindSpec::require_companions`] is set and these companion rows have no file beside the
+    /// runtime. The runtime and every companion that is present matched their rows.
+    #[cfg(feature = "catalog")]
+    MissingCompanions(Vec<MissingCompanion>),
 }
 
 impl fmt::Display for BindError {
@@ -205,6 +232,14 @@ impl fmt::Display for BindError {
                     VerificationFailure::Manifest(error) => write!(f, "{error}"),
                     #[cfg(feature = "catalog")]
                     VerificationFailure::Catalog(error) => write!(f, "{error}"),
+                    #[cfg(feature = "catalog")]
+                    VerificationFailure::MissingCompanions(missing) => {
+                        write!(f, "required companion file(s) missing beside the runtime:")?;
+                        for companion in missing {
+                            write!(f, " {} ({})", companion.file_name, companion.id)?;
+                        }
+                        Ok(())
+                    }
                 }
             }
         }
@@ -220,6 +255,8 @@ impl std::error::Error for BindError {
                 VerificationFailure::Manifest(error) => Some(error),
                 #[cfg(feature = "catalog")]
                 VerificationFailure::Catalog(error) => Some(error),
+                #[cfg(feature = "catalog")]
+                VerificationFailure::MissingCompanions(_) => None,
             },
         }
     }
@@ -435,9 +472,16 @@ fn verify(
             .map(VerificationReport::Manifest)
             .map_err(|error| failed(VerificationFailure::Manifest(error))),
         #[cfg(feature = "catalog")]
-        BindVerification::Catalog => verify_catalog(host, path)
-            .map(VerificationReport::Catalog)
-            .map_err(|error| failed(VerificationFailure::Catalog(error))),
+        BindVerification::Catalog => {
+            let report = verify_catalog(host, path)
+                .map_err(|error| failed(VerificationFailure::Catalog(error)))?;
+            if spec.require_companions && !report.companions_missing.is_empty() {
+                return Err(failed(VerificationFailure::MissingCompanions(
+                    report.companions_missing,
+                )));
+            }
+            Ok(VerificationReport::Catalog(report))
+        }
     }
 }
 
@@ -1032,6 +1076,77 @@ mod tests {
                 }]
             );
             assert_eq!(host.runtime_env, Some(runtime));
+        }
+
+        #[test]
+        fn require_companions_turns_an_absent_companion_into_a_typed_error() {
+            let fixture = Fixture::new();
+            let dir = fixture.bundled_dir();
+            fixture.bare_runtime_in(&dir, ORT_BYTES);
+            // The default keeps the report entry: `an_approved_runtime_binds_...` above.
+            assert!(!BindSpec::new(BindVerification::Catalog).require_companions);
+            assert!(!catalog_spec(&fixture).require_companions);
+
+            let strict = BindSpec {
+                require_companions: true,
+                ..catalog_spec(&fixture)
+            };
+            let mut host = catalog_host(&fixture, catalog("approved", false));
+            let Err(BindError::VerificationFailed {
+                reason: VerificationFailure::MissingCompanions(missing),
+                ..
+            }) = bind_with(&strict, &mut host)
+            else {
+                panic!("expected the missing-companion refusal");
+            };
+            assert_eq!(
+                missing,
+                [MissingCompanion {
+                    id: DML_ID.into(),
+                    file_name: "DirectML.dll".into()
+                }]
+            );
+            host.assert_untouched();
+            assert!(!host.events.iter().any(|e| e.starts_with("check")));
+
+            // The message names the file and the row.
+            let message = BindError::VerificationFailed {
+                path: dir.clone(),
+                reason: VerificationFailure::MissingCompanions(missing),
+            }
+            .to_string();
+            assert!(
+                message.contains("DirectML.dll") && message.contains(DML_ID),
+                "{message}"
+            );
+
+            // With the companion present the same strict spec binds.
+            std::fs::write(dir.join("DirectML.dll"), DML_BYTES).unwrap();
+            let mut host = catalog_host(&fixture, catalog("approved", false));
+            let bound = bind_with(&strict, &mut host).unwrap();
+            assert!(catalog_report(&bound).companions_missing.is_empty());
+            assert!(host.runtime_env.is_some());
+        }
+
+        #[test]
+        fn require_companions_does_not_excuse_a_tampered_companion() {
+            let fixture = Fixture::new();
+            let dir = fixture.bundled_dir();
+            fixture.bare_runtime_in(&dir, ORT_BYTES);
+            std::fs::write(dir.join("DirectML.dll"), b"tampered directml").unwrap();
+            let strict = BindSpec {
+                require_companions: true,
+                ..catalog_spec(&fixture)
+            };
+            let mut host = catalog_host(&fixture, catalog("approved", false));
+            assert!(matches!(
+                bind_with(&strict, &mut host),
+                Err(BindError::VerificationFailed {
+                    reason: VerificationFailure::Catalog(NativeCatalogError::DigestMismatch { .. }),
+                    ..
+                })
+            ));
+            host.assert_untouched();
         }
 
         #[test]

@@ -154,10 +154,28 @@ impl FfmpegBinary for VerifiedFfmpeg {
 /// Policy by build mode (see [`BuildMode`]): [`DevFfmpeg::try_unverified`] refuses with
 /// [`MediaError::UnverifiedRefusedInRelease`] in any build without the `dev-overrides` feature.
 /// `DevFfmpeg::unverified`, which has no mode check, is compiled only in this crate's own test
-/// builds and with `dev-overrides`. This crate's development fallbacks
-/// ([`crate::verified_or_development`], [`crate::resolve_ffmpeg_handle`]) check the mode before
-/// they build one. No other constructor exists and a release build has no escape: it runs a
-/// catalog-verified binary or none.
+/// builds and with `dev-overrides`.
+///
+/// What is closed: the two public constructors that turned a bare path into a `DevFfmpeg` with
+/// no mode check. `DevFfmpeg::allow_in_release_builds` is removed in every build and
+/// `DevFfmpeg::unverified` does not exist without the feature (both are proved by the doctests
+/// below). This is not a guarantee that a release build runs only catalog-verified binaries.
+/// What remains open, by design or as a follow-up:
+///
+/// - [`crate::dev_resolve::resolve_for_development`] is a public function with no mode check:
+///   it returns a `DevFfmpeg` for the first existing candidate (including `RIGHTKIT_FFMPEG`)
+///   when none verifies against the catalog. Its callers (`rightkit-audio`, `rightkit-motion`
+///   and this crate's end-to-end tests) depend on that, so its behaviour is unchanged here.
+///   Gating it behind `dev-overrides` is a follow-up, not done in this change.
+/// - [`FfmpegBinary`] is a public, unsealed trait: any type can implement it and be passed to
+///   the runner.
+/// - [`BuildMode::Development`] is a public variant: a caller that passes it to
+///   [`crate::handle::verified_or_development_in`] or [`crate::unverified::resolve_unverified`]
+///   gets the development fallback in any build.
+///
+/// The crate's own fallbacks ([`crate::verified_or_development`],
+/// [`crate::resolve_ffmpeg_handle`]) check the mode before they build a `DevFfmpeg` through a
+/// crate-private constructor.
 ///
 /// ```
 /// use rightkit_ffmpeg::DevFfmpeg;

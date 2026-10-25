@@ -225,6 +225,14 @@ impl WhisperCpp {
     /// replaces one between the check and the load is outside it (the window
     /// `rightkit_ffmpeg::verified_library` documents). Keep the files in a directory only the app
     /// can write. The model file is not part of this check.
+    ///
+    /// Windows: the catalog's whisper.cpp and ggml rows for Windows are `planned` (no digest
+    /// yet), so this fails closed there today with [`VerifiedLoadError::Verification`]. Windows
+    /// host proof is also pending for the path that is loaded: it is the canonical path of the
+    /// verified file, and `std::fs::canonicalize` returns a verbatim path (`\\?\C:\...`) on
+    /// Windows. That path has not been given to `LoadLibraryW` (or to the loader's search of the
+    /// ggml files beside the library) on a Windows host. Prove the load on Windows when the rows
+    /// are pinned.
     #[cfg(not(target_os = "android"))]
     pub fn load_verified(
         library: &Path,

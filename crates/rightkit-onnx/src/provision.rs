@@ -452,19 +452,35 @@ fn existing_matches(
     let same_files = runtime.files.len() == plan.len()
         && plan.iter().all(|item| {
             runtime.files.iter().any(|file| {
-                file.path == item.out_name
-                    && item.record.sha256.as_deref().is_some_and(|expected| {
-                        has_content_digest(&item.record)
-                            || expected.eq_ignore_ascii_case(&file.sha256)
-                    })
+                file.path == item.out_name && bundle_file_matches_row(dest, item, &file.sha256)
             })
         });
     (same_identity && same_files).then_some(runtime)
 }
 
+/// Whether the staged file `item.out_name` in `dest` is the plan row's file. A manifest is
+/// self-consistent by construction (`verify_runtime_manifest` only proves the files match what the
+/// manifest says), so the row is the authority, not the manifest:
+///
+/// - a row with a content digest ([`has_content_digest`]) is checked with the row's own
+///   [`NativeRecord::verify_file`], the same check that admitted the file when it was staged, so a
+///   re-signed copy still matches and a file with other bytes does not, whatever its manifest says;
+/// - any other row compares the row's whole-file `sha256` with the manifest's digest of the file
+///   (which `verify_runtime_manifest` has just checked against the bytes).
+fn bundle_file_matches_row(dest: &Path, item: &Planned, manifest_sha256: &str) -> bool {
+    if has_content_digest(&item.record) {
+        return item.record.verify_file(&dest.join(item.out_name)).is_ok();
+    }
+    item.record
+        .sha256
+        .as_deref()
+        .is_some_and(|expected| expected.eq_ignore_ascii_case(manifest_sha256))
+}
+
 /// A row with a signature-independent content digest (`contentSha256`, or `contentSha256ByArch`
 /// for a universal Mach-O) was verified by that digest when it was staged; the whole-file `sha256`
-/// of a re-signed file may differ from the row's.
+/// of a re-signed file may differ from the row's, so such a row is re-checked by that digest
+/// ([`bundle_file_matches_row`]), never by the whole-file digest and never skipped.
 fn has_content_digest(record: &NativeRecord) -> bool {
     record.content_sha256.is_some() || record.content_sha256_by_arch.is_some()
 }
@@ -811,26 +827,91 @@ mod reuse_tests {
     use super::*;
     use serde_json::json;
 
-    /// A one-file bundle in `dir` (`libonnxruntime.dylib` with `bytes`, listed in its manifest as
-    /// the 1.30.0 universal2 row) and the plan that provisions the row `by_arch`.
-    fn bundle_and_plan(dir: &Path, bytes: &[u8], by_arch: bool) -> Vec<Planned> {
-        let file_sha: String = Sha256::digest(bytes)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        fs::write(dir.join("libonnxruntime.dylib"), bytes).unwrap();
+    const ARM64: u32 = 0x0100_000C;
+    const X86_64: u32 = 0x0100_0007;
+
+    /// A minimal thin 64-bit Mach-O: header and one `__LINKEDIT` segment that runs to the end of
+    /// the file, with `payload` as its content. Enough for the catalog's content digest.
+    fn thin_macho(cputype: u32, payload: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for word in [0xFEED_FACF_u32, cputype, 0, 6, 1, 72, 0, 0] {
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+        out.extend_from_slice(&0x19_u32.to_le_bytes()); // LC_SEGMENT_64
+        out.extend_from_slice(&72_u32.to_le_bytes());
+        let mut name = [0u8; 16];
+        name[..10].copy_from_slice(b"__LINKEDIT");
+        out.extend_from_slice(&name);
+        for value in [0_u64, 0x4000, 104, payload.len() as u64] {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        out.extend_from_slice(&[0u8; 16]);
+        assert_eq!(out.len(), 104);
+        out.extend_from_slice(payload);
+        out
+    }
+
+    /// A universal file of one arm64 and one x86_64 slice (32-bit fat header, 16 KiB aligned).
+    fn universal(arm: &[u8], x86: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&0xCAFE_BABE_u32.to_be_bytes());
+        out.extend_from_slice(&2_u32.to_be_bytes());
+        let mut offset = 0x4000_usize;
+        let mut body = Vec::new();
+        for (cputype, slice) in [(ARM64, arm), (X86_64, x86)] {
+            for word in [cputype, 0, offset as u32, slice.len() as u32, 14] {
+                out.extend_from_slice(&word.to_be_bytes());
+            }
+            body.resize(offset - 48, 0);
+            body.extend_from_slice(slice);
+            offset = (offset + slice.len()).div_ceil(0x4000) * 0x4000;
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    fn digest_of(bytes: &[u8], arch: &str) -> String {
+        rightkit_ffmpeg::content_identity(bytes)
+            .unwrap()
+            .digest_for(arch)
+            .unwrap()
+            .to_owned()
+    }
+
+    /// What the plan's catalog row pins as the shipped file.
+    enum Row<'a> {
+        /// A universal row whose per-slice content digests are those of this universal file.
+        ByArch(&'a [u8]),
+        /// An arm64 row whose single content digest is that of this (plain) file.
+        ContentSha256(&'a [u8]),
+        /// A row with no content digest: only a whole-file digest of this file.
+        WholeFile(&'a [u8]),
+    }
+
+    /// A one-file bundle in `dir` (`libonnxruntime.dylib` with `staged`, listed in a manifest that
+    /// is self-consistent with those bytes) and the plan that provisions `row`. The row's
+    /// whole-file digest is not the staged file's unless `row` is `WholeFile` of the same bytes:
+    /// the shipped file was re-signed.
+    fn bundle_and_plan(dir: &Path, staged: &[u8], row: Row<'_>) -> Vec<Planned> {
+        let sha = |bytes: &[u8]| -> String {
+            Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        fs::write(dir.join("libonnxruntime.dylib"), staged).unwrap();
         let manifest = ManifestOut {
             schema: 1,
             platform: "macos-arm64",
             onnxruntime: IdentityOut {
                 version: "1.30.0",
                 variant: "coreml",
-                catalog_row: "onnxruntime-fixture-macos-universal2",
+                catalog_row: "onnxruntime-fixture-macos",
             },
             files: vec![FileOut {
                 path: "libonnxruntime.dylib".to_owned(),
-                sha256: file_sha,
-                bytes: bytes.len() as u64,
+                sha256: sha(staged),
+                bytes: staged.len() as u64,
             }],
         };
         fs::write(
@@ -838,9 +919,8 @@ mod reuse_tests {
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
-        // The row's whole-file digest is not the staged file's: the shipped file was re-signed.
         let mut record = json!({
-            "id": "onnxruntime-fixture-macos-universal2", "library": "onnxruntime",
+            "id": "onnxruntime-fixture-macos", "library": "onnxruntime",
             "version": "1.30.0", "os": "macos", "arch": "universal", "status": "approved",
             "linkage": "dynamic-library", "artifactFileName": "libonnxruntime.dylib",
             "sha256": "0".repeat(64),
@@ -849,9 +929,18 @@ mod reuse_tests {
             "noticeFiles": ["third-party/NOTICE.txt"],
             "verification": { "method": "file-sha256", "evidence": "fixture" }
         });
-        if by_arch {
-            record["contentSha256ByArch"] =
-                json!({ "aarch64": "2".repeat(64), "x86_64": "3".repeat(64) });
+        match row {
+            Row::ByArch(bytes) => {
+                record["contentSha256ByArch"] = json!({
+                    "aarch64": digest_of(bytes, "aarch64"),
+                    "x86_64": digest_of(bytes, "x86_64"),
+                });
+            }
+            Row::ContentSha256(bytes) => {
+                record["arch"] = json!("aarch64");
+                record["contentSha256"] = json!(sha(bytes));
+            }
+            Row::WholeFile(bytes) => record["sha256"] = json!(sha(bytes)),
         }
         let catalog = NativeCatalog::parse_native_only(
             &json!({ "schemaVersion": 1, "libraries": [record] }).to_string(),
@@ -860,19 +949,69 @@ mod reuse_tests {
         plan(&catalog, ProvisionTarget::MacosArm64).unwrap()
     }
 
+    fn reused(dir: &Path, plan: &[Planned]) -> bool {
+        existing_matches(dir, ProvisionTarget::MacosArm64, plan).is_some()
+    }
+
     #[test]
     fn a_by_arch_content_digest_row_reuses_its_verified_bundle() {
         let root = tempfile::tempdir().unwrap();
-        let plan = bundle_and_plan(root.path(), b"fixture universal2 dylib", true);
-        let reused = existing_matches(root.path(), ProvisionTarget::MacosArm64, &plan);
-        assert!(reused.is_some(), "a by-arch content digest row is reusable");
+        let file = universal(
+            &thin_macho(ARM64, b"arm64 symbols"),
+            &thin_macho(X86_64, b"x86_64 symbols"),
+        );
+        let plan = bundle_and_plan(root.path(), &file, Row::ByArch(&file));
+        assert!(
+            reused(root.path(), &plan),
+            "a by-arch content digest row is reusable"
+        );
+    }
+
+    #[test]
+    fn a_self_consistent_manifest_over_different_bytes_is_not_reused_for_a_by_arch_row() {
+        let root = tempfile::tempdir().unwrap();
+        let pinned = universal(
+            &thin_macho(ARM64, b"arm64 symbols"),
+            &thin_macho(X86_64, b"x86_64 symbols"),
+        );
+        let other = universal(
+            &thin_macho(ARM64, b"arm64 symbols, altered"),
+            &thin_macho(X86_64, b"x86_64 symbols"),
+        );
+        // The manifest names the row and its own (other) bytes correctly, so it verifies by itself.
+        let plan = bundle_and_plan(root.path(), &other, Row::ByArch(&pinned));
+        assert!(verify_runtime_manifest(root.path()).is_ok());
+        assert!(
+            !reused(root.path(), &plan),
+            "the staged file is not the row's file"
+        );
+    }
+
+    #[test]
+    fn a_content_sha256_row_reuses_only_the_bundle_with_its_content_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let pinned: &[u8] = b"fixture arm64 dylib";
+        let plan = bundle_and_plan(root.path(), pinned, Row::ContentSha256(pinned));
+        assert!(reused(root.path(), &plan));
+
+        let other = tempfile::tempdir().unwrap();
+        let plan = bundle_and_plan(other.path(), b"other bytes", Row::ContentSha256(pinned));
+        assert!(verify_runtime_manifest(other.path()).is_ok());
+        assert!(!reused(other.path(), &plan));
     }
 
     #[test]
     fn a_row_without_a_content_digest_reuses_only_a_bundle_with_its_whole_file_digest() {
         let root = tempfile::tempdir().unwrap();
-        let plan = bundle_and_plan(root.path(), b"fixture universal2 dylib", false);
-        let reused = existing_matches(root.path(), ProvisionTarget::MacosArm64, &plan);
-        assert!(reused.is_none(), "the staged file does not match the row");
+        let bytes: &[u8] = b"fixture universal2 dylib";
+        // The row's whole-file digest is another file's: not reused.
+        let plan = bundle_and_plan(root.path(), bytes, Row::WholeFile(b"another file"));
+        assert!(
+            !reused(root.path(), &plan),
+            "the staged file does not match the row"
+        );
+        // The same bundle with a row that does pin it: reused.
+        let plan = bundle_and_plan(root.path(), bytes, Row::WholeFile(bytes));
+        assert!(reused(root.path(), &plan));
     }
 }

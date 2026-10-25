@@ -140,7 +140,7 @@ Only those two permit a development fallback (`DevFfmpeg`, `resolve_ffmpeg_or_un
 `ArtifactNotFound` and `OverrideMissing` mean the file is missing, not unapproved;
 `ArtifactPending`, `AmbiguousArtifact`, `MalformedBinary`, probe failures and catalog errors are
 defects a fallback would hide. A release build must not fall back silently; it reports the error
-(`UnverifiedRefusedInRelease` is the crate's own refusal). There is no release escape: `DevFfmpeg::allow_in_release_builds` is gone. An app that ships its own ffmpeg resolves it with `resolve_ffmpeg_handle_with` and the catalog variant of the file it ships (for example `DECODE_VARIANT`), so a binary outside the catalog is refused in a release build.
+(`UnverifiedRefusedInRelease` is the crate's own refusal). `DevFfmpeg::allow_in_release_builds` is gone in every build and `DevFfmpeg::unverified` exists only with `dev-overrides` (or in this crate's own tests); those two constructors are all that this closes. These routes remain: `dev_resolve::resolve_for_development` is public, has no mode check and returns a `DevFfmpeg` for the first existing candidate (including `RIGHTKIT_FFMPEG`) when nothing verifies (gating it is a follow-up); `FfmpegBinary` is a public, unsealed trait any type can implement; and `BuildMode::Development` is a public variant that `handle::verified_or_development_in` and `unverified::resolve_unverified` honor in any build. An app that ships its own ffmpeg resolves it with `resolve_ffmpeg_handle_with` and the catalog variant of the file it ships (for example `DECODE_VARIANT`), so a binary outside the catalog is refused in a release build.
 
 ## Suites that need local assets (skipped on hosted CI)
 

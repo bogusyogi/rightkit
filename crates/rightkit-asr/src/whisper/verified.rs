@@ -10,8 +10,8 @@
 
 use crate::error::Error;
 use rightkit_ffmpeg::native::{
-    verified_libraries_in, NativeCatalog, NativeCatalogError, NativeLibrary, NativeRecord,
-    NativeStatus, VerifiedLibrary,
+    verified_libraries_in, NativeCatalog, NativeCatalogError, NativeLibrary, NativeStatus,
+    VerifiedLibrary,
 };
 use std::fmt;
 use std::path::Path;
@@ -86,7 +86,7 @@ pub(crate) fn verify_set(
 
     let mut ggml_names: Vec<&str> = Vec::new();
     for row in catalog.records(NativeLibrary::Ggml) {
-        if row.status == NativeStatus::StaleUnverified || !row_is_for_host(row, os, arch) {
+        if row.status == NativeStatus::StaleUnverified || !row.serves_host(os, arch) {
             continue;
         }
         let file =
@@ -108,17 +108,6 @@ pub(crate) fn verify_set(
             .map(|file| (NativeLibrary::Ggml, file)),
     );
     verified_libraries_in(catalog, os, arch, dir, &entries)
-}
-
-/// The platform rule of `NativeRecord::matches_platform` (`any`, an exact match, or `universal`
-/// for either Apple architecture), which is private to the catalog crate.
-fn row_is_for_host(row: &NativeRecord, os: &str, arch: &str) -> bool {
-    let os_ok = row.os == "any" || row.os.eq_ignore_ascii_case(os);
-    let arch_ok = row.arch == "any"
-        || row.arch.eq_ignore_ascii_case(arch)
-        || (row.arch == "universal"
-            && (arch.eq_ignore_ascii_case("aarch64") || arch.eq_ignore_ascii_case("x86_64")));
-    os_ok && arch_ok
 }
 
 #[cfg(test)]

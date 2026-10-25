@@ -378,6 +378,14 @@ impl NativeRecord {
                 return Err(invalid(&self.id, "digest is not SHA-256 hex"));
             }
         }
+        // `verify_content` answers `NotVerifiable` for a universal row, so such a row could never
+        // verify at load: the by-arch map is the universal form of the content digest.
+        if self.arch == "universal" && self.content_sha256.is_some() {
+            return Err(invalid(
+                &self.id,
+                "a universal row cannot carry contentSha256 (it can never verify); use contentSha256ByArch",
+            ));
+        }
         if let Some(member) = self.archive.as_ref().and_then(|a| a.member.as_deref()) {
             if !is_archive_member(member) {
                 return Err(invalid(
@@ -478,6 +486,16 @@ impl NativeRecord {
     fn matches_platform(&self, os: &str, arch: &str) -> bool {
         let os_ok = self.os == "any" || self.os.eq_ignore_ascii_case(os);
         os_ok && self.matches_arch(arch)
+    }
+
+    /// `true` when this row's `os` and `arch` serve a host: `os` is `any` or equals the host's
+    /// (ASCII case-insensitive), and `arch` is `any`, equals the host's, or is `universal` for
+    /// either Apple architecture (`aarch64`, `x86_64`). The status is not looked at: a `planned`
+    /// or `stale-unverified` row still answers `true`, so a caller that must refuse them checks
+    /// [`NativeRecord::status`] itself (see [`NativeStatus::serves`]). `os` and `arch` use the
+    /// names of `std::env::consts::OS` and `ARCH`.
+    pub fn serves_host(&self, os: &str, arch: &str) -> bool {
+        self.matches_platform(os, arch)
     }
 
     /// `true` when some host architecture is served by both rows, so a file of one can sit
@@ -701,6 +719,14 @@ impl NativeCatalog {
                         format!("companion {companion} is stale-unverified"),
                     ));
                 }
+                // Staging (packages/release/stage-sidecar.mjs) refuses nested companions; the
+                // catalog refuses them too so the two cannot disagree.
+                if !other.companions.is_empty() {
+                    return Err(invalid(
+                        &r.id,
+                        format!("companion {companion} lists companions of its own (nested companions are refused)"),
+                    ));
+                }
             }
         }
         // One version per library and OS across the suite (stale records excluded). The rule is
@@ -920,6 +946,13 @@ impl VerifiedLibrary {
 /// [`NativeCatalogError::Io`] `NotFound`). Symbolic links in the directories above the file are
 /// resolved: [`VerifiedLibrary::path`] is the canonical path, and that is the file that was
 /// hashed.
+///
+/// Windows host proof pending: the canonical path is `std::fs::canonicalize`'s, which is a
+/// verbatim path (`\\?\C:\dir\file.dll`) on Windows. This crate has not loaded such a path with
+/// `LoadLibraryW`, nor put its directory on `PATH` or in a loader search list, on a Windows host,
+/// and does not strip the prefix (a verbatim path is also what makes long or unusual names
+/// work, so stripping is a decision to make with a Windows run, not by guess). A caller that
+/// loads [`VerifiedLibrary::path`] on Windows must prove that load on a Windows host first.
 ///
 /// The digest is checked now, not while the loader maps the file: a local writer that replaces
 /// the file between this call and the load is outside the check, the same window
@@ -1665,6 +1698,84 @@ mod tests {
         assert!(
             refused(universal(json!({ "contentSha256ByArch": not_hex }))).contains("SHA-256 hex")
         );
+    }
+
+    #[test]
+    fn a_universal_row_with_a_single_content_digest_is_refused_because_it_can_never_verify() {
+        let digest = sha(b"slice");
+        let reason = refused(json!({ "arch": "universal", "contentSha256": digest }));
+        assert!(
+            reason.contains("universal row cannot carry contentSha256"),
+            "{reason}"
+        );
+        // The by-arch map is the universal form; a thin row keeps its single digest.
+        record(json!({
+            "arch": "universal",
+            "contentSha256ByArch": { "aarch64": digest, "x86_64": digest }
+        }))
+        .validate()
+        .unwrap();
+        record(json!({ "arch": "aarch64", "contentSha256": digest }))
+            .validate()
+            .unwrap();
+        record(json!({ "arch": "any", "contentSha256": digest }))
+            .validate()
+            .unwrap();
+        // And a universal row with only a whole-file sha256 stays legal (it verifies by file hash).
+        record(json!({ "arch": "universal" })).validate().unwrap();
+    }
+
+    #[test]
+    fn a_companion_that_lists_companions_of_its_own_is_refused() {
+        let windows = |id: &str, companions: Value| {
+            row(
+                id,
+                &format!("{id}.dll"),
+                "pinned",
+                json!({ "os": "windows", "arch": "x86_64", "companions": companions }),
+            )
+        };
+        let reason = |rows: Vec<Value>| match parse(rows) {
+            Err(NativeCatalogError::Invalid { reason, .. }) => reason,
+            other => panic!("expected a refusal: {other:?}"),
+        };
+        let nested = reason(vec![
+            windows("main", json!(["side"])),
+            windows("side", json!(["third"])),
+            windows("third", json!([])),
+        ]);
+        assert!(nested.contains("nested companions"), "{nested}");
+        // One level is fine, and two rows may share a companion.
+        parse(vec![
+            windows("main", json!(["side"])),
+            windows("other", json!(["side"])),
+            windows("side", json!([])),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn serves_host_follows_the_platform_rule_and_ignores_status() {
+        let host = |fields: Value| record(fields);
+        let thin = host(json!({ "os": "macos", "arch": "aarch64" }));
+        assert!(thin.serves_host("macos", "aarch64"));
+        assert!(thin.serves_host("MacOS", "AARCH64"));
+        assert!(!thin.serves_host("macos", "x86_64"));
+        assert!(!thin.serves_host("windows", "aarch64"));
+
+        let universal = host(json!({ "os": "macos", "arch": "universal" }));
+        assert!(universal.serves_host("macos", "aarch64"));
+        assert!(universal.serves_host("macos", "x86_64"));
+        assert!(!universal.serves_host("macos", "riscv64"));
+        assert!(!universal.serves_host("linux", "aarch64"));
+
+        let any = host(json!({ "os": "any", "arch": "any" }));
+        assert!(any.serves_host("linux", "riscv64"));
+
+        // Status is not part of the answer: a planned row still names its host.
+        let planned = host(json!({ "os": "windows", "arch": "x86_64", "status": "planned" }));
+        assert!(planned.serves_host("windows", "x86_64"));
+        assert!(!planned.status.serves());
     }
 
     #[test]
