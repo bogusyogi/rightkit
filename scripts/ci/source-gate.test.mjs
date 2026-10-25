@@ -149,6 +149,12 @@ test("exports-import-effects: the probe runs on the exported commit, so ignored 
   assert.match(r.closure.deps.lock, /^[0-9a-f]{64}$/); assert.match(r.closure.deps.installed, /^[0-9a-f]{64}$/); assert.deepEqual(r.closure.deps.linked, ["."]);
   assert.equal(r.clean, false, "the live checkout is dirty (untracked files), recorded but irrelevant to the exported probe");
   assert.ok(readIncompleteReport(reportFile, { commit: r.commit, tree: r.tree, probe: r.probe, node: r.node }).report, "usable: bound to the exported commit");
+  // A repository without a packages/ directory still exports (explicit package dirs are resolved inside the export).
+  const flat = tmp(t); const gitf = (...a) => execFileSync("git", ["-C", flat, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" });
+  gitf("init", "-q"); write(flat, "package.json", JSON.stringify({ name: "@rk/flat", type: "module", exports: { ".": "./lib.mjs" } })); write(flat, "lib.mjs", "export const f = 1;\n"); gitf("add", "-A"); gitf("commit", "-qm", "flat");
+  const flatReport = path.join(flat, "out", "r.json"); const io3 = { logs: [], errs: [] };
+  assert.equal(main(["--root", flat, "--report", flatReport, "."], { log: (m) => io3.logs.push(m), error: (m) => io3.errs.push(m) }), 0, io3.errs.join("\n"));
+  assert.equal(JSON.parse(fs.readFileSync(flatReport, "utf8")).closure.kind, "exported-tree");
   // Now the mid-probe action commits: HEAD moves during the probe → unstable → refused.
   const io2 = { logs: [], errs: [] };
   const commitBetween = () => { write(repo, "packages/a/src/s.mjs", "export const s = 3;\n"); git("add", "-A"); git("commit", "-qm", "moved"); };

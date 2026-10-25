@@ -118,7 +118,8 @@ export function exportTree(root, { spawn = spawnSync, mkdtemp = () => fs.mkdtemp
   // Dependencies: the tree's lockfile (already part of the tree id) and the installed state the live checkout links in.
   const sha = (f) => { try { return crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch { return null; } };
   const deps = { lock: sha(path.join(dir, "pnpm-lock.yaml")), installed: sha(path.join(root, "node_modules", ".modules.yaml")), linked: [] };
-  for (const rel of [".", ...fs.readdirSync(path.join(dir, "packages"), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join("packages", e.name))]) {
+  const packageRoots = fs.existsSync(path.join(dir, "packages")) ? fs.readdirSync(path.join(dir, "packages"), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join("packages", e.name)) : [];
+  for (const rel of [".", ...packageRoots]) {
     const live = path.join(root, rel, "node_modules");
     if (fs.existsSync(live) && !fs.existsSync(path.join(dir, rel, "node_modules"))) { fs.symlinkSync(live, path.join(dir, rel, "node_modules"), "dir"); deps.linked.push(rel); }
   }
