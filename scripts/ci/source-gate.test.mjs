@@ -1,7 +1,7 @@
 // The source gate: cheap deterministic refusals run before any compile, signing, pack or native runner.
 // These tests replay the defects that reached a native verify on 2026-10-25 and pin where the checks sit in the workflows.
 import assert from "node:assert/strict";
-import fs from "node:fs";
+import fs, { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -51,6 +51,20 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   assert.equal(main([dir], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }), 0);
   assert.ok(io.logs.some((l) => /not checked here: @rk\/wild \.: \.\/dist\/index\.js/.test(l)), io.logs.join("\n"));
   assert.ok(io.logs.at(-1).includes("1 build-output export(s) left to the sealed-byte check"));
+});
+
+test("exports-import-effects: an import that writes a file or starts a process without printing anything is refused by the read-only probe (simulation A5.07b)", (t) => {
+  const dir = tmp(t);
+  const marker = path.join(dir, "marker");
+  write(dir, "silent.mjs", `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(marker)}, "x"); export {};\n`);
+  write(dir, "spawner.mjs", "import { spawnSync } from \"node:child_process\"; spawnSync(process.execPath, [\"-e\", \"0\"]); export {};\n");
+  write(dir, "reader.mjs", "import fs from \"node:fs\"; export const own = fs.readFileSync(new URL(import.meta.url)).length;\n");
+  write(dir, "package.json", JSON.stringify({ name: "@rk/effects", type: "module", exports: { "./silent": "./silent.mjs", "./spawner": "./spawner.mjs", "./reader": "./reader.mjs" } }));
+  const r = checkPackage(dir);
+  assert.deepEqual(r.findings.map((f) => f.key).sort(), ["./silent", "./spawner"], JSON.stringify(r.findings));
+  assert.match(r.findings.find((f) => f.key === "./silent").problem, /restricted|allow-fs-write/);
+  assert.equal(existsSync(marker), false, "the probe never let the write happen");
+  assert.equal(r.checked, 3, "reading its own source at import is allowed");
 });
 
 test("exports-import-effects: a module that reads its command line at import is refused; a guarded one, a bin and a skipImport program pass", (t) => {

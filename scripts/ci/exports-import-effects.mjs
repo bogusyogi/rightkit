@@ -8,6 +8,9 @@
 // against the source tree and every match is probed. An export whose target is missing from the source tree is accepted as
 // "not checked here" only under ./dist/ (build output the sealed-byte import check of the verify job owns) and is always printed;
 // any other missing target, and a wildcard that matches nothing, is a finding: a silent skip was a false green (simulation A5.06/A5.07).
+// Each import runs under Node's permission model (`--permission --allow-fs-read=*`): a module that writes a file, starts a child
+// process or a worker at import is refused by the runtime and surfaces as a non-zero exit, so an effect without output is a
+// finding too (simulation A5.07b). Needs Node 22.13+ (CI pins 26).
 //
 //   node scripts/ci/exports-import-effects.mjs [--root <repo>] [package-dir...]
 // Needs the workspace's dependencies installed (pnpm install). Exit 0 clean, 1 on any finding, 2 on a usage error.
@@ -17,6 +20,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+/** The probe child runs read-only: file writes, child processes and workers at import are runtime errors, never silent effects. */
+export const PROBE_FLAGS = Object.freeze(["--permission", "--allow-fs-read=*"]);
 
 /** Runtime file targets of an exports map (conditions flattened, types skipped), as package-relative paths. */
 export function runtimeTargets(exportsField) {
@@ -69,14 +74,15 @@ export function checkPackage(dir, { spawn = spawnSync, node = process.execPath }
       result.findings.push({ key, problem: `${pkg.name}: export ${key} → ${target} does not exist in the source tree and is not build output under ./dist/`, fix: "fix the export target; a missing non-dist target is a broken surface, not something to skip" });
       continue;
     }
-    const ran = spawn(node, ["--input-type=module", "-e", `await import(${JSON.stringify(pathToFileURL(file).href)}); process.stdout.write("RK_IMPORTED");`], { cwd: dir, encoding: "utf8", env, timeout: 30_000, input: "", windowsHide: true });
+    const ran = spawn(node, [...PROBE_FLAGS, "--input-type=module", "-e", `await import(${JSON.stringify(pathToFileURL(file).href)}); process.stdout.write("RK_IMPORTED");`], { cwd: dir, encoding: "utf8", env, timeout: 30_000, input: "", windowsHide: true });
     result.checked++;
     const quiet = ran.status === 0 && ran.stdout === "RK_IMPORTED" && (ran.stderr ?? "") === "";
-    const shown = `${ran.stdout ?? ""}${ran.stderr ?? ""}`.replace("RK_IMPORTED", "").trim().split("\n")[0].slice(0, 200);
+    const lines = `${ran.stdout ?? ""}${ran.stderr ?? ""}`.replace("RK_IMPORTED", "").split("\n").map((l) => l.trim()).filter(Boolean);
+    const shown = (lines.find((l) => /Error|restricted/.test(l)) ?? lines[0] ?? "").slice(0, 200);
     if (skipImport.includes(key)) {
       if (quiet) result.findings.push({ key, problem: `${pkg.name}: ${key} is listed in rightkit.publishCheck.skipImport but imports quietly`, fix: "it is a module, not a program: drop the skipImport entry" });
     } else if (!quiet) {
-      result.findings.push({ key, problem: `${pkg.name}: importing ${key} does something (status ${ran.status ?? ran.error?.code}): ${shown || "(no output)"}`, fix: "a program that reads its command line is spawned by path, never imported: guard its main with an invoked-directly check, or list it in rightkit.publishCheck.skipImport" });
+      result.findings.push({ key, problem: `${pkg.name}: importing ${key} does something (status ${ran.status ?? ran.error?.code}): ${shown || "(no output)"}`, fix: "a program that reads its command line is spawned by path, never imported: guard its main with an invoked-directly check, or list it in rightkit.publishCheck.skipImport; a module that writes files or starts processes at import moves that work into a function" });
     }
   }
   return result;
