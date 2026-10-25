@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-25T20:52:18Z",
-  "rightkitHead": "3d90d29",
+  "generatedAt": "2026-10-25T21:10:15Z",
+  "rightkitHead": "e40f2a5",
   "legend": [
     {
       "state": "adopted",
@@ -132,7 +132,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/coderight",
       "present": true,
-      "head": "a562761",
+      "head": "35ba894",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -575,7 +575,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/cutright",
       "present": true,
-      "head": "f45252a",
+      "head": "a0eefd6",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -978,7 +978,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/ember",
       "present": true,
-      "head": "45c6cb5",
+      "head": "cc42ef8",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1377,7 +1377,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/genright",
       "present": true,
-      "head": "02ec27f",
+      "head": "818777a",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1781,7 +1781,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/heardright",
       "present": true,
-      "head": "dbff0ad",
+      "head": "d4ab7d7",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2226,7 +2226,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/mailright",
       "present": true,
-      "head": "9fab586",
+      "head": "a45dab0",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2630,7 +2630,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/postright",
       "present": true,
-      "head": "275a793",
+      "head": "64b60c6",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3548,7 +3548,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/scraperight",
       "present": true,
-      "head": "dc0a18e",
+      "head": "2ee5a1a",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3990,7 +3990,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/viewright",
       "present": true,
-      "head": "3b843c2",
+      "head": "4f087ad",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {

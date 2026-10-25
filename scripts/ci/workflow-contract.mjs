@@ -37,6 +37,7 @@ export const NPM_STEP_IF = "${{ needs.plan.outputs.registry == 'npm' }}";
 export const CRATES_STEP_IF = "${{ needs.plan.outputs.registry == 'crates' }}";
 export const TOKEN_ENV = { NODE_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}", CARGO_REGISTRY_TOKEN: "${{ secrets.CARGO_REGISTRY_TOKEN }}" };
 const RT = "${{ runner.temp }}";
+const IMPORT_EFFECTS_ARTIFACT = "import-effects-${{ github.run_attempt }}";
 const PLAN_OUT = (name) => `\${{ needs.plan.outputs.${name} }}`;
 export const PUBLISH_ENV = {
   PUBLISH_REGISTRY: PLAN_OUT("registry"), PUBLISH_UNITS: PLAN_OUT("units"), PUBLISH_ALLOW_HOST_EXCLUSION: PLAN_OUT("allow_host_exclusion"),
@@ -350,8 +351,16 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(scanSteps.filter((s) => /run-deterministic-scans\.mjs/.test(s.run ?? "")).length === 1 && scanRunAt >= 0 && same(scanSteps[scanRunAt].env, SCANS_ENV) && scanSteps[scanRunAt].if === undefined && scanSteps[scanRunAt].shell === undefined, "scans must run run-deterministic-scans.mjs exactly once, unconditionally, with fixed roots, output & requested registry/units");
   check(scanDepsAt >= 0 && scanRunAt > scanDepsAt && scanRunAt > scanSteps.indexOf(scanInstall[0]) && scanRunAt > scanSteps.indexOf(lintInstall[0]) && scanRunAt > scanSteps.indexOf(shellcheckInstall[0]), "scans must install tools & dependencies before running the scans");
   check(!scanSteps.some((s) => /pnpm install/.test(s.run ?? "") && !/--frozen-lockfile --ignore-scripts/.test(s.run ?? "")), "scans must install dependencies frozen & without lifecycle scripts");
-  const scanUpload = scanSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
-  check(scanUpload.length === 1 && scanSteps.indexOf(scanUpload[0]) === scanSteps.length - 1 && scanSteps.indexOf(scanUpload[0]) > scanRunAt && scanUpload[0].if === undefined && scanUpload[0].with?.name === SCANS_ARTIFACT && scanUpload[0].with?.path === `${RT}/scan-receipt` && scanUpload[0].with?.["if-no-files-found"] === "error" && scanUpload[0].with?.["retention-days"] === "90" && scanUpload[0].with?.overwrite === "false", "scans must upload its receipt as its last step, only after a passing scan run, retained 90 days");
+  // The source probe runs after the dependency install and before the scan run, writes the INCOMPLETE report, and that report
+  // is uploaded for verify to close (no dist/ export is green until the sealed tarball imported it).
+  const probeAt = scanSteps.findIndex((s) => /exports-import-effects\.mjs/.test(s.run ?? ""));
+  // Importing executes candidate code: the probe runs only after the file-only class A scan step passed (a failed step ends the job).
+  check(scanSteps.filter((s) => /exports-import-effects\.mjs/.test(s.run ?? "")).length === 1 && probeAt > scanRunAt && probeAt > scanDepsAt && scanSteps[probeAt]?.run?.trim() === `node live/scripts/ci/exports-import-effects.mjs --root live --report "$RUNNER_TEMP/import-effects/report.json"` && scanSteps[probeAt].if === undefined && scanSteps[probeAt].env === undefined, "scans must run the exports import-effects probe exactly once, after the file-only class A scan run, writing the INCOMPLETE report");
+  const uploads = scanSteps.filter((s) => /^actions\/upload-artifact@/.test(s.uses ?? ""));
+  const reportUpload = uploads.find((s) => s.with?.name === IMPORT_EFFECTS_ARTIFACT);
+  check(reportUpload && scanSteps.indexOf(reportUpload) === probeAt + 1 && reportUpload.if === undefined && reportUpload.with?.path === `${RT}/import-effects` && reportUpload.with?.["if-no-files-found"] === "error" && reportUpload.with?.["retention-days"] === "90" && reportUpload.with?.overwrite === "false", `scans must upload the import-effects report as ${IMPORT_EFFECTS_ARTIFACT} right after the probe, retained 90 days`);
+  const scanUpload = uploads.filter((s) => s !== reportUpload);
+  check(uploads.length === 2 && scanUpload.length === 1 && scanSteps.indexOf(scanUpload[0]) === scanSteps.length - 1 && scanSteps.indexOf(scanUpload[0]) > scanRunAt && scanUpload[0].if === undefined && scanUpload[0].with?.name === SCANS_ARTIFACT && scanUpload[0].with?.path === `${RT}/scan-receipt` && scanUpload[0].with?.["if-no-files-found"] === "error" && scanUpload[0].with?.["retention-days"] === "90" && scanUpload[0].with?.overwrite === "false", "scans must upload its receipt as its last step, only after a passing scan run, retained 90 days");
   for (const [jobName, job] of Object.entries(jobs)) {
     check((job["timeout-minutes"] ?? "") !== "", `${jobName} must set timeout-minutes`);
   }
@@ -372,6 +381,10 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(verifyRuns.filter((r) => /node scripts\/ci\/gate\.mjs/.test(r)).length === 1 && !/--steps/.test(verifyRuns[gateAt] ?? ""), "verify must run exactly one gate.mjs step, with the default steps (no --steps, so no scan tools are needed)");
   check(stepsOf(verify)[gateAt]?.env?.RK_SCANS_JOB_RESULT === SCANS_RESULT_ENV, `verify's gate step must receive the scans job result as RK_SCANS_JOB_RESULT: ${SCANS_RESULT_ENV}`);
   check(stepsOf(verify)[receiptAt]?.env?.RIGHTKIT_CHROME_FOR_TESTING_ROOT === `${RT}/chrome-for-testing`, "verify receipt must use the provisioned managed Chrome root");
+  // The INCOMPLETE report from scans: downloaded before the receipt step and handed to publish.mjs verify, which refuses without it.
+  const reportDownloadAt = stepsOf(verify).findIndex((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === IMPORT_EFFECTS_ARTIFACT && s.with?.path === `${RT}/import-effects`);
+  check(reportDownloadAt >= 0 && reportDownloadAt < receiptAt && stepsOf(verify)[reportDownloadAt].if === undefined, `verify must download ${IMPORT_EFFECTS_ARTIFACT} to ${RT}/import-effects before the receipt step`);
+  check(stepsOf(verify)[receiptAt]?.env?.RK_IMPORT_EFFECTS_REPORT === `${RT}/import-effects/report.json`, "verify receipt must hand publish.mjs verify the import-effects report (RK_IMPORT_EFFECTS_REPORT)");
   const winAt = WIN_OPENSSL_STEPS.map(([name]) => stepsOf(verify).findIndex((s) => s.name === name));
   WIN_OPENSSL_STEPS.forEach(([name, run], i) => {
     const step = stepsOf(verify)[winAt[i]];
@@ -419,7 +432,9 @@ export function assertPublishDoc(doc, name = "publish.yml") {
   check(linuxSteps.filter((s) => /node scripts\/ci\/gate\.mjs /.test(s.run ?? "")).length === 1 && linuxSteps[linuxGateAt]?.run?.trim() === 'node scripts/ci/gate.mjs --registry "$PUBLISH_REGISTRY" --units "$PUBLISH_LINUX_UNITS"', "verify-linux must gate exactly the Linux-required units, with no allowance flag");
   check(linuxGateAt >= 0 && linuxSteps[linuxGateAt].env?.PUBLISH_LINUX_UNITS === PLAN_OUT("linux_units") && linuxSteps[linuxGateAt].env?.PUBLISH_REGISTRY === PLAN_OUT("registry") && linuxSteps[linuxGateAt].if === undefined, "the Linux gate must read the plan's registry and linux_units unconditionally");
   check(linuxGateAt >= 0 && linuxSteps[linuxGateAt].env?.RK_SCANS_JOB_RESULT === SCANS_RESULT_ENV, `the Linux gate must receive the scans job result as RK_SCANS_JOB_RESULT: ${SCANS_RESULT_ENV}`);
-  check(linuxSteps.filter((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? "")).length === 1 && linuxVerifyAt > linuxGateAt && linuxGateAt >= 0 && linuxSteps[linuxVerifyAt].run?.trim() === "node scripts/ci/publish.mjs verify" && linuxSteps[linuxVerifyAt].if === undefined && same(linuxSteps[linuxVerifyAt].env, { RIGHTKIT_CHROME_FOR_TESTING_ROOT: `${RT}/chrome-for-testing`, ...PUBLISH_ENV, PUBLISH_LINUX_UNITS: PLAN_OUT("linux_units") }), "verify-linux must gate, then write the Linux receipt with the plan's exact request");
+  check(linuxSteps.filter((s) => /node scripts\/ci\/publish\.mjs verify/.test(s.run ?? "")).length === 1 && linuxVerifyAt > linuxGateAt && linuxGateAt >= 0 && linuxSteps[linuxVerifyAt].run?.trim() === "node scripts/ci/publish.mjs verify" && linuxSteps[linuxVerifyAt].if === undefined && same(linuxSteps[linuxVerifyAt].env, { RIGHTKIT_CHROME_FOR_TESTING_ROOT: `${RT}/chrome-for-testing`, ...PUBLISH_ENV, PUBLISH_LINUX_UNITS: PLAN_OUT("linux_units"), RK_IMPORT_EFFECTS_REPORT: `${RT}/import-effects/report.json` }), "verify-linux must gate, then write the Linux receipt with the plan's exact request and the import-effects report");
+  const linuxReportAt = linuxSteps.findIndex((s) => /actions\/download-artifact@/.test(s.uses ?? "") && s.with?.name === IMPORT_EFFECTS_ARTIFACT && s.with?.path === `${RT}/import-effects`);
+  check(linuxReportAt >= 0 && linuxReportAt < linuxVerifyAt && linuxSteps[linuxReportAt].if === undefined, `verify-linux must download ${IMPORT_EFFECTS_ARTIFACT} before writing its receipt`);
   const linuxChromeCache = linuxSteps.find((s) => s.name === "Cache the pinned Chrome for Testing");
   const linuxChrome = linuxSteps.find((s) => /provision-chrome\.mjs/.test(s.run ?? ""));
   check(linuxChromeCache?.if?.trim() === LINUX_CHROME_IF && linuxChromeCache?.uses?.startsWith("actions/cache@") && linuxChrome?.if?.trim() === LINUX_CHROME_IF && linuxChrome?.run?.trim() === "node scripts/ci/provision-chrome.mjs" && linuxChrome?.env?.PUBLISH_DRY_RUN === "false", "verify-linux must provision the pinned Chrome for Testing for the Linux units (pinned download, never a dry run)");
@@ -676,7 +691,34 @@ export const SCANS_MUTATIONS = [
 
 /** Each mutation breaks exactly one property; the contract must reject every one. */
 const winStep = (j, i) => j.verify.steps.find((s) => s.name === WIN_OPENSSL_STEPS[i][0]);
+const ieStep = (j, re) => j.scans.steps.find((s) => re.test(s.run ?? "") || re.test(s.with?.name ?? ""));
+const reportDownload = (job) => job.steps.find((s) => /download-artifact/.test(s.uses ?? "") && /^import-effects-/.test(s.with?.name ?? ""));
+const receiptStep = (job) => job.steps.find((s) => /publish\.mjs verify/.test(s.run ?? ""));
 export const MUTATIONS = [
+  // The import-effects probe & its INCOMPLETE report (2026-10-25 simulation): never before class A, never missing, never stale, never unbound.
+  ["probe runs before the class A scan step", edit((j) => { const st = j.scans.steps; const p = st.findIndex((s) => /exports-import-effects/.test(s.run ?? "")); const r = st.findIndex((s) => /run-deterministic-scans/.test(s.run ?? "")); const [probe] = st.splice(p, 1); st.splice(r, 0, probe); })],
+  ["probe step is removed", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => !/exports-import-effects/.test(s.run ?? "")); })],
+  ["probe drops the report", edit((j) => { ieStep(j, /exports-import-effects/).run = "node live/scripts/ci/exports-import-effects.mjs --root live"; })],
+  ["probe writes the report elsewhere", edit((j) => { ieStep(j, /exports-import-effects/).run = 'node live/scripts/ci/exports-import-effects.mjs --root live --report "$RUNNER_TEMP/other/report.json"'; })],
+  ["probe gains an if", edit((j) => { ieStep(j, /exports-import-effects/).if = "${{ always() }}"; })],
+  ["probe runs twice", edit((j) => { const p = ieStep(j, /exports-import-effects/); j.scans.steps.splice(j.scans.steps.indexOf(p), 0, { ...p, name: "again" }); })],
+  ["report upload is removed", edit((j) => { j.scans.steps = j.scans.steps.filter((s) => s.with?.name !== "import-effects-${{ github.run_attempt }}"); })],
+  ["report upload precedes the probe", edit((j) => { const st = j.scans.steps; const u = st.findIndex((s) => s.with?.name === "import-effects-${{ github.run_attempt }}"); const [up] = st.splice(u, 1); const p = st.findIndex((s) => /exports-import-effects/.test(s.run ?? "")); st.splice(p, 0, up); })],
+  ["report upload becomes the last step (after the receipt)", edit((j) => { const st = j.scans.steps; const u = st.findIndex((s) => s.with?.name === "import-effects-${{ github.run_attempt }}"); const [up] = st.splice(u, 1); st.push(up); })],
+  ["report artifact loses the run attempt (stale across retries)", edit((j) => { ieStep(j, /^import-effects-/).with.name = "import-effects"; })],
+  ["report upload tolerates a missing report", edit((j) => { ieStep(j, /^import-effects-/).with["if-no-files-found"] = "warn"; })],
+  ["report upload may overwrite", edit((j) => { ieStep(j, /^import-effects-/).with.overwrite = "true"; })],
+  ["report upload runs even after a red probe", edit((j) => { ieStep(j, /^import-effects-/).if = "${{ always() }}"; })],
+  ["verify no longer downloads the report (closure skipped)", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s !== reportDownload(j.verify)); })],
+  ["verify downloads the report after writing its receipt", edit((j) => { const st = j.verify.steps; const d = reportDownload(j.verify); st.splice(st.indexOf(d), 1); st.splice(st.indexOf(receiptStep(j.verify)) + 1, 0, d); })],
+  ["verify downloads a stale report artifact", edit((j) => { reportDownload(j.verify).with.name = "import-effects-1"; })],
+  ["verify downloads the report to another path (tampered binding)", edit((j) => { reportDownload(j.verify).with.path = "${{ runner.temp }}/elsewhere"; })],
+  ["verify receipt drops RK_IMPORT_EFFECTS_REPORT (forged COMPLETE by omission)", edit((j) => { delete receiptStep(j.verify).env.RK_IMPORT_EFFECTS_REPORT; })],
+  ["verify receipt points RK_IMPORT_EFFECTS_REPORT at a literal", edit((j) => { receiptStep(j.verify).env.RK_IMPORT_EFFECTS_REPORT = "/dev/null"; })],
+  ["verify-linux no longer downloads the report", edit((j) => { j["verify-linux"].steps = j["verify-linux"].steps.filter((s) => s !== reportDownload(j["verify-linux"])); })],
+  ["verify-linux downloads the report after its receipt", edit((j) => { const st = j["verify-linux"].steps; const d = reportDownload(j["verify-linux"]); st.splice(st.indexOf(d), 1); st.splice(st.indexOf(receiptStep(j["verify-linux"])) + 1, 0, d); })],
+  ["verify-linux receipt drops RK_IMPORT_EFFECTS_REPORT", edit((j) => { delete receiptStep(j["verify-linux"]).env.RK_IMPORT_EFFECTS_REPORT; })],
+  ["verify-linux receipt reads another report path", edit((j) => { receiptStep(j["verify-linux"]).env.RK_IMPORT_EFFECTS_REPORT = "${{ runner.temp }}/other/report.json"; })],
   ["Windows OpenSSL locate step is removed", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s.name !== WIN_OPENSSL_STEPS[1][0]); })],
   ["Windows Perl select step is removed", edit((j) => { j.verify.steps = j.verify.steps.filter((s) => s.name !== WIN_OPENSSL_STEPS[0][0]); })],
   ["Windows OpenSSL locate step runs for npm too", edit((j) => { winStep(j, 1).if = "${{ runner.os == 'Windows' }}"; })],

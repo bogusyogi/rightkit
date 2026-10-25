@@ -158,6 +158,21 @@ jobs:
           PUBLISH_REGISTRY: ${{ inputs.registry }}
           PUBLISH_UNITS: ${{ inputs.units }}
         run: node live/scripts/ci/run-deterministic-scans.mjs --content-root "$SCAN_CONTENT_ROOT" --live-root "$SCAN_LIVE_ROOT" --out "$SCAN_OUT"
+      # Importing an export executes candidate code, so this runs only after the file-only class A scans above passed (a failed
+      # step stops the job before it). Every exported module must import in a fresh, read-only process without doing anything
+      # (the sealed-byte import check in verify used to find this 27 minutes in; run 40168412670, #1189).
+      - name: Exported modules import without side effects (after class A)
+        run: node live/scripts/ci/exports-import-effects.mjs --root live --report "$RUNNER_TEMP/import-effects/report.json"
+      # Build-output exports the source probe could not import are INCOMPLETE until verify's consume step imports them from the
+      # sealed tarball; the report carries that list to verify and verify-linux (RK_IMPORT_EFFECTS_REPORT).
+      - name: Keep the import-effects report (INCOMPLETE exports for verify to close)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: import-effects-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/import-effects
+          retention-days: 90
+          overwrite: false
+          if-no-files-found: error
       - name: Keep the scan receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -694,6 +709,11 @@ jobs:
         with:
           name: publish-packed
           path: ${{ runner.temp }}/rk-pack
+      - name: Fetch the import-effects report (INCOMPLETE exports this host must close)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: import-effects-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/import-effects
       - name: Cache the pinned Chrome for Testing
         if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.units), ' rightkit-browser ')) }}
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -764,6 +784,7 @@ jobs:
           PUBLISH_ALLOW_NO_TEST: ${{ needs.plan.outputs.allow_no_test }}
           PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
+          RK_IMPORT_EFFECTS_REPORT: ${{ runner.temp }}/import-effects/report.json
           RK_R2_CFT_ROOT: ${{ env.RK_R2_CFT_ROOT }}
           RK_R2_CFT_SHA256: ${{ env.RK_R2_CFT_SHA256 }}
           RK_R2_HEADLESS_SHELL_SHA256: ${{ env.RK_R2_HEADLESS_SHELL_SHA256 }}
@@ -830,6 +851,11 @@ jobs:
         with:
           name: publish-packed
           path: ${{ runner.temp }}/rk-pack
+      - name: Fetch the import-effects report (INCOMPLETE exports this host must close)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: import-effects-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/import-effects
       - name: Cache the pinned Chrome for Testing
         if: ${{ (needs.plan.outputs.registry == 'npm' && (contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/qa-chrome ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/react-shell ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/settings-ui ') || contains(format(' {0} ', needs.plan.outputs.linux_units), ' @rightkit/onboarding '))) || (needs.plan.outputs.registry == 'crates' && contains(format(' {0} ', needs.plan.outputs.linux_units), ' rightkit-browser ')) }}
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -871,6 +897,7 @@ jobs:
           PUBLISH_ALLOW_IGNORED: ${{ needs.plan.outputs.allow_ignored }}
           PUBLISH_ALLOW_MISSING_ASSETS: ${{ needs.plan.outputs.allow_missing_assets }}
           PUBLISH_LINUX_UNITS: ${{ needs.plan.outputs.linux_units }}
+          RK_IMPORT_EFFECTS_REPORT: ${{ runner.temp }}/import-effects/report.json
         run: node scripts/ci/publish.mjs verify
       - name: Keep this host's receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

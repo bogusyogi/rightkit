@@ -30,6 +30,20 @@ import { cargoManifestState } from "./cargo-manifest-text.mjs";
 import { advisoryCacheRoot, ensureAdvisoryDb, prepareDenyOverlay, readAdvisoryPin } from "./advisory-db.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
+/**
+ * The checker that produced a scan result: `<name>@<version>#<digest>` where the digest covers this module and scan-digest.mjs,
+ * so a changed checker at the same version is a different identity. null when it cannot be computed; prior class A evidence
+ * then never unlocks class B (an unknown checker is not trusted, it is refused).
+ */
+export const CHECKER_IDENTITY = (() => {
+  try {
+    const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+    const h = crypto.createHash("sha256");
+    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
+    return `${p.name}@${p.version}#${h.digest("hex").slice(0, 16)}`;
+  } catch { return null; }
+})();
+export const CHECKER_VERSION = CHECKER_IDENTITY;
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
@@ -200,6 +214,16 @@ function containedPath(raw, contentRoot) {
   return { path: norm };
 }
 const PNPM_NO_HOOKS_ENV = Object.freeze({ npm_config_ignore_pnpmfile: "true", npm_config_ignore_scripts: "true", pnpm_config_ignore_pnpmfile: "true", pnpm_config_ignore_scripts: "true" });
+// pnpm 11 checks, before every `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml (`verify-deps-before-run`, default
+// `install`) and answers a stale tree by running `pnpm install` in it. That install wants to purge the modules directory and, with no TTY (a
+// gate child has none), aborts: `[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY] Aborted removal of modules directory due to no TTY` and a
+// stack through runDepsStatusCheck, before the tool or the test runs at all (CodeRight, 2026-10-25: tsc, biome and test:npm failed in 2 s on a
+// tree installed before the last lockfile change). A gate scan must not install into, or purge, the checkout it reads, and the lockfile is
+// verified where it belongs, by `pnpm-lockfile` (`install --frozen-lockfile --lockfile-only`) in the clean export, so the class B pnpm scans
+// turn the check off and run against the tree as installed, as pnpm 10 (default `false`) always did; a tree that is really missing something
+// fails in the tool or the test with its own error. The `pnpm_config_` spelling is the one pnpm 11.25 honours for this setting
+// (`npm_config_verify_deps_before_run=false` still aborted, checked on a stale tree), the lowercase spelling PNPM_NO_HOOKS_ENV uses for its settings.
+const PNPM_RUN_ENV = Object.freeze({ pnpm_config_verify_deps_before_run: "false" });
 const CONFIG_CRATE_FILE = /(^|\/)Cargo\.(toml|lock)$/;
 const JS_TOOLING_FILE = /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$/;
 // Root files that change how EVERY crate (or package) builds: a change to one puts every unit in scope,
@@ -365,6 +389,24 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
     return null;
   };
   return visit(String(entry), []);
+}
+
+// A test script can reach the broker in ways scriptBrokerCall cannot read from package.json alone: `node -e "...spawnSync('pnpm', ['run', n])..."`,
+// `node ./scripts/verify-local.mjs` (a script that spawns `rustright cargo test`), `sh -c`, `pnpm --dir <elsewhere> run verify`, `pnpm --filter`. HeardRight's
+// root `test` is a `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
+// `rustright cargo test`; guessing from the text of such a script would defer tests that merely mention the tool, so the app says it instead.
+// `ci/gate.config.json` `npm.<unit>.requiresBroker` is `{ "reason": "<why this unit's test needs the broker>" }`, committed with the app and reviewed in the
+// diff that adds it. The reason is required: a declaration without one, or of any other shape, is ignored (the test is planned and runs where this host can
+// run it, the way the fail-closed default goes) and planScans says so in a note. `false` and `null` are plain "no declaration". It changes nothing on a host
+// with the broker, in CI, on a protected ref or with the opt-out: the scan runs there exactly as before. Only where rightkit-gate defers the Rust gate does it
+// take the unit's `test:npm:<unit>` scan out, with the Rust scans, named with its reason and never passed.
+const REQUIRES_BROKER_REASON_LIMIT = 400;
+export function declaredBrokerCall(unit, value) {
+  if (value === undefined || value === null || value === false) return {};
+  const reason = typeof value === "object" && !Array.isArray(value) && typeof value.reason === "string" ? value.reason.replace(/\s+/g, " ").trim() : "";
+  if (!reason) return { problem: `ci/gate.config.json npm.${unit}.requiresBroker is ignored: it must be { "reason": "<why this unit's test needs the broker>" } with a non-empty reason; test:npm:${unit} is planned as if it were not there` };
+  const text = reason.length > REQUIRES_BROKER_REASON_LIMIT ? `${reason.slice(0, REQUIRES_BROKER_REASON_LIMIT)}...` : reason;
+  return { call: { tool: "rustright", via: ["test"], command: `ci/gate.config.json npm.${unit}.requiresBroker: ${text}`, declared: true } };
 }
 
 /**
@@ -721,9 +763,9 @@ export function planScans({
   const hasConfig = (dir, names) => ancestorDirsOf(dir).some((d) => names.some((f) => exists(path.join(liveRoot, inDir(d, f)))));
   for (const name of pkgNames) {
     const dir = npmDir(name);
-    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], cwd: dir });
-    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], cwd: dir });
-    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: B, tool: "pnpm", args: ["exec", "biome", "lint", "."], cwd: dir });
+    if (exists(path.join(liveRoot, dir, "tsconfig.json"))) add({ id: `tsc:${name}`, class: B, tool: "pnpm", args: ["exec", "tsc", "--noEmit", "-p", "tsconfig.json"], env: PNPM_RUN_ENV, cwd: dir });
+    if (hasConfig(dir, ESLINT_CONFIG_FILES)) add({ id: `eslint:${name}`, class: B, tool: "pnpm", args: ["exec", "eslint", "."], env: PNPM_RUN_ENV, cwd: dir });
+    if (hasConfig(dir, BIOME_CONFIG_FILES)) add({ id: `biome:${name}`, class: B, tool: "pnpm", args: ["exec", "biome", "lint", "."], env: PNPM_RUN_ENV, cwd: dir });
   }
   if (files.some((f) => f.startsWith("swift/") || f === "Package.swift")) {
     if (platform === "darwin") add({ id: "swift-build", class: B, tool: "swift", args: ["build"] });
@@ -756,10 +798,13 @@ export function planScans({
       if (own.quietTests === true && quietTests === "ci") { deferredToCi.push(`test:npm:${name}`); continue; }
       // A gate proves the repository's own content: sibling checkouts beside it (RightKit's suite-contract tests read the app
       // repositories when present) are not inputs, so the package tests run as an isolated checkout, as they do in CI.
-      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain: rightkit-gate defers such a scan with the
-      // Rust gate where this host has no broker (scriptBrokerCall).
-      const brokerCall = scriptBrokerCall(manifest.scripts, "test");
-      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
+      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain (scriptBrokerCall), or a unit whose app declares that
+      // its test needs the broker (declaredBrokerCall): rightkit-gate defers such a scan with the Rust gate where this host has no broker.
+      // A declaration (`npm.<unit>.requiresBroker`, declaredBrokerCall) covers what the script text does not show; a call the scripts do show wins.
+      const declared = declaredBrokerCall(name, own.requiresBroker);
+      if (declared.problem) notes.push(declared.problem);
+      const brokerCall = scriptBrokerCall(manifest.scripts, "test") ?? declared.call ?? null;
+      add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);
     // scripts/ci tests run when scripts/, ci/ or .github/ changed, or a file the scripts/ci sources reference (imports and
@@ -916,7 +961,7 @@ export function laneOf(scan) {
 // The lines a reader needs from a failed scan: every line that names a failure (a failed test, a panic, a compiler or tool error,
 // cargo test's `failures:` block header, pnpm's ERR_ codes), at most twelve of them, then the last four lines of stdout and of
 // stderr. cargo test writes results to stdout and "Running ..." to stderr, so a plain tail showed only harness chatter.
-const FAILURE_LINE = /(^|\s)(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)/;
+const FAILURE_LINE = /(^|[\s\[])(FAILED|panicked at|error(\[E\d+\])?:|error\[|^failures:|ERR_PNPM_\w+|Error:|assertion `?left|^thread '.*' panicked)/;
 export function failureDetail(r) {
   const lines = (text) => String(text ?? "").split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim());
   const out = lines(r?.stdout); const err = lines(r?.stderr);
@@ -1145,9 +1190,13 @@ export async function runScans(plan, options = {}) {
   const priorRows = Array.isArray(priorA?.scans) ? priorA.scans.filter((r) => r.class === SCAN_CLASS.A) : [];
   // Prior evidence binds to the input content (inputDigest of the changed files), the class A scan set, and a
   // class A run that actually included class A.
+  // ... and to the checker that produced it: evidence from another checker (other version, or same version with changed bytes)
+  // does not unlock class B, and an unknown identity on either side refuses.
+  const checker = CHECKER_IDENTITY;
   const priorClassAValid = Boolean(priorA) && priorA.schema === SCAN_RESULT_SCHEMA && Boolean(plan.classDigests?.A) && Boolean(plan.inputDigest)
     && priorA.inputDigest === plan.inputDigest && Array.isArray(priorA.classes) && priorA.classes.includes(SCAN_CLASS.A)
-    && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass");
+    && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass")
+    && typeof checker === "string" && priorA.checker === checker;
   // Class A ran "in this call" only when it was selected, the plan has class A scans, and none was excluded:
   // excluding every class A scan (or a plan with none) never unlocks class B; explicit prior evidence is needed.
   const planA = plan.scans.filter((x) => x.class === SCAN_CLASS.A);
@@ -1318,7 +1367,7 @@ export async function runScans(plan, options = {}) {
 
   const cancelled = signal?.aborted === true;
   return {
-    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, ...(cancelled ? { cancelled: true } : {}),
+    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: plan.notes ?? [],
