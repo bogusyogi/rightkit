@@ -621,7 +621,7 @@ export function planScans({
     // placeholders are filled at run time from the materialised checkout (runScans).
     const pin = advisoryPin ?? (advisoryPin = readAdvisoryPin());
     const pinEnv = { RK_ADVISORY_DB_COMMIT: pin.commit };
-    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
+    add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
     add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
   for (const r of jsRoots) {
@@ -1236,7 +1236,23 @@ export async function runScans(plan, options = {}) {
           let advisory = null; let args = s.args;
           if (s.advisoryDb) {
             try { advisory = prepareAdvisory(s); } catch (e) { return { ...row, status: "fail", code: "ADVISORY_DB", detail: e.message }; }
-            args = args.map((a) => (a === "{advisoryDb}" ? advisory.dbDir : a === "{advisoryDenyConfig}" ? advisory.configPath : a));
+            // cargo-deny --offline must not fetch the advisory database, but its own `cargo metadata` would then be offline too and
+            // fail on a runner whose cargo cache is cold. The workspace's metadata is resolved first, online and --locked (the
+            // lockfile decides every version), and handed to cargo-deny as a file.
+            if (s.advisoryDb === "deny") {
+              const at = args.indexOf("deny");
+              // The whole document is needed: the concurrent spawn keeps only the tail of stdout, so this one call uses the buffered one.
+              const full = deps.spawn === defaultSpawnAsync ? defaultSpawn : deps.spawn;
+              const metadata = await full(p.command, [...args.slice(0, at), ...metadataArgs({ noDeps: false })], { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env }, ...sig });
+              if (!metadata || metadata.error || metadata.status !== 0) { advisory.cleanup?.(); return { ...row, status: "fail", code: "EXIT", detail: `cargo metadata for cargo-deny failed: ${metadata?.error?.message ?? (tail(metadata) || `exit ${metadata?.status}`)}` }; }
+              const metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-deny-metadata-"));
+              const metadataFile = path.join(metadataDir, "metadata.json");
+              fs.writeFileSync(metadataFile, String(metadata.stdout ?? ""));
+              advisory.metadataPath = metadataFile;
+              const overlayCleanup = advisory.cleanup;
+              advisory.cleanup = () => { fs.rmSync(metadataDir, { recursive: true, force: true }); overlayCleanup?.(); };
+            }
+            args = args.map((a) => (a === "{advisoryDb}" ? advisory.dbDir : a === "{advisoryDenyConfig}" ? advisory.configPath : a === "{advisoryMetadata}" ? advisory.metadataPath : a));
           }
           let r;
           try { r = await deps.spawn(p.command, args.map((a) => (a === "{contentRoot}" ? contentRoot : a)), { cwd: path.join(rootDir(s.root), s.cwd ?? ""), env: { ...deps.env, ...s.env, ...(extraEnv ?? {}) }, ...sig }); } finally { advisory?.cleanup?.(); }

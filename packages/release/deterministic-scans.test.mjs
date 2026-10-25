@@ -474,7 +474,7 @@ test("plan: cargoCommand selects the cargo prefix (rustright cargo locally, plai
   assert.ok(["cargo-metadata", "cargo-deny", "cargo-audit", "cargo-package-list:foo", "clippy:foo"].every((id) => cargoScans.some((s) => s.id === id)));
   assert.ok(cargoScans.every((s) => s.args[0] !== "cargo"));
   const PIN = "21d909e4c8bd4e14c7aea58bf980c881a0053ab1";
-  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --offline --config {advisoryDenyConfig} check`);
+  assert.equal(cargoScans.find((s) => s.id === "cargo-deny").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo deny --offline --metadata-path {advisoryMetadata} --config {advisoryDenyConfig} check`);
   assert.equal(cargoScans.find((s) => s.id === "cargo-audit").command, `RK_ADVISORY_DB_COMMIT=${PIN} cargo audit --db {advisoryDb} --no-fetch`);
   assert.ok(!ci.scans.some((s) => s.tool === "rustright"));
   assert.throws(() => planFor(["README.md"], { "README.md": "x" }, { cargoCommand: ["sh", "-c"] }), /cargoCommand/);
@@ -1598,7 +1598,11 @@ test("advisory scans: cargo-deny and cargo-audit run offline against the pinned 
   assert.equal(result.ok, true);
   assert.equal(ensured.length, 1, "materialised once for both scans");
   assert.equal(ensured[0].pin.commit, "21d909e4c8bd4e14c7aea58bf980c881a0053ab1");
-  assert.deepEqual(log.find((c) => c.includes("deny") && c.includes("check")).slice(2), ["deny", "--offline", "--config", "/tmp/rk-deny/deny.toml", "check"]);
+  const deny = log.find((c) => c.includes("deny") && c.includes("check")).slice(2);
+  assert.deepEqual([...deny.slice(0, 2), ...deny.slice(4)], ["deny", "--offline", "--config", "/tmp/rk-deny/deny.toml", "check"]);
+  assert.equal(deny[2], "--metadata-path");
+  assert.match(deny[3], /rk-deny-metadata-[^/\\]+[/\\]metadata\.json$/, "metadata resolved online & --locked first, so --offline never needs a warm cargo cache");
+  assert.ok(log.some((c) => c.includes("metadata") && c.includes("--locked") && !c.includes("--no-deps")), "the full --locked metadata is resolved before cargo-deny");
   assert.deepEqual(log.find((c) => c.includes("audit") && c.includes("--db")).slice(2), ["audit", "--db", "/cache/advisory-db/pinned", "--no-fetch"]);
   const other = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { advisoryPin: { url: "https://github.com/rustsec/advisory-db", commit: "b".repeat(40) } }).plan;
   assert.notEqual(other.scans.find((s) => s.id === "cargo-deny").command, plan.scans.find((s) => s.id === "cargo-deny").command);

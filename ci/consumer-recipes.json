@@ -321,6 +321,7 @@
       "recipeId": "release-cli-version-smoke-consumer",
       "scenarios": 5,
       "surface": [
+        "./bin/rightkit-agent-hook.mjs",
         "./bin/rightkit-gate.mjs",
         "./cargo-contract.mjs",
         "./cargo-target.mjs",
