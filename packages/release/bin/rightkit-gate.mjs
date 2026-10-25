@@ -1349,8 +1349,11 @@ export async function main(argv, io = {}) {
     if (snapshot) {
       exportRoot = fs.mkdtempSync(path.join(o.env.RK_GATE_TMPDIR || os.tmpdir(), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
-      const made = o.spawn("git", ["archive", "--format=tar", "--prefix=repo/", "-o", path.join(exportRoot, "head.tar"), snapshot], { cwd: root });
-      const x = failed(made) ? made : o.spawn("tar", ["-xf", "head.tar"], { cwd: exportRoot });
+      // Every file of the commit or tree: read-tree into a private index, then checkout-index. `git archive` would leave out files
+      // marked export-ignore in .gitattributes, so they would never be scanned; this export has no such exclusion.
+      const indexEnv = { ...o.env, GIT_INDEX_FILE: path.join(exportRoot, "index") };
+      const made = o.spawn("git", ["read-tree", snapshot], { cwd: root, env: indexEnv });
+      const x = failed(made) ? made : o.spawn("git", ["checkout-index", "--all", "--force", `--prefix=${repo}${path.sep}`], { cwd: root, env: indexEnv });
       if (failed(made) || failed(x)) { o.err(`${tag} cannot export ${snapshot}: ${why(made) || why(x)}`); return 2; }
     }
     // Every file of the snapshot, once: units, manifests, lockfiles and the changed set are all read from what is scanned, never from
@@ -1422,7 +1425,9 @@ export async function main(argv, io = {}) {
     const rustScope = restricted ? scopeNames : null;
 
     const fullPlan = planScans({
-      changed, contentRoot: repo, liveRoot: root, includeTests: true, rustScope, cargoCommand,
+      // Class A of a commit or tree reads only that snapshot: every scan, cargo's included, runs in the export, never in the live
+      // checkout (which may hold other bytes). Compiles (class B) use the live checkout, whose tree the dirty check pinned to HEAD.
+      changed, contentRoot: repo, liveRoot: classAOnly && snapshot ? repo : root, includeTests: true, rustScope, cargoCommand,
       // The quiet tests (port, pipe, desktop and wall-clock bound) are proven by the CI shards, one crate per runner, unless
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,

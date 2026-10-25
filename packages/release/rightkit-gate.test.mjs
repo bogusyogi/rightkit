@@ -372,7 +372,7 @@ test("--plan prints the plan for a fake repo from its own units and runs nothing
   assert.doesNotMatch(out, /clippy:b|cargo-package-list:b/);
   assert.doesNotMatch(out, /deferred/, "the compile grant is present");
   assert.ok(!log.some((l) => l[0] === "rustright" && l[1] === "cargo" && l[2] !== "metadata"), "only discovery ran through cargo");
-  assert.ok(!log.some((l) => l.includes("archive") || l.includes("status") || l.includes("tar")), "a plan exports and checks nothing");
+  assert.ok(!log.some((l) => l.includes("archive") || l.includes("read-tree") || l.includes("checkout-index") || l.includes("status") || l.includes("tar")), "a plan exports and checks nothing");
 });
 
 test("no local compile grant file is needed: the broker (or the gate on a direct host) admits compiles, not a file in the repository", async (t) => {
@@ -1441,7 +1441,8 @@ function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = fa
         return ok(named ? `${named.join("\0")}\0` : args.at(-1).endsWith("Cargo.toml") ? `${manifests.join("\0")}\0` : "");
       }
       if (args[0] === "diff") return ok(diff);
-      if (args[0] === "status" || args[0] === "archive") return ok();
+      if (args[0] === "status" || args[0] === "archive" || args[0] === "read-tree") return ok();
+      if (args[0] === "checkout-index") { const prefix = args.find((x) => x.startsWith("--prefix=")).slice("--prefix=".length); fs.cpSync(root, prefix, { recursive: true }); return ok(); }
       if (args[0] === "show") return shows[args[1]] === undefined ? no("fatal: path does not exist") : ok(shows[args[1]]);
       if (args[0] === "symbolic-ref") return originHead ? ok(`${originHead}\n`) : no("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref");
       return no(`unexpected ${cmd} ${line}`);
@@ -1878,4 +1879,25 @@ test("--to dev|test: class A on the working tree first, then right-release dev|t
   calls.length = 0;
   assert.equal(await main(["--to", "test"], { ...capture().io, cwd: root, ...io(0) }), 0);
   assert.deepEqual(calls.map((c) => c.args ?? c), ["check", "test"]);
+});
+
+test("class A of a commit scans every file of that commit: export-ignore hides nothing, and a live edit is never what is checked", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-snapshot-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(root, ".gitattributes"), "hidden.json export-ignore\n");
+  fs.writeFileSync(path.join(root, "hidden.json"), "{ not json\n");
+  fs.writeFileSync(path.join(root, "good.json"), "{}\n");
+  git("add", "-A"); git("commit", "-q", "-m", "x");
+  const run = async (args) => { const c = capture(); const code = await main(args, { ...c.io, cwd: root, resolveExecutor: directExecutor }); return { code, out: [...c.out, ...c.err].join("\n") }; };
+  const committed = await run(["--class-a", "--commit", "HEAD"]);
+  assert.equal(committed.code, 1, committed.out);
+  assert.match(committed.out, /hidden\.json/, "a file marked export-ignore is still scanned");
+  // Fix it in the commit, then break it only in the live checkout: the commit is what is checked.
+  fs.writeFileSync(path.join(root, "hidden.json"), "{}\n"); git("commit", "-q", "-am", "fix");
+  fs.writeFileSync(path.join(root, "good.json"), "{ broken live edit\n");
+  const clean = await run(["--class-a", "--commit", "HEAD"]);
+  assert.equal(clean.code, 0, clean.out);
+  assert.doesNotMatch(clean.out, /good\.json/);
 });

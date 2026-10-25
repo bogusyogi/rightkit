@@ -56,6 +56,13 @@ export function deterministicScansEnabled(config) {
   return config?.deterministicScans?.enabled === true;
 }
 
+let neutralDir = null;
+/** An empty directory outside every repository, for tool version probes. */
+function probeDir() {
+  if (!neutralDir || !fs.existsSync(neutralDir)) neutralDir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-probe-"));
+  return neutralDir;
+}
+
 /** JSONC to JSON: drops line and block comments outside strings, and trailing commas before } or ]. */
 export function stripJsonComments(text) {
   let out = ""; let i = 0; let inString = false;
@@ -1154,7 +1161,9 @@ export async function runScans(plan, options = {}) {
     const command = toolCommand(tool);
     if (!command) outcome = { ok: false, why: "not found" };
     else {
-      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: liveRoot, env: deps.env, ...sig });
+      // A version probe never runs inside the repository: a tool started there reads the repository's own configuration first
+      // (pnpm's .npmrc and pnpmfile, corepack's packageManager pin, cargo's .cargo/config), before any scan's protections apply.
+      const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd: deps.probeDir ?? probeDir(), env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
       else outcome = { ok: true, command, version: String(r.stdout || r.stderr || "").split(/\r?\n/).find((l) => l.trim())?.trim() ?? "unknown" };
     }
