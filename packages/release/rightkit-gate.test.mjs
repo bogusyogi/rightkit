@@ -3,9 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import * as shipped from "./lock-graph.mjs";
 import * as ci from "../../scripts/ci/select.mjs";
 import { spawnSync } from "./background-process.mjs";
+import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import {
   EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
@@ -157,8 +159,10 @@ test("install-hook writes the hook, sets core.hooksPath, and refuses to overwrit
   const first = await run(["install-hook"]);
   assert.equal(first.code, 0);
   const text = fs.readFileSync(hook, "utf8");
-  assert.match(text, /pnpm exec rightkit-gate --base origin\/main/);
-  assert.match(text, /exec node "[^"]*bin\/rightkit-gate\.mjs" --base origin\/main/);
+  assert.match(text, /pnpm exec rightkit-gate "\$@"/);
+  assert.match(text, /node "[^"]*bin\/rightkit-gate\.mjs" "\$@"/);
+  assert.match(text, /rightkit_gate check --commit HEAD/);
+  assert.match(text, /rightkit_gate --base origin\/main/);
   assert.deepEqual(state.sets, [".githooks"]);
   assert.ok(first.out.some((l) => /wrote \.githooks\/pre-push/.test(l)) && first.out.some((l) => /set core\.hooksPath to \.githooks/.test(l)));
 
@@ -923,7 +927,7 @@ const runHook = (root, input, { path: extraPath = [], env = {} } = {}) => spawnS
   cwd: root, input, encoding: "utf8", env: { ...process.env, ...env, PATH: [...extraPath, process.env.PATH].join(path.delimiter) },
 });
 
-test("the pre-push hook: runs .git/hooks/pre-push first, feeds the same stdin to it and to the gate, and stops on the first failure", { skip: !shAvailable && "no sh" }, (t) => {
+test("the pre-push hook: runs .git/hooks/pre-push first, then the check, then the gate; the ref lines reach the own hook and the gate, and the first failure stops the push", { skip: !shAvailable && "no sh" }, (t) => {
   const log = path.join(mkRepo({}, t), "calls.log");
   const root = hookRepo(t, {
     ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"),
@@ -934,9 +938,9 @@ test("the pre-push hook: runs .git/hooks/pre-push first, feeds the same stdin to
   const ran = runHook(root, ref);
   assert.equal(ran.status, 0, ran.stderr);
   const calls = fs.readFileSync(log, "utf8");
-  assert.equal(calls, `own origin https://example.test/r.git\n${ref}--\ngate --base origin/main\n${ref}--\n`, "own hook first with git's arguments, then the gate, same stdin");
+  assert.equal(calls, `own origin https://example.test/r.git\n${ref}--\ngate check --commit HEAD\n--\ngate --base origin/main\n${ref}--\n`, "own hook first with git's arguments, then the check (no stdin), then the gate with the ref lines");
   assert.match(ran.stderr, /rightkit-gate: running \.git\/hooks\/pre-push/);
-  assert.match(ran.stderr, /rightkit-gate: using node_modules\/\.bin\/rightkit-gate/);
+  assert.equal(ran.stderr.match(/rightkit-gate: using node_modules\/\.bin\/rightkit-gate/g).length, 1, "the binary it chose is named once");
   // A failing own hook blocks the push and the gate does not run.
   fs.writeFileSync(path.join(root, ".git", "hooks", "pre-push"), "#!/bin/sh\ncat >/dev/null\nexit 7\n");
   fs.rmSync(log);
@@ -949,13 +953,45 @@ test("the pre-push hook: runs .git/hooks/pre-push first, feeds the same stdin to
   assert.equal(runHook(root, ref).status, 3);
 });
 
+// A gate binary that records each call and fails the one whose first argument is in FAIL.
+const failing = (log, ...fail) => `#!/bin/sh\ncat >/dev/null\necho "$*" >> "${log.replaceAll("\\", "/")}"\nfor f in ${fail.map((f) => `"${f}"`).join(" ")}; do if [ "$1" = "$f" ]; then echo "gate stub: $1 failed" >&2; exit ${"${CODE:-1}"}; fi; done\nexit 0\n`;
+
+test("the pre-push hook: a red check stops the push with its own exit code before the gate starts", { skip: !shAvailable && "no sh" }, (t) => {
+  const log = path.join(mkRepo({}, t), "calls.log");
+  const root = hookRepo(t, { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"), "node_modules/.bin/rightkit-gate": failing(log, "check") });
+  const ran = runHook(root, `refs/heads/main ${"a".repeat(40)} refs/heads/main ${"0".repeat(40)}\n`);
+  assert.equal(ran.status, 1);
+  assert.match(ran.stderr, /gate stub: check failed/);
+  assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n", "the gate never ran");
+  const two = runHook(root, `refs/heads/main ${"a".repeat(40)} refs/heads/main ${"0".repeat(40)}\n`, { env: { CODE: "2" } });
+  assert.equal(two.status, 2, "a check that could not run (exit 2) stops the push too");
+});
+
+test("the pre-push hook: a push that only deletes refs has no content to check and skips the check, a mixed push checks", { skip: !shAvailable && "no sh" }, (t) => {
+  const log = path.join(mkRepo({}, t), "calls.log");
+  const root = hookRepo(t, { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"), "node_modules/.bin/rightkit-gate": failing(log, "check") });
+  const zero = "0".repeat(40);
+  const deletion = runHook(root, `(delete) ${zero} refs/heads/old ${"b".repeat(40)}\n`);
+  assert.equal(deletion.status, 0, deletion.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "--base origin/main\n", "only the gate ran, and it skips deletions itself");
+  assert.match(deletion.stderr, /only deletions are pushed; nothing to check/);
+  fs.rmSync(log);
+  const mixed = runHook(root, `(delete) ${zero} refs/heads/old ${"b".repeat(40)}\nrefs/heads/main ${"a".repeat(40)} refs/heads/main ${zero}\n`);
+  assert.equal(mixed.status, 1, "a push with content is checked even when it also deletes");
+  assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n");
+  // Nothing on stdin (the hook run by hand): the check runs, as it does for the gate's own HEAD.
+  fs.rmSync(log);
+  assert.equal(runHook(root, "").status, 1);
+  assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n");
+});
+
 test("the pre-push hook: without an own hook only the gate runs; its temp file is gone afterwards", { skip: !shAvailable && "no sh" }, (t) => {
   const tmp = mkRepo({}, t);
   const log = path.join(tmp, "calls.log");
   const root = hookRepo(t, { ".githooks/pre-push": hookText("bin/rightkit-gate.mjs"), "node_modules/.bin/rightkit-gate": recorder(log, "gate") });
   const ran = runHook(root, "x y z w\n", { env: { TMPDIR: tmp } });
   assert.equal(ran.status, 0, ran.stderr);
-  assert.equal(fs.readFileSync(log, "utf8"), "gate --base origin/main\nx y z w\n--\n");
+  assert.equal(fs.readFileSync(log, "utf8"), "gate check --commit HEAD\n--\ngate --base origin/main\nx y z w\n--\n");
   assert.deepEqual(fs.readdirSync(tmp).sort(), ["calls.log"], "the buffered stdin is removed");
   assert.ok(!ran.stderr.includes("running"), "nothing to chain");
 });
@@ -970,7 +1006,7 @@ test("the pre-push hook: the gate binary is the root install, else a workspace p
     const root = hookRepo(t, { ...base, [`${where}/node_modules/.bin/rightkit-gate`]: recorder(log, `gate@${where}`) });
     const ran = runHook(root, "in\n");
     assert.equal(ran.status, 0, ran.stderr);
-    assert.equal(fs.readFileSync(log, "utf8"), `gate@${where} --base origin/main\nin\n--\n`);
+    assert.equal(fs.readFileSync(log, "utf8"), `gate@${where} check --commit HEAD\n--\ngate@${where} --base origin/main\nin\n--\n`);
     assert.match(ran.stderr, new RegExp(`rightkit-gate: using ${where}/node_modules/\\.bin/rightkit-gate`));
   }
   // The root install wins over a workspace package's.
@@ -985,7 +1021,7 @@ test("the pre-push hook: the gate binary is the root install, else a workspace p
   const none = hookRepo(t, base);
   const viaPnpm = runHook(none, "in\n", { path: [bin] });
   assert.equal(viaPnpm.status, 0, viaPnpm.stderr);
-  assert.equal(fs.readFileSync(log, "utf8"), "pnpm exec rightkit-gate --base origin/main\nin\n--\n");
+  assert.equal(fs.readFileSync(log, "utf8"), "pnpm exec rightkit-gate check --commit HEAD\n--\npnpm exec rightkit-gate --base origin/main\nin\n--\n");
   assert.match(viaPnpm.stderr, /rightkit-gate: using pnpm exec rightkit-gate/);
 });
 
@@ -1034,4 +1070,209 @@ test("quietLeaseLane: acquires through rustright with the gate pid, hands the le
     assert.equal(await quietLeaseLane(o(answers)).acquire(), null, label);
     assert.ok(out.some((m) => /without a (broker )?lease/.test(m)), `${label} is reported`);
   }
+});
+
+// ---- the check subcommand ----------------------------------------------------------------------------------------------------
+
+test("check delegates to the app check with its own arguments, label and cwd, reads no stdin and runs no git of its own", async () => {
+  const seen = [];
+  const appCheck = async (argv, io) => { seen.push({ argv, label: io.label, cwd: io.cwd, hasOut: typeof io.out === "function" && typeof io.err === "function" }); return seen.length === 1 ? 1 : 2; };
+  const spawn = () => { throw new Error("check must not spawn anything itself"); };
+  const readStdin = () => { throw new Error("check must not read stdin"); };
+  const c = capture();
+  assert.equal(await main(["check", "--repo", "/r", "--commit", "abc", "--only", "qa-platform,skip-checks", "--print-baseline"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work" }), 1);
+  assert.equal(await main(["check", "--worktree"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work" }), 2);
+  assert.deepEqual(seen, [
+    { argv: ["--repo", "/r", "--commit", "abc", "--only", "qa-platform,skip-checks", "--print-baseline"], label: "check", cwd: "/work", hasOut: true },
+    { argv: ["--worktree"], label: "check", cwd: "/work", hasOut: true },
+  ]);
+});
+
+test("check runs the real app check: findings on stdout, exit 0 green and 1 red, and the unknown-command usage names it", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-check-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } }));
+  git("add", "-A"); git("commit", "-q", "-m", "red");
+  const red = capture();
+  assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], red.io), 1);
+  assert.match(red.out.join("\n"), /^FAIL skip-checks \(G17\): package\.json:1 script "ship" runs right-release with --skip-checks$/m);
+  assert.match(red.out.at(-1), /^check: 1 problem\(s\) in \w{12} \(12 rules, /);
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build" } }));
+  git("commit", "-q", "-am", "green");
+  const green = capture();
+  assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
+  assert.match(green.out.at(-1), /^check: \w{12} passed 12 rules in [\d.]+s$/, "no --repo: the git top-level of the working directory");
+  const unknown = capture();
+  assert.equal(await main(["bogus"], unknown.io), 2);
+  assert.match(unknown.err.join("\n"), /rightkit-gate check \[--repo <dir>\] \[--commit <rev> \| --worktree\] \[--only <rule,\.\.\.>\] \[--list\] \[--print-baseline\] \[--baseline <file>\]/);
+});
+
+// ---- install-hook: the ownership pre-commit step (right-release hooks install is an alias of install-hook) ----------------------
+
+const PINNED = "node_modules/@rightkit/release/cli/right-release.mjs";
+const ownershipRepo = (t, extra = {}) => mkRepo({ "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.6.5"}}', "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "", [PINNED]: "", ...extra }, t);
+
+test("install-hook also writes the ownership pre-commit step where @rightkit/release is installed, and running it again changes nothing", async (t) => {
+  const root = ownershipRepo(t);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0, c.err.join("\n"));
+  const hooks = path.join(root, ".githooks");
+  assert.deepEqual(fs.readdirSync(hooks).sort(), ["pre-commit", "pre-push"]);
+  assert.equal(fs.readFileSync(path.join(hooks, "pre-commit"), "utf8"), renderPreCommitHook(), "the very hook right-release hooks install writes");
+  assert.match(fs.readFileSync(path.join(hooks, "pre-commit"), "utf8"), new RegExp(HOOK_MARKER));
+  assert.match(c.out.join("\n"), /wrote \.githooks\/pre-commit \(the advisory ownership gate: right-release ownership --staged\)/);
+  assert.match(c.out.join("\n"), /git add --chmod=\+x \.githooks\/pre-push \.githooks\/pre-commit/);
+  assert.ok(!c.out.join("\n").includes("no ownership pre-commit step"));
+  const again = capture();
+  assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0);
+  assert.ok(again.out.some((l) => /\.githooks\/pre-commit already current/.test(l)) && again.out.some((l) => /\.githooks\/pre-push already current/.test(l)));
+  assert.deepEqual(state.sets, [".githooks"]);
+});
+
+test("install-hook without @rightkit/release installed keeps the plain trampoline for the repository's own pre-commit hook and says the ownership step is missing", async (t) => {
+  const root = mkRepo({ "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.6.5"}}' }, t);
+  withGitHooks(root, ["pre-commit"]);
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, { hooksPath: "", sets: [] }, { listed: ["package.json"] }), cwd: root }), 0);
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), trampolineText("pre-commit"));
+  assert.match(c.out.join("\n"), new RegExp(`no ownership pre-commit step: ${PINNED.replaceAll(".", "\\.")} is not installed here`));
+});
+
+test("install-hook: the repository's own pre-commit hook keeps running first, through a trampoline beside the ownership step, and is never rewritten", async (t) => {
+  const root = ownershipRepo(t);
+  withGitHooks(root, ["pre-commit"]);
+  const own = fs.readFileSync(path.join(root, ".git", "hooks", "pre-commit"), "utf8");
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0, c.err.join("\n"));
+  const hooks = path.join(root, ".githooks");
+  assert.equal(fs.readFileSync(path.join(hooks, "pre-commit"), "utf8"), renderPreCommitHook());
+  assert.equal(fs.readFileSync(path.join(hooks, "pre-commit.rightkit-foreign"), "utf8"), trampolineText("pre-commit"), "the ownership hook runs this one first, and it runs .git/hooks/pre-commit");
+  assert.equal(fs.readFileSync(path.join(root, ".git", "hooks", "pre-commit"), "utf8"), own, "the user's hook is untouched");
+  assert.match(c.out.join("\n"), /wrote \.githooks\/pre-commit\.rightkit-foreign \(runs \.git\/hooks\/pre-commit, before the ownership gate\)/);
+  const again = capture();
+  assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0);
+  assert.ok(again.out.some((l) => /pre-commit\.rightkit-foreign already current/.test(l)));
+  // An earlier plain `hooks install` left the ownership hook in .git/hooks and the user's hook beside it: that one is chained, not the ownership hook twice.
+  const old = ownershipRepo(t);
+  withGitHooks(old, ["pre-commit.rightkit-foreign"]);
+  fs.writeFileSync(path.join(old, ".git", "hooks", "pre-commit"), renderPreCommitHook());
+  assert.equal(await main(["install-hook"], { ...capture().io, spawn: hookEnv(old, { hooksPath: "", sets: [] }, { listed: ["package.json"] }), cwd: old }), 0);
+  assert.equal(fs.readFileSync(path.join(old, ".githooks", "pre-commit.rightkit-foreign"), "utf8"), trampolineText("pre-commit.rightkit-foreign"));
+  assert.equal(fs.readdirSync(path.join(old, ".githooks")).includes("pre-commit.rightkit-foreign"), true);
+});
+
+test("install-hook: installing @rightkit/release later upgrades its own earlier trampoline and an older ownership hook in place, without --force", async (t) => {
+  const root = mkRepo({ "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.6.5"}}' }, t);
+  withGitHooks(root, ["pre-commit"]);
+  const state = { hooksPath: "", sets: [] };
+  const io = () => ({ ...capture().io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root });
+  assert.equal(await main(["install-hook"], io()), 0);
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), trampolineText("pre-commit"), "no @rightkit/release yet: the plain trampoline");
+  fs.mkdirSync(path.join(root, "node_modules/@rightkit/release/cli"), { recursive: true });
+  fs.writeFileSync(path.join(root, PINNED), "");
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...io(), ...c.io }), 0, c.err.join("\n"));
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), renderPreCommitHook(), "now the ownership gate");
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit.rightkit-foreign"), "utf8"), trampolineText("pre-commit"), "and the repository's own hook still runs first");
+  assert.match(c.out.join("\n"), /replaced \.githooks\/pre-commit \(the advisory ownership gate/);
+  // An ownership hook of an older text (same marker) is updated too.
+  fs.writeFileSync(path.join(root, ".githooks", "pre-commit"), `#!/bin/sh\n# ${HOOK_MARKER}: an older text\nexit 0\n`);
+  const again = capture();
+  assert.equal(await main(["install-hook"], { ...io(), ...again.io }), 0, again.err.join("\n"));
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), renderPreCommitHook());
+});
+
+test("install-hook: a pre-commit hook of the user's own already in .githooks is never replaced without --force, and nothing changes then", async (t) => {
+  const root = ownershipRepo(t, { ".githooks/pre-commit": "#!/bin/sh\necho mine\n" });
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 1);
+  assert.match(c.err.join("\n"), /\.githooks\/pre-commit already exists and differs; nothing changed\. .* replace it with the ownership pre-commit hook/);
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), "#!/bin/sh\necho mine\n");
+  assert.equal(fs.existsSync(path.join(root, ".githooks", "pre-push")), false, "no partial install");
+  assert.deepEqual(state.sets, []);
+  // The same for a foreign trampoline file that is not ours.
+  const other = ownershipRepo(t, { ".githooks/pre-commit.rightkit-foreign": "#!/bin/sh\necho mine too\n" });
+  withGitHooks(other, ["pre-commit"]);
+  const o = capture();
+  assert.equal(await main(["install-hook"], { ...o.io, spawn: hookEnv(other, { hooksPath: "", sets: [] }, { listed: ["package.json"] }), cwd: other }), 1);
+  assert.match(o.err.join("\n"), /\.githooks\/pre-commit\.rightkit-foreign already exists and differs/);
+  assert.equal(fs.readFileSync(path.join(other, ".githooks", "pre-commit.rightkit-foreign"), "utf8"), "#!/bin/sh\necho mine too\n");
+  // --force replaces both.
+  const forced = capture();
+  assert.equal(await main(["install-hook", "--force"], { ...forced.io, spawn: hookEnv(root, state, { listed: ["package.json"] }), cwd: root }), 0);
+  assert.equal(fs.readFileSync(path.join(root, ".githooks", "pre-commit"), "utf8"), renderPreCommitHook());
+});
+
+test("the installed pre-commit hook: the repository's own hook runs first and can stop the commit, then the pinned right-release runs ownership --staged", { skip: !shAvailable && "no sh" }, async (t) => {
+  const log = path.join(mkRepo({}, t), "calls.log");
+  const logPath = log.replaceAll("\\", "/");
+  const root = hookRepo(t, {
+    "package.json": '{"name":"app","devDependencies":{"@rightkit/release":"0.6.5"}}',
+    "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "",
+    [PINNED]: `console.log("ownership " + process.argv.slice(2).join(" ")); require("node:fs").appendFileSync("${logPath}", "pinned " + process.argv.slice(2).join(" ") + "\\n"); process.exit(Number(process.env.OWNERSHIP_EXIT ?? 0));\n`.replace("require(", "process.getBuiltinModule("),
+    ".git/hooks/pre-commit": `#!/bin/sh\necho "own pre-commit" >> "${logPath}"\nexit \${OWN_EXIT:-0}\n`,
+  });
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: (cmd, args, opts) => spawnSync(cmd, args, { ...opts, encoding: "utf8" }) }), 0);
+  assert.equal(git("config", "--get", "core.hooksPath").stdout.trim(), ".githooks");
+  fs.writeFileSync(path.join(root, "a.txt"), "x\n");
+  git("add", "a.txt");
+  const commit = (env = {}) => spawnSync("git", ["commit", "-q", "-m", "m"], { cwd: root, encoding: "utf8", env: { ...process.env, ...env } });
+  const blocked = commit({ OWN_EXIT: "5" });
+  assert.notEqual(blocked.status, 0, "the user's hook stops the commit");
+  assert.equal(fs.readFileSync(log, "utf8"), "own pre-commit\n", "and the ownership gate never ran");
+  fs.rmSync(log);
+  const ok = commit();
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "own pre-commit\npinned ownership --staged\n");
+  fs.writeFileSync(path.join(root, "b.txt"), "y\n");
+  git("add", "b.txt");
+  fs.rmSync(log);
+  const refused = commit({ OWNERSHIP_EXIT: "1" });
+  assert.notEqual(refused.status, 0, "a block-tier ownership finding stops the commit");
+});
+
+// ---- the whole hook, with the real check: a red tree cannot be pushed -------------------------------------------------------------
+
+test("a scratch repository with a red tree rejects git push through the installed hook with the check's findings, and a green one reaches the gate", { skip: !shAvailable && "no sh" }, async (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "gate.log").replaceAll("\\", "/");
+  const gateCli = path.join(path.dirname(fileURLToPath(import.meta.url)), "bin", "rightkit-gate.mjs").replaceAll("\\", "/");
+  // The gate binary is the real one for `check` and a recorder for the scans, which need a broker.
+  const shim = `#!/bin/sh\nif [ "$1" = check ]; then exec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"; fi\ncat >/dev/null\necho "gate $*" >> "${log}"\nexit 0\n`;
+  const root = hookRepo(t, {
+    "package.json": JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build --skip-checks" } }),
+    "node_modules/.bin/rightkit-gate": shim,
+  });
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  for (const [k, v] of [["user.email", "t@example.test"], ["user.name", "t"], ["core.autocrlf", "false"]]) git("config", k, v);
+  fs.writeFileSync(path.join(root, ".gitignore"), "node_modules/\n");
+  const remote = path.join(tmp, "remote.git");
+  assert.equal(spawnSync("git", ["init", "-q", "--bare", remote], { encoding: "utf8" }).status, 0);
+  git("remote", "add", "origin", remote);
+  assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: (cmd, args, opts) => spawnSync(cmd, args, { ...opts, encoding: "utf8" }) }), 0);
+  git("add", "-A"); git("add", "--chmod=+x", ".githooks/pre-push");
+  assert.equal(git("commit", "-q", "-m", "red tree").status, 0);
+  const red = git("push", "origin", "HEAD:refs/heads/main");
+  assert.notEqual(red.status, 0, "the push is rejected");
+  assert.match(red.stderr, /FAIL skip-checks \(G17\): package\.json:1 script "ship" runs right-release with --skip-checks/);
+  assert.match(red.stderr, /fix: drop --skip-checks/);
+  assert.equal(fs.existsSync(log), false, "the gate never started");
+  assert.notEqual(git("ls-remote", "origin").stdout.trim(), git("rev-parse", "HEAD").stdout.trim(), "nothing reached the remote");
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build" } }));
+  assert.equal(git("commit", "-q", "-am", "green tree").status, 0);
+  const green = git("push", "origin", "HEAD:refs/heads/main");
+  assert.equal(green.status, 0, green.stderr);
+  assert.match(fs.readFileSync(log, "utf8"), /^gate --base origin\/main$/m, "the gate ran after the check passed");
+  assert.equal(git("ls-remote", "origin", "refs/heads/main").stdout.split("\t")[0], git("rev-parse", "HEAD").stdout.trim());
+  // Deleting the branch is not blocked by a red tree: there is nothing to check.
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } }));
+  assert.equal(git("commit", "-q", "-am", "red again").status, 0);
+  assert.equal(git("push", "origin", ":refs/heads/main").status, 0);
 });

@@ -91,6 +91,36 @@ On desktop (non-iOS) targets the source walk covers the whole app root, so app t
 | Legal | `license-notices npm`, `license-notices cargo`, `license-notices binaries` |
 | Other | `dev`, `doctor`, `suite-doctor`, `qa`, `dmg`, `cache`, `disk` (see "Disk hygiene on the agent volume"), `apple`, `inventory`, `model`, `addon`, `hooks`, `lsclean`, `generate-dmg-background`, `publish cargo`, `publish npm`, `publish swift` |
 
+## The app check: deterministic first, no flag skips it
+
+`right-release check [--repo <dir>] [--config <file>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]`
+is the offline app check, the same as `rightkit-gate check`: it reads files only (the committed tree of `--commit`, default HEAD, or with
+`--worktree` the tree on disk, which is what a compile would see), runs every rule and prints every finding in one run. Exit 0 passes,
+1 has findings, 2 could not run (a repository with no commit yet says `the repository has no commit yet; commit first`). The repository
+is the git top-level of `--config`'s folder, else of `--app-root` (`recipe-build`), else of the working directory.
+
+The commands that compile, package, sign, ship or inspect a release run it first, in the same process, and start nothing when it is
+red or cannot run (outside a git repository it is red). There is no flag that skips it: `--help`, `--dry-run`, `--check` and `--list`
+only change what a command does after the check.
+
+| Mode | Commands |
+|---|---|
+| `commit` (HEAD: what is built, packaged, signed and uploaded) | `release`, `build` (also `build --web` and the direct-flag form `right-release --platform ...`), `package`, `web-build`, `swift-package`, `recipe-build`, `qa`, `upload`, `publish`, `publish-update`, `github`, `sign-windows`, `sign-updater`, `create-mac-updater`, `sign-candidate`, `addon build` |
+| `worktree` (the tree on disk, as a compile sees it) | `dev`, `doctor`, `test`, `stage-sidecar`, `sign-dev-artifact` |
+
+Not guarded: the report forms of guarded commands (`publish cargo|npm|swift`, `qa audit`, `doctor --all`) and every other command.
+Each of those is listed with its reason in `UNCHECKED_COMMANDS` (`app-check.mjs`), and `app-check.test.mjs` fails a command that is in
+neither list. `dmg` takes `--app`/`--out` paths, compiles nothing and has no repository; `addon` is checked only as `addon build` (it
+runs the add-on's own build command), its `doctor`, `upload` and `adopt` forms compile nothing.
+
+Known findings are tolerated only through a baseline: `--baseline <file>`, else the checked tree's `.rightkit/app-check-baseline.json`,
+else (from a RightKit checkout only) `ci/app-check-baseline.json`. The app's own file is always `{ "schema": 1, "known": [{ "id", "issue",
+"added", "sunset" }] }`; the central `{ "known": { "<repo>": [...] } }` shape in an app's file is refused (exit 2). Every app entry needs
+an issue, an `added` date (YYYY-MM-DD, UTC, not later than today) and a `sunset` that is not before `added` and at most 90 days after
+it. Past its sunset an entry stops tolerating its finding (the finding fails with `its baseline entry expired`) and is reported as
+`EXPIRED`; a listed identity that no finding has any more is `STALE` and fails, so the list only shrinks. A rule the build refuses
+whatever a baseline says (`switches-inventory`) fails even when listed.
+
 ## Declared test suites, web build, npm notices and artifact mirroring
 
 These replace per-app wrapper scripts. Each is declared in `right-release.config.mjs` and runs without a shell from the app
@@ -205,17 +235,24 @@ app in `notarize.app`. Declare the file in `updater.artifacts` as before. See `d
 
 ```json
 { "schema": 1,
-  "apps": { "postright": { "mode": "refuse", "since": "2026-11-02", "set_by": "adrian" } },
-  "approvedRunners": [ { "sha256": "<64 hex>", "version": "0.8.0" } ] }
+  "apps": {
+    "postright": { "mode": "refuse", "since": "2026-11-02", "set_by": "adrian" },
+    "genright": { "mode": "warn", "since": "2026-10-24", "set_by": "adrian",
+                  "stages": { "source": { "mode": "refuse", "since": "2026-11-09", "set_by": "adrian" } } } },
+  "approvedRunners": [ { "sha256": "<64 hex>", "version": "0.9.0", "platform": "mac", "set_by": "adrian", "since": "2026-10-24" } ] }
 ```
 
+**Per-stage modes.** An app entry is one mode for both stages, or carries `stages: { source?, installed? }` entries that override it for that stage (`source` is the build; `installed` is upload, publish-update and github). The `installed` stage cannot pass until the installed lane exists, so move an app to `refuse` for `source` first: `qa policy set --app <app> --stage source --mode refuse --set-by <name>`. Without `--stage` one mode governs both stages and any `stages` object is dropped. A stage that was `refuse` and is no longer (removed, or `warn`) needs `set_by: "adrian"`, checked per stage on write and on load.
+
 - **`warn` (default; an app with no entry).** A missing or invalid receipt does not block. `build`, `upload`, `publish-update` and `github` print `[right-release] QA warning: ...` to stderr, continue, and record the outcome (below).
-- **`refuse`.** The same refusal throws `QA admission refused for <app> (policy refuse since ... by ...)`; nothing is sealed, uploaded or published. Switch an app on with `node release-qa-policy.mjs set --app <app> --mode refuse --set-by <name>`. Moving an app back to `warn` (or deleting its entry) is refused unless `set_by` is `adrian`; a hand edit that does so is caught on every load by comparing with the copy committed at `RIGHT_RELEASE_QA_POLICY_BASELINE_REF` (default `HEAD`; CI should use `origin/main`). `set_by` is a recorded claim, not an authenticated identity: the file must be owner-protected in the repository (CODEOWNERS and branch protection), and a downgrade that was already committed becomes the new baseline. An unreadable or malformed policy file is a hard error, never a fall back to warn.
+- **`refuse`.** The same refusal throws `QA admission refused for <app> (policy refuse since ... by ...)`; nothing is sealed, uploaded or published. Switch an app on with `right-release qa policy set --app <app> --mode refuse --set-by <name> [--stage source|installed]` (or `node release-qa-policy.mjs set ...`). Moving an app back to `warn` (or deleting its entry) is refused unless `set_by` is `adrian`; a hand edit that does so is caught on every load by comparing with the copy committed at `RIGHT_RELEASE_QA_POLICY_BASELINE_REF` (default `HEAD`; CI should use `origin/main`). `set_by` is a recorded claim, not an authenticated identity: the file must be owner-protected in the repository (CODEOWNERS and branch protection), and a downgrade that was already committed becomes the new baseline. An unreadable or malformed policy file is a hard error, never a fall back to warn. When a baseline ref is requested (`RIGHT_RELEASE_QA_POLICY_BASELINE_REF` or the `baselineRef` argument) and git cannot show the policy at that ref, the load fails closed instead of running without a baseline; with nothing requested a checkout without that history (an app's `node_modules`) still loads with no baseline.
+
+**Approving a runner.** `right-release qa policy approve-runner --runner <file> --version <v> --platform mac|win --set-by adrian [--note <text>]` digests the file, runs `<file> --version` (the output must be exactly `rightkit-qa <v>`), requires `<v>` to be the published `rightkit-qa` in `rightkit-versions.json` (`registry.cargo`), re-digests the file to catch a swap while it ran, and appends `{ sha256, version, platform, set_by, since, note? }`. Only `adrian` may approve (a runner entry is new admission authority; a hand-added entry by anyone else is refused on load against the baseline). An approval is per platform because a runner's digest differs per host and OS; an entry with no `platform` (older files) approves the digest on either. Running the approved binary is the caller's job: set `qa.runner` in the release config to the managed path, since a bare `which rightkit-qa` can resolve to a different build.
 
 Hardening, applied in both modes (a failure is a warning in `warn` and a refusal in `refuse`):
 
 1. **Platform and release id.** The sealed receipt must be for the platform and the release id being sealed or published.
-2. **Approved runner.** The `rightkit-qa` executable's sha256 recorded in the receipt must be listed in `approvedRunners`. An empty list approves nothing. The binary is digested before the run and again after it; a swap during the run is refused.
+2. **Approved runner.** The `rightkit-qa` executable's sha256 recorded in the receipt must be listed in `approvedRunners` for the platform being sealed or published (an entry without `platform` approves either). An empty list approves nothing. The binary is digested before the run and again after it; a swap during the run is refused.
 3. **Every release-critical journey.** With `qa.journeys` in the release config (`{ manifest?: "journeys.toml", receipt?: "<path>", args?: { source?, installed? } }`) `right-release qa` runs `rightkit-qa journeys run` (or reads `receipt`), validates the `rightkit.journeys.receipt/1` through `rightkit-qa journeys validate-receipt --manifest .. --tree ..` (exit code 0 and a final `ACCEPTED` line), and seals a `journeys` summary. `release-qa-floor.json` maps the `journey` floor id to "all release-critical journeys passed": at admission the required set is recomputed from the `journeys.toml` committed at the receipt's commit (every `release_critical` journey that lists the platform), and each must be `passed`. Zero critical journeys is never a pass. One matching check no longer satisfies the floor.
 4. **Signing outside test execution.** Checked: the receipt records the test processes' pids and the window they ran in; admission refuses a receipt sealed before that window ended, signing that began before it ended (`signingStartedAt`), a sealing or admitting process that is a test process, `RIGHT_RELEASE_QA_STAGE` set at admission (admission or signing inside a QA run), and `right-release qa` itself refuses to seal inside a QA run. Not checkable here: that test processes cannot reach the signing key (OS credential store and signing agent ACL) and that CI runs QA and signing as separate jobs (the carried receipt, rightkit#183, is the hook).
 

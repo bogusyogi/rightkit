@@ -1,0 +1,15 @@
+# @rightkit/theme npm consumer (npm.@rightkit/theme)
+
+Packed-archive consumer for `@rightkit/theme` 0.3.1 (the workspace version). The unit is installed only from the sealed `file:` archive. It has no runtime dependencies and no peers, so the consumer manifest declares none.
+
+Surface (exact `exports` keys): `.` and `./node`. The consumer asserts the sorted export names of both entries (38 in the root entry, 6 in `./node`), that the `rightkit-theme` bin is declared as `bin/rightkit-theme.mjs`, and that the package is side-effect free.
+
+Scenarios (8): export surface and bin declaration; colour maths (`parseHex`, `toHex`, `contrastRatio`, `mix`, `readableOn`, `ensureContrast`, `shade`); brand file validation with named refusals and brand resolution (light accent, lifted dark accent, overrides); deterministic CSS generation (`suite`, `tailwind`, `both`), `modeVars`, `requiredVars`, `checkGeneratedCss`, `tailwindThemeCss`, `presetCss`, `aliasCss`; the WCAG contrast gate and the hard-coded colour scanner; token helpers (`applyTokens` with undo, `aliasTokens`, `presetTokens`, `fontTokens`, `applyBrand` on a fake root); the runtime boot script executed in a `node:vm` context with a fake storage, `matchMedia` and document, plus `themeAttributeValue`, `applyThemeAttribute`, `prefersDark` and `onPrefersDarkChange` on a fake window; the `./node` file helpers and the `rightkit-theme` bin.
+
+What it proves: a brand file turns into the same CSS bytes every time, the generated stylesheet defines every variable the brand implies, the contrast gate fails a low-contrast token, the colour scanner honours approved contexts and waivers, runtime helpers set and undo only the custom properties they own, the boot script never throws when storage is blocked, and the bin prints one JSON line per command with the documented events and exit codes (`usage`, `brand_theme_synced`, `brand_theme_drift`, `brand_contrast_ok`, `brand_contrast_failed`, `hardcoded_colors`, `tokens_ok`, `error`). The bin is run from the installed package with the local Node executable, with the working directory inside a temporary directory that the consumer creates and removes.
+
+What it does not prove: a real browser. `applyBrand` and `applyTokens` write to a fake style target, the boot script reads a fake `localStorage`, and `matchMedia` is a stub, so cascade behaviour, real `prefers-color-scheme` changes and rendered contrast stay with the package's own browser end-to-end test. Tailwind v4 consuming the emitted `@theme` block is not run. The bin is not invoked through a package-manager shim, so a Windows `.cmd` shim is not covered. The brand data is invented for the recipe; no real product brand file is read.
+
+Required environment: `RIGHTKIT_CONSUMER_ARTIFACT`, `RIGHTKIT_CONSUMER_ARTIFACT_SHA256`, `RIGHTKIT_CONSUMER_EXPECTED_VERSION` and `RIGHTKIT_CONSUMER_RESOLUTION` (`packed` or `fetched`). The runner provides them. `provenance.mjs` is the shared byte-identical helper that binds every installed file to the supplied archive.
+
+No network, no credentials. Output is one JSON line; exit 0 only when all eight scenarios pass. `nativeHostQualified` is always false.

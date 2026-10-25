@@ -20,7 +20,9 @@ import {
 import path from "node:path";
 import { preflightOwnershipScope } from "./ownership-scope.mjs";
 import { spawn, spawnSync } from "./background-process.mjs";
-import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord } from "./rightkit-registry-resolver.mjs";
+import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord, writeSnapshot } from "./rightkit-registry-resolver.mjs";
+import { formatAdmission, formatNotRun, runAdmission } from "./admission.mjs";
+import { sccacheRefusal } from "./admission-host.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
@@ -129,12 +131,15 @@ for (let i = 0; i < args.length; i += 1) {
 if (platform !== "win" && platform !== "mac" && platform !== "android" && platform !== "ios") fail("--platform must be win, mac, android or ios");
 if (resumeFrom && !["prepackage", "sign", "package", "post-sign", "harden"].includes(resumeFrom)) fail("--resume-from must be prepackage, sign, package, post-sign, or harden");
 
-const configPath = path.resolve(configName);
+// Native real paths: Git reports the long form of a Windows short name (RUNNER~1) and the target of a symlinked temp root
+// (macOS /var -> /private/var). The config path is resolved the same way the doctor resolves it (release.mjs), so every path
+// derived from it (app root, build inputs, scan roots) compares equal to what Git reports; a non-canonical app root made the
+// build-inputs qualification drop every input and the clean-source gate speak before the dirty-inputs row.
+const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
+const configPath = nativeReal(path.resolve(configName));
 const invocationRoot = path.dirname(configPath);
 const repoRoot = git(invocationRoot, ["rev-parse", "--show-toplevel"]);
 assertPrimaryReleaseCheckout(repoRoot);
-// Native real paths: Git reports the long form of a Windows short name (RUNNER~1).
-const nativeReal = (file) => { try { return realpathSync.native(file); } catch { return file; } };
 const relativeConfig = path.relative(nativeReal(repoRoot), nativeReal(configPath)).replaceAll("\\", "/");
 if (relativeConfig.startsWith("../")) fail("release config must live inside the Git repository");
 const appRoot = path.dirname(configPath);
@@ -148,21 +153,19 @@ let heavySlot;
 let interrupted;
 let requestActiveRunStop = null;
 
-// A dry-run is an inspection contract, not a partial build. It must finish
-// before locks, cache directories, receipts, dependency installation, or any
+// Admission (admission.mjs): every refusal the committed files, this host or the registries can decide is raised here, before the
+// dry-run exit, the clean-source gate, the release lock, any state file, the install, a slot or the worker. `right-release doctor`
+// runs the same rows with the same text, so the two cannot disagree (rightkit#946); a refused build leaves nothing behind.
+const admitted = await admit();
+
+// A dry-run is an inspection contract, not a partial build. It prints the admission rows and exits with their verdict, so it can
+// never pass what the build refuses. It must finish before locks, cache directories, receipts, dependency installation, or any
 // child build/sign process can exist.
 if (dryRun) {
-  const commit = git(invocationRoot, ["rev-parse", "HEAD"]);
-  const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
-  if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-  const config = (await import(`${pathToFileURL(configPath).href}?dry-run=${commit}`)).default;
-  if (!config?.app || !config?.version) fail("release config must expose app and version");
-  const target = config.targets?.[platform];
-  // Android builds with target.gradle (validated by release.mjs), not a package command; iOS with targets.ios.iosPackage.
-  if (platform !== "android" && platform !== "ios" && !target?.package && !packageCommandOptional(target, resolveProjectType({ appRoot, config, target }))) fail(`${config.app} has no ${platform} package command`);
-  console.log(`right-release build dry-run: ${config.app} ${config.version} ${platform}`);
+  console.log(`right-release build dry-run: ${admitted.config.app} ${admitted.config.version} ${platform}`);
   console.log(`config: ${configPath}`);
-  console.log(`commit: ${commit}`);
+  console.log(`commit: ${admitted.commit}`);
+  for (const line of formatAdmission(admitted.result)) console.log(line);
   process.exit(0);
 }
 
@@ -396,7 +399,8 @@ try {
   let rightKitResolution = null;
   if (!legacySealed) {
     try {
-      rightKitResolution = await prepareRightKitResolution({
+      // A fresh build already asked the registries in admission(); the snapshot is bound to this release's state root below.
+      rightKitResolution = (!rightKitReuse && admitted.registry) || await prepareRightKitResolution({
         root: appRoot,
         extraLocks: rightKitLockInventory({ requiredInputs, cargoLockPaths: pinnedCargoLocks, nativeLayout, config, root: appRoot }),
         versions: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-versions.json"), "utf8")),
@@ -414,6 +418,7 @@ try {
       if (!(error instanceof RightKitRegistryError)) throw error;
       fail(`${error.recoverable ? "RECOVERABLE " : ""}${error.message}`);
     }
+    if (rightKitResolution === admitted.registry) writeSnapshot(rightKitSnapshotFile, rightKitResolution.snapshot);
     for (const line of rightKitResolution.freshness.tasks) console.error(`[right-release] LANE TASK ${line}`);
     for (const line of rightKitResolution.freshness.warnings) console.error(`[right-release] WARNING ${line}`);
     console.error(`[right-release] rightkit-registry: ${rightKitResolution.summary}`);
@@ -552,6 +557,52 @@ try {
   lock?.release();
 }
 
+// Read the config and run the admission rows (files, this host and, for a fresh build, the registries) with no side effect: no lock,
+// state directory, cache directory, install or snapshot file. A finding is printed with its row and the process exits 1, no stack.
+async function admit() {
+  let commit;
+  let config;
+  try {
+    commit = git(invocationRoot, ["rev-parse", "HEAD"]);
+    const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
+    if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
+    try { config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default; } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
+  } catch (error) {
+    if (error?.reported) process.exit(1);
+    throw error;
+  }
+  // A fresh build asks the registries once, here; a resume or a re-run over a sealed release reuses its recorded snapshot instead.
+  const platformName = platform === "win" ? "windows" : platform;
+  const sealed = config?.app && config?.version
+    && existsSync(path.join(repoRoot, ".right-release", "sealed", `${config.app}-${config.version}-${commit.slice(0, 8)}`, platformName, "release-manifest.json"));
+  const reuse = Boolean(resumeFrom) || Boolean(sealed);
+  const result = await runAdmission({
+    root: appRoot, repoRoot, configPath, config: config ?? {}, platform, commit, skipChecks,
+    tiers: reuse ? ["files", "host"] : ["files", "host", "network"],
+    registry: async (ctx) => {
+      const inputs = ctx.buildInputs();
+      if (!inputs.ok) return undefined; // the build-inputs row reports it
+      return prepareRightKitResolution({
+        root: appRoot,
+        extraLocks: rightKitLockInventory({ requiredInputs: inputs.value.requiredInputs, cargoLockPaths: inputs.value.cargoLockPaths, nativeLayout: inputs.value.nativeLayout, config, root: appRoot }),
+        versions: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-versions.json"), "utf8")),
+        ownership: JSON.parse(readFileSync(path.join(TOOL_ROOT, "rightkit-ownership.json"), "utf8")),
+        releaseVersion: RELEASE_TOOL_VERSION,
+        // Build admission: refuse every pin behind the registry's latest. A dry run asks, but keeps no cache on disk.
+        admission: true,
+        ...(dryRun ? { cacheDir: "" } : {}),
+      });
+    },
+  });
+  for (const finding of result.findings) console.error(`right-release build: ${finding.row}: ${finding.detail}`);
+  for (const line of formatNotRun(result)) console.error(`right-release build: ${line}`);
+  if (result.findings.length > 0) {
+    console.error(`right-release build: admission found ${result.findings.length} blocking problem(s); nothing was started`);
+    process.exit(1);
+  }
+  return { config, commit, result, registry: result.out.registry ?? null };
+}
+
 function hashInputs(files) {
   const hashes = {};
   for (const file of files) {
@@ -610,6 +661,14 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
     current.add(role);
     sources.set(source, current);
   };
+  // Named refusals for a config the admission's seal-routes row already refused, so nothing here crashes on an undefined field.
+  for (const artifact of [...(target.installer?.artifacts ?? []), ...(target.updater?.artifacts ?? [])]) {
+    if (typeof artifact?.file !== "string" || !artifact.file) fail("installer and updater artifacts must each declare a file");
+  }
+  for (const artifact of target.updater?.artifacts ?? []) {
+    if (target.updater?.kind !== "appinstaller" && (typeof artifact.signature !== "string" || !artifact.signature)) fail(`updater artifact ${artifact.file} must declare the signature file sign-updater writes next to it`);
+    if (artifact.key === undefined && config.distribution?.provider !== "github-releases") fail(`updater artifact ${artifact.file} must declare the R2 route key (key); only github-releases names the route from the file`);
+  }
   for (const artifact of target.installer?.artifacts ?? []) addSource(resolveArtifactPath(artifact.file), "installer");
   for (const artifact of target.updater?.artifacts ?? []) {
     addSource(resolveArtifactPath(artifact.file), "updater");
@@ -741,9 +800,9 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
     // an unsound seal, not a portable release.
     signing: signingIdentity ? { ...signingIdentity, receipts: (() => {
       const present = signingIdentity.receiptInputs.filter((file) => existsSync(file));
-      if (present.length === 0) throw new Error(`no signing receipts found to seal; expected at least ${signingIdentity.receiptInputs[0]}`);
+      if (present.length === 0) fail(`no signing receipts found to seal; expected at least ${signingIdentity.receiptInputs[0]}`);
       if (platform === "mac") {
-        if (present.length !== signingIdentity.receiptInputs.length) throw new Error("missing current-build macOS signing or notarization receipt");
+        if (present.length !== signingIdentity.receiptInputs.length) fail("missing current-build macOS signing or notarization receipt");
         validateNotarizationReceipt({ receiptPath: signingIdentity.receiptInputs[1], archive: resolveArtifactPath(target.notarize.file) });
       }
       return present.map((file) => ({ file, sha256: hashFile(file) }));
@@ -941,7 +1000,7 @@ function commandExists(name) {
 
 function assertSccacheVersion(version) {
   const match = String(version ?? "").match(/sccache\s+(\d+)\.(\d+)\.(\d+)/i);
-  if (!match || Number(match[1]) === 0 && Number(match[2]) < 15) fail("shared cache requires sccache >= 0.15.0; install with: cargo install sccache --locked; then verify: sccache --version");
+  if (!match || Number(match[1]) === 0 && Number(match[2]) < 15) fail(sccacheRefusal(match ? match.slice(1).join(".") : null));
 }
 
 function commandOutput(cmd, runArgs) {
@@ -1000,7 +1059,8 @@ function usage(code) {
 
 function fail(message) {
   console.error(`right-release build: ${message}`);
-  throw new Error(message);
+  // `reported` marks an error whose text is already printed, so a caller that exits on it prints nothing twice.
+  throw Object.assign(new Error(message), { reported: true });
 }
 
 function throwIfInterrupted() { if (interrupted) throw interrupted; }

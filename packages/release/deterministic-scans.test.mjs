@@ -700,13 +700,15 @@ test("cargoDir: cargo scans run in the workspace directory and its lock and conf
 
 test("generated-docs runs only when a changed file is an input of scripts/generate-index.mjs", () => {
   const extra = {
-    "scripts/generate-index.mjs": "", "Cargo.toml": "[workspace]\n", "INDEX.md": "x", "README.md": "x", "docs/ADOPTION.md": "x", "docs/CAPABILITY-MAP.md": "x",
+    "scripts/generate-index.mjs": "", "scripts/generate-port-matrix.mjs": "", "Cargo.toml": "[workspace]\n", "INDEX.md": "x", "README.md": "x", "docs/ADOPTION.md": "x", "docs/CAPABILITY-MAP.md": "x",
+    "docs/PORT-MATRIX.md": "x", "docs/port-matrix.html": "x", "docs/port-matrix.json": "{}",
     "crates/foo/README.md": "x", "packages/p/README.md": "x", "packages/p/package.json": '{"license":"MIT"}', "packages/p/src/a.ts": "",
     "packages/release/rightkit-versions.json": "{}", "packages/release/rightkit-ownership.json": "{}", "packages/release/ownership-availability.mjs": "",
   };
   const has = (f) => planFor([f], extra).plan.scans.some((s) => s.id === "generated-docs");
   for (const f of ["crates/foo/Cargo.toml", "crates/foo/README.md", "packages/p/package.json", "packages/p/README.md", "Cargo.toml", "packages/release/rightkit-versions.json",
-    "packages/release/rightkit-ownership.json", "packages/release/ownership-availability.mjs", "scripts/generate-index.mjs", "INDEX.md", "docs/ADOPTION.md", "docs/CAPABILITY-MAP.md"]) {
+    "packages/release/rightkit-ownership.json", "packages/release/ownership-availability.mjs", "scripts/generate-index.mjs", "scripts/generate-port-matrix.mjs", "INDEX.md", "docs/ADOPTION.md",
+    "docs/CAPABILITY-MAP.md", "docs/PORT-MATRIX.md", "docs/port-matrix.html", "docs/port-matrix.json"]) {
     assert.ok(has(f), `${f} is a generator input`);
   }
   for (const f of ["crates/foo/src/lib.rs", "crates/foo/CHANGELOG.md", "packages/p/src/a.ts", "README.md"]) assert.ok(!has(f), `${f} is not`);

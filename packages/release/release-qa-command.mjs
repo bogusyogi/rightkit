@@ -4,6 +4,8 @@
 //   right-release qa --stage source    --platform mac|win [--config right-release.config.mjs]
 //   right-release qa --stage installed --platform mac|win --release <sealed-id> [--config right-release.config.mjs]
 //   right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]   (release-qa-audit.mjs; exit 1 when an uploaded build lacks passing QA)
+//   right-release qa policy show | set --app <app> --mode warn|refuse --set-by <name> [--stage source|installed]
+//                         | approve-runner --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]   (release-qa-policy.mjs)
 //
 // The release config declares the app's QA plan:
 //   qa: { version: "1", config: "rightkit-qa.toml", runner?: "<path to rightkit-qa>",
@@ -28,6 +30,7 @@ import { verifySealedRelease } from "./release-state.mjs";
 import { auditMain } from "./release-qa-audit.mjs";
 import { journeyRequiredItem, QA_RUN_ENV, relativePosix, validateJourneysReceipt } from "./release-qa-hardening.mjs";
 import { prepareInstalledArtifacts } from "./release-qa-installed.mjs";
+import { main as policyMain } from "./release-qa-policy.mjs";
 import { darwinKeyFile, PROTECTED_SECRETS } from "./protected-credentials.mjs";
 import {
   buildQaReceipt, currentPolicyBundleDigest, dependencyClosure, ensureQaReceiptKey, evaluateRequiredChecks, loadQaFloor,
@@ -53,6 +56,32 @@ function resolveRunner({ qa, appRoot, platform = process.platform, runner = spaw
   const file = String(found.stdout ?? "").split(/\r?\n/)[0].trim();
   if (found.status !== 0 || !file) throw new Error("rightkit-qa runner not found on PATH; install it (RightKit crates/rightkit-qa) or set qa.runner in the release config");
   return realpathSync(file);
+}
+
+// Windows installs land in `%LOCALAPPDATA%\<Product>`; the runner learns the product folder names from
+// RIGHTKIT_QA_INSTALLED_DIRS. Compared as strings with both separators so the answer never depends on the host OS.
+const WIN_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+const pathParts = (value) => String(value).split(/[\\/]+/).filter(Boolean);
+const productDirOk = (name) => name.length <= 255 && ![".", ".."].includes(name) && !/[\u0000-\u001f\u007f;:]/.test(name);
+
+/**
+ * Product folder names under %LOCALAPPDATA% that hold the app's installed copy, from the release config's
+ * `development.targets.win.install.expectedInstalledPath` (the one place a config names the installed path; the
+ * desktop-app-template sets it to `<LOCALAPPDATA>\<Product>\<exe>`). Only an absolute path inside LOCALAPPDATA
+ * counts (case-insensitive, either separator); the name is the first component below it and a file must sit under it.
+ * `Programs` is already a runner root, so it is dropped. Returns an array of distinct names (today at most one: the
+ * config declares one installed path).
+ */
+export function installedDirNames(config, env = process.env) {
+  const localAppData = Object.entries(env ?? {}).find(([key]) => key.toLowerCase() === "localappdata")?.[1];
+  const installed = config?.development?.targets?.win?.install?.expectedInstalledPath;
+  if (typeof localAppData !== "string" || !WIN_ABSOLUTE.test(localAppData) || typeof installed !== "string" || !WIN_ABSOLUTE.test(installed)) return [];
+  const root = pathParts(localAppData).map((part) => part.toLowerCase());
+  const parts = pathParts(installed);
+  if (parts.some((part) => part === "." || part === "..")) return [];
+  if (parts.length < root.length + 2 || !root.every((part, index) => parts[index].toLowerCase() === part)) return [];
+  const name = parts[root.length];
+  return name.toLowerCase() === "programs" || !productDirOk(name) ? [] : [name];
 }
 
 /** `rightkit-qa journeys run` prints `run <id> (<run dir>)` first; the receipt is `<run dir>/receipt.json`. */
@@ -117,7 +146,11 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
   try {
     const expand = (value) => String(value).replaceAll("{sealedDir}", sealed?.sealedDir ?? "").replaceAll("{releaseId}", releaseId)
       .replaceAll("{installedApp}", installedQa?.installedApp ?? "").replaceAll("{installedDir}", installedQa?.installedDir ?? "").replaceAll("{qaRoot}", installedQa?.qaRoot ?? "");
-    const runEnv = { ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId, ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedQa?.env ?? {}) };
+    const installedDirs = installedDirNames(config, deps.env ?? process.env);
+    const runEnv = {
+      ...process.env, RIGHT_RELEASE_QA_STAGE: stage, RIGHT_RELEASE_QA_COMMIT: source.commit, RIGHT_RELEASE_QA_RELEASE_ID: releaseId,
+      ...(sealed ? { RIGHT_RELEASE_QA_SEALED_DIR: sealed.sealedDir } : {}), ...(installedDirs.length ? { RIGHTKIT_QA_INSTALLED_DIRS: installedDirs.join(";") } : {}), ...(installedQa?.env ?? {}),
+    };
     const args = ["run", "--config", qaConfig, ...((config.qa.args?.[stage] ?? []).map(expand))];
     run = (deps.spawnRunner ?? spawnSync)(runnerFile, args, {
       cwd: appRoot, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024,
@@ -181,12 +214,13 @@ export async function runQa({ stage, platform, releaseIdArg, configPath, carryTo
 }
 
 function usage(code) {
-  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs] [--carry-to <dir>]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]");
+  console.log("usage: right-release qa --stage source|installed --platform mac|win [--release <sealed-id>] [--config right-release.config.mjs] [--carry-to <dir>]\n       (seals the QA receipt; admission is warn or refuse per app in qa-admission-policy.json; refused inside a QA run)\n       right-release qa audit [--app <dir>] [--json] [--since <YYYY-MM-DD>]\n       right-release qa policy show | set --app <app> --mode warn|refuse --set-by <name> [--stage source|installed]\n                             | approve-runner --runner <file> --version <v> --platform mac|win --set-by <name> [--note <text>]");
   process.exit(code);
 }
 
 export async function main(args) {
   if (args[0] === "audit") process.exit(auditMain(args.slice(1)));
+  if (args[0] === "policy") process.exit(policyMain(args.slice(1), { program: "right-release qa policy" }));
   let stage = "", platform = process.platform === "win32" ? "win" : "mac", releaseId = "", configName = "right-release.config.mjs", carryTo = null;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];

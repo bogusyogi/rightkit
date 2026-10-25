@@ -1,0 +1,9 @@
+{
+  "name": "rightkit-license-public-surface-consumer",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "qualify": "node consumer.mjs"
+  }
+}

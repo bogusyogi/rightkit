@@ -3,14 +3,21 @@
 //! Pure logic: the only I/O is TOML parsing done by the caller. A timed unit (a step, a journey or
 //! a suite) over its declared budget is [`Verdict::Slow`] while the warn window is open, and
 //! [`Verdict::OverBudget`] after it. The window end is inclusive. After the window, a step kind is
-//! enforced at [`ENFORCE_FACTOR`] times the p95 of its recorded durations on this host; a host with
-//! fewer than [`MIN_P95_SAMPLES`] recorded durations for the kind is enforced at the declared budget.
+//! enforced at [`ENFORCE_FACTOR`] times the p95 of its recorded durations on this host, never
+//! below the [`MIN_ENFORCE_MS`] floor; a host with fewer than [`MIN_P95_SAMPLES`] recorded
+//! durations for the kind is enforced at the declared budget.
 use crate::util::{err, Result};
 use serde::Deserialize;
 use std::fmt;
 
 /// Multiplier on this host's p95 step duration that becomes the enforcement threshold.
 pub const ENFORCE_FACTOR: u64 = 2;
+
+/// The floor under the p95-derived enforcement threshold, in milliseconds. Timer granularity and
+/// scheduler noise on a loaded host make a limit of a few milliseconds flaky, so a derived limit is
+/// never below this, even when every recorded duration is 0 ms. It is a floor, not a disable: a
+/// step over it still fails after the window.
+pub const MIN_ENFORCE_MS: u64 = 100;
 
 /// Recorded durations a step kind needs before its p95 may enforce. Below this count the declared
 /// budget governs.
@@ -189,12 +196,13 @@ impl Limits {
     }
 
     /// A step kind on this host: enforced at [`ENFORCE_FACTOR`] times the p95 of this host's
-    /// recorded durations for the kind. With fewer than [`MIN_P95_SAMPLES`] recorded durations,
-    /// enforced at the declared budget, so one fast run cannot set an impossible limit.
+    /// recorded durations for the kind, and never below [`MIN_ENFORCE_MS`]. With fewer than
+    /// [`MIN_P95_SAMPLES`] recorded durations, enforced at the declared budget, so one fast run
+    /// cannot set an impossible limit. The declared budget is not floored.
     pub fn for_step(declared_ms: u64, host_durations_ms: &[u64]) -> Limits {
         let enforce_ms = match p95(host_durations_ms) {
             Some(p) if host_durations_ms.len() >= MIN_P95_SAMPLES => {
-                p.saturating_mul(ENFORCE_FACTOR)
+                p.saturating_mul(ENFORCE_FACTOR).max(MIN_ENFORCE_MS)
             }
             _ => declared_ms,
         };
@@ -415,6 +423,66 @@ mod tests {
                 warn_ms: 2_000,
                 enforce_ms: 2_000
             }
+        );
+    }
+
+    #[test]
+    fn zero_ms_host_history_is_enforced_at_the_floor() {
+        // Twenty 0 ms runs would derive a 0 ms enforcement limit, so every later run would fail.
+        let limits = Limits::for_step(2_000, &[0; 20]);
+        assert_eq!(
+            limits,
+            Limits {
+                warn_ms: 2_000,
+                enforce_ms: MIN_ENFORCE_MS
+            }
+        );
+        let fast = Timing {
+            label: "tap",
+            ms: 3,
+        };
+        assert_eq!(
+            verdict(limits, fast, day("2026-11-07"), day("2026-11-06")),
+            Verdict::Ok
+        );
+    }
+
+    #[test]
+    fn a_host_p95_above_the_floor_still_enforces_at_twice_p95() {
+        assert_eq!(
+            Limits::for_step(5_000, &[1_000; 20]),
+            Limits {
+                warn_ms: 5_000,
+                enforce_ms: 2_000
+            }
+        );
+        // 60 ms p95 gives 120 ms, which is above the floor, so the floor leaves it alone.
+        assert_eq!(Limits::for_step(5_000, &[60; 20]).enforce_ms, 120);
+    }
+
+    #[test]
+    fn the_floor_is_a_floor_not_a_disable() {
+        let limits = Limits::for_step(2_000, &[0; 20]);
+        let over = Timing {
+            label: "navigate",
+            ms: MIN_ENFORCE_MS + 50,
+        };
+        assert_eq!(
+            verdict(limits, over, day("2026-11-07"), day("2026-11-06")),
+            Verdict::OverBudget {
+                step: "navigate".into(),
+                ms: MIN_ENFORCE_MS + 50,
+                budget: MIN_ENFORCE_MS
+            }
+        );
+        // Exactly the floor is within the limit after the window.
+        let at_floor = Timing {
+            label: "navigate",
+            ms: MIN_ENFORCE_MS,
+        };
+        assert_eq!(
+            verdict(limits, at_floor, day("2026-11-07"), day("2026-11-06")),
+            Verdict::Ok
         );
     }
 

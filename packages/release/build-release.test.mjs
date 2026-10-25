@@ -15,6 +15,8 @@ import { brokerManagedHost } from "./cargo-contract.mjs";
 import { ANDROID_SIGNING_CONTRACT, androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_SIGNING_CONTRACT, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 import { assertUpdaterSignature } from "./github-updater-release.mjs";
+import { ADMISSION_ROWS, runAdmission } from "./admission.mjs";
+import { editConfig, fixture, managedEnv } from "./test-support/fixture.mjs";
 
 // LF whatever the checkout: the patterns below span lines.
 const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "build-release.mjs"), "utf8").replace(/\r\n/g, "\n");
@@ -127,15 +129,56 @@ for (const evidenceSource of ["enrollment-pending-advisory", "committed-git-tree
   });
 }
 
-test("general build dry-run is filesystem-pure and never starts its package command", () => {
-  const root = tempRoot("right-build-dry-run-");
-  writeFileSync(path.join(root, "right-release.config.mjs"), "export default { app: 'fixture', version: '1.0.0', targets: { mac: { package: { cmd: 'false' } } } };\n");
-  for (const args of [["init", "--initial-branch", "main"], ["config", "user.email", "test@example.com"], ["config", "user.name", "Test"], ["add", "."], ["commit", "-m", "init"]]) execFileSync("git", args, { cwd: root });
+// A realistic app on every host: the tool, signing and registry probes of the admission answer from the fixture environment.
+const buildOf = (config, args, { env = {}, platform = "mac" } = {}) => spawnSync(process.execPath, [build, "--config", config, "--platform", platform, ...args], {
+  cwd: path.dirname(config), encoding: "utf8", env: managedEnv(config, { platform, env }),
+});
+
+test("general build dry-run is filesystem-pure, prints the admission rows and never starts its package command", () => {
+  const config = fixture({ platform: "mac", macSigning: true, packageCommand: { cmd: "false" } });
+  const root = path.dirname(config);
   const before = readdirSync(root).sort();
-  const result = spawnSync(process.execPath, [build, "--config", "right-release.config.mjs", "--platform", "mac", "--dry-run"], { cwd: root, encoding: "utf8" });
+  const result = buildOf(config, ["--dry-run"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /build dry-run/);
+  assert.match(result.stdout, /build dry-run: fixture 1\.0\.0 mac/);
+  assert.match(result.stdout, /admission: \d+ rows, 0 failed/);
+  assert.match(result.stdout, /\[ok {4}\] config-identity/);
   assert.deepEqual(readdirSync(root).sort(), before);
+});
+
+test("build --dry-run exits with the admission verdict: the rightkit#946 repro (no buildInputs.include) fails with a row and no stack", () => {
+  const config = fixture({ platform: "mac", macSigning: true, buildInputs: null });
+  const result = buildOf(config, ["--dry-run"]);
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stderr, /^right-release build: build-inputs: release config must declare non-empty buildInputs\.include paths$/m);
+  assert.doesNotMatch(result.stderr, /\n\s+at .*\.mjs:\d+/);
+  assert.doesNotMatch(result.stdout, /build dry-run: fixture/);
+});
+
+test("an admission-red build leaves no lock, state directory, cache, snapshot or install behind", (t) => {
+  const log = path.join(tempRoot("right-build-tools-log-"), "calls.log");
+  const config = editConfig(fixture({ platform: "mac", macSigning: true }), (value) => {
+    delete value.targets.mac.package;
+    value.distribution.provider = "r2-postrights";
+    value.checks = ["typecheck"];
+  });
+  const root = path.dirname(config);
+  const before = readdirSync(root).sort();
+  const result = buildOf(config, [], { env: { RIGHT_RELEASE_TEST_TOOL_LOG: log } });
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  // every finding of the run, each with its row
+  assert.match(result.stderr, /build: package-command: fixture has no mac package command/);
+  assert.match(result.stderr, /build: distribution-provider: release config distribution\.provider must be r2-rightapps or github-releases/);
+  assert.match(result.stderr, /build: declared-checks-exist: config\.checks names "typecheck"/);
+  assert.match(result.stderr, /admission found \d+ blocking problem\(s\); nothing was started/);
+  assert.doesNotMatch(result.stderr, /\n\s+at .*\.mjs:\d+/);
+  // nothing the build writes exists: no vault (locks, state, sealed, registry snapshot), no cache directory
+  assert.deepEqual(readdirSync(root).sort(), before);
+  assert.equal(existsSync(path.join(root, ".right-release")), false);
+  // the host probes asked the tools their versions and nothing else: no install, no run
+  const calls = existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : [];
+  assert.ok(calls.length > 0, "the host-tools row asked the tools");
+  assert.deepEqual(calls.filter((call) => call.startsWith("pnpm ") && call !== "pnpm --version"), []);
 });
 
 test("native local builds retain Cache V2 while CI & explicit legacy use safe fallback", () => {
@@ -163,7 +206,7 @@ test("native local builds retain Cache V2 while CI & explicit legacy use safe fa
 });
 
 test("production builds package from the real primary app checkout", () => {
-  assert.match(source, /const configPath = path\.resolve\(configName\)/);
+  assert.match(source, /const configPath = nativeReal\(path\.resolve\(configName\)\)/, "the config path is resolved and canonicalized once (symlinked or short-name roots)");
   assert.match(source, /const appRoot = path\.dirname\(configPath\)/);
   assert.match(source, /\[WORKER, "--config", configPath, "--platform", platform, "--no-upload", "--resume"/);
   assert.match(source, /sealRelease\(\{ configRoot: appRoot,/);
@@ -586,16 +629,16 @@ function dryRunIn(platform, targets) {
   return spawnSync(process.execPath, [build, "--config", "right-release.config.mjs", "--platform", platform, "--dry-run"], { cwd: root, encoding: "utf8" });
 }
 
-test("build --dry-run accepts android and ios without a package command, and still demands one for mac and win", () => {
+test("a package command is demanded for mac and win, not for android and ios", async () => {
   for (const platform of ["android", "ios"]) {
-    const result = dryRunIn(platform, { [platform]: { signed: true } });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, new RegExp(`build dry-run: fixture 1\\.0\\.0 ${platform}`));
+    const rows = ADMISSION_ROWS.filter((row) => row.id === "package-command");
+    const result = await runAdmission({ root: tempRoot("right-build-platforms-"), config: { app: "fixture", version: "1.0.0", targets: { [platform]: { signed: true } } }, platform, target: { signed: true }, tiers: ["files"], rows });
+    assert.deepEqual(result.rows, [{ id: "package-command", tier: "files", status: "n/a", detail: "android and ios build without a package command" }]);
   }
   for (const platform of ["mac", "win"]) {
     const result = dryRunIn(platform, { [platform]: { signed: true } });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, new RegExp(`has no ${platform} package command`));
+    assert.match(result.stderr, new RegExp(`package-command: fixture has no ${platform} package command`));
   }
 });
 

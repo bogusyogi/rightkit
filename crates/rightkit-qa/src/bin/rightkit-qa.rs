@@ -1,5 +1,6 @@
 //! `rightkit-qa` CLI.
 //!
+//! rightkit-qa --version | -V     (prints `rightkit-qa <version>` and exits 0; reads no config)
 //! rightkit-qa doctor  [--config rightkit-qa.toml]
 //! rightkit-qa list    [--tier fast|local-models|paid|all[,..]] [--only s]
 //! rightkit-qa run     [--tier ..] [--only s] [--engine path] [--ui-binary path]
@@ -9,10 +10,16 @@
 //!                     --build, --build-ui and --kill-orphans)
 //! rightkit-qa worker  <world dir>     (started by a qualifying run, never by hand: runs the one
 //!                     scenario in scenario.json inside that world and writes outcome.json)
-//! rightkit-qa guard   [--backend control|wdio]
+//! rightkit-qa guard   [--app-root <dir>] [--config <toml>] [--backend control|wdio]
+//!                     (with --app-root no config is needed: the Tauri crate is <dir>/src-tauri,
+//!                     else <dir>, and every .rs file under its src/ is read; --config, or
+//!                     RIGHTKIT_QA_CONFIG, then adds the [ui] overrides, window_label, env_keys)
 //! rightkit-qa sweep
 //! rightkit-qa prune-runs [--app <key>] [--root <managed root>] [--dry-run]
 //! rightkit-qa verify  <evidence.json>
+//! rightkit-qa run-tests [cargo test args] [--parallel N] [--binary-timeout-s N] [--total-timeout-s N]
+//!                     [--from-cargo-json <file>] [--env K=V]... [--cwd package|workspace|<dir>] [-- <libtest args>]
+//!                     (compile the test binaries in the broker, run them outside it, write one receipt)
 //! rightkit-qa journeys check [--root <app root>]
 //! rightkit-qa journeys validate-receipt <receipt.json> [--tree <40-hex>] [--manifest <path>]
 //!                     [--results <results.jsonl>] [--evidence-root <dir>] [--allow-dirty]
@@ -20,12 +27,16 @@
 //!                     [--run-store-cap-bytes N] [--prepare-only]
 use rightkit_qa::config::QaConfig;
 use rightkit_qa::evidence::Bundle;
-use rightkit_qa::guard::{scripts_from_package_json, validate, Backend, ContractInput};
+use rightkit_qa::guard::{
+    rust_sources_under, scripts_from_package_json, tauri_crate_dir, validate_app, AppContract,
+    Backend, ContractInput,
+};
 use rightkit_qa::process;
 use rightkit_qa::scenario::{discover, unmet_requirement, Scenario};
 use rightkit_qa::storage::RunKind;
 use rightkit_qa::suite::{run_suite, run_suite_qualifying, select, SuiteOptions};
 use rightkit_qa::util::{err, Result};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 struct Args(Vec<String>);
@@ -61,6 +72,7 @@ impl Args {
     fn positionals(&self) -> Vec<String> {
         let value_flags = [
             "--config",
+            "--app-root",
             "--tier",
             "--only",
             "--engine",
@@ -95,12 +107,15 @@ impl Args {
     }
 }
 
-fn load_config(a: &Args) -> Result<QaConfig> {
-    let path = a
-        .value("--config")
+/// The config named by `--config` or `RIGHTKIT_QA_CONFIG`, if either is given.
+fn config_arg(a: &Args) -> Option<PathBuf> {
+    a.value("--config")
         .or_else(|| std::env::var("RIGHTKIT_QA_CONFIG").ok())
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("rightkit-qa.toml"));
+}
+
+fn load_config(a: &Args) -> Result<QaConfig> {
+    let path = config_arg(a).unwrap_or_else(|| PathBuf::from("rightkit-qa.toml"));
     QaConfig::load(&path)
 }
 
@@ -179,8 +194,122 @@ fn list(a: &Args) -> Result<i32> {
     Ok(0)
 }
 
+/// Everything `guard` reads for one app.
+struct GuardFiles {
+    /// The config's app key, or the app root as given: named in the success line.
+    label: String,
+    cargo: String,
+    rust: String,
+    scripts: BTreeMap<String, String>,
+    tauri_conf: Option<String>,
+    switches: Option<String>,
+    /// `[ui] window_label` when it is not the default `main`.
+    window_label: Option<String>,
+    env_keys: Vec<String>,
+}
+
+fn read_text(path: &Path) -> Result<String> {
+    std::fs::read_to_string(path)
+        .map_err(|e| rightkit_qa::Error(format!("cannot read {}: {e}", path.display())))
+}
+
+/// The file's text, `None` when it does not exist.
+fn read_optional(path: &Path) -> Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(rightkit_qa::Error(format!(
+            "cannot read {}: {e}",
+            path.display()
+        ))),
+    }
+}
+
+/// Read the app's files. `root` is the app root; `cargo_toml` is the manifest of the Tauri crate,
+/// whose directory holds `src/`, `tauri.conf.json` and possibly `switches.json`. The config, when
+/// there is one, supplies `[ui]` `rust_sources`, `package_json`, `window_label` and `env_keys`
+/// (paths relative to `root`); without it every `.rs` file under the crate's `src/` is read.
+fn read_guard_files(root: &Path, cargo_toml: &Path, cfg: Option<&QaConfig>) -> Result<GuardFiles> {
+    let cargo = read_text(cargo_toml)?;
+    let crate_dir = cargo_toml.parent().unwrap_or(root);
+    let ui = cfg.map(|c| &c.ui);
+    let rust = match ui
+        .map(|u| u.rust_sources.as_slice())
+        .filter(|r| !r.is_empty())
+    {
+        Some(files) => files
+            .iter()
+            .map(|f| read_text(&root.join(f)))
+            .collect::<Result<Vec<_>>>()?
+            .join("\n"),
+        None => rust_sources_under(&crate_dir.join("src"))?,
+    };
+    let package_json = root.join(
+        ui.and_then(|u| u.package_json.as_deref())
+            .unwrap_or("package.json"),
+    );
+    let scripts = scripts_from_package_json(
+        &read_optional(&package_json)
+            .unwrap_or(None)
+            .unwrap_or_else(|| "{}".into()),
+    )?;
+    let switches = match read_optional(&root.join("switches.json"))? {
+        Some(text) => Some(text),
+        None => read_optional(&crate_dir.join("switches.json"))?,
+    };
+    Ok(GuardFiles {
+        label: cfg.map_or_else(|| root.display().to_string(), |c| c.app.clone()),
+        cargo,
+        rust,
+        scripts,
+        tauri_conf: read_optional(&crate_dir.join("tauri.conf.json"))?,
+        switches,
+        // `main` is the default, so a config that leaves it alone declares nothing.
+        window_label: ui
+            .map(|u| u.window_label.as_str())
+            .filter(|l| *l != "main")
+            .map(str::to_string),
+        env_keys: ui.map(|u| u.env_keys.clone()).unwrap_or_default(),
+    })
+}
+
+/// `guard --app-root <dir>`: no config needed. The Tauri crate is `<dir>/src-tauri`, else `<dir>`;
+/// an optional config adds its `[ui]` overrides.
+fn guard_files_for_app_root(root: &Path, cfg: Option<&QaConfig>) -> Result<GuardFiles> {
+    let cargo_toml = match cfg.and_then(|c| c.ui.cargo_toml.as_deref()) {
+        Some(rel) => root.join(rel),
+        None => tauri_crate_dir(root)?.join("Cargo.toml"),
+    };
+    read_guard_files(root, &cargo_toml, cfg)
+}
+
+/// `guard` with a config and no `--app-root`: the app root and crate come from the config.
+fn guard_files_for_config(cfg: &QaConfig) -> Result<GuardFiles> {
+    let cargo_toml = cfg.app_root.join(
+        cfg.ui
+            .cargo_toml
+            .as_deref()
+            .unwrap_or("src-tauri/Cargo.toml"),
+    );
+    read_guard_files(&cfg.app_root, &cargo_toml, Some(cfg))
+}
+
+fn guard_issues(files: &GuardFiles, backend: Backend) -> Vec<String> {
+    validate_app(&AppContract {
+        contract: ContractInput {
+            cargo_toml: &files.cargo,
+            rust_source: &files.rust,
+            package_scripts: &files.scripts,
+            backend,
+        },
+        tauri_conf: files.tauri_conf.as_deref(),
+        declared_window_label: files.window_label.as_deref(),
+        declared_env_keys: &files.env_keys,
+        switches: files.switches.as_deref(),
+    })
+}
+
 fn guard(a: &Args) -> Result<i32> {
-    let cfg = load_config(a)?;
     let backend = a
         .value("--backend")
         .map(|b| {
@@ -188,33 +317,21 @@ fn guard(a: &Args) -> Result<i32> {
         })
         .transpose()?
         .unwrap_or(Backend::Control);
-    let read = |rel: &Option<String>, default: &str| -> Result<String> {
-        let p = cfg.app_root.join(rel.as_deref().unwrap_or(default));
-        std::fs::read_to_string(&p)
-            .map_err(|e| rightkit_qa::Error(format!("cannot read {}: {e}", p.display())))
+    if a.has("--app-root") && a.value("--app-root").is_none() {
+        return err(
+            "usage: rightkit-qa guard --app-root <dir> [--config <toml>] [--backend control|wdio]",
+        );
+    }
+    let files = match a.value("--app-root") {
+        Some(root) => {
+            let cfg = config_arg(a).map(|p| QaConfig::load(&p)).transpose()?;
+            guard_files_for_app_root(Path::new(&root), cfg.as_ref())?
+        }
+        None => guard_files_for_config(&load_config(a)?)?,
     };
-    let cargo = read(&cfg.ui.cargo_toml, "src-tauri/Cargo.toml")?;
-    let rust = if cfg.ui.rust_sources.is_empty() {
-        read(&None, "src-tauri/src/lib.rs")?
-    } else {
-        cfg.ui
-            .rust_sources
-            .iter()
-            .map(|s| read(&Some(s.clone()), ""))
-            .collect::<Result<Vec<_>>>()?
-            .join("\n")
-    };
-    let scripts = scripts_from_package_json(
-        &read(&cfg.ui.package_json, "package.json").unwrap_or_else(|_| "{}".into()),
-    )?;
-    let issues = validate(&ContractInput {
-        cargo_toml: &cargo,
-        rust_source: &rust,
-        package_scripts: &scripts,
-        backend,
-    });
+    let issues = guard_issues(&files, backend);
     if issues.is_empty() {
-        println!("native QA contract ok: {}", cfg.app);
+        println!("native QA contract ok: {}", files.label);
         Ok(0)
     } else {
         for i in &issues {
@@ -516,13 +633,22 @@ fn journeys_run(a: &Args) -> Result<i32> {
     Ok(report.exit_code())
 }
 
-const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|journeys> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage";
+const GENERAL_USAGE: &str = "usage: rightkit-qa <doctor|list|run|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys> [--config rightkit-qa.toml] ...\nrun `rightkit-qa <command> --help` for one command's usage";
+
+/// The line `rightkit-qa --version` (or `-V`) prints, or `None` when the command line asks for no
+/// version. It is decided before any config is read.
+fn version_request(args: &[String]) -> Option<String> {
+    matches!(args.first().map(String::as_str), Some("--version" | "-V"))
+        .then(|| format!("rightkit-qa {}", env!("CARGO_PKG_VERSION")))
+}
 
 /// The usage a `--help` or `-h` request prints, or `None` when the command line asks for no help.
 /// Help is decided before anything is selected, loaded or run: the caller prints it and exits 0.
 /// `worker` is the runner's own child command (its argument is a world directory), so it never asks.
 fn help_request(args: &[String]) -> Option<String> {
     let is_help = |s: &String| s == "--help" || s == "-h";
+    // Arguments after a `--` belong to a test binary (`run-tests -- --help`), never to this command.
+    let args = args.split(|a| a == "--").next().unwrap_or(args);
     if !args.iter().any(is_help) {
         return None;
     }
@@ -544,12 +670,13 @@ fn command_usage(cmd: &str) -> String {
         "doctor" => "usage: rightkit-qa doctor [--config rightkit-qa.toml]",
         "list" => "usage: rightkit-qa list [--config rightkit-qa.toml]",
         "run" => "usage: rightkit-qa run [--config rightkit-qa.toml] [--qualifying] [--build] [--build-ui] [--kill-orphans] ...",
-        "guard" => "usage: rightkit-qa guard [--config rightkit-qa.toml] ...",
+        "guard" => "usage: rightkit-qa guard [--app-root <dir>] [--config rightkit-qa.toml] [--backend control|wdio]",
         "sweep" => "usage: rightkit-qa sweep [--config rightkit-qa.toml] ...",
         "prune-runs" => "usage: rightkit-qa prune-runs [--config rightkit-qa.toml] ...",
         "homes" => "usage: rightkit-qa homes [--config rightkit-qa.toml] ...",
         "clean" => "usage: rightkit-qa clean [--config rightkit-qa.toml] ...",
         "verify" => "usage: rightkit-qa verify <evidence.json>",
+        "run-tests" => return rightkit_qa::run_tests::cli::USAGE.to_string(),
         _ => return GENERAL_USAGE.to_string(),
     };
     line.to_string()
@@ -567,6 +694,10 @@ fn journeys_usage(sub: Option<&str>) -> String {
 
 fn run() -> Result<i32> {
     let a = Args(std::env::args().skip(1).collect());
+    if let Some(version) = version_request(&a.0) {
+        println!("{version}");
+        return Ok(0);
+    }
     if let Some(usage) = help_request(&a.0) {
         println!("{usage}");
         return Ok(0);
@@ -607,8 +738,9 @@ fn run() -> Result<i32> {
         Some("clean") => clean(&a),
         Some("verify") => verify(&a),
         Some("journeys") => journeys(&a),
+        Some("run-tests") => rightkit_qa::run_tests::cli::main(&a.0[1..]),
         _ => {
-            eprintln!("usage: rightkit-qa <doctor|list|run|worker|guard|sweep|prune-runs|homes|clean|verify|journeys> [--config rightkit-qa.toml] ...");
+            eprintln!("usage: rightkit-qa <doctor|list|run|worker|guard|sweep|prune-runs|homes|clean|verify|run-tests|journeys> [--config rightkit-qa.toml] ...");
             Ok(2)
         }
     }
@@ -644,6 +776,7 @@ mod help_tests {
             "homes",
             "clean",
             "verify",
+            "run-tests",
         ] {
             for flag in ["--help", "-h"] {
                 let text = help_request(&argv(&format!("{cmd} {flag}")))
@@ -687,7 +820,257 @@ mod help_tests {
     }
 
     #[test]
+    fn run_tests_help_is_only_asked_before_the_libtest_arguments() {
+        let text = help_request(&argv("run-tests -p fx --help")).expect("help");
+        assert!(text.contains("--from-cargo-json"), "{text}");
+        // After `--` the flag belongs to the test binary.
+        assert!(help_request(&argv("run-tests -p fx -- --help")).is_none());
+        assert!(help_request(&argv("run-tests -- -h")).is_none());
+        assert!(help_request(&argv("run-tests --help -- --nocapture")).is_some());
+    }
+
+    #[test]
     fn the_worker_child_command_never_takes_help() {
         assert!(help_request(&argv(r"worker D:\worlds\w1")).is_none());
+    }
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_request;
+
+    fn argv(s: &str) -> Vec<String> {
+        s.split_whitespace().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn version_flags_print_the_package_version_and_nothing_else() {
+        let expected = format!("rightkit-qa {}", env!("CARGO_PKG_VERSION"));
+        for flag in ["--version", "-V"] {
+            assert_eq!(
+                version_request(&argv(flag)),
+                Some(expected.clone()),
+                "{flag}"
+            );
+        }
+        assert!(expected.len() > "rightkit-qa ".len(), "{expected}");
+    }
+
+    #[test]
+    fn a_command_line_without_a_leading_version_flag_asks_for_no_version() {
+        assert!(version_request(&argv("")).is_none());
+        assert!(version_request(&argv("run")).is_none());
+        assert!(version_request(&argv("guard --app-root .")).is_none());
+        assert!(version_request(&argv("-v")).is_none());
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::{
+        guard_files_for_app_root, guard_files_for_config, guard_issues, Args, Backend, GuardFiles,
+    };
+    use rightkit_qa::config::QaConfig;
+    use std::path::PathBuf;
+
+    /// The shape the README asks for: the server is pulled in only by `qa-native`.
+    const CARGO: &str = r##"
+[features]
+default = []
+qa-native = ["dep:rightkit-qa", "rightkit-qa/control"]
+[dependencies]
+rightkit-qa = { version = "0.9", optional = true, default-features = false }
+"##;
+
+    /// A gated registration; the runtime flag is `build_if_enabled`.
+    const REGISTRATION: &str = r##"
+#[cfg(feature = "qa-native")]
+fn qa(b: Builder) -> Builder {
+    match rightkit_qa::embedded::Control::<tauri::Wry>::new().build_if_enabled() {
+        Some(p) => b.plugin(p),
+        None => b,
+    }
+}
+"##;
+
+    /// A unique scratch directory under the system temp dir, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "rightkit-qa-bin-{tag}-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+
+        fn write(&self, rel: &str, text: &str) {
+            let path = self.0.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn argv(s: &str) -> Args {
+        Args(s.split_whitespace().map(str::to_string).collect())
+    }
+
+    fn config(dir: &Scratch, extra: &str) -> QaConfig {
+        let text = format!("app = \"demo\"\napp_root = \".\"\n{extra}\n");
+        QaConfig::parse(&text, &dir.0.join("rightkit-qa.toml")).unwrap()
+    }
+
+    fn issues(files: &GuardFiles) -> Vec<String> {
+        guard_issues(files, Backend::Control)
+    }
+
+    #[test]
+    fn app_root_is_a_value_flag_not_a_positional() {
+        assert_eq!(
+            argv("guard --app-root some/dir extra").positionals(),
+            vec!["extra".to_string()]
+        );
+    }
+
+    #[test]
+    fn app_root_needs_no_config_and_reads_every_source_file() {
+        let s = Scratch::new("app-root");
+        s.write("src-tauri/Cargo.toml", CARGO);
+        s.write("src-tauri/src/lib.rs", "pub mod qa;\n");
+        s.write("src-tauri/src/qa.rs", REGISTRATION);
+        s.write(
+            "src-tauri/tauri.conf.json",
+            r#"{"app":{"windows":[{"label":"main"}]}}"#,
+        );
+        s.write(
+            "package.json",
+            r#"{"scripts":{"qa":"pnpm build && cargo run --features qa-native"}}"#,
+        );
+        let files = guard_files_for_app_root(&s.0, None).unwrap();
+        assert!(
+            files.rust.contains("// ---- lib.rs ----\npub mod qa;"),
+            "{}",
+            files.rust
+        );
+        assert!(files.rust.contains("// ---- qa.rs ----"), "{}", files.rust);
+        assert!(files.tauri_conf.is_some());
+        assert_eq!(files.scripts.len(), 1);
+        assert_eq!(files.label, s.0.display().to_string());
+        assert_eq!(files.window_label, None);
+        assert!(files.env_keys.is_empty());
+        assert_eq!(issues(&files), Vec::<String>::new());
+    }
+
+    #[test]
+    fn app_root_with_the_crate_at_the_root_reads_it_there() {
+        let s = Scratch::new("root-crate");
+        s.write("Cargo.toml", CARGO);
+        s.write("src/lib.rs", REGISTRATION);
+        s.write("switches.json", r#"{"switches":[]}"#);
+        let files = guard_files_for_app_root(&s.0, None).unwrap();
+        assert!(files.cargo.contains("qa-native"));
+        assert!(files.rust.contains("// ---- lib.rs ----"));
+        assert_eq!(files.tauri_conf, None);
+        assert_eq!(files.switches.as_deref(), Some(r#"{"switches":[]}"#));
+        assert_eq!(issues(&files), Vec::<String>::new());
+    }
+
+    #[test]
+    fn switches_json_is_found_beside_the_tauri_crate() {
+        let s = Scratch::new("switches");
+        s.write("src-tauri/Cargo.toml", CARGO);
+        s.write("src-tauri/src/lib.rs", REGISTRATION);
+        s.write("src-tauri/switches.json", r#"{"switches":[]}"#);
+        let files = guard_files_for_app_root(&s.0, None).unwrap();
+        assert_eq!(files.switches.as_deref(), Some(r#"{"switches":[]}"#));
+    }
+
+    #[test]
+    fn app_root_without_a_crate_names_both_paths() {
+        let s = Scratch::new("no-crate");
+        let e = guard_files_for_app_root(&s.0, None)
+            .err()
+            .expect("an error")
+            .0;
+        assert!(
+            e.contains(
+                &s.0.join("src-tauri")
+                    .join("Cargo.toml")
+                    .display()
+                    .to_string()
+            ),
+            "{e}"
+        );
+        assert!(
+            e.contains(&s.0.join("Cargo.toml").display().to_string()),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn a_config_adds_its_overrides_to_an_app_root_guard() {
+        let s = Scratch::new("overrides");
+        s.write("src-tauri/Cargo.toml", CARGO);
+        s.write("src-tauri/src/lib.rs", "fn unrelated() {}\n");
+        s.write("src-tauri/src/qa.rs", REGISTRATION);
+        let cfg = config(
+            &s,
+            "[ui]\nwindow_label = \"hub\"\nenv_keys = [\"DEMO_KEY\"]\n\
+             rust_sources = [\"src-tauri/src/qa.rs\"]",
+        );
+        let files = guard_files_for_app_root(&s.0, Some(&cfg)).unwrap();
+        assert_eq!(files.label, "demo");
+        assert_eq!(files.window_label.as_deref(), Some("hub"));
+        assert_eq!(files.env_keys, vec!["DEMO_KEY".to_string()]);
+        // rust_sources names the files, so only that file is read, with no separator line.
+        assert_eq!(files.rust, REGISTRATION);
+        // The declared key has no switches.json to be listed in.
+        let found = issues(&files);
+        assert!(found.iter().any(|i| i.contains("DEMO_KEY")), "{found:?}");
+    }
+
+    #[test]
+    fn a_config_that_leaves_window_label_alone_declares_none() {
+        let s = Scratch::new("default-label");
+        s.write("src-tauri/Cargo.toml", CARGO);
+        s.write("src-tauri/src/lib.rs", REGISTRATION);
+        let cfg = config(&s, "");
+        let files = guard_files_for_app_root(&s.0, Some(&cfg)).unwrap();
+        assert_eq!(files.window_label, None);
+    }
+
+    #[test]
+    fn a_config_guard_reads_every_source_file_not_only_lib_rs() {
+        let s = Scratch::new("config-sources");
+        s.write("src-tauri/Cargo.toml", CARGO);
+        s.write("src-tauri/src/lib.rs", "pub mod qa;\n");
+        s.write("src-tauri/src/qa.rs", REGISTRATION);
+        let files = guard_files_for_config(&config(&s, "")).unwrap();
+        assert!(files.rust.contains("// ---- qa.rs ----"), "{}", files.rust);
+        assert_eq!(issues(&files), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_config_guard_without_a_manifest_still_names_the_default_path() {
+        let s = Scratch::new("config-no-manifest");
+        let e = guard_files_for_config(&config(&s, ""))
+            .err()
+            .expect("an error")
+            .0;
+        assert!(e.contains("cannot read"), "{e}");
+        assert!(e.contains("src-tauri"), "{e}");
+        assert!(e.contains("Cargo.toml"), "{e}");
     }
 }
