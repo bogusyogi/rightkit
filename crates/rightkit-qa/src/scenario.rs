@@ -62,6 +62,16 @@ pub struct Scenario {
     /// `visual` scenario may, and makes an otherwise unconstrained run `visual`.
     #[serde(default)]
     pub kind: Option<RunKind>,
+    /// Environment this scenario hands the app on `ui_launch`: an `[inputs]` table (or
+    /// `inputs = { .. }`) of string values placed before the first `[[step]]`. This is how a
+    /// scenario sets a per-app QA input, the variable an app reads with
+    /// `rightkit_daemon::test_selector!(mode, "RIGHTKIT_<APP>_<NAME>")`. [`Scenario::load`] refuses
+    /// the file unless each key is `RIGHTKIT_` plus upper-case words (at most 64 bytes), is not a
+    /// name the harness or the daemon's mode decision uses (`RESERVED_INPUT_KEYS`) and names no
+    /// credential, and each value is at most 1024 bytes with no NUL, CR or LF. Applied after the
+    /// config `env` and before the step's own `env` (`ui_launch_env`).
+    #[serde(default)]
+    pub inputs: BTreeMap<String, String>,
     #[serde(default, rename = "step")]
     pub steps: Vec<Step>,
     #[serde(skip)]
@@ -86,6 +96,11 @@ pub struct Step {
     /// Re-run the step until its expectations hold, for up to this many seconds.
     pub until_timeout_s: Option<u64>,
     pub interval_ms: Option<u64>,
+    /// The scenario's [`Scenario::inputs`], copied onto each step by [`Scenario::load`] so the step
+    /// that launches the app applies them without the runner passing the scenario along. Empty for a
+    /// step built by hand.
+    #[serde(skip)]
+    pub inputs: Arc<BTreeMap<String, String>>,
     #[serde(flatten)]
     pub params: BTreeMap<String, Value>,
 }
@@ -109,8 +124,122 @@ impl Scenario {
         }
         s.grants = crate::pool::parse_tokens(&s.tokens)
             .map_err(|e| Error(format!("{}: {}", path.display(), e.0)))?;
+        validate_inputs(path, &s.inputs)?;
+        let inputs = Arc::new(s.inputs.clone());
+        for step in &mut s.steps {
+            step.inputs = Arc::clone(&inputs);
+        }
         Ok(s)
     }
+}
+
+/// Longest `inputs` key, in bytes.
+const INPUT_KEY_MAX: usize = 64;
+/// Longest `inputs` value, in bytes.
+const INPUT_VALUE_MAX: usize = 1024;
+
+/// Names a scenario may not set through `inputs`, because the harness or the daemon's mode
+/// decision sets or reads them itself. Constants where an owner exports one; the rest are spelled
+/// where they are set (`workspace::create`, `control::launch`, `EngineTarget::bind_test_mode`,
+/// `suite`, `rightkit_fs::app_dirs`) and listed here by hand, with a test that keeps the workspace
+/// and world keys inside the list. A name missing here is still refused at launch when the harness
+/// has already given the app a different value for it.
+const RESERVED_INPUT_KEYS: &[&str] = &[
+    // The control channel and the pool's per-scenario world. The control token file is one
+    // variable under two names (`token::ENV_AUTH_FILE`, `pool::ENV_CONTROL_TOKEN_FILE`).
+    control::token::ENV_AUTH_FILE,
+    crate::pool::WORLD_MARKER_ENV,
+    crate::pool::ENV_WORLD_DIR,
+    crate::pool::ENV_WORLD_DATA,
+    crate::pool::ENV_WORLD_HOME,
+    crate::pool::ENV_WORLD_TEMP,
+    crate::pool::ENV_PORT_START,
+    crate::pool::ENV_PORT_END,
+    crate::pool::ENV_CONTROL_SOCKET,
+    crate::pool::ENV_TOKENS,
+    control::WINDOW_LABEL_ENV,
+    "RIGHTKIT_CONTROL_SERVICE",
+    "RIGHTKIT_CONTROL_TRACE",
+    "RIGHTKIT_CONTROL_STACK_ON_TIMEOUT",
+    "RIGHTKIT_QA_HIDDEN",
+    "RIGHTKIT_QA_FOCUS",
+    "RIGHTKIT_QA_BACKGROUND",
+    "RIGHTKIT_QA_PACE_MS",
+    // Test-mode activation and the roots the daemon's mode decision and `rightkit-fs` read.
+    "RIGHTKIT_UNDER_TEST",
+    crate::journeys::adapter::ENV_DATA_DIR,
+    "RIGHTKIT_QA_HOME",
+    rightkit_daemon::ENV_SUITE_ROOT,
+    "RIGHTKIT_RUN_ROOT",
+    "RIGHTKIT_MANAGED_ROOT",
+    // What `workspace::create` puts in every launch environment, and the runner's own settings.
+    "RIGHTKIT_QA_NATIVE",
+    "RIGHTKIT_QA_RUN_ID",
+    "RIGHTKIT_QA_EVIDENCE_DIR",
+    "RIGHTKIT_QA_CAPTURE_DIR",
+    "RIGHTKIT_QA_MUTE",
+    "RIGHTKIT_QA_TIER",
+    "RIGHTKIT_QA_ENGINE",
+    "RIGHTKIT_QA_UI_BINARY",
+    crate::journeys::adapter::ENV_PROTOCOL,
+    crate::journeys::adapter::ENV_SELECTION,
+    crate::journeys::adapter::ENV_RESULTS,
+    crate::journeys::run::QUALIFYING_ENV,
+    crate::journeys::run::RUN_STORE_CAP_ENV,
+    crate::journeys::run::RUN_TOKEN_ENV,
+    crate::storage::HOME_ROOT_ENV,
+    crate::storage::HOME_SWEEP_ENV,
+    crate::storage::ROOT_CAP_ENV,
+    crate::storage::ROOT_CEILING_ENV,
+    crate::storage::HOME_MAX_AGE_ENV,
+    crate::storage::KEEP_FAILED_HOME_ENV,
+];
+
+/// Why `key` is not an acceptable scenario input name, or `None`. The shape is
+/// `^RIGHTKIT_[A-Z0-9]+(_[A-Z0-9]+)*$`: the prefix is required because a macOS launch carries
+/// only `RIGHTKIT_*` keys (`control::check_env`).
+fn input_key_refusal(key: &str) -> Option<String> {
+    if key.len() > INPUT_KEY_MAX {
+        return Some(format!("key is longer than {INPUT_KEY_MAX} bytes"));
+    }
+    let words_ok = key.strip_prefix("RIGHTKIT_").is_some_and(|rest| {
+        rest.split('_').all(|w| {
+            !w.is_empty()
+                && w.bytes()
+                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        })
+    });
+    if !words_ok {
+        return Some(
+            "key must be RIGHTKIT_ followed by upper-case letters and digits in words joined by single underscores (RIGHTKIT_<APP>_<NAME>); a macOS launch carries only RIGHTKIT_* keys".into(),
+        );
+    }
+    if RESERVED_INPUT_KEYS.contains(&key) {
+        return Some("key is set or read by rightkit-qa or rightkit-daemon itself and cannot be set by a scenario".into());
+    }
+    control::key_names_credential(key).then(|| {
+        "key names a credential; secrets are never passed to a launched app through its environment".to_string()
+    })
+}
+
+/// Why `value` is not an acceptable scenario input value, or `None`.
+fn input_value_refusal(value: &str) -> Option<String> {
+    if value.len() > INPUT_VALUE_MAX {
+        return Some(format!("value is longer than {INPUT_VALUE_MAX} bytes"));
+    }
+    value
+        .contains(['\0', '\r', '\n'])
+        .then(|| "value must not contain NUL, CR or LF".into())
+}
+
+/// Refuse a scenario file whose `inputs` break the rules above, naming `inputs.<KEY>` and why.
+fn validate_inputs(path: &Path, inputs: &BTreeMap<String, String>) -> Result<()> {
+    for (key, value) in inputs {
+        if let Some(why) = input_key_refusal(key).or_else(|| input_value_refusal(value)) {
+            return err(format!("{}: inputs.{key}: {why}", path.display()));
+        }
+    }
+    Ok(())
 }
 
 /// The kind of a suite run. An explicit request (`rightkit-qa run --kind`, [`crate::suite::SuiteOptions::kind`])
@@ -771,30 +900,44 @@ fn env_pairs(p: &Map<String, Value>) -> Vec<(String, String)> {
         })
         .unwrap_or_default()
 }
-/// The environment a `ui_launch` hands the app, in the order a later value wins: the config's
-/// `[ui] env` and `[env]`, the isolated data dir under `data_dir_env`, the window the in-app
-/// control server drives (`[ui] window_label` in [`control::WINDOW_LABEL_ENV`], not the process
-/// label of the launch spec), then the step's own `env`.
+/// The environment a `ui_launch` hands the app, from the lowest layer to the highest: the
+/// config's `[ui] env` and `[env]`, the isolated data dir under `data_dir_env`, the scenario's
+/// `inputs`, the window the in-app control server drives (`[ui] window_label` in
+/// [`control::WINDOW_LABEL_ENV`], not the process label of the launch spec), then the step's own
+/// `env`. A later layer replaces an earlier value for the same key, so a step can override an
+/// input or a config value for one launch. Each key appears once, because `control::launch`
+/// refuses a second, different value for a key it has already taken.
 fn ui_launch_env(
     cfg: &QaConfig,
     data_dir: &Path,
+    inputs: &BTreeMap<String, String>,
     step_env: Vec<(String, String)>,
 ) -> Vec<(String, String)> {
-    let mut env: Vec<(String, String)> = cfg
+    let layers = cfg
         .ui
         .env
         .iter()
+        .chain(&cfg.env)
         .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    env.extend(cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())));
-    if let Some(var) = &cfg.engine.data_dir_env {
-        env.push((var.clone(), data_dir.to_string_lossy().into()));
+        .chain(
+            cfg.engine
+                .data_dir_env
+                .iter()
+                .map(|var| (var.clone(), data_dir.to_string_lossy().into())),
+        )
+        .chain(inputs.iter().map(|(k, v)| (k.clone(), v.clone())))
+        .chain([(
+            control::WINDOW_LABEL_ENV.to_string(),
+            cfg.ui.window_label.clone(),
+        )])
+        .chain(step_env);
+    let mut env: Vec<(String, String)> = Vec::new();
+    for (key, value) in layers {
+        match env.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = value,
+            None => env.push((key, value)),
+        }
     }
-    env.push((
-        control::WINDOW_LABEL_ENV.to_string(),
-        cfg.ui.window_label.clone(),
-    ));
-    env.extend(step_env);
     env
 }
 fn cli_opts(ctx: &Ctx, p: &Map<String, Value>) -> CliOptions {
@@ -848,7 +991,7 @@ pub fn run_step(ctx: &mut Ctx, step: &Step) -> Result<Value> {
                 &ctx.vars,
             )?;
             let params = resolved.as_object().cloned().unwrap_or_default();
-            let result = exec(ctx, &step.kind, &params)?;
+            let result = exec(ctx, &step.kind, &params, &step.inputs)?;
             let expects: Vec<Expect> = step
                 .expect
                 .iter()
@@ -1114,7 +1257,12 @@ impl Ctx<'_> {
     }
 }
 
-fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
+fn exec(
+    ctx: &mut Ctx,
+    kind: &str,
+    p: &Map<String, Value>,
+    inputs: &BTreeMap<String, String>,
+) -> Result<Value> {
     if let Some(handler) = ctx.handlers.get(kind) {
         return handler(ctx, p);
     }
@@ -1322,7 +1470,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 None => ctx.ui_binary.clone().ok_or_else(|| Error("no UI binary configured: set [ui].binaries, pass --ui-binary, or `binary` on the step".into()))?,
             };
             let mode = Mode::parse(&ps_opt(p, "mode").unwrap_or_else(|| ctx.cfg.ui.mode.clone()))?;
-            let env = ui_launch_env(ctx.cfg, &ctx.data_dir, env_pairs(p));
+            let env = ui_launch_env(ctx.cfg, &ctx.data_dir, inputs, env_pairs(p));
             let focus = pv(p, "focus")
                 .and_then(Value::as_bool)
                 .unwrap_or(ctx.cfg.ui.focus);
@@ -1807,6 +1955,7 @@ command = \"x\"
             expect: vec![],
             until_timeout_s: None,
             interval_ms: None,
+            inputs: Default::default(),
             params: params
                 .as_object()
                 .cloned()
@@ -2277,6 +2426,359 @@ screenshot = true
         let _ = crate::workspace::dispose(&ws, false, 3, 10);
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// Write `text` as a scenario file and load it; the path comes back for message checks.
+    fn load_scenario_text(text: &str) -> (PathBuf, Result<Scenario>) {
+        let path =
+            std::env::temp_dir().join(format!("rkqa-inputs-{}.scenario.toml", util::new_id()));
+        std::fs::write(&path, text).unwrap();
+        let loaded = Scenario::load(&path);
+        let _ = std::fs::remove_file(&path);
+        (path, loaded)
+    }
+
+    fn scenario_with_inputs(inputs: &str) -> String {
+        format!(
+            "name = \"in\"\ntarget = \"ui\"\n{inputs}\n[[step]]\nkind = \"ui_launch\"\n[[step]]\nkind = \"ui_stop\"\n"
+        )
+    }
+
+    #[test]
+    fn an_inputs_table_loads_and_every_step_carries_it() {
+        // The table form, then the inline form; both come before the first `[[step]]`.
+        for inputs in [
+            "[inputs]\nRIGHTKIT_POSTRIGHT_DATA_SOURCE = \"engine\"\nRIGHTKIT_POSTRIGHT_SEED = \"7\"",
+            "inputs = { RIGHTKIT_POSTRIGHT_DATA_SOURCE = \"engine\", RIGHTKIT_POSTRIGHT_SEED = \"7\" }",
+        ] {
+            let (_, loaded) = load_scenario_text(&scenario_with_inputs(inputs));
+            let s = loaded.unwrap();
+            let want: BTreeMap<String, String> = [
+                ("RIGHTKIT_POSTRIGHT_DATA_SOURCE".into(), "engine".into()),
+                ("RIGHTKIT_POSTRIGHT_SEED".into(), "7".into()),
+            ]
+            .into();
+            assert_eq!(s.inputs, want);
+            assert_eq!(s.steps.len(), 2);
+            for step in &s.steps {
+                assert_eq!(*step.inputs, want, "step {} lost the inputs", step.kind);
+            }
+        }
+        // No table: nothing is declared and nothing is carried.
+        let (_, loaded) = load_scenario_text(&scenario_with_inputs(""));
+        let s = loaded.unwrap();
+        assert!(s.inputs.is_empty() && s.steps.iter().all(|st| st.inputs.is_empty()));
+    }
+
+    #[test]
+    fn an_inputs_key_or_value_that_breaks_the_rules_refuses_the_file() {
+        let long_key = format!("RIGHTKIT_{}", "A".repeat(56));
+        let long_value = "x".repeat(1025);
+        // (the `inputs` line, the key it names, a phrase the refusal must carry)
+        let cases: Vec<(String, &str, &str)> = vec![
+            (
+                "inputs = { rightkit_postright_data_source = \"engine\" }".into(),
+                "rightkit_postright_data_source",
+                "upper-case",
+            ),
+            (
+                "inputs = { RIGHTKIT_PostRight = \"engine\" }".into(),
+                "RIGHTKIT_PostRight",
+                "upper-case",
+            ),
+            (
+                "inputs = { POSTRIGHT_DATA_SOURCE = \"engine\" }".into(),
+                "POSTRIGHT_DATA_SOURCE",
+                "RIGHTKIT_ followed by",
+            ),
+            (
+                "inputs = { RIGHTKIT_ = \"engine\" }".into(),
+                "RIGHTKIT_",
+                "RIGHTKIT_ followed by",
+            ),
+            (
+                "inputs = { RIGHTKIT_A__B = \"engine\" }".into(),
+                "RIGHTKIT_A__B",
+                "single underscores",
+            ),
+            (
+                "inputs = { RIGHTKIT_A_ = \"engine\" }".into(),
+                "RIGHTKIT_A_",
+                "single underscores",
+            ),
+            (
+                format!("inputs = {{ {long_key} = \"engine\" }}"),
+                long_key.as_str(),
+                "longer than 64 bytes",
+            ),
+            (
+                "inputs = { RIGHTKIT_UNDER_TEST = \"1\" }".into(),
+                "RIGHTKIT_UNDER_TEST",
+                "set or read by rightkit-qa or rightkit-daemon",
+            ),
+            (
+                "inputs = { RIGHTKIT_QA_DATA_DIR = \"/x\" }".into(),
+                "RIGHTKIT_QA_DATA_DIR",
+                "set or read by rightkit-qa or rightkit-daemon",
+            ),
+            (
+                "inputs = { RIGHTKIT_SUITE_ROOT = \"/x\" }".into(),
+                "RIGHTKIT_SUITE_ROOT",
+                "set or read by rightkit-qa or rightkit-daemon",
+            ),
+            (
+                "inputs = { RIGHTKIT_QA_WORLD = \"w\" }".into(),
+                "RIGHTKIT_QA_WORLD",
+                "set or read by rightkit-qa or rightkit-daemon",
+            ),
+            (
+                "inputs = { RIGHTKIT_QA_CONTROL_TOKEN_FILE = \"f\" }".into(),
+                "RIGHTKIT_QA_CONTROL_TOKEN_FILE",
+                "set or read by rightkit-qa or rightkit-daemon",
+            ),
+            (
+                "inputs = { RIGHTKIT_POSTRIGHT_API_KEY = \"k\" }".into(),
+                "RIGHTKIT_POSTRIGHT_API_KEY",
+                "names a credential",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_TOKEN = \"t\" }".into(),
+                "RIGHTKIT_APP_TOKEN",
+                "names a credential",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_MODE = \"a\\nb\" }".into(),
+                "RIGHTKIT_APP_MODE",
+                "NUL, CR or LF",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_MODE = \"a\\rb\" }".into(),
+                "RIGHTKIT_APP_MODE",
+                "NUL, CR or LF",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_MODE = \"a\\u0000b\" }".into(),
+                "RIGHTKIT_APP_MODE",
+                "NUL, CR or LF",
+            ),
+            (
+                format!("inputs = {{ RIGHTKIT_APP_MODE = \"{long_value}\" }}"),
+                "RIGHTKIT_APP_MODE",
+                "longer than 1024 bytes",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_PORT = 8080 }".into(),
+                "RIGHTKIT_APP_PORT",
+                "expected a string",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_FLAG = true }".into(),
+                "RIGHTKIT_APP_FLAG",
+                "expected a string",
+            ),
+            (
+                "inputs = { RIGHTKIT_APP_LIST = [\"a\"] }".into(),
+                "RIGHTKIT_APP_LIST",
+                "expected a string",
+            ),
+        ];
+        for (inputs, key, why) in &cases {
+            let (path, loaded) = load_scenario_text(&scenario_with_inputs(inputs));
+            let e = loaded
+                .err()
+                .unwrap_or_else(|| panic!("{inputs} was accepted"))
+                .0;
+            assert!(e.starts_with(&path.display().to_string()), "{e}");
+            assert!(e.contains(why), "{inputs}: want '{why}' in {e}");
+            // Validation refusals name `inputs.<KEY>`; a non-string value is refused by the parser,
+            // whose message shows the offending line instead.
+            assert!(
+                e.contains(&format!("inputs.{key}: ")) || e.contains(key),
+                "{inputs}: {e}"
+            );
+        }
+        // Every word the launch guard calls a credential is refused as an input name too: one list.
+        for word in ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY", "PRIVATE_KEY", "CREDENTIAL"] {
+            let why = input_key_refusal(&format!("RIGHTKIT_APP_{word}")).unwrap();
+            assert!(why.contains("names a credential"), "{word}: {why}");
+        }
+        // The limits are inclusive: a 64-byte key and a 1024-byte value load.
+        let edge_key = format!("RIGHTKIT_{}", "A".repeat(55));
+        assert_eq!(edge_key.len(), 64);
+        let edge = format!("inputs = {{ {edge_key} = \"{}\" }}", "x".repeat(1024));
+        load_scenario_text(&scenario_with_inputs(&edge)).1.unwrap();
+    }
+
+    /// Every variable the workspace, the pool world, the engine's test-mode binding and the control
+    /// token put in a launch environment is one a scenario cannot set, and the list has no typo that
+    /// would leave a name out of reach.
+    #[test]
+    fn the_reserved_input_keys_cover_what_the_harness_sets() {
+        let root = std::env::temp_dir().join(format!("rkqa-reserved-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "reserved").unwrap();
+        let world = crate::pool::WorldPlan::new(
+            "run".into(),
+            ws.home.clone(),
+            &crate::config::HostConfig::default(),
+            1,
+        )
+        .unwrap()
+        .world(0)
+        .unwrap();
+        let mut target = EngineTarget::new(PathBuf::from("engine"));
+        target.bind_test_mode(&ws.data_dir);
+        let harness_keys: Vec<String> = ws
+            .env
+            .keys()
+            .cloned()
+            .chain(
+                crate::pool::world_env(&world, &[])
+                    .into_iter()
+                    .map(|(k, _)| k),
+            )
+            .chain(target.env.iter().map(|(k, _)| k.clone()))
+            .chain([control::token::ENV_AUTH_FILE.to_string()])
+            .filter(|k| k.starts_with("RIGHTKIT_"))
+            .collect();
+        assert!(harness_keys.len() > 15, "{harness_keys:?}");
+        for key in &harness_keys {
+            assert!(
+                RESERVED_INPUT_KEYS.contains(&key.as_str()),
+                "{key} is set by the harness but a scenario may set it through inputs"
+            );
+            let why = input_key_refusal(key).unwrap_or_else(|| panic!("{key} was accepted"));
+            assert!(why.contains("set or read by"), "{key}: {why}");
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for key in RESERVED_INPUT_KEYS {
+            assert!(seen.insert(*key), "{key} is listed twice");
+            assert!(key.starts_with("RIGHTKIT_"), "{key}");
+            assert_eq!(*key, key.to_ascii_uppercase(), "{key}");
+        }
+        // A per-app name the harness has no use for is accepted.
+        assert_eq!(input_key_refusal("RIGHTKIT_POSTRIGHT_DATA_SOURCE"), None);
+        assert_eq!(input_key_refusal("RIGHTKIT_QA_APP_DATA_SOURCE"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ui_launch_env_applies_ui_config_data_dir_inputs_then_step_env() {
+        let map = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let pair = |k: &str, v: &str| (k.to_string(), v.to_string());
+        let cfg = |toml: &str| {
+            QaConfig::parse(toml, Path::new("/nonexistent-cfg/rightkit-qa.toml")).unwrap()
+        };
+        let c = cfg(
+            "app = \"demo\"\n[ui.env]\nA = \"ui\"\nB = \"ui\"\n[env]\nB = \"config\"\nC = \"config\"\nD = \"config\"\n[engine]\ndata_dir_env = \"DATA\"\n",
+        );
+        let env = ui_launch_env(
+            &c,
+            Path::new("/scenario/dir"),
+            &map(&[("C", "input"), ("E", "input"), ("F", "input")]),
+            vec![pair("E", "step"), pair("G", "step")],
+        );
+        // Each key once, at the place it first appeared, holding the highest layer's value: the
+        // config beat the UI block (B), an input beat the config (C), the step beat an input (E).
+        assert_eq!(
+            env,
+            vec![
+                pair("A", "ui"),
+                pair("B", "config"),
+                pair("C", "input"),
+                pair("D", "config"),
+                pair("DATA", "/scenario/dir"),
+                pair("E", "step"),
+                pair("F", "input"),
+                pair(control::WINDOW_LABEL_ENV, "main"),
+                pair("G", "step"),
+            ]
+        );
+        // The data-dir variable sits below the inputs and above the config.
+        let c = cfg("app = \"demo\"\n[env]\nDATA = \"config\"\n[engine]\ndata_dir_env = \"DATA\"\n");
+        let env = ui_launch_env(&c, Path::new("/scenario/dir"), &map(&[]), vec![]);
+        assert_eq!(env[0], pair("DATA", "/scenario/dir"));
+        let env = ui_launch_env(&c, Path::new("/scenario/dir"), &map(&[("DATA", "input")]), vec![]);
+        assert_eq!(env[0], pair("DATA", "input"));
+        // The step can still move the window label for one launch.
+        let env = ui_launch_env(
+            &c,
+            Path::new("/d"),
+            &map(&[]),
+            vec![pair(control::WINDOW_LABEL_ENV, "other")],
+        );
+        assert_eq!(
+            env.iter().filter(|(k, _)| k == control::WINDOW_LABEL_ENV).collect::<Vec<_>>(),
+            vec![&pair(control::WINDOW_LABEL_ENV, "other")]
+        );
+    }
+
+    /// A key set by the config `env` and again by the step reaches the launch once, with the
+    /// step's value. Passed twice, the launch guard refused the second as an override of a value
+    /// the harness owns, so a step could not override the config at all.
+    #[test]
+    fn ui_launch_lets_the_step_env_override_the_config_env() {
+        let root = std::env::temp_dir().join(format!("rkqa-inputs-dup-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = QaConfig::parse(
+            "app = \"inputsd\"\n[env]\nRIGHTKIT_APP_MODE = \"config\"\n",
+            &root.join("rightkit-qa.toml"),
+        )
+        .unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "inputsd").unwrap();
+        let tracker = Tracker::new();
+        let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
+        let fake = root.join("not-an-app");
+        std::fs::write(&fake, b"not executable").unwrap();
+        let params = json!({
+            "binary": fake.to_string_lossy(),
+            "env": {"RIGHTKIT_APP_MODE": "step"},
+        });
+        let mut step = bare_step("ui_launch", params);
+        step.inputs = Arc::new(BTreeMap::from([(
+            "RIGHTKIT_APP_MODE".to_string(),
+            "input".to_string(),
+        )]));
+        // The environment check passes; the launch then stops because the file cannot run.
+        let e = run_step(&mut ctx, &step).unwrap_err();
+        assert!(!e.0.contains("harness-owned"), "{e}");
+        assert!(e.0.contains("failed to start"), "{e}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The step reaches the launch with its scenario's inputs: a credential key set only through
+    /// `Step::inputs` is refused by the launch guard, so the inputs are in the environment the
+    /// launch checks. The "binary" is a file that cannot run, so nothing starts either way.
+    #[test]
+    fn ui_launch_hands_the_scenario_inputs_to_the_launch() {
+        let root = std::env::temp_dir().join(format!("rkqa-inputs-launch-{}", util::new_id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let cfg = QaConfig::parse("app = \"inputsl\"\n", &root.join("rightkit-qa.toml")).unwrap();
+        let ws = crate::workspace::create(&root.join("managed"), None, "inputsl").unwrap();
+        let tracker = Tracker::new();
+        let mut ctx = Ctx::new(&cfg, None, None, &ws, &tracker, "s").unwrap();
+        let fake = root.join("not-an-app");
+        std::fs::write(&fake, b"not executable").unwrap();
+        let params = json!({"binary": fake.to_string_lossy()});
+        let mut step = bare_step("ui_launch", params.clone());
+        step.inputs = Arc::new(BTreeMap::from([(
+            "RIGHTKIT_APP_TOKEN".to_string(),
+            "x".to_string(),
+        )]));
+        let e = run_step(&mut ctx, &step).unwrap_err();
+        assert!(
+            e.0.contains("RIGHTKIT_APP_TOKEN") && e.0.contains("names a credential"),
+            "{e}"
+        );
+        // The same step without the input gets past the environment check.
+        let e = run_step(&mut ctx, &bare_step("ui_launch", params)).unwrap_err();
+        assert!(!e.0.contains("names a credential"), "{e}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 #[cfg(test)]
@@ -2601,7 +3103,7 @@ mod ui_launch_env_tests {
     #[test]
     fn the_launch_names_the_configured_window_label_not_the_process_label() {
         let c = cfg("app = \"demo\"\n[ui]\nwindow_label = \"side\"\n");
-        let env = ui_launch_env(&c, Path::new("/d"), vec![]);
+        let env = ui_launch_env(&c, Path::new("/d"), &BTreeMap::new(), vec![]);
         assert_eq!(value(&env, control::WINDOW_LABEL_ENV), Some("side"));
         // The tracker label of the launch spec ("<app> app") is never the window label.
         assert!(env.iter().all(|(_, v)| v != "demo app"), "{env:?}");
@@ -2609,7 +3111,7 @@ mod ui_launch_env_tests {
 
     #[test]
     fn the_window_label_defaults_to_main() {
-        let env = ui_launch_env(&cfg("app = \"demo\"\n"), Path::new("/d"), vec![]);
+        let env = ui_launch_env(&cfg("app = \"demo\"\n"), Path::new("/d"), &BTreeMap::new(), vec![]);
         assert_eq!(value(&env, control::WINDOW_LABEL_ENV), Some("main"));
     }
 
@@ -2619,11 +3121,12 @@ mod ui_launch_env_tests {
             "app = \"demo\"\n[env]\nA = \"top\"\n[ui.env]\nB = \"ui\"\n[engine]\ndata_dir_env = \"DEMO_DATA\"\n",
         );
         let step = vec![("A".to_string(), "step".to_string())];
-        let env = ui_launch_env(&c, Path::new("/d"), step);
+        let env = ui_launch_env(&c, Path::new("/d"), &BTreeMap::new(), step);
         assert_eq!(value(&env, "B"), Some("ui"));
         assert_eq!(value(&env, "DEMO_DATA"), Some("/d"));
-        // The step's own env comes last, so it wins over the config's.
+        // The step's own env is the highest layer, so it wins over the config's, and the key is
+        // passed once.
         assert_eq!(value(&env, "A"), Some("step"));
-        assert_eq!(env.last().map(|(k, _)| k.as_str()), Some("A"));
+        assert_eq!(env.iter().filter(|(k, _)| k == "A").count(), 1);
     }
 }

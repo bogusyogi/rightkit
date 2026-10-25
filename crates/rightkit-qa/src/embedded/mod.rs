@@ -468,8 +468,8 @@ pub fn effect_kind(method: &str) -> Option<EffectKind> {
 /// params and returns a JSON value or an error string).
 pub struct Control<R: Runtime> {
     /// The label the app set with [`Control::window`]; `None` leaves it to `build`, which falls
-    /// back to the launcher's `[ui] window_label` and then `"main"` (see
-    /// [`resolve_window_label`](crate::control::resolve_window_label)).
+    /// back to the launcher's `[ui] window_label`, then the window the app's Tauri config
+    /// declares (see [`declared_window_label`]), then `"main"`.
     label: Option<String>,
     commands: HashMap<String, CommandFn<R>>,
     allow: Allowlist,
@@ -526,7 +526,10 @@ impl<R: Runtime> Control<R> {
         self
     }
     /// Drive the window with this label. It wins over the launcher's `[ui] window_label`
-    /// (`RIGHTKIT_QA_WINDOW_LABEL`) and the `"main"` default; a blank label counts as not set.
+    /// (`RIGHTKIT_QA_WINDOW_LABEL`), over the window the app's Tauri config declares (`main` if
+    /// declared, else the first window the config creates) and over the `"main"` default; a
+    /// blank label counts as not set. A window built only in code is not in the config, so an
+    /// app that does that calls this (or its launcher sets `[ui] window_label`).
     pub fn window(mut self, label: &str) -> Self {
         self.label = Some(label.into());
         self
@@ -567,9 +570,11 @@ impl<R: Runtime> Control<R> {
             lease,
             viewport,
         } = self;
-        // The app's own `.window(..)`, then the launcher's `[ui] window_label`, then "main". Read
-        // once here, like every other launch env value, so the setup closure only moves a String.
-        let label = crate::control::resolve_window_label(
+        // The app's own `.window(..)`, then the launcher's `[ui] window_label`, then the window the
+        // app's Tauri config declares (settled at plugin setup, where the config exists), then
+        // "main". Read once here, like every other launch env value, so the setup closure only
+        // moves a String.
+        let configured = configured_window_label(
             explicit_label.as_deref(),
             std::env::var(crate::control::WINDOW_LABEL_ENV)
                 .ok()
@@ -619,9 +624,16 @@ impl<R: Runtime> Control<R> {
                     app.listen(PLACEMENT_EVENT, move |event| {
                         gate_events.on_event(event.payload());
                     });
+                    let declared = created_window_labels(
+                        app.config()
+                            .app
+                            .windows
+                            .iter()
+                            .map(|w| (w.label.as_str(), w.create)),
+                    );
                     serve(
                         app.clone(),
-                        label.clone(),
+                        declared_window_label(configured.as_deref(), &declared),
                         service,
                         commands.clone(),
                         allow.clone(),
@@ -637,6 +649,42 @@ impl<R: Runtime> Control<R> {
             })
             .build()
     }
+}
+
+/// The label named by the app (`.window(..)`) or by the launcher (`[ui] window_label`, carried
+/// in `RIGHTKIT_QA_WINDOW_LABEL`), in that order; `None` when neither names one (a blank label
+/// counts as not set).
+fn configured_window_label(explicit: Option<&str>, from_env: Option<&str>) -> Option<String> {
+    [explicit, from_env]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|label| !label.is_empty())
+        .map(str::to_string)
+}
+
+/// Labels of the windows a Tauri config creates at startup, from `(label, create)` pairs. A
+/// window with `create: false` is built later by the app, so it does not exist for the control
+/// server to bind at startup and is left out.
+fn created_window_labels<'a>(windows: impl IntoIterator<Item = (&'a str, bool)>) -> Vec<&'a str> {
+    windows
+        .into_iter()
+        .filter(|&(_, create)| create)
+        .map(|(label, _)| label)
+        .collect()
+}
+
+/// The window label the control plugin binds: the one the app or the launcher named
+/// (`configured`); else `main` when the config declares it; else the first declared window (an
+/// app whose only window is `hub` needs no call); else `main`.
+fn declared_window_label(configured: Option<&str>, declared: &[&str]) -> String {
+    if let Some(label) = configured {
+        return label.to_string();
+    }
+    if declared.contains(&"main") {
+        return "main".to_string();
+    }
+    declared.first().copied().unwrap_or("main").to_string()
 }
 
 /// Env flag the QA launcher sets for a hidden launch (`rightkit-qa` `Mode::Hidden`).
@@ -1488,6 +1536,41 @@ fn key_char(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declared_window_is_the_label_when_nothing_names_one() {
+        assert_eq!(declared_window_label(None, &["hub"]), "hub");
+        assert_eq!(declared_window_label(None, &["hub", "main"]), "main");
+        assert_eq!(declared_window_label(None, &["main", "hub"]), "main");
+        assert_eq!(declared_window_label(None, &["hub", "settings"]), "hub");
+        assert_eq!(declared_window_label(None, &[]), "main");
+    }
+    #[test]
+    fn a_named_label_wins_over_the_declared_windows() {
+        assert_eq!(declared_window_label(Some("tray"), &["hub"]), "tray");
+        assert_eq!(declared_window_label(Some("tray"), &["main", "hub"]), "tray");
+        assert_eq!(declared_window_label(Some("tray"), &[]), "tray");
+    }
+    #[test]
+    fn app_then_launcher_name_the_label_and_blank_counts_as_unset() {
+        assert_eq!(configured_window_label(Some("a"), Some("b")).as_deref(), Some("a"));
+        assert_eq!(configured_window_label(None, Some("b")).as_deref(), Some("b"));
+        assert_eq!(configured_window_label(Some("  "), Some(" b ")).as_deref(), Some("b"));
+        assert_eq!(configured_window_label(None, Some("")), None);
+        assert_eq!(configured_window_label(None, None), None);
+    }
+    #[test]
+    fn declared_labels_leave_out_windows_the_config_does_not_create() {
+        let declared = created_window_labels([
+            ("main", false),
+            ("hub", true),
+            ("about", false),
+            ("log", true),
+        ]);
+        assert_eq!(declared, ["hub", "log"]);
+        // A config whose only `main` is not created binds the created window, not `main`.
+        assert_eq!(declared_window_label(None, &declared), "hub");
+        assert!(created_window_labels([("main", false)]).is_empty());
+    }
     #[test]
     fn hidden_activation_only_for_the_hidden_flag() {
         use std::ffi::OsStr;
