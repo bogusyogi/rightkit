@@ -1,0 +1,11 @@
+[package]
+name = "rightkit-sync-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-sync = { version = "=0.2.2" }
+serde_json = "1"

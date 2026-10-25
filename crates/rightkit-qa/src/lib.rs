@@ -73,6 +73,8 @@ pub mod plugin;
 pub mod pool;
 pub mod process;
 pub mod retention;
+/// `rightkit-qa run-tests`: compile test binaries in the broker, run them outside it, write one receipt.
+pub mod run_tests;
 pub mod scenario;
 pub mod settings;
 pub mod steps;

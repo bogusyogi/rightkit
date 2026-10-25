@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { renderTemplate, MANAGED_MARKER } from "./render.mjs";
-import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, validateManifest, swiftPrivatePackagesConfigureStep, swiftPrivatePackagesCleanupStep } from "./manifest.mjs";
+import { buildRenderContext, LANE_FILENAMES, KNOWN_LANES, CHECK_JOB_LANES, checkJob, parsePackageManager, validateManifest, swiftPrivatePackagesConfigureStep, swiftPrivatePackagesCleanupStep } from "./manifest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const templatesDir = path.join(packageRoot, "templates");
@@ -36,6 +36,14 @@ function renderAllLanes(manifest, repoPath) {
     rendered[lane] = renderTemplate(templateText, buildRenderContext(configured, repoPath, lane));
   }
   return rendered;
+}
+
+// A render as it was before the RightKit check job (rightkit#833): the job removed, and `check` removed from every `needs` list.
+// The hash-pinned renders below are kept against this view of the new render, so the job is provably the whole change.
+function withoutCheckJob(rendered) {
+  return rendered
+    .replace(/^  check:\n(?: {4,}.*\n)+/m, "")
+    .replace(/^(    needs: \[[^\]\n]*?), check\b/gm, "$1");
 }
 
 test("every known lane has a template file and renders without an unresolved placeholder", () => {
@@ -825,7 +833,14 @@ test("every job checking out an admitted revision fetches full history", () => {
     fs.readFileSync(path.join(templatesDir, "profiles/rust-hybrid/release-candidate.yml"), "utf8"),
     buildRenderContext(manifest, "/repos/widgets", "release-candidate"),
   );
+  // The check job (rightkit#833) is the one exception: it checks out the same revision at depth 1 because it only reads
+  // the committed files of HEAD (`rightkit-gate check --commit HEAD`) and never runs right-release, so it has no
+  // reachability to prove. Every job that builds, signs, qualifies or publishes the revision still fetches full history.
+  const checkJobText = content.slice(content.indexOf("\n  check:\n"), content.indexOf("\n  admission:\n"));
+  assert.match(checkJobText, /ref: \$\{\{ inputs\.source_revision \}\}\n {10}fetch-depth: 1\n/, "the check job is the shallow checkout of the dispatched revision");
+  assert.doesNotMatch(checkJobText, /right-release/);
   const checkouts = content
+    .replace(checkJobText, "")
     .split(/^ {6}- uses: actions\/checkout@/m)
     .slice(1)
     .map((step) => step.split(/^ {6}- /m)[0]);
@@ -1443,8 +1458,8 @@ test("devArtifact.parallel renders per-platform dev-artifact jobs beside the gat
   assert.doesNotMatch(gateJobs, /Build dev app|dev-windows-|dev-mac-unsigned|dev-unsigned-mac|Package unsigned dev app|DEV_APP_PATH/);
 
   const devJobs = parallel.slice(parallel.indexOf("\n  dev-artifact-mac:"), parallel.indexOf("\n  dev-mac-sign:"));
-  assert.match(devJobs, /\n  dev-artifact-mac:\n    # macOS dev app[^\n]*\n[^\n]*\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: xcode-27\n/);
-  assert.match(devJobs, /\n  dev-artifact-windows:\n    # Windows dev app[^\n]*\n[^\n]*\n    needs: \[private-repo-guard\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: windows-2025\n/);
+  assert.match(devJobs, /\n  dev-artifact-mac:\n    # macOS dev app[^\n]*\n[^\n]*\n    needs: \[private-repo-guard, check\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: xcode-27\n/);
+  assert.match(devJobs, /\n  dev-artifact-windows:\n    # Windows dev app[^\n]*\n[^\n]*\n    needs: \[private-repo-guard, check\]\n    if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n    runs-on: windows-2025\n/);
   assert.equal((devJobs.match(/        run: pnpm run build:dev\n/g) ?? []).length, 2, "each platform job compiles devArtifact.buildScript");
   assert.doesNotMatch(devJobs, /secrets\./, "the dev-artifact jobs never reach a secret");
   assert.match(devJobs, /name: dev-unsigned-mac-\$\{\{ github\.sha \}\}\n          path: \$\{\{ runner\.temp \}\}\/dev-unsigned\/app\.zip\n          retention-days: 1/);
@@ -1714,20 +1729,37 @@ const swRender = (manifest, lane, swift) => {
   return renderTemplate(fs.readFileSync(path.join(dir, LANE_FILENAMES[lane]), "utf8"), buildRenderContext(clone, "/repos/widgets", lane));
 };
 
+// 0.3.1 (rightkit#833, A-11): the lanes that compile or test now render the RightKit check job, so the hashes of those nine
+// lanes (publish-npm included: it rebuilds the tarball from the release tag and runs check-release.mjs) were taken again from
+// this render, deliberately (a breaking render change; the version bump covers it). The three lanes without a check job
+// (regenerate x2, publish-package-managers) keep their hashes. SW_PRE_CHECK_BASELINE keeps the previous nine: the new render
+// without the check job still hashes to them.
 const SW_BASELINE = {
+  "node/ci": "b77c5cc708bb608b734fc625e2e5a530aa7b731eb1cbf9b0555ac65a60e33f87",
+  "node/qualification": "4de77f9b79bd793c178e0bb6918ab6f64445bac31d850530cae5931b25e7af13",
+  "node/package-smoke": "81bf4be5c464a33927eb760146e87c0ca65c5967705c168b6f2c787079e0e3b4",
+  "node/release-candidate": "6d3665cca5c16cc723ace37b55b8d186ed0148e702ad08ca9d2abccec8ca00ab",
+  "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
+  "node/publish-npm": "95ad0e370e30fcf0784975e1b7a20ba549446894112fd9b7510d1b7dfdb1034c",
+  "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
+  "rust-hybrid/ci": "179245d47bd20517c5a33e69cbecf3a90691fafc847d38743b100b85c7f53bb4",
+  "rust-hybrid/release-candidate": "2ccb303653a9988438c079136e67688e07833e0e14c43ce3d9a50e745a325011",
+  "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
+  "rust-hybrid-chain/ci": "8e839a2c54265fbd1908e34d370fd349915cf8ce09d6dbb7f82f52855f19d4f6",
+  "rust-hybrid-chain/release-candidate": "c268375fd3f2fb186bfd89c755af6b5f933bbf8cce82101998db077bcd27e8fb",
+};
+const SW_PRE_CHECK_BASELINE = {
   // 0.2.49 (#338): the three ci lanes render the supersede job and job-level concurrency (hashes from the Dell render; the other nine lanes match CI byte for byte).
   "node/ci": "1e44d86e2d9c46f21992ca236da797a7f8751e8622902157fbaa87e28e9b3431",
   "node/qualification": "730cc94fde3400079c2a4e66effed0e8957de2b75576d13f02b9398059ccc921",
   "node/package-smoke": "bc981ccb7248cc022cb8157c1fbdb7895c48f6a3fe4eeaf5a76eb5bba4206517",
   "node/release-candidate": "6ff48f01cadc95e5e92cc225432aa280a7baac46017ae30e54a165e3db2d1539",
-  "node/regenerate": "82bfa3063ae0bc04ba52fecc14d562b418037716283648a887c206683a4e1c14",
+  // The 0.2.41 publish-npm render, before the check job (the lane was exempt for one revision; it builds, so it is not).
   "node/publish-npm": "50882207659dfb6e0207fc0d9b33d86b7c10a2d2e3e6c65b2db05d5261982834",
-  "node/publish-package-managers": "106b8d28ed76d916afe68808388cd5dc0de0ddd719b566832a6e8280410f9d7f",
   "rust-hybrid/ci": "c402bac02c72fbda2cab5b8ee5968bab9ed63a8770489c5749e6d7f2ba3d27d8",
   // 0.2.44/0.2.45: the 0.2.41 render with the admission and regenerate jobs on macos-15 (ownership approval does not run on Linux).
   // 0.2.46 (#168): plus RIGHTKIT_DEV_SIGNING: "ci-adhoc" on the candidate job. Hash taken from CI 38978333900 (xcode and windows agree).
   "rust-hybrid/release-candidate": "8e108084b910f3edd35b197b920b1f5beb7da339f87a1ac90e258fda5d9ea467",
-  "rust-hybrid/regenerate": "88763b9254bb94d893d927e8d8b7458b57afee36f27d618df4b36e8c8ca55842",
   "rust-hybrid-chain/ci": "db27d518a4268dfa6481e943a11457348f5f34221e860ea1172b343eb7975068",
   // 0.2.46 (#168): the chain candidate job also sets RIGHTKIT_DEV_SIGNING: "ci-adhoc". Hash taken from CI 38986615056 (xcode; the excerpt has no windows).
   "rust-hybrid-chain/release-candidate": "c118e1c555e1de603f61acfde0b4749d519b97ec3815fc53b024b22d1e5cb3b9",
@@ -1762,10 +1794,11 @@ const swStepNames = (job) => [...job.matchAll(/^ {6}- (?:name: (.+)|(uses|run): 
 const swSwiftJobs = (workflow) => Object.entries(swJobs(workflow)).filter(([, job]) => job.includes(CONFIGURE_HEAD)).map(([id]) => id);
 const SW_SET = { privatePackages: SWIFT_ONE };
 
-test("swift.privatePackages unset: every lane's output is byte-identical to 0.2.41", () => {
+test("swift.privatePackages unset: every lane's output is pinned, and without the check job it is the 0.2.41 render", () => {
   for (const [name, manifest, lane] of SW_CASES) {
     const unset = swRender(manifest, lane);
-    assert.equal(crypto.createHash("sha256").update(unset).digest("hex"), SW_BASELINE[name], `${name} differs from the 0.2.41 render`);
+    assert.equal(crypto.createHash("sha256").update(unset).digest("hex"), SW_BASELINE[name], `${name} differs from its pinned render`);
+    assert.equal(crypto.createHash("sha256").update(withoutCheckJob(unset)).digest("hex"), SW_PRE_CHECK_BASELINE[name] ?? SW_BASELINE[name], `${name} without the check job differs from the 0.2.41 render`);
     assert.equal(swRender({ ...manifest, swift: undefined }, lane), unset, `${name}: swift: undefined`);
     assert.doesNotMatch(unset, /private Swift package|\.netrc|insteadOf|RIGHT_GIT_PRIVATE_TOKEN/);
   }
@@ -2083,15 +2116,18 @@ const shardRender = (manifest) => renderTemplate(SHARD_TEMPLATE(), buildRenderCo
 const SHARDED = { ...SHARD_BASE, ciAllOs: true, gate: { path: "scripts/gate.sh", quick: true, shards: [{ id: "workspace" }, { id: "linters" }, { id: "rust-tools" }] }, qaEvidencePath: "qa-out" };
 
 test("gate without shards renders byte-identically to the render before gate.shards existed", () => {
-  // Hashes taken from the render of these manifests with the code before the gate.shards change.
-  const cases = {
-    "2fa6b1ca7cdeb0a02aad0e557cce1b3db9090c51447c10b686eaec39724ed860": SHARD_BASE,
-    "024669698321f62d72874c69e9274fe4e88920bb56fb083c9283169b9c252d35": { ...SHARD_BASE, ciAllOs: true },
-    "65a46cdd0d8de81027b3e4c7196a9d3f5a1c4d075524cfb76a319504200c9218": { ...SHARD_BASE, ciAllOs: true, concurrency: { mainPushes: "queue", reason: "warm caches" }, qaEvidencePath: "qa-out" },
-  };
-  for (const [hash, manifest] of Object.entries(cases)) {
+  // `before` hashes were taken from the render of these manifests with the code before the gate.shards change. 0.3.1
+  // (rightkit#833, A-11) adds the check job to every such render, so `now` hashes were taken again from the new render,
+  // deliberately; the new render without the check job (withoutCheckJob) must still hash to `before`.
+  const cases = [
+    { before: "2fa6b1ca7cdeb0a02aad0e557cce1b3db9090c51447c10b686eaec39724ed860", now: "7950da4396d7caec43e0250643df78170590965dc15b80903600a28d0cc9388e", manifest: SHARD_BASE },
+    { before: "024669698321f62d72874c69e9274fe4e88920bb56fb083c9283169b9c252d35", now: "c10f05aba1e581718a41c00adae55b6bc90595754bd8de4a36fdae18e050bf3d", manifest: { ...SHARD_BASE, ciAllOs: true } },
+    { before: "65a46cdd0d8de81027b3e4c7196a9d3f5a1c4d075524cfb76a319504200c9218", now: "fb7128f646ab6b4bd2ff697d4eef06c549edc2be659f957cdaf94230bc1975c1", manifest: { ...SHARD_BASE, ciAllOs: true, concurrency: { mainPushes: "queue", reason: "warm caches" }, qaEvidencePath: "qa-out" } },
+  ];
+  for (const { before, now, manifest } of cases) {
     const out = shardRender(manifest);
-    assert.equal(crypto.createHash("sha256").update(out).digest("hex"), hash);
+    assert.equal(crypto.createHash("sha256").update(out).digest("hex"), now);
+    assert.equal(crypto.createHash("sha256").update(withoutCheckJob(out)).digest("hex"), before);
     assert.doesNotMatch(out, /matrix\.shard|ci-summary|^  quick:/m);
   }
 });
@@ -2100,9 +2136,9 @@ test("gate.shards renders one leg per shard per runner, a quick job every leg ne
   assert.deepEqual(validateManifest(SHARDED).errors, []);
   const out = shardRender(SHARDED);
   assert.match(out, /^        shard: \["workspace", "linters", "rust-tools"\]$/m);
-  assert.match(out, /^  quick:\n    # gate\.quick[^\n]*\n    needs: \[private-repo-guard\]\n/m);
+  assert.match(out, /^  quick:\n    # gate\.quick[^\n]*\n    needs: \[private-repo-guard, check\]\n/m);
   assert.match(out, /^      - run: bash \.\/scripts\/gate\.sh --quick$/m);
-  assert.match(out, /^  ci:\n    needs: \[private-repo-guard, quick\]$/m);
+  assert.match(out, /^  ci:\n    needs: \[private-repo-guard, check, quick\]$/m);
   assert.match(out, /^      - run: bash \.\/scripts\/gate\.sh --group \$\{\{ matrix\.shard \}\}$/m);
   // Each leg keeps its own last-green marker and its own evidence artifact.
   assert.equal((out.match(/last-green-\$\{\{ matrix\.os \}\}-\$\{\{ matrix\.node \}\}-\$\{\{ matrix\.shard \}\}-/g) ?? []).length, 3);
@@ -2115,7 +2151,7 @@ test("gate.shards renders one leg per shard per runner, a quick job every leg ne
   // Without quick: no quick job, ci needs only the guard, the summary needs only ci.
   const noQuick = shardRender({ ...SHARDED, gate: { path: "scripts/gate.sh", shards: SHARDED.gate.shards } });
   assert.doesNotMatch(noQuick, /^  quick:|QUICK_RESULT/m);
-  assert.match(noQuick, /^  ci:\n    needs: \[private-repo-guard\]$/m);
+  assert.match(noQuick, /^  ci:\n    needs: \[private-repo-guard, check\]$/m);
   assert.match(noQuick, /^    needs: \[ci\]$/m);
 });
 
@@ -2132,4 +2168,236 @@ test("gate.shards and gate.quick are validated", () => {
   const dev = { windows: "unsigned", windowsGlob: "dist/*.exe" };
   assert.match(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }, { ciAllOs: true, devArtifact: dev }), /gate\.shards requires devArtifact\.parallel: true/);
   assert.doesNotMatch(errors({ path: "scripts/gate.sh", shards: [{ id: "a" }, { id: "b" }] }, { devArtifact: { ...dev, parallel: true, buildScript: "ci:dev" } }), /gate\.shards/);
+});
+
+// ---- RightKit check job (rightkit#833, A-11) -------------------------------------------------------------
+// The first job of every lane that compiles or tests: needs only the private-repo guard, runs `rightkit-gate check --commit HEAD`
+// from the installed @rightkit/release, and every other job of the workflow needs it (directly, or through a job that does).
+
+// The jobs of a rendered workflow in file order: id -> { text, needs }. `needs` is the inline list form every template uses.
+function checkJobsOf(workflow) {
+  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const parts = body.split(/^  ([A-Za-z0-9_-]+):$/m);
+  const jobs = new Map();
+  for (let i = 1; i < parts.length; i += 2) {
+    const needs = /^ {4}needs: \[(.*)\]$/m.exec(parts[i + 1])?.[1];
+    jobs.set(parts[i], { text: parts[i + 1], needs: needs === undefined ? [] : needs.split(",").map((name) => name.trim()) });
+  }
+  return jobs;
+}
+const checkStepsOf = (job) => [...job.text.matchAll(/^ {6}- (?:uses: (\S[^\n]*)|run: ([^\n]*)|name: ([^\n]*))$/gm)].map((m) => m[1] ?? m[2] ?? m[3]);
+const checkUses = (job, action) => [...job.text.matchAll(/^ {6}- uses: (\S[^\n]*)$/gm)].map((m) => m[1]).filter((use) => use.startsWith(`${action}@`));
+const checkRunsOn = (job) => /^ {4}runs-on: (\S+)$/m.exec(job.text)?.[1];
+
+// Each case: a name, the rendered workflow, and the job that is the lane's own first job after the check.
+const checkNode = renderAllLanes(FULL_MANIFEST, "/repos/widgets");
+const CHECK_RUST_SHARDED = { ...SW_RUST_CHAIN, gate: { path: "scripts/gate.sh", quick: true, shards: [{ id: "workspace" }, { id: "linters" }] } };
+const CHECK_CASES = [
+  ["node/ci", checkNode.ci, "test"],
+  ["node/qualification", checkNode.qualification, "qualification"],
+  ["node/package-smoke", checkNode["package-smoke"], "clean-tarball"],
+  ["node/release-candidate", checkNode["release-candidate"], "candidate"],
+  ["node/swift-check", checkNode["swift-check"], "swift-check"],
+  ["node/publish-npm", checkNode["publish-npm"], "publish-npm"],
+  ["rust-hybrid/ci", swRender(SW_RUST, "ci"), "ci"],
+  ["rust-hybrid/ci sharded with quick", swRender(CHECK_RUST_SHARDED, "ci"), "ci"],
+  ["rust-hybrid/release-candidate", swRender(SW_RUST_CHAIN, "release-candidate"), "admission"],
+];
+
+test("check job: every lane that compiles or tests renders it right after the guard, needing only the guard", () => {
+  for (const [name, workflow, first] of CHECK_CASES) {
+    const jobs = checkJobsOf(workflow);
+    const ids = [...jobs.keys()];
+    assert.equal(ids[0], "private-repo-guard", name);
+    assert.equal(ids[1], "check", `${name}: the check job follows the guard`);
+    assert.equal(ids.filter((id) => id === "check").length, 1, name);
+    assert.deepEqual(jobs.get("check").needs, ["private-repo-guard"], `${name}: no dependency except the guard`);
+    assert.doesNotMatch(jobs.get("check").text, /^ {4}if:/m, `${name}: the check job always runs`);
+    assert.ok(jobs.get(first).needs.includes("check"), `${name}: ${first} needs check`);
+  }
+});
+
+test("check job: ci, test and quick list it in needs, and so does every other job that compiles or tests", () => {
+  const node = (lane) => checkJobsOf(checkNode[lane]);
+  assert.deepEqual(node("ci").get("test").needs, ["private-repo-guard", "check"]);
+  assert.deepEqual(node("qualification").get("qualification").needs, ["private-repo-guard", "check"]);
+  assert.deepEqual(node("package-smoke").get("clean-tarball").needs, ["private-repo-guard", "check"]);
+  assert.deepEqual(node("release-candidate").get("candidate").needs, ["private-repo-guard", "check"]);
+  assert.deepEqual(node("swift-check").get("swift-check").needs, ["private-repo-guard", "check"]);
+  assert.deepEqual(node("publish-npm").get("publish-npm").needs, ["private-repo-guard", "check"]);
+  // The qualification jobs that follow need `qualification`, so they sit behind the check through it.
+  for (const job of ["schema", "security", "hardening", "conformance"]) assert.deepEqual(node("qualification").get(job).needs, ["qualification"]);
+
+  const plain = checkJobsOf(swRender(SW_RUST, "ci"));
+  assert.deepEqual(plain.get("ci").needs, ["private-repo-guard", "check"]);
+  const sharded = checkJobsOf(swRender(CHECK_RUST_SHARDED, "ci"));
+  assert.deepEqual(sharded.get("quick").needs, ["private-repo-guard", "check"]);
+  assert.deepEqual(sharded.get("ci").needs, ["private-repo-guard", "check", "quick"]);
+  assert.deepEqual(sharded.get("ci-summary").needs, ["ci", "quick"], "the summary reports ci and quick; a failed check leaves both skipped, which it reports as failed");
+  // devArtifact.parallel compiles in jobs of their own; they wait for the check too. Signing still waits for ci.
+  for (const job of ["dev-artifact-mac", "dev-artifact-windows"]) assert.deepEqual(sharded.get(job).needs, ["private-repo-guard", "check"], job);
+  assert.deepEqual(sharded.get("dev-mac-sign").needs, ["ci", "dev-artifact-mac"]);
+  // The release chain starts at admission; every later job needs admission, directly or through candidate.
+  const chain = checkJobsOf(swRender(SW_RUST_CHAIN, "release-candidate"));
+  assert.deepEqual(chain.get("admission").needs, ["private-repo-guard", "check"]);
+  for (const [id, job] of chain) {
+    if (["private-repo-guard", "check", "admission"].includes(id)) continue;
+    assert.ok(job.needs.includes("admission") || job.needs.some((need) => need !== "check" && chain.get(need).needs.includes("admission")), `${id} sits behind admission`);
+  }
+});
+
+test("check job: installs without lifecycle scripts, then runs rightkit-gate check on HEAD; no secrets, no registry fetch", () => {
+  for (const [name, workflow] of CHECK_CASES) {
+    const jobs = checkJobsOf(workflow);
+    const job = jobs.get("check");
+    assert.match(job.text, /\n {6}- uses: actions\/checkout@[^\n]*\n {8}with:\n(?: {10}ref: [^\n]*\n)? {10}fetch-depth: 1\n {10}persist-credentials: false\n/, `${name}: depth 1 and no persisted credentials`);
+    const steps = checkStepsOf(job);
+    assert.equal(steps.at(-1), "pnpm exec rightkit-gate check --commit HEAD", `${name}: the check is the last step`);
+    assert.ok(steps.includes("pnpm install --frozen-lockfile --ignore-scripts"), `${name}: frozen install without scripts`);
+    assert.ok(steps.findIndex((step) => step.startsWith("pnpm install")) < steps.length - 1, `${name}: install runs before the check`);
+    assert.doesNotMatch(job.text, /--filter|secrets\.|right-release|\bnpm exec|\bnpx\b/, `${name}: no filter (it matches no project in a consumer), secret or registry fetch`);
+    assert.match(job.text, /^ {4}timeout-minutes: \d+$/m, `${name}: bounded`);
+    assert.equal(checkRunsOn(job), checkRunsOn(jobs.get("private-repo-guard")), `${name}: runs where the guard runs`);
+    assert.match(job.text, /^ {4}# RightKit check: committed files only/m, name);
+  }
+});
+
+test("check job: pins its actions the way the other jobs of the same workflow pin them", () => {
+  for (const [name, workflow] of CHECK_CASES) {
+    const jobs = checkJobsOf(workflow);
+    const others = [...jobs].filter(([id]) => id !== "check").map(([, job]) => job);
+    const check = jobs.get("check");
+    for (const action of ["actions/checkout", "actions/setup-node", "pnpm/action-setup"]) {
+      const used = checkUses(check, action);
+      assert.equal(used.length, 1, `${name}: the check job uses ${action} once`);
+      assert.ok(others.some((job) => checkUses(job, action).includes(used[0])), `${name}: ${action} pin ${used[0]} is one the other jobs use`);
+    }
+    const pinned = checkUses(check, "actions/checkout")[0].includes("@v5") ? "tag" : "sha";
+    assert.equal(pinned, name.startsWith("node/") && name !== "node/swift-check" ? "tag" : "sha", `${name}: pin style`);
+  }
+});
+
+test("check job: node version is the first matrix node, quoted", () => {
+  assert.match(checkJobsOf(checkNode.ci).get("check").text, /\n {10}node-version: "22\.13"\n/);
+  assert.match(checkJobsOf(swRender(SW_RUST, "ci")).get("check").text, /\n {10}node-version: "26\.8\.1"\n/);
+});
+
+test("check job: a release-candidate checks the revision it builds, publish-npm the release tag it publishes; every other lane checks the event's commit", () => {
+  assert.match(checkJobsOf(checkNode["release-candidate"]).get("check").text, /\n {10}ref: \$\{\{ inputs\.source_revision \|\| github\.sha \}\}\n {10}fetch-depth: 1\n/);
+  assert.match(checkJobsOf(swRender(SW_RUST_CHAIN, "release-candidate")).get("check").text, /\n {10}ref: \$\{\{ inputs\.source_revision \}\}\n {10}fetch-depth: 1\n/);
+  for (const [name, workflow] of CHECK_CASES) {
+    if (name.endsWith("release-candidate") || name === "node/publish-npm") continue;
+    assert.doesNotMatch(checkJobsOf(workflow).get("check").text, /\bref:/, name);
+  }
+  // publish-npm checks out github.event.release.tag_name, rebuilds the tarball from it and publishes it: the check must read that commit.
+  const jobs = checkJobsOf(checkNode["publish-npm"]);
+  assert.match(jobs.get("check").text, /\n {10}ref: \$\{\{ github\.event\.release\.tag_name \}\}\n {10}fetch-depth: 1\n/);
+  assert.match(jobs.get("publish-npm").text, /\n {10}ref: \$\{\{ github\.event\.release\.tag_name \}\}\n/);
+});
+
+// publish-npm holds the OIDC publish credential and rebuilds the tarball from source: the check runs first, on the tag's commit,
+// and holds no part of that credential.
+test("check job: publish-npm publishes only after the check passed on the release tag; the check holds no credential", () => {
+  const jobs = checkJobsOf(checkNode["publish-npm"]);
+  assert.deepEqual([...jobs.keys()].filter((id) => id !== "release"), ["private-repo-guard", "check", "publish-npm"]);
+  const publish = jobs.get("publish-npm");
+  assert.deepEqual(publish.needs, ["private-repo-guard", "check"]);
+  assert.match(publish.text, /build-candidate\.mjs/);
+  assert.match(publish.text, /check-release\.mjs/);
+  assert.match(publish.text, /^ {6}id-token: write$/m);
+  const check = jobs.get("check").text;
+  assert.doesNotMatch(check, /id-token|environment:|permissions:|secrets\.|registry-url|build-candidate|check-release|npm publish/, "the check job inherits contents: read and nothing else");
+  assert.ok(checkNode["publish-npm"].indexOf("\n  check:\n") < checkNode["publish-npm"].indexOf("\n  publish-npm:\n"), "the check precedes the publish job in the file");
+});
+
+// The check job installs with the manager's own frozen install (parsePackageManager), plus --ignore-scripts, so it cannot drift
+// from the install every build job runs. The publish-npm lane installs with the same command without the flag.
+test("check job: its install is the manager's frozen install without lifecycle scripts, derived from the same source as the build's", () => {
+  for (const packageManager of ["pnpm@11.25.0", "npm@10.9.2", "yarn@1.22.22"]) {
+    const { installCommand } = parsePackageManager(packageManager);
+    const manifest = { ...FULL_MANIFEST, packageManager };
+    const rendered = renderAllLanes(manifest, "/repos/widgets");
+    for (const lane of CHECK_JOB_LANES) {
+      const steps = checkStepsOf(checkJobsOf(rendered[lane]).get("check"));
+      assert.ok(steps.includes(`${installCommand} --ignore-scripts`), `${packageManager} ${lane}`);
+      assert.equal(steps.filter((step) => step.startsWith(installCommand)).length, 1, `${packageManager} ${lane}: one install`);
+    }
+    const publishSteps = checkStepsOf(checkJobsOf(rendered["publish-npm"]).get("publish-npm"));
+    assert.ok(publishSteps.includes(installCommand), `${packageManager}: the publish job installs with the same command, with scripts`);
+  }
+});
+
+test("check job: the ci lane prints the stale-lockfile hint after its install, since the ci job no longer runs when check fails", () => {
+  for (const [name, workflow] of CHECK_CASES) {
+    const text = checkJobsOf(workflow).get("check").text;
+    const hint = text.includes("Print pnpm-lock.yaml patch when the lockfile is stale");
+    assert.equal(hint, name === "node/ci" || name.startsWith("rust-hybrid/ci"), `${name}: hint only in the ci lane`);
+    if (hint) assert.ok(text.indexOf("pnpm install --frozen-lockfile --ignore-scripts") < text.indexOf("Print pnpm-lock.yaml patch"), name);
+  }
+});
+
+test("check job: npm and yarn call the installed bin by path, and install without scripts", () => {
+  const expected = {
+    "pnpm@11.25.0": ["pnpm install --frozen-lockfile --ignore-scripts", "pnpm exec rightkit-gate check --commit HEAD"],
+    "npm@10.9.2": ["npm ci --ignore-scripts", "./node_modules/.bin/rightkit-gate check --commit HEAD"],
+    "yarn@1.22.22": ["yarn install --frozen-lockfile --ignore-scripts", "./node_modules/.bin/rightkit-gate check --commit HEAD"],
+  };
+  for (const [packageManager, [install, gate]] of Object.entries(expected)) {
+    const rendered = renderAllLanes({ ...FULL_MANIFEST, packageManager }, "/repos/widgets");
+    for (const lane of CHECK_JOB_LANES) {
+      const steps = checkStepsOf(checkJobsOf(rendered[lane]).get("check"));
+      assert.equal(steps.at(-1), gate, `${packageManager} ${lane}`);
+      assert.ok(steps.includes(install), `${packageManager} ${lane}`);
+    }
+  }
+  // npm has no setup action; yarn enables corepack; neither prints the pnpm lockfile hint.
+  const npm = checkJobsOf(renderAllLanes({ ...FULL_MANIFEST, packageManager: "npm@10.9.2" }, "/repos/widgets").ci).get("check").text;
+  assert.doesNotMatch(npm, /pnpm|corepack/);
+  const yarn = checkJobsOf(renderAllLanes({ ...FULL_MANIFEST, packageManager: "yarn@1.22.22" }, "/repos/widgets").ci).get("check").text;
+  assert.match(yarn, /corepack enable && corepack prepare yarn@1\.22\.22 --activate/);
+  assert.doesNotMatch(yarn, /pnpm/);
+});
+
+// Lanes without a check job, each for a reason that is also a constraint: `regenerate` repairs what the check flags, and
+// sign-existing and supersede are admitted by @rightkit/release only in their exact rendered shape (release.mjs
+// SIGN_EXISTING_*, SUPERSEDE_JOB_HEAD, protectedRegenerate: `needs: [private-repo-guard]`); publish-package-managers builds
+// and tests nothing. publish-npm is not here: it checks out the release tag, rebuilds the tarball (build-candidate.mjs) and
+// runs check-release.mjs, so it sits behind the check like every lane that builds.
+const CHECK_EXEMPT_LANES = {
+  regenerate: "it repairs derived files and lockfiles, which the check flags",
+  "sign-existing": "exact managed shape: jobs private-repo-guard and sign-existing only",
+  "publish-package-managers": "it builds and tests nothing: it syntax-checks a committed formula and publishes metadata of a released version",
+};
+
+test("check job: every lane is behind it or exempt for a stated reason, and an exempt lane renders unchanged", () => {
+  for (const lane of Object.keys(LANE_FILENAMES)) {
+    assert.notEqual(CHECK_JOB_LANES.includes(lane), lane in CHECK_EXEMPT_LANES, `${lane} must be in CHECK_JOB_LANES or CHECK_EXEMPT_LANES, not both and not neither`);
+  }
+  for (const lane of CHECK_JOB_LANES) assert.ok(checkJob(FULL_MANIFEST, lane).startsWith("  check:\n"), lane);
+  for (const lane of Object.keys(CHECK_EXEMPT_LANES)) assert.equal(checkJob(FULL_MANIFEST, lane), "", lane);
+  const exempt = [
+    ["node/regenerate", checkNode.regenerate],
+    ["node/publish-package-managers", checkNode["publish-package-managers"]],
+    ["rust-hybrid/regenerate", swRender(SW_RUST, "regenerate")],
+    ["rust-hybrid/sign-existing", renderSignExisting(SIGN_EXISTING_MANIFEST)],
+  ];
+  for (const [name, workflow] of exempt) {
+    assert.equal(withoutCheckJob(workflow), workflow, `${name} renders no check job and no check dependency`);
+    assert.doesNotMatch(workflow, /^ {2}check:$|rightkit-gate|, check\]/m, name);
+  }
+  // An exempt lane builds nothing: the steps that make a lane behind-the-check (the build and the release check) are absent.
+  for (const [name, workflow] of exempt) assert.doesNotMatch(workflow, /build-candidate\.mjs|check-release\.mjs|cargo build|pnpm (?:run )?build/, `${name} must not build`);
+  assert.deepEqual([...checkJobsOf(renderSignExisting(SIGN_EXISTING_MANIFEST)).keys()], ["private-repo-guard", "sign-existing"]);
+  assert.deepEqual(checkJobsOf(swRender(SW_RUST, "regenerate")).get("regenerate").needs, ["private-repo-guard"]);
+  // supersede only cancels older runs: it stays in the exact shape @rightkit/release admits.
+  for (const workflow of [checkNode.ci, swRender(SW_RUST, "ci")]) {
+    assert.match(workflow, /\n {2}supersede:\n {4}needs: \[private-repo-guard\]\n {4}if: \$\{\{ github\.event_name == 'push' && github\.ref_name == github\.event\.repository\.default_branch \}\}\n {4}runs-on: ubuntu-[0-9.]+\n {4}timeout-minutes: \d+\n {4}permissions:\n {6}contents: read\n {6}actions: write\n {4}steps:\n/);
+  }
+});
+
+test("check job: a queue-mode render without devArtifact still gives ci the check dependency", () => {
+  const queued = { ...SW_RUST, concurrency: { mainPushes: "queue", reason: "warm caches" }, devArtifact: undefined };
+  const jobs = checkJobsOf(swRender(queued, "ci"));
+  assert.deepEqual([...jobs.keys()], ["private-repo-guard", "check", "ci"]);
+  assert.deepEqual(jobs.get("ci").needs, ["private-repo-guard", "check"]);
 });

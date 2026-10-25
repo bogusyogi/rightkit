@@ -1,0 +1,10 @@
+[package]
+name = "rightkit-typeset-registry-consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rightkit-typeset = { version = "=0.1.0" }

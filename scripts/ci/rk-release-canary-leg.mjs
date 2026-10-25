@@ -245,6 +245,9 @@ export function runDoctor({ node = process.execPath, bin, appRoot, configRel, pl
   });
 }
 
+// A fatal line is `right-release: <message>` or, from a command that refuses before it starts (the app check from 0.6.5,
+// `right-release doctor: the app check found problems in <repo>; nothing was started…`), `right-release <command>: <message>`.
+const FATAL_LINE = /^right-release(?: [a-z][a-z0-9-]*)?: (.*)$/;
 const NOT_FATAL = /^right-release: (?:newer RightKit version|LANE TASK|WARNING|note |devtools allowance)/;
 // Preflight rows are `  [ok  ] name: detail`; `right-release doctor --gates` prints each pre-build gate finding as
 // `  [FAIL] gate:<name>: <detail>` (packages/release/release.mjs). A detail can continue on following lines; only
@@ -263,7 +266,7 @@ export function parseDoctor({ stdout = "", stderr = "", exit = null, signal = nu
     const name = m[2].trim();
     rows.push({ level, name, detail: m[3].trim(), gate: name.startsWith("gate:") });
   }
-  const fatalLines = lines.filter((l) => /^right-release: /.test(l) && !NOT_FATAL.test(l));
+  const fatalLines = lines.filter((l) => FATAL_LINE.test(l) && !NOT_FATAL.test(l));
   const fatalLine = fatalLines.length ? fatalLines[fatalLines.length - 1] : null;
   const failRows = rows.filter((r) => r.level === "FAIL");
   const failNames = [...new Set(failRows.filter((r) => !r.gate).map((r) => r.name))].sort();
@@ -276,7 +279,7 @@ export function parseDoctor({ stdout = "", stderr = "", exit = null, signal = nu
   if (exit === 0) return { ...base, status: failRows.length ? "fail" : "pass" };
   if (failRows.length) return { ...base, status: "fail" };
   if (fatalLine) {
-    const message = fatalLine.slice("right-release: ".length);
+    const message = FATAL_LINE.exec(fatalLine)[1];
     const signature = normalize(message).trim();
     if (/\bRECOVERABLE\b/.test(message)) return { ...base, status: "recoverable", fatal: { signature, recoverable: true } };
     return { ...base, status: "fatal", fatal: { signature, recoverable: false } };

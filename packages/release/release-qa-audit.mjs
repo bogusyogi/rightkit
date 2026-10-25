@@ -1,12 +1,14 @@
 // QA admission plus the ad hoc `right-release qa audit` scan.
 //
 // Per-app policy (qa-admission-policy.json, release-qa-policy.mjs): `warn` is the default, `refuse` is switched on
-// per app once the app has earned it. The gates in release-qa-receipt.mjs verify receipts, and the hardening in
-// release-qa-hardening.mjs re-checks platform, release id, approved runner digest, every release-critical journey
-// and the signing/test separation. In warn mode a refusal becomes a loud stderr warning and a durable record
-// (the sealed manifest `qa` field for the source stage, `state/<releaseId>/<platformDir>/qa-installed.json`
-// for the installed stage). In refuse mode the same refusal throws a QaAdmissionError and nothing is sealed or
-// published. `qa audit` reads the records so a weekly run can flag released builds that lack passing QA.
+// per app once the app has earned it, and separately per stage: the build (source) admission and the publication
+// (installed) admission each read their own mode. The gates in release-qa-receipt.mjs verify receipts, and the
+// hardening in release-qa-hardening.mjs re-checks platform, release id, approved runner digest (for that platform),
+// every release-critical journey and the signing/test separation. In warn mode a refusal becomes a loud stderr
+// warning and a durable record (the sealed manifest `qa` field for the source stage,
+// `state/<releaseId>/<platformDir>/qa-installed.json` for the installed stage). In refuse mode the same refusal
+// throws a QaAdmissionError and nothing is sealed or published. `qa audit` reads the records so a weekly run can
+// flag released builds that lack passing QA.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "./background-process.mjs";
@@ -42,10 +44,10 @@ function admit(check, { warn = (line) => console.error(line), mode = { mode: "wa
   }
 }
 
-function policyContext(opts, hooks = {}) {
+function policyContext(opts, hooks = {}, stage) {
   const loaded = hooks.policy ?? loadAdmissionPolicy({ dir: hooks.policyDir, env: opts.env });
   const app = opts.app ?? opts.manifest?.app ?? appOfReleaseId(opts.releaseId ?? opts.manifest?.releaseId);
-  return { loaded, app, mode: admissionModeFor(loaded.policy, app) };
+  return { loaded, app, mode: admissionModeFor(loaded.policy, app, stage) };
 }
 
 function hardening(stage, opts, loaded, hooks) {
@@ -58,7 +60,7 @@ function hardening(stage, opts, loaded, hooks) {
 
 /** Build stage. Returns the `qa` block sealed into the release manifest. */
 export function admitSourceQa(opts, hooks = {}) {
-  const { loaded, app, mode } = policyContext(opts, hooks);
+  const { loaded, app, mode } = policyContext(opts, hooks, "source");
   const outcome = admit(() => assertSourceQaAdmission({ ...opts, afterVerify: hardening("source", opts, loaded, hooks) }), { ...hooks, mode, app });
   if (outcome.status === "passed") return { status: "passed", sourceReceiptDigest: outcome.result.digest, floorDigest: outcome.result.floorDigest };
   return { status: outcome.status, reason: outcome.reason };
@@ -69,7 +71,7 @@ export const installedQaRecordPath = ({ repoRoot, releaseId, platform }) =>
 
 /** Publication stage (upload, publish-update, github). Records the outcome durably; throws in `refuse` mode. */
 export function admitInstalledQa(opts, { provider, now = () => new Date(), ...hooks } = {}) {
-  const { loaded, app, mode } = policyContext(opts, hooks);
+  const { loaded, app, mode } = policyContext(opts, hooks, "installed");
   const outcome = admit(() => assertInstalledQaAdmission({ ...opts, afterVerify: hardening("installed", opts, loaded, { ...hooks, now }) }), { ...hooks, mode, app });
   const record = {
     status: outcome.status,
