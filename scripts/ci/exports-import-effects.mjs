@@ -18,6 +18,7 @@
 // rightkit.import-effects/1) and exits 0 only because the verify job's consume step must read that report and refuse any
 // listed export the sealed tarball did not import (scripts/ci/consume.mjs, RK_IMPORT_EFFECTS_REPORT).
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import crypto from "node:crypto";
@@ -101,31 +102,70 @@ export function packageDirs(root) {
 export const REPORT_SCHEMA = "rightkit.import-effects/1";
 export const EXIT_INCOMPLETE = 3;
 
-export function main(argv, io = { log: console.log, error: console.error }) {
-  let root = REPO; const dirs = []; let reportFile = null;
+/**
+ * The immutable source closure the probe runs against: `git archive HEAD` of `root`, extracted to a fresh directory (no untracked,
+ * ignored or locally modified file can reach it), with the live checkout's installed dependencies linked in (root and per-package
+ * node_modules) and bound by the lockfile in the tree plus pnpm's installed-state digest. Returns { dir, deps } or { problem }.
+ */
+export function exportTree(root, { spawn = spawnSync, mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")) } = {}) {
+  const dir = mkdtemp();
+  const tar = path.join(dir, "tree.tar");
+  const archived = spawn("git", ["-C", root, "archive", "--format=tar", "-o", tar, "HEAD"], { encoding: "utf8", windowsHide: true });
+  if (archived.error || archived.status !== 0) return { problem: `git archive HEAD of ${root} failed: ${(archived.stderr || archived.error?.message || "").trim()}` };
+  const extracted = spawn("tar", ["-xf", tar, "-C", dir], { encoding: "utf8", windowsHide: true });
+  if (extracted.error || extracted.status !== 0) return { problem: `extracting the exported tree failed: ${(extracted.stderr || extracted.error?.message || "").trim()}` };
+  fs.rmSync(tar, { force: true });
+  // Dependencies: the tree's lockfile (already part of the tree id) and the installed state the live checkout links in.
+  const sha = (f) => { try { return crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch { return null; } };
+  const deps = { lock: sha(path.join(dir, "pnpm-lock.yaml")), installed: sha(path.join(root, "node_modules", ".modules.yaml")), linked: [] };
+  for (const rel of [".", ...fs.readdirSync(path.join(dir, "packages"), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join("packages", e.name))]) {
+    const live = path.join(root, rel, "node_modules");
+    if (fs.existsSync(live) && !fs.existsSync(path.join(dir, rel, "node_modules"))) { fs.symlinkSync(live, path.join(dir, rel, "node_modules"), "dir"); deps.linked.push(rel); }
+  }
+  return { dir, deps };
+}
+
+export function main(argv, io = { log: console.log, error: console.error }, deps = {}) {
+  const { spawn = spawnSync, identity = checkoutIdentity, exporter = exportTree, probe = checkPackage, between = null } = deps;
+  let root = REPO; const dirs = []; let reportFile = null; let noExport = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root") root = path.resolve(argv[++i] ?? "");
     else if (argv[i] === "--report") reportFile = path.resolve(argv[++i] ?? "");
+    else if (argv[i] === "--no-export") noExport = true;
     else if (argv[i].startsWith("-")) { io.error(`exports-import-effects: unknown option ${argv[i]}`); return 2; }
-    else dirs.push(path.resolve(root, argv[i]));
+    else dirs.push(argv[i]);
+  }
+  // Identity of the checkout before anything runs; a report binds to it only when the same identity holds after the probe.
+  const before = identity(root, { spawn });
+  let probeRoot = root; let closure = { kind: "working-dir", exported: null, deps: null };
+  if (!noExport && before.commit) {
+    const exported = exporter(root, { spawn });
+    if (exported.problem) { io.error(`exports-import-effects: ${exported.problem}`); return 2; }
+    probeRoot = exported.dir; closure = { kind: "exported-tree", exported: exported.dir, deps: exported.deps };
   }
   let findings = 0; let checked = 0; const incomplete = []; const covered = [];
-  for (const dir of dirs.length ? dirs : packageDirs(root)) {
-    const r = checkPackage(dir);
-    checked += r.checked;
-    for (const n of r.notChecked) { incomplete.push({ package: r.name, key: n.key, target: n.target, why: n.why }); io.log(`INCOMPLETE: ${r.name} ${n.key} (${n.target}): ${n.why}`); }
-    for (const c of r.covered) covered.push({ package: r.name, key: c.key, target: c.target });
-    for (const f of r.findings) { findings++; io.error(`FAIL exports-import-effects: ${f.problem}\n  fix: ${f.fix}`); }
-  }
+  try {
+    const targets = dirs.length ? dirs.map((d) => path.resolve(probeRoot, path.isAbsolute(d) ? path.relative(root, d) : d)) : packageDirs(probeRoot);
+    for (const dir of targets) {
+      const r = probe(dir, { spawn });
+      checked += r.checked;
+      for (const n of r.notChecked) { incomplete.push({ package: r.name, key: n.key, target: n.target, why: n.why }); io.log(`INCOMPLETE: ${r.name} ${n.key} (${n.target}): ${n.why}`); }
+      for (const c of r.covered) covered.push({ package: r.name, key: c.key, target: c.target });
+      for (const f of r.findings) { findings++; io.error(`FAIL exports-import-effects: ${f.problem}\n  fix: ${f.fix}`); }
+      if (between) between(dir); // tests: an edit scheduled in the middle of the probe
+    }
+  } finally { if (closure.kind === "exported-tree") fs.rmSync(closure.exported, { recursive: true, force: true }); }
+  const after = identity(root, { spawn });
+  const stable = before.commit !== null && before.commit === after.commit && before.tree === after.tree;
   if (reportFile) {
     fs.mkdirSync(path.dirname(reportFile), { recursive: true });
-    // Bound to the checkout that was probed (its HEAD commit and tree id), not to an environment variable or a ref name.
-    const closure = checkoutIdentity(root);
-    if (!closure.clean) io.log(`exports-import-effects: the probed checkout is not exactly commit ${closure.commit ?? "(none)"} (${closure.dirty ?? "no git"} changed/untracked path(s)); the report records that and no verify will accept it`);
-    fs.writeFileSync(reportFile, `${JSON.stringify({ schema: REPORT_SCHEMA, ...closure, checked, findings, incomplete, covered }, null, 2)}\n`);
+    if (!stable) io.log(`exports-import-effects: the checkout's HEAD moved during the probe (${before.commit ?? "none"} → ${after.commit ?? "none"}); the report records that and no verify will accept it`);
+    if (closure.kind !== "exported-tree") io.log("exports-import-effects: probed a working directory, not an exported commit; the report records that and no verify will accept it");
+    const { exported, ...closureOut } = closure;
+    fs.writeFileSync(reportFile, `${JSON.stringify({ schema: REPORT_SCHEMA, ...before, stable, closure: closureOut, checked, findings, incomplete, covered }, null, 2)}\n`);
   }
   const state = findings ? "RED" : incomplete.length ? (reportFile ? "INCOMPLETE (handed to the sealed-byte check)" : "INCOMPLETE (no --report: nothing downstream can close it)") : "green";
-  io.log(`exports-import-effects: ${state}; ${checked} exported module(s) imported in fresh processes; ${incomplete.length} export(s) incomplete; ${findings} finding(s)`);
+  io.log(`exports-import-effects: ${state}; ${checked} exported module(s) imported in fresh processes from ${closure.kind === "exported-tree" ? `the exported tree of ${before.commit.slice(0, 12)}` : "the working directory"}; ${incomplete.length} export(s) incomplete; ${findings} finding(s)`);
   if (findings) return 1;
   if (incomplete.length && !reportFile) return EXIT_INCOMPLETE;
   return 0;
@@ -152,7 +192,7 @@ const ROW_OK = (r) => typeof r?.package === "string" && typeof r?.key === "strin
  * commit, reports 0 findings (a red probe is never carried forward as "incomplete"), has integer counts and well-formed rows. With
  * `commit`, it must have been written for that commit (the probed checkout's HEAD, compared to the dispatched commit).
  */
-export function readIncompleteReport(file, { commit = null, tree = null } = {}) {
+export function readIncompleteReport(file, { commit = null, tree = null, probe = null, node = null } = {}) {
   let report;
   try { report = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return { problem: `import-effects report ${file} cannot be read: ${e.message}` }; }
   const bad = (why) => ({ problem: `import-effects report ${file} is not ${REPORT_SCHEMA}: ${why}` });
@@ -162,8 +202,12 @@ export function readIncompleteReport(file, { commit = null, tree = null } = {}) 
   if (!Number.isInteger(report.checked) || report.checked < 0 || report.checked !== report.covered.length) return bad(`checked (${report.checked}) must equal the number of covered rows (${report.covered?.length})`);
   if (report.findings !== 0) return bad(`findings is ${report.findings}; a red probe is not carried forward`);
   if (!/^[0-9a-f]{40}$/.test(report.commit ?? "") || !/^[0-9a-f]{40}$/.test(report.tree ?? "")) return bad("no checkout commit/tree recorded");
-  if (report.clean !== true) return bad(`the probed checkout was not exactly its commit (${report.dirty ?? "unknown"} changed/untracked path(s)); unbound mutable state is refused`);
+  if (report.closure?.kind !== "exported-tree") return bad("the probe ran on a working directory, not on the exported commit; unbound mutable inputs are refused");
+  if (report.stable !== true) return bad("the checkout's HEAD moved while the probe ran; the report is not bound to one commit");
+  if (!/^[0-9a-f]{64}$/.test(report.closure.deps?.lock ?? "") || !/^[0-9a-f]{64}$/.test(report.closure.deps?.installed ?? "")) return bad("the dependency closure (lockfile and installed state) is not recorded");
   if (!/^[0-9a-f]{64}$/.test(report.probe ?? "") || typeof report.node !== "string") return bad("no probe code digest / Node version recorded");
+  if (probe !== null && report.probe !== probe) return { problem: `import-effects report ${file} was written by probe ${report.probe.slice(0, 12)}…, not the trusted ${String(probe).slice(0, 12)}…` };
+  if (node !== null && report.node !== node) return { problem: `import-effects report ${file} was written under Node ${report.node}, not the qualified ${node}` };
   if (commit !== null && report.commit !== commit) return { problem: `import-effects report ${file} was written for commit ${report.commit}, not the dispatched ${commit}` };
   if (tree !== null && report.tree !== tree) return { problem: `import-effects report ${file} was written for tree ${report.tree}, not this checkout's ${tree}` };
   return { report };
@@ -184,14 +228,25 @@ export function expectedIncomplete(pkg) {
 /** The sealed-byte stage's closure: every INCOMPLETE export of `name` must appear among the specs the tarball import actually imported. */
 export function closeIncomplete({ report, name, importedSpecs, expected = null }) {
   const problems = [];
-  const rows = new Map([...(report.covered ?? []), ...report.incomplete].filter((r) => r.package === name).map((r) => [r.key, r]));
+  const mine = [...(report.covered ?? []).map((r) => ({ ...r, list: "covered" })), ...report.incomplete.map((r) => ({ ...r, list: "incomplete" }))].filter((r) => r.package === name);
+  // Exact set: one row per key, in one list, and no row for an export the sealed package does not declare.
+  const seen = new Map();
+  for (const r of mine) {
+    const prior = seen.get(r.key);
+    if (prior) problems.push(prior.list === r.list && prior.target === r.target ? `${name}: the import-effects report lists ${r.key} twice; a report with duplicate rows is not the probe's` : `${name}: the import-effects report lists ${r.key} as both ${prior.list} (${prior.target}) and ${r.list} (${r.target}); conflicting rows are refused`);
+    else seen.set(r.key, r);
+  }
+  if (expected !== null) {
+    const known = new Set(expected.map((e) => e.key));
+    for (const r of mine) if (!known.has(r.key) && r.target.startsWith("./dist/")) problems.push(`${name}: the import-effects report names ${r.key} (${r.target}), which the sealed package does not export from build output; the report is not this candidate's`);
+  }
   for (const e of expected ?? []) {
     if (e.pattern) { problems.push(`${name}: wildcard export ${e.key} → ${e.target} points at build output; neither the source probe nor the sealed-tarball check imports a pattern, so it cannot be closed: enumerate the exports`); continue; }
-    const row = rows.get(e.key);
+    const row = seen.get(e.key);
     if (!row) problems.push(`${name}: the import-effects report accounts for neither an INCOMPLETE nor a covered ${e.key} (${e.target}) although the sealed package exports it from build output; the report is not this candidate's`);
     else if (row.target !== e.target) problems.push(`${name}: the import-effects report binds ${e.key} to ${row.target}, the sealed package to ${e.target}; the report is not this candidate's`);
   }
-  for (const row of report.incomplete.filter((r) => r.package === name)) {
+  for (const row of mine.filter((r) => r.list === "incomplete")) {
     const spec = row.key === "." ? name : `${name}/${row.key.replace(/^\.\//, "")}`;
     if (!importedSpecs.includes(spec)) problems.push(`${name}: INCOMPLETE not closed: ${spec} (${row.target ?? row.key}) was left to the sealed-byte check by the source probe and the sealed tarball import check did not import it`);
   }

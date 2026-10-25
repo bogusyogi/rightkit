@@ -2,6 +2,7 @@
 // These tests replay the defects that reached a native verify on 2026-10-25 and pin where the checks sit in the workflows.
 import assert from "node:assert/strict";
 import fs, { existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -63,19 +64,26 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   const reportFile = path.join(dir, "out", "report.json"); const io2 = { logs: [], errs: [] };
   assert.equal(main(["--root", dir, "--report", reportFile, dir], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }), 0);
   assert.match(io2.logs.at(-1), /INCOMPLETE \(handed to the sealed-byte check\)/);
-  // The report binds to the probed checkout: outside a git checkout it records no commit and is unusable downstream.
+  // Outside a git checkout the probe can only run on the working directory: the report says so and is unusable downstream.
   const raw = JSON.parse(fs.readFileSync(reportFile, "utf8"));
   assert.deepEqual(raw.incomplete.map((r) => [r.package, r.key, r.target]), [["@rk/wild", ".", "./dist/index.js"]]);
-  assert.equal(raw.commit, null); assert.equal(raw.clean, false); assert.match(readIncompleteReport(reportFile).problem, /no checkout commit\/tree recorded/);
+  assert.equal(raw.commit, null); assert.equal(raw.closure.kind, "working-dir"); assert.match(readIncompleteReport(reportFile).problem, /no checkout commit\/tree recorded/);
   assert.match(raw.probe, /^[0-9a-f]{64}$/); assert.equal(raw.node, process.version);
-  const SHA40 = "a".repeat(40);
-  const good = { schema: "rightkit.import-effects/1", commit: SHA40, tree: "b".repeat(40), clean: true, dirty: 0, probe: raw.probe, node: raw.node, checked: 0, findings: 0, incomplete: raw.incomplete, covered: [] };
-  const rf = (patch) => { write(dir, "r.json", JSON.stringify({ ...good, ...patch })); return readIncompleteReport(path.join(dir, "r.json"), { commit: SHA40, tree: "b".repeat(40) }); };
-  // Source closure: a dirty checkout, a missing tree, or another tree is unbound mutable state and refused.
-  assert.match(rf({ clean: false, dirty: 2 }).problem, /not exactly its commit \(2 changed\/untracked path\(s\)\); unbound mutable state is refused/);
+  const SHA40 = "a".repeat(40); const D64 = "d".repeat(64);
+  const good = { schema: "rightkit.import-effects/1", commit: SHA40, tree: "b".repeat(40), clean: true, dirty: 0, probe: raw.probe, node: raw.node, stable: true, closure: { kind: "exported-tree", deps: { lock: D64, installed: D64, linked: ["."] } }, checked: 0, findings: 0, incomplete: raw.incomplete, covered: [] };
+  const rf = (patch, expect = {}) => { write(dir, "r.json", JSON.stringify({ ...good, ...patch })); return readIncompleteReport(path.join(dir, "r.json"), { commit: SHA40, tree: "b".repeat(40), probe: raw.probe, node: raw.node, ...expect }); };
+  assert.ok(rf({}).report, "positive control: exact closure, trusted probe and qualified Node");
+  // Source closure: working-directory probes, a HEAD that moved, an unrecorded dependency closure, another tree: all unbound, all refused.
+  assert.match(rf({ closure: { kind: "working-dir", deps: null } }).problem, /ran on a working directory, not on the exported commit/);
+  assert.match(rf({ stable: false }).problem, /HEAD moved while the probe ran/);
+  assert.match(rf({ closure: { kind: "exported-tree", deps: { lock: null, installed: D64 } } }).problem, /dependency closure .* not recorded/);
   assert.match(rf({ tree: null }).problem, /no checkout commit\/tree recorded/);
   assert.match(rf({ tree: "c".repeat(40) }).problem, /written for tree c{40}, not this checkout's b{40}/);
+  // Trusted identities: the probe digest and the Node version are compared to what the verifier trusts, not merely well-formed.
   assert.match(rf({ probe: "short" }).problem, /no probe code digest/);
+  assert.match(rf({ probe: "e".repeat(64) }).problem, /written by probe eeeeeeeeeeee…, not the trusted/);
+  assert.match(rf({ node: "v20.0.0" }).problem, /written under Node v20\.0\.0, not the qualified/);
+  assert.ok(rf({}, { probe: null, node: null }).report, "a verifier that passes no expectation only checks shape");
   const read = rf({}); assert.ok(read.report, JSON.stringify(read));
   assert.match(readIncompleteReport(path.join(dir, "missing.json")).problem, /cannot be read/);
   // Residuals from the slice 3 review: a red probe, bad counts, malformed rows and a stale commit are all unusable.
@@ -103,10 +111,51 @@ test("exports-import-effects: wildcard exports are expanded and probed; a missin
   assert.deepEqual(closeIncomplete({ report: { incomplete: [rows[1]], covered: [rows[0]] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) }), []);
   // Target binding: a row whose target differs from the sealed package's is not this candidate's.
   assert.match(closeIncomplete({ report: { incomplete: [{ ...rows[0], target: "./dist/other.js" }, rows[1]], covered: [] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) })[0], /binds \. to \.\/dist\/other\.js, the sealed package to \.\/dist\/index\.js/);
+  // Exact set: duplicate rows, a key in both lists, and a row for a dist export the sealed package does not declare are refused.
+  const dup = closeIncomplete({ report: { incomplete: [rows[0], rows[0], rows[1]], covered: [] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) });
+  assert.equal(dup.length, 1); assert.match(dup[0], /lists \. twice/);
+  const conflict = closeIncomplete({ report: { incomplete: rows, covered: [rows[0]] }, name: "@rk/wild", importedSpecs: specs, expected: expectedIncomplete(sealedPkg) });
+  assert.match(conflict[0], /lists \. as both covered .* and incomplete/);
+  const extra = closeIncomplete({ report: { incomplete: [...rows, { package: "@rk/wild", key: "./ghost", target: "./dist/ghost.js" }], covered: [] }, name: "@rk/wild", importedSpecs: [...specs, "@rk/wild/ghost"], expected: expectedIncomplete(sealedPkg) });
+  assert.match(extra[0], /names \.\/ghost \(\.\/dist\/ghost\.js\), which the sealed package does not export from build output/);
   // Wildcard build output can never be closed (neither side imports a pattern): refused, not silently passed.
   const wild = { name: "@rk/wild", exports: { "./*": "./dist/*.js" } };
   assert.deepEqual(expectedIncomplete(wild), [{ key: "./*", target: "./dist/*.js", pattern: true }]);
   assert.match(closeIncomplete({ report: { incomplete: [], covered: [] }, name: "@rk/wild", importedSpecs: [], expected: expectedIncomplete(wild) })[0], /wildcard export \.\/\* → \.\/dist\/\*\.js points at build output; .* cannot be closed/);
+});
+
+test("exports-import-effects: the probe runs on the exported commit, so ignored build output, local config, untracked files and a mid-probe edit never reach it; a HEAD that moves during the probe is recorded as unstable", (t) => {
+  const repo = tmp(t);
+  const git = (...a) => execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", ...a], { encoding: "utf8" });
+  git("init", "-q");
+  write(repo, "packages/a/package.json", JSON.stringify({ name: "@rk/a", type: "module", exports: { ".": "./dist/index.js", "./src": "./src/s.mjs" } }));
+  write(repo, "packages/a/src/s.mjs", "export const s = 1;\n");
+  write(repo, ".gitignore", "dist/\nnode_modules/\n.local.json\n");
+  write(repo, "pnpm-lock.yaml", "lockfileVersion: '9.0'\n");
+  git("add", "-A"); git("commit", "-qm", "base");
+  // Ignored local state that a working-directory probe would have seen: a locally built dist, a local config file, an untracked module.
+  write(repo, "packages/a/dist/index.js", "console.log('local build ran at import');\n");
+  write(repo, "packages/a/.local.json", "{}");
+  write(repo, "packages/a/src/untracked.mjs", "console.log('untracked');\n");
+  fs.mkdirSync(path.join(repo, "node_modules"), { recursive: true }); write(repo, "node_modules/.modules.yaml", "layoutVersion: 5\n");
+  const reportFile = path.join(repo, "out", "report.json"); const io = { logs: [], errs: [] };
+  // A tracked file is edited in the live checkout in the middle of the probe: the export is immutable, the identity stays stable.
+  const between = () => write(repo, "packages/a/src/s.mjs", "export const s = 2; console.log('edited mid-probe');\n");
+  assert.equal(main(["--root", repo, "--report", reportFile], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }, { between }), 0, io.errs.join("\n"));
+  const r = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.equal(r.closure.kind, "exported-tree"); assert.equal(r.stable, true); assert.equal(r.findings, 0);
+  assert.deepEqual(r.incomplete.map((x) => x.key), ["."], "the locally built dist is not in the commit, so '.' is INCOMPLETE (not covered by local build output)");
+  assert.deepEqual(r.covered.map((x) => x.key), ["./src"]);
+  assert.match(r.closure.deps.lock, /^[0-9a-f]{64}$/); assert.match(r.closure.deps.installed, /^[0-9a-f]{64}$/); assert.deepEqual(r.closure.deps.linked, ["."]);
+  assert.equal(r.clean, false, "the live checkout is dirty (untracked files), recorded but irrelevant to the exported probe");
+  assert.ok(readIncompleteReport(reportFile, { commit: r.commit, tree: r.tree, probe: r.probe, node: r.node }).report, "usable: bound to the exported commit");
+  // Now the mid-probe action commits: HEAD moves during the probe → unstable → refused.
+  const io2 = { logs: [], errs: [] };
+  const commitBetween = () => { write(repo, "packages/a/src/s.mjs", "export const s = 3;\n"); git("add", "-A"); git("commit", "-qm", "moved"); };
+  assert.equal(main(["--root", repo, "--report", reportFile], { log: (m) => io2.logs.push(m), error: (m) => io2.errs.push(m) }, { between: commitBetween }), 0);
+  const r2 = JSON.parse(fs.readFileSync(reportFile, "utf8"));
+  assert.equal(r2.stable, false); assert.match(readIncompleteReport(reportFile).problem, /HEAD moved while the probe ran/);
+  assert.ok(io2.logs.some((l) => /HEAD moved during the probe/.test(l)));
 });
 
 test("exports-import-effects: an import that writes a file or starts a process without printing anything is refused by the read-only probe (simulation A5.07b)", (t) => {

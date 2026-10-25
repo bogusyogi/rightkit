@@ -700,7 +700,9 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
     if (!env.RK_IMPORT_EFFECTS_REPORT) problems.push("RK_IMPORT_EFFECTS_REPORT is not set: the scans job's import-effects report (INCOMPLETE exports) is required to verify npm units");
     else {
       const tree = String(spawn("git", ["rev-parse", "HEAD^{tree}"], { cwd: ROOT, encoding: "utf8" }).stdout ?? "").trim();
-      const read = readIncompleteReport(env.RK_IMPORT_EFFECTS_REPORT, { commit, tree: /^[0-9a-f]{40}$/.test(tree) ? tree : "(unreadable)" });
+      // The trusted probe is this checkout's copy of the probe (same commit as the report's), run under the Node this job qualifies with.
+      const trustedProbe = crypto.createHash("sha256").update(fs.readFileSync(path.join(ROOT, "scripts/ci/exports-import-effects.mjs"))).digest("hex");
+      const read = readIncompleteReport(env.RK_IMPORT_EFFECTS_REPORT, { commit, tree: /^[0-9a-f]{40}$/.test(tree) ? tree : "(unreadable)", probe: trustedProbe, node: process.version });
       if (read.problem) problems.push(read.problem); else incompleteReport = read.report;
     }
   }
@@ -760,7 +762,7 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
     rows.push({ name: unit.name, version: unit.version, file: unit.file, sha256: unit.sha256, archiveScan: archiveScans.get(unit.name), bytesVerified: unitProblems.length === 0, status: row?.status ?? "missing", executed: row?.executed ?? 0, ignored: row?.ignored ?? 0, skipped: row?.skipped ?? 0, consumer: { verified: consumerOk, ...consumer.report }, steps: row?.steps ?? [], ...canonicalPublicationEvidence({ unit, row, summary: gate.summary, registry, commit, tree: gate.sourceGate.tree, env }) });
   }
   if (problems.length) throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`);
-  const importEffects = incompleteReport ? { commit: incompleteReport.commit, tree: incompleteReport.tree, probe: incompleteReport.probe, node: incompleteReport.node, checked: incompleteReport.checked, incomplete: incompleteReport.incomplete.length } : null;
+  const importEffects = incompleteReport ? { commit: incompleteReport.commit, tree: incompleteReport.tree, closure: incompleteReport.closure.kind, deps: { lock: incompleteReport.closure.deps.lock, installed: incompleteReport.closure.deps.installed }, liveCheckoutClean: incompleteReport.clean, probe: incompleteReport.probe, node: incompleteReport.node, checked: incompleteReport.checked, incomplete: incompleteReport.incomplete.length } : null;
   const receipt = { schema: 1, kind: "verify", host: hostId, registry, commit, manifestSha256, manifestRunId: manifest.runId, manifestRunAttempt: manifest.runAttempt, importEffects, repository: env.GITHUB_REPOSITORY ?? "", runId: env.GITHUB_RUN_ID ?? "", runAttempt: env.GITHUB_RUN_ATTEMPT ?? "", allowHostExclusion, allowNoTest, allowIgnored, allowMissingAssets, sourceGate: gate.sourceGate, units: rows };
   const out = path.join(env.RUNNER_TEMP || os.tmpdir(), "verify-receipt");
   fs.mkdirSync(out, { recursive: true });
