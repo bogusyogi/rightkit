@@ -1212,6 +1212,27 @@ async function installHook(o, root, force) {
   return 0;
 }
 
+/**
+ * The pathspecs `git status` must find clean before the broker scans (cargo, pnpm) read the live checkout: whatever those scans read that
+ * a commit could differ from, so an uncommitted edit cannot hide a committed failure or stand in for it. Rust: every unit and workspace
+ * directory and the shared build inputs. pnpm: the install graph and the linter configuration of every pnpm root (a unit's directory holds
+ * only the unit, and a workspace member's lock sits above it). And, for every npm unit, the ESLint and Biome configuration of EVERY
+ * ancestor directory of it, because planScans plans `eslint:<unit>` and `biome:<unit>` from a config in the unit's directory or any
+ * ancestor (hasConfig: the tools look it up that way), the cache key reads the same files, and the scan reads the live checkout; an
+ * `apps/eslint.config.js` above `apps/cutright` (a pnpm root of its own) is neither inside the unit's directory nor a root file.
+ */
+export function cleanCheckoutPaths({ rustUnits = [], rustWorkspaces = [], npmUnits = [], npmRoots = [] }) {
+  const lintConfigs = [...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
+  const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...lintConfigs];
+  const inDirectory = (dir, file) => (dir === "." ? file : `${dir}/${file}`);
+  return [...new Set([
+    ...rustUnits.map((u) => u.dir), ...npmUnits.map((u) => u.dir), ...rustWorkspaces.map((w) => w.cargoDir),
+    "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain", "deny.toml", "clippy.toml", "rustfmt.toml",
+    ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`)),
+    ...npmUnits.flatMap((u) => ancestorDirsOf(u.dir).flatMap((d) => lintConfigs.map((f) => inDirectory(d, f)))),
+  ])];
+}
+
 // ---- main ---------------------------------------------------------------------------------------------------
 
 /**
@@ -1326,11 +1347,7 @@ export async function main(argv, io = {}) {
   // Broker scans (cargo, pnpm) read the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
   // otherwise hide a committed failure. Any change or untracked file under those paths blocks the gate.
   if (!planOnly) {
-    // The install graph and linter configuration of a pnpm root: the repository root's, and those of every other root (its units' directories
-    // hold only the units, and a workspace member's lock sits above it).
-    const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
-    const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
-      "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
+    const inputs = cleanCheckoutPaths({ rustUnits: rust.units, rustWorkspaces: rust.workspaces, npmUnits: npm, npmRoots });
     const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
     const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`]
       : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules") && !l.includes(GRANT_FILE));

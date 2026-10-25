@@ -2267,3 +2267,57 @@ test("deferredBlock: npm test scans get a line of their own with the tool, the s
   assert.equal(withNpm[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright or cargo and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:other (script test: cargo test)`);
   assert.match(withNpm[0], /scans not run clippy:a, test:npm:viewright;/, "named in the headline too");
 });
+
+// ---- B5: the clean-checkout check covers every linter config the scans can read ---------------------------------------------------------------------------
+
+// git status answers from a fixed list of dirty files, filtered by the pathspecs it is given as git would: a spec names a file or a directory.
+const dirtyAware = (base, dirty) => (cmd, args, opts) => {
+  if (cmd === "git" && args[0] === "status") {
+    const specs = args.slice(args.indexOf("--") + 1);
+    return ok(dirty.filter((f) => specs.some((s) => f === s || f.startsWith(`${s}/`))).map((f) => ` M ${f}\n`).join(""));
+  }
+  return base(cmd, args, opts);
+};
+async function dirtyGate(t, dirty, files = {}) {
+  const root = mkRepo(stripUndefined(jsRepo(files)), t);
+  const seen = []; const c = capture();
+  const code = await main(["--base", "origin/main"], {
+    ...c.io, ...noWrites, cwd: root, env: {}, readStdin: () => pushLine("refs/heads/claude/port"), runScans: fakeRun(seen), findRustfmt: () => "/x/rustfmt",
+    spawn: dirtyAware(pushSpawn(root, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\napps/coderight-tauri/src/a.ts\n" }), dirty),
+  });
+  return { code, seen, out: c.out.join("\n"), err: c.err.join("\n") };
+}
+
+test("gate: an uncommitted ESLint or Biome config in a directory between the repository root and a unit blocks the gate, as the scan reads it from the live checkout", async (t) => {
+  // apps/ has no package.json and no lock, so it is no pnpm root and not a unit directory; eslint:apps-coderight-tauri and biome:apps-coderight-web
+  // are planned from the config in it (planScans hasConfig looks in every ancestor directory), and they run in the live checkout.
+  const files = { "apps/eslint.config.js": "export default [];\n", "apps/biome.jsonc": "{}\n" };
+  for (const name of ["apps/eslint.config.js", "apps/biome.jsonc", "apps/.eslintrc.yaml", "apps/eslint.config.mts"]) {
+    const blocked = await dirtyGate(t, [name], files);
+    assert.equal(blocked.code, 1, `${name}: ${blocked.err}`);
+    assert.match(blocked.err, /BLOCKED: the checkout differs from HEAD where broker scans read it; commit or stash first:/, name);
+    assert.ok(blocked.err.includes(name), `${name} is named`);
+    assert.equal(blocked.seen.length, 0, `${name}: no scan ran against a checkout that is not HEAD`);
+  }
+  const clean = await dirtyGate(t, [], files);
+  assert.equal(clean.code, 0, clean.err);
+  const ids = clean.seen[0].plan.scans.map((s) => s.id);
+  assert.ok(ids.includes("eslint:apps-coderight-tauri") && ids.includes("biome:apps-coderight-web"), `the intermediate configs are what plans them: ${ids.join(" ")}`);
+  // A file that is no linter config, and the config of a directory that is no ancestor of any unit, stay out of the way.
+  for (const name of ["apps/README.md", "tools/eslint.config.js", "apps/other/eslint.config.js"]) assert.equal((await dirtyGate(t, [name], files)).code, 0, `${name} is not read by any scan`);
+});
+
+test("cleanCheckoutPaths: the directory of each unit and every ancestor of it contribute their ESLint and Biome configs, and what was checked before still is", () => {
+  const { cleanCheckoutPaths } = gateModule;
+  const paths = cleanCheckoutPaths({
+    rustUnits: [{ dir: "crates/a" }], rustWorkspaces: [{ cargoDir: "." }, { cargoDir: "src-tauri" }],
+    npmUnits: [{ name: "apps-a-b", dir: "apps/a/b", root: "apps/a/b" }, { name: "web", dir: "packages/web" }], npmRoots: [".", "apps/a/b"],
+  });
+  for (const p of [
+    "apps/eslint.config.js", "apps/biome.json", "apps/.eslintrc.yml", "apps/a/eslint.config.cjs", "apps/a/biome.jsonc", "apps/a/b/.eslintrc", "apps/a/b/biome.json",
+    "packages/eslint.config.mjs", "packages/web/.eslintrc.json", "eslint.config.ts", "biome.json",
+  ]) assert.ok(paths.includes(p), `${p} is checked against HEAD`);
+  for (const p of ["crates/a", "src-tauri", ".", "ci", "scripts", "vendor", "Cargo.lock", ".cargo", "rust-toolchain", "deny.toml", "package.json", "pnpm-lock.yaml", ".npmrc", "apps/a/b", "apps/a/b/pnpm-lock.yaml", "apps/a/b/package.json", "packages/web"]) assert.ok(paths.includes(p), `${p} is still checked`);
+  assert.equal(new Set(paths).size, paths.length, "no pathspec twice");
+  assert.ok(!paths.includes("apps/pnpm-lock.yaml") && !paths.includes("apps/package.json"), "only the linter configs are read from an intermediate directory");
+});
