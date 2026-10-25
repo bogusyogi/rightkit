@@ -2430,30 +2430,32 @@ async function installFrom(t, files, gateFile, listed = Object.keys(files).filte
   return { code, root, out: c.out.join("\n"), err: c.err.join("\n"), hook: fs.readFileSync(path.join(root, ".githooks", "pre-push"), "utf8") };
 }
 
-test("hookGatePlan: a stable repository-relative path for the gate, from the root's link, a declaring package's link, the checkout itself or the link to come", () => {
+test("hookGatePlan: a stable repository-relative path for the gate, from what the package.json files declare and never from what is installed", () => {
   const { hookGatePlan } = gateModule;
   const root = norm(path.resolve("/work/app"));
-  const present = (...files) => (f) => files.some((p) => norm(f) === norm(path.join(root, p)));
   const outside = norm(path.resolve("/elsewhere/exports/packages/release/bin/rightkit-gate.mjs"));
   const store = norm(path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs"));
-  const plan = (declaring, installed, gateFile) => hookGatePlan({ root, gateFile, declaring, exists: present(...installed) });
-  // 1. the root installs it: the 0.6.4 and 0.6.5 hook, whatever else declares it
-  assert.deepEqual(plan(["apps/cutright"], [LINK, `apps/cutright/${LINK}`], outside), { nodePath: LINK, packages: [], unsafe: [] });
-  // 2. a declaring package has it: its link (not the store path the running gate resolves to), and every declaring package is searched
-  assert.deepEqual(plan(["apps/cutright"], [`apps/cutright/${LINK}`], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
-  assert.deepEqual(plan(["apps/cutright"], [`apps/cutright/${LINK}`], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "run from the install itself: still the link");
-  assert.deepEqual(plan(["apps/cutright", "tauri-app-next"], [`tauri-app-next/${LINK}`], outside), { nodePath: `tauri-app-next/${LINK}`, packages: ["apps/cutright", "tauri-app-next"], unsafe: [] });
-  // 3. the gate runs from inside the repository, and not from a node_modules: RightKit's own checkout keeps its path
-  assert.deepEqual(plan([], [], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: "packages/release/bin/rightkit-gate.mjs", packages: [], unsafe: [] });
-  // 4. nothing installed yet, or run from outside the repository or from a store copy: the link a declaring package will have, else the root's
-  assert.deepEqual(plan(["apps/cutright"], [], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
-  assert.deepEqual(plan(["apps/cutright"], [], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "a store path is never written");
-  assert.deepEqual(plan([], [], outside), { nodePath: LINK, packages: [], unsafe: [] });
-  assert.deepEqual(plan(["."], [], outside), { nodePath: LINK, packages: [], unsafe: [] }, "the root declares it: its link, installed or not");
-  assert.deepEqual(plan([".", "apps/cutright"], [], outside), { nodePath: LINK, packages: ["apps/cutright"], unsafe: [] });
+  // Install state is not an input: a plan that reads it fails here.
+  const exists = () => { throw new Error("hookGatePlan must not look at what is installed"); };
+  const plan = (declaring, gateFile) => hookGatePlan({ root, gateFile, declaring, exists });
+  // 1. the root declares it: its link and no extra packages, whatever else declares it (Pulse: the root and hub/; RightKit itself: the root)
+  assert.deepEqual(plan(["."], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan([".", "hub"], outside), { nodePath: LINK, packages: [], unsafe: [] }, "Pulse: the root form, the 0.6.4 and 0.6.5 hook");
+  assert.deepEqual(plan([".", "apps/cutright"], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan([".", "apps/cutright"], store), { nodePath: LINK, packages: [], unsafe: [] }, "run from a store copy: still the link");
+  assert.deepEqual(plan(["."], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: LINK, packages: [], unsafe: [] }, "run from inside the repository: the root declares it, so its link");
+  // 2. only packages declare it (CutRight's apps/cutright, HeardRight's tauri-app-next): the first of them in sorted order, every one searched
+  assert.deepEqual(plan(["apps/cutright"], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
+  assert.deepEqual(plan(["apps/cutright"], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "a store path is never written");
+  assert.deepEqual(plan(["apps/cutright", "tauri-app-next"], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright", "tauri-app-next"], unsafe: [] }, "the first declaring package, not whichever is installed");
+  // 3. nothing declares it: the gate's own path when it runs from inside the repository and not from a node_modules (a checkout of the package), else the root's link
+  assert.deepEqual(plan([], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: "packages/release/bin/rightkit-gate.mjs", packages: [], unsafe: [] });
+  assert.deepEqual(plan([], outside), { nodePath: LINK, packages: [], unsafe: [] }, "never a path outside the repository");
+  assert.deepEqual(plan([], store), { nodePath: LINK, packages: [], unsafe: [] }, "never a store path");
   // a directory that cannot be written into a shell script is named, never written
-  const odd = plan(["apps/my app", "apps/$(x)", "-x", "apps/../up", "apps/a;b", "apps/ok"], [], outside);
+  const odd = plan(["apps/my app", "apps/$(x)", "-x", "apps/../up", "apps/a;b", "apps/ok"], outside);
   assert.deepEqual([odd.packages, odd.unsafe.sort()], [["apps/ok"], ["-x", "apps/$(x)", "apps/../up", "apps/a;b", "apps/my app"]]);
+  assert.deepEqual(plan([".", "apps/a;b"], outside), { nodePath: LINK, packages: [], unsafe: ["apps/a;b"] }, "the root form still names the directories it leaves out");
   for (const bad of ["apps/$(x)", "a b", "a\"b", "a`b", "a;b", "-x", "", "..", "a/../b", "./a", "a//b", "/abs", "C:\\x", "a\nb"]) assert.equal(gateModule.hookPathIsPlain(bad), false, JSON.stringify(bad));
   for (const good of ["apps/cutright", "tauri-app-next", "packages/@scope/x.y", ".tools/app", "a+b/c_d-e"]) assert.equal(gateModule.hookPathIsPlain(good), true, good);
 });
@@ -2486,9 +2488,13 @@ test("install-hook: with the install in a nested package, the hook finds the gat
   // Not installed yet (a fresh clone, pnpm install --ignore-scripts): the link the package will have.
   const fresh = await installFrom(t, { "apps/cutright/package.json": declares() }, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
   assert.equal(fresh.hook, wanted);
-  // Several packages declare it: all are searched, the installed one is the last resort, the first one runs under pnpm.
-  const many = await installFrom(t, { "apps/cutright/package.json": declares(), "tauri-app-next/package.json": declares(), [`tauri-app-next/${LINK}`]: "" }, path.resolve("/elsewhere/rightkit-gate.mjs"));
-  assert.equal(many.hook, hookText(`tauri-app-next/${LINK}`, ["apps/cutright", "tauri-app-next"]));
+  // Several packages declare it: all are searched, the first one is the last resort and runs under pnpm, whichever of them is installed.
+  const declaringBoth = { "apps/cutright/package.json": declares(), "tauri-app-next/package.json": declares() };
+  const manyWanted = hookText(`apps/cutright/${LINK}`, ["apps/cutright", "tauri-app-next"]);
+  for (const [name, installed] of [["nothing installed", []], ["the second one installed", [`tauri-app-next/${LINK}`]], ["the first one installed", [`apps/cutright/${LINK}`]], ["both installed", [`apps/cutright/${LINK}`, `tauri-app-next/${LINK}`]]]) {
+    const many = await installFrom(t, { ...declaringBoth, ...Object.fromEntries(installed.map((f) => [f, ""])) }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+    assert.equal(many.hook, manyWanted, name);
+  }
 });
 
 test("install-hook: a root that installs the package keeps getting the published hook byte for byte, and RightKit's own checkout keeps its path", async (t) => {
@@ -2506,6 +2512,38 @@ test("install-hook: a root that installs the package keeps getting the published
   const none = await installFrom(t, { "package.json": '{"name":"app"}' }, outside);
   assert.equal(none.hook, hookText(LINK), "nothing declares it: the root's link, not a path outside the repository");
   assert.match(none.err, /WARNING: no package\.json in this repository depends on @rightkit\/release/);
+});
+
+test("install-hook: the hook depends on what package.json files declare, not on what is installed, so a prepare script never meets a hook it wrote", async (t) => {
+  const outside = path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs");
+  const store = (root) => path.join(root, "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs");
+  const shapes = [
+    // Pulse: the root and hub/ both declare it
+    ["the root and hub", { "package.json": declares(), "hub/package.json": declares() }, [LINK, `hub/${LINK}`], hookText(LINK)],
+    ["the root and a package two levels down", { "package.json": declares(), "apps/cutright/package.json": declares() }, [LINK, `apps/cutright/${LINK}`], hookText(LINK)],
+    // CodeRight: two packages, neither the root
+    ["two packages, neither the root", { "apps/coderight-web/package.json": declares(), "apps/coderight-tauri/package.json": declares() }, [`apps/coderight-web/${LINK}`, `apps/coderight-tauri/${LINK}`], hookText(`apps/coderight-tauri/${LINK}`, ["apps/coderight-tauri", "apps/coderight-web"])],
+    ["one package (CutRight)", { "apps/cutright/package.json": declares() }, [`apps/cutright/${LINK}`], hookText(`apps/cutright/${LINK}`, ["apps/cutright"])],
+  ];
+  for (const [name, declared, links, wanted] of shapes) {
+    // Every subset of the links that can exist, from a fresh clone to everything installed, and every place the gate can run from, writes one hook.
+    const states = [[], ...links.map((link) => [link]), links];
+    for (const [where, gateFile] of [["an exports checkout", outside], ["a store copy", store]]) {
+      for (const installed of states) {
+        const r = await installFrom(t, { ...declared, ...Object.fromEntries(installed.map((f) => [f, ""])) }, gateFile);
+        assert.equal(r.code, 0, `${name}, ${where}, installed ${JSON.stringify(installed)}: ${r.err}`);
+        assert.equal(r.hook, wanted, `${name}, ${where}, installed ${JSON.stringify(installed)}`);
+      }
+    }
+    // A hook written before the install is current after it: `install-hook` as a prepare script succeeds without --force.
+    const first = await installFrom(t, declared, outside);
+    for (const link of links) { fs.mkdirSync(path.dirname(path.join(first.root, link)), { recursive: true }); fs.writeFileSync(path.join(first.root, link), ""); }
+    const again = capture();
+    assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(first.root, { hooksPath: ".githooks", sets: [] }, { listed: Object.keys(declared) }), cwd: first.root, gateFile: outside }), 0, `${name}: ${again.err.join("\n")}`);
+    assert.ok(again.out.some((l) => /\.githooks\/pre-push already current/.test(l)), `${name}: ${again.out.join("\n")}`);
+    assert.doesNotMatch(again.err.join("\n"), /already exists and differs/, name);
+  }
+  assert.equal(sha256Hex(hookText(LINK)), PUBLISHED_HOOK_DIGESTS["0.6.5"], "the root form is the published 0.6.5 hook");
 });
 
 test("install-hook: a declaring package whose directory is not a plain name is reported and never written into the hook", async (t) => {

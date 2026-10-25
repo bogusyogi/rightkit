@@ -35,8 +35,8 @@
 //                                             check --commit HEAD`, then the gate; every other hook present in .git/hooks gets a
 //                                             .githooks/<name> trampoline that runs it; the hook finds the gate binary in the root
 //                                             node_modules/.bin, then any workspace package's (each package that declares @rightkit/release by
-//                                             name when the root does not install it), then pnpm exec, then node at a stable path inside the
-//                                             repository (hookGatePlan). Where @rightkit/release is
+//                                             name when the root does not declare it), then pnpm exec, then node at a stable path inside the
+//                                             repository (hookGatePlan: from the declarations, never from what is installed). Where @rightkit/release is
 //                                             installed it also writes the advisory ownership pre-commit step (`right-release hooks install`
 //                                             is an alias of this command)
 //
@@ -674,7 +674,7 @@ export function lockScope({ changed, cargoDir = ".", unitNames, showBase, readLo
  * chose is printed once. No absolute path is written: everything is resolved from git at run time.
  *
  * `packages` (default none) is the multi-root form: the repository-relative directories of the packages that declare @rightkit/release when the
- * repository root does not install it (CutRight's apps/cutright, HeardRight's tauri-app-next). Each one's node_modules/.bin/rightkit-gate is tried
+ * repository root does not declare it (CutRight's apps/cutright, HeardRight's tauri-app-next). Each one's node_modules/.bin/rightkit-gate is tried
  * right after the root's (the glob above stops three levels down), and the pnpm fallback runs in the first of them (`pnpm --dir <package> exec`;
  * pnpm at the root of such a repository has no rightkit-gate to run). With none, the text is exactly what 0.6.4 and 0.6.5 wrote
  * (fixtures/published-gate-hooks.json holds its digest, and a repository whose root installs the package must keep getting it, byte for byte,
@@ -1170,24 +1170,26 @@ export const hookPathIsPlain = (value) => typeof value === "string" && value !==
  * node, `packages` the extra directories hookText searches (multi-root form), `unsafe` the declaring packages whose directory cannot be written
  * into a shell script. `declaring` is releasePackages(...).declaring; `gateFile` is where this gate runs from.
  *
- * Always a stable, version-independent path relative to the repository, never one outside it, absolute, or inside the pnpm store:
- *   1. The root installs @rightkit/release: its link, and nothing else is needed (the hook stays what 0.6.4 and 0.6.5 wrote).
- *   2. A package that declares it has it installed: that package's link (CutRight's apps/cutright, HeardRight's tauri-app-next), and every
- *      declaring package is searched.
- *   3. This gate runs from inside the repository and not from a node_modules (RightKit's own checkout): its path from the root, as before.
- *   4. Nothing is installed yet, or the gate runs from outside the repository (an exports checkout, another clone) or from a store copy: the
- *      link a declaring package will have once installed, else the root's.
+ * A function of what the repository's package.json files declare, never of what is installed: the same tree gives the same hook on a fresh
+ * clone, an exports checkout, after `pnpm install` and after a version bump, so `install-hook` (a `prepare` script) never meets a hook it
+ * wrote earlier as one that "already exists and differs". It takes no `exists`, so that cannot creep back in. Always a stable,
+ * version-independent path relative to the repository, never one outside it, absolute, or inside the pnpm store:
+ *   1. The root declares @rightkit/release (whatever else does): its link and no extra packages, the hook 0.6.4 and 0.6.5 wrote (Pulse declares
+ *      it at the root and in hub/; RightKit itself at the root).
+ *   2. Only packages declare it (CutRight's apps/cutright, HeardRight's tauri-app-next): the link of the first of them in sorted order, whichever is
+ *      installed, and every one of them is searched.
+ *   3. No package.json declares it (a checkout of the package itself that nothing depends on), or only under a directory the hook cannot name: if
+ *      this gate runs from inside the repository and not from a node_modules, its path from the root, else the root's link, never a path
+ *      outside the repository. This is the one case that reads where the gate runs from, because the repository says nothing.
  */
-export function hookGatePlan({ root, gateFile, declaring, exists }) {
+export function hookGatePlan({ root, gateFile, declaring }) {
   const plain = declaring.filter((d) => d !== "." && hookPathIsPlain(d));
   const unsafe = declaring.filter((d) => d !== "." && !hookPathIsPlain(d));
-  if (exists(path.join(root, GATE_IN_PACKAGE))) return { nodePath: GATE_IN_PACKAGE, packages: [], unsafe };
-  const installed = plain.find((d) => exists(path.join(root, d, GATE_IN_PACKAGE)));
-  if (installed !== undefined) return { nodePath: `${installed}/${GATE_IN_PACKAGE}`, packages: plain, unsafe };
+  if (declaring.includes(".")) return { nodePath: GATE_IN_PACKAGE, packages: [], unsafe };
+  if (plain.length) return { nodePath: `${plain[0]}/${GATE_IN_PACKAGE}`, packages: plain, unsafe };
   const relative = posix(path.relative(root, gateFile));
   const inside = relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative) && !relative.split("/").includes("node_modules") && hookPathIsPlain(relative);
-  if (inside) return { nodePath: relative, packages: [], unsafe };
-  return { nodePath: !declaring.includes(".") && plain.length ? `${plain[0]}/${GATE_IN_PACKAGE}` : GATE_IN_PACKAGE, packages: plain, unsafe };
+  return { nodePath: inside ? relative : GATE_IN_PACKAGE, packages: [], unsafe };
 }
 
 // The advisory ownership pre-commit step (`right-release hooks install`, ownership-hooks.mjs) runs the pinned @rightkit/release, so
@@ -1200,7 +1202,7 @@ async function installHook(o, root, force) {
   const hooksDir = path.join(root, ".githooks");
   const hookPath = path.join(hooksDir, "pre-push");
   const { provider, declaring } = releasePackages(o, root, git);
-  const { nodePath, packages, unsafe } = hookGatePlan({ root, gateFile: o.gateFile, declaring, exists: o.exists });
+  const { nodePath, packages, unsafe } = hookGatePlan({ root, gateFile: o.gateFile, declaring });
   if (unsafe.length) o.err(`rightkit-gate: WARNING: the pre-push hook does not look for the gate in ${unsafe.join(", ")}: not a plain directory name (letters, digits and _ - . @ + only, with / between); it still finds a root or workspace install by glob.`);
   const wanted = hookText(nodePath, packages);
   const hasHook = o.exists(hookPath);
