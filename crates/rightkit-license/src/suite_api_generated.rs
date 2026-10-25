@@ -19,3 +19,56 @@ pub const APP_ARTIFACT_HOSTS: &[(&str, &[&str])] = &[
     ("mailright", &[GATED_ARTIFACT_HOST, PUBLIC_ARTIFACT_HOST]),
     ("viewright", &[PUBLIC_ARTIFACT_HOST]),
 ];
+pub const LICENSE_PUBLIC_KEY_HEX: &str =
+    "730732885355c4400c115592a42c91b8b0277d460cb2b5d59c1e2815a74d5d22";
+pub const UPDATER_SIGNING_KEY_ID: &str = "29395F9FF466261D";
+pub const UPDATER_PUBLIC_KEYS: &[(&str, &str, Option<i64>)] = &[
+    ("29395F9FF466261D", "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlGRjQ2NjI2MUQKUldRZEptYjBuMTg1S1VSUXlBdFM4WmtzaHArYko0U2hRMDVlSDJmSExVZG82Q0hoQ2srUlhqanAK", None),
+];
+pub const LICENSE_ACTIVATE_PATH: &str = "/v1/licenses/activate";
+pub const LICENSE_REFRESH_PATH: &str = "/v1/licenses/refresh";
+pub const LICENSE_DEACTIVATE_PATH: &str = "/v1/licenses/deactivate";
+pub const LICENSE_TRIAL_PATH: &str = "/v1/licenses/trial";
+pub const BRIDGE_FROM_ACTIVATION_PATH: &str = "/v1/licenses/bridge/from-activation";
+pub const BRIDGE_EXCHANGE_PATH: &str = "/v1/licenses/bridge/exchange";
+pub const BRIDGE_FROM_PLAY_PATH: &str = "/v1/licenses/bridge/from-play";
+pub const BRIDGE_FROM_STOREKIT_PATH: &str = "/v1/licenses/bridge/from-storekit";
+pub const LEASE_ISSUE_PATH: &str = "/v1/pro/{app}/devices/lease";
+pub const LEASE_RENEW_PATH: &str = "/v1/pro/{app}/devices/lease/renew";
+pub const LEASE_REMOVE_PATH: &str = "/v1/pro/{app}/devices/lease/remove";
+pub const WINDOWS_LINK_REQUEST_PATH: &str = "/v1/pro/{app}/devices/windows-link/request";
+pub const WINDOWS_LINK_REDEEM_PATH: &str = "/v1/pro/{app}/devices/windows-link/redeem";
+pub const ACCOUNT_MAGIC_LINK_REQUEST_PATH: &str = "/v1/shop/auth/magic-link/request";
+pub const ACCOUNT_MAGIC_LINK_CONSUME_PATH: &str = "/v1/shop/auth/magic-link/consume";
+pub const ACCOUNT_ME_PATH: &str = "/v1/shop/auth/me";
+pub const ACCOUNT_LOGOUT_PATH: &str = "/v1/shop/auth/logout";
+pub const ACCOUNT_DEVICES_PATH: &str = "/v1/shop/account/devices";
+pub const ACCOUNT_DELETE_PATH: &str = "/v1/shop/account";
+pub const ENTITLEMENT_PATH: &str = "/v1/entitlement";
+pub const APP_KEYS: &[&str] = &[
+    "coderight",
+    "cutright",
+    "genright",
+    "heardright",
+    "mailright",
+    "postright",
+    "pulse",
+    "scraperight",
+    "viewright",
+];
+pub const APP_LICENSE_HOSTS: &[(&str, &str)] = &[
+    ("coderight", "coderight.cc"),
+    ("genright", "heardright.app"),
+    ("heardright", "heardright.app"),
+    ("mailright", "mailright.cc"),
+    ("scraperight", "scraperight.cc"),
+    ("viewright", "viewright.cc"),
+];
+pub const PENDING_NATIVE_UPDATER: &[&str] = &[
+    "cutright",
+    "genright",
+    "heardright",
+    "postright",
+    "pulse",
+    "scraperight",
+];

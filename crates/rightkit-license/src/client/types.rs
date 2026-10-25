@@ -170,7 +170,7 @@ impl LicenseClientConfig {
         let timeout = Duration::from_secs(15);
         Ok(Self {
             http: default_http(&host, timeout),
-            clock_path: license_dir.join("clock.json"),
+            clock_path: license_dir.join(crate::DEFAULT_CLOCK_FILE),
             credential_clock: None,
             // The rotation lock files live beside the other licence locks, so every process of
             // the app (window, engine) derives the same directory from `license_dir`.
@@ -188,6 +188,32 @@ impl LicenseClientConfig {
             origin_override: None,
             invalidation: None,
         })
+    }
+
+    /// The Right Suite configuration of `app_key`: the licence public key and the licence host come
+    /// from the contract ([`crate::suite_api`]), so the app carries neither. `app_version` is the
+    /// app's version, `store` its credential store and `license_dir` its `<app data>/license`
+    /// directory, as for [`LicenseClientConfig::new`].
+    ///
+    /// `Unconfigured` for an app the registry does not list and for one that has not declared a
+    /// licence host (no host is guessed). An app that really has no licence product builds
+    /// [`LicenseSetup::Disabled`] itself, so the choice is visible in its code.
+    pub fn suite(
+        app_key: &str,
+        app_version: impl Into<String>,
+        store: Store,
+        license_dir: impl Into<PathBuf>,
+    ) -> Result<Self, LicenseError> {
+        let host =
+            crate::suite_api::app_license_host(app_key).map_err(|_| LicenseError::Unconfigured)?;
+        Self::new(
+            app_key,
+            host,
+            app_version,
+            crate::suite_api::LICENSE_PUBLIC_KEY,
+            store,
+            license_dir,
+        )
     }
 
     /// Signal `invalidation` after every operation that changes the stored record, so live engine
@@ -350,6 +376,45 @@ mod tests {
             "-x.app",
         ] {
             assert!(!valid_host(bad), "{bad}");
+        }
+    }
+
+    fn memory_store() -> Store {
+        use rightkit_credentials::{Config, MemoryBackend, Namespace};
+        Store::open(
+            Config::new(Namespace::new("suite-config-test").unwrap())
+                .backend(std::sync::Arc::new(MemoryBackend::new())),
+        )
+    }
+
+    #[test]
+    fn client_suite_config_builds_without_literals() {
+        for app in crate::suite_api::registered_apps() {
+            let built = LicenseClientConfig::suite(app, "1.2.3", memory_store(), "/tmp/lic");
+            match crate::suite_api::app_license_host(app) {
+                Ok(host) => {
+                    let config = built.unwrap_or_else(|e| panic!("{app}: {e:?}"));
+                    assert_eq!(config.app, *app);
+                    assert_eq!(config.host, host);
+                    assert_eq!(config.public_key, crate::suite_api::LICENSE_PUBLIC_KEY);
+                    assert_eq!(config.app_version, "1.2.3");
+                    assert_eq!(config.origin(), format!("https://{host}"));
+                }
+                // No host declared: refused, never a borrowed host.
+                Err(_) => assert!(
+                    matches!(built, Err(LicenseError::Unconfigured)),
+                    "{app} must not get a guessed host"
+                ),
+            }
+        }
+        for bad in ["nosuchapp", "ember", "Mail", "a/b", ""] {
+            assert!(
+                matches!(
+                    LicenseClientConfig::suite(bad, "1", memory_store(), "/tmp/lic"),
+                    Err(LicenseError::Unconfigured)
+                ),
+                "{bad:?}"
+            );
         }
     }
 

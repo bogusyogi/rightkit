@@ -71,6 +71,8 @@ pub(crate) struct Locked {
 }
 
 /// What a snapshot means right now.
+// `entitlement` and `revision` are read only by the update authorizer (feature `update-auth`).
+#[cfg_attr(not(feature = "update-auth"), allow(dead_code))]
 pub(crate) struct Evaluation {
     pub view: LicenseView,
     /// The authenticated entitlement of the stored token, when it authenticated.
@@ -509,6 +511,7 @@ impl Core {
     /// read after any marker was reconciled, then `f` runs on what was read WITH THE LOCK STILL
     /// HELD. `Busy` when the lock is held, `Unresolved` while a marker or an unfinished write
     /// stands; a cached or busy view is never used.
+    #[cfg_attr(not(feature = "update-auth"), allow(dead_code))]
     pub(crate) fn authorized<R>(
         &self,
         f: impl FnOnce(&Evaluation) -> R,
@@ -518,6 +521,7 @@ impl Core {
         result
     }
 
+    #[cfg_attr(not(feature = "update-auth"), allow(dead_code))]
     fn authorized_inner<R>(&self, f: impl FnOnce(&Evaluation) -> R) -> Result<R, LicenseError> {
         let locked = self.lock_and_read(self.cfg.status_wait, READER_RECONCILE_WAIT)?;
         if self.is_unresolved(&locked.snap) {

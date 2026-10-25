@@ -1374,6 +1374,7 @@ test("suite-api: planned only when a contract input changes; the checked-in proj
   assert.equal(scanClassOf("suite-api"), "A");
   assert.ok(suiteScan(planFor(["contracts/right-suite-api.v1.json"])), "a contract change plans the scan");
   assert.ok(suiteScan(planFor(["packages/app-update/src/suite-api.generated.ts"])), "a projection change plans the scan");
+  assert.ok(suiteScan(planFor(["swift/RightKitSwift/Sources/RightKitLicense/RightSuiteAPI.generated.swift"])), "a change to the Swift projection plans the scan");
   assert.equal(suiteScan(planFor(["packages/release/README.md"])), undefined, "an unrelated change does not");
   const only = (plan, extra = {}) => runScans(plan, { ...deps({ ...realFs }), classes: ["A"], exclude: (s) => s.id !== "suite-api", ...extra });
   const passing = await only(planFor(["contracts/right-suite-api.v1.json"]));
@@ -1385,6 +1386,12 @@ test("suite-api: planned only when a contract input changes; the checked-in proj
   const bad = drifted.scans.find((s) => s.id === "suite-api");
   assert.equal(bad.status, "fail");
   assert.match(bad.detail, /suite-api\.generated\.ts/);
+  const swiftDrift = await only(planFor(["contracts/right-suite-api.v1.json"]), {
+    readFile: (p) => (p.endsWith("RightSuiteAPI.generated.swift") ? `${read(p)} ` : read(p)),
+  });
+  const badSwift = swiftDrift.scans.find((s) => s.id === "suite-api");
+  assert.equal(badSwift.status, "fail");
+  assert.match(badSwift.detail, /RightSuiteAPI\.generated\.swift/);
 });
 
 // ---- gate false positives found by full-gate dry runs on real app branches (0.6.6) ----------------------------------------------------------

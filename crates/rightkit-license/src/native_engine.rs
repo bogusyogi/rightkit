@@ -10,7 +10,7 @@ use std::{
 use crate::{
     evaluate_lifecycle, system_now_unix, AntiRollbackClock, ClockError, ClockState, ClockStore,
     LicenseRequirement, Lifecycle, LifecycleContext, LifecyclePolicy, LifecycleReport,
-    ProcessAnchor, StoredCredential, MAX_TOKEN_BYTES,
+    ProcessAnchor, RevokedIds, StoredCredential, MAX_TOKEN_BYTES,
 };
 
 /// One coherent read of the native record & native-derived device binding.
@@ -83,6 +83,7 @@ pub struct NativeEngineEntitlements<N, C: ClockStore> {
     pubkey: [u8; 32],
     app: String,
     policy: LifecyclePolicy,
+    revoked: RevokedIds,
     observed_time: Arc<Mutex<ObservedTime>>,
     continuity: Mutex<Option<Continuity>>,
     transient_clock_error: fn(&C::Error) -> bool,
@@ -180,10 +181,19 @@ where
             pubkey,
             app: app.into(),
             policy,
+            revoked: RevokedIds::new(),
             observed_time,
             continuity: Mutex::new(None),
             transient_clock_error: |_| false,
         }
+    }
+
+    /// An incident denylist: an authenticated entitlement whose id is listed reports
+    /// [`Lifecycle::Revoked`] and never grants access, even when its token has not expired. The
+    /// list is native configuration, never an input from the window.
+    pub fn with_revoked_ids(mut self, revoked: RevokedIds) -> Self {
+        self.revoked = revoked;
+        self
     }
 
     /// Opt in only positively transient native storage errors. Refusal is default.
@@ -322,7 +332,8 @@ where
         let requirement = LicenseRequirement::pro();
         let context = LifecycleContext::new(&self.pubkey, &self.app, device)
             .with_policy(self.policy)
-            .with_requirement(&requirement);
+            .with_requirement(&requirement)
+            .with_revoked_ids(&self.revoked);
         let report = evaluate_lifecycle(&context, &self.clock, credential, wall)
             .map_err(|error| {
                 let transient = matches!(&error, ClockError::Storage(inner) if (self.transient_clock_error)(inner));

@@ -27,6 +27,15 @@
 //   e2e-under-cargo-test G22 `cargo test|run|nextest` (also as `rustright cargo`, or the retired `rightkit`) that runs an end-to-end
 //                         crate (rightkit-qa driver modules) in the broker without --no-run: it holds the compile slot for the whole run
 //
+// Suite trust roots (lane C3; logic in suite-trust-roots.mjs). The licence and updater public keys have one owner,
+// contracts/right-suite-api.v1.json (generated into suite-api.generated.mjs):
+//   suite-key-literal C3-04  the licence public key pasted as a byte array, 64 hex digits or base64, or the updater key text outside
+//                         a tauri.conf.json, in a non-test file
+//   suite-updater-key C3-14  a tauri*.conf.json plugins.updater.pubkey that is not a copy of a contract key (missing, a placeholder,
+//                         another key, or an unparseable file)
+//   engine-record-store C3-05 a call to from_record_store outside crates/rightkit-license: the owner binary hands the engine a
+//                         snapshot through rightkit_credentials::handoff instead
+//
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
 //   1. --baseline <file>, which must exist; else
@@ -46,6 +55,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const readText = (root, rel) => { try { return fs.readFileSync(path.join(root, rel), "utf8"); } catch { return null; } };
@@ -872,6 +882,9 @@ export const RULES = Object.freeze([
   { id: "switches-inventory", gap: "G20", run: switchesInventory },
   { id: "speech-link", gap: "G21", run: speechLink },
   { id: "e2e-under-cargo-test", gap: "G22", run: e2eUnderCargoTest },
+  { id: "suite-key-literal", gap: "C3-04", run: ({ root, files }) => suiteKeyLiteral(root, files) },
+  { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
+  { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------

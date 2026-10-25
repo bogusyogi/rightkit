@@ -90,3 +90,20 @@ impl SecureStore<String> for CredentialStore {
             .map_err(|error| error.to_string())
     }
 }
+
+/// The licence client's device source over the credential-backed device service: the one per-install
+/// device id, created once and read the same way by every caller, instead of an adapter each app wrote
+/// by hand. `device_id` is `get_or_create` (a failed store is an error, never a new id) and
+/// `device_id_hash` is the lowercase hex SHA-256 of it that the lease endpoints take
+/// ([`crate::device_id_hash`]).
+#[cfg(feature = "license-client")]
+impl rightkit_license::DeviceIdSource for crate::DeviceService<CredentialStore> {
+    fn device_id(&self) -> Result<String, rightkit_license::DeviceIdError> {
+        self.get_or_create()
+            .map_err(|_| rightkit_license::DeviceIdError)
+    }
+
+    fn device_id_hash(&self) -> Result<String, rightkit_license::DeviceIdError> {
+        self.device_id().map(|id| crate::device_id_hash(&id))
+    }
+}

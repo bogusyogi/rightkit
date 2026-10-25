@@ -63,6 +63,7 @@ fn viewright_never_receives_the_gated_host() {
 }
 
 #[test]
+#[allow(deprecated)] // the deprecated 3-argument form must keep working until it is removed
 fn an_unlisted_or_malformed_app_builds_no_policy() {
     for bad in ["", "Mail", "a/b", "../x", "nosuchapp"] {
         assert!(UpdateHostPolicy::right_suite(bad).is_err(), "{bad:?}");
@@ -75,6 +76,7 @@ fn an_unlisted_or_malformed_app_builds_no_policy() {
 }
 
 #[test]
+#[allow(deprecated)] // the deprecated 3-argument form must keep working until it is removed
 fn the_updater_config_is_the_contracts_feed_with_the_runtime_placeholder() {
     let config =
         TauriUpdateConfig::right_suite("mailright", "PUBKEY", Duration::from_secs(60)).unwrap();
@@ -246,4 +248,32 @@ fn the_release_status_shape_matches_the_typescript_guard() {
     ] {
         assert!(ok(bad).is_none(), "{bad}");
     }
+}
+
+#[test]
+fn the_suite_config_takes_the_feed_and_the_key_from_the_contract_for_every_registered_app() {
+    use rightkit_license::suite_api;
+    for app in suite_api::registered_apps() {
+        let config = TauriUpdateConfig::suite(app, Duration::from_secs(60))
+            .unwrap_or_else(|e| panic!("{app}: {e:?}"));
+        assert_eq!(
+            config.endpoint.as_str(),
+            suite_api::updater_endpoint(app).unwrap(),
+            "{app}"
+        );
+        // The key is the contract's signing key, not something the app passed or a tauri.conf.json copy.
+        assert_eq!(
+            config.public_key,
+            suite_api::UPDATER_SIGNING_KEY.public_key,
+            "{app}"
+        );
+        assert_eq!(config.timeout, Duration::from_secs(60));
+    }
+    for bad in ["", "Mail", "a/b", "../x", "nosuchapp", "ember"] {
+        assert!(
+            TauriUpdateConfig::suite(bad, Duration::from_secs(1)).is_err(),
+            "{bad:?}"
+        );
+    }
+    assert!(TauriUpdateConfig::suite("mailright", Duration::ZERO).is_err());
 }

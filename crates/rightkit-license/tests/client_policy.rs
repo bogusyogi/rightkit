@@ -135,6 +135,7 @@ fn an_interrupted_deactivation_never_reports_success_and_settles_to_the_tombston
     assert!(f.backend.text(MARKER).is_none());
 }
 
+#[allow(deprecated)] // covers the deprecated fenced record reader until it is removed
 fn engine(f: &Fixture) -> EngineEntitlements {
     let config = EngineEntitlementsConfig::new(common::pubkey(), APP, f.dir.path(), || {
         Ok(DEVICE.to_string())

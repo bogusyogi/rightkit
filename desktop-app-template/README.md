@@ -16,7 +16,7 @@ have, the build refuses one behind its latest, and `template-contract.test.mjs` 
 the `check` command but reads only `right-release.config.mjs`; the JSON release config is loaded by every command from 0.6.6, which is
 not published yet. Until it is, run `right-release` from a RightKit checkout
 (`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of `pnpm release:*` and `pnpm dev:build:*`. The
-commit that records 0.6.6 in `rightkit-versions.json` also moves this pin to 0.6.6 (with `pnpm-lock.yaml`, the lock hashes in
+commit that records 0.6.7 in `rightkit-versions.json` (0.6.6 is staged under it) also moves this pin to 0.6.7 (with `pnpm-lock.yaml`, the lock hashes in
 `legal/THIRD_PARTY_NOTICES.md` and `legal/legal-manifest.json`) and deletes this paragraph (bogusyogi/rightkit#1148).
 
 The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`

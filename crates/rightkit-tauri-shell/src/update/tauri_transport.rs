@@ -31,9 +31,41 @@ pub struct TauriUpdateConfig {
 impl TauriUpdateConfig {
     /// The Right Suite configuration for `app_key`: the contract's updater feed
     /// (`rightkit_license::suite_api::updater_endpoint`, `{{target}}` left for the updater to
-    /// fill), the app's pinned updater key and one timeout. No `endpoints` entry in
-    /// `tauri.conf.json` is needed or read.
+    /// fill), the contract's signing key (`suite_api::UPDATER_SIGNING_KEY`) and one timeout. The
+    /// app provisions no key and reads none from `tauri.conf.json`; no `endpoints` entry there is
+    /// needed or read. An app the registry does not list has no feed, so it is refused.
+    ///
+    /// This configures the key the transport asks with first. To accept every other key the contract
+    /// lists (a rotation) build the transport with [`TauriUpdateTransport::suite`] or call
+    /// [`TauriUpdateTransport::with_suite_keys`].
     #[cfg(feature = "update-license")]
+    pub fn suite(app_key: &str, timeout: Duration) -> Result<Self, crate::error::ShellError> {
+        use rightkit_license::suite_api;
+        let invalid = |e: suite_api::SuiteApiError| {
+            crate::error::ShellError::Invalid(format!("Right Suite updater: {e}"))
+        };
+        suite_api::app_registered(app_key).map_err(invalid)?;
+        let endpoint = suite_api::updater_endpoint(app_key).map_err(invalid)?;
+        let endpoint = Url::parse(&endpoint).map_err(|_| {
+            crate::error::ShellError::Invalid("Right Suite updater endpoint".into())
+        })?;
+        if timeout.is_zero() {
+            return Err(crate::error::ShellError::Invalid(
+                "Right Suite updater needs a non-zero timeout".into(),
+            ));
+        }
+        Ok(Self {
+            endpoint,
+            public_key: suite_api::UPDATER_SIGNING_KEY.public_key.to_owned(),
+            timeout,
+        })
+    }
+
+    /// The Right Suite configuration for `app_key` with a public key the app supplies.
+    #[cfg(feature = "update-license")]
+    #[deprecated(
+        note = "use TauriUpdateConfig::suite: the updater key comes from the Right Suite contract, not from the app"
+    )]
     pub fn right_suite(
         app_key: &str,
         public_key: &str,
@@ -64,6 +96,9 @@ impl TauriUpdateConfig {
 pub struct TauriUpdateTransport {
     app: AppHandle<Wry>,
     config: TauriUpdateConfig,
+    /// Every updater key a release may be signed with; empty means the one key of `config`.
+    #[cfg(feature = "update-license")]
+    keys: Vec<rightkit_license::suite_api::UpdaterKey>,
     // One check generation only. UpdateHost invalidates older handles on its next check.
     checked: Mutex<Option<(ReleaseInfo, Update)>>,
 }
@@ -81,8 +116,61 @@ impl TauriUpdateTransport {
         Ok(Self {
             app,
             config,
+            #[cfg(feature = "update-license")]
+            keys: Vec::new(),
             checked: Mutex::new(None),
         })
+    }
+
+    /// The Right Suite transport of `app_key`: [`TauriUpdateConfig::suite`] and every updater key
+    /// the contract lists, so a release signed by a rotated-in key (or by the old key during a
+    /// rotation) verifies. Refuses an app the registry does not list.
+    #[cfg(feature = "update-license")]
+    pub fn suite(
+        app: AppHandle<Wry>,
+        app_key: &str,
+        timeout: Duration,
+    ) -> Result<Self, TransportError> {
+        let config =
+            TauriUpdateConfig::suite(app_key, timeout).map_err(|_| TransportError::Failed)?;
+        Ok(Self::new(app, config)?.with_suite_keys())
+    }
+
+    /// Accept every updater key the Right Suite contract lists, in addition to the key of the
+    /// config. The release's signature names its key, and a release signed by a listed key that has
+    /// not ended is checked with that key (see the `accepted_keys` module); a key that is not listed,
+    /// or has ended, is refused before anything is downloaded. Without this the transport accepts
+    /// only the key of its config, as before.
+    #[cfg(feature = "update-license")]
+    #[must_use]
+    pub fn with_suite_keys(mut self) -> Self {
+        self.keys = rightkit_license::suite_api::updater_keys();
+        self
+    }
+
+    /// One manifest request with `public_key` as the key the plugin will verify a download with.
+    fn updater_check(
+        &self,
+        auth: &RequestAuthorizer<'_>,
+        public_key: &str,
+    ) -> Result<Option<Update>, TransportError> {
+        let headers = auth
+            .authorize(&self.config.endpoint)
+            .map_err(TransportError::Refused)?;
+        let updater = self
+            .app
+            .updater_builder()
+            .clear_headers()
+            .headers(request_headers(&headers)?)
+            .endpoints(vec![self.config.endpoint.clone()])
+            .map_err(map_plugin_error)?
+            .pubkey(public_key)
+            .timeout(self.config.timeout)
+            .configure_client(client_policy)
+            .version_comparator(|current, release| release.version > current)
+            .build()
+            .map_err(map_plugin_error)?;
+        tauri::async_runtime::block_on(updater.check()).map_err(map_plugin_error)
     }
 }
 
@@ -220,23 +308,18 @@ impl UpdateTransport for TauriUpdateTransport {
     fn check(&self, auth: &RequestAuthorizer<'_>) -> Result<Option<ReleaseInfo>, TransportError> {
         // Retire any previous native installer object even if authorization now refuses.
         *lock(&self.checked) = None;
-        let headers = auth
-            .authorize(&self.config.endpoint)
-            .map_err(TransportError::Refused)?;
-        let updater = self
-            .app
-            .updater_builder()
-            .clear_headers()
-            .headers(request_headers(&headers)?)
-            .endpoints(vec![self.config.endpoint.clone()])
-            .map_err(map_plugin_error)?
-            .pubkey(&self.config.public_key)
-            .timeout(self.config.timeout)
-            .configure_client(client_policy)
-            .version_comparator(|current, release| release.version > current)
-            .build()
-            .map_err(map_plugin_error)?;
-        let found = tauri::async_runtime::block_on(updater.check()).map_err(map_plugin_error)?;
+        // Each request asks the authorizer for its own headers (a second request, made when the release
+        // is signed by another accepted key, is not covered by the first one's authorization).
+        #[cfg(feature = "update-license")]
+        let found = super::accepted_keys::check_across_keys(
+            &self.config.public_key,
+            &self.keys,
+            rightkit_license::system_now_unix().ok(),
+            |public_key| self.updater_check(auth, public_key),
+            |update: &Update| update.signature.as_str(),
+        )?;
+        #[cfg(not(feature = "update-license"))]
+        let found = self.updater_check(auth, &self.config.public_key)?;
         let Some(mut update) = found else {
             return Ok(None);
         };
