@@ -80,14 +80,14 @@
         "reason": "ci/asset-gated.json: ONNX Runtime and model files; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-qa": {
-        "version": "0.9.0",
+        "version": "0.9.1",
         "allow": [
           "allow_missing_assets"
         ],
         "reason": "ci/asset-gated.json: FFmpeg binary for the media cross-check (tests/media_ffmpeg.rs); its skip-handling tests also print SKIP markers by design; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "@rightkit/release": {
-        "version": "0.6.5",
+        "version": "0.6.7",
         "allow": [
           "allow_missing_assets"
         ],

@@ -1,125 +1,147 @@
 # Desktop app template (Rust + Tauri + React)
 
-Desktop counterpart of `swift/ios-app-template`. A minimal, buildable skeleton of the Right Suite
-desktop pattern as it exists in the mature apps (ScrapeRight is the reference; ViewRight, HeardRight,
-GenRight and CutRight agree on the shape). It carries **no product behaviour and no real brand**.
+The starting point of a Right Suite desktop app: a small, buildable skeleton of the pattern the mature apps share
+(ScrapeRight is the reference). It carries **no product behaviour and no real brand**, and it never copies shared code:
+every RightKit capability it uses is an exact pin from the published set (`packages/release/rightkit-versions.json` `registry`), and the app
+declares the whole desktop mandatory set (`packages/release/ownership-mandatory-set.json`, profile `desktop`) from its first commit.
 
-The template **consumes** shared RightKit packages and crates by exact published version. It never
-copies them. Nothing in it is a stand-in for shared code: every shared capability it uses is pinned to
-the version `packages/release/rightkit-versions.json` lists as `registry` (published).
-[`placeholders.json`](placeholders.json) lists only what remains genuinely unshipped (packaging scripts
-and the updater endpoint/key).
+A freshly instantiated app passes, with an empty baseline: `rightkit-gate check` (the offline app rules; the published `@rightkit/release`
+has carried it since 0.6.5, bogusyogi/rightkit#1148), the files and host rows of `right-release doctor`, the pipeline scan,
+the release-switch scan, the Cargo, QA and legal contracts and `right-release ownership-mandatory --enforce`.
+`packages/release/template-contract.test.mjs` runs those evaluators on a fresh instance on every change to the template or to
+`right-release init`.
+
+**Pin sequencing.** The pin is the latest published `@rightkit/release`, 0.6.5: the registry check refuses a pin the registry does not
+have, the build refuses one behind its latest, and `template-contract.test.mjs` requires every pin to equal the published set. 0.6.5 has
+the `check` command but reads only `right-release.config.mjs`; the JSON release config is loaded by every command from 0.6.6, which is
+not published yet (this tree stages 0.6.7 on top of it, also unpublished). Until a release with it is published, run `right-release` from a RightKit checkout
+(`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of `pnpm release:*` and `pnpm dev:build:*`. The
+commit that records 0.6.6 in `rightkit-versions.json` also moves this pin to 0.6.6 (with `pnpm-lock.yaml`, the lock hashes in
+`legal/THIRD_PARTY_NOTICES.md` and `legal/legal-manifest.json`) and deletes this paragraph (bogusyogi/rightkit#1148).
+
+The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`
+runs it, and it refuses to overwrite a differing hook, so a stale hook fails `pnpm install` in every app copied from the template.
+`template-contract.test.mjs` compares the hook with the sha256 recorded for the pin in `packages/release/fixtures/published-gate-hooks.json`
+(computed from the published tarball, so the test needs no network); 0.6.4 and 0.6.5 are recorded. The same commit that moves the pin
+to 0.6.6 adds the published 0.6.6 digest to that record (the file's `about` gives the command), regenerates this hook from the
+published 0.6.6 `hookText` when it differs, and the test then also requires this tree's `hookText` to match the recorded digest.
+
+**Installing inside the RightKit repository.** This directory sits inside RightKit's own git repository, so `prepare`
+(`rightkit-gate install-hook`) acts on the hooks at that repository's root, not on the template: it finds RightKit's own
+`.githooks/pre-push`, refuses to touch it and fails `pnpm install`. Install here with `pnpm install --ignore-scripts`, and never run
+`rightkit-gate install-hook --force` from this directory: it would replace RightKit's own pre-push hook. An app copied into its own
+repository installs normally; delete this paragraph there.
 
 ## What is in it
 
-| Area | Files | RightKit capability consumed |
+| Area | Files | What it does |
 |---|---|---|
-| Frontend | `src/`, `vite.config.ts`, `index.html` | `@rightkit/app-shell` 0.4.1 (`AppShell`: titlebar, caption controls, layout; bridge to the window), `@rightkit/platform-ui` (platform + QA bootstrap), `@rightkit/logs` (renderer events), `@rightkit/updates` (patch/update tier policy), `@rightkit/tauri` (typed host adapter; add when wiring license/device) |
-| Shell (host) | `src-tauri/` (`tauri.conf.json`, capabilities, `build.rs`, `lib.rs`, diagnostics) | `rightkit-shell` =0.1.4 (hosts the window: hardened webview, window state, single instance, watchdog; full `Shell::builder(..).plugin()`), `rightkit-service` =0.1.3 (`Suite` data root), `rightkit-tauri` =0.1.2 (`DeviceService`), `rightkit-logs` =0.2.0 (JSONL + redacted diagnostics) |
-| Supervisor | `src-tauri/src/lib.rs` (`engine_config`, `engine_call`) | `rightkit-jobs` =0.2.6 (`EngineSupervisor`: owned sidecar, restart budget, per-call deadline, no replay); `rightkit-process` =0.3.3 (`OwnedCommand` spawn) |
-| Engine sidecar + CLI | `crates/engine`, `crates/protocol` | `rightkit-jobs` =0.2.6 serve contract: one `Dispatcher` for `--stdio` frames and the one-shot CLI; durable `JobStore` and `JobHandler` for job kinds |
-| Release | `right-release.config.mjs`, `package.json` scripts | `@rightkit/release` 0.2.151 (`right-release build|upload|dev|doctor`) |
-| Brand | `assets/brand/brand.json` -> `src/brand.css` | token file generated into Tailwind v4 `@theme` |
-| E2E | `rightkit-qa.toml`, `tests/scenarios/`, `crates/engine/tests`, `src-tauri/tests` | Rust `rightkit-qa` engine black-box scenarios (real binary, isolated data dir, muted audio) plus real-process Rust tests of the supervisor; no Node harness |
-| Helpers + gate | `crates/tools` (`rightapp-tools brand-sync|stage-engine|check|init`) | Rust helpers; `check` rejects Node harnesses, loose or non-published pins, and any placeholder whose package is listed in `rightkit-versions.json` |
+| Frontend | `src/`, `vite.config.ts`, `index.html` | `@rightkit/react-shell` `AppShell` (titlebar, caption controls, layout), `@rightkit/platform-ui`, `@rightkit/logs` renderer events, `@rightkit/app-update` update tiers, `@rightkit/tauri` + `@rightkit/tauri-shell` host adapters, `@rightkit/theme` brand tokens |
+| Shell (host) | `src-tauri/` | `rightkit-tauri-shell` hosts the window (hardened webview, window state, single instance, tray and menu hooks, renderer log commands); `rightkit-device` keeps the device identity in the OS credential store; `rightkit-crash` installs the process hook first |
+| Supervisor | `src-tauri/src/lib.rs` (`engine_config`, `engine_call`) | `rightkit-job-queue` `EngineSupervisor` owns the engine sidecar: restart budget, per-call deadline, no replay of a timed-out call |
+| Engine + CLI | `crates/engine`, `crates/protocol` | the engine serves the `rightkit-job-queue` contract (one command table for `--stdio` frames and the one-shot CLI); `rightapp-protocol` holds the app id, method names and the data root |
+| Release | `right-release.config.json`, `package.json` scripts | JSON-only release config (M24): declarative `winPackage` / `macPackage` recipes, `sidecars` staging, dev installers, `legal`, `qa`. No script, no `.mjs` config |
+| Legal | `legal/`, `legal-snapshot.config.json`, `src/generated/legal-contract.json` | the six legal documents, the generated manifest and acceptance contract, passing the release legal contract (M12, M14) |
+| QA | `rightkit-qa.toml`, `journeys.toml`, `tests/scenarios/`, `src-tauri/tests/` | declared user journeys run against the real built app on isolated data (M20, M25); every Rust test is tagged `// rk-test: pure` or `contract` |
+| Switches | `switches.json` | the release switch inventory (M23): every environment read in the sources, with the build feature that compiles it out |
+| Gate | `.githooks/pre-push`, `prepare` script | `rightkit-gate` runs before every push; `pnpm install` installs the hook (A-16) |
+| Line endings | `.gitattributes` | LF in every checkout, Windows included: the legal documents are hashed byte for byte, `Cargo.lock` and `pnpm-lock.yaml` are held by `--locked`, and the hook runs under `sh` |
+| Mandatory set | `rightkit-mandatory.json`, `.rightkit/ownership-exceptions.json` | the desktop profile declaration and an empty exception ledger |
+| Advisory policy | `deny.toml`, `.cargo/audit.toml` | cargo-deny and cargo-audit policy; the ignores mirror RightKit's `ci/advisory-exceptions.json` |
+| Brand | `assets/brand/brand.json` -> `src/brand.css` | token file generated into Tailwind v4 `@theme` (`pnpm brand:sync`) |
 
-Licence and legal are mandatory (M12, M14): every app generated from this template adopts `@rightkit/license`, `@rightkit/legal`, `@rightkit/legal-ui` and `rightkit-license` (steps below). The template itself does not yet carry them; that gap is tracked, not optional.
+## Foundation owners
+
+Every desktop row of the mandatory set is declared, so a new app starts complete. Most owners are wired in code; five groups are
+**declared only**, because wiring them needs an app decision (a registered licence key and host) or a trust root that does not exist yet.
+They are listed in `placeholders.json` `declaredOnly` with what each is blocked on, and the template contract test fails the moment one of them is wired but still listed.
+
+| Rows | Owner | State |
+|---|---|---|
+| M1 | `rightkit-tauri-shell`, `rightkit-device`, `@rightkit/tauri` | wired |
+| M2 | `@rightkit/react-shell`, `@rightkit/platform-ui`, `@rightkit/theme` | wired |
+| M3, M4, M5 | `rightkit-job-queue` (supervisor and contract), `rightkit-child-process` | wired; `rightkit-sidecar` is declared on the engine (the framed transport the contract serves through) |
+| M6, M7 | `rightkit-daemon` (`mode`: release or test data root) | wired |
+| M8 | `rightkit-fs` (private data directory) | wired |
+| M11 | `rightkit-credentials` | wired (through `rightkit-device`) |
+| M15, M16 | `rightkit-tauri-shell` `logs`, `@rightkit/logs`, `rightkit-crash` | wired |
+| M18 | `@rightkit/app-update` | wired (`src/lib/updates.ts`) |
+| M19 | `@rightkit/release` | wired (config, scripts) |
+| M20 | `rightkit-qa`, `@rightkit/qa`, `@rightkit/qa-chrome` | wired (`qa-native` feature, journeys) |
+| M9 | `rightkit-db` | **declared only** (the engine opens no database yet) |
+| M10 | `rightkit-app-settings`, `@rightkit/settings-ui` | **declared only** |
+| M12, M13 | `rightkit-license`, `@rightkit/license` | **declared only** (needs a registered appKey, host and key) |
+| M14 | `@rightkit/legal-ui`, `@rightkit/onboarding` | **declared only** (the legal contract is generated and checked; no acceptance UI or receipt yet) |
+| M17 | `rightkit-http` | **declared only** |
+| M22 | `rightkit-agent-tools` | not applicable: the template has no agent surface (`rightkit-mandatory.json`); an app adds it only when it ships agent tools |
+
+Wiring the declared-only owners is tracked in bogusyogi/rightkit#1147; do it per app when the app has the feature.
 
 ## Who supervises, who hosts
 
-- **`rightkit-jobs` supervises the engine.** `EngineSupervisor` (in `src-tauri/src/lib.rs`) owns the
-  `rightapp-engine` child through `rightkit-process`: it boots it at setup, restarts it on demand within
-  5 per minute, and bounds each call with a deadline. A call that outlives its deadline kills the engine
-  and fails; it is never replayed, because the command may already have run.
-- **`rightkit-shell` hosts the window.** `Shell::builder("rightapp").plugin()` installs the hardened
-  webview, navigation policy, window state, single-instance arbitration and the hang watchdog. Its
-  `engine` feature is off: it is a thin client host with no restart budget or lifecycle, so enabling it
-  would run a second, weaker supervisor beside `EngineSupervisor`.
+- **`rightkit-job-queue` supervises the engine.** `EngineSupervisor` owns the `rightapp-engine` child: it boots it at setup, restarts
+  it on demand within 5 per minute, and bounds each call with a deadline. A call that outlives its deadline kills the engine and
+  fails; it is never replayed, because the command may already have run.
+- **`rightkit-tauri-shell` hosts the window.** `Shell::builder("rightapp").plugin()` goes first, so single-instance arbitration runs
+  before any other plugin. Commands are registered through `rightkit_tauri_shell::handler![...]`, which adds the shell's own.
 
 ## Data root
 
-`rightapp_protocol::app_data_root()` is the one data root for the shell and the engine:
-`<suite>/runtime/rightapp/data`, owner-only, where `<suite>` comes from `rightkit_service::Suite::resolve()`
-(the platform default, or `RIGHTKIT_SUITE_ROOT`). The shell stores window state under its `shell`
-subdirectory and device identity and logs under the root. The engine keeps its job store in `engine/`.
-The shell passes no app-specific variable to the engine. `RIGHTAPP_APP_DATA` remains only as the QA
-harness override (`rightkit-qa.toml` `[engine] data_dir_env`).
+`rightapp_protocol::app_data_root()` is the one data root for the shell and the engine. It goes through `rightkit_daemon::mode`: a
+release build resolves the product directory and nothing in the environment can move it; only a `test-mode` build (QA) binds it to
+the scenario's isolated directory, through `RIGHTKIT_QA_DATA_DIR`. The shell keeps window state under `shell/`, logs under `logs/` and
+crash reports under `crashes/`; the engine keeps its own files beside them. The shell passes no app-specific variable to the engine.
+
+## QA, journeys and what never ships
+
+- `journeys.toml` declares the app's proof: J-001 (the engine answers its command table as a sidecar and as a CLI) and J-002 (the app
+  launches hidden, supervises its engine and answers the doctor call from the window). `pnpm test:e2e` builds the frontend and runs
+  `rightkit-qa journeys run`.
+- The QA build is the `qa-native` feature of `src-tauri` (control server, test-mode data root, `RIGHTAPP_ENGINE_BIN`) and `test-mode` of
+  the engine. They are off by default, `right-release` refuses to seal a release or update whose graph or binary carries them, and
+  `switches.json` records that the environment reads exist only behind `qa-native`. A new environment read needs an entry there.
+- Rust tests must be tagged (`// rk-test: pure` for logic with no process, `contract` for a real child process behind a contract); a
+  test never launches the app itself. `journeys.toml` `[tests] untagged_baseline = 0`.
+- There is no Node UI harness and no in-page IPC mock.
 
 ## Create a new app (checklist)
 
-Work from the **primary checkout** of the new app's repository; do not create branches or worktrees
-without Adrian. Read `docs/rules/release-signing.md` before step 8 and `docs/rules/rightkit.md`
-before any Rust command.
+Work from the **primary checkout** of the new app's repository. Read `docs/rules/release-signing.md` before step 9 and
+`docs/rules/rightkit.md` before any Rust command.
 
-1. **Copy and rename.** Copy this directory to the new repo root, then
-   `rustright cargo run -q -p rightapp-tools -- init --slug <lowercase> --name "<Product Name>" --org <reverse.dns.prefix>`.
-   It rewrites `RightApp`/`rightapp`/`RIGHTAPP`/identifier and runs the gate.
-2. **Brand.** Run `/brand <code>`; put the approved palette in `assets/brand/brand.json`
-   (token names `brand`, `brand-*`), then `pnpm brand:sync`. Add the real logo/icon master,
-   then `pnpm tauri icon <master.png>` (replaces the placeholder icons and adds `icon.icns`).
-3. **Toolchain and install.** Check `packageManager`/`engines`/`rust-toolchain.toml` match the
-   workspace defaults, then `pnpm install` (never npm/npx). The template is its own pnpm workspace
-   (`packages: ["."]`), so the lockfile stays local. Commit `pnpm-lock.yaml` and `Cargo.lock`.
-4. **Pins.** Keep every `@rightkit/*` exact (no `^`, no git/link/file/workspace) and equal to its
-   `registry` version; keep every `rightkit-*` crate `=x.y.z` at its `registry` version in
-   `packages/release/rightkit-versions.json`. `pnpm check:template` verifies this inside the RightKit
-   checkout. When bumping an npm pin, keep the old version in `minimumReleaseAgeExclude` in
-   `pnpm-workspace.yaml` until the install has rewritten `pnpm-lock.yaml` with the new pin (the old lock
-   entry would otherwise fail the minimum-release-age policy); then add the new version and remove the old.
-   `check:template` warns about an exclusion whose version the lockfile no longer contains.
-   Each `tauri-plugin-*` crate is pinned `=x.y.z` to the same version as its npm counterpart
-   (`@tauri-apps/plugin-*`, exact); `check` fails on any mismatch, so `right-release dev` never meets two
-   Tauri plugin generations.
-5. **Engine.** Staging the sidecar is two top-level managed calls, never one that nests a broker call
-   (a managed RightKit request refuses nested broker calls, exit 125). `pnpm build:engine` (release) runs
-   `rustright cargo build -p <engine> --release` then `rustright cargo run -p rightapp-tools -- stage-engine --release`;
-   `pnpm build:engine:dev` does the same with `--profile release-iterate`. `stage-engine` makes no process
-   calls: it finds the built engine beside its own tools binary and copies it to
-   `src-tauri/binaries/<engine>-<triple>`. `right-release dev` runs `tauri build`; its dev config overrides
-   `beforeBuildCommand` to `pnpm build && pnpm build:engine:dev`, so dev uses `release-iterate` and release
-   uses `--release`. Domain work is a job kind: add the kind to `DomainJobs` in `crates/engine/src/main.rs`
-   (the `job.submit` path). A synchronous command goes in `DomainCommands` (the same table feeds the
-   CLI and the sidecar). Keep names in `crates/protocol` (`METHOD_*`, `JOB_KIND_*`). Large payloads go
-   through files, not frames. Document the CLI contract (`docs/CLI-<NAME>.md`) before other apps call it.
-6. **Shell.** Keep it a thin host. Register new `#[tauri::command]`s in `lib.rs` through
-   `rightkit_shell::handler![...]` (it adds the shell's own commands; the full plugin needs it). Add each
-   plugin's permission to `capabilities/default.json` (the gate checks the registered plugins). Set
-   `assetProtocol.scope` and the CSP `connect-src` to exactly what the app needs.
-7. **Updater.** Replace the `PLACEHOLDER` endpoint and `pubkey` in `tauri.conf.json` with the app's
-   manifest URL and the suite updater public key (copy from a shipped app; never generate keys).
-8. **Release.** In `right-release.config.mjs` choose exactly one `distribution.provider`
-   (`github-releases` public, `r2-rightapps` private), set artifact names, and replace
-   `scripts/package-placeholder.mjs` (Windows NSIS packaging) with GenRight's `win-nsis.mjs`, and add
-   `install-macos-development.mjs`. The mac signing contract (`macos-developer-id-notarized-portable-v1`)
-   is already wired through `scripts/build-mac-notarized.sh`; the win contract
-   (`windows-raw-exe-authenticode-before-nsis-v1`) builds the raw exe in `prePackage`. See "Release config
-   migration" in `docs/RIGHTKIT-SHARED-PLATFORM.md`. `pnpm check:release-pin` asserts the exact
-   `@rightkit/release` pin matches the installed, registry-listed version. Run `pnpm release:doctor`.
-   Signing/notarization is provisioned: never run `az login` or browser auth.
-9. **Licence and legal (mandatory, M12/M14; ScrapeRight/ViewRight/HeardRight pattern)**: add exact pins for
-   `@rightkit/license`, `@rightkit/legal-ui`, dev `@rightkit/legal`, and crates `rightkit-license`;
-   add `@tauri-apps/plugin-http`, `tauri-plugin-http` and the `http:default` capability scoped to the
-   brand host; bind the licence to the existing `KeyringDeviceStore` device identity in `lib.rs`; add
-   `legal/legal-manifest.json` and the `legal` block in `right-release.config.mjs`.
-10. **Media app add-on**: add `@rightkit/media-ui` (listed in `rightkit-versions.json`, 0.3.2) at its exact
-    version, import `@rightkit/media-ui/styles.css`, and mount the player or viewer in a view. Native
-    playback uses `rightkit-playback`.
-11. **E2E.** Scenarios are `tests/scenarios/*.scenario.toml` run by `rightkit-qa` (`pnpm test:e2e`): outcome-level
-    assertions on real engine output; fast tier only (no models, no network, no audio). A scenario that
-    cannot run fails the run unless it declares `optional = true`. Never make a billed call; paid
-    providers are exercised only against local HTTP mocks. Native UI scenarios drive the hidden app
-    through `rightkit-control` in an app-level `qa-native` feature that is off by default (pattern in `src-tauri/Cargo.toml` and `src-tauri/src/lib.rs`, to be enabled once rightkit-control 0.3.0 is on the registry; see `crates/rightkit-qa/examples`). QA control never ships: the dev lane builds it, `right-release` fails a release or update seal that contains it, and users automate only through the app's command line or plugin. Developer inspection of dev builds follows the same pattern: an optional `dev-native = ["rightkit-shell/dev-inspect"]` feature, commented in `src-tauri/Cargo.toml` until the registry pin of `rightkit-shell` has `dev-inspect`; a build with it can never be released.
-    There is no browser/Node UI harness and no in-page IPC mock.
-12. **Adopt shared pieces as they land.** When a package or crate becomes listed in
-    `rightkit-versions.json`, the gate fails until you pin it exactly, delete its stand-in, and delete its
-    `placeholders.json` entry. `@rightkit/app-shell` and `rightkit-jobs` are adopted.
-13. **Verify before first commit:** `pnpm check:template`, `pnpm typecheck`, `pnpm build`,
-    `rustright cargo test`, `pnpm test:e2e`.
+1. **Copy and rename.** Copy this directory to the new repository root and `git init`. From there run
+   `node <rightkit checkout>/packages/release/cli/right-release.mjs init --name "<Product Name>" --id <reverse.dns.bundle.id>`
+   (`--slug`, `--dir` and `--dry-run` are optional). It rewrites the template identity in text files, re-sorts `Cargo.lock` so
+   `cargo --locked` accepts it, re-hashes the legal manifest and prints the steps below that only a person can do. It keeps the
+   `r2-rightapps` distribution service name.
+2. **Install.** `pnpm install` (never npm or npx); the template is its own pnpm workspace. `prepare` installs the pre-push hook.
+   Commit `pnpm-lock.yaml` and `Cargo.lock`.
+3. **Doctor.** `pnpm release:doctor`. Every files and host row must pass before you build anything.
+4. **Register the repository on each host.** Add it to `packages/release/ownership-repositories.json` in RightKit (and its byte copy
+   under `packages/build-control-policy`), then run `right-release ownership trust-refresh` on the Mac and on the Dell. That needs a
+   person with administrator rights; an agent cannot do it.
+5. **Brand.** Run `/brand <code>`; put the approved palette in `assets/brand/brand.json`, then `pnpm brand:sync`. Add the real icon
+   master and run `pnpm exec tauri icon <master.png>` (replaces the placeholder icons and adds `icon.icns`).
+6. **Legal.** Set the app's public legal host in `legal-snapshot.config.json`, replace `legal/PRODUCT_SCHEDULE.md` and
+   `legal/PRIVACY_NOTICE.md` with reviewed text, then `pnpm exec legal-snapshot` (it regenerates `legal/legal-manifest.json` and
+   `src/generated/legal-contract.json`). The release legal contract refuses placeholder markers and a missing third-party notice.
+7. **Pins.** Keep every `@rightkit/*` and `rightkit-*` pin exact and equal to the published registry; the `rightkit-registry` row of
+   `right-release doctor` verifies them, and `right-release deps --check` / `--audit` report outdated packages and advisories. When bumping an npm pin, keep the old version in `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` until the install
+   has rewritten `pnpm-lock.yaml`, then remove it. Each `tauri-plugin-*` crate is pinned to the same version as its npm counterpart.
+8. **Engine, shell, journeys.** Domain work goes in `crates/engine` behind the contract (names in `crates/protocol`); keep the shell a
+   thin host and add each plugin's permission to `capabilities/default.json`; add a journey to `journeys.toml` for every release-critical
+   flow, and an entry to `switches.json` for every new environment read.
+9. **Updater and release.** Replace the endpoint and `pubkey` in `src-tauri/tauri.conf.json` (the suite updater public key, copied from
+   a shipped app; never generate keys). In `right-release.config.json` set the artifact names and, if the app is public,
+   `distribution.provider` to `github-releases`. Signing and notarization are provisioned: never run `az login` or browser auth.
+10. **Verify before the first commit.** `pnpm typecheck`, `pnpm build`, `rustright cargo test --manifest-path Cargo.toml`,
+    `pnpm test:e2e`, `pnpm release:doctor`, `pnpm dev:build:win` or `pnpm dev:build:mac` on the matching host.
 
-## Verified for this checkout
+`placeholders.json` lists what an app must still replace before it can ship.
 
-Ran here: `pnpm install --frozen-lockfile=false`, `pnpm run typecheck`, `pnpm exec vite build`.
-Not yet run (RightKit broker reported `RK_DATA_ROOT_INITIALIZING` for `/Volumes/D/.rightkit-managed`, so
-no Cargo command could be admitted): `pnpm run check:template`, `pnpm run test:rust`, `pnpm run build`.
-Rust code in `crates/` and `src-tauri/` has not been compiled yet. Not exercised: packaging, `pnpm test:e2e`
-(rightkit-qa fast tier), native UI scenarios.
+## Gate and advisories
+
+`.githooks/pre-push` runs `rightkit-gate` before every push; do not bypass it. `deny.toml` and `.cargo/audit.toml` are this workspace's
+advisory policy. The ignores in them (glib on Linux only; `zip` through `tauri-plugin-updater`) mirror RightKit's
+`ci/advisory-exceptions.json`, with the same review date: drop them when the dependency moves on, and add none without recording why
+the advisory does not apply. After a `cargo update`, re-check the lock against the advisory database.

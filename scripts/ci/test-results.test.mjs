@@ -10,6 +10,15 @@ test("libtest summaries are summed per binary, ignored included", () => {
   assert.equal(scanChunks([libtest(2, 1)]).failed, 1);
 });
 
+test("a libtest summary quoted in a test's captured output is not counted; the binary's own summary is", () => {
+  const inner = `test t::broken ... FAILED\n${libtest(0, 1)}`;
+  const show = `running 2 tests\ntest a ... ok\ntest b ... ok\n\nsuccesses:\n\n---- a stdout ----\nrun-tests: 1 failed\n--- bad::t stdout (last lines) ---\n${inner}SKIP fixture: no shell\n\n---- b stdout ----\n${libtest(1, 1)}\nsuccesses:\n    a\n    b\n\n${libtest(2)}`;
+  assert.deepEqual(scanChunks([show]), { executed: 2, failed: 0, ignored: 0, skipped: 1, binaries: 1 }, "--show-output blocks quote, the last summary reports");
+  const failing = `running 1 test\ntest c ... FAILED\n\nfailures:\n\n---- c stdout ----\n${libtest(3)}thread 'c' panicked\n\nfailures:\n    c\n\n${libtest(0, 1)}`;
+  assert.deepEqual(scanChunks([failing]), { executed: 0, failed: 1, ignored: 0, skipped: 0, binaries: 1 }, "a failed test's block quotes too; the real FAILED summary still counts");
+  assert.equal(scanChunks([`running 1 test\n---- x stdout ----\nrunning 4 tests\n${libtest(4, 2)}`]).failed, 2, "a new binary ends an unterminated block");
+});
+
 test("a SKIP marker counts with or without a prefix, and when split across chunks", () => {
   assert.equal(scanChunks(["SKIP e2e: no model\n"]).skipped, 1);
   assert.equal(scanChunks(["  SKIP e2e\n"]).skipped, 1);

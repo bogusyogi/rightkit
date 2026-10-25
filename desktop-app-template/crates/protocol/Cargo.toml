@@ -5,7 +5,17 @@ edition = "2021"
 rust-version = "1.98.0"
 publish = false
 
+[features]
+default = []
+# QA and dev only (never in default): compiles `rightkit_daemon::mode`'s test capability so rightkit-qa can bind this app's
+# data root to an isolated directory. The release switch scan refuses a release build whose graph enables it.
+test-mode = ["rightkit-daemon/test-mode"]
+
 [dependencies]
 # Shared RightKit crates: exact registry pins (rightkit-versions.json `registry`).
-rightkit-jobs = "=0.2.6"
-rightkit-service = "=0.1.3"
+# rightkit-job-queue: the serve contract's error types (JobError, JobResult).
+rightkit-job-queue = { version = "=0.5.1", default-features = false }
+# rightkit-daemon: the release-or-test decision and the roots every store must come through (M6).
+rightkit-daemon = "=0.4.0"
+# rightkit-fs: owner-only directory creation (M8).
+rightkit-fs = { version = "=0.4.7", features = ["fs"] }

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { EventEmitter } from "node:events";
-import { CommandSpecError, mergeNodeOptions, resolveInvocation, validateStep } from "./command-spec.mjs";
+import { CommandSpecError, loadAppConfig, mergeNodeOptions, resolveInvocation, validateStep } from "./command-spec.mjs";
 import { eventPrefix, parseTestArgs, planTests, runSuites } from "./test-command.mjs";
 
 const appRoot = path.resolve("fixture-app");
@@ -140,4 +140,33 @@ test("runSuites runs in order, emits events, stops at the first failure and retu
 
   await assert.rejects(() => runSuites(plan, { appRoot, env: {}, spawnFn: fakeSpawn(["signal"], []), log: () => {} }), /stopped by SIGTERM/);
   await assert.rejects(() => runSuites(plan, { appRoot, env: {}, spawnFn: fakeSpawn([new Error("ENOENT")], []), log: () => {} }), /ENOENT/);
+});
+
+test("command-spec: loadAppConfig loads right-release.config.json from the working directory and names the app root", async () => {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "command-spec-json-")));
+  const previous = process.cwd();
+  try {
+    writeFileSync(path.join(root, "right-release.config.json"), JSON.stringify({ schema: 1, app: "demo", tests: { suites: [{ name: "unit", cmd: "node", args: ["--test"] }] } }));
+    process.chdir(root);
+    const loaded = await loadAppConfig();
+    assert.equal(loaded.config.app, "demo");
+    assert.equal(loaded.config.tests.suites[0].name, "unit");
+    assert.equal(loaded.appRoot, root);
+    assert.equal(loaded.configPath, path.join(root, "right-release.config.json"));
+    assert.equal(parseTestArgs([]).config, "right-release.config.json", "the CLI default follows the same rule");
+    assert.deepEqual((await loadAppConfig(path.join(root, "right-release.config.json"))).config, loaded.config);
+    writeFileSync(path.join(root, "right-release.config.json"), '{ "schema": 1, "app": "demo", "unknown": true }');
+    await assert.rejects(loadAppConfig(), (error) => error.code === "RELEASE_CONFIG_KEY");
+  } finally { process.chdir(previous); rmSync(root, { recursive: true, force: true }); }
+});
+
+test("command-spec: loadAppConfig still imports a legacy right-release.config.mjs when it is the only config", async () => {
+  const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), "command-spec-legacy-")));
+  const previous = process.cwd();
+  try {
+    writeFileSync(path.join(root, "right-release.config.mjs"), 'export default { schema: 1, app: "legacy" };\n');
+    process.chdir(root);
+    assert.equal((await loadAppConfig()).config.app, "legacy");
+    assert.equal(parseTestArgs([]).config, "right-release.config.mjs");
+  } finally { process.chdir(previous); rmSync(root, { recursive: true, force: true }); }
 });

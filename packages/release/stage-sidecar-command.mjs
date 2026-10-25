@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// `right-release stage-sidecar [--config right-release.config.mjs] [--target <triple>] [--check] [--json]` (bogusyogi/rightkit#345):
+// `right-release stage-sidecar [--config right-release.config.json] [--target <triple>] [--check] [--json]` (bogusyogi/rightkit#345):
 // stages the config's declarative `sidecars` into src-tauri/binaries with Tauri externalBin naming. `--check` validates
 // the manifest and prints the plan without building, downloading, copying or deleting anything (for template gates).
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { planSidecarStaging, resolveTargetTriple, stageSidecars } from "./stage-sidecar.mjs";
 
-export function parseStageSidecarArgs(argv) {
-  const opts = { config: "right-release.config.mjs", target: undefined, json: false, check: false };
+export function parseStageSidecarArgs(argv, cwd = process.cwd()) {
+  const opts = { config: defaultReleaseConfigFile(cwd), target: undefined, json: false, check: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--config" || arg === "--target") {
@@ -49,8 +50,7 @@ async function main() {
   const opts = parseStageSidecarArgs(process.argv.slice(2));
   const configPath = path.resolve(opts.config);
   const appRoot = path.dirname(configPath);
-  const loaded = await import(pathToFileURL(configPath).href);
-  const config = loaded.default ?? loaded.config ?? loaded;
+  const config = await importReleaseConfig(configPath, { lenient: true });
   if (config?.sidecars === undefined) throw new Error(`${opts.config} declares no sidecars`);
   if (opts.check) {
     const target = opts.target ?? process.env.TAURI_ENV_TARGET_TRIPLE ?? nodeHostTriple();

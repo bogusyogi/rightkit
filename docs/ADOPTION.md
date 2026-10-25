@@ -72,7 +72,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `rightkit-pdf` | crates.io | 0.3.3 | 0.3.3 | 0 | none | - |
 | `rightkit-platform-rules` | crates.io | 0.1.0 | 0.1.0 | 0 | none | - |
 | `rightkit-playback` | crates.io | 0.3.0 | 0.3.0 | 0 | none | - |
-| `rightkit-qa` | crates.io | 0.9.0 | 0.9.0 | 0 | none | - |
+| `rightkit-qa` | crates.io | 0.9.1 | 0.9.0 | 0 | none | - |
 | `rightkit-qa-driver` | crates.io | 0.7.0 | 0.7.0 | 0 | none | - |
 | `rightkit-record` | crates.io | 0.3.3 | 0.3.3 | 0 | none | - |
 | `rightkit-review` | crates.io | 0.4.0 | 0.4.0 | 0 | none | - |
@@ -114,7 +114,7 @@ Status values compare each pin with the latest published version (registry-recor
 | `@rightkit/qa` | npm | 0.6.1 | 0.6.1 | 0 | none | - |
 | `@rightkit/qa-chrome` | npm | 0.1.11 | 0.1.11 | 0 | none | - |
 | `@rightkit/react-shell` | npm | 0.7.2 | 0.7.2 | 0 | none | - |
-| `@rightkit/release` | npm | 0.6.5 | 0.6.5 | 0 | none | - |
+| `@rightkit/release` | npm | 0.6.7 | 0.6.5 | 0 | none | - |
 | `@rightkit/settings-ui` | npm | 0.7.0 | 0.7.0 | 0 | none | - |
 | `@rightkit/sync-worker` | private | 0.1.0 | none recorded | 0 | none | - |
 | `@rightkit/tauri` | npm | 0.3.0 | 0.3.0 | 0 | none | - |

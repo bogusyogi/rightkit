@@ -1,0 +1,46 @@
+# The proof of this app is its declared user journeys, run against the real built app on isolated data
+# (docs/E2E-TESTING-STANDARD.md in RightKit). `rightkit-qa journeys check` validates this file; `rightkit-qa journeys run` builds
+# through the broker, launches outside it and writes the receipt that `right-release qa` seals.
+version = 1
+app = "rightapp"
+
+# Every test in the app is tagged (`// rk-test: pure` or `contract`); the count of untagged tests may only fall.
+[tests]
+untagged_baseline = 0
+
+# The app's one QA build: the shell with the control server (qa-native) and the embedded frontend (custom-protocol), and the
+# engine with the test-mode data root. Features are named package by package so the manifest can list them.
+[build]
+command = ["rustright", "cargo", "build", "--manifest-path", "Cargo.toml", "-p", "rightapp", "-p", "rightapp-engine", "--features", "rightapp/qa-native,rightapp/custom-protocol,rightapp-engine/test-mode"]
+features = ["rightapp-engine/test-mode", "rightapp/custom-protocol", "rightapp/qa-native"]
+
+[[build.artifacts]]
+role = "app"
+cargo_package = "rightapp"
+
+[[build.artifacts]]
+role = "engine"
+cargo_package = "rightapp-engine"
+qa_marker = false
+
+[[journey]]
+id = "J-001"
+title = "The engine answers its command table on isolated data, as a sidecar and as a CLI"
+platforms = ["macos", "windows"]
+surface = "engine"
+runner = "scenario"
+entry = "tests/scenarios/engine-blackbox.scenario.toml"
+tier = "fast"
+data = "generated"
+release_critical = true
+
+[[journey]]
+id = "J-002"
+title = "The app launches hidden on isolated data, supervises its engine and answers the doctor call from the window"
+platforms = ["macos", "windows"]
+surface = "native-ui"
+runner = "scenario"
+entry = "tests/scenarios/app-launch.scenario.toml"
+tier = "fast"
+data = "generated"
+release_critical = true

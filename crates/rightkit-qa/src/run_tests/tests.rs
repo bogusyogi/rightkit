@@ -312,13 +312,19 @@ mod runs {
         }
         assert_eq!(o.receipt.totals.tests.passed, 4);
         assert_eq!(o.receipt.totals.tests.ignored, 2);
-        // The receipt on disk is the receipt returned, in the run storage under <app>-run-tests.
+        // The receipt on disk is the receipt returned, in the run storage under <app>-run-tests. The run
+        // storage resolves its root before it creates anything (`storage::trusted_root`), so the run
+        // directory is under the resolved path: on macOS the temp dir is `/var/folders/...`, a symlink
+        // into `/private/var/folders/...`, and only the resolved form is what the receipt names.
         let on_disk: Receipt =
             serde_json::from_slice(&std::fs::read(&o.receipt_path).unwrap()).unwrap();
         assert_eq!(on_disk, o.receipt);
         assert_eq!(
             o.run_dir.parent().unwrap(),
-            fx.managed.join("runs").join("fx-run-tests")
+            std::fs::canonicalize(&fx.managed)
+                .unwrap()
+                .join("runs")
+                .join("fx-run-tests")
         );
         assert!(o.run_dir.join(LISTING_FILE).is_file());
         let marker: serde_json::Value =

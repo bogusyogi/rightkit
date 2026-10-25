@@ -1,7 +1,7 @@
-//! rightapp-engine: the engine sidecar AND the headless CLI, one command table served by rightkit-jobs.
+//! rightapp-engine: the engine sidecar AND the headless CLI, one command table served by rightkit-job-queue.
 //!
-//!   rightapp-engine [--stdio]                    serve rightkit-jobs frames over stdio (the shell supervises it)
-//!   rightapp-engine <words> [--input <json>]     one-shot CLI (rightkit-jobs `run_cli`); JSON on stdout
+//!   rightapp-engine [--stdio]                    serve rightkit-job-queue frames over stdio (the shell supervises it)
+//!   rightapp-engine <words> [--input <json>]     one-shot CLI (rightkit-job-queue `run_cli`); JSON on stdout
 //!
 //! Failure: `{"error":{"code","message"}}` on stdout. Exit codes: 1 engine error, 2 bad input or usage,
 //! 3 unknown command. Domain work is job kinds (`job.submit`); `echo` is also a synchronous command.
@@ -12,7 +12,8 @@ use std::sync::Arc;
 use rightapp_protocol::{
     app_data_root, JobError, JobResult, ENGINE_NAME, JOB_KIND_ECHO, METHOD_ECHO,
 };
-use rightkit_jobs::{
+use rightkit_crash::{install_process_hook, CrashConfig, ProcessKind};
+use rightkit_job_queue::{
     run_cli, serve, CommandSet, Dispatcher, Job, JobCommands, JobControl, JobHandler, JobLocks,
     JobStore, Runner, Sink, CONTRACT_VERSION,
 };
@@ -99,7 +100,12 @@ fn main() {
         }
         _ => {}
     }
+    // `app_data_root` makes the process-wide release-or-test decision first (rightkit_daemon::mode), before any store opens.
     let data = app_data_root().unwrap_or_else(|e| exit_with("data_root", &e, 1));
+    install_process_hook(
+        ProcessKind::Engine,
+        CrashConfig::new(ENGINE_NAME, env!("CARGO_PKG_VERSION"), data.join("crashes")),
+    );
     let dispatcher = dispatcher(&data).unwrap_or_else(|e| exit_with("engine_start", &e, 1));
 
     if args.is_empty() || args[0] == "--stdio" {
@@ -120,7 +126,7 @@ fn main() {
         &mut out,
         &mut io::stderr(),
     );
-    // rightkit-jobs exits 2 for any usage failure; the engine contract has always used 3 for an unknown command.
+    // rightkit-job-queue exits 2 for any usage failure; the engine contract has always used 3 for an unknown command.
     let code = if code == 2 && String::from_utf8_lossy(&out).contains("\"unknown_command\"") {
         3
     } else {

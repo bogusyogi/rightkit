@@ -453,7 +453,6 @@
     "ci/consumers",
     "crates/rightkit-qa/examples",
     "crates/rightkit-tauri-shell/example-app",
-    "desktop-app-template",
     "docs/plans",
     "spikes"
   ],

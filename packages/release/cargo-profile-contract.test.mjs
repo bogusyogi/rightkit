@@ -9,6 +9,7 @@ import {
   checkManifestProfiles,
   formatCargoProfileFindings,
   loadCargoProfileTemplate,
+  readCargoProfileExempt,
   scanCargoProfileContract,
 } from "./cargo-profile-contract.mjs";
 
@@ -144,6 +145,45 @@ test("cargoProfileExempt entries must be string literals naming a directory insi
     const findings = scanCargoProfileContract(root);
     assert.equal(findings.filter(({ rule }) => rule === "invalid-exempt").length, 2);
   });
+});
+
+const EXEMPT_APP = {
+  "Cargo.toml": `${WORKSPACE}${template}`,
+  "tools/probe/Cargo.toml": `${WORKSPACE}[profile.release]\npanic = "abort"\n`,
+  "research/bench/Cargo.toml": `${WORKSPACE}[profile.release]\npanic = "abort"\n`,
+  "engine/Cargo.toml": `${WORKSPACE}[profile.release]\npanic = "abort"\n`,
+};
+
+test("cargoProfileExempt in right-release.config.json is read from the parsed JSON and exempts a declared workspace, and only that one", () => {
+  withApp({
+    ...EXEMPT_APP,
+    "right-release.config.json": JSON.stringify({ schema: 1, app: "fixture", cargoProfileExempt: ["tools/probe/", "research/bench"] }, null, 2),
+  }, (root) => {
+    assert.deepEqual(readCargoProfileExempt(root), { paths: ["tools/probe", "research/bench"], findings: [] });
+    const files = [...new Set(scanCargoProfileContract(root).map(({ file }) => file))].sort();
+    assert.deepEqual(files, ["engine/Cargo.toml"]);
+  });
+});
+
+test("a JSON release config wins over a legacy module beside it, and names itself in the findings", () => {
+  withApp({
+    ...EXEMPT_APP,
+    "right-release.config.mjs": "export default { schema: 1, app: 'fixture', cargoProfileExempt: ['engine'] };\n",
+    "right-release.config.json": JSON.stringify({ schema: 1, app: "fixture", cargoProfileExempt: ["tools/probe", "/abs"] }),
+  }, (root) => {
+    const declared = readCargoProfileExempt(root);
+    assert.deepEqual(declared.paths, ["tools/probe"]);
+    assert.deepEqual(declared.findings.map(({ rule, file }) => [rule, file]), [["invalid-exempt", "right-release.config.json"]]);
+  });
+});
+
+test("cargoProfileExempt in a JSON config must be an array of strings naming a directory inside the app", () => {
+  const reasons = (config) => withApp({ ...EXEMPT_APP, "right-release.config.json": config }, (root) => readCargoProfileExempt(root).findings.map(({ rule, message }) => `${rule}: ${message}`));
+  assert.equal(reasons(JSON.stringify({ cargoProfileExempt: ["../elsewhere", "."] })).length, 2);
+  assert.match(reasons(JSON.stringify({ cargoProfileExempt: ["tools/probe", 7] })).join("\n"), /must be an array of strings/);
+  assert.match(reasons(JSON.stringify({ cargoProfileExempt: "tools/probe" })).join("\n"), /must be an array of strings/);
+  assert.match(reasons('{ "cargoProfileExempt": ["tools/probe"], }').join("\n"), /is not valid JSON/);
+  assert.deepEqual(reasons(JSON.stringify({ schema: 1, app: "fixture" })), []);
 });
 
 test("an app without [workspace] is checked at its shallowest manifest", () => {
