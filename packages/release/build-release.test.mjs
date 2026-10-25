@@ -14,7 +14,7 @@ import { parseCpuSeconds, processGroupCpuSeconds } from "./process-liveness.mjs"
 import { brokerManagedHost } from "./cargo-contract.mjs";
 import { ANDROID_SIGNING_CONTRACT, androidSealEntry, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_SIGNING_CONTRACT, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
-import { assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust } from "./github-updater-release.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust } from "./github-updater-release.mjs";
 import { ADMISSION_ROWS, runAdmission } from "./admission.mjs";
 import { editConfig, fixture, managedEnv } from "./test-support/fixture.mjs";
 import { RIGHT_SUITE_UPDATER_SIGNING_KEY_ID } from "./suite-api.generated.mjs";
@@ -43,7 +43,7 @@ function updaterSealFixture(t, algorithm = "Ed") {
   const start = source.indexOf("function sealRelease(");
   const end = source.indexOf("\nfunction collectToolVersions", start);
   const seal = runInNewContext(`${source.slice(start, end)}\nsealRelease;`, {
-    ...fs, path, process, assertUpdaterSignature,
+    ...fs, path, process, assertUpdaterSignature, isSuiteUpdaterApp,
     resolveUpdaterTrust: (options) => resolveUpdaterTrust(withContractKeys(options)),
     assertUpdaterKeyId: (text, id, label, options) => assertUpdaterKeyId(text, id, label, withContractKeys(options)),
     hashFile: (file) => createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
@@ -318,7 +318,7 @@ test("hardening checkpoint and seal status derive from the worker scan targets, 
 });
 
 test("seal verifies updater signatures over exact bytes under the key the Right Suite contract or the app's declaration resolves", () => {
-  assert.match(source, /import \{ assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust \} from "\.\/github-updater-release\.mjs"/);
+  assert.match(source, /import \{ assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust \} from "\.\/github-updater-release\.mjs"/);
   assert.match(source, /config\.distribution\?\.updaterPublicKey \?\? config\.distribution\?\.updaterPubkey \?\? target\?\.updater\?\.pubkey \?\? target\?\.updater\?\.publicKey/);
   assert.match(source, /resolveUpdaterTrust\(\{ app: config\.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config\.distribution\?\.updaterKeyId \}\)/);
   assert.match(source, /assertUpdaterKeyId\(signature, trust\.keyId, label, \{ app: config\.app \}\)/);
