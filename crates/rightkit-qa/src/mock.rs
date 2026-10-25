@@ -1116,19 +1116,38 @@ mod tests {
 
     #[test]
     fn opts_connection_cap_answers_503_and_shutdown_handle_stops() {
+        // The first request holds the only connection slot until the test releases it, so the second one is sent while the
+        // slot is provably taken (a fixed sleep raced a slow Windows runner: the first connection had not been accepted yet).
+        let entered = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let (e2, r2) = (entered.clone(), release.clone());
         let m = MockServer::start_opts(
             MockOptions::default().max_connections(1),
-            |_: &Request, _| {
-                std::thread::sleep(Duration::from_millis(400));
+            move |_: &Request, _| {
+                e2.store(true, Ordering::SeqCst);
+                let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                while !r2.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
                 Reply::text("slow")
             },
         )
         .unwrap();
         let addr = m.addr;
         let t = std::thread::spawn(move || exchange(addr, b"GET /s HTTP/1.1\r\n\r\n"));
-        std::thread::sleep(Duration::from_millis(150));
-        assert!(exchange(addr, b"GET /s HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 503"));
-        assert!(t.join().unwrap().starts_with("HTTP/1.1 200"));
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !entered.load(Ordering::SeqCst) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the first request never reached the handler"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let second = exchange(addr, b"GET /s HTTP/1.1\r\n\r\n");
+        release.store(true, Ordering::SeqCst);
+        assert!(second.starts_with("HTTP/1.1 503"), "{second}");
+        let first = t.join().unwrap();
+        assert!(first.starts_with("HTTP/1.1 200"), "{first}");
         let h = m.shutdown_handle();
         let h2 = h.clone();
         let w = std::thread::spawn(move || h2.wait());
