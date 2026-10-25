@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { RIGHT_SUITE_LICENSE_PUBLIC_KEY_HEX, RIGHT_SUITE_UPDATER_PUBLIC_KEYS } from "./suite-api.generated.mjs";
 import { RULES, main, runRules } from "./app-check.mjs";
+import { execFileSync } from "./background-process.mjs";
 import { RULES as PREFLIGHT_RULES } from "../../scripts/preflight.mjs";
 import { engineRecordStore, licenceKeyPatterns, suiteKeyLiteral, suiteUpdaterKey, updaterKeyPattern } from "./suite-trust-roots.mjs";
 

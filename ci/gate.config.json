@@ -390,6 +390,10 @@
         [
           "--features",
           "credentials"
+        ],
+        [
+          "--features",
+          "license-client"
         ]
       ]
     },

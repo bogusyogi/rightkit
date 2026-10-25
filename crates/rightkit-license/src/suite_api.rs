@@ -23,6 +23,7 @@ mod suite_api_generated;
 
 /// A route template with `{app}` filled in. The client has validated the app key already (its own
 /// rule, which also admits `_` and a leading digit), so this only substitutes.
+#[cfg_attr(not(feature = "client"), allow(dead_code))]
 pub(crate) fn fill_app(template: &str, app: &str) -> String {
     template.replace("{app}", app)
 }

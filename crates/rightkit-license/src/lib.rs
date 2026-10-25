@@ -34,7 +34,7 @@
 //! An engine process never reads the owner's credential store. The owner hands it the signed token,
 //! its device binding and a ledger flag as one `rightkit_credentials::handoff` snapshot
 //! (`LicenseClient::engine_snapshot`, `answer_engine_request`); the engine keeps it in an
-//! [`EngineSnapshotCell`] and verifies it again with [`EngineEntitlements::from_snapshot`] under the
+//! `EngineSnapshotCell` and verifies it again with `EngineEntitlements::from_snapshot` under the
 //! suite key ([`suite_api::LICENSE_PUBLIC_KEY`]). See the `engine_snapshot` module docs.
 //!
 //! ## Google-subject entitlement (feature `subject-entitlement`, 0.3.0)

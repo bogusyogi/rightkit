@@ -42,7 +42,7 @@ base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rightkit-http = { version = "0.3.6", path = "../rightkit-http", optional = true }
-rightkit-credentials = { version = "0.4.1", path = "../rightkit-credentials", optional = true }
+rightkit-credentials = { version = "0.4.2", path = "../rightkit-credentials", optional = true }
 zeroize = { version = "1.9", optional = true }
 url = { version = "2", optional = true }
 

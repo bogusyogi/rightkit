@@ -9,7 +9,7 @@
 - **App-check rules `suite-key-literal` (C3-04), `suite-updater-key` (C3-14) and `engine-record-store` (C3-05)** (`suite-trust-roots.mjs`; the check now runs 15 rules). The key rule also reads arrays with a comment on each element and `\x` escapes, and only a root `docs/` is skipped; a platform override such as `tauri.windows.conf.json` may leave `plugins.updater.pubkey` to the base config.
 - The minisign signature reader trims ASCII whitespace only, as the Rust and TypeScript readers now do (`updater-signature-vectors.v1.json` has the U+0085 and U+FEFF cases).
 - Docs: README section "Updater trust roots (Right Suite apps)" with the rotation order (add the key, release signed by the old key, then switch `updaterSigningKeyId`); the full runbook is `docs/SUITE-TRUST-ROOTS.md`.
-- Tests: `github-updater-release.test.mjs`, `publish-update.test.mjs`, `build-release.test.mjs`, `sign-updater.test.mjs`, `release-config.test.mjs`. Not changed here and affected: `signing-receipts.test.mjs` runs the seal with a suite app (`mailright`) that declares its own key and without `resolveUpdaterTrust` and `assertUpdaterKeyId` in its sandbox; it needs both added and a non-suite app or a contract key list.
+- Tests: `github-updater-release.test.mjs`, `publish-update.test.mjs`, `build-release.test.mjs`, `sign-updater.test.mjs`, `release-config.test.mjs`, `admission.test.mjs`, `signing-receipts.test.mjs` and `ios-cargoless-build.test.mjs` (their seal sandboxes inject `resolveUpdaterTrust`, `assertUpdaterKeyId` and `isSuiteUpdaterApp`, with a contract key list for a suite app), `suite-trust-roots.test.mjs`.
 
 ## 0.6.5 (2026-10-25, npm; publish run 40145700832)
 
