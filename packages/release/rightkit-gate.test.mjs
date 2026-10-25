@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2266,4 +2267,319 @@ test("deferredBlock: npm test scans get a line of their own with the tool, the s
   assert.equal(withNpm.length, 3);
   assert.equal(withNpm[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright or cargo and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:other (script test: cargo test)`);
   assert.match(withNpm[0], /scans not run clippy:a, test:npm:viewright;/, "named in the headline too");
+});
+
+// ---- B5: the clean-checkout check covers every linter config the scans can read ---------------------------------------------------------------------------
+
+// git status answers from a fixed list of dirty files, filtered by the pathspecs it is given as git would: a spec names a file or a directory.
+const dirtyAware = (base, dirty) => (cmd, args, opts) => {
+  if (cmd === "git" && args[0] === "status") {
+    const specs = args.slice(args.indexOf("--") + 1);
+    return ok(dirty.filter((f) => specs.some((s) => f === s || f.startsWith(`${s}/`))).map((f) => ` M ${f}\n`).join(""));
+  }
+  return base(cmd, args, opts);
+};
+async function dirtyGate(t, dirty, files = {}) {
+  const root = mkRepo(stripUndefined(jsRepo(files)), t);
+  const seen = []; const c = capture();
+  const code = await main(["--base", "origin/main"], {
+    ...c.io, ...noWrites, cwd: root, env: {}, readStdin: () => pushLine("refs/heads/claude/port"), runScans: fakeRun(seen), findRustfmt: () => "/x/rustfmt",
+    spawn: dirtyAware(pushSpawn(root, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\napps/coderight-tauri/src/a.ts\n" }), dirty),
+  });
+  return { code, seen, out: c.out.join("\n"), err: c.err.join("\n") };
+}
+
+test("gate: an uncommitted ESLint or Biome config in a directory between the repository root and a unit blocks the gate, as the scan reads it from the live checkout", async (t) => {
+  // apps/ has no package.json and no lock, so it is no pnpm root and not a unit directory; eslint:apps-coderight-tauri and biome:apps-coderight-web
+  // are planned from the config in it (planScans hasConfig looks in every ancestor directory), and they run in the live checkout.
+  const files = { "apps/eslint.config.js": "export default [];\n", "apps/biome.jsonc": "{}\n" };
+  for (const name of ["apps/eslint.config.js", "apps/biome.jsonc", "apps/.eslintrc.yaml", "apps/eslint.config.mts"]) {
+    const blocked = await dirtyGate(t, [name], files);
+    assert.equal(blocked.code, 1, `${name}: ${blocked.err}`);
+    assert.match(blocked.err, /BLOCKED: the checkout differs from HEAD where broker scans read it; commit or stash first:/, name);
+    assert.ok(blocked.err.includes(name), `${name} is named`);
+    assert.equal(blocked.seen.length, 0, `${name}: no scan ran against a checkout that is not HEAD`);
+  }
+  const clean = await dirtyGate(t, [], files);
+  assert.equal(clean.code, 0, clean.err);
+  const ids = clean.seen[0].plan.scans.map((s) => s.id);
+  assert.ok(ids.includes("eslint:apps-coderight-tauri") && ids.includes("biome:apps-coderight-web"), `the intermediate configs are what plans them: ${ids.join(" ")}`);
+  // A file that is no linter config, and the config of a directory that is no ancestor of any unit, stay out of the way.
+  for (const name of ["apps/README.md", "tools/eslint.config.js", "apps/other/eslint.config.js"]) assert.equal((await dirtyGate(t, [name], files)).code, 0, `${name} is not read by any scan`);
+});
+
+test("cleanCheckoutPaths: the directory of each unit and every ancestor of it contribute their ESLint and Biome configs, and what was checked before still is", () => {
+  const { cleanCheckoutPaths } = gateModule;
+  const paths = cleanCheckoutPaths({
+    rustUnits: [{ dir: "crates/a" }], rustWorkspaces: [{ cargoDir: "." }, { cargoDir: "src-tauri" }],
+    npmUnits: [{ name: "apps-a-b", dir: "apps/a/b", root: "apps/a/b" }, { name: "web", dir: "packages/web" }], npmRoots: [".", "apps/a/b"],
+  });
+  for (const p of [
+    "apps/eslint.config.js", "apps/biome.json", "apps/.eslintrc.yml", "apps/a/eslint.config.cjs", "apps/a/biome.jsonc", "apps/a/b/.eslintrc", "apps/a/b/biome.json",
+    "packages/eslint.config.mjs", "packages/web/.eslintrc.json", "eslint.config.ts", "biome.json",
+  ]) assert.ok(paths.includes(p), `${p} is checked against HEAD`);
+  for (const p of ["crates/a", "src-tauri", ".", "ci", "scripts", "vendor", "Cargo.lock", ".cargo", "rust-toolchain", "deny.toml", "package.json", "pnpm-lock.yaml", ".npmrc", "apps/a/b", "apps/a/b/pnpm-lock.yaml", "apps/a/b/package.json", "packages/web"]) assert.ok(paths.includes(p), `${p} is still checked`);
+  assert.equal(new Set(paths).size, paths.length, "no pathspec twice");
+  assert.ok(!paths.includes("apps/pnpm-lock.yaml") && !paths.includes("apps/package.json"), "only the linter configs are read from an intermediate directory");
+});
+
+// ---- B1: an app declares that a unit's test needs the broker (ci/gate.config.json npm.<unit>.requiresBroker) -----------------------------------------------------
+
+// HeardRight's root test is `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
+// `rustright cargo test`: no part of package.json says so, and scriptBrokerCall reads package.json only.
+// The module name is joined, not written: background-process.test.mjs forbids a quoted child_process token in any release source or test, and this fixture is only text for a script field.
+const OPAQUE_TEST = `node -e "const{spawnSync}=require('${["node:child", "process"].join("_")}');process.exit(spawnSync('pnpm',['run','verify'],{stdio:'inherit'}).status)"`;
+const opaque = { name: "viewright", license: "MIT", scripts: { test: OPAQUE_TEST, verify: "pnpm --dir tauri-app-next run verify" } };
+const REASON = "the root test runs tauri-app-next/scripts/verify-local.mjs, which spawns rustright cargo test";
+const declaring = (requiresBroker, scripts = opaque.scripts) => gateFiles({
+  "package.json": JSON.stringify({ ...opaque, scripts }), "src/app.ts": "",
+  "ci/gate.config.json": JSON.stringify({ npm: { viewright: { requiresBroker } } }),
+});
+
+test("B1: a test the scripts do not show reaching the broker runs on a host without it, until the app declares it", async (t) => {
+  const undeclared = await pushGate(t, { files: gateFiles({ "package.json": JSON.stringify(opaque), "src/app.ts": "" }), spawnOptions: viewrightSpawn });
+  assert.equal(undeclared.code, 0, undeclared.err);
+  const scan = undeclared.seen[0].plan.scans.find((s) => s.id === "test:npm:viewright");
+  assert.ok(scan, "it is planned and would run (and fail on this host: command not found)");
+  assert.equal(scan.brokerCall, undefined, "scriptBrokerCall cannot see through node -e");
+});
+
+test("B1: a declared test is deferred with the Rust gate where there is no broker, named with the app's reason, and never reported as passed", async (t) => {
+  const r = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  const ids = r.seen[0].plan.scans.map((s) => s.id);
+  assert.ok(!ids.includes("test:npm:viewright"), "not run");
+  assert.ok(ids.includes("license") && ids.includes("json-parse"), "the other scans still run");
+  const headline = r.err.split("\n").find((l) => /rust gate DEFERRED/.test(l));
+  assert.match(headline, /scans not run [^;]*test:npm:viewright/, "listed by name in the DEFERRED block");
+  assert.match(r.err, new RegExp(`npm test scan\\(s\\) deferred with the Rust gate, never run and never passed, because ci/gate\\.config\\.json declares that the test needs the broker and this host has no broker: test:npm:viewright \\(declared in ci/gate\\.config\\.json npm\\.viewright\\.requiresBroker: ${REASON.replaceAll(".", "\\.")}\\)`));
+  assert.match(r.out, /note: no RustRight broker on this host: 6 Rust scan\(s\) are deferred to host qualification, not run and not passed; 1 npm test scan\(s\) that need the broker \(their script runs it, or ci\/gate\.config\.json declares it\) are deferred with them, not run and not passed: test:npm:viewright/);
+  assert.doesNotMatch(r.out, /\[\d+\/\d+\] pass +test:npm:viewright/);
+  assert.deepEqual(r.seen[0].plan.deferred, []);
+  assert.equal(r.seen[0].plan.scanSetDigest, digestScanSet(r.seen[0].plan.scans), "the plan digest describes what runs");
+  assert.deepEqual(r.after, r.before, "the tree is byte for byte what it was");
+});
+
+test("B1: everywhere else a declared test runs exactly as before: a host with the broker or the shim, CI, a protected ref, the opt-out", async (t) => {
+  const withBroker = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: { ...viewrightSpawn, broker: true } });
+  assert.equal(withBroker.code, 0, withBroker.err);
+  const scan = withBroker.seen[0].plan.scans.find((s) => s.id === "test:npm:viewright");
+  assert.ok(scan, "it runs where the broker is");
+  assert.equal(scan.brokerCall.declared, true);
+  assert.doesNotMatch(withBroker.err + withBroker.out, /DEFERRED|npm test scan\(s\) (deferred|that need)/);
+  const shim = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: { ...viewrightSpawn, shim: true }, readFile: shimRead });
+  assert.ok(shim.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), "the managed shim counts as the broker");
+  for (const [name, o] of [
+    ["CI", { env: { CI: "1" } }], ["GITHUB_ACTIONS", { env: { GITHUB_ACTIONS: "true" } }], ["the opt-out", { env: { [DEFER_OPT_OUT_ENV]: "1" } }],
+    ["a protected ref", { stdin: pushLine("refs/heads/main") }], ["a release branch", { stdin: pushLine("refs/heads/release/1.0") }],
+  ]) {
+    const r = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: viewrightSpawn, ...o });
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, NO_BROKER, `${name}: the refusal is the one it was`);
+    assert.equal(r.seen.length, 0, `${name}: nothing was deferred, so nothing is skipped`);
+  }
+});
+
+test("B1: a declaration that is not { reason: <text> } defers nothing, fails closed, and says so", async (t) => {
+  for (const [name, value] of [["an empty object", {}], ["true", true], ["a bare string", "needs the broker"], ["an empty reason", { reason: "" }], ["a blank reason", { reason: " \n\t " }], ["a non-string reason", { reason: 5 }], ["an array", [{ reason: "x" }]]]) {
+    const r = await pushGate(t, { files: declaring(value), spawnOptions: viewrightSpawn });
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    assert.ok(r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), `${name}: the test is planned as if it were not declared`);
+    assert.match(r.out, /note: ci\/gate\.config\.json npm\.viewright\.requiresBroker is ignored: it must be \{ "reason": "<why this unit's test needs the broker>" \} with a non-empty reason; test:npm:viewright is planned as if it were not there/, name);
+    assert.doesNotMatch(r.err, /npm test scan\(s\) deferred/, name);
+  }
+  for (const [name, value] of [["false", false], ["null", null]]) {
+    const r = await pushGate(t, { files: declaring(value), spawnOptions: viewrightSpawn });
+    assert.ok(r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), name);
+    assert.doesNotMatch(r.out, /requiresBroker/, `${name} is a plain "no declaration"`);
+  }
+});
+
+test("B1: a call the scripts do show is reported from the scripts; the declaration only covers what they do not show", async (t) => {
+  const r = await pushGate(t, { files: declaring({ reason: REASON }, viewright.scripts), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  assert.ok(!r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"));
+  assert.match(r.err, new RegExp(`because the package script runs rustright and this host has no broker: test:npm:viewright \\(script test -> test:e2e: ${E2E_COMMAND.replaceAll(".", "\\.")}\\)`));
+  assert.doesNotMatch(r.err, /declared in/);
+});
+
+test("deferredBlock: a declared npm test scan names the declaration and its reason; a mix of both causes says both", () => {
+  const base = { units: ["a"], notRun: ["clippy:a", "test:npm:heardright"], refs: ["refs/heads/claude/x"] };
+  const declared = { id: "test:npm:heardright", tool: "rustright", via: ["test"], command: `ci/gate.config.json npm.heardright.requiresBroker: ${REASON}`, declared: true };
+  const shown = { id: "test:npm:viewright", tool: "rustright", via: ["test", "test:e2e"], command: E2E_COMMAND };
+  assert.equal(deferredBlock({ ...base, npmCalls: [declared] })[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because ci/gate.config.json declares that the test needs the broker and this host has no broker: test:npm:heardright (declared in ci/gate.config.json npm.heardright.requiresBroker: ${REASON})`);
+  assert.equal(deferredBlock({ ...base, npmCalls: [shown, declared] })[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright, or ci/gate.config.json declares that the test needs the broker and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:heardright (declared in ci/gate.config.json npm.heardright.requiresBroker: ${REASON})`);
+  assert.equal(deferredBlock({ ...base, npmCalls: [shown] })[2], deferredBlock({ ...base, npmCalls: [{ ...shown }] })[2], "without a declaration the line is what it was");
+});
+
+// ---- B2: install-hook in a repository whose root does not install @rightkit/release ---------------------------------------------------------------------------
+
+// CutRight's apps/cutright and HeardRight's tauri-app-next declare and install the package; the root declares nothing. The hook's last resort used to be the path
+// of the gate that wrote it: `../../../../../../home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs` from an exports checkout, and
+// `apps/cutright/node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs` from the install (stale at the next bump).
+const LINK = "node_modules/@rightkit/release/bin/rightkit-gate.mjs";
+const declares = (extra = {}) => JSON.stringify({ name: "x", devDependencies: { "@rightkit/release": "0.6.5" }, ...extra });
+const sha256Hex = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const PUBLISHED_HOOK_DIGESTS = JSON.parse(fs.readFileSync(new URL("./fixtures/published-gate-hooks.json", import.meta.url), "utf8")).releases;
+
+async function installFrom(t, files, gateFile, listed = Object.keys(files).filter((f) => f.endsWith("package.json"))) {
+  const root = mkRepo(files, t);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  const code = await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed }), cwd: root, gateFile: typeof gateFile === "function" ? gateFile(root) : gateFile });
+  return { code, root, out: c.out.join("\n"), err: c.err.join("\n"), hook: fs.readFileSync(path.join(root, ".githooks", "pre-push"), "utf8") };
+}
+
+test("hookGatePlan: a stable repository-relative path for the gate, from what the package.json files declare and never from what is installed", () => {
+  const { hookGatePlan } = gateModule;
+  const root = norm(path.resolve("/work/app"));
+  const outside = norm(path.resolve("/elsewhere/exports/packages/release/bin/rightkit-gate.mjs"));
+  const store = norm(path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs"));
+  // Install state is not an input: a plan that reads it fails here.
+  const exists = () => { throw new Error("hookGatePlan must not look at what is installed"); };
+  const plan = (declaring, gateFile) => hookGatePlan({ root, gateFile, declaring, exists });
+  // 1. the root declares it: its link and no extra packages, whatever else declares it (Pulse: the root and hub/; RightKit itself: the root)
+  assert.deepEqual(plan(["."], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan([".", "hub"], outside), { nodePath: LINK, packages: [], unsafe: [] }, "Pulse: the root form, the 0.6.4 and 0.6.5 hook");
+  assert.deepEqual(plan([".", "apps/cutright"], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan([".", "apps/cutright"], store), { nodePath: LINK, packages: [], unsafe: [] }, "run from a store copy: still the link");
+  assert.deepEqual(plan(["."], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: LINK, packages: [], unsafe: [] }, "run from inside the repository: the root declares it, so its link");
+  // 2. only packages declare it (CutRight's apps/cutright, HeardRight's tauri-app-next): the first of them in sorted order, every one searched
+  assert.deepEqual(plan(["apps/cutright"], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
+  assert.deepEqual(plan(["apps/cutright"], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "a store path is never written");
+  assert.deepEqual(plan(["apps/cutright", "tauri-app-next"], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright", "tauri-app-next"], unsafe: [] }, "the first declaring package, not whichever is installed");
+  // 3. nothing declares it: the gate's own path when it runs from inside the repository and not from a node_modules (a checkout of the package), else the root's link
+  assert.deepEqual(plan([], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: "packages/release/bin/rightkit-gate.mjs", packages: [], unsafe: [] });
+  assert.deepEqual(plan([], outside), { nodePath: LINK, packages: [], unsafe: [] }, "never a path outside the repository");
+  assert.deepEqual(plan([], store), { nodePath: LINK, packages: [], unsafe: [] }, "never a store path");
+  // a directory that cannot be written into a shell script is named, never written
+  const odd = plan(["apps/my app", "apps/$(x)", "-x", "apps/../up", "apps/a;b", "apps/ok"], outside);
+  assert.deepEqual([odd.packages, odd.unsafe.sort()], [["apps/ok"], ["-x", "apps/$(x)", "apps/../up", "apps/a;b", "apps/my app"]]);
+  assert.deepEqual(plan([".", "apps/a;b"], outside), { nodePath: LINK, packages: [], unsafe: ["apps/a;b"] }, "the root form still names the directories it leaves out");
+  for (const bad of ["apps/$(x)", "a b", "a\"b", "a`b", "a;b", "-x", "", "..", "a/../b", "./a", "a//b", "/abs", "C:\\x", "a\nb"]) assert.equal(gateModule.hookPathIsPlain(bad), false, JSON.stringify(bad));
+  for (const good of ["apps/cutright", "tauri-app-next", "packages/@scope/x.y", ".tools/app", "a+b/c_d-e"]) assert.equal(gateModule.hookPathIsPlain(good), true, good);
+});
+
+test("install-hook: with the install in a nested package, the hook finds the gate through that package's stable path, never one outside the repository or in the pnpm store", async (t) => {
+  const { hookGatePlan } = gateModule;
+  assert.equal(typeof hookGatePlan, "function");
+  const files = { "apps/cutright/package.json": declares(), [`apps/cutright/${LINK}`]: "", "README.md": "x" };
+  const store = (root) => path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs");
+  const wanted = hookText(`apps/cutright/${LINK}`, ["apps/cutright"]);
+  for (const [name, gateFile] of [["an exports checkout beside the repository", path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs")], ["the pnpm store copy of the install", store], ["a relative symlink target", path.resolve("/x/node_modules/@rightkit/release/bin/rightkit-gate.mjs")]]) {
+    const r = await installFrom(t, files, gateFile);
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    assert.equal(r.hook, wanted, name);
+    assert.doesNotMatch(r.hook, /\.\.\//, `${name}: nothing outside the repository`);
+    assert.doesNotMatch(r.hook, /\.pnpm|@rightkit\+release@/, `${name}: no version-pinned store path`);
+    assert.ok(!r.hook.includes(r.root) && !/[A-Za-z]:[\\/]/.test(r.hook), `${name}: no absolute path`);
+    assert.match(r.hook, /^for bin in node_modules\/\.bin\/rightkit-gate apps\/cutright\/node_modules\/\.bin\/rightkit-gate \*\//m, name);
+    assert.match(r.hook, /pnpm --dir apps\/cutright exec rightkit-gate "\$@"/, name);
+    assert.match(r.hook, /node "apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs" "\$@"/, name);
+    assert.match(r.out, /else of apps\/cutright \(the packages that declare @rightkit\/release\), else of any workspace package, else through `pnpm --dir apps\/cutright exec`/, name);
+    assert.match(r.out, /@rightkit\/release is declared in apps\/cutright\/package\.json/, name);
+  }
+  // Running it again from the same checkout changes nothing; run from the other place it is the same hook, so still current.
+  const first = await installFrom(t, files, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
+  const state = { hooksPath: ".githooks", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(first.root, state, { listed: ["apps/cutright/package.json"] }), cwd: first.root, gateFile: store(first.root) }), 0);
+  assert.ok(c.out.some((l) => /\.githooks\/pre-push already current/.test(l)), c.out.join("\n"));
+  // Not installed yet (a fresh clone, pnpm install --ignore-scripts): the link the package will have.
+  const fresh = await installFrom(t, { "apps/cutright/package.json": declares() }, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
+  assert.equal(fresh.hook, wanted);
+  // Several packages declare it: all are searched, the first one is the last resort and runs under pnpm, whichever of them is installed.
+  const declaringBoth = { "apps/cutright/package.json": declares(), "tauri-app-next/package.json": declares() };
+  const manyWanted = hookText(`apps/cutright/${LINK}`, ["apps/cutright", "tauri-app-next"]);
+  for (const [name, installed] of [["nothing installed", []], ["the second one installed", [`tauri-app-next/${LINK}`]], ["the first one installed", [`apps/cutright/${LINK}`]], ["both installed", [`apps/cutright/${LINK}`, `tauri-app-next/${LINK}`]]]) {
+    const many = await installFrom(t, { ...declaringBoth, ...Object.fromEntries(installed.map((f) => [f, ""])) }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+    assert.equal(many.hook, manyWanted, name);
+  }
+});
+
+test("install-hook: a root that installs the package keeps getting the published hook byte for byte, and RightKit's own checkout keeps its path", async (t) => {
+  const outside = path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs");
+  for (const [name, files] of [
+    ["the root installs it", { "package.json": declares(), [LINK]: "" }],
+    ["the root installs it and a package declares it too", { "package.json": declares(), "apps/cutright/package.json": declares(), [LINK]: "", [`apps/cutright/${LINK}`]: "" }],
+  ]) {
+    const r = await installFrom(t, files, outside);
+    assert.equal(r.hook, hookText(LINK), name);
+    assert.equal(sha256Hex(r.hook), PUBLISHED_HOOK_DIGESTS["0.6.5"], `${name}: the hook the published 0.6.5 wrote, so the template's committed hook is still "already current"`);
+  }
+  const own = await installFrom(t, { "packages/release/package.json": '{"name":"@rightkit/release"}' }, (root) => path.join(root, "packages/release/bin/rightkit-gate.mjs"));
+  assert.equal(own.hook, hookText("packages/release/bin/rightkit-gate.mjs"), "RightKit's own hook points at its checkout, as before");
+  const none = await installFrom(t, { "package.json": '{"name":"app"}' }, outside);
+  assert.equal(none.hook, hookText(LINK), "nothing declares it: the root's link, not a path outside the repository");
+  assert.match(none.err, /WARNING: no package\.json in this repository depends on @rightkit\/release/);
+});
+
+test("install-hook: the hook depends on what package.json files declare, not on what is installed, so a prepare script never meets a hook it wrote", async (t) => {
+  const outside = path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs");
+  const store = (root) => path.join(root, "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs");
+  const shapes = [
+    // Pulse: the root and hub/ both declare it
+    ["the root and hub", { "package.json": declares(), "hub/package.json": declares() }, [LINK, `hub/${LINK}`], hookText(LINK)],
+    ["the root and a package two levels down", { "package.json": declares(), "apps/cutright/package.json": declares() }, [LINK, `apps/cutright/${LINK}`], hookText(LINK)],
+    // CodeRight: two packages, neither the root
+    ["two packages, neither the root", { "apps/coderight-web/package.json": declares(), "apps/coderight-tauri/package.json": declares() }, [`apps/coderight-web/${LINK}`, `apps/coderight-tauri/${LINK}`], hookText(`apps/coderight-tauri/${LINK}`, ["apps/coderight-tauri", "apps/coderight-web"])],
+    ["one package (CutRight)", { "apps/cutright/package.json": declares() }, [`apps/cutright/${LINK}`], hookText(`apps/cutright/${LINK}`, ["apps/cutright"])],
+  ];
+  for (const [name, declared, links, wanted] of shapes) {
+    // Every subset of the links that can exist, from a fresh clone to everything installed, and every place the gate can run from, writes one hook.
+    const states = [[], ...links.map((link) => [link]), links];
+    for (const [where, gateFile] of [["an exports checkout", outside], ["a store copy", store]]) {
+      for (const installed of states) {
+        const r = await installFrom(t, { ...declared, ...Object.fromEntries(installed.map((f) => [f, ""])) }, gateFile);
+        assert.equal(r.code, 0, `${name}, ${where}, installed ${JSON.stringify(installed)}: ${r.err}`);
+        assert.equal(r.hook, wanted, `${name}, ${where}, installed ${JSON.stringify(installed)}`);
+      }
+    }
+    // A hook written before the install is current after it: `install-hook` as a prepare script succeeds without --force.
+    const first = await installFrom(t, declared, outside);
+    for (const link of links) { fs.mkdirSync(path.dirname(path.join(first.root, link)), { recursive: true }); fs.writeFileSync(path.join(first.root, link), ""); }
+    const again = capture();
+    assert.equal(await main(["install-hook"], { ...again.io, spawn: hookEnv(first.root, { hooksPath: ".githooks", sets: [] }, { listed: Object.keys(declared) }), cwd: first.root, gateFile: outside }), 0, `${name}: ${again.err.join("\n")}`);
+    assert.ok(again.out.some((l) => /\.githooks\/pre-push already current/.test(l)), `${name}: ${again.out.join("\n")}`);
+    assert.doesNotMatch(again.err.join("\n"), /already exists and differs/, name);
+  }
+  assert.equal(sha256Hex(hookText(LINK)), PUBLISHED_HOOK_DIGESTS["0.6.5"], "the root form is the published 0.6.5 hook");
+});
+
+test("install-hook: a declaring package whose directory is not a plain name is reported and never written into the hook", async (t) => {
+  const r = await installFrom(t, { "apps/my app/package.json": declares(), "apps/$(touch x)/package.json": declares(), "apps/ok/package.json": declares() }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /WARNING: the pre-push hook does not look for the gate in apps\/\$\(touch x\), apps\/my app: not a plain directory name/);
+  assert.equal(r.hook, hookText(`apps/ok/${LINK}`, ["apps/ok"]));
+  assert.ok(!r.hook.includes("touch") && !r.hook.includes("my app"));
+});
+
+test("the multi-root pre-push hook (real sh): a package deeper than the glob, the pnpm fallback in the declaring package, then node at the package's link", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const hook = (packages, nodePath) => ({ ".githooks/pre-push": hookText(nodePath, packages) });
+  // 1. beyond the three levels the glob covers: found through the explicit entry
+  const deep = hookRepo(t, { ...hook(["apps/a/b/c"], `apps/a/b/c/${LINK}`), "apps/a/b/c/node_modules/.bin/rightkit-gate": recorder(log, "deep") });
+  const ran = runHook(deep, "in\n");
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "deep check --commit HEAD\n--\ndeep --base origin/main\nin\n--\n");
+  assert.match(ran.stderr, /rightkit-gate: using apps\/a\/b\/c\/node_modules\/\.bin\/rightkit-gate/);
+  // 2. nothing installed, pnpm present: it runs in the declaring package (at the repository root it has no rightkit-gate to run)
+  fs.rmSync(log, { force: true });
+  const bin = mkRepo({ pnpm: recorder(log, "pnpm") }, t);
+  fs.chmodSync(path.join(bin, "pnpm"), 0o755);
+  const viaPnpm = runHook(hookRepo(t, hook(["apps/cutright"], `apps/cutright/${LINK}`)), "in\n", { path: [bin] });
+  assert.equal(viaPnpm.status, 0, viaPnpm.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "pnpm --dir apps/cutright exec rightkit-gate check --commit HEAD\n--\npnpm --dir apps/cutright exec rightkit-gate --base origin/main\nin\n--\n");
+  assert.match(viaPnpm.stderr, /rightkit-gate: using pnpm --dir apps\/cutright exec rightkit-gate/);
+  // 3. no pnpm: node at the package's link, a path in the repository
+  fs.rmSync(log, { force: true });
+  const shim = mkRepo({}, t);
+  fs.symlinkSync(process.execPath, path.join(shim, "node"));
+  const noPnpmPath = [shim, "/usr/bin", "/bin"].join(path.delimiter);
+  const lastResort = hookRepo(t, { ...hook(["apps/cutright"], `apps/cutright/${LINK}`), [`apps/cutright/${LINK}`]: `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nfs.readFileSync(0);\n` });
+  const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, PATH: noPnpmPath } });
+  assert.equal(viaNode.status, 0, viaNode.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n--base origin/main\n");
+  assert.match(viaNode.stderr, /rightkit-gate: using node apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs/);
 });

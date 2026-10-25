@@ -1415,7 +1415,7 @@ test("lint: a Biome-only app is planned biome, never eslint (ViewRight and Scrap
     const biome = scanOf(p, "biome:app");
     assert.ok(biome, `${config}: ${ids(p).join(" ")}`);
     assert.deepEqual([biome.tool, biome.args, biome.cwd, biome.class], ["pnpm", ["exec", "biome", "lint", "."], ".", "B"]);
-    assert.equal(biome.command, "pnpm exec biome lint .");
+    assert.equal(biome.command, "pnpm_config_verify_deps_before_run=false pnpm exec biome lint .", "the pnpm dependency check is off for the run (B4)");
     assert.equal(scanClassOf("biome:app"), "B");
     assert.ok(!ids(p).includes("eslint:app"), `${config}: a Biome app has no ESLint config, so eslint . would fail with "couldn't find an eslint.config": ${ids(p).join(" ")}`);
   }
@@ -1596,4 +1596,124 @@ test("pnpm roots: a root that is not a plain repository-relative directory, or a
   assert.ok(ids(outside).some((i) => i.startsWith("path-policy:")), "a unit whose root does not hold it");
   assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmRoots: "apps/a" }), /npmRoots must be/);
   assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmUnits: [{ name: "a", dir: "apps/a", root: 3 }] }), /string root/);
+});
+
+// ---- B4: pnpm 11's dependency check before `pnpm run` and `pnpm exec` must not abort a gate scan -----------------------------------------------------------
+// CodeRight, 2026-10-25: tsc:, biome: and test:npm: failed in two seconds with a stack through runDepsStatusCheck. pnpm 11 verifies, before every
+// `pnpm run` and `pnpm exec`, that node_modules matches pnpm-lock.yaml and answers a stale tree by running `pnpm install`, which wants to purge the
+// modules directory and aborts with no TTY. The scan never reached tsc, biome or the tests, and the reported error was the tail of a stack.
+
+// What pnpm 11.25.0 printed for `pnpm exec tsc --version` in that tree (stderr, the paths of the host kept).
+const PNPM_ABORT = [
+  "[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY] Aborted removal of modules directory due to no TTY",
+  "",
+  'If you are running pnpm in CI, set the CI environment variable to "true", or set "confirmModulesPurge" to "false".',
+  "[ERROR] Command failed with exit code 1: pnpm install",
+  "",
+  "pnpm: Command failed with exit code 1: pnpm install",
+  "    at getFinalError (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:89986:14)",
+  "    at makeError (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:92293:21)",
+  "    at boundExeca (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:96532:49)",
+  "    at sync2 (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:96687:14)",
+  "    at runPnpmCli (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:276906:5)",
+  "    at runDepsStatusCheck (file:///root/.local/share/pnpm/.tools/pnpm/11.25.0_tmp_28750/node_modules/pnpm/dist/pnpm.mjs:278122:7)",
+  "",
+].join("\n");
+
+// A stand-in for pnpm 11 on a stale tree: `pnpm run` and `pnpm exec` abort unless pnpm_config_verify_deps_before_run is `false` in the child's
+// environment (the pnpm_config_ spelling; npm_config_ does not turn it off); with it off the tool runs and answers `toolResult`.
+function stalePnpm({ log = [], toolResult = { status: 0, stdout: "", stderr: "" } } = {}) {
+  const base = fakeSpawn();
+  return (command, args, options = {}) => {
+    if (path.basename(command).replace(/\.exe$/, "") !== "pnpm" || args[0] === "--version" || args[0] === "install" || args[0] === "audit") return base(command, args);
+    const flag = options.env?.pnpm_config_verify_deps_before_run;
+    log.push({ args, flag });
+    return flag === "false" ? toolResult : { status: 1, stdout: "", stderr: PNPM_ABORT };
+  };
+}
+const jsApp = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node --test"}}', "tsconfig.json": "{}", "eslint.config.js": "", "biome.json": "{}", "src/a.ts": "" };
+const pnpmUnit = { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] };
+
+test("B4: the class B pnpm scans (tsc, eslint, biome, test:npm) turn pnpm's dependency check off; the class A lockfile and audit scans and every other scan are unchanged", () => {
+  const { plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
+  const ENV = { pnpm_config_verify_deps_before_run: "false" };
+  for (const id of ["tsc:app", "eslint:app", "biome:app"]) assert.deepEqual(scanOf(plan, id).env, ENV, id);
+  assert.deepEqual(scanOf(plan, "test:npm:app").env, { ...ENV, RIGHTKIT_ISOLATED_CHECKOUT: "1" }, "the isolated checkout flag stays");
+  assert.equal(scanOf(plan, "tsc:app").command, "pnpm_config_verify_deps_before_run=false pnpm exec tsc --noEmit -p tsconfig.json");
+  assert.equal(scanOf(plan, "test:npm:app").command, "RIGHTKIT_ISOLATED_CHECKOUT=1 pnpm_config_verify_deps_before_run=false pnpm --dir . run test");
+  for (const id of ["pnpm-lockfile", "pnpm-audit"]) {
+    const scan = scanOf(plan, id);
+    assert.ok(scan, id);
+    assert.equal(scan.env.pnpm_config_verify_deps_before_run, undefined, `${id} installs into no tree and runs no script: no dependency check to turn off`);
+  }
+  assert.ok(plan.scans.filter((s) => s.tool !== "pnpm").every((s) => s.env?.pnpm_config_verify_deps_before_run === undefined), "no other scan gets it");
+});
+
+test("B4: every class B pnpm scan reaches pnpm with the check off, so a stale node_modules runs the tool or the test instead of aborting", async () => {
+  const { fs, plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
+  const log = [];
+  const result = await runScans(plan, deps({ ...fs, spawn: stalePnpm({ log }) }));
+  assert.equal(result.ok, true, JSON.stringify(scanFailures(result)));
+  assert.deepEqual(log.map((c) => c.args[0] === "--dir" ? "test" : c.args[1]).sort(), ["biome", "eslint", "test", "tsc"], "tsc, eslint, biome and the tests all ran");
+  assert.ok(log.every((c) => c.flag === "false"), "with the check off in each child's environment");
+  // The stand-in does abort when the setting is absent: that is what the unfixed plan hit.
+  const stripped = { ...plan, scans: plan.scans.map((s) => (s.tool === "pnpm" && s.class === "B" ? { ...s, env: Object.fromEntries(Object.entries(s.env ?? {}).filter(([k]) => k !== "pnpm_config_verify_deps_before_run")) } : s)) };
+  const aborted = await runScans(stripped, deps({ ...fs, spawn: stalePnpm() }));
+  assert.equal(aborted.ok, false);
+  assert.match(aborted.scans.find((r) => r.id === "tsc:app").detail, /ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY/);
+});
+
+test("B4: turning the check off masks no real failure: a tool or test that fails still fails the scan with its own output", async () => {
+  const { fs, plan } = planFor(["src/a.ts"], jsApp, pnpmUnit);
+  const toolResult = { status: 2, stdout: "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n", stderr: "" };
+  const result = await runScans(plan, deps({ ...fs, spawn: stalePnpm({ toolResult }) }));
+  assert.equal(result.ok, false);
+  for (const id of ["tsc:app", "eslint:app", "biome:app", "test:npm:app"]) {
+    const row = result.scans.find((r) => r.id === id);
+    assert.equal(row.status, "fail", id);
+    assert.match(row.detail, /error TS2322/, `${id} reports the tool's own failure`);
+  }
+});
+
+test("B4: a failed scan's detail leads with pnpm's bracketed [ERR_PNPM_...] line, not the tail of a stack", () => {
+  const detail = scansModule.failureDetail({ status: 1, stdout: "", stderr: PNPM_ABORT });
+  assert.match(detail, /^\[ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY\] Aborted removal of modules directory due to no TTY \|/, detail);
+  assert.match(detail, /runDepsStatusCheck/, "the stack tail is still there after it");
+  // The other shapes it reads are unchanged: a bare code, a failed test, a compiler error, a panic.
+  assert.match(scansModule.failureDetail({ stderr: " ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed\n    at x\n" }), /^ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL/);
+  assert.match(scansModule.failureDetail({ stdout: "x\ntest foo ... FAILED\ny\n" }), /^test foo \.\.\. FAILED/);
+  assert.match(scansModule.failureDetail({ stderr: "noise\nerror[E0308]: mismatched types\n" }), /^error\[E0308\]: mismatched types/);
+});
+
+// ---- B1: ci/gate.config.json npm.<unit>.requiresBroker ---------------------------------------------------------------------------------------------------------
+
+test("B1: declaredBrokerCall reads { reason } only; whitespace is collapsed, a long reason is cut, anything else is a problem or no declaration", () => {
+  const { declaredBrokerCall } = scansModule;
+  assert.deepEqual(declaredBrokerCall("app", { reason: "  runs\n  verify-local.mjs  " }), { call: { tool: "rustright", via: ["test"], command: "ci/gate.config.json npm.app.requiresBroker: runs verify-local.mjs", declared: true } });
+  const long = declaredBrokerCall("app", { reason: "x".repeat(500) }).call.command;
+  assert.equal(long, `ci/gate.config.json npm.app.requiresBroker: ${"x".repeat(400)}...`);
+  for (const none of [undefined, null, false]) assert.deepEqual(declaredBrokerCall("app", none), {}, String(none));
+  for (const bad of [true, 0, "yes", [], {}, { reason: "" }, { reason: "   " }, { reason: 7 }, { reason: null }, [{ reason: "x" }], { Reason: "x" }, { why: "x" }]) {
+    const r = declaredBrokerCall("app", bad);
+    assert.equal(r.call, undefined, JSON.stringify(bad));
+    assert.match(r.problem, /^ci\/gate\.config\.json npm\.app\.requiresBroker is ignored: it must be \{ "reason": /, JSON.stringify(bad));
+  }
+});
+
+test("B1: planScans marks a declared unit's test:npm scan; the script chain's own finding wins; a bad declaration plans the scan unmarked with a note; other settings are unaffected", () => {
+  const files = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node -e \\"require(\'./verify-local.mjs\')\\""}}', "src/a.ts": "" };
+  const declare = (requiresBroker, extra = {}) => planFor(["src/a.ts"], files, { ...pnpmUnit, packageFeatures: { app: { requiresBroker, ...extra } } }).plan;
+  const marked = scanOf(declare({ reason: "verify-local.mjs spawns rustright cargo test" }), "test:npm:app");
+  assert.deepEqual(marked.brokerCall, { tool: "rustright", via: ["test"], command: "ci/gate.config.json npm.app.requiresBroker: verify-local.mjs spawns rustright cargo test", declared: true });
+  assert.deepEqual([marked.tool, marked.args], ["pnpm", ["--dir", ".", "run", "test"]], "the scan itself is unchanged");
+  assert.equal(scanOf(planFor(["src/a.ts"], files, pnpmUnit).plan, "test:npm:app").brokerCall, undefined, "no declaration, no script that shows the call: unmarked");
+  const bad = declare({ reason: "" });
+  assert.equal(scanOf(bad, "test:npm:app").brokerCall, undefined);
+  assert.ok(bad.notes.some((n) => /^ci\/gate\.config\.json npm\.app\.requiresBroker is ignored: /.test(n)), bad.notes.join("\n"));
+  assert.ok(!declare({ reason: "x" }).notes.some((n) => /requiresBroker/.test(n)), "a good declaration adds no note");
+  const quiet = declare({ reason: "x" }, { quietTests: true });
+  assert.equal(scanOf(quiet, "test:npm:app").quiet, true, "quietTests still applies");
+  assert.equal(scanOf(quiet, "test:npm:app").brokerCall.declared, true);
+  const shown = planFor(["src/a.ts"], { ...files, "package.json": '{"name":"app","license":"MIT","scripts":{"test":"rustright cargo test"}}' }, { ...pnpmUnit, packageFeatures: { app: { requiresBroker: { reason: "x" } } } }).plan;
+  assert.deepEqual(scanOf(shown, "test:npm:app").brokerCall, { tool: "rustright", via: ["test"], command: "rustright cargo test" }, "what the scripts show is reported as the scripts show it");
 });
