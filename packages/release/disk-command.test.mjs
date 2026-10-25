@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
-import { CACHEDIR_SIGNATURE, KEEP_MARKER, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
+import { CACHEDIR_SIGNATURE, KEEP_MARKER, MAX_LEASE_DAYS, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
@@ -2045,3 +2045,86 @@ test("right-release --help loads and lists the hourly run modes, run-root and th
   assert.match(r.stdout, /disk run-root --release <name>/);
   assert.match(r.stdout, /Hourly launchd job .* running "disk run --auto".* 26 h/);
 });
+
+// ---- review findings ---------------------------------------------------------------------------------------------------
+// Each test below failed before its fix.
+
+test("run-root: --days is at most 30 (and positive), and nothing is written for a refused value", async () => {
+  assert.equal(MAX_LEASE_DAYS, 30);
+  const { scratch, cmd } = leaseFixture();
+  for (const days of ["31", "30.5", "365", "2999", "0", "-1", "abc", "Infinity", "NaN"]) {
+    const r = await cmd(["rk-days", "--days", days]);
+    assert.equal(r.exitCode, 1, days);
+    assert.match(r.err, /--days must be a positive number of at most 30/, days);
+    assert.equal(existsSync(path.join(scratch, "rk-days")), false, `${days}: nothing was written`);
+  }
+  assert.equal((await cmd(["rk-days", "--days", "30"])).exitCode, 0);
+  const lease = JSON.parse(readFileSync(path.join(scratch, "rk-days", RUN_LEASE_FILE), "utf8"));
+  assert.equal(Date.parse(lease.leaseUntil) - Date.parse(lease.createdAt), 30 * DAY);
+  assert.equal((await cmd(["rk-days2", "--days", "0.5"])).exitCode, 0);
+  assert.throws(() => createRunRoot({ policy: leaseFixture().policy, platform: "darwin", name: "rk-direct", days: 31, size: () => 0 }), /at most 30/);
+});
+
+test("run-root: renewing keeps createdAt only while the lease fits 30 days from it; a longer-running run root starts a new window the guard accepts", async () => {
+  const { scratch, now, cmd } = leaseFixture();
+  await cmd(["rk-r", "--days", "20"]);
+  const file = path.join(scratch, "rk-r", RUN_LEASE_FILE);
+  const first = JSON.parse(readFileSync(file, "utf8"));
+  // renewed 10 days later for 20 more: 30 days from the original createdAt, still one window
+  await cmd(["rk-r", "--days", "20"], { runRoot: { size: () => 0, now: now + 10 * DAY } });
+  const second = JSON.parse(readFileSync(file, "utf8"));
+  assert.equal(second.createdAt, first.createdAt);
+  assert.equal(Date.parse(second.leaseUntil) - Date.parse(second.createdAt), 30 * DAY);
+  // renewed 25 days in for 20 more: 45 days from the original createdAt would break the limit, so createdAt moves to the renewal
+  const later = now + 25 * DAY;
+  await cmd(["rk-r", "--days", "20"], { runRoot: { size: () => 0, now: later } });
+  const third = JSON.parse(readFileSync(file, "utf8"));
+  assert.equal(third.createdAt, new Date(later).toISOString());
+  assert.equal(third.leaseUntil, new Date(later + 20 * DAY).toISOString());
+  assert.equal(leasedByRunRoot(path.join(scratch, "rk-r"), later + DAY), true);
+});
+
+test("a lease counts only in its own directory, within 30 days of its createdAt, created no later than tomorrow", () => {
+  const { scratch } = leaseFixture();
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  const lease = (name, createdAt, leaseUntil) => ({ schema: 1, name, createdAt, leaseUntil });
+  const at = (name, value) => { leasedRun(scratch, name, value); return path.join(scratch, name); };
+  const iso = (ms) => new Date(ms).toISOString();
+  const good = at("rk-good", lease("rk-good", iso(now - DAY), iso(now + 29 * DAY)));
+  assert.equal(leasedByRunRoot(good, now), true);
+  // the forged file the review reproduced: a lease that says 2999
+  const forged = at("rk-forged", lease("rk-forged", iso(now), "2999-01-01T00:00:00.000Z"));
+  assert.equal(readRunLease(forged), null);
+  assert.equal(leasedByRunRoot(forged, now), false);
+  // 31 days from createdAt is the most that is tolerated (30 plus one), one millisecond more is not a lease
+  const edge = at("rk-edge", lease("rk-edge", iso(now - DAY), iso(now + 30 * DAY)));
+  assert.equal(leasedByRunRoot(edge, now), true);
+  const over = at("rk-over", lease("rk-over", iso(now - DAY), iso(now + 30 * DAY + 1)));
+  assert.equal(readRunLease(over), null);
+  assert.equal(leasedByRunRoot(over, now), false);
+  // created in the future: not a lease until a day before it begins
+  const future = at("rk-future", lease("rk-future", iso(now + 5 * DAY), iso(now + 20 * DAY)));
+  assert.equal(leasedByRunRoot(future, now), false);
+  assert.equal(leasedByRunRoot(future, now + 4 * DAY), true);
+  assert.equal(leasedByRunRoot(future, now + 4 * DAY - 1), false);
+  const far = at("rk-far", lease("rk-far", "2999-01-01T00:00:00.000Z", "2999-01-20T00:00:00.000Z"));
+  assert.equal(leasedByRunRoot(far, now), false);
+  // a lease file copied from another run root names that run root and protects nothing here
+  const copied = at("rk-copied", lease("rk-good", iso(now - DAY), iso(now + 5 * DAY)));
+  assert.equal(readRunLease(copied), null);
+  assert.equal(leasedByRunRoot(copied, now), false);
+});
+
+test("sweep: a forged lease (2999, a copied file, one created in the future) does not keep an idle scratch run from moving", () => {
+  const { scratch, policy } = leaseFixture();
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+  leasedRun(scratch, "rk-live", { schema: 1, name: "rk-live", createdAt: iso(now - DAY), leaseUntil: iso(now + DAY) });
+  leasedRun(scratch, "rk-2999", { schema: 1, name: "rk-2999", createdAt: iso(now), leaseUntil: "2999-01-01T00:00:00.000Z" });
+  leasedRun(scratch, "rk-copy", { schema: 1, name: "rk-live", createdAt: iso(now - DAY), leaseUntil: iso(now + DAY) });
+  leasedRun(scratch, "rk-ahead", { schema: 1, name: "rk-ahead", createdAt: iso(now + 9 * DAY), leaseUntil: iso(now + 12 * DAY) });
+  const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
+  assert.deepEqual(plan.candidates.map((c) => path.basename(c.path)).sort(), ["rk-2999", "rk-ahead", "rk-copy"]);
+  assert.deepEqual(plan.skipped.filter((x) => x.reason === "leased").map((x) => path.basename(x.path)), ["rk-live"]);
+});
+

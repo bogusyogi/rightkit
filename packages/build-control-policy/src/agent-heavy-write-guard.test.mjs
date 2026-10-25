@@ -1670,6 +1670,8 @@ test('policy constants match release/disk-policy.json, and a lease written by ri
   assert.ok(guard.RUN_ROOT_PARENT.startsWith(`${guard.AGENT_VOLUME}/`) && guard.WORKSPACE_ROOT.startsWith(`${guard.AGENT_VOLUME}/`));
   const disk = await import('../../release/disk-policy.mjs');
   assert.equal(guard.RUN_LEASE_FILE, disk.RUN_LEASE_FILE);
+  assert.equal(guard.MAX_LEASE_DAYS, disk.MAX_LEASE_DAYS); // the longest lease `disk run-root --days` writes is the longest the guard believes
+  assert.equal(guard.MAX_LEASE_DAYS, 30);
   // The real writer: whatever `disk run-root` puts in the file must satisfy the guard's reading of it, and must stop counting when it ends.
   const base = mkdtempSync(join(tmpdir(), 'rk-guard-lease-'));
   try {
@@ -1682,6 +1684,14 @@ test('policy constants match release/disk-policy.json, and a lease written by ri
     assert.equal(at(() => now), null);
     assert.equal(at(() => Date.parse(made.lease.leaseUntil) - 1), null);
     assert.equal(at(() => Date.parse(made.lease.leaseUntil))?.rule, runRule);
+    // the longest lease the writer produces, and a renewal of it, both satisfy the guard's cap; the writer refuses anything longer
+    const longest = disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity-max', now, days: disk.MAX_LEASE_DAYS, size: () => 0 });
+    const maxFs = fakeFs({ dirs: ['/System/Volumes/Data', `${home}/work`, '/Volumes/D'], files: { [`${scratch}/rk-parity-max/${LEASE}`]: readFileSync(join(longest.path, disk.RUN_LEASE_FILE), 'utf8') }, mounts: { '/': 1, '/System/Volumes/Data': 2, '/Users': 2, '/Volumes/D': 3 } });
+    assert.equal(check(`git clone ${repo} ${scratch}/rk-parity-max/y`, ws, { fs: maxFs, clock: () => now }), null);
+    const renewed = disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity-max', now: now + 25 * 86400_000, days: disk.MAX_LEASE_DAYS, size: () => 0 });
+    const renewedFs = fakeFs({ dirs: ['/System/Volumes/Data', `${home}/work`, '/Volumes/D'], files: { [`${scratch}/rk-parity-max/${LEASE}`]: readFileSync(join(renewed.path, disk.RUN_LEASE_FILE), 'utf8') }, mounts: { '/': 1, '/System/Volumes/Data': 2, '/Users': 2, '/Volumes/D': 3 } });
+    assert.equal(check(`git clone ${repo} ${scratch}/rk-parity-max/y`, ws, { fs: renewedFs, clock: () => now + 25 * 86400_000 }), null); // the renewal moved createdAt rather than exceed 30 days
+    assert.throws(() => disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity-31', now, days: 31, size: () => 0 }), /at most 30/);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
 

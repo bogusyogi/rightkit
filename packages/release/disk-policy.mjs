@@ -453,13 +453,18 @@ export function keptByMarker(unit, now, days, lstat = lstatSync) {
 
 export const RUN_LEASE_FILE = ".rightkit-run.json";
 export const DEFAULT_LEASE_DAYS = 3;
+/** The longest lease `disk run-root --days` writes. The write-time guard (build-control-policy) carries the same number and treats a lease
+ * that claims more than this (plus one day) from its `createdAt`, or one created in the future, as no lease: a forged file cannot say 2999. */
+export const MAX_LEASE_DAYS = 30;
+const DAY_MS = 86_400_000;
 const RUN_ROOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 
 /** Owner of a scratch run: the name before its first `-` (legion-..., rk-..., pulse-..., hr-...). */
 export const scratchOwner = (name) => name.split("-")[0];
 
 /** The lease of a run-root directory, or null when it has none or the file is not a regular, well-formed lease (a symlink or an
- * oversized file proves nothing). */
+ * oversized file proves nothing). A lease belongs to its own directory (`name` is the directory's name, so a copied lease file counts
+ * nowhere else) and spans at most MAX_LEASE_DAYS (plus one day) from its creation, as `createRunRoot` writes it. */
 export function readRunLease(unit, { lstat = lstatSync, readFile = readFileSync } = {}) {
   try {
     const file = path.join(unit, RUN_LEASE_FILE);
@@ -467,14 +472,16 @@ export function readRunLease(unit, { lstat = lstatSync, readFile = readFileSync 
     if (!st.isFile() || st.isSymbolicLink() || st.size > 4096) return null;
     const lease = JSON.parse(readFile(file, "utf8"));
     if (lease?.schema !== 1 || typeof lease.name !== "string" || !Number.isFinite(Date.parse(lease.createdAt)) || !Number.isFinite(Date.parse(lease.leaseUntil))) return null;
+    if (lease.name !== path.basename(unit)) return null;
+    if (Date.parse(lease.leaseUntil) - Date.parse(lease.createdAt) > (MAX_LEASE_DAYS + 1) * DAY_MS) return null;
     return lease;
   } catch { return null; }
 }
 
-/** True while the unit's lease has not run out. */
+/** True while the unit's lease has not run out. A lease created more than a day after `now` is not one either. */
 export function leasedByRunRoot(unit, now, options) {
   const lease = readRunLease(unit, options);
-  return lease !== null && Date.parse(lease.leaseUntil) > now;
+  return lease !== null && Date.parse(lease.createdAt) <= now + DAY_MS && Date.parse(lease.leaseUntil) > now;
 }
 
 function runRootsBase({ policy, platform, env, home }) {
@@ -492,7 +499,7 @@ function checkRunRootName(name) {
  * its `scratchPrefixCaps` entry: the agent has to release or remove finished run roots first. */
 export function createRunRoot({ policy, platform = process.platform, env = process.env, home = os.homedir(), name, days = DEFAULT_LEASE_DAYS, now = Date.now(), size = (p) => pathSize(p, { platform }) } = {}) {
   checkRunRootName(name);
-  if (!(Number.isFinite(days) && days > 0)) throw new Error("disk run-root: --days must be a positive number");
+  if (!(Number.isFinite(days) && days > 0 && days <= MAX_LEASE_DAYS)) throw new Error(`disk run-root: --days must be a positive number of at most ${MAX_LEASE_DAYS}`);
   const base = runRootsBase({ policy, platform, env, home });
   if (!ensureScratchRoots({ policy, platform, env, home }).includes(base)) throw new Error(`disk run-root: scratch root ${base} does not exist and cannot be created (is the volume mounted?)`);
   if (lstatSync(base).isSymbolicLink()) throw new Error(`disk run-root: scratch root ${base} is a symlink`);
@@ -516,7 +523,10 @@ export function createRunRoot({ policy, platform = process.platform, env = proce
   const file = path.join(dir, RUN_LEASE_FILE);
   try { if (!lstatSync(file).isFile()) throw new Error(`disk run-root: ${file} is not a regular file`); } catch (error) { if (error.code !== "ENOENT") throw error; }
   const existing = readRunLease(dir);
-  const lease = { schema: 1, name, createdAt: existing?.createdAt ?? new Date(now).toISOString(), leaseUntil: new Date(now + days * 86400_000).toISOString() };
+  const leaseUntil = now + days * DAY_MS;
+  // A renewal keeps the original createdAt only while the lease still fits MAX_LEASE_DAYS from it; a longer-running run root starts a new window.
+  const keepCreated = existing !== null && leaseUntil - Date.parse(existing.createdAt) <= MAX_LEASE_DAYS * DAY_MS && Date.parse(existing.createdAt) <= now;
+  const lease = { schema: 1, name, createdAt: keepCreated ? existing.createdAt : new Date(now).toISOString(), leaseUntil: new Date(leaseUntil).toISOString() };
   const temp = `${file}.tmp-${process.pid}`;
   writeFileSync(temp, `${JSON.stringify(lease)}\n`);
   renameSync(temp, file);
