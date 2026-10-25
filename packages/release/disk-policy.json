@@ -34,8 +34,8 @@
     "win": ["D:\\scratch"]
   },
   "writers": [
-    {"id": "claude-session-dirs", "platform": "mac", "path": "/private/tmp/claude-501/*/*", "capBytes": 2147483648, "action": "sweep", "unit": "self"},
-    {"id": "rightkit-qa-tmp", "platform": "mac", "path": "/private/tmp/rightkit-qa", "capBytes": 2147483648, "action": "sweep", "unit": "children"},
+    {"id": "claude-session-dirs", "platform": "mac", "path": "/private/tmp/claude-501/*/*", "capBytes": 2147483648, "action": "sweep", "unit": "self", "light": true},
+    {"id": "rightkit-qa-tmp", "platform": "mac", "path": "/private/tmp/rightkit-qa", "capBytes": 2147483648, "action": "sweep", "unit": "children", "light": true},
     {"id": "cache-coreml-e5rt-tmp", "platform": "mac", "path": "~/Library/Caches/*/com.apple.e5rt.e5bundlecache/*/*/*.tmp.*", "capBytes": 4294967296, "action": "sweep", "unit": "self", "staleDays": 1},
     {"id": "cache-coreml-e5rt", "platform": "mac", "path": "~/Library/Caches/*/com.apple.e5rt.e5bundlecache/*/*", "capBytes": 4294967296, "action": "sweep", "unit": "children", "staleDays": 2},
     {"id": "cache-e2e", "platform": "mac", "path": "~/Library/Caches/e2e_*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
@@ -56,7 +56,7 @@
     {"id": "build-home-tmp", "platform": "mac", "path": "/Volumes/D/.build-home/*/tmp", "capBytes": 10737418240, "action": "sweep", "unit": "children", "staleDays": 1, "light": true},
     {"id": "build-home-tmp", "platform": "win", "path": "D:\\.build-home\\*\\tmp", "capBytes": 10737418240, "action": "sweep", "unit": "children", "staleDays": 1, "light": true},
     {"id": "xcode-deriveddata-d", "platform": "mac", "path": "/Volumes/D/.xcode/DerivedData", "capBytes": 42949672960, "action": "sweep", "unit": "children"},
-    {"id": "win-temp", "platform": "win", "path": "${TEMP}", "capBytes": 10737418240, "action": "sweep", "unit": "children"},
+    {"id": "win-temp", "platform": "win", "path": "${TEMP}", "capBytes": 10737418240, "action": "sweep", "unit": "children", "light": true},
     {"id": "win-pnpm", "platform": "win", "path": "${LOCALAPPDATA}\\pnpm", "capBytes": 21474836480, "action": "report"},
     {"id": "win-sccache", "platform": "win", "path": "D:\\.rightkit-managed\\rightkit-build-control\\global\\compiler-cache", "capBytes": 55000000000, "action": "report"},
     {"id": "win-claude-workspace", "platform": "win", "path": "D:\\claude", "capBytes": 805306368000, "action": "report"},

@@ -313,16 +313,22 @@ function unmanagedOnVolume(floor, { measured, policy, platform, env, home, size,
   return { floor: floor.id ?? floor.label, usedBytes, writerBytes, unmanagedBytes: Math.max(0, usedBytes - writerBytes), uncoveredTopLevel };
 }
 
-export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots, readdir = readdirSync, strays = findStrayTargets } = {}) {
+/** Free space of every floor of a platform, statfs only (no directory is read). A volume that cannot be read (an unmounted
+ * /Volumes/D) is a warning on its own floor, never a crash that hides the rest. */
+export function checkFloors({ policy, platform = process.platform, space = freeSpace } = {}) {
   const key = platformKey(platform);
   const floorPolicies = floorList(policy, key);
   if (!floorPolicies.length) throw new Error(`disk policy: no floor for ${key}`);
-  // A volume that cannot be read (an unmounted /Volumes/D) is a warning on its own floor, never a crash that hides the rest.
-  const floors = floorPolicies.map((f) => {
+  return floorPolicies.map((f) => {
     try { return evaluateFloor(f, space(f.path)); } catch (error) {
       return { ...(f.id ? { id: f.id } : {}), label: f.label, path: f.path, absent: true, error: error.message, warn: true, ...(f.agentVolume ? { agentVolume: true } : {}) };
     }
   });
+}
+
+export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots, readdir = readdirSync, strays = findStrayTargets } = {}) {
+  const key = platformKey(platform);
+  const floors = checkFloors({ policy, platform, space });
   const floor = floors[0];
   const writers = [];
   const measured = [];
@@ -487,7 +493,7 @@ export function gitTracksPath(target) {
   return String(listed.stdout).length > 0;
 }
 
-export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }), scan = scanWorkspaceRoots, strays = findStrayTargets, workspaceSweep = workspaceSweepAllowed({ platform, env, home }) } = {}) {
+export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }), scan = scanWorkspaceRoots, strays = findStrayTargets, workspaceSweep = workspaceSweepAllowed({ platform, env, home }), light = false } = {}) {
   const key = platformKey(platform);
   const effectiveDays = staleDays ?? policy.staleDays;
   const candidates = [];
@@ -496,7 +502,10 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   const keepDays = policy.keepMarkerDays ?? 14;
   const lockCheck = inUse ?? (key === "win" ? windowsLockProbe : (p) => inUseByOpenPaths(p, openPaths));
   // Sweep writers, plus report writers with `escalate` when they are over cap by its factor (pure caches: idle children go).
-  for (const writer of policy.writers.filter((w) => w.platform === key && (w.action === "sweep" || w.escalate))) {
+  // The light (hourly) pass is stat-only: just the cheap temp-like writers marked `light`, no escalation (it sizes a whole
+  // root), no workspace scan and no stray walk.
+  const sweepable = (w) => (light ? w.action === "sweep" && w.light === true : w.action === "sweep" || w.escalate);
+  for (const writer of policy.writers.filter((w) => w.platform === key && sweepable(w))) {
     let roots; let literal;
     try { roots = writerMatches(writer, { env, home }); literal = literalRoot(expandPolicyPath(writer.path, { env, home })); } catch { continue; }
     // `--days N` overrides every writer; otherwise a writer may carry its own window (QA evidence: 3 days, caches: 2).
@@ -535,7 +544,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     }
   }
   // Allowlisted workspace roots: unknown top-level entries older than 3 days and idle.
-  const scanned = scan({ policy, platform, env, home });
+  const scanned = light ? { unknown: [], skipped: [] } : scan({ policy, platform, env, home });
   skipped.push(...scanned.skipped);
   const unknownCutoff = now - (staleDays ?? policy.unknownStaleDays ?? 3) * 86400_000;
   // Scratch is run output the agent owns: it ages out on its own, shorter window, `--days N` still overriding both.
@@ -571,7 +580,7 @@ export function planSweep({ policy, platform = process.platform, env = process.e
   }
   // Stray cargo targets (tagged, outside RustRight's roots): idle `strayTargetDays`, never when git tracks anything in them.
   const strayCutoff = now - (staleDays ?? policy.strayTargetDays ?? 1) * 86400_000;
-  for (const entry of policy.strayTargets?.[key] ?? []) {
+  for (const entry of light ? [] : policy.strayTargets?.[key] ?? []) {
     let root;
     try { root = expandPolicyPath(entry.path, { env, home }); } catch { continue; }
     for (const unit of strays(root, { depth: entry.depth ?? 4, protectedSegments: policy.protectedSegments })) {
@@ -721,6 +730,31 @@ export function moveEntry(source, destination) {
   }
   rmSync(source, { recursive: true, force: true }); // completes the move after verified copy
   return "copy-verify-remove";
+}
+
+/** Parsed events of the log's last `maxBytes`, oldest first. A partial first line and any unparsable line are skipped; a log
+ * that cannot be read is an empty list. */
+export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
+  let fd;
+  try {
+    fd = openSync(logFile, "r");
+    const { size } = statSync(logFile);
+    const start = Math.max(0, size - maxBytes);
+    const buf = Buffer.alloc(size - start);
+    readSync(fd, buf, 0, buf.length, start);
+    const lines = buf.toString("utf8").split("\n");
+    if (start > 0) lines.shift(); // starts mid-line
+    const events = [];
+    for (const line of lines) { try { const e = JSON.parse(line); if (e && typeof e === "object" && !Array.isArray(e)) events.push(e); } catch { /* blank or damaged line */ } }
+    return events;
+  } catch { return []; } finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } } }
+}
+
+/** Newest event of the log whose `event` is one of `names` (and that `accept`s), or null. */
+export function lastEvent(logFile, names, { maxBytes, accept = () => true } = {}) {
+  const events = readRecentEvents(logFile, maxBytes ? { maxBytes } : {});
+  for (let i = events.length - 1; i >= 0; i -= 1) if (names.includes(events[i].event) && accept(events[i])) return events[i];
+  return null;
 }
 
 export function logEvent(logFile, event) {

@@ -7,7 +7,7 @@ import { spawnSync } from "./background-process.mjs";
 const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: "utf8" }); if (r.status !== 0) throw new Error(`${cmd} failed: ${r.stderr}`); };
 import { CACHEDIR_SIGNATURE, KEEP_MARKER, ensureScratchRoots, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
-import { cliFromGlobalRoots, cliFromPathBin, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
+import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
 import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
@@ -151,16 +151,20 @@ test("committed policy parses, has floors and no writer inside a protected segme
   assert.match(renderSweep({ staleDays: 7, candidates: [], skipped: [], totalBytes: 0 }), /Dry run/);
 });
 
-test("schedule specs: launchd daily plist and hidden Windows task", () => {
+test("schedule specs: one hourly launchd interval and one hourly hidden Windows task, both running `disk run --auto`", () => {
   const mac = scheduleSpec({ platform: "darwin", home: "/h", nodePath: "/n", cli: "/c" });
-  assert.match(mac.plist, /StartCalendarInterval/);
-  assert.match(mac.plist, /<string>disk<\/string><string>run<\/string>/);
+  assert.match(mac.plist, /<key>StartInterval<\/key><integer>3600<\/integer>/);
+  assert.doesNotMatch(mac.plist, /StartCalendarInterval/); // both keys in one job is ambiguous in launchd: the full pass is picked by fullPassDue
+  assert.match(mac.plist, /<string>disk<\/string><string>run<\/string><string>--auto<\/string>/);
   const win = scheduleSpec({ platform: "win32", nodePath: "C:\\n.exe", cli: "C:\\c.mjs" });
   assert.match(win.script, /-Hidden/);
   assert.match(win.script, /-LogonType Interactive/);
   assert.doesNotMatch(win.script, /S4U/);
   assert.match(win.script, /C:\\c\.mjs/);
-  assert.match(win.script, /-Daily/);
+  assert.doesNotMatch(win.script, /-Daily/);
+  assert.equal(win.script.match(/New-ScheduledTaskTrigger/g).length, 1);
+  assert.match(win.script, /New-ScheduledTaskTrigger -Once -At 00:05 -RepetitionInterval \(New-TimeSpan -Hours 1\) -RepetitionDuration \(New-TimeSpan -Days 3650\)/);
+  assert.match(win.script, /-Argument '"C:\\c\.mjs" disk run --auto'/);
 });
 
 test("run: check, dry plan, move, then warns when still under the floor", async () => {
@@ -1528,4 +1532,218 @@ test("run: a floor that is not the agent volume warning is not an emergency", as
   assert.equal(r.exitCode, 3);
   assert.equal(existsSync(today), true);
   assert.equal(events().some((x) => x.event === "disk.run.emergency"), false);
+});
+
+// ---- hourly job: fullPassDue, `run --auto|--light` -------------------------------------------------------------------------
+
+// Local-clock times: the full pass hour is the host's local 03:30.
+const local = (day, hour, minute, second = 0) => new Date(2026, 9, day, hour, minute, second).getTime();
+
+test("fullPassDue: one full pass a day after 03:30, a missed fire runs full at the next trigger, no pass on record is due", () => {
+  assert.equal(fullPassDue({ now: local(24, 3, 29), lastFullMs: local(23, 3, 31) }), false); // yesterday's pass is still the latest slot
+  assert.equal(fullPassDue({ now: local(24, 3, 31), lastFullMs: local(23, 3, 31) }), true);
+  assert.equal(fullPassDue({ now: local(24, 3, 30), lastFullMs: local(23, 3, 31) }), true); // the slot itself counts
+  assert.equal(fullPassDue({ now: local(24, 9, 0), lastFullMs: local(24, 3, 32) }), false); // after a pass the rest of the day is light
+  assert.equal(fullPassDue({ now: local(24, 23, 59), lastFullMs: local(24, 3, 32) }), false);
+  assert.equal(fullPassDue({ now: local(25, 9, 0), lastFullMs: local(23, 3, 31) }), true); // a whole day missed
+  assert.equal(fullPassDue({ now: local(24, 9, 0), lastFullMs: local(24, 3, 29, 59) }), true); // a pass just before the slot does not count
+  assert.equal(fullPassDue({ now: local(24, 9, 0), lastFullMs: null }), true);
+  assert.equal(fullPassDue({ now: local(24, 9, 0), lastFullMs: undefined }), true);
+  assert.equal(fullPassDue({ now: local(24, 9, 0), lastFullMs: local(24, 4, 10), hour: 5, minute: 0 }), true); // another slot time is honoured
+});
+
+// A light writer, a heavy one, a scratch root, a stray-target root and a workspace root (the last two only prove they are not read),
+// and a purgeable holding folder: whatever the pass does to them shows in the tree.
+function lightFixture({ freeBytes = 5000 } = {}) {
+  const { root, heavy, policy } = fixture();
+  policy.writers = [
+    { id: "ltmp", platform: "mac", path: path.join(root, "ltmp"), capBytes: 100, action: "sweep", unit: "children", light: true },
+    { id: "kids", platform: "mac", path: path.join(root, "cache"), capBytes: 1000, action: "sweep", unit: "children" },
+    { id: "esc", platform: "mac", path: path.join(root, "esc"), capBytes: 1, action: "report", unit: "children", escalate: { factor: 1, staleDays: 0 } },
+  ];
+  policy.scratchRoots = { mac: [path.join(root, "scratch")] };
+  policy.scratchStaleDays = 1;
+  policy.strayTargets = { mac: [{ path: path.join(root, "ws"), depth: 4 }] };
+  policy.workspaceRoots = { mac: [{ path: path.join(root, "ws") }] };
+  policy.floors = { mac: [{ id: "d", path: root, label: "fixture", warnFreeBytes: 1000, agentVolume: true }] };
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(policy));
+  file(path.join(root, "ltmp", "old", "f"), 10, OLD);
+  file(path.join(root, "ltmp", "new", "f"), 10);
+  file(path.join(root, "cache", "old", "f"), 10, OLD);
+  file(path.join(root, "esc", "old", "f"), 10, OLD);
+  file(path.join(root, "scratch", "idle", "f"), 10, AGE(2));
+  file(path.join(root, "scratch", "fresh", "f"), 10);
+  const base = path.join(root, "hold");
+  file(path.join(base, "2020-01-01", "x"), 10, OLD);
+  writeFileSync(path.join(base, HOLDING_MARKER), "");
+  const forbidden = () => { throw new Error("the light pass must not do this"); };
+  const run = (args, extra = {}) => runDiskCommand(["run", ...args, "--policy", pf], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], plan: { size: () => 10, scan: forbidden, strays: forbidden }, check: { size: forbidden, space: () => ({ freeBytes, totalBytes: 10000 }) }, purge: { bases: [base] }, ...extra } });
+  const events = () => readFileSync(path.join(heavy, "disk-hygiene.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  return { root, heavy, base, run, events };
+}
+
+test("run --light: no du, no workspace scan, no stray walk and no purge; only the light writers and the scratch roots are swept; it logs disk.run.light", async () => {
+  const { root, base, run, events } = lightFixture();
+  const r = await run(["--light"]);
+  assert.equal(r.exitCode, 0);
+  assert.equal(r.pass, "light");
+  assert.equal(existsSync(path.join(root, "ltmp", "old")), false); // a light writer, idle past its window
+  assert.equal(existsSync(path.join(root, "ltmp", "new")), true);
+  assert.equal(existsSync(path.join(root, "scratch", "idle")), false); // scratch idle two days
+  assert.equal(existsSync(path.join(root, "scratch", "fresh")), true);
+  assert.equal(existsSync(path.join(root, "cache", "old")), true); // not a light writer
+  assert.equal(existsSync(path.join(root, "esc", "old")), true); // escalation would size the whole root
+  assert.equal(existsSync(path.join(base, "2020-01-01")), true); // purging belongs to the full pass
+  const last = events().at(-1);
+  assert.equal(last.event, "disk.run.light");
+  assert.equal(last.pass, "light");
+  assert.equal(last.emergency, false);
+  assert.equal(last.movedBytes, 20);
+  assert.deepEqual(last.floors, [{ id: "d", freeBytes: 5000, warn: false }]);
+  assert.equal(last.freeBytes, 5000);
+  assert.equal(events().some((e) => e.event === "disk.run.ok" || e.event === "disk.floor.warn" || e.event === "disk.report"), false);
+});
+
+test("run --light: exit 0 below a floor too (only a failed self-check fails it), and below the agent volume's floor it purges, as the full pass does", async () => {
+  const { root, base, run, events } = lightFixture({ freeBytes: 1 });
+  const today = path.join(base, "2026-10-15");
+  file(path.join(today, "moved", "f"), 10, Date.parse("2026-10-15T11:00:00Z"));
+  utimesSync(today, Date.parse("2026-10-15T11:00:00Z") / 1000, Date.parse("2026-10-15T11:00:00Z") / 1000);
+  const r = await run(["--light"], { purge: { bases: [base], now: Date.parse("2026-10-15T12:00:00Z") } });
+  assert.equal(r.exitCode, 0);
+  assert.equal(existsSync(today), false);
+  assert.equal(existsSync(path.join(base, "2020-01-01")), false);
+  assert.equal(existsSync(path.join(root, "cache", "old")), true); // the emergency purges holding folders, it does not widen the sweep
+  const e = events();
+  assert.equal(e.find((x) => x.event === "disk.run.emergency").floor, "d");
+  const light = e.at(-1);
+  assert.equal(light.event, "disk.run.light");
+  assert.equal(light.emergency, true);
+  assert.equal(light.floors[0].warn, true);
+  const failed = await runDiskCommand(["run", "--light", "--policy", path.join(root, "policy.json")], { platform: "darwin", stdout: () => {}, deps: { selfCheck: () => ({ ok: false, problems: ["x"] }) } });
+  assert.equal(failed.exitCode, 2);
+});
+
+test("run --light: lsof is read once and only when a candidate exists", async () => {
+  const busy = lightFixture();
+  let reads = 0;
+  await busy.run(["--light"], { openPaths: undefined, listOpenPaths: () => { reads += 1; return []; } });
+  assert.equal(reads, 1); // two candidates (ltmp/old, scratch/idle), one listing
+  const idle = lightFixture();
+  rmSync(path.join(idle.root, "ltmp"), { recursive: true });
+  rmSync(path.join(idle.root, "scratch"), { recursive: true });
+  let idleReads = 0;
+  await idle.run(["--light"], { openPaths: undefined, listOpenPaths: () => { idleReads += 1; return []; } });
+  assert.equal(idleReads, 0);
+});
+
+test("run --auto: light once a full pass finished after the last 03:30, full when none did (a missed fire, a fresh log)", async () => {
+  const lastSlot = (day) => new Date(2026, 9, day, 3, 35).toISOString();
+  const now = local(24, 9, 0);
+  const seeded = async (ts) => {
+    const { heavy, run, events } = lightFixture();
+    mkdirSync(heavy, { recursive: true });
+    if (ts) writeFileSync(path.join(heavy, "disk-hygiene.jsonl"), `${JSON.stringify({ ts, event: "disk.run.ok", pass: "full" })}\n`);
+    const r = await run(["--auto"], { now, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) } });
+    return { r, last: events().filter((e) => e.event === "disk.run.light" || e.event === "disk.run.ok" || e.event === "disk.floor.warn").at(-1) };
+  };
+  const light = await seeded(lastSlot(24));
+  assert.equal(light.last.event, "disk.run.light");
+  assert.equal(light.r.pass, "light");
+  const missed = await seeded(lastSlot(23));
+  assert.equal(missed.last.pass, "full"); // the fixture's uncovered top-level entries make it a warning line, still a full pass
+  const fresh = await seeded(null);
+  assert.equal(fresh.r.pass, "full");
+  // a legacy line without `pass` is a full pass; a light line never satisfies the requirement
+  const { heavy, run } = lightFixture();
+  mkdirSync(heavy, { recursive: true });
+  writeFileSync(path.join(heavy, "disk-hygiene.jsonl"), `${JSON.stringify({ ts: lastSlot(24), event: "disk.run.ok" })}\n${JSON.stringify({ ts: new Date(local(24, 8, 0)).toISOString(), event: "disk.run.light", pass: "light" })}\n`);
+  assert.equal((await run(["--auto"], { now, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) } })).pass, "light");
+  const lightOnly = lightFixture();
+  mkdirSync(lightOnly.heavy, { recursive: true });
+  writeFileSync(path.join(lightOnly.heavy, "disk-hygiene.jsonl"), `${JSON.stringify({ ts: new Date(local(24, 8, 0)).toISOString(), event: "disk.run.light", pass: "light" })}\n`);
+  assert.equal((await lightOnly.run(["--auto"], { now, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) } })).pass, "full");
+});
+
+test("a bare `disk run` is the full pass: it logs a full-pass line and purges; --auto and --light exclude each other", async () => {
+  const { base, run, events } = lightFixture();
+  const r = await run([], { plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) } });
+  assert.equal(r.pass, "full");
+  assert.equal(existsSync(path.join(base, "2020-01-01")), false);
+  const ok = events().find((e) => e.event === "disk.run.ok" || e.event === "disk.floor.warn");
+  assert.equal(ok.pass, "full");
+  await assert.rejects(() => run(["--auto", "--light"]), /either --auto or --light/);
+});
+
+test("committed policy: the cheap temp-like writers are the light ones, and every light writer sweeps", () => {
+  const { writers } = readDiskPolicy();
+  const light = writers.filter((w) => w.light).map((w) => `${w.platform}:${w.id}`).sort();
+  assert.deepEqual(light, ["mac:agent-tmp", "mac:build-home-tmp", "mac:claude-session-dirs", "mac:rightkit-qa-tmp", "win:agent-tmp", "win:build-home-tmp", "win:win-temp"]);
+  for (const w of writers.filter((x) => x.light)) assert.equal(w.action, "sweep", w.id);
+});
+
+// ---- schedule status: last-run ages, a problem past 26 h -------------------------------------------------------------------
+
+// A schedule bound to a copy under a stable root, a log with the given events (`ago` hours before `now`), nothing read from the host.
+function statusFixture(events) {
+  const base = mkdtempSync(path.join(os.tmpdir(), "rk-status-age-"));
+  const home = path.join(base, "home");
+  const installed = installStableRoot({ cli: fakeInstalled(base, "1.0.0"), platform: "darwin", home });
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  const logFile = path.join(base, "disk-hygiene.jsonl");
+  if (events) writeFileSync(logFile, events.map((e) => `${JSON.stringify({ ts: new Date(now - e.ago * 3600_000).toISOString(), event: e.event, ...(e.pass ? { pass: e.pass } : {}) })}\n`).join(""));
+  const status = async ({ binding = { node: process.execPath, cli: installed.cli, source: "plist" }, loaded = true } = {}) => {
+    const lines = [];
+    const r = await runDiskCommand(["schedule", "status"], { platform: "darwin", stdout: (l) => lines.push(l), deps: { schedule: { binding, loaded, now, logFile, home } } });
+    return { exitCode: r.exitCode, text: lines.join("\n") };
+  };
+  return { status };
+}
+
+test("schedule status prints the age of the last full and light run and passes within 26 h", async () => {
+  const { status } = statusFixture([{ event: "disk.run.ok", pass: "full", ago: 3 }, { event: "disk.run.light", pass: "light", ago: 0.5 }]);
+  const r = await status();
+  assert.equal(r.exitCode, 0);
+  assert.match(r.text, /last full run: 3\.0 h ago \(2026-10-24T09:00:00\.000Z, disk\.run\.ok\)/);
+  assert.match(r.text, /last light run: 30 min ago/);
+  assert.doesNotMatch(r.text, /PROBLEM/);
+});
+
+test("schedule status fails when the newest full run is over 26 h old, when there is none, or when only light runs exist", async () => {
+  const old = await statusFixture([{ event: "disk.run.ok", ago: 27 }, { event: "disk.run.light", pass: "light", ago: 0.2 }]).status();
+  assert.equal(old.exitCode, 1);
+  assert.match(old.text, /PROBLEM: last completed full run was 27\.0 h ago \(limit 26 h\)/);
+  const empty = await statusFixture([]).status();
+  assert.equal(empty.exitCode, 1);
+  assert.match(empty.text, /PROBLEM: no completed full run recorded/);
+  const unreadable = await statusFixture(null).status();
+  assert.equal(unreadable.exitCode, 1);
+  const lightOnly = await statusFixture([{ event: "disk.run.light", pass: "light", ago: 0.2 }]).status();
+  assert.equal(lightOnly.exitCode, 1);
+  assert.match(lightOnly.text, /no completed full run recorded/);
+  const warned = await statusFixture([{ event: "disk.floor.warn", pass: "full", ago: 25 }]).status();
+  assert.equal(warned.exitCode, 0); // a full pass that ended in a warning still ran
+});
+
+test("schedule status: not installed is fine and reads no log; an unloaded job fails even with a fresh run", async () => {
+  const { status } = statusFixture([{ event: "disk.run.ok", pass: "full", ago: 1 }]);
+  const none = await status({ binding: null });
+  assert.equal(none.exitCode, 0);
+  assert.equal(none.text, "not installed");
+  const unloaded = await status({ loaded: false });
+  assert.equal(unloaded.exitCode, 1);
+  assert.match(unloaded.text, /plist present but not loaded/);
+});
+
+test("evaluateRunAge: newest full and light events, the 26 h limit is inclusive of exactly 26 h, damaged timestamps are ignored", () => {
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  const at = (hours, event, extra = {}) => ({ ts: new Date(now - hours * 3600_000).toISOString(), event, ...extra });
+  const r = evaluateRunAge({ events: [at(30, "disk.run.ok"), at(5, "disk.floor.warn", { pass: "full" }), at(2, "disk.run.ok"), at(1, "disk.run.light", { pass: "light" }), at(0.5, "disk.sweep.move"), { event: "disk.run.ok", ts: "not a date" }], now });
+  assert.equal(r.ok, true);
+  assert.equal(r.lastFull.ts, at(2, "disk.run.ok").ts);
+  assert.equal(r.lastLight.ts, at(1, "disk.run.light").ts);
+  assert.equal(evaluateRunAge({ events: [at(26, "disk.run.ok")], now }).ok, true);
+  assert.equal(evaluateRunAge({ events: [at(26.1, "disk.run.ok")], now }).ok, false);
+  assert.deepEqual(evaluateRunAge({ events: [], now }).problems, ["no completed full run recorded"]);
 });
