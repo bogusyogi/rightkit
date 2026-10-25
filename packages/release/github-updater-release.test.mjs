@@ -146,6 +146,14 @@ test("an app outside the suite keeps its declared key and an optional key id", (
   assert.equal(resolveUpdaterTrust({ app: undefined, configuredPublicKey: ember.publicKeyText }).suite, false);
 });
 
+test("a suite app is a suite app in any spelling of its name: the contract stays the trust root", () => {
+  for (const app of ["Mailright", "MAILRIGHT"]) {
+    assert.equal(resolveUpdaterTrust({ app }).suite, true, app);
+    assert.throws(() => resolveUpdaterTrust({ app, configuredPublicKey: "RWQnotthecontractkey" }), /not the Right Suite contract key/, app);
+    assert.throws(() => assertUpdaterKeyId(signatureFor("0123456789ABCDEF"), undefined, "x", { app }), /was not made by updater key/, app);
+  }
+});
+
 test("an app outside the suite with no declared key is unverifiable, never silently trusted", () => {
   for (const configuredPublicKey of [undefined, null, "", " \t\n", 123]) {
     assert.throws(() => resolveUpdaterTrust({ app: "ember", configuredPublicKey }), (error) => error.code === "PUBLICATION_SIGNATURE_UNVERIFIABLE" && /updater public key is required/.test(error.message), JSON.stringify(configuredPublicKey));

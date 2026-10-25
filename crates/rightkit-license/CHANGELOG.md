@@ -7,6 +7,7 @@
 - **New: owner-to-engine entitlement snapshot (feature `engine-snapshot`, implied by `client`; rightkit#886, C3-05).** `LicenseClient::engine_snapshot()` and `answer_engine_request()` (owner), `EngineSnapshotCell`, `EngineEntitlementsConfig::from_snapshot` / `suite_snapshot`, `EngineEntitlements::from_snapshot` / `suite_snapshot` and `OwnerLedgerReader` (engine, which only reads the owner's file ledger), over the handoff names `licence.token`, `licence.device`, `licence.clock`. Failed owner reads arrive as unreadable, never as Free.
 - **New: incident denylist everywhere.** `EngineEntitlementsConfig::with_revoked_ids`, `NativeEngineEntitlements::with_revoked_ids` and `LifecycleContext::with_revoked_ids` (a listed authenticated id is `Revoked`, before any clock or expiry check). `EngineEntitlementsConfig` also gains `with_clock_initialized` and `with_generation`. **Source-breaking for exhaustive matches:** `EngineEntitlementError` is now `#[non_exhaustive]` and gains `Revoked(String)`.
 - **Deprecated: `CredentialTokenSource::from_record_store`.** It made the engine a second reader of the owner's credential store; use the snapshot.
+- `suite_api::signature_key_id` and `updater_public_key_id` trim ASCII whitespace only, as the TypeScript and JavaScript readers do (`str::trim` also stripped U+0085); the shared vectors have both boundary cases.
 - **Fixed: `--features client` without `update-auth` compiled with dead-code warnings** (three items only the update authorizer uses).
 
 ## 0.2.5 (2026-10-23)

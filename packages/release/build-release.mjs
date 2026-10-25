@@ -51,7 +51,7 @@ import { macosCodesignEnvironment } from "./codesign-environment.mjs";
 import { ANDROID_RECEIPT_NAME, androidSealEntry, validateAndroidTarget, verifyAndroidReceipt } from "./android-release.mjs";
 import { IOS_RECEIPT_NAME, iosSealEntry, verifyIosReceipt } from "./ios-package-recipe.mjs";
 import { expandIosPackageTarget } from "./package-recipe-targets.mjs";
-import { assertUpdaterKeyId, assertUpdaterSignature, resolveUpdaterTrust } from "./github-updater-release.mjs";
+import { assertUpdaterKeyId, assertUpdaterSignature, isSuiteUpdaterApp, resolveUpdaterTrust } from "./github-updater-release.mjs";
 
 // The iOS lane's own packaging code, kept out of the win/mac fingerprint for the same reason as the Android one.
 const IOS_PIPELINE_FINGERPRINT = createHash("sha256")
@@ -691,6 +691,7 @@ function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, n
   // artifact copy is created. A Right Suite app's root is the Right Suite contract's; any other app must declare its own key.
   const updaterPublicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target?.updater?.pubkey ?? target?.updater?.publicKey;
   if ((target.updater?.artifacts?.length ?? 0) > 0 && target.updater?.kind !== "appinstaller") {
+    if (!isSuiteUpdaterApp(config.app) && (typeof updaterPublicKey !== "string" || !updaterPublicKey.trim())) fail("updater public key is required to verify updater artifacts before sealing");
     let trust;
     try { trust = resolveUpdaterTrust({ app: config.app, configuredPublicKey: updaterPublicKey, configuredKeyId: config.distribution?.updaterKeyId }); }
     catch (error) { fail(`updater trust rejected at seal: ${error.message}`); }

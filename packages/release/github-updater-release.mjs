@@ -74,7 +74,7 @@ function parseMinisignSignature(signatureText) {
       if (bytes.toString("base64") !== text) throw new Error("invalid base64");
       return bytes;
     };
-    const envelope = decode(String(signatureText).trim());
+    const envelope = decode(String(signatureText).replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, ""));
     const text = new TextDecoder("utf-8", { fatal: true }).decode(envelope);
     const lines = text.split(/\r?\n/);
     if (lines.at(-1) === "") lines.pop();
@@ -133,7 +133,8 @@ export function assertUpdaterSignature(bytes, signatureText, publicKeyText, labe
   }
 }
 
-const isSuiteUpdaterApp = (app) => RIGHT_SUITE_APP_KEYS.includes(app);
+// Case-insensitively: release config accepts app names in any case, and a different spelling must not move the trust root out of the contract.
+export const isSuiteUpdaterApp = (app) => typeof app === "string" && RIGHT_SUITE_APP_KEYS.includes(app.toLowerCase());
 
 /**
  * The updater trust a sealed signature is checked against: `{ keyId, publicKey, suite }`. `now` is unix seconds and `keys` the

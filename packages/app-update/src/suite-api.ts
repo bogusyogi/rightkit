@@ -84,6 +84,9 @@ export function updaterSigningKeyId(): string {
 
 // Canonical standard base64 only, which is all the native host reads. atob alone also accepts missing padding, embedded
 // whitespace and non-zero bits after the last byte, so the text must survive a round trip unchanged.
+// ASCII whitespace only, as the Rust and JavaScript readers trim: String.trim would also strip U+FEFF, Rust's str::trim U+0085.
+const trimAscii = (text: string): string => text.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, "");
+
 function decodeBase64(text: string): Uint8Array | null {
   let binary: string;
   try {
@@ -102,7 +105,7 @@ function decodeBase64(text: string): Uint8Array | null {
  */
 export function updaterKeyIdOfSignature(signature: string): string | null {
   if (typeof signature !== 'string') return null;
-  const envelope = decodeBase64(signature.trim());
+  const envelope = decodeBase64(trimAscii(signature));
   if (envelope === null) return null;
   let text: string;
   try {
@@ -113,7 +116,7 @@ export function updaterKeyIdOfSignature(signature: string): string | null {
   // Line 1 is the untrusted comment; line 2 carries the algorithm, key id and signature. A CR left by CRLF ends is trimmed.
   const line = text.split('\n')[1];
   if (line === undefined) return null;
-  const raw = decodeBase64(line.trim());
+  const raw = decodeBase64(trimAscii(line));
   if (raw === null || raw.length !== MINISIGN_SIGNATURE_LENGTH) return null;
   if (raw[0] !== 0x45 || (raw[1] !== 0x64 && raw[1] !== 0x44)) return null;
   // The id is stored little endian; the contract writes it big endian.

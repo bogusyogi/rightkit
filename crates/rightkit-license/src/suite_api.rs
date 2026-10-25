@@ -272,9 +272,10 @@ fn key_id_text(raw: &[u8]) -> String {
     format!("{:016X}", u64::from_le_bytes(id))
 }
 
+// ASCII whitespace only, as the TypeScript and JavaScript readers trim: str::trim would also strip U+0085, String.trim U+FEFF.
 fn decode_text(base64: &str) -> Option<String> {
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(base64.trim())
+        .decode(base64.trim_ascii())
         .ok()?;
     String::from_utf8(bytes).ok()
 }
@@ -286,7 +287,7 @@ pub fn signature_key_id(signature: &str) -> Result<String, UpdaterKeyError> {
     let text = decode_text(signature).ok_or(UpdaterKeyError::Malformed)?;
     let line = text.lines().nth(1).ok_or(UpdaterKeyError::Malformed)?;
     let raw = base64::engine::general_purpose::STANDARD
-        .decode(line.trim())
+        .decode(line.trim_ascii())
         .map_err(|_| UpdaterKeyError::Malformed)?;
     if raw.len() != 74 || raw[0] != b'E' || !matches!(raw[1], b'd' | b'D') {
         return Err(UpdaterKeyError::Malformed);
@@ -301,7 +302,7 @@ pub fn updater_public_key_id(public_key: &str) -> Result<String, UpdaterKeyError
     let comment = lines.next().ok_or(UpdaterKeyError::Malformed)?;
     let line = lines.next().ok_or(UpdaterKeyError::Malformed)?;
     let raw = base64::engine::general_purpose::STANDARD
-        .decode(line.trim())
+        .decode(line.trim_ascii())
         .map_err(|_| UpdaterKeyError::Malformed)?;
     if raw.len() != 42 || raw[0] != b'E' || raw[1] != b'd' {
         return Err(UpdaterKeyError::Malformed);

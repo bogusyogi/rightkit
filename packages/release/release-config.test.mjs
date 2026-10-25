@@ -67,6 +67,7 @@ test("a suite app's updaterKeyId must be a key the contract lists", () => {
     assert.deepEqual(problemsOf({ app, distribution: {} }), [], app);
     assert.deepEqual(problemsOf({ app, distribution: { updaterKeyId: "0123456789ABCDEF" } }), [{ name: "updater-key-id", code: "RELEASE_CONFIG_UPDATER_KEY_ID", pointer: "/distribution/updaterKeyId" }], app);
   }
+  assert.deepEqual(problemsOf({ app: "MailRight", distribution: { updaterKeyId: "0123456789ABCDEF" } }), [{ name: "updater-key-id", code: "RELEASE_CONFIG_UPDATER_KEY_ID", pointer: "/distribution/updaterKeyId" }], "the app name's case does not take an app out of the suite");
   const [problem] = releaseConfigFieldProblems({ schema: 1, app: "pulse", distribution: { updaterKeyId: "0123456789ABCDEF" } });
   assert.match(problem.detail, /0123456789ABCDEF is not an updater key in the Right Suite contract \(accepted: 29395F9FF466261D\)/);
 });

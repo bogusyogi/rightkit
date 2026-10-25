@@ -78,6 +78,14 @@ test("suite-key-literal finds the licence key in every spelling an app pastes it
   for (const f of suiteKeyLiteral(root, files)) assert.match(f.fix, KEY_SOURCES, f.file);
 });
 
+test("suite-key-literal sees a pasted array with a comment on every element, and \\x escapes", (t) => {
+  const commented = `const KEY: [u8; 32] = [\n${BYTES.map((b, i) => `    ${hexByte(b)}, // byte ${i}`).join("\n")}\n];\n`;
+  const blocked = `const KEY = [${BYTES.map((b, i) => `${b} /* ${i} */`).join(", ")}];\n`;
+  const escaped = `const KEY = "${BYTES.map((b) => `\\x${b.toString(16).padStart(2, "0")}`).join("")}";\n`;
+  const { root, files } = repo(t, { "src/commented.rs": commented, "src/blocked.ts": blocked, "src/escaped.go": escaped });
+  assert.deepEqual(found(suiteKeyLiteral(root, files)), ["src/blocked.ts|licence-key:bytes", "src/commented.rs|licence-key:bytes", "src/escaped.go|licence-key:escaped"]);
+});
+
 test("suite-key-literal reports one finding per file and spelling, with the lines in the problem text only", (t) => {
   const { root, files } = repo(t, {
     "src/decimal.rs": `// licence key\n\nconst KEY: [u8; 32] = [${BYTES.join(", ")}];\n`,
@@ -131,11 +139,11 @@ test("suite-key-literal does not find a near miss: a changed byte, 31 bytes, a w
 test("suite-key-literal skips documentation, dependency trees, binaries and test code, and still reads look-alike paths", (t) => {
   const pasted = `export const KEY = "${HEX}";\n`;
   const skipped = [
-    "docs/key.txt", "apps/x/docs/key.txt", "README.md", "notes/KEY.MD", "node_modules/pkg/key.js", "crates/a/target/debug/key.txt",
+    "docs/key.txt", "README.md", "notes/KEY.MD", "node_modules/pkg/key.js", "crates/a/target/debug/key.txt",
     "tests/key.rs", "test/key.rs", "src/__tests__/key.ts", "test-vectors/key.json", "swift/Tests/KeyTests.swift", "fixtures/key.json",
     "crates/a/Tests/key.rs", "src/key.test.ts", "src/key.spec.ts", "src/key_test.go", "src/key_tests.rs",
   ];
-  const scannedPaths = ["src/key.ts", "src/testing/key.ts", "src/contest.ts", "src/docs_ui/key.ts", "docs-site/key.ts", "src/latest_tests_data.ts", "src/mytest.ts", ".github/key.yml"];
+  const scannedPaths = ["src/key.ts", "src/docs/key.ts", "apps/x/docs/key.txt", "src/testing/key.ts", "src/contest.ts", "src/docs_ui/key.ts", "docs-site/key.ts", "src/latest_tests_data.ts", "src/mytest.ts", ".github/key.yml"];
   const { root, files } = repo(t, {
     ...Object.fromEntries([...skipped, ...scannedPaths].map((f) => [f, pasted])),
     // A binary file that happens to carry the text: an image, an archive, UTF-16 text.
@@ -240,6 +248,8 @@ test("suite-updater-key accepts a copy of every contract key and a file with not
     "bom/tauri.conf.json": `﻿${conf({ pubkey: CONTRACT_KEY })}`,
     "platform/tauri.macos.conf.json": conf({ pubkey: CONTRACT_KEY }),
     "override/tauri.windows.conf.json": JSON.stringify({ bundle: { windows: {} } }),
+    // a platform override that adjusts the updater and leaves the key to the base config
+    "override/tauri.linux.conf.json": JSON.stringify({ plugins: { updater: { windows: { installMode: "passive" } } } }),
     "bare/tauri.conf.json": "{}",
     "shell/tauri.conf.json": JSON.stringify({ plugins: { shell: { open: true } } }),
     "null/tauri.conf.json": conf(null),

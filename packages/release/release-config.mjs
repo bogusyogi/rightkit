@@ -293,7 +293,7 @@ export function releaseConfigFieldProblems(config) {
       detail: `targets.${name}.updater.keyFile is not supported: updater signing keys come from the OS credential provider (rightkit-credentials, namespace rightsuite-updater-key; see protected-credentials.mjs and sign-updater.mjs), never from a key file. Remove updater.keyFile from the release config.`,
     });
   }
-  const suiteApp = RIGHT_SUITE_APP_KEYS.includes(config.app);
+  const suiteApp = typeof config.app === "string" && RIGHT_SUITE_APP_KEYS.includes(config.app.toLowerCase());
   const distribution = isObject(config.distribution) ? config.distribution : {};
   const keyId = distribution.updaterKeyId;
   if (keyId !== undefined && !isTemplateNode(keyId)) {

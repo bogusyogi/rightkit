@@ -11,7 +11,8 @@ const literal = (text) => text.replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&");
 
 // Files the rules do not read: documentation and dependency trees, and test code, which pastes keys on purpose to prove them.
 // Segments of the test directories are matched without case: Swift packages call theirs Tests.
-const SKIPPED_TREE = /(^|\/)(docs|node_modules|target|\.git)\//;
+// `docs` is documentation only at the repository root: a TypeScript app's src/docs is source. `target` stays skipped at any depth (Cargo build output sits in each crate).
+const SKIPPED_TREE = /^docs\/|(^|\/)(node_modules|target|\.git)\//;
 const TEST_SEGMENT = /(^|\/)(tests?|__tests__|test-vectors|fixtures)(\/|$)/i;
 const TEST_NAME = /\.(?:test|spec)\.|_tests?\./;
 const scanned = (file) => !SKIPPED_TREE.test(file) && !TEST_SEGMENT.test(file) && !TEST_NAME.test(path.posix.basename(file)) && !/\.md$/i.test(file);
@@ -55,7 +56,9 @@ const lineAt = (text, offset) => (offset < 0 ? 1 : text.slice(0, offset).split("
 
 // An element of a pasted byte array may carry Rust's integer suffix.
 const INT_SUFFIX = "(?:_?u8)?";
-const SEPARATOR = "\\s*,\\s*";
+// Whitespace and comments (`// s` after each byte, `/* s */` before a comma) may sit between elements.
+const FILL = "(?:\\s|//[^\\n]*|/\\*[\\s\\S]*?\\*/)*";
+const SEPARATOR = `${FILL},${FILL}`;
 
 /** One pattern per way an app pastes the licence key, each global: [{ subject, what, pattern }], derived from the contract's hex so
  * a rotation changes what is found without touching this file. The 64-digit hex and the base64 forms are matched inside longer
@@ -75,6 +78,7 @@ export function licenceKeyPatterns(hex = RIGHT_SUITE_LICENSE_PUBLIC_KEY_HEX) {
   const same = url === standard;
   return [
     { subject: "licence-key:bytes", what: "as a byte array", pattern: new RegExp(`(?<![\\w.])(?:${decimal}|${prefixed})(?![\\w.])`, "gi") },
+    { subject: "licence-key:escaped", what: "as \\x escapes", pattern: new RegExp(bytes.map((b) => `\\\\x${b < 16 ? "0" : ""}${b.toString(16)}`).join(""), "gi") },
     { subject: "licence-key:hex", what: "as 64 hex digits", pattern: new RegExp(hex, "gi") },
     { subject: "licence-key:base64url", what: "as unpadded base64url", pattern: new RegExp(`${literal(url)}${same ? "(?!=)" : ""}`, "g") },
     { subject: "licence-key:base64", what: "as base64", pattern: new RegExp(`${literal(standard)}${same ? "=" : "=?"}`, "g") },
@@ -135,7 +139,8 @@ export function suiteUpdaterKey(root, files) {
     const { pubkey } = updater;
     let why;
     let offset = block;
-    if (pubkey === undefined) why = "has no plugins.updater.pubkey";
+    // A platform override (tauri.windows.conf.json) is merged over the base config, so it may leave the key to it.
+    if (pubkey === undefined) { if (!/(^|\/)tauri\.conf\.json$/.test(file)) continue; why = "has no plugins.updater.pubkey"; }
     else {
       offset = text.indexOf('"pubkey"', Math.max(block, 0));
       if (typeof pubkey !== "string") why = "has a plugins.updater.pubkey that is not a string";

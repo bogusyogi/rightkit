@@ -2,7 +2,7 @@
 // Each row is the predicate of a refusal the build used to raise later, after the lock, the install or the compile; the
 // message is the build's own, so the doctor, the build and the worker say the same thing. A row names where its twin lives.
 import path from "node:path";
-import { assertGitHubRepository } from "./github-updater-release.mjs";
+import { assertGitHubRepository, isSuiteUpdaterApp } from "./github-updater-release.mjs";
 import { validateAndroidTarget } from "./android-release.mjs";
 import { assertNsisInPlaceUpgradeContract } from "./nsis-upgrade-contract.mjs";
 import { dirtyBuildInputs } from "./release-invocation.mjs";
@@ -132,7 +132,8 @@ export const FILES_ROWS = Object.freeze([
       const minisign = updaters.length > 0 && target.updater?.kind !== "appinstaller";
       if (minisign) {
         const publicKey = config.distribution?.updaterPublicKey ?? config.distribution?.updaterPubkey ?? target.updater?.pubkey ?? target.updater?.publicKey;
-        if (typeof publicKey !== "string" || !publicKey.trim()) found.push("updater public key is required to verify updater artifacts before sealing");
+        // A Right Suite app's updater key is the Right Suite contract's (resolveUpdaterTrust); only another app declares its own.
+        if (!isSuiteUpdaterApp(config.app) && (typeof publicKey !== "string" || !publicKey.trim())) found.push("updater public key is required to verify updater artifacts before sealing");
         for (const entry of updaters) {
           if (typeof entry?.signature !== "string" || !entry.signature) found.push(`updater artifact ${entry?.file} must declare the signature file sign-updater writes next to it`);
         }
