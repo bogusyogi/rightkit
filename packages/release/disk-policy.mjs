@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,10 +7,36 @@ import { spawnSync } from "./background-process.mjs";
 export const DISK_EXIT_WARNING = 3;
 export const DEFAULT_POLICY_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "disk-policy.json");
 
+/** Floors of one platform: `floors.<mac|win>` is a list; a single legacy object is a list of one. */
+export function floorList(policy, key) {
+  return [].concat(policy.floors?.[key] ?? []);
+}
+
+/** Path of the floor whose volume holds the items that may be parked cross-volume (`holdingSource: true`), else the first
+ * floor. Holding must not depend on how many floors a platform has or in which order they are listed. */
+export function holdingSourcePath(policy, key) {
+  const floors = floorList(policy, key);
+  return (floors.find((f) => f.holdingSource) ?? floors[0])?.path;
+}
+
 export function readDiskPolicy(file = DEFAULT_POLICY_FILE) {
   const policy = JSON.parse(readFileSync(file, "utf8"));
   if (policy.schema !== 1 || !Array.isArray(policy.writers)) throw new Error("disk policy: unsupported schema");
+  for (const key of Object.keys(policy.floors ?? {})) {
+    const floors = floorList(policy, key);
+    for (const f of floors) if (!f.path) throw new Error(`disk policy: a ${key} floor needs a path`);
+    if (floors.filter((f) => f.holdingSource).length > 1) throw new Error(`disk policy: ${key} floors name more than one holdingSource`);
+    const ids = floors.map((f) => f.id).filter(Boolean);
+    if (new Set(ids).size !== ids.length) throw new Error(`disk policy: ${key} floor ids must be unique`);
+  }
+  for (const [key, roots] of Object.entries(policy.strayTargets ?? {})) {
+    for (const r of roots) if (typeof r.path !== "string" || !(Number.isInteger(r.depth ?? 4) && (r.depth ?? 4) >= 1 && (r.depth ?? 4) <= 8)) throw new Error(`disk policy: a ${key} strayTargets entry needs a path and a depth of 1 to 8`);
+  }
+  for (const [prefix, cap] of Object.entries(policy.scratchPrefixCaps ?? {})) {
+    if (!RUN_ROOT_NAME.test(prefix) || prefix.includes("-") || !(Number.isFinite(cap) && cap >= 0)) throw new Error(`disk policy: scratchPrefixCaps.${prefix} needs a name without "-" and a byte cap >= 0`);
+  }
   for (const w of policy.writers) {
+    if (w.budget !== undefined && !(Array.isArray(w.budget) && w.budget.length && w.budget.every((n) => n === "total" || BUDGET_PARTS.includes(n)))) throw new Error(`disk policy: ${w.id} budget must list parts of ${[...BUDGET_PARTS, "total"].join("|")}`);
     // `escalate` lets a report-only cache sweep its idle children once it is over cap by `factor` (see planSweep).
     if (!w.escalate) continue;
     const e = w.escalate;
@@ -32,6 +58,9 @@ export function expandPolicyPath(value, { env = process.env, home = os.homedir()
   return out;
 }
 
+// One path segment of a policy pattern: `*` matches any run of characters inside that segment only.
+const globSegment = (part) => new RegExp(`^${part.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+
 // Expand a policy path whose segments may contain `*` wildcards into existing paths.
 export function expandGlob(pattern, sep = path.sep) {
   const parts = pattern.split(/[\\/]/);
@@ -45,7 +74,7 @@ export function expandGlob(pattern, sep = path.sep) {
         if (existsSync(candidate)) next.push(candidate);
         continue;
       }
-      const rx = new RegExp(`^${part.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+      const rx = globSegment(part);
       let names = [];
       try { names = readdirSync(base); } catch { continue; }
       for (const name of names) if (rx.test(name)) next.push(path.join(base, name));
@@ -94,9 +123,11 @@ export function floorThreshold(floor, totalBytes) {
   return Math.max(floor.warnFreeBytes ?? 0, pct);
 }
 
+// `hardFreeBytes` is informational: the level below which RustRight refuses builds. It never makes a floor warn on its own.
 export function evaluateFloor(floor, space) {
   const thresholdBytes = floorThreshold(floor, space.totalBytes);
-  return { label: floor.label, path: floor.path, ...space, thresholdBytes, warn: space.freeBytes < thresholdBytes };
+  const hard = floor.hardFreeBytes != null ? { hardFreeBytes: floor.hardFreeBytes, hardWarn: space.freeBytes < floor.hardFreeBytes } : {};
+  return { ...(floor.id ? { id: floor.id } : {}), label: floor.label, path: floor.path, ...space, thresholdBytes, warn: space.freeBytes < thresholdBytes, ...hard, ...(floor.agentVolume ? { agentVolume: true } : {}) };
 }
 
 // Literal directory prefix of a policy path: everything before the first wildcard segment
@@ -136,6 +167,27 @@ export function writerMatches(writer, ctx) {
   const pattern = expandPolicyPath(writer.path, ctx);
   return expandGlob(pattern);
 }
+
+// How a writer's path pattern relates to `target`, compared as text (nothing is read from disk, symlinks and redirected
+// environment variables are not resolved): "covers" when the pattern is the target or one of its ancestors, "within" when
+// the target is an ancestor of the pattern, null when they diverge. A pattern that needs an unset variable (`${TEMP}`)
+// proves nothing and relates to nothing.
+function writerPathRelation(writer, target, { platform = process.platform, home = "/home/x", env = {} } = {}) {
+  let pattern;
+  try { pattern = expandPolicyPath(writer.path, { env, home }); } catch { return null; }
+  const key = platformKey(platform);
+  const split = (value) => value.split(/[\\/]/).filter(Boolean).map((part) => fold(part, key));
+  const patternParts = split(pattern);
+  const targetParts = split(target);
+  for (let i = 0; i < Math.min(patternParts.length, targetParts.length); i += 1) if (!globSegment(patternParts[i]).test(targetParts[i])) return null;
+  return patternParts.length <= targetParts.length ? "covers" : "within";
+}
+
+/** True when the writer's path is `target` or an ancestor of it, so a write to `target` belongs to that writer. */
+export const writerCoversPath = (writer, target, options) => writerPathRelation(writer, target, options) === "covers";
+
+/** True when the writer's path is `target`, an ancestor of it, or lies below it: the entry is accounted for by some writer. */
+export const writerTouchesPath = (writer, target, options) => writerPathRelation(writer, target, options) !== null;
 
 
 // ---- Workspace roots (allowlist) and scratch roots ------------------------------------------------------------------
@@ -233,28 +285,129 @@ export function scanWorkspaceRoots({ policy, platform = process.platform, env = 
   return { unknown, skipped };
 }
 
-export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots } = {}) {
+// Top-level names of an agent volume that are the operating system's, not data: never reported as uncovered.
+export const DEFAULT_VOLUME_IGNORE = [".Trashes", ".fseventsd", ".Spotlight-V100", ".TemporaryItems", ".DocumentRevisions-V100", ".DS_Store", ".VolumeIcon.icns", "$RECYCLE.BIN", "System Volume Information", "lost+found"];
+
+/** What an agent volume holds beyond its writers: used bytes minus the bytes of the outermost writer paths on that volume
+ * (a writer nested inside another, or two writers on one path, count once), and the top-level entries no writer names or
+ * contains. An estimate: statfs counts allocated blocks, snapshots and clones included. Null when the volume is not there. */
+function unmanagedOnVolume(floor, { measured, policy, platform, env, home, size, readdir }) {
   const key = platformKey(platform);
-  const floorPolicy = policy.floors[key];
-  const floor = evaluateFloor(floorPolicy, space(floorPolicy.path));
+  const dev = deviceOf(floor.path);
+  if (dev === null) return null;
+  const byPath = new Map();
+  for (const m of measured) if (deviceOf(m.path) === dev && !byPath.has(fold(m.path, key))) byPath.set(fold(m.path, key), m);
+  const onVolume = [...byPath.entries()];
+  const outer = onVolume.filter(([p]) => !onVolume.some(([o]) => o !== p && p.startsWith(o + path.sep)));
+  const writerBytes = outer.reduce((sum, [, m]) => sum + m.bytes, 0);
+  const usedBytes = floor.totalBytes - floor.freeBytes;
+  const ignore = new Set((policy.volumeIgnore ?? DEFAULT_VOLUME_IGNORE).map((n) => fold(n, key)));
+  const writersHere = policy.writers.filter((w) => w.platform === key);
+  const uncoveredTopLevel = [];
+  let names = [];
+  try { names = readdir(floor.path); } catch { /* unreadable volume root: nothing to list */ }
+  for (const name of [...names].sort()) {
+    if (ignore.has(fold(name, key))) continue;
+    const full = path.join(floor.path, name);
+    if (writersHere.some((w) => writerTouchesPath(w, full, { platform, home, env }))) continue;
+    let symlink = false;
+    try { symlink = lstatSync(full).isSymbolicLink(); } catch { continue; }
+    uncoveredTopLevel.push({ name, path: full, symlink, bytes: symlink ? 0 : size(full) });
+  }
+  // `writers` is what the writer total is made of (the report's categories), so used = sum(writers) + unmanaged holds by construction.
+  return { floor: floor.id ?? floor.label, usedBytes, writerBytes, unmanagedBytes: Math.max(0, usedBytes - writerBytes), writers: outer.map(([, m]) => ({ id: m.id, category: m.category, bytes: m.bytes })), uncoveredTopLevel };
+}
+
+/** Free space of every floor of a platform, statfs only (no directory is read). A volume that cannot be read (an unmounted
+ * /Volumes/D) is a warning on its own floor, never a crash that hides the rest. */
+export function checkFloors({ policy, platform = process.platform, space = freeSpace } = {}) {
+  const key = platformKey(platform);
+  const floorPolicies = floorList(policy, key);
+  if (!floorPolicies.length) throw new Error(`disk policy: no floor for ${key}`);
+  return floorPolicies.map((f) => {
+    try { return evaluateFloor(f, space(f.path)); } catch (error) {
+      return { ...(f.id ? { id: f.id } : {}), label: f.label, path: f.path, absent: true, error: error.message, warn: true, ...(f.agentVolume ? { agentVolume: true } : {}) };
+    }
+  });
+}
+
+// The parts of RustRight's build budget (`rustright doctor --json` -> `buildBudget`) a writer's `budget` list may name; `total` is
+// the whole budget.
+export const BUDGET_PARTS = ["targets", "sccache", "cargoHome", "toolchains", "trash", "slack"];
+
+/** RustRight's build budget (`buildBudget` of `rustright doctor --json --no-scan`, all parts in bytes), or null when RustRight is
+ * missing, fails, times out or answers with anything else. Nothing is cached and no shell is used. */
+export function readRustrightBudget({ run = spawnSync } = {}) {
+  try {
+    const r = run("rustright", ["doctor", "--json", "--no-scan"], { encoding: "utf8", timeout: 20_000, shell: false, maxBuffer: 1 << 24 });
+    if (!r || r.error || r.status !== 0) return null;
+    const budget = JSON.parse(String(r.stdout)).buildBudget;
+    if (!budget || typeof budget !== "object") return null;
+    for (const part of [...BUDGET_PARTS, "totalBytes"]) if (!Number.isFinite(budget[part]) || budget[part] < 0) return null;
+    return budget;
+  } catch { return null; }
+}
+
+// A writer's cap: the sum of its `budget` parts when RustRight's budget is readable (`rustright`), else the `capBytes` of the
+// policy (`policy`), so a host without RustRight keeps the committed number.
+function writerCap(writer, budget) {
+  if (!Array.isArray(writer.budget) || !budget) return { capBytes: writer.capBytes, capSource: "policy" };
+  const parts = writer.budget.map((name) => (name === "total" ? budget.totalBytes : budget[name]));
+  if (!parts.every(Number.isFinite)) return { capBytes: writer.capBytes, capSource: "policy" };
+  return { capBytes: parts.reduce((a, b) => a + b, 0), capSource: "rustright" };
+}
+
+export function checkDisk({ policy, platform = process.platform, env = process.env, home = os.homedir(), size = (p) => pathSize(p, { platform }), space = freeSpace, now = Date.now(), scan = scanWorkspaceRoots, readdir = readdirSync, strays = findStrayTargets, readBudget = readRustrightBudget } = {}) {
+  const key = platformKey(platform);
+  const floors = checkFloors({ policy, platform, space });
+  const floor = floors[0];
   const writers = [];
-  for (const writer of policy.writers.filter((w) => w.platform === key)) {
+  const measured = [];
+  const platformWriters = policy.writers.filter((w) => w.platform === key);
+  // RustRight is asked only when a row follows its budget, and once.
+  const budget = platformWriters.some((w) => Array.isArray(w.budget)) ? readBudget() : null;
+  for (const writer of platformWriters) {
+    const category = writer.category ?? writer.id;
+    const { capBytes, capSource } = writerCap(writer, budget);
     let matches;
     try { matches = writerMatches(writer, { env, home }); } catch (error) {
-      writers.push({ id: writer.id, action: writer.action, error: error.message, bytes: 0, capBytes: writer.capBytes, over: false, matches: 0 });
+      writers.push({ id: writer.id, category, action: writer.action, error: error.message, bytes: 0, capBytes, capSource, over: false, matches: 0 });
       continue;
     }
-    const bytes = matches.reduce((sum, m) => sum + size(m), 0);
-    writers.push({ id: writer.id, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes: writer.capBytes, over: bytes > writer.capBytes });
+    const sized = matches.map((m) => ({ path: m, bytes: size(m), id: writer.id, category }));
+    const bytes = sized.reduce((sum, m) => sum + m.bytes, 0);
+    measured.push(...sized);
+    writers.push({ id: writer.id, category, action: writer.action, path: writer.path, matches: matches.length, bytes, capBytes, capSource, over: bytes > capBytes });
   }
   const warnings = [];
-  if (floor.warn) warnings.push(`${floor.label} free ${formatBytes(floor.freeBytes)} is below the ${formatBytes(floor.thresholdBytes)} floor`);
+  for (const f of floors) {
+    if (f.absent) warnings.push(`floor volume ${f.path} is not mounted or cannot be read (${f.error})`);
+    else if (f.warn) warnings.push(`${f.label} free ${formatBytes(f.freeBytes)} is below the ${formatBytes(f.thresholdBytes)} floor`);
+  }
   for (const w of writers) if (w.over) warnings.push(`${w.id} holds ${formatBytes(w.bytes)} over its ${formatBytes(w.capBytes)} cap`);
+  const unmanaged = [];
+  for (const f of floors.filter((x) => x.agentVolume && !x.absent)) {
+    const entry = unmanagedOnVolume(f, { measured, policy, platform, env, home, size, readdir });
+    if (entry) unmanaged.push(entry);
+  }
+  for (const u of unmanaged) for (const e of u.uncoveredTopLevel) warnings.push(`no writer covers ${e.path} (${e.symlink ? "symlink" : formatBytes(e.bytes)}): add one to disk-policy.json`);
   const scanned = scan({ policy, platform, env, home });
   const unknown = scanned.unknown.map((u) => ({ root: u.root, name: u.name, path: u.path, symlink: u.symlink, bytes: u.symlink ? 0 : size(u.path), ageDays: Math.max(0, Math.floor((now - u.mtimeMs) / 86400_000)) }));
   for (const u of unknown) warnings.push(`unknown top-level entry ${u.path} (${u.symlink ? "symlink" : formatBytes(u.bytes)}, ${u.ageDays}d old): track it or add it to workspaceAllowlist (sweep only moves it on a host that ran \`disk allow-workspace-sweep\`)`);
   for (const s of scanned.skipped) warnings.push(`workspace root ${s.path}: tracked paths cannot be read from git, so unknown entries are not evaluated or swept`);
-  return { schema: 1, platform: key, floor, writers, unknown, warnings, warn: warnings.length > 0 };
+  // RustRight owns cargo targets, so a tagged target elsewhere is a stray that something built outside it.
+  const strayList = [];
+  for (const entry of policy.strayTargets?.[key] ?? []) {
+    let root;
+    try { root = expandPolicyPath(entry.path, { env, home }); } catch { continue; }
+    for (const p of strays(root, { depth: entry.depth ?? 4, protectedSegments: policy.protectedSegments })) {
+      let mtimeMs = now;
+      try { mtimeMs = lstatSync(p).mtimeMs; } catch { /* vanished */ }
+      strayList.push({ path: p, bytes: size(p), ageDays: Math.max(0, Math.floor((now - mtimeMs) / 86400_000)) });
+    }
+  }
+  for (const t of strayList) warnings.push(`stray cargo target ${t.path} (${formatBytes(t.bytes)}, ${t.ageDays}d old): RustRight owns cargo targets; sweep moves it once idle for ${policy.strayTargetDays ?? 1} day(s)`);
+  return { schema: 1, platform: key, floor, floors, writers, unmanaged, unknown, strays: strayList, warnings, warn: warnings.length > 0 };
 }
 
 export function formatBytes(n) {
@@ -279,6 +432,165 @@ export function hasFreshContent(root, cutoffMs) {
     } finally { try { handle.closeSync(); } catch { /* ignore */ } }
   }
   return false;
+}
+
+// A directory the agent wants to keep carries a `.keep` file; it protects the directory for `keepMarkerDays` (default 14) after
+// its last touch. An expired marker is ignored, so the unit ages out by the normal rules; a symlink named .keep proves nothing.
+// Directory units only: a marker beside a file would itself be swept as a scratch child.
+export const KEEP_MARKER = ".keep";
+export function keptByMarker(unit, now, days, lstat = lstatSync) {
+  try {
+    const st = lstat(path.join(unit, KEEP_MARKER));
+    return st.isFile() && !st.isSymbolicLink() && st.mtimeMs > now - days * 86400_000;
+  } catch { return false; }
+}
+
+// ---- Run-root leases ------------------------------------------------------------------------------------------------------
+// A run root is a directory directly under a scratch root that an agent leased with `disk run-root <name>`: it holds
+// `.rightkit-run.json` = {"schema":1,"name","createdAt","leaseUntil"} (ISO times). The sweep leaves a unit with a valid lease alone,
+// and the write-time guard (build-control-policy) lets clones and downloads land only inside a run root. Keep the format: the guard
+// reads exactly this file.
+
+export const RUN_LEASE_FILE = ".rightkit-run.json";
+export const DEFAULT_LEASE_DAYS = 3;
+/** The longest lease `disk run-root --days` writes. The write-time guard (build-control-policy) carries the same number and treats a lease
+ * that claims more than this (plus one day) from its `createdAt`, or one created in the future, as no lease: a forged file cannot say 2999. */
+export const MAX_LEASE_DAYS = 30;
+const DAY_MS = 86_400_000;
+const RUN_ROOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
+
+/** Owner of a scratch run: the name before its first `-` (legion-..., rk-..., pulse-..., hr-...). */
+export const scratchOwner = (name) => name.split("-")[0];
+
+/** The lease of a run-root directory, or null when it has none or the file is not a regular, well-formed lease (a symlink or an
+ * oversized file proves nothing). A lease belongs to its own directory (`name` is the directory's name, so a copied lease file counts
+ * nowhere else) and spans at most MAX_LEASE_DAYS (plus one day) from its creation, as `createRunRoot` writes it. */
+export function readRunLease(unit, { lstat = lstatSync, readFile = readFileSync } = {}) {
+  try {
+    const file = path.join(unit, RUN_LEASE_FILE);
+    const st = lstat(file);
+    if (!st.isFile() || st.isSymbolicLink() || st.size > 4096) return null;
+    const lease = JSON.parse(readFile(file, "utf8"));
+    if (lease?.schema !== 1 || typeof lease.name !== "string" || !Number.isFinite(Date.parse(lease.createdAt)) || !Number.isFinite(Date.parse(lease.leaseUntil))) return null;
+    if (lease.name !== path.basename(unit)) return null;
+    if (Date.parse(lease.leaseUntil) - Date.parse(lease.createdAt) > (MAX_LEASE_DAYS + 1) * DAY_MS) return null;
+    return lease;
+  } catch { return null; }
+}
+
+/** True while the unit's lease has not run out. A lease created more than a day after `now` is not one either. */
+export function leasedByRunRoot(unit, now, options) {
+  const lease = readRunLease(unit, options);
+  return lease !== null && Date.parse(lease.createdAt) <= now + DAY_MS && Date.parse(lease.leaseUntil) > now;
+}
+
+function runRootsBase({ policy, platform, env, home }) {
+  const roots = scratchRoots(policy, { platform, env, home });
+  if (!roots.length) throw new Error(`disk run-root: the policy has no scratch root for ${platformKey(platform)}`);
+  return roots[0];
+}
+
+function checkRunRootName(name) {
+  if (typeof name !== "string" || !RUN_ROOT_NAME.test(name) || name.endsWith(".")) throw new Error(`disk run-root: name ${JSON.stringify(name)} must be 1 to 80 letters, digits, dots, dashes or underscores, starting with a letter or digit (the part before the first "-" is the owner)`);
+}
+
+/** Lease `<scratch root>/<name>` for `days`: creates the directory and writes its lease file (renewing keeps `createdAt`). Refused,
+ * with nothing written, while the scratch root as a whole is over the `scratch-total` writer's cap or the name's owner prefix is over
+ * its `scratchPrefixCaps` entry: the agent has to release or remove finished run roots first. */
+export function createRunRoot({ policy, platform = process.platform, env = process.env, home = os.homedir(), name, days = DEFAULT_LEASE_DAYS, now = Date.now(), size = (p) => pathSize(p, { platform }) } = {}) {
+  checkRunRootName(name);
+  if (!(Number.isFinite(days) && days > 0 && days <= MAX_LEASE_DAYS)) throw new Error(`disk run-root: --days must be a positive number of at most ${MAX_LEASE_DAYS}`);
+  const base = runRootsBase({ policy, platform, env, home });
+  if (!ensureScratchRoots({ policy, platform, env, home }).includes(base)) throw new Error(`disk run-root: scratch root ${base} does not exist and cannot be created (is the volume mounted?)`);
+  if (lstatSync(base).isSymbolicLink()) throw new Error(`disk run-root: scratch root ${base} is a symlink`);
+  const key = platformKey(platform);
+  const total = policy.writers.find((w) => w.id === "scratch-total" && w.platform === key);
+  if (total) {
+    const bytes = size(base);
+    if (bytes > total.capBytes) throw new Error(`disk run-root: refused, scratch holds ${formatBytes(bytes)} over its ${formatBytes(total.capBytes)} total cap; release or remove finished run roots in ${base} first`);
+  }
+  const owner = scratchOwner(name);
+  const prefixCap = policy.scratchPrefixCaps?.[owner];
+  if (prefixCap !== undefined) {
+    let names = [];
+    try { names = readdirSync(base); } catch { /* unreadable: nothing counted */ }
+    const bytes = names.filter((n) => scratchOwner(n) === owner).reduce((sum, n) => sum + size(path.join(base, n)), 0);
+    if (bytes > prefixCap) throw new Error(`disk run-root: refused, "${owner}" run roots hold ${formatBytes(bytes)} over their ${formatBytes(prefixCap)} cap; release or remove finished ${owner}-* run roots in ${base} first`);
+  }
+  const dir = path.join(base, name);
+  mkdirSync(dir, { recursive: true });
+  if (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory()) throw new Error(`disk run-root: ${dir} is not a plain directory`);
+  const file = path.join(dir, RUN_LEASE_FILE);
+  try { if (!lstatSync(file).isFile()) throw new Error(`disk run-root: ${file} is not a regular file`); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  const existing = readRunLease(dir);
+  const leaseUntil = now + days * DAY_MS;
+  // A renewal keeps the original createdAt only while the lease still fits MAX_LEASE_DAYS from it; a longer-running run root starts a new window.
+  const keepCreated = existing !== null && leaseUntil - Date.parse(existing.createdAt) <= MAX_LEASE_DAYS * DAY_MS && Date.parse(existing.createdAt) <= now;
+  const lease = { schema: 1, name, createdAt: keepCreated ? existing.createdAt : new Date(now).toISOString(), leaseUntil: new Date(leaseUntil).toISOString() };
+  const temp = `${file}.tmp-${process.pid}`;
+  writeFileSync(temp, `${JSON.stringify(lease)}\n`);
+  renameSync(temp, file);
+  return { path: dir, lease, renewed: existing !== null };
+}
+
+/** End a run root's lease by removing its lease file; the directory stays and ages out by the normal scratch rules. Says whether a
+ * lease was there; throws when the run root does not exist. */
+export function releaseRunRoot({ policy, platform = process.platform, env = process.env, home = os.homedir(), name } = {}) {
+  checkRunRootName(name);
+  const dir = path.join(runRootsBase({ policy, platform, env, home }), name);
+  let st;
+  try { st = lstatSync(dir); } catch { throw new Error(`disk run-root: no run root ${dir}`); }
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`disk run-root: ${dir} is not a plain directory`);
+  const file = path.join(dir, RUN_LEASE_FILE);
+  let had = false;
+  try { had = lstatSync(file).isFile(); if (had) rmSync(file); } catch { /* no lease file */ }
+  return { path: dir, released: had };
+}
+
+// ---- Stray cargo targets --------------------------------------------------------------------------------------------------
+// RustRight owns cargo targets (under .rightkit-managed). A `target` or `.cache/cargo-target` directory that cargo tagged
+// (CACHEDIR.TAG) anywhere else in a workspace or scratch root is a stray. The writer rows have no `**` and no content test,
+// so strays are found by a bounded walk instead.
+
+export const CACHEDIR_SIGNATURE = "Signature: 8a477f597d28d172789f06886806bc55";
+// Never entered while looking for strays: repositories' own state, dependency trees and the package store (all huge, none cargo's).
+const STRAY_WALK_SKIP = new Set([".git", "node_modules", ".pnpm-store"]);
+
+function cargoTagged(dir) {
+  let fd;
+  try {
+    const tag = path.join(dir, "CACHEDIR.TAG");
+    if (!lstatSync(tag).isFile()) return false; // lstat: a symlinked tag proves nothing
+    fd = openSync(tag, "r");
+    const buf = Buffer.alloc(CACHEDIR_SIGNATURE.length);
+    return readSync(fd, buf, 0, buf.length, 0) === buf.length && buf.toString("utf8") === CACHEDIR_SIGNATURE;
+  } catch { return false; } finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } } }
+}
+
+/** Cargo target directories under `root`, at most `depth` levels below it. Walks real directories only (a symlink is never
+ * followed), skips `.git`, `node_modules`, `.pnpm-store` and any directory named in `protectedSegments`, and never enters a
+ * target directory, tagged or not. A stray is a directory named `target`, or `cargo-target` inside a `.cache`, whose
+ * CACHEDIR.TAG starts with cargo's signature. */
+export function findStrayTargets(root, { depth = 4, protectedSegments = [] } = {}) {
+  const protectedNames = new Set(protectedSegments);
+  if (root.split(/[\\/]/).some((seg) => protectedNames.has(seg))) return [];
+  const found = [];
+  const stack = [{ dir: root, level: 0 }];
+  while (stack.length) {
+    const { dir, level } = stack.pop();
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink() || STRAY_WALK_SKIP.has(entry.name) || protectedNames.has(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.name === "target" || (entry.name === "cargo-target" && path.basename(dir) === ".cache")) {
+        if (cargoTagged(full)) found.push(full);
+        continue;
+      }
+      if (level + 1 < depth) stack.push({ dir: full, level: level + 1 });
+    }
+  }
+  return found.sort();
 }
 
 export function isProtectedPath(candidate, policy) {
@@ -318,15 +630,27 @@ export function gitTracksPath(target) {
   return String(listed.stdout).length > 0;
 }
 
-export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }), scan = scanWorkspaceRoots, workspaceSweep = workspaceSweepAllowed({ platform, env, home }) } = {}) {
+// A `.keep` or a live run-root lease on any directory between `root` and a stray target (a scratch run, a checkout) keeps what is
+// beneath it: "kept", "leased" or null. Asked again when the move is applied.
+function heldAbove(unit, root, now, keepDays) {
+  let held = null;
+  for (let dir = path.dirname(unit); dir !== root && dir.startsWith(root); dir = path.dirname(dir)) held = held ?? (keptByMarker(dir, now, keepDays) ? "kept" : leasedByRunRoot(dir, now) ? "leased" : null);
+  return held;
+}
+
+export function planSweep({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), staleDays, openPaths, inUse, tracked = gitTracksPath, size = (p) => pathSize(p, { platform }), scan = scanWorkspaceRoots, strays = findStrayTargets, workspaceSweep = workspaceSweepAllowed({ platform, env, home }), light = false } = {}) {
   const key = platformKey(platform);
   const effectiveDays = staleDays ?? policy.staleDays;
   const candidates = [];
   const skipped = [];
   const seen = new Set();
+  const keepDays = policy.keepMarkerDays ?? 14;
   const lockCheck = inUse ?? (key === "win" ? windowsLockProbe : (p) => inUseByOpenPaths(p, openPaths));
   // Sweep writers, plus report writers with `escalate` when they are over cap by its factor (pure caches: idle children go).
-  for (const writer of policy.writers.filter((w) => w.platform === key && (w.action === "sweep" || w.escalate))) {
+  // The light (hourly) pass is stat-only: just the cheap temp-like writers marked `light`, no escalation (it sizes a whole
+  // root), no workspace scan and no stray walk.
+  const sweepable = (w) => (light ? w.action === "sweep" && w.light === true : w.action === "sweep" || w.escalate);
+  for (const writer of policy.writers.filter((w) => w.platform === key && sweepable(w))) {
     let roots; let literal;
     try { roots = writerMatches(writer, { env, home }); literal = literalRoot(expandPolicyPath(writer.path, { env, home })); } catch { continue; }
     // `--days N` overrides every writer; otherwise a writer may carry its own window (QA evidence: 3 days, caches: 2).
@@ -358,20 +682,20 @@ export function planSweep({ policy, platform = process.platform, env = process.e
       if (symlinkAncestor(unit, literal)) { skipped.push({ ...base, reason: "symlink-ancestor" }); continue; }
       if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); continue; }
       if (writer.skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); continue; }
+      if (keptByMarker(unit, now, keepDays)) { skipped.push({ ...base, reason: "kept" }); continue; }
+      if (leasedByRunRoot(unit, now)) { skipped.push({ ...base, reason: "leased" }); continue; }
       if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); continue; }
       if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); continue; }
-      candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
+      candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString(), freshCutoffMs: cutoff });
     }
   }
-  // Overlapping writers (a whole cache dir and one of its children): the outer unit wins, the nested one is not moved twice.
-  const nested = candidates.filter((c) => candidates.some((o) => o !== c && c.path.startsWith(o.path + path.sep)));
-  for (const c of nested) skipped.push({ writer: c.writer, path: c.path, reason: "nested" });
-  if (nested.length) candidates.splice(0, candidates.length, ...candidates.filter((c) => !nested.includes(c)));
   // Allowlisted workspace roots: unknown top-level entries older than 3 days and idle.
-  const scanned = scan({ policy, platform, env, home });
+  const scanned = light ? { unknown: [], skipped: [] } : scan({ policy, platform, env, home });
   skipped.push(...scanned.skipped);
   const unknownCutoff = now - (staleDays ?? policy.unknownStaleDays ?? 3) * 86400_000;
-  const consider = (writerId, unit, root, cutoff) => {
+  // Scratch is run output the agent owns: it ages out on its own, shorter window, `--days N` still overriding both.
+  const scratchCutoff = now - (staleDays ?? policy.scratchStaleDays ?? policy.unknownStaleDays ?? 3) * 86400_000;
+  const consider = (writerId, unit, root, cutoff, { skipTracked = false } = {}) => {
     if (seen.has(unit)) return;
     seen.add(unit);
     const base = { writer: writerId, path: unit };
@@ -380,24 +704,43 @@ export function planSweep({ policy, platform = process.platform, env = process.e
     if (st.isSymbolicLink()) { skipped.push({ ...base, reason: "symlink" }); return; }
     if (!isInsideRoot(unit, root)) { skipped.push({ ...base, reason: "outside-root" }); return; }
     if (isProtectedPath(unit, policy)) { skipped.push({ ...base, reason: "protected" }); return; }
+    if (skipTracked && tracked(unit)) { skipped.push({ ...base, reason: "tracked" }); return; }
+    if (keptByMarker(unit, now, keepDays)) { skipped.push({ ...base, reason: "kept" }); return; }
+    if (leasedByRunRoot(unit, now)) { skipped.push({ ...base, reason: "leased" }); return; }
     if (hasFreshContent(unit, cutoff)) { skipped.push({ ...base, reason: "fresh" }); return; }
     if (lockCheck(unit)) { skipped.push({ ...base, reason: "in-use" }); return; }
-    candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString() });
+    candidates.push({ ...base, root, bytes: size(unit), mtime: new Date(st.mtimeMs).toISOString(), freshCutoffMs: cutoff });
   };
   // Report-only unless this host opted in (`disk allow-workspace-sweep`): unknown entries are warned about, never moved.
   for (const u of scanned.unknown) {
     if (!workspaceSweep) { skipped.push({ writer: "workspace-unknown", path: u.path, reason: "report-only" }); continue; }
     consider("workspace-unknown", u.path, u.root, unknownCutoff);
   }
-  // Scratch roots: every child older than 3 days and idle (the same window).
+  // Scratch roots: every child idle for `scratchStaleDays`.
   for (const root of scratchRoots(policy, { platform, env, home })) {
     let rst;
     try { rst = lstatSync(root); } catch { continue; }
     if (rst.isSymbolicLink()) { skipped.push({ writer: "scratch-root", path: root, reason: "symlink-root" }); continue; }
     let names = [];
     try { names = readdirSync(root); } catch { continue; }
-    for (const n of names) consider("scratch-root", path.join(root, n), root, unknownCutoff);
+    for (const n of names) consider("scratch-root", path.join(root, n), root, scratchCutoff);
   }
+  // Stray cargo targets (tagged, outside RustRight's roots): idle `strayTargetDays`, never when git tracks anything in them.
+  const strayCutoff = now - (staleDays ?? policy.strayTargetDays ?? 1) * 86400_000;
+  for (const entry of light ? [] : policy.strayTargets?.[key] ?? []) {
+    let root;
+    try { root = expandPolicyPath(entry.path, { env, home }); } catch { continue; }
+    for (const unit of strays(root, { depth: entry.depth ?? 4, protectedSegments: policy.protectedSegments })) {
+      const held = heldAbove(unit, root, now, keepDays);
+      if (held) { skipped.push({ writer: "stray-cargo-target", path: unit, reason: held }); continue; }
+      consider("stray-cargo-target", unit, root, strayCutoff, { skipTracked: true });
+    }
+  }
+  // Overlapping units (a whole cache dir and one of its children, a scratch run and a target inside it): the outer unit wins,
+  // the nested one is not moved twice.
+  const nested = candidates.filter((c) => candidates.some((o) => o !== c && c.path.startsWith(o.path + path.sep)));
+  for (const c of nested) skipped.push({ writer: c.writer, path: c.path, reason: "nested" });
+  if (nested.length) candidates.splice(0, candidates.length, ...candidates.filter((c) => !nested.includes(c)));
   return { schema: 1, platform: key, staleDays: effectiveDays, candidates, skipped, totalBytes: candidates.reduce((s, c) => s + c.bytes, 0) };
 }
 
@@ -444,8 +787,8 @@ export function defaultMounted(mount, itemDev) {
 }
 
 // Candidate holding bases for an item, best first: policy per-volume rules (longest prefix), then the item's own volume root.
-// A rule with `mount` is a cross-volume base: it applies only to items on the policy floor's volume (the Mac internal drive),
-// and only while that mount is present (checked at pick time). Entries are `{ path, mount? }`.
+// A rule with `mount` is a cross-volume base: it applies only to items on the volume of the floor flagged `holdingSource`
+// (the Mac internal drive), and only while that mount is present (checked at pick time). Entries are `{ path, mount? }`.
 export function holdingBases(candidate, { policy, platform = process.platform, env = process.env, home = os.homedir() } = {}) {
   const key = platformKey(platform);
   const out = [];
@@ -458,7 +801,7 @@ export function holdingBases(candidate, { policy, platform = process.platform, e
   for (const r of rules) {
     if (r.mount) {
       if (floorDev === undefined) {
-        const floorPath = policy.floors?.[key]?.path;
+        const floorPath = holdingSourcePath(policy, key);
         floorDev = floorPath ? deviceOf(expandPolicyPath(floorPath, { env, home })) : null;
       }
       if (floorDev === null || deviceOf(path.dirname(candidate)) !== floorDev) continue;
@@ -534,6 +877,51 @@ export function moveEntry(source, destination) {
   return "copy-verify-remove";
 }
 
+// The tail of the log read by `readLogTail`, then more of it, until an event is found: a busy day appends thousands of sweep lines
+// after the last full pass, so the newest full-pass line can lie further back than any one window. 4, 16, 64 and 256 MiB.
+export const EVENT_SCAN_WINDOWS = [1 << 22, 1 << 24, 1 << 26, 1 << 28];
+
+/** Parsed events of the log's last `maxBytes`, oldest first, and whether that reached the start of the file. A partial first line and
+ * any unparsable line are skipped. Throws what the filesystem throws (a missing log is ENOENT). */
+function readLogTail(logFile, maxBytes) {
+  let fd;
+  try {
+    fd = openSync(logFile, "r");
+    const st = fstatSync(fd);
+    // A directory reports size 0 on Windows (and under /proc), so reading it would look like an empty log rather than fail.
+    if (!st.isFile()) throw Object.assign(new Error(`EISDIR: ${logFile} is not a regular file`), { code: "EISDIR" });
+    const { size } = st;
+    const start = Math.max(0, size - maxBytes);
+    const buf = Buffer.alloc(size - start);
+    readSync(fd, buf, 0, buf.length, start);
+    const lines = buf.toString("utf8").split("\n");
+    if (start > 0) lines.shift(); // starts mid-line
+    const events = [];
+    for (const line of lines) { try { const e = JSON.parse(line); if (e && typeof e === "object" && !Array.isArray(e)) events.push(e); } catch { /* blank or damaged line */ } }
+    return { events, whole: start === 0 };
+  } finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } } }
+}
+
+/** Parsed events of the log's last `maxBytes`, oldest first. A partial first line and any unparsable line are skipped; a log
+ * that cannot be read is an empty list. */
+export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
+  try { return readLogTail(logFile, maxBytes).events; } catch { return []; }
+}
+
+/** Newest event of the log whose `event` is one of `names` (and that `accept`s), or null. The log is read backwards in growing
+ * windows (EVENT_SCAN_WINDOWS) until a match turns up or the whole file has been read. A log that does not exist has no event (null:
+ * the job never ran); any other read error (EIO, ENOTDIR, a volume that went away) is thrown, because "nothing found" would then
+ * be a guess. `maxBytes` limits the scan to one window of that size. */
+export function lastEvent(logFile, names, { maxBytes, accept = () => true, windows = EVENT_SCAN_WINDOWS } = {}) {
+  for (const window of maxBytes ? [maxBytes] : windows) {
+    let tail;
+    try { tail = readLogTail(logFile, window); } catch (error) { if (error?.code === "ENOENT") return null; throw error; }
+    for (let i = tail.events.length - 1; i >= 0; i -= 1) if (names.includes(tail.events[i].event) && accept(tail.events[i])) return tail.events[i];
+    if (tail.whole) return null;
+  }
+  return null;
+}
+
 export function logEvent(logFile, event) {
   try {
     mkdirSync(path.dirname(logFile), { recursive: true });
@@ -541,14 +929,38 @@ export function logEvent(logFile, event) {
   } catch { /* logging must never fail the sweep */ }
 }
 
-export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, isMounted, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
+// Why an item the plan listed must not be moved now, or null. The plan can be minutes old (a full pass sizes everything in between)
+// and an agent may have kept, leased or touched the unit since: the checks of planSweep run again, per candidate, right before the move.
+function recheckSweep(c, { policy, now }) {
+  const keepDays = policy.keepMarkerDays ?? 14;
+  if (keptByMarker(c.path, now, keepDays)) return "rechecked-keep";
+  if (leasedByRunRoot(c.path, now)) return "rechecked-leased";
+  const above = c.writer === "stray-cargo-target" && c.root ? heldAbove(c.path, c.root, now, keepDays) : null;
+  if (above) return above === "kept" ? "rechecked-keep" : "rechecked-leased";
+  if (Number.isFinite(c.freshCutoffMs) && hasFreshContent(c.path, c.freshCutoffMs)) return "rechecked-fresh";
+  return null;
+}
+
+// Where `source` goes below `holding/<writer>`: its own name, else `<name>.1`, `<name>.2`, ... The same name recurs within one
+// sweep (a `target` in every checkout, one child name under several parents), so the first free suffix is looked up each time.
+function freeDestination(holding, writer, source) {
+  const first = path.join(holding, writer, path.basename(source));
+  let destination = first;
+  for (let n = 1; pathExists(destination); n += 1) destination = `${first}.${n}`;
+  return destination;
+}
+
+export function applySweep({ plan, policy, platform = process.platform, deleteMode = false, date = new Date(), now = Date.now(), env = process.env, home = os.homedir(), move = moveEntry, pick = pickHolding, isMounted, remove = (p) => rmSync(p, { recursive: true, force: true }) }) {
   const logFile = path.join(policy.heavyVolume[platformKey(platform)], "disk-hygiene.jsonl");
   const results = [];
+  const skipped = [];
   for (const c of plan.candidates) {
     try {
       // Re-verify at apply time: still the planned unit, not a symlink, still inside its root.
       if (!c.root || lstatSync(c.path).isSymbolicLink() || !isInsideRoot(c.path, c.root)) throw new Error("refused: path is not a sweepable unit inside its target root");
       if (c.writer === "workspace-unknown" && PROJECT_MARKERS.some((m) => existsSync(path.join(c.path, m)))) throw new Error("refused: a nested git checkout or project directory is never swept");
+      const held = recheckSweep(c, { policy, now });
+      if (held) { skipped.push({ ...c, reason: held }); logEvent(logFile, { event: "disk.sweep.skip", reason: held, ...c }); continue; }
       if (deleteMode) { remove(c.path); results.push({ ...c, action: "delete", ok: true }); logEvent(logFile, { event: "disk.sweep.delete", ...c }); continue; }
       // An item stays on its own volume: moving it elsewhere frees nothing on the volume that is short of space.
       const holding = pick(c.path, { policy, platform, env, home, date, isMounted });
@@ -558,17 +970,16 @@ export function applySweep({ plan, policy, platform = process.platform, deleteMo
         logEvent(logFile, { event: "disk.sweep.delete", reason: "no holding dir possible on the item's volume", ...c });
         continue;
       }
-      let destination = path.join(holding, c.writer, path.basename(c.path));
-      if (existsSync(destination)) destination = `${destination}.${date.getTime()}`;
+      const destination = freeDestination(holding, c.writer, c.path);
       const how = move(c.path, destination);
       results.push({ ...c, action: "move", destination, how, ok: true });
-      logEvent(logFile, { event: "disk.sweep.move", ...c, destination, how });
+      logEvent(logFile, { event: "disk.sweep.move", ...c, sourceParent: path.dirname(c.path), destination, how });
     } catch (error) {
       results.push({ ...c, action: deleteMode ? "delete" : "move", ok: false, error: error.message });
       logEvent(logFile, { event: "disk.sweep.error", ...c, error: error.message });
     }
   }
-  return { logFile, results, movedBytes: results.filter((r) => r.ok).reduce((s, r) => s + r.bytes, 0) };
+  return { logFile, results, skipped, movedBytes: results.filter((r) => r.ok).reduce((s, r) => s + r.bytes, 0) };
 }
 
 // Holding bases that may exist: policy rule paths, each drive root (Windows) or /Volumes/* and the legacy heavy dir (Mac).
@@ -581,8 +992,31 @@ export function knownHoldingBases({ policy, platform = process.platform, env = p
   return [...bases];
 }
 
-/** Remove date-named holding dirs older than `days`. Only dirs this tool created: the base must carry the holding marker
- * (or, for the legacy heavy dir, the tool's own log), the child must be a real directory named YYYY-MM-DD, never a symlink. */
+/** The holding bases (every known one plus the legacy heavy dir) that live on the volume holding `volumePath`: the ones whose purge
+ * frees that volume. An emergency on one volume must not empty another volume's undo window. None when that volume cannot be read. */
+export function holdingBasesOnVolume(volumePath, { policy, platform = process.platform, env = process.env, home = os.homedir(), deviceOf: deviceFor = deviceOf } = {}) {
+  const key = platformKey(platform);
+  const legacy = policy.heavyVolume?.[key];
+  const device = deviceFor(volumePath);
+  if (device === null || device === undefined) return [];
+  return [...new Set([...knownHoldingBases({ policy, platform, env, home }), ...(legacy ? [legacy] : [])])].filter((base) => deviceFor(base) === device);
+}
+
+// Newest modification time (ms) of a holding dir and of its direct children, symlinks not followed. A move into a dated
+// folder updates the mtime of the folder and of the writer dir inside it, though the moved item keeps its own age. Infinity
+// when the dir cannot be read: what cannot be inspected is not purged.
+function newestWriteMs(dir) {
+  let newest;
+  let names;
+  try { newest = lstatSync(dir).mtimeMs; names = readdirSync(dir); } catch { return Infinity; }
+  for (const name of names) { try { newest = Math.max(newest, lstatSync(path.join(dir, name)).mtimeMs); } catch { /* vanished */ } }
+  return newest;
+}
+
+/** Remove date-named holding dirs a full `days` after their date (`date 00:00Z + days <= now`), and only when nothing was
+ * moved into or written in the dir within the last `days` either, so every item is held at least `days` even though the
+ * folder name carries only a date. Only dirs this tool created: the base must carry the holding marker (or, for the legacy
+ * heavy dir, the tool's own log), the child must be a real directory named YYYY-MM-DD, never a symlink. */
 export function purgeHoldings({ policy, platform = process.platform, env = process.env, home = os.homedir(), now = Date.now(), days = policy.holdingDays ?? 3, dryRun = false, bases, remove = (p) => rmSync(p, { recursive: true, force: true }), size = walkSize } = {}) {
   const key = platformKey(platform);
   const legacy = policy.heavyVolume?.[key];
@@ -605,7 +1039,8 @@ export function purgeHoldings({ policy, platform = process.platform, env = proce
       try { dst = lstatSync(dir); } catch { continue; }
       if (!dst.isDirectory() || dst.isSymbolicLink()) continue;
       const stamp = Date.parse(`${name}T00:00:00Z`);
-      if (!Number.isFinite(stamp) || stamp + 86400_000 > cutoff) continue; // the whole day must be older than the window
+      if (!Number.isFinite(stamp) || stamp > cutoff) continue; // the folder's date is a full window old
+      if (newestWriteMs(dir) > cutoff) continue; // but something was moved in (or written) within the window
       const bytes = size(dir);
       try {
         if (!dryRun) { remove(dir); if (logFile) logEvent(logFile, { event: "disk.purge", path: dir, bytes }); }

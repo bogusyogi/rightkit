@@ -2,10 +2,13 @@
   "schema": 1,
   "staleDays": 7,
   "floors": {
-    "mac": {"path": "/System/Volumes/Data", "label": "Mac internal", "warnFreeBytes": 42949672960},
-    "win": {"path": "D:\\", "label": "Dell D:", "warnFreeBytes": 429496729600, "warnFreePercent": 10}
+    "mac": [
+      {"id": "mac-internal", "path": "/System/Volumes/Data", "label": "Mac internal", "warnFreeBytes": 42949672960, "holdingSource": true},
+      {"id": "mac-d", "path": "/Volumes/D", "label": "Mac D:", "warnFreeBytes": 268435456000, "hardFreeBytes": 200000000000, "agentVolume": true}
+    ],
+    "win": {"id": "win-d", "path": "D:\\", "label": "Dell D:", "warnFreeBytes": 429496729600, "warnFreePercent": 10, "agentVolume": true}
   },
-  "holdingDays": 3,
+  "holdingDays": 1,
   "holding": {
     "mac": [{"prefix": "/", "path": "/Volumes/D/.rightkit-swept", "mount": "/Volumes/D"}, {"prefix": "/", "path": "~/.rightkit-swept"}],
     "win": [{"prefix": "C:\\", "path": "${LOCALAPPDATA}\\Orthic Labs\\.rightkit-swept"}]
@@ -15,18 +18,25 @@
     "win": "D:\\claude\\tmp\\swept"
   },
   "unknownStaleDays": 3,
+  "scratchStaleDays": 1,
+  "strayTargets": {
+    "mac": [{"path": "/Volumes/D/claude", "depth": 4}, {"path": "/Volumes/D/scratch", "depth": 4}],
+    "win": [{"path": "D:\\claude", "depth": 4}, {"path": "D:\\scratch", "depth": 4}]
+  },
+  "strayTargetDays": 1,
   "workspaceRoots": {
     "mac": [{"path": "/Volumes/D/claude"}],
     "win": [{"path": "D:\\claude"}]
   },
   "workspaceAllowlist": [".DS_Store", ".git", "node_modules", "tmp", "reports", "tasks", ".cache", "bin", "repos", "packages", "tests", "schemas", "assets", "migration", "archive", "catalog.db", "catalog.db-shm", "catalog.db-wal", "apple-skill-sources", "foundation-runs", "SEO", ".audit", ".commandcode", ".fastembed_cache", ".legion", ".model-bench", ".pnpm-store", ".pytest_cache", ".research", ".right-release", ".rightkit-managed", ".tether", ".venv-tools", ".vite"],
+  "scratchPrefixCaps": {"legion": 42949672960, "rk": 32212254720, "pulse": 21474836480, "hr": 21474836480},
   "scratchRoots": {
     "mac": ["/Volumes/D/scratch"],
     "win": ["D:\\scratch"]
   },
   "writers": [
-    {"id": "claude-session-dirs", "platform": "mac", "path": "/private/tmp/claude-501/*/*", "capBytes": 2147483648, "action": "sweep", "unit": "self"},
-    {"id": "rightkit-qa-tmp", "platform": "mac", "path": "/private/tmp/rightkit-qa", "capBytes": 2147483648, "action": "sweep", "unit": "children"},
+    {"id": "claude-session-dirs", "platform": "mac", "path": "/private/tmp/claude-501/*/*", "capBytes": 2147483648, "action": "sweep", "unit": "self", "light": true},
+    {"id": "rightkit-qa-tmp", "platform": "mac", "path": "/private/tmp/rightkit-qa", "capBytes": 2147483648, "action": "sweep", "unit": "children", "light": true},
     {"id": "cache-coreml-e5rt-tmp", "platform": "mac", "path": "~/Library/Caches/*/com.apple.e5rt.e5bundlecache/*/*/*.tmp.*", "capBytes": 4294967296, "action": "sweep", "unit": "self", "staleDays": 1},
     {"id": "cache-coreml-e5rt", "platform": "mac", "path": "~/Library/Caches/*/com.apple.e5rt.e5bundlecache/*/*", "capBytes": 4294967296, "action": "sweep", "unit": "children", "staleDays": 2},
     {"id": "cache-e2e", "platform": "mac", "path": "~/Library/Caches/e2e_*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
@@ -42,9 +52,14 @@
     {"id": "documents-scratch", "platform": "mac", "path": "~/Documents", "capBytes": 21474836480, "action": "report"},
     {"id": "shared-models", "platform": "mac", "path": "~/Library/Application Support/Orthic Labs/shared/models", "capBytes": 107374182400, "action": "report"},
     {"id": "stale-release-tarballs", "platform": "mac", "path": "/Volumes/D/claude/rightkit/packages/release/rightkit-release-*.tgz", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
-    {"id": "win-temp", "platform": "win", "path": "${TEMP}", "capBytes": 10737418240, "action": "sweep", "unit": "children"},
+    {"id": "agent-tmp", "platform": "mac", "path": "/Volumes/D/agent-cache/tmp", "capBytes": 21474836480, "action": "sweep", "unit": "children", "staleDays": 1, "category": "agent-cache", "light": true},
+    {"id": "agent-tmp", "platform": "win", "path": "D:\\agent-cache\\tmp", "capBytes": 21474836480, "action": "sweep", "unit": "children", "staleDays": 1, "category": "agent-cache", "light": true},
+    {"id": "build-home-tmp", "platform": "mac", "path": "/Volumes/D/.build-home/*/tmp", "capBytes": 10737418240, "action": "sweep", "unit": "children", "staleDays": 1, "light": true},
+    {"id": "build-home-tmp", "platform": "win", "path": "D:\\.build-home\\*\\tmp", "capBytes": 10737418240, "action": "sweep", "unit": "children", "staleDays": 1, "light": true},
+    {"id": "xcode-deriveddata-d", "platform": "mac", "path": "/Volumes/D/.xcode/DerivedData", "capBytes": 42949672960, "action": "sweep", "unit": "children"},
+    {"id": "win-temp", "platform": "win", "path": "${TEMP}", "capBytes": 10737418240, "action": "sweep", "unit": "children", "light": true},
     {"id": "win-pnpm", "platform": "win", "path": "${LOCALAPPDATA}\\pnpm", "capBytes": 21474836480, "action": "report"},
-    {"id": "win-sccache", "platform": "win", "path": "D:\\.rightkit-managed\\rightkit-build-control\\global", "capBytes": 34359738368, "action": "report"},
+    {"id": "win-sccache", "platform": "win", "path": "D:\\.rightkit-managed\\rightkit-build-control\\global\\compiler-cache", "capBytes": 55000000000, "action": "report", "budget": ["sccache"]},
     {"id": "win-claude-workspace", "platform": "win", "path": "D:\\claude", "capBytes": 805306368000, "action": "report"},
     {"id": "win-claude-tmp", "platform": "win", "path": "D:\\claude\\tmp", "capBytes": 107374182400, "action": "report"},
     {"id": "win-shared-models", "platform": "win", "path": "${LOCALAPPDATA}\\Orthic Labs\\shared\\models", "capBytes": 107374182400, "action": "report"},
@@ -63,9 +78,34 @@
     {"id": "leftover-pulse-bak", "platform": "win", "path": "${LOCALAPPDATA}\\Programs\\Pulse.bak-*", "capBytes": 1073741824, "action": "sweep", "unit": "self"},
     {"id": "qa-evidence-runs", "platform": "mac", "path": "/Volumes/D/claude/*/.cache/rightkit-qa/*", "capBytes": 5368709120, "action": "sweep", "unit": "self", "staleDays": 3, "skipTracked": true},
     {"id": "qa-evidence-runs", "platform": "win", "path": "D:\\claude\\*\\.cache\\rightkit-qa\\*", "capBytes": 5368709120, "action": "sweep", "unit": "self", "staleDays": 3, "skipTracked": true},
-    {"id": "build-control-targets", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/rightkit-build-control", "capBytes": 429496729600, "action": "report"},
-    {"id": "scratch-total", "platform": "mac", "path": "/Volumes/D/scratch", "capBytes": 322122547200, "action": "report"},
-    {"id": "claude-tmp", "platform": "mac", "path": "/Volumes/D/claude/tmp", "capBytes": 53687091200, "action": "report"}
+    {"id": "build-control-targets", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/rightkit-build-control", "capBytes": 250000000000, "action": "report", "budget": ["total"]},
+    {"id": "scratch-total", "platform": "mac", "path": "/Volumes/D/scratch", "capBytes": 322122547200, "action": "report", "category": "scratch"},
+    {"id": "claude-tmp", "platform": "mac", "path": "/Volumes/D/claude/tmp", "capBytes": 53687091200, "action": "report"},
+    {"id": "agent-cache", "platform": "mac", "path": "/Volumes/D/agent-cache", "capBytes": 64424509440, "action": "report"},
+    {"id": "agent-cache", "platform": "win", "path": "D:\\agent-cache", "capBytes": 64424509440, "action": "report"},
+    {"id": "dev-cache", "platform": "mac", "path": "/Volumes/D/.dev-cache", "capBytes": 85899345920, "action": "report"},
+    {"id": "dev-cache", "platform": "win", "path": "D:\\.dev-cache", "capBytes": 85899345920, "action": "report"},
+    {"id": "agent-home", "platform": "mac", "path": "/Volumes/D/agent-home", "capBytes": 21474836480, "action": "report"},
+    {"id": "agent-home", "platform": "win", "path": "D:\\agent-home", "capBytes": 21474836480, "action": "report"},
+    {"id": "build-home", "platform": "mac", "path": "/Volumes/D/.build-home", "capBytes": 21474836480, "action": "report"},
+    {"id": "build-home", "platform": "win", "path": "D:\\.build-home", "capBytes": 21474836480, "action": "report"},
+    {"id": "managed-runs", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/runs", "capBytes": 107374182400, "action": "report"},
+    {"id": "managed-runs", "platform": "win", "path": "D:\\.rightkit-managed\\runs", "capBytes": 107374182400, "action": "report"},
+    {"id": "managed-artifacts", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/artifacts", "capBytes": 42949672960, "action": "report"},
+    {"id": "managed-artifacts", "platform": "win", "path": "D:\\.rightkit-managed\\artifacts", "capBytes": 42949672960, "action": "report"},
+    {"id": "remote-workspaces", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/remote-workspaces", "capBytes": 64424509440, "action": "report"},
+    {"id": "remote-workspaces", "platform": "win", "path": "D:\\.rightkit-managed\\remote-workspaces", "capBytes": 64424509440, "action": "report"},
+    {"id": "holding-volume", "platform": "mac", "path": "/Volumes/D/.rightkit-swept", "capBytes": 107374182400, "action": "report", "category": "holding"},
+    {"id": "holding-volume", "platform": "win", "path": "D:\\.rightkit-swept", "capBytes": 107374182400, "action": "report", "category": "holding"},
+    {"id": "build-control-sccache", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/rightkit-build-control/global/compiler-cache", "capBytes": 55000000000, "action": "report", "budget": ["sccache"]},
+    {"id": "tart-home", "platform": "mac", "path": "/Volumes/D/tart-home", "capBytes": 161061273600, "action": "report"},
+    {"id": "xcode-home", "platform": "mac", "path": "/Volumes/D/.xcode", "capBytes": 64424509440, "action": "report"},
+    {"id": "remote-inputs", "platform": "mac", "path": "/Volumes/D/.rightkit-managed/remote-inputs", "capBytes": 21474836480, "action": "report"},
+    {"id": "claude-workspace", "platform": "mac", "path": "/Volumes/D/claude", "capBytes": 805306368000, "action": "report"},
+    {"id": "legacy-rightkit-publish", "platform": "mac", "path": "/Volumes/D/rightkit-publish", "capBytes": 1073741824, "action": "report"},
+    {"id": "scratch-total", "platform": "win", "path": "D:\\scratch", "capBytes": 322122547200, "action": "report", "category": "scratch"},
+    {"id": "build-control-targets", "platform": "win", "path": "D:\\.rightkit-managed\\rightkit-build-control", "capBytes": 250000000000, "action": "report", "budget": ["total"]},
+    {"id": "win-build-control-local", "platform": "win", "path": "${LOCALAPPDATA}\\RightKit\\build-control", "capBytes": 5368709120, "action": "report"}
   ],
   "protectedSegments": ["Application Support", "Keychains", "Keychain", "HeardRightNext", "Credentials", ".ssh", ".rightkit-managed", ".rightkit-swept"]
 }

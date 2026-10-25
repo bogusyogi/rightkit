@@ -373,8 +373,10 @@ Commands:
   disk check [--json]                                Per-writer sizes vs caps and free-space floor (exit 3 on warning)
   disk sweep [--dry-run] [--days N] [--delete] [--json]
                                                       Move stale idle heavy data to the heavy volume (delete only with --delete)
-  disk run                                           self-check, check, dry-run sweep, move sweep, warn (the scheduled job)
-  disk schedule install|uninstall|status             Daily launchd job (Mac) / hidden Task Scheduler entry (Windows), bound to the stable per-user copy
+  disk run [--auto|--light]                          self-check, then the full pass (check, sweep, purge, daily report); --light is the stat-only hourly pass (floors, temp-like writers, scratch; purges only below the agent volume's soft floor); --auto picks full once a day after 03:30, else light (the scheduled job)
+  disk run-root <name> [--days N] [--json]           Lease a run directory under the scratch root (default 3 days): the sweep skips it until the lease ends
+  disk run-root --release <name>                     End a run-root lease
+  disk schedule install|uninstall|status             Hourly launchd job (Mac) / hidden Task Scheduler entry (Windows) running "disk run --auto", bound to the stable per-user copy; status fails when no full pass finished in 26 h
   deps --check|--audit|--update                      Shared dependency lane
   update check|apply|gate|land|discard|run|schedule [--repo <path>]
                                                       Run the pinned @rightkit/outdated updater (right-update) that moves stale pins; reads .rightkit/update.json

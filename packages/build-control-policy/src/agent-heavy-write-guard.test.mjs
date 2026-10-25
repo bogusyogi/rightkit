@@ -16,9 +16,9 @@ setAllowlistSources({ readTrust: () => null, shipped: null });
 // (prefix trick), "Macintosh HD" is the usual symlink to "/".
 // Every counterexample string below is DATA ONLY: it is parsed, never executed.
 const home = '/Users/adrian';
-function fakeFs({ dirs, links = {}, mounts }) {
+function fakeFs({ dirs, links = {}, mounts, files = {} }) {
   const known = new Set(['/']);
-  for (const dir of dirs) for (let at = dir; at !== '/'; at = posix.dirname(at)) known.add(at);
+  for (const dir of [...dirs, ...Object.keys(files)]) for (let at = dir; at !== '/'; at = posix.dirname(at)) known.add(at);
   const error = (code) => Object.assign(new Error(code), { code });
   const realpath = (input) => {
     let resolved = '/'; const queue = input.split('/').filter(Boolean); let hops = 0;
@@ -33,9 +33,14 @@ function fakeFs({ dirs, links = {}, mounts }) {
   return {
     kind(target) {
       if (links[target]) return 'symlink';
-      try { return known.has(realpath(target)) ? 'dir' : null; } catch (caught) { if (caught.code === 'ENOENT') return null; throw caught; }
+      try { const real = realpath(target); return Object.hasOwn(files, real) ? 'file' : known.has(real) ? 'dir' : null; } catch (caught) { if (caught.code === 'ENOENT') return null; throw caught; }
     },
     realpath,
+    readFile(target) {
+      const text = Object.hasOwn(files, target) ? files[target] : undefined;
+      if (typeof text !== 'string') throw error(links[target] || known.has(target) ? 'EINVAL' : 'ENOENT');
+      return text;
+    },
     device(target) {
       let best; let length = -1;
       for (const [mount, device] of Object.entries(mounts)) if ((target === mount || target.startsWith(mount === '/' ? '/' : `${mount}/`)) && mount.length > length) { best = device; length = mount.length; }
@@ -43,13 +48,53 @@ function fakeFs({ dirs, links = {}, mounts }) {
     },
   };
 }
+// Run roots under /Volumes/D/scratch (the lease file is `.rightkit-run.json`, as `right-release disk run-root <name>` writes it).
+const LEASE = '.rightkit-run.json';
+// The suite runs on a fixed clock (seam below): a lease may last at most 30 days from its createdAt, so the live ones end 2026-10-31.
+const NOW = Date.parse('2026-10-25T12:00:00.000Z');
+const LIVE_UNTIL = '2026-10-31T00:00:00.000Z';
+const lease = (name, until = LIVE_UNTIL, extra = {}) => JSON.stringify({ schema: 1, name, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: until, ...extra });
+const scratch = '/Volumes/D/scratch';
 const fs = fakeFs({
+  files: {
+    [`${scratch}/run1/${LEASE}`]: lease('run1'),
+    [`${scratch}/run1/sub/keep.txt`]: 'x',
+    [`${scratch}/run-expired/${LEASE}`]: lease('run-expired', '2020-01-01T00:00:00.000Z'),
+    [`${scratch}/run-garbage/${LEASE}`]: '{not json',
+    [`${scratch}/run-schema2/${LEASE}`]: lease('run-schema2', undefined, { schema: 2 }),
+    [`${scratch}/run-noname/${LEASE}`]: JSON.stringify({ schema: 1, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: LIVE_UNTIL }),
+    [`${scratch}/run-baddate/${LEASE}`]: lease('run-baddate', 'tomorrow'),
+    [`${scratch}/run-numdate/${LEASE}`]: lease('run-numdate', 32503680000000),
+    [`${scratch}/run-null/${LEASE}`]: 'null',
+    [`${scratch}/run-array/${LEASE}`]: '[]',
+    [`/Volumes/D/scratchy/run1/${LEASE}`]: lease('run1'), // a sibling of the scratch parent
+    [`${scratch}/run-edge/${LEASE}`]: lease('run-edge', '2026-10-26T00:00:00.000Z'),
+    '/Volumes/D/claude/app/.rightkit-run.json': lease('app'), // a forged lease inside a primary checkout
+    [`/Volumes/D/claude/runs/r1/${LEASE}`]: lease('r1'), // a run-root parent configured through RIGHTKIT_SCRATCH_ROOTS
+    [`${home}/work/runx/${LEASE}`]: lease('runx'), // a leased directory on the internal volume
+    [`${scratch}/run-empty/${LEASE}`]: '',
+    [`${scratch}/run-long/${LEASE}`]: lease('run-long', '2026-12-31T00:00:00.000Z'), // 91 days
+    [`${scratch}/run-31d/${LEASE}`]: lease('run-31d', '2026-11-01T00:00:00.000Z'), // 30 days plus the one day of tolerance
+    [`${scratch}/run-31d-over/${LEASE}`]: lease('run-31d-over', '2026-11-01T00:00:00.001Z'),
+    [`${scratch}/run-future/${LEASE}`]: lease('run-future', '2026-12-20T00:00:00.000Z', { createdAt: '2026-12-01T00:00:00.000Z' }), // created in the future
+    [`${scratch}/run-far-future/${LEASE}`]: lease('run-far-future', '2999-01-20T00:00:00.000Z', { createdAt: '2999-01-01T00:00:00.000Z' }),
+    [`${scratch}/run-copied/${LEASE}`]: lease('run1'), // run1's lease file copied into another directory
+  },
   dirs: [
+    `${scratch}/run2`, `${scratch}/run1-evil`, `${scratch}/run-dirlease/${LEASE}`, `${scratch}/run-linklease`, `${scratch}/run-escape`,
     '/System/Volumes/Data', '/tmp', `${home}/work`, `${home}/Library/Developer/CoreSimulator/Devices`, `${home}/Library/Caches/cutright`,
     `${home}/Library/Caches/SomethingElse`, `${home}/Library/Application Support/Orthic Labs/shared/models`,
     '/Volumes/D/scratch', '/Volumes/D/scratch/hasgit/.git', '/Volumes/D/scratch/fresh', '/Volumes/D/claude/app', '/Volumes/D/caches', '/Volumes/D/.xcode/DerivedData', '/Volumes/D-evil', '/Volumes/E',
   ],
   links: {
+    [`${scratch}/run-symrun`]: `${scratch}/run1`, // a run directory that is a symlink to a leased one
+    [`${scratch}/run-forged`]: '/Volumes/D/claude/app', // a run directory that is a symlink to a directory holding a forged lease
+    [`${scratch}/run-linklease/${LEASE}`]: `${scratch}/run1/${LEASE}`, // a lease that is a symlink to a live lease
+    [`${scratch}/run-escape/out`]: '/Volumes/D/claude/app', // a link inside a (not yet leased) run root
+    [`${scratch}/run1/to-claude`]: '/Volumes/D/claude/app', // a link inside a leased run root that leaves it
+    [`${scratch}/run1/to-run2`]: `${scratch}/run2`,
+    [`${scratch}/run1/alias`]: `${scratch}/run1/${LEASE}`, // a symlink whose target is the lease file
+    [`${scratch}/run1/dangling`]: '/Volumes/D/nowhere',
     '/Volumes/Macintosh HD': '/',
     '/Volumes/D/scratch/to-internal': `${home}/work`,
     '/Volumes/D/scratch/dangling': `${home}/nowhere`,
@@ -82,7 +127,7 @@ ${name}	${pushUrl} (push)
   runner.calls = calls;
   return runner;
 }
-const seam = (cwd = '/Volumes/D/claude/app', extra = {}) => ({ fs, home, cwd, env: {}, gitRunner: fakeGit(), ...extra });
+const seam = (cwd = '/Volumes/D/claude/app', extra = {}) => ({ fs, home, cwd, env: {}, gitRunner: fakeGit(), clock: () => NOW, ...extra });
 const check = (command, cwd, extra) => heavyCommandViolation(command, seam(cwd, extra));
 const denied = (command, rule, cwd, extra) => {
   const found = check(command, cwd, extra);
@@ -99,7 +144,7 @@ const cache = `${home}/Library/Caches/cutright`;
 const hook = (tool_name, tool_input, cwd = home) => heavyWriteHookDecision({ tool_name, tool_input, cwd, platform: 'darwin' }, seam(cwd));
 
 test('rules are named and each denial names the agent-volume alternative', () => {
-  assert.deepEqual(HEAVY_WRITE_RULES.map((rule) => rule.id), ['simctl-no-simulators', 'xcodebuild-derived-data', 'xcodebuild-output', 'internal-heavy-path', 'non-agent-volume', 'undeterminable-destination']);
+  assert.deepEqual(HEAVY_WRITE_RULES.map((rule) => rule.id), ['simctl-no-simulators', 'xcodebuild-derived-data', 'xcodebuild-output', 'internal-heavy-path', 'non-agent-volume', 'undeterminable-destination', 'repo-create-outside-run-root', 'download-outside-run-root', 'run-lease-forgery']);
   const decision = hook('Bash', { command: 'xcrun simctl create A t' });
   assert.equal(decision.hookSpecificOutput.permissionDecision, 'deny');
   const reason = decision.hookSpecificOutput.permissionDecisionReason;
@@ -775,7 +820,8 @@ test('round 3 Astra row 3: curl implicit output and every file-writing option', 
   denied(`curl -O ${url}`, 'non-agent-volume', '/Volumes/E');
   denied(`curl -J ${url}`, 'non-agent-volume', '/Volumes/E');
   denied(`curl -OJ ${url}`, 'non-agent-volume', '/Volumes/E');
-  allowed(`curl --remote-name-all ${url}`);
+  denied(`curl --remote-name-all ${url}`, 'download-outside-run-root'); // the default cwd is the workspace, which is not a run root
+  allowed(`curl --remote-name-all ${url}`, ext);
   allowed(`curl -O --output-dir ${ext} ${url}`, '/Volumes/E'); // --output-dir redirects the implicit output
   denied(`curl -O --output-dir /Volumes/E/dir ${url}`, 'non-agent-volume');
   denied(`curl --etag-save /Volumes/E/tag ${url}`, 'non-agent-volume'); // the Astra case
@@ -865,9 +911,10 @@ test('round 3 Astra row 6 + R3: attached option values are sliced, expanded once
   denied(`unzip a.zip -d"$HOME/Library/Developer/CoreSimulator/Devices/$UDID"`, 'internal-heavy-path');
   denied(`wget -P"/Volumes/D/scratch/$X" ${url}`, 'undeterminable-destination');
   // No second expansion: a literal "$" that is already in a parsed value is data, never re-expanded.
-  allowed(`curl -o'$HOME/Library/Caches/cutright/x' ${url}`); // single quotes: a relative file named "$HOME/..." inside the cwd
-  allowed(`curl -o"\\$HOME/Library/Caches/cutright/x" ${url}`); // an escaped dollar in double quotes is the same literal
-  allowed(`curl --output='$X' ${url}`);
+  allowed(`curl -o'$HOME/Library/Caches/cutright/x' ${url}`, ext); // single quotes: a relative file named "$HOME/..." inside the cwd (a run root)
+  allowed(`curl -o"\\$HOME/Library/Caches/cutright/x" ${url}`, ext); // an escaped dollar in double quotes is the same literal
+  allowed(`curl --output='$X' ${url}`, ext);
+  denied(`curl --output='$X' ${url}`, 'download-outside-run-root'); // the same literal relative file in the workspace cwd
   allowed(`dd of='$X'`);
   denied(`curl -o"\\$HOME/x" ${url}`, 'internal-heavy-path', cache); // the literal path is relative to the (protected) cwd
   // An unresolved expansion inside a short-option cluster could be more option letters.
@@ -981,18 +1028,24 @@ test('round 3 self-audit: cp/mv backup suffix, tee -a, xargs-wrapped writers, se
   denied(`git -C /Volumes/D/scratch/to-internal/../Library/Caches/cutright clone ${repo}`, 'internal-heavy-path'); // physical ".."
   denied(`git clone --separate-git-dir=/Volumes/E/g ${repo} /Volumes/D/scratch/y`, 'non-agent-volume');
   denied(`git clone ${repo} ~/Library/Caches/cutright/y`, 'internal-heavy-path');
-  allowed(`git clone ${repo}`);
-  allowed(`git clone ${repo} /Volumes/D/scratch/y`);
-  allowed(`git -C /Volumes/D/scratch clone ${repo} sub`);
-  allowed(`git -C /Volumes/D/scratch -C ../claude clone ${repo}`); // ordered -C: the second is relative to the first
-  allowed(`git -C /Volumes/E clone ${repo} /Volumes/D/scratch/y`); // an absolute destination ignores the cwd
+  denied(`git clone ${repo}`, 'repo-create-outside-run-root'); // the default cwd is the workspace
+  denied(`git clone ${repo} /Volumes/D/scratch/y`, 'repo-create-outside-run-root'); // no lease
+  denied(`git -C /Volumes/D/scratch clone ${repo} sub`, 'repo-create-outside-run-root');
+  denied(`git -C /Volumes/D/scratch -C ../claude clone ${repo}`, 'repo-create-outside-run-root'); // ordered -C: the second is relative to the first
+  allowed(`git clone ${repo}`, ext);
+  allowed(`git clone ${repo} ${ext}/y`);
+  allowed(`git -C ${ext} clone ${repo} sub`);
+  allowed(`git -C /Volumes/D/scratch -C run1 clone ${repo}`); // ordered -C: the second is relative to the first
+  allowed(`git -C /Volumes/E clone ${repo} ${ext}/y`); // an absolute destination ignores the cwd
   denied(`git worktree add /Volumes/E/w HEAD`, 'non-agent-volume'); // the Astra case: HEAD is the commit-ish
   denied(`git worktree add -b br /Volumes/E/wt main`, 'non-agent-volume');
   denied(`git worktree add --detach /Volumes/E/wt`, 'non-agent-volume');
   denied(`git -C /Volumes/E worktree add wt HEAD`, 'non-agent-volume');
   denied(`git worktree move a /Volumes/E/b`, 'non-agent-volume');
-  allowed(`git worktree add /Volumes/D/scratch/w /Volumes/E/not-a-destination`); // the trailing operand is never the destination
-  allowed(`git worktree add ../wt`);
+  allowed(`git worktree add ${ext}/w /Volumes/E/not-a-destination`); // the trailing operand is never the destination
+  denied(`git worktree add /Volumes/D/scratch/w /Volumes/E/not-a-destination`, 'repo-create-outside-run-root'); // no lease
+  denied(`git worktree add ../wt`, 'repo-create-outside-run-root');
+  allowed(`git worktree add wt`, ext);
   allowed('git worktree list');
   allowed('git status');
   for (const command of ['git clone', `git clone ${repo} a b`, 'git worktree add', 'git worktree add a b c', 'git worktree move a', 'git worktree add $X', 'git clone --frobnicate u d', 'git --frobnicate clone u d', 'git -C "$X" clone u d', 'git $SUB clone u d', 'git clone $URL', 'git clone --frobnicate=1 u d']) denied(command, 'undeterminable-destination');
@@ -1317,8 +1370,9 @@ test('round 5 worktree: the source repository and every affected worktree root n
     }
   }
   denied('git worktree add /Volumes/D/scratch/w', 'undeterminable-destination', here, { gitRunner: fakeGit({ status: 128 }) });
-  allowed('git worktree add /Volumes/D/scratch/w HEAD');
-  allowed('git worktree add --detach -b b ../wt main');
+  allowed(`git worktree add ${ext}/w HEAD`);
+  allowed('git worktree add --detach -b b wt main', ext);
+  denied('git worktree add --detach -b b ../wt main', 'repo-create-outside-run-root', ext); // ".." is never guessed
   denied('git worktree add /Volumes/E/w HEAD', 'non-agent-volume');
   // 2. add: the new PATH; move: both paths; remove: the target worktree's resolved root
   allowed('git worktree move /Volumes/D/scratch/wt /Volumes/D/scratch/wt2', here, listed(here, '/Volumes/D/scratch/wt'));
@@ -1594,4 +1648,611 @@ test('round 6b export: only a certain, modelled export form sets the exported st
   // other variables are not affected
   allowed('export -n FOO; ' + git, undefined, { env });
   allowed('false && export FOO; ' + git, undefined, { env });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Run roots. A clone, a worktree or a download is admitted only below a directory under /Volumes/D/scratch that holds a
+// live `.rightkit-run.json` lease. This is a security boundary: every case below that must be refused would still compile
+// and pass ordinary tests if the guard allowed it.
+const repo = 'https://example.com/y.git';
+const url = 'https://example.com/x';
+const ws = '/Volumes/D/claude/app';
+const runRule = 'repo-create-outside-run-root';
+const dlRule = 'download-outside-run-root';
+const leaseRule = 'run-lease-forgery';
+
+test('policy constants match release/disk-policy.json, and a lease written by right-release is a lease to the guard', async () => {
+  const guard = await import('./agent-heavy-write-guard.mjs');
+  const policy = JSON.parse(readFileSync(new URL('../../release/disk-policy.json', import.meta.url), 'utf8'));
+  assert.deepEqual([guard.WORKSPACE_ROOT], policy.workspaceRoots.mac.map((root) => root.path));
+  assert.deepEqual([guard.RUN_ROOT_PARENT], policy.scratchRoots.mac);
+  assert.equal(guard.AGENT_VOLUME, '/Volumes/D');
+  assert.ok(guard.RUN_ROOT_PARENT.startsWith(`${guard.AGENT_VOLUME}/`) && guard.WORKSPACE_ROOT.startsWith(`${guard.AGENT_VOLUME}/`));
+  const disk = await import('../../release/disk-policy.mjs');
+  assert.equal(guard.RUN_LEASE_FILE, disk.RUN_LEASE_FILE);
+  assert.equal(guard.MAX_LEASE_DAYS, disk.MAX_LEASE_DAYS); // the longest lease `disk run-root --days` writes is the longest the guard believes
+  assert.equal(guard.MAX_LEASE_DAYS, 30);
+  // The real writer: whatever `disk run-root` puts in the file must satisfy the guard's reading of it, and must stop counting when it ends.
+  const base = mkdtempSync(join(tmpdir(), 'rk-guard-lease-'));
+  try {
+    mkdirSync(join(base, 'scratch'));
+    const now = Date.parse('2026-10-25T12:00:00Z');
+    const made = disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity', now, size: () => 0 });
+    const text = readFileSync(join(made.path, disk.RUN_LEASE_FILE), 'utf8');
+    const leased = fakeFs({ dirs: ['/System/Volumes/Data', `${home}/work`, '/Volumes/D'], files: { [`${scratch}/rk-parity/${LEASE}`]: text }, mounts: { '/': 1, '/System/Volumes/Data': 2, '/Users': 2, '/Volumes/D': 3 } });
+    const at = (clock) => check(`git clone ${repo} ${scratch}/rk-parity/y`, ws, { fs: leased, clock });
+    assert.equal(at(() => now), null);
+    assert.equal(at(() => Date.parse(made.lease.leaseUntil) - 1), null);
+    assert.equal(at(() => Date.parse(made.lease.leaseUntil))?.rule, runRule);
+    // the longest lease the writer produces, and a renewal of it, both satisfy the guard's cap; the writer refuses anything longer
+    const longest = disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity-max', now, days: disk.MAX_LEASE_DAYS, size: () => 0 });
+    const maxFs = fakeFs({ dirs: ['/System/Volumes/Data', `${home}/work`, '/Volumes/D'], files: { [`${scratch}/rk-parity-max/${LEASE}`]: readFileSync(join(longest.path, disk.RUN_LEASE_FILE), 'utf8') }, mounts: { '/': 1, '/System/Volumes/Data': 2, '/Users': 2, '/Volumes/D': 3 } });
+    assert.equal(check(`git clone ${repo} ${scratch}/rk-parity-max/y`, ws, { fs: maxFs, clock: () => now }), null);
+    const renewed = disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity-max', now: now + 25 * 86400_000, days: disk.MAX_LEASE_DAYS, size: () => 0 });
+    const renewedFs = fakeFs({ dirs: ['/System/Volumes/Data', `${home}/work`, '/Volumes/D'], files: { [`${scratch}/rk-parity-max/${LEASE}`]: readFileSync(join(renewed.path, disk.RUN_LEASE_FILE), 'utf8') }, mounts: { '/': 1, '/System/Volumes/Data': 2, '/Users': 2, '/Volumes/D': 3 } });
+    assert.equal(check(`git clone ${repo} ${scratch}/rk-parity-max/y`, ws, { fs: renewedFs, clock: () => now + 25 * 86400_000 }), null); // the renewal moved createdAt rather than exceed 30 days
+    assert.throws(() => disk.createRunRoot({ policy: { ...policy, scratchRoots: { mac: [join(base, 'scratch')] }, writers: [], scratchPrefixCaps: {} }, platform: 'darwin', env: {}, home: base, name: 'rk-parity-31', now, days: 31, size: () => 0 }), /at most 30/);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+});
+
+test('clone and worktree add are admitted only below a leased run root', () => {
+  // the workspace is not a run root
+  denied(`git clone ${repo} /Volumes/D/claude/x`, runRule);
+  denied(`git clone ${repo}`, runRule); // no directory: <cwd>/y in the workspace
+  denied(`git clone --bare ${repo}`, runRule);
+  denied(`git clone ${repo} x`, runRule); // relative to the workspace cwd
+  denied(`git worktree add /Volumes/D/claude/wt`, runRule);
+  denied(`git worktree add wt`, runRule);
+  denied(`git worktree add -b br /Volumes/D/claude/wt main`, runRule);
+  // a scratch directory with no lease, an expired one, and the scratch parent itself
+  denied(`git clone ${repo} ${scratch}/run2/x`, runRule);
+  denied(`git clone ${repo} ${scratch}/never-made/x`, runRule);
+  denied(`git clone ${repo} ${scratch}/run-expired/x`, runRule);
+  denied(`git clone ${repo} ${scratch}`, runRule);
+  denied(`git clone ${repo} ${scratch}/`, runRule);
+  denied(`git clone ${repo}`, runRule, scratch); // default directory <scratch>/y
+  denied(`git clone ${repo}`, runRule, `${scratch}/run2`);
+  denied(`git worktree add ${scratch}/run2/wt`, runRule);
+  // leased: the destination is strictly below the run root, at any depth
+  allowed(`git clone ${repo} ${ext}/y`);
+  allowed(`git clone ${repo} ${ext}/a/b/c/y`);
+  allowed(`git clone ${repo} ${ext}//y/`);
+  allowed(`git clone ${repo} ${ext}/./y`);
+  allowed(`git clone ${repo} y`, ext); // relative to a cwd that is the run root
+  allowed(`git clone ${repo}`, ext); // default directory <run root>/y
+  allowed(`git clone ${repo}`, `${ext}/sub`);
+  allowed(`git clone --bare ${repo}`, ext); // <run root>/y.git
+  allowed(`git -C ${ext} clone ${repo}`);
+  allowed(`git clone ${repo} "${ext}/y"`); // quotes around a literal path resolve exactly
+  allowed(`git worktree add ${ext}/wt`);
+  allowed(`git worktree add -b br ${ext}/wt main`);
+  allowed(`git worktree add wt main`, ext);
+  allowed(`git clone --separate-git-dir ${ext}/g.git ${repo} ${ext}/y`);
+  // move, repair and the read-only forms keep the agent-volume check only
+  allowed('git worktree list');
+  allowed('git worktree move /Volumes/D/scratch/wt /Volumes/D/scratch/wt2', ws, { gitRunner: fakeGit({ repos: { [ws]: { worktrees: [ws, '/Volumes/D/scratch/wt'] } } }) });
+});
+
+test('a run root is not the run root itself, a sibling, a symlink, or reached through ".."', () => {
+  // the run root itself is never the destination of a clone or worktree
+  denied(`git clone ${repo} ${ext}`, runRule);
+  denied(`git clone ${repo} ${ext}/`, runRule);
+  denied(`git clone ${repo} .`, runRule, ext);
+  denied(`git clone ${repo} ./`, runRule, ext);
+  denied(`git worktree add ${ext}`, runRule);
+  denied(`git worktree add .`, runRule, ext);
+  // sibling prefixes
+  denied(`git clone ${repo} ${scratch}/run1-evil/x`, runRule);
+  denied(`git clone ${repo} ${scratch}/run1evil/x`, runRule);
+  denied(`git clone ${repo} /Volumes/D/scratchy/run1/x`, runRule); // a leased run1 under a sibling of the scratch parent
+  denied(`curl -o /Volumes/D/scratchy/run1/x ${url}`, dlRule);
+  denied(`git clone ${repo} ''`, runRule, ext); // an empty destination is not the run root
+  denied(`git clone ${repo} ${scratch}/run/x`, runRule);
+  denied(`git worktree add ${scratch}/run1-evil/wt`, runRule);
+  denied(`curl -o ${scratch}/run1-evil/x ${url}`, dlRule);
+  denied(`wget -P ${scratch}/run1-evil ${url}`, dlRule);
+  denied(`git clone ${repo}`, runRule, `${scratch}/run1-evil`);
+  // ".." in any position, even when the lexical result would be a leased run root
+  for (const dest of [`${ext}/../run2/x`, `${ext}/../../claude/x`, `${ext}/sub/../../run2/x`, `${ext}/..`, `${ext}/sub/..`, '/Volumes/D/claude/../scratch/run1/x', `${scratch}/../scratch/run1/x`, `/Volumes/D/scratch/run1/../run1/x`, '../x', `${ext}/y/../../../claude/x`]) {
+    denied(`git clone ${repo} ${dest}`, runRule, ext);
+    denied(`git worktree add ${dest}`, runRule, ext);
+    denied(`curl -o ${dest} ${url}`, dlRule, ext);
+    denied(`curl --output-dir ${dest} -O ${url}`, dlRule, ext);
+    denied(`wget -P ${dest} ${url}`, dlRule, ext);
+    denied(`wget -O ${dest} ${url}`, dlRule, ext);
+  }
+  denied(`git -C ${ext}/.. clone ${repo}`, runRule); // -C is the cwd: the scratch parent
+  denied(`git -C ${ext}/sub/../.. clone ${repo} x`, runRule);
+  // case variants that are not the same directory on a case-sensitive volume, and trailing dot segments
+  denied(`git clone ${repo} /Volumes/D/Scratch/run1/x`, runRule);
+  denied(`git clone ${repo} /volumes/d/scratch/run1/x`, runRule);
+  // symlinks: the run directory as typed, a link to a forged lease elsewhere, a link inside a run root leaving it
+  denied(`git clone ${repo} ${scratch}/run-symrun/x`, runRule); // a symlink to a leased run root is still a symlink
+  denied(`git clone ${repo} ${scratch}/run-forged/x`, runRule); // resolves into a primary checkout that holds a forged lease
+  denied(`curl -o ${scratch}/run-forged/x ${url}`, dlRule);
+  denied(`git clone ${repo} ${scratch}/run-escape/out/x`, runRule);
+  denied(`git clone ${repo} ${ext}/to-claude/x`, runRule);
+  denied(`git clone ${repo} ${ext}/to-run2/x`, runRule); // leads to a directory with no lease
+  denied(`git clone ${repo} ${ext}/dangling/x`, 'undeterminable-destination'); // a dangling symlink cannot be resolved
+  denied(`curl -o ${ext}/to-claude/x ${url}`, dlRule);
+  denied(`wget -P ${ext}/to-claude ${url}`, dlRule);
+  denied(`git clone ${repo} x`, runRule, `${scratch}/run-symrun`);
+  denied(`git clone ${repo}`, runRule, `${scratch}/run-symrun`);
+  // a forged lease inside the workspace does not make the workspace a run root
+  denied(`git clone ${repo} ${ws}/x`, runRule);
+  denied(`curl -o ${ws}/x ${url}`, dlRule);
+});
+
+test('only a regular, well formed, unexpired lease makes a run root', () => {
+  for (const name of ['run2', 'run-expired', 'run-garbage', 'run-schema2', 'run-noname', 'run-baddate', 'run-numdate', 'run-null', 'run-array', 'run-empty', 'run-dirlease', 'run-linklease']) {
+    const found = denied(`git clone ${repo} ${scratch}/${name}/x`, runRule);
+    assert.match(found.why, /run root/);
+    denied(`curl -o ${scratch}/${name}/x ${url}`, dlRule);
+    denied(`wget -P ${scratch}/${name} ${url}`, dlRule);
+    denied(`git worktree add ${scratch}/${name}/wt`, runRule);
+    denied(`git clone ${repo}`, runRule, `${scratch}/${name}`);
+  }
+  // the lease ends at leaseUntil: still in the future admits, equal or past does not
+  const edge = Date.parse('2026-10-26T00:00:00.000Z');
+  assert.equal(check(`git clone ${repo} ${scratch}/run-edge/x`, ws, { clock: () => edge - 1 }), null);
+  assert.equal(check(`git clone ${repo} ${scratch}/run-edge/x`, ws, { clock: () => edge })?.rule, runRule);
+  assert.equal(check(`git clone ${repo} ${scratch}/run-edge/x`, ws, { clock: () => edge + 1 })?.rule, runRule);
+  assert.equal(check(`curl -o ${scratch}/run-edge/x ${url}`, ws, { clock: () => edge })?.rule, dlRule);
+  // unreadable (the read throws, or the seam cannot read at all) is not a lease
+  const unreadable = { ...fs, readFile() { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); } };
+  denied(`git clone ${repo} ${ext}/x`, runRule, ws, { fs: unreadable });
+  denied(`curl -o ${ext}/x ${url}`, dlRule, ws, { fs: unreadable });
+  const { readFile, ...noRead } = fs;
+  denied(`git clone ${repo} ${ext}/x`, runRule, ws, { fs: noRead });
+  // a stat that throws fails closed
+  const unstattable = { ...fs, kind(target) { if (target.endsWith(LEASE)) throw Object.assign(new Error('EIO'), { code: 'EIO' }); return fs.kind(target); } };
+  denied(`git clone ${repo} ${ext}/x`, runRule, ws, { fs: unstattable });
+  // the lease file is never a destination (it is written only by `right-release disk run-root`)
+  for (const dest of [`${ext}/${LEASE}`, `${ext}/${LEASE}/x`]) {
+    const leaseFile = dest.endsWith(LEASE); // the lease itself: the forgery rule; something below a directory of that name: the run-root rule
+    const found = denied(`curl -o ${dest} ${url}`, leaseFile ? leaseRule : dlRule);
+    assert.match(found.why, /lease file/);
+    denied(`git clone ${repo} ${dest}`, leaseFile ? leaseRule : runRule);
+    denied(`wget -O ${dest} ${url}`, leaseFile ? leaseRule : dlRule);
+  }
+  denied(`curl --output-dir ${ext}/${LEASE} -O ${url}`, leaseRule);
+  denied(`wget -P ${ext}/${LEASE} ${url}`, leaseRule);
+  denied(`curl -o ${scratch}/run2/${LEASE} --create-dirs ${url}`, leaseRule); // forging a lease where none exists
+});
+
+test('the run-root parents come from RIGHTKIT_SCRATCH_ROOTS, and a run root must be on an agent volume', () => {
+  const env = { RIGHTKIT_SCRATCH_ROOTS: '/Volumes/D/claude/runs' };
+  allowed(`git clone ${repo} /Volumes/D/claude/runs/r1/x`, ws, { env });
+  denied(`git clone ${repo} /Volumes/D/claude/runs/r1/x`, runRule); // the default parent is /Volumes/D/scratch
+  denied(`git clone ${repo} ${ext}/x`, runRule, ws, { env }); // the override replaces the default
+  denied(`git clone ${repo} /Volumes/D/claude/runs/x`, runRule, ws, { env });
+  denied(`git clone ${repo} /Volumes/D/claude/runs`, runRule, ws, { env });
+  allowed(`curl -o /Volumes/D/claude/runs/r1/x ${url}`, ws, { env });
+  allowed(`git clone ${repo} ${ext}/x`, ws, { env: { RIGHTKIT_SCRATCH_ROOTS: `/nowhere:${scratch}` } });
+  // a parent that is not absolute, or an empty list, leaves no run root: everything is refused
+  for (const roots of ['scratch', 'relative/path:also', '/']) {
+    denied(`git clone ${repo} ${ext}/x`, runRule, ws, { env: { RIGHTKIT_SCRATCH_ROOTS: roots } });
+    denied(`curl -o ${ext}/x ${url}`, dlRule, ws, { env: { RIGHTKIT_SCRATCH_ROOTS: roots } });
+  }
+  // a leased directory on the internal volume is still not admitted
+  const internal = { RIGHTKIT_SCRATCH_ROOTS: `${home}/work` };
+  const found = check(`git clone ${repo} ${home}/work/runx/x`, ws, { env: internal });
+  assert.equal(found?.rule, runRule);
+  assert.match(found.why, /agent volume|internal/);
+  assert.equal(check(`curl -o ${home}/work/runx/x ${url}`, ws, { env: internal })?.rule, dlRule);
+  // injected parents win over the environment
+  allowed(`git clone ${repo} /Volumes/D/claude/runs/r1/x`, ws, { runRootParents: ['/Volumes/D/claude/runs'], env: { RIGHTKIT_SCRATCH_ROOTS: '/elsewhere' } });
+  // other protected places keep their own rule ids ahead of the run-root rule
+  denied(`git clone ${repo} /Volumes/E/y`, 'non-agent-volume');
+  denied(`curl -o /Volumes/E/y ${url}`, 'non-agent-volume');
+  denied(`git clone ${repo} ~/Library/Caches/cutright/y`, 'internal-heavy-path');
+  denied(`curl -o ${cache}/y ${url}`, 'internal-heavy-path');
+});
+
+test('quoted literals resolve exactly; variable-built, substituted and globbed destinations are refused, never guessed', () => {
+  allowed(`curl -o "${ext}/x" ${url}`);
+  allowed(`curl -o '${ext}/x' ${url}`);
+  const unresolved = ['$X', '"$X"', `${ext}/$X`, `"${ext}/$X"`, `"$RUN/x"`, `\${RUN}/x`, `${ext}/$(date)`, `"${ext}/$(date)"`, `${ext}/\`date\``, `${ext}/*`, `${ext}/{a,b}`, `${ext}/?`, `$(pwd)/x`, `~/x`, `/Volumes/D/scratch/$RUN/x`];
+  for (const dest of unresolved) {
+    const clone = check(`git clone ${repo} ${dest}`, ws);
+    assert.ok(clone, `git clone ${dest}`);
+    assert.ok(['undeterminable-destination', runRule, 'non-agent-volume', 'internal-heavy-path'].includes(clone.rule), `git clone ${dest}: ${clone.rule}`);
+    for (const command of [`git worktree add ${dest}`, `curl -o ${dest} ${url}`, `curl --output-dir ${dest} -O ${url}`, `wget -P ${dest} ${url}`, `wget -O ${dest} ${url}`]) assert.ok(check(command, ws), command);
+  }
+  for (const dest of ['$X', '"$X"', `${ext}/$X`, `"${ext}/$X"`, '"$RUN/x"', `${ext}/$(date)`, `${ext}/*`, `${ext}/{a,b}`]) {
+    assert.equal(check(`git clone ${repo} ${dest}`, ws)?.rule, 'undeterminable-destination', dest);
+    assert.equal(check(`curl -o ${dest} ${url}`, ws)?.rule, 'undeterminable-destination', dest);
+    assert.equal(check(`wget -P ${dest} ${url}`, ws)?.rule, 'undeterminable-destination', dest);
+  }
+  // a variable the guard does not know is a refusal even from inside a run root
+  denied(`git clone ${repo} "$DEST"`, 'undeterminable-destination', ext);
+  denied(`DEST=${ext}/x; eval "git clone ${repo} $DEST"; git clone ${repo} "$OTHER"`, 'undeterminable-destination');
+  // no destination from a workspace cwd, and from an unknown cwd
+  denied(`git clone ${repo}`, runRule, ws);
+  denied(`git clone ${repo}`, 'undeterminable-destination', null);
+  denied(`curl -O ${url}`, 'undeterminable-destination', null);
+  denied(`wget ${url}`, 'undeterminable-destination', null);
+  // the repository operand decides the default directory name: an unresolved one is refused
+  denied('git clone "$URL"', 'undeterminable-destination', ext);
+});
+
+test('curl and wget write files only into a leased run root', () => {
+  // explicit file outputs
+  denied(`curl -o /Volumes/D/claude/x.zip ${url}`, dlRule);
+  denied(`curl -o x.zip ${url}`, dlRule, ws);
+  denied(`curl -sSLo /Volumes/D/claude/x.zip ${url}`, dlRule);
+  denied(`curl --output /Volumes/D/claude/x.zip ${url}`, dlRule);
+  denied(`curl -o ${scratch}/run2/x.zip ${url}`, dlRule);
+  denied(`curl -o ${ext} ${url}`, dlRule); // the run root itself is not a file
+  denied(`curl -o ${scratch}/x.zip ${url}`, dlRule);
+  denied(`curl -o ${scratch} ${url}`, dlRule);
+  allowed(`curl -o ${ext}/x.zip ${url}`);
+  allowed(`curl -sSLo ${ext}/sub/x.zip ${url}`);
+  allowed(`curl -o x.zip ${url}`, ext);
+  allowed(`curl -o x.zip ${url}`, `${ext}/sub`);
+  allowed(`curl -o - ${url}`);
+  allowed(`curl ${url}`); // stdout
+  allowed(`curl -o /dev/null ${url}`);
+  allowed(`curl -D /dev/null -o ${ext}/x ${url}`);
+  allowed(`curl -D - ${url}`);
+  // implicit output: -O, -J and --remote-name-all write into the working directory or --output-dir
+  denied(`curl -O ${url}`, dlRule, ws);
+  denied(`curl -OJ ${url}`, dlRule, ws);
+  denied(`curl --remote-name ${url}`, dlRule, ws);
+  denied(`curl --remote-name-all ${url} ${url}`, dlRule, ws);
+  denied(`curl -O ${url}`, dlRule, scratch);
+  denied(`curl -O ${url}`, dlRule, `${scratch}/run2`);
+  denied(`curl -O --output-dir /Volumes/D/claude ${url}`, dlRule, ext);
+  denied(`curl -O --output-dir ${scratch} ${url}`, dlRule, ext);
+  denied(`curl -O --output-dir ${scratch}/run2 ${url}`, dlRule, ext);
+  denied(`curl -O --output-dir=${scratch}/run2 ${url}`, dlRule, ext);
+  denied(`curl -O --output-dir ${ext} --output-dir /Volumes/D/claude ${url}`, dlRule); // the last one wins in curl: both are checked
+  denied(`curl -O --output-dir /Volumes/D/claude --output-dir ${ext} ${url}`, dlRule);
+  denied(`curl --output-dir /Volumes/D/claude -o x ${url}`, dlRule, ext);
+  allowed(`curl -o x --output-dir ${ext} ${url}`, ws); // curl puts a relative -o into --output-dir, whatever the cwd is
+  allowed(`curl --output-dir ${ext} -o x ${url}`, ws);
+  allowed(`curl --output-dir ${ext} -o sub/x ${url}`, ws);
+  denied(`curl --output-dir ${ext} -o ../x ${url}`, dlRule, ws); // ".." is never guessed
+  denied(`curl --output-dir ${ext} -o /Volumes/D/claude/x ${url}`, dlRule, ws); // an absolute -o ignores --output-dir
+  denied(`curl --output-dir /Volumes/D/claude -o x ${url}`, dlRule, ext); // the directory is checked, not the cwd
+  denied(`curl -o x ${url}`, dlRule, ws); // no --output-dir: the cwd decides
+  allowed(`curl -O ${url}`, ext);
+  allowed(`curl -OJ ${url}`, `${ext}/sub`);
+  allowed(`curl --remote-name-all ${url}`, ext);
+  allowed(`curl -O --output-dir ${ext} ${url}`, ws);
+  allowed(`curl -O --output-dir ${ext}/sub ${url}`, ws);
+  allowed(`curl -O --output-dir=${ext} ${url}`, ws);
+  // the other files curl writes
+  for (const option of ['-D', '--dump-header', '-c', '--cookie-jar', '--trace', '--trace-ascii', '--stderr', '--libcurl', '--etag-save', '--hsts', '--alt-svc']) {
+    denied(`curl ${option} /Volumes/D/claude/f ${url}`, dlRule);
+    allowed(`curl ${option} ${ext}/f ${url}`);
+  }
+  // wget: -O, -P and the default (the working directory)
+  denied(`wget -O /Volumes/D/claude/x ${url}`, dlRule);
+  denied(`wget -O x ${url}`, dlRule, ws);
+  denied(`wget -O ${ext} ${url}`, dlRule); // a file named like the run root
+  denied(`wget -P /Volumes/D/claude ${url}`, dlRule);
+  denied(`wget --directory-prefix=/Volumes/D/claude ${url}`, dlRule);
+  denied(`wget -P ${scratch} ${url}`, dlRule);
+  denied(`wget -P ${scratch}/run2 ${url}`, dlRule);
+  denied(`wget -P ${ext} -P /Volumes/D/claude ${url}`, dlRule);
+  denied(`wget -O ${ext}/x -P /Volumes/D/claude ${url}`, dlRule);
+  denied(`wget -o /Volumes/D/claude/log -O ${ext}/x ${url}`, dlRule);
+  denied(`wget ${url}`, dlRule, ws); // the default: the working directory
+  denied(`wget -r -np ${url}`, dlRule, ws);
+  denied(`wget ${url}`, dlRule, scratch);
+  denied(`wget ${url}`, dlRule, `${scratch}/run2`);
+  denied(`wget -i urls.txt`, dlRule, ws); // no URL operand, still writes into the working directory
+  denied(`wget -b -O ${ext}/x ${url}`, dlRule, ws); // the background log is wget-log in the working directory
+  allowed(`wget -b -o ${ext}/log -O ${ext}/x ${url}`, ws);
+  allowed(`wget -O ${ext}/x ${url}`);
+  allowed(`wget -P ${ext} ${url}`);
+  allowed(`wget -P ${ext}/sub ${url}`);
+  allowed(`wget --directory-prefix=${ext} ${url}`);
+  allowed(`wget ${url}`, ext);
+  allowed(`wget -i urls.txt`, ext);
+  allowed(`wget -O - ${url}`);
+  allowed(`wget -O- ${url}`);
+  allowed(`wget -q -O /dev/null ${url}`);
+  // wgetrc commands and config files can move every output
+  denied(`wget -e dir_prefix=/Volumes/D/claude -P ${ext} ${url}`, 'undeterminable-destination');
+  denied(`wget -e output_document=/Volumes/D/claude/x -P ${ext} ${url}`, 'undeterminable-destination');
+  denied(`wget --execute=dir_prefix=/Volumes/D/claude ${url}`, 'undeterminable-destination', ext);
+  denied(`wget -e "$RC" -P ${ext} ${url}`, 'undeterminable-destination');
+  denied(`wget --config=/Volumes/D/scratch/run1/wgetrc -P ${ext} ${url}`, 'undeterminable-destination');
+  allowed(`wget -e robots=off -P ${ext} ${url}`);
+  // through wrappers
+  denied(`env X=1 curl -o /Volumes/D/claude/x ${url}`, dlRule);
+  denied(`sudo wget -P /Volumes/D/claude ${url}`, dlRule);
+  denied(`bash -c "curl -O ${url}"`, dlRule, ws);
+  denied(`cd /Volumes/D/claude && curl -O ${url}`, dlRule, ext);
+  denied(`cd ${scratch} && wget ${url}`, dlRule);
+  allowed(`cd ${ext} && curl -O ${url}`, ws);
+  denied(`xargs curl -O`, 'undeterminable-destination');
+  denied(`/usr/bin/curl -o /Volumes/D/claude/x ${url}`, dlRule);
+});
+
+test('every run-root refusal names the run root, the lease file and the command that creates one', () => {
+  for (const [command, rule] of [[`git clone ${repo} /Volumes/D/claude/x`, runRule], [`git worktree add /Volumes/D/claude/wt`, runRule], [`curl -o /Volumes/D/claude/x ${url}`, dlRule], [`wget -P /Volumes/D/claude ${url}`, dlRule]]) {
+    const found = denied(command, rule);
+    assert.match(found.required, /\/Volumes\/D\/scratch\/<name>/);
+    assert.match(found.required, /\.rightkit-run\.json/);
+    assert.match(found.required, /right-release disk run-root <name>/);
+    assert.match(found.required, /\/Volumes\/D\/claude\/<repo>/);
+    const decision = hook('Bash', { command }, ws);
+    assert.equal(decision.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(decision.hookSpecificOutput.permissionDecisionReason, new RegExp(`\\[${rule}\\]`));
+    assert.match(decision.hookSpecificOutput.permissionDecisionReason, /right-release disk run-root <name>/);
+  }
+  assert.match(denied(`curl -o ${ext}/x ${url}`.replace(ext, scratch), dlRule).required, /curl -o \/Volumes\/D\/scratch\/<name>\/file/);
+  assert.match(denied(`git clone ${repo} ${scratch}/run2/x`, runRule).required, /git clone URL \/Volumes\/D\/scratch\/<name>\/<repo>/);
+  // the hint follows the configured roots
+  assert.match(check(`git clone ${repo} /Volumes/D/claude/x`, ws, { env: { RIGHTKIT_SCRATCH_ROOTS: '/Volumes/D/claude/runs', RIGHTKIT_WORKSPACE_ROOTS: '/Volumes/D/ws' } }).required, /\/Volumes\/D\/claude\/runs\/<name>.*\/Volumes\/D\/ws\/<repo>/);
+  // the hook allows the same commands inside a leased run root and stays silent on other platforms
+  assert.equal(hook('Bash', { command: `git clone ${repo} ${ext}/y` }, ws), null);
+  assert.equal(heavyWriteHookDecision({ tool_name: 'Bash', tool_input: { command: `git clone ${repo}` }, cwd: ws, platform: 'linux' }, seam(ws)), null);
+  assert.equal(hook('Bash', { command: `curl -O ${url}`, workdir: ext }, ws), null); // a tool workdir is the cwd
+  assert.equal(hook('Bash', { command: `curl -O ${url}`, workdir: `${scratch}/run-forged` }, ws)?.hookSpecificOutput.permissionDecision, 'deny'); // the workdir resolves into a primary checkout
+});
+
+test('hf and huggingface-cli download write only into a leased run root', () => {
+  for (const program of ['hf', 'huggingface-cli', '/opt/homebrew/bin/hf']) {
+    // --local-dir is required and must be below a leased run root
+    denied(`${program} download org/m`, dlRule); // the shared Hugging Face cache
+    denied(`${program} download org/m file.bin`, dlRule, ext);
+    denied(`${program} download org/m --local-dir /Volumes/D/claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir=/Volumes/D/claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${scratch}/run2/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${scratch}/run-expired/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${scratch}`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/../run2/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/to-claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir m`, dlRule, ws); // relative to the workspace cwd
+    denied(`${program} download org/m --local-dir ${ext}/m --local-dir /Volumes/D/claude/m`, dlRule); // every one is checked
+    denied(`${program} download org/m --local-dir /Volumes/D/claude/m --local-dir ${ext}/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache-dir /Volumes/D/claude/c`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache-dir=${scratch}/run2/c`, dlRule);
+    denied(`${program} download org/m --cache-dir ${ext}/c`, dlRule); // the cache dir alone leaves the shared default for the files
+    denied(`${program} download org/m --local-dir /Volumes/E/m`, 'non-agent-volume');
+    // unresolved words are refused, never guessed
+    denied(`${program} download org/m --local-dir $X`, 'undeterminable-destination');
+    denied(`${program} download org/m --local-dir "${ext}/$X"`, 'undeterminable-destination');
+    denied(`${program} download org/m --local-dir=${ext}/$(date)`, 'undeterminable-destination');
+    denied(`${program} download org/m $OPTS`, 'undeterminable-destination', ext);
+    denied(`${program} download org/m "$OPTS" --local-dir ${ext}/m`, 'undeterminable-destination');
+    denied(`${program} $SUB org/m --local-dir ${ext}/m`, 'undeterminable-destination');
+    denied(`${program} --token abc download org/m --local-dir ${ext}/m`, 'undeterminable-destination');
+    denied(`${program} download org/m --local-dir`, 'undeterminable-destination', ext); // no value
+    denied(`${program} download org/m -- --local-dir ${ext}/m`, dlRule); // after "--" it is an operand
+    // argparse abbreviations of the two directory options count as those options
+    denied(`${program} download org/m --local /Volumes/D/claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache /Volumes/D/claude/c`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache-d=/Volumes/D/claude/c`, dlRule);
+    allowed(`${program} download org/m --local-dir ${ext}/m`);
+    allowed(`${program} download org/m --local-dir=${ext}/m`);
+    allowed(`${program} download org/m --local-dir "${ext}/m"`);
+    allowed(`${program} download org/m --local-dir ${ext}`); // a directory the files are placed into
+    allowed(`${program} download org/m file.bin --local-dir m`, ext);
+    allowed(`${program} download --repo-type dataset org/d --local-dir ${ext}/d --include '*.json'`);
+    allowed(`${program} download org/m --local-dir ${ext}/m --local-dir-use-symlinks False --max-workers 4`);
+    allowed(`${program} download org/m --local-dir ${ext}/m --cache-dir ${ext}/c`);
+    allowed(`${program} download org/$MODEL --local-dir ${ext}/m`); // a static head keeps it an operand
+    // help and the other subcommands are not downloads
+    allowed(`${program} download --help`);
+    allowed(`${program} download -h`);
+    allowed(`${program} --help`);
+    allowed(`${program} --version`);
+    allowed(`${program} whoami`);
+    allowed(`${program} login --token abc`);
+    allowed(`${program} scan-cache`);
+    allowed(program);
+  }
+  denied(`xargs hf download`, 'undeterminable-destination');
+  denied(`env HF_HOME=/tmp/x hf download org/m`, dlRule);
+  denied(`bash -c "hf download org/m"`, dlRule, ext);
+  allowed(`env HF_HOME=${ext}/hf hf download org/m --local-dir ${ext}/m`);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Review findings on the run-root rules. Each case below failed before the fix (and would still compile if it were allowed).
+test('program names match case-insensitively: APFS runs the real binary for Git, CURL and /usr/bin/Curl', () => {
+  denied(`Git clone ${repo} /Users/adrian/y`, runRule);
+  denied(`GIT clone ${repo}`, runRule, ws);
+  denied(`GiT worktree add ../wt`, runRule);
+  denied(`Curl -o /Users/adrian/x ${url}`, dlRule);
+  denied(`CURL -O ${url}`, dlRule, ws);
+  denied(`WGET -P /Users/adrian ${url}`, dlRule);
+  denied(`Wget ${url}`, dlRule, ws);
+  denied(`Hf download org/m`, dlRule);
+  denied(`HF download org/m --local-dir /Volumes/D/claude/m`, dlRule);
+  denied(`Huggingface-CLI download org/m`, dlRule);
+  denied(`/usr/bin/CURL -o /Users/adrian/x ${url}`, dlRule);
+  denied(`/opt/homebrew/bin/Git clone ${repo} /Users/adrian/y`, runRule);
+  denied(`/usr/bin/Curl.EXE -o /Users/adrian/x ${url}`, dlRule);
+  denied(`Env X=1 CURL -o /Users/adrian/x ${url}`, dlRule);
+  denied(`SUDO Wget -P /Users/adrian ${url}`, dlRule);
+  denied(`bash -c "Curl -O ${url}"`, dlRule, ws);
+  denied(`XARGS Curl -O`, 'undeterminable-destination');
+  // the same tables serve every other tool
+  denied(`CP x /Volumes/E/y`, 'non-agent-volume');
+  denied(`Tee /Volumes/E/f`, 'non-agent-volume');
+  denied(`SED -i '' s/a/b/ /Volumes/E/f`, 'non-agent-volume');
+  denied(`Tar -xf a.tar -C /Volumes/E/x`, 'non-agent-volume');
+  denied(`FIND /Volumes/E -delete`, 'non-agent-volume');
+  denied(`XCRUN SIMCTL create A ${device}`, 'simctl-no-simulators');
+  denied(`XCODEBUILD -scheme App build`, 'xcodebuild-derived-data');
+  // an upper-case spelling is not a way around the allowed cases either: it is judged exactly like the lower-case one
+  allowed(`Git clone ${repo} ${ext}/y`);
+  allowed(`CURL -o ${ext}/x ${url}`);
+  allowed(`WGET -P ${ext} ${url}`);
+  allowed(`Hf download org/m --local-dir ${ext}/m`);
+});
+
+test('curl checks every operation on its own: --next and -: reset --output-dir and -O', () => {
+  // the reviewer's counterexample: the second -O writes into the working directory, which is not a run root
+  denied(`curl --output-dir ${ext} -O ${url} --next -O ${url}`, dlRule, ws);
+  denied(`curl --output-dir ${ext} -O ${url} -: -O ${url}`, dlRule, ws);
+  denied(`curl --output-dir ${ext} -O ${url} --nex -O ${url}`, dlRule, ws); // an unambiguous abbreviation of --next
+  denied(`curl --output-dir ${ext} -sSO ${url} -s: -O ${url}`, dlRule, ws); // -: inside an option cluster
+  denied(`curl -O ${url} --next --output-dir ${ext} -O ${url}`, dlRule, ws); // the directory comes after: the first -O writes into the cwd
+  denied(`curl -O ${url} -: --output-dir ${ext} -O ${url}`, dlRule, ws);
+  denied(`curl -O ${url} --next -O ${url}`, dlRule, ws); // no directory at all
+  denied(`curl --output-dir ${ext} -O ${url} --next --output-dir /Volumes/D/claude -O ${url}`, dlRule, ws); // each operation's own directory
+  denied(`curl --output-dir ${ext} -O ${url} --next --output-dir ${scratch}/run2 -O ${url}`, dlRule, ws);
+  denied(`curl --output-dir ${ext} -o a ${url} --next -O ${url}`, dlRule, ws);
+  denied(`curl -o ${ext}/a ${url} --next -o /Users/adrian/b ${url}`, dlRule);
+  denied(`curl --output-dir ${ext} -o a ${url} --next -o b ${url}`, dlRule, ws); // b is relative to the cwd of the second operation
+  denied(`curl --output-dir ${ext} -o a ${url} -: -J -O ${url}`, dlRule, ws);
+  denied(`curl --remote-name-all --output-dir ${ext} ${url} --next ${url}`, dlRule, ws); // read as applying to every operation: it can only add a write
+  denied(`curl -O ${url} --next --next -O ${url}`, dlRule, ws);
+  // the same operations are fine when each one lands in a run root
+  allowed(`curl --output-dir ${ext} -O ${url} --next --output-dir ${ext}/sub -O ${url}`, ws);
+  allowed(`curl --output-dir ${ext} -O ${url} -: --output-dir ${ext} -O ${url}`, ws);
+  allowed(`curl -O ${url} --next -O ${url}`, ext);
+  allowed(`curl -O ${url} --next -o x ${url}`, ext);
+  allowed(`curl -o ${ext}/a ${url} --next -o ${ext}/b ${url}`, ws);
+  allowed(`curl --output-dir ${ext} -o a ${url} --next --output-dir ${ext} -o b ${url}`, ws);
+  allowed(`curl ${url} --next ${url}`, ws); // both go to stdout
+  allowed(`curl -o - ${url} --next -o /dev/null ${url}`, ws);
+});
+
+test('wget --spider and curl -o inside --output-dir write nothing outside the run root, so they are not refused', () => {
+  allowed(`wget --spider ${url}`, ws);
+  allowed(`wget -q --spider ${url}`, ws);
+  allowed(`wget --spider -nv ${url} ${url}`, ws);
+  allowed(`wget --spider -i urls.txt`, ws);
+  allowed(`wget --spider -O ${ext}/x ${url}`, ws); // an explicit output is still checked, and this one is fine
+  allowed(`wget --spider -P ${ext} ${url}`, ws);
+  allowed(`wget --spider -o ${ext}/log ${url}`, ext);
+  // ... but every output option and every spider that writes while it scans keeps its refusal
+  denied(`wget ${url}`, dlRule, ws);
+  denied(`wget -q ${url}`, dlRule, ws);
+  denied(`wget --spider -O /Volumes/D/claude/x ${url}`, dlRule, ws);
+  denied(`wget --spider -P /Volumes/D/claude ${url}`, dlRule, ws);
+  denied(`wget --spider -o /Volumes/D/claude/log ${url}`, dlRule, ws);
+  denied(`wget --spider -a /Volumes/D/claude/log ${url}`, dlRule, ws);
+  denied(`wget --spider -r ${url}`, dlRule, ws);
+  denied(`wget -r --spider ${url}`, dlRule, ws);
+  denied(`wget --spider --mirror ${url}`, dlRule, ws);
+  denied(`wget --spider -m ${url}`, dlRule, ws);
+  denied(`wget --spider -p ${url}`, dlRule, ws);
+  denied(`wget --spider --page-requisites ${url}`, dlRule, ws);
+  denied(`wget --spider -b ${url}`, dlRule, ws); // the background log is wget-log in the cwd
+  denied(`wget --spider -e dir_prefix=/Volumes/D/claude ${url}`, 'undeterminable-destination', ws);
+});
+
+test('the lease file is never a write destination, by any writer or tool, however the path is spelled', () => {
+  const forged = `${scratch}/forged/${LEASE}`;
+  const body = '{"schema":1,"name":"forged","createdAt":"2026-10-25T00:00:00Z","leaseUntil":"2026-11-20T00:00:00Z"}';
+  const forgeries = [
+    `echo '${body}' > ${forged}`, `echo '${body}' >> ${forged}`, `echo '${body}' >| ${forged}`, `echo '${body}' &> ${forged}`,
+    `printf '%s' '${body}' > "${forged}"`, `cat x > '${forged}'`, `echo x > ${scratch}/forged/./${LEASE}`, `echo x > ${scratch}/forged//${LEASE}`,
+    `echo '${body}' | tee ${forged}`, `echo '${body}' | tee -a ${forged}`, `echo x | tee ${scratch}/ok.txt ${forged}`,
+    `cp lease.json ${forged}`, `cp -f lease.json ${forged}`, `cp -p lease.json ${forged}`,
+    `mv lease.json ${forged}`, `install -m 644 lease.json ${forged}`, `rsync -a lease.json ${forged}`, `ditto lease.json ${forged}`,
+    `ln -s ${ext}/${LEASE} ${forged}`, `touch ${forged}`, `truncate -s 0 ${forged}`, `mkdir ${forged}`,
+    `dd if=lease.json of=${forged}`, `sed -i '' s/a/b/ ${forged}`, `sed -n 'w ${forged}' lease.json`, `find . -maxdepth 0 -fprint ${forged}`,
+    `tar -cf ${forged} -C /tmp .`, `curl -o ${forged} ${url}`, `wget -O ${forged} ${url}`, `git clone ${repo} ${forged}`,
+    `echo x > ${scratch}/forged/${LEASE.toUpperCase()}`, `echo x > ${scratch}/forged/.RightKit-Run.json`, // APFS ignores case
+    `echo x > ${ext}/sub/../${LEASE}`, `echo x > ${scratch}/run1/alias`, // ".." and a symlink whose target is the lease
+    `bash -c "echo x > ${forged}"`, `sudo tee ${forged}`, `env X=1 cp a ${forged}`, `eval 'echo x > ${forged}'`, `X=1 echo x > ${forged}`,
+  ];
+  for (const command of forgeries) {
+    const found = check(command, ws);
+    assert.ok(found, `expected a denial for: ${command}`);
+    assert.ok([leaseRule, dlRule, runRule].includes(found.rule), `${command}: ${found.rule} ${found.why}`);
+    if (found.rule === leaseRule) assert.match(found.required, /right-release disk run-root <name>/);
+  }
+  // the forgery rule itself (not a run-root rule) for every plain writer, with a refusal that says who creates a lease
+  for (const command of forgeries.filter((candidate) => !/curl|wget|git clone/.test(candidate))) {
+    const found = denied(command, leaseRule);
+    assert.match(found.why, /lease file/);
+    assert.match(found.required, /created only by `right-release disk run-root <name>`/);
+  }
+  // relative names resolve against the cwd, which here is a real run root
+  denied(`echo x > ${LEASE}`, leaseRule, ext);
+  denied(`echo x > ./${LEASE}`, leaseRule, ext);
+  denied(`cd ${ext} && echo x > ${LEASE}`, leaseRule, ws);
+  denied(`cd ${ext} && cp lease.json ${LEASE}`, leaseRule, ws);
+  denied(`cd ${ext} && tee ${LEASE}`, leaseRule, ws);
+  denied(`cp lease.json ${LEASE}`, leaseRule, ext);
+  denied(`echo x > ${LEASE}`, leaseRule, ws); // wherever the cwd is, the name decides
+  // a rewrite hint is not a way around: dynamic names stay refused by the unresolved-destination rule
+  denied(`echo x > ${scratch}/forged/$NAME`, 'undeterminable-destination');
+  denied(`echo x > ${scratch}/forged/.rightkit-run.$EXT`, 'undeterminable-destination');
+  // near misses and reads are not writes to the lease
+  allowed(`echo x > ${ext}/${LEASE}.bak`);
+  allowed(`echo x > ${ext}/x${LEASE}`);
+  allowed(`echo x > ${ext}/rightkit-run.json`);
+  allowed(`cat ${ext}/${LEASE}`);
+  allowed(`cat ${ext}/${LEASE} > ${ext}/copy.txt`);
+  allowed(`cp ${ext}/sub/keep.txt ${ext}/notes.txt`);
+  allowed(`echo x > ${ext}/notes.txt`);
+  allowed(`curl -o ${ext}/${LEASE}.txt ${url}`);
+});
+
+test('Write, Edit, MultiEdit and apply_patch cannot create or replace a lease file', () => {
+  const forged = `${scratch}/forged/${LEASE}`;
+  const found = heavyPathViolation(forged, seam(ws));
+  assert.equal(found?.rule, leaseRule);
+  assert.match(found.required, /right-release disk run-root <name>/);
+  for (const file of [forged, `${ext}/${LEASE}`, `${ext}/sub/../${LEASE}`, `${scratch}/forged/${LEASE.toUpperCase()}`, `${ext}/alias`, `${scratch}/run-linklease/${LEASE}`, LEASE]) {
+    assert.equal(heavyPathViolation(file, seam(ext))?.rule, leaseRule, file);
+    for (const tool of ['Write', 'Edit', 'MultiEdit']) {
+      const decision = hook(tool, { file_path: file }, ext);
+      assert.equal(decision?.hookSpecificOutput.permissionDecision, 'deny', `${tool} ${file}`);
+      assert.match(decision.hookSpecificOutput.permissionDecisionReason, /\[run-lease-forgery\]/);
+      assert.match(decision.hookSpecificOutput.permissionDecisionReason, /right-release disk run-root <name>/);
+    }
+    for (const verb of ['Add File', 'Update File', 'Delete File']) {
+      const decision = hook('apply_patch', { patch: `*** Begin Patch\n*** ${verb}: ${file}\n+x\n*** End Patch` }, ext);
+      assert.equal(decision?.hookSpecificOutput.permissionDecision, 'deny', `apply_patch ${verb} ${file}`);
+    }
+    const moved = hook('apply_patch', { patch: `*** Begin Patch\n*** Update File: ${ext}/a.txt\n*** Move to: ${file}\n*** End Patch` }, ext);
+    assert.equal(moved?.hookSpecificOutput.permissionDecision, 'deny', `apply_patch Move to ${file}`);
+  }
+  for (const file of [`${ext}/notes.txt`, `${ext}/${LEASE}.bak`, `${ext}/sub/keep.txt`]) {
+    assert.equal(heavyPathViolation(file, seam(ext)), null, file);
+    assert.equal(hook('Write', { file_path: file }, ext), null, file);
+  }
+  assert.equal(hook('apply_patch', { patch: `*** Begin Patch\n*** Add File: ${ext}/notes.txt\n+x\n*** End Patch` }, ext), null);
+});
+
+test('curl -O and wget saved under a URL named like the lease file are refused', () => {
+  const lease = `https://example.com/dir/${LEASE}`;
+  denied(`curl -O --output-dir ${ext} ${lease}`, leaseRule);
+  denied(`curl --remote-name-all --output-dir ${ext} ${url} ${lease}`, leaseRule);
+  denied(`curl -O ${lease}?token=1`, leaseRule, ext);
+  denied(`curl -O ${lease.toUpperCase().replace('HTTPS', 'https')}`, leaseRule, ext);
+  denied(`curl -O https://example.com/%2Erightkit-run.json`, leaseRule, ext);
+  denied(`curl -O --url ${lease}`, leaseRule, ext);
+  denied(`curl -O ${url} --next -O ${lease}`, leaseRule, ext);
+  denied(`wget -P ${ext} ${lease}`, leaseRule);
+  denied(`wget ${lease}`, leaseRule, ext);
+  denied(`wget -P ${ext} ${url} ${lease}#frag`, leaseRule);
+  // an explicit file name makes the URL irrelevant
+  allowed(`curl -o ${ext}/x ${lease}`);
+  allowed(`wget -O ${ext}/x ${lease}`);
+  allowed(`curl -O --output-dir ${ext} ${url}/${LEASE}.json`);
+  allowed(`wget --spider ${lease}`, ws);
+});
+
+test('a lease must name its own run root and last at most 30 days, starting no later than tomorrow', () => {
+  const clone = (name) => check(`git clone ${repo} ${scratch}/${name}/x`, ws);
+  assert.equal(clone('run1'), null);
+  assert.equal(clone('run-31d'), null); // exactly 30 days plus one day of tolerance
+  for (const name of ['run-long', 'run-31d-over', 'run-future', 'run-far-future', 'run-copied']) {
+    const found = denied(`git clone ${repo} ${scratch}/${name}/x`, runRule);
+    assert.match(found.why, /run root/, name);
+    denied(`curl -o ${scratch}/${name}/x ${url}`, dlRule);
+    denied(`wget -P ${scratch}/${name} ${url}`, dlRule);
+    denied(`git worktree add ${scratch}/${name}/wt`, runRule);
+    denied(`hf download org/m --local-dir ${scratch}/${name}/m`, dlRule);
+  }
+  assert.match(denied(`git clone ${repo} ${scratch}/run-long/x`, runRule).why, /more than 30 days/);
+  assert.match(denied(`git clone ${repo} ${scratch}/run-copied/x`, runRule).why, /names "run1", not this run root/);
+  assert.match(denied(`git clone ${repo} ${scratch}/run-future/x`, runRule).why, /created in the future/);
+  // the one-day tolerance on createdAt moves with the clock
+  assert.equal(check(`git clone ${repo} ${scratch}/run-future/x`, ws, { clock: () => Date.parse('2026-11-30T00:00:00.000Z') }), null);
+  assert.equal(check(`git clone ${repo} ${scratch}/run-future/x`, ws, { clock: () => Date.parse('2026-11-30T00:00:00.000Z') - 1 })?.rule, runRule);
 });

@@ -6,18 +6,73 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { compareVersions } from "./rightkit-sync.mjs";
 import {
-  DISK_EXIT_WARNING, applySweep, checkDisk, ensureScratchRoots, formatBytes, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, setWorkspaceSweepAllowed,
+  DISK_EXIT_WARNING, applySweep, checkDisk, checkFloors, ensureScratchRoots, formatBytes, holdingBasesOnVolume, inUseByOpenPaths, lastEvent, listOpenPaths, logEvent, planSweep, platformKey, purgeHoldings, readDiskPolicy, readRecentEvents, setWorkspaceSweepAllowed,
+  createRunRoot, releaseRunRoot,
 } from "./disk-policy.mjs";
+import { buildDiskReport, measureScratchUnits, reportDue } from "./disk-report.mjs";
 import { evaluateBinding, installStableRoot, readScheduleBinding, selfCheck } from "./disk-stable-root.mjs";
 
 export const LAUNCHD_LABEL = "dev.rightkit.disk-hygiene";
 export const WINDOWS_TASK = "RightKit Disk Hygiene";
 
+// One trigger on both hosts, every hour, running `disk run --auto`. The first run after the full-pass time is the full pass;
+// every other run is the light one (see fullPassDue), so no second trigger or launchd calendar key is needed.
+export const RUN_INTERVAL_SECONDS = 3600;
+export const FULL_PASS_HOUR = 3;
+export const FULL_PASS_MINUTE = 30;
+
+/** True when no full pass has finished since the most recent local `hour:minute` at or before `now` (a missed fire runs full
+ * at the next trigger, and after one full pass the remaining runs of that day are light). No full pass on record is due. */
+export function fullPassDue({ now, lastFullMs, hour = FULL_PASS_HOUR, minute = FULL_PASS_MINUTE }) {
+  if (lastFullMs === null || lastFullMs === undefined || !Number.isFinite(lastFullMs)) return true;
+  const slot = new Date(now);
+  slot.setHours(hour, minute, 0, 0);
+  if (slot.getTime() > now) slot.setDate(slot.getDate() - 1);
+  return lastFullMs < slot.getTime();
+}
+
+/** The floor every run event reports: the agent volume's (readable or not: an unmounted D: logs null free bytes, never the internal
+ * drive's), else the first readable floor, else the first. Its `id` is logged next to the number as `floorId`. */
+export function leadFloor(floors) {
+  return floors.find((f) => f.agentVolume) ?? floors.find((f) => !f.absent) ?? floors[0];
+}
+
+const floorKey = (f) => f.id ?? f.label;
+
+/** Why an emergency purge must not run yet, or null when it may: `uncalibrated` (no `disk.calibrated` event), `calibration-stale` (the
+ * log holds one, but none lists every agentVolume floor of this policy with the threshold it has now; a floor that cannot be read has
+ * no threshold to compare), `log-unreadable` (any read error but a missing log: nothing proves a calibration, so it counts as none).
+ * The calibration is searched backwards through the whole log, so a busy day of sweep lines cannot bury it. */
+export function calibrationGap({ logFile, floors }) {
+  const agent = floors.filter((f) => f.agentVolume);
+  const covers = (e) => Array.isArray(e.floors) && agent.every((f) => Number.isFinite(f.thresholdBytes) && e.floors.some((r) => r && r.id === floorKey(f) && r.thresholdBytes === f.thresholdBytes));
+  try {
+    if (lastEvent(logFile, ["disk.calibrated"], { accept: covers })) return null;
+    return lastEvent(logFile, ["disk.calibrated"]) ? "calibration-stale" : "uncalibrated";
+  } catch { return "log-unreadable"; }
+}
+
+function renderFloor(f) {
+  if (f.error) return `${f.label}: free space cannot be read (${f.error})  WARN`;
+  return `${f.label}: ${formatBytes(f.freeBytes)} free of ${formatBytes(f.totalBytes)} (floor ${formatBytes(f.thresholdBytes)})${f.warn ? "  WARN" : ""}${f.hardWarn ? `  BELOW THE ${formatBytes(f.hardFreeBytes)} BUILD REFUSAL LEVEL` : ""}`;
+}
+
 export function renderCheck(result) {
-  const lines = [`${result.floor.label}: ${formatBytes(result.floor.freeBytes)} free of ${formatBytes(result.floor.totalBytes)} (floor ${formatBytes(result.floor.thresholdBytes)})${result.floor.warn ? "  WARN" : ""}`];
+  const lines = (result.floors ?? [result.floor]).map(renderFloor);
   for (const w of result.writers) {
-    const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}`;
+    const size = w.error ? `error: ${w.error}` : w.matches === 0 ? "absent" : `${formatBytes(w.bytes)} / cap ${formatBytes(w.capBytes)}${w.capSource === "rustright" ? " (RustRight budget)" : ""}`;
     lines.push(`  ${w.id.padEnd(28)} ${w.action.padEnd(6)} ${size}${w.over ? "  OVER CAP" : ""}`);
+  }
+  for (const u of result.unmanaged ?? []) {
+    lines.push(`  unmanaged remainder on ${u.floor}  ${formatBytes(u.unmanagedBytes)} (estimate: used ${formatBytes(u.usedBytes)} - writers ${formatBytes(u.writerBytes)})`);
+    if (u.uncoveredTopLevel.length) {
+      lines.push(`Uncovered top-level on ${u.floor} (${u.uncoveredTopLevel.length}):`);
+      for (const e of u.uncoveredTopLevel) lines.push(`  ${(e.symlink ? "symlink" : formatBytes(e.bytes)).padStart(9)}  ${e.path}`);
+    }
+  }
+  if (result.strays?.length) {
+    lines.push(`Stray cargo targets (${result.strays.length}):`);
+    for (const t of result.strays) lines.push(`  ${formatBytes(t.bytes).padStart(9)}  ${String(t.ageDays).padStart(4)}d  ${t.path}`);
   }
   if (result.unknown?.length) {
     lines.push(`Unknown top-level entries (${result.unknown.length}):`);
@@ -43,12 +98,14 @@ export function renderSweep(plan, applied, { all = false } = {}) {
   const reportOnly = plan.skipped.filter((s) => s.reason === "report-only");
   if (reportOnly.length) lines.push(`  workspace-unknown is report-only on this host: ${reportOnly.length} unknown entr${reportOnly.length === 1 ? "y" : "ies"} will not be moved (opt in with: right-release disk allow-workspace-sweep)`);
   if (plan.skipped.length) lines.push(`  skipped: ${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(", ")}`);
+  // Items that were kept, leased or touched between the plan and the move are left where they are.
+  if (applied?.skipped?.length) lines.push(`  left in place at apply time: ${applied.skipped.map((r) => `${path.basename(r.path)} (${r.reason})`).join(", ")}`);
   return lines.join("\n");
 }
 
-function parse(rest) {
-  const known = new Set(["--json", "--dry-run", "--delete", "--all", "--days", "--policy"]);
-  const opts = { json: false, dryRun: false, deleteMode: false, all: false, days: undefined, policy: undefined };
+function parse(rest, command) {
+  const known = new Set(["--json", "--dry-run", "--delete", "--all", "--days", "--policy", "--auto", "--light", "--calibrate"]);
+  const opts = { json: false, dryRun: false, deleteMode: false, all: false, auto: false, light: false, calibrate: false, days: undefined, policy: undefined };
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
     if (!known.has(a)) throw new Error(`disk: unknown option ${a}`);
@@ -56,10 +113,15 @@ function parse(rest) {
     else if (a === "--dry-run") opts.dryRun = true;
     else if (a === "--delete") opts.deleteMode = true;
     else if (a === "--all") opts.all = true;
+    else if (a === "--auto") opts.auto = true;
+    else if (a === "--light") opts.light = true;
+    else if (a === "--calibrate") opts.calibrate = true;
     else { const v = rest[++i]; if (!v) throw new Error(`disk: ${a} needs a value`); if (a === "--days") opts.days = Number(v); else opts.policy = v; }
   }
   if (opts.days !== undefined && !(opts.days >= 0)) throw new Error("disk: --days must be a non-negative number");
   if (opts.dryRun && opts.deleteMode) throw new Error("disk sweep accepts either --dry-run or --delete");
+  if (opts.auto && opts.light) throw new Error("disk run accepts either --auto or --light");
+  if (opts.calibrate && command !== "check") throw new Error("disk: --calibrate is only valid with check");
   return opts;
 }
 
@@ -148,7 +210,7 @@ function defaultGlobalRoots() {
   return roots;
 }
 
-export function scheduleSpec({ platform = process.platform, nodePath = process.execPath, cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs"), home = os.homedir(), hour = 3, minute = 30 } = {}) {
+export function scheduleSpec({ platform = process.platform, nodePath = process.execPath, cli = path.join(path.dirname(fileURLToPath(import.meta.url)), "cli", "right-release.mjs"), home = os.homedir() } = {}) {
   if (platform === "darwin") {
     // launchd cannot open log files on an external volume for a background job (spawn fails with EX_CONFIG);
     // `disk run` writes its own structured log to disk-hygiene.jsonl on the heavy volume.
@@ -157,8 +219,8 @@ export function scheduleSpec({ platform = process.platform, nodePath = process.e
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${LAUNCHD_LABEL}</string>
-<key>ProgramArguments</key><array><string>${nodePath}</string><string>${cli}</string><string>disk</string><string>run</string></array>
-<key>StartCalendarInterval</key><dict><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>${minute}</integer></dict>
+<key>ProgramArguments</key><array><string>${nodePath}</string><string>${cli}</string><string>disk</string><string>run</string><string>--auto</string></array>
+<key>StartInterval</key><integer>${RUN_INTERVAL_SECONDS}</integer>
 <key>StandardOutPath</key><string>/dev/null</string>
 <key>StandardErrorPath</key><string>/dev/null</string>
 <key>ProcessType</key><string>Background</string><key>LowPriorityIO</key><true/><key>Nice</key><integer>10</integer>
@@ -166,8 +228,8 @@ export function scheduleSpec({ platform = process.platform, nodePath = process.e
 `;
     return { platform: "mac", file, plist };
   }
-  const script = `$a = New-ScheduledTaskAction -Execute '${nodePath}' -Argument '"${cli}" disk run'
-$t = New-ScheduledTaskTrigger -Daily -At ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}
+  const script = `$a = New-ScheduledTaskAction -Execute '${nodePath}' -Argument '"${cli}" disk run --auto'
+$t = New-ScheduledTaskTrigger -Once -At 00:05 -RepetitionInterval (New-TimeSpan -Hours ${RUN_INTERVAL_SECONDS / 3600}) -RepetitionDuration (New-TimeSpan -Days 3650)
 $s = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 $p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName '${WINDOWS_TASK}' -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`;
@@ -186,11 +248,35 @@ export function sourceCli({ explicit, env = process.env, self = path.join(here, 
   return resolve({ explicit, env });
 }
 
-function scheduleStatus({ platform, stdout, env = process.env, home = os.homedir() }) {
+const CALIBRATE_NOTICE = "before the first emergency purge can act: run `right-release disk check --json` and compare freeBytes with each floor, then `right-release disk check --calibrate`; until a calibration is recorded an emergency purges nothing";
+
+const AGE_LIMIT_HOURS = 26;
+
+const humanAge = (ms) => (ms < 3600_000 ? `${Math.max(0, Math.round(ms / 60_000))} min` : `${(ms / 3600_000).toFixed(1)} h`);
+
+/** What the log says about the hourly job: the newest completed full pass (disk.run.ok or disk.floor.warn; a legacy line without
+ * `pass` is a full pass) and the newest light pass. A problem when there is no full pass on record or it is older than `maxHours`.
+ * A light pass alone never satisfies the requirement: it proves the job fires, not that the daily work ran. Pure. */
+export function evaluateRunAge({ events, now, maxHours = AGE_LIMIT_HOURS }) {
+  const newest = (accept) => events.filter(accept).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts)).at(-1) ?? null;
+  const lastFull = newest((e) => (e.event === "disk.run.ok" || e.event === "disk.floor.warn") && e.pass !== "light" && Number.isFinite(Date.parse(e.ts)));
+  const lastLight = newest((e) => e.event === "disk.run.light" && Number.isFinite(Date.parse(e.ts)));
+  const problems = [];
+  if (!lastFull) problems.push("no completed full run recorded");
+  else {
+    const hours = (now - Date.parse(lastFull.ts)) / 3600_000;
+    if (hours > maxHours) problems.push(`last completed full run was ${hours.toFixed(1)} h ago (limit ${maxHours} h)`);
+  }
+  return { ok: problems.length === 0, lastFull, lastLight, problems };
+}
+
+function scheduleStatus({ platform, stdout, env = process.env, home: defaultHome = os.homedir(), schedule: injected = {} }) {
+  const home = injected.home ?? defaultHome;
   let binding = null;
   let loaded = false;
-  try { binding = readScheduleBinding({ platform, home }); } catch (error) { stdout(`status: cannot read the schedule (${error.message})`); return 1; }
-  if (platform === "darwin") {
+  try { binding = "binding" in injected ? injected.binding : readScheduleBinding({ platform, home }); } catch (error) { stdout(`status: cannot read the schedule (${error.message})`); return 1; }
+  if ("loaded" in injected) loaded = injected.loaded;
+  else if (platform === "darwin") {
     const r = spawnSync("launchctl", ["print", `gui/${process.getuid()}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
     loaded = r.status === 0;
   } else loaded = Boolean(binding);
@@ -198,14 +284,38 @@ function scheduleStatus({ platform, stdout, env = process.env, home = os.homedir
   const verdict = evaluateBinding(binding, { platform, env, home });
   stdout(`${loaded ? "installed" : "plist present but not loaded"} (${binding.source})`);
   stdout(`  target: ${binding.cli ?? "(none)"}`);
-  if (verdict.ok) { stdout("  binding ok: stable root, target present"); return loaded ? 0 : 1; }
-  for (const p of verdict.problems) stdout(`  PROBLEM: ${p}`);
-  return 1;
+  if (!verdict.ok) {
+    for (const p of verdict.problems) stdout(`  PROBLEM: ${p}`);
+    return 1;
+  }
+  stdout("  binding ok: stable root, target present");
+  const now = injected.now ?? Date.now();
+  const logFile = injected.logFile ?? path.join(readDiskPolicy().heavyVolume[platformKey(platform)], "disk-hygiene.jsonl");
+  // The newest full and light lines, each found by a backwards scan that grows until it hits one (a busy day can bury them under
+  // thousands of sweep lines). A log that cannot be read is said so: "no completed full run" would be a guess.
+  let events;
+  try {
+    events = injected.readEvents ? injected.readEvents(logFile) : [lastEvent(logFile, ["disk.run.ok", "disk.floor.warn"], { accept: (e) => e.pass !== "light" }), lastEvent(logFile, ["disk.run.light"])].filter(Boolean);
+  } catch (error) {
+    stdout(`  PROBLEM: the run log ${logFile} cannot be read (${error.code ?? error.message}: ${error.message}); the last run is unknown`);
+    return 1;
+  }
+  const age = evaluateRunAge({ events, now });
+  if (age.lastFull) stdout(`  last full run: ${humanAge(now - Date.parse(age.lastFull.ts))} ago (${age.lastFull.ts}, ${age.lastFull.event})`);
+  if (age.lastLight) stdout(`  last light run: ${humanAge(now - Date.parse(age.lastLight.ts))} ago`);
+  else stdout("  last light run: none recorded");
+  for (const p of age.problems) stdout(`  PROBLEM: ${p}`);
+  // Informational: the emergency purge is simply off until a calibration is recorded, which is not a fault of the job.
+  let calibrated = null;
+  try { calibrated = lastEvent(logFile, ["disk.calibrated"]); } catch { /* an unreadable log counts as no calibration */ }
+  const calibratedAt = calibrated ? Date.parse(calibrated.ts) : NaN;
+  stdout(Number.isFinite(calibratedAt) ? `  calibration: recorded ${humanAge(now - calibratedAt)} ago` : "  calibration: NOT RECORDED (emergency purge disabled)");
+  return loaded && age.ok ? 0 : 1;
 }
 
-function schedule(sub, { stdout, cli, platform = process.platform, env = process.env }) {
+function schedule(sub, { stdout, cli, platform = process.platform, env = process.env, injected }) {
   if (!["install", "uninstall", "status"].includes(sub)) throw new Error("disk schedule install|uninstall|status");
-  if (sub === "status") return scheduleStatus({ platform, stdout, env });
+  if (sub === "status") return scheduleStatus({ platform, stdout, env, schedule: injected });
   const spec = scheduleSpec({ platform });
   if (platform === "darwin") {
     const uid = String(process.getuid());
@@ -214,13 +324,15 @@ function schedule(sub, { stdout, cli, platform = process.platform, env = process
       stdout(`${installed.unchanged ? "kept" : "installed"} @rightkit/release ${installed.version ?? "?"} in ${installed.stable}`);
       const bound = scheduleSpec({ platform, cli: installed.cli });
       mkdirSync(path.dirname(bound.file), { recursive: true });
-      mkdirSync("/Volumes/D/claude/tmp/swept", { recursive: true });
-      ensureScratchRoots({ policy: readDiskPolicy(), platform, env });
+      const policy = readDiskPolicy();
+      mkdirSync(policy.heavyVolume[platformKey(platform)], { recursive: true });
+      ensureScratchRoots({ policy, platform, env });
       writeFileSync(bound.file, bound.plist);
       spawnSync("launchctl", ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
       const r = spawnSync("launchctl", ["bootstrap", `gui/${uid}`, bound.file], { encoding: "utf8" });
       if (r.status !== 0) throw new Error(`launchctl bootstrap failed: ${r.stderr}`);
-      stdout(`installed ${bound.file} (daily 03:30), bound to ${installed.cli}`);
+      stdout(`installed ${bound.file} (hourly: full pass after 03:30, light passes otherwise), bound to ${installed.cli}`);
+      stdout(CALIBRATE_NOTICE);
     } else {
       spawnSync("launchctl", ["bootout", `gui/${uid}/${LAUNCHD_LABEL}`], { encoding: "utf8" });
       if (existsSync(spec.file)) unlinkSync(spec.file);
@@ -235,7 +347,8 @@ function schedule(sub, { stdout, cli, platform = process.platform, env = process
     const bound = scheduleSpec({ platform, cli: installed.cli });
     const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", bound.script], { encoding: "utf8" });
     if (r.status !== 0) throw new Error(`Register-ScheduledTask failed: ${r.stderr || r.stdout}`);
-    stdout(`installed scheduled task "${WINDOWS_TASK}" (daily 03:30, hidden), bound to ${installed.cli}`);
+    stdout(`installed scheduled task "${WINDOWS_TASK}" (hourly, hidden: full pass after 03:30, light passes otherwise), bound to ${installed.cli}`);
+    stdout(CALIBRATE_NOTICE);
   } else {
     spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `Unregister-ScheduledTask -TaskName '${WINDOWS_TASK}' -Confirm:$false`], { encoding: "utf8" });
     stdout("uninstalled");
@@ -533,13 +646,47 @@ function probeCommand(rest, { env, stdout, platform, deps }) {
   return { exitCode: report.internalWritable || leftovers.length || problems.length ? 1 : 0, report, problems };
 }
 
+function runRootCommand(rest, { env, stdout, platform, deps }) {
+  const stderr = deps.stderr ?? console.error;
+  const opts = { name: undefined, days: undefined, release: false, json: false, policy: undefined };
+  for (let i = 0; i < rest.length; i += 1) {
+    const a = rest[i];
+    if (a === "--release") opts.release = true;
+    else if (a === "--json") opts.json = true;
+    else if (a === "--days" || a === "--policy") {
+      const v = rest[++i];
+      if (!v) throw new Error(`disk run-root: ${a} needs a value`);
+      if (a === "--days") opts.days = Number(v); else opts.policy = v;
+    } else if (a.startsWith("--")) throw new Error(`disk run-root: unknown option ${a}`);
+    else if (opts.name === undefined) opts.name = a;
+    else throw new Error("disk run-root: one run root name only");
+  }
+  if (opts.name === undefined) throw new Error("disk run-root <name> [--days N] | --release <name>");
+  if (opts.release && opts.days !== undefined) throw new Error("disk run-root: --release takes no --days");
+  const policy = readDiskPolicy(opts.policy);
+  const common = { policy, platform, env, name: opts.name, ...(deps.runRoot ?? {}) };
+  try {
+    if (opts.release) {
+      const r = releaseRunRoot(common);
+      stdout(opts.json ? JSON.stringify(r) : r.released ? `released ${r.path}: the lease is gone, the directory ages out by the scratch rules` : `${r.path} had no lease`);
+      return { exitCode: 0, result: r };
+    }
+    const r = createRunRoot({ ...common, days: opts.days });
+    stdout(opts.json ? JSON.stringify({ path: r.path, ...r.lease }) : `${r.renewed ? "renewed" : "leased"} run root ${r.path} until ${r.lease.leaseUntil}; the sweep skips it until then (end it early: right-release disk run-root --release ${opts.name})`);
+    return { exitCode: 0, result: r };
+  } catch (error) {
+    stderr(error.message);
+    return { exitCode: 1, error: error.message };
+  }
+}
+
 export async function runDiskCommand(args = process.argv.slice(2), { env = process.env, stdout = console.log, platform = process.platform, deps = {} } = {}) {
   const [command, ...rest] = args;
   if (command === "agent-env") return agentEnvCommand(rest, { env, stdout, platform, deps });
   if (command === "probe") return probeCommand(rest, { env, stdout, platform, deps });
   if (command === "schedule") {
     const at = rest.indexOf("--cli");
-    const exitCode = schedule(rest[0], { stdout, cli: at === -1 ? undefined : rest[at + 1], platform, env });
+    const exitCode = schedule(rest[0], { stdout, cli: at === -1 ? undefined : rest[at + 1], platform, env, injected: deps.schedule });
     return { exitCode };
   }
   if (command === "allow-workspace-sweep") {
@@ -548,7 +695,8 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     stdout(off ? `workspace-unknown sweep revoked on this host (${file}.revoked)` : `workspace-unknown sweep allowed on this host (${file}); review \`disk sweep --dry-run --all\` first, revoke with --off`);
     return { exitCode: 0 };
   }
-  const opts = parse(rest);
+  if (command === "run-root") return runRootCommand(rest, { env, stdout, platform, deps });
+  const opts = parse(rest, command);
   const policy = readDiskPolicy(opts.policy);
   const key = platformKey(platform);
   const logFile = path.join(policy.heavyVolume[key], "disk-hygiene.jsonl");
@@ -556,6 +704,30 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
   const check = () => checkDisk({ policy, platform, env, ...deps.check });
   const plan = () => planSweep({ policy, platform, env, staleDays: opts.days, openPaths: platform === "win32" ? null : (deps.openPaths ?? listOpenPaths({ platform })), ...deps.plan });
 
+  if (command === "check" && opts.calibrate) {
+    const nowMs = deps.now ?? Date.now();
+    const floors = checkFloors({ policy, platform, ...(deps.check?.space ? { space: deps.check.space } : {}) });
+    const below = floors.filter((f) => f.agentVolume && f.warn);
+    if (below.length) {
+      // Recording a calibration while the volume is already under its floor would make a chronically low volume an accident.
+      const lines = below.map((f) => (f.error ? `${f.label}: free space cannot be read (${f.error})` : `${f.label}: ${formatBytes(f.freeBytes)} free, ${formatBytes(f.thresholdBytes - f.freeBytes)} below its floor of ${formatBytes(f.thresholdBytes)}`));
+      lines.push("Nothing was recorded: lower the floor in disk-policy.json or free space first, so that running this volume low is a decision, never an accident.");
+      out({ calibrated: false, below: below.map((f) => ({ id: floorKey(f), freeBytes: f.freeBytes ?? null, thresholdBytes: f.thresholdBytes ?? null })) }, lines.join("\n"));
+      return { exitCode: 1, calibrated: false, floors };
+    }
+    const ts = new Date(nowMs).toISOString();
+    const recorded = floors.map((f) => ({ id: floorKey(f), label: f.label, path: f.path, thresholdBytes: f.thresholdBytes ?? null, freeBytes: f.freeBytes ?? null, agentVolume: Boolean(f.agentVolume) }));
+    logEvent(logFile, { ts, event: "disk.calibrated", floors: recorded });
+    // logEvent never throws; read the line back so "recorded" is only ever said about a line that is in the log.
+    let found = false;
+    try { found = Boolean(lastEvent(logFile, ["disk.calibrated"], { accept: (e) => e.ts === ts })); } catch { /* not found */ }
+    if (!found) {
+      out({ calibrated: false, error: `cannot write ${logFile}` }, `Nothing was recorded: ${logFile} cannot be written`);
+      return { exitCode: 1, calibrated: false, floors };
+    }
+    out({ calibrated: true, logFile, floors: recorded }, [`Calibration recorded in ${logFile}:`, ...recorded.map((f) => `  ${f.label}: ${f.freeBytes === null ? "free space unreadable" : `${formatBytes(f.freeBytes)} free`}, floor ${f.thresholdBytes === null ? "unknown" : formatBytes(f.thresholdBytes)}${f.agentVolume ? " (agent volume)" : ""}`), "Emergency purge is enabled while these floors stay as they are; changing a floor needs a new calibration."].join("\n"));
+    return { exitCode: 0, calibrated: true, floors: recorded };
+  }
   if (command === "check") {
     const result = check();
     out(result, renderCheck(result));
@@ -582,6 +754,62 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
       logEvent(logFile, { event: "disk.run.selfcheck.fail", problems: self.problems, version: self.version });
       return { exitCode: 2, selfCheck: self };
     }
+    const nowMs = deps.now ?? Date.now();
+    const log = (event) => logEvent(logFile, { ts: new Date(nowMs).toISOString(), ...event });
+    // The hourly job passes --auto: the first run after the full-pass time is the full pass, every other run is light.
+    // A bare `disk run` is always the full pass.
+    // A log that does not exist means the job never ran (full pass due). A log that exists but cannot be read (EIO, a volume that went away)
+    // proves nothing about the last full pass: the run stays light instead of repeating the full pass every hour.
+    let lastFull = null;
+    let logReadError = null;
+    if (opts.auto) {
+      try { lastFull = lastEvent(logFile, ["disk.run.ok", "disk.floor.warn"], { accept: (e) => e.pass !== "light" }); } catch (error) { logReadError = error; }
+    }
+    const light = opts.light || (opts.auto && (logReadError !== null || !fullPassDue({ now: nowMs, lastFullMs: lastFull ? Date.parse(lastFull.ts) : null })));
+    // Only the agent volume running below its soft floor is an emergency: the undo window is spent
+    // (days 0, so what this pass just moved is purged too). Warnings from other floors or writers are not.
+    const emergencyFloor = (floors) => floors.find((f) => f.agentVolume && f.warn && !f.absent);
+    // Purging without an undo window on numbers nobody has looked at is how a mis-set floor would empty every holding folder each
+    // hour, so it waits for a recorded calibration (`disk check --calibrate`). Without one the run is an ordinary run: null.
+    const emergencyPurge = (squeezed, floors) => {
+      const gap = calibrationGap({ logFile, floors });
+      if (gap) {
+        logEvent(logFile, { event: "disk.emergency.skipped", reason: gap, floorId: floorKey(squeezed), freeBytes: squeezed.freeBytes, thresholdBytes: squeezed.thresholdBytes });
+        stdout(`EMERGENCY SKIPPED (${gap}): ${squeezed.label} is below its floor but no calibration is recorded; run \`right-release disk check --json\`, compare freeBytes with the floor, then \`right-release disk check --calibrate\``);
+        return null;
+      }
+      // Only the holding bases on the squeezed volume: emptying another volume's undo window would free nothing here.
+      const bases = holdingBasesOnVolume(squeezed.path, { policy, platform, env, ...(deps.deviceOf ? { deviceOf: deps.deviceOf } : {}) });
+      const purged = purgeHoldings({ policy, platform, env, days: 0, bases, ...deps.purge });
+      stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
+      stdout("EMERGENCY: the agent volume is below its soft floor, holding folders were purged without their undo window");
+      logEvent(logFile, { event: "disk.run.emergency", floor: squeezed.id ?? squeezed.label, freeBytes: squeezed.freeBytes, purgedBytes: purged.purgedBytes });
+      return purged;
+    };
+
+    if (light) {
+      // Stat-only: free space of the floors, the cheap temp-like writers and the scratch roots. No du of any writer, no workspace
+      // scan, no stray walk, and lsof only once a candidate exists. It purges nothing but in the emergency.
+      ensureScratchRoots({ policy, platform, env });
+      const floorOptions = { policy, platform, ...(deps.check?.space ? { space: deps.check.space } : {}) };
+      const floorsBefore = checkFloors(floorOptions);
+      const squeezed = emergencyFloor(floorsBefore);
+      let lockCheck = {};
+      if (platform !== "win32" && !deps.plan?.inUse) {
+        if (deps.openPaths !== undefined) lockCheck = { openPaths: deps.openPaths };
+        else { let open; let read = false; lockCheck = { inUse: (p) => { if (!read) { open = (deps.listOpenPaths ?? listOpenPaths)({ platform }); read = true; } return inUseByOpenPaths(p, open); } }; }
+      }
+      const p = planSweep({ policy, platform, env, staleDays: opts.days, light: true, ...lockCheck, ...deps.plan });
+      const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
+      const purged = squeezed ? emergencyPurge(squeezed, floorsBefore) : null;
+      const floors = checkFloors(floorOptions);
+      const lead = leadFloor(floors);
+      if (logReadError) stdout(`WARNING: the run log ${logFile} cannot be read (${logReadError.message}), so this run stays light`);
+      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floorId: lead.id ?? lead.label, ...(logReadError ? { logReadError: logReadError.message } : {}), floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(purged), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
+      stdout(`light pass: moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length}), ${lead.absent ? `${lead.label} is not readable` : `${lead.label} ${formatBytes(lead.freeBytes)} free`}`);
+      return { exitCode: 0, pass: "light", plan: p, applied, purged, floors, selfCheck: self };
+    }
+
     ensureScratchRoots({ policy, platform, env });
     const before = check();
     stdout(renderCheck(before));
@@ -589,15 +817,27 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     stdout(renderSweep(p));
     const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
     stdout(`moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length})`);
-    const purged = purgeHoldings({ policy, platform, env, ...deps.purge });
-    stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
+    const squeezed = emergencyFloor(before.floors ?? [before.floor]);
+    let purged = squeezed ? emergencyPurge(squeezed, before.floors ?? [before.floor]) : null;
+    if (!purged) {
+      purged = purgeHoldings({ policy, platform, env, ...deps.purge });
+      stdout(`purged ${purged.results.filter((r) => r.ok).length} holding dir(s), ${formatBytes(purged.purgedBytes)}`);
+    }
     const after = check();
     const warn = after.warn;
-    logEvent(logFile, { event: warn ? "disk.floor.warn" : "disk.run.ok", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes });
+    const lead = leadFloor(after.floors ?? [after.floor]);
+    log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: lead.freeBytes ?? null, floorId: lead.id ?? lead.label, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
+    // One report a UTC day: its per-unit sizes need a du per scratch run, which only the daily pass may afford.
+    let previousReport = null;
+    try { previousReport = lastEvent(logFile, ["disk.report"]); } catch { /* unreadable log: this report has no delta */ }
+    if (reportDue({ lastReportTs: previousReport?.ts, now: nowMs })) {
+      const scratchUnits = measureScratchUnits({ policy, platform, env, ...(deps.check?.size ? { size: deps.check.size } : {}) });
+      log(buildDiskReport({ check: after, previous: previousReport, now: nowMs, policy, scratchUnits, moved: applied.movedBytes, purged: purged.purgedBytes }));
+    }
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
-    return { exitCode: !self.ok ? 2 : warn ? DISK_EXIT_WARNING : 0, before, after, applied, purged, selfCheck: self };
+    return { exitCode: warn ? DISK_EXIT_WARNING : 0, pass: "full", before, after, applied, purged, selfCheck: self };
   }
-  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status|agent-env [--root dir] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]|probe  [--json]");
+  throw new Error("disk usage: check [--calibrate]|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run [--auto|--light]|run-root <name> [--days N] [--release]|schedule install|uninstall|status|agent-env [--root dir] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]|probe  [--json]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
