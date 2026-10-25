@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Two forms:
 //   right-release mirror-root-artifact --file <artifact> --package-root <dir> [--name <filename>]
-//   right-release mirror-root-artifact --config <right-release.config.mjs> --platform mac|win [--package-root <dir>]
+//   right-release mirror-root-artifact --config <right-release.config.json> --platform mac|win [--package-root <dir>]
 // The config form mirrors every entry of `targets.<platform>.mirror`, a list of `"<app-relative file>"` or
 // `{ file, name?, pruneSuffix? }`. `pruneSuffix` (for example "-setup.exe") then removes the other files with that suffix
 // from the managed directory, so it holds exactly the current artifact. Run it as `targets.<platform>.postSign`.
@@ -10,7 +10,7 @@ import { configuredManagedRootSpellings } from "./artifact-storage.mjs";
 import { copyFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "./background-process.mjs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { importReleaseConfig } from "./release-config.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const usage = "Usage: right-release mirror-root-artifact (--file <artifact> --package-root <dir> [--name <filename>] | --config <file> --platform mac|win [--package-root <dir>])";
@@ -31,8 +31,7 @@ let entries;
 let rootArg = args.packageRoot;
 if (args.config) {
   const configPath = path.resolve(args.config);
-  const loaded = await import(pathToFileURL(configPath).href);
-  const config = loaded.default ?? loaded.config ?? loaded;
+  const config = await importReleaseConfig(configPath, { lenient: true });
   const declared = config?.targets?.[args.platform]?.mirror;
   if (!Array.isArray(declared) || declared.length === 0) {
     console.error(`right-release mirror-root-artifact: targets.${args.platform}.mirror declares no files in ${args.config}`);

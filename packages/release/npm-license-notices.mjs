@@ -16,6 +16,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import { CommandSpecError, loadAppConfig, relativeInside } from "./command-spec.mjs";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
 
@@ -119,7 +120,7 @@ export function generateNpmNotices({ appRoot, config, flags = {}, check = false,
 }
 
 export function parseNoticeArgs(argv) {
-  const opts = { config: "right-release.config.mjs", output: undefined, productName: undefined, check: false };
+  const opts = { config: defaultReleaseConfigFile(), output: undefined, productName: undefined, check: false };
   const rest = argv[0] === "npm" ? argv.slice(1) : argv;
   if (argv[0] !== "npm") throw new Error("expected: license-notices npm");
   for (let i = 0; i < rest.length; i += 1) {

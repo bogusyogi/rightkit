@@ -33,9 +33,10 @@ test("lockPathPackages keeps path packages and drops registry ones", () => {
 test("consumer-locks refuses a consumer lock behind its path crate and ignores ungated locks", (t) => {
   const crate = '[package]\nname = "rightkit-a"\nversion = "0.6.1"\n';
   const stale = '[[package]]\nname = "rightkit-a"\nversion = "0.6.0"\n';
-  const failures = run("consumer-locks", t, { "crates/rightkit-a/Cargo.toml": crate, "ci/consumers/wv2/Cargo.lock": stale, "spikes/old/Cargo.lock": stale });
-  assert.equal(failures.length, 1);
+  const failures = run("consumer-locks", t, { "crates/rightkit-a/Cargo.toml": crate, "ci/consumers/wv2/Cargo.lock": stale, "spikes/old/Cargo.lock": stale, "desktop-app-template/Cargo.lock": stale });
+  assert.equal(failures.length, 2, "the template is gated (rightkit-gate builds it --locked); the spike is not");
   assert.match(failures[0].problem, /^ci\/consumers\/wv2\/Cargo\.lock lists rightkit-a 0\.6\.0 but crates\/rightkit-a\/Cargo\.toml is 0\.6\.1/);
+  assert.match(failures[1].problem, /^desktop-app-template\/Cargo\.lock lists rightkit-a 0\.6\.0/);
   assert.match(failures[0].fix, /version = "0\.6\.1"/);
 });
 

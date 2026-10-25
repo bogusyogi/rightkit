@@ -260,9 +260,10 @@ function dispatchPins({ root }) {
   return out;
 }
 
-// The locks a gate builds with --locked. desktop-app-template, the spikes and the crates' example apps are built by no gate
-// (scripts/ci/gate.mjs "Not covered by this gate") and keep whatever versions they were last locked at.
-const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock)$/;
+// The locks a gate builds with --locked: the root, the consumers and desktop-app-template (its own workspace, discovered by
+// rightkit-gate). The spikes and the crates' example apps are built by no gate (scripts/ci/gate.mjs "Not covered by this gate")
+// and keep whatever versions they were last locked at.
+const LOCKED_BUILDS = /^(?:Cargo\.lock|ci\/consumers\/.+\/Cargo\.lock|desktop-app-template\/Cargo\.lock)$/;
 
 function consumerLocks({ root, files }) {
   const crates = workspaceCrates(root);

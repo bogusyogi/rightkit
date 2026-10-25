@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import {
   applyCachePrune,
   inspectCache,
@@ -12,6 +12,7 @@ import {
   resolveSharedCacheIdentity,
   resolveSharedCacheRoot,
 } from "./cache-policy.mjs";
+import { importReleaseConfig } from "./release-config.mjs";
 import { resolveReleaseLayout } from "./release-state.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { brokerManagedHost } from "./cargo-contract.mjs";
@@ -52,11 +53,11 @@ export async function runCacheCommand(args = process.argv.slice(2), { env = proc
   }
   if (command === "migrate") {
     const configPath = option(rest, "--config");
-    if (!configPath) throw new Error("cache migrate requires --config <right-release.config.mjs>");
+    if (!configPath) throw new Error("cache migrate requires --config <right-release.config.json>");
     rejectUnknown(rest.filter((value) => value !== "--config" && value !== configPath), new Set(["--json", "--dry-run", "--apply"]));
     if (rest.includes("--dry-run") && rest.includes("--apply")) throw new Error("cache migrate accepts either --dry-run or --apply");
     const configFile = path.resolve(configPath);
-    const config = (await import(pathToFileURL(configFile).href)).default;
+    const config = await importReleaseConfig(configFile);
     if (!config?.app) throw new Error("cache migrate config must expose app");
     const appRoot = path.dirname(configFile);
     const configuredTarget = config.targets?.[platform] ?? {};

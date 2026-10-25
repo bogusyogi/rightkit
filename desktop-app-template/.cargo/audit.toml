@@ -1,0 +1,9 @@
+# cargo-audit reads this file from the workspace root. It is the same exception list as deny.toml [advisories].ignore
+# (cargo-audit takes string IDs only, so each reason lives in deny.toml). The two lists must stay identical.
+[advisories]
+ignore = [
+  "RUSTSEC-2024-0429",
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+]

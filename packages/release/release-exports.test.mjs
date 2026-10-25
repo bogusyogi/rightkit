@@ -222,14 +222,15 @@ test("a deep import outside the map is reported, one inside is not", () => {
 
 // --------------------------------------------------------------------- scans of the trees that import the package today
 
-// RightKit's own tooling imports the package by name too: the app template, the CI workflow templates, @rightkit/legal.
+// RightKit's own tooling imports the package by name too: the CI workflow templates and @rightkit/legal. The app template no longer does:
+// its release config is JSON (M24) and its notarize script is gone (rightkit#1089).
 test("nothing in this repository imports a subpath outside the map", () => {
   const { imports } = scanTree(repoRoot);
   // Tests, the docs history and the packed-consumer recipes (which name internal modules to prove the map refuses them) are not consumers.
   const own = imports.filter((entry) => !/(?:^|\/)[^/]*\.test\.mjs$/.test(entry.file) && !/^(?:docs|release-evidence|ci\/consumers)\//.test(entry.file));
-  assert.ok(own.length >= 5, `expected the template, CI template and legal imports, found ${own.length}`);
+  assert.ok(own.length >= 3, `expected the CI template and legal imports, found ${own.length}`);
   assert.deepEqual(importsOutsideMap(own, exportsMap).map((entry) => `${entry.file}:${entry.line} ${entry.subpath}`), []);
-  for (const required of ["desktop-app-template/right-release.config.mjs", "packages/ci/templates/publish-npm.yml", "packages/legal/bin/rust-licenses.mjs"]) {
+  for (const required of ["packages/ci/templates/publish-npm.yml", "packages/legal/bin/rust-licenses.mjs"]) {
     assert.ok(own.some((entry) => entry.file === required), `${required} is expected to import the package`);
   }
 });

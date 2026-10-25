@@ -1,0 +1,26 @@
+name = "app launch: hidden window, supervised engine"
+tier = "fast"
+target = "ui"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+env = { RIGHTAPP_ENGINE_BIN = "${engine}" }
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the native platform is rendered"
+js = "return (document.querySelector('[data-testid=\"platform\"]')?.textContent ?? '').length > 0;"
+
+[[step]]
+kind = "ui_click"
+label = "run the engine doctor from the window"
+selector = "button"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the supervised engine answered"
+js = "return (document.querySelector('[data-testid=\"doctor\"]')?.textContent ?? '').includes('rightapp-engine');"

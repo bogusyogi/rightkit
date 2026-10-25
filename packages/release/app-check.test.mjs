@@ -170,6 +170,35 @@ test("G16 release-config: an unknown provider, an updater keyFile and an undefin
   assert.match(failures.find((f) => f.subject === "provider:r2").problem, /publish-update\.mjs/);
 });
 
+test("G16 release-config: the JSON config (M24) is read too: provider, updater keyFile, recipe and argv profiles, invalid JSON", (t) => {
+  const bad = JSON.stringify({
+    schema: 1,
+    app: "x",
+    distribution: { provider: "r2" },
+    targets: {
+      win: { winPackage: { profile: "release-iterate" }, updater: { artifacts: [], keyFile: "keys/updater.key" } },
+      mac: { macPackage: { profile: "defined-here" } },
+    },
+    development: { targets: { win: { build: [{ cmd: "pnpm", args: ["exec", "tauri", "build", "--", "--profile", "fast-dev"] }] } } },
+    legal: { provider: "not-a-distribution-provider" },
+  }, null, 2);
+  const failures = run("release-config", t, {
+    "app/right-release.config.json": bad,
+    "app/Cargo.toml": '[workspace]\n[profile.defined-here]\ninherits = "dev"\n',
+    "good/right-release.config.json": JSON.stringify({ schema: 1, app: "g", distribution: { provider: "github-releases" }, targets: { win: { updater: { artifacts: [] } } } }),
+    "broken/right-release.config.json": '{ "schema": 1, // comment\n}\n',
+  });
+  assert.deepEqual(identities(failures), [
+    "release-config|app/right-release.config.json|keyFile:\"keys/updater.key\"",
+    "release-config|app/right-release.config.json|profile:fast-dev",
+    "release-config|app/right-release.config.json|profile:release-iterate",
+    "release-config|app/right-release.config.json|provider:r2",
+    "release-config|broken/right-release.config.json|json:invalid",
+  ]);
+  assert.match(failures.find((f) => f.subject === "provider:r2").problem, /^app\/right-release\.config\.json:5 distribution provider "r2"/);
+  assert.match(failures.find((f) => f.subject === "profile:release-iterate").problem, /^app\/right-release\.config\.json:10 Cargo profile "release-iterate"/);
+});
+
 test("G16 release-config: the nearest workspace Cargo.toml decides, up to the repository root", (t) => {
   const config = 'export default { a: ["--profile", "p1"] };\n';
   const files = { "apps/x/right-release.config.mjs": config, "apps/x/Cargo.toml": '[package]\nname = "member"\n[profile.p1]\n', "Cargo.toml": '[workspace]\nmembers = ["apps/x"]\n' };
@@ -217,6 +246,19 @@ test("G20 switches-inventory: a release config directory needs switches.json or 
   });
   assert.deepEqual(identities(failures), ["switches-inventory|missing/right-release.config.mjs|missing", "switches-inventory|right-release.config.mjs|."]);
   assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.mjs:2 has no switches inventory \(missing\/nope\.json does not exist\)/);
+});
+
+test("G20 switches-inventory: a JSON release config (M24) needs switches.json or its releaseSwitches.inventory too", (t) => {
+  const failures = run("switches-inventory", t, {
+    "right-release.config.json": '{ "schema": 1, "app": "a" }\n',
+    "app/right-release.config.json": '{ "schema": 1, "app": "b" }\n',
+    "app/switches.json": "{}\n",
+    "other/right-release.config.json": '{ "schema": 1, "app": "c", "releaseSwitches": { "inventory": "config/inv.json" } }\n',
+    "other/config/inv.json": "{}\n",
+    "missing/right-release.config.json": '{\n  "schema": 1,\n  "app": "d",\n  "releaseSwitches": { "inventory": "nope.json" }\n}\n',
+  });
+  assert.deepEqual(identities(failures), ["switches-inventory|missing/right-release.config.json|missing", "switches-inventory|right-release.config.json|."]);
+  assert.match(failures.find((f) => f.subject === "missing").problem, /^missing\/right-release\.config\.json:4 has no switches inventory \(missing\/nope\.json does not exist\)/);
 });
 
 test("G21 speech-link: import Speech is refused anywhere under RightKitSwift Sources and Tests, allowed only in the LinkProbes control", (t) => {

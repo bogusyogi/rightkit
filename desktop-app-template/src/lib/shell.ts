@@ -1,20 +1,15 @@
-// Window controls for @rightkit/app-shell's caption buttons. app-shell never imports Tauri; the app
-// passes this bridge. The actions are the Tauri window API, already allowed by the capability file
-// (core:window:allow-minimize, allow-toggle-maximize, allow-close).
-import type { AppShellBridge } from "@rightkit/app-shell";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+// The native shell for @rightkit/react-shell. Window controls, external links and native menu actions all go through
+// @rightkit/tauri-shell (the renderer side of the rightkit-tauri-shell crate); the renderer never imports
+// @tauri-apps/api/window, and the capability file grants no core:window permission.
+import type { AppShellBridge } from "@rightkit/react-shell";
+import { createShell } from "@rightkit/tauri-shell";
 import { isTauri } from "./host";
 
-const act =
-  (run: (w: ReturnType<typeof getCurrentWindow>) => Promise<void>) =>
-  async (): Promise<void> => {
-    if (isTauri()) await run(getCurrentWindow()).catch(() => undefined);
-  };
+// createShell() throws outside a Tauri webview, so a plain browser preview has no shell and the frame renders without native controls.
+export const shell = isTauri() ? createShell() : undefined;
+export const shellBridge: AppShellBridge | undefined = shell?.bridge();
 
-export const shellBridge: AppShellBridge = {
-  window: {
-    minimize: act((w) => w.minimize()),
-    toggleMaximize: act((w) => w.toggleMaximize()),
-    close: act((w) => w.close()),
-  },
-};
+/** Tell the host the renderer is mounted: the shell reveals the main window (tauri.conf.json starts it hidden). No-op outside Tauri. */
+export async function shellReady(): Promise<void> {
+  await shell?.ready();
+}

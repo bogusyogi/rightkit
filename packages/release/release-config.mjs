@@ -1,6 +1,11 @@
 // The release config contract (M24): `right-release.config.json`, a finite, versioned JSON schema read by dev, build, doctor, install
-// and upload alike. It is data. RightKit never imports, evaluates or converts an executable (`.mjs`, `.js`, `.cjs`, `.ts`) config: the
-// file name is judged BEFORE anything is opened or imported, including for `--dry-run`, so a legacy config cannot run a single line.
+// and upload alike. A `.json` config is data: it is never imported or evaluated. `loadReleaseConfigSync` judges the file NAME before
+// anything is opened (an executable name handed to it is refused with RELEASE_CONFIG_LEGACY_EXECUTABLE) and loads the file strictly.
+//
+// Legacy branch: an app that has not moved yet owns only a `right-release.config.mjs`. `defaultReleaseConfigFile` keeps naming it while
+// no `right-release.config.json` sits beside it, and `importReleaseConfig` still imports that module (executable, outside M24; the
+// pipeline scanner reports it as R0-legacy-config). The sunset of the legacy branch is tracked separately. As soon as the JSON file
+// exists it wins by default and an explicit `--config x.json` always takes the strict loader; the module is never read for it.
 //
 // Load order (build, dev, upload): resolve the primary checkout and the config path first, then `loadReleaseConfigSync` parses the JSON
 // strictly (no comments, no trailing commas, no duplicate keys), checks `schema: 1` and the finite top-level key set, expands the
@@ -12,12 +17,15 @@
 //   { "$fromJson": { "file": "src-tauri/tauri.conf.json", "pointer": "/version" } }   a string read from an app-relative JSON file
 //   { "$fromToml": { "file": "src-tauri/Cargo.toml", "path": "package.version" } }    a string read from an app-relative TOML file
 //   { "$json": <value> }                                                              JSON.stringify(<value>), for a JSON argument
-//   "{{app}}" "{{version}}" "{{home}}" "{{localAppData}}"                              replaced inside any string value
+//   "{{app}}" "{{version}}" "{{home}}" "{{localAppData}}"                              replaced inside any string value, `$comment`
+//                                                                                     included (write no token in a comment). localAppData is
+//                                                                                     %LOCALAPPDATA% on Windows and <home>/AppData/Local elsewhere
 // Anything else with braces is left alone, and an unknown {{token}} is an error.
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { parse as parseToml } from "smol-toml";
 import { collectConfigCommands, formatFindings, validateConfigPipeline } from "./pipeline-config.mjs";
 import { loadGeneratorRegistry } from "./pipeline-generators.mjs";
@@ -198,7 +206,7 @@ function expand(node, context, label) {
     return node.replace(/\{\{([A-Za-z][A-Za-z0-9]*)\}\}/g, (_, token) => {
       if (!TEMPLATE_TOKENS.includes(token)) fail("RELEASE_CONFIG_TEMPLATE", `${label}: unknown template token {{${token}}} (allowed: ${TEMPLATE_TOKENS.map((t) => `{{${t}}}`).join(", ")})`);
       const resolved = context.values[token];
-      if (typeof resolved !== "string" || resolved === "") fail("RELEASE_CONFIG_TEMPLATE", `${label}: {{${token}}} is not available${token === "localAppData" ? " (LOCALAPPDATA is not set)" : token === "version" ? " here (version cannot refer to itself)" : ""}`);
+      if (typeof resolved !== "string" || resolved === "") fail("RELEASE_CONFIG_TEMPLATE", `${label}: {{${token}}} is not available${token === "version" ? " here (version cannot refer to itself)" : ""}`);
       return resolved;
     });
   }
@@ -313,7 +321,9 @@ export function loadReleaseConfigSync(file, {
   const raw = parsed.value;
   validateReleaseConfigShape(raw, { file: configPath, phase: "raw" });
   const inputs = new Map();
-  const base = { appRoot, inputs, readBytes, lstat, values: { home: homedir(), localAppData: env.LOCALAPPDATA ?? "", app: "", version: "" } };
+  // {{localAppData}} is %LOCALAPPDATA% on Windows. Elsewhere it is the Windows profile default under the home directory (a path
+  // no other host uses), so one config that names a Windows install path loads on every host instead of failing on the Mac.
+  const base = { appRoot, inputs, readBytes, lstat, values: { home: homedir(), localAppData: env.LOCALAPPDATA || path.join(homedir(), "AppData", "Local"), app: "", version: "" } };
   base.values.app = expand(raw.app, { ...base }, "/app");
   if (raw.version !== undefined) base.values.version = expand(raw.version, { ...base, values: { ...base.values, version: "" } }, "/version");
   const config = expand(raw, base, "");
@@ -342,6 +352,27 @@ export function loadReleaseConfigSync(file, {
 /** The config object only (what `(await import(configPath)).default` used to be). */
 export async function loadReleaseConfig(file, options) {
   return loadReleaseConfigSync(file, options).config;
+}
+
+/** True for a `.json` config path: the only extension the strict loader accepts. */
+export const isJsonReleaseConfig = (file) => typeof file === "string" && path.extname(file).toLowerCase() === ".json";
+
+/** The config name a command defaults to: `right-release.config.json` when `dir` holds it, else the legacy module an unmoved app still owns. */
+export function defaultReleaseConfigFile(dir = process.cwd(), { exists = existsSync } = {}) {
+  return exists(path.join(dir, RELEASE_CONFIG_FILE)) ? RELEASE_CONFIG_FILE : LEGACY_RELEASE_CONFIG_FILE;
+}
+
+/**
+ * Load the config at `file` for a command. A `.json` path goes through the strict, M24-validated loader (throws ReleaseConfigError); any
+ * other path is the legacy branch and is imported as before. Legacy-only options: `query` is the cache-busting query a site appends
+ * (`upload=<ts>`, `commit=<sha>`) so a module re-evaluates per run, and `lenient` keeps the `default ?? config ?? module` fallback the
+ * app-root commands accept; every other option goes to `loadReleaseConfigSync`.
+ */
+export async function importReleaseConfig(file, { query, lenient = false, ...loadOptions } = {}) {
+  const absolute = path.resolve(file);
+  if (isJsonReleaseConfig(absolute)) return loadReleaseConfigSync(absolute, loadOptions).config;
+  const loaded = await import(`${pathToFileURL(absolute).href}${query ? `?${query}` : ""}`);
+  return lenient ? loaded.default ?? loaded.config ?? loaded : loaded.default;
 }
 
 /** `{ config, appRoot, configPath }` for the commands that need the app root beside the config. */

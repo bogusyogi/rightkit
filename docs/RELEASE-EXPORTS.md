@@ -16,7 +16,7 @@ Plan item 2.10 (gaps C4-16, C4-17). `@rightkit/release` had no `exports` map, so
 |---|---|---|
 | `./bin/rightkit-gate.mjs` | bin | target of the `rightkit-gate` bin; hooks and docs name the installed path |
 | `./cargo-contract.mjs` | app-import | imported by heardright |
-| `./cargo-target.mjs` | app-import | imported by coderight, cutright, heardright, postright, pulse, rightkit/desktop-app-template, scraperight, viewright |
+| `./cargo-target.mjs` | app-import | imported by coderight, cutright, heardright, postright, pulse, scraperight, viewright |
 | `./cli/right-release.mjs` | bin | target of the `right-release` bin; `@rightkit/legal` resolves it with `createRequire().resolve`, scripts in four apps and Legion spawn it by path |
 | `./development.mjs` | app-import | imported by cutright, ember, mailright |
 | `./direct-bootstrap.mjs` | app-import | imported by coderight, legion |
@@ -63,11 +63,10 @@ Imports are complete quoted specifiers `@rightkit/release/<subpath>` in code fil
 | sellright | `86b050d09` | 0 |
 | legion | `cfe76b42d` | 15 |
 | ember | `d95ba26c8` | 8 |
-| rightkit/desktop-app-template | this commit | 2 |
 | rightkit/packages/legal | this commit | 1 |
 | rightkit/packages/ci | this commit | 2 |
 
-GenRight and SellRight import nothing from the package by subpath (GenRight mentions one only inside archived patch files).
+GenRight and SellRight import nothing from the package by subpath (GenRight mentions one only inside archived patch files). The desktop app template imported `cargo-target.mjs` twice (its `right-release.config.mjs` and its notarize script) until the JSON release config (M24, rightkit#1089) replaced both; it imports nothing now.
 
 | Subpath | Consumer | Location | Form |
 |---|---|---|---|
@@ -80,8 +79,6 @@ GenRight and SellRight import nothing from the package by subpath (GenRight ment
 | `cargo-target.mjs` | heardright | `tauri-app-next/scripts/lib/target-root.mjs:3` | static import |
 | `cargo-target.mjs` | postright | `right-release.config.mjs:6` | static import |
 | `cargo-target.mjs` | pulse | `scripts/release/mac-payload.mjs:114` | dynamic import |
-| `cargo-target.mjs` | rightkit/desktop-app-template | `desktop-app-template/right-release.config.mjs:7` | static import |
-| `cargo-target.mjs` | rightkit/desktop-app-template | `desktop-app-template/scripts/build-mac-notarized.sh:56` | static import in a node snippet |
 | `cargo-target.mjs` | scraperight | `right-release.config.mjs:4` | static import |
 | `cargo-target.mjs` | viewright | `scripts/lib/target-root.mjs:5` | static import |
 | `cli/right-release.mjs` | rightkit/packages/legal | `packages/legal/bin/rust-licenses.mjs:13` | string literal |
@@ -172,4 +169,4 @@ node --test release-exports.test.mjs                                            
 RIGHTKIT_REQUIRE_ASSETS=1 node --test release-exports.test.mjs                                 # a missing checkout fails instead of skipping
 ```
 
-The test also scans this repository (the app template, the CI workflow templates, `@rightkit/legal`) on every run, skipping tests, `docs/`, `release-evidence/` and `ci/consumers/` (the packed-consumer recipe names internal modules on purpose, to prove the map refuses them). It scans the product checkouts beside rightkit when they exist and fails on any import outside the map. A hosted checkout holds rightkit alone, so there the live scan skips with its reason and the map, inventory and package checks still run.
+The test also scans this repository (the CI workflow templates and `@rightkit/legal`; the app template has no import left) on every run, skipping tests, `docs/`, `release-evidence/` and `ci/consumers/` (the packed-consumer recipe names internal modules on purpose, to prove the map refuses them). It scans the product checkouts beside rightkit when they exist and fails on any import outside the map. A hosted checkout holds rightkit alone, so there the live scan skips with its reason and the map, inventory and package checks still run.
