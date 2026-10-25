@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use rightapp_protocol::app_data_root;
 use rightkit_child_process::{OwnedCommand, RestartMode, RestartPolicy};
-use rightkit_credentials::{Config, Namespace, Store};
 use rightkit_crash::{install_process_hook, CrashConfig, ProcessKind};
+use rightkit_credentials::{Config, Namespace, Store};
 use rightkit_device::{credentials::CredentialStore, DeviceService};
 use rightkit_job_queue::{EngineSupervisor, SupervisorConfig};
 use rightkit_tauri_shell::logs_commands::{self, LogsConfig};
@@ -152,7 +152,9 @@ pub fn run() {
             let mut logs = LogsConfig::new(
                 "RightApp",
                 env!("CARGO_PKG_VERSION"),
-                data_root.join("logs").join("rightkit-renderer.events.jsonl"),
+                data_root
+                    .join("logs")
+                    .join("rightkit-renderer.events.jsonl"),
             );
             logs.build = if cfg!(debug_assertions) {
                 "debug"
