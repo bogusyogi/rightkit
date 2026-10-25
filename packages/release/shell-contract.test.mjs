@@ -3,8 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { selectedContentDevtoolsCrate } from "./devtools-policy.mjs";
-import { callArgs, contentDevtoolsCrate, discoverApps, matchClose, mergePatch, parseCsp, readJsxTag, rustFns, scanJs, scanRust, SHELL_CONTRACT_RULES, shellExports, shellMembers } from "./shell-contract.mjs";
+import { callArgs, contentDevtoolsCrate, discoverApps, matchClose, mergePatch, parseCsp, readJsxTag, rustFns, scanJs, scanRust, SHELL_CONTRACT_RULES, bridgeMap, shellExports, shellMembers } from "./shell-contract.mjs";
 
 const SRC = "src-tauri";
 const CONF = `${SRC}/tauri.conf.json`;
@@ -340,6 +341,28 @@ test("R3: this checkout's bridge map is read from packages/tauri-shell/src/index
   assert.deepEqual(exportsMap.get("EVENTS"), []);
   const files = { [CONF]: conf([]), [`${SRC}/src/lib.rs`]: RS_LIST("rk_shell_window"), "src/shell.ts": 'import { createShell, EVENTS } from "@rightkit/tauri-shell";\n' };
   assert.deepEqual(run("shell-handler", t, files), [], "with the real map: createShell needs one command, and one is listed");
+});
+
+test("R3: the shipped shell-contract-bridge.json is what packages/tauri-shell/src/index.ts generates", () => {
+  const source = fs.readFileSync(new URL("../tauri-shell/src/index.ts", import.meta.url), "utf8");
+  const shipped = fs.readFileSync(new URL("./shell-contract-bridge.json", import.meta.url), "utf8");
+  assert.equal(shipped, `${JSON.stringify(bridgeMap(source), null, 2)}\n`, "run: node scripts/generate-shell-contract-bridge.mjs");
+  const map = JSON.parse(shipped);
+  assert.ok(map.exports.createShell.length > 8 && map.members["window.close"].includes("rk_shell_window"));
+});
+
+test("R3: an installed copy of the package, with no tauri-shell source beside it, still maps createShell().window.close() to rk_shell_window", async (t) => {
+  // The layout apps run: node_modules/@rightkit/release holds these files and nothing from packages/tauri-shell.
+  const installed = fs.mkdtempSync(path.join(os.tmpdir(), "rk-shell-installed-"));
+  t.after(() => fs.rmSync(installed, { recursive: true, force: true }));
+  for (const file of ["shell-contract.mjs", "shell-contract-bridge.json", "devtools-policy.json"]) fs.copyFileSync(new URL(`./${file}`, import.meta.url), path.join(installed, file));
+  assert.equal(fs.existsSync(path.join(installed, "..", "tauri-shell")), false);
+  const copy = await import(`${pathToFileURL(path.join(installed, "shell-contract.mjs")).href}?installed`);
+  const rule = copy.SHELL_CONTRACT_RULES.find((r) => r.id === "shell-handler");
+  const files = { [CONF]: conf([]), [`${SRC}/src/lib.rs`]: RS_LIST("rk_shell_status"), "src/shell.ts": 'import { createShell } from "@rightkit/tauri-shell";\nexport const close = () => createShell().window.close();\n' };
+  const checked = tree(t, files);
+  assert.deepEqual(subjects(rule.run(checked)), ["missing:rk_shell_window"], "per command, as in the monorepo");
+  assert.deepEqual(subjects(SHELL_CONTRACT_RULES.find((r) => r.id === "shell-handler").run(checked)), ["missing:rk_shell_window"], "the same answer from the checkout");
 });
 
 test("R3: createShell's members are mapped from the bridge source, and an app that reaches window.close() needs rk_shell_window", () => {

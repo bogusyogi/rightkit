@@ -32,8 +32,12 @@ const PLATFORMS = ["macos", "windows", "linux", "ios", "android"];
 const DESKTOP = new Set(["base", "macos", "windows", "linux"]);
 const SHELL_CRATES = ["rightkit-tauri-shell", "rightkit-shell"];
 const ALLOW_LIST_FILE = "packages/release/devtools-policy.json";
-// The npm bridge's source in this checkout (R3 maps its exports to commands); a copy of this package without it maps nothing, and every
-// @rightkit/tauri-shell import then needs at least one registered command.
+// The npm bridge's command map (R3 maps what an app imports from @rightkit/tauri-shell to rk_shell_* commands). It ships inside this
+// package as shell-contract-bridge.json, generated from packages/tauri-shell/src/index.ts by scripts/generate-shell-contract-bridge.mjs
+// and held to it by a test, because an installed copy of this package has no tauri-shell source beside it.
+const BRIDGE_FILE = fileURLToPath(new URL("./shell-contract-bridge.json", import.meta.url));
+// The source in this checkout, only as a fallback when the JSON is absent (a damaged copy); an installed package has neither and
+// maps nothing, so every @rightkit/tauri-shell import then needs at least one registered command.
 const TAURI_SHELL_INDEX = fileURLToPath(new URL("../tauri-shell/src/index.ts", import.meta.url));
 const POLICY_FILE = fileURLToPath(new URL("./devtools-policy.json", import.meta.url));
 
@@ -420,7 +424,7 @@ const shellWindowHidden = perApp(({ app, root }) => {
         file: target.file,
         subject: `${target.name}:${label}${windows.filter((x, j) => j < i && (x?.label ?? "main") === label).length ? `#${i}` : ""}`,
         problem: `${target.file}:${line} window "${label}" is created at startup on ${target.name} without "visible": false: the shell shows the window when its webview is ready, so a window that starts visible flashes and races show-on-ready.${restated}`,
-        fix: `set "visible": false on window "${label}" in ${target.file}`,
+        fix: `set "visible": false on window "${label}" in ${target.file} (an app that owns its windows, with host_windows or lifecycle_only, shows it itself once its webview is ready)`,
       });
     });
   }
@@ -637,9 +641,22 @@ export function shellMembers(indexText) {
   return members;
 }
 
+/** The bridge map as the plain object the package ships: { schema, exports: { name: [command] }, members: { "window.close": [command] } }. */
+export function bridgeMap(indexText) {
+  return { schema: 1, exports: Object.fromEntries(shellExports(indexText)), members: Object.fromEntries(shellMembers(indexText)) };
+}
 const readIndex = () => { try { return fs.readFileSync(TAURI_SHELL_INDEX, "utf8"); } catch { return null; } };
+const mapOf = (value) => new Map(Object.entries(isObject(value) ? value : {}).filter(([, commands]) => Array.isArray(commands) && commands.every((c) => typeof c === "string")));
 let shellBridgeCache;
-const defaultShellBridge = () => { shellBridgeCache ??= { exports: shellExports(readIndex()), members: shellMembers(readIndex()) }; return shellBridgeCache; };
+const defaultShellBridge = () => {
+  if (shellBridgeCache) return shellBridgeCache;
+  try {
+    const shipped = JSON.parse(fs.readFileSync(BRIDGE_FILE, "utf8"));
+    if (isObject(shipped) && shipped.schema === 1) return (shellBridgeCache = { exports: mapOf(shipped.exports), members: mapOf(shipped.members) });
+  } catch { /* fall through to the source */ }
+  const index = readIndex();
+  return (shellBridgeCache = { exports: shellExports(index), members: shellMembers(index) });
+};
 
 /**
  * What an app's renderer calls on the shells it makes with createShell(): the commands of each member it reaches (`shell.window.close()`),
