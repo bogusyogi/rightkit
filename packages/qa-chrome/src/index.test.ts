@@ -35,6 +35,10 @@ describe('rootSandboxArgs', () => {
     expect(rootSandboxArgs('darwin', 0)).toEqual([]);
     expect(rootSandboxArgs('win32', undefined)).toEqual([]);
   });
+  it('adds nothing when the caller already passed --no-sandbox, so the flag is never doubled', () => {
+    expect(rootSandboxArgs('linux', 0, ['--headless=new', '--no-sandbox'])).toEqual([]);
+    expect(rootSandboxArgs('linux', 0, ['--headless=new'])).toEqual(['--no-sandbox']);
+  });
 });
 
 function touch(file: string): string {
