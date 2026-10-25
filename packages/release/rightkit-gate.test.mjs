@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2408,4 +2409,138 @@ test("deferredBlock: a declared npm test scan names the declaration and its reas
   assert.equal(deferredBlock({ ...base, npmCalls: [declared] })[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because ci/gate.config.json declares that the test needs the broker and this host has no broker: test:npm:heardright (declared in ci/gate.config.json npm.heardright.requiresBroker: ${REASON})`);
   assert.equal(deferredBlock({ ...base, npmCalls: [shown, declared] })[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright, or ci/gate.config.json declares that the test needs the broker and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:heardright (declared in ci/gate.config.json npm.heardright.requiresBroker: ${REASON})`);
   assert.equal(deferredBlock({ ...base, npmCalls: [shown] })[2], deferredBlock({ ...base, npmCalls: [{ ...shown }] })[2], "without a declaration the line is what it was");
+});
+
+// ---- B2: install-hook in a repository whose root does not install @rightkit/release ---------------------------------------------------------------------------
+
+// CutRight's apps/cutright and HeardRight's tauri-app-next declare and install the package; the root declares nothing. The hook's last resort used to be the path
+// of the gate that wrote it: `../../../../../../home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs` from an exports checkout, and
+// `apps/cutright/node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs` from the install (stale at the next bump).
+const LINK = "node_modules/@rightkit/release/bin/rightkit-gate.mjs";
+const declares = (extra = {}) => JSON.stringify({ name: "x", devDependencies: { "@rightkit/release": "0.6.5" }, ...extra });
+const sha256Hex = (text) => crypto.createHash("sha256").update(text).digest("hex");
+const PUBLISHED_HOOK_DIGESTS = JSON.parse(fs.readFileSync(new URL("./fixtures/published-gate-hooks.json", import.meta.url), "utf8")).releases;
+
+async function installFrom(t, files, gateFile, listed = Object.keys(files).filter((f) => f.endsWith("package.json"))) {
+  const root = mkRepo(files, t);
+  const state = { hooksPath: "", sets: [] };
+  const c = capture();
+  const code = await main(["install-hook"], { ...c.io, spawn: hookEnv(root, state, { listed }), cwd: root, gateFile: typeof gateFile === "function" ? gateFile(root) : gateFile });
+  return { code, root, out: c.out.join("\n"), err: c.err.join("\n"), hook: fs.readFileSync(path.join(root, ".githooks", "pre-push"), "utf8") };
+}
+
+test("hookGatePlan: a stable repository-relative path for the gate, from the root's link, a declaring package's link, the checkout itself or the link to come", () => {
+  const { hookGatePlan } = gateModule;
+  const root = norm(path.resolve("/work/app"));
+  const present = (...files) => (f) => files.some((p) => norm(f) === norm(path.join(root, p)));
+  const outside = norm(path.resolve("/elsewhere/exports/packages/release/bin/rightkit-gate.mjs"));
+  const store = norm(path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs"));
+  const plan = (declaring, installed, gateFile) => hookGatePlan({ root, gateFile, declaring, exists: present(...installed) });
+  // 1. the root installs it: the 0.6.4 and 0.6.5 hook, whatever else declares it
+  assert.deepEqual(plan(["apps/cutright"], [LINK, `apps/cutright/${LINK}`], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  // 2. a declaring package has it: its link (not the store path the running gate resolves to), and every declaring package is searched
+  assert.deepEqual(plan(["apps/cutright"], [`apps/cutright/${LINK}`], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
+  assert.deepEqual(plan(["apps/cutright"], [`apps/cutright/${LINK}`], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "run from the install itself: still the link");
+  assert.deepEqual(plan(["apps/cutright", "tauri-app-next"], [`tauri-app-next/${LINK}`], outside), { nodePath: `tauri-app-next/${LINK}`, packages: ["apps/cutright", "tauri-app-next"], unsafe: [] });
+  // 3. the gate runs from inside the repository, and not from a node_modules: RightKit's own checkout keeps its path
+  assert.deepEqual(plan([], [], norm(path.join(root, "packages/release/bin/rightkit-gate.mjs"))), { nodePath: "packages/release/bin/rightkit-gate.mjs", packages: [], unsafe: [] });
+  // 4. nothing installed yet, or run from outside the repository or from a store copy: the link a declaring package will have, else the root's
+  assert.deepEqual(plan(["apps/cutright"], [], outside), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] });
+  assert.deepEqual(plan(["apps/cutright"], [], store), { nodePath: `apps/cutright/${LINK}`, packages: ["apps/cutright"], unsafe: [] }, "a store path is never written");
+  assert.deepEqual(plan([], [], outside), { nodePath: LINK, packages: [], unsafe: [] });
+  assert.deepEqual(plan(["."], [], outside), { nodePath: LINK, packages: [], unsafe: [] }, "the root declares it: its link, installed or not");
+  assert.deepEqual(plan([".", "apps/cutright"], [], outside), { nodePath: LINK, packages: ["apps/cutright"], unsafe: [] });
+  // a directory that cannot be written into a shell script is named, never written
+  const odd = plan(["apps/my app", "apps/$(x)", "-x", "apps/../up", "apps/a;b", "apps/ok"], [], outside);
+  assert.deepEqual([odd.packages, odd.unsafe.sort()], [["apps/ok"], ["-x", "apps/$(x)", "apps/../up", "apps/a;b", "apps/my app"]]);
+  for (const bad of ["apps/$(x)", "a b", "a\"b", "a`b", "a;b", "-x", "", "..", "a/../b", "./a", "a//b", "/abs", "C:\\x", "a\nb"]) assert.equal(gateModule.hookPathIsPlain(bad), false, JSON.stringify(bad));
+  for (const good of ["apps/cutright", "tauri-app-next", "packages/@scope/x.y", ".tools/app", "a+b/c_d-e"]) assert.equal(gateModule.hookPathIsPlain(good), true, good);
+});
+
+test("install-hook: with the install in a nested package, the hook finds the gate through that package's stable path, never one outside the repository or in the pnpm store", async (t) => {
+  const { hookGatePlan } = gateModule;
+  assert.equal(typeof hookGatePlan, "function");
+  const files = { "apps/cutright/package.json": declares(), [`apps/cutright/${LINK}`]: "", "README.md": "x" };
+  const store = (root) => path.join(root, "apps/cutright", "node_modules/.pnpm/@rightkit+release@0.6.4/node_modules/@rightkit/release/bin/rightkit-gate.mjs");
+  const wanted = hookText(`apps/cutright/${LINK}`, ["apps/cutright"]);
+  for (const [name, gateFile] of [["an exports checkout beside the repository", path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs")], ["the pnpm store copy of the install", store], ["a relative symlink target", path.resolve("/x/node_modules/@rightkit/release/bin/rightkit-gate.mjs")]]) {
+    const r = await installFrom(t, files, gateFile);
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    assert.equal(r.hook, wanted, name);
+    assert.doesNotMatch(r.hook, /\.\.\//, `${name}: nothing outside the repository`);
+    assert.doesNotMatch(r.hook, /\.pnpm|@rightkit\+release@/, `${name}: no version-pinned store path`);
+    assert.ok(!r.hook.includes(r.root) && !/[A-Za-z]:[\\/]/.test(r.hook), `${name}: no absolute path`);
+    assert.match(r.hook, /^for bin in node_modules\/\.bin\/rightkit-gate apps\/cutright\/node_modules\/\.bin\/rightkit-gate \*\//m, name);
+    assert.match(r.hook, /pnpm --dir apps\/cutright exec rightkit-gate "\$@"/, name);
+    assert.match(r.hook, /node "apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs" "\$@"/, name);
+    assert.match(r.out, /else of apps\/cutright \(the packages that declare @rightkit\/release\), else of any workspace package, else through `pnpm --dir apps\/cutright exec`/, name);
+    assert.match(r.out, /@rightkit\/release is declared in apps\/cutright\/package\.json/, name);
+  }
+  // Running it again from the same checkout changes nothing; run from the other place it is the same hook, so still current.
+  const first = await installFrom(t, files, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
+  const state = { hooksPath: ".githooks", sets: [] };
+  const c = capture();
+  assert.equal(await main(["install-hook"], { ...c.io, spawn: hookEnv(first.root, state, { listed: ["apps/cutright/package.json"] }), cwd: first.root, gateFile: store(first.root) }), 0);
+  assert.ok(c.out.some((l) => /\.githooks\/pre-push already current/.test(l)), c.out.join("\n"));
+  // Not installed yet (a fresh clone, pnpm install --ignore-scripts): the link the package will have.
+  const fresh = await installFrom(t, { "apps/cutright/package.json": declares() }, path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs"));
+  assert.equal(fresh.hook, wanted);
+  // Several packages declare it: all are searched, the installed one is the last resort, the first one runs under pnpm.
+  const many = await installFrom(t, { "apps/cutright/package.json": declares(), "tauri-app-next/package.json": declares(), [`tauri-app-next/${LINK}`]: "" }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+  assert.equal(many.hook, hookText(`tauri-app-next/${LINK}`, ["apps/cutright", "tauri-app-next"]));
+});
+
+test("install-hook: a root that installs the package keeps getting the published hook byte for byte, and RightKit's own checkout keeps its path", async (t) => {
+  const outside = path.resolve("/home/user/rightkit-exports/packages/release/bin/rightkit-gate.mjs");
+  for (const [name, files] of [
+    ["the root installs it", { "package.json": declares(), [LINK]: "" }],
+    ["the root installs it and a package declares it too", { "package.json": declares(), "apps/cutright/package.json": declares(), [LINK]: "", [`apps/cutright/${LINK}`]: "" }],
+  ]) {
+    const r = await installFrom(t, files, outside);
+    assert.equal(r.hook, hookText(LINK), name);
+    assert.equal(sha256Hex(r.hook), PUBLISHED_HOOK_DIGESTS["0.6.5"], `${name}: the hook the published 0.6.5 wrote, so the template's committed hook is still "already current"`);
+  }
+  const own = await installFrom(t, { "packages/release/package.json": '{"name":"@rightkit/release"}' }, (root) => path.join(root, "packages/release/bin/rightkit-gate.mjs"));
+  assert.equal(own.hook, hookText("packages/release/bin/rightkit-gate.mjs"), "RightKit's own hook points at its checkout, as before");
+  const none = await installFrom(t, { "package.json": '{"name":"app"}' }, outside);
+  assert.equal(none.hook, hookText(LINK), "nothing declares it: the root's link, not a path outside the repository");
+  assert.match(none.err, /WARNING: no package\.json in this repository depends on @rightkit\/release/);
+});
+
+test("install-hook: a declaring package whose directory is not a plain name is reported and never written into the hook", async (t) => {
+  const r = await installFrom(t, { "apps/my app/package.json": declares(), "apps/$(touch x)/package.json": declares(), "apps/ok/package.json": declares() }, path.resolve("/elsewhere/rightkit-gate.mjs"));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /WARNING: the pre-push hook does not look for the gate in apps\/\$\(touch x\), apps\/my app: not a plain directory name/);
+  assert.equal(r.hook, hookText(`apps/ok/${LINK}`, ["apps/ok"]));
+  assert.ok(!r.hook.includes("touch") && !r.hook.includes("my app"));
+});
+
+test("the multi-root pre-push hook (real sh): a package deeper than the glob, the pnpm fallback in the declaring package, then node at the package's link", { skip: !shAvailable && "no sh" }, (t) => {
+  const tmp = mkRepo({}, t);
+  const log = path.join(tmp, "calls.log");
+  const hook = (packages, nodePath) => ({ ".githooks/pre-push": hookText(nodePath, packages) });
+  // 1. beyond the three levels the glob covers: found through the explicit entry
+  const deep = hookRepo(t, { ...hook(["apps/a/b/c"], `apps/a/b/c/${LINK}`), "apps/a/b/c/node_modules/.bin/rightkit-gate": recorder(log, "deep") });
+  const ran = runHook(deep, "in\n");
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "deep check --commit HEAD\n--\ndeep --base origin/main\nin\n--\n");
+  assert.match(ran.stderr, /rightkit-gate: using apps\/a\/b\/c\/node_modules\/\.bin\/rightkit-gate/);
+  // 2. nothing installed, pnpm present: it runs in the declaring package (at the repository root it has no rightkit-gate to run)
+  fs.rmSync(log, { force: true });
+  const bin = mkRepo({ pnpm: recorder(log, "pnpm") }, t);
+  fs.chmodSync(path.join(bin, "pnpm"), 0o755);
+  const viaPnpm = runHook(hookRepo(t, hook(["apps/cutright"], `apps/cutright/${LINK}`)), "in\n", { path: [bin] });
+  assert.equal(viaPnpm.status, 0, viaPnpm.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "pnpm --dir apps/cutright exec rightkit-gate check --commit HEAD\n--\npnpm --dir apps/cutright exec rightkit-gate --base origin/main\nin\n--\n");
+  assert.match(viaPnpm.stderr, /rightkit-gate: using pnpm --dir apps\/cutright exec rightkit-gate/);
+  // 3. no pnpm: node at the package's link, a path in the repository
+  fs.rmSync(log, { force: true });
+  const shim = mkRepo({}, t);
+  fs.symlinkSync(process.execPath, path.join(shim, "node"));
+  const noPnpmPath = [shim, "/usr/bin", "/bin"].join(path.delimiter);
+  const lastResort = hookRepo(t, { ...hook(["apps/cutright"], `apps/cutright/${LINK}`), [`apps/cutright/${LINK}`]: `import fs from "node:fs";\nfs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");\nfs.readFileSync(0);\n` });
+  const viaNode = spawnSync("sh", [".githooks/pre-push", "origin", "https://example.test/r.git"], { cwd: lastResort, input: "in\n", encoding: "utf8", env: { ...process.env, PATH: noPnpmPath } });
+  assert.equal(viaNode.status, 0, viaNode.stderr);
+  assert.equal(fs.readFileSync(log, "utf8"), "check --commit HEAD\n--base origin/main\n");
+  assert.match(viaNode.stderr, /rightkit-gate: using node apps\/cutright\/node_modules\/@rightkit\/release\/bin\/rightkit-gate\.mjs/);
 });
