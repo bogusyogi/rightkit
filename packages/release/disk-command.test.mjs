@@ -2331,3 +2331,54 @@ test("schedule status: more than 4 MiB of sweep lines after the last full run do
   assert.match(none.text, /PROBLEM: no completed full run recorded/);
 });
 
+// A full run with an internal drive listed first and the agent volume second: whichever number the events carry is the one that matters.
+function leadFixture({ agentReadable = true } = {}) {
+  const fx = lightFixture();
+  const pf = path.join(fx.root, "policy.json");
+  const policy = JSON.parse(readFileSync(pf, "utf8"));
+  const internal = path.join(fx.root, "internal");
+  mkdirSync(internal);
+  policy.floors = { mac: [{ id: "mac-internal", path: internal, label: "Mac internal", warnFreeBytes: 1000, holdingSource: true }, { id: "mac-d", path: fx.root, label: "Mac D:", warnFreeBytes: 1000, agentVolume: true }] };
+  writeFileSync(pf, JSON.stringify(policy));
+  const space = (p) => {
+    if (p === internal) return { freeBytes: 111, totalBytes: 500 };
+    if (!agentReadable) throw new Error("ENOENT: not mounted");
+    return { freeBytes: 7777, totalBytes: 10000 };
+  };
+  return { ...fx, run: (args) => fx.run(args, { check: { size: () => 0, space }, ...(args.includes("--light") ? {} : { plan: { size: () => 10 } }) }) };
+}
+
+test("every run event reports the agent volume's free bytes with its floor id, never the first floor's", async () => {
+  const full = leadFixture();
+  await full.run([]);
+  const fullEvent = full.events().find((e) => e.event === "disk.run.ok" || e.event === "disk.floor.warn");
+  assert.deepEqual([fullEvent.freeBytes, fullEvent.floorId], [7777, "mac-d"]); // before: 111, the internal drive
+  const light = leadFixture();
+  await light.run(["--light"]);
+  const lightEvent = light.events().find((e) => e.event === "disk.run.light");
+  assert.deepEqual([lightEvent.freeBytes, lightEvent.floorId], [7777, "mac-d"]);
+  assert.deepEqual(lightEvent.floors.map((f) => f.id), ["mac-internal", "mac-d"]); // the per-floor list still names both
+  // the agent volume is not mounted: null, with its id, on every event and in the report; the internal drive's 111 appears nowhere as "the" free space
+  const gone = leadFixture({ agentReadable: false });
+  await gone.run([]);
+  const goneFull = gone.events().find((e) => e.event === "disk.run.ok" || e.event === "disk.floor.warn");
+  assert.deepEqual([goneFull.freeBytes, goneFull.floorId], [null, "mac-d"]);
+  const report = gone.events().find((e) => e.event === "disk.report");
+  assert.deepEqual([report.freeBytes, report.usedBytes, report.categories, report.delta], [null, null, null, null]);
+  const goneLight = leadFixture({ agentReadable: false });
+  await goneLight.run(["--light"]);
+  const goneLightEvent = goneLight.events().find((e) => e.event === "disk.run.light");
+  assert.deepEqual([goneLightEvent.freeBytes, goneLightEvent.floorId], [null, "mac-d"]);
+});
+
+test("the usage line lists run [--auto|--light], run-root <name> [--days N] [--release] and schedule status", async () => {
+  const { root } = fixture();
+  const pf = path.join(root, "policy.json");
+  writeFileSync(pf, JSON.stringify(fixture().policy));
+  await assert.rejects(runDiskCommand(["nonsense", "--policy", pf], { platform: "darwin", stdout: () => {} }), (error) => {
+    assert.match(error.message, /\|run \[--auto\|--light\]\|/);
+    assert.match(error.message, /\|run-root <name> \[--days N\] \[--release\]\|/);
+    assert.match(error.message, /\|schedule install\|uninstall\|status\|/);
+    return true;
+  });
+});

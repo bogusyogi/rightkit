@@ -31,6 +31,12 @@ export function fullPassDue({ now, lastFullMs, hour = FULL_PASS_HOUR, minute = F
   return lastFullMs < slot.getTime();
 }
 
+/** The floor every run event reports: the agent volume's (readable or not: an unmounted D: logs null free bytes, never the internal
+ * drive's), else the first readable floor, else the first. Its `id` is logged next to the number as `floorId`. */
+export function leadFloor(floors) {
+  return floors.find((f) => f.agentVolume) ?? floors.find((f) => !f.absent) ?? floors[0];
+}
+
 function renderFloor(f) {
   if (f.error) return `${f.label}: free space cannot be read (${f.error})  WARN`;
   return `${f.label}: ${formatBytes(f.freeBytes)} free of ${formatBytes(f.totalBytes)} (floor ${formatBytes(f.thresholdBytes)})${f.warn ? "  WARN" : ""}${f.hardWarn ? `  BELOW THE ${formatBytes(f.hardFreeBytes)} BUILD REFUSAL LEVEL` : ""}`;
@@ -738,9 +744,9 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
       const applied = applySweep({ plan: p, policy, platform, ...deps.apply });
       const purged = squeezed ? emergencyPurge(squeezed) : null;
       const floors = checkFloors(floorOptions);
-      const lead = floors.find((f) => f.agentVolume && !f.absent) ?? floors[0];
+      const lead = leadFloor(floors);
       if (logReadError) stdout(`WARNING: the run log ${logFile} cannot be read (${logReadError.message}), so this run stays light`);
-      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, ...(logReadError ? { logReadError: logReadError.message } : {}), floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
+      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floorId: lead.id ?? lead.label, ...(logReadError ? { logReadError: logReadError.message } : {}), floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
       stdout(`light pass: moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length}), ${lead.absent ? `${lead.label} is not readable` : `${lead.label} ${formatBytes(lead.freeBytes)} free`}`);
       return { exitCode: 0, pass: "light", plan: p, applied, purged, floors, selfCheck: self };
     }
@@ -761,7 +767,8 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     }
     const after = check();
     const warn = after.warn;
-    log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
+    const lead = leadFloor(after.floors ?? [after.floor]);
+    log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: lead.freeBytes ?? null, floorId: lead.id ?? lead.label, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
     // One report a UTC day: its per-unit sizes need a du per scratch run, which only the daily pass may afford.
     let previousReport = null;
     try { previousReport = lastEvent(logFile, ["disk.report"]); } catch { /* unreadable log: this report has no delta */ }
@@ -772,7 +779,7 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     if (warn) stdout(`WARNING: ${after.warnings.join("; ")}`);
     return { exitCode: warn ? DISK_EXIT_WARNING : 0, pass: "full", before, after, applied, purged, selfCheck: self };
   }
-  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run|schedule install|uninstall|status|agent-env [--root dir] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]|probe  [--json]");
+  throw new Error("disk usage: check|sweep [--dry-run|--delete] [--all]|allow-workspace-sweep [--off] [--days N]|purge [--dry-run] [--days N]|run [--auto|--light]|run-root <name> [--days N] [--release]|schedule install|uninstall|status|agent-env [--root dir] [--format sh|ps1|cmd|json] [--check] [--include-agent-homes]|probe  [--json]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
