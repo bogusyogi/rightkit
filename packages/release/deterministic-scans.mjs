@@ -699,13 +699,25 @@ export function planScans({
     add({ id: `cargo-deny${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "deny", "--offline", "--metadata-path", "{advisoryMetadata}", "--config", "{advisoryDenyConfig}", "check"), env: pinEnv, advisoryDb: "deny", advisoryPin: pin });
     add({ id: `cargo-audit${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, "audit", "--db", "{advisoryDb}", "--no-fetch"), env: pinEnv, advisoryDb: "audit", advisoryPin: pin });
   }
+  // The audit policy is the consumer's own: when the root's package.json declares a script that is exactly `pnpm audit <flags>`, those
+  // flags (only --prod, --dev, --audit-level <low|moderate|high|critical> are accepted) are the scan's; otherwise every dependency at every
+  // severity. The gate never runs a weaker audit than the repository declares (RightSites declares `pnpm audit --prod`: all severities).
+  const consumerAuditFlags = (r) => {
+    let scripts = {};
+    try { scripts = JSON.parse(readFile(path.join(contentRoot, r, "package.json"))).scripts ?? {}; } catch { /* none: the strict default */ }
+    for (const cmd of Object.values(scripts)) {
+      const m = /^\s*pnpm\s+audit((?:\s+(?:--prod|--dev|--audit-level(?:=|\s+)(?:low|moderate|high|critical)))*)\s*$/.exec(String(cmd));
+      if (m) return m[1].trim().split(/\s+|=/).filter(Boolean);
+    }
+    return [];
+  };
   for (const r of jsRoots) {
     // Class A runs no repository hooks: `install` accepts --ignore-pnpmfile and --ignore-scripts; `audit` accepts
     // neither flag, so every class A pnpm scan also sets the same two settings through the environment.
     // One pair per pnpm root, run in the root's directory; the repository root keeps the unsuffixed ids.
     const where = r === "." ? {} : { cwd: r }; const suffix = r === "." ? "" : `:${r}`;
     add({ id: `pnpm-lockfile${suffix}`, class: A, tool: "pnpm", args: ["install", "--frozen-lockfile", "--lockfile-only", "--ignore-pnpmfile", "--ignore-scripts"], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
-    add({ id: `pnpm-audit${suffix}`, class: A, tool: "pnpm", args: ["audit", "--prod", "--audit-level", "high"], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
+    add({ id: `pnpm-audit${suffix}`, class: A, tool: "pnpm", args: ["audit", ...consumerAuditFlags(r)], env: PNPM_NO_HOOKS_ENV, root: "content", ...where });
   }
   const crateDirs = crateNames.map(rustDir); const pkgDirs = pkgNames.map(npmDir);
   const withChangelog = crateNames.filter((n) => exists(path.join(contentRoot, rustDir(n), "CHANGELOG.md")) && exists(path.join(contentRoot, rustDir(n), "Cargo.toml")));

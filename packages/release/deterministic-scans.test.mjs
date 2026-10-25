@@ -1802,3 +1802,11 @@ test("B1: planScans marks a declared unit's test:npm scan; the script chain's ow
   const shown = planFor(["src/a.ts"], { ...files, "package.json": '{"name":"app","license":"MIT","scripts":{"test":"rustright cargo test"}}' }, { ...pnpmUnit, packageFeatures: { app: { requiresBroker: { reason: "x" } } } }).plan;
   assert.deepEqual(scanOf(shown, "test:npm:app").brokerCall, { tool: "rustright", via: ["test"], command: "rustright cargo test" }, "what the scripts show is reported as the scripts show it");
 });
+
+test("pnpm-audit runs the consumer's own declared policy, never a weaker one; with none declared, every dependency at every severity", () => {
+  const scanArgs = (pkg) => planFor(["package.json"], { "package.json": JSON.stringify(pkg), "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" }, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] }).plan.scans.find((s) => s.id === "pnpm-audit")?.args;
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { "deps:audit": "pnpm audit --prod" } }), ["audit", "--prod"], "RightSites' policy: production dependencies, every severity");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --audit-level=moderate" } }), ["audit", "--audit-level", "moderate"]);
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT" }), ["audit"], "no declared policy: all dependencies, all severities");
+  assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --prod && curl evil" } }), ["audit"], "anything but plain flags is not a policy");
+});

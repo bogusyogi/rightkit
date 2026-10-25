@@ -2,6 +2,8 @@
 
 ## 0.6.7 (unpublished staging)
 
+- **pnpm-audit keeps the consumer's own policy.** The class A audit ran `pnpm audit --prod --audit-level high`, weaker than RightSites' declared `pnpm audit --prod` (every severity). It now runs the flags of a root script that is exactly `pnpm audit <flags>` (only `--prod`, `--dev`, `--audit-level`), and with none declared, every dependency at every severity.
+
 - **The compile stage stages sidecars first.** `rightkit-gate --to compile` runs `right-release stage-sidecar --config <file>` (under the live door run) for every committed `right-release.config.(json|mjs)` that declares `sidecars`, before any compile: a Tauri crate with `externalBin` refuses to build without them (PostRight's first run through the door failed exactly there). A failed staging compiles nothing.
 
 - **Class A reads only the requested commit.** The snapshot is exported with `git read-tree` + `checkout-index` into a private index, not `git archive`, so files marked `export-ignore` are scanned too; and every class A scan of a commit or tree (cargo-metadata, cargo-deny, cargo-audit and the rest) runs in that export, never in the live checkout. Tool version probes run in an empty directory outside every repository with pnpm hooks and corepack auto-pinning off, so a probe never reads the repository's own configuration. `desktop-app-template` carries its advisory ledger, citing RightKit's existing approvals for the same advisories.
