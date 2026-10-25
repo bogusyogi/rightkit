@@ -129,6 +129,34 @@ test("secret scan: an env template is refused by name in a crate, read by conten
   assert.deepEqual(scanCrateForSecrets(root, { envTemplates: true }), [".env", ".env.local", "sub/.env.test.example"], "a template with a credential is still found; .env and .env.local stay refused by name");
 });
 
+test("secret scan: a populated env template is refused by content, an empty or placeholder one passes", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-envcred-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  // Credentials are assembled from parts so this file holds none of the shapes it tests.
+  const found = {
+    "stripe.example": "STRIPE_SECRET_KEY=" + "sk" + "_live_" + "a1B2c3D4e5F6g7H8i9J0k1L2\n",
+    "dburl.example": "DATABASE_URL=postgres://admin:" + "S3cr3t" + "Pw0rd@db.internal/app\n",
+    "openai.example": "OPENAI_API_KEY=" + "sk" + "-proj-" + "abcdEFGH1234abcdEFGH1234abcd\n",
+    "slack.example": "NOTIFY=" + "xox" + "b-" + "1234567890-abcdefghij\n",
+    "jwt.example": "JWT_SECRET=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08\n",
+    "google.example": "MAPS_KEY=" + "AI" + "za" + "SyA1234567890abcdefghijklmnopqrstuv\n",
+    "quoted.sample": "export DB_PASSWORD='hunter2hunter2' # prod\n",
+    "commented.template": "# CLIENT_SECRET=abc123def456\n",
+    "url-in-comment.example": "# use postgres://admin:" + "S3cr3t" + "Pw0rd@db.internal/app locally\n",
+  };
+  const clean = {
+    "empty.example": "API_URL=\nAPI_TOKEN=\nDB_PASSWORD=\"\"\nCLIENT_SECRET=   # fill in\n",
+    "placeholders.example": "API_TOKEN=<your token>\nJWT_SECRET=${JWT_SECRET}\nDB_PASSWORD=changeme\nSTRIPE_SECRET_KEY=sk-...\nAPI_KEY=xxxxxxxx\nCLIENT_SECRET=your-secret-here\n",
+    "urls.example": "DATABASE_URL=postgres://user:<password>@localhost/app\nREDIS_URL=redis://:${REDIS_PASSWORD}@localhost\nSITE=https://example.com/a:b\nBARE=postgres://user@host/db\n",
+    "vendor-placeholders.example": "A=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx\nB=" + "sk" + "_live_" + "xxxxxxxxxxxxxxxx\nC=" + "xox" + "b-<token>\nD=" + "AI" + "za" + "X".repeat(35) + "\n",
+    "prose.example": "# Token for the API. Get one at https://example.com/token\n# SECRET_KEY=generate with openssl rand -hex 32\nPORT=3000\nNODE_ENV=development\nTOKEN_REFRESH=true\n",
+  };
+  for (const [name, body] of Object.entries({ ...found, ...clean })) writeFileSync(path.join(root, ".env." + name), body);
+  const dotted = (names) => names.map((name) => ".env." + name).sort();
+  assert.deepEqual(scanCrateForSecrets(root, { envTemplates: true }), dotted(Object.keys(found)), "each credential shape in a template is found; empty and placeholder templates pass");
+  assert.deepEqual(scanCrateForSecrets(root), dotted([...Object.keys(found), ...Object.keys(clean)]), "a crate package still refuses every template by name");
+});
+
 test("secret scan detects credentials beside NUL bytes while accepting benign binary assets", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "rightkit-cargo-secrets-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

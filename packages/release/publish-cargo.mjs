@@ -144,6 +144,57 @@ export function packageFileViolations(files) {
 // refusing it by name; a crate package and its archive still refuse it by name, since nothing published needs it.
 const ENV_TEMPLATE = /(^|\/)\.env(?:\.[^/]*)?\.(?:example|sample|template)$/i;
 
+// An env template is the first file a real `.env` is copied to, so reading it by content has to catch more than the four
+// token shapes every file is held to. In `envTemplates` mode a template is also refused for (a) a populated credential
+// assignment: `NAME=value` where NAME says secret, token, password, api key, access key, private or credential and the value
+// is neither empty nor an obvious placeholder; (b) a password in URL userinfo (`scheme://user:pass@host`); and (c) a vendor
+// key prefix followed by key material (`sk_live_`, `sk-`, `xox[abprs]-`, `AIza`). Names and values of an empty template
+// (`API_TOKEN=`) and of an obvious placeholder (`<your token>`, `${TOKEN}`, `changeme`, `xxxxxxxx`) pass.
+const ENV_SECRET_NAME = /secret|token|passw(?:or)?d|api[_.-]?key|access[_.-]?key|private|credential/i;
+const ENV_ASSIGNMENT = /^\s*(?:#\s*)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=(.*)$/;
+const ENV_URL_USERINFO = /\b[a-z][a-z0-9+.-]{0,30}:\/\/[^\s/:@?#]{1,200}:([^\s/@]{1,200})@/gi;
+const ENV_VENDOR_KEYS = [
+  /\b(?:sk|rk)_live_([A-Za-z0-9]{10,})/g,
+  /\bsk-([A-Za-z0-9_-]{20,})/g,
+  /\bxox[abprs]-([A-Za-z0-9-]{10,})/g,
+  /\bAIza([0-9A-Za-z_-]{35})/g,
+];
+const ENV_PLACEHOLDER_WORD = /^(?:true|false|yes|no|on|off|null|none|nil|undefined|secret|token|password|passwd|changeme|change[-_ ]?me|replace[-_ ]?me|todo|tbd)$/i;
+const ENV_PLACEHOLDER_PHRASE = /(?:^|[^a-z])(?:your|change[-_ ]?me|replace[-_ ]?me|placeholder|example|dummy|fake|redacted|insert|enter|here)(?:[^a-z]|$)/i;
+
+function envPlaceholder(value) {
+  const v = value.trim();
+  return v === ""
+    || /^[<\[{].*[>\]}]$/.test(v)
+    || /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(v)
+    || /^(.)\1*$/.test(v)
+    || /x{5,}|\*{3,}|\.{3}|\u2026/i.test(v)
+    || ENV_PLACEHOLDER_WORD.test(v)
+    || ENV_PLACEHOLDER_PHRASE.test(v);
+}
+
+function envAssignedValue(rest) {
+  const v = rest.trim();
+  const quoted = /^(["'])(.*?)\1/.exec(v);
+  return quoted ? quoted[2] : v.replace(/(?:^|\s+)#.*$/, "").trim();
+}
+
+export function envTemplateHoldsCredential(text) {
+  for (const line of text.split(/\r?\n/)) {
+    const m = ENV_ASSIGNMENT.exec(line);
+    if (!m || !ENV_SECRET_NAME.test(m[1])) continue;
+    const value = envAssignedValue(m[2]);
+    // A commented line is prose as often as it is an assignment: only a single token (no whitespace) counts there.
+    if (/^\s*#/.test(line) && /\s/.test(value)) continue;
+    if (!envPlaceholder(value)) return true;
+  }
+  for (const m of text.matchAll(ENV_URL_USERINFO)) if (!envPlaceholder(m[1])) return true;
+  for (const pattern of ENV_VENDOR_KEYS) {
+    for (const m of text.matchAll(pattern)) if (!/(.)\1{5,}/.test(m[1])) return true;
+  }
+  return false;
+}
+
 export function scanCrateForSecrets(crateDir, { envTemplates = false } = {}) {
   const violations = [];
   for (const file of walkFiles(crateDir)) {
@@ -155,6 +206,7 @@ export function scanCrateForSecrets(crateDir, { envTemplates = false } = {}) {
     const bytes = fs.readFileSync(file);
     const text = bytes.toString("utf8");
     if (SECRET_PATTERNS.some((pattern) => pattern.test(text))) violations.push(relative);
+    else if (envTemplates && ENV_TEMPLATE.test(relative) && envTemplateHoldsCredential(text)) violations.push(relative);
   }
   return [...new Set(violations)].sort();
 }
