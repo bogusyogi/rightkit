@@ -147,7 +147,7 @@ everything runs.
 - **Root suites.** `ownership-approval`, `characterization`, `infrastructure`, `swift/contracts`
   and `scripts` run when their directory changed.
 
-Not covered yet: `desktop-app-template`, `swift/ios-app-template`, `spikes`.
+Not covered yet: `swift/ios-app-template`, `spikes`. `desktop-app-template` is no fixture any more (rightkit#906): it is its own locked Cargo workspace with its own `deny.toml` and `.cargo/audit.toml`, which `rightkit-gate` discovers and scans like an app; this runner-side gate does not build it.
 
 ## Sharded CI
 

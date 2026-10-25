@@ -8,12 +8,12 @@
 //   - sealed ownership evidence that still matches the committed source;
 //   - an explicit distribution.provider of github-releases and a distribution.repository, with any --repo
 //     argument required to equal it (the origin remote is never consulted).
-// Order matters: the release config is a module that runs on import, so it is loaded only after the tree is
-// proven clean and the sealed commit equals HEAD.
+// Order matters: a legacy release config is a module that runs on import (a JSON config is data), so the config is
+// loaded only after the tree is proven clean and the sealed commit equals HEAD.
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { verifyOwnershipEvidence } from "./ownership-evidence.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { verifySealedRelease } from "./release-state.mjs";
@@ -48,9 +48,9 @@ export async function authorizeGitHubUpload({
   tier,
   releaseId,
   platform,
-  configName = "right-release.config.mjs",
-  repo = "",
   cwd = process.cwd(),
+  configName = defaultReleaseConfigFile(cwd),
+  repo = "",
 }) {
   assertUploadTier(tier);
   if (!releaseId) throw new Error("--release is required");
@@ -69,7 +69,7 @@ export async function authorizeGitHubUpload({
 
   const configPath = path.resolve(cwd, configName);
   if (!existsSync(configPath)) throw new Error(`release config is required: ${configName}`);
-  const releaseConfig = (await import(`${pathToFileURL(configPath).href}?upload=${Date.now()}`)).default;
+  const releaseConfig = await importReleaseConfig(configPath, { query: `upload=${Date.now()}` });
   const ownership = verifyOwnershipEvidence(sealed.manifest.ownershipEvidence, repoRoot, path.dirname(configPath));
   if (!ownership.ok) throw new Error(`sealed ownership evidence rejected: ${ownership.reason}`);
   const configuredRepo = resolveGitHubDistribution(releaseConfig, repo);

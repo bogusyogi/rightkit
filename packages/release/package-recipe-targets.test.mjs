@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { assertNoForbiddenBuildFeatures, buildFeatureIssues } from "./qa-build-features.mjs";
@@ -8,6 +9,7 @@ import { expandMacPackageTarget, expandPackageRecipeTarget, expandWinPackageTarg
 import { parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { packageCommandOptional } from "./project-type.mjs";
 import { swiftMacDmgPlan } from "./swift-mac-dmg.mjs";
+import { tempRoot } from "./test-support/temp-roots.mjs";
 
 const appRoot = path.resolve("fixture-app");
 const NSIS = "windows-raw-exe-authenticode-before-nsis-v1";
@@ -84,6 +86,14 @@ test("targets without a recipe pass through, and recipes are refused off their p
   assert.equal(expandPackageRecipeTarget({ signed: true, recipe: { kind: "macPackage" } }, { platform: "mac", appRoot, config: {} }).recipe, undefined);
   assert.equal(packageCommandOptional({ winPackage: {} }, "tauri"), true);
   assert.equal(packageCommandOptional({}, "tauri"), false);
+});
+
+test("stage-sidecar defaults to right-release.config.json when the app directory has it, else the legacy module", () => {
+  const app = tempRoot("stage-sidecar-config-");
+  assert.equal(parseStageSidecarArgs([], app).config, "right-release.config.mjs");
+  writeFileSync(path.join(app, "right-release.config.json"), JSON.stringify({ schema: 1, app: "demo" }));
+  assert.equal(parseStageSidecarArgs([], app).config, "right-release.config.json");
+  assert.equal(parseStageSidecarArgs(["--config", "other.mjs"], app).config, "other.mjs");
 });
 
 test("stage-sidecar CLI arguments", () => {

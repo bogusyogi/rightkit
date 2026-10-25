@@ -319,22 +319,51 @@
       "pkId": "PK24",
       "id": "ci/consumers/npm/release/consumer.mjs",
       "recipeId": "release-cli-version-smoke-consumer",
-      "scenarios": 3,
-      "surface": [],
-      "bin": {
-        "right-release": "cli/right-release.mjs",
-        "rightkit-gate": "bin/rightkit-gate.mjs"
-      },
+      "scenarios": 5,
+      "surface": [
+        "./bin/rightkit-gate.mjs",
+        "./cargo-contract.mjs",
+        "./cargo-target.mjs",
+        "./cli/right-release.mjs",
+        "./development.mjs",
+        "./direct-bootstrap.mjs",
+        "./disk-policy.mjs",
+        "./dmg-build.mjs",
+        "./engine-locator.mjs",
+        "./github-release.mjs",
+        "./legal-contract.mjs",
+        "./macos-file-evidence.mjs",
+        "./macos-notarization.mjs",
+        "./macos-signing-identity.mjs",
+        "./macos-signing-session.mjs",
+        "./managed-cargo.mjs",
+        "./native-release-finalization.mjs",
+        "./notary-auth.mjs",
+        "./package.json",
+        "./packaged-app-identity.mjs",
+        "./pe-content.mjs",
+        "./publication-gate.mjs",
+        "./qa-build-features.mjs",
+        "./release-dependencies.mjs",
+        "./sign-windows.mjs",
+        "./signing-agent-client.mjs",
+        "./stage-binary.mjs",
+        "./stage-sidecar.mjs",
+        "./supply-chain-evidence.mjs",
+        "./tauri-bundle-marker.mjs"
+      ],
       "closure": {
         "install": {
+          "@rightkit/ci": "0.2.49",
+          "@rightkit/outdated": "0.2.0",
           "smol-toml": "1.9.1"
         },
         "declaredOnly": []
       },
       "files": {
-        "ci/consumers/npm/release/README.md": "227287d33bc244d26cc037577febcd801bcce225f41f7804cef667a89de0eda9",
-        "ci/consumers/npm/release/consumer.mjs": "ab8a2db2674d2012c3d4e1f9c76157d525c60abc434e03d3830e5ad9dd935372",
-        "ci/consumers/npm/release/package.json": "af01377a06862e873b9ea78b367049a15111c32a393153ae9272281c14d6cadd",
+        "ci/consumers/npm/release/README.md": "e804e8d3e234141d2d6c55475fdd417022d09bd8e7d8b9f1426da046a271a014",
+        "ci/consumers/npm/release/consumer.mjs": "8cc59531bbc001dde122d97973689b4ecfdf12136bc2ea185a66177b9e7684f7",
+        "ci/consumers/npm/release/package.json": "1b7c05b64845ef27d63390b7d2ea5c765540dcabc5ae19631cf8c82e92d9491d",
         "ci/consumers/npm/release/provenance.mjs": "914e28c39f87c94fb8cc8fbcaf4d975791ec968efa065ac221621f5d2427516d",
         "scripts/ci/npm-recipe-consumer.mjs": "b25fa257186bd8c83352835305c074d9d52eac519d873fc98c361771a119c821"
       }

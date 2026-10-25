@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { CommandSpecError, loadAppConfig, relativeInside } from "./command-spec.mjs";
+import { defaultReleaseConfigFile } from "./release-config.mjs";
 import { runCargoSync } from "./managed-cargo.mjs";
 
 const fail = (message) => { throw new CommandSpecError(message); };
@@ -73,7 +74,7 @@ export function generateCargoNotices({ appRoot, config, flags = {}, check = fals
 }
 
 export function parseCargoNoticeArgs(argv) {
-  const opts = { config: "right-release.config.mjs", output: undefined, check: false };
+  const opts = { config: defaultReleaseConfigFile(), output: undefined, check: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--config" || arg === "--output") {

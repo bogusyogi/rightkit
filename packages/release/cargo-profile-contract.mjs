@@ -19,6 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "smol-toml";
 import { findCargoManifests, isExcludedScanDirectory } from "./cargo-contract.mjs";
+import { defaultReleaseConfigFile, isJsonReleaseConfig } from "./release-config.mjs";
 
 export const CARGO_PROFILE_TEMPLATE = fileURLToPath(new URL("./templates/cargo-profiles.toml", import.meta.url));
 export const RETIRED_PROFILE = "release-iterate";
@@ -74,28 +75,40 @@ export function checkManifestProfiles(manifest, template, file) {
 // Non-shipping workspaces: fixed prefixes plus the app's declared `cargoProfileExempt` directories.
 const NON_SHIPPING_PREFIXES = ["qa", "benchmarks"];
 const CARGO_PROFILE_EXEMPT_KEY = "cargoProfileExempt";
-const RELEASE_CONFIG = "right-release.config.mjs";
 const STRING_LITERAL = /"([^"\\\n]*)"|'([^'\\\n]*)'/g;
 
-// release.mjs imports the app's release config as an ES module. This scanner is synchronous and has only the
-// app root, so it reads the literal `cargoProfileExempt` array from the same file: every entry must be a plain
-// string literal naming a directory inside the app. Anything else is a finding, never silently ignored.
+// This scanner is synchronous and has only the app root, so it reads `cargoProfileExempt` from the release config file itself and
+// never imports it. A JSON config (the one `defaultReleaseConfigFile` picks when it exists) is parsed as data: the array must hold
+// plain strings. A legacy `.mjs` config, which release.mjs still imports as an ES module, is read as text: the literal array must
+// hold plain string literals. Either way every entry names a directory inside the app, and anything else is a finding, never
+// silently ignored. M24 command admission is not run here: this is a pure file reader.
 export function readCargoProfileExempt(root) {
-  const file = path.join(root, RELEASE_CONFIG);
+  const configFile = defaultReleaseConfigFile(root);
+  const file = path.join(root, configFile);
   const findings = [];
   if (!existsSync(file)) return { paths: [], findings };
-  const match = new RegExp(`\\b${CARGO_PROFILE_EXEMPT_KEY}\\s*:\\s*\\[([^\\]]*)\\]`).exec(readFileSync(file, "utf8"));
-  if (!match) return { paths: [], findings };
-  const body = match[1];
-  if (body.replace(STRING_LITERAL, "").replace(/[,\s]/g, "") !== "") {
-    findings.push({ rule: "invalid-exempt", file: RELEASE_CONFIG, message: `${CARGO_PROFILE_EXEMPT_KEY} must be an array of string literals` });
+  let entries;
+  if (isJsonReleaseConfig(configFile)) {
+    let declared;
+    try { declared = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""))?.[CARGO_PROFILE_EXEMPT_KEY]; }
+    catch (error) { return { paths: [], findings: [{ rule: "invalid-exempt", file: configFile, message: `is not valid JSON, so ${CARGO_PROFILE_EXEMPT_KEY} cannot be read: ${error.message}` }] }; }
+    if (declared === undefined) return { paths: [], findings };
+    if (!Array.isArray(declared) || declared.some((entry) => typeof entry !== "string")) findings.push({ rule: "invalid-exempt", file: configFile, message: `${CARGO_PROFILE_EXEMPT_KEY} must be an array of strings` });
+    entries = Array.isArray(declared) ? declared.filter((entry) => typeof entry === "string") : [];
+  } else {
+    const match = new RegExp(`\\b${CARGO_PROFILE_EXEMPT_KEY}\\s*:\\s*\\[([^\\]]*)\\]`).exec(readFileSync(file, "utf8"));
+    if (!match) return { paths: [], findings };
+    const body = match[1];
+    if (body.replace(STRING_LITERAL, "").replace(/[,\s]/g, "") !== "") {
+      findings.push({ rule: "invalid-exempt", file: configFile, message: `${CARGO_PROFILE_EXEMPT_KEY} must be an array of string literals` });
+    }
+    entries = [...body.matchAll(STRING_LITERAL)].map(([, double, single]) => double ?? single);
   }
   const paths = [];
-  for (const [, double, single] of body.matchAll(STRING_LITERAL)) {
-    const entry = double ?? single;
+  for (const entry of entries) {
     const normalized = path.posix.normalize(entry.replace(/\\/g, "/")).replace(/\/+$/, "");
     if (normalized === "." || normalized === "" || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
-      findings.push({ rule: "invalid-exempt", file: RELEASE_CONFIG, message: `${CARGO_PROFILE_EXEMPT_KEY} entry ${JSON.stringify(entry)} must be a relative directory inside the app` });
+      findings.push({ rule: "invalid-exempt", file: configFile, message: `${CARGO_PROFILE_EXEMPT_KEY} entry ${JSON.stringify(entry)} must be a relative directory inside the app` });
     } else paths.push(normalized);
   }
   return { paths, findings };

@@ -3,7 +3,8 @@ import { spawnSync } from "./background-process.mjs";
 import { createHash } from "node:crypto";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, lstatSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { assertPrimaryReleaseCheckout } from "./release-invocation.mjs";
 import { assertReleaseExecutionAllowed } from "./execution-policy.mjs";
 import { acquireManagedRunLease, managedRuntimeClient, managedRuntimeCommand, runCargoSync } from "./managed-cargo.mjs";
@@ -348,9 +349,9 @@ function resolveJavaScriptEntrypoint(candidate) {
 function git(cwd, args) { const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true }); if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed`); return result.stdout.trim(); }
 function inside(root, child) { const rel = path.relative(path.resolve(root), path.resolve(child)); return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)); }
 export async function main(args = process.argv.slice(2)) {
-  let platform, configPath = "right-release.config.mjs", dryRun = false, buildOnly = false, serial;
+  let platform, configPath = defaultReleaseConfigFile(), dryRun = false, buildOnly = false, serial;
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|android|ios [--config right-release.config.mjs] [--dry-run] [--build-only] [--serial <adb serial | iOS device id>]"); return; }
+    if (args[i] === "-h" || args[i] === "--help") { console.log("usage: right-release dev --platform win|mac|android|ios [--config right-release.config.json] [--dry-run] [--build-only] [--serial <adb serial | iOS device id>]"); return; }
     if (args[i] === "--platform") platform = args[++i];
     else if (args[i] === "--config") configPath = args[++i];
     else if (args[i] === "--dry-run") dryRun = true;
@@ -366,8 +367,7 @@ export async function main(args = process.argv.slice(2)) {
   delete process.env.CARGO_INCREMENTAL;
   const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path");
   if (pathKey) process.env[pathKey] = safeEnv[pathKey] ?? process.env[pathKey];
-  const loaded = await import(pathToFileURL(absoluteConfig));
-  const config = loaded.default ?? loaded.config ?? loaded;
+  const config = await importReleaseConfig(absoluteConfig, { lenient: true });
   const result = await runDevelopment({ root: path.dirname(absoluteConfig), platform, config, dryRun, buildOnly, serial });
   if (dryRun) console.log(JSON.stringify(result.plan, null, 2));
   return result;

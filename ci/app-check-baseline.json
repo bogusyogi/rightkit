@@ -6,9 +6,7 @@
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macos",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:macosx",
       "qa-platform|crates/rightkit-qa/src/scenario.rs|platform:typo",
-      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__",
-      "suite-updater-key|desktop-app-template/src-tauri/tauri.conf.json|plugins.updater.pubkey",
-      "switches-inventory|desktop-app-template/right-release.config.mjs|desktop-app-template"
+      "qa-platform|crates/rightkit-qa/tests/strict_suite.rs|platform:__OTHER__"
     ],
     "coderight": [
       "engine-record-store|engine/bins/coderight/src/license.rs|from_record_store",

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { existsSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -10,6 +10,10 @@ import {
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
 } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
+import * as scansModule from "./deterministic-scans.mjs";
+
+// Read off the module so a test of a function that does not exist yet fails on its own, not with an import error for the whole file.
+const { scriptBrokerCall } = scansModule;
 
 const CONTENT = path.join(path.sep, "c", "rustright");
 const LIVE = path.join(path.sep, "l", "rustright");
@@ -212,6 +216,76 @@ test("internal checks: JSON, changelog heading, license, ownership catalog and s
   assert.match(by("license").detail, /packages\/q\/package\.json/);
   assert.equal(by("ownership-catalog").status, "fail");
   assert.match(by("secret-scan").detail, /\.env/);
+});
+
+test("license: a crate that can never be published needs no license key; the secret scan runs in the repository-gate mode", async () => {
+  const crate = (name, tail) => ({ [`crates/${name}/Cargo.toml`]: `[package]\nname = "${name}"\nversion = "1.0.0"\n${tail}`, [`crates/${name}/src/lib.rs`]: "" });
+  const files = {
+    ...crate("nopub", "publish = false\n"),
+    ...crate("emptypub", "publish = [ ]\n"),
+    ...crate("metapub", "\n[package.metadata.x]\npublish = false\n"),
+    ...crate("binpub", "\n[[bin]]\nname = \"b\"\npublish = false\n"),
+    ...crate("arraymetapub", "\n[[package.metadata.x]]\npublish = false\n"),
+    ...crate("pkgthenbin", "publish = false\n[[bin]]\nname = \"b\"\n"),
+    ...crate("truepub", "publish = true\n"),
+  };
+  const fs = fakeFs(files, files);
+  const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+  const options = [];
+  const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"], scanSecrets: async () => (dir, opts) => { options.push(opts); return []; } });
+  const license = result.scans.find((s) => s.id === "license");
+  assert.match(license.detail, /crates\/metapub\/Cargo\.toml/, "publish = false outside [package] does not exempt");
+  assert.match(license.detail, /crates\/binpub\/Cargo\.toml/, "publish = false under [[bin]] does not exempt");
+  assert.match(license.detail, /crates\/arraymetapub\/Cargo\.toml/, "publish = false under [[package.metadata.x]] does not exempt");
+  assert.doesNotMatch(license.detail, /pkgthenbin/, "publish = false in [package] before a [[bin]] still exempts");
+  assert.match(license.detail, /crates\/truepub\/Cargo\.toml/);
+  assert.doesNotMatch(license.detail, /nopub|emptypub/);
+  assert.ok(options.length > 0 && options.every((o) => o?.envTemplates === true && o.repoRoot === CONTENT), "the repository scan runs in the repository-gate mode, against the gated commit's records");
+});
+
+test("secret-scan: a violation found through two overlapping units is reported once, as the scanner names it", async () => {
+  const files = {
+    "crates/foo/Cargo.toml": '[package]\nname = "foo"\nversion = "1.0.0"\nlicense = "MIT"\n', "crates/foo/src/lib.rs": "",
+    "packages/foo/package.json": '{"name":"foo","private":true}',
+  };
+  const fs = fakeFs(files, files);
+  const plan = planScans({ changed: Object.keys(files), contentRoot: CONTENT, liveRoot: LIVE, ...fs, platform: "linux", includeTests: false });
+  const dirs = [];
+  const scanSecrets = async () => (dir, opts) => { dirs.push(dir); return [".env.example: env template (sha256 abc) is not recorded", "docs/vec.md:3: content matches a GitHub token (gh*_) (line 3)"]; };
+  const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"], scanSecrets });
+  const secret = result.scans.find((s) => s.id === "secret-scan");
+  assert.equal(secret.status, "fail");
+  assert.ok(dirs.length >= 2, "both units were scanned");
+  assert.equal(secret.detail, ".env.example: env template (sha256 abc) is not recorded; docs/vec.md:3: content matches a GitHub token (gh*_) (line 3)");
+});
+
+test("secret-scan: the gate admits an env template and a fixture only by the records of the gated commit", async (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "rk-gate-secret-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
+  const template = "API_URL=http://localhost:3000\nPOSTGRES_PASSWORD=postgres\n";
+  const vector = `// fake test vector\nlet t = "${"gh" + "p_" + "A".repeat(24)}";\n`;
+  const put = (name, body) => { mkdirSync(path.dirname(path.join(root, name)), { recursive: true }); writeFileSync(path.join(root, name), body); };
+  put("package.json", '{"name":"app","private":true}');
+  put(".env.example", template);
+  put("src/redact.rs", vector);
+  const run = async () => {
+    const plan = planScans({ changed: [".env.example", "src/redact.rs"], contentRoot: root, liveRoot: root, platform: "linux", includeTests: false, npmUnits: [{ name: "app", dir: "." }] });
+    const result = await runScans(plan, { classes: ["A"], exclude: (scan) => scan.id !== "secret-scan" });
+    return result.scans.find((s) => s.id === "secret-scan");
+  };
+  const refused = await run();
+  assert.equal(refused.status, "fail");
+  assert.match(refused.detail, new RegExp(`\\.env\\.example: env template \\(sha256 ${sha(template)}\\) is not recorded in \\.rightkit/secret-scan-records\\.json; after reviewing`));
+  assert.match(refused.detail, new RegExp(`src/redact\\.rs:2: content matches a GitHub token \\(gh\\*_\\) \\(line 2\\); sha256 ${sha(vector)}`));
+  put(".rightkit/secret-scan-records.json", JSON.stringify({ schema: 1, records: [
+    { path: ".env.example", sha256: sha(template), kind: "env-template", note: "local dev defaults only" },
+    { path: "src/redact.rs", sha256: sha(vector), kind: "fixture", note: "redaction test vector, fake value" },
+  ] }));
+  const admitted = await run();
+  assert.equal(admitted.status, "pass", admitted.detail);
+  put(".env.example", `${template}EXTRA=1\n`);
+  assert.match((await run()).detail, /\.env\.example: env template changed since it was recorded/);
 });
 
 test("no local compile grant: every broker scan is deferred by name, never passed and never run outside the broker", async () => {
@@ -574,6 +648,113 @@ test("generated Rust (bindgen output or an @generated marker in the first five l
   for (const f of ["crates/foo/bindings-a.rs", "crates/foo/bindings-b.rs", "crates/foo/src/gen.rs"]) assert.ok(!checked.includes(f), `${f} is generated`);
   assert.ok(checked.includes("crates/foo/src/late.rs"), "a marker after the fifth line does not count");
   assert.ok(checked.includes("crates/foo/src/hand.rs"), "the word 'generated' alone does not count");
+});
+
+// rustfmt runs each file under the edition its crate declares; a crate that inherits it (`edition.workspace = true`) takes the owning
+// workspace root's [workspace.package] edition (Pulse core/examples/chat_vectors.rs uses let-chains, Ember has 40 such manifests).
+const rustfmtEditions = (plan) => Object.fromEntries(plan.scans.filter((s) => s.id.startsWith("rustfmt:")).map((s) => [s.id.slice("rustfmt:".length), s.args.filter((a) => a.endsWith(".rs"))]));
+const editionRefusals = (plan) => plan.scans.filter((s) => s.internal === "refuse" && /rustfmt edition/.test(s.detail));
+
+test("rustfmt edition: edition.workspace = true resolves through the owning workspace root, in both manifest spellings", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["core", "tools/*"]\n\n[workspace.package]\nversion = "1.0.0"\nedition = "2024"\n',
+    "core/Cargo.toml": '[package]\nname = "core"\nedition.workspace = true\n',
+    "core/examples/chat_vectors.rs": "fn main() { if let Some(a) = b() && a {} }\n",
+    "tools/dotted/Cargo.toml": '[package]\nname = "dotted"\nedition.workspace = true # inherited\n',
+    "tools/dotted/src/lib.rs": "pub fn d() {}\n",
+    "tools/inline/Cargo.toml": '[package]\nname = "inline"\nedition = { workspace = true }\n',
+    "tools/inline/src/lib.rs": "pub fn i() {}\n",
+    "tools/literal/Cargo.toml": '[package]\nname = "literal"\nedition = "2018"\n',
+    "tools/literal/src/lib.rs": "pub fn l() {}\n",
+  };
+  const { plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), {
+    2018: ["tools/literal/src/lib.rs"],
+    2024: ["core/examples/chat_vectors.rs", "tools/dotted/src/lib.rs", "tools/inline/src/lib.rs"],
+  }, "inherited editions are the workspace's, a literal edition is the crate's own");
+  assert.deepEqual(editionRefusals(plan), []);
+});
+
+test("rustfmt edition: the nearest workspace root owns the crate, and a root package that is its own workspace inherits from itself", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["a"]\n[workspace.package]\nedition = "2024"\n',
+    "apps/inner/Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nedition = "2021"\n',
+    "apps/inner/crates/m/Cargo.toml": '[package]\nname = "m"\nedition.workspace = true\n',
+    "apps/inner/crates/m/src/lib.rs": "pub fn m() {}\n",
+    "solo/Cargo.toml": '[package]\nname = "solo"\nedition.workspace = true\n[workspace]\n[workspace.package]\nedition = "2018"\n',
+    "solo/src/lib.rs": "pub fn s() {}\n",
+    // A key under another table is not the package's edition, and a [package.metadata] edition does not hide the inheritance.
+    "meta/Cargo.toml": '[package]\nname = "meta"\nedition.workspace = true\n[package.metadata.docs]\nedition = "2015"\n[dependencies.x]\nedition = "2015"\n',
+    "meta/src/lib.rs": "pub fn t() {}\n",
+  };
+  const { plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), { 2018: ["solo/src/lib.rs"], 2021: ["apps/inner/crates/m/src/lib.rs"], 2024: ["meta/src/lib.rs"] });
+});
+
+test("rustfmt edition: an inheritance that cannot be followed fails the gate with a finding and is never rustfmt-checked under 2021", async () => {
+  const files = {
+    // No workspace anywhere above the crate.
+    "lone/Cargo.toml": '[package]\nname = "lone"\nedition.workspace = true\n',
+    "lone/src/lib.rs": "pub fn l() {}\n",
+    "lone/src/more.rs": "pub fn m() {}\n",
+    // A workspace root that declares no [workspace.package] edition, and one whose edition is not a literal year.
+    "ws/Cargo.toml": '[workspace]\nmembers = ["noedition"]\n[workspace.package]\nversion = "1.0.0"\n',
+    "ws/noedition/Cargo.toml": '[package]\nname = "noedition"\nedition = { workspace = true }\n',
+    "ws/noedition/src/lib.rs": "pub fn n() {}\n",
+    "ok/Cargo.toml": '[package]\nname = "ok"\nedition = "2021"\n',
+    "ok/src/lib.rs": "pub fn o() {}\n",
+  };
+  const { fs, plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), { 2021: ["ok/src/lib.rs"] }, "the unresolvable crates' files are not checked under a guessed edition");
+  const refusals = editionRefusals(plan);
+  assert.equal(refusals.length, 2, "one finding per manifest, not per file");
+  assert.ok(refusals.every((r) => r.class === "A" && r.id.startsWith("path-policy:")));
+  assert.match(refusals.map((r) => r.detail).join("\n"), /rustfmt edition of lone\/Cargo\.toml: lone\/Cargo\.toml sets edition\.workspace = true, but no Cargo\.toml at or above it declares a \[workspace\]/);
+  assert.match(refusals.map((r) => r.detail).join("\n"), /rustfmt edition of ws\/noedition\/Cargo\.toml: .*workspace root ws\/Cargo\.toml declares no literal \[workspace\.package\] edition/);
+  const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"] });
+  assert.equal(result.ok, false, "the gate fails on an edition it cannot resolve");
+  const failed = scanFailures(result).join("\n");
+  assert.match(failed, /lone\/Cargo\.toml/);
+  assert.match(failed, /ws\/Cargo\.toml/);
+});
+
+test("rustfmt edition: an edition entry in a spelling the scan does not recognise is a finding, never a skipped line", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\n[workspace.package]\nedition = 2024\n',
+    "num/Cargo.toml": '[package]\nname = "num"\nedition = 2021\n',
+    "num/src/lib.rs": "pub fn n() {}\n",
+    "inherit/Cargo.toml": '[package]\nname = "inherit"\nedition.workspace = true\n',
+    "inherit/src/lib.rs": "pub fn i() {}\n",
+    "quoted/Cargo.toml": '[package]\nname = "quoted"\n"edition" = "2018"\n',
+    "quoted/src/lib.rs": "pub fn q() {}\n",
+    "off/Cargo.toml": '[package]\nname = "off"\nedition.workspace = false\n',
+    "off/src/lib.rs": "pub fn o() {}\n",
+  };
+  const { plan } = planFor(Object.keys(files).filter((f) => f.endsWith(".rs")), files);
+  assert.deepEqual(rustfmtEditions(plan), { 2018: ["quoted/src/lib.rs"] }, "a quoted key is the same key");
+  const details = editionRefusals(plan).map((r) => r.detail).join("\n");
+  assert.match(details, /rustfmt edition of num\/Cargo\.toml: num\/Cargo\.toml has an edition entry the scan cannot read \(edition = 2021\)/);
+  assert.match(details, /rustfmt edition of off\/Cargo\.toml: off\/Cargo\.toml has an edition entry the scan cannot read \(edition\.workspace = false\)/);
+  assert.match(details, /rustfmt edition of inherit\/Cargo\.toml: inherit\/Cargo\.toml sets edition\.workspace = true, but its workspace root Cargo\.toml has a \[workspace\.package\] edition entry the scan cannot read \(edition = 2024\)/);
+  assert.equal(editionRefusals(plan).length, 3);
+});
+
+test("rustfmt edition: an unreadable manifest in the chain is a finding, not a default", () => {
+  const files = {
+    "Cargo.toml": '[workspace]\n[workspace.package]\nedition = "2024"\n',
+    "a/Cargo.toml": '[package]\nname = "a"\nedition.workspace = true\n',
+    "a/src/lib.rs": "pub fn a() {}\n",
+    "b/Cargo.toml": '[package]\nname = "b"\nedition = "2021"\n',
+    "b/src/lib.rs": "pub fn b() {}\n",
+  };
+  const base = fakeFs(files, files);
+  const unreadable = (target) => ({ ...base, readFile: (p) => { if (norm(p) === norm(path.join(CONTENT, target))) throw new Error("EACCES: permission denied"); return base.readFile(p); } });
+  const member = planScans({ changed: ["a/src/lib.rs"], contentRoot: CONTENT, liveRoot: LIVE, ...unreadable("a/Cargo.toml"), platform: "linux" });
+  assert.deepEqual(rustfmtEditions(member), {});
+  assert.match(editionRefusals(member)[0].detail, /a\/Cargo\.toml cannot be read \(EACCES/);
+  const root = planScans({ changed: ["a/src/lib.rs", "b/src/lib.rs"], contentRoot: CONTENT, liveRoot: LIVE, ...unreadable("Cargo.toml"), platform: "linux" });
+  assert.deepEqual(rustfmtEditions(root), { 2021: ["b/src/lib.rs"] });
+  assert.match(editionRefusals(root)[0].detail, /sets edition\.workspace = true, but Cargo\.toml cannot be read \(EACCES/);
 });
 
 test("a crate with no default-feature clippy set keeps its default check", () => {
@@ -1211,4 +1392,199 @@ test("suite-api: planned only when a contract input changes; the checked-in proj
   const badSwift = swiftDrift.scans.find((s) => s.id === "suite-api");
   assert.equal(badSwift.status, "fail");
   assert.match(badSwift.detail, /RightSuiteAPI\.generated\.swift/);
+});
+
+// ---- gate false positives found by full-gate dry runs on real app branches (0.6.6) ----------------------------------------------------------
+// FP1 the linter an app has is the one it configures; FP2 an npm test script that runs the broker is marked; FP3 several independent pnpm roots.
+
+const appManifest = '{"name":"app","license":"MIT","scripts":{"test":"x"}}';
+const lintPlan = (files, units = [{ name: "app", dir: "." }]) => planFor(["src/a.ts"], { "package.json": appManifest, "src/a.ts": "", ...files }, { rustUnits: [], npmUnits: units }).plan;
+
+test("lint: a Biome-only app is planned biome, never eslint (ViewRight and ScrapeRight have biome.json and no ESLint config)", () => {
+  for (const config of ["biome.json", "biome.jsonc"]) {
+    const p = lintPlan({ [config]: "{}" });
+    const biome = scanOf(p, "biome:app");
+    assert.ok(biome, `${config}: ${ids(p).join(" ")}`);
+    assert.deepEqual([biome.tool, biome.args, biome.cwd, biome.class], ["pnpm", ["exec", "biome", "lint", "."], ".", "B"]);
+    assert.equal(biome.command, "pnpm exec biome lint .");
+    assert.equal(scanClassOf("biome:app"), "B");
+    assert.ok(!ids(p).includes("eslint:app"), `${config}: a Biome app has no ESLint config, so eslint . would fail with "couldn't find an eslint.config": ${ids(p).join(" ")}`);
+  }
+});
+
+test("lint: eslint is planned for any ESLint config (flat or legacy) and never biome; both configs plan both; neither plans neither", () => {
+  for (const config of ["eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts", "eslint.config.mts", "eslint.config.cts",
+    ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml", ".eslintrc.yml"]) {
+    const p = lintPlan({ [config]: "" });
+    assert.ok(ids(p).includes("eslint:app"), config);
+    assert.ok(!ids(p).includes("biome:app"), `${config} is no Biome config`);
+  }
+  assert.deepEqual(scanOf(lintPlan({ "eslint.config.mjs": "" }), "eslint:app").args, ["exec", "eslint", "."]);
+  const both = lintPlan({ "eslint.config.mjs": "", "biome.json": "{}" });
+  assert.ok(ids(both).includes("eslint:app") && ids(both).includes("biome:app"), "both tools configured: both run");
+  const neither = lintPlan({});
+  assert.ok(!ids(neither).some((i) => /^(eslint|biome):/.test(i)), "no linter config: no lint scan");
+  assert.ok(ids(neither).includes("test:npm:app"), "the other npm scans are unaffected");
+});
+
+test("lint: a config is found in the unit's directory or any ancestor, and only there", () => {
+  const units = [{ name: "web", dir: "apps/web" }, { name: "docs", dir: "apps/docs" }, { name: "tool", dir: "tools/t" }];
+  const files = {
+    "apps/web/package.json": appManifest, "apps/docs/package.json": appManifest, "tools/t/package.json": appManifest,
+    "apps/web/biome.json": "{}", "apps/eslint.config.js": "",
+  };
+  const p = planFor(["apps/web/package.json", "apps/docs/package.json", "tools/t/package.json"], files, { rustUnits: [], npmUnits: units }).plan;
+  assert.deepEqual(ids(p).filter((i) => /^(eslint|biome):/.test(i)).sort(), ["biome:web", "eslint:docs", "eslint:web"], "web: its own Biome and the apps/ ESLint config; docs: the apps/ ESLint config; tools/t: nothing");
+  const root = planFor(["apps/web/package.json", "tools/t/package.json"], { ...files, "biome.json": "{}" }, { rustUnits: [], npmUnits: units }).plan;
+  assert.deepEqual(ids(root).filter((i) => /^biome:/.test(i)).sort(), ["biome:tool", "biome:web"], "a repository-level config covers every unit");
+});
+
+// ---- FP2: the package script chain that runs the broker -------------------------------------------------------------------------------------------
+
+test("scriptBrokerCall: follows pnpm <script>, pnpm run <script>, npm run and yarn through the same package.json to a rustright or cargo call", () => {
+  // ViewRight: test:e2e is the broker call; test:edge is plain vitest.
+  assert.deepEqual(scriptBrokerCall({ test: "pnpm test:edge && pnpm test:e2e", "test:edge": "vitest run", "test:e2e": "rustright storage run --app viewright -- right-release test" }),
+    { tool: "rustright", via: ["test", "test:e2e"], command: "rustright storage run --app viewright -- right-release test" });
+  // PostRight: test:rust is two broker commands.
+  const post = scriptBrokerCall({ test: "pnpm run test:rust && pnpm run test:e2e", "test:rust": "rustright cargo build -p postright-engine && rustright cargo test --workspace", "test:e2e": "rustright storage run -- x" });
+  assert.deepEqual([post.tool, post.via, post.command], ["rustright", ["test", "test:rust"], "rustright cargo build -p postright-engine"]);
+  assert.equal(scriptBrokerCall({ test: "cargo test --workspace" }).tool, "cargo", "plain cargo is the unmanaged toolchain on such a host");
+  assert.equal(scriptBrokerCall({ test: "npm run unit && npm run e2e", unit: "vitest", e2e: "rustright cargo test" }).via.join(">"), "test>e2e");
+  assert.equal(scriptBrokerCall({ test: "yarn e2e", e2e: "rustright x" }).via.join(">"), "test>e2e");
+  assert.equal(scriptBrokerCall({ test: "yarn run e2e", e2e: "rustright x" }).via.join(">"), "test>e2e");
+  assert.equal(scriptBrokerCall({ test: "pnpm -s run e2e", e2e: "rustright x" }).via.join(">"), "test>e2e", "options before the subcommand");
+  assert.equal(scriptBrokerCall({ test: "pnpm run --if-present e2e", e2e: "rustright x" }).via.join(">"), "test>e2e", "options after run");
+  assert.equal(scriptBrokerCall({ test: "pnpm --dir . run e2e", e2e: "rustright x" }).via.join(">"), "test>e2e", "--dir . is this package");
+  assert.equal(scriptBrokerCall({ test: "pnpm --dir=. e2e", e2e: "rustright x" }).via.join(">"), "test>e2e");
+  assert.equal(scriptBrokerCall({ test: "pnpm --reporter silent e2e", e2e: "rustright x" }).via.join(">"), "test>e2e", "an option value is not the subcommand");
+});
+
+test("scriptBrokerCall: sees the tool through env words, wrappers, pipes, subshells and the pre/post hooks of each script", () => {
+  for (const test_ of ["FOO=1 rustright cargo test", "cross-env CI=1 rustright cargo test", "pnpm exec rustright cargo test", "npx rustright cargo test", "env -i X=1 cargo test",
+    "vitest run; rustright cargo test", "vitest run | cargo test", "(cd x && cargo test)", "vitest || rustright x", "time cargo test", "C:\\tools\\rustright.exe cargo test"]) {
+    assert.ok(scriptBrokerCall({ test: test_ }), test_);
+  }
+  assert.deepEqual(scriptBrokerCall({ test: "vitest run", pretest: "rustright cargo build" }).via, ["pretest"], "pretest runs before test");
+  assert.deepEqual(scriptBrokerCall({ test: "vitest run", posttest: "cargo clean" }).via, ["posttest"], "posttest runs after it");
+  assert.deepEqual(scriptBrokerCall({ test: "pnpm run a", a: "x", posta: "cargo test" }).via, ["test", "posta"], "the hooks of a followed script");
+});
+
+test("scriptBrokerCall: no call where the tool is only an argument, quoted, in a file or in another package; scripts that are not strings are ignored", () => {
+  for (const scripts of [
+    { test: "vitest run" },
+    { test: "pnpm test:edge && pnpm build", "test:edge": "vitest run", build: "vite build" },
+    { test: "echo rustright cargo" }, { test: 'echo "ok && rustright x"' }, { test: "node scripts/rustright.mjs" }, { test: "sh scripts/test.sh" }, { test: "rustrighter x" },
+    { test: "pnpm run missing" }, { test: "pnpm --filter other test", other: "x" }, { test: "pnpm -r run e2e", e2e: "rustright x" }, { test: "pnpm --dir ../x run e2e", e2e: "rustright x" },
+    { test: "pnpm --workspace-root run e2e", e2e: "rustright x" }, { test: "npm run -w pkg e2e", e2e: "rustright x" }, { test: "pnpm install --frozen-lockfile" },
+    { test: 3 }, { test: ["cargo test"] }, { test: null }, {},
+  ]) assert.equal(scriptBrokerCall(scripts), null, JSON.stringify(scripts));
+  for (const bad of [null, undefined, "cargo test", ["cargo test"], 3]) assert.equal(scriptBrokerCall(bad), null);
+  assert.equal(scriptBrokerCall({ test: "x".repeat(200000) }), null, "a huge script is bounded, not a hang");
+  assert.equal(scriptBrokerCall({ build: "cargo build" }, "build").tool, "cargo", "any entry script");
+});
+
+test("scriptBrokerCall: bounded in depth and safe against cycles", () => {
+  assert.equal(scriptBrokerCall({ test: "pnpm run a", a: "pnpm run test" }), null, "a cycle ends");
+  assert.equal(scriptBrokerCall({ test: "pnpm run test" }), null, "a script that runs itself ends");
+  assert.equal(scriptBrokerCall({ test: "pnpm run a && pnpm run b", a: "pnpm run c", b: "pnpm run c", c: "vitest" }), null, "a diamond is visited once");
+  const chain = (length, last) => Object.fromEntries(Array.from({ length }, (_, i) => [i === 0 ? "test" : `s${i}`, i === length - 1 ? last : `pnpm run s${i + 1}`]));
+  assert.ok(scriptBrokerCall(chain(8, "cargo test")), "eight scripts deep is followed");
+  assert.equal(scriptBrokerCall(chain(12, "cargo test")), null, "twelve deep is past the default bound of 8");
+  assert.ok(scriptBrokerCall(chain(12, "cargo test"), "test", { maxDepth: 20 }), "the bound is a parameter");
+});
+
+test("test:npm scans carry brokerCall when the test script chain runs the broker, and the plan's commands and digest do not change", () => {
+  const viewright = { name: "viewright", license: "MIT", scripts: { test: "pnpm test:edge && pnpm test:e2e", "test:edge": "vitest run", "test:e2e": "rustright storage run --app viewright -- right-release test" } };
+  const plain = { name: "viewright", license: "MIT", scripts: { test: "vitest run" } };
+  const planOf = (manifestJson) => planFor(["package.json"], { "package.json": JSON.stringify(manifestJson) }, { rustUnits: [], npmUnits: [{ name: "viewright", dir: "." }] }).plan;
+  const marked = scanOf(planOf(viewright), "test:npm:viewright");
+  assert.deepEqual(marked.brokerCall, { tool: "rustright", via: ["test", "test:e2e"], command: "rustright storage run --app viewright -- right-release test" });
+  assert.equal(scanOf(planOf(plain), "test:npm:viewright").brokerCall, undefined);
+  assert.equal(planOf(viewright).scanSetDigest, planOf(plain).scanSetDigest, "the marker is not part of the scan set digest");
+  assert.deepEqual(marked.args, ["--dir", ".", "run", "test"]);
+  assert.equal(marked.tool, "pnpm", "the scan itself still runs pnpm; only the gate's deferral reads the marker");
+});
+
+// ---- FP3: several independent pnpm roots -----------------------------------------------------------------------------------------------------------
+
+const rootsFiles = {
+  "apps/a/package.json": '{"name":"a","license":"MIT","scripts":{"test":"x"}}', "apps/a/pnpm-lock.yaml": "", "apps/a/tsconfig.json": "{}", "apps/a/src/x.ts": "",
+  "apps/b/package.json": '{"name":"b","license":"MIT","scripts":{"test":"x"}}', "apps/b/pnpm-lock.yaml": "", "apps/b/biome.json": "{}", "apps/b/src/y.ts": "",
+};
+const rootsUnits = [{ name: "apps-a", dir: "apps/a", root: "apps/a" }, { name: "apps-b", dir: "apps/b", root: "apps/b" }];
+const rootsPlan = (changed, files = rootsFiles, over = {}) => planFor(changed, files, { rustUnits: [], npmUnits: rootsUnits, npmRoots: ["apps/a", "apps/b"], ...over }).plan;
+
+test("pnpm roots: each root gets its own lockfile and audit scans in its directory, and each unit its own tsc, lint and test (CodeRight: two apps, no root package.json)", () => {
+  const p = rootsPlan(["apps/a/src/x.ts", "apps/b/pnpm-lock.yaml"]);
+  const want = ["pnpm-lockfile:apps/a", "pnpm-audit:apps/a", "pnpm-lockfile:apps/b", "pnpm-audit:apps/b", "tsc:apps-a", "test:npm:apps-a", "biome:apps-b", "test:npm:apps-b"];
+  for (const id of want) assert.ok(ids(p).includes(id), `${id} in ${ids(p).join(" ")}`);
+  assert.ok(!ids(p).includes("pnpm-lockfile") && !ids(p).includes("pnpm-audit"), "nothing is planned at the repository root, which holds no package.json (it failed with: No package.json found)");
+  for (const id of ["pnpm-lockfile", "pnpm-audit"]) {
+    for (const root of ["apps/a", "apps/b"]) {
+      const s = scanOf(p, `${id}:${root}`);
+      assert.deepEqual([s.cwd, s.root, s.class, s.tool], [root, "content", "A", "pnpm"], s.id);
+      assert.equal(scanClassOf(s.id), "A");
+    }
+  }
+  assert.deepEqual(scanOf(p, "pnpm-lockfile:apps/a").args, scanOf(planFor(["packages/p/package.json"], { "packages/p/package.json": appManifest }).plan, "pnpm-lockfile").args, "the same command as the repository-root scan");
+  assert.deepEqual(scanOf(p, "pnpm-lockfile:apps/a").env, scanOf(p, "pnpm-audit:apps/b").env, "no pnpmfile hooks and no lifecycle scripts, as at the root");
+  assert.equal(scanOf(p, "tsc:apps-a").cwd, "apps/a");
+  assert.deepEqual(scanOf(p, "test:npm:apps-b").args, ["--dir", "apps/b", "run", "test"]);
+  assert.ok(!ids(p).includes("eslint:apps-b") && !ids(p).includes("biome:apps-a"), "each unit is linted by the tool it configures");
+});
+
+test("pnpm roots: a change in one root plans that root only; a root's own install graph puts all of its units in scope", () => {
+  const onlyA = rootsPlan(["apps/a/src/x.ts"]);
+  assert.ok(ids(onlyA).includes("pnpm-lockfile:apps/a") && !ids(onlyA).some((i) => i.includes("apps/b") || i.endsWith("apps-b")), ids(onlyA).join(" "));
+  const members = { ...rootsFiles, "apps/a/packages/ui/package.json": '{"name":"ui","license":"MIT","scripts":{"test":"x"}}', "apps/a/pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n" };
+  const units = [...rootsUnits, { name: "apps-a-packages-ui", dir: "apps/a/packages/ui", root: "apps/a" }];
+  const wide = rootsPlan(["apps/a/pnpm-lock.yaml"], members, { npmUnits: units });
+  assert.ok(ids(wide).includes("test:npm:apps-a") && ids(wide).includes("test:npm:apps-a-packages-ui"), `a root lock change reaches the member: ${ids(wide).join(" ")}`);
+  assert.ok(!ids(wide).includes("test:npm:apps-b"), "another root is untouched");
+  const npmrc = rootsPlan(["apps/b/.npmrc"], { ...rootsFiles, "apps/b/.npmrc": "x=1" });
+  assert.ok(ids(npmrc).includes("test:npm:apps-b") && !ids(npmrc).includes("test:npm:apps-a"), "a root's .npmrc");
+  const stray = rootsPlan(["package.json"], { ...rootsFiles, "package.json": "{}" });
+  assert.ok(!ids(stray).some((i) => i.startsWith("pnpm-") || i.startsWith("test:npm:")), "a repository-root file belongs to no pnpm root here");
+});
+
+test("pnpm roots: the repository root keeps its unsuffixed ids beside a nested root, and a nested file does not plan the root's scans", () => {
+  const files = { ...rootsFiles, "package.json": appManifest, "pnpm-lock.yaml": "", "src/r.ts": "" };
+  const units = [{ name: "app", dir: "." }, rootsUnits[0]];
+  const opts = { npmUnits: units, npmRoots: [".", "apps/a"] };
+  const nested = rootsPlan(["apps/a/src/x.ts"], files, opts);
+  assert.ok(ids(nested).includes("pnpm-lockfile:apps/a") && !ids(nested).includes("pnpm-lockfile"), "apps/a/** belongs to the nested root only");
+  const root = rootsPlan(["src/r.ts"], files, opts);
+  assert.ok(ids(root).includes("pnpm-lockfile") && ids(root).includes("pnpm-audit") && ids(root).includes("tsc:app") === false, ids(root).join(" "));
+  assert.ok(!ids(root).some((i) => i.endsWith("apps/a") || i === "test:npm:apps-a"), "and the nested root is untouched");
+  assert.equal(scanOf(root, "pnpm-lockfile").cwd, undefined, "the repository root's scans run at the root, as before");
+  const both = rootsPlan(["src/r.ts", "apps/a/src/x.ts"], files, opts);
+  assert.ok(ids(both).includes("pnpm-lockfile") && ids(both).includes("pnpm-lockfile:apps/a"));
+});
+
+test("pnpm roots: a repository with one root plans exactly what it did - same ids, commands and digest - whether or not the roots are listed", () => {
+  const files = { "packages/p/package.json": appManifest, "packages/p/tsconfig.json": "{}", "packages/p/eslint.config.mjs": "", "package.json": appManifest };
+  const units = [{ name: "app", dir: "." }, { name: "p", dir: "packages/p" }];
+  const changed = ["packages/p/package.json", "package.json"];
+  const legacy = planFor(changed, files, { rustUnits: [], npmUnits: units }).plan;
+  const listed = planFor(changed, files, { rustUnits: [], npmUnits: units, npmRoots: ["."] }).plan;
+  const dflt = planFor(changed, files, {}).plan;
+  const view = (plan) => plan.scans.map((s) => [s.id, s.command, s.class, s.cwd ?? null]);
+  assert.deepEqual(view(listed), view(legacy));
+  assert.equal(listed.scanSetDigest, legacy.scanSetDigest);
+  assert.deepEqual(ids(legacy).filter((i) => i.startsWith("pnpm-")), ["pnpm-lockfile", "pnpm-audit"]);
+  assert.ok(ids(dflt).includes("pnpm-lockfile") && ids(dflt).includes("pnpm-audit"), "no npmRoots at all (CI, local-qualify): the root pair, as before");
+  const none = planFor(["docs/package.json"], { "docs/package.json": "{}" }, { rustUnits: [], npmUnits: [] });
+  assert.ok(ids(none.plan).includes("pnpm-lockfile"), "without a roots list, a nested package.json still plans the root pair (CI publication scans rely on it)");
+  const empty = planFor(["docs/package.json"], { "docs/package.json": "{}" }, { rustUnits: [], npmUnits: [], npmRoots: [] }).plan;
+  assert.ok(!ids(empty).some((i) => i.startsWith("pnpm-")), "an empty roots list: this repository has no pnpm root, so no pnpm scan");
+});
+
+test("pnpm roots: a root that is not a plain repository-relative directory, or a unit outside its root, is refused and never run", () => {
+  const bad = rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmRoots: ["apps/a", "../x", "/abs"] });
+  assert.equal(ids(bad).filter((i) => i.startsWith("path-policy:")).length, 2);
+  assert.ok(!bad.scans.some((s) => s.args.some((a) => a.includes(".."))));
+  const outside = rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmUnits: [{ name: "apps-a", dir: "apps/a", root: "apps/b" }], npmRoots: [] });
+  assert.ok(ids(outside).some((i) => i.startsWith("path-policy:")), "a unit whose root does not hold it");
+  assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmRoots: "apps/a" }), /npmRoots must be/);
+  assert.throws(() => rootsPlan(["apps/a/src/x.ts"], rootsFiles, { npmUnits: [{ name: "a", dir: "apps/a", root: 3 }] }), /string root/);
 });

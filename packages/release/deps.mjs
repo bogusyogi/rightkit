@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
 import { spawnSync } from "./background-process.mjs";
 import { existsSync } from "node:fs";
 import { cargoAuditWorkdirs, runCargoAudits } from "./deps-cargo.mjs";
 
 const args = process.argv.slice(2);
 const opts = {
-  config: "right-release.config.mjs",
+  config: defaultReleaseConfigFile(),
   mode: "check",
   latest: false,
 };
@@ -25,7 +25,8 @@ for (let i = 0; i < args.length; i++) {
 }
 
 const configPath = path.resolve(opts.config);
-const config = (await import(pathToFileURL(configPath))).default;
+let config;
+try { config = await importReleaseConfig(configPath); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
 if (config?.schema !== 1) fail(`unsupported config schema: ${config?.schema ?? "<missing>"} (expected 1)`);
 if (config.packageManager !== "pnpm") fail(`deps tool expects pnpm, got ${config.packageManager}`);
 
@@ -69,7 +70,7 @@ if (failures.length > 0) {
 
 function usage(code, message) {
   if (message) console.error(`right-deps: ${message}\n`);
-  console.error("usage: node deps.mjs [--config right-release.config.mjs] [--check|--audit|--update] [--latest]");
+  console.error("usage: node deps.mjs [--config right-release.config.json] [--check|--audit|--update] [--latest]");
   process.exit(code);
 }
 

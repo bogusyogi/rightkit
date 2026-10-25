@@ -1247,6 +1247,11 @@
       "reason": "an upload step failed against the service, or plumbing"
     },
     {
+      "key": "publish-update.mjs::<module>::cd871fc4",
+      "class": "runtime-only",
+      "reason": "decided by the invocation (the config path), which the doctor and the build load with the same statement first"
+    },
+    {
       "key": "sign-updater.mjs::runSignUpdater::ecb9ace3",
       "class": "runtime-only",
       "reason": "command-line usage of this entry point; not a property of the app's files or the host"

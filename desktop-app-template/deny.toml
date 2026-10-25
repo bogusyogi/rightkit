@@ -1,0 +1,57 @@
+# cargo-deny policy for this app's Cargo workspace (rightkit-gate runs `cargo deny check` here, and a person can run it by hand).
+# Without this file the allow-list is empty and every licence fails, MIT included. The licence list is the RightKit root policy
+# (deny.toml in the RightKit repository); keep the two in step when RightKit widens it.
+
+[graph]
+all-features = true
+
+[advisories]
+# Every ignore below mirrors an entry in RightKit's ci/advisory-exceptions.json (owner, evidence, reviewBy) and is mirrored in
+# .cargo/audit.toml. Drop an entry when the dependency that causes it moves on; never add one without recording why the
+# advisory does not apply to this app. cargo-deny reports an ignore that no longer matches as a warning, which is the cue to remove it.
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+unmaintained = "workspace"
+yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2024-0429", reason = "glib arrives only through tauri's Linux/BSD-gated GTK dependency; RightKit release targets are Windows and macOS only. Invalidated the moment any GTK (Linux or BSD) target ships." },
+  { id = "RUSTSEC-2026-0367", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json)." },
+  { id = "RUSTSEC-2026-0368", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json)." },
+  { id = "RUSTSEC-2026-0369", reason = "tauri-plugin-updater 2.10.1 requires zip ^4 as an optional Windows-only dependency (2.14.0, the latest, still does); rightkit-tauri-shell installs only bytes returned by the plugin's minisign-verified download, identity-rechecked before install, so no unsigned archive is ever extracted. reviewBy 2026-11-22 (RightKit ci/advisory-exceptions.json)." },
+]
+
+[licenses]
+# Permissive licences, plus MPL-2.0 (file-level copyleft, allowed for unmodified dependencies). Anything not allowed fails,
+# including GPL, AGPL and LGPL crates.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "BSL-1.0",
+  "CC0-1.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "OFL-1.1",
+  "MPL-2.0",
+  "Unlicense",
+  "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+# The app's own crates are private (`publish = false`) and carry no licence field; audit third-party licences only.
+private = { ignore = true }
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

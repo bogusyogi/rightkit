@@ -58,7 +58,7 @@ import { runIosPackageRecipe } from "./ios-package-recipe.mjs";
 import { releaseSwitchInputs } from "./ios-build-context.mjs";
 import { productionBuildEnv, productionModeProblems } from "./production-mode.mjs";
 import { evaluatePrebuildGates } from "./prebuild-gates.mjs";
-import { releaseConfigFieldProblems } from "./release-config.mjs";
+import { defaultReleaseConfigFile, importReleaseConfig, releaseConfigFieldProblems } from "./release-config.mjs";
 import { describeRegistryError, formatNotRun, runAdmission } from "./admission.mjs";
 import { sccacheRefusal } from "./admission-host.mjs";
 
@@ -126,7 +126,7 @@ const SWIFT_PRIVATE_DISPATCH_WORKFLOWS = new Set(["release-candidate.yml", "rege
 
 const args = process.argv.slice(2);
 const opts = {
-  config: "right-release.config.mjs",
+  config: defaultReleaseConfigFile(),
   platform: process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform,
   upload: false,
   install: false,
@@ -245,7 +245,7 @@ if (opts.doctor) {
   doctorInvocation = { repoRoot, commit };
 }
 let config;
-try { config = (await import(pathToFileURL(configPath))).default; } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
+try { config = await importReleaseConfig(configPath); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
 if (!config) usage(2, `config did not export default: ${configPath}`);
 if (config.schema !== 1) fail(`unsupported config schema: ${config.schema ?? "<missing>"} (expected 1)`);
 // Field-level config refusals (updater.keyFile: keys come from the OS credential provider) are listed with every other finding.
@@ -841,7 +841,7 @@ releaseLock.release();
 
 function usage(code, message) {
   if (message) console.error(`right-release: ${message}\n`);
-  console.error("usage: right-release build --platform mac|win [--config right-release.config.mjs]   (build is tier-neutral; tier applies only to: right-release upload --release <id> --platform mac|win --tier patch|update)");
+  console.error("usage: right-release build --platform mac|win [--config right-release.config.json]   (build is tier-neutral; tier applies only to: right-release upload --release <id> --platform mac|win --tier patch|update)");
   process.exit(code);
 }
 

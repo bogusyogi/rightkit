@@ -388,8 +388,9 @@ test("production builds never create or use an internal Git worktree", () => {
 
 test("dirty release config is rejected before the config module is imported", () => {
   const guard = source.indexOf("dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit)");
-  const imported = source.indexOf("await import(");
+  const imported = source.indexOf("await importReleaseConfig(");
   assert.ok(guard >= 0, "config cleanliness guard must exist");
+  assert.ok(imported >= 0, "the release config must load through importReleaseConfig");
   assert.ok(guard < imported, "config cleanliness guard must run before module import");
 });
 

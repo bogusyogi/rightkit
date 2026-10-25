@@ -120,9 +120,34 @@ export function suiteKeyLiteral(root, files) {
 
 const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
+/** `(file, text) => boolean`: whether `text` carries a marker that the nearest placeholders.json above `file` lists for that file. A
+ * placeholders.json is a template's own ledger of what an app generated from it must replace; an app has none. */
+function declaredPlaceholders(root, files) {
+  const ledgers = new Map();
+  for (const file of files) {
+    if (path.posix.basename(file) !== "placeholders.json" || !scanned(file)) continue;
+    const text = textOf(root, file);
+    let list;
+    try { list = JSON.parse(text ?? "").replace; } catch { continue; }
+    if (!Array.isArray(list)) continue;
+    ledgers.set(path.posix.dirname(file), list.filter((e) => isObject(e) && typeof e.file === "string" && typeof e.marker === "string" && e.marker !== ""));
+  }
+  return (file, text) => {
+    for (let dir = path.posix.dirname(file); ; dir = path.posix.dirname(dir)) {
+      const list = ledgers.get(dir);
+      if (list) {
+        const relative = path.posix.relative(dir, file);
+        return list.some((entry) => entry.file === relative && text.includes(entry.marker));
+      }
+      if (dir === "." || dir === "/") return false;
+    }
+  };
+}
+
 /** Every tracked tauri*.conf.json whose plugins.updater block does not carry a copy of a contract key: a missing key, a placeholder,
  * another key, or a file that is not JSON. A file with no plugins.updater block (a platform override) has nothing to check. */
 export function suiteUpdaterKey(root, files) {
+  const declared = declaredPlaceholders(root, files);
   const accepted = new Set(RIGHT_SUITE_UPDATER_PUBLIC_KEYS.map((k) => k.publicKey));
   const fix = "set plugins.updater.pubkey to a copy of a publicKey in contracts/right-suite-api.v1.json updaterPublicKeys; the conf holds a copy only because Tauri's plugin config requires one, and the app takes the key from the contract everywhere else";
   const out = [];
@@ -137,6 +162,8 @@ export function suiteUpdaterKey(root, files) {
     if (!isObject(updater)) continue;
     const block = text.search(/"updater"\s*:/);
     const { pubkey } = updater;
+    // A template's marker is handled by its own placeholders.json (the template contract refuses a marker that is not listed there).
+    if (typeof pubkey === "string" && declared(file, pubkey)) continue;
     let why;
     let offset = block;
     // A platform override (tauri.windows.conf.json) is merged over the base config, so it may leave the key to it.

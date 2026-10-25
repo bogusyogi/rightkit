@@ -23,7 +23,8 @@ import { spawn, spawnSync } from "./background-process.mjs";
 import { RightKitRegistryError, SNAPSHOT_ENV, SNAPSHOT_FILE, assertManifestRegistryEvidence, loadAdmittedSnapshot, prepareRightKitResolution, registryManifestFields, rightKitLockInventory, writeAdmissionRecord, writeSnapshot } from "./rightkit-registry-resolver.mjs";
 import { formatAdmission, formatNotRun, runAdmission } from "./admission.mjs";
 import { sccacheRefusal } from "./admission-host.mjs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { defaultReleaseConfigFile, importReleaseConfig } from "./release-config.mjs";
+import { fileURLToPath } from "node:url";
 import { assertPrimaryReleaseCheckout, dirtyBuildInputs, resolveReleaseBuildInputs } from "./release-invocation.mjs";
 import { resolveNativeCargoLayout } from "./native-cargo-layout.mjs";
 import { admitSourceQa } from "./release-qa-audit.mjs";
@@ -111,7 +112,7 @@ const TOOL_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const WORKER = path.join(TOOL_ROOT, "release.mjs");
 const RELEASE_TOOL_VERSION = JSON.parse(readFileSync(path.join(TOOL_ROOT, "package.json"), "utf8")).version;
 const args = process.argv.slice(2);
-let configName = "right-release.config.mjs";
+let configName = defaultReleaseConfigFile();
 let platform = process.platform === "win32" ? "win" : process.platform === "darwin" ? "mac" : process.platform;
 let dryRun = false;
 let skipChecks = false;
@@ -195,7 +196,7 @@ try {
   const shortCommit = commit.slice(0, 8);
   const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
   if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-  const config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default;
+  const config = await importReleaseConfig(configPath, { query: `commit=${commit}` });
   if (!config?.app || !config?.version) fail("release config must expose app and version");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(config.app) || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(config.version)) {
     fail("app and version must be safe release-id components");
@@ -566,7 +567,7 @@ async function admit() {
     commit = git(invocationRoot, ["rev-parse", "HEAD"]);
     const dirtyConfig = dirtyBuildInputs(repoRoot, { include: [relativeConfig], required: [relativeConfig] }, commit);
     if (dirtyConfig.length > 0) fail(`dirty release config cannot be executed:\n${dirtyConfig.map((file) => `- ${file}`).join("\n")}`);
-    try { config = (await import(`${pathToFileURL(configPath).href}?commit=${commit}`)).default; } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
+    try { config = await importReleaseConfig(configPath, { query: `commit=${commit}` }); } catch (error) { fail(`release config could not be loaded (${configPath}): ${error instanceof Error ? error.message : String(error)}`); }
   } catch (error) {
     if (error?.reported) process.exit(1);
     throw error;
@@ -630,7 +631,7 @@ function sqlCipherFeatures(text) {
 }
 
 function sealRelease({ configRoot, managedCargoTarget, androidTarget, iosSpec, nativeLayout, sealedDir, releaseId, config, target, platform, commit, inputHashes, toolVersions, cacheKey, signingIdentity, ownershipEvidence, qaAdmission, managedRoot, stateRoot, rightkitRegistryFields }) {
-  // Every app's right-release.config.mjs names installer/updater artifacts
+  // Every app's release config names installer/updater artifacts
   // relative to its resolved native target. On a broker-managed host that
   // directory is never populated (the broker owns CARGO_TARGET_DIR and
   // targetBridge.ensure() deliberately leaves a real local directory alone,
@@ -1060,7 +1061,7 @@ function writeJson(file, value) {
 }
 
 function usage(code) {
-  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.mjs] [--dry-run]");
+  console.log("usage: right-release build --platform win|mac|android|ios [--config right-release.config.json] [--dry-run]");
   process.exit(code);
 }
 

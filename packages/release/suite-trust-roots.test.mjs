@@ -368,13 +368,39 @@ test("the rules do not find their own source or the files that register them", (
   assert.deepEqual([...suiteKeyLiteral(REPO, own), ...suiteUpdaterKey(REPO, own), ...engineRecordStore(REPO, own)], []);
 });
 
-test("RULES registers the three trust-root rules after speech-link, each with its lane C3 gap", () => {
-  const at = RULES.findIndex((r) => r.id === "speech-link");
-  assert.ok(at >= 0);
-  assert.deepEqual(RULES.slice(at + 1, at + 4).map((r) => [r.id, r.gap]), [["suite-key-literal", "C3-04"], ["suite-updater-key", "C3-14"], ["engine-record-store", "C3-05"]]);
-  for (const rule of RULES.slice(at + 1, at + 4)) assert.equal(typeof rule.run, "function", rule.id);
-  // RightKit's own preflight runs the same rules, the same objects.
-  for (const rule of RULES.slice(at + 1, at + 4)) assert.ok(PREFLIGHT_RULES.includes(rule), `preflight runs ${rule.id}`);
+test("RULES registers the three trust-root rules together, each with its lane C3 gap, and preflight runs the same objects", () => {
+  const at = RULES.findIndex((r) => r.id === "suite-key-literal");
+  assert.ok(at > RULES.findIndex((r) => r.id === "speech-link"));
+  assert.deepEqual(RULES.slice(at, at + 3).map((r) => [r.id, r.gap]), [["suite-key-literal", "C3-04"], ["suite-updater-key", "C3-14"], ["engine-record-store", "C3-05"]]);
+  for (const rule of RULES.slice(at, at + 3)) {
+    assert.equal(typeof rule.run, "function", rule.id);
+    assert.ok(PREFLIGHT_RULES.includes(rule), `preflight runs ${rule.id}`);
+  }
+});
+
+test("suite-updater-key leaves a marker alone only where the template's own placeholders.json lists it for that file", (t) => {
+  const marker = "PLACEHOLDER-REPLACE-WITH-SUITE-UPDATER-PUBKEY";
+  const ledger = (extra = {}) => JSON.stringify({ replace: [{ file: "src-tauri/tauri.conf.json", marker, with: "the suite key" }], ...extra });
+  const { root, files } = repo(t, {
+    "template/placeholders.json": ledger(),
+    "template/src-tauri/tauri.conf.json": conf({ pubkey: marker }),
+    // another file of the template, one the ledger does not list
+    "template/other/tauri.conf.json": conf({ pubkey: marker }),
+    // an app generated from the template: no ledger, so the marker is a defect
+    "app/src-tauri/tauri.conf.json": conf({ pubkey: marker }),
+    // a ledger that lists another marker for the file
+    "wrong/placeholders.json": JSON.stringify({ replace: [{ file: "src-tauri/tauri.conf.json", marker: "SOMETHING-ELSE" }] }),
+    "wrong/src-tauri/tauri.conf.json": conf({ pubkey: marker }),
+    // a ledger that is not a ledger
+    "broken/placeholders.json": "{",
+    "broken/src-tauri/tauri.conf.json": conf({ pubkey: marker }),
+  });
+  assert.deepEqual(found(suiteUpdaterKey(root, files)), [
+    "app/src-tauri/tauri.conf.json|plugins.updater.pubkey",
+    "broken/src-tauri/tauri.conf.json|plugins.updater.pubkey",
+    "template/other/tauri.conf.json|plugins.updater.pubkey",
+    "wrong/src-tauri/tauri.conf.json|plugins.updater.pubkey",
+  ]);
 });
 
 test("through preflight: a pasted key fails with its gap and fix, a listed identity is KNOWN, a gone one is STALE", async (t) => {
