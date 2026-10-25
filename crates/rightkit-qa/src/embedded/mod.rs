@@ -467,7 +467,10 @@ pub fn effect_kind(method: &str) -> Option<EffectKind> {
 /// agents call through the `command` method (the closure gets the raw JSON
 /// params and returns a JSON value or an error string).
 pub struct Control<R: Runtime> {
-    label: String,
+    /// The label the app set with [`Control::window`]; `None` leaves it to `build`, which falls
+    /// back to the launcher's `[ui] window_label` and then `"main"` (see
+    /// [`resolve_window_label`](crate::control::resolve_window_label)).
+    label: Option<String>,
     commands: HashMap<String, CommandFn<R>>,
     allow: Allowlist,
     gate: Arc<EffectGate>,
@@ -483,13 +486,15 @@ impl<R: Runtime> Default for Control<R> {
 
 impl<R: Runtime> Control<R> {
     /// Default allowlist: the QA harness (`right-qa`) and the CLI (`right-ctl`)
-    /// may call every method. Other apps get nothing until `allow_app`.
+    /// may call every method. Other apps get nothing until `allow_app`. The window it drives
+    /// defaults to the launcher's `[ui] window_label` (`RIGHTKIT_QA_WINDOW_LABEL`), else `"main"`;
+    /// [`Control::window`] overrides both.
     pub fn new() -> Self {
         let allow = Allowlist::new()
             .allow("right-qa", METHODS.iter().copied())
             .allow("right-ctl", METHODS.iter().copied());
         Self {
-            label: "main".into(),
+            label: None,
             commands: HashMap::new(),
             allow,
             gate: Arc::new(EffectGate::allow_all()),
@@ -520,8 +525,10 @@ impl<R: Runtime> Control<R> {
         self.lease = Some(lease);
         self
     }
+    /// Drive the window with this label. It wins over the launcher's `[ui] window_label`
+    /// (`RIGHTKIT_QA_WINDOW_LABEL`) and the `"main"` default; a blank label counts as not set.
     pub fn window(mut self, label: &str) -> Self {
-        self.label = label.into();
+        self.label = Some(label.into());
         self
     }
     pub fn command(
@@ -553,13 +560,21 @@ impl<R: Runtime> Control<R> {
         // Retain the marker with the server: see `keep_marker`.
         std::hint::black_box(keep_marker());
         let Control {
-            label,
+            label: explicit_label,
             commands,
             allow,
             gate,
             lease,
             viewport,
         } = self;
+        // The app's own `.window(..)`, then the launcher's `[ui] window_label`, then "main". Read
+        // once here, like every other launch env value, so the setup closure only moves a String.
+        let label = crate::control::resolve_window_label(
+            explicit_label.as_deref(),
+            std::env::var(crate::control::WINDOW_LABEL_ENV)
+                .ok()
+                .as_deref(),
+        );
         let commands = Arc::new(commands);
         // Listen from plugin setup: the shell announces placement when the webview is
         // ready, which is after every plugin's setup.

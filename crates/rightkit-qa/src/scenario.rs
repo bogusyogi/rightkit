@@ -771,6 +771,32 @@ fn env_pairs(p: &Map<String, Value>) -> Vec<(String, String)> {
         })
         .unwrap_or_default()
 }
+/// The environment a `ui_launch` hands the app, in the order a later value wins: the config's
+/// `[ui] env` and `[env]`, the isolated data dir under `data_dir_env`, the window the in-app
+/// control server drives (`[ui] window_label` in [`control::WINDOW_LABEL_ENV`], not the process
+/// label of the launch spec), then the step's own `env`.
+fn ui_launch_env(
+    cfg: &QaConfig,
+    data_dir: &Path,
+    step_env: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = cfg
+        .ui
+        .env
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    env.extend(cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    if let Some(var) = &cfg.engine.data_dir_env {
+        env.push((var.clone(), data_dir.to_string_lossy().into()));
+    }
+    env.push((
+        control::WINDOW_LABEL_ENV.to_string(),
+        cfg.ui.window_label.clone(),
+    ));
+    env.extend(step_env);
+    env
+}
 fn cli_opts(ctx: &Ctx, p: &Map<String, Value>) -> CliOptions {
     CliOptions {
         data_dir: Some(ctx.data_dir.clone()),
@@ -1296,18 +1322,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 None => ctx.ui_binary.clone().ok_or_else(|| Error("no UI binary configured: set [ui].binaries, pass --ui-binary, or `binary` on the step".into()))?,
             };
             let mode = Mode::parse(&ps_opt(p, "mode").unwrap_or_else(|| ctx.cfg.ui.mode.clone()))?;
-            let mut env: Vec<(String, String)> = ctx
-                .cfg
-                .ui
-                .env
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            env.extend(ctx.cfg.env.iter().map(|(k, v)| (k.clone(), v.clone())));
-            if let Some(var) = &ctx.cfg.engine.data_dir_env {
-                env.push((var.clone(), ctx.data_dir.to_string_lossy().into()));
-            }
-            env.extend(env_pairs(p));
+            let env = ui_launch_env(ctx.cfg, &ctx.data_dir, env_pairs(p));
             let focus = pv(p, "focus")
                 .and_then(Value::as_bool)
                 .unwrap_or(ctx.cfg.ui.focus);
@@ -1323,7 +1338,7 @@ fn exec(ctx: &mut Ctx, kind: &str, p: &Map<String, Value>) -> Result<Value> {
                 label: format!("{} app", ctx.cfg.app),
                 focus,
             };
-            let c = control::launch(&spec, ctx.ws, ctx.tracker)?;
+            let c = control::launch_declared(&spec, ctx.ws, ctx.tracker, &ctx.cfg.ui.env_keys)?;
             let out = json!({"pid": c.pid, "service": c.service, "focus": focus, "mode": format!("{mode:?}").to_lowercase(), "health": c.health()?, "log": c.log_path.to_string_lossy()});
             let log = c.log_path.clone();
             ctx.ui = Some((c, mode));
@@ -2564,5 +2579,51 @@ mod cli_route_tests {
         );
         assert_eq!(words(json!({"args": ["job.status"]})), vec!["job.status"]);
         assert!(cli_args(&params(json!({"input": {}}))).is_err());
+    }
+}
+
+/// What a `ui_launch` tells the app about its window (see [`ui_launch_env`]).
+#[cfg(test)]
+mod ui_launch_env_tests {
+    use super::*;
+
+    fn cfg(toml: &str) -> QaConfig {
+        QaConfig::parse(toml, Path::new("/nonexistent-cfg/rightkit-qa.toml")).unwrap()
+    }
+
+    fn value<'a>(env: &'a [(String, String)], key: &str) -> Option<&'a str> {
+        env.iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn the_launch_names_the_configured_window_label_not_the_process_label() {
+        let c = cfg("app = \"demo\"\n[ui]\nwindow_label = \"side\"\n");
+        let env = ui_launch_env(&c, Path::new("/d"), vec![]);
+        assert_eq!(value(&env, control::WINDOW_LABEL_ENV), Some("side"));
+        // The tracker label of the launch spec ("<app> app") is never the window label.
+        assert!(env.iter().all(|(_, v)| v != "demo app"), "{env:?}");
+    }
+
+    #[test]
+    fn the_window_label_defaults_to_main() {
+        let env = ui_launch_env(&cfg("app = \"demo\"\n"), Path::new("/d"), vec![]);
+        assert_eq!(value(&env, control::WINDOW_LABEL_ENV), Some("main"));
+    }
+
+    #[test]
+    fn config_data_dir_and_step_values_still_reach_the_app_in_order() {
+        let c = cfg(
+            "app = \"demo\"\n[env]\nA = \"top\"\n[ui.env]\nB = \"ui\"\n[engine]\ndata_dir_env = \"DEMO_DATA\"\n",
+        );
+        let step = vec![("A".to_string(), "step".to_string())];
+        let env = ui_launch_env(&c, Path::new("/d"), step);
+        assert_eq!(value(&env, "B"), Some("ui"));
+        assert_eq!(value(&env, "DEMO_DATA"), Some("/d"));
+        // The step's own env comes last, so it wins over the config's.
+        assert_eq!(value(&env, "A"), Some("step"));
+        assert_eq!(env.last().map(|(k, _)| k.as_str()), Some("A"));
     }
 }

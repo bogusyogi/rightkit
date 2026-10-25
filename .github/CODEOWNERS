@@ -1,0 +1,17 @@
+# Code owners for the release QA admission and ownership policy (gap C4-02).
+# These files decide which builds are admitted to release, which QA floor applies and who may
+# change them, so a change to any of them needs the owner's review. Ownership binds only when
+# branch protection on the default branch requires code-owner review; without that setting
+# GitHub shows the owner but does not block the merge.
+# scripts/ci/codeowners.test.mjs holds this file: every policy file must be listed with an owner,
+# and every concrete path listed here must exist, so a rename cannot silently drop the protection.
+/packages/release/qa-admission-policy.json @bogusyogi
+/packages/release/release-qa-floor.json @bogusyogi
+/packages/release/rightkit-ownership.json @bogusyogi
+/packages/release/devtools-policy.json @bogusyogi
+/packages/release/release-qa-policy.mjs @bogusyogi
+/packages/release/release-qa-hardening.mjs @bogusyogi
+/packages/release/release-qa-audit.mjs @bogusyogi
+/packages/release/release-qa-receipt.mjs @bogusyogi
+/packages/release/ownership-policy-bundle.mjs @bogusyogi
+/.github/CODEOWNERS @bogusyogi
