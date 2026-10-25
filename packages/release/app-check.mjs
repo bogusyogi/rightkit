@@ -20,7 +20,8 @@
 //                         undefined Cargo profile, JSON right-release cannot load
 //   skip-checks      G17  a package.json script that runs right-release with --skip-checks
 //   qa-dev-server    G18  a package.json qa* script that runs `tauri dev` (QA would test the dev server, not the app)
-//   ffmpeg-release-escape G19 `allow_in_release_builds` in non-test Rust outside crates/rightkit-ffmpeg
+//   ffmpeg-release-escape G19 `allow_in_release_builds` or a use of `DevFfmpeg::unverified` (call or path) in non-test Rust
+//                         outside crates/rightkit-ffmpeg (an item or file gated on feature "dev-overrides" is excused)
 //   switches-inventory G20 a right-release.config.json (or .mjs) directory without a switches.json (or its releaseSwitches.inventory)
 //   speech-link      G21  `import Speech` anywhere under swift/RightKitSwift/Sources or Tests (Apple Speech is removed, rightkit#978;
 //                         the LinkProbes control fixture is the one sanctioned import)
@@ -389,17 +390,82 @@ function qaDevServer({ root, files }) {
   return out;
 }
 
-// G19: ffmpeg's release gate is the point of crates/rightkit-ffmpeg; allow_in_release_builds outside it and its tests opens a
-// path that ships a build the gate would have refused.
+// G19: ffmpeg's release gate is the point of crates/rightkit-ffmpeg; allow_in_release_builds and a use of DevFfmpeg::unverified (a call,
+// or the path itself, as in .map(DevFfmpeg::unverified)) outside it and its tests open a path that ships a build the gate would have refused. An app pinned to an older rightkit-ffmpeg still
+// compiles both, so the names stay refused after the crate stops exporting them. UnverifiedRequest is not named here: it is the
+// argument of resolve_ffmpeg_handle(_with), which refuses in release builds, so refusing it would refuse the sanctioned fix.
+// DevFfmpeg::try_unverified is the mode-checked constructor and never matches (nor does any other name that merely starts with "unverified").
+const DEV_UNVERIFIED = /\bDevFfmpeg\s*::\s*unverified\b/g;
+// cfg(feature = "dev-overrides") and cfg(any(test, feature = "dev-overrides")): what they gate is not compiled without the feature.
+const DEV_OVERRIDES_PREDICATE = String.raw`(?:feature\s*=\s*"dev-overrides"|any\s*\(\s*(?:test\s*,\s*feature\s*=\s*"dev-overrides"|feature\s*=\s*"dev-overrides"\s*,\s*test)\s*\))`;
+const DEV_OVERRIDES_GATE = new RegExp(String.raw`#\s*\[\s*cfg\s*\(\s*${DEV_OVERRIDES_PREDICATE}\s*\)\s*\]`, "g");
+// The same gate as an inner attribute that opens the file (only other inner attributes may come before it): the whole file is gated.
+const DEV_OVERRIDES_FILE_GATE = new RegExp(String.raw`^(?:\s*#\s*!\s*\[[^\]]*\])*\s*#\s*!\s*\[\s*cfg\s*\(\s*${DEV_OVERRIDES_PREDICATE}\s*\)\s*\]`);
+// What starts a gated item or statement (the item rule: ends at its ';' or its closing '}'); anything else is a match arm, a struct field or an expression, which a depth-0 ',' ends too.
+const ITEM_START = /^(?:(?:pub|fn|const|static|mod|impl|struct|enum|union|trait|type|use|unsafe|async|extern|let|macro_rules)\b|\{)/;
+// A comment or a string or char literal: its text is prose or a message, and its braces are not code.
+const NON_CODE = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|b?r(#*)"[\s\S]*?"\1|"(?:\\[\s\S]|[^"\\])*"|'(?:\\(?:u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|[^\n])|[^\\'\n])'/g;
+/** Rust `text` with every comment and string or char literal blanked, offsets and line numbers kept. */
+const blankNonCode = (text) => text.replace(NON_CODE, (m) => m.replace(/[^\n]/g, " "));
+
+/** [from, to) spans of `text` that a dev-overrides gate covers (`prose` is its blanked copy, same offsets). The gated item is what
+ * follows the attribute, stacked attributes included, up to the first `;` outside brackets or the `}` that closes the first `{`:
+ * an fn, mod, impl or block, or a `let` or const that ends at its `;`. A gated match arm or struct field (it starts with no item
+ * keyword and no `{`) ends at its `,` outside brackets as well, so an arm with no block never excuses the arms after it.
+ * Limits: a gate on `mod x;` covers that line only (x.rs is checked on its own, so a call there is still refused); any other
+ * predicate (`all(...)`, `not(...)`, another feature) is no gate; an inner `#![cfg(...)]` is not a span (ffmpegReleaseEscape excuses the whole file for it);
+ * a `let` whose value goes on after a block (`if a { b } else { c }`) is covered to that block's end; a gated arm or field
+ * whose value has a `,` outside brackets (generics such as `f::<A, B>(...)`) is covered to that comma; a tail whose braces
+ * never balance is covered to the end of the file. A hit it misses is refused: gate the call itself. */
+function devOverrideItems(text, prose) {
+  const spans = [];
+  for (const gate of text.matchAll(DEV_OVERRIDES_GATE)) {
+    if (prose[gate.index] !== "#") continue; // the attribute is itself inside a comment or a string
+    let brackets = 0;
+    let braces = 0;
+    let end = prose.length;
+    let first = gate.index + gate[0].length;
+    for (let attribute = /^\s*#\s*\[/.exec(prose.slice(first)); attribute; attribute = /^\s*#\s*\[/.exec(prose.slice(first))) {
+      let depth = 1;
+      first += attribute[0].length;
+      for (; first < prose.length && depth > 0; first++) depth += prose[first] === "[" ? 1 : prose[first] === "]" ? -1 : 0;
+    }
+    const item = ITEM_START.test(prose.slice(first).trimStart());
+    for (let i = gate.index + gate[0].length; i < prose.length; i++) {
+      const c = prose[i];
+      if (c === "(" || c === "[") brackets += 1;
+      else if (c === ")" || c === "]") brackets -= 1;
+      else if (c === "{") braces += 1;
+      else if (c === "}") braces -= 1;
+      if (braces < 0 || brackets < 0) { end = i; break; } // the block or call the attribute sits in closes first
+      if (!item && c === "," && brackets === 0 && braces === 0) { end = i + 1; break; } // a match arm or field ends at its comma
+      if (brackets === 0 && braces === 0 && (c === ";" || c === "}")) { end = i + 1; break; }
+    }
+    spans.push([gate.index, end]);
+  }
+  return spans;
+}
+
 function ffmpegReleaseEscape({ root, files }) {
   const out = [];
   for (const file of rustFiles(files)) {
     if (/(^|\/)tests\//.test(file) || /(^|\/)(?:tests|[^/]*_tests?)\.rs$/.test(file) || /(^|\/)crates\/rightkit-ffmpeg\//.test(file)) continue;
     const text = readText(root, file);
-    if (!text || !text.includes("allow_in_release_builds") || /^\s*#!\[cfg\(test\)\]/m.test(text)) continue;
+    if (!text || !/allow_in_release_builds|DevFfmpeg\s*::\s*unverified/.test(text) || /^\s*#!\[cfg\(test\)\]/m.test(text)) continue;
     const testModule = /^#\[cfg\(test\)\]/m.exec(text)?.index ?? Infinity;
-    const hit = [...blankComments(text).matchAll(/allow_in_release_builds/g)].find((m) => m.index < testModule);
-    if (hit) out.push({ file, subject: file, problem: `${file}:${lineOf(text, hit.index)} uses allow_in_release_builds outside test code: a release build could ship what the ffmpeg gate refuses`, fix: "remove it from non-test code; only tests and crates/rightkit-ffmpeg itself may name it" });
+    const prose = blankNonCode(text);
+    const gated = devOverrideItems(text, prose);
+    const allow = [...blankComments(text).matchAll(/allow_in_release_builds/g)].find((m) => m.index < testModule);
+    // Only DevFfmpeg::unverified is excused under a dev-overrides gate: allow_in_release_builds is being removed from the crate
+    // and from every app, gated or not.
+    // A file that opens with the inner attribute #![cfg(feature = "dev-overrides")] is not compiled without the feature at all.
+    const fileGated = DEV_OVERRIDES_FILE_GATE.test(text.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")));
+    const unverified = fileGated ? undefined : [...prose.matchAll(DEV_UNVERIFIED)].find((m) => m.index < testModule && !gated.some(([from, to]) => m.index >= from && m.index < to));
+    const uses = [];
+    const fixes = [];
+    if (allow) { uses.push(`${file}:${lineOf(text, allow.index)} uses allow_in_release_builds`); fixes.push("remove it from non-test code; only tests and crates/rightkit-ffmpeg itself may name it"); }
+    if (unverified) { uses.push(`${file}:${lineOf(text, unverified.index)} uses DevFfmpeg::unverified`); fixes.push('resolve the binary with rightkit_ffmpeg::resolve_ffmpeg_handle, which refuses in release builds; keep DevFfmpeg::unverified in tests or under #[cfg(any(test, feature = "dev-overrides"))] (or #![cfg(...)] at the top of the file)'); }
+    if (uses.length) out.push({ file, subject: file, problem: `${uses.join(" and ")} outside test code: a release build could ship what the ffmpeg gate refuses`, fix: fixes.join("; ") });
   }
   return out;
 }

@@ -19,6 +19,23 @@ pub fn skip_missing(what: &str, looked_at: &str) {
     eprintln!("{message}");
 }
 
+/// A binary for tests that run a script or a system tool through the runner. `DevFfmpeg::unverified`
+/// is not available to integration tests (it needs the `dev-overrides` feature, which a plain
+/// `cargo test` does not turn on), so this implements `FfmpegBinary` itself.
+pub struct TestBinary(PathBuf);
+
+impl TestBinary {
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
+    }
+}
+
+impl rightkit_ffmpeg::FfmpegBinary for TestBinary {
+    fn ffmpeg_path(&self) -> &Path {
+        &self.0
+    }
+}
+
 /// Where the FFmpeg lookup looked (the same candidates `resolve_for_development` tries), for the
 /// SKIP line.
 pub fn ffmpeg_looked_at() -> String {

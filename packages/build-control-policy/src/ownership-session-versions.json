@@ -446,7 +446,7 @@
     "rightkit-agents": "0.2.0",
     "rightkit-android": "0.3.0",
     "rightkit-app-settings": "0.3.0",
-    "rightkit-asr": "0.3.0",
+    "rightkit-asr": "0.3.1",
     "rightkit-audio": "0.3.1",
     "rightkit-automation": "0.6.1",
     "rightkit-browser": "0.3.6",
@@ -463,7 +463,7 @@
     "rightkit-device": "0.4.0",
     "rightkit-docs": "0.1.2",
     "rightkit-embed": "0.6.1",
-    "rightkit-ffmpeg": "0.2.10",
+    "rightkit-ffmpeg": "0.2.11",
     "rightkit-file-watch": "0.4.1",
     "rightkit-fs": "0.4.7",
     "rightkit-fsindex": "0.5.0",
@@ -481,7 +481,7 @@
     "rightkit-motion": "0.2.0",
     "rightkit-oauth": "0.10.0",
     "rightkit-ocr": "0.2.3",
-    "rightkit-onnx": "0.2.7",
+    "rightkit-onnx": "0.2.8",
     "rightkit-overlay": "0.2.0",
     "rightkit-overlay-win": "0.1.0",
     "rightkit-ownership": "0.4.2",
@@ -897,7 +897,8 @@
       "0.0.2",
       "0.2.0",
       "0.2.1",
-      "0.2.4"
+      "0.2.4",
+      "0.3.0"
     ],
     "rightkit-logs": [
       "0.2.0",
@@ -1016,7 +1017,8 @@
     ],
     "rightkit-ffmpeg": [
       "0.2.6",
-      "0.2.9"
+      "0.2.9",
+      "0.2.10"
     ],
     "rightkit-license": [
       "0.2.0",
@@ -1045,7 +1047,8 @@
     ],
     "rightkit-onnx": [
       "0.2.3",
-      "0.2.6"
+      "0.2.6",
+      "0.2.7"
     ],
     "rightkit-record": [
       "0.3.0",

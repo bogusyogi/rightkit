@@ -7179,9 +7179,9 @@
         "speech-recognition"
       ],
       "private": false,
-      "source": "0.3.0",
+      "source": "0.3.1",
       "registry": "0.3.0",
-      "staged": "0.3.0",
+      "staged": "0.3.1",
       "dir": "crates/rightkit-asr",
       "toMoveFrom": {},
       "cells": {
@@ -8705,9 +8705,9 @@
         "media-pipelines"
       ],
       "private": false,
-      "source": "0.2.10",
+      "source": "0.2.11",
       "registry": "0.2.10",
-      "staged": "0.2.10",
+      "staged": "0.2.11",
       "dir": "crates/rightkit-ffmpeg",
       "toMoveFrom": {},
       "cells": {
@@ -10297,9 +10297,9 @@
         "onnx-runtime"
       ],
       "private": false,
-      "source": "0.2.7",
+      "source": "0.2.8",
       "registry": "0.2.7",
-      "staged": "0.2.7",
+      "staged": "0.2.8",
       "dir": "crates/rightkit-onnx",
       "toMoveFrom": {},
       "cells": {

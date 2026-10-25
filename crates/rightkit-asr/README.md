@@ -94,6 +94,12 @@ match whisper.transcribe_detailed(AudioSource::Pcm16k(pcm)) {
 
 Transcript text: `text` joins trimmed segments with one space, or with nothing for languages in `UNSPACED_LANGUAGES` (`ja`, `zh`, `yue`, `th`, `lo`, `km`); `raw_text` (per segment and whole) is whisper.cpp's text untouched.
 
+## Verified whisper.cpp load
+
+`WhisperCpp::load_verified(library, model, threads, deadline)` and `Whisper::load_verified(model, options)` are the loads for a shipped app. Before anything is opened they check the whisper.cpp library and every ggml file the catalog lists for this host beside it (`libggml*`) against the embedded native-library catalog of `rightkit-ffmpeg`, all or nothing, and then load the canonical path that was verified. A file that is not the catalog's (a different digest, an unlisted name, a symbolic link, an absent sibling) or a row that is still `planned` is a `VerifiedLoadError::Verification` and nothing is mapped; a file that matched but would not load is a `VerifiedLoadError::Load`. `library` must be an absolute path. The digests are checked at the call, not while the loader maps the files, so keep them in a directory only the app can write. The model file is not part of the check, and `WhisperModel::CoreMlDir` has no native library of ours and loads as `Whisper::load` does. `WhisperCpp::load` and `Whisper::load` stay the unverified path for tests and for development builds with a locally built library.
+
+Windows: the catalog's whisper.cpp and ggml rows for Windows are `planned` (no digest yet), so `load_verified` fails closed there today. When they are pinned, a Windows host still has to prove the load: the loaded path is the canonical path, a verbatim `\\?\C:\...` path on Windows, which has not been run through the loader there.
+
 ## Model requirements
 
 The Parakeet TDT model directory contains `encoder-model.onnx`, `decoder_joint-model.onnx` and `vocab.txt` (see `ParakeetTDT::from_pretrained`). The crate docs describe a FastConformer-TDT directory with `model.onnx`, `model.onnx_data`, `config.json`, `preprocessor_config.json`, `tokenizer.json` and `tokenizer_config.json`. Audio input is 16 kHz mono.

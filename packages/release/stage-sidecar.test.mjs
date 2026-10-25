@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "./background-process.mjs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   StageSidecarError, builtBinaryCandidates, defaultExtractMember, defaultRun, isNestedBrokerContext, normalizeArchiveMember, parseTargetTriple, planSidecarStaging, resolveBuildMode, stageSidecars, validateSidecarManifest, validateStageSidecarReceipt,
 } from "./stage-sidecar.mjs";
 import { formatSidecarPlan, nodeHostTriple, parseStageSidecarArgs } from "./stage-sidecar-command.mjs";
 import { contentIdentity } from "./content-digest.mjs";
+import { uncoveredBinaries } from "./binary-license-notices.mjs";
 
 const sha = (value) => createHash("sha256").update(value).digest("hex");
 const APP = path.resolve("/rk-fake-app");
@@ -1568,4 +1572,1148 @@ test("zip archive members go through the same guarded member-path logic: travers
   }
   const odd = ortUniversalFixture({ libraries: (row) => [{ ...row, archive: { ...row.archive, url: "https://example.test/ort*glob.zip" } }] });
   await assert.rejects(odd.stage(), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /invalid archive member/ }, "a zip name that would not be a safe member path is refused");
+});
+
+// ---- plan item 2.8: kind "native-library" (the DirectML companion, PDFium, whisper.cpp, ggml, sherpa-onnx) ----
+
+const CPU_ARM64 = 0x0100000c;
+const CPU_X86_64 = 0x01000007;
+const u32le = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; };
+const u64le = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return b; };
+const u32be = (v) => { const b = Buffer.alloc(4); b.writeUInt32BE(v); return b; };
+const roundUp = (v, to) => Math.floor((v + to - 1) / to) * to;
+
+/** A thin 64-bit Mach-O (mirrors content-digest.test.mjs): __TEXT + __LINKEDIT, plus an optional code signature at the tail. */
+function machoCpu(cputype, payload, signature) {
+  const sizeofcmds = 144 + (signature ? 16 : 0);
+  const textOff = 0x1000;
+  const text = Buffer.alloc(64, 0xaa);
+  const linkeditOff = textOff + text.length;
+  const sigOff = signature ? roundUp(linkeditOff + payload.length, 16) : null;
+  const fileLen = signature ? sigOff + signature.length : linkeditOff + payload.length;
+  const filesize = fileLen - linkeditOff;
+  const page = cputype === CPU_ARM64 ? 0x4000 : 0x1000;
+  const segment = (name, vm, vmsize, off, size) => { const n = Buffer.alloc(16); n.write(name, "latin1"); return Buffer.concat([u32le(0x19), u32le(72), n, u64le(vm), u64le(vmsize), u64le(off), u64le(size), Buffer.alloc(16)]); };
+  const head = [u32le(0xfeedfacf), u32le(cputype), u32le(0), u32le(2), u32le(2 + (signature ? 1 : 0)), u32le(sizeofcmds), u32le(0), u32le(0),
+    segment("__TEXT", 0, 0x4000, textOff, text.length), segment("__LINKEDIT", 0x4000, roundUp(filesize, page), linkeditOff, filesize)];
+  if (signature) head.push(u32le(0x1d), u32le(16), u32le(sigOff), u32le(signature.length));
+  const file = Buffer.alloc(fileLen);
+  Buffer.concat(head).copy(file); text.copy(file, textOff); payload.copy(file, linkeditOff);
+  if (signature) signature.copy(file, sigOff);
+  return file;
+}
+
+/** A universal (fat) Mach-O of [cputype, thin] slices. */
+function fatOf(slices) {
+  const head = [u32be(0xcafebabe), u32be(slices.length)];
+  const parts = [];
+  let cursor = 8 + 20 * slices.length;
+  let offset = roundUp(cursor, 0x4000);
+  for (const [cputype, slice] of slices) {
+    head.push(u32be(cputype), u32be(0), u32be(offset), u32be(slice.length), u32be(14));
+    parts.push(Buffer.alloc(offset - cursor), slice);
+    cursor = offset + slice.length;
+    offset = roundUp(cursor, 0x4000);
+  }
+  return Buffer.concat([Buffer.concat(head), ...parts]);
+}
+
+/** A minimal PE (mirrors content-digest.test.mjs): two sections, an optional Authenticode certificate table at the tail. */
+function peOf(machine, fill, cert) {
+  const out = Buffer.alloc(0x400);
+  out.write("MZ", 0, "latin1"); out.writeUInt32LE(0x80, 0x3c);
+  out.write("PE\0\0", 0x80, "latin1"); out.writeUInt16LE(machine, 0x84); out.writeUInt16LE(2, 0x86); out.writeUInt16LE(240, 0x94);
+  const opt = 0x98;
+  out.writeUInt16LE(0x20b, opt); out.writeUInt32LE(0x400, opt + 60); out.writeUInt32LE(0, opt + 64); out.writeUInt32LE(16, opt + 108);
+  [[0x400, 0x200], [0x600, 0x200]].forEach(([off, size], i) => { const at = opt + 240 + i * 40; out.writeUInt32LE(size, at + 16); out.writeUInt32LE(off, at + 20); });
+  const body = Buffer.concat([out, Buffer.alloc(0x200, fill), Buffer.alloc(0x200, 0x22)]);
+  if (!cert) return body;
+  body.writeUInt32LE(body.length, opt + 112 + 32); body.writeUInt32LE(cert.length, opt + 112 + 36);
+  return Buffer.concat([body, cert]);
+}
+
+/** The signature-independent digest a catalog row pins for `bytes` (a thin file, or the one arch of a universal file). */
+const contentOf = (bytes, arch) => contentIdentity(bytes).slices.find((slice) => arch === undefined || slice.arch === arch).sha256;
+
+const NATIVE_CRATE = path.resolve("/rk-native-crate");
+const runtimeAt = (...parts) => at("src-tauri", "resources", "runtime", ...parts);
+const licenseAt = (name) => runtimeAt("LICENSES", name);
+const NATIVE_CATALOG_ENTRY = { catalog: "cat.json" };
+
+/** A fake pinned archive: its url, a label standing for its bytes, and the members `tar` lists and extracts. */
+const archiveOf = (url, members) => ({ url, text: `archive:${url}`, members });
+const archiveRef = (archive, member) => ({ url: archive.url, sha256: sha(archive.text), ...(member ? { member } : {}) });
+
+/** A catalog row shaped like the real ones; `bytes` is what the pinned file contains. */
+const rowOf = (id, library, version, os, arch, bytes, extra = {}) => ({
+  id, library, version, os, arch, status: "approved", linkage: "dynamic-library", sha256: sha(bytes), licenseSpdx: "MIT", noticeFiles: [`third-party/${library}-MIT.txt`], ...extra,
+});
+
+/**
+ * A fake app for native-library staging: the catalog rows, the pinned archives (served by fetchBytes, listed and unpacked by a fake
+ * `tar` so the real defaultExtractMember member rules apply), local files, and a lipo that reports `lipoArchs`.
+ */
+function nativeKit({ rows, archives = [], files: seeded = {}, target = WIN, lipoArchs = "x86_64 arm64\n" }) {
+  const notices = Object.fromEntries([...new Set(rows.flatMap((row) => row.noticeFiles ?? []))].map((file) => [path.join(NATIVE_CRATE, ...file.split("/")), `notice ${file}`]));
+  const { fs, files, log } = fakeFs({ ...notices, ...seeded });
+  const byText = new Map(archives.map((archive) => [archive.text, archive]));
+  const byUrl = new Map(archives.map((archive) => [archive.url, archive]));
+  const fetched = [];
+  const messages = [];
+  const calls = [];
+  let scratch = 0;
+  const archiveAt = (file) => byText.get(String(files.get(path.resolve(file))));
+  const run = (command, args) => {
+    calls.push([command, ...args]);
+    if (command === "tar" && args[0] === "-tf") return { status: 0, stdout: Object.keys(archiveAt(args[1])?.members ?? {}).join("\n"), stderr: "" };
+    if (command === "tar" && args[0] === "-xf") { files.set(path.join(args[3], ...args[4].split("/")), archiveAt(args[1]).members[args[4]]); return { status: 0, stdout: "", stderr: "" }; }
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: lipoArchs, stderr: "" };
+    if (command === "lipo" && args[0] === "-create") files.set(args[args.indexOf("-output") + 1], Buffer.from(`fat:${args.slice(3).map((file) => files.get(path.resolve(file))).join("+")}`));
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const stage = (manifest, extra = {}) => stageSidecars({
+    appRoot: APP, target, manifest,
+    deps: deps({
+      fs, run, log: (line) => messages.push(line), loadNativeCatalog: () => ({ catalog: { libraries: rows }, crateDir: NATIVE_CRATE }),
+      fetchBytes: async (url) => { fetched.push(url); return Buffer.from(byUrl.get(url)?.text ?? "unexpected download"); },
+      makeTempDir: () => path.resolve(`/rk-native-scratch-${scratch += 1}`), removeDir: () => {}, ...extra,
+    }),
+  });
+  /** Everything stage-sidecar wrote under src-tauri (the staged libraries, notices and receipt). */
+  const written = () => [...files.keys()].filter((key) => key.startsWith(at("src-tauri") + path.sep)).map((key) => path.relative(APP, key).split(path.sep).join("/")).sort();
+  const extracted = () => calls.filter((call) => call[0] === "tar" && call[1] === "-xf").map((call) => call[5]);
+  return { fs, files, log, calls, fetched, messages, stage, written, extracted };
+}
+
+const ORT_WIN_X64 = peOf(0x8664, 0x11);
+const DML_WIN_X64 = peOf(0x8664, 0x33);
+const ORT_MEMBER = "runtimes/win-x64/native/onnxruntime.dll";
+const DML_MEMBER = "bin/x64-win/DirectML.dll";
+const DML_ID = "directml-1.15.4-windows-x64";
+const ORT_WIN_ID = "onnxruntime-1.24.4-windows-x64-directml";
+
+/** The real Windows ORT + DirectML catalog pair, with the fixture bytes behind both nupkgs (each also holds a same-named win-arm64 decoy). */
+function winOrtFixture({ ort = {}, directml = {}, target = WIN } = {}) {
+  const ortNupkg = archiveOf("https://api.example.test/ort.nupkg", { [ORT_MEMBER]: ORT_WIN_X64, "runtimes/win-arm64/native/onnxruntime.dll": peOf(0xaa64, 0x12), "lib/net8.0/Microsoft.ML.OnnxRuntime.dll": Buffer.from("managed") });
+  const dmlNupkg = archiveOf("https://api.example.test/directml.nupkg", { [DML_MEMBER]: DML_WIN_X64, "bin/arm64-win/DirectML.dll": peOf(0xaa64, 0x34), "bin/x86-win/DirectML.dll": Buffer.from("x86") });
+  const rows = [
+    rowOf(ORT_WIN_ID, "onnxruntime", "1.24.4", "windows", "x86_64", ORT_WIN_X64, {
+      status: "pinned", artifactFileName: "onnxruntime.dll", contentSha256: contentOf(ORT_WIN_X64), archive: archiveRef(ortNupkg, ORT_MEMBER), companions: [DML_ID], hostProof: "never-run",
+      noticeFiles: ["third-party/ONNXRuntime-MIT.txt", "third-party/ONNXRuntime-1.24.4-ThirdPartyNotices.txt"], ...ort,
+    }),
+    rowOf(DML_ID, "directml", "1.15.4", "windows", "x86_64", DML_WIN_X64, {
+      status: "pinned", artifactFileName: "DirectML.dll", contentSha256: contentOf(DML_WIN_X64), archive: archiveRef(dmlNupkg, DML_MEMBER), hostProof: "never-run",
+      licenseSpdx: "LicenseRef-Microsoft-DirectML", noticeFiles: ["third-party/DirectML-1.15.4-LICENSE.txt", "third-party/DirectML-1.15.4-ThirdPartyNotices.txt"], ...directml,
+    }),
+  ];
+  return { ...nativeKit({ rows, archives: [ortNupkg, dmlNupkg], target }), rows, ortNupkg, dmlNupkg };
+}
+const ORT_WIN_ENTRY = { kind: "native-library", library: "onnxruntime", version: "1.24.4", ...NATIVE_CATALOG_ENTRY };
+
+test("native-library stages Windows ORT with its DirectML companion: digests checked, both notice sets shipped, companionOf in the receipt", async () => {
+  const kit = winOrtFixture();
+  const result = await kit.stage([ORT_WIN_ENTRY]);
+  assert.deepEqual(kit.fs.readFileSync(runtimeAt("onnxruntime.dll")), ORT_WIN_X64);
+  assert.deepEqual(kit.fs.readFileSync(runtimeAt("DirectML.dll")), DML_WIN_X64);
+  for (const name of ["ONNXRuntime-MIT.txt", "ONNXRuntime-1.24.4-ThirdPartyNotices.txt", "DirectML-1.15.4-LICENSE.txt", "DirectML-1.15.4-ThirdPartyNotices.txt"]) {
+    assert.equal(kit.fs.readFileSync(licenseAt(name)).toString(), `notice third-party/${name}`, name);
+  }
+  assert.deepEqual(kit.fetched, ["https://api.example.test/ort.nupkg", "https://api.example.test/directml.nupkg"]);
+  assert.deepEqual(kit.extracted(), [ORT_MEMBER, DML_MEMBER], "each file comes out of its archive by the row's archive.member");
+  const [ort, dml] = result.files;
+  assert.deepEqual([ort.kind, ort.library, ort.name, ort.catalogRow, ort.companionOf], ["native-library", "onnxruntime", "onnxruntime.dll", ORT_WIN_ID, undefined]);
+  assert.deepEqual([dml.kind, dml.library, dml.name, dml.catalogRow, dml.companionOf], ["native-library", "directml", "DirectML.dll", DML_ID, ORT_WIN_ID]);
+  assert.deepEqual([ort.path, dml.path], ["src-tauri/resources/runtime/onnxruntime.dll", "src-tauri/resources/runtime/DirectML.dll"]);
+  assert.deepEqual([ort.sha256, dml.sha256], [sha(ORT_WIN_X64), sha(DML_WIN_X64)]);
+  assert.deepEqual([ort.sizeBytes, dml.sizeBytes], [ORT_WIN_X64.length, DML_WIN_X64.length]);
+  assert.deepEqual([ort.contentSha256, dml.contentSha256], [contentOf(ORT_WIN_X64), contentOf(DML_WIN_X64)]);
+  assert.deepEqual([ort.archiveSha256, dml.archiveSha256], [sha(kit.ortNupkg.text), sha(kit.dmlNupkg.text)]);
+  assert.deepEqual([ort.license, dml.license], ["MIT", "LicenseRef-Microsoft-DirectML"]);
+  assert.deepEqual(ort.notices.map((notice) => notice.name), ["ONNXRuntime-MIT.txt", "ONNXRuntime-1.24.4-ThirdPartyNotices.txt"]);
+  assert.deepEqual(dml.notices.map((notice) => notice.name), ["DirectML-1.15.4-LICENSE.txt", "DirectML-1.15.4-ThirdPartyNotices.txt"]);
+  assert.deepEqual([ort.externalBin, dml.externalBin], [false, false]);
+  assert.deepEqual(result.externalBinNames, []);
+  assert.equal(validateStageSidecarReceipt(result.receipt, { target: WIN }), result.receipt);
+});
+
+test("native-library companions: false stages only the library; the alias on Windows now stages the companion too", async () => {
+  const solo = winOrtFixture();
+  const soloResult = await solo.stage([{ ...ORT_WIN_ENTRY, companions: false }]);
+  assert.deepEqual(soloResult.files.map((file) => file.name), ["onnxruntime.dll"]);
+  assert.equal(solo.fs.existsSync(runtimeAt("DirectML.dll")), false);
+  assert.deepEqual(solo.fetched, ["https://api.example.test/ort.nupkg"], "the companion archive is not even downloaded");
+  assert.equal(solo.fs.existsSync(licenseAt("DirectML-1.15.4-LICENSE.txt")), false);
+
+  const alias = winOrtFixture();
+  const aliasResult = await alias.stage([{ kind: "onnxruntime", version: "1.24.4", ...NATIVE_CATALOG_ENTRY }]);
+  assert.deepEqual(aliasResult.files.map((file) => [file.kind, file.name, file.companionOf]), [["onnxruntime", "onnxruntime.dll", undefined], ["onnxruntime", "DirectML.dll", ORT_WIN_ID]]);
+  assert.deepEqual(alias.fs.readFileSync(runtimeAt("DirectML.dll")), DML_WIN_X64);
+  assert.ok(alias.fs.existsSync(licenseAt("DirectML-1.15.4-LICENSE.txt")) && alias.fs.existsSync(licenseAt("DirectML-1.15.4-ThirdPartyNotices.txt")), "the DirectML licence and notices ship");
+  for (const file of aliasResult.files) assert.equal("library" in file, false, "the alias keeps its own row shape");
+  assert.equal(aliasResult.files[1].hostProof, "never-run");
+  const aliasOff = winOrtFixture();
+  assert.deepEqual((await aliasOff.stage([{ kind: "onnxruntime", version: "1.24.4", companions: false, ...NATIVE_CATALOG_ENTRY }])).files.map((file) => file.name), ["onnxruntime.dll"]);
+  // `as` renames the library; a companion keeps the name it is loaded by.
+  const renamed = winOrtFixture();
+  assert.deepEqual((await renamed.stage([{ ...ORT_WIN_ENTRY, as: "ort.dll" }])).files.map((file) => file.name), ["ort.dll", "DirectML.dll"]);
+});
+
+test("native-library refuses an unknown, planned, mismatched or notice-less companion, and writes nothing", async () => {
+  const cases = [
+    [{ ort: { companions: ["no-such-row"] } }, "STAGE_SIDECAR_NOT_APPROVED", /companion no-such-row of onnxruntime-1\.24\.4-windows-x64-directml.*matches 0/],
+    [{ directml: { status: "planned" } }, "STAGE_SIDECAR_NOT_APPROVED", /companion directml-1\.15\.4-windows-x64 .*is planned, not approved or pinned/],
+    [{ directml: { status: "stale-unverified" } }, "STAGE_SIDECAR_NOT_APPROVED", /stale-unverified/],
+    [{ directml: { arch: "aarch64" } }, "STAGE_SIDECAR_NOT_APPROVED", /windows\/aarch64 row, it does not serve windows\/x86_64/],
+    [{ directml: { os: "macos" } }, "STAGE_SIDECAR_NOT_APPROVED", /macos\/x86_64 row, it does not serve windows/],
+    [{ directml: { companions: [ORT_WIN_ID] } }, "STAGE_SIDECAR_NOT_APPROVED", /lists companions of its own/],
+    [{ directml: { artifactFileName: "onnxruntime.dll" } }, "STAGE_SIDECAR_NOT_APPROVED", /rows onnxruntime-1\.24\.4-windows-x64-directml and directml-1\.15\.4-windows-x64 both stage onnxruntime\.dll/],
+    [{ directml: { artifactFileName: "OnnxRuntime.DLL" } }, "STAGE_SIDECAR_NOT_APPROVED", /both stage/],
+    [{ directml: { noticeFiles: [] } }, "STAGE_SIDECAR_NOTICE_MISSING", /directml-1\.15\.4-windows-x64 lists no notice files/],
+    [{ directml: { noticeFiles: ["third-party/missing-notice.txt"] } }, "STAGE_SIDECAR_NOTICE_MISSING", /missing-notice\.txt/],
+  ];
+  for (const [fixtureOptions, code, message] of cases) {
+    const kit = winOrtFixture(fixtureOptions);
+    kit.files.delete(path.join(NATIVE_CRATE, "third-party", "missing-notice.txt"));
+    await assert.rejects(kit.stage([ORT_WIN_ENTRY]), { code, message }, JSON.stringify(fixtureOptions));
+    assert.deepEqual(kit.written(), [], `nothing staged, not even the library whose own checks passed: ${JSON.stringify(fixtureOptions)}`);
+  }
+  const twice = winOrtFixture();
+  twice.rows.push({ ...twice.rows[1] });
+  await assert.rejects(twice.stage([ORT_WIN_ENTRY]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /companion directml-1\.15\.4-windows-x64 of .* matches 2 native catalog rows/ });
+  // A companion failure found after the library was downloaded still leaves no staged file behind.
+  const late = winOrtFixture({ directml: { noticeFiles: ["third-party/missing-notice.txt"] } });
+  late.files.delete(path.join(NATIVE_CRATE, "third-party", "missing-notice.txt"));
+  await assert.rejects(late.stage([ORT_WIN_ENTRY]), { code: "STAGE_SIDECAR_NOTICE_MISSING" });
+  assert.equal(late.fs.existsSync(runtimeAt("onnxruntime.dll")), false);
+  // companions: false never looks at the companion at all.
+  const skipped = winOrtFixture({ directml: { status: "planned" } });
+  assert.deepEqual((await skipped.stage([{ ...ORT_WIN_ENTRY, companions: false }])).files.map((file) => file.name), ["onnxruntime.dll"]);
+});
+
+test("archive.member picks the one member among same-named ones for ORT, DirectML and PDFium; without it the bare name is ambiguous", async () => {
+  const pdfiumTgz = archiveOf("https://example.test/pdfium-win-x64.tgz", { "bin/pdfium.dll": peOf(0x8664, 0x55), "symbols/bin/pdfium.dll": peOf(0x8664, 0x56), "lib/pdfium.dll.lib": Buffer.from("import-lib") });
+  const pdfium = rowOf("pdfium-chromium-8021-windows-x64", "pdfium", "chromium/8021", "windows", "x86_64", pdfiumTgz.members["bin/pdfium.dll"], {
+    status: "pinned", artifactFileName: "pdfium.dll", contentSha256: contentOf(pdfiumTgz.members["bin/pdfium.dll"]), archive: archiveRef(pdfiumTgz, "bin/pdfium.dll"), hostProof: "never-run", licenseSpdx: "BSD-3-Clause",
+  });
+  const cases = [["onnxruntime", "1.24.4", "onnxruntime.dll", ORT_WIN_X64, ORT_MEMBER], ["directml", "1.15.4", "DirectML.dll", DML_WIN_X64, DML_MEMBER], ["pdfium", "chromium/8021", "pdfium.dll", pdfiumTgz.members["bin/pdfium.dll"], "bin/pdfium.dll"]];
+  for (const [library, version, name, bytes, member] of cases) {
+    const win = winOrtFixture();
+    const kit = nativeKit({ rows: [...win.rows, pdfium], archives: [win.ortNupkg, win.dmlNupkg, pdfiumTgz] });
+    const result = await kit.stage([{ kind: "native-library", library, version, companions: false, ...NATIVE_CATALOG_ENTRY }]);
+    assert.deepEqual(kit.extracted(), [member], library);
+    assert.deepEqual(kit.fs.readFileSync(runtimeAt(name)), bytes, `${library}: the file at archive.member, not the same-named decoy`);
+    assert.equal(result.files[0].name, name, "written under the artifactFileName, not the member path");
+    const bare = nativeKit({ rows: [...win.rows, pdfium].map((row) => (row.library === library ? { ...row, archive: { url: row.archive.url, sha256: row.archive.sha256 } } : row)), archives: [win.ortNupkg, win.dmlNupkg, pdfiumTgz] });
+    await assert.rejects(bare.stage([{ kind: "native-library", library, version, companions: false, ...NATIVE_CATALOG_ENTRY }]), { code: "STAGE_SIDECAR_EXTRACT_FAILED", message: /members named/ }, `${library} without archive.member`);
+  }
+});
+
+test("native-library stages PDFium: the pinned Windows row, and the macOS arm64 and x64 rows each from their own archive", async () => {
+  const dll = peOf(0x8664, 0x55);
+  const winTgz = archiveOf("https://example.test/chromium%2F8021/pdfium-win-x64.tgz", { "bin/pdfium.dll": dll });
+  const armTgz = archiveOf("https://example.test/chromium%2F8021/pdfium-mac-arm64.tgz", { "lib/libpdfium.dylib": Buffer.from("pdfium-arm64") });
+  const x64Tgz = archiveOf("https://example.test/chromium%2F8021/pdfium-mac-x64.tgz", { "lib/libpdfium.dylib": Buffer.from("pdfium-x64") });
+  const rows = [
+    rowOf("pdfium-chromium-8021-macos-arm64", "pdfium", "chromium/8021", "macos", "aarch64", Buffer.from("pdfium-arm64"), { status: "pinned", artifactFileName: "libpdfium.dylib", archive: archiveRef(armTgz, "lib/libpdfium.dylib"), licenseSpdx: "BSD-3-Clause" }),
+    rowOf("pdfium-chromium-8021-macos-x86_64", "pdfium", "chromium/8021", "macos", "x86_64", Buffer.from("pdfium-x64"), { status: "pinned", artifactFileName: "libpdfium.dylib", archive: archiveRef(x64Tgz, "lib/libpdfium.dylib"), licenseSpdx: "BSD-3-Clause" }),
+    rowOf("pdfium-chromium-8021-windows-x64", "pdfium", "chromium/8021", "windows", "x86_64", dll, { status: "pinned", artifactFileName: "pdfium.dll", contentSha256: contentOf(dll), archive: archiveRef(winTgz, "bin/pdfium.dll"), hostProof: "never-run", licenseSpdx: "BSD-3-Clause" }),
+  ];
+  const entry = { kind: "native-library", library: "pdfium", version: "chromium/8021", ...NATIVE_CATALOG_ENTRY };
+  const archives = [winTgz, armTgz, x64Tgz];
+  const win = nativeKit({ rows, archives, target: WIN });
+  const winResult = await win.stage([entry]);
+  assert.deepEqual(win.fs.readFileSync(runtimeAt("pdfium.dll")), dll);
+  assert.deepEqual([winResult.files[0].library, winResult.files[0].catalogRow, winResult.files[0].hostProof, winResult.files[0].version], ["pdfium", "pdfium-chromium-8021-windows-x64", "never-run", "chromium/8021"]);
+  assert.ok(win.fs.existsSync(at(".cache", "native-library", "pdfium-win-x64.tgz")), "the archive is cached under the neutral default cacheDir, named after the URL's last segment");
+  for (const [target, url, bytes, row] of [[MAC, armTgz.url, "pdfium-arm64", "pdfium-chromium-8021-macos-arm64"], ["x86_64-apple-darwin", x64Tgz.url, "pdfium-x64", "pdfium-chromium-8021-macos-x86_64"]]) {
+    const kit = nativeKit({ rows, archives, target });
+    const result = await kit.stage([entry]);
+    assert.deepEqual(kit.fetched, [url], target);
+    assert.equal(kit.fs.readFileSync(runtimeAt("libpdfium.dylib")).toString(), bytes);
+    assert.equal(result.files[0].catalogRow, row);
+    assert.equal("hostProof" in result.files[0], false, "a row that was run carries no hostProof");
+    assert.equal("contentSha256" in result.files[0], false, "the macOS rows pin the whole-file sha256 only");
+  }
+  const planned = nativeKit({ rows: rows.map((row) => (row.os === "windows" ? { ...row, status: "planned" } : row)), archives, target: WIN });
+  await assert.rejects(planned.stage([entry]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /pdfium-chromium-8021-windows-x64 is planned, not approved or pinned/ });
+  assert.deepEqual([planned.fetched, planned.written()], [[], []]);
+});
+
+/** The macOS arm64 whisper.cpp and ggml set (no archive: built and retained), each file a thin Mach-O with its own payload. */
+const GGML_FILES = ["libggml.0.20.2.dylib", "libggml-base.0.20.2.dylib", "libggml-cpu.0.20.2.dylib", "libggml-metal.0.20.2.dylib", "libggml-blas.0.20.2.dylib"];
+const SOURCE_DIR = "../retained/builds";
+const sourceAt = (name) => path.resolve(APP, SOURCE_DIR, name);
+const bytesOfLibrary = (name) => machoCpu(CPU_ARM64, Buffer.from(`payload of ${name}`), null);
+function whisperGgmlFixture({ target = MAC, seeded = {}, rows: rowsOver } = {}) {
+  const mac = (id, library, version, name, extra = {}) => rowOf(id, library, version, "macos", "aarch64", bytesOfLibrary(name), { artifactFileName: name, contentSha256: contentOf(bytesOfLibrary(name)), noticeFiles: [`third-party/${library}-MIT.txt`], ...extra });
+  const rows = rowsOver ?? [
+    mac("whisper-cpp-1.9.3-macos-arm64", "whisper-cpp", "1.9.3", "libwhisper.1.9.3.dylib"),
+    ...GGML_FILES.map((name) => mac(`${name.replace(/^lib|\.0\.20\.2\.dylib$/g, "")}-0.20.2-macos-arm64`, "ggml", "0.20.2", name)),
+  ];
+  const sources = Object.fromEntries(["libwhisper.1.9.3.dylib", ...GGML_FILES].map((name) => [sourceAt(name), bytesOfLibrary(name)]));
+  return { ...nativeKit({ rows, files: { ...sources, ...seeded }, target }), rows };
+}
+const GGML_ENTRY = { kind: "native-library", library: "ggml", version: "0.20.2", source: { dir: SOURCE_DIR }, ...NATIVE_CATALOG_ENTRY };
+const WHISPER_ENTRY = { kind: "native-library", library: "whisper-cpp", version: "1.9.3", source: { dir: SOURCE_DIR }, ...NATIVE_CATALOG_ENTRY };
+
+test("native-library stages a multi-file library (ggml) and whisper.cpp from source.dir: every row, no download, digests in the receipt", async () => {
+  const kit = whisperGgmlFixture();
+  const result = await kit.stage([GGML_ENTRY, WHISPER_ENTRY]);
+  assert.deepEqual(result.files.map((file) => file.name), [...GGML_FILES, "libwhisper.1.9.3.dylib"]);
+  for (const file of result.files) {
+    assert.deepEqual(kit.fs.readFileSync(at(...file.path.split("/"))), bytesOfLibrary(file.name), file.name);
+    assert.deepEqual([file.kind, file.sha256, file.contentSha256, file.externalBin], ["native-library", sha(bytesOfLibrary(file.name)), contentOf(bytesOfLibrary(file.name)), false]);
+    assert.equal("archiveSha256" in file, false, "no archive was used");
+    assert.equal(file.path, `src-tauri/resources/runtime/${file.name}`);
+  }
+  assert.deepEqual(result.files.map((file) => file.library), [...GGML_FILES.map(() => "ggml"), "whisper-cpp"]);
+  assert.deepEqual(kit.fetched, []);
+  assert.ok(kit.fs.existsSync(licenseAt("ggml-MIT.txt")) && kit.fs.existsSync(licenseAt("whisper-cpp-MIT.txt")));
+  assert.equal(kit.calls.filter((call) => call[0] === "tar").length, 0);
+});
+
+test("native-library from source.dir fails closed: a tampered file, a missing file and a row with no source write nothing", async () => {
+  const flip = (name) => { const bad = Buffer.from(bytesOfLibrary(name)); bad[0x1000] ^= 1; return bad; };
+  const tampered = whisperGgmlFixture({ seeded: { [sourceAt("libggml-metal.0.20.2.dylib")]: flip("libggml-metal.0.20.2.dylib") } });
+  await assert.rejects(tampered.stage([GGML_ENTRY]), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === contentOf(bytesOfLibrary("libggml-metal.0.20.2.dylib")) && error.details.actual === contentOf(flip("libggml-metal.0.20.2.dylib")) && /libggml-metal\.0\.20\.2\.dylib.*ggml-metal-0\.20\.2-macos-arm64/.test(error.message));
+  assert.deepEqual(tampered.written(), [], "the four files that verified are not staged either");
+
+  const wholeFileOnly = whisperGgmlFixture({ rows: [rowOf("sherpa-row", "sherpa-onnx", "1.13.4", "macos", "aarch64", Buffer.from("sherpa"), { artifactFileName: "libsherpa-onnx-c-api.dylib" })], seeded: { [sourceAt("libsherpa-onnx-c-api.dylib")]: Buffer.from("sherpa-tampered") } });
+  await assert.rejects(wholeFileOnly.stage([{ ...GGML_ENTRY, library: "sherpa-onnx", version: "1.13.4" }]), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === sha("sherpa") && error.details.actual === sha("sherpa-tampered"), "a row with only a whole-file sha256 is held to it");
+  assert.deepEqual(wholeFileOnly.written(), []);
+
+  const missing = whisperGgmlFixture();
+  missing.files.delete(sourceAt("libggml-cpu.0.20.2.dylib"));
+  await assert.rejects(missing.stage([GGML_ENTRY]), { code: "STAGE_SIDECAR_BINARY_NOT_FOUND", message: /source\.dir \.\.\/retained\/builds, which has no libggml-cpu\.0\.20\.2\.dylib/ });
+  assert.deepEqual(missing.written(), []);
+
+  const noSource = whisperGgmlFixture();
+  const { source: _source, ...withoutSource } = WHISPER_ENTRY;
+  await assert.rejects(noSource.stage([withoutSource]), { code: "STAGE_SIDECAR_CONFIG_INVALID", message: /whisper-cpp-1\.9\.3-macos-arm64 has no archive.*source: \{ dir \}/ });
+  assert.deepEqual([noSource.written(), noSource.fetched], [[], []]);
+  // The alias has no source key: a row without an archive is simply not approvable for it.
+  const alias = whisperGgmlFixture({ rows: [rowOf("ort-no-archive", "onnxruntime", "1.24.4", "macos", "aarch64", Buffer.from("x"), { artifactFileName: "libonnxruntime.dylib" })] });
+  await assert.rejects(alias.stage([{ kind: "onnxruntime", version: "1.24.4", ...NATIVE_CATALOG_ENTRY }]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /has no valid archive/ });
+});
+
+test("native-library files restricts a multi-file library; each name must match exactly one serving row", async () => {
+  const subset = whisperGgmlFixture();
+  const result = await subset.stage([{ ...GGML_ENTRY, files: ["libggml.0.20.2.dylib", "libggml-base.0.20.2.dylib"] }]);
+  assert.deepEqual(result.files.map((file) => file.name), ["libggml.0.20.2.dylib", "libggml-base.0.20.2.dylib"]);
+  assert.deepEqual(subset.written().filter((file) => file.endsWith(".dylib")), ["src-tauri/resources/runtime/libggml-base.0.20.2.dylib", "src-tauri/resources/runtime/libggml.0.20.2.dylib"]);
+  const order = whisperGgmlFixture();
+  assert.deepEqual((await order.stage([{ ...GGML_ENTRY, files: ["libggml-base.0.20.2.dylib", "libggml.0.20.2.dylib"] }])).files.map((file) => file.name), ["libggml-base.0.20.2.dylib", "libggml.0.20.2.dylib"], "the order of files is the order staged");
+
+  const unknown = whisperGgmlFixture();
+  await assert.rejects(unknown.stage([{ ...GGML_ENTRY, files: ["libggml.0.20.2.dylib", "libggml-vulkan.dylib"] }]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /no ggml 0\.20\.2 macos\/aarch64 row for libggml-vulkan\.dylib/ });
+  assert.deepEqual(unknown.written(), []);
+  const planned = whisperGgmlFixture();
+  planned.rows.find((row) => row.artifactFileName === "libggml-cpu.0.20.2.dylib").status = "planned";
+  await assert.rejects(planned.stage([{ ...GGML_ENTRY, files: ["libggml-cpu.0.20.2.dylib"] }]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /row ggml-cpu-0\.20\.2-macos-arm64 for libggml-cpu\.0\.20\.2\.dylib is planned, not approved or pinned/ });
+  // Without files a planned row is not staged (and is said so); the serving rows still are.
+  const partial = whisperGgmlFixture();
+  const last = partial.rows.find((row) => row.artifactFileName === "libggml-blas.0.20.2.dylib");
+  last.status = "planned";
+  assert.equal((await partial.stage([GGML_ENTRY])).files.length, 4);
+  assert.ok(partial.messages.some((line) => /not staging ggml-blas-0\.20\.2-macos-arm64 \(planned\)/.test(line)), partial.messages.join("\n"));
+  const dup = whisperGgmlFixture();
+  dup.rows.push({ ...dup.rows.find((row) => row.artifactFileName === "libggml.0.20.2.dylib"), id: "ggml-again" });
+  await assert.rejects(dup.stage([GGML_ENTRY]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /2 ggml 0\.20\.2 macos\/aarch64 rows for libggml\.0\.20\.2\.dylib/ });
+});
+
+test("native-library as renames the single staged file and is refused, typed, when more than one file would be staged", async () => {
+  const many = whisperGgmlFixture();
+  await assert.rejects(many.stage([{ ...GGML_ENTRY, as: "libggml.dylib" }]), { code: "STAGE_SIDECAR_CONFIG_INVALID", message: /as "libggml\.dylib" renames one file, but the ggml 0\.20\.2 macos\/aarch64 rows stage 5/ });
+  assert.deepEqual(many.written(), []);
+  const one = whisperGgmlFixture();
+  const result = await one.stage([{ ...WHISPER_ENTRY, as: "libwhisper.dylib" }]);
+  assert.equal(result.files[0].name, "libwhisper.dylib");
+  assert.deepEqual(one.fs.readFileSync(runtimeAt("libwhisper.dylib")), bytesOfLibrary("libwhisper.1.9.3.dylib"));
+  assert.equal(one.fs.existsSync(runtimeAt("libwhisper.1.9.3.dylib")), false);
+  const subsetOfOne = whisperGgmlFixture();
+  assert.equal((await subsetOfOne.stage([{ ...GGML_ENTRY, files: ["libggml.0.20.2.dylib"], as: "libggml.dylib" }])).files[0].name, "libggml.dylib");
+  assert.throws(() => validateSidecarManifest([{ ...GGML_ENTRY, files: ["libggml.0.20.2.dylib", "libggml-base.0.20.2.dylib"], as: "x.dylib" }], { target: MAC }), { code: "STAGE_SIDECAR_CONFIG_INVALID", message: /as renames one file, so files must list exactly one \(it lists 2\)/ });
+});
+
+test("native-library from source.dir accepts a re-signed copy by its content digest, and refuses changed code or a malformed file", async () => {
+  const payload = Buffer.from("symtab-and-strtab-bytes!");
+  const unsigned = machoCpu(CPU_ARM64, payload, null);
+  const signed = machoCpu(CPU_ARM64, payload, Buffer.alloc(300, 0x11));
+  assert.equal(contentOf(signed), contentOf(unsigned), "signed and unsigned share one content digest");
+  assert.notEqual(sha(signed), sha(unsigned), "while the whole-file sha256 differs");
+  const row = rowOf("whisper-cpp-1.9.3-macos-arm64", "whisper-cpp", "1.9.3", "macos", "aarch64", unsigned, { artifactFileName: "libwhisper.1.9.3.dylib", contentSha256: contentOf(unsigned) });
+  const attempt = (bytes, over = {}) => { const kit = nativeKit({ rows: [{ ...row, ...over }], files: { [sourceAt("libwhisper.1.9.3.dylib")]: bytes }, target: MAC }); return { kit, run: kit.stage([WHISPER_ENTRY]) }; };
+
+  const ok = attempt(signed);
+  const [file] = (await ok.run).files;
+  assert.deepEqual(ok.kit.fs.readFileSync(runtimeAt("libwhisper.1.9.3.dylib")), signed, "the copy is staged as it is");
+  assert.deepEqual([file.sha256, file.contentSha256], [sha(signed), contentOf(unsigned)], "the receipt sha256 is the staged file's own hash; the row's content digest rides beside it");
+
+  const changed = Buffer.from(signed); changed[0x1000] ^= 1;
+  const tampered = attempt(changed);
+  await assert.rejects(tampered.run, (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === contentOf(unsigned) && error.details.actual === contentOf(changed) && /content digest/.test(error.message));
+  assert.deepEqual(tampered.kit.written(), []);
+
+  const malformed = attempt(signed.subarray(0, 100));
+  await assert.rejects(malformed.run, (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.actual === null && /unreadable \(Mach-O/.test(error.message), "a malformed Mach-O is a typed refusal, never a plain-hash fallback");
+  assert.deepEqual(malformed.kit.written(), []);
+
+  // With only a whole-file sha256 pinned, a re-signed copy is not the pinned file.
+  await assert.rejects(attempt(signed, { contentSha256: undefined }).run, (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === sha(unsigned) && error.details.actual === sha(signed));
+  assert.deepEqual((await attempt(unsigned, { contentSha256: undefined }).run).files[0].sha256, sha(unsigned));
+  // A row that pins no digest never serves, from a source dir or an archive.
+  await assert.rejects(attempt(unsigned, { sha256: undefined, contentSha256: undefined }).run, { code: "STAGE_SIDECAR_NOT_APPROVED", message: /pins no digest.*never serves/ });
+  await assert.rejects(attempt(unsigned, { contentSha256: "xyz" }).run, { code: "STAGE_SIDECAR_NOT_APPROVED", message: /contentSha256 is not a lowercase 64-hex/ });
+});
+
+test("native-library holds an archive member to the whole-file sha256 AND the content digest", async () => {
+  const unsigned = peOf(0x8664, 0x66);
+  const signed = peOf(0x8664, 0x66, Buffer.alloc(64, 7));
+  assert.equal(contentOf(signed), contentOf(unsigned));
+  const tgz = archiveOf("https://example.test/pdfium-win-x64.tgz", { "bin/pdfium.dll": signed });
+  const pdfium = (over = {}) => rowOf("pdfium-chromium-8021-windows-x64", "pdfium", "chromium/8021", "windows", "x86_64", signed, { status: "pinned", artifactFileName: "pdfium.dll", contentSha256: contentOf(unsigned), archive: archiveRef(tgz, "bin/pdfium.dll"), ...over });
+  const attempt = (over) => { const kit = nativeKit({ rows: [pdfium(over)], archives: [tgz] }); return { kit, run: kit.stage([{ kind: "native-library", library: "pdfium", version: "chromium/8021", ...NATIVE_CATALOG_ENTRY }]) }; };
+  const ok = attempt({});
+  assert.deepEqual([(await ok.run).files[0].sha256, ok.kit.fs.readFileSync(runtimeAt("pdfium.dll")).equals(signed)], [sha(signed), true]);
+  const wrongContent = attempt({ contentSha256: sha("another build") });
+  await assert.rejects(wrongContent.run, (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === sha("another build") && error.details.actual === contentOf(unsigned) && /content digest/.test(error.message));
+  assert.deepEqual(wrongContent.kit.written(), []);
+  const wrongWhole = attempt({ sha256: sha("another file") });
+  await assert.rejects(wrongWhole.run, (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === sha("another file") && error.details.actual === sha(signed) && /sha256/.test(error.message));
+  assert.deepEqual(wrongWhole.kit.written(), []);
+  const contentOnly = attempt({ sha256: undefined });
+  assert.equal((await contentOnly.run).files[0].name, "pdfium.dll");
+  await assert.rejects(attempt({ archive: { ...archiveRef(tgz, "bin/pdfium.dll"), sha256: sha("other archive") } }).run, { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /downloaded as/ });
+});
+
+test("native-library: the staged-file shortcut applies the same check, a file is never trusted because it exists", async () => {
+  const kitFor = (staged) => whisperGgmlFixture({ seeded: staged === undefined ? {} : { [runtimeAt("libwhisper.1.9.3.dylib")]: staged } });
+  const wrong = kitFor(Buffer.from("something else that is staged"));
+  await wrong.stage([WHISPER_ENTRY]);
+  assert.deepEqual(wrong.fs.readFileSync(runtimeAt("libwhisper.1.9.3.dylib")), bytesOfLibrary("libwhisper.1.9.3.dylib"), "a staged file that fails the row's digest is replaced from the verified source");
+  assert.ok(wrong.log.copies.some((copy) => copy.startsWith(runtimeAt("libwhisper.1.9.3.dylib"))), "copied through a temporary file beside the destination");
+  const right = kitFor(bytesOfLibrary("libwhisper.1.9.3.dylib"));
+  const result = await right.stage([WHISPER_ENTRY]);
+  assert.equal(right.log.copies.some((copy) => copy.startsWith(runtimeAt("libwhisper.1.9.3.dylib"))), false, "a verified staged file is not rewritten");
+  assert.ok(right.messages.some((line) => /libwhisper\.1\.9\.3\.dylib already staged/.test(line)));
+  assert.equal(result.files[0].sha256, sha(bytesOfLibrary("libwhisper.1.9.3.dylib")));
+  // A bad staged file with a tampered source is refused: the wrong bytes are not left to ship under the receipt.
+  const flipped = Buffer.from(bytesOfLibrary("libwhisper.1.9.3.dylib")); flipped[0x1000] ^= 1;
+  const both = whisperGgmlFixture({ seeded: { [runtimeAt("libwhisper.1.9.3.dylib")]: flipped, [sourceAt("libwhisper.1.9.3.dylib")]: flipped } });
+  await assert.rejects(both.stage([WHISPER_ENTRY]), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
+  // The same holds for an archive row: a wrong staged file is re-extracted, not trusted.
+  const kit = winOrtFixture();
+  kit.files.set(runtimeAt("onnxruntime.dll"), Buffer.from("not the pinned dll"));
+  await kit.stage([{ ...ORT_WIN_ENTRY, companions: false }]);
+  assert.deepEqual(kit.fs.readFileSync(runtimeAt("onnxruntime.dll")), ORT_WIN_X64);
+  assert.deepEqual(kit.fetched, ["https://api.example.test/ort.nupkg"]);
+  const warm = winOrtFixture();
+  warm.files.set(runtimeAt("onnxruntime.dll"), ORT_WIN_X64);
+  await warm.stage([{ ...ORT_WIN_ENTRY, companions: false }]);
+  assert.deepEqual([warm.fetched, warm.extracted()], [[], []], "a verified staged file needs no download");
+});
+
+/** Universal ORT 1.30.0 shaped row: a fat Mach-O in a .zip, pinned by contentSha256ByArch. */
+const ORT_ARM_THIN = machoCpu(CPU_ARM64, Buffer.from("arm64 slice payload"), null);
+const ORT_X86_THIN = machoCpu(CPU_X86_64, Buffer.from("x86_64 slice payload"), null);
+const ORT_FAT = fatOf([[CPU_ARM64, ORT_ARM_THIN], [CPU_X86_64, ORT_X86_THIN]]);
+const ORT_BY_ARCH = { aarch64: contentOf(ORT_ARM_THIN, "aarch64"), x86_64: contentOf(ORT_X86_THIN, "x86_64") };
+const ORT_ZIP_ENTRY_MEMBER = "onnxruntime-osx-universal2-1.30.0/lib/libonnxruntime.dylib";
+const ORT_UNIVERSAL_ENTRY = { kind: "native-library", library: "onnxruntime", version: "1.30.0", ...NATIVE_CATALOG_ENTRY };
+function universalOrtFixture({ target = MAC, row: over = {}, bytes = ORT_FAT, lipoArchs } = {}) {
+  const zip = archiveOf("https://example.test/onnxruntime-osx-universal2-1.30.0.zip", { [ORT_ZIP_ENTRY_MEMBER]: bytes });
+  const row = rowOf("onnxruntime-1.30.0-macos-universal2", "onnxruntime", "1.30.0", "macos", "universal", bytes, { artifactFileName: "libonnxruntime.dylib", contentSha256ByArch: ORT_BY_ARCH, archive: archiveRef(zip), noticeFiles: ["third-party/ONNXRuntime-MIT.txt"], ...over });
+  return { ...nativeKit({ rows: [row], archives: [zip], target, ...(lipoArchs ? { lipoArchs } : {}) }), row };
+}
+
+test("native-library verifies contentSha256ByArch slice by slice for a universal row, from an archive and from source.dir", async () => {
+  const ok = universalOrtFixture();
+  const [file] = (await ok.stage([ORT_UNIVERSAL_ENTRY])).files;
+  assert.deepEqual(ok.extracted(), [ORT_ZIP_ENTRY_MEMBER], "the zip-derived member serves a native-library entry too");
+  assert.deepEqual([file.sha256, file.contentSha256ByArch, "contentSha256" in file, file.catalogRow], [sha(ORT_FAT), ORT_BY_ARCH, false, "onnxruntime-1.30.0-macos-universal2"]);
+  assert.equal(ok.calls.filter((call) => call[0] === "lipo").length, 0, "a thin target never runs lipo");
+  for (const [arch, wrong] of [["aarch64", { ...ORT_BY_ARCH, aarch64: sha("wrong slice") }], ["x86_64", { ...ORT_BY_ARCH, x86_64: sha("wrong slice") }]]) {
+    const bad = universalOrtFixture({ row: { contentSha256ByArch: wrong } });
+    await assert.rejects(bad.stage([ORT_UNIVERSAL_ENTRY]), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === sha("wrong slice") && error.details.actual === ORT_BY_ARCH[arch] && error.message.includes(`${arch} content digest`), arch);
+    assert.deepEqual(bad.written(), []);
+  }
+  const thin = universalOrtFixture({ bytes: ORT_ARM_THIN });
+  await assert.rejects(thin.stage([ORT_UNIVERSAL_ENTRY]), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.actual === null && /x86_64 content digest.*no matching slice/.test(error.message), "a thin file has no x86_64 slice to match");
+
+  // A copy whose arm64 slice was re-signed has another whole-file hash and the same slice digests.
+  const resigned = fatOf([[CPU_ARM64, machoCpu(CPU_ARM64, Buffer.from("arm64 slice payload"), Buffer.alloc(200, 9))], [CPU_X86_64, ORT_X86_THIN]]);
+  assert.notEqual(sha(resigned), sha(ORT_FAT));
+  const { archive: _archive, ...noArchive } = ok.row;
+  const local = nativeKit({ rows: [noArchive], files: { [sourceAt("libonnxruntime.dylib")]: resigned }, target: MAC });
+  const localResult = await local.stage([{ ...ORT_UNIVERSAL_ENTRY, source: { dir: SOURCE_DIR } }]);
+  assert.deepEqual([localResult.files[0].sha256, localResult.files[0].contentSha256ByArch], [sha(resigned), ORT_BY_ARCH]);
+  const otherSlice = fatOf([[CPU_ARM64, ORT_ARM_THIN], [CPU_X86_64, machoCpu(CPU_X86_64, Buffer.from("different x86_64 payload"), null)]]);
+  const badLocal = nativeKit({ rows: [noArchive], files: { [sourceAt("libonnxruntime.dylib")]: otherSlice }, target: MAC });
+  await assert.rejects(badLocal.stage([{ ...ORT_UNIVERSAL_ENTRY, source: { dir: SOURCE_DIR } }]), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === ORT_BY_ARCH.x86_64);
+  assert.deepEqual(badLocal.written(), []);
+});
+
+test("universal-apple-darwin stages a universal native-library row once, checks it with lipo -archs, and writes nothing for a thin file", async () => {
+  const ok = universalOrtFixture({ target: UNIVERSAL });
+  const [file] = (await ok.stage([ORT_UNIVERSAL_ENTRY])).files;
+  assert.deepEqual(ok.calls.filter((call) => call[0] === "lipo").map((call) => call[1]), ["-archs"]);
+  assert.deepEqual(ok.fs.readFileSync(runtimeAt("libonnxruntime.dylib")), ORT_FAT);
+  assert.deepEqual(file.slices.map((slice) => [slice.triple, slice.catalogRow, slice.contentSha256]), [["aarch64-apple-darwin", file.catalogRow, ORT_BY_ARCH.aarch64], ["x86_64-apple-darwin", file.catalogRow, ORT_BY_ARCH.x86_64]]);
+  assert.deepEqual([file.sourceSha256, file.library, file.archiveSha256], [sha(ORT_FAT), "onnxruntime", ok.row.archive.sha256]);
+  const thin = universalOrtFixture({ target: UNIVERSAL, lipoArchs: "arm64\n" });
+  await assert.rejects(thin.stage([ORT_UNIVERSAL_ENTRY]), { code: "STAGE_SIDECAR_NOT_UNIVERSAL" });
+  assert.deepEqual(thin.written(), [], "the verified file is checked with lipo before it is written");
+  // sherpa-onnx: a universal row measured from a retained build (no archive) is staged once from source.dir by its whole-file sha256.
+  const dylib = Buffer.from("sherpa universal dylib");
+  const sherpa = rowOf("sherpa-onnx-1.13.4-macos-universal", "sherpa-onnx", "1.13.4", "macos", "universal", dylib, { artifactFileName: "libsherpa-onnx-c-api.dylib", licenseSpdx: "Apache-2.0" });
+  const kit = nativeKit({ rows: [sherpa], files: { [sourceAt("libsherpa-onnx-c-api.dylib")]: dylib }, target: UNIVERSAL });
+  const staged = await kit.stage([{ kind: "native-library", library: "sherpa-onnx", version: "1.13.4", source: { dir: SOURCE_DIR }, ...NATIVE_CATALOG_ENTRY }]);
+  assert.deepEqual([staged.files[0].name, staged.files[0].sha256, staged.files[0].license, "archiveSha256" in staged.files[0]], ["libsherpa-onnx-c-api.dylib", sha(dylib), "Apache-2.0", false]);
+  assert.deepEqual(kit.calls.filter((call) => call[0] === "lipo").map((call) => call[1]), ["-archs"]);
+});
+
+test("universal-apple-darwin refuses a library whose rows are only aarch64 (whisper.cpp, ggml) instead of guessing", async () => {
+  for (const entry of [WHISPER_ENTRY, GGML_ENTRY]) {
+    const kit = whisperGgmlFixture({ target: UNIVERSAL });
+    await assert.rejects(kit.stage([entry]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: new RegExp(`no ${entry.library} ${entry.version.replaceAll(".", "\\.")} macos/x86_64 row`) }, entry.library);
+    assert.deepEqual([kit.written(), kit.calls.filter((call) => call[0] === "lipo")], [[], []]);
+  }
+  const x86 = whisperGgmlFixture({ target: "x86_64-apple-darwin" });
+  await assert.rejects(x86.stage([WHISPER_ENTRY]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /no whisper-cpp 1\.9\.3 macos\/x86_64 row/ });
+});
+
+test("universal-apple-darwin merges a multi-file native-library file by file, from exact-arch rows", async () => {
+  const names = ["libggml.0.20.2.dylib", "libggml-base.0.20.2.dylib"];
+  const slice = (arch, name) => machoCpu(arch === "aarch64" ? CPU_ARM64 : CPU_X86_64, Buffer.from(`${arch} ${name}`), null);
+  const archives = Object.fromEntries(["aarch64", "x86_64"].map((arch) => [arch, archiveOf(`https://example.test/ggml-${arch}.tgz`, Object.fromEntries(names.map((name) => [`lib/${name}`, slice(arch, name)])))]));
+  const rows = ["aarch64", "x86_64"].flatMap((arch) => names.map((name) => rowOf(`${name}-${arch}`, "ggml", "0.20.2", "macos", arch, slice(arch, name), { artifactFileName: name, contentSha256: contentOf(slice(arch, name)), archive: archiveRef(archives[arch], `lib/${name}`) })));
+  const kit = nativeKit({ rows, archives: Object.values(archives), target: UNIVERSAL });
+  const result = await kit.stage([{ kind: "native-library", library: "ggml", version: "0.20.2", ...NATIVE_CATALOG_ENTRY }]);
+  assert.deepEqual(result.files.map((file) => file.name), names);
+  assert.equal(kit.calls.filter((call) => call[0] === "lipo" && call[1] === "-create").length, 2, "one lipo -create per file");
+  for (const [index, name] of names.entries()) {
+    const file = result.files[index];
+    assert.equal(kit.fs.readFileSync(runtimeAt(name)).toString(), `fat:${slice("aarch64", name)}+${slice("x86_64", name)}`);
+    assert.ok(kit.fs.existsSync(at(".right-release", "slices", "aarch64-apple-darwin", name)) && kit.fs.existsSync(at(".right-release", "slices", "x86_64-apple-darwin", name)));
+    assert.equal(file.catalogRow, `${name}-aarch64+${name}-x86_64`);
+    assert.deepEqual(file.slices.map((part) => [part.triple, part.sha256, part.contentSha256]), [["aarch64-apple-darwin", sha(slice("aarch64", name)), contentOf(slice("aarch64", name))], ["x86_64-apple-darwin", sha(slice("x86_64", name)), contentOf(slice("x86_64", name))]]);
+    assert.deepEqual([file.library, file.kind], ["ggml", "native-library"]);
+  }
+  // Both arches must name the same files.
+  const uneven = nativeKit({ rows: rows.filter((row) => !(row.arch === "x86_64" && row.artifactFileName === names[1])), archives: Object.values(archives), target: UNIVERSAL });
+  await assert.rejects(uneven.stage([{ kind: "native-library", library: "ggml", version: "0.20.2", ...NATIVE_CATALOG_ENTRY }]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /arch rows name different library files/ });
+});
+
+test("hostProof never-run: the row stages with a warning that names it, the receipt carries it, and a contradictory hostProof is refused", async () => {
+  const kit = winOrtFixture();
+  const result = await kit.stage([ORT_WIN_ENTRY]);
+  const warnings = kit.messages.filter((line) => /warning/.test(line));
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings[0].includes(ORT_WIN_ID) && warnings[0].includes("hostProof never-run") && warnings[0].includes("onnxruntime.dll"), warnings[0]);
+  assert.ok(warnings[1].includes(DML_ID) && warnings[1].includes("DirectML.dll"), warnings[1]);
+  assert.deepEqual(result.files.map((file) => file.hostProof), ["never-run", "never-run"]);
+  assert.equal(JSON.parse(kit.fs.readFileSync(at("src-tauri", "binaries", "stage-sidecar.json")).toString()).files[0].hostProof, "never-run", "the receipt on disk carries it");
+  const proven = whisperGgmlFixture();
+  const provenResult = await proven.stage([WHISPER_ENTRY]);
+  assert.deepEqual([proven.messages.filter((line) => /warning/.test(line)), "hostProof" in provenResult.files[0]], [[], false]);
+  const approved = winOrtFixture({ ort: { status: "approved" } });
+  await assert.rejects(approved.stage([ORT_WIN_ENTRY]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /carries hostProof "never-run".*never on an approved row/ });
+  assert.deepEqual(approved.written(), []);
+  await assert.rejects(winOrtFixture({ ort: { hostProof: "proven" } }).stage([ORT_WIN_ENTRY]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: /carries hostProof "proven"/ });
+  for (const bad of [{ kind: "native-library", library: "x", name: "a", path: "a", sha256: sha("a"), sizeBytes: 1, hostProof: "proven" }, { kind: "onnxruntime", name: "a", path: "a", sha256: sha("a"), sizeBytes: 1, companionOf: "" }, { kind: "native-library", name: "a", path: "a", sha256: sha("a"), sizeBytes: 1 }]) {
+    assert.throws(() => validateStageSidecarReceipt({ schema: 1, contract: "rightkit-stage-sidecar-v1", target: MAC, files: [bad] }), { code: "STAGE_SIDECAR_RECEIPT_INVALID" });
+  }
+});
+
+test("native-library configuration is validated: library, version token, files, source.dir, companions, and the keys the alias keeps", () => {
+  const base = { kind: "native-library", library: "pdfium", version: "chromium/8021", catalog: "c.json" };
+  const errorsOf = (...items) => { try { validateSidecarManifest(items, { target: MAC }); } catch (error) { assert.equal(error.code, "STAGE_SIDECAR_CONFIG_INVALID"); return error.details.errors; } return []; };
+  const refuses = (over, needle) => assert.ok(errorsOf({ ...base, ...over }).some((line) => needle.test(line)), `${JSON.stringify(over)} -> ${errorsOf({ ...base, ...over }).join(" | ")}`);
+  refuses({ library: undefined }, /library is required/);
+  refuses({ library: "tesseract" }, /unknown library "tesseract" \(one of onnxruntime, directml, pdfium, whisper-cpp, ggml, sherpa-onnx\)/);
+  refuses({ library: "sqlite-vec" }, /library sqlite-vec is a static crate: depend on it through Cargo/);
+  refuses({ library: "libgit2" }, /library libgit2 is a static crate: depend on it through Cargo/);
+  refuses({ library: "ffmpeg" }, /library ffmpeg has its own kind: use \{ kind: "ffmpeg"/);
+  refuses({ library: "constructor" }, /unknown library "constructor"/);
+  for (const version of [undefined, "", "../x", "a b", "chromium\\8021", "-1.0", ".1", "x".repeat(65), 1]) refuses({ version }, /version must be a catalog version token/);
+  for (const files of ["libx.dylib", [], [""], ["sub/libx.dylib"], ["../libx.dylib"], ["a\\b.dll"], [5], ["libx.dylib", "libx.dylib"]]) refuses({ files }, /files (must be a non-empty list of bare file names|names a file twice)/);
+  for (const source of ["dir", {}, { dir: "" }, { dir: "   " }, { dir: 5 }, { dir: "https://x.example/builds" }, { dir: "." }, { dir: ".." }, { dir: "../" }, { dir: "C:builds" }]) refuses({ source }, /source(\.dir)? must (be|name)/);
+  refuses({ source: { dir: "builds", url: "https://x.example/f" } }, /source: unknown key "url"/);
+  refuses({ companions: "yes" }, /companions must be a boolean/);
+  refuses({ as: "sub/x.dll" }, /as must be a bare file name/);
+  refuses({ clean: true }, /unknown key "clean"/);
+  refuses({ files: ["a.dll", "b.dll"], as: "c.dll" }, /as renames one file, so files must list exactly one \(it lists 2\)/);
+  assert.ok(errorsOf({ kind: "onnxruntime", version: "1.24.4", catalog: "c.json", library: "pdfium" }).some((line) => /unknown key "library" \(allowed: kind, version, catalog, resourceDir, as, licenseDir, cacheDir, companions, platforms\)/.test(line)));
+  assert.ok(errorsOf({ kind: "onnxruntime", version: "1.24.4", files: ["a.dll"] }, { kind: "onnxruntime", version: "1.24.4", source: { dir: "x" } }).length >= 2, "the alias keeps its own key list");
+  assert.ok(errorsOf({ kind: "onnxruntime", version: "chromium/8021" }).some((line) => /version must be x\.y\.z/.test(line)), "the alias keeps x.y.z");
+
+  const ok = validateSidecarManifest([
+    base,
+    { ...base, library: "ggml", version: "0.20.2", catalog: { crate: "rightkit-ffmpeg" }, files: ["libggml.0.20.2.dylib"], as: "libggml.dylib", companions: false, source: { dir: "../retained/ggml/" }, resourceDir: "src-tauri/lib", licenseDir: "legal/ggml", cacheDir: ".cache/ggml" },
+    { ...base, library: "whisper-cpp", version: "1.9.3", source: { dir: path.resolve("/abs/builds") } },
+    { kind: "onnxruntime", version: "1.24.4", catalog: "c.json" },
+  ], { target: MAC }).entries;
+  assert.deepEqual([ok[0].library, ok[0].version, ok[0].resourceDir, ok[0].licenseDir, ok[0].cacheDir, ok[0].companions, ok[0].source, ok[0].files], ["pdfium", "chromium/8021", "src-tauri/resources/runtime", "src-tauri/resources/runtime/LICENSES", ".cache/native-library", true, undefined, undefined]);
+  assert.deepEqual([ok[1].files, ok[1].as, ok[1].companions, ok[1].source, ok[1].cacheDir, ok[1].licenseDir, ok[1].catalogSpec], [["libggml.0.20.2.dylib"], "libggml.dylib", false, { dir: "../retained/ggml" }, ".cache/ggml", "legal/ggml", { via: "crate", crate: "rightkit-ffmpeg", file: "catalog/native-libraries.json" }]);
+  assert.deepEqual(ok[2].source, { dir: path.resolve("/abs/builds") });
+  assert.deepEqual([ok[3].library, ok[3].companions, ok[3].cacheDir], ["onnxruntime", true, ".cache/onnxruntime"], "the alias keeps its cache directory and gains companions: true");
+  // An entry skipped on this platform is still shape-checked.
+  assert.ok(errorsOf({ ...base, platforms: ["win"], library: "nope" }).length > 0);
+});
+
+test("native-library outputs are claimed, and its cacheDir is protected like the alias's", () => {
+  const entry = { kind: "native-library", library: "ggml", version: "0.20.2", catalog: "c.json" };
+  const clash = (...items) => { try { validateSidecarManifest(items, { target: MAC }); } catch (error) { return error.details.errors; } return []; };
+  assert.ok(clash({ ...entry, files: ["libggml.dylib"] }, { ...entry, library: "whisper-cpp", version: "1.9.3", files: ["libggml.dylib"] }).some((line) => /writes src-tauri\/resources\/runtime\/libggml\.dylib, which sidecars\[0\] \(native-library\) already writes/.test(line)));
+  assert.ok(clash({ ...entry, files: ["a.dylib"] }, { kind: "resource", from: "x", to: "src-tauri/resources/runtime/a.dylib" }).some((line) => /already writes/.test(line)));
+  assert.ok(clash({ ...entry, as: "b.dylib", files: ["a.dylib"] }, { kind: "resource", from: "x", to: "src-tauri/resources/runtime/b.dylib" }).some((line) => /already writes/.test(line)), "`as` is the claimed name");
+  assert.deepEqual(clash({ ...entry, files: ["a.dylib"] }, { ...entry, library: "ggml", files: ["b.dylib"] }), [], "different files in one resource directory do not clash");
+  assert.deepEqual(clash(entry, { ...entry, library: "whisper-cpp" }), [], "a catalog-driven entry names nothing at validation time");
+  assert.ok(clash(entry, { kind: "resource", from: "x", to: ".cache/native-library" }).some((line) => /is or contains \.cache\/native-library/.test(line)));
+  assert.ok(clash({ ...entry, cacheDir: ".cache/ggml-builds" }, { kind: "resource", from: "x", to: ".cache/ggml-builds" }).some((line) => /is or contains \.cache\/ggml-builds/.test(line)));
+  assert.deepEqual(clash({ ...entry, platforms: ["win"], files: ["a.dylib"] }, { kind: "resource", from: "x", to: "src-tauri/resources/runtime/a.dylib" }), [], "a skipped entry claims nothing");
+});
+
+test("--check lists native-library outputs with no catalog: the files named, the name as gives, or the catalog's artifactFileName", () => {
+  const manifest = [
+    { kind: "native-library", library: "ggml", version: "0.20.2", catalog: "c.json", files: ["libggml.0.20.2.dylib", "libggml-base.0.20.2.dylib"], source: { dir: "../retained" } },
+    { kind: "native-library", library: "whisper-cpp", version: "1.9.3", catalog: "c.json", files: ["libwhisper.1.9.3.dylib"], as: "libwhisper.dylib" },
+    { kind: "native-library", library: "pdfium", version: "chromium/8021", catalog: "c.json", resourceDir: "src-tauri/resources/pdf" },
+    { kind: "native-library", library: "sherpa-onnx", version: "1.13.4", catalog: "c.json", as: "libsherpa.dylib", platforms: ["win"] },
+    { kind: "onnxruntime", version: "1.30.0", catalog: "c.json" },
+  ];
+  const plan = planSidecarStaging({ manifest, target: MAC, env: {} });
+  assert.deepEqual(plan.entries[0].outputs, ["src-tauri/resources/runtime/libggml.0.20.2.dylib", "src-tauri/resources/runtime/libggml-base.0.20.2.dylib"]);
+  assert.deepEqual(plan.entries[1].outputs, ["src-tauri/resources/runtime/libwhisper.dylib"]);
+  assert.deepEqual(plan.entries[2].outputs, ["src-tauri/resources/pdf/<catalog artifactFileName>"]);
+  assert.equal(plan.entries[3].skipped, true);
+  assert.deepEqual(plan.entries[4].outputs, ["src-tauri/resources/runtime/<catalog artifactFileName>"]);
+  assert.deepEqual([plan.entries[0].library, plan.entries[0].version, plan.entries[0].externalBin, plan.entries[2].version, "library" in plan.entries[4]], ["ggml", "0.20.2", false, "chromium/8021", false]);
+  assert.ok(formatSidecarPlan(plan).some((line) => line.includes("[2] native-library: src-tauri/resources/pdf/<catalog artifactFileName>")));
+  assert.throws(() => planSidecarStaging({ manifest: [{ kind: "native-library", library: "sqlite-vec", version: "0.1.9", catalog: "c.json" }], target: MAC, env: {} }), { code: "STAGE_SIDECAR_CONFIG_INVALID" });
+});
+
+// ---- the real native catalog (crates/rightkit-ffmpeg/catalog/native-libraries.json): self-consistent, and selectable without a network ----
+
+const REAL_CRATE_DIR = path.dirname(path.dirname(fileURLToPath(new URL("../../crates/rightkit-ffmpeg/catalog/native-libraries.json", import.meta.url))));
+const HEX64 = /^[0-9a-f]{64}$/;
+
+test("the real native catalog: every dynamic-library row is consistent (digests, https archives, notice files, companions, hostProof, planned rows)", () => {
+  const rows = ORT_REAL_CATALOG.libraries;
+  const servingStatus = (row) => row.status === "approved" || row.status === "pinned";
+  assert.equal(new Set(rows.map((row) => row.id)).size, rows.length, "row ids are unique");
+  const dynamic = rows.filter((row) => row.linkage === "dynamic-library");
+  assert.ok(dynamic.length >= 20, `${dynamic.length} dynamic-library rows`);
+  for (const row of dynamic) {
+    if (servingStatus(row)) {
+      assert.ok([row.sha256, row.contentSha256, ...Object.values(row.contentSha256ByArch ?? {})].some((digest) => HEX64.test(digest ?? "")), `${row.id} pins a sha256 or a content digest`);
+      assert.match(row.artifactFileName ?? "", /^[A-Za-z0-9][A-Za-z0-9_.-]*$/, `${row.id} artifactFileName`);
+      assert.ok(Array.isArray(row.noticeFiles) && row.noticeFiles.length > 0, `${row.id} ships notice files`);
+    }
+    for (const key of ["sha256", "contentSha256"]) if (row[key] !== undefined) assert.match(row[key], HEX64, `${row.id}.${key}`);
+    if (row.contentSha256ByArch !== undefined) {
+      assert.equal(row.arch, "universal", `${row.id}: contentSha256ByArch is for universal rows`);
+      assert.deepEqual(Object.keys(row.contentSha256ByArch).sort(), ["aarch64", "x86_64"]);
+      for (const digest of Object.values(row.contentSha256ByArch)) assert.match(digest, HEX64);
+    }
+    if (row.arch === "universal") assert.equal(row.contentSha256, undefined, `${row.id}: a universal row pins contentSha256ByArch, not contentSha256`);
+    if (row.archive !== undefined) {
+      assert.match(row.archive.url, /^https:\/\/[^\s/]+\/\S+$/, `${row.id} archive url`);
+      assert.match(row.archive.sha256, HEX64, `${row.id} archive sha256`);
+      if (row.archive.member !== undefined) assert.equal(normalizeArchiveMember(row.archive.member).error, undefined, `${row.id} archive.member`);
+    }
+    for (const file of row.noticeFiles ?? []) assert.ok(existsSync(path.join(REAL_CRATE_DIR, ...file.split("/"))), `${row.id}: ${file} exists under crates/rightkit-ffmpeg`);
+    for (const id of row.companions ?? []) {
+      const companion = rows.find((candidate) => candidate.id === id);
+      assert.ok(companion, `${row.id}: companion ${id} exists`);
+      assert.equal(companion.os, row.os, `${row.id}: companion ${id} serves the same os`);
+      assert.ok(companion.arch === row.arch || companion.arch === "universal" || row.arch === "universal", `${row.id}: companion ${id} has a compatible arch`);
+      assert.ok(servingStatus(companion), `${row.id}: companion ${id} is ${companion.status}`);
+      assert.deepEqual(companion.companions ?? [], [], `${id} has no companions of its own`);
+    }
+    if (row.hostProof !== undefined) {
+      assert.equal(row.hostProof, "never-run", `${row.id} hostProof`);
+      assert.notEqual(row.status, "approved", `${row.id}: hostProof only on a row that is not approved`);
+    }
+    if (row.status === "planned") for (const key of ["sha256", "contentSha256", "contentSha256ByArch", "archive"]) assert.equal(row[key], undefined, `${row.id}: a planned row carries no ${key}`);
+  }
+});
+
+test("the real native catalog: every (library, os, arch) the apps need selects, or refuses, with a typed error and no network", async () => {
+  const noticeFiles = Object.fromEntries(ORT_REAL_CATALOG.libraries.flatMap((row) => row.noticeFiles ?? []).filter((file) => existsSync(path.join(REAL_CRATE_DIR, ...file.split("/")))).map((file) => [path.join(REAL_CRATE_DIR, ...file.split("/")), readFileSync(path.join(REAL_CRATE_DIR, ...file.split("/")))]));
+  const attempt = async (target, entry) => {
+    const { fs } = fakeFs(noticeFiles);
+    try {
+      await stageSidecars({
+        appRoot: APP, target, manifest: [{ kind: "native-library", catalog: "c.json", ...entry }],
+        deps: deps({ fs, run: () => ({ status: 0, stdout: "", stderr: "" }), loadNativeCatalog: () => ({ catalog: ORT_REAL_CATALOG, crateDir: REAL_CRATE_DIR }), fetchBytes: async (url) => { throw new StageSidecarError("STAGE_SIDECAR_DOWNLOAD_FAILED", `no network in tests: ${url}`); }, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {} }),
+      });
+    } catch (error) {
+      assert.ok(error instanceof StageSidecarError, `${target} ${entry.library}: ${error.stack}`);
+      return error.code;
+    }
+    return "staged";
+  };
+  const MAC_X86 = "x86_64-apple-darwin";
+  const serves = [
+    [MAC, "onnxruntime", "1.30.0"], [MAC_X86, "onnxruntime", "1.30.0"], [UNIVERSAL, "onnxruntime", "1.30.0"], [WIN, "onnxruntime", "1.24.4"], [WIN, "directml", "1.15.4"],
+    [MAC, "pdfium", "chromium/8021"], [MAC_X86, "pdfium", "chromium/8021"], [WIN, "pdfium", "chromium/8021"],
+    [MAC, "whisper-cpp", "1.9.3"], [MAC, "ggml", "0.20.2"], [MAC, "sherpa-onnx", "1.13.4"], [MAC_X86, "sherpa-onnx", "1.13.4"], [UNIVERSAL, "sherpa-onnx", "1.13.4"],
+  ];
+  const refuses = [
+    [MAC, "onnxruntime", "1.24.4"], [MAC_X86, "onnxruntime", "1.24.4"], [WIN, "whisper-cpp", "1.9.3"], [WIN, "ggml", "0.20.2"], [WIN, "sherpa-onnx", "1.13.4"],
+    [MAC_X86, "whisper-cpp", "1.9.3"], [MAC_X86, "ggml", "0.20.2"], [UNIVERSAL, "whisper-cpp", "1.9.3"], [UNIVERSAL, "ggml", "0.20.2"], [MAC, "pdfium", "chromium/9999"], ["x86_64-unknown-linux-gnu", "pdfium", "chromium/8021"],
+  ];
+  for (const [target, library, version] of serves) {
+    // With a source dir that holds nothing, selection and every row check pass and the missing file is the typed stop (nothing is downloaded).
+    assert.equal(await attempt(target, { library, version, source: { dir: "/rk-absent-builds" } }), "STAGE_SIDECAR_BINARY_NOT_FOUND", `${target} ${library} ${version} from source.dir`);
+    // Without one: a row with an archive reaches the (refused) download, a row measured from a retained build asks for source.dir.
+    const code = await attempt(target, { library, version });
+    assert.ok(code === "STAGE_SIDECAR_DOWNLOAD_FAILED" || code === "STAGE_SIDECAR_CONFIG_INVALID", `${target} ${library} ${version}: ${code}`);
+  }
+  for (const [target, library, version] of refuses) {
+    assert.equal(await attempt(target, { library, version, source: { dir: "/rk-absent-builds" } }), "STAGE_SIDECAR_NOT_APPROVED", `${target} ${library} ${version}`);
+  }
+});
+
+test("native-library refuses a catalog row whose fields are inconsistent, before anything is downloaded or written", async () => {
+  const bytes = Buffer.from("library bytes");
+  const tgz = archiveOf("https://example.test/lib.tgz", { "lib/libx.dylib": bytes });
+  const good = rowOf("x-1.0.0-macos-arm64", "pdfium", "1.0.0", "macos", "aarch64", bytes, { status: "pinned", artifactFileName: "libx.dylib", archive: archiveRef(tgz, "lib/libx.dylib") });
+  const entry = { kind: "native-library", library: "pdfium", version: "1.0.0", ...NATIVE_CATALOG_ENTRY };
+  const refused = async (over, needle, archives = [tgz]) => {
+    const kit = nativeKit({ rows: [{ ...good, ...over }], archives, target: MAC });
+    await assert.rejects(kit.stage([entry]), { code: "STAGE_SIDECAR_NOT_APPROVED", message: needle }, JSON.stringify(over));
+    assert.deepEqual([kit.fetched, kit.written()], [[], []], JSON.stringify(over));
+  };
+  assert.equal((await nativeKit({ rows: [good], archives: [tgz], target: MAC }).stage([entry])).files[0].name, "libx.dylib", "the unmodified row stages");
+  for (const artifactFileName of [undefined, "", "../libx.dylib", "sub/libx.dylib", "lib x.dylib", 5]) await refused({ artifactFileName }, /artifactFileName/);
+  await refused({ sha256: "ABC" }, /sha256 is not a lowercase 64-hex/);
+  await refused({ sha256: undefined }, /pins no digest/);
+  await refused({ archive: { url: "http://example.test/lib.tgz", sha256: sha(tgz.text) } }, /no valid archive \(an https url and a sha256 digest\)/);
+  await refused({ archive: { url: "https://example.test/lib.tgz", sha256: "nope" } }, /no valid archive/);
+  await refused({ archive: { url: "https://example.test/lib.tgz" } }, /no valid archive/);
+  await refused({ archive: "https://example.test/lib.tgz" }, /no valid archive/);
+  await refused({ archive: { url: "https://example.test/", sha256: sha("x") } }, /archive url that names no file/);
+  await refused({ contentSha256ByArch: { aarch64: sha("a"), x86_64: sha("b") } }, /pins contentSha256ByArch, which only a universal row carries/);
+  await refused({ arch: "universal", contentSha256: sha("a") }, /universal row: it pins contentSha256ByArch, not contentSha256/);
+  await refused({ arch: "universal", contentSha256ByArch: { aarch64: sha("a") } }, /contentSha256ByArch must be exactly \{ aarch64, x86_64 \}/);
+  await refused({ arch: "universal", contentSha256ByArch: { aarch64: sha("a"), x86_64: "zz" } }, /contentSha256ByArch\.x86_64 is not a lowercase 64-hex/);
+  await refused({ arch: "universal", contentSha256ByArch: [sha("a"), sha("b")] }, /contentSha256ByArch must be exactly/);
+});
+
+test("native-library resolves its catalog like the alias ({ crate }, { npm }, default file) and hands deps.loadNativeCatalog the entry", async () => {
+  const crateDir = path.resolve("/rk-fake-crates/rightkit-ffmpeg");
+  const bytes = Buffer.from("pdfium for the test");
+  const row = rowOf("pdfium-test", "pdfium", "chromium/8021", "macos", "aarch64", bytes, { artifactFileName: "libpdfium.dylib" });
+  const entryFor = (catalog) => ({ kind: "native-library", library: "pdfium", version: "chromium/8021", catalog, source: { dir: "builds" } });
+  for (const catalog of [{ crate: "rightkit-ffmpeg" }, { npm: "@orthic/catalogs/native-libraries.json" }]) {
+    const { fs } = fakeFs({
+      [path.join(crateDir, "catalog", "native-libraries.json")]: JSON.stringify({ libraries: [row] }), [path.join(crateDir, "third-party", "pdfium-MIT.txt")]: "notice",
+      [path.resolve("/node_modules/@orthic/catalogs/native-libraries.json")]: JSON.stringify({ libraries: [row] }), [path.resolve("/node_modules/@orthic/third-party/pdfium-MIT.txt")]: "notice",
+      [path.resolve("/node_modules/.rk-app/builds/libpdfium.dylib")]: bytes,
+    });
+    const calls = [];
+    const run = (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0, stderr: "", stdout: JSON.stringify({ packages: [{ name: "rightkit-ffmpeg", manifest_path: path.join(crateDir, "Cargo.toml") }] }) };
+    };
+    const result = await stageSidecars({ appRoot: path.resolve("/node_modules/.rk-app"), target: MAC, manifest: [entryFor(catalog)], deps: deps({ fs, run }) });
+    assert.deepEqual([result.files[0].sha256, result.files[0].library], [sha(bytes), "pdfium"]);
+    assert.equal(calls.some((call) => call[0] === "rustright" && call[2] === "metadata"), "crate" in catalog);
+  }
+  const { fs } = fakeFs();
+  const missing = (catalog) => stageSidecars({ appRoot: APP, target: MAC, manifest: [entryFor(catalog)], deps: deps({ fs, run: () => ({ status: 0, stderr: "", stdout: JSON.stringify({ packages: [] }) }) }) });
+  await assert.rejects(missing({ crate: "missing-crate" }), { code: "STAGE_SIDECAR_CATALOG_UNREADABLE", message: /native-libraries catalog crate missing-crate/ });
+  await assert.rejects(missing({ npm: "nope/x.json" }), { code: "STAGE_SIDECAR_CATALOG_UNREADABLE", message: /native-libraries catalog nope\/x\.json/ });
+  await assert.rejects(stageSidecars({ appRoot: APP, target: MAC, manifest: [{ kind: "native-library", library: "pdfium", version: "chromium/8021" }], deps: deps({ fs }) }), { code: "STAGE_SIDECAR_CATALOG_UNREADABLE", message: /native-library needs a catalog path/ });
+  // The hook serves both kinds and receives the validated entry.
+  const seen = [];
+  const hook = (rows) => ({ loadNativeCatalog: ({ entry, appRoot }) => { seen.push([entry.kind, entry.library, entry.version, appRoot]); return { catalog: { libraries: rows }, crateDir: NATIVE_CRATE }; } });
+  await nativeKit({ rows: [row], files: { [sourceAt("libpdfium.dylib")]: bytes }, target: MAC }).stage([{ ...entryFor("c.json"), source: { dir: SOURCE_DIR } }], hook([row]));
+  const ortTgz = archiveOf("https://example.test/ort.tgz", { "libonnxruntime.dylib": Buffer.from("ort") });
+  const ortRow = rowOf("ort-test", "onnxruntime", "1.24.4", "macos", "aarch64", Buffer.from("ort"), { artifactFileName: "libonnxruntime.dylib", archive: archiveRef(ortTgz) });
+  await nativeKit({ rows: [ortRow], archives: [ortTgz], target: MAC }).stage([{ kind: "onnxruntime", version: "1.24.4", catalog: "c.json" }], hook([ortRow]));
+  assert.deepEqual(seen, [["native-library", "pdfium", "chromium/8021", APP], ["onnxruntime", "onnxruntime", "1.24.4", APP]]);
+});
+
+test("native-library receipt rows are catalog-backed: license-notices binaries needs no declaration for them", async () => {
+  const kit = winOrtFixture();
+  const { receipt } = await kit.stage([ORT_WIN_ENTRY]);
+  assert.equal(receipt.files.length, 2);
+  assert.deepEqual(uncoveredBinaries(receipt, []), []);
+  assert.deepEqual(uncoveredBinaries({ files: [...receipt.files, { kind: "remote", name: "yt-dlp" }, { kind: "command", name: "helper" }] }, []), ["helper", "yt-dlp"], "non-catalog kinds still need a declaration");
+});
+
+// ---- ffmpeg resourceDir: ffmpeg and ffprobe staged flat into a resource directory (plan item 2.8, C5-07)
+
+const RUNTIME = "src-tauri/resources/runtime";
+const runtimeDirAt = at(...RUNTIME.split("/"));
+const runtimeEntry = (extra) => ({ kind: "ffmpeg", notices: NOTICES, catalog: "c/artifacts.json", resourceDir: RUNTIME, ...extra });
+/** Names of the files under `dir` (app-relative), sorted. */
+const listUnder = (files, dir) => [...files.keys()].filter((key) => key.startsWith(path.resolve(APP, dir) + path.sep)).map((key) => path.relative(path.resolve(APP, dir), key).split(path.sep).join("/")).sort();
+
+function runtimeCatalog(rows) {
+  const crateDir = path.resolve("/rk-fake-ffmpeg-crate");
+  const artifacts = rows.map(([tool, variant, osName, arch, bytes, id = `${tool}-${variant}-${osName}-${arch}`]) => ({
+    id, tool, variant, os: osName, arch, status: "approved", version: "7.1", contentSha256: sha(bytes), sourceSha256: sha("src"),
+    attribution: { noticeFiles: ["notices/LGPL-2.1.txt"], sourceUrl: "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz", licenseSpdx: "LGPL-2.1-or-later", buildProvenance: "recipe" },
+  }));
+  return { crateDir, catalog: { schemaVersion: 2, artifacts }, initial: { [path.join(crateDir, "notices", "LGPL-2.1.txt")]: "LGPL text" } };
+}
+
+/** A fake kit for a thin or universal target: catalog rows, an archive per tool that unpacks `members`, and `stage(manifest, deps)`. */
+function runtimeKit({ target = MAC, rows, members = {}, seeded = {} }) {
+  const { crateDir, catalog, initial } = runtimeCatalog(rows);
+  const { fs, files, log } = fakeFs({ ...initial, ...seeded });
+  const exe = target === WIN ? ".exe" : "";
+  const sources = {
+    ffmpeg: { url: "https://example.test/ffmpeg.zip", sha256: sha("zip-ffmpeg"), member: `ffmpeg${exe}` },
+    ffprobe: { url: "https://example.test/ffprobe.zip", sha256: sha("zip-ffprobe"), member: `ffprobe${exe}` },
+  };
+  const fetch = async (url) => ({ ok: true, status: 200, arrayBuffer: async () => Buffer.from(url.endsWith("ffmpeg.zip") ? "zip-ffmpeg" : "zip-ffprobe") });
+  const extractMember = ({ fileName, destDir }) => { const out = path.join(destDir, fileName); files.set(out, Buffer.from(members[fileName])); return out; };
+  const stage = (manifest, extra = {}) => stageSidecars({
+    appRoot: APP, target, manifest,
+    deps: deps({ fs, fetch, extractMember, makeTempDir: () => path.resolve("/rk-scratch"), removeDir: () => {}, loadMediaCatalog: () => ({ catalog, crateDir, crateVersion: "0.9.0" }), ...extra }),
+  });
+  return { fs, files, log, sources, stage, catalog, crateDir };
+}
+const MAC_ROWS = [["ffmpeg", "decode", "macos", "aarch64", "mac-ffmpeg"], ["ffprobe", "decode", "macos", "aarch64", "mac-ffprobe"]];
+const MAC_MEMBERS = { ffmpeg: "mac-ffmpeg", ffprobe: "mac-ffprobe" };
+
+test("ffmpeg resourceDir stages ffmpeg and ffprobe flat (no triple, not an externalBin) from the approved rows, with notices and a valid receipt", async () => {
+  const kit = runtimeKit({ rows: MAC_ROWS, members: MAC_MEMBERS });
+  const result = await kit.stage([runtimeEntry({ sources: kit.sources, probe: false })]);
+  assert.deepEqual(result.files.map((file) => [file.kind, file.name, file.path, file.externalBin]), [
+    ["ffmpeg", "ffmpeg", `${RUNTIME}/ffmpeg`, false], ["ffmpeg", "ffprobe", `${RUNTIME}/ffprobe`, false],
+  ]);
+  assert.deepEqual(result.externalBinNames, [], "a resourceDir file is not an externalBin");
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, "ffmpeg")).toString(), "mac-ffmpeg");
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, "ffprobe")).toString(), "mac-ffprobe");
+  assert.deepEqual(listUnder(kit.files, RUNTIME), ["ffmpeg", "ffprobe"]);
+  assert.deepEqual(listUnder(kit.files, "src-tauri/binaries"), ["stage-sidecar.json"], "nothing is staged under the externalBin stage directory but the receipt");
+  assert.ok(kit.log.chmods.some(([file, mode]) => file.includes(`${path.sep}runtime${path.sep}ffmpeg`) && mode === 0o755), "the staged tool is executable");
+  const [ffmpeg] = result.files;
+  assert.deepEqual([ffmpeg.catalogRow, ffmpeg.version, ffmpeg.sha256, ffmpeg.catalogContentSha256, ffmpeg.license], ["ffmpeg-decode-macos-aarch64", "7.1", sha("mac-ffmpeg"), sha("mac-ffmpeg"), "LGPL-2.1-or-later"]);
+  assert.deepEqual(ffmpeg.notices.map((item) => item.name).sort(), ["FFMPEG-SOURCE-OFFER.txt", "LGPL-2.1.txt"]);
+  assert.equal(kit.fs.existsSync(at("src-tauri", "resources", "third-party", "ffmpeg", "FFMPEG-SOURCE-OFFER.txt")), true, "the source offer is written to notices.dir, not to resourceDir");
+  validateStageSidecarReceipt(result.receipt, { target: MAC, names: [] });
+  assert.deepEqual(uncoveredBinaries(result.receipt, []), [], "the ffmpeg rows stay catalog-backed");
+  assert.deepEqual(JSON.parse(kit.fs.readFileSync(result.receiptPath)).files.map((file) => file.path), [`${RUNTIME}/ffmpeg`, `${RUNTIME}/ffprobe`]);
+});
+
+test("ffmpeg without resourceDir is unchanged: <stageDir>/<tool>-<triple>, externalBin true, nothing in a runtime directory", async () => {
+  const kit = runtimeKit({ rows: MAC_ROWS, members: MAC_MEMBERS });
+  const { resourceDir: _resourceDir, ...plain } = runtimeEntry({ sources: kit.sources });
+  const result = await kit.stage([plain]);
+  assert.deepEqual(result.files.map((file) => [file.name, file.path, file.externalBin]), [["ffmpeg", `src-tauri/binaries/ffmpeg-${MAC}`, true], ["ffprobe", `src-tauri/binaries/ffprobe-${MAC}`, true]]);
+  assert.deepEqual(result.externalBinNames, ["ffmpeg", "ffprobe"]);
+  assert.deepEqual(listUnder(kit.files, "src-tauri/binaries"), [`ffmpeg-${MAC}`, `ffprobe-${MAC}`, "stage-sidecar.json"]);
+  assert.deepEqual(listUnder(kit.files, RUNTIME), []);
+  assert.equal("resourceDir" in validateSidecarManifest([plain], { target: MAC }).entries[0], false);
+});
+
+test("ffmpeg resourceDir on a Windows target stages <resourceDir>/ffmpeg.exe and ffprobe.exe with no triple", async () => {
+  const kit = runtimeKit({
+    target: WIN, rows: [["ffmpeg", "decode", "windows", "x86_64", "win-ffmpeg"], ["ffprobe", "decode", "windows", "x86_64", "win-ffprobe"]],
+    members: { "ffmpeg.exe": "win-ffmpeg", "ffprobe.exe": "win-ffprobe" },
+  });
+  const result = await kit.stage([runtimeEntry({ sources: kit.sources })]);
+  assert.deepEqual(result.files.map((file) => [file.name, file.path, file.externalBin, file.catalogRow]), [
+    ["ffmpeg", `${RUNTIME}/ffmpeg.exe`, false, "ffmpeg-decode-windows-x86_64"], ["ffprobe", `${RUNTIME}/ffprobe.exe`, false, "ffprobe-decode-windows-x86_64"],
+  ]);
+  assert.deepEqual(listUnder(kit.files, RUNTIME), ["ffmpeg.exe", "ffprobe.exe"]);
+  assert.equal(listUnder(kit.files, "src-tauri/binaries").some((name) => name.includes("windows-msvc")), false, "no triple-named file is staged");
+  assert.deepEqual(kit.log.chmods, [], "no exec bit on Windows");
+  assert.deepEqual(result.externalBinNames, []);
+  validateStageSidecarReceipt(result.receipt, { target: WIN, names: [] });
+});
+
+test("ffmpeg resourceDir on universal-apple-darwin stages both slices, lipo-merges each tool into <resourceDir>/<tool> and lists both slices in the receipt", async () => {
+  const rows = [
+    ["ffmpeg", "decode", "macos", "aarch64", "arm-ffmpeg", "ffmpeg-arm"], ["ffmpeg", "decode", "macos", "x86_64", "x86-ffmpeg", "ffmpeg-x86"],
+    ["ffprobe", "decode", "macos", "aarch64", "arm-ffprobe", "ffprobe-arm"], ["ffprobe", "decode", "macos", "x86_64", "x86-ffprobe", "ffprobe-x86"],
+  ];
+  const kit = runtimeKit({ target: UNIVERSAL, rows });
+  const stageCalls = [];
+  const lipoOutputs = [];
+  const run = (command, args) => {
+    if (command === "rustright" && args[0] === "ffmpeg-stage") {
+      stageCalls.push(args);
+      const [, triple, stageDir] = args;
+      const kind = triple.startsWith("aarch64") ? "arm" : "x86";
+      for (const tool of ["ffmpeg", "ffprobe"]) kit.files.set(path.resolve(APP, stageDir, `${tool}-${triple}`), Buffer.from(`${kind}-${tool}`));
+    }
+    if (command === "lipo" && args[0] === "-create") { const out = args[args.indexOf("-output") + 1]; lipoOutputs.push(out); kit.files.set(out, Buffer.from(`fat-${path.basename(out).split(".")[0]}`)); }
+    if (command === "lipo" && args[0] === "-archs") return { status: 0, stdout: "x86_64 arm64\n", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const manifest = [runtimeEntry({ stage: { cmd: "rustright", args: ["ffmpeg-stage", "{triple}", "{stageDir}"] } })];
+  const result = await kit.stage(manifest, { run });
+  assert.deepEqual(stageCalls, [["ffmpeg-stage", "aarch64-apple-darwin", ".right-release/slices/aarch64-apple-darwin"], ["ffmpeg-stage", "x86_64-apple-darwin", ".right-release/slices/x86_64-apple-darwin"]],
+    "the stage command keeps staging each slice under its own stage directory, not into resourceDir");
+  assert.equal(lipoOutputs.length, 2);
+  assert.deepEqual(listUnder(kit.files, RUNTIME), ["ffmpeg", "ffprobe"], "only the merged tools are in resourceDir, no slice files and no triple");
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, "ffmpeg")).toString(), "fat-ffmpeg");
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, "ffprobe")).toString(), "fat-ffprobe");
+  assert.deepEqual(listUnder(kit.files, "src-tauri/binaries"), ["stage-sidecar.json"]);
+  assert.deepEqual(result.files.map((file) => [file.name, file.path, file.externalBin, file.catalogRow]), [
+    ["ffmpeg", `${RUNTIME}/ffmpeg`, false, "ffmpeg-arm+ffmpeg-x86"], ["ffprobe", `${RUNTIME}/ffprobe`, false, "ffprobe-arm+ffprobe-x86"],
+  ]);
+  const [ffmpeg] = result.files;
+  assert.equal(ffmpeg.sha256, sha("fat-ffmpeg"));
+  assert.deepEqual(ffmpeg.slices.map((slice) => [slice.triple, slice.sha256, slice.catalogRow, slice.catalogContentSha256]), [
+    ["aarch64-apple-darwin", sha("arm-ffmpeg"), "ffmpeg-arm", sha("arm-ffmpeg")], ["x86_64-apple-darwin", sha("x86-ffmpeg"), "ffmpeg-x86", sha("x86-ffmpeg")],
+  ]);
+  const offer = kit.fs.readFileSync(at("src-tauri", "resources", "third-party", "ffmpeg", "FFMPEG-SOURCE-OFFER.txt")).toString();
+  assert.ok(offer.includes("ffmpeg-arm") && offer.includes("ffmpeg-x86"), "one source offer names both slices");
+  assert.deepEqual(result.externalBinNames, []);
+  validateStageSidecarReceipt(result.receipt, { target: UNIVERSAL, names: [] });
+});
+
+test("ffmpeg resourceDir with variants: one entry stages the export-ass ffmpeg and the decode ffprobe into runtime/; a swapped archive stages nothing", async () => {
+  const rows = [["ffmpeg", "export-ass", "macos", "aarch64", "ass-ffmpeg"], ["ffmpeg", "decode", "macos", "aarch64", "decode-ffmpeg"], ["ffprobe", "decode", "macos", "aarch64", "decode-ffprobe"]];
+  const entry = (kit) => runtimeEntry({ variants: { ffmpeg: "export-ass" }, sources: kit.sources });
+  const ok = runtimeKit({ rows, members: { ffmpeg: "ass-ffmpeg", ffprobe: "decode-ffprobe" } });
+  const result = await ok.stage([entry(ok)]);
+  assert.deepEqual(result.files.map((file) => [file.name, file.variant, file.catalogRow, file.path, file.externalBin]), [
+    ["ffmpeg", "export-ass", "ffmpeg-export-ass-macos-aarch64", `${RUNTIME}/ffmpeg`, false], ["ffprobe", "decode", "ffprobe-decode-macos-aarch64", `${RUNTIME}/ffprobe`, false],
+  ]);
+  assert.equal(ok.fs.readFileSync(path.join(runtimeDirAt, "ffmpeg")).toString(), "ass-ffmpeg");
+  assert.equal(ok.fs.readFileSync(path.join(runtimeDirAt, "ffprobe")).toString(), "decode-ffprobe");
+  assert.deepEqual(result.externalBinNames, []);
+  validateStageSidecarReceipt(result.receipt, { target: MAC, names: [] });
+  // The catalog is the authority: the decode ffmpeg is not the export-ass row, so it never reaches runtime/.
+  const swapped = runtimeKit({ rows, members: { ffmpeg: "decode-ffmpeg", ffprobe: "decode-ffprobe" } });
+  await assert.rejects(swapped.stage([entry(swapped)]), { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /approved catalog row ffmpeg-export-ass-macos-aarch64/ });
+  assert.deepEqual(listUnder(swapped.files, RUNTIME), [], "nothing is left in resourceDir");
+  assert.equal(swapped.fs.existsSync(runtimeDirAt), false);
+  assert.deepEqual(listUnder(swapped.files, "src-tauri/binaries"), [], "and nothing is staged as an externalBin either");
+});
+
+test("ffmpeg resourceDir with a stage command: the command writes into resourceDir itself, and the staged bytes are held to the approved row", async () => {
+  const run = (kit, bytes, dir = RUNTIME) => (command, args) => {
+    if (command === "rustright" && args[0] === "ffmpeg-stage") {
+      assert.deepEqual(args, ["ffmpeg-stage", "{stageDir}"], "a thin target passes the arguments as written: nothing is substituted");
+      for (const tool of ["ffmpeg", "ffprobe"]) kit.files.set(path.resolve(APP, dir, tool), Buffer.from(bytes[tool]));
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  const entry = runtimeEntry({ stage: { cmd: "rustright", args: ["ffmpeg-stage", "{stageDir}"] } });
+  const ok = runtimeKit({ rows: MAC_ROWS });
+  const result = await ok.stage([entry], { run: run(ok, MAC_MEMBERS) });
+  assert.deepEqual(result.files.map((file) => [file.path, file.externalBin]), [[`${RUNTIME}/ffmpeg`, false], [`${RUNTIME}/ffprobe`, false]]);
+  const tampered = runtimeKit({ rows: MAC_ROWS });
+  await assert.rejects(tampered.stage([entry], { run: run(tampered, { ffmpeg: "tampered", ffprobe: "mac-ffprobe" }) }), { code: "STAGE_SIDECAR_HASH_MISMATCH" });
+  // A command that still writes the externalBin name (<stageDir>/<tool>-<triple>) does not satisfy a resourceDir entry: the expected file is named.
+  const legacy = runtimeKit({ rows: MAC_ROWS });
+  const legacyRun = (command, args) => { if (command === "rustright") for (const tool of ["ffmpeg", "ffprobe"]) legacy.files.set(at("src-tauri", "binaries", `${tool}-${MAC}`), Buffer.from(`mac-${tool}`)); return { status: 0, stdout: "", stderr: "" }; };
+  await assert.rejects(legacy.stage([entry], { run: legacyRun }), (error) => error.code === "STAGE_SIDECAR_FFMPEG_FAILED" && error.details.causeCode === "MEDIA_SIDECAR_NOT_STAGED" && error.message.includes(`${path.sep}runtime${path.sep}ffmpeg`));
+});
+
+test("ffmpeg resourceDir is validated: a contained relative path, never combined with bundleDir", () => {
+  const base = { kind: "ffmpeg", notices: NOTICES, catalog: "c.json" };
+  const errorsOf = (item, target = MAC) => { try { validateSidecarManifest([item], { target }); } catch (error) { return error.details.errors; } return []; };
+  for (const bad of ["/abs/runtime", "../runtime", "a/../../b", "C:/runtime", "", ".", 7]) {
+    assert.ok(errorsOf({ ...base, resourceDir: bad }).some((line) => /resourceDir must (be a non-empty relative path|be relative and stay inside the app|name a path inside the app)/.test(line)), JSON.stringify(bad));
+  }
+  const both = errorsOf({ ...base, resourceDir: "runtime", bundleDir: "Contents/MacOS" });
+  assert.ok(both.some((line) => /bundleDir and resourceDir cannot be combined/.test(line)), both.join("\n"));
+  assert.ok(errorsOf({ ...base, resourceDir: "runtime", bundleDir: "Contents/Resources" }, UNIVERSAL).some((line) => line.includes("bundleDir and resourceDir")));
+  assert.ok(errorsOf({ ...base, resourceDir: "runtime", bundleDir: "Contents/MacOS" }, WIN).some((line) => line.includes("bundleDir and resourceDir")));
+  assert.deepEqual(errorsOf({ ...base, bundleDir: "Contents/Resources" }), [], "bundleDir alone is the externalBin layout, unchanged");
+  assert.equal(validateSidecarManifest([{ ...base, resourceDir: "src-tauri/runtime/" }], { target: MAC }).entries[0].resourceDir, "src-tauri/runtime", "a trailing slash is dropped");
+  assert.equal(validateSidecarManifest([{ ...base, resourceDir: "runtime", platforms: ["win"] }], { target: MAC }).entries[0].skipped, true, "a skipped entry is shape-checked and claims nothing");
+  assert.ok(errorsOf({ ...base, resourceDir: "runtime", platforms: ["win"], bundleDir: "Contents/MacOS" }).some((line) => line.includes("bundleDir and resourceDir")), "also on a skipped entry");
+});
+
+test("ffmpeg resourceDir outputs are claimed: two entries (or a resource, onnxruntime or cargo-bin) may not write the same runtime file", () => {
+  const base = { kind: "ffmpeg", notices: NOTICES, catalog: "c.json", resourceDir: RUNTIME };
+  const errorsOf = (manifest, target = MAC) => { try { validateSidecarManifest(manifest, { target }); } catch (error) { return error.details.errors.join("\n"); } return ""; };
+  assert.match(errorsOf([base, { ...base, tools: ["ffprobe"] }]), /sidecars\[1\] \(ffmpeg\) writes src-tauri\/resources\/runtime\/ffprobe, which sidecars\[0\] \(ffmpeg\) already writes/);
+  assert.equal(errorsOf([{ ...base, tools: ["ffmpeg"] }, { ...base, tools: ["ffprobe"] }]), "", "one tool each into the same directory is fine");
+  assert.equal(errorsOf([base, { ...base, resourceDir: "src-tauri/resources/other" }]), "", "another directory is fine");
+  assert.match(errorsOf([base, { kind: "resource", from: "a", to: `${RUNTIME}/ffmpeg` }]), /already writes/);
+  assert.match(errorsOf([base, { kind: "native-library", library: "pdfium", version: "chromium/8021", catalog: "c.json", resourceDir: RUNTIME, as: "ffprobe" }]), /already writes/);
+  assert.match(errorsOf([base, { kind: "resource", from: "a", to: RUNTIME }]), /overlaps/);
+  assert.match(errorsOf([base, { kind: "cargo-bin", package: "e", dest: "src-tauri/resources/runtime/ffmpeg" }]), /already writes/);
+  assert.match(errorsOf([{ ...base, tools: ["ffmpeg"], resourceDir: "src-tauri/resources/runtime/" }, { kind: "remote", name: "x", url: "https://x.example.com/f", sha256: sha("f"), dest: "SRC-TAURI/resources/runtime/ffmpeg" }]), /already writes/, "case-insensitive, like every output");
+  // The Windows names carry .exe: only the .exe file clashes.
+  assert.match(errorsOf([base, { kind: "resource", from: "a", to: `${RUNTIME}/ffmpeg.exe` }], WIN), /already writes/);
+  assert.equal(errorsOf([base, { kind: "resource", from: "a", to: `${RUNTIME}/ffmpeg` }], WIN), "");
+  // Under universal-apple-darwin the merged file is the claim.
+  assert.match(errorsOf([base, { kind: "resource", from: "a", to: `${RUNTIME}/ffmpeg` }], UNIVERSAL), /already writes/);
+  // The externalBin layout claim is unchanged: <stageDir>/<tool>-<triple>.
+  const { resourceDir: _resourceDir, ...plain } = base;
+  assert.match(errorsOf([plain, { kind: "cargo-bin", package: "ffmpeg" }]), /already writes/);
+  assert.equal(errorsOf([base, { kind: "cargo-bin", package: "ffmpeg" }]), "", "a resourceDir ffmpeg no longer claims the externalBin name");
+});
+
+test("wipeStageDir only knows stageDir names: resourceDir files are neither deleted nor mistaken for stale externalBins", async () => {
+  const seeded = {
+    [at("src-tauri", "binaries", `ffmpeg-${MAC}`)]: "stale externalBin ffmpeg", [at("src-tauri", "binaries", `ffprobe-${MAC}`)]: "stale externalBin ffprobe", [at("src-tauri", "binaries", "keep.txt")]: "k",
+    [path.join(runtimeDirAt, "model.bin")]: "model", [path.join(runtimeDirAt, `ffmpeg-${MAC}`)]: "a file in resourceDir that looks like a stage name",
+    [path.join(runtimeDirAt, "ffmpeg")]: "old runtime ffmpeg",
+  };
+  const kit = runtimeKit({ rows: MAC_ROWS, members: MAC_MEMBERS, seeded });
+  const result = await kit.stage({ sidecars: [runtimeEntry({ sources: kit.sources })], wipeStageDir: true });
+  assert.deepEqual(listUnder(kit.files, RUNTIME), ["ffmpeg", "ffmpeg-aarch64-apple-darwin", "ffprobe", "model.bin"]);
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, "ffmpeg")).toString(), "mac-ffmpeg", "a stale resourceDir file is replaced by the verified one");
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, `ffmpeg-${MAC}`)).toString(), "a file in resourceDir that looks like a stage name");
+  assert.equal(kit.fs.readFileSync(path.join(runtimeDirAt, "model.bin")).toString(), "model");
+  assert.deepEqual(listUnder(kit.files, "src-tauri/binaries"), ["keep.txt", "stage-sidecar.json"], "the stale stageDir names are wiped");
+  assert.deepEqual([...result.receipt.wiped].sort(), [`src-tauri/binaries/ffmpeg-${MAC}`, `src-tauri/binaries/ffprobe-${MAC}`]);
+  // A resourceDir that is the stage directory itself: the produced tools survive and only the triple-named leftovers go.
+  const same = runtimeKit({ rows: MAC_ROWS, members: MAC_MEMBERS, seeded });
+  const merged = await same.stage({ sidecars: [runtimeEntry({ resourceDir: "src-tauri/binaries", sources: same.sources })], wipeStageDir: true });
+  assert.deepEqual(listUnder(same.files, "src-tauri/binaries"), ["ffmpeg", "ffprobe", "keep.txt", "stage-sidecar.json"]);
+  assert.deepEqual([...merged.receipt.wiped].sort(), [`src-tauri/binaries/ffmpeg-${MAC}`, `src-tauri/binaries/ffprobe-${MAC}`]);
+});
+
+test("--check lists the runtime paths of an ffmpeg resourceDir entry, flat on every target, and no externalBin", () => {
+  const entry = runtimeEntry({ variants: { ffmpeg: "export-ass" } });
+  const plan = (target, manifest = [entry]) => planSidecarStaging({ manifest, target, env: {} });
+  const mac = plan(MAC).entries[0];
+  assert.deepEqual([mac.outputs, mac.externalBin], [[`${RUNTIME}/ffmpeg`, `${RUNTIME}/ffprobe`], false]);
+  assert.deepEqual(plan(WIN).entries[0].outputs, [`${RUNTIME}/ffmpeg.exe`, `${RUNTIME}/ffprobe.exe`]);
+  assert.deepEqual(plan(UNIVERSAL).entries[0].outputs, [`${RUNTIME}/ffmpeg`, `${RUNTIME}/ffprobe`]);
+  assert.deepEqual(plan(MAC, [{ ...entry, tools: ["ffmpeg"] }]).entries[0].outputs, [`${RUNTIME}/ffmpeg`]);
+  const mixed = plan(MAC, [{ kind: "cargo-bin", package: "eng" }, entry, { kind: "ffmpeg", notices: NOTICES, catalog: "c/artifacts.json", tools: ["ffprobe"] }]);
+  assert.deepEqual(mixed.entries.map((item) => [item.outputs, item.externalBin]), [[[`src-tauri/binaries/eng-${MAC}`], true], [[`${RUNTIME}/ffmpeg`, `${RUNTIME}/ffprobe`], false], [[`src-tauri/binaries/ffprobe-${MAC}`], true]]);
+  const lines = formatSidecarPlan(plan(MAC));
+  assert.ok(lines.some((line) => line.includes(`${RUNTIME}/ffmpeg, ${RUNTIME}/ffprobe`) && !line.includes("(externalBin)")), lines.join("\n"));
+  assert.equal(plan(MAC, [{ ...entry, platforms: ["win"] }]).entries[0].skipped, true);
+});
+
+// ---- review fixes: warnings reach the CLI, thin rows take one slice, staged bytes are re-verified, runtime exec bit, companion clashes
+
+const COMMAND = fileURLToPath(new URL("./stage-sidecar-command.mjs", import.meta.url));
+
+test("the stage-sidecar command prints the never-run warning and the 'not staging' notice on stderr, and --json stays clean on stdout", () => {
+  const app = mkdtempSync(path.join(os.tmpdir(), "rk-stage-cli-"));
+  try {
+    const bytes = Buffer.from("pdfium for the cli test");
+    const row = { id: "pdfium-cli-1-windows-x64", library: "pdfium", version: "1", os: "windows", arch: "x86_64", status: "pinned", linkage: "dynamic-library", artifactFileName: "pdfium.dll", sha256: sha(bytes), licenseSpdx: "BSD-3-Clause", noticeFiles: ["third-party/pdfium-BSD.txt"], hostProof: "never-run" };
+    const planned = { id: "pdfium-cli-1-windows-x64-extra", library: "pdfium", version: "1", os: "windows", arch: "x86_64", status: "planned", linkage: "dynamic-library", artifactFileName: "pdfium-extra.dll" };
+    for (const dir of ["catalog", "third-party", "builds"]) mkdirSync(path.join(app, dir));
+    writeFileSync(path.join(app, "catalog", "native-libraries.json"), JSON.stringify({ libraries: [row, planned] }));
+    writeFileSync(path.join(app, "third-party", "pdfium-BSD.txt"), "notice");
+    writeFileSync(path.join(app, "builds", "pdfium.dll"), bytes);
+    writeFileSync(path.join(app, "right-release.config.mjs"), `export default { sidecars: [{ kind: "native-library", library: "pdfium", version: "1", catalog: "catalog/native-libraries.json", source: { dir: "builds" } }] };\n`);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("TAURI_ENV_")));
+    const run = (...extra) => spawnSync(process.execPath, [COMMAND, "--config", path.join(app, "right-release.config.mjs"), "--target", WIN, ...extra], { encoding: "utf8", env });
+    const plain = run();
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.match(plain.stderr, /warning: pdfium-cli-1-windows-x64 has hostProof never-run/);
+    assert.match(plain.stderr, /not staging pdfium-cli-1-windows-x64-extra \(planned\)/);
+    assert.doesNotMatch(plain.stdout, /warning|not staging/, "stdout keeps the staged-file list");
+    assert.match(plain.stdout, /staged src-tauri\/resources\/runtime\/pdfium\.dll/);
+    const json = run("--json");
+    assert.equal(json.status, 0, json.stderr);
+    assert.equal(JSON.parse(json.stdout).files[0].hostProof, "never-run", "--json stdout is one JSON document");
+    assert.match(json.stderr, /hostProof never-run/);
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
+});
+
+test("stageSidecars is quiet by default, and deps.warn takes the warnings while deps.log keeps the progress lines", async () => {
+  const solo = winOrtFixture();
+  const warnings = [];
+  await solo.stage([ORT_WIN_ENTRY], { warn: (line) => warnings.push(line) });
+  assert.equal(warnings.length, 2);
+  assert.ok(warnings[0].includes(ORT_WIN_ID) && warnings[1].includes(DML_ID), warnings.join("\n"));
+  assert.deepEqual(solo.messages.filter((line) => /warning/.test(line)), [], "a separate warn handler gets the warnings, not log");
+  // With no handler at all the API writes nothing to the console: the CLI opts in.
+  const quiet = winOrtFixture();
+  const written = [];
+  const originals = [console.error, console.warn, console.log, process.stderr.write];
+  console.error = console.warn = console.log = (...args) => written.push(args.join(" "));
+  process.stderr.write = (chunk) => { written.push(String(chunk)); return true; };
+  try { await quiet.stage([ORT_WIN_ENTRY], { log: undefined }); } finally { [console.error, console.warn, console.log, process.stderr.write] = originals; }
+  assert.deepEqual(written, []);
+});
+
+test("a thin native-library row refuses a universal Mach-O (a good slice beside a foreign one), from source.dir and in place of the staged-file shortcut", async () => {
+  const good = machoCpu(CPU_ARM64, Buffer.from("good arm64 payload"), null);
+  const foreign = machoCpu(CPU_X86_64, Buffer.from("foreign x86_64 payload"), null);
+  const fat = fatOf([[CPU_ARM64, good], [CPU_X86_64, foreign]]);
+  assert.equal(contentOf(fat, "aarch64"), contentOf(good), "premise: the fat file's arm64 slice is the pinned thin file");
+  const name = "libwhisper.1.9.3.dylib";
+  const row = rowOf("whisper-cpp-1.9.3-macos-arm64", "whisper-cpp", "1.9.3", "macos", "aarch64", good, { artifactFileName: name, contentSha256: contentOf(good) });
+  const kitOf = (files) => nativeKit({ rows: [row], files, target: MAC });
+  const sliceRefusal = (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && /universal Mach-O with 2 slices \(aarch64, x86_64\)/.test(error.message);
+
+  const fromSource = kitOf({ [sourceAt(name)]: fat });
+  await assert.rejects(fromSource.stage([WHISPER_ENTRY]), sliceRefusal);
+  assert.deepEqual(fromSource.written(), [], "nothing is staged from a fat file");
+
+  // The staged-file shortcut applies the same check: a fat staged file is replaced from a good source, never kept.
+  const shortcut = kitOf({ [runtimeAt(name)]: fat, [sourceAt(name)]: good });
+  const result = await shortcut.stage([WHISPER_ENTRY]);
+  assert.deepEqual(shortcut.fs.readFileSync(runtimeAt(name)), good, "the fat staged file did not pass as already staged");
+  assert.ok(shortcut.log.copies.some((copy) => copy.startsWith(runtimeAt(name))));
+  assert.equal(result.files[0].sha256, sha(good));
+  assert.equal(shortcut.messages.some((line) => /already staged/.test(line)), false);
+  // With a fat source as well there is nothing good to stage.
+  await assert.rejects(kitOf({ [runtimeAt(name)]: fat, [sourceAt(name)]: fat }).stage([WHISPER_ENTRY]), sliceRefusal);
+  // A thin file is still accepted, as is a re-signed copy of it.
+  assert.equal((await kitOf({ [sourceAt(name)]: good }).stage([WHISPER_ENTRY])).files[0].sha256, sha(good));
+});
+
+test("native-library holds the staged bytes to the row: a file that changes between its verification and the copy is refused and removed", async () => {
+  const swapAfterFirstRead = (kit, file, bytes) => {
+    let done = false;
+    return { ...kit.fs, readFileSync: (target) => { const read = kit.fs.readFileSync(target); if (!done && path.resolve(target) === path.resolve(file)) { done = true; kit.files.set(path.resolve(file), bytes); } return read; } };
+  };
+  const name = "libwhisper.1.9.3.dylib";
+  const changed = Buffer.from(bytesOfLibrary(name)); changed[0x1000] ^= 1;
+  const local = whisperGgmlFixture();
+  await assert.rejects(local.stage([WHISPER_ENTRY], { fs: swapAfterFirstRead(local, sourceAt(name), changed) }), (error) => error.code === "STAGE_SIDECAR_HASH_MISMATCH" && error.details.expected === contentOf(bytesOfLibrary(name)) && error.details.actual === contentOf(changed) && /changed after it was verified/.test(error.message));
+  assert.equal(local.fs.existsSync(runtimeAt(name)), false, "the unverified copy is removed");
+  assert.deepEqual(local.written(), [], "and no notice or receipt is written");
+  // The same window exists for a file unpacked from the pinned archive.
+  const archived = winOrtFixture();
+  const unpacked = path.join(path.resolve("/rk-native-scratch-1"), ...ORT_MEMBER.split("/"));
+  await assert.rejects(archived.stage([{ ...ORT_WIN_ENTRY, companions: false }], { fs: swapAfterFirstRead(archived, unpacked, peOf(0x8664, 0x99)) }), { code: "STAGE_SIDECAR_HASH_MISMATCH", message: /changed after it was verified/ });
+  assert.equal(archived.fs.existsSync(runtimeAt("onnxruntime.dll")), false);
+  // Unchanged files still stage.
+  assert.equal((await whisperGgmlFixture().stage([WHISPER_ENTRY])).files.length, 1);
+});
+
+test("ffmpeg resourceDir: an already-staged runtime file that matches its row is made executable (0o755) instead of left at its old mode", async () => {
+  const seeded = { [path.join(runtimeDirAt, "ffmpeg")]: "mac-ffmpeg", [path.join(runtimeDirAt, "ffprobe")]: "mac-ffprobe" };
+  const kit = runtimeKit({ rows: MAC_ROWS, members: MAC_MEMBERS, seeded });
+  const result = await kit.stage([runtimeEntry({ sources: kit.sources })]);
+  assert.deepEqual(result.files.map((file) => file.path), [`${RUNTIME}/ffmpeg`, `${RUNTIME}/ffprobe`]);
+  assert.deepEqual(kit.log.copies.filter((copy) => copy.startsWith(runtimeDirAt)), [], "nothing is rewritten: both files already match");
+  for (const tool of ["ffmpeg", "ffprobe"]) assert.ok(kit.log.chmods.some(([file, mode]) => file === path.join(runtimeDirAt, tool) && mode === 0o755), `${tool} is chmod 0755 on the already-staged path`);
+  const win = runtimeKit({ target: WIN, rows: [["ffmpeg", "decode", "windows", "x86_64", "win-ffmpeg"], ["ffprobe", "decode", "windows", "x86_64", "win-ffprobe"]], members: { "ffmpeg.exe": "win-ffmpeg", "ffprobe.exe": "win-ffprobe" }, seeded: { [path.join(runtimeDirAt, "ffmpeg.exe")]: "win-ffmpeg", [path.join(runtimeDirAt, "ffprobe.exe")]: "win-ffprobe" } });
+  await win.stage([runtimeEntry({ sources: win.sources })]);
+  assert.deepEqual(win.log.chmods, [], "no exec bit on Windows");
+});
+
+test("the alias stages its DirectML companion by default: another entry that writes DirectML.dll into the same directory is refused before anything is written", async () => {
+  const dml = `${RUNTIME}/DirectML.dll`;
+  const alias = { kind: "onnxruntime", version: "1.24.4", ...NATIVE_CATALOG_ENTRY };
+  const refused = async (manifest, other) => {
+    const kit = winOrtFixture();
+    kit.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
+    await assert.rejects(kit.stage(manifest), (error) => error.code === "STAGE_SIDECAR_CONFIG_INVALID"
+      && error.message.includes(`sidecars[${manifest.indexOf(alias)}] (onnxruntime)`) && error.message.includes(other) && error.message.includes("companions: false") && error.message.includes("DirectML.dll") && error.details.errors.length === 1, JSON.stringify(manifest));
+    assert.deepEqual([kit.written(), kit.fetched], [[], []], "no file of either entry was written or downloaded");
+  };
+  await refused([{ kind: "resource", from: "vendor/DirectML.dll", to: dml }, alias], "sidecars[0] (resource)");
+  await refused([alias, { kind: "remote", name: "dml", url: "https://example.test/DirectML.dll", sha256: sha("d"), dest: dml }], "sidecars[1] (remote)");
+  await refused([alias, { kind: "native-library", library: "directml", version: "1.15.4", ...NATIVE_CATALOG_ENTRY }], "sidecars[1] (native-library)");
+  // The remedy works: without the companion the other entry owns the file and both stage.
+  const kit = winOrtFixture();
+  kit.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
+  const result = await kit.stage([{ kind: "resource", from: "vendor/DirectML.dll", to: dml }, { ...alias, companions: false }]);
+  assert.deepEqual(result.files.map((file) => file.name), ["DirectML.dll", "onnxruntime.dll"]);
+  // A different directory does not clash.
+  const apart = winOrtFixture();
+  apart.files.set(at("vendor", "DirectML.dll"), Buffer.from("vendored directml"));
+  assert.equal((await apart.stage([{ kind: "resource", from: "vendor/DirectML.dll", to: "src-tauri/resources/other/DirectML.dll" }, alias])).files.length, 3);
 });

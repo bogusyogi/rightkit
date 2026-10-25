@@ -234,6 +234,87 @@ test("G19 ffmpeg-release-escape: allow_in_release_builds only in tests and crate
   assert.match(failures[0].problem, /^src\/encode\.rs:2 uses allow_in_release_builds outside test code/);
 });
 
+test("G19 ffmpeg-release-escape: DevFfmpeg::unverified outside test code", (t) => {
+  const rs = (...lines) => `${lines.join("\n")}\n`;
+  const fixtures = {
+    // Refused: [line of the first hit, the file]
+    "src/plain.rs": rs("fn start() {", "    let ffmpeg = DevFfmpeg::unverified(path);", "}"),
+    "src/qualified.rs": rs("fn start() {", "    let f = rightkit_ffmpeg::DevFfmpeg::unverified(path);", "}"),
+    "src/spaced.rs": rs("fn start() {", "    let f = DevFfmpeg", "        ::unverified", "        (path);", "}"),
+    "src/real_then_cfg_mod.rs": rs("fn real() { DevFfmpeg::unverified(path); }", "#[cfg(test)]", "mod tests {", '    fn t() { DevFfmpeg::unverified("x"); }', "}"),
+    "src/after_gate.rs": rs('#[cfg(feature = "dev-overrides")]', "fn qa() -> DevFfmpeg {", '    DevFfmpeg::unverified("ffmpeg")', "}", "fn real() -> DevFfmpeg {", "    DevFfmpeg::unverified(path)", "}"),
+    "src/commented_gate.rs": rs('// #[cfg(feature = "dev-overrides")]', "fn f() { DevFfmpeg::unverified(p); }"),
+    "src/block_comment_gate.rs": rs('/* #[cfg(feature = "dev-overrides")] */', "fn f() { DevFfmpeg::unverified(p); }"),
+    "src/other_feature.rs": rs('#[cfg(feature = "qa")]', "fn f() { DevFfmpeg::unverified(p); }"),
+    "src/negated_gate.rs": rs('#[cfg(not(feature = "dev-overrides"))]', "fn f() { DevFfmpeg::unverified(p); }"),
+    "src/mod_decl.rs": rs('#[cfg(feature = "dev-overrides")]', "mod qa;", "fn f() { DevFfmpeg::unverified(p); }"),
+    "src/gated_field.rs": rs("fn build() -> Cfg {", "    Cfg {", '        #[cfg(feature = "dev-overrides")]', '        ffmpeg: DevFfmpeg::unverified("ffmpeg"),', "    }", "}", "fn real() { DevFfmpeg::unverified(path); }"),
+    "src/after_gated_statement.rs": rs("fn f() {", '    #[cfg(feature = "dev-overrides")]', '    let _ = DevFfmpeg::unverified("ffmpeg");', "    let real = DevFfmpeg::unverified(path);", "}"),
+    "src/path_use.rs": rs("fn f(paths: Vec<PathBuf>) -> Vec<DevFfmpeg> {", "    paths.into_iter().map(DevFfmpeg::unverified).collect()", "}"),
+    "src/path_use_spaced.rs": rs("fn f() {", "    let make = rightkit_ffmpeg::DevFfmpeg", "        ::unverified;", "}"),
+    "src/arm_then_arm.rs": rs("fn f(mode: Mode) -> DevFfmpeg {", "    match mode {", '        #[cfg(feature = "dev-overrides")]', '        Mode::Qa => DevFfmpeg::unverified("ffmpeg"),', "        Mode::Real => DevFfmpeg::unverified(path),", "    }", "}"),
+    "src/arm_then_arm_stacked.rs": rs("fn f(mode: Mode) -> DevFfmpeg {", "    match mode {", '        #[cfg(any(test, feature = "dev-overrides"))]', "        #[allow(unused)]", '        Mode::Qa => DevFfmpeg::unverified("ffmpeg"),', "        Mode::Real => DevFfmpeg::unverified(path),", "    }", "}"),
+    "src/late_inner_gate.rs": rs("fn real() { DevFfmpeg::unverified(path); }", '#![cfg(feature = "dev-overrides")]'),
+    "src/other_inner_gate.rs": rs('#![cfg(feature = "qa")]', "fn f() { DevFfmpeg::unverified(p); }"),
+    "src/inner_gate_allow.rs": rs('#![cfg(feature = "dev-overrides")]', "fn f() { Gate { allow_in_release_builds: true }; }"),
+    "src/both.rs": rs("fn a() {", "    let c = Gate { allow_in_release_builds: true };", "    let f = DevFfmpeg::unverified(path);", "}"),
+    "src/allow_gated.rs": rs('#[cfg(feature = "dev-overrides")]', "fn f() { Gate { allow_in_release_builds: true }; }"),
+    // Excused
+    "src/real_then_tests_mod.rs": rs("fn real() {}", "#[cfg(test)]", "mod tests {", '    fn t() { DevFfmpeg::unverified("ffmpeg"); }', "}"),
+    "src/whole_file_cfg.rs": rs("#![cfg(test)]", 'fn t() { DevFfmpeg::unverified("ffmpeg"); }'),
+    "src/render_test.rs": rs('fn t() { DevFfmpeg::unverified("ffmpeg"); }'),
+    "tests/ffmpeg.rs": rs('DevFfmpeg::unverified("ffmpeg");'),
+    "crates/app/tests/x.rs": rs('DevFfmpeg::unverified("ffmpeg");'),
+    "crates/rightkit-ffmpeg/src/dev.rs": rs("pub fn f() -> DevFfmpeg { DevFfmpeg::unverified(p) }"),
+    "src/commented.rs": rs("// DevFfmpeg::unverified(path) is for tests", "/// DevFfmpeg::unverified(path) in a doc comment", "//! DevFfmpeg::unverified(path) in a module doc", "fn ok() {}"),
+    "src/literals.rs": rs(
+      'const HINT: &str = "call DevFfmpeg::unverified(path) in tests";',
+      'const RAW: &str = r#"DevFfmpeg::unverified("x")"#;',
+      "fn ok() {} // DevFfmpeg::unverified(path) in a trailing comment",
+      "/* DevFfmpeg::unverified(path) in a block comment */",
+    ),
+    "src/gate_feature.rs": rs('#[cfg(feature = "dev-overrides")]', "fn qa_ffmpeg() -> DevFfmpeg {", '    DevFfmpeg::unverified("ffmpeg")', "}"),
+    "src/gate_any.rs": rs('#[cfg(any(test, feature = "dev-overrides"))]', "pub mod qa {", '    pub fn f() -> DevFfmpeg { DevFfmpeg::unverified("ffmpeg") }', "}"),
+    "src/gate_impl.rs": rs('#[cfg(feature = "dev-overrides")]', "impl Qa {", "    fn ffmpeg(&self) -> DevFfmpeg { DevFfmpeg::unverified(&self.path) }", "}"),
+    "src/gate_block.rs": rs("fn f() {", '    #[cfg(feature = "dev-overrides")]', "    {", '        let _ = DevFfmpeg::unverified("ffmpeg");', "    }", "}"),
+    "src/gate_stacked.rs": rs('#[cfg(feature = "dev-overrides")]', "#[allow(dead_code)]", "pub fn qa() -> DevFfmpeg {", '    DevFfmpeg::unverified("ffmpeg")', "}"),
+    "src/gate_statement.rs": rs("fn f() {", '    #[cfg(feature = "dev-overrides")]', '    let _ = DevFfmpeg::unverified("ffmpeg");', "}"),
+    "src/gate_braces_in_literals.rs": rs('#[cfg(feature = "dev-overrides")]', "fn qa() -> DevFfmpeg {", '    let close = "}";', "    let also = '}';", '    let note = r#"close with "}" now"#;', "    DevFfmpeg::unverified(close)", "}"),
+    "src/gate_array_signature.rs": rs('#[cfg(feature = "dev-overrides")]', "fn qa(buf: [u8; 4]) -> DevFfmpeg {", "    DevFfmpeg::unverified(path)", "}"),
+    "src/gate_lifetime.rs": rs('#[cfg(feature = "dev-overrides")]', "fn qa<'a>(path: &'a str) -> DevFfmpeg {", "    DevFfmpeg::unverified(path)", "}"),
+    "src/gate_spelling.rs": rs('#[cfg( feature = "dev-overrides" )]', "fn a() { DevFfmpeg::unverified(p); }", '#[cfg(any(feature = "dev-overrides", test))]', "fn b() { DevFfmpeg::unverified(p); }"),
+    "src/gate_arm.rs": rs("fn f(mode: Mode) -> DevFfmpeg {", "    match mode {", '        #[cfg(feature = "dev-overrides")]', '        Mode::Qa => DevFfmpeg::unverified("ffmpeg"),', "        Mode::Real => resolve(path),", "    }", "}"),
+    "src/gate_arm_block.rs": rs("fn f(mode: Mode) -> DevFfmpeg {", "    match mode {", '        #[cfg(feature = "dev-overrides")]', '        Mode::Qa => { DevFfmpeg::unverified("ffmpeg") }', "        Mode::Real => resolve(path),", "    }", "}"),
+    "src/gate_generic_fn.rs": rs('#[cfg(feature = "dev-overrides")]', "pub fn qa<A, B>(a: A, b: B) -> DevFfmpeg {", '    DevFfmpeg::unverified("ffmpeg")', "}"),
+    "src/gate_path_use.rs": rs('#[cfg(feature = "dev-overrides")]', "fn all(paths: Vec<PathBuf>) -> Vec<DevFfmpeg> {", "    paths.into_iter().map(DevFfmpeg::unverified).collect()", "}"),
+    "src/inner_gate_feature.rs": rs('//! QA-only helpers.', '#![cfg(feature = "dev-overrides")]', "fn qa() -> DevFfmpeg { DevFfmpeg::unverified(path) }", "fn all(p: Vec<PathBuf>) { p.into_iter().map(DevFfmpeg::unverified); }"),
+    "src/inner_gate_any.rs": rs('#![cfg(any(test, feature = "dev-overrides"))]', "fn qa() -> DevFfmpeg { DevFfmpeg::unverified(path) }"),
+    "src/inner_gate_after_attrs.rs": rs("#![allow(dead_code)]", '#![cfg( any( feature = "dev-overrides", test ) )]', "fn qa() -> DevFfmpeg { DevFfmpeg::unverified(path) }"),
+    "src/lookalike.rs": rs("fn f() { MyDevFfmpeg::unverified(p); other::NotDevFfmpeg::unverified(p); DevFfmpeg_unverified(p); DevFfmpeg::unverified_for_docs(p); DevFfmpeg::try_unverified; }"),
+    "src/resolver.rs": rs("fn f(p: &Path) {", "    let request = UnverifiedRequest::new(p);", "    let handle = resolve_ffmpeg_handle(&request);", "    let checked = DevFfmpeg::try_unverified(p);", "}"),
+  };
+  const refused = {
+    "src/plain.rs": 2, "src/qualified.rs": 2, "src/spaced.rs": 2, "src/real_then_cfg_mod.rs": 1, "src/after_gate.rs": 6, "src/commented_gate.rs": 2, "src/block_comment_gate.rs": 2, "src/other_feature.rs": 2, "src/negated_gate.rs": 2, "src/mod_decl.rs": 3, "src/after_gated_statement.rs": 4, "src/gated_field.rs": 7,
+    "src/path_use.rs": 2, "src/path_use_spaced.rs": 2, "src/arm_then_arm.rs": 5, "src/arm_then_arm_stacked.rs": 6, "src/late_inner_gate.rs": 1, "src/other_inner_gate.rs": 2,
+  };
+  const failures = run("ffmpeg-release-escape", t, fixtures);
+  assert.deepEqual(identities(failures), [...Object.keys(refused), "src/both.rs", "src/allow_gated.rs", "src/inner_gate_allow.rs"].map((f) => `ffmpeg-release-escape|${f}|${f}`).sort());
+  for (const [file, line] of Object.entries(refused)) {
+    const failure = failures.find((f) => f.file === file);
+    assert.ok(failure.problem.startsWith(`${file}:${line} uses DevFfmpeg::unverified outside test code: `), failure.problem);
+    assert.match(failure.fix, /resolve_ffmpeg_handle.*dev-overrides/);
+  }
+  const both = failures.find((f) => f.file === "src/both.rs");
+  assert.match(both.problem, /^src\/both\.rs:2 uses allow_in_release_builds and src\/both\.rs:3 uses DevFfmpeg::unverified outside test code: /);
+  assert.match(both.fix, /remove it from non-test code.*resolve_ffmpeg_handle/);
+  const gatedAllow = failures.find((f) => f.file === "src/allow_gated.rs");
+  assert.match(gatedAllow.problem, /^src\/allow_gated\.rs:2 uses allow_in_release_builds outside test code: /);
+  assert.doesNotMatch(gatedAllow.problem, /DevFfmpeg/);
+  const innerAllow = failures.find((f) => f.file === "src/inner_gate_allow.rs");
+  assert.match(innerAllow.problem, /^src\/inner_gate_allow\.rs:2 uses allow_in_release_builds outside test code: /, "an inner dev-overrides gate excuses DevFfmpeg::unverified only");
+  assert.doesNotMatch(innerAllow.problem, /DevFfmpeg/);
+});
+
 test("G20 switches-inventory: a release config directory needs switches.json or an existing releaseSwitches.inventory", (t) => {
   const failures = run("switches-inventory", t, {
     "right-release.config.mjs": "export default {};\n",

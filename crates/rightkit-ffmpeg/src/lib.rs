@@ -47,10 +47,16 @@ pub use content_digest::{
 };
 pub use encoders::{pick_h264, EncoderInventory};
 pub use handle::{
-    bundled_tool_candidates, resolve_ffmpeg_handle, resolve_ffmpeg_handle_with,
-    resolve_ffprobe_handle, resolve_ffprobe_handle_with, verified_or_development,
-    verify_ffmpeg_or_development, verify_ffprobe_or_development, FfmpegHandle, FfprobeHandle,
-    HandleResolution, ResolveOptions, SkippedCandidate, ToolHandle,
+    bundled_tool_candidates, bundled_tool_candidates_with_dirs, resolve_ffmpeg_handle,
+    resolve_ffmpeg_handle_with, resolve_ffprobe_handle, resolve_ffprobe_handle_with,
+    verified_or_development, verify_ffmpeg_or_development, verify_ffprobe_or_development,
+    verify_first_of, FfmpegHandle, FfprobeHandle, HandleResolution, ResolveOptions,
+    SkippedCandidate, ToolHandle,
+};
+#[cfg(feature = "native")]
+pub use native::{
+    verified_libraries, verified_libraries_in, verified_library, verified_library_in, HostProof,
+    VerifiedLibrary,
 };
 /// Re-exports of the `rightkit-child-process` types that appear in this crate's public signatures
 /// ([`runner::spawn_streaming`] returns an [`OwnedChild`]; its wait methods return
