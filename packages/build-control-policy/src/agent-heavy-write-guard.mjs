@@ -18,8 +18,8 @@
 //     the internal CoreSimulator Devices directory, the internal Library/Caches directory of a known app owner, the
 //     RightKit shared/models default path, or a mount that is not an agent volume.
 //   * Clones, worktrees and downloads are stricter than "somewhere on the agent volume": `git clone` (also with no
-//     directory, which lands in the working directory), `git worktree add`, curl and wget file outputs
-//     must write below a RUN ROOT. A run root is a directory directly under
+//     directory, which lands in the working directory), `git worktree add`, curl and wget file outputs and `hf` /
+//     `huggingface-cli download` must write below a RUN ROOT. A run root is a directory directly under
 //     /Volumes/D/scratch that is a real directory (not a symlink) holding a regular `.rightkit-run.json` lease whose
 //     `leaseUntil` is still in the future; `right-release disk run-root <name>` creates it. The run root itself, a
 //     sibling, a symlinked run directory or lease, an expired, unreadable or malformed lease, and any `..` are refused.
@@ -65,7 +65,7 @@ export const HEAVY_WRITE_RULES = Object.freeze([
   Object.freeze({ id: 'non-agent-volume', summary: 'writes to any /Volumes/<name> other than an agent volume (so /Volumes/E) are denied' }),
   Object.freeze({ id: 'undeterminable-destination', summary: 'a construct whose destination cannot be resolved exactly is refused with a rewrite hint, never guessed' }),
   Object.freeze({ id: 'repo-create-outside-run-root', summary: `git clone and git worktree add write only below a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
-  Object.freeze({ id: 'download-outside-run-root', summary: `curl and wget write only into a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
+  Object.freeze({ id: 'download-outside-run-root', summary: `curl, wget and hf/huggingface-cli download write only into a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
 ]);
 
 const DYN = Symbol('dynamic');
@@ -770,6 +770,42 @@ function runRootDestination(word, scope, ctx, via, rule, { directory = false } =
   if (within(path.join(root.run, RUN_LEASE_FILE), resolved.real)) return deny(`${RUN_LEASE_FILE} is the lease file and is written only by \`${RUN_COMMAND}\``);
   const onAgent = agentDestination({ v: resolved.real, dyn: false }, null, ctx);
   if (!onAgent.ok) return deny(`the run root is not on an agent volume: ${onAgent.why}`);
+  return null;
+}
+
+/**
+ * `hf download` / `huggingface-cli download`: the files land in --local-dir, else in the shared Hugging Face cache, so
+ * --local-dir is required and (with --cache-dir, if given) must lie in a leased run root. A long option that is a prefix of
+ * --local-dir or --cache-dir counts as that option (argparse abbreviates). Other subcommands (login, upload, scan-cache) pass.
+ */
+function huggingFaceRule(program, args, scope, ctx) {
+  const rule = 'download-outside-run-root';
+  const first = args[0];
+  if (!first) return null;
+  if (first.dyn) return refuse(`${program}: the subcommand is built from a shell expansion`, 'Write the subcommand literally ("download").');
+  if (first.v.startsWith('-')) return ['--help', '-h', '--version'].includes(first.v) ? null : refuse(`${program} ${first.v}: an option before the subcommand is not modelled, so the guard cannot tell whether this is a download`, `Put the subcommand first: "${program} download REPO --local-dir <run root>/<dir>".`);
+  if (first.v !== 'download') return null;
+  const options = args.slice(1);
+  if (options.some((word) => !word.dyn && ['--help', '-h'].includes(word.v))) return null;
+  const via = `${program} download`;
+  let localDirs = 0;
+  for (let index = 0; index < options.length; index += 1) {
+    const word = options[index];
+    if (word.v === '--') break;
+    if (word.dyn && (!word.prefix || word.prefix.startsWith('-'))) return refuse(`${via}: an argument starts with an unevaluated expansion and could be --local-dir`, `Pass the repository and options as literal words: "${program} download REPO --local-dir <run root>/<dir>".`);
+    if (!word.v.startsWith('--')) continue;
+    const eq = word.v.indexOf('=');
+    const name = word.v.slice(2, eq < 0 ? undefined : eq);
+    const local = name !== '' && 'local-dir'.startsWith(name);
+    if (!local && !(name !== '' && 'cache-dir'.startsWith(name))) continue;
+    const value = eq < 0 ? options[index + 1] : sliceWord(word, eq + 1);
+    if (!value) return refuse(`${via} ${word.v} has no value`, 'Give --local-dir and --cache-dir a directory.');
+    if (eq < 0) index += 1;
+    if (local) localDirs += 1;
+    const found = runRootDestination(value, scope, ctx, `${via} --${local ? 'local-dir' : 'cache-dir'}`, rule, { directory: true });
+    if (found) return found;
+  }
+  if (!localDirs) return violation(rule, `${via} without --local-dir writes into the shared Hugging Face cache, not into a leased run root`, runRootHint(rule, ctx));
   return null;
 }
 
@@ -1931,7 +1967,7 @@ function analyzeCommand(items, ctx, state, scope, depth, heavyText) {
         // tracks (a writer, tar/find/sed/git, xcodebuild/simctl, a wrapper, a shell, an interpreter) those words control its
         // final argv, so the destination cannot be resolved: refuse. A command the guard does not model is passed through.
         const command = parsed.operands[0];
-        const tracked = new Set([...Object.keys(WRITERS), ...Object.keys(WRAPPERS), ...INTERPRETERS, 'tar', 'bsdtar', 'gtar', 'find', 'sed', 'gsed', 'git', 'xcodebuild', 'simctl', 'xcrun', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'trap', 'sudo', 'env']);
+        const tracked = new Set([...Object.keys(WRITERS), ...Object.keys(WRAPPERS), ...INTERPRETERS, 'tar', 'bsdtar', 'gtar', 'find', 'sed', 'gsed', 'git', 'hf', 'huggingface-cli', 'xcodebuild', 'simctl', 'xcrun', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'eval', 'trap', 'sudo', 'env']);
         if (command && (command.dyn || tracked.has(programName(command)))) return refuse(`xargs: stdin controls the final arguments of ${command.dyn ? 'a command built from a shell expansion' : programName(command)}, so its destination cannot be resolved`, 'Run the command directly with literal arguments (a for loop over a literal list), not through xargs.');
       }
       args = parsed.operands; continue;
@@ -1960,6 +1996,7 @@ function analyzeCommand(items, ctx, state, scope, depth, heavyText) {
     if (program === 'find') return findRule(rest, ctx, state, scope, depth, heavyText);
     if (program === 'sed' || program === 'gsed') return sedRule(program, rest, scope, ctx);
     if (program === 'git') return gitRule(rest, scope, ctx);
+    if (program === 'hf' || program === 'huggingface-cli') return huggingFaceRule(program, rest, scope, ctx);
     if (Object.hasOwn(WRITERS, program)) return writerRule(program, rest, scope, ctx);
     return null;
   }

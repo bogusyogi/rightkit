@@ -1966,3 +1966,61 @@ test('every run-root refusal names the run root, the lease file and the command 
   assert.equal(hook('Bash', { command: `curl -O ${url}`, workdir: ext }, ws), null); // a tool workdir is the cwd
   assert.equal(hook('Bash', { command: `curl -O ${url}`, workdir: `${scratch}/run-forged` }, ws)?.hookSpecificOutput.permissionDecision, 'deny'); // the workdir resolves into a primary checkout
 });
+
+test('hf and huggingface-cli download write only into a leased run root', () => {
+  for (const program of ['hf', 'huggingface-cli', '/opt/homebrew/bin/hf']) {
+    // --local-dir is required and must be below a leased run root
+    denied(`${program} download org/m`, dlRule); // the shared Hugging Face cache
+    denied(`${program} download org/m file.bin`, dlRule, ext);
+    denied(`${program} download org/m --local-dir /Volumes/D/claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir=/Volumes/D/claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${scratch}/run2/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${scratch}/run-expired/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${scratch}`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/../run2/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/to-claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir m`, dlRule, ws); // relative to the workspace cwd
+    denied(`${program} download org/m --local-dir ${ext}/m --local-dir /Volumes/D/claude/m`, dlRule); // every one is checked
+    denied(`${program} download org/m --local-dir /Volumes/D/claude/m --local-dir ${ext}/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache-dir /Volumes/D/claude/c`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache-dir=${scratch}/run2/c`, dlRule);
+    denied(`${program} download org/m --cache-dir ${ext}/c`, dlRule); // the cache dir alone leaves the shared default for the files
+    denied(`${program} download org/m --local-dir /Volumes/E/m`, 'non-agent-volume');
+    // unresolved words are refused, never guessed
+    denied(`${program} download org/m --local-dir $X`, 'undeterminable-destination');
+    denied(`${program} download org/m --local-dir "${ext}/$X"`, 'undeterminable-destination');
+    denied(`${program} download org/m --local-dir=${ext}/$(date)`, 'undeterminable-destination');
+    denied(`${program} download org/m $OPTS`, 'undeterminable-destination', ext);
+    denied(`${program} download org/m "$OPTS" --local-dir ${ext}/m`, 'undeterminable-destination');
+    denied(`${program} $SUB org/m --local-dir ${ext}/m`, 'undeterminable-destination');
+    denied(`${program} --token abc download org/m --local-dir ${ext}/m`, 'undeterminable-destination');
+    denied(`${program} download org/m --local-dir`, 'undeterminable-destination', ext); // no value
+    denied(`${program} download org/m -- --local-dir ${ext}/m`, dlRule); // after "--" it is an operand
+    // argparse abbreviations of the two directory options count as those options
+    denied(`${program} download org/m --local /Volumes/D/claude/m`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache /Volumes/D/claude/c`, dlRule);
+    denied(`${program} download org/m --local-dir ${ext}/m --cache-d=/Volumes/D/claude/c`, dlRule);
+    allowed(`${program} download org/m --local-dir ${ext}/m`);
+    allowed(`${program} download org/m --local-dir=${ext}/m`);
+    allowed(`${program} download org/m --local-dir "${ext}/m"`);
+    allowed(`${program} download org/m --local-dir ${ext}`); // a directory the files are placed into
+    allowed(`${program} download org/m file.bin --local-dir m`, ext);
+    allowed(`${program} download --repo-type dataset org/d --local-dir ${ext}/d --include '*.json'`);
+    allowed(`${program} download org/m --local-dir ${ext}/m --local-dir-use-symlinks False --max-workers 4`);
+    allowed(`${program} download org/m --local-dir ${ext}/m --cache-dir ${ext}/c`);
+    allowed(`${program} download org/$MODEL --local-dir ${ext}/m`); // a static head keeps it an operand
+    // help and the other subcommands are not downloads
+    allowed(`${program} download --help`);
+    allowed(`${program} download -h`);
+    allowed(`${program} --help`);
+    allowed(`${program} --version`);
+    allowed(`${program} whoami`);
+    allowed(`${program} login --token abc`);
+    allowed(`${program} scan-cache`);
+    allowed(program);
+  }
+  denied(`xargs hf download`, 'undeterminable-destination');
+  denied(`env HF_HOME=/tmp/x hf download org/m`, dlRule);
+  denied(`bash -c "hf download org/m"`, dlRule, ext);
+  allowed(`env HF_HOME=${ext}/hf hf download org/m --local-dir ${ext}/m`);
+});
