@@ -9,7 +9,7 @@ const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding:
 import { CACHEDIR_SIGNATURE, KEEP_MARKER, MAX_LEASE_DAYS, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, holdingBasesOnVolume, lastEvent, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, holdingBasesOnVolume, lastEvent, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, readRecentEvents, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -2189,12 +2189,13 @@ test("apply: a stray target whose run root was kept or leased since the plan sta
     for (const dir of [path.join(scratch, name, "repo")]) utimesSync(dir, (now - 5 * DAY) / 1000, (now - 5 * DAY) / 1000);
   }
   const plan = planSweep({ policy, platform: "darwin", now, openPaths: [], size: () => 10, scan: () => ({ unknown: [], skipped: [] }) });
-  assert.deepEqual(plan.candidates.map((c) => path.relative(scratch, c.path)).sort(), ["rk-k/repo/target", "rk-l/repo/target", "rk-x/repo/target"]);
+  const rel = (p) => path.relative(scratch, p).split(path.sep).join("/");
+  assert.deepEqual(plan.candidates.map((c) => rel(c.path)).sort(), ["rk-k/repo/target", "rk-l/repo/target", "rk-x/repo/target"]);
   writeFileSync(path.join(scratch, "rk-k", KEEP_MARKER), "");
   writeFileSync(path.join(scratch, "rk-l", RUN_LEASE_FILE), JSON.stringify({ schema: 1, name: "rk-l", createdAt: new Date(now).toISOString(), leaseUntil: new Date(now + DAY).toISOString() }));
   const applied = applySweep({ plan, policy, platform: "darwin", date: new Date("2026-10-15T12:00:00Z") });
-  assert.deepEqual(Object.fromEntries(applied.skipped.map((r) => [path.relative(scratch, r.path), r.reason])), { "rk-k/repo/target": "rechecked-keep", "rk-l/repo/target": "rechecked-leased" });
-  assert.deepEqual(applied.results.map((r) => [path.relative(scratch, r.path), r.ok]), [["rk-x/repo/target", true]]);
+  assert.deepEqual(Object.fromEntries(applied.skipped.map((r) => [rel(r.path), r.reason])), { "rk-k/repo/target": "rechecked-keep", "rk-l/repo/target": "rechecked-leased" });
+  assert.deepEqual(applied.results.map((r) => [rel(r.path), r.ok]), [["rk-x/repo/target", true]]);
   assert.equal(existsSync(path.join(scratch, "rk-k", "repo", "target")), true);
   assert.equal(existsSync(path.join(scratch, "rk-l", "repo", "target")), true);
   assert.equal(existsSync(path.join(scratch, "rk-x", "repo", "target")), false);
@@ -2284,6 +2285,11 @@ test("lastEvent: a missing log means the job never ran (null); any other read er
   assert.throws(() => lastEvent(dir, ["disk.run.ok"]), (error) => error.code === "EISDIR"); // a directory where the log should be
   writeFileSync(path.join(dir, "plain"), "x");
   assert.throws(() => lastEvent(path.join(dir, "plain", "disk-hygiene.jsonl"), ["disk.run.ok"]), (error) => error.code === "ENOTDIR");
+});
+
+test("lastEvent: a directory that reports size 0 is a read error, not an empty log (Windows reports 0 for directories; /proc does here)", { skip: !existsSync("/proc/self/task") || statSync("/proc/self/task").size !== 0 }, () => {
+  assert.throws(() => lastEvent("/proc/self/task", ["disk.run.ok"]), (error) => error.code === "EISDIR");
+  assert.deepEqual(readRecentEvents("/proc/self/task"), [], "the lenient reader still returns an empty list");
 });
 
 test("run --auto: a full pass buried under more than 4 MiB of sweep lines still counts, so the hour stays light", async () => {

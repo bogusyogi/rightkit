@@ -887,7 +887,10 @@ function readLogTail(logFile, maxBytes) {
   let fd;
   try {
     fd = openSync(logFile, "r");
-    const { size } = fstatSync(fd);
+    const st = fstatSync(fd);
+    // A directory reports size 0 on Windows (and under /proc), so reading it would look like an empty log rather than fail.
+    if (!st.isFile()) throw Object.assign(new Error(`EISDIR: ${logFile} is not a regular file`), { code: "EISDIR" });
+    const { size } = st;
     const start = Math.max(0, size - maxBytes);
     const buf = Buffer.alloc(size - start);
     readSync(fd, buf, 0, buf.length, start);
