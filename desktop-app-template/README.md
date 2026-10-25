@@ -17,8 +17,14 @@ the `check` command but reads only `right-release.config.mjs`; the JSON release 
 not published yet. Until it is, run `right-release` from a RightKit checkout
 (`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of `pnpm release:*` and `pnpm dev:build:*`. The
 commit that records 0.6.6 in `rightkit-versions.json` also moves this pin to 0.6.6 (with `pnpm-lock.yaml`, the lock hashes in
-`legal/THIRD_PARTY_NOTICES.md` and `legal/legal-manifest.json`, and the hook if `install-hook` writes a different one) and deletes
-this paragraph (bogusyogi/rightkit#1148).
+`legal/THIRD_PARTY_NOTICES.md` and `legal/legal-manifest.json`) and deletes this paragraph (bogusyogi/rightkit#1148).
+
+The committed `.githooks/pre-push` must be byte-identical to what the pinned release's `rightkit-gate install-hook` writes: `prepare`
+runs it, and it refuses to overwrite a differing hook, so a stale hook fails `pnpm install` in every app copied from the template.
+`template-contract.test.mjs` compares the hook with the sha256 recorded for the pin in `packages/release/fixtures/published-gate-hooks.json`
+(computed from the published tarball, so the test needs no network); 0.6.4 and 0.6.5 are recorded. The same commit that moves the pin
+to 0.6.6 adds the published 0.6.6 digest to that record (the file's `about` gives the command), regenerates this hook from the
+published 0.6.6 `hookText` when it differs, and the test then also requires this tree's `hookText` to match the recorded digest.
 
 **Installing inside the RightKit repository.** This directory sits inside RightKit's own git repository, so `prepare`
 (`rightkit-gate install-hook`) acts on the hooks at that repository's root, not on the template: it finds RightKit's own

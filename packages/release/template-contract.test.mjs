@@ -30,6 +30,22 @@ const TEMPLATE = path.join(REPO, "desktop-app-template");
 const read = (...parts) => readFileSync(path.join(TEMPLATE, ...parts), "utf8");
 const readJson = (...parts) => JSON.parse(read(...parts));
 const versions = JSON.parse(readFileSync(path.join(here, "rightkit-versions.json"), "utf8"));
+// sha256 of the pre-push hook text each PUBLISHED @rightkit/release writes (computed from the published tarballs; fixtures/published-gate-hooks.json).
+const PUBLISHED_HOOKS = JSON.parse(readFileSync(path.join(here, "fixtures", "published-gate-hooks.json"), "utf8"));
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+/**
+ * Why `hook` is not what the published @rightkit/release `pinned` writes into an app, or null when it is. `rightkit-gate install-hook`
+ * (the template's `prepare` script) refuses to overwrite a hook that differs, so a committed hook from another release fails
+ * `pnpm install` in every app copied from the template. The comparison is against the recorded digest of the PUBLISHED hook, not against
+ * this tree's hookText: the tree is the next release, whose hook may differ.
+ */
+function hookDrift(hook, pinned) {
+  const recorded = PUBLISHED_HOOKS.releases[pinned];
+  if (!recorded) return `fixtures/published-gate-hooks.json has no hook digest for the pinned @rightkit/release ${pinned}: record it from the published tarball (see that file's "about")`;
+  const actual = sha256(hook.replace(/\r\n/g, "\n"));
+  if (actual === recorded) return null;
+  return `the committed hook (sha256 ${actual}) is not the hook the published @rightkit/release ${pinned} writes (sha256 ${recorded}), and its \`rightkit-gate install-hook\` refuses to overwrite a differing hook, so \`prepare\` fails in every app copied from the template; regenerate it from the pinned release's hookText ("${PUBLISHED_HOOKS.nodePath}"), mode 100755`;
+}
 
 const TITLE = ["Right", "App"].join("");
 const LOWER = ["right", "app"].join("");
@@ -292,12 +308,15 @@ test("the pre-push hook is committed, executable and what the pinned `rightkit-g
   assert.equal(readJson("package.json").scripts.prepare, "rightkit-gate install-hook");
   const pinned = readJson("package.json").devDependencies["@rightkit/release"];
   const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
+  // Whatever the pin is, the committed hook is byte-identical to what that PUBLISHED release writes (its recorded digest).
+  assert.equal(hookDrift(hook, pinned), null);
   if (pinned === treeVersion) {
     // The pin is this tree's own release: the hook is exactly what `install-hook` writes. `prepare` refuses to overwrite a hook that
     // differs, so a drifted committed hook would fail `pnpm install` in every new app.
     assert.equal(hook, hookText("node_modules/@rightkit/release/bin/rightkit-gate.mjs"), "regenerate with `rightkit-gate install-hook --force`");
   } else {
-    // The pin is an earlier release than this tree (the tree's hook may call subcommands the pin lacks): hold the shape every release writes.
+    // The pin is an earlier release than this tree (the tree's hook may call subcommands the pin lacks): the digest above is the exact
+    // check; these hold the shape every release writes and name a wildly wrong hook readably.
     assert.ok(hook.startsWith("#!/bin/sh\n"));
     assert.match(hook, /^# Mandatory local .*\(rightkit-gate install-hook\)\. Never bypass with --no-verify\.$/m);
     assert.match(hook, /cat > "\$stdin"/, "git's ref lines are buffered once and fed to the gate");
@@ -310,6 +329,37 @@ test("the pre-push hook is committed, executable and what the pinned `rightkit-g
   if (tracked.status === 0 && tracked.stdout.trim()) assert.match(tracked.stdout, /^100755 /, "git must record the hook as executable, or a fresh clone cannot run it");
   const tree = git(REPO, "ls-files", "-s", "desktop-app-template/package.json");
   if (tree.status === 0 && tree.stdout.trim()) assert.match(tree.stdout, /^100644 /, "package.json is a plain file");
+});
+
+test("the committed hook is compared with the hook the pinned release publishes: a hook from another release is caught", () => {
+  const hook = read(".githooks", "pre-push");
+  const pinned = readJson("package.json").devDependencies["@rightkit/release"];
+  assert.equal(hookDrift(hook, pinned), null);
+  assert.equal(hookDrift(hook.replace(/\n/g, "\r\n"), pinned), null, "a CRLF checkout of the same hook is the same hook");
+  // The 0.6.4 hook said "gate" and ran no `check --commit HEAD`; 0.6.5 writes both: any edit of the published bytes is drift.
+  assert.match(hookDrift(hook.replace("local check and gate", "local gate"), pinned) ?? "", /is not the hook the published @rightkit\/release/);
+  assert.match(hookDrift(hook.replace("rightkit_gate check --commit HEAD < /dev/null >&2 || exit $?", "true"), pinned) ?? "", /refuses to overwrite a differing hook/);
+  assert.match(hookDrift(hook, "0.0.1") ?? "", /has no hook digest for the pinned @rightkit\/release 0\.0\.1/, "an unrecorded pin cannot be checked, so it fails");
+});
+
+test("fixtures/published-gate-hooks.json records every @rightkit/release the registry has served from 0.6.4, and the tree's hook equals the record of the version it is staged as", () => {
+  assert.equal(PUBLISHED_HOOKS.nodePath, "node_modules/@rightkit/release/bin/rightkit-gate.mjs", "the digests are for the hook an installed app gets");
+  const order = (a, b) => { const [x, y] = [a, b].map((v) => v.split(".").map(Number)); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
+  const treeVersion = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8")).version;
+  for (const [version, digest] of Object.entries(PUBLISHED_HOOKS.releases)) {
+    assert.match(version, /^\d+\.\d+\.\d+$/);
+    assert.match(digest, /^[0-9a-f]{64}$/, `${version}: a sha256 hex digest`);
+    assert.ok(order(version, treeVersion) <= 0, `${version} is newer than this tree's ${treeVersion}: only published releases are recorded`);
+  }
+  // Every release a registry has served from 0.6.4 on (the published one and the superseded ones) has a record: the bookkeeping that
+  // moves registry.npm to a new release adds its digest in the same commit, or this fails.
+  const served = new Set([...(versions.legacyNpm["@rightkit/release"] ?? []), versions.registry.npm["@rightkit/release"]].filter((v) => order(v, "0.6.4") >= 0));
+  assert.ok(served.size >= 2 && served.has("0.6.4"), "0.6.4 and 0.6.5 are the first served releases with a recorded hook");
+  for (const version of served) assert.ok(PUBLISHED_HOOKS.releases[version], `@rightkit/release ${version} is on the registry: add its hook digest to fixtures/published-gate-hooks.json, computed from the published tarball`);
+  // The record of this tree's own version, once it exists, is the hook this tree writes: a published release is immutable, so changing
+  // hookText after publishing means a new version, not a new digest.
+  const own = PUBLISHED_HOOKS.releases[treeVersion];
+  if (own !== undefined) assert.equal(own, sha256(hookText(PUBLISHED_HOOKS.nodePath)), `hookText changed after @rightkit/release ${treeVersion} was recorded as published: bump the version`);
 });
 
 test("the README warns that `prepare` acts on the enclosing repository, because the template lives inside RightKit's", () => {
