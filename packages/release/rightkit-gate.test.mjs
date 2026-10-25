@@ -2321,3 +2321,91 @@ test("cleanCheckoutPaths: the directory of each unit and every ancestor of it co
   assert.equal(new Set(paths).size, paths.length, "no pathspec twice");
   assert.ok(!paths.includes("apps/pnpm-lock.yaml") && !paths.includes("apps/package.json"), "only the linter configs are read from an intermediate directory");
 });
+
+// ---- B1: an app declares that a unit's test needs the broker (ci/gate.config.json npm.<unit>.requiresBroker) -----------------------------------------------------
+
+// HeardRight's root test is `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
+// `rustright cargo test`: no part of package.json says so, and scriptBrokerCall reads package.json only.
+const OPAQUE_TEST = `node -e "const{spawnSync}=require('node:child_process');process.exit(spawnSync('pnpm',['run','verify'],{stdio:'inherit'}).status)"`;
+const opaque = { name: "viewright", license: "MIT", scripts: { test: OPAQUE_TEST, verify: "pnpm --dir tauri-app-next run verify" } };
+const REASON = "the root test runs tauri-app-next/scripts/verify-local.mjs, which spawns rustright cargo test";
+const declaring = (requiresBroker, scripts = opaque.scripts) => gateFiles({
+  "package.json": JSON.stringify({ ...opaque, scripts }), "src/app.ts": "",
+  "ci/gate.config.json": JSON.stringify({ npm: { viewright: { requiresBroker } } }),
+});
+
+test("B1: a test the scripts do not show reaching the broker runs on a host without it, until the app declares it", async (t) => {
+  const undeclared = await pushGate(t, { files: gateFiles({ "package.json": JSON.stringify(opaque), "src/app.ts": "" }), spawnOptions: viewrightSpawn });
+  assert.equal(undeclared.code, 0, undeclared.err);
+  const scan = undeclared.seen[0].plan.scans.find((s) => s.id === "test:npm:viewright");
+  assert.ok(scan, "it is planned and would run (and fail on this host: command not found)");
+  assert.equal(scan.brokerCall, undefined, "scriptBrokerCall cannot see through node -e");
+});
+
+test("B1: a declared test is deferred with the Rust gate where there is no broker, named with the app's reason, and never reported as passed", async (t) => {
+  const r = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  const ids = r.seen[0].plan.scans.map((s) => s.id);
+  assert.ok(!ids.includes("test:npm:viewright"), "not run");
+  assert.ok(ids.includes("license") && ids.includes("json-parse"), "the other scans still run");
+  const headline = r.err.split("\n").find((l) => /rust gate DEFERRED/.test(l));
+  assert.match(headline, /scans not run [^;]*test:npm:viewright/, "listed by name in the DEFERRED block");
+  assert.match(r.err, new RegExp(`npm test scan\\(s\\) deferred with the Rust gate, never run and never passed, because ci/gate\\.config\\.json declares that the test needs the broker and this host has no broker: test:npm:viewright \\(declared in ci/gate\\.config\\.json npm\\.viewright\\.requiresBroker: ${REASON.replaceAll(".", "\\.")}\\)`));
+  assert.match(r.out, /note: no RustRight broker on this host: 6 Rust scan\(s\) are deferred to host qualification, not run and not passed; 1 npm test scan\(s\) that need the broker \(their script runs it, or ci\/gate\.config\.json declares it\) are deferred with them, not run and not passed: test:npm:viewright/);
+  assert.doesNotMatch(r.out, /\[\d+\/\d+\] pass +test:npm:viewright/);
+  assert.deepEqual(r.seen[0].plan.deferred, []);
+  assert.equal(r.seen[0].plan.scanSetDigest, digestScanSet(r.seen[0].plan.scans), "the plan digest describes what runs");
+  assert.deepEqual(r.after, r.before, "the tree is byte for byte what it was");
+});
+
+test("B1: everywhere else a declared test runs exactly as before: a host with the broker or the shim, CI, a protected ref, the opt-out", async (t) => {
+  const withBroker = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: { ...viewrightSpawn, broker: true } });
+  assert.equal(withBroker.code, 0, withBroker.err);
+  const scan = withBroker.seen[0].plan.scans.find((s) => s.id === "test:npm:viewright");
+  assert.ok(scan, "it runs where the broker is");
+  assert.equal(scan.brokerCall.declared, true);
+  assert.doesNotMatch(withBroker.err + withBroker.out, /DEFERRED|npm test scan\(s\) (deferred|that need)/);
+  const shim = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: { ...viewrightSpawn, shim: true }, readFile: shimRead });
+  assert.ok(shim.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), "the managed shim counts as the broker");
+  for (const [name, o] of [
+    ["CI", { env: { CI: "1" } }], ["GITHUB_ACTIONS", { env: { GITHUB_ACTIONS: "true" } }], ["the opt-out", { env: { [DEFER_OPT_OUT_ENV]: "1" } }],
+    ["a protected ref", { stdin: pushLine("refs/heads/main") }], ["a release branch", { stdin: pushLine("refs/heads/release/1.0") }],
+  ]) {
+    const r = await pushGate(t, { files: declaring({ reason: REASON }), spawnOptions: viewrightSpawn, ...o });
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, NO_BROKER, `${name}: the refusal is the one it was`);
+    assert.equal(r.seen.length, 0, `${name}: nothing was deferred, so nothing is skipped`);
+  }
+});
+
+test("B1: a declaration that is not { reason: <text> } defers nothing, fails closed, and says so", async (t) => {
+  for (const [name, value] of [["an empty object", {}], ["true", true], ["a bare string", "needs the broker"], ["an empty reason", { reason: "" }], ["a blank reason", { reason: " \n\t " }], ["a non-string reason", { reason: 5 }], ["an array", [{ reason: "x" }]]]) {
+    const r = await pushGate(t, { files: declaring(value), spawnOptions: viewrightSpawn });
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    assert.ok(r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), `${name}: the test is planned as if it were not declared`);
+    assert.match(r.out, /note: ci\/gate\.config\.json npm\.viewright\.requiresBroker is ignored: it must be \{ "reason": "<why this unit's test needs the broker>" \} with a non-empty reason; test:npm:viewright is planned as if it were not there/, name);
+    assert.doesNotMatch(r.err, /npm test scan\(s\) deferred/, name);
+  }
+  for (const [name, value] of [["false", false], ["null", null]]) {
+    const r = await pushGate(t, { files: declaring(value), spawnOptions: viewrightSpawn });
+    assert.ok(r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"), name);
+    assert.doesNotMatch(r.out, /requiresBroker/, `${name} is a plain "no declaration"`);
+  }
+});
+
+test("B1: a call the scripts do show is reported from the scripts; the declaration only covers what they do not show", async (t) => {
+  const r = await pushGate(t, { files: declaring({ reason: REASON }, viewright.scripts), spawnOptions: viewrightSpawn });
+  assert.equal(r.code, 0, r.err);
+  assert.ok(!r.seen[0].plan.scans.some((s) => s.id === "test:npm:viewright"));
+  assert.match(r.err, new RegExp(`because the package script runs rustright and this host has no broker: test:npm:viewright \\(script test -> test:e2e: ${E2E_COMMAND.replaceAll(".", "\\.")}\\)`));
+  assert.doesNotMatch(r.err, /declared in/);
+});
+
+test("deferredBlock: a declared npm test scan names the declaration and its reason; a mix of both causes says both", () => {
+  const base = { units: ["a"], notRun: ["clippy:a", "test:npm:heardright"], refs: ["refs/heads/claude/x"] };
+  const declared = { id: "test:npm:heardright", tool: "rustright", via: ["test"], command: `ci/gate.config.json npm.heardright.requiresBroker: ${REASON}`, declared: true };
+  const shown = { id: "test:npm:viewright", tool: "rustright", via: ["test", "test:e2e"], command: E2E_COMMAND };
+  assert.equal(deferredBlock({ ...base, npmCalls: [declared] })[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because ci/gate.config.json declares that the test needs the broker and this host has no broker: test:npm:heardright (declared in ci/gate.config.json npm.heardright.requiresBroker: ${REASON})`);
+  assert.equal(deferredBlock({ ...base, npmCalls: [shown, declared] })[2], `rightkit-gate:   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs rustright, or ci/gate.config.json declares that the test needs the broker and this host has no broker: test:npm:viewright (script test -> test:e2e: ${E2E_COMMAND}); test:npm:heardright (declared in ci/gate.config.json npm.heardright.requiresBroker: ${REASON})`);
+  assert.equal(deferredBlock({ ...base, npmCalls: [shown] })[2], deferredBlock({ ...base, npmCalls: [{ ...shown }] })[2], "without a declaration the line is what it was");
+});

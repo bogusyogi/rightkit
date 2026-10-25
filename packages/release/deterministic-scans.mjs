@@ -355,6 +355,24 @@ export function scriptBrokerCall(scripts, entry = "test", { maxDepth = 8 } = {})
   return visit(String(entry), []);
 }
 
+// A test script can reach the broker in ways scriptBrokerCall cannot read from package.json alone: `node -e "...spawnSync('pnpm', ['run', n])..."`,
+// `node ./scripts/verify-local.mjs` (a script that spawns `rustright cargo test`), `sh -c`, `pnpm --dir <elsewhere> run verify`, `pnpm --filter`. HeardRight's
+// root `test` is a `node -e` over `verify`, which is `pnpm --dir tauri-app-next run verify`, which is `node ./scripts/verify-local.mjs`, which runs
+// `rustright cargo test`; guessing from the text of such a script would defer tests that merely mention the tool, so the app says it instead.
+// `ci/gate.config.json` `npm.<unit>.requiresBroker` is `{ "reason": "<why this unit's test needs the broker>" }`, committed with the app and reviewed in the
+// diff that adds it. The reason is required: a declaration without one, or of any other shape, is ignored (the test is planned and runs where this host can
+// run it, the way the fail-closed default goes) and planScans says so in a note. `false` and `null` are plain "no declaration". It changes nothing on a host
+// with the broker, in CI, on a protected ref or with the opt-out: the scan runs there exactly as before. Only where rightkit-gate defers the Rust gate does it
+// take the unit's `test:npm:<unit>` scan out, with the Rust scans, named with its reason and never passed.
+const REQUIRES_BROKER_REASON_LIMIT = 400;
+export function declaredBrokerCall(unit, value) {
+  if (value === undefined || value === null || value === false) return {};
+  const reason = typeof value === "object" && !Array.isArray(value) && typeof value.reason === "string" ? value.reason.replace(/\s+/g, " ").trim() : "";
+  if (!reason) return { problem: `ci/gate.config.json npm.${unit}.requiresBroker is ignored: it must be { "reason": "<why this unit's test needs the broker>" } with a non-empty reason; test:npm:${unit} is planned as if it were not there` };
+  const text = reason.length > REQUIRES_BROKER_REASON_LIMIT ? `${reason.slice(0, REQUIRES_BROKER_REASON_LIMIT)}...` : reason;
+  return { call: { tool: "rustright", via: ["test"], command: `ci/gate.config.json npm.${unit}.requiresBroker: ${text}`, declared: true } };
+}
+
 /**
  * The scan plan for a change: derived from the changed files plus the manifests they belong to.
  * `contentRoot` is a clean export of the commit (pure content checks); `liveRoot` is the checkout the
@@ -726,9 +744,12 @@ export function planScans({
       if (own.quietTests === true && quietTests === "ci") { deferredToCi.push(`test:npm:${name}`); continue; }
       // A gate proves the repository's own content: sibling checkouts beside it (RightKit's suite-contract tests read the app
       // repositories when present) are not inputs, so the package tests run as an isolated checkout, as they do in CI.
-      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain: rightkit-gate defers such a scan with the
-      // Rust gate where this host has no broker (scriptBrokerCall).
-      const brokerCall = scriptBrokerCall(manifest.scripts, "test");
+      // `brokerCall` marks a test script that runs the broker (or cargo) through its script chain (scriptBrokerCall), or a unit whose app declares that
+      // its test needs the broker (declaredBrokerCall): rightkit-gate defers such a scan with the Rust gate where this host has no broker.
+      // A declaration (`npm.<unit>.requiresBroker`, declaredBrokerCall) covers what the script text does not show; a call the scripts do show wins.
+      const declared = declaredBrokerCall(name, own.requiresBroker);
+      if (declared.problem) notes.push(declared.problem);
+      const brokerCall = scriptBrokerCall(manifest.scripts, "test") ?? declared.call ?? null;
       add({ id: `test:npm:${name}`, class: B, ...(own.quietTests === true ? { quiet: true } : {}), ...(brokerCall ? { brokerCall } : {}), tool: "pnpm", args: ["--dir", npmDir(name), "run", "test"], env: { ...PNPM_RUN_ENV, RIGHTKIT_ISOLATED_CHECKOUT: "1" } });
     }
     if (deferredToCi.length) notes.push(`${deferredToCi.length} quiet test scan(s) left to the CI shards (one crate per runner), not run here: ${deferredToCi.join(", ")}`);

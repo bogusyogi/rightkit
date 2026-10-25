@@ -46,12 +46,14 @@
 // process is not in CI (no CI or GITHUB_ACTIONS), the gate defers the Rust gate to host qualification. It reads the Rust units from the
 // tracked manifests (no cargo), runs every scan that needs no broker, prints "rust gate DEFERRED to host qualification" with the Rust
 // units and scans it did not run, exits 0 and writes nothing into the tree. An npm test scan whose package script chain runs `rustright` or
-// `cargo` (planScans marks it `brokerCall`) cannot run there either and is deferred the same way, named with its reason. The pull request then
+// `cargo` (planScans marks it `brokerCall`), or a unit whose ci/gate.config.json `npm.<unit>.requiresBroker` declares that its test needs the
+// broker, cannot run there either and is deferred the same way, named with its reason. The pull request then
 // needs a HOST RECEIPT before merge; that receipt stays the merge gate. RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal on such a host. Every pushed ref is judged, whatever its place
 // in the push; git's stdin is split on single ASCII spaces (a ref name may hold Unicode whitespace) and a line that is not four fields defers
 // nothing. The default branch is named by the checkout, the base ref, the remote commits being replaced and origin/HEAD, so a commit cannot
 // unprotect it by editing .rightgit.json. A refusal prints the old message and, on a second line, why nothing was deferred.
-// ci/gate.config.json `rust` (optional) sets per-crate feature sets, exactly as CI's gate reads it.
+// ci/gate.config.json `rust` (optional) sets per-crate feature sets, exactly as CI's gate reads it; `npm.<unit>` sets `quietTests` and
+// `requiresBroker: { "reason": "..." }` (a test the package scripts do not show reaching the broker: node -e, node scripts, sh -c, pnpm --dir).
 // Result cache: a passing class B scan is reused only when its scan id, command, tool version, environment and input digest
 // (the gated commit's git object ids for the crate's workspace closure, the shared build inputs, ci/gate.config.json and every
 // path the closure's sources include from outside their crate; the whole HEAD tree for Rust tests unless ci/gate.config.json
@@ -612,7 +614,14 @@ export function deferredBlock({ units, notRun, refs, manifests = 0, unmatched = 
     `${tag}   pushed ${refs.join(", ")} (non-protected, not CI). The HOST RECEIPT (a host with the RustRight broker ran the full gate) stays the merge gate; ${DEFER_OPT_OUT_ENV}=1 keeps the refusal on this host.`,
   ];
   if (unmatched.length) lines.push(`${tag}   tracked Cargo.toml with a package that matched no unit (the manifest reader runs no cargo; the HOST RECEIPT does): ${unmatched.join(", ")}`);
-  if (npmCalls.length) lines.push(`${tag}   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs ${[...new Set(npmCalls.map((c) => c.tool))].join(" or ")} and this host has no broker: ${npmCalls.map((c) => `${c.id} (script ${c.via.join(" -> ")}: ${c.command})`).join("; ")}`);
+  if (npmCalls.length) {
+    // Two causes: the scripts show the call (`script test -> test:e2e: <command>`), or the app declares it in ci/gate.config.json
+    // `npm.<unit>.requiresBroker` (declaredBrokerCall), whose reason is the command field. Without a declaration the line is what it was.
+    const shown = npmCalls.filter((c) => !c.declared); const declared = npmCalls.filter((c) => c.declared);
+    const ran = `the package script runs ${[...new Set(shown.map((c) => c.tool))].join(" or ")}`;
+    const cause = !declared.length ? ran : !shown.length ? "ci/gate.config.json declares that the test needs the broker" : `${ran}, or ci/gate.config.json declares that the test needs the broker`;
+    lines.push(`${tag}   npm test scan(s) deferred with the Rust gate, never run and never passed, because ${cause} and this host has no broker: ${npmCalls.map((c) => `${c.id} (${c.declared ? `declared in ${c.command}` : `script ${c.via.join(" -> ")}: ${c.command}`})`).join("; ")}`);
+  }
   return lines;
 }
 
@@ -1419,8 +1428,9 @@ export async function main(argv, io = {}) {
       npmCalls = npmDropped.map((s) => ({ id: s.id, ...s.brokerCall }));
       notRun = [...dropped, ...npmDropped].map((s) => s.id);
       plan = withoutScans(plan, [...dropped, ...npmDropped]);
+      const declaredDropped = npmDropped.some((s) => s.brokerCall.declared);
       deferNote = `no RustRight broker on this host: ${dropped.length} Rust scan(s) are deferred to host qualification, not run and not passed${rustfmt ? "" : " (rustfmt is not usable on this host either)"}`
-        + (npmDropped.length ? `; ${npmDropped.length} npm test scan(s) whose script runs the broker or cargo are deferred with them, not run and not passed: ${npmDropped.map((s) => s.id).join(", ")}` : "");
+        + (npmDropped.length ? `; ${npmDropped.length} npm test scan(s) ${declaredDropped ? "that need the broker (their script runs it, or ci/gate.config.json declares it)" : "whose script runs the broker or cargo"} are deferred with them, not run and not passed: ${npmDropped.map((s) => s.id).join(", ")}` : "");
     }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);

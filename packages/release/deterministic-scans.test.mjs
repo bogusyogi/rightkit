@@ -1668,3 +1668,36 @@ test("B4: a failed scan's detail leads with pnpm's bracketed [ERR_PNPM_...] line
   assert.match(scansModule.failureDetail({ stdout: "x\ntest foo ... FAILED\ny\n" }), /^test foo \.\.\. FAILED/);
   assert.match(scansModule.failureDetail({ stderr: "noise\nerror[E0308]: mismatched types\n" }), /^error\[E0308\]: mismatched types/);
 });
+
+// ---- B1: ci/gate.config.json npm.<unit>.requiresBroker ---------------------------------------------------------------------------------------------------------
+
+test("B1: declaredBrokerCall reads { reason } only; whitespace is collapsed, a long reason is cut, anything else is a problem or no declaration", () => {
+  const { declaredBrokerCall } = scansModule;
+  assert.deepEqual(declaredBrokerCall("app", { reason: "  runs\n  verify-local.mjs  " }), { call: { tool: "rustright", via: ["test"], command: "ci/gate.config.json npm.app.requiresBroker: runs verify-local.mjs", declared: true } });
+  const long = declaredBrokerCall("app", { reason: "x".repeat(500) }).call.command;
+  assert.equal(long, `ci/gate.config.json npm.app.requiresBroker: ${"x".repeat(400)}...`);
+  for (const none of [undefined, null, false]) assert.deepEqual(declaredBrokerCall("app", none), {}, String(none));
+  for (const bad of [true, 0, "yes", [], {}, { reason: "" }, { reason: "   " }, { reason: 7 }, { reason: null }, [{ reason: "x" }], { Reason: "x" }, { why: "x" }]) {
+    const r = declaredBrokerCall("app", bad);
+    assert.equal(r.call, undefined, JSON.stringify(bad));
+    assert.match(r.problem, /^ci\/gate\.config\.json npm\.app\.requiresBroker is ignored: it must be \{ "reason": /, JSON.stringify(bad));
+  }
+});
+
+test("B1: planScans marks a declared unit's test:npm scan; the script chain's own finding wins; a bad declaration plans the scan unmarked with a note; other settings are unaffected", () => {
+  const files = { "package.json": '{"name":"app","license":"MIT","scripts":{"test":"node -e \\"require(\'./verify-local.mjs\')\\""}}', "src/a.ts": "" };
+  const declare = (requiresBroker, extra = {}) => planFor(["src/a.ts"], files, { ...pnpmUnit, packageFeatures: { app: { requiresBroker, ...extra } } }).plan;
+  const marked = scanOf(declare({ reason: "verify-local.mjs spawns rustright cargo test" }), "test:npm:app");
+  assert.deepEqual(marked.brokerCall, { tool: "rustright", via: ["test"], command: "ci/gate.config.json npm.app.requiresBroker: verify-local.mjs spawns rustright cargo test", declared: true });
+  assert.deepEqual([marked.tool, marked.args], ["pnpm", ["--dir", ".", "run", "test"]], "the scan itself is unchanged");
+  assert.equal(scanOf(planFor(["src/a.ts"], files, pnpmUnit).plan, "test:npm:app").brokerCall, undefined, "no declaration, no script that shows the call: unmarked");
+  const bad = declare({ reason: "" });
+  assert.equal(scanOf(bad, "test:npm:app").brokerCall, undefined);
+  assert.ok(bad.notes.some((n) => /^ci\/gate\.config\.json npm\.app\.requiresBroker is ignored: /.test(n)), bad.notes.join("\n"));
+  assert.ok(!declare({ reason: "x" }).notes.some((n) => /requiresBroker/.test(n)), "a good declaration adds no note");
+  const quiet = declare({ reason: "x" }, { quietTests: true });
+  assert.equal(scanOf(quiet, "test:npm:app").quiet, true, "quietTests still applies");
+  assert.equal(scanOf(quiet, "test:npm:app").brokerCall.declared, true);
+  const shown = planFor(["src/a.ts"], { ...files, "package.json": '{"name":"app","license":"MIT","scripts":{"test":"rustright cargo test"}}' }, { ...pnpmUnit, packageFeatures: { app: { requiresBroker: { reason: "x" } } } }).plan;
+  assert.deepEqual(scanOf(shown, "test:npm:app").brokerCall, { tool: "rustright", via: ["test"], command: "rustright cargo test" }, "what the scripts show is reported as the scripts show it");
+});
