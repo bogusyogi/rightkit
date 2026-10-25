@@ -104,7 +104,7 @@ export const EXIT_INCOMPLETE = 3;
 export const INSTALL_COMMAND = "pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --offline --package-import-method=copy --config.ignore-scripts=true --config.ignore-pnpmfile=true --config.side-effects-cache=false --config.manage-package-manager-versions=false";
 
 /**
- * The immutable closure the probe runs against: `git archive <commit>` (the exact commit captured before anything ran) extracted
+ * The immutable closure the probe runs against: every file of `<commit>` (the exact commit captured before anything ran, export-ignore included) exported
  * to a fresh directory, then `pnpm install --frozen-lockfile --ignore-scripts --offline` INSIDE it. Nothing from the live checkout
  * is linked in: workspace packages resolve to the exported (committed) sources, and every third-party byte comes from the
  * content-addressed store as the tree's lockfile names it (pnpm verifies each package against the lockfile's integrity hash).
@@ -114,12 +114,15 @@ export const INSTALL_COMMAND = "pnpm install --frozen-lockfile --ignore-scripts 
 export function exportTree(root, { commit, spawn = spawnSync, mkdtemp = () => fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")) } = {}) {
   if (!/^[0-9a-f]{40}$/.test(commit ?? "")) return { problem: "exportTree needs the exact commit to archive" };
   const dir = mkdtemp();
-  const tar = path.join(dir, "tree.tar");
-  const archived = spawn("git", ["-C", root, "archive", "--format=tar", "-o", tar, commit], { encoding: "utf8", windowsHide: true });
-  if (archived.error || archived.status !== 0) return { problem: `git archive ${commit} of ${root} failed: ${(archived.stderr || archived.error?.message || "").trim()}` };
-  const extracted = spawn("tar", ["-xf", tar, "-C", dir], { encoding: "utf8", windowsHide: true });
-  if (extracted.error || extracted.status !== 0) return { problem: `extracting the exported tree failed: ${(extracted.stderr || extracted.error?.message || "").trim()}` };
-  fs.rmSync(tar, { force: true });
+  // read-tree into a private index, then checkout-index: every file of the commit, including any marked export-ignore in
+  // .gitattributes (`git archive` would drop those, and a hidden package would vanish from the required set unseen).
+  const index = path.join(dir, ".rk-export-index");
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  const read = spawn("git", ["-C", root, "read-tree", commit], { encoding: "utf8", windowsHide: true, env });
+  if (read.error || read.status !== 0) return { problem: `git read-tree ${commit} of ${root} failed: ${(read.stderr || read.error?.message || "").trim()}` };
+  const out = spawn("git", ["-C", root, "checkout-index", "--all", "--force", `--prefix=${dir}${path.sep}`], { encoding: "utf8", windowsHide: true, env });
+  if (out.error || out.status !== 0) return { problem: `exporting ${commit} failed: ${(out.stderr || out.error?.message || "").trim()}` };
+  fs.rmSync(index, { force: true });
   const sha = (f) => { try { return crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex"); } catch { return null; } };
   // `--package-import-method=copy`: every dependency file is a private copy inside the export, never a hardlink or symlink into
   // the content-addressed store or the live checkout, so a later mutation of either cannot reach the probed bytes and the digest

@@ -1340,7 +1340,11 @@ export async function main(argv, io = {}) {
   // `--print-baseline` and `--only` stay app-check-only views.
   if (sub === "check") {
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
-    if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) return appCheck;
+    if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) {
+      // A view of the app rules, never a class A verdict: say so, so no caller can take its exit 0 for a full check.
+      if (!args.includes("--list") && !args.includes("--print-baseline")) o.err("rightkit-gate: PARTIAL: app rules only (--only); no class A scan ran, so this is not a class A result");
+      return appCheck;
+    }
     const repoArg = option("--repo");
     const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
     const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
@@ -1351,16 +1355,29 @@ export async function main(argv, io = {}) {
     let selfRules = 0;
     const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd });
     const root = failed(top) ? null : path.resolve(text(top).trim());
-    const self = fileURLToPath(import.meta.url);
-    if (root && self.startsWith(root + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs"))) {
-      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { cwd: root, env: o.env });
+    const self = o.selfPath ?? fileURLToPath(import.meta.url);
+    // RightKit's own scripts are the checked repository's code: they run only after the app rules and every class A scan passed,
+    // never after a failure, so a red tree executes nothing of its own.
+    if (root && self.startsWith(root + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs")) && appCheck === 0 && classA === 0) {
+      const launch = o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" }));
+      const selector = args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"];
+      const r = launch(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...selector], { cwd: root, env: o.env });
       selfRules = r.status === 0 ? 0 : 1;
       // And its exports import cleanly (scripts/ci/exports-import-effects.mjs: every exported module imported in a fresh, permission-
-      // limited process; an import that prints, exits or reads its argv fails), which publish.yml's scans job ran alone before.
+      // limited process; an import that prints, exits or reads its argv fails), which publish.yml's scans job ran alone before. That
+      // check probes the checkout's HEAD, so it runs only when HEAD is the requested commit (or the working tree was asked for);
+      // any other commit is refused rather than proven by other bytes.
       const effects = path.join(root, "scripts", "ci", "exports-import-effects.mjs");
-      if (o.exists(effects)) {
-        const e = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [effects], { cwd: root, env: o.env });
-        if (e.status !== 0) selfRules = 1;
+      if (selfRules === 0 && o.exists(effects)) {
+        const requested = args.includes("--worktree") ? null : option("--commit") ?? "HEAD";
+        const at = (rev) => { const v = o.spawn("git", ["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], { cwd: root }); return failed(v) ? null : text(v).trim(); };
+        if (requested !== null && at(requested) !== at("HEAD")) {
+          o.err(`rightkit-gate: BLOCKED: the exports import check probes the checkout's HEAD (${String(at("HEAD")).slice(0, 12)}), not the requested ${requested}; check out that commit to check it`);
+          selfRules = 1;
+        } else {
+          const e = launch(process.execPath, [effects], { cwd: root, env: o.env });
+          if (e.status !== 0) selfRules = 1;
+        }
       }
     }
     return Math.max(appCheck, classA, selfRules);

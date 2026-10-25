@@ -1810,3 +1810,21 @@ test("pnpm-audit runs the consumer's own declared policy, never a weaker one; wi
   assert.deepEqual(scanArgs({ name: "app", license: "MIT" }), ["audit"], "no declared policy: all dependencies, all severities");
   assert.deepEqual(scanArgs({ name: "app", license: "MIT", scripts: { audit: "pnpm audit --prod && curl evil" } }), ["audit"], "anything but plain flags is not a policy");
 });
+
+test("tool version probes run outside the repository with pnpm hooks and corepack auto-pinning off; the scans themselves keep their own roots", async () => {
+  const { fs, plan } = planFor(["package.json"], { "package.json": '{"name":"app","license":"MIT"}', "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" }, { rustUnits: [], npmUnits: [{ name: "app", dir: "." }] });
+  const calls = [];
+  const base = fakeSpawn();
+  const spawn = (command, args, options = {}) => { calls.push({ command: path.basename(command), args, cwd: options.cwd, env: options.env ?? {} }); return base(command, args, options); };
+  await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }));
+  const probes = calls.filter((c) => c.args.length === 1 && /version/.test(c.args[0]));
+  assert.ok(probes.some((c) => c.command === "pnpm"), "pnpm was probed");
+  for (const p of probes) {
+    assert.equal(p.cwd, "/neutral/probe", `${p.command} probe runs outside the repository`);
+    assert.equal(p.env.npm_config_ignore_pnpmfile, "true"); assert.equal(p.env.pnpm_config_ignore_pnpmfile, "true");
+    assert.equal(p.env.npm_config_ignore_scripts, "true"); assert.equal(p.env.COREPACK_ENABLE_AUTO_PIN, "0");
+  }
+  // Positive control: the audit scan itself still runs in the repository's content root.
+  const audit = calls.find((c) => c.command === "pnpm" && c.args[0] === "audit");
+  assert.ok(audit && audit.cwd.startsWith(CONTENT), "the scan runs where its lockfile is");
+});

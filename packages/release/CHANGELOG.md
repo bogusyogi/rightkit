@@ -2,6 +2,8 @@
 
 ## 0.6.7 (unpublished staging)
 
+- **Audit closures (Neon, 2026-10-25).** RightKit's own rules and the exports import check run only after the app rules and every class A scan passed (a red tree executes none of its own code), and the import check refuses any commit other than the checkout's HEAD instead of proving it with HEAD's bytes. The import check exports with read-tree + checkout-index, so an export-ignored package cannot leave the required set. `--only` says it is a partial view, not a class A result. CI setup runs installs and `pnpm fetch` with pnpmfile hooks and scripts off. Regressions, each failing on the old code: commit-bound Cargo scans, probe isolation, self-check order and binding, export-ignored package.
+
 - **pnpm-audit keeps the consumer's own policy.** The class A audit ran `pnpm audit --prod --audit-level high`, weaker than RightSites' declared `pnpm audit --prod` (every severity). It now runs the flags of a root script that is exactly `pnpm audit <flags>` (only `--prod`, `--dev`, `--audit-level`), and with none declared, every dependency at every severity.
 
 - **The compile stage stages sidecars first.** `rightkit-gate --to compile` runs `right-release stage-sidecar --config <file>` (under the live door run) for every committed `right-release.config.(json|mjs)` that declares `sidecars`, before any compile: a Tauri crate with `externalBin` refuses to build without them (PostRight's first run through the door failed exactly there). A failed staging compiles nothing.

@@ -355,6 +355,11 @@ jobs:
       # Importing an export executes candidate code: this runs only after every file-only class A step (scans, Cargo.lock/rustfmt, secret scan) passed. Hygiene gates every
       # native shard, so a module that runs at import stops the run before any runner starts.
       - name: Fetch every package of the lockfile into the store (the import check installs the exported tree offline from it)
+        env:
+          npm_config_ignore_scripts: "true"
+          npm_config_ignore_pnpmfile: "true"
+          pnpm_config_ignore_scripts: "true"
+          pnpm_config_ignore_pnpmfile: "true"
         run: pnpm fetch
       - name: Exported modules import without side effects (after class A)
         run: node scripts/ci/exports-import-effects.mjs --report "$RUNNER_TEMP/import-effects/report.json"

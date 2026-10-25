@@ -442,7 +442,7 @@ test("exports-import-effects: a real concurrent edit/restore race against the pr
   fs.writeFileSync(path.join(repo, "packages/p2/src/m.mjs"), "console.log('aba');\n"); git("add", "-A"); git("commit", "-qm", "aba"); git("reset", "-q", "--hard", base);
   const after = await aba; assert.equal(after.code, 0, after.err);
   assert.equal(git("rev-parse", "HEAD").trim(), base);
-  assert.equal(after.report.commit, base); assert.equal(after.report.stable, true, "before/after identity equal: bound to the captured commit, which git archive exported by its exact id");
+  assert.equal(after.report.commit, base); assert.equal(after.report.stable, true, "before/after identity equal: bound to the captured commit, which the private-index export wrote by its exact id");
   assert.deepEqual(strip(after.report), strip(quiet.report));
 });
 
@@ -499,4 +499,18 @@ test("the checks sit before every expensive job: publish.yml scans (before plan,
   assert.ok(hygiene.includes("name: import-effects-hygiene-${{ github.run_attempt }}"));
   assert.ok(ci.indexOf("node scripts/preflight.mjs") < ci.indexOf("\n  shards-windows:\n"), "preflight runs in plan, before the shards");
   for (const job of ["shards-windows", "shards-macos", "closure-windows", "closure-macos"]) assert.match(ci.slice(ci.indexOf(`\n  ${job}:\n`)), /needs: \[plan, hygiene\]/, `${job} needs plan and hygiene`);
+});
+
+test("exports-import-effects: a package hidden by export-ignore is still in the exported tree, so it cannot drop out of the required import set", (t) => {
+  const { repo, git } = gitRepoFixture(t);
+  fs.mkdirSync(path.join(repo, "packages", "hidden"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "packages", "hidden", "package.json"), '{"name":"hidden","version":"0.0.0","exports":{".":"./index.mjs"}}\n');
+  fs.writeFileSync(path.join(repo, "packages", "hidden", "index.mjs"), "export const x = 1;\n");
+  fs.appendFileSync(path.join(repo, ".gitattributes"), "packages/hidden/** export-ignore\n");
+  git("add", "-A"); git("commit", "-qm", "hidden");
+  const commit = git("rev-parse", "HEAD").trim();
+  const exported = exportTree(repo, { commit });
+  assert.ok(exported.dir, exported.problem);
+  assert.ok(fs.existsSync(path.join(exported.dir, "packages", "hidden", "package.json")), "export-ignore does not hide a package from the probe");
+  assert.ok(fs.existsSync(path.join(exported.dir, "packages", "a", "package.json")), "positive control: an ordinary package is exported too");
 });

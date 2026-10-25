@@ -2128,3 +2128,85 @@ test("--to compile stages every declared sidecar first, under the door run, and 
   assert.deepEqual(calls.map((c) => c.args ?? c), ["stage-sidecar --config app/right-release.config.mjs"], "a failed staging compiles nothing");
   assert.ok(head);
 });
+
+test("RightKit self-check: the door runs RightKit's own rules for the requested selector only after app rules and class A pass, and never proves another commit with HEAD's imports", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-self-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(root, "scripts", "ci"), { recursive: true });
+  fs.writeFileSync(path.join(root, "scripts", "preflight.mjs"), "");
+  fs.writeFileSync(path.join(root, "scripts", "ci", "exports-import-effects.mjs"), "");
+  fs.writeFileSync(path.join(root, "good.json"), "{}\n");
+  git("add", "-A"); git("commit", "-q", "-m", "one");
+  const first = git("rev-parse", "HEAD").stdout.trim();
+  fs.writeFileSync(path.join(root, "more.json"), "{}\n"); git("add", "-A"); git("commit", "-q", "-m", "two");
+  const selfPath = path.join(root, "packages", "release", "bin", "rightkit-gate.mjs");
+  const run = async ({ appCheck = 0, args, status = 0 }) => {
+    const launched = []; const c = capture();
+    const code = await main(["check", ...args], { ...c.io, cwd: root, selfPath, resolveExecutor: directExecutor, appCheck: async () => appCheck, spawnInherit: (cmd, a) => { launched.push(a.map((x) => (x === root ? "." : x.startsWith(`${root}${path.sep}`) ? path.relative(root, x) : x)).join(" ")); return { status }; } });
+    return { code, launched, err: c.err.join("\n") };
+  };
+  // Positive control: green app rules and class A on HEAD run RightKit's rules for HEAD, then the import check.
+  const green = await run({ args: ["--commit", "HEAD"] });
+  assert.equal(green.code, 0, green.err);
+  assert.deepEqual(green.launched, ["scripts/preflight.mjs --repo . --commit HEAD", "scripts/ci/exports-import-effects.mjs"]);
+  // Negative: a red app rule or a red class A scan executes none of the repository's own scripts.
+  const redApp = await run({ appCheck: 1, args: ["--commit", "HEAD"] });
+  assert.equal(redApp.code, 1); assert.deepEqual(redApp.launched, []);
+  fs.writeFileSync(path.join(root, "bad.json"), "{ not json\n"); git("add", "-A"); git("commit", "-q", "-m", "bad");
+  const redA = await run({ args: ["--commit", "HEAD"] });
+  assert.equal(redA.code, 1); assert.deepEqual(redA.launched, [], "a red class A runs no candidate code");
+  // Negative: an older requested commit is checked by its own rules, and the HEAD-bound import check refuses instead of proving it.
+  const older = await run({ args: ["--commit", first] });
+  assert.equal(older.code, 1, older.err);
+  assert.match(older.launched[0], new RegExp(`--commit ${first}$`));
+  assert.equal(older.launched.length, 1, "no import probe of HEAD for another commit");
+  assert.match(older.err, /probes the checkout's HEAD/);
+  // A red RightKit rule stops before the import check.
+  git("rm", "-q", "bad.json"); git("commit", "-q", "-m", "fix");
+  const redRules = await run({ args: ["--commit", "HEAD"], status: 1 });
+  assert.equal(redRules.code, 1); assert.equal(redRules.launched.length, 1);
+});
+
+test("class A of an older commit runs cargo's scans on that commit's Cargo files, never the live checkout's", async (t) => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-cargo-snap-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(root, "src"));
+  fs.writeFileSync(path.join(root, "src", "lib.rs"), "");
+  fs.writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "old"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\n');
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n");
+  git("add", "-A"); git("commit", "-q", "-m", "old");
+  const old = git("rev-parse", "HEAD").stdout.trim();
+  // HEAD and the live checkout move on: a different crate name in HEAD, and a live edit no commit holds.
+  fs.writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "new"\nversion = "0.2.0"\nedition = "2021"\nlicense = "MIT"\n');
+  git("commit", "-q", "-am", "new");
+  fs.writeFileSync(path.join(root, "Cargo.toml"), "[package]\nname = \"live-only\"\n");
+  const seen = [];
+  const runScans = async (plan, opts) => {
+    for (const s of plan.scans.filter((x) => x.class === "A" && (x.tool === "cargo" || x.tool === "rustright"))) {
+      const dir = path.join(s.root === "content" ? plan.roots.contentRoot : plan.roots.liveRoot, s.cwd ?? "");
+      seen.push(fs.readFileSync(path.join(dir, "Cargo.toml"), "utf8"));
+    }
+    return { schema: "rightkit.deterministic-scans/1", ok: true, complete: true, classes: ["A"], scans: [], toolVersions: {}, cacheHits: [], notes: [], deferred: [] };
+  };
+  const c = capture();
+  await main(["--class-a", "--commit", old], { ...c.io, cwd: root, resolveExecutor: directExecutor, runScans });
+  assert.ok(seen.length > 0, `cargo scans were planned: ${c.err.join("\n")}`);
+  for (const text of seen) assert.match(text, /name = "old"/, "the scan reads the requested commit's manifest, not HEAD's or the live edit");
+  // Positive control: HEAD's own check reads HEAD's manifest.
+  seen.length = 0;
+  await main(["--class-a", "--commit", "HEAD"], { ...capture().io, cwd: root, resolveExecutor: directExecutor, runScans });
+  for (const text of seen) assert.match(text, /name = "new"/);
+});
+
+test("a partial check (--only) says it is not a class A result, and the door and the broker always run the full check", async () => {
+  const c = capture();
+  await main(["check", "--only", "release-config"], { ...c.io, cwd: process.cwd(), appCheck: async () => 0 });
+  assert.match(c.err.join("\n"), /PARTIAL: app rules only/);
+  // The door's check stage and the broker's admission call the full form.
+  const src = fs.readFileSync(new URL("./bin/rightkit-gate.mjs", import.meta.url), "utf8");
+  assert.match(src, /main\(\["check", "--commit", "HEAD"\]/, "--to check runs the full check");
+});
