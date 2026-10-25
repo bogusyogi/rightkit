@@ -667,8 +667,8 @@
       "pkId": "PK01",
       "id": "ci/consumers/rightkit-fs/src/main.rs",
       "files": {
-        "Cargo.toml": "6ad5dddfda18639df25de2bfcc520c97e02fac7c218bd11073f3e7dd0db8ad9b",
-        "README.md": "1e8c1f28c4b7e9d594c89bf23b6881c9b51a3d226091823cda07971d3e3da1bf",
+        "Cargo.toml": "252c3f4a88ebd508a79c98aa173d727782668534b088b9e62394d3dccbc625d5",
+        "README.md": "2fe926e6aad23f1af589cf3cd00a7f3b00593c9a2381b424d39995b905fd2aad",
         "src/main.rs": "3c0690a863a9bc587ff49a4b6805e2ce05764ca03133f97dd16d723538513208"
       }
     },

@@ -40,7 +40,7 @@ The build broker is the Rust RustRight product (`bogusyogi/rustright`, binary `r
 | `rightkit-embed` | crates.io | 0.6.1 | 0.6.1 | 0.6.1 | ok | embeddings | Product-neutral local text embeddings and persistent cosine vector store. |
 | `rightkit-ffmpeg` | crates.io | 0.2.10 | 0.2.10 | 0.2.10 | ok | media-pipelines | Verified FFmpeg artifact and lifecycle primitives for Right Suite media pipelines. |
 | `rightkit-file-watch` | crates.io | 0.4.1 | 0.4.1 | 0.4.1 | ok | file-watching | Filesystem watching for Right Suite apps: ref-counted async subscribers, debounced file-set and directory watchers, and rename-storm coalescing. |
-| `rightkit-fs` | crates.io | 0.4.7 | 0.4.7 | 0.4.7 | ok | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
+| `rightkit-fs` | crates.io | 0.4.8 | 0.4.7 | 0.4.8 | staged, not yet published | safe-filesystem | Safe state directories, atomic writes, cross-process locks, owner-only files, and stable file identity for Right Suite apps. |
 | `rightkit-fsindex` | crates.io | 0.5.0 | 0.5.0 | 0.5.0 | ok | file-index | Live whole-disk file index: fuzzy name search plus clone- and hard-link-aware folder size rollups on memory-mapped columns |
 | `rightkit-google-identity` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | google-identity | Sign in with Google protocol pieces for Right Suite apps: OAuth PKCE request and redirect handling, token response and ID-token claim checks, and refresh-token storage in rightkit-credentials. |
 | `rightkit-hooks` | crates.io | 0.2.0 | 0.2.0 | 0.2.0 | ok | lifecycle-hooks | Typed Claude Code and Codex hook payloads, a deadline-bound exit-0 dispatcher, exact output builders, and delivery receipts. |

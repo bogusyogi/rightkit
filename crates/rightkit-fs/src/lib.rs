@@ -13,6 +13,9 @@
 //! - [`transaction`] (feature `transaction`): [`FileTransaction`] / [`PreparedTransaction`] /
 //!   [`recover_transactions`], a crash-recoverable multi-file publication with a journal under the
 //!   root (recoverability and serialized writers, not all-file atomic visibility).
+//! - [`transient`] (feature `fs`): [`transient::retry_transient`], the one bounded retry (20 times, 100 ms
+//!   apart, Windows only, the original error returned after the bound) for a delete, rename or open that
+//!   Windows refuses with error 5, 32 or 33 while a scanner or indexer holds the file.
 //! - [`lease`] (feature `fs`): [`Lease`], a pid + heartbeat-TTL lease file with stale-holder takeover
 //!   (not an OS lock): `try_acquire`, `renew`, `release`, `peek`.
 //! - [`migrate`] (feature `fs`): [`migrate_dir`] (also `AppDirs::migrate_dir`), a directory move that
@@ -94,6 +97,8 @@ pub mod swap;
 pub mod test_mode;
 #[cfg(feature = "transaction")]
 pub mod transaction;
+#[cfg(feature = "fs")]
+pub mod transient;
 #[cfg(feature = "fs")]
 pub mod trash;
 #[cfg(feature = "fs")]

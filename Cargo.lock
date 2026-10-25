@@ -7016,7 +7016,7 @@ dependencies = [
 
 [[package]]
 name = "rightkit-fs"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "blake3",
  "libc",

@@ -9,10 +9,11 @@ Safe filesystem state for Right Suite apps:
 - Stable file identity across renames and atomic replacement (`IdentityStore`, `StableId`; `Fingerprint` is `identity::Fingerprint`, not re-exported at the crate root; the root re-export list is at `src/lib.rs:65`).
 - macOS `clonefile(2)` with `CLONE_NOFOLLOW` (`clone_file_nofollow`). It never falls back to a byte copy. `clone_or_link_or_copy_nofollow` is the explicit ladder for callers that can accept less: clone, then hard link, then a durable copy, reporting which one it was.
 - Keyed write locks (`KeyedWriteLocks`, feature `lock`): one writer per destination in a process, optionally across processes, with no permanent lock map.
+- A bounded retry for a plain delete, rename or open that Windows refuses with error 5, 32 or 33 while a scanner or indexer holds the file (`transient::retry_transient`, feature `fs`): Windows only, 20 retries 100 ms apart, the original error returned after the bound.
 - Crash-recoverable multi-file publication (`FileTransaction`, `PreparedTransaction::commit`, `recover_transactions`, feature `transaction`): a journal under the root, identity-checked rollback and recovery, recoverability and serialized writers (not all-file atomic visibility).
 - macOS `renamex_np(RENAME_SWAP)` (`swap_paths`, `is_swap_unsupported`) and the `rightkit-swap A B` binary: atomic exchange of two paths, never absent in between.
 
-Catalog capability: `safe-filesystem`. Published to crates.io; 0.4.5 adds the complete-before-lock lease guard and the opt-in Windows access-denied retry (see CHANGELOG). 0.4.7 (unpublished) adds `account_home` and resolves app folders from the OS account, not `HOME`/`XDG_*` (see CHANGELOG). 0.4.6 (unpublished staging) adds `KeyedWriteLocks`, the `transaction` feature and `FsError::Conflict`.
+Catalog capability: `safe-filesystem`. Published to crates.io; 0.4.5 adds the complete-before-lock lease guard and the opt-in Windows access-denied retry (see CHANGELOG). 0.4.8 (unpublished) adds the `transient` retry module and retries the removal of a transaction's own directory (see CHANGELOG). 0.4.7 (unpublished) adds `account_home` and resolves app folders from the OS account, not `HOME`/`XDG_*` (see CHANGELOG). 0.4.6 (unpublished staging) adds `KeyedWriteLocks`, the `transaction` feature and `FsError::Conflict`.
 
 ## When to use it
 

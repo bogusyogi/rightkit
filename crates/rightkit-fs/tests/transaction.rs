@@ -10,7 +10,7 @@ use rightkit_fs::atomic::seams as atomic_seams;
 use rightkit_fs::transaction::seams::{self, Step};
 use rightkit_fs::{
     recover_transactions, ExpectedPrior, FileKey, FileTransaction, FsError, PreparedTransaction,
-    RecoveryOutcome, TransactionEntry, TransactionOptions, TransactionReport,
+    RecoveryOutcome, RetryPolicy, TransactionEntry, TransactionOptions, TransactionReport,
 };
 use std::cell::RefCell;
 use std::fs;
@@ -2095,6 +2095,131 @@ fn a_forced_sharing_failure_is_retried_and_the_identified_file_is_removed() {
     let f = fixture();
     let _failing = seams::force_delete_failures(2);
     let report = prepared(&f).commit().unwrap();
+    match report {
+        TransactionReport::Committed(done) => {
+            assert!(done.retained.is_empty(), "{:?}", done.retained);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_new(&f);
+    assert_no_residue(&f.root);
+}
+
+/// The last step of a committed transaction removes its own, now empty, directory. A refusal
+/// that clears by itself (a scanner or indexer still holding the directory) is retried there like
+/// every other delete, so the transaction leaves nothing behind and reports nothing retained. The
+/// two tests below pin the other side: with no retry, or with the bound used up, the refusal is
+/// reported.
+#[test]
+fn a_refused_removal_of_the_transaction_directory_is_retried() {
+    let f = fixture();
+    let (retained, left) = commit_with_refused_directory(&f, TransactionOptions::default(), 2);
+    assert!(retained.is_empty(), "{retained:?}");
+    assert!(left.is_none(), "{left:?}");
+    assert_no_residue(&f.root);
+}
+
+/// Commit with `options`, arming `failures` refusals of the transaction directory's removal, and
+/// return the committed report's retained items together with the directory's path.
+fn commit_with_refused_directory(
+    f: &Fixture,
+    options: TransactionOptions,
+    failures: u32,
+) -> (Vec<rightkit_fs::RetainedItem>, Option<PathBuf>) {
+    let armed = Rc::new(RefCell::new(None));
+    let slot = Rc::clone(&armed);
+    let hook = seams::on_step(move |step| {
+        if *step == Step::AfterMarkerRemove {
+            *slot.borrow_mut() = Some(seams::force_delete_failures(failures));
+        }
+        None
+    });
+    let report = FileTransaction::prepare(&f.root, entries(f), options)
+        .unwrap()
+        .commit()
+        .unwrap();
+    drop(hook);
+    let retained = match report {
+        TransactionReport::Committed(done) => done.retained,
+        other => panic!("{other:?}"),
+    };
+    assert_new(f);
+    (retained, txn_dirs(&f.root).into_iter().next())
+}
+
+/// With the retry switched off the same refusal is one attempt, and it is reported with the
+/// directory's path instead of being swallowed: the retry is what made the test above clean.
+#[test]
+fn without_a_retry_a_refused_removal_of_the_transaction_directory_is_reported() {
+    let f = fixture();
+    let (retained, left) =
+        commit_with_refused_directory(&f, TransactionOptions::default().retry(None), 1);
+    let txn_dir = left.expect("the refused directory is still there");
+    assert_eq!(retained.len(), 1, "{retained:?}");
+    assert_eq!(retained[0].path, txn_dir);
+    assert!(
+        retained[0].reason.contains("injected sharing failure"),
+        "{retained:?}"
+    );
+    // The directory is empty, so the next recovery finishes the removal.
+    let report = recover_transactions(&f.root).unwrap();
+    assert!(report.is_clean(), "{report:?}");
+    assert_no_residue(&f.root);
+}
+
+/// The retry is the transaction's own bound: two retries survive two refusals, and a third
+/// refusal is reported with the last error instead of being retried without end.
+#[test]
+fn the_directory_removal_retries_exactly_as_often_as_the_transaction_policy_allows() {
+    let policy = || TransactionOptions::default().retry(Some(RetryPolicy::new(2, Duration::ZERO)));
+    let f = fixture();
+    let (retained, left) = commit_with_refused_directory(&f, policy(), 2);
+    assert!(retained.is_empty(), "{retained:?}");
+    assert!(left.is_none(), "{left:?}");
+    assert_no_residue(&f.root);
+
+    let f = fixture();
+    let (retained, left) = commit_with_refused_directory(&f, policy(), 3);
+    assert_eq!(retained.len(), 1, "{retained:?}");
+    assert_eq!(Some(retained[0].path.clone()), left);
+    assert!(
+        retained[0].reason.contains("injected sharing failure"),
+        "{retained:?}"
+    );
+}
+
+/// Windows refuses to remove a directory another handle holds without delete sharing (an indexer
+/// that is listing it). The hold ends by itself, so the commit must ride it out and leave nothing.
+#[cfg(windows)]
+#[test]
+fn a_windows_hold_on_the_transaction_directory_is_ridden_out() {
+    use std::os::windows::fs::OpenOptionsExt;
+    const SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+    let f = fixture();
+    let root = f.root.clone();
+    let holder = Rc::new(RefCell::new(None));
+    let slot = Rc::clone(&holder);
+    let hook = seams::on_step(move |step| {
+        if *step == Step::AfterMarkerRemove {
+            let handle = fs::OpenOptions::new()
+                .read(true)
+                .share_mode(SHARE_READ_WRITE)
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .open(only_txn_dir(&root))
+                .unwrap();
+            *slot.borrow_mut() = Some(std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                drop(handle);
+            }));
+        }
+        None
+    });
+    let report = prepared(&f).commit().unwrap();
+    drop(hook);
+    if let Some(holder) = holder.borrow_mut().take() {
+        holder.join().unwrap();
+    }
     match report {
         TransactionReport::Committed(done) => {
             assert!(done.retained.is_empty(), "{:?}", done.retained);
