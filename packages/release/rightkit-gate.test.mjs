@@ -271,6 +271,19 @@ test("install-hook writes the hook, sets core.hooksPath, and refuses to overwrit
   assert.deepEqual(state.sets, [".githooks"]);
 });
 
+test("install-hook registers the one-door agent hook in .claude/settings.json once, keeping the settings already there", async (t) => {
+  const root = mkRepo({ "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "", "node_modules/@rightkit/release/bin/rightkit-agent-hook.mjs": "", ".claude/settings.json": JSON.stringify({ permissions: { allow: ["Bash(ls)"] } }) }, t);
+  const run = async () => { const c = capture(); const code = await main(["install-hook"], { ...c.io, spawn: hookSpawn(root, { hooksPath: "", sets: [] }), cwd: root }); return { code, out: c.out.join("\n") }; };
+  const first = await run();
+  assert.equal(first.code, 0);
+  const settings = JSON.parse(fs.readFileSync(path.join(root, ".claude", "settings.json"), "utf8"));
+  assert.deepEqual(settings.permissions, { allow: ["Bash(ls)"] }, "existing settings are kept");
+  assert.deepEqual(settings.hooks.PreToolUse, [{ matcher: "Bash", hooks: [{ type: "command", command: "node node_modules/@rightkit/release/bin/rightkit-agent-hook.mjs" }] }]);
+  const second = await run();
+  assert.match(second.out, /agent hook already present/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, ".claude", "settings.json"), "utf8")).hooks.PreToolUse.length, 1, "never added twice");
+});
+
 test("install-hook points node at the installed package when it is in node_modules", async (t) => {
   const root = mkRepo({ "node_modules/@rightkit/release/bin/rightkit-gate.mjs": "" }, t);
   const c = capture();

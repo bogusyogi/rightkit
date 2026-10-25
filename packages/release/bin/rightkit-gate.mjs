@@ -1002,6 +1002,25 @@ async function installHook(o, root, force) {
     if (failed(set)) { o.err(`rightkit-gate: git config core.hooksPath failed: ${why(set)}`); return 2; }
     done.push(`set core.hooksPath to .githooks${existingPath ? ` (was ${existingPath})` : ""}`);
   }
+  // The agent side of the one door: a Claude Code PreToolUse hook in the repository's .claude/settings.json runs door-policy.mjs on every
+  // shell command, on every host (the broker-less cloud included), and denies any build that does not go through rightkit-gate.
+  const agentHookFile = "node_modules/@rightkit/release/bin/rightkit-agent-hook.mjs";
+  const agentHook = o.exists(path.join(root, agentHookFile)) ? agentHookFile : posix(path.relative(root, fileURLToPath(new URL("./rightkit-agent-hook.mjs", import.meta.url))));
+  const settingsPath = path.join(root, ".claude", "settings.json");
+  let settings = {};
+  if (o.exists(settingsPath)) { try { settings = JSON.parse(o.readFile(settingsPath)); } catch { o.err("rightkit-gate: .claude/settings.json is not JSON; the agent hook was not added"); settings = null; } }
+  if (settings) {
+    const command = `node ${agentHook}`;
+    const pre = Array.isArray(settings.hooks?.PreToolUse) ? settings.hooks.PreToolUse : [];
+    const has = pre.some((entry) => (entry.hooks ?? []).some((h) => typeof h.command === "string" && h.command.includes("rightkit-agent-hook")));
+    if (has) done.push(".claude/settings.json agent hook already present");
+    else {
+      settings.hooks = { ...(settings.hooks ?? {}), PreToolUse: [...pre, { matcher: "Bash", hooks: [{ type: "command", command }] }] };
+      try { o.mkdir(path.dirname(settingsPath), { recursive: true }); } catch { /* exists */ }
+      o.writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+      done.push("added the one-door agent hook to .claude/settings.json (commit it)");
+    }
+  }
   for (const line of done) o.out(`rightkit-gate: ${line}`);
   const chained = own.length ? own.map((name) => (name === "pre-push" ? "pre-push (run first, then the gate)" : name)) : [];
   o.out(`rightkit-gate: chained hooks from .git/hooks: ${chained.length ? chained.join(", ") : "none"}${own.includes("pre-push") ? "" : "; the pre-push hook still runs .git/hooks/pre-push first if one appears later"}`);
