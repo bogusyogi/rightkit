@@ -4,6 +4,7 @@
 // the package root only); run it with: node --import ./test-support/broker-guard.mjs --test cli/right-release.test.mjs
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "../background-process.mjs";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -64,7 +65,20 @@ const makeRed = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JS
 const makeGreen = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } })); };
 
 let preload;
-function runCli(t, cwd, args, { spy = true } = {}) {
+// A live door run for the repository at `cwd` (what rightkit-gate --to sets up before it launches a right-release stage): the run file
+// under <git common dir>/rightkit-gate/runs names HEAD and this test process's pid, and RK_GATE_RUN names it. `door: false` leaves it out.
+function doorEnv(cwd) {
+  const git = (a) => spawnSync("git", a, { cwd, encoding: "utf8" });
+  const common = git(["rev-parse", "--git-common-dir"]); const head = git(["rev-parse", "HEAD"]);
+  if (common.status !== 0 || head.status !== 0) return {};
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const dir = path.join(path.resolve(cwd, common.stdout.trim()), "rightkit-gate", "runs");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${nonce}.json`), JSON.stringify({ pid: process.pid, commit: head.stdout.trim(), tree: "", stage: "package" }));
+  return { RK_GATE_RUN: nonce };
+}
+
+function runCli(t, cwd, args, { spy = true, door = true } = {}) {
   if (!preload) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rk-cli-spy-"));
     process.on("exit", () => fs.rmSync(dir, { recursive: true, force: true }));
@@ -72,7 +86,8 @@ function runCli(t, cwd, args, { spy = true } = {}) {
     fs.writeFileSync(preload, PRELOAD);
   }
   const log = path.join(tmpDir(t, "rk-cli-log-"), "calls.log");
-  const result = spawnSync(process.execPath, [...(spy ? ["--import", pathToFileURL(preload).href] : []), CLI, ...args], { cwd, encoding: "utf8", env: { ...process.env, RK_CLI_SPY_LOG: log } });
+  const appRoot = args.includes("--app-root") ? args[args.indexOf("--app-root") + 1] : cwd;
+  const result = spawnSync(process.execPath, [...(spy ? ["--import", pathToFileURL(preload).href] : []), CLI, ...args], { cwd, encoding: "utf8", env: { ...process.env, RK_CLI_SPY_LOG: log, ...(door ? doorEnv(appRoot) : {}) } });
   const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, spawns: calls.filter((c) => c.spawn).map((c) => c.spawn), developments: calls.filter((c) => c.development).map((c) => c.development), calls };
 }
@@ -286,6 +301,22 @@ test("dmg build has no repository: it dispatches from a directory that is no git
     assert.deepEqual(refused.calls, [], guarded.join(" "));
     assert.match(refused.stderr, new RegExp(`^right-release ${guarded[0] === "addon" ? "addon build" : guarded[0]}: the app check needs a git repository`, "m"));
   }
+});
+
+test("one door: every commit-bound command refuses without a live rightkit-gate run for HEAD and starts nothing; worktree commands are not locked", (t) => {
+  const repo = app(t);
+  for (const [name, args] of GUARDED) {
+    if (CHECKED_COMMANDS.get(name) !== "commit") continue;
+    const refused = runCli(t, repo, args, { door: false });
+    assert.equal(refused.status, 2, `${name}: ${refused.stderr}`);
+    assert.match(refused.stderr, /runs only through the one door: rightkit-gate --to/, name);
+    assert.deepEqual([refused.spawns, refused.developments], [[], []], `${name} starts nothing`);
+  }
+  // A run file for another commit, or one whose process has ended, is no door run.
+  const stale = runCli(t, repo, ["build", "--platform", "win"], { door: false });
+  assert.equal(stale.status, 2);
+  const dev = runCli(t, repo, ["dev", "--platform", "win", "--dry-run"], { door: false });
+  assert.notEqual(dev.stderr.includes("runs only through the one door"), true, "dev is a local convenience, not a release stage");
 });
 
 test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, --list, and --config picks the repository", (t) => {

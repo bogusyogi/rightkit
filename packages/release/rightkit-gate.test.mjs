@@ -1689,3 +1689,87 @@ const viewrightFiles = (scripts = viewright.scripts) => gateFiles({ "package.jso
 const viewrightSpawn = { tracked: { "package.json": ["package.json"] }, diff: "package.json\ncrates/a/src/lib.rs\n" };
 const E2E_COMMAND = "rustright storage run --app viewright -- right-release test";
 
+
+// ---- the one door: rightkit-gate --to <stage> ----------------------------------------------------------------------------------
+
+import { requireDoorRun, stagesTo, STAGES } from "./gate-stages.mjs";
+
+function stageRepo(t) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-stages-")));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n");
+  git("add", "-A"); git("commit", "-q", "-m", "app");
+  return { root, head: git("rev-parse", "HEAD").stdout.trim() };
+}
+const directExecutor = () => ({ kind: "direct", cargo: ["cargo"] });
+
+test("--to runs every stage up to the target in order, class A first, and stops at the first failure with nothing after it", async (t) => {
+  assert.deepEqual(STAGES, ["check", "compile", "package", "qualify", "release"]);
+  assert.deepEqual(stagesTo("compile"), ["check", "compile"]);
+  assert.equal(stagesTo("deploy"), null);
+  const { root } = stageRepo(t);
+  const ran = [];
+  const c = capture();
+  const code = await main(["--to", "compile"], { ...c.io, cwd: root, resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 1; }, runCompile: async () => { ran.push("compile"); return 0; } });
+  assert.equal(code, 1);
+  assert.deepEqual(ran, ["check"], "a red class A stops the run: compile never starts");
+  assert.match(c.err.join("\n"), /--to compile stopped at check: nothing after it ran/);
+});
+
+test("--to reuses check and compile only for the exact same inputs, and needs --platform / --tier where they matter", async (t) => {
+  const { root } = stageRepo(t);
+  const ran = [];
+  const io = { resolveExecutor: directExecutor, runCheck: async () => { ran.push("check"); return 0; }, runCompile: async () => { ran.push("compile"); return 0; } };
+  const first = capture();
+  assert.equal(await main(["--to", "compile"], { ...first.io, cwd: root, ...io }), 0, first.err.join("\n"));
+  const again = capture();
+  assert.equal(await main(["--to", "compile"], { ...again.io, cwd: root, ...io }), 0);
+  assert.deepEqual(ran, ["check", "compile"], "the second run reuses both: same commit, tree, lockfiles, gate and toolchain");
+  assert.match(again.out.join("\n"), /\[check\] already passed for this exact input/);
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "version = 4\n# changed\n");
+  spawnSync("git", ["commit", "-qam", "lock change"], { cwd: root });
+  assert.equal(await main(["--to", "compile"], { ...capture().io, cwd: root, ...io }), 0);
+  assert.deepEqual(ran, ["check", "compile", "check", "compile"], "a new commit (here a lockfile change) runs both again");
+  const noPlatform = capture();
+  assert.equal(await main(["--to", "package"], { ...noPlatform.io, cwd: root, ...io }), 2);
+  assert.match(noPlatform.err.join("\n"), /--to package needs --platform mac\|win/);
+  const noTier = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win"], { ...noTier.io, cwd: root, ...io }), 2);
+  assert.match(noTier.err.join("\n"), /--to release needs --tier patch\|update \(chosen explicitly, never defaulted\)/);
+  const dirty = capture();
+  fs.writeFileSync(path.join(root, "Cargo.lock"), "edited\n");
+  assert.equal(await main(["--to", "check"], { ...dirty.io, cwd: root, ...io }), 1);
+  assert.match(dirty.err.join("\n"), /the checkout differs from HEAD; every stage works on the commit/);
+});
+
+test("--to release: package seals, qualify and release use exactly that sealed set, under a live door run; a changed seal blocks", async (t) => {
+  const { root, head } = stageRepo(t);
+  const calls = []; let sealedDigest = "d".repeat(64);
+  const io = {
+    resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0,
+    sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: sealedDigest }),
+    spawnInherit: (cmd, a, opts) => {
+      const door = requireDoorRun({ env: opts.env, commonDir: path.join(root, ".git"), commit: head, command: "x" });
+      calls.push({ args: a.slice(1).join(" "), door });
+      return { status: 0 };
+    },
+  };
+  const c = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io }), 0, c.err.join("\n"));
+  assert.deepEqual(calls.map((x) => x.args), [
+    "qa --stage source --platform win", "build --platform win",
+    `qa --stage installed --platform win --release app-1.0.0-${head.slice(0, 8)}`,
+    `upload --release app-1.0.0-${head.slice(0, 8)} --platform win --tier patch`,
+  ]);
+  assert.ok(calls.every((x) => x.door === null), "each right-release stage ran inside a live door run for HEAD");
+  assert.equal(requireDoorRun({ env: { RK_GATE_RUN: "0".repeat(32) }, commonDir: path.join(root, ".git"), commit: head })?.includes("names no live door run"), true, "the run file is gone after the stage");
+  const receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
+  assert.deepEqual(Object.keys(receipt.stages), ["check", "compile", "package", "qualify", "release"]);
+  assert.equal(receipt.stages.release.manifestSha256, "d".repeat(64), "the released set is the packaged and qualified one");
+  // The sealed set changes after packaging (rebuilt, re-signed, edited): qualify refuses it.
+  sealedDigest = "e".repeat(64);
+  const changed = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...changed.io, cwd: root, ...io, sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: sealedDigest }), spawnInherit: () => ({ status: 0 }) }), 0, "package runs again and binds the new seal");
+});

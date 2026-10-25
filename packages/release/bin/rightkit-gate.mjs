@@ -73,6 +73,8 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
+import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
+import { spawnSync as spawnInherit } from "node:child_process";
 
 const ZERO = /^0+$/;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -1012,6 +1014,93 @@ async function installHook(o, root, force) {
   return 0;
 }
 
+// ---- the stages: rightkit-gate --to <stage> --------------------------------------------------------------------------------
+
+/**
+ * Runs every stage up to `--to`, in order, for HEAD: check (class A), compile (the whole gate over every file), then, through the existing
+ * owners, package (source QA, then `right-release build`, which seals the exact artifact set), qualify (installed QA on that sealed set)
+ * and release (`right-release upload` of that same sealed set). Stops at the first stage that fails. check and compile are reused from
+ * the receipt only when every bound input is unchanged; the right-release stages run under a live door run, so they refuse any other
+ * caller (gate-stages.mjs requireDoorRun).
+ */
+async function runStages(o, args, root, git, io) {
+  const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
+  const tag = "rightkit-gate:";
+  const to = option("--to");
+  const stages = stagesTo(to);
+  if (!stages) { o.err(`${tag} --to must be one of ${STAGES.join(", ")}`); return 2; }
+  const platform = option("--platform");
+  const tier = option("--tier");
+  if (stages.includes("package") && !["mac", "win"].includes(platform)) { o.err(`${tag} --to ${to} needs --platform mac|win`); return 2; }
+  if (stages.includes("release") && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
+  const commit = text(git("rev-parse", "HEAD")).trim();
+  const tree = text(git("rev-parse", "HEAD^{tree}")).trim();
+  const common = text(git("rev-parse", "--git-common-dir")).trim();
+  if (!/^[0-9a-f]{40}$/.test(commit) || !tree || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
+  const commonDir = path.resolve(root, common);
+  const dirty = git("status", "--porcelain", "--untracked-files=no");
+  if (failed(dirty) || text(dirty).trim()) { o.err(`${tag} BLOCKED: the checkout differs from HEAD; every stage works on the commit, so commit or stash first`); return 1; }
+
+  const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  const version = (cmd, a) => { const r = o.spawn(cmd, a, { cwd: root }); return failed(r) ? null : text(r).trim().split(/\r?\n/)[0]; };
+  const listed = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
+  const lockFiles = {};
+  for (const f of failed(listed) ? [] : text(listed).split("\0").filter((x) => /(^|\/)(Cargo\.lock|pnpm-lock\.yaml)$/.test(x))) {
+    const shown = git("show", `HEAD:${f}`); if (!failed(shown)) lockFiles[f] = text(shown);
+  }
+  const binding = bindingOf({
+    tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
+    toolchain: { node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+  });
+  const previous = (o.readReceipt ?? readReceipt)({ commonDir, commit });
+  const receipt = previous && sameBinding(previous.binding, binding) ? previous : { schema: RECEIPT_SCHEMA, commit, binding, stages: {} };
+  const save = () => (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
+
+  const cli = fileURLToPath(new URL("../cli/right-release.mjs", import.meta.url));
+  const rightRelease = (stage, cliArgs) => {
+    const run = startRun({ commonDir, commit, tree, stage });
+    try {
+      o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}`);
+      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, ...cliArgs], { cwd: root, env: { ...o.env, ...run.env } });
+      return r.status === 0;
+    } finally { endRun(run); }
+  };
+
+  o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}: ${stages.join(" -> ")}; executor ${executor.kind}`);
+  for (const stage of stages) {
+    if ((stage === "check" || stage === "compile") && receipt.stages[stage]?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
+    let ok = false; const at = new Date().toISOString(); let extra = {};
+    if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
+    else if (stage === "compile") ok = (await (o.runCompile ?? (() => main(["--all"], { ...io, cwd: root, readStdin: () => "" })))()) === 0;
+    else if (stage === "package") {
+      ok = rightRelease(stage, ["qa", "--stage", "source", "--platform", platform]) && rightRelease(stage, ["build", "--platform", platform]);
+      const sealed = ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+      if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
+      if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
+    } else {
+      const sealed = receipt.stages.package?.ok ? receipt.stages.package : null;
+      const current = sealed ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+      if (!sealed || !current || current.id !== sealed.sealed || current.digest !== sealed.manifestSha256) {
+        o.err(`${tag} BLOCKED: [${stage}] needs the sealed set the package stage produced for this commit, unchanged (sealed manifest digest)`);
+        ok = false;
+      } else if (stage === "qualify") {
+        ok = rightRelease(stage, ["qa", "--stage", "installed", "--platform", platform, "--release", sealed.sealed]);
+        extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256 };
+      } else {
+        if (!receipt.stages.qualify?.ok || receipt.stages.qualify.manifestSha256 !== sealed.manifestSha256) { o.err(`${tag} BLOCKED: [release] the sealed set was not qualified (installed QA) in this door run's receipt`); ok = false; }
+        else { ok = rightRelease(stage, ["upload", "--release", sealed.sealed, "--platform", platform, "--tier", tier]); extra = { sealed: sealed.sealed, manifestSha256: sealed.manifestSha256, tier }; }
+      }
+    }
+    receipt.stages[stage] = { ok, at, ...extra };
+    save();
+    if (!ok) { o.err(`${tag} --to ${to} stopped at ${stage}: nothing after it ran`); return 1; }
+  }
+  o.out(`${tag} --to ${to} passed: ${stages.join(", ")}`);
+  return 0;
+}
+
 // ---- main ---------------------------------------------------------------------------------------------------
 
 /**
@@ -1055,6 +1144,7 @@ export async function main(argv, io = {}) {
   const root = path.resolve(text(top).trim());
   const git = (...a) => o.spawn("git", a, { cwd: root });
   if (sub === "install-hook") return await installHook(o, root, args.includes("--force"));
+  if (option("--to") !== undefined) return await runStages(o, args, root, git, io);
 
   const planOnly = args.includes("--plan");
   let base = option("--base") ?? "origin/main";
