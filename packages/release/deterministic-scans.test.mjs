@@ -220,6 +220,9 @@ test("license: a crate that can never be published needs no license key; the sec
     ...crate("nopub", "publish = false\n"),
     ...crate("emptypub", "publish = [ ]\n"),
     ...crate("metapub", "\n[package.metadata.x]\npublish = false\n"),
+    ...crate("binpub", "\n[[bin]]\nname = \"b\"\npublish = false\n"),
+    ...crate("arraymetapub", "\n[[package.metadata.x]]\npublish = false\n"),
+    ...crate("pkgthenbin", "publish = false\n[[bin]]\nname = \"b\"\n"),
     ...crate("truepub", "publish = true\n"),
   };
   const fs = fakeFs(files, files);
@@ -228,6 +231,9 @@ test("license: a crate that can never be published needs no license key; the sec
   const result = await runScans(plan, { ...deps({ ...fs }), classes: ["A"], scanSecrets: async () => (dir, opts) => { options.push(opts); return []; } });
   const license = result.scans.find((s) => s.id === "license");
   assert.match(license.detail, /crates\/metapub\/Cargo\.toml/, "publish = false outside [package] does not exempt");
+  assert.match(license.detail, /crates\/binpub\/Cargo\.toml/, "publish = false under [[bin]] does not exempt");
+  assert.match(license.detail, /crates\/arraymetapub\/Cargo\.toml/, "publish = false under [[package.metadata.x]] does not exempt");
+  assert.doesNotMatch(license.detail, /pkgthenbin/, "publish = false in [package] before a [[bin]] still exempts");
   assert.match(license.detail, /crates\/truepub\/Cargo\.toml/);
   assert.doesNotMatch(license.detail, /nopub|emptypub/);
   assert.ok(options.length > 0 && options.every((o) => o?.envTemplates === true), "the repository scan asks for env templates by content");

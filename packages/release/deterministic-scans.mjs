@@ -754,11 +754,12 @@ async function defaultScanSecrets() {
 }
 
 // A crate that can never be published (`publish = false` or `publish = []` in its [package] table) ships its licence
-// to no one, like a package.json with `"private": true`; it needs no license key.
+// to no one, like a package.json with `"private": true`; it needs no license key. An array-of-tables header (`[[bin]]`,
+// `[[package.metadata.x]]`) starts a new table like any other, so a `publish` key under it is not the package's.
 function cargoUnpublished(text) {
   let table = "";
   for (const line of text.split(/\r?\n/)) {
-    const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/.exec(line);
+    const header = /^\s*\[\[?([^\]]+)\]\]?\s*(?:#.*)?$/.exec(line);
     if (header) { table = header[1].trim(); continue; }
     if (table === "package" && /^\s*publish\s*=\s*(?:false\b|\[\s*\])/.test(line)) return true;
   }
