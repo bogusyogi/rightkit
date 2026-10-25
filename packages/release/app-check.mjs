@@ -23,6 +23,8 @@
 //   switches-inventory G20 a right-release.config.mjs directory without a switches.json (or its releaseSwitches.inventory)
 //   speech-link      G21  `import Speech` anywhere under swift/RightKitSwift/Sources or Tests (Apple Speech is removed, rightkit#978;
 //                         the LinkProbes control fixture is the one sanctioned import)
+//   e2e-under-cargo-test G22 `cargo test|run|nextest` (also as `rustright cargo`, or the retired `rightkit`) that runs an end-to-end
+//                         crate (rightkit-qa driver modules) in the broker without --no-run: it holds the compile slot for the whole run
 //
 // Ratchet: findings that exist today may be listed so they print as KNOWN and do not fail; an unlisted finding fails; a listed
 // identity (`${rule}|${file}|${subject}`, no line numbers) that is gone fails as STALE, so the list only shrinks. The baseline is
@@ -178,7 +180,7 @@ function fileUrls({ root, files }) {
   return out;
 }
 
-// ---- G13-G20: app defects found from files alone ----------------------------------------------------------------------------
+// ---- G13-G22: app defects found from files alone ----------------------------------------------------------------------------
 // Each finding is { problem, fix, file, subject }; `${rule}|${file}|${subject}` (no line numbers, so an edit above it does not
 // change it) is its identity in ci/app-check-baseline.json.
 const SKIPPED_TREE = /(^|\/)(node_modules|vendor|target)\//;
@@ -403,6 +405,424 @@ function speechLink({ root, files }) {
   return out;
 }
 
+// G22: the broker compiles; it does not run end-to-end tests. `cargo test`, `cargo run` and `cargo nextest` (plain, through the
+// RustRight client as `rustright cargo`, or as `rightkit` while the retired alias lasts) run the test binary or the program inside the
+// broker job, which holds the compile slot for the whole run (Pulse, 2026-10-23: 55 minutes with 15 builds queued) and has no GUI
+// session or unscrubbed environment a real-app test needs. The fix is `--no-run` to compile and `rightkit-qa run-tests` to run
+// outside the broker (crates/rightkit-qa/docs/run-tests.md). Found from files alone, in three steps:
+//   1. the end-to-end crates: a Cargo package that depends on rightkit-qa not optionally (the optional dependency is the in-app control
+//      server behind a qa-native / dev-control feature) and has a .rs file, outside examples/, that names a driver module of it;
+//   2. the commands: `cargo test|run|nextest` in a package.json script, a shell, PowerShell, batch, Node or Python script, a Makefile
+//      or justfile recipe, a GitHub workflow `run:` step, a git hook, or a code span of a runbook document;
+//   3. the selection: a command that is not `--no-run` or a rightkit-qa run-tests / journeys run, and names an end-to-end crate by
+//      -p / --package, --manifest-path, --workspace / --all (a member of the workspace in the working directory), --test or --bin.
+// Known limits, deliberate for an offline check: no cargo binary (a path dependency that cargo adds to a workspace implicitly is not
+// a member here), a command assembled from variables is matched on its literal text only, a package.json script that calls another
+// script is judged where the cargo text is, a cargo alias (`cargo t`) is not matched, and a bare `cargo test` selects nothing.
+const E2E_DRIVER_MODULES = new Set(["harness", "control", "suite", "scenario", "engine", "in_app", "interactive", "page", "browser", "android"]);
+const E2E_GUARD_TARGET = "qa_surface_guard"; // the one test target of an end-to-end crate that only runs the static guard
+const E2E_NAME_ONLY = /-e2e$|^qa-/; // a name is not evidence: crates that match only this are listed for a reviewer by e2eCrates()
+
+const unquote = (text) => String(text).replace(/^(["'])(.*)\1$/, "$2");
+const escapeRegExp = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** A dotted TOML key split at the dots outside quotes: `target.'cfg(unix)'.dependencies` is three parts. */
+const tomlPath = (text) => [...String(text).matchAll(/"([^"]*)"|'([^']*)'|([^\s.'"]+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+const tomlStrings = (text) => [...String(text).matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2]);
+const uncomment = (line) => line.replace(/^\s*#.*$/, "").replace(/\s+#.*$/, "");
+
+/**
+ * What the end-to-end check reads from a Cargo manifest, literal values only: the package name, whether it holds a [workspace] and its
+ * members and exclude, the dependencies of [dependencies], [dev-dependencies] and their [target.*] tables (inline, dotted-key and
+ * `[dependencies.name]` forms, each with optional, package and workspace), [workspace.dependencies] as key -> package, and the
+ * [[test]] and [[bin]] tables. Build dependencies are not dependencies of the tests.
+ */
+function parseCargoManifest(text) {
+  const manifest = { name: null, workspace: false, members: [], exclude: [], dependencies: [], workspaceDependencies: new Map(), tests: [], bins: [] };
+  const entries = new Map();
+  const dependency = (table, key) => {
+    const id = `${table}\0${key}`;
+    if (!entries.has(id)) { const entry = { key, optional: false, package: undefined, workspace: false }; entries.set(id, entry); manifest.dependencies.push(entry); }
+    return entries.get(id);
+  };
+  const setAttribute = (entry, attribute, value) => {
+    if (attribute === "optional") entry.optional = entry.optional || value === "true";
+    else if (attribute === "package") entry.package = tomlStrings(value)[0] ?? entry.package;
+    else if (attribute === "workspace") entry.workspace = entry.workspace || value === "true";
+  };
+  const setInline = (entry, value) => {
+    if (/\boptional\s*=\s*true\b/.test(value)) entry.optional = true;
+    const renamed = /\bpackage\s*=\s*(?:"([^"]+)"|'([^']+)')/.exec(value);
+    if (renamed) entry.package = renamed[1] ?? renamed[2];
+    if (/\bworkspace\s*=\s*true\b/.test(value)) entry.workspace = true;
+  };
+  const lines = String(text ?? "").split("\n");
+  let section = { kind: "other" };
+  for (let i = 0; i < lines.length; i++) {
+    const line = uncomment(lines[i]);
+    const header = /^\s*(\[\[?)\s*(.+?)\s*\]\]?\s*$/.exec(line);
+    if (header) {
+      const parts = tomlPath(header[2]);
+      if (header[1] === "[[") {
+        const item = parts[0] === "test" || parts[0] === "bin" ? { name: undefined, path: undefined } : null;
+        if (item) manifest[parts[0] === "test" ? "tests" : "bins"].push(item);
+        section = item ? { kind: "target", item } : { kind: "other" };
+        continue;
+      }
+      const at = parts[0] === "dependencies" || parts[0] === "dev-dependencies" ? 0 : parts[0] === "target" && (parts[2] === "dependencies" || parts[2] === "dev-dependencies") ? 2 : -1;
+      if (parts[0] === "package" && parts.length === 1) section = { kind: "package" };
+      else if (parts[0] === "workspace") {
+        manifest.workspace = true;
+        section = parts.length === 1 ? { kind: "workspace" } : parts[1] === "dependencies" ? (parts.length === 2 ? { kind: "workspace-dependencies" } : { kind: "workspace-dependency", key: parts[2] }) : { kind: "other" };
+      } else if (at >= 0) section = parts.length === at + 1 ? { kind: "dependencies", table: parts.join(".") } : { kind: "dependency", table: parts.slice(0, at + 1).join("."), key: parts[at + 1] };
+      else section = { kind: "other" };
+      continue;
+    }
+    const kv = /^\s*("[^"]+"|'[^']+'|[A-Za-z0-9_-]+)(?:\s*\.\s*("[^"]+"|'[^']+'|[A-Za-z0-9_-]+))?\s*=\s*(.*?)\s*$/.exec(line);
+    if (!kv) continue;
+    const key = unquote(kv[1]);
+    const attribute = kv[2] === undefined ? undefined : unquote(kv[2]);
+    const value = kv[3];
+    switch (section.kind) {
+      case "package":
+        if (key === "name" && attribute === undefined) manifest.name = tomlStrings(value)[0] ?? null;
+        break;
+      case "workspace":
+        if ((key === "members" || key === "exclude") && attribute === undefined) {
+          let list = value;
+          if (list.startsWith("[")) while (!list.includes("]") && i + 1 < lines.length) list += ` ${uncomment(lines[++i])}`;
+          manifest[key].push(...tomlStrings(list));
+        }
+        break;
+      case "target":
+        if ((key === "name" || key === "path") && attribute === undefined) section.item[key] = tomlStrings(value)[0];
+        break;
+      case "dependencies":
+        if (attribute === undefined) setInline(dependency(section.table, key), value); else setAttribute(dependency(section.table, key), attribute, value);
+        break;
+      case "dependency":
+        if (attribute === undefined) setAttribute(dependency(section.table, section.key), key, value);
+        break;
+      case "workspace-dependencies":
+        if (attribute === undefined) manifest.workspaceDependencies.set(key, /\bpackage\s*=\s*(?:"([^"]+)"|'([^']+)')/.exec(value)?.slice(1).find(Boolean) ?? key);
+        else if (attribute === "package") manifest.workspaceDependencies.set(key, tomlStrings(value)[0] ?? key);
+        break;
+      case "workspace-dependency":
+        if (key === "package" && attribute === undefined) manifest.workspaceDependencies.set(section.key, tomlStrings(value)[0] ?? section.key);
+        else if (!manifest.workspaceDependencies.has(section.key)) manifest.workspaceDependencies.set(section.key, section.key);
+        break;
+      default:
+    }
+  }
+  return manifest;
+}
+
+/** A `[workspace] members` pattern (`crates/*`, `apps/**`, `./x`) as a regular expression over a posix path; a pattern that is no
+ * valid glob matches nothing (the rule must not throw on a manifest cargo would refuse). */
+function memberPattern(glob) {
+  const source = String(glob).replace(/^\.\//, "").replace(/\/+$/, "").split("**").map((part) => part.replace(/[.+^$(){}|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")).join(".*");
+  try { return new RegExp(`^${source}$`); } catch { return /$^/; }
+}
+
+/** True when the Rust source names a driver module of rightkit-qa through any of `names` (its crate identifier(s) in this package):
+ * `rightkit_qa::harness`, or a `use rightkit_qa::{...}` list with a driver module among its top-level items. Comments do not count. */
+function namesDriverModule(source, names) {
+  const text = source.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/\/\/[^\n]*/g, "");
+  for (const name of names) {
+    for (const m of text.matchAll(new RegExp(`(?<!\\w)${escapeRegExp(name)}\\s*::\\s*(\\{|[A-Za-z_]\\w*)`, "g"))) {
+      if (m[1] !== "{") { if (E2E_DRIVER_MODULES.has(m[1])) return true; continue; }
+      const list = braceBlock(text, m.index + m[0].length - 1).slice(1, -1);
+      let depth = 0, item = "";
+      const items = [];
+      for (const ch of list) {
+        if (ch === "{") depth += 1; else if (ch === "}") depth -= 1;
+        if (ch === "," && depth === 0) { items.push(item); item = ""; } else item += ch;
+      }
+      items.push(item);
+      if (items.some((it) => E2E_DRIVER_MODULES.has(/^\s*([A-Za-z_]\w*)/.exec(it)?.[1]))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The Cargo layout of a tree and the end-to-end crates in it. `crates` are the end-to-end ones as { name, dir, tests, bins } (a
+ * package that depends on rightkit-qa not optionally and has a non-example .rs file naming one of its driver modules); `nameOnly`
+ * lists packages named like one (`*-e2e`, `qa-*`) that are not, for a reviewer: a name is not evidence.
+ */
+export function e2eCrates(root, files) {
+  const manifests = new Map();
+  for (const file of files.filter((f) => /(^|\/)Cargo\.toml$/.test(f) && scanned(f))) {
+    const text = readText(root, file);
+    if (text !== null) manifests.set(dirOf(file), parseCargoManifest(text));
+  }
+  /** The package directory a file belongs to: the nearest directory above it with a Cargo.toml, when that holds a [package]. */
+  const ownerOf = (file) => {
+    for (let dir = dirOf(file); ; dir = dirOf(dir)) {
+      const manifest = manifests.get(dir);
+      if (manifest) return manifest.name === null ? null : dir;
+      if (dir === ".") return null;
+    }
+  };
+  const packageOf = (dep, dir) => {
+    if (dep.package) return dep.package;
+    if (dep.workspace) {
+      for (let d = dir; ; d = dirOf(d)) {
+        const inherited = manifests.get(d)?.workspaceDependencies.get(dep.key);
+        if (inherited) return inherited;
+        if (d === ".") break;
+      }
+    }
+    return dep.key;
+  };
+  const identifiers = new Map(); // package dir -> how Rust code names rightkit-qa there (the key, with - as _)
+  for (const [dir, manifest] of manifests) {
+    if (manifest.name === null) continue;
+    const names = manifest.dependencies.filter((dep) => !dep.optional && packageOf(dep, dir) === "rightkit-qa").map((dep) => dep.key.replaceAll("-", "_"));
+    if (names.length) identifiers.set(dir, [...new Set(names)]);
+  }
+  const driving = new Set();
+  if (identifiers.size) {
+    for (const file of rustFiles(files)) {
+      const dir = ownerOf(file);
+      if (dir === null || !identifiers.has(dir) || driving.has(dir) || (dir === "." ? file : file.slice(dir.length + 1)).startsWith("examples/")) continue;
+      const text = readText(root, file);
+      if (text !== null && identifiers.get(dir).some((name) => text.includes(name)) && namesDriverModule(text, identifiers.get(dir))) driving.add(dir);
+    }
+  }
+  const crates = [...driving].sort().map((dir) => {
+    const manifest = manifests.get(dir);
+    const within = (file) => (dir === "." ? file : file.startsWith(`${dir}/`) ? file.slice(dir.length + 1) : null);
+    const tests = new Set(manifest.tests.map((t) => t.name).filter(Boolean));
+    const bins = new Set(manifest.bins.map((b) => b.name).filter(Boolean));
+    for (const file of files) {
+      const rel = within(file);
+      if (rel === null || !scanned(file) || ownerOf(file) !== dir) continue;
+      const test = /^tests\/([^/]+)(?:\.rs|\/main\.rs)$/.exec(rel);
+      if (test) tests.add(test[1]);
+      const bin = /^src\/bin\/([^/]+)(?:\.rs|\/main\.rs)$/.exec(rel);
+      if (bin) bins.add(bin[1]);
+      if (rel === "src/main.rs") bins.add(manifest.name);
+    }
+    return { name: manifest.name, dir, tests, bins };
+  });
+  const nameOnly = [...manifests].filter(([dir, m]) => m.name !== null && E2E_NAME_ONLY.test(m.name) && !driving.has(dir)).map(([, m]) => m.name).sort();
+  /** The end-to-end crates that are members of the workspace rooted at `wsDir`: its root package, and every crate that matches a
+   * `members` glob, is not under `exclude` and is not a workspace root itself (a nested [workspace] makes a crate its own root). */
+  const membersOf = (wsDir) => {
+    const ws = manifests.get(wsDir);
+    if (!ws?.workspace) return [];
+    const included = ws.members.map(memberPattern);
+    const excluded = ws.exclude.map((x) => String(x).replace(/^\.\//, "").replace(/\/+$/, ""));
+    return crates.filter((c) => {
+      if (c.dir === wsDir) return true;
+      const rel = wsDir === "." ? c.dir : c.dir.startsWith(`${wsDir}/`) ? c.dir.slice(wsDir.length + 1) : null;
+      return rel !== null && !manifests.get(c.dir).workspace && included.some((re) => re.test(rel)) && !excluded.some((x) => rel === x || rel.startsWith(`${x}/`));
+    });
+  };
+  return { crates, nameOnly, manifests, membersOf };
+}
+
+const CARGO_COMMAND = /(?<![\w-])((?:(?:rustright|rightkit)\s+)?cargo)\s+(?:\+\S+\s+)?(test|run|nextest)\b([^&;|`\n]*)/g;
+const CD_COMMAND = /(?<![\w./-])(?:cd|Set-Location)\s+(?:-(?:Path|LiteralPath)\s+)?("[^"]*"|'[^']*'|[^\s;&|)]+)/gi;
+const COMMENT_LINE = /^\s*(?:#|\/\/|\/?\*|;|::|REM\b)/i;
+const QA_RUNNER = /\brightkit-qa(?:\.exe)?\s+(?:run-tests|journeys\s+run)\b/;
+const NEXTEST_NO_TESTS = new Set("list archive show-config self help".split(" ")); // nextest subcommands that run no test
+const HISTORY_DOC = /^docs\/(?:archive|plans|provenance|handoff[^/]*)\/|(?:^|\/)(?:tasks|evidence)\/|(?:^|\/)(?:changelog|pending|status|state)\.md$/i;
+const HOOK_FILE = /(?:^|\/)(?:\.githooks|\.husky|githooks)\/(?!_\/)[^/]+/;
+const WORKFLOW_FILE = /^\.github\/(?:workflows\/[^/]+|actions\/.+\/action)\.ya?ml$/;
+const BUILD_FILE = /(?:^|\/)(?:Makefile|makefile|GNUmakefile|[Jj]ustfile|\.justfile)$|\.mk$/;
+const SCRIPT_FILE = /\.(?:sh|bash|zsh|ps1|psm1|bat|cmd|mjs|cjs|js|py)$/i;
+
+/** A script's `cd` / `Set-Location` target applied to `cwd` (a posix path from the repository root). A target that is not a plain
+ * relative path (a variable, a substitution, an absolute path, one that leaves the repository) leaves the directory as it was: the
+ * `cd "$(dirname "$0")/.."` of a script under scripts/ is the repository root, where a script starts. */
+function changeDirectory(cwd, target) {
+  const t = unquote(target);
+  if (!t || /[$`(%~]/.test(t) || /^([\\/]|[A-Za-z]:)/.test(t) || t === "-") return cwd;
+  const next = path.posix.normalize(path.posix.join(cwd, t.replaceAll("\\", "/")));
+  return next === ".." || next.startsWith("../") ? cwd : next;
+}
+
+/** The logical lines of physical `lines` ({ no, text }): comment lines dropped, and a line that ends with `continuation` joined to the
+ * next, numbered by the line the command starts on. */
+function logicalLines(lines, continuation) {
+  const out = [];
+  let pending = null;
+  for (const line of lines) {
+    if (!pending && COMMENT_LINE.test(line.text)) continue;
+    const text = line.text.replace(/\s+$/, "");
+    const joined = pending ? `${pending.text} ${text.trim()}` : text;
+    const no = pending?.no ?? line.no;
+    if (continuation && text.endsWith(continuation)) { pending = { no, text: joined.slice(0, -continuation.length) }; continue; }
+    pending = null;
+    out.push({ no, text: joined });
+  }
+  if (pending) out.push(pending);
+  return out;
+}
+
+/** The `run:` steps of a GitHub workflow or composite action: { lines, cwd } where cwd is the step's working-directory (the
+ * repository root when it has none, or one that is an expression). */
+function workflowSteps(text) {
+  const lines = text.split("\n");
+  const indent = (l) => l.length - l.trimStart().length;
+  const steps = [];
+  lines.forEach((raw, i) => {
+    const m = /^(\s*)(-\s+)?run:\s*(.*?)\s*$/.exec(raw);
+    if (!m) return;
+    const keyColumn = m[1].length + (m[2]?.length ?? 0);
+    const value = m[3];
+    let block;
+    if (/^[|>][+-]?\d*(?:\s+#.*)?$/.test(value)) {
+      block = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim() === "") continue;
+        if (indent(lines[j]) <= keyColumn) break;
+        block.push({ no: j + 1, text: lines[j].trim() });
+      }
+      // A folded scalar (`>`) is one line to the shell.
+      if (value.startsWith(">") && block.length) block = [{ no: block[0].no, text: block.map((l) => l.text).join(" ") }];
+    } else {
+      const plain = /^(["'])(.*)\1$/.test(value) ? unquote(value) : value.replace(/\s+#.*$/, "");
+      block = plain ? [{ no: i + 1, text: plain }] : [];
+    }
+    // The step's own working-directory sits beside `run:` (same column), on either side of it.
+    const sibling = (j) => { const k = /^(\s*)(-\s+)?working-directory:\s*(.*?)\s*$/.exec(lines[j]); return k && k[1].length + (k[2]?.length ?? 0) === keyColumn ? unquote(k[3].replace(/\s+#.*$/, "")) : null; };
+    let directory = null;
+    for (let j = i - 1; j >= 0 && directory === null; j--) {
+      if (lines[j].trim() === "") continue;
+      directory = sibling(j);
+      if (indent(lines[j]) < keyColumn) break;
+    }
+    for (let j = i + 1; j < lines.length && directory === null; j++) {
+      if (lines[j].trim() === "") continue;
+      if (indent(lines[j]) < keyColumn) break;
+      directory = sibling(j);
+    }
+    steps.push({ lines: block, cwd: directory === null ? "." : changeDirectory(".", directory) });
+  });
+  return steps;
+}
+
+/** The command-bearing units of a runbook document: each fenced code block (its lines) and each inline code span (one line). Prose
+ * outside code is never a command. */
+function markdownUnits(text) {
+  const units = [];
+  let fence = null;
+  text.split("\n").forEach((raw, i) => {
+    if (fence) {
+      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(raw);
+      if (close && close[1][0] === fence.char && close[1].length >= fence.length) { units.push(fence.lines); fence = null; } else fence.lines.push({ no: i + 1, text: raw });
+      return;
+    }
+    const open = /^\s*(`{3,}|~{3,})/.exec(raw);
+    if (open) { fence = { char: open[1][0], length: open[1].length, lines: [] }; return; }
+    for (const span of raw.matchAll(/(`+)(.+?)\1(?!`)/g)) units.push([{ no: i + 1, text: span[2].trim() }]);
+  });
+  if (fence) units.push(fence.lines);
+  return units;
+}
+
+// G22: see the block comment above.
+function e2eUnderCargoTest({ root, files }) {
+  const layout = e2eCrates(root, files);
+  if (!layout.crates.length) return [];
+  const out = [];
+  const seen = new Set();
+  const flagValues = (tokens, ...names) => tokens.flatMap((t, i) => names.flatMap((name) => (t === name ? (i + 1 < tokens.length ? [tokens[i + 1]] : []) : name.startsWith("--") && t.startsWith(`${name}=`) ? [t.slice(name.length + 1)] : [])));
+  /** The directory of the manifest a --manifest-path names (relative to the cwd, then to the repository root), when it holds one. */
+  const manifestDirectory = (value, cwd) => {
+    const base = value.replaceAll("\\", "/").replace(/(^|\/)Cargo\.toml$/, "") || ".";
+    if (path.posix.isAbsolute(base) || /^[A-Za-z]:/.test(base)) return null;
+    for (const from of [cwd, "."]) {
+      const dir = path.posix.normalize(path.posix.join(from, base));
+      if (dir !== ".." && !dir.startsWith("../") && layout.manifests.has(dir)) return dir;
+    }
+    return null;
+  };
+  /** The end-to-end crates a cargo command selects, each with the flag that did it: [{ crate, selector }], first rule first. */
+  const selected = (tokens, isRun, cwd) => {
+    const picks = new Map();
+    const pick = (crate, selector) => { if (!picks.has(crate)) picks.set(crate, selector); };
+    const packages = flagValues(tokens, "--package", "-p");
+    const manifestPaths = flagValues(tokens, "--manifest-path");
+    const tests = flagValues(tokens, "--test");
+    const wholeWorkspace = tokens.includes("--workspace") || tokens.includes("--all");
+    const excluded = new Set(flagValues(tokens, "--exclude"));
+    const guardOnly = tests.length > 0 && tests.every((t) => t === E2E_GUARD_TARGET); // `--test qa_surface_guard` runs the static guard only
+    const members = (dir) => layout.membersOf(dir).filter((c) => !excluded.has(c.name));
+    if (!guardOnly) {
+      for (const p of packages) for (const c of layout.crates.filter((crate) => crate.name === p)) pick(c, `-p ${p}`);
+      for (const mp of manifestPaths) {
+        const dir = manifestDirectory(mp, cwd);
+        if (dir === null) continue;
+        for (const c of layout.crates.filter((crate) => crate.dir === dir)) pick(c, `--manifest-path ${mp}`);
+        if (wholeWorkspace) for (const c of members(dir)) pick(c, `--manifest-path ${mp} ${tokens.includes("--workspace") ? "--workspace" : "--all"}`);
+      }
+      if (wholeWorkspace && !manifestPaths.length) for (const c of members(cwd)) pick(c, tokens.includes("--workspace") ? "--workspace" : "--all");
+    }
+    if (!packages.length && !manifestPaths.length) {
+      for (const t of tests) {
+        const owners = t === E2E_GUARD_TARGET ? [] : layout.crates.filter((c) => c.tests.has(t));
+        if (owners.length === 1) pick(owners[0], `--test ${t}`);
+      }
+    }
+    if (isRun) for (const b of flagValues(tokens, "--bin")) for (const c of layout.crates.filter((crate) => crate.bins.has(b))) pick(c, `--bin ${b}`);
+    return [...picks].map(([crate, selector]) => ({ crate, selector }));
+  };
+  /** Scan logical lines ({ no, text }) that run in order from `cwd`; `what` names the place and `subject` overrides the crate name in the identity. */
+  const scan = (file, lines, cwd, what, subject) => {
+    for (const { no, text } of lines) {
+      if (!/cargo|\bcd\b|Set-Location/i.test(text)) continue; // a line with neither a command nor a directory change cannot matter
+      const events = [...text.matchAll(CD_COMMAND)].map((m) => ({ at: m.index, cd: m[1] })).concat([...text.matchAll(CARGO_COMMAND)].map((m) => ({ at: m.index, m })));
+      for (const event of events.sort((a, b) => a.at - b.at)) {
+        if (event.cd !== undefined) { cwd = changeDirectory(cwd, event.cd); continue; }
+        const [, client, verb] = event.m;
+        // A command inside a string literal ends at the quote that closes it: `run("rustright cargo test -p x")`.
+        let rest = event.m[3];
+        for (const quote of ['"', "'"]) {
+          if ((rest.split(quote).length - 1) % 2 === 1 && (text.slice(0, event.at).split(quote).length - 1) % 2 === 1) rest = rest.slice(0, rest.indexOf(quote));
+        }
+        const tokens = (rest.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []).map((t) => t.replace(/["']/g, "").replace(/\)+$/, ""));
+        const ownArguments = tokens.indexOf("--") < 0 ? tokens : tokens.slice(0, tokens.indexOf("--"));
+        const segment = text.slice(Math.max(text.lastIndexOf("&", event.at), text.lastIndexOf(";", event.at), text.lastIndexOf("|", event.at), text.lastIndexOf("`", event.at)) + 1, event.at + event.m[0].length);
+        if (ownArguments.includes("--no-run") || QA_RUNNER.test(segment)) continue;
+        if (ownArguments.some((t) => t === "--help" || t === "-h" || t === "--version" || t === "-V")) continue;
+        if (verb === "nextest" && NEXTEST_NO_TESTS.has(tokens[0])) continue;
+        for (const { crate, selector } of selected(ownArguments, verb === "run", cwd)) {
+          const key = `${file}\0${no}\0${crate.name}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const via = `${client.replace(/\s+/g, " ")} ${verb} ${selector}`;
+          out.push({ file, subject: subject ?? crate.name, problem: `${file}:${no} ${what} runs the end-to-end crate ${crate.name} under cargo test (${via}): the test binary runs in the broker's context and holds its compile slot for the whole run`, fix: `compile it with --no-run and run it outside the broker: rightkit-qa run-tests -p ${crate.name} [--test <target>] -- <libtest args>` });
+        }
+      }
+    }
+  };
+  for (const { file, text, manifest } of packageManifests(root, files)) {
+    for (const [name, command] of Object.entries(manifest.scripts)) {
+      if (typeof command === "string") scan(file, [{ no: scriptLine(text, name), text: command }], dirOf(file), `script "${name}"`, name);
+    }
+  }
+  for (const file of files.filter(scanned)) {
+    const base = path.posix.basename(file);
+    const runbook = (file === "README.md" || file === "AGENTS.md" || file === "CLAUDE.md" || /^docs\/.+\.md$/.test(file)) && !HISTORY_DOC.test(file) && !/\d{4}-\d{2}-\d{2}/.test(base);
+    const workflow = WORKFLOW_FILE.test(file);
+    const hook = !workflow && HOOK_FILE.test(file);
+    const recipe = !workflow && !hook && BUILD_FILE.test(file);
+    const script = !workflow && !hook && !recipe && SCRIPT_FILE.test(file);
+    if (!(runbook || workflow || hook || recipe || script) || base === "package.json") continue;
+    const content = readText(root, file);
+    if (content === null || !/cargo/.test(content)) continue;
+    const continuation = /\.(?:ps1|psm1)$/i.test(file) ? "`" : /\.(?:bat|cmd)$/i.test(file) ? "^" : "\\";
+    const physical = content.split("\n").map((line, i) => ({ no: i + 1, text: line }));
+    if (workflow) for (const step of workflowSteps(content)) scan(file, logicalLines(step.lines, continuation), step.cwd, "workflow step");
+    else if (runbook) for (const unit of markdownUnits(content)) scan(file, logicalLines(unit, continuation), ".", "runbook command");
+    else scan(file, logicalLines(physical, continuation), ".", hook ? "git hook" : recipe ? "recipe" : "command");
+  }
+  return out;
+}
+
 export const RULES = Object.freeze([
   { id: "eol-policy", gap: "G04", run: eolPolicy },
   { id: "file-url", gap: "G12", run: fileUrls },
@@ -416,6 +836,7 @@ export const RULES = Object.freeze([
   { id: "ffmpeg-release-escape", gap: "G19", run: ffmpegReleaseEscape },
   { id: "switches-inventory", gap: "G20", run: switchesInventory },
   { id: "speech-link", gap: "G21", run: speechLink },
+  { id: "e2e-under-cargo-test", gap: "G22", run: e2eUnderCargoTest },
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------

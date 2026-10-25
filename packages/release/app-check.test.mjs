@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   APP_BASELINE_MAX_DAYS, APP_BASELINE_RULE, BUILD_REFUSES, CHECKED_COMMANDS, RULES, UNCHECKED_COMMANDS, UNCHECKED_PROOF, addDays, appBaselineEntries, appDirectory, applyBaseline, baselineKnown, cargoTestTargets, checkModeFor,
-  exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, runAppCheck, runRules,
+  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, runAppCheck, runRules,
 } from "./app-check.mjs";
 
 // The app rules, the export, the ratchet and the commands that run the check (packages/release/app-check.mjs). The rule tests moved
@@ -336,6 +336,318 @@ test("ratchet: applyBaseline splits findings and only rules that ran can go stal
   assert.deepEqual([fresh.map((f) => f.identity), known.map((f) => f.identity), stale], [["r1|f|b", undefined], ["r1|f|a"], ["r1|f|gone"]]);
 });
 
+// ---- G22 e2e-under-cargo-test: the broker compiles, it does not run end-to-end tests ----------------------------------------------
+// The crates below are what the rule reads: a package is end-to-end when it depends on rightkit-qa not optionally AND a non-example
+// .rs file of it names a driver module (harness, control, suite, scenario, engine, in_app, interactive, page, browser, android).
+// A helper module (mock, workspace, ...) or a name like `*-e2e` is not enough.
+const QA_DEP = 'rightkit-qa = { path = "../../rightkit-qa" }';
+const e2eApp = (extra = {}) => ({
+  "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/legacy-e2e"]\n',
+  "crates/app-e2e/Cargo.toml": `[package]\nname = "app-e2e"\n\n[dependencies]\n${QA_DEP}\n\n[[test]]\nname = "scenarios"\nharness = false\n`,
+  "crates/app-e2e/tests/scenarios.rs": "use rightkit_qa::{mock, scenario::Scenario};\nfn main() {}\n",
+  "crates/app-e2e/tests/qa_surface_guard.rs": "#[test]\nfn guard() { rightkit_qa::guard::check(); }\n",
+  "crates/app-e2e/src/bin/app-qa.rs": "fn main() {}\n",
+  // not end-to-end: only the helper module rightkit_qa::workspace / ::mock
+  "crates/app-engine/Cargo.toml": `[package]\nname = "app-engine"\n\n[dev-dependencies]\n${QA_DEP}\n`,
+  "crates/app-engine/tests/flow.rs": "use rightkit_qa::workspace;\n#[test]\nfn t() { workspace::create(); }\n",
+  "crates/app-mock-platform/Cargo.toml": `[package]\nname = "app-mock-platform"\n\n[dependencies]\n${QA_DEP}\n`,
+  "crates/app-mock-platform/src/lib.rs": "use rightkit_qa::mock::Mock;\n",
+  // not end-to-end: the dependency is optional (the in-app control server), whatever the name says
+  "crates/name-only-e2e/Cargo.toml": `[package]\nname = "name-only-e2e"\n\n[dependencies]\nrightkit-qa = { path = "../../rightkit-qa", optional = true }\n`,
+  "crates/name-only-e2e/src/lib.rs": '#[cfg(feature = "qa-native")]\nuse rightkit_qa::control::Control;\n',
+  // not end-to-end: the driver module is only named under examples/
+  "crates/example-only/Cargo.toml": `[package]\nname = "example-only"\n\n[dependencies]\n${QA_DEP}\n`,
+  "crates/example-only/examples/demo.rs": "use rightkit_qa::harness::Harness;\nfn main() {}\n",
+  // end-to-end, renamed dependency, and not a member of the root workspace (excluded)
+  "crates/legacy-e2e/Cargo.toml": '[package]\nname = "legacy-e2e"\n\n[dependencies]\nqa = { package = "rightkit-qa", path = "../../rightkit-qa" }\n',
+  "crates/legacy-e2e/tests/old.rs": "#[test]\nfn t() { qa::harness::run(); }\n",
+  // the app crate: an optional dependency, a dev-dependency used only for the workspace helper, and its own workspace
+  "src-tauri/Cargo.toml": `[package]\nname = "app"\n\n[workspace]\n\n[dependencies]\nrightkit-qa = { path = "../../rightkit-qa", optional = true }\n\n[dev-dependencies]\n${QA_DEP}\n`,
+  "src-tauri/src/main.rs": "fn main() {}\n",
+  "src-tauri/tests/supervisor.rs": "use rightkit_qa::workspace;\n",
+  // end-to-end, nested inside src-tauri with a [workspace] of its own, so not a member of the one around it
+  "src-tauri/qa-e2e/Cargo.toml": `[package]\nname = "app-shell-qa"\n\n[workspace]\n\n[dependencies]\n${QA_DEP}\n`,
+  "src-tauri/qa-e2e/tests/pdf_edit.rs": "use rightkit_qa::harness::Harness;\n",
+  "src-tauri/qa-e2e/src/main.rs": "fn main() {}\n",
+  // end-to-end, standalone, beside a package.json
+  "tauri-app-next/qa-e2e/Cargo.toml": `[package]\nname = "native-e2e"\n\n[workspace]\n\n[dependencies]\n${QA_DEP}\n`,
+  "tauri-app-next/qa-e2e/tests/installed_app.rs": "use rightkit_qa::control::launch;\n",
+  ...extra,
+});
+const lineIn = (text, needle) => text.split("\n").findIndex((l) => l.includes(needle)) + 1;
+const E2E_PROBLEM = (where, crate, via) => `${where} runs the end-to-end crate ${crate} under cargo test (${via}): the test binary runs in the broker's context and holds its compile slot for the whole run`;
+
+test("G22 e2e-under-cargo-test: which packages are end-to-end crates (a non-optional rightkit-qa dependency AND a driver module), resolved through renames, tables and workspaces", (t) => {
+  const qa = '{ path = "../../rightkit-qa" }';
+  const crate = (name, manifest, sources = {}) => ({ [`${name}/Cargo.toml`]: `[package]\nname = "${name}"\n${manifest}`, ...Object.fromEntries(Object.entries(sources).map(([f, s]) => [`${name}/${f}`, s])) });
+  const files = {
+    "Cargo.toml": `[workspace]\nmembers = [\n  "a",\n  "b", # the second\n  "broken[", "c",\n]\nexclude = ["g"]\n\n[workspace.dependencies]\nqa = { package = "rightkit-qa", path = "rightkit-qa" }\nrightkit-qa = { path = "rightkit-qa" }\n`,
+    ...crate("a", "\n[dependencies.rightkit-qa]\npath = \"../x\"\n", { "tests/t.rs": "use rightkit_qa::suite::Suite;\n" }),
+    ...crate("b", `\n[target.'cfg(target_os = "macos")'.dev-dependencies]\nrightkit-qa = ${qa}\n`, { "tests/t.rs": "use rightkit_qa::{\n    mock,\n    util::x,\n    android::Device,\n};\n" }),
+    ...crate("c", "\n[dev-dependencies]\nqa = { workspace = true }\n", { "tests/t.rs": "fn t() { qa::page::open(); }\n" }),
+    ...crate("d", '\n[dependencies.rightkit-qa]\nworkspace = true\noptional = true\n', { "src/lib.rs": "use rightkit_qa::control::Control;\n" }),
+    ...crate("e-e2e", `\n[dependencies]\nrightkit-qa = ${qa}\n`, { "tests/t.rs": "use rightkit_qa::{evidence::Evidence, mock, util::wait, media, loudness, process, storage, settings, workspace, guard};\n" }),
+    ...crate("f", `\n[dependencies]\nrightkit-qa = ${qa}\n`, { "src/lib.rs": "// rightkit_qa::harness is the driver\n/* rightkit_qa::control::launch */\nuse rightkit_qa::mock;\n" }),
+    ...crate("g", "\n[dependencies]\nrightkit-qa.path = \"../x\"\n", { "tests/t.rs": "use rightkit_qa::{evidence::Evidence, in_app::Probe};\n" }),
+    ...crate("h", `\n[build-dependencies]\nrightkit-qa = ${qa}\n`, { "src/lib.rs": "use rightkit_qa::harness::Harness;\n" }),
+    // outer has a helper-only use; the driver module belongs to inner, which is its own package
+    ...crate("outer", `\n[dev-dependencies]\nrightkit-qa = ${qa}\n`, { "tests/t.rs": "use rightkit_qa::workspace;\n", "inner/Cargo.toml": `[package]\nname = "inner"\n\n[dependencies]\nrightkit-qa = ${qa}\n`, "inner/src/main.rs": "fn main() { rightkit_qa::engine::run(); }\n", "inner/tests/z.rs": "" }),
+  };
+  const { root, files: listed } = tree(t, files);
+  const found = e2eCrates(root, listed);
+  assert.deepEqual(found.crates.map((c) => c.name), ["a", "b", "c", "g", "inner"]);
+  assert.deepEqual(found.nameOnly, ["e-e2e"], "a package named like one but not end-to-end is listed for a reviewer");
+  const inner = found.crates.find((c) => c.name === "inner");
+  assert.deepEqual([[...inner.tests], [...inner.bins]], [["z"], ["inner"]], "targets: tests/<name>.rs and src/main.rs, of this package only");
+  assert.deepEqual(found.membersOf(".").map((c) => c.name), ["a", "b", "c"], "the workspace members that are end-to-end; inner is not one");
+});
+
+test("G22 e2e-under-cargo-test: a package.json script that runs an end-to-end crate under cargo test is a finding; compile-only, other crates and other cargo verbs are not", (t) => {
+  const scripts = {
+    "test:e2e": "rustright cargo build -p app-engine --features test-mode && rustright cargo test -p app-e2e -- --test-threads=1",
+    "qa:ui-native": "rustright cargo test --locked -p legacy-e2e --test old -- --ignored --nocapture --test-threads=1",
+    "verify:rust": "rustright cargo test --workspace",
+    "qa:native": "rustright cargo build && rustright cargo run --manifest-path src-tauri/qa-e2e/Cargo.toml --bin app-shell-qa",
+    "qa:bin": "rustright cargo run --bin app-qa",
+    "qa:scenario": "rustright cargo test --test scenarios",
+    "test:retired": `${OLD} cargo test --package=app-e2e`,
+    "test:plain": "cargo +nightly test --package app-e2e",
+    "test:nextest": "cargo nextest run -p app-e2e",
+    // not findings
+    "test:compile": "rustright cargo test -p app-e2e --no-run",
+    "test:rust": "rustright cargo test --workspace --exclude app-e2e --no-fail-fast",
+    "verify:tauri": "rustright cargo test --manifest-path src-tauri/Cargo.toml --workspace",
+    "test:unit": "rustright cargo test -p app-engine",
+    "test:mock": "rustright cargo test -p app-mock-platform",
+    "test:optional": "rustright cargo test -p name-only-e2e",
+    "test:example": "rustright cargo test -p example-only",
+    "test:guard": "rustright cargo test -p app-e2e --test qa_surface_guard",
+    "test:runner": "rightkit-qa run-tests --app app -p app-e2e -- --nocapture",
+    "test:journeys": "rightkit-qa journeys run --build \"rustright cargo run -p app-e2e\"",
+    "test:list": "cargo nextest list -p app-e2e",
+    "test:build": "rustright cargo build -p app-e2e && rustright cargo check --workspace && rustright cargo clippy -p app-e2e",
+    "test:libtest-args": "rustright cargo test -p app-engine -- --workspace --test scenarios",
+    "test:help": "cargo test --help",
+  };
+  const pkg = JSON.stringify({ name: "app", scripts }, null, 2);
+  const nested = JSON.stringify({ scripts: { "qa:native:journey": "rustright cargo test --manifest-path ./qa-e2e/Cargo.toml -- --nocapture", "qa:up": "rustright cargo test --manifest-path ../src-tauri/qa-e2e/Cargo.toml" } }, null, 2);
+  const failures = run("e2e-under-cargo-test", t, e2eApp({ "package.json": pkg, "tauri-app-next/package.json": nested }));
+  const by = (file, subject) => failures.filter((f) => f.file === file && f.subject === subject);
+  assert.deepEqual(identities(failures), [
+    "tauri-app-next/package.json|qa:native:journey", "tauri-app-next/package.json|qa:up",
+    "package.json|qa:bin", "package.json|qa:native", "package.json|qa:scenario", "package.json|qa:ui-native", "package.json|test:e2e", "package.json|test:nextest", "package.json|test:plain", "package.json|test:retired", "package.json|verify:rust",
+  ].map((id) => `e2e-under-cargo-test|${id}`).sort());
+  assert.equal(failures.length, 11, "one finding per script and crate");
+  // the text, with the line of the script in its package.json, the crate and how the command names it
+  const e2e = by("package.json", "test:e2e")[0];
+  assert.equal(e2e.problem, E2E_PROBLEM(`package.json:${lineIn(pkg, '"test:e2e"')} script "test:e2e"`, "app-e2e", "rustright cargo test -p app-e2e"));
+  assert.equal(e2e.fix, "compile it with --no-run and run it outside the broker: rightkit-qa run-tests -p app-e2e [--test <target>] -- <libtest args>");
+  assert.equal(e2e.rule, "e2e-under-cargo-test");
+  assert.equal(e2e.gap, "G22");
+  assert.match(by("package.json", "qa:ui-native")[0].problem, /end-to-end crate legacy-e2e under cargo test \(rustright cargo test -p legacy-e2e\)/, "a renamed dependency (package = \"rightkit-qa\") is resolved; -p still selects a crate the workspace excludes");
+  assert.match(by("package.json", "verify:rust")[0].problem, /end-to-end crate app-e2e under cargo test \(rustright cargo test --workspace\)/, "--workspace selects the members only: not legacy-e2e (excluded), the nested workspace or the crates that are not end-to-end");
+  assert.match(by("package.json", "qa:native")[0].problem, /end-to-end crate app-shell-qa under cargo test \(rustright cargo run --manifest-path src-tauri\/qa-e2e\/Cargo\.toml\)/, "cargo run; --bin names the same crate, so one finding");
+  assert.match(by("package.json", "qa:bin")[0].problem, /end-to-end crate app-e2e under cargo test \(rustright cargo run --bin app-qa\)/);
+  assert.match(by("package.json", "qa:scenario")[0].problem, /end-to-end crate app-e2e under cargo test \(rustright cargo test --test scenarios\)/, "--test with no -p: a test target of exactly one end-to-end crate");
+  assert.match(by("package.json", "test:retired")[0].problem, new RegExp(`\\(${OLD} cargo test -p app-e2e\\)`), "the retired alias is matched, and says how it was spelled");
+  assert.match(by("package.json", "test:plain")[0].problem, /\(cargo test -p app-e2e\)/, "plain cargo, with a toolchain override");
+  assert.match(by("package.json", "test:nextest")[0].problem, /\(cargo nextest -p app-e2e\)/);
+  // --manifest-path is resolved against the directory of the package.json that holds the script, then the repository root
+  assert.match(by("tauri-app-next/package.json", "qa:native:journey")[0].problem, /^tauri-app-next\/package\.json:\d+ script "qa:native:journey" runs the end-to-end crate native-e2e /);
+  assert.match(by("tauri-app-next/package.json", "qa:up")[0].problem, /end-to-end crate app-shell-qa /, "../ out of the package directory");
+});
+
+test("G22 e2e-under-cargo-test: shell, PowerShell, batch, Node and Python scripts, Makefile and justfile recipes, git hooks: every non-comment line, with the working directory a cd gives", (t) => {
+  const files = e2eApp({
+    // the cd of the script-directory idiom is the repository root; the exec line selects app-e2e through --workspace
+    "scripts/test.sh": '#!/usr/bin/env bash\nset -euo pipefail\n# rustright cargo test -p legacy-e2e (a comment is not a command)\ncd "$(dirname "$0")/.."\nexec rustright cargo test --workspace --features app-engine/test-mode "$@"\n',
+    "scripts/run-e2e.sh": 'out="$(rustright cargo test -p app-e2e --test "$target" --no-run 2>&1)"\n',
+    "scripts/gate.sh": 'cargo test --no-run --message-format=json "${cargo_args[@]}"\ncargo test -p app-e2e --message-format=json "${cargo_args[@]}" --no-run\n',
+    "scripts/qa.sh": [
+      "cd tauri-app-next",
+      "rustright cargo test --manifest-path qa-e2e/Cargo.toml -- --nocapture",
+      "rustright cargo test \\",
+      "  -p app-e2e \\",
+      "  -- --nocapture",
+      "rustright cargo test \\",
+      "  -p legacy-e2e \\",
+      "  --no-run",
+      "(cd .. && rustright cargo test --manifest-path src-tauri/qa-e2e/Cargo.toml)",
+      "",
+    ].join("\n"),
+    "scripts/qa.ps1": "Set-Location tauri-app-next\n# rustright cargo test -p legacy-e2e\nrustright cargo test --manifest-path qa-e2e/Cargo.toml\nrustright cargo test `\n  -p app-e2e\n",
+    "scripts/qa.bat": "REM rustright cargo test -p app-e2e\n:: rustright cargo test -p app-e2e\nrem rustright cargo test -p app-e2e\n@echo off\nrustright cargo test -p legacy-e2e\n",
+    "scripts/qa.mjs": 'spawnSync(`rustright cargo test -p app-e2e`, { shell: true });\n// run("rustright cargo test -p legacy-e2e");\nrun("rustright cargo test -p legacy-e2e");\nconst cmd = `rustright cargo test -p ${crate}`;\n',
+    "tools/qa.py": '# subprocess.run("rustright cargo test -p legacy-e2e")\nsubprocess.run("rustright cargo run -p app-e2e --bin app-qa", shell=True)\n',
+    Makefile: "e2e:\n\t@rustright cargo test -p app-e2e\n# \trustright cargo test -p legacy-e2e\nunit:\n\trustright cargo test -p app-engine\n",
+    justfile: "e2e:\n    rustright cargo test -p app-e2e -- --ignored\n",
+    ".githooks/pre-push": "#!/bin/sh\nrustright cargo test -p app-e2e\n",
+    ".husky/pre-commit": `${OLD} cargo test -p legacy-e2e\n`,
+    // outside the places: a TypeScript source file, a vendored script, a build output
+    "src/notes.ts": "// rustright cargo test -p app-e2e\n",
+    "vendor/x/qa.sh": "rustright cargo test -p app-e2e\n",
+    "node_modules/x/qa.sh": "rustright cargo test -p app-e2e\n",
+  });
+  const failures = run("e2e-under-cargo-test", t, files);
+  assert.deepEqual(failures.map((f) => `${f.problem.split(" ")[0]} ${f.subject}`).sort(), [
+    ".githooks/pre-push:2 app-e2e",
+    ".husky/pre-commit:1 legacy-e2e",
+    "Makefile:2 app-e2e",
+    "justfile:2 app-e2e",
+    "scripts/qa.bat:5 legacy-e2e",
+    "scripts/qa.mjs:1 app-e2e",
+    "scripts/qa.mjs:3 legacy-e2e",
+    "scripts/qa.ps1:3 native-e2e",
+    "scripts/qa.ps1:4 app-e2e",
+    "scripts/qa.sh:2 native-e2e",
+    "scripts/qa.sh:3 app-e2e",
+    "scripts/qa.sh:9 app-shell-qa",
+    "scripts/test.sh:5 app-e2e",
+    "tools/qa.py:2 app-e2e",
+  ].sort());
+  const what = (file) => failures.find((f) => f.file === file).problem.replace(/^\S+ /, "").split(" runs ")[0];
+  assert.deepEqual(["scripts/test.sh", "Makefile", ".githooks/pre-push"].map(what), ["command", "recipe", "git hook"]);
+  assert.match(failures.find((f) => f.file === "scripts/test.sh").problem, /\(rustright cargo test --workspace\)/);
+});
+
+test("G22 e2e-under-cargo-test: a GitHub workflow run: step, single line or block, with the step's working-directory; a step's name is not a command", (t) => {
+  const workflow = [
+    "name: ci",
+    "on: [push]",
+    "jobs:",
+    "  e2e:",
+    "    runs-on: macos-latest",
+    "    steps:",
+    "      - uses: actions/checkout@v4",
+    "      - name: rustright cargo test -p app-e2e (only a title)",
+    "        run: echo hello",
+    "      - name: e2e",
+    "        run: rustright cargo test -p app-e2e -- --test-threads=1",
+    "      - name: more",
+    "        run: |",
+    "          rustright cargo build -p app-e2e",
+    "          # rustright cargo test -p legacy-e2e",
+    "          rustright cargo test -p legacy-e2e",
+    "          rustright cargo test -p app-e2e --no-run",
+    "      - name: tauri side",
+    "        working-directory: tauri-app-next",
+    "        run: rustright cargo test --manifest-path qa-e2e/Cargo.toml",
+    "      - run: >-",
+    "          rustright cargo test",
+    "          -p legacy-e2e",
+    "      - name: unit",
+    "        run: rustright cargo test -p app-engine",
+    "",
+  ].join("\n");
+  const failures = run("e2e-under-cargo-test", t, e2eApp({ ".github/workflows/ci.yml": workflow, ".github/actions/qa/action.yaml": "runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: rustright cargo test -p legacy-e2e\n", ".github/CODEOWNERS": "rustright cargo test -p app-e2e\n" }));
+  assert.deepEqual(failures.map((f) => `${f.problem.split(" ")[0]} ${f.subject}`).sort(), [".github/actions/qa/action.yaml:5 legacy-e2e", ".github/workflows/ci.yml:11 app-e2e", ".github/workflows/ci.yml:16 legacy-e2e", ".github/workflows/ci.yml:20 native-e2e", ".github/workflows/ci.yml:22 legacy-e2e"].sort());
+  assert.match(failures.find((f) => f.file.endsWith("ci.yml") && f.subject === "app-e2e").problem, /^\.github\/workflows\/ci\.yml:11 workflow step runs the end-to-end crate app-e2e under cargo test /);
+});
+
+test("G22 e2e-under-cargo-test: a command in a runbook is a finding (fenced code, inline code), prose and history documents are not", (t) => {
+  const readme = [
+    "# App",
+    "Unit tests: `rustright cargo test -p app-engine`.",
+    "Run it with `rustright cargo test -p legacy-e2e`",
+    "",
+    "```sh",
+    "# rustright cargo test -p app-e2e is in a comment",
+    "cd tauri-app-next",
+    "rustright cargo test --manifest-path qa-e2e/Cargo.toml",
+    "rustright cargo test -p app-e2e --no-run",
+    "```",
+    "Prose names rustright cargo test -p app-e2e without making it a command.",
+    "",
+  ].join("\n");
+  const inline = "Use `rustright cargo test -p app-e2e` here.\n";
+  const failures = run("e2e-under-cargo-test", t, e2eApp({
+    "README.md": readme,
+    "docs/E2E.md": inline,
+    "docs/qa/deep.md": `~~~\n${OLD} cargo run -p app-e2e --bin app-qa\n~~~\n`,
+    "AGENTS.md": inline,
+    "CLAUDE.md": inline,
+    // history, by name or place: never a command to follow
+    "CHANGELOG.md": inline, "docs/CHANGELOG.md": inline, "STATUS.md": inline, "docs/STATUS.md": inline, "docs/PENDING.md": inline, "docs/state.md": inline,
+    "docs/archive/x.md": inline, "docs/plans/y.md": inline, "docs/provenance/z.md": inline, "docs/handoff-3/a.md": inline, "docs/handoffs/a.md": inline,
+    "docs/2026-10-11-notes.md": inline, "docs/audit/run-2026-10-24.md": inline, "docs/tasks/t.md": inline, "docs/run/evidence/e.md": inline,
+    // outside the runbook set
+    "notes.md": inline, "crates/app-e2e/README.md": inline, "docs/readme.txt": inline,
+  }));
+  assert.deepEqual(failures.map((f) => `${f.problem.split(" ")[0]} ${f.subject}`).sort(), ["AGENTS.md:1 app-e2e", "CLAUDE.md:1 app-e2e", "README.md:3 legacy-e2e", "README.md:8 native-e2e", "docs/E2E.md:1 app-e2e", "docs/qa/deep.md:2 app-e2e"].sort());
+  assert.match(failures.find((f) => f.file === "README.md" && f.subject === "native-e2e").problem, /^README\.md:8 runbook command runs the end-to-end crate native-e2e /, "the cd in the block gives the manifest its directory");
+});
+
+test("G22 e2e-under-cargo-test: the identity is the file and the script (package.json) or the crate, no line number; findings are per line and crate", (t) => {
+  const pkg = JSON.stringify({ scripts: { "test:e2e": "rustright cargo test -p app-e2e && rustright cargo test -p legacy-e2e", both: "rustright cargo test -p app-e2e && rustright cargo run --bin app-qa" } }, null, 2);
+  const files = e2eApp({ "package.json": pkg, "scripts/a.sh": "rustright cargo test -p app-e2e\n\n\nrustright cargo test -p app-e2e\n" });
+  const failures = run("e2e-under-cargo-test", t, files);
+  assert.deepEqual(identities(failures), [
+    "e2e-under-cargo-test|package.json|both",
+    "e2e-under-cargo-test|package.json|test:e2e", "e2e-under-cargo-test|package.json|test:e2e",
+    "e2e-under-cargo-test|scripts/a.sh|app-e2e", "e2e-under-cargo-test|scripts/a.sh|app-e2e",
+  ].sort(), "a script holding two commands on two crates is two findings of one identity; two commands on one crate in one line are one finding");
+  assert.deepEqual(failures.filter((f) => f.file === "scripts/a.sh").map((f) => f.problem.split(" ")[0]), ["scripts/a.sh:1", "scripts/a.sh:4"]);
+  // an edit above the command renumbers the line and changes no identity
+  const moved = run("e2e-under-cargo-test", t, { ...files, "scripts/a.sh": `# header\n${files["scripts/a.sh"]}` });
+  assert.deepEqual(identities(moved), identities(failures));
+  assert.deepEqual(run("e2e-under-cargo-test", t, { "package.json": pkg, "Cargo.toml": "[workspace]\n" }), [], "a tree with no end-to-end crate has nothing to find");
+});
+
+test("G22 e2e-under-cargo-test: a CRLF checkout (Windows) gives the same findings as an LF one", (t) => {
+  const lf = e2eApp({
+    "package.json": JSON.stringify({ scripts: { "test:e2e": "rustright cargo test -p app-e2e", "verify:rust": "rustright cargo test --workspace" } }, null, 2),
+    "scripts/qa.sh": "cd tauri-app-next\nrustright cargo test \\\n  --manifest-path qa-e2e/Cargo.toml\n",
+    "scripts/qa.ps1": "Set-Location tauri-app-next\nrustright cargo test `\n  --manifest-path qa-e2e/Cargo.toml\n",
+    ".github/workflows/ci.yml": "jobs:\n  e2e:\n    steps:\n      - working-directory: tauri-app-next\n        run: |\n          rustright cargo test --manifest-path qa-e2e/Cargo.toml\n      - run: rustright cargo test -p legacy-e2e\n",
+    "README.md": "Run `rustright cargo test -p legacy-e2e`.\n\n```sh\nrustright cargo test -p app-e2e\n```\n",
+  });
+  const crlf = Object.fromEntries(Object.entries(lf).map(([file, text]) => [file, text.replaceAll("\n", "\r\n")]));
+  const expected = identities(run("e2e-under-cargo-test", t, lf));
+  assert.deepEqual(expected, [
+    "e2e-under-cargo-test|.github/workflows/ci.yml|legacy-e2e", "e2e-under-cargo-test|.github/workflows/ci.yml|native-e2e",
+    "e2e-under-cargo-test|README.md|app-e2e", "e2e-under-cargo-test|README.md|legacy-e2e",
+    "e2e-under-cargo-test|package.json|test:e2e", "e2e-under-cargo-test|package.json|verify:rust",
+    "e2e-under-cargo-test|scripts/qa.ps1|native-e2e", "e2e-under-cargo-test|scripts/qa.sh|native-e2e",
+  ].sort());
+  assert.deepEqual(identities(run("e2e-under-cargo-test", t, crlf)), expected);
+});
+
+test("G22 e2e-under-cargo-test: ratchet: a baseline entry tolerates the finding, a fixed one is STALE, the build does not refuse it", async (t) => {
+  const pkg = (command) => JSON.stringify({ scripts: { "test:e2e": command } }, null, 2);
+  const { repo, parent } = appRepo(t, e2eApp({ "package.json": pkg("rustright cargo test -p app-e2e -- --test-threads=1") }));
+  const id = "e2e-under-cargo-test|package.json|test:e2e";
+  const args = (known) => ["--repo", repo, "--worktree", "--only", "e2e-under-cargo-test", "--baseline", writeBaseline(parent, known)];
+  const fresh = await preflight(args({}));
+  assert.equal(fresh.code, 1);
+  assert.match(fresh.text, /^FAIL e2e-under-cargo-test \(G22\): package\.json:3 script "test:e2e" runs the end-to-end crate app-e2e under cargo test \(rustright cargo test -p app-e2e\): /m);
+  assert.match(fresh.text, /^     fix: compile it with --no-run and run it outside the broker: rightkit-qa run-tests -p app-e2e \[--test <target>\] -- <libtest args>$/m);
+  const printed = await preflight(["--repo", repo, "--worktree", "--only", "e2e-under-cargo-test", "--print-baseline"]);
+  assert.deepEqual(JSON.parse(printed.text), [id]);
+  const known = await preflight(args({ apprepo: [id] }));
+  assert.equal(known.code, 0, known.text);
+  assert.match(known.text, /^KNOWN e2e-under-cargo-test: package\.json:3 /m);
+  assert.match(known.text, /\(1 known finding\(s\)/);
+  // the app fixes it (compile only); the entry is now a lie and the list only shrinks
+  fs.writeFileSync(path.join(repo, "package.json"), pkg("rustright cargo test -p app-e2e --no-run"));
+  const stale = await preflight(args({ apprepo: [id] }));
+  assert.equal(stale.code, 1);
+  assert.match(stale.text, /^STALE baseline entry e2e-under-cargo-test\|package\.json\|test:e2e: no longer found in apprepo; remove it from ci\/app-check-baseline\.json known\["apprepo"\]$/m);
+  // an app's own file: the entry needs its issue, added and a sunset, and tolerates the finding until then (commit mode, as a build checks)
+  fs.writeFileSync(path.join(repo, "package.json"), pkg("rustright cargo test -p app-e2e"));
+  fs.mkdirSync(path.join(repo, ".rightkit"), { recursive: true });
+  fs.writeFileSync(path.join(repo, ".rightkit/app-check-baseline.json"), JSON.stringify({ schema: 1, known: [appEntry(id, "app#22")] }));
+  git(repo, "add", "-A");
+  git(repo, "commit", "-q", "-m", "list it");
+  const mine = runAppCheck({ repo, central: null, only: ["e2e-under-cargo-test"], now: NOW });
+  assert.equal(mine.exitCode, 0, mine.text);
+  assert.equal(mine.known.length, 1);
+  assert.equal(BUILD_REFUSES.includes("e2e-under-cargo-test"), false, "a listed G22 finding is tolerated before a build, like G13 to G19");
+  assert.equal(guardCommand({ args: ["build"], cwd: repo, run: (options) => runAppCheck({ ...options, central: null, only: ["e2e-under-cargo-test"], now: NOW }) }), null, "a listed finding does not stop a build");
+  const expired = runAppCheck({ repo, central: null, only: ["e2e-under-cargo-test"], now: LONG_AFTER });
+  assert.equal(expired.exitCode, 1, "past its sunset the entry tolerates nothing");
+  assert.match(expired.text, /^FAIL e2e-under-cargo-test \(G22\): package\.json:3 .*\(its baseline entry expired: sunset /m);
+});
+
 // ---- export: the committed files by git alone ------------------------------------------------------------------------------------
 
 const commitAll = (repo, message = "commit") => { git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", message); return git(repo, "rev-parse", "HEAD").trim(); };
@@ -467,7 +779,7 @@ test("runAppCheck returns the findings, the tolerated ones, the stale ones and t
   assert.deepEqual(red.findings.map((f) => f.identity).sort(), ["qa-platform|tests/q.rs|platform:macos", "skip-checks|package.json|ship"]);
   assert.deepEqual([red.known, red.stale, red.expired], [[], [], []]);
   assert.match(red.text, /^FAIL qa-platform \(G13\): tests\/q\.rs:1 /m);
-  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(12 rules, /m);
+  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(13 rules, /m);
   const baseline = writeBaseline(parent, { apprepo: [KNOWN_ID, "skip-checks|package.json|ship", "qa-platform|tests/gone.rs|platform:macos"] });
   const ratcheted = runAppCheck({ repo, central: null, baseline });
   assert.equal(ratcheted.exitCode, 1);
@@ -841,6 +1153,15 @@ test("the README states the whole checked set with its modes, the baseline contr
   assert.match(section, /central `\{ "known": \{ "<repo>": \[\.\.\.\] \} \}` shape in an app's file is refused \(exit 2\)/);
 });
 
+test("the README's rule table lists every app rule, with its gap, in the order the check runs them, and describes G22", () => {
+  const readme = fs.readFileSync(new URL("./README.md", import.meta.url), "utf8");
+  const section = /## The app check[^\n]*\n([\s\S]*?)\n## /.exec(readme)?.[1] ?? "";
+  const rows = [...section.matchAll(/^\| `([a-z0-9-]+)` \| ((?:G\d{2}|P\d+)) \| (.+) \|$/gm)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(rows, RULES.map((r) => [r.id, r.gap]), "one row per rule in RULES, so a new rule cannot ship undocumented");
+  assert.ok(RULES.some((r) => r.id === "e2e-under-cargo-test" && r.gap === "G22"));
+  for (const phrase of ["`--no-run`", "`rightkit-qa run-tests`", "`rightkit-qa journeys run`", "`--test qa_surface_guard`", "`e2e-under-cargo-test|<file>|<script or crate>`"]) assert.ok(section.includes(phrase), `the G22 paragraph names ${phrase}`);
+});
+
 test("checkModeFor: the mode a command is checked in, direct flags run build, and the report forms are not guarded", () => {
   const mode = (...args) => checkModeFor(args);
   assert.equal(mode("build"), "commit");
@@ -929,8 +1250,8 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.deepEqual(lines, findingLines(preflightRun.stdout), "the findings are byte-identical");
   assert.ok(lines.some((l) => l.startsWith("FAIL eol-policy (G04):")) && lines.some((l) => l.startsWith("FAIL release-config (G16):")) && lines.some((l) => l.startsWith("FAIL scenario-skip (G15):")) && lines.some((l) => l.startsWith("FAIL qa-platform (G13):")), lines.join("\n"));
   assert.ok(lines.some((l) => l.startsWith("KNOWN skip-checks:")) && lines.some((l) => l.startsWith("STALE baseline entry qa-platform|tests/gone.rs|platform:macos")), "the app's own baseline is read in both");
-  assert.match(gate.stdout, /^check: 6 problem\(s\) in \w{12} \(12 rules, [\d.]+s, 1 known\)\./m);
-  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(19 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(gate.stdout, /^check: 6 problem\(s\) in \w{12} \(13 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(20 rules, [\d.]+s, 1 known\)\./m);
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap})`));
   // The same installed copy through the right-release command, and green once the app is fixed.
   const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });

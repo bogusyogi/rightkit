@@ -114,6 +114,34 @@ Each of those is listed with its reason in `UNCHECKED_COMMANDS` (`app-check.mjs`
 neither list. `dmg` takes `--app`/`--out` paths, compiles nothing and has no repository; `addon` is checked only as `addon build` (it
 runs the add-on's own build command), its `doctor`, `upload` and `adopt` forms compile nothing.
 
+The rules (`right-release check --list` prints their ids and gaps; `scripts/preflight.mjs` adds RightKit's own):
+
+| Rule | Gap | Finds |
+|---|---|---|
+| `eol-policy` | G04 | a committed blob with CRLF where `.gitattributes` says `eol=lf` |
+| `file-url` | G12 | the `.pathname` of a URL built from `import.meta.url` used as a path (wrong on Windows; use `fileURLToPath`) |
+| `retired-alias` | P11 | an invocation of `rightkit`, the retired name of the RustRight client, outside history |
+| `qa-platform` | G13 | a Rust `"platform:<x>"` requirement that is not `darwin` or `windows` (the test skips forever) |
+| `test-harness` | G14 | a Cargo `[[test]]` whose file defines `fn main(` but lacks `harness = false` (libtest runs 0 tests) |
+| `scenario-skip` | G15 | a `.scenario(` test that prints SKIP and returns (a skip that reports green) |
+| `release-config` | G16 | `right-release.config.mjs`: a provider `publish-update.mjs` refuses, an updater `keyFile`, an undefined Cargo profile |
+| `skip-checks` | G17 | a `package.json` script that runs `right-release` with `--skip-checks` |
+| `qa-dev-server` | G18 | a `package.json` `qa*` script that runs `tauri dev` (QA would test the dev server, not the app) |
+| `ffmpeg-release-escape` | G19 | `allow_in_release_builds` in non-test Rust outside `crates/rightkit-ffmpeg` |
+| `switches-inventory` | G20 | a `right-release.config.mjs` directory without a `switches.json` (or its `releaseSwitches.inventory`) |
+| `speech-link` | G21 | `import Speech` under `swift/RightKitSwift/Sources` or `Tests` |
+| `e2e-under-cargo-test` | G22 | `cargo test`, `cargo run` or `cargo nextest` (plain, `rustright cargo`, or the retired `rightkit`) that runs an end-to-end crate in the broker: it holds the compile slot for the whole run |
+
+`e2e-under-cargo-test` (G22): the broker compiles; it does not run end-to-end tests. An end-to-end crate is a Cargo package that depends on
+`rightkit-qa` not optionally (the optional dependency is an app's in-app control server) and has a `.rs` file outside `examples/` that names
+a driver module of it (`harness`, `control`, `suite`, `scenario`, `engine`, `in_app`, `interactive`, `page`, `browser`, `android`); a name
+like `*-e2e` is not evidence. A command selects it by `-p`/`--package`, `--manifest-path`, `--workspace`/`--all` (the members of the
+workspace in the working directory, less `--exclude`), `--test`, or for `cargo run` `--bin`. It looks in `package.json` scripts, shell,
+PowerShell, batch, Node and Python scripts, Makefile and justfile recipes, workflow `run:` steps, git hooks, and code in `README.md`,
+`AGENTS.md`, `CLAUDE.md` and `docs/` (history documents excluded). `--no-run`, `rightkit-qa run-tests`, `rightkit-qa journeys run` and
+`--test qa_surface_guard` are not findings. The identity is `e2e-under-cargo-test|<file>|<script or crate>`. Fix: compile with `--no-run`, then
+`rightkit-qa run-tests -p <crate> [--test <target>] -- <libtest args>`.
+
 Known findings are tolerated only through a baseline: `--baseline <file>`, else the checked tree's `.rightkit/app-check-baseline.json`,
 else (from a RightKit checkout only) `ci/app-check-baseline.json`. The app's own file is always `{ "schema": 1, "known": [{ "id", "issue",
 "added", "sunset" }] }`; the central `{ "known": { "<repo>": [...] } }` shape in an app's file is refused (exit 2). Every app entry needs

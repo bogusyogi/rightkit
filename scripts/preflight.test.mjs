@@ -255,13 +255,13 @@ test("preflight checks an app with its own .rightkit/app-check-baseline.json the
   const result = await preflight(["--repo", repo, "--commit", "HEAD"], { now: new Date(`${addDays("2026-10-24", 7)}T12:00:00Z`) });
   assert.equal(result.code, 0, result.text);
   assert.match(result.text, /^KNOWN qa-platform: tests\/q\.rs:1 /m);
-  assert.match(result.text, /passed 19 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
+  assert.match(result.text, /passed 20 rules .*\(1 known finding\(s\) in \.rightkit\/app-check-baseline\.json/);
 });
 
 test("preflight keeps its rule order: the app rules sit where they always did among RightKit's own", () => {
   assert.deepEqual(RULES.map((r) => `${r.id} (${r.gap})`), [
     "eol-policy (G04)", "consumer-recipe (G01)", "npm-recipe (G01)", "npm-surface (G02)", "version-pins (G03)", "dispatch-pins (G05)", "consumer-locks (G08)", "file-url (G12)", "generated-docs (G10)", "retired-alias (P11)",
-    "qa-platform (G13)", "test-harness (G14)", "scenario-skip (G15)", "release-config (G16)", "skip-checks (G17)", "qa-dev-server (G18)", "ffmpeg-release-escape (G19)", "switches-inventory (G20)", "speech-link (G21)",
+    "qa-platform (G13)", "test-harness (G14)", "scenario-skip (G15)", "release-config (G16)", "skip-checks (G17)", "qa-dev-server (G18)", "ffmpeg-release-escape (G19)", "switches-inventory (G20)", "speech-link (G21)", "e2e-under-cargo-test (G22)",
   ]);
 });
 
