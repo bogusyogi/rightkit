@@ -101,6 +101,7 @@ export function packageDirs(root) {
 
 export const REPORT_SCHEMA = "rightkit.import-effects/1";
 export const EXIT_INCOMPLETE = 3;
+export const INSTALL_COMMAND = "pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --offline --package-import-method=copy --config.ignore-scripts=true --config.ignore-pnpmfile=true --config.side-effects-cache=false --config.manage-package-manager-versions=false";
 
 /**
  * The immutable closure the probe runs against: `git archive <commit>` (the exact commit captured before anything ran) extracted
@@ -124,13 +125,20 @@ export function exportTree(root, { commit, spawn = spawnSync, mkdtemp = () => fs
   // the content-addressed store or the live checkout, so a later mutation of either cannot reach the probed bytes and the digest
   // below is over the bytes that were actually imported. `--ignore-scripts`: no lifecycle script or build hook runs (nothing is
   // compiled here; compiles are admitted elsewhere, after class A).
-  const INSTALL = ["install", "--frozen-lockfile", "--ignore-scripts", "--offline", "--package-import-method=copy"];
-  const deps = { lock: sha(path.join(dir, "pnpm-lock.yaml")), pnpm: null, installed: null, store: null, files: 0, hardlinks: 0, externalLinks: 0, install: `pnpm ${INSTALL.join(" ")}` };
+  // `--ignore-scripts` suppresses lifecycle scripts; `--ignore-pnpmfile` suppresses the repository's own pnpm hooks (.pnpmfile.cjs
+  // readPackage/afterAllResolved: candidate code that would otherwise run during dependency setup, before class A had a say);
+  // `--config.*` repeats both so no project .npmrc can switch them back. The environment is rebuilt from an allowlist: inherited
+  // `npm_config_*`/`PNPM_*`/NODE_OPTIONS never reach the install, so nothing outside the tree can re-enable scripts or hooks.
+  const INSTALL = ["install", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile", "--offline", "--package-import-method=copy", "--config.ignore-scripts=true", "--config.ignore-pnpmfile=true", "--config.side-effects-cache=false", "--config.manage-package-manager-versions=false"];
+  const deps = { lock: sha(path.join(dir, "pnpm-lock.yaml")), pnpm: null, installed: null, store: null, files: 0, hardlinks: 0, externalLinks: 0, install: INSTALL_COMMAND, pnpmIdentity: null, closureStable: null };
   if (deps.lock) {
-    const env = { ...process.env, CI: "1", NODE_OPTIONS: "", npm_config_frozen_lockfile: "true", npm_config_package_import_method: "copy" };
-    const version = spawn("pnpm", ["--version"], { encoding: "utf8", windowsHide: true, cwd: dir, env });
-    deps.pnpm = version.status === 0 ? String(version.stdout).trim() : null;
-    const installed = spawn("pnpm", INSTALL, { encoding: "utf8", windowsHide: true, cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
+    const env = installEnvironment(process.env);
+    deps.pnpmIdentity = pnpmIdentity({ spawn, env });
+    if (deps.pnpmIdentity.problem) return { problem: deps.pnpmIdentity.problem };
+    deps.pnpm = deps.pnpmIdentity.version;
+    const pinned = packageManagerPin(dir);
+    if (pinned && pinned !== deps.pnpm) return { problem: `the exported tree pins pnpm@${pinned} (package.json packageManager) but the pnpm on PATH is ${deps.pnpm} (${deps.pnpmIdentity.path}); the dependency closure would not be the tree's` };
+    const installed = spawn(deps.pnpmIdentity.path, INSTALL, { encoding: "utf8", windowsHide: true, cwd: dir, env, maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60_000 });
     if (installed.error || installed.status !== 0) return { problem: `installing the exported tree's dependencies offline from the lockfile failed (the store must already hold them; run pnpm install in the checkout first): ${tail(installed.stderr || installed.stdout || installed.error?.message)}` };
     // Every node_modules the install produced (the workspace root's and each package's), by bytes. pnpm's `.modules.yaml`
     // carries a prune timestamp, so it is digested separately as installed-state metadata and left out of the byte digest.
@@ -140,11 +148,64 @@ export function exportTree(root, { commit, spawn = spawnSync, mkdtemp = () => fs
   return { dir, deps };
 }
 
+/** The environment the dependency install runs with: an allowlist, never the caller's `npm_config_*`, `PNPM_*` or NODE_OPTIONS. */
+export function installEnvironment(from = process.env) {
+  const keep = ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "PNPM_HOME", "COREPACK_HOME"];
+  const env = {};
+  for (const k of keep) if (from[k] !== undefined) env[k] = from[k];
+  Object.assign(env, { CI: "1", NODE_OPTIONS: "", NODE_ENV: "production", npm_config_ignore_scripts: "true", npm_config_ignore_pnpmfile: "true", npm_config_frozen_lockfile: "true", npm_config_offline: "true", npm_config_package_import_method: "copy", npm_config_side_effects_cache: "false", npm_config_manage_package_manager_versions: "false" });
+  return env;
+}
+
+/** The pnpm that will run: its resolved executable (real path), the sha256 of that file and its version — an identity, not a string. */
+export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } = {}) {
+  const found = spawn(process.platform === "win32" ? "where" : "which", ["pnpm"], { encoding: "utf8", windowsHide: true, env });
+  const onPath = String(found.stdout ?? "").split(/\r?\n/).find((l) => l.trim()) ?? "";
+  if (found.status !== 0 || !onPath) return { problem: "pnpm is not on PATH" };
+  let real; try { real = fs.realpathSync(onPath.trim()); } catch { return { problem: `pnpm at ${onPath} cannot be resolved` }; }
+  const sha256 = crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex");
+  // pnpm's `manage-package-manager-versions` silently execs ANOTHER pnpm (the tree's `packageManager` pin, fetched into
+  // `<pnpm home>/.tools`), so the file on PATH would not be the pnpm that installs. The install environment disables that, and the
+  // version the runtime answers is checked against the package.json beside the resolved file: a mismatch means a different
+  // executable answered, and the identity is refused rather than recorded against the wrong bytes.
+  // `pnpm --version` loads the configuration of the directory it runs in, and loading configuration EXECUTES that tree's
+  // `.pnpmfile.cjs` (its `updateConfig` hook) even under `--ignore-pnpmfile` (pnpm 10.28 and 11.25, verified): asked inside the
+  // export it would run candidate code before class A. It is therefore asked in a fresh, empty directory holding no tree at all.
+  let empty; try { empty = fs.mkdtempSync(path.join(os.tmpdir(), "rk-pnpm-id-")); } catch { return { problem: "cannot create an empty directory to query pnpm in" }; }
+  let version; try { version = spawn(onPath.trim(), ["--version"], { encoding: "utf8", windowsHide: true, cwd: empty, env }); } finally { fs.rmSync(empty, { recursive: true, force: true }); }
+  if (version.status !== 0) return { problem: `pnpm at ${real} does not report a version` };
+  const answered = String(version.stdout).trim();
+  const declared = pnpmPackageVersion(real);
+  if (!declared) return { problem: `pnpm at ${real} has no package.json naming its version; its identity cannot be bound` };
+  if (declared !== answered) return { problem: `pnpm at ${real} is version ${declared} but "pnpm --version" answered ${answered}: another pnpm executable would run (package manager version management); refusing to bind the identity` };
+  return { path: onPath.trim(), realPath: real, sha256, version: answered, node: process.version };
+}
+
+/** The version named by the package.json of the pnpm package that owns `file` (walking up at most four directories), or null. */
+export function pnpmPackageVersion(file) {
+  let dir = path.dirname(file);
+  for (let i = 0; i < 4; i++) {
+    try { const j = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")); if (j.name === "pnpm" && typeof j.version === "string") return j.version; } catch {}
+    const up = path.dirname(dir); if (up === dir) break; dir = up;
+  }
+  return null;
+}
+
+/** The pnpm version a tree pins through package.json `packageManager` (`pnpm@11.25.0` → `11.25.0`), or null. */
+export function packageManagerPin(dir) {
+  try { const m = /^pnpm@(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)/.exec(JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")).packageManager ?? ""); return m ? m[1] : null; } catch { return null; }
+}
+
 /** pnpm state metadata with its timestamp fields and the export's own path removed; every other field stays. */
 export function normalizeInstalledMetadata(name, text, exportDir) {
   const real = (() => { try { return fs.realpathSync(exportDir); } catch { return exportDir; } })();
   const unpath = (t) => t.split(real).join("<export>").split(exportDir).join("<export>");
-  if (name === ".modules.yaml") return unpath(text.split(/\r?\n/).filter((l) => !/^\s*prunedAt:/.test(l)).join("\n"));
+  if (name === ".modules.yaml") {
+    // pnpm ≤10 writes YAML; pnpm 11 writes JSON under the same name. Either way only the TOP-LEVEL prunedAt goes; a nested key of
+    // the same name is semantic and stays.
+    if (/^\s*\{/.test(text)) { try { const j = JSON.parse(text); delete j.prunedAt; return unpath(JSON.stringify(j, null, 1)); } catch { return unpath(text); } }
+    return unpath(text.split(/\r?\n/).filter((l) => !/^prunedAt:/.test(l)).join("\n"));
+  }
   if (name === ".pnpm-workspace-state-v1.json") {
     try { const j = JSON.parse(text); delete j.lastValidatedTimestamp; return unpath(JSON.stringify(j, null, 1)); } catch { return unpath(text); }
   }
@@ -224,6 +285,8 @@ export function main(argv, io = { log: console.log, error: console.error }, deps
     const exported = exporter(root, { commit: before.commit, spawn });
     if (exported.problem) { io.error(`exports-import-effects: ${exported.problem}`); return 2; }
     probeRoot = exported.dir; closure = { kind: "exported-tree", exported: exported.dir, deps: exported.deps };
+    // Nothing writes the export after its digest: best-effort read-only bits now, and a second digest after the probe below.
+    try { spawn("chmod", ["-R", "a-w", exported.dir], { encoding: "utf8", windowsHide: true }); } catch { /* platform without chmod: the re-digest below still binds it */ }
   }
   let findings = 0; let checked = 0; const incomplete = []; const covered = [];
   try {
@@ -236,7 +299,14 @@ export function main(argv, io = { log: console.log, error: console.error }, deps
       for (const f of r.findings) { findings++; io.error(`FAIL exports-import-effects: ${f.problem}\n  fix: ${f.fix}`); }
       if (between) between(dir); // tests: an edit scheduled in the middle of the probe
     }
-  } finally { if (closure.kind === "exported-tree") fs.rmSync(closure.exported, { recursive: true, force: true }); }
+  } finally {
+    if (closure.kind === "exported-tree") {
+      // The installed bytes must be exactly what was digested before the imports ran; a mutation in between is a different closure.
+      try { const again = hashInstalled(closure.exported); closure.deps.closureStable = again.sha256 === closure.deps.store && again.hardlinks === 0 && again.externalLinks === 0; } catch { closure.deps.closureStable = false; }
+      try { spawn("chmod", ["-R", "u+w", closure.exported], { encoding: "utf8", windowsHide: true }); } catch { /* best effort */ }
+      fs.rmSync(closure.exported, { recursive: true, force: true });
+    }
+  }
   const after = identity(root, { spawn });
   const stable = before.commit !== null && before.commit === after.commit && before.tree === after.tree;
   if (reportFile) {
@@ -290,7 +360,9 @@ export function readIncompleteReport(file, { commit = null, tree = null, probe =
   const hex64 = (v) => /^[0-9a-f]{64}$/.test(v ?? "");
   if (!hex64(d.lock) || !hex64(d.store) || typeof d.pnpm !== "string" || !Number.isInteger(d.files) || d.files < 0 || !(d.installed === null || hex64(d.installed))) return bad("the dependency closure (lockfile digest, pnpm version, installed-state and installed-bytes digests) is not recorded");
   if (d.hardlinks !== 0 || d.externalLinks !== 0) return bad(`the installed dependencies are not private copies (${d.hardlinks ?? "?"} hardlinked file(s), ${d.externalLinks ?? "?"} link(s) leaving the export); mutable external bytes are refused`);
-  if (d.install !== "pnpm install --frozen-lockfile --ignore-scripts --offline --package-import-method=copy") return bad("the dependencies were not installed frozen, offline, without scripts, as private copies");
+  if (d.install !== INSTALL_COMMAND) return bad("the dependencies were not installed frozen, offline, without scripts or pnpm hooks, as private copies");
+  if (d.files > 0 && !(typeof d.pnpmIdentity?.realPath === "string" && hex64(d.pnpmIdentity?.sha256) && typeof d.pnpmIdentity?.version === "string" && d.pnpmIdentity.version === d.pnpm)) return bad("the pnpm that installed the dependencies is not identified (real path, sha256, version)");
+  if (d.files > 0 && d.closureStable !== true) return bad("the installed bytes changed between their digest and the end of the probe (or were not re-digested); the closure is not immutable");
   if (!/^[0-9a-f]{64}$/.test(report.probe ?? "") || typeof report.node !== "string") return bad("no probe code digest / Node version recorded");
   if (probe !== null && report.probe !== probe) return { problem: `import-effects report ${file} was written by probe ${report.probe.slice(0, 12)}…, not the trusted ${String(probe).slice(0, 12)}…` };
   if (node !== null && report.node !== node) return { problem: `import-effects report ${file} was written under Node ${report.node}, not the qualified ${node}` };
