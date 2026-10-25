@@ -12,8 +12,11 @@
 // process or a worker at import is refused by the runtime and surfaces as a non-zero exit, so an effect without output is a
 // finding too (simulation A5.07b). Needs Node 22.13+ (CI pins 26).
 //
-//   node scripts/ci/exports-import-effects.mjs [--root <repo>] [package-dir...]
-// Needs the workspace's dependencies installed (pnpm install). Exit 0 clean, 1 on any finding, 2 on a usage error.
+//   node scripts/ci/exports-import-effects.mjs [--root <repo>] [--report <file>] [package-dir...]
+// Needs the workspace's dependencies installed (pnpm install). Exit 1 on any finding, 2 on a usage error. Exports left to the
+// sealed-byte check are INCOMPLETE, not green: without --report the run exits 3; with --report it writes them (schema
+// rightkit.import-effects/1) and exits 0 only because the verify job's consume step must read that report and refuse any
+// listed export the sealed tarball did not import (scripts/ci/consume.mjs, RK_IMPORT_EFFECTS_REPORT).
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -60,7 +63,7 @@ export function checkPackage(dir, { spawn = spawnSync, node = process.execPath }
     if (!key.includes("*")) { targets.push({ key, target }); continue; }
     const matches = expandWildcard(dir, key, target);
     if (matches.length === 0 && !target.startsWith("./dist/")) result.findings.push({ key, problem: `${pkg.name}: wildcard export ${key} → ${target} matches no file in the source tree`, fix: "fix the pattern or drop the export; a wildcard that resolves nothing is a broken surface" });
-    if (matches.length === 0 && target.startsWith("./dist/")) result.notChecked.push({ key, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` });
+    if (matches.length === 0 && target.startsWith("./dist/")) result.notChecked.push({ key, target, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` });
     targets.push(...matches);
   }
   const keys = new Set(targets.map((t) => t.key));
@@ -70,7 +73,7 @@ export function checkPackage(dir, { spawn = spawnSync, node = process.execPath }
     if (!/\.(?:[cm]?js)$/.test(target) || bins.has(target)) continue;
     const file = path.join(dir, target);
     if (!fs.existsSync(file)) {
-      if (target.startsWith("./dist/")) { result.notChecked.push({ key, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` }); continue; }
+      if (target.startsWith("./dist/")) { result.notChecked.push({ key, target, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` }); continue; }
       result.findings.push({ key, problem: `${pkg.name}: export ${key} → ${target} does not exist in the source tree and is not build output under ./dist/`, fix: "fix the export target; a missing non-dist target is a broken surface, not something to skip" });
       continue;
     }
@@ -93,22 +96,61 @@ export function packageDirs(root) {
   return fs.readdirSync(base).map((d) => path.join(base, d)).filter((d) => fs.existsSync(path.join(d, "package.json"))).sort();
 }
 
+export const REPORT_SCHEMA = "rightkit.import-effects/1";
+export const EXIT_INCOMPLETE = 3;
+
 export function main(argv, io = { log: console.log, error: console.error }) {
-  let root = REPO; const dirs = [];
+  let root = REPO; const dirs = []; let reportFile = null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root") root = path.resolve(argv[++i] ?? "");
+    else if (argv[i] === "--report") reportFile = path.resolve(argv[++i] ?? "");
     else if (argv[i].startsWith("-")) { io.error(`exports-import-effects: unknown option ${argv[i]}`); return 2; }
     else dirs.push(path.resolve(root, argv[i]));
   }
-  let findings = 0; let checked = 0; let notChecked = 0;
+  let findings = 0; let checked = 0; const incomplete = [];
   for (const dir of dirs.length ? dirs : packageDirs(root)) {
     const r = checkPackage(dir);
     checked += r.checked;
-    for (const n of r.notChecked) { notChecked++; io.log(`not checked here: ${r.name} ${n.key}: ${n.why}`); }
+    for (const n of r.notChecked) { incomplete.push({ package: r.name, key: n.key, target: n.target, why: n.why }); io.log(`INCOMPLETE: ${r.name} ${n.key} (${n.target}): ${n.why}`); }
     for (const f of r.findings) { findings++; io.error(`FAIL exports-import-effects: ${f.problem}\n  fix: ${f.fix}`); }
   }
-  io.log(`exports-import-effects: ${checked} exported module(s) imported in fresh processes; ${notChecked} build-output export(s) left to the sealed-byte check; ${findings} finding(s)`);
-  return findings ? 1 : 0;
+  if (reportFile) {
+    fs.mkdirSync(path.dirname(reportFile), { recursive: true });
+    fs.writeFileSync(reportFile, `${JSON.stringify({ schema: REPORT_SCHEMA, commit: process.env.GITHUB_SHA ?? null, checked, findings, incomplete }, null, 2)}\n`);
+  }
+  const state = findings ? "RED" : incomplete.length ? (reportFile ? "INCOMPLETE (handed to the sealed-byte check)" : "INCOMPLETE (no --report: nothing downstream can close it)") : "green";
+  io.log(`exports-import-effects: ${state}; ${checked} exported module(s) imported in fresh processes; ${incomplete.length} export(s) incomplete; ${findings} finding(s)`);
+  if (findings) return 1;
+  if (incomplete.length && !reportFile) return EXIT_INCOMPLETE;
+  return 0;
+}
+
+/** Read a --report file. Returns { report } or { problem }. With `commit`, the report must have been written for that commit. */
+export function readIncompleteReport(file, { commit = null } = {}) {
+  let report;
+  try { report = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { return { problem: `import-effects report ${file} cannot be read: ${e.message}` }; }
+  if (report?.schema !== REPORT_SCHEMA || !Array.isArray(report.incomplete) || report.incomplete.some((r) => typeof r?.package !== "string" || typeof r?.key !== "string")) return { problem: `import-effects report ${file} is not ${REPORT_SCHEMA}` };
+  if (commit !== null && report.commit !== commit) return { problem: `import-effects report ${file} was written for commit ${report.commit ?? "(none)"}, not the dispatched ${commit}` };
+  return { report };
+}
+
+/** The dist/ runtime exports a sealed package.json declares: every one must be in the report's INCOMPLETE rows for that package, or the report is not the probe's (forged COMPLETE). */
+export function expectedIncomplete(pkg) {
+  const out = [];
+  for (const { key, target } of runtimeTargets(pkg.exports ?? {})) if (!key.includes("*") && /\.(?:[cm]?js)$/.test(target) && target.startsWith("./dist/")) out.push({ key, target });
+  return out;
+}
+
+/** The sealed-byte stage's closure: every INCOMPLETE export of `name` must appear among the specs the tarball import actually imported. */
+export function closeIncomplete({ report, name, importedSpecs, expected = null }) {
+  const problems = [];
+  const keys = new Set(report.incomplete.filter((r) => r.package === name).map((r) => r.key));
+  for (const e of expected ?? []) if (!keys.has(e.key)) problems.push(`${name}: the import-effects report does not list ${e.key} (${e.target}) as INCOMPLETE although the sealed package exports it from build output; the report is not this candidate's`);
+  for (const row of report.incomplete.filter((r) => r.package === name)) {
+    const spec = row.key === "." ? name : `${name}/${row.key.replace(/^\.\//, "")}`;
+    if (!importedSpecs.includes(spec)) problems.push(`${name}: INCOMPLETE not closed: ${spec} (${row.target ?? row.key}) was left to the sealed-byte check by the source probe and the sealed tarball import check did not import it`);
+  }
+  return problems;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));

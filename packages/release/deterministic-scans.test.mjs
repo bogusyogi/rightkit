@@ -8,7 +8,7 @@ import path from "node:path";
 import {
   CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
- CHECKER_VERSION } from "./deterministic-scans.mjs";
+  CHECKER_IDENTITY } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
 
@@ -463,10 +463,22 @@ test("runner: class B alone is refused without valid class A evidence, and runs 
   assert.equal(await refused({ ...a, classDigests: { ...a.classDigests, A: "0".repeat(64) } }), true);
   assert.equal(await refused({ ...a, scans: a.scans.slice(1) }), true);
   assert.equal(await refused({ ...a, schema: "other/1" }), true);
-  // Evidence produced by another checker version never unlocks class B (the checker is part of what the evidence proves).
-  assert.equal(a.checker, CHECKER_VERSION);
-  assert.equal(await refused({ ...a, checker: "@rightkit/release@0.0.0" }), true);
+  // Evidence produced by another checker never unlocks class B: another version, the same version with other bytes (the
+  // identity carries a content digest), or no/unknown identity. The identity is name@version#digest, never a bare version.
+  assert.match(CHECKER_IDENTITY, /^@rightkit\/release@\d+\.\d+\.\d+(?:[-+][\w.-]+)?#[0-9a-f]{16}$/);
+  assert.equal(a.checker, CHECKER_IDENTITY);
+  assert.equal(await refused({ ...a, checker: "@rightkit/release@0.0.0#0000000000000000" }), true);
+  assert.equal(await refused({ ...a, checker: `${CHECKER_IDENTITY.split("#")[0]}#${"f".repeat(16)}` }), true, "same version, changed checker bytes");
+  assert.equal(await refused({ ...a, checker: CHECKER_IDENTITY.split("#")[0] }), true, "version-only identity");
   assert.equal(await refused({ ...a, checker: undefined }), true);
+  assert.equal(await refused({ ...a, checker: null }), true);
+  // C-1 on the real runner: the evidence rows must be exactly the plan's class A set — a duplicate row, an unknown rule row,
+  // or a missing row is refused, and excluding even one class A scan in this call never unlocks class B.
+  assert.equal(await refused({ ...a, scans: [...a.scans, a.scans[0]] }), true, "duplicate row");
+  assert.equal(await refused({ ...a, scans: [...a.scans, { ...a.scans[0], id: "unknown-rule", command: "internal:unknown" }] }), true, "unknown rule row");
+  assert.equal(await refused({ ...a, scans: a.scans.filter((_, i) => i !== 0) }), true, "missing row");
+  const oneExcluded = await runScans(plan, deps({ ...fs, exclude: (s) => s.id === plan.scans.find((x) => x.class === "A").id }));
+  assert.ok(oneExcluded.scans.filter((s) => s.class === "B").length > 0 && oneExcluded.scans.filter((s) => s.class === "B").every((s) => s.code === "CLASS_A_REQUIRED"), "one excluded class A scan blocks class B");
   const other = planFor(["crates/foo/Cargo.toml"]).plan;
   assert.notEqual(other.classDigests.A, plan.classDigests.A);
   assert.equal((await runScans(other, deps({ ...fakeFs(crateFiles, crateFiles), classes: ["B"], priorClassA: a }))).scans.every((s) => s.code === "CLASS_A_REQUIRED"), true);

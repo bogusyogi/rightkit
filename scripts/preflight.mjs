@@ -452,6 +452,27 @@ function tmpdirRealpath({ root, files }) {
 // version from legacy while staging its successor fails right-suite-contract inside the full packages/release suite, which
 // first runs minutes into a native verify (rightkit#1188 dropped @rightkit/qa-chrome 0.1.11; #1190). Same rule, files only.
 const semverParts = (v) => String(v).split(/[.+-]/).slice(0, 3).map((n) => Number.parseInt(n, 10) || 0);
+const VERSION = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+/** Why a version feed is not the shape G27 reads: [] when it is. An empty or array-shaped feed is a problem, never "nothing to check". */
+export function feedShapeProblems(feed) {
+  const out = [];
+  const plain = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  if (!plain(feed)) return ["the feed is not a JSON object"];
+  if (!plain(feed.registry)) out.push("registry is missing or not an object");
+  else for (const r of ["npm", "cargo"]) {
+    if (!plain(feed.registry[r])) { out.push(`registry.${r} is missing or not an object`); continue; }
+    for (const [n, v] of Object.entries(feed.registry[r])) if (typeof v !== "string" || !VERSION.test(v)) out.push(`registry.${r}["${n}"] is not a version string`);
+  }
+  for (const k of ["stagedNpm", "stagedCargo"]) {
+    if (!plain(feed[k])) { out.push(`${k} is missing or not an object`); continue; }
+    for (const [n, v] of Object.entries(feed[k])) if (typeof v !== "string" || !VERSION.test(v)) out.push(`${k}["${n}"] is not a version string`);
+  }
+  for (const k of ["legacyNpm", "legacyCargo"]) {
+    if (!plain(feed[k])) { out.push(`${k} is missing or not an object`); continue; }
+    for (const [n, v] of Object.entries(feed[k])) if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || !VERSION.test(x))) out.push(`${k}["${n}"] is not an array of version strings`);
+  }
+  return out;
+}
 const olderThan = (a, b) => { const x = semverParts(a), y = semverParts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
 function feedLegacy({ root, files = [] }) {
   const out = [];
@@ -459,6 +480,8 @@ function feedLegacy({ root, files = [] }) {
   const feed = readJson(root, "packages/release/rightkit-versions.json");
   // A feed that cannot be read is not a clean feed: without it no rollout check can run (simulation A4.05 found the silent pass).
   if (!feed || typeof feed !== "object") return [{ subject: "rightkit-versions.json", problem: "packages/release/rightkit-versions.json is missing or not valid JSON, so the published/staged/legacy rollout check cannot run", fix: "restore the feed (valid JSON with registry, stagedNpm/stagedCargo and legacyNpm/legacyCargo)" }];
+  const shape = feedShapeProblems(feed);
+  if (shape.length) return shape.map((problem) => ({ subject: "rightkit-versions.json", problem: `packages/release/rightkit-versions.json: ${problem}; the rollout check cannot run on this shape`, fix: "restore the feed's shape: registry.npm/registry.cargo (name → version), stagedNpm/stagedCargo (name → version), legacyNpm/legacyCargo (name → [versions])" }));
   for (const [registry, stagedKey, legacyKey] of [["npm", "stagedNpm", "legacyNpm"], ["cargo", "stagedCargo", "legacyCargo"]]) {
     for (const [name, published] of Object.entries(feed.registry?.[registry] ?? {})) {
       const staged = feed[stagedKey]?.[name];

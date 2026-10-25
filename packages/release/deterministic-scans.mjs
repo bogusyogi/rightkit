@@ -29,8 +29,20 @@ import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
-/** The checker that produced a scan result: this package's name@version. Prior class A evidence must carry the same value. */
-export const CHECKER_VERSION = (() => { try { const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")); return `${p.name}@${p.version}`; } catch { return "@rightkit/release@unknown"; } })();
+/**
+ * The checker that produced a scan result: `<name>@<version>#<digest>` where the digest covers this module and scan-digest.mjs,
+ * so a changed checker at the same version is a different identity. null when it cannot be computed; prior class A evidence
+ * then never unlocks class B (an unknown checker is not trusted, it is refused).
+ */
+export const CHECKER_IDENTITY = (() => {
+  try {
+    const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+    const h = crypto.createHash("sha256");
+    for (const f of ["./deterministic-scans.mjs", "./scan-digest.mjs"]) { h.update(f); h.update("\0"); h.update(fs.readFileSync(new URL(f, import.meta.url))); h.update("\0"); }
+    return `${p.name}@${p.version}#${h.digest("hex").slice(0, 16)}`;
+  } catch { return null; }
+})();
+export const CHECKER_VERSION = CHECKER_IDENTITY;
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
@@ -1100,12 +1112,13 @@ export async function runScans(plan, options = {}) {
   const priorRows = Array.isArray(priorA?.scans) ? priorA.scans.filter((r) => r.class === SCAN_CLASS.A) : [];
   // Prior evidence binds to the input content (inputDigest of the changed files), the class A scan set, and a
   // class A run that actually included class A.
-  // ... and to the checker that produced it: evidence from another @rightkit/release version does not unlock class B.
-  const checker = options.checker ?? CHECKER_VERSION;
+  // ... and to the checker that produced it: evidence from another checker (other version, or same version with changed bytes)
+  // does not unlock class B, and an unknown identity on either side refuses.
+  const checker = CHECKER_IDENTITY;
   const priorClassAValid = Boolean(priorA) && priorA.schema === SCAN_RESULT_SCHEMA && Boolean(plan.classDigests?.A) && Boolean(plan.inputDigest)
     && priorA.inputDigest === plan.inputDigest && Array.isArray(priorA.classes) && priorA.classes.includes(SCAN_CLASS.A)
     && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass")
-    && priorA.checker === checker;
+    && typeof checker === "string" && priorA.checker === checker;
   // Class A ran "in this call" only when it was selected, the plan has class A scans, and none was excluded:
   // excluding every class A scan (or a plan with none) never unlocks class B; explicit prior evidence is needed.
   const planA = plan.scans.filter((x) => x.class === SCAN_CLASS.A);

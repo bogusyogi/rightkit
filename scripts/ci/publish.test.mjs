@@ -468,7 +468,10 @@ function spy(fake = {}) {
   return { spawn, calls };
 }
 
-const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", ...extra });
+// The scans job's import-effects report (nothing INCOMPLETE): verify of npm units refuses without one.
+const IMPORT_EFFECTS_REPORT = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rk-import-effects-")), "report.json");
+fs.writeFileSync(IMPORT_EFFECTS_REPORT, JSON.stringify({ schema: "rightkit.import-effects/1", commit: SHA, checked: 1, findings: 0, incomplete: [] }));
+const actionsEnv = (extra = {}) => ({ GITHUB_ACTIONS: "true", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "bogusyogi/rightkit", GITHUB_SHA: SHA, GITHUB_RUN_ID: "77", GITHUB_RUN_ATTEMPT: "1", PATH: process.env.PATH ?? "", RUNNER_TEMP: os.tmpdir(), PUBLISH_REGISTRY: "npm", PUBLISH_UNITS: "@rightkit/a", RK_IMPORT_EFFECTS_REPORT: IMPORT_EFFECTS_REPORT, ...extra });
 
 test("upload payload preflight checks npm semantics through real tar without registry access", () => {
   const cases = [
@@ -1189,9 +1192,17 @@ test("verify re-hashes the sealed bytes, requires gate evidence, and binds the r
   let consumerProblems = [];
   let consumerCalls = 0;
   const scanArchive = (options) => scanArchiveForSecrets({ ...options, scannerOwner: { packageFileViolations: () => [], scanCrateForSecrets: (dir) => fs.readdirSync(dir).filter((file) => fs.readFileSync(path.join(dir, file), "utf8").includes("fixture-sensitive-value")) } });
-  const consume = { npm: ({ units }) => { consumerCalls++; return new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])); }, crates: () => { throw new Error("not used"); } };
+  let seenIncomplete;
+  const consume = { npm: ({ units, incomplete }) => { consumerCalls++; seenIncomplete = incomplete; return new Map(units.map((u) => [u.name, { problems: [...consumerProblems], report: { entries: 1, imported: [u.name] } }])); }, crates: () => { throw new Error("not used"); } };
   const run = (over = {}, host = "windows") => commandVerify({ env: { ...env, ...over }, spawn: spy({ git: () => ({ status: 0, stdout: `${SHA}\n` }) }).spawn, host, consume, scanArchive });
+  // The source probe's INCOMPLETE set is required and handed to the consume step; without it, or malformed, nothing is verified.
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: "" }), /RK_IMPORT_EFFECTS_REPORT is not set/);
+  const badReport = path.join(runTemp, "bad-report.json"); fs.writeFileSync(badReport, JSON.stringify({ schema: "other", incomplete: [] }));
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: badReport }), /is not rightkit\.import-effects\/1/);
+  const staleReport = path.join(runTemp, "stale-report.json"); fs.writeFileSync(staleReport, JSON.stringify({ schema: "rightkit.import-effects/1", commit: "0".repeat(40), checked: 1, findings: 0, incomplete: [] }));
+  await assert.rejects(() => run({ RK_IMPORT_EFFECTS_REPORT: staleReport }), /written for commit 0{40}, not the dispatched/);
   const receipt = await run();
+  assert.equal(seenIncomplete?.schema, "rightkit.import-effects/1");
   assert.equal(receipt.host, "windows");
   assert.equal(receipt.manifestRunId, "77");
   assert.equal(receipt.manifestRunAttempt, "1");

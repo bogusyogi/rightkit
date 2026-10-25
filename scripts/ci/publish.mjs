@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { consumeCrates, consumeNpm } from "./consume.mjs";
+import { readIncompleteReport } from "./exports-import-effects.mjs";
 import { NATIVE_HELPER } from "./consumer-recipes.mjs";
 import { stageSourceVersions } from "../../packages/release/rightkit-sync.mjs";
 import { pnpmBuildClosureArgs } from "./select.mjs";
@@ -692,6 +693,13 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   const rows = [];
   const scratchRoot = env.RUNNER_TEMP || os.tmpdir();
   const fail = () => { throw new Error(`verification of the sealed artifacts failed on ${hostId}:\n  - ${problems.join("\n  - ")}`); };
+  // The scans job's import-effects report: the exports the source probe left INCOMPLETE. The consume step below closes each one
+  // against the sealed tarball or refuses the unit; without the report nothing can be closed, so verify refuses (never a green by omission).
+  let incompleteReport = null;
+  if (registry === "npm") {
+    if (!env.RK_IMPORT_EFFECTS_REPORT) problems.push("RK_IMPORT_EFFECTS_REPORT is not set: the scans job's import-effects report (INCOMPLETE exports) is required to verify npm units");
+    else { const read = readIncompleteReport(env.RK_IMPORT_EFFECTS_REPORT, { commit }); if (read.problem) problems.push(read.problem); else incompleteReport = read.report; }
+  }
   // Linux verifies ONLY the units whose plan requires it, re-derived here from the reviewed ci/linux-required.json
   // (never from the plan output alone). The gate evidence must cover exactly that set, and a Linux run with nothing
   // required is refused rather than written as an empty pass. macOS and Windows verify every sealed unit.
@@ -727,7 +735,7 @@ export async function commandVerify({ env = process.env, spawn = spawnSync, host
   let consumed = new Map();
   if (manifest && problems.length === 0) {
     const excluded = (evidence.units ?? []).filter((u) => u.status === "allowed-exclusion").map((u) => u.name);
-    const common = { units: scope, packDir: dir, scratchRoot, spawn, env: { ...env, ...helperEnv } };
+    const common = { units: scope, packDir: dir, scratchRoot, spawn, env: { ...env, ...helperEnv }, incomplete: incompleteReport };
     try { consumed = registry === "npm" ? consume.npm(common) : consume.crates({ ...common, excluded, uploadMetadata: buildCrateUploadMetadata }); } catch (error) { for (const unit of scope) consumed.set(unit.name, { problems: [`${unit.name}: consumer verification crashed: ${error.message}`], report: {} }); }
   }
   for (const unit of scope) {
