@@ -118,8 +118,10 @@ function persistCheckpoint(trust, bytes, file, audit) {
 export function readCommittedKeyAuthority(trust) { return readAuthority(trust); }
 function readAuthority(trust, { file, audit = auditPath } = {}) {
   try {
-    file ??= trustedPath();
+    // The authority's own shape is judged before anything host-specific: a malformed authority is "malformed" on every
+    // platform, not "unsupported platform" on the hosts that have no protected trust location (fixture scan-error-key-authority-malformed).
     const expected = validateAuthority(trust?.keyAuthority);
+    file ??= trustedPath();
     const top = String(git(expected.checkoutPath, ["rev-parse", "--show-toplevel"])).trim();
     const normalizedTop = process.platform === "win32" ? path.resolve(top).toLowerCase() : path.resolve(top);
     const normalizedExpected = process.platform === "win32" ? expected.checkoutPath.toLowerCase() : expected.checkoutPath;
