@@ -25,8 +25,9 @@ const repoRoot = path.resolve(here, "../..");
 const pkg = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8"));
 const exportsMap = pkg.exports;
 const keys = Object.keys(exportsMap ?? {});
-const doc = readFileSync(path.join(repoRoot, "docs", "RELEASE-EXPORTS.md"), "utf8");
-const readme = readFileSync(path.join(here, "README.md"), "utf8");
+// A Windows checkout may hold the documents with CRLF line ends; the sections and rows are matched line by line on LF.
+const doc = readFileSync(path.join(repoRoot, "docs", "RELEASE-EXPORTS.md"), "utf8").replace(/\r\n/g, "\n");
+const readme = readFileSync(path.join(here, "README.md"), "utf8").replace(/\r\n/g, "\n");
 const require = createRequire(import.meta.url);
 const real = (file) => realpathSync(file);
 
