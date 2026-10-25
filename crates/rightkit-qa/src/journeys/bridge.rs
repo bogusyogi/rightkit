@@ -22,6 +22,10 @@
 //!   the summary and exit code 0 to agree. A test that says `ok` with a non-zero exit is `errored`.
 //! * An ignored test is never a pass. Undeclared: `missing`. Declared but libtest still ignored it:
 //!   `errored`.
+//! * libtest reports a test whose harness scenario skipped as `ok`, so `ok` with exit code 0 is a
+//!   pass only when the output holds no harness `[<prefix>] SKIP ` or `[<prefix>] NOTRUN ` line
+//!   (any prefix: `Harness::with_log_prefix` changes it). Such a test is `skipped`, never `passed`.
+//!   A test that failed stays `failed`.
 //! * An entry past its removal date is refused with an error naming the app and the date.
 //! * A listing that cannot be parsed, a binary that lists zero tests, a selected name that the
 //!   binary does not list, and a declaration that disagrees with the binary are errors or `errored`
@@ -604,10 +608,49 @@ fn failure_excerpt(stdout: &str) -> String {
     }
 }
 
+/// Longest harness line quoted in a skipped result's reason, in characters.
+const SKIP_LINE_QUOTE_MAX: usize = 200;
+
+/// Whether `line` opens with a harness outcome marker for a scenario that did not run:
+/// `[<prefix>] SKIP ` or `[<prefix>] NOTRUN `. The prefix is `[qa]` by default and
+/// `Harness::with_log_prefix` changes it (`[e2e]`), so any bracketed word of 1 to 32 ASCII
+/// alphanumerics, `-` or `_` counts.
+fn is_not_run_marker(line: &str) -> bool {
+    let Some((word, after)) = line.strip_prefix('[').and_then(|r| r.split_once(']')) else {
+        return false;
+    };
+    (1..=32).contains(&word.len())
+        && word
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        && (after.starts_with(" SKIP ") || after.starts_with(" NOTRUN "))
+}
+
+/// The first line of `stdout` that is a harness skip or never-started line, bounded for quoting.
+/// The line must START with the marker: text that merely mentions one does not count. With
+/// `--test-threads=1 --nocapture` libtest has already printed `test <name> ... ` on the line the
+/// test's first output continues, so that prefix is dropped before the check.
+fn first_not_run_line(name: &str, stdout: &str) -> Option<String> {
+    let result_prefix = format!("test {name} ... ");
+    stdout.lines().find_map(|raw| {
+        let line = raw.trim_end_matches('\r').trim_start();
+        let line = line
+            .strip_prefix(result_prefix.as_str())
+            .map_or(line, str::trim_start);
+        is_not_run_marker(line).then(|| {
+            let mut quoted: String = line.chars().take(SKIP_LINE_QUOTE_MAX).collect();
+            if quoted.len() < line.len() {
+                quoted.push_str("...");
+            }
+            quoted
+        })
+    })
+}
+
 type Verdict = (JourneyStatus, Units, Option<String>);
 
 /// Decide one test's result from its process. Only exit code 0 together with a matching libtest
-/// result and summary for exactly one test is `passed`.
+/// result and summary for exactly one test, and no harness skip line in its output, is `passed`.
 pub fn classify_run(name: &str, declared_ignored: bool, raw: &RawRun) -> Verdict {
     let errored =
         |why: String| -> Verdict { (JourneyStatus::Errored, Units::default(), Some(why)) };
@@ -694,6 +737,21 @@ pub fn classify_run(name: &str, declared_ignored: bool, raw: &RawRun) -> Verdict
     match token {
         Token::Ok => {
             if raw.code == Some(0) {
+                // libtest says `ok` for a test whose scenario skipped: that is not a pass.
+                if let Some(line) = first_not_run_line(name, &raw.stdout) {
+                    return (
+                        JourneyStatus::Skipped,
+                        Units {
+                            total: 1,
+                            passed: 0,
+                            failed: 0,
+                            skipped: 1,
+                        },
+                        Some(format!(
+                            "libtest reported {name:?} ok, but the harness logged {line:?}: a skipped scenario is not a pass (nor is one that never started)"
+                        )),
+                    );
+                }
                 (
                     JourneyStatus::Passed,
                     Units {
@@ -1060,6 +1118,15 @@ mod tests {
         )
     }
 
+    /// libtest output of one test that printed `printed` and then passed, as `--test-threads=1
+    /// --nocapture` writes it: the test's first line continues libtest's own `test <name> ... `
+    /// line, and the bare `ok` follows on a line of its own.
+    fn lib_out_printing(name: &str, printed: &str) -> String {
+        format!(
+            "\nrunning 1 test\ntest {name} ... {printed}\nok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s\n\n"
+        )
+    }
+
     fn status_of(v: &Verdict) -> JourneyStatus {
         v.0
     }
@@ -1191,6 +1258,140 @@ mod tests {
         assert_eq!(status_of(&v), JourneyStatus::Passed);
         assert!(v.1.supports_pass());
         assert!(v.2.is_none());
+    }
+
+    const ONE_SKIPPED: Units = Units {
+        total: 1,
+        passed: 0,
+        failed: 0,
+        skipped: 1,
+    };
+
+    #[test]
+    fn ok_with_a_harness_skip_line_is_skipped_not_passed() {
+        // The usual shape: the skip is the test's first output, so it continues libtest's line.
+        let out = lib_out_printing("t", "[qa] SKIP export loudness: missing command ffmpeg");
+        let v = classify_run("t", false, &raw(Some(0), &out));
+        assert_eq!(status_of(&v), JourneyStatus::Skipped);
+        assert_eq!(v.1, ONE_SKIPPED);
+        assert!(v.1.consistent() && !v.1.supports_pass());
+        let why = v.2.unwrap();
+        assert!(
+            why.contains("[qa] SKIP export loudness: missing command ffmpeg")
+                && why.contains("a skipped scenario is not a pass"),
+            "{why}"
+        );
+        // Not the first output, after a scenario that did run.
+        let later = lib_out_printing(
+            "t",
+            "[qa] PASS one (3 ms)\n[qa] SKIP two: tier full not selected",
+        );
+        let v = classify_run("t", false, &raw(Some(0), &later));
+        assert_eq!(status_of(&v), JourneyStatus::Skipped);
+        assert_eq!(v.1.skipped, 1);
+        assert!(v
+            .2
+            .unwrap()
+            .contains("[qa] SKIP two: tier full not selected"));
+        // Indented, with CRLF line endings.
+        let crlf = lib_out_printing("t", "x\n   [qa] SKIP two: why").replace('\n', "\r\n");
+        let v = classify_run("t", false, &raw(Some(0), &crlf));
+        assert_eq!(status_of(&v), JourneyStatus::Skipped);
+        assert!(v
+            .2
+            .unwrap()
+            .ends_with("is not a pass (nor is one that never started)"));
+    }
+
+    #[test]
+    fn a_custom_log_prefix_is_still_a_skip() {
+        for prefix in ["[e2e]", "[genright-e2e]", "[my_app2]", "[A]"] {
+            let line = format!("{prefix} SKIP scenario: missing env KEY");
+            let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", &line)));
+            assert_eq!(status_of(&v), JourneyStatus::Skipped, "{prefix}");
+            assert_eq!(v.1.skipped, 1, "{prefix}");
+            assert!(v.2.unwrap().contains(&line), "{prefix}");
+        }
+        // A 32 character word is the longest accepted prefix.
+        let longest = format!("[{}] SKIP x: y", "a".repeat(32));
+        let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", &longest)));
+        assert_eq!(status_of(&v), JourneyStatus::Skipped);
+    }
+
+    #[test]
+    fn a_scenario_that_never_started_is_not_a_pass_either() {
+        for line in [
+            "[qa] NOTRUN login: never started",
+            "[e2e] NOTRUN login (4 ms)",
+        ] {
+            let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", line)));
+            assert_eq!(status_of(&v), JourneyStatus::Skipped, "{line}");
+            assert_eq!(v.1, ONE_SKIPPED, "{line}");
+        }
+    }
+
+    #[test]
+    fn a_pass_line_or_text_that_only_mentions_a_skip_is_still_a_pass() {
+        for printed in [
+            "[qa] PASS export loudness (12 ms)",
+            "[e2e] PASS login (4 ms)\n[qa] PASS logout (5 ms)",
+            // Does not START with the marker.
+            "note: [qa] SKIP inside text",
+            "see [qa] SKIP in the log\n    prefix [e2e] SKIP too",
+            // Not the marker: no space after SKIP, an invalid or empty or overlong prefix word.
+            "[qa] SKIPPED x",
+            "[qa] SKIP",
+            "[q a] SKIP x: y",
+            "[] SKIP x: y",
+            "qa SKIP x: y",
+            "[qa]SKIP x: y",
+        ] {
+            let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", printed)));
+            assert_eq!(status_of(&v), JourneyStatus::Passed, "{printed}");
+            assert_eq!(v.1.passed, 1, "{printed}");
+            assert!(v.1.supports_pass() && v.2.is_none(), "{printed}");
+        }
+        let too_long = format!("[{}] SKIP x: y", "a".repeat(33));
+        let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", &too_long)));
+        assert_eq!(status_of(&v), JourneyStatus::Passed);
+        // And the plain pass without any output stays a pass.
+        let v = classify_run("t", false, &raw(Some(0), &lib_out("t", "ok", 1, 0, 0)));
+        assert_eq!(status_of(&v), JourneyStatus::Passed);
+    }
+
+    #[test]
+    fn a_failed_test_stays_failed_and_a_bad_exit_stays_errored_whatever_it_printed() {
+        let skip = "[qa] SKIP two: why";
+        let failed = format!(
+            "\nrunning 1 test\ntest t ... {skip}\nFAILED\n\nfailures:\n\n---- t stdout ----\nthread 't' panicked at a.rs:1:1:\nboom\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n"
+        );
+        let v = classify_run("t", false, &raw(Some(101), &failed));
+        assert_eq!(status_of(&v), JourneyStatus::Failed);
+        assert_eq!(v.1.failed, 1);
+        assert_eq!(v.1.skipped, 0);
+        // `ok` with a non-zero exit is errored as before, a skip line or not.
+        let ok = lib_out_printing("t", skip);
+        assert_eq!(
+            status_of(&classify_run("t", false, &raw(Some(101), &ok))),
+            JourneyStatus::Errored
+        );
+        assert_eq!(
+            status_of(&classify_run("t", false, &raw(None, &ok))),
+            JourneyStatus::Errored
+        );
+    }
+
+    #[test]
+    fn the_quoted_skip_line_is_bounded() {
+        let long = format!("[qa] SKIP big: {}", "x".repeat(5000));
+        let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", &long)));
+        assert_eq!(status_of(&v), JourneyStatus::Skipped);
+        let why = v.2.unwrap();
+        assert!(why.len() < 500 && why.contains("..."), "{}", why.len());
+        // Multi-byte text is cut on a character boundary.
+        let wide = format!("[qa] SKIP big: {}", "é".repeat(500));
+        let v = classify_run("t", false, &raw(Some(0), &lib_out_printing("t", &wide)));
+        assert_eq!(status_of(&v), JourneyStatus::Skipped);
     }
 
     #[test]
@@ -1550,6 +1751,46 @@ mod tests {
             ..BridgeOptions::default()
         };
         assert!(run_entry(&entry("2026-12-31"), &env(), &zero, &no_start).is_err());
+    }
+
+    #[test]
+    fn a_skipped_scenario_surfaces_as_a_skipped_result_that_the_adapter_records() {
+        let exec = |inv: &Invocation| -> Result<RawRun> {
+            if inv.args.first().map(String::as_str) == Some("beta::ok_two") {
+                let out = lib_out_printing("beta::ok_two", "[e2e] SKIP login: missing env KEY");
+                return Ok(raw(Some(0), &out));
+            }
+            Ok(fake_binary(inv))
+        };
+        let opts = BridgeOptions {
+            today: Some("2026-10-23".into()),
+            ..BridgeOptions::default()
+        };
+        let results = run_entry(&entry("2026-12-31"), &env(), &opts, &exec).unwrap();
+        let by_id = |id: &str| results.iter().find(|r| r.id == id).unwrap();
+        let skipped = by_id("beta::ok_two");
+        assert_eq!(skipped.status, JourneyStatus::Skipped);
+        assert_eq!(skipped.units, ONE_SKIPPED);
+        assert!(skipped
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("[e2e] SKIP login"));
+        assert_eq!(by_id("alpha::passes").status, JourneyStatus::Passed);
+        // The result line is accepted by the protocol check and reads back as skipped.
+        let lines = result_lines("run-1", NONCE, &results).unwrap();
+        let line = lines
+            .lines()
+            .find(|l| l.contains("beta::ok_two"))
+            .expect("a line for the skipped test");
+        match serde_json::from_str::<Record>(line).unwrap() {
+            Record::Journey(j) => {
+                assert_eq!(j.status, JourneyStatus::Skipped);
+                assert_eq!(j.units, ONE_SKIPPED);
+                assert!(j.reason.unwrap().contains("not a pass"));
+            }
+            other => panic!("not a journey record: {other:?}"),
+        }
     }
 
     // ---- result lines

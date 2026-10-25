@@ -63,6 +63,27 @@ pub struct LaunchSpec {
     pub focus: bool,
 }
 
+/// Env var through which the launcher names the window the in-app control server drives: the
+/// config's `[ui] window_label` (`ui_launch` sets it). It is the Tauri window label, never
+/// [`LaunchSpec::label`], which only names the process in the tracker.
+pub const WINDOW_LABEL_ENV: &str = "RIGHTKIT_QA_WINDOW_LABEL";
+
+/// The window label the in-app control server drives. The app's own `Control::window(..)` wins
+/// (`explicit`), then the launcher's `[ui] window_label` carried in [`WINDOW_LABEL_ENV`]
+/// (`from_env`), then `"main"`. A blank value counts as absent, and the winner is trimmed.
+///
+/// This is pure and always compiled: `embedded` exists only in a `control` build (which needs a
+/// desktop webview, so Linux CI cannot build it), so the precedence lives and is tested here.
+pub fn resolve_window_label(explicit: Option<&str>, from_env: Option<&str>) -> String {
+    [explicit, from_env]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|label| !label.is_empty())
+        .unwrap_or("main")
+        .to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct StopReport {
     pub pid: u32,
@@ -1240,36 +1261,55 @@ mod macos_focus;
 #[cfg(windows)]
 mod windows_focus;
 
+/// Words that make an environment key name a credential (matched anywhere in the key, ignoring
+/// case). The one list for every check: the launch environment ([`env_key_allowed`]) and the keys
+/// a config declares in `[ui] env_keys` (`config`).
+const CREDENTIAL_WORDS: [&str; 8] = [
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "API_KEY",
+    "APIKEY",
+    "PRIVATE_KEY",
+    "CREDENTIAL",
+];
+
+/// True when `key` contains a credential word ([`CREDENTIAL_WORDS`]), ignoring case.
+pub fn key_names_credential(key: &str) -> bool {
+    let up = key.to_ascii_uppercase();
+    CREDENTIAL_WORDS.iter().any(|w| up.contains(w))
+}
+
+/// Judge one caller environment key (pure, so every platform's rules can be tested anywhere).
+/// A key naming a credential is refused, declared or not; the one exception is
+/// [`token::ENV_AUTH_FILE`], whose value is the path of the per-run control token file (D-e),
+/// never the token. With `macos_rules`, `open --env K=V` shows the value in argv, so a key must
+/// start with `RIGHTKIT_` (any case) or be one of the `declared` keys (exact match), the app's own
+/// non-secret keys that its config lists in `[ui] env_keys`.
+pub fn env_key_allowed(key: &str, declared: &[String], macos_rules: bool) -> Result<()> {
+    if key == token::ENV_AUTH_FILE {
+        return Ok(());
+    }
+    if key_names_credential(key) {
+        return err(format!("environment key {key} names a credential; secrets are never passed to a launched app through its command line or environment"));
+    }
+    if macos_rules
+        && !key.to_ascii_uppercase().starts_with("RIGHTKIT_")
+        && !declared.iter().any(|d| d == key)
+    {
+        return err(format!("environment key {key} would be exposed in `open` arguments; macOS launches carry only RIGHTKIT_* keys and the keys declared in [ui] env_keys"));
+    }
+    Ok(())
+}
+
 /// Caller environment must not put secrets in a process listing: on macOS
-/// `open --env K=V` exposes values in argv. Callers may supply only `RIGHTKIT_*` keys;
+/// `open --env K=V` exposes values in argv. Callers may supply only `RIGHTKIT_*` keys and the
+/// `declared` app keys (`[ui] env_keys`, see [`launch_declared`]); no key may name a credential;
 /// harness-owned HOME/temp/profile paths are added separately.
-fn check_env(env: &[(String, String)]) -> Result<()> {
+fn check_env(env: &[(String, String)], declared: &[String]) -> Result<()> {
     for (k, _) in env {
-        // The one allowed key that names a token: its value is the path of the per-run control
-        // token file (D-e), never the token. Every other key is judged as before.
-        let up = k.to_ascii_uppercase();
-        if k == token::ENV_AUTH_FILE {
-            continue;
-        }
-        if [
-            "TOKEN",
-            "SECRET",
-            "PASSWORD",
-            "PASSWD",
-            "API_KEY",
-            "APIKEY",
-            "PRIVATE_KEY",
-            "CREDENTIAL",
-        ]
-        .iter()
-        .any(|w| up.contains(w))
-        {
-            return err(format!("environment key {k} names a credential; secrets are never passed to a launched app through its command line or environment"));
-        }
-        #[cfg(target_os = "macos")]
-        if !up.starts_with("RIGHTKIT_") {
-            return err(format!("environment key {k} would be exposed in `open` arguments; macOS launches carry only RIGHTKIT_* keys"));
-        }
+        env_key_allowed(k, declared, cfg!(target_os = "macos"))?;
     }
     Ok(())
 }
@@ -1437,10 +1477,11 @@ fn launch_env(
     ws: &QaWorkspace,
     suite: &Suite,
     service: &str,
+    declared_env_keys: &[String],
 ) -> Result<Vec<(String, String)>> {
     // Caller values retain the credential/argv restrictions. Workspace values are
     // harness-owned paths, so HOME, TMPDIR & profile keys can safely travel via open.
-    check_env(&spec.env)?;
+    check_env(&spec.env, declared_env_keys)?;
     let mut env = ws.env.clone();
     env.insert("RIGHTKIT_CONTROL_SERVICE".into(), service.into());
     env.insert(
@@ -1551,7 +1592,22 @@ fn pids_with_command_prefix(prefix: &str) -> std::result::Result<Vec<u32>, Strin
     Ok(pids)
 }
 
+/// Launch the app with no declared env keys: on macOS the caller's environment carries only
+/// `RIGHTKIT_*` keys. See [`launch_declared`].
 pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<Control> {
+    launch_declared(spec, ws, tracker, &[])
+}
+
+/// [`launch`] for an app whose config declares extra env keys (`[ui] env_keys`): a macOS launch
+/// may also carry exactly those keys besides `RIGHTKIT_*`. A key naming a credential is refused
+/// whether declared or not. [`LaunchSpec`] has no field for them, so apps that build one with a
+/// struct literal keep compiling.
+pub fn launch_declared(
+    spec: &LaunchSpec,
+    ws: &QaWorkspace,
+    tracker: &Tracker,
+    declared_env_keys: &[String],
+) -> Result<Control> {
     // An installed app is never driven unless installed-QA mode is on (see `installed`).
     crate::installed::refuse_installed(&spec.binary, "UI app binary")?;
     if !spec.binary.exists() {
@@ -1577,7 +1633,7 @@ pub fn launch(spec: &LaunchSpec, ws: &QaWorkspace, tracker: &Tracker) -> Result<
     let log_dir = ws.home.join(".rightkit-qa");
     fs::create_dir_all(&log_dir)?;
     let raw_log = log_dir.join(format!("app-{}.log", &id[..8]));
-    let mut env = launch_env(spec, ws, &suite, &service)?;
+    let mut env = launch_env(spec, ws, &suite, &service, declared_env_keys)?;
     guard.check_dir(&ws.home)?;
     guard.check_env(&env)?;
     // The app must be told its isolated data directory; otherwise it resolves its own default.
@@ -2623,7 +2679,7 @@ mod launch_path_tests {
         let (ws, mut spec) = fixture();
         let suite = Suite::at(ws.home.join("suite-12345678")).unwrap();
         let env: std::collections::BTreeMap<_, _> =
-            launch_env(&spec, &ws, &suite, "control-12345678")
+            launch_env(&spec, &ws, &suite, "control-12345678", &[])
                 .unwrap()
                 .into_iter()
                 .collect();
@@ -2646,7 +2702,7 @@ mod launch_path_tests {
             ..spec.clone()
         };
         let focused_env: std::collections::BTreeMap<_, _> =
-            launch_env(&focused, &ws, &suite, "control-12345678")
+            launch_env(&focused, &ws, &suite, "control-12345678", &[])
                 .unwrap()
                 .into_iter()
                 .collect();
@@ -2677,12 +2733,12 @@ mod launch_path_tests {
                 ws.root.join("external").to_string_lossy().into(),
             )];
             assert!(
-                launch_env(&spec, &ws, &suite, "control-12345678").is_err(),
+                launch_env(&spec, &ws, &suite, "control-12345678", &[]).is_err(),
                 "{key}"
             );
         }
         spec.env = vec![("RIGHTKIT_SECRET".into(), "redacted".into())];
-        assert!(launch_env(&spec, &ws, &suite, "control-12345678").is_err());
+        assert!(launch_env(&spec, &ws, &suite, "control-12345678", &[]).is_err());
         cleanup(&ws);
     }
 
@@ -2726,7 +2782,7 @@ mod launch_path_tests {
         let plist = fs::read_to_string(bundle.join("Contents/Info.plist")).unwrap();
         assert!(plist.contains("<key>LSUIElement</key><true/>"));
         let suite = Suite::at(ws.home.join("suite-12345678")).unwrap();
-        let env = launch_env(&spec, &ws, &suite, "control-12345678").unwrap();
+        let env = launch_env(&spec, &ws, &suite, "control-12345678", &[]).unwrap();
         let log = ws.home.join("app-12345678.log");
         let cmd = open_command(&spec, &ws, &env, &log, &bundle);
         assert_eq!(cmd.get_current_dir(), Some(ws.home.as_path()));
@@ -2776,5 +2832,122 @@ mod launch_path_tests {
             crate::storage::home_base().join("rightkit-qa-apps/control-test-app"),
         );
         cleanup(&ws);
+    }
+
+    fn keys(list: &[&str]) -> Vec<String> {
+        list.iter().map(|k| k.to_string()).collect()
+    }
+
+    #[test]
+    fn a_declared_key_is_allowed_under_the_macos_rules() {
+        let declared = keys(&["MYAPP_MODE", "MYAPP_PROFILE"]);
+        env_key_allowed("MYAPP_MODE", &declared, true).unwrap();
+        env_key_allowed("MYAPP_PROFILE", &declared, true).unwrap();
+    }
+
+    #[test]
+    fn an_undeclared_non_rightkit_key_is_refused_under_the_macos_rules() {
+        let declared = keys(&["MYAPP_MODE"]);
+        let refused = env_key_allowed("MYAPP_OTHER", &declared, true).unwrap_err();
+        assert!(refused.0.contains("MYAPP_OTHER"), "{refused}");
+        assert!(refused.0.contains("env_keys"), "{refused}");
+        assert!(env_key_allowed("MYAPP_MODE", &[], true).is_err());
+        // A declaration is the exact key: neither another case nor a longer name matches it.
+        assert!(env_key_allowed("myapp_mode", &declared, true).is_err());
+        assert!(env_key_allowed("MYAPP_MODE_X", &declared, true).is_err());
+        // Off macOS the argv rule does not apply, as before.
+        env_key_allowed("MYAPP_OTHER", &[], false).unwrap();
+    }
+
+    #[test]
+    fn a_rightkit_key_needs_no_declaration() {
+        env_key_allowed("RIGHTKIT_QA_FOCUS", &[], true).unwrap();
+        env_key_allowed("RIGHTKIT_QA_FOCUS", &[], false).unwrap();
+        // The launcher's own window label key must pass the macOS rules without a declaration.
+        env_key_allowed(WINDOW_LABEL_ENV, &[], true).unwrap();
+    }
+
+    #[test]
+    fn a_credential_named_key_is_refused_even_when_declared_and_off_macos() {
+        let declared = keys(&["MYAPP_API_KEY", "MYAPP_TOKEN"]);
+        for macos_rules in [true, false] {
+            for key in [
+                "MYAPP_API_KEY",
+                "MYAPP_TOKEN",
+                "RIGHTKIT_SECRET",
+                "myapp_password",
+            ] {
+                let refused = env_key_allowed(key, &declared, macos_rules).unwrap_err();
+                assert!(refused.0.contains("names a credential"), "{key}: {refused}");
+            }
+        }
+        assert!(env_key_allowed("MYAPP_API_KEY", &[], false).is_err());
+        assert!(key_names_credential("Db_PassWd"));
+        assert!(!key_names_credential("MYAPP_MODE"));
+    }
+
+    #[test]
+    fn the_token_file_key_is_allowed_with_or_without_a_declaration() {
+        for macos_rules in [true, false] {
+            env_key_allowed(token::ENV_AUTH_FILE, &[], macos_rules).unwrap();
+            env_key_allowed(token::ENV_AUTH_FILE, &keys(&["X"]), macos_rules).unwrap();
+        }
+    }
+
+    #[test]
+    fn check_env_applies_the_declared_keys_and_the_credential_rule_to_every_pair() {
+        let env = vec![
+            ("RIGHTKIT_QA_FOCUS".to_string(), "1".to_string()),
+            ("MYAPP_MODE".to_string(), "qa".to_string()),
+        ];
+        check_env(&env, &keys(&["MYAPP_MODE"])).unwrap();
+        // Undeclared, only macOS refuses it (an `open` argument there).
+        assert_eq!(check_env(&env, &[]).is_ok(), !cfg!(target_os = "macos"));
+        let secret = vec![("MYAPP_TOKEN".to_string(), "x".to_string())];
+        assert!(check_env(&secret, &keys(&["MYAPP_TOKEN"])).is_err());
+    }
+
+    #[test]
+    fn launch_env_carries_a_declared_key_and_still_refuses_a_declared_credential() {
+        let (ws, mut spec) = fixture();
+        let suite = Suite::at(ws.home.join("suite-12345678")).unwrap();
+        let declared = keys(&["MYAPP_MODE", "MYAPP_API_KEY"]);
+        spec.env = vec![("MYAPP_MODE".into(), "qa".into())];
+        let env: std::collections::BTreeMap<_, _> =
+            launch_env(&spec, &ws, &suite, "control-12345678", &declared)
+                .unwrap()
+                .into_iter()
+                .collect();
+        assert_eq!(env["MYAPP_MODE"], "qa");
+        // Without the declaration the launch is refused on macOS and unchanged elsewhere.
+        assert_eq!(
+            launch_env(&spec, &ws, &suite, "control-12345678", &[]).is_ok(),
+            !cfg!(target_os = "macos")
+        );
+        spec.env = vec![("MYAPP_API_KEY".into(), "x".into())];
+        let refused = launch_env(&spec, &ws, &suite, "control-12345678", &declared).unwrap_err();
+        assert!(refused.0.contains("names a credential"), "{refused}");
+        cleanup(&ws);
+    }
+
+    #[test]
+    fn the_window_label_is_the_apps_own_then_the_launchers_then_main() {
+        // The app's own `.window(..)` wins over the launcher's label.
+        assert_eq!(resolve_window_label(Some("editor"), Some("side")), "editor");
+        // No explicit label: the launcher's `[ui] window_label` from the environment.
+        assert_eq!(resolve_window_label(None, Some("side")), "side");
+        // Neither: the default.
+        assert_eq!(resolve_window_label(None, None), "main");
+    }
+
+    #[test]
+    fn a_blank_window_label_counts_as_absent_and_the_winner_is_trimmed() {
+        assert_eq!(resolve_window_label(Some("  "), Some("side")), "side");
+        assert_eq!(resolve_window_label(Some(""), None), "main");
+        assert_eq!(resolve_window_label(None, Some("\t\n")), "main");
+        assert_eq!(resolve_window_label(Some("  "), Some(" ")), "main");
+        assert_eq!(resolve_window_label(Some(" editor "), None), "editor");
+        assert_eq!(resolve_window_label(None, Some(" side ")), "side");
+        assert_eq!(WINDOW_LABEL_ENV, "RIGHTKIT_QA_WINDOW_LABEL");
     }
 }
