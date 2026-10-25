@@ -808,6 +808,16 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
         report.cleanup_retained,
         vec![old_journal_path.clone(), new_journal_path.clone()]
     );
+    let explained: Vec<&PathBuf> = report.cleanup_errors.iter().map(|(path, _)| path).collect();
+    assert_eq!(
+        explained,
+        report.cleanup_retained.iter().collect::<Vec<_>>(),
+        "every retained path says why: {report:?}"
+    );
+    assert!(
+        report.cleanup_errors.iter().all(|(_, why)| !why.is_empty()),
+        "{report:?}"
+    );
     assert_eq!(fs::read(&old_journal_path).unwrap(), old_journal);
     assert_eq!(fs::read(&new_journal_path).unwrap(), new_journal);
     assert!(store.with_writer(|_| ()).is_ok());
@@ -817,6 +827,43 @@ fn canonical_key_readback_refusal_after_publication_retains_copy_and_key_on_abor
         KEY.as_bytes()
     );
     assert_eq!(fs::read(fixture.old()).unwrap(), source_bytes);
+}
+
+/// A cleanup that is given up reports the error that stopped it with the path it kept, so a
+/// recurrence names its cause instead of only listing paths.
+#[test]
+fn retained_cleanup_carries_the_error_that_kept_it() {
+    let fixture = Fixture::new();
+    let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+    let mut session = store.prepare_relocation(fixture.plan()).unwrap();
+    session.quiesce().unwrap();
+    session.copy().unwrap();
+    session.reopen().unwrap();
+    let workspace = fs::read_dir(fixture.root.join("new"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".rkdb-relocate-"))
+        })
+        .expect("the relocation workspace exists until committed settlement");
+    // A stray file keeps the workspace from being removed: an OS error on every platform.
+    fs::write(workspace.join("stray"), b"x").unwrap();
+    let report = session.settle(RelocationSettlement::Committed).unwrap();
+    assert_eq!(
+        report.cleanup_retained,
+        vec![workspace.clone()],
+        "{report:?}"
+    );
+    assert_eq!(report.cleanup_errors.len(), 1, "{report:?}");
+    let (path, why) = &report.cleanup_errors[0];
+    assert_eq!(path, &workspace);
+    assert!(why.contains("os error"), "the OS error is carried: {why}");
+    assert!(
+        journal(&fixture.old()).exists(),
+        "the journals stay while cleanup is incomplete"
+    );
+    assert_eq!(value(&fixture.new_db()), 41);
 }
 
 #[test]
@@ -1085,6 +1132,31 @@ mod windows_transient_refusals {
         assert!(!journal(&fixture.old()).exists());
         assert!(!journal(&fixture.new_db()).exists());
         assert_eq!(value(&fixture.new_db()), 41);
+    }
+
+    /// A holder that excludes every other reader makes the open that reads a file's identity fail
+    /// with `ERROR_SHARING_VIOLATION` until it lets go. That is not a changed identity.
+    #[test]
+    fn root_identity_rides_out_a_holder_that_blocks_reading() {
+        use rightkit_db::encrypted_lifecycle::RootIdentity;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("root.db");
+        fs::write(&path, b"identity").unwrap();
+        let before = RootIdentity::capture(&path);
+        assert!(before.file.is_some(), "{before:?}");
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(HOLD);
+            drop(file);
+        });
+        let during = RootIdentity::capture(&path);
+        holder.join().unwrap();
+        assert_eq!(during, before);
     }
 
     #[test]

@@ -457,7 +457,7 @@
     "rightkit-credentials": "0.4.2",
     "rightkit-crypto": "0.1.0",
     "rightkit-daemon": "0.4.0",
-    "rightkit-db": "0.5.2",
+    "rightkit-db": "0.5.3",
     "rightkit-device": "0.4.0",
     "rightkit-docs": "0.1.2",
     "rightkit-embed": "0.6.1",

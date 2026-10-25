@@ -1,6 +1,6 @@
-# rightkit-db 0.5.1 registry consumer (PK03)
+# rightkit-db 0.5.3 registry consumer (PK03)
 
-Standalone consumer, outside the workspace, pinning `rightkit-db =0.5.1` exactly with the `bundled`
+Standalone consumer, outside the workspace, pinning `rightkit-db =0.5.3` exactly with the `bundled`
 feature so no system SQLite is needed. It exercises the plain-SQLite public API: `DbOptions::new`
 with `open_writer_migrated` (two versioned migrations applied once, then a reopen that applies
 none), `write_txn` with a committed insert read back through `open_read_only`, `open_existing_writer`

@@ -20,7 +20,8 @@
 
 use super::error::LifecycleError;
 use crate::{DbError, StoreLock};
-use rightkit_fs::atomic::{atomic_write_with_access_denied_retry, AccessDeniedRetry, RetryPolicy};
+use rightkit_fs::atomic::{atomic_write_with_access_denied_retry, AccessDeniedRetry};
+use rightkit_fs::transient::{retry_transient, retry_transient_fs, TRANSIENT_RETRY};
 use rightkit_fs::{AtomicWriteOptions, FileKey};
 use std::collections::HashMap;
 use std::io::Write;
@@ -107,17 +108,53 @@ pub struct RootIdentity {
 }
 
 impl RootIdentity {
+    /// The identity of `path` and of its directory now. A root that does not exist has no file
+    /// identity. A transient Windows refusal to open it (a scanner or indexer holding it for a
+    /// moment) is retried within rightkit-fs's bound before it is given up; one that still fails
+    /// afterwards also reads as no identity. This crate's own identity checks do not use that
+    /// result to decide that a root changed: they separate "absent or different" from "could not
+    /// be read" and report the error in the second case.
     pub fn capture(path: &Path) -> Self {
-        let file = FileKey::of_path(path).ok();
+        let file = retry_transient_fs(|| FileKey::of_path(path)).ok();
         let dir = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
-            .and_then(|parent| FileKey::of_path(parent).ok());
+            .and_then(|parent| retry_transient_fs(|| FileKey::of_path(parent)).ok());
         Self {
             path: path.to_path_buf(),
             file,
             dir,
         }
+    }
+
+    /// [`RootIdentity::capture`] that reports why an identity could not be read. Only a root (or
+    /// directory) that is not there has no identity; any other failure to open it, once the
+    /// bounded retry of a transient Windows refusal is spent, is the error, never a mismatch.
+    pub(crate) fn try_capture(path: &Path) -> Result<Self, LifecycleError> {
+        let file = current_key(path)?;
+        let dir = match path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            Some(parent) => current_key(parent)?,
+            None => None,
+        };
+        Ok(Self {
+            path: path.to_path_buf(),
+            file,
+            dir,
+        })
+    }
+}
+
+/// The identity of `path` now: `Some` when it can be opened, `None` when it does not exist, and
+/// the error when it exists but cannot be opened. A transient Windows refusal to open it is
+/// retried within rightkit-fs's bound first.
+pub(crate) fn current_key(path: &Path) -> Result<Option<FileKey>, LifecycleError> {
+    match retry_transient_fs(|| FileKey::of_path(path)) {
+        Ok(key) => Ok(Some(key)),
+        Err(error) if error.is_not_found() => Ok(None),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -549,19 +586,17 @@ mod relocation_journal_tests {
 
 /// The bounded opt-in that lets a Windows publish step ride out `ERROR_ACCESS_DENIED` (and the
 /// sharing and lock violations) while a scanner or indexer still holds a file it just saw. The
-/// bound is `crate::transient`'s; after it the original error is returned unchanged.
+/// bound is rightkit-fs's [`TRANSIENT_RETRY`], the same one every plain delete, rename and open
+/// here uses; after it the original error is returned unchanged.
 pub(super) fn access_denied_retry() -> AccessDeniedRetry {
-    AccessDeniedRetry::new(RetryPolicy::new(
-        crate::transient::ATTEMPTS,
-        crate::transient::DELAY,
-    ))
+    AccessDeniedRetry::new(TRANSIENT_RETRY)
 }
 
 /// Remove the journal beside `db`; a missing one is fine. A Windows delete refusal that clears by
 /// itself (a scanner holding the file) is retried a bounded number of times.
 pub(crate) fn remove_journal(db: &Path) -> Result<(), LifecycleError> {
     let path = journal_path(db);
-    match crate::transient::retry_transient(|| std::fs::remove_file(&path)) {
+    match retry_transient(|| std::fs::remove_file(&path)) {
         Ok(()) => {
             rightkit_fs::atomic::sync_dir(
                 path.parent()

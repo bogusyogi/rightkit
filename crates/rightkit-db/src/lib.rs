@@ -27,7 +27,6 @@ pub use rusqlite;
 mod migrate;
 mod recover;
 mod restore;
-mod transient;
 mod unreadable;
 
 #[cfg(all(feature = "encrypted-lifecycle", not(feature = "cipher")))]

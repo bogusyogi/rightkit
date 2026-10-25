@@ -89,6 +89,40 @@ fn success_keeps_the_previous_store_and_returns_its_path() {
     );
 }
 
+/// `busy_timeout` is SQLite's lock wait. It used to be the total deadline of the restore's copy as
+/// well, so a wait shorter than the copy failed the restore ("backup operation timeout expired")
+/// on every OS, and on a slow hosted runner even the default five seconds did. Zero is shorter than
+/// any copy; the copy is bounded by its own size-derived budget instead.
+#[test]
+fn a_restore_is_not_bounded_by_the_sqlite_busy_timeout() {
+    let d = dir("budget");
+    let live = d.join("app.sqlite");
+    let replacement = d.join("incoming.sqlite");
+    make_db(&live, "old");
+    make_db(&replacement, "new");
+    let mut options = DbOptions::new(&live);
+    options.busy_timeout = std::time::Duration::ZERO;
+    let receipt =
+        restore_database(&options, &replacement, &RestoreOptions::default(), &lock()).unwrap();
+    assert_eq!(read_mark(&live), "new");
+    let previous = receipt.previous.expect("a store existed before");
+    assert_eq!(read_mark(&previous), "old");
+}
+
+/// The same bound applies to the plain replace that restore is built on.
+#[test]
+fn a_replace_is_not_bounded_by_the_sqlite_busy_timeout() {
+    let d = dir("replace-budget");
+    let live = d.join("app.sqlite");
+    let replacement = d.join("incoming.sqlite");
+    make_db(&live, "old");
+    make_db(&replacement, "new");
+    let mut options = DbOptions::new(&live);
+    options.busy_timeout = std::time::Duration::ZERO;
+    rightkit_db::replace_database(&options, &replacement, &lock()).unwrap();
+    assert_eq!(read_mark(&live), "new");
+}
+
 #[test]
 fn restoring_into_an_empty_place_has_no_previous() {
     let d = dir("fresh");

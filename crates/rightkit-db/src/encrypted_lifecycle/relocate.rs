@@ -9,28 +9,20 @@ use super::store::{
     EncryptedStoreConfig, Probe,
 };
 use super::transition::{
-    access_denied_retry, next_id, read_journal, Journal, JournalState, RelocationJournal,
-    RootIdentity, StoreTransition, TransitionKind,
+    access_denied_retry, current_key, next_id, read_journal, Journal, JournalState,
+    RelocationJournal, RootIdentity, StoreTransition, TransitionKind,
 };
-use crate::{online_backup_to, IntegrityCheck};
+use crate::backup::online_backup_sized;
+use crate::IntegrityCheck;
 use rightkit_fs::transaction::{
     recover_transactions_with, FileTransaction, TransactionEntry, TransactionOptions,
     TransactionReport,
 };
+use rightkit_fs::transient::{retry_transient, retry_transient_fs};
 use rusqlite::OpenFlags;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
-
-/// Floor of the time the verified copy of the database may take. The copy writes, syncs and
-/// re-reads the whole file, so on a slow or scanned disk it is not bounded by how long SQLite waits
-/// for a lock (`DbOptions::busy_timeout`, five seconds by default).
-const COPY_BUDGET_FLOOR: Duration = Duration::from_secs(120);
-/// Pessimistic sustained rate (bytes per second) used to grow the copy budget with the database.
-const COPY_BYTES_PER_SECOND: u64 = 4 * 1024 * 1024;
-/// The copy budget never exceeds this, so a stalled copy always ends.
-const COPY_BUDGET_CEILING: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Database destination & caller-authorized filesystem transaction root.
 pub struct RelocationPlan {
@@ -70,6 +62,10 @@ pub enum RelocationReport {
         old_root: PathBuf,
         new_root: PathBuf,
         cleanup_retained: Vec<PathBuf>,
+        /// Why each path in `cleanup_retained` was kept: the last error of the removal that was
+        /// given up (it carries the OS error, for example `Access is denied. (os error 5)`), or the
+        /// identity check that stopped it. One entry per retained path, in the same order.
+        cleanup_errors: Vec<(PathBuf, String)>,
     },
     NotRelocated {
         error: LifecycleError,
@@ -90,6 +86,9 @@ pub struct RelocationSettlementReport {
     pub copy_retained: Option<PathBuf>,
     pub key_store_residue: bool,
     pub cleanup_retained: Vec<PathBuf>,
+    /// Why each path in `cleanup_retained` was kept (see
+    /// [`RelocationReport::RelocatedCleanupPending`]): one entry per retained path, in order.
+    pub cleanup_errors: Vec<(PathBuf, String)>,
 }
 
 /// Explicit recovery can open selected destination without ever opening old root.
@@ -109,19 +108,6 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.as_os_str().to_os_string();
     name.push(suffix);
     PathBuf::from(name)
-}
-/// The finite budget for copying the database at `source`: a floor plus time proportional to its
-/// size (database and `-wal`), capped. An unreadable size counts as zero, so the floor still applies.
-/// It is independent of `busy_timeout`: that is SQLite's wait for a lock, not a copy deadline.
-fn copy_budget(source: &Path) -> Duration {
-    let bytes = ["", "-wal"].iter().fold(0u64, |total, suffix| {
-        let len = std::fs::metadata(with_suffix(source, suffix)).map_or(0, |meta| meta.len());
-        total.saturating_add(len)
-    });
-    let extra = Duration::from_secs(bytes / COPY_BYTES_PER_SECOND);
-    COPY_BUDGET_FLOOR
-        .saturating_add(extra)
-        .min(COPY_BUDGET_CEILING)
 }
 fn check_destination(path: &Path) -> Result<(), LifecycleError> {
     for suffix in ["", "-wal", "-shm", "-journal"] {
@@ -144,9 +130,20 @@ fn check_destination(path: &Path) -> Result<(), LifecycleError> {
     }
     Ok(())
 }
-fn same_identity(recorded: &RootIdentity) -> bool {
-    let now = RootIdentity::capture(&recorded.path);
-    recorded.file.is_some() && recorded.file == now.file && recorded.dir == now.dir
+/// Whether `recorded` still names the file and directory it recorded. `Ok(false)` is a real
+/// mismatch: the root is gone or another file took its place. An `Err` means the identity could
+/// not be read at all (after the bounded retry of a transient Windows refusal), which is not
+/// evidence that anything changed and is never reported as a mismatch.
+fn same_identity(recorded: &RootIdentity) -> Result<bool, LifecycleError> {
+    if recorded.file.is_none() {
+        return Ok(false);
+    }
+    let now = RootIdentity::try_capture(&recorded.path)?;
+    Ok(recorded.file == now.file && recorded.dir == now.dir)
+}
+/// [`same_identity`] for an identity that may not have been recorded: none recorded is no match.
+fn same_recorded(recorded: Option<&RootIdentity>) -> Result<bool, LifecycleError> {
+    recorded.map_or(Ok(false), same_identity)
 }
 fn remove_file_at(path: &Path) -> std::io::Result<()> {
     std::fs::remove_file(path)
@@ -155,16 +152,16 @@ fn remove_dir_at(path: &Path) -> std::io::Result<()> {
     std::fs::remove_dir(path)
 }
 /// Delete `path` with `remove`, retrying a Windows refusal that clears by itself (a scanner or
-/// indexer holding the file) a bounded number of times. Identity is proven again before every
+/// indexer holding the file) within rightkit-fs's bound. Identity is proven again before every
 /// retry, so a name that changed hands during a pause is never deleted. A path that is gone is
-/// `Ok`.
+/// `Ok`; after the bound the last refusal is returned as it is.
 fn remove_identified(
     path: &Path,
     expected: Option<rightkit_fs::FileKey>,
     remove: impl Fn(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     let mut retrying = false;
-    crate::transient::retry_transient(|| {
+    retry_transient(|| {
         if std::mem::replace(&mut retrying, true) {
             match rightkit_fs::FileKey::of_path(path) {
                 Ok(now) if Some(now) == expected => {}
@@ -173,12 +170,55 @@ fn remove_identified(
                         "identity changed while a removal was retried",
                     ))
                 }
-                Err(error) if error.kind() == Some(std::io::ErrorKind::NotFound) => return Ok(()),
+                Err(rightkit_fs::FsError::Io { source, .. }) => {
+                    return if source.kind() == std::io::ErrorKind::NotFound {
+                        Ok(())
+                    } else {
+                        Err(source)
+                    }
+                }
                 Err(error) => return Err(std::io::Error::other(error.to_string())),
             }
         }
         remove(path)
     })
+}
+/// `Some((path, why))` when `path` is there, or when whether it is there cannot be told; `None`
+/// only when it is proven absent.
+fn still_there(path: &Path, why: &str) -> Option<(PathBuf, String)> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Some((path.to_path_buf(), why.to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => Some((
+            path.to_path_buf(),
+            format!("{why}; whether it is there could not be read: {error}"),
+        )),
+    }
+}
+/// Remove the candidate's workspace directory once the candidate is gone, only while it is still
+/// the directory the journal recorded; whatever stops that is added to `kept` with its reason.
+fn remove_workspace(candidate: &RootIdentity, kept: &mut Vec<(PathBuf, String)>) {
+    let Some(parent) = candidate.path.parent() else {
+        return;
+    };
+    if candidate.dir.is_none() {
+        return;
+    }
+    match current_key(parent) {
+        Ok(now) if now == candidate.dir => {
+            match remove_identified(parent, candidate.dir, remove_dir_at) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => kept.push((parent.to_path_buf(), error.to_string())),
+            }
+        }
+        // Another directory, or none: not this relocation's to remove.
+        Ok(_) => {}
+        Err(error) => kept.push((
+            parent.to_path_buf(),
+            format!("the workspace could not be identified: {error}"),
+        )),
+    }
 }
 fn absolute(path: &Path) -> Result<PathBuf, LifecycleError> {
     std::path::absolute(path).map_err(|e| rightkit_fs::FsError::io(path, e).into())
@@ -242,7 +282,9 @@ struct RelocationCore {
     switched: bool,
     reopened: bool,
     settled: bool,
+    /// Paths a finished relocation could not clean up, and (parallel, by path) why.
     cleanup: Vec<PathBuf>,
+    cleanup_errors: Vec<(PathBuf, String)>,
 }
 
 impl RelocationCore {
@@ -275,7 +317,14 @@ impl RelocationCore {
             reopened: false,
             settled: false,
             cleanup: Vec::new(),
+            cleanup_errors: Vec::new(),
         })
+    }
+    /// Keep `path` and say why it is kept: the removal that was given up, or the check that
+    /// stopped it, so a retained path always carries its reason.
+    fn retain_for_cleanup(&mut self, path: PathBuf, why: impl std::fmt::Display) {
+        self.cleanup_errors.push((path.clone(), why.to_string()));
+        self.cleanup.push(path);
     }
     fn destination(&mut self) -> &mut dyn ProtectedKeySession {
         match self.destination.as_mut() {
@@ -484,14 +533,10 @@ impl RelocationCore {
         self.metadata_mut().candidate = RootIdentity::capture(&candidate);
         self.persist()?;
         let db = self.cfg.keyed(&self.key);
-        let source = db.effective_path();
-        let conn = db.open_existing_at(&source, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        // The backup bounds the whole copy by `busy_timeout`. That is SQLite's lock wait, not a
-        // copy deadline, so the copy gets its own finite budget (the connection above keeps the
-        // configured lock wait).
-        let mut copy_options = db.clone();
-        copy_options.busy_timeout = copy_budget(&source);
-        online_backup_to(&copy_options, &conn, &candidate, None)?;
+        let conn = db.open_existing_at(&db.effective_path(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        // The whole copy is bounded by the size-derived budget every copy of this crate uses;
+        // `busy_timeout` only bounds how long a busy source is waited for.
+        online_backup_sized(&db, &conn, &candidate, None)?;
         drop(conn);
         let recorded = RootIdentity::capture(&candidate);
         if recorded.file.is_none() {
@@ -501,7 +546,7 @@ impl RelocationCore {
         self.journal.as_mut().expect("journal").phase = "candidate-created".into();
         self.persist()?;
         validate_copy(&self.cfg, &self.key, &candidate)?;
-        if !same_identity(&self.metadata().candidate) {
+        if !same_identity(&self.metadata().candidate)? {
             return Err(pending("candidate changed during validation"));
         }
         // Nothing is published yet: if this write fails the phase stays "candidate-created", so an
@@ -530,7 +575,7 @@ impl RelocationCore {
                 return Err(error.into());
             }
         };
-        if !same_identity(&self.metadata().candidate) {
+        if !same_identity(&self.metadata().candidate)? {
             return Err(pending("candidate changed during FS preparation"));
         }
         let report = match prepared.commit() {
@@ -544,8 +589,9 @@ impl RelocationCore {
         self.metadata_mut().transaction_id = Some(report.id().to_string());
         match report {
             TransactionReport::Committed(report) => {
-                self.cleanup
-                    .extend(report.retained.into_iter().map(|item| item.path));
+                for item in report.retained {
+                    self.retain_for_cleanup(item.path, item.reason);
+                }
                 self.metadata_mut().fs_committed = true;
                 self.metadata_mut().published = Some(RootIdentity::capture(&self.plan.new_path));
                 self.journal.as_mut().expect("journal").phase = "published".into();
@@ -557,8 +603,9 @@ impl RelocationCore {
                 return Err(report.cause.into());
             }
             TransactionReport::RecoveryRequired(report) => {
-                self.cleanup
-                    .extend(report.retained.into_iter().map(|item| item.path));
+                for item in report.retained {
+                    self.retain_for_cleanup(item.path, item.reason);
+                }
                 self.journal.as_mut().expect("journal").phase = "fs-recovery-required".into();
                 self.persist()?;
                 return Err(pending(format!(
@@ -582,12 +629,7 @@ impl RelocationCore {
         self.persist()
     }
     fn promote_destination(&mut self) -> Result<(), LifecycleError> {
-        if !self
-            .metadata()
-            .published
-            .as_ref()
-            .is_some_and(same_identity)
-        {
+        if !same_recorded(self.metadata().published.as_ref())? {
             return Err(pending("published destination identity changed"));
         }
         validate_copy(&self.cfg, &self.key, &self.plan.new_path)?;
@@ -662,7 +704,7 @@ impl RelocationCore {
                 .published
                 .clone()
                 .ok_or_else(|| pending("missing published identity"))?;
-            if !same_identity(&published) {
+            if !same_identity(&published)? {
                 return Err(pending("selected destination identity changed"));
             }
             let cfg = self.new_config();
@@ -699,6 +741,7 @@ impl RelocationCore {
                 .and_then(|j| j.relocation.as_ref())
                 .is_some_and(|m| m.key_store_residue),
             cleanup_retained: self.cleanup.clone(),
+            cleanup_errors: self.cleanup_errors.clone(),
         }
     }
     fn settle(
@@ -747,10 +790,12 @@ impl RelocationCore {
                     if self.metadata().fs_committed && !self.copied {
                         // Explicit abort selects old root, but unavailable/indeterminate key
                         // readback cannot erase destination recovery evidence.
-                        self.cleanup
-                            .push(super::transition::journal_path(&self.cfg.db.path));
-                        self.cleanup
-                            .push(super::transition::journal_path(&self.plan.new_path));
+                        const WHY: &str = "the destination was published and its key state is not \
+                                           proven, so the journal is kept for recovery";
+                        let old = super::transition::journal_path(&self.cfg.db.path);
+                        let new = super::transition::journal_path(&self.plan.new_path);
+                        self.retain_for_cleanup(old, WHY);
+                        self.retain_for_cleanup(new, WHY);
                     }
                     self.cleanup_candidate();
                     if self.cleanup.is_empty() {
@@ -781,82 +826,93 @@ impl RelocationCore {
         let Some(journal) = &self.journal else {
             return;
         };
-        let roots = std::iter::once(&journal.old_root).chain(journal.new_root.iter());
-        for root in roots {
+        let id = journal.id;
+        let roots: Vec<RootIdentity> = std::iter::once(&journal.old_root)
+            .chain(journal.new_root.iter())
+            .cloned()
+            .collect();
+        let mut kept: Vec<(PathBuf, String)> = Vec::new();
+        for root in &roots {
             let path = super::transition::journal_path(&root.path);
             let parent = root
                 .path
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
                 .unwrap_or_else(|| Path::new("."));
-            if rightkit_fs::FileKey::of_path(parent).ok() != root.dir {
-                if std::fs::symlink_metadata(&path).is_ok() {
-                    self.cleanup.push(path);
+            match current_key(parent) {
+                Ok(now) if now == root.dir => {}
+                Ok(_) => {
+                    kept.extend(still_there(
+                        &path,
+                        "the directory beside the journal is not the one recorded",
+                    ));
+                    continue;
                 }
-                continue;
+                Err(error) => {
+                    kept.extend(still_there(
+                        &path,
+                        &format!(
+                            "the directory beside the journal could not be identified: {error}"
+                        ),
+                    ));
+                    continue;
+                }
             }
             match read_journal(&root.path) {
                 Ok(None) => {}
-                Ok(Some(record))
-                    if record.kind == TransitionKind::Relocate && record.id == journal.id =>
-                {
-                    if super::transition::remove_journal(&root.path).is_err() {
-                        self.cleanup.push(path);
+                Ok(Some(record)) if record.kind == TransitionKind::Relocate && record.id == id => {
+                    if let Err(error) = super::transition::remove_journal(&root.path) {
+                        kept.push((path, error.to_string()));
                     }
                 }
-                _ => self.cleanup.push(path),
+                Ok(Some(_)) => {
+                    kept.push((path, "the journal belongs to another transition".into()))
+                }
+                Err(error) => kept.push((path, format!("the journal could not be read: {error}"))),
             }
+        }
+        for (path, why) in kept {
+            self.retain_for_cleanup(path, why);
         }
     }
     fn cleanup_candidate(&mut self) {
-        let Some(metadata) = self.journal.as_ref().and_then(|j| j.relocation.as_ref()) else {
+        let Some(candidate) = self
+            .journal
+            .as_ref()
+            .and_then(|j| j.relocation.as_ref())
+            .map(|metadata| metadata.candidate.clone())
+        else {
             return;
         };
-        let candidate = &metadata.candidate;
-        if same_identity(candidate) {
-            match remove_identified(&candidate.path, candidate.file, remove_file_at) {
-                Ok(()) => {
-                    if let Some(parent) = candidate.path.parent() {
-                        if rightkit_fs::FileKey::of_path(parent).ok() == candidate.dir {
-                            if let Err(error) =
-                                remove_identified(parent, candidate.dir, remove_dir_at)
-                            {
-                                if error.kind() != std::io::ErrorKind::NotFound {
-                                    self.cleanup.push(parent.to_path_buf());
-                                }
-                            }
-                        }
-                    }
-                }
+        let mut kept: Vec<(PathBuf, String)> = Vec::new();
+        match same_identity(&candidate) {
+            Err(error) => kept.push((
+                candidate.path.clone(),
+                format!("the candidate could not be identified: {error}"),
+            )),
+            Ok(true) => match remove_identified(&candidate.path, candidate.file, remove_file_at) {
+                Ok(()) => remove_workspace(&candidate, &mut kept),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => self.cleanup.push(candidate.path.clone()),
-            }
-        } else if candidate.path.exists() {
-            self.cleanup.push(candidate.path.clone());
-        } else if let Some(parent) = candidate.path.parent() {
-            if candidate.dir.is_some()
-                && rightkit_fs::FileKey::of_path(parent).ok() == candidate.dir
-            {
-                if let Err(error) = remove_identified(parent, candidate.dir, remove_dir_at) {
-                    if error.kind() != std::io::ErrorKind::NotFound {
-                        self.cleanup.push(parent.to_path_buf());
-                    }
-                }
-            }
+                Err(error) => kept.push((candidate.path.clone(), error.to_string())),
+            },
+            Ok(false) => match still_there(
+                &candidate.path,
+                "the candidate no longer has the identity the journal recorded",
+            ) {
+                Some(residue) => kept.push(residue),
+                None => remove_workspace(&candidate, &mut kept),
+            },
+        }
+        for (path, why) in kept {
+            self.retain_for_cleanup(path, why);
         }
     }
     fn resolve_fs(&mut self) -> Result<(), LifecycleError> {
         let root = self.metadata().transaction_root.clone();
-        if !same_identity(&root) {
+        if !same_identity(&root)? {
             return Err(pending("explicit transaction root identity changed"));
         }
-        if self.metadata().fs_committed
-            && !self
-                .metadata()
-                .published
-                .as_ref()
-                .is_some_and(same_identity)
-        {
+        if self.metadata().fs_committed && !same_recorded(self.metadata().published.as_ref())? {
             return Err(pending("recorded committed copy changed"));
         }
         let report = recover_transactions_with(
@@ -874,12 +930,14 @@ impl RelocationCore {
             if let rightkit_fs::transaction::RecoveryOutcome::CompletedSetAside { items } =
                 transaction.outcome
             {
-                self.cleanup.extend(items.into_iter().map(|item| item.path));
+                for item in items {
+                    self.retain_for_cleanup(item.path, item.reason);
+                }
             }
         }
         if !self.metadata().fs_committed && self.plan.new_path.exists() {
             let candidate = self.metadata().candidate.clone();
-            if !same_identity(&candidate) || !same_bytes(&candidate.path, &self.plan.new_path)? {
+            if !same_identity(&candidate)? || !same_bytes(&candidate.path, &self.plan.new_path)? {
                 return Err(pending(
                     "unrecorded publication does not match verified candidate",
                 ));
@@ -888,13 +946,7 @@ impl RelocationCore {
             self.metadata_mut().fs_committed = true;
             self.metadata_mut().published = Some(RootIdentity::capture(&self.plan.new_path));
         }
-        if self.metadata().fs_committed
-            && !self
-                .metadata()
-                .published
-                .as_ref()
-                .is_some_and(same_identity)
-        {
+        if self.metadata().fs_committed && !same_recorded(self.metadata().published.as_ref())? {
             return Err(pending("recorded committed copy changed"));
         }
         Ok(())
@@ -987,6 +1039,7 @@ impl EncryptedStore {
                     old_root: cfg.db.path,
                     new_root: core.plan.new_path.clone(),
                     cleanup_retained: report.cleanup_retained,
+                    cleanup_errors: report.cleanup_errors,
                 },
                 Err(error) => {
                     let report = core.report();
@@ -1038,9 +1091,10 @@ fn validate_copy(cfg: &EncryptedStoreConfig, key: &Key, path: &Path) -> Result<(
     Ok(())
 }
 fn same_bytes(left: &Path, right: &Path) -> Result<bool, LifecycleError> {
-    let mut left_file = std::fs::File::open(left).map_err(|e| rightkit_fs::FsError::io(left, e))?;
-    let mut right_file =
-        std::fs::File::open(right).map_err(|e| rightkit_fs::FsError::io(right, e))?;
+    let mut left_file = retry_transient(|| std::fs::File::open(left))
+        .map_err(|e| rightkit_fs::FsError::io(left, e))?;
+    let mut right_file = retry_transient(|| std::fs::File::open(right))
+        .map_err(|e| rightkit_fs::FsError::io(right, e))?;
     let left_id = rightkit_fs::FileKey::of_file(&left_file, left)?;
     let right_id = rightkit_fs::FileKey::of_file(&right_file, right)?;
     let mut a = [0u8; 16384];
@@ -1059,8 +1113,10 @@ fn same_bytes(left: &Path, right: &Path) -> Result<bool, LifecycleError> {
             break;
         }
     }
-    Ok(rightkit_fs::FileKey::of_path(left)? == left_id
-        && rightkit_fs::FileKey::of_path(right)? == right_id)
+    Ok(
+        retry_transient_fs(|| rightkit_fs::FileKey::of_path(left))? == left_id
+            && retry_transient_fs(|| rightkit_fs::FileKey::of_path(right))? == right_id,
+    )
 }
 
 /// Resume a destination selected durably by the caller, without opening the old database.
@@ -1289,6 +1345,7 @@ fn recover_relocation_core_optional(
         reopened: false,
         settled: false,
         cleanup: Vec::new(),
+        cleanup_errors: Vec::new(),
     };
     core.resolve_fs()?;
     if settlement == RelocationSettlement::Committed {
@@ -1302,7 +1359,7 @@ fn recover_relocation_core_optional(
         core.journal.as_mut().expect("journal").phase = "switched".into();
         core.journal.as_mut().expect("journal").state = JournalState::CommittedCleanup;
         core.persist()?;
-    } else if !same_identity(&core.journal.as_ref().expect("journal").old_root) {
+    } else if !same_identity(&core.journal.as_ref().expect("journal").old_root)? {
         return Err(pending("old root identity changed before abort"));
     }
     let selected = if settlement == RelocationSettlement::Committed {
@@ -1320,4 +1377,99 @@ fn recover_relocation_core_optional(
     let established = establish_relocation(&selected, &identity, &core.key)?;
     let store = EncryptedStore::from_relocation(selected, established);
     Ok(Some((store, core)))
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    fn written(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, name.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn an_unchanged_root_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = written(dir.path(), "root.db");
+        let recorded = RootIdentity::capture(&root);
+        assert!(same_identity(&recorded).unwrap());
+        assert!(same_recorded(Some(&recorded)).unwrap());
+    }
+
+    #[test]
+    fn a_missing_replaced_or_unrecorded_root_is_a_mismatch_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = written(dir.path(), "root.db");
+        let recorded = RootIdentity::capture(&root);
+
+        // Another file renamed over the name (both exist at once, so the inode is a different one).
+        let other = written(dir.path(), "other.db");
+        std::fs::rename(&other, &root).unwrap();
+        assert!(!same_identity(&recorded).unwrap(), "replaced");
+
+        std::fs::remove_file(&root).unwrap();
+        assert!(!same_identity(&recorded).unwrap(), "missing");
+
+        let never_there = RootIdentity::capture(&dir.path().join("never.db"));
+        assert!(never_there.file.is_none());
+        assert!(
+            !same_identity(&never_there).unwrap(),
+            "nothing was recorded"
+        );
+        assert!(!same_recorded(None).unwrap());
+    }
+
+    /// A root whose identity cannot be read is neither the same nor a changed one: it is the
+    /// error. (A path below a regular file cannot be opened on Unix: not-a-directory, not
+    /// not-found.)
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_root_is_an_error_never_a_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = written(dir.path(), "plain.db");
+        let mut recorded = RootIdentity::capture(&file);
+        assert!(recorded.file.is_some());
+        recorded.path = file.join("below");
+        let error = same_identity(&recorded).unwrap_err();
+        assert!(matches!(error, LifecycleError::Fs(_)), "{error:?}");
+        assert!(RootIdentity::try_capture(&recorded.path).is_err());
+        // `capture` keeps its infallible shape: no identity.
+        assert!(RootIdentity::capture(&recorded.path).file.is_none());
+    }
+
+    #[test]
+    fn a_workspace_that_cannot_be_removed_is_kept_with_the_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let candidate = written(&workspace, "candidate.db");
+        let recorded = RootIdentity::capture(&candidate);
+        std::fs::remove_file(&candidate).unwrap();
+        // The directory is not empty, so its removal fails with an OS error on every platform.
+        written(&workspace, "stray");
+        let mut kept = Vec::new();
+        remove_workspace(&recorded, &mut kept);
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(kept[0].0, workspace);
+        assert!(kept[0].1.contains("os error"), "{}", kept[0].1);
+        // Emptied, the same call removes it and keeps nothing.
+        std::fs::remove_file(workspace.join("stray")).unwrap();
+        let mut kept = Vec::new();
+        remove_workspace(&recorded, &mut kept);
+        assert!(kept.is_empty(), "{kept:?}");
+        assert!(!workspace.exists());
+    }
+
+    #[test]
+    fn a_path_that_is_still_there_is_reported_with_its_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = written(dir.path(), "root.db");
+        let (path, why) = still_there(&root, "kept for a test").unwrap();
+        assert_eq!(path, root);
+        assert_eq!(why, "kept for a test");
+        std::fs::remove_file(&root).unwrap();
+        assert!(still_there(&root, "kept for a test").is_none());
+    }
 }

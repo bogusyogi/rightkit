@@ -965,16 +965,16 @@
     "rightkit-db": {
       "pkId": "PK03",
       "id": "ci/consumers/rightkit-db/src/main.rs",
-      "dependency": "rightkit-db = { version = \"=0.5.1\", features = [\"bundled\"] }",
+      "dependency": "rightkit-db = { version = \"=0.5.3\", features = [\"bundled\"] }",
       "extraDependencies": [],
       "gateEvidence": "no OS keychain or SQLCipher key: bundled SQLite only; temp directory removed on exit; encrypted lifecycle (sqlcipher, ProtectedKeyStore, rotation, relocation) not exercised and needs its own PK03-3..6 gate rows",
       "consumes": "PK03 plan (docs/plans/2026-10-20-rightkit-implementation/01-packages.md:131-146) db 0.5.x surface; public items exercised: DbOptions::new, open_writer_migrated, open_read_pool_with (crates/rightkit-db/src/migrate.rs:788, src/lib.rs:217,383), write_txn (src/lib.rs:735), open_read_only, open_existing_writer, open_in_memory (src/lib.rs:524-534), ReadPoolOptions::with_read_only (src/lib.rs:823), migrate::Migration::sql (src/migrate.rs:31), MigrateOptions (src/migrate.rs:111), user_version (src/migrate.rs:191)",
       "files": {
-        "Cargo.toml": "1385fbf03bd39431b9422c80f1977b08daab931872fe3006569605f5a909024b",
-        "README.md": "fccbf7c8387ccb776090ac2c717edc090af0a0b6d2368c641017849350b96c21",
-        "src/main.rs": "af1c9a4987c9179dec7c72c1b63c37b19e6a077465d2152531527265a357622d"
+        "Cargo.toml": "9159c992cbba4aab049caab4559e1032ffed2d0d448f580172f2d905449dc86d",
+        "README.md": "6ffc776a1b8a594e8bda2fdf1cffcb2917775943171281cd4c8aa068ef1c9625",
+        "src/main.rs": "79a0e284be413c893ce831446cbf5dff6777dcf8b207854110402d8ec0ed2d78"
       },
-      "aggregateSha256": "35bb1b2aa4e0cc1ff09dc378a85541e329fcfa513bfc6acbaddbf829191f2999"
+      "aggregateSha256": "a00e630c1f9f7192040c9ce8d4a1bc67b8058c40946419d0e5f1ef9c73470dfd"
     },
     "rightkit-license": {
       "pkId": "PK05",

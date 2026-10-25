@@ -11,7 +11,7 @@ use super::transition::{
     TransitionKind, TransitionOptions,
 };
 use crate::{
-    lock_recover, online_backup_to, restore_database_locked, DbError, DbOptions, IntegrityCheck,
+    lock_recover, restore_database_locked, DbError, DbOptions, IntegrityCheck,
     PooledReadConnection, ReadPool, ReadPoolOptions, RestoreOptions, RestoreReceipt, StoreLock,
 };
 use rusqlite::{Connection, OpenFlags};
@@ -560,16 +560,18 @@ pub(super) fn establish_relocation(
         .read_primary()
         .map_err(|error| key_store_error("primary", error))?
         .ok_or(LifecycleError::KeyMissing)?;
+    // An identity that cannot be read (after the bounded retry of a transient Windows refusal) is
+    // the error, not "the root changed".
     if expected.file.is_none()
         || primary.as_str() != key.as_str()
-        || RootIdentity::capture(&cfg.db.path) != *expected
+        || RootIdentity::try_capture(&cfg.db.path)? != *expected
     {
         return Err(LifecycleError::RecoveryRequired {
             detail: "selected relocation root or canonical key changed".into(),
         });
     }
     let writer = cfg.keyed(&primary).open_existing_writer()?;
-    if RootIdentity::capture(&cfg.db.path) != *expected {
+    if RootIdentity::try_capture(&cfg.db.path)? != *expected {
         return Err(LifecycleError::RecoveryRequired {
             detail: "selected relocation root changed while reopening".into(),
         });
@@ -1111,7 +1113,7 @@ impl EncryptedStore {
         let Some(conn) = live.writer.as_ref() else {
             return Err(LifecycleError::busy("the writer is not open"));
         };
-        online_backup_to(&db, conn, target, None)?;
+        crate::backup::online_backup_sized(&db, conn, target, None)?;
         Ok(())
     }
 

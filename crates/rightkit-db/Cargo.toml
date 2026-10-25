@@ -1,6 +1,6 @@
 [package]
 name = "rightkit-db"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 rust-version = "1.98.0"
 description = "Correct-by-default SQLite and SQLCipher connection bootstrap for Right Suite apps."
@@ -34,7 +34,7 @@ hooks = ["rusqlite/hooks"]
 [dependencies]
 rusqlite = { version = "0.40.2", default-features = false, features = ["backup"] }
 # Opts out of rightkit-fs `json` (serde) and `digest` (sha2): db needs atomic writes, sweeps, owner-only files, netfs and the store-wide advisory lock.
-rightkit-fs = { version = "0.4.6", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "transaction"] }
+rightkit-fs = { version = "0.4.8", path = "../rightkit-fs", default-features = false, features = ["fs", "lock", "transaction"] }
 thiserror = "2"
 zeroize = "1.9"
 
@@ -46,4 +46,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "SQLite open, migrate, backup and restore helpers; sleep is a 25 ms back-off between retries of one busy or locked backup step, bounded by the call and its busy_timeout, and a 100 ms pause between at most 20 retries of one Windows sharing or access-denied file operation (backup publish, journal write, relocation cleanup), and the crate spawns no thread or continuous work"
+continuous_reason = "SQLite open, migrate, backup and restore helpers; sleep is a 25 ms back-off between retries of one busy or locked backup step, bounded by the call and its busy_timeout, and a 100 ms pause between at most 20 retries of one Windows sharing or access-denied file operation (backup publish, journal write, relocation cleanup; the retry loop is rightkit_fs::transient), and the crate spawns no thread or continuous work"

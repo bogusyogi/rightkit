@@ -1395,6 +1395,8 @@ fn relocation_reuses_only_same_configured_key_store_arc() {
     let store = EncryptedStore::open(cfg).unwrap();
     let started = std::time::Instant::now();
     let report = store.relocate(RelocationPlan::new(&new_path).with_new_key_store(same));
+    // A `RelocatedCleanupPending` report lists every retained path with the error that kept it,
+    // so the `{report:?}` below names the cause when this recurs.
     assert!(
         matches!(report, RelocationReport::Relocated { .. }),
         "expected Relocated, got {report:?} after {:?}",
@@ -1403,31 +1405,29 @@ fn relocation_reuses_only_same_configured_key_store_arc() {
     assert_eq!(count(&store), 1);
 }
 
+/// `busy_timeout` is SQLite's lock wait. It used to be the total deadline of every online backup
+/// copy as well, so a wait shorter than the copy failed `backup_to` ("backup operation timeout
+/// expired") on every OS, and on a slow hosted runner even the default five seconds did. Zero is
+/// shorter than any copy. Nothing else touches these files while the test runs, so the missing
+/// lock wait costs nothing here. `restore` and relocation make their copies the same way
+/// (`online_backup_sized`) and are covered where the zero wait can be given to the copy alone:
+/// `tests/restore.rs` hands its options to `restore_database` only, and the budget and the busy
+/// wait are pinned by the unit tests in `src/backup.rs`.
 #[test]
-fn relocation_copy_budget_is_independent_of_the_sqlite_busy_timeout() {
+fn backup_to_is_not_bounded_by_the_sqlite_busy_timeout() {
     let dir = tempfile::tempdir().unwrap();
-    let path = make_db(dir.path(), "source-budget.db", OLD);
-    let new_path = dir.path().join("destination-budget.db");
+    let path = make_db(dir.path(), "app-budget.db", OLD);
     let keys = FakeKeys::with_primary(OLD);
     let mut cfg = config(&path, &keys);
-    // The online backup used to bound the whole copy by this value, so a zero wait made every
-    // relocation expire before its first step, on every OS.
     cfg.db.busy_timeout = Duration::ZERO;
     let store = EncryptedStore::open(cfg).unwrap();
-    let report = store.relocate(RelocationPlan::new(&new_path));
+    let backup = dir.path().join("app-budget.bak");
+    store.backup_to(&backup).unwrap();
     assert!(
-        matches!(report, RelocationReport::Relocated { .. }),
-        "{report:?}"
+        opens_with(&backup, OLD),
+        "the backup opens with the store key"
     );
-    assert_eq!(store.db_path(), new_path);
     assert_eq!(count(&store), 1);
-    assert!(!journal_exists(&path));
-    assert!(!journal_exists(&new_path));
-    let workspaces: Vec<String> = dir_names(dir.path())
-        .into_iter()
-        .filter(|name| name.starts_with(".rkdb-relocate-"))
-        .collect();
-    assert!(workspaces.is_empty(), "{workspaces:?}");
 }
 
 #[test]

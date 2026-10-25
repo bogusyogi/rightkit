@@ -207,18 +207,38 @@ fn a_passing_backup_check_lets_the_migration_run() {
     let dir = tempfile::tempdir().unwrap();
     let path = fresh(&dir);
     let conn = at_version_one(&path);
-    // The backup runs under a monotonic deadline (busy_timeout, 5 s by default). A hosted Windows
-    // runner once spent longer than that on this tiny copy (native run 40073029556); 5/5 local
-    // Windows runs take 0.1 s. Give the backup room so the test proves the check, not runner speed.
+    // A hosted Windows runner once spent longer than the five-second busy_timeout on this tiny
+    // copy (native run 40073029556). The copy is bounded by its own size-derived budget now, so the
+    // default options are enough and the test proves the check, not runner speed.
+    let options = MigrateOptions {
+        verify_backup: Some(accept),
+        ..MigrateOptions::default()
+    };
+    migrate(&conn, Some(&path), &migrations(), &options).unwrap();
+    assert_eq!(user_version(&conn).unwrap(), 2);
+}
+
+#[test]
+fn the_pre_migration_backup_is_not_bounded_by_the_sqlite_busy_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fresh(&dir);
+    let conn = at_version_one(&path);
+    // busy_timeout is SQLite's lock wait. It used to be the total deadline of the backup copy as
+    // well, so a wait shorter than the copy (zero is shorter than any copy) failed the migration
+    // before its first step on every OS. The zero applies to the backup's options only.
     let mut backup_options = DbOptions::new(&path);
-    backup_options.busy_timeout = std::time::Duration::from_secs(60);
+    backup_options.busy_timeout = std::time::Duration::ZERO;
     let options = MigrateOptions {
         verify_backup: Some(accept),
         backup_options: Some(backup_options),
         ..MigrateOptions::default()
     };
-    migrate(&conn, Some(&path), &migrations(), &options).unwrap();
+    let report = migrate(&conn, Some(&path), &migrations(), &options).unwrap();
     assert_eq!(user_version(&conn).unwrap(), 2);
+    let backup = report
+        .backup
+        .expect("a backup was made before the migration");
+    assert!(backup.exists(), "{backup:?}");
 }
 
 #[test]
