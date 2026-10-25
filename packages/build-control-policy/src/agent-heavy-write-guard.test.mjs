@@ -16,9 +16,9 @@ setAllowlistSources({ readTrust: () => null, shipped: null });
 // (prefix trick), "Macintosh HD" is the usual symlink to "/".
 // Every counterexample string below is DATA ONLY: it is parsed, never executed.
 const home = '/Users/adrian';
-function fakeFs({ dirs, links = {}, mounts }) {
+function fakeFs({ dirs, links = {}, mounts, files = {} }) {
   const known = new Set(['/']);
-  for (const dir of dirs) for (let at = dir; at !== '/'; at = posix.dirname(at)) known.add(at);
+  for (const dir of [...dirs, ...Object.keys(files)]) for (let at = dir; at !== '/'; at = posix.dirname(at)) known.add(at);
   const error = (code) => Object.assign(new Error(code), { code });
   const realpath = (input) => {
     let resolved = '/'; const queue = input.split('/').filter(Boolean); let hops = 0;
@@ -33,9 +33,14 @@ function fakeFs({ dirs, links = {}, mounts }) {
   return {
     kind(target) {
       if (links[target]) return 'symlink';
-      try { return known.has(realpath(target)) ? 'dir' : null; } catch (caught) { if (caught.code === 'ENOENT') return null; throw caught; }
+      try { const real = realpath(target); return Object.hasOwn(files, real) ? 'file' : known.has(real) ? 'dir' : null; } catch (caught) { if (caught.code === 'ENOENT') return null; throw caught; }
     },
     realpath,
+    readFile(target) {
+      const text = Object.hasOwn(files, target) ? files[target] : undefined;
+      if (typeof text !== 'string') throw error(links[target] || known.has(target) ? 'EINVAL' : 'ENOENT');
+      return text;
+    },
     device(target) {
       let best; let length = -1;
       for (const [mount, device] of Object.entries(mounts)) if ((target === mount || target.startsWith(mount === '/' ? '/' : `${mount}/`)) && mount.length > length) { best = device; length = mount.length; }
@@ -43,13 +48,36 @@ function fakeFs({ dirs, links = {}, mounts }) {
     },
   };
 }
+// Run roots under /Volumes/D/scratch (the lease file is `.rightkit-run.json`, as `right-release disk run-root <name>` writes it).
+const LEASE = '.rightkit-run.json';
+const lease = (name, until = '2999-01-01T00:00:00.000Z', extra = {}) => JSON.stringify({ schema: 1, name, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: until, ...extra });
+const scratch = '/Volumes/D/scratch';
 const fs = fakeFs({
+  files: {
+    [`${scratch}/run1/${LEASE}`]: lease('run1'),
+    [`${scratch}/run1/sub/keep.txt`]: 'x',
+    [`${scratch}/run-expired/${LEASE}`]: lease('run-expired', '2020-01-01T00:00:00.000Z'),
+    [`${scratch}/run-garbage/${LEASE}`]: '{not json',
+    [`${scratch}/run-schema2/${LEASE}`]: lease('run-schema2', undefined, { schema: 2 }),
+    [`${scratch}/run-noname/${LEASE}`]: JSON.stringify({ schema: 1, createdAt: '2026-10-01T00:00:00.000Z', leaseUntil: '2999-01-01T00:00:00.000Z' }),
+    [`${scratch}/run-baddate/${LEASE}`]: lease('run-baddate', 'tomorrow'),
+    [`${scratch}/run-numdate/${LEASE}`]: lease('run-numdate', 32503680000000),
+    [`${scratch}/run-null/${LEASE}`]: 'null',
+    [`${scratch}/run-empty/${LEASE}`]: '',
+  },
   dirs: [
+    `${scratch}/run2`, `${scratch}/run1-evil`, `${scratch}/run-dirlease/${LEASE}`, `${scratch}/run-linklease`, `${scratch}/run-escape`,
     '/System/Volumes/Data', '/tmp', `${home}/work`, `${home}/Library/Developer/CoreSimulator/Devices`, `${home}/Library/Caches/cutright`,
     `${home}/Library/Caches/SomethingElse`, `${home}/Library/Application Support/Orthic Labs/shared/models`,
     '/Volumes/D/scratch', '/Volumes/D/scratch/hasgit/.git', '/Volumes/D/scratch/fresh', '/Volumes/D/claude/app', '/Volumes/D/caches', '/Volumes/D/.xcode/DerivedData', '/Volumes/D-evil', '/Volumes/E',
   ],
   links: {
+    [`${scratch}/run-symrun`]: `${scratch}/run1`, // a run directory that is a symlink to a leased one
+    [`${scratch}/run-linklease/${LEASE}`]: `${scratch}/run1/${LEASE}`, // a lease that is a symlink to a live lease
+    [`${scratch}/run-escape/out`]: '/Volumes/D/claude/app', // a link inside a (not yet leased) run root
+    [`${scratch}/run1/to-claude`]: '/Volumes/D/claude/app', // a link inside a leased run root that leaves it
+    [`${scratch}/run1/to-run2`]: `${scratch}/run2`,
+    [`${scratch}/run1/dangling`]: '/Volumes/D/nowhere',
     '/Volumes/Macintosh HD': '/',
     '/Volumes/D/scratch/to-internal': `${home}/work`,
     '/Volumes/D/scratch/dangling': `${home}/nowhere`,
@@ -99,7 +127,7 @@ const cache = `${home}/Library/Caches/cutright`;
 const hook = (tool_name, tool_input, cwd = home) => heavyWriteHookDecision({ tool_name, tool_input, cwd, platform: 'darwin' }, seam(cwd));
 
 test('rules are named and each denial names the agent-volume alternative', () => {
-  assert.deepEqual(HEAVY_WRITE_RULES.map((rule) => rule.id), ['simctl-no-simulators', 'xcodebuild-derived-data', 'xcodebuild-output', 'internal-heavy-path', 'non-agent-volume', 'undeterminable-destination']);
+  assert.deepEqual(HEAVY_WRITE_RULES.map((rule) => rule.id), ['simctl-no-simulators', 'xcodebuild-derived-data', 'xcodebuild-output', 'internal-heavy-path', 'non-agent-volume', 'undeterminable-destination', 'repo-create-outside-run-root', 'download-outside-run-root']);
   const decision = hook('Bash', { command: 'xcrun simctl create A t' });
   assert.equal(decision.hookSpecificOutput.permissionDecision, 'deny');
   const reason = decision.hookSpecificOutput.permissionDecisionReason;
@@ -775,7 +803,8 @@ test('round 3 Astra row 3: curl implicit output and every file-writing option', 
   denied(`curl -O ${url}`, 'non-agent-volume', '/Volumes/E');
   denied(`curl -J ${url}`, 'non-agent-volume', '/Volumes/E');
   denied(`curl -OJ ${url}`, 'non-agent-volume', '/Volumes/E');
-  allowed(`curl --remote-name-all ${url}`);
+  denied(`curl --remote-name-all ${url}`, 'download-outside-run-root'); // the default cwd is the workspace, which is not a run root
+  allowed(`curl --remote-name-all ${url}`, ext);
   allowed(`curl -O --output-dir ${ext} ${url}`, '/Volumes/E'); // --output-dir redirects the implicit output
   denied(`curl -O --output-dir /Volumes/E/dir ${url}`, 'non-agent-volume');
   denied(`curl --etag-save /Volumes/E/tag ${url}`, 'non-agent-volume'); // the Astra case
@@ -865,9 +894,10 @@ test('round 3 Astra row 6 + R3: attached option values are sliced, expanded once
   denied(`unzip a.zip -d"$HOME/Library/Developer/CoreSimulator/Devices/$UDID"`, 'internal-heavy-path');
   denied(`wget -P"/Volumes/D/scratch/$X" ${url}`, 'undeterminable-destination');
   // No second expansion: a literal "$" that is already in a parsed value is data, never re-expanded.
-  allowed(`curl -o'$HOME/Library/Caches/cutright/x' ${url}`); // single quotes: a relative file named "$HOME/..." inside the cwd
-  allowed(`curl -o"\\$HOME/Library/Caches/cutright/x" ${url}`); // an escaped dollar in double quotes is the same literal
-  allowed(`curl --output='$X' ${url}`);
+  allowed(`curl -o'$HOME/Library/Caches/cutright/x' ${url}`, ext); // single quotes: a relative file named "$HOME/..." inside the cwd (a run root)
+  allowed(`curl -o"\\$HOME/Library/Caches/cutright/x" ${url}`, ext); // an escaped dollar in double quotes is the same literal
+  allowed(`curl --output='$X' ${url}`, ext);
+  denied(`curl --output='$X' ${url}`, 'download-outside-run-root'); // the same literal relative file in the workspace cwd
   allowed(`dd of='$X'`);
   denied(`curl -o"\\$HOME/x" ${url}`, 'internal-heavy-path', cache); // the literal path is relative to the (protected) cwd
   // An unresolved expansion inside a short-option cluster could be more option letters.
@@ -981,18 +1011,24 @@ test('round 3 self-audit: cp/mv backup suffix, tee -a, xargs-wrapped writers, se
   denied(`git -C /Volumes/D/scratch/to-internal/../Library/Caches/cutright clone ${repo}`, 'internal-heavy-path'); // physical ".."
   denied(`git clone --separate-git-dir=/Volumes/E/g ${repo} /Volumes/D/scratch/y`, 'non-agent-volume');
   denied(`git clone ${repo} ~/Library/Caches/cutright/y`, 'internal-heavy-path');
-  allowed(`git clone ${repo}`);
-  allowed(`git clone ${repo} /Volumes/D/scratch/y`);
-  allowed(`git -C /Volumes/D/scratch clone ${repo} sub`);
-  allowed(`git -C /Volumes/D/scratch -C ../claude clone ${repo}`); // ordered -C: the second is relative to the first
-  allowed(`git -C /Volumes/E clone ${repo} /Volumes/D/scratch/y`); // an absolute destination ignores the cwd
+  denied(`git clone ${repo}`, 'repo-create-outside-run-root'); // the default cwd is the workspace
+  denied(`git clone ${repo} /Volumes/D/scratch/y`, 'repo-create-outside-run-root'); // no lease
+  denied(`git -C /Volumes/D/scratch clone ${repo} sub`, 'repo-create-outside-run-root');
+  denied(`git -C /Volumes/D/scratch -C ../claude clone ${repo}`, 'repo-create-outside-run-root'); // ordered -C: the second is relative to the first
+  allowed(`git clone ${repo}`, ext);
+  allowed(`git clone ${repo} ${ext}/y`);
+  allowed(`git -C ${ext} clone ${repo} sub`);
+  allowed(`git -C /Volumes/D/scratch -C run1 clone ${repo}`); // ordered -C: the second is relative to the first
+  allowed(`git -C /Volumes/E clone ${repo} ${ext}/y`); // an absolute destination ignores the cwd
   denied(`git worktree add /Volumes/E/w HEAD`, 'non-agent-volume'); // the Astra case: HEAD is the commit-ish
   denied(`git worktree add -b br /Volumes/E/wt main`, 'non-agent-volume');
   denied(`git worktree add --detach /Volumes/E/wt`, 'non-agent-volume');
   denied(`git -C /Volumes/E worktree add wt HEAD`, 'non-agent-volume');
   denied(`git worktree move a /Volumes/E/b`, 'non-agent-volume');
-  allowed(`git worktree add /Volumes/D/scratch/w /Volumes/E/not-a-destination`); // the trailing operand is never the destination
-  allowed(`git worktree add ../wt`);
+  allowed(`git worktree add ${ext}/w /Volumes/E/not-a-destination`); // the trailing operand is never the destination
+  denied(`git worktree add /Volumes/D/scratch/w /Volumes/E/not-a-destination`, 'repo-create-outside-run-root'); // no lease
+  denied(`git worktree add ../wt`, 'repo-create-outside-run-root');
+  allowed(`git worktree add wt`, ext);
   allowed('git worktree list');
   allowed('git status');
   for (const command of ['git clone', `git clone ${repo} a b`, 'git worktree add', 'git worktree add a b c', 'git worktree move a', 'git worktree add $X', 'git clone --frobnicate u d', 'git --frobnicate clone u d', 'git -C "$X" clone u d', 'git $SUB clone u d', 'git clone $URL', 'git clone --frobnicate=1 u d']) denied(command, 'undeterminable-destination');
@@ -1317,8 +1353,9 @@ test('round 5 worktree: the source repository and every affected worktree root n
     }
   }
   denied('git worktree add /Volumes/D/scratch/w', 'undeterminable-destination', here, { gitRunner: fakeGit({ status: 128 }) });
-  allowed('git worktree add /Volumes/D/scratch/w HEAD');
-  allowed('git worktree add --detach -b b ../wt main');
+  allowed(`git worktree add ${ext}/w HEAD`);
+  allowed('git worktree add --detach -b b wt main', ext);
+  denied('git worktree add --detach -b b ../wt main', 'repo-create-outside-run-root', ext); // ".." is never guessed
   denied('git worktree add /Volumes/E/w HEAD', 'non-agent-volume');
   // 2. add: the new PATH; move: both paths; remove: the target worktree's resolved root
   allowed('git worktree move /Volumes/D/scratch/wt /Volumes/D/scratch/wt2', here, listed(here, '/Volumes/D/scratch/wt'));

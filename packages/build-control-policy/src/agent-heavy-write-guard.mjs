@@ -17,6 +17,13 @@
 //     Write/Edit/apply_patch targets are checked after cwd and realpath resolution. They are denied when they land in
 //     the internal CoreSimulator Devices directory, the internal Library/Caches directory of a known app owner, the
 //     RightKit shared/models default path, or a mount that is not an agent volume.
+//   * Clones, worktrees and downloads are stricter than "somewhere on the agent volume": `git clone` (also with no
+//     directory, which lands in the working directory), `git worktree add`, curl and wget file outputs
+//     must write below a RUN ROOT. A run root is a directory directly under
+//     /Volumes/D/scratch that is a real directory (not a symlink) holding a regular `.rightkit-run.json` lease whose
+//     `leaseUntil` is still in the future; `right-release disk run-root <name>` creates it. The run root itself, a
+//     sibling, a symlinked run directory or lease, an expired, unreadable or malformed lease, and any `..` are refused.
+//     The lease is read through the fs seam and the guard never writes it. Primary checkouts are created by hand, not by an agent.
 //   * There is NO textual prefilter: every command and path is parsed and every destination is resolved.
 //   * There is no full shell emulator. A construct is either resolved exactly or REFUSED with a message that says how
 //     to rewrite it ("split into separate commands", "use an absolute path"). Refusal is always acceptable; a false
@@ -32,7 +39,7 @@
 // Not a sandbox and not confinement: scripts, services, child processes, makefiles, IDEs and tools that choose their
 // own locations escape every visible argument. Native write-location proof is still required (README).
 // Nothing here changes SDK defaults, moves, deletes, resets or symlinks anything.
-import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { posix as path } from 'node:path';
@@ -42,6 +49,14 @@ export const HEAVY_WRITE_TAG = '[HOOK:rightkit-heavy-write:block]';
 export const AGENT_VOLUME = '/Volumes/D';
 export const SCRATCH_EXAMPLE = '/Volumes/D/scratch/<run>';
 export const DERIVED_DATA = '/Volumes/D/.xcode/DerivedData';
+// Spelled as packages/release/disk-policy.json spells them for mac (a test pins the match). The installed guard is one copied
+// file and cannot import release/, so these are copies; RIGHTKIT_WORKSPACE_ROOTS and RIGHTKIT_SCRATCH_ROOTS (path-delimited
+// `:`, the same idiom as RIGHTKIT_AGENT_VOLUMES) override them on a host that keeps its roots elsewhere.
+export const WORKSPACE_ROOT = '/Volumes/D/claude';
+export const RUN_ROOT_PARENT = '/Volumes/D/scratch';
+/** Written by `right-release disk run-root <name>` as {"schema":1,"name","createdAt","leaseUntil"}; the sweep skips a run root while it is in the future. */
+export const RUN_LEASE_FILE = '.rightkit-run.json';
+const RUN_COMMAND = 'right-release disk run-root <name>';
 export const HEAVY_WRITE_RULES = Object.freeze([
   Object.freeze({ id: 'simctl-no-simulators', summary: 'simctl create|clone is denied; use the shared iPhone 18 Pro' }),
   Object.freeze({ id: 'xcodebuild-derived-data', summary: 'xcodebuild build/test/archive needs -derivedDataPath on an agent volume (/Volumes/D)' }),
@@ -49,6 +64,8 @@ export const HEAVY_WRITE_RULES = Object.freeze([
   Object.freeze({ id: 'internal-heavy-path', summary: 'writes into ~/Library/Developer/CoreSimulator/Devices, ~/Library/Caches/<app owner> and the RightKit shared/models path are denied' }),
   Object.freeze({ id: 'non-agent-volume', summary: 'writes to any /Volumes/<name> other than an agent volume (so /Volumes/E) are denied' }),
   Object.freeze({ id: 'undeterminable-destination', summary: 'a construct whose destination cannot be resolved exactly is refused with a rewrite hint, never guessed' }),
+  Object.freeze({ id: 'repo-create-outside-run-root', summary: `git clone and git worktree add write only below a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
+  Object.freeze({ id: 'download-outside-run-root', summary: `curl and wget write only into a leased run root (a directory under ${RUN_ROOT_PARENT} holding a live ${RUN_LEASE_FILE}); \`${RUN_COMMAND}\` creates one` }),
 ]);
 
 const DYN = Symbol('dynamic');
@@ -95,6 +112,15 @@ export const realFs = {
   },
   realpath: (target) => realpathSync.native(target),
   device: (target) => { try { return statSync(target).dev; } catch { return undefined; } },
+  // The text of a small regular file; throws for anything else. O_NOFOLLOW closes the window between kind() and the read.
+  readFile(target) {
+    const fd = openSync(target, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const info = fstatSync(fd);
+      if (!info.isFile() || info.size > 4096) throw Object.assign(new Error('not a small regular file'), { code: 'EINVAL' });
+      return readFileSync(fd, 'utf8');
+    } finally { closeSync(fd); }
+  },
 };
 
 /** Resolve `absolute` through every existing ancestor. Returns { real, anchor } or { error }. `absolute` has no `..`. */
@@ -137,11 +163,15 @@ function context(options = {}) {
   const home = options.home ?? process.env.HOME ?? homedir();
   const volumesRoot = options.volumesRoot ?? '/Volumes';
   const configured = options.agentVolumes ?? (process.env.RIGHTKIT_AGENT_VOLUMES ? process.env.RIGHTKIT_AGENT_VOLUMES.split(':').filter(Boolean) : [path.join(volumesRoot, 'D')]);
+  const roots = (list, env, fallback) => (list ?? (env ? env.split(':') : [fallback])).filter((root) => root.startsWith('/')).map((root) => path.normalize(root).replace(/\/+$/, '')).filter(Boolean);
+  const hostEnv = options.env ?? process.env;
   return {
     home,
     fs: options.fs ?? realFs,
     volumesRoot,
     agentVolumes: configured.map((volume) => path.normalize(volume).replace(/\/+$/, '')),
+    workspaceRoots: roots(options.workspaceRoots, hostEnv.RIGHTKIT_WORKSPACE_ROOTS, WORKSPACE_ROOT),
+    runRootParents: roots(options.runRootParents, hostEnv.RIGHTKIT_SCRATCH_ROOTS, RUN_ROOT_PARENT),
     systemRoots: options.systemRoots ?? ['/', '/System/Volumes/Data'],
     env: options.env ?? process.env, // the hook's own environment (inherited GIT_* overrides)
     clock: options.clock ?? Date.now,
@@ -658,6 +688,91 @@ function protectedWrite(word, scope, ctx, via, prefixOnly = false) {
 }
 const cwdWord = (scope) => (scope.cwd ? { v: scope.cwd, dyn: false } : null);
 
+// ---------------------------------------------------------------------------------------------------------------
+// Run roots. A clone, a worktree or a download is admitted only below a directory that RightKit leased for the run
+// (`right-release disk run-root <name>`): the disk sweep skips a leased directory, so what an agent fetches there cannot
+// be deleted under it, and everything else on the agent volume ages out by the normal scratch rules.
+const DEVICE_SINKS = new Set(['/dev/null', '/dev/stdout', '/dev/stderr']);
+const runRootHint = (rule, ctx) => {
+  const parent = ctx.runRootParents[0] ?? RUN_ROOT_PARENT;
+  const workspace = ctx.workspaceRoots[0] ?? WORKSPACE_ROOT;
+  const next = rule === 'download-outside-run-root'
+    ? `download into it (for example "curl -o ${parent}/<name>/file URL")`
+    : `clone or add worktrees below it (for example "git clone URL ${parent}/<name>/<repo>")`;
+  return `Create a run root first: \`${RUN_COMMAND}\` makes ${parent}/<name>/ with its ${RUN_LEASE_FILE} lease (3 days, --days N to change), then ${next}. The lease must still be running; the run root directory itself, a symlink, "..", a sibling directory or an expired lease does not count. Primary checkouts live in ${workspace}/<repo> and are not created by agents. ${AGENT_NOTE}`;
+};
+
+/** { lease } when `run` holds a regular lease file that is well formed and still running, else { why }. Unreadable or malformed is NOT a lease. */
+function runLease(run, ctx) {
+  const file = path.join(run, RUN_LEASE_FILE);
+  let kind;
+  try { kind = ctx.fs.kind(file); } catch (error) { return { why: `${file} cannot be inspected (${error?.code ?? error?.message})` }; }
+  if (kind === null) return { why: `${run} holds no ${RUN_LEASE_FILE} lease` };
+  if (kind !== 'file') return { why: `${file} is a ${kind}, not a regular file` };
+  let lease;
+  try { lease = JSON.parse(ctx.fs.readFile(file)); } catch (error) { return { why: `${file} cannot be read as a lease (${error?.code ?? error?.message})` }; }
+  const [created, until] = [lease?.createdAt, lease?.leaseUntil].map((value) => (typeof value === 'string' ? Date.parse(value) : NaN));
+  if (lease?.schema !== 1 || typeof lease.name !== 'string' || !Number.isFinite(created) || !Number.isFinite(until)) return { why: `${file} is not a schema 1 lease` };
+  if (!(until > ctx.clock())) return { why: `the lease in ${file} ended at ${lease.leaseUntil}` };
+  return { lease };
+}
+
+/**
+ * The leased run root `real` (an exact physical path) lies below: { run } or { why }. The run root is the directory directly
+ * under a run-root parent. It must be a real directory (so is every ancestor: realpath must give the same string back) holding
+ * a live lease; `real` may equal it, the callers decide whether that is a destination.
+ */
+function runRootOf(real, ctx) {
+  const parent = ctx.runRootParents.find((candidate) => within(candidate, real) && real.length > candidate.length);
+  if (!parent) return { why: `${real} is not below a run-root parent (${ctx.runRootParents.join(', ') || 'none is configured'})` };
+  const run = `${real.slice(0, parent.length)}/${real.slice(parent.length + 1).split('/')[0]}`;
+  try {
+    const kind = ctx.fs.kind(run);
+    if (kind === null) return { why: `the run root ${run} does not exist` };
+    if (kind !== 'dir') return { why: `the run root ${run} is a ${kind}, not a plain directory` };
+    const actual = ctx.fs.realpath(run);
+    if (actual !== run) return { why: `the run root ${run} resolves to ${actual}, so it or a parent is a symlink` };
+  } catch (error) { return { why: `the run root ${run} cannot be inspected (${error?.code ?? error?.message})` }; }
+  const lease = runLease(run, ctx);
+  return lease.why ? lease : { run, lease: lease.lease };
+}
+
+/**
+ * A destination that must lie below a leased run root. The agent-volume and internal-path rules still come first (a
+ * destination on /Volumes/E stays `non-agent-volume`, an unresolved word stays `undeterminable-destination`). Then the
+ * destination is resolved exactly (no ".."), must be below a run root with a live lease on an agent volume, and must not be the
+ * lease file or the run root itself. `directory` says the word names a directory the tool puts files into (a working directory,
+ * --output-dir, -P): the run root may then be that directory.
+ */
+function runRootDestination(word, scope, ctx, via, rule, { directory = false } = {}) {
+  const found = protectedWrite({ ...word, prefix: word.prefix ?? word.v }, scope, ctx, via);
+  if (found) return found;
+  const deny = (why) => violation(rule, `${via} writes outside a leased run root: ${why}`, runRootHint(rule, ctx));
+  const text = word.v;
+  if (!text) return deny('the destination is empty');
+  const absolute = absolutePath(text, scope.cwd);
+  if (!absolute) return deny(`"${text}" is relative and the working directory is not known`);
+  if (absolute.split('/').includes('..')) return deny(`"${text}" contains ".." traversal`);
+  // The run directory as typed must itself be a real directory: a symlink there is refused even when it leads to a leased one.
+  const typed = path.normalize(absolute);
+  const typedParent = ctx.runRootParents.find((candidate) => within(candidate, typed) && typed.length > candidate.length);
+  if (typedParent) {
+    const typedRun = `${typed.slice(0, typedParent.length)}/${typed.slice(typedParent.length + 1).split('/')[0]}`;
+    let typedKind;
+    try { typedKind = ctx.fs.kind(typedRun); } catch (error) { return deny(`${typedRun} cannot be inspected (${error?.code ?? error?.message})`); }
+    if (typedKind === 'symlink') return deny(`${typedRun} is a symlink, not a run root directory`);
+  }
+  const resolved = resolveDestination(typed, ctx.fs);
+  if (resolved.error) return deny(resolved.error);
+  const root = runRootOf(resolved.real, ctx);
+  if (root.why) return deny(root.why);
+  if (resolved.real === root.run && !directory) return deny(`${root.run} is the run root itself; the destination must be below it`);
+  if (within(path.join(root.run, RUN_LEASE_FILE), resolved.real)) return deny(`${RUN_LEASE_FILE} is the lease file and is written only by \`${RUN_COMMAND}\``);
+  const onAgent = agentDestination({ v: resolved.real, dyn: false }, null, ctx);
+  if (!onAgent.ok) return deny(`the run root is not on an agent volume: ${onAgent.why}`);
+  return null;
+}
+
 /** Tar mode and destinations. Create/append/update/delete write -f; extract writes the -C directories (or the cwd). */
 function tarRule(args, scope, ctx) {
   // -h is --dereference (BSD and GNU), a no-value flag; help is only --help or -?. A help word never skips an output option.
@@ -792,19 +907,25 @@ function writerRule(program, args, scope, ctx) {
     if (has('K', 'config')) return refuse('curl -K/--config: the config file can set any output path', 'Pass the options on the command line instead of a config file.');
     for (const word of valuesOf('w', 'write-out')) if (word.dyn || /%output\s*\{/.test(word.v)) return refuse('curl --write-out may write a file through %output{...} (or is built from a shell expansion)', 'Use a literal --write-out format without %output{}.');
     // Implicit output: -O/--remote-name/--remote-name-all/-J write into --output-dir, else the working directory.
-    const dir = valuesOf('output-dir')[0];
-    if (dir) targets.push({ word: dir, via: 'curl --output-dir' });
-    if (has('O', 'remote-name', 'remote-name-all', 'J') && !dir) {
+    const dirs = valuesOf('output-dir');
+    for (const dir of dirs) targets.push({ word: dir, via: 'curl --output-dir', directory: true });
+    if (has('O', 'remote-name', 'remote-name-all', 'J') && !dirs.length) {
       const here = cwdWord(scope);
-      if (here) targets.push({ word: here, via: 'curl -O/--remote-name-all (writes into the working directory)' });
+      if (here) targets.push({ word: here, via: 'curl -O/--remote-name-all (writes into the working directory)', directory: true });
       else return refuse('curl -O/--remote-name-all writes into a working directory that is not known', 'Use "curl -o <absolute file>" or --output-dir with an absolute path.');
     }
   }
   if (spec.dest === 'wget') {
     const document = parsed.opts.find((opt) => opt.name === 'O' || opt.name === 'output-document')?.value;
-    const prefix = parsed.opts.find((opt) => opt.name === 'P' || opt.name === 'directory-prefix')?.value;
-    if (prefix) targets.push({ word: prefix, via: 'wget -P' });
-    if (!document && !prefix && operands.length) { const here = cwdWord(scope); if (here) targets.push({ word: here, via: 'wget (writes into the working directory)' }); else return refuse('wget writes into a working directory that is not known', 'Use "wget -O <absolute file>".'); }
+    const prefixes = valuesOf('P', 'directory-prefix');
+    // -e/--execute runs a wgetrc command (dir_prefix=, output_document=, logfile=) and --config reads a whole wgetrc: either
+    // can move every output, so only a few harmless settings are accepted.
+    if (has('config')) return refuse('wget --config: the config file can set any output path', 'Pass the options on the command line instead of a config file.');
+    for (const word of valuesOf('e', 'execute')) if (word.dyn || !/^\s*(?:robots|use_proxy|http_proxy|https_proxy|ftp_proxy|no_proxy|tries|wait|waitretry|timeout|content_disposition|check_certificate|retry_connrefused)\s*=/i.test(word.v)) return refuse(`wget -e/--execute ${word.dyn ? '(built from a shell expansion)' : word.v}: a wgetrc command can set any output path`, 'Use the dedicated wget options (-O, -P) instead of -e.');
+    for (const prefix of prefixes) targets.push({ word: prefix, via: 'wget -P', directory: true });
+    // -i FILE and -b (the wget-log file) write into the working directory with no URL operand.
+    const writesHere = operands.length || has('i', 'input-file') || (has('b', 'background') && !has('o', 'output-file', 'a', 'append-output'));
+    if (!document && !prefixes.length && writesHere) { const here = cwdWord(scope); if (here) targets.push({ word: here, via: 'wget (writes into the working directory)', directory: true }); else return refuse('wget writes into a working directory that is not known', 'Use "wget -O <absolute file>".'); }
   }
   if (program === 'rsync') {
     // --write-batch=F and --only-write-batch=F write F and F.sh. --backup-dir and --partial-dir resolve against the
@@ -826,7 +947,11 @@ function writerRule(program, args, scope, ctx) {
   }
   for (const target of targets) {
     if (target.word.v === '-' && ['wget', 'curl', 'dd'].includes(program)) continue; // stdout
-    const found = protectedWrite({ ...target.word, prefix: target.word.prefix ?? target.word.v }, scope, ctx, target.via);
+    const downloader = program === 'curl' || program === 'wget';
+    const sink = downloader && !target.word.dyn && DEVICE_SINKS.has(target.word.v); // /dev/null and friends write no file
+    const found = downloader && !sink
+      ? runRootDestination(target.word, scope, ctx, target.via, 'download-outside-run-root', { directory: target.directory })
+      : protectedWrite({ ...target.word, prefix: target.word.prefix ?? target.word.v }, scope, ctx, target.via);
     if (found) return found;
   }
   return null;
@@ -1479,7 +1604,7 @@ function parseGitConfigArgs(words) {
  * operand (never the trailing commit-ish). Unknown options, extra operands and unresolved words are refused.
  */
 function gitRule(rest, scope, ctx) {
-  const refuseGit = (why) => refuse(`git: ${why}`, 'Run git with literal options and an absolute destination, for example "git clone URL /Volumes/D/scratch/x".');
+  const refuseGit = (why) => refuse(`git: ${why}`, 'Run git with literal options and an absolute destination, for example "git clone URL /Volumes/D/scratch/<name>/<repo>" after `right-release disk run-root <name>`.');
   const globals = parseOptions(rest, GIT_GLOBAL);
   if (globals.error) return refuseGit(`${globals.error}; the guard does not know that global option's arity`);
   const globalWords = rest.slice(0, rest.length - globals.operands.length);
@@ -1507,9 +1632,10 @@ function gitRule(rest, scope, ctx) {
   const outputs = gitOutputFiles(after, GIT_DIFF_FAMILY.has(name) || name === 'format-patch');
   if (outputs.error) return refuseGit(`${name}: ${outputs.error}`);
   for (const word of outputs.files) destinations.push({ word, via: `git ${name} --output` });
-  const finish = () => {
+  // `rule` set: every destination must lie below a leased run root (clone, worktree add), not just on an agent volume.
+  const finish = (rule = null) => {
     for (const destination of destinations) {
-      const found = protectedWrite({ ...destination.word, prefix: destination.word.prefix ?? destination.word.v }, inner, ctx, destination.via);
+      const found = rule ? runRootDestination(destination.word, inner, ctx, destination.via, rule) : protectedWrite({ ...destination.word, prefix: destination.word.prefix ?? destination.word.v }, inner, ctx, destination.via);
       if (found) return found;
     }
     return null;
@@ -1538,7 +1664,7 @@ function gitRule(rest, scope, ctx) {
       const bare = parsed.opts.some((opt) => ['bare', 'mirror'].includes(opt.name));
       destinations.push({ word: { v: `${cwd.replace(/\/+$/, '')}/${dirName}${bare ? '.git' : ''}`, dyn: false }, via: 'git clone (default directory)' });
     }
-    return finish();
+    return finish('repo-create-outside-run-root');
   }
   if (name === 'init') {
     const parsed = parseOptions(after, GIT_INIT);
@@ -1658,7 +1784,7 @@ function gitRule(rest, scope, ctx) {
     if (action.v === 'add') {
       if (operands.length < 1 || operands.length > 2) return refuseGit(`worktree add takes PATH and an optional commit-ish, got ${operands.length} operands`);
       destinations.push({ word: operands[0], via: 'git worktree add' }); // PATH, never the trailing commit-ish
-      return finish();
+      return finish('repo-create-outside-run-root'); // move and repair stay on the agent-volume check: they relocate or relink an existing worktree
     }
     if (action.v === 'move') {
       if (operands.length !== 2) return refuseGit(`worktree move takes a worktree and a new location, got ${operands.length} operands`);
