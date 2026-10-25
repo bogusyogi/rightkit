@@ -1,3 +1,69 @@
+# Line endings: LF on every host. A text file is stored with LF and checked out with LF whatever core.autocrlf or core.eol the host sets.
+# Git for Windows and the hosted Windows runners default to autocrlf=true, which writes CRLF and breaks every byte-for-byte or hashed
+# comparison of a checked-in file: docs/RELEASE-EXPORTS.md in release-exports.test.mjs, the Swift Right Suite API projection in
+# scripts/gen-suite-api.mjs (rightkit#1175, #1187). One default removes that class instead of pinning each such file after it fails; `auto` leaves
+# binary files alone. Later lines override this one per path. scripts/preflight.mjs eol-policy (G04) refuses a CRLF blob under it.
+* text=auto eol=lf
+# cmd.exe mis-parses LF-only batch files (labels and goto), so these keep CRLF on every host. None is tracked today.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# Known binary formats by extension; auto-detection above is only a heuristic.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.mov binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.xlsx binary
+*.pb binary
+*.bin binary
+# Legacy CRLF and mixed blobs: their committed bytes are kept as they are (a renormalisation would rewrite audit evidence and plans, a
+# patch whose hunks carry CRLF, and sources nobody has touched since). Git converts nothing here on any host. The list only shrinks:
+# renormalise a file in its own commit and delete its line, and never add one for a new file (eol-policy G04 refuses a new CRLF blob).
+/ci/linux-required.json -text
+/crates/rightkit-crash/Cargo.toml -text
+/crates/rightkit-crash/src/report.rs -text
+/crates/rightkit-daemon/benches/budget.rs -text
+/crates/rightkit-tauri-shell/benches/workloads.json -text
+/docs/audits/2026-10-18-round3/component-pass/REPORT-license.txt -text
+/docs/audits/2026-10-18-round3/component-pass/REPORT-models.txt -text
+/docs/audits/2026-10-18-round3/component-pass/npm-app.patch -text
+/docs/audits/2026-10-18-round3/component-pass/qa.patch -text
+/docs/audits/cutover-matrix-2026-10-11/matrix.csv -text
+/docs/audits/fresh-2026-10-10/evidence/app-rightkit-dependencies.csv -text
+/docs/audits/fresh-2026-10-10/evidence/app-rightkit-references.csv -text
+/docs/audits/fresh-2026-10-10/evidence/npm-dependencies.csv -text
+/docs/audits/fresh-2026-10-11/evidence/app-rightkit-dependencies.csv -text
+/docs/audits/fresh-2026-10-11/evidence/rightkit-dependencies.csv -text
+/docs/audits/fresh-2026-10-11/handoff-backlog.csv -text
+/docs/plans/2026-10-20-rightkit-implementation/02-pulse.md -text
+/docs/plans/2026-10-20-rightkit-implementation/03-heardright.md -text
+/docs/plans/2026-10-20-rightkit-implementation/04-viewright.md -text
+/docs/plans/2026-10-20-rightkit-implementation/05-mailright.md -text
+/docs/plans/2026-10-20-rightkit-implementation/06-scraperight.md -text
+/docs/plans/2026-10-20-rightkit-implementation/07-coderight.md -text
+/docs/plans/2026-10-20-rightkit-implementation/README.md -text
+/docs/plans/2026-10-20-rightkit-spec-lock/rightkit-legal-ui-0.4.1.evidence.json -text
+/docs/plans/2026-10-20-rightkit-spec-lock/rightkit-onboarding-0.6.2.evidence.json -text
+/docs/plans/2026-10-20-rightkit-spec-lock/rightkit-qa-0.7.1.evidence.json -text
+/packages/license/CHANGELOG.md -text
+/packages/license/src/index.test.ts -text
+/packages/license/src/lifecycle.test.ts -text
+/packages/license/src/refresh.test.ts -text
+/packages/license/src/testing.ts -text
+/swift/RightKitSwift/Sources/RightKitCloudSync/CloudKitSyncTransport.swift -text
 # Shell scripts run under bash on every runner, including Windows: always LF.
 *.sh text eol=lf
 # CI contracts & workflow bytes must match native checkouts & hosted runners.
