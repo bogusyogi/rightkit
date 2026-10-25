@@ -4,6 +4,7 @@
 // instance, then checks the template files the evaluators cannot see (pins, the committed hook, advisory policy, placeholders).
 // Every assertion names the thing that breaks the day it regresses.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -222,6 +223,70 @@ test("every RightKit pin is exact and equals the published set; tauri plugin cra
   for (const [name, spec] of Object.entries(npmPins)) assert.ok(workspace.includes(`'${name}@${spec}'`), `${name}@${spec} is missing from minimumReleaseAgeExclude in pnpm-workspace.yaml (the release-age guard would refuse a fresh publish)`);
 });
 
+test("THIRD_PARTY_NOTICES.md states the hashes of the locks and the npm appendix the template commits", () => {
+  // legal-snapshot renders these hashes into the notice and nothing else compares them, so a lock that moves without a re-run leaves a
+  // notice that describes a build nobody can reproduce. Re-run in desktop-app-template: `pnpm exec legal-snapshot --source-root ../legal`.
+  const sha = (file) => createHash("sha256").update(readFileSync(path.join(TEMPLATE, ...file.split("/")))).digest("hex");
+  const inputs = /^inputs: (.+)\.$/m.exec(read("legal", "THIRD_PARTY_NOTICES.md"))?.[1];
+  assert.ok(inputs, "the notice carries its inputs line");
+  const stated = Object.fromEntries(inputs.split("; ").map((part) => { const m = /^(\S+) sha256 ([0-9a-f]{64})$/.exec(part); return [m?.[1], m?.[2]]; }));
+  assert.deepEqual(Object.keys(stated).sort(), ["Cargo.lock", "legal/THIRD_PARTY_NPM_LICENSES.html", "pnpm-lock.yaml"]);
+  for (const [file, digest] of Object.entries(stated)) assert.equal(digest, sha(file), `THIRD_PARTY_NOTICES.md states a stale sha256 for ${file}: run \`pnpm exec legal-snapshot --source-root ../legal\` in desktop-app-template`);
+});
+
+/** The template's manifests name one app: the checks the retired `rightapp-tools check` made that no RightKit evaluator makes. */
+function manifestDisagreements(root) {
+  const text = (...parts) => readFileSync(path.join(root, ...parts), "utf8");
+  const json = (...parts) => JSON.parse(text(...parts));
+  const field = (toml, key) => new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m").exec(toml)?.[1];
+  const binName = (toml) => /\[\[bin\]\]\s*\nname\s*=\s*"([^"]+)"/.exec(toml)?.[1];
+  const pkg = json("package.json");
+  const tauri = json("src-tauri", "tauri.conf.json");
+  const config = json("right-release.config.json");
+  const shell = text("src-tauri", "Cargo.toml");
+  const engine = text("crates", "engine", "Cargo.toml");
+  const protocol = text("crates", "protocol", "Cargo.toml");
+  const lib = text("src-tauri", "src", "lib.rs");
+  const problems = [];
+  const need = (ok, message) => { if (!ok) problems.push(message); };
+  // identity: one version and one name across package.json, tauri.conf.json and the three crates
+  need(tauri.version === pkg.version, `tauri.conf.json version ${tauri.version} != package.json ${pkg.version}`);
+  for (const [label, toml] of [["src-tauri", shell], ["engine", engine], ["protocol", protocol]]) need(field(toml, "version") === pkg.version, `${label}/Cargo.toml version != package.json ${pkg.version}`);
+  need(field(shell, "name") === pkg.name, "src-tauri package name != package.json name");
+  need(config.app === pkg.name, "right-release.config.json app != package.json name");
+  need(tauri.mainBinaryName === binName(shell), "tauri.conf.json mainBinaryName != the src-tauri [[bin]] name");
+  need(tauri.productName.toLowerCase() === pkg.name, "tauri.conf.json productName lowercased != package.json name");
+  need(tauri.identifier.endsWith(`.${pkg.name}`), "tauri.conf.json identifier must end with .<package name>");
+  // sidecar: externalBin, the engine [[bin]], the staging declaration and the shell that spawns it name one binary
+  const engineBin = binName(engine);
+  need(JSON.stringify(tauri.bundle.externalBin) === JSON.stringify([`binaries/${engineBin}`]), `bundle.externalBin must be [binaries/${engineBin}]`);
+  need(lib.includes(`"${engineBin}"`), "src-tauri/src/lib.rs does not name the engine binary the supervisor spawns");
+  need(JSON.stringify(config.sidecars?.sidecars?.map((s) => [s.kind, s.package, s.manifestPath])) === JSON.stringify([["cargo-bin", field(engine, "name"), "crates/engine/Cargo.toml"]]), "right-release.config.json sidecars must stage the engine package from crates/engine/Cargo.toml");
+  // dev server: tauri devUrl, vite and the dev script agree on one port; the frontend dist is vite's output
+  const port = /:(\d+)\/?$/.exec(tauri.build.devUrl)?.[1];
+  need(Boolean(port) && text("vite.config.ts").includes(`port: ${port}`), "vite port != tauri.conf.json devUrl port");
+  need(Boolean(port) && pkg.scripts.dev.includes(`--port ${port}`), "package.json dev script port != tauri.conf.json devUrl port");
+  need(tauri.build.frontendDist === "../dist" && text("vite.config.ts").includes('outDir: "dist"'), "tauri.conf.json frontendDist != vite outDir");
+  // capabilities: every Tauri plugin the shell registers has its permission
+  const permissions = json("src-tauri", "capabilities", "default.json").permissions.join(" ");
+  for (const [plugin, permission] of [["tauri_plugin_updater", "updater:"], ["tauri_plugin_process", "process:"], ["tauri_plugin_os", "os:"]]) need(!lib.includes(plugin) || permissions.includes(permission), `capabilities/default.json has no ${permission}* permission for ${plugin}`);
+  // imports: every @rightkit package the renderer imports is declared
+  const declared = { ...pkg.dependencies, ...pkg.devDependencies };
+  for (const file of walk(path.join(root, "src"), (f) => /\.(ts|tsx)$/.test(f))) {
+    for (const m of readFileSync(file, "utf8").matchAll(/(?:from|import)\s+["'](@rightkit\/[a-z0-9-]+)[^"']*["']/g)) need(m[1] in declared, `${path.relative(root, file)} imports ${m[1]}, which package.json does not declare`);
+  }
+  // one harness: rightkit-qa journeys. No Node UI harness dependency, no Node file under tests/
+  for (const harness of ["puppeteer", "puppeteer-core", "playwright", "@playwright/test", "selenium-webdriver", "webdriverio", "@wdio/cli"]) need(!(harness in declared), `${harness} is a Node test harness; drive the app with rightkit-qa journeys`);
+  const nodeTests = existsSync(path.join(root, "tests")) ? walk(path.join(root, "tests"), (f) => /\.(mjs|js|cjs|ts)$/.test(f)) : [];
+  need(nodeTests.length === 0, `Node files under tests/: ${nodeTests.map((f) => path.relative(root, f)).join(", ")}`);
+  return problems;
+}
+
+test("the template's manifests agree on the app's identity, sidecar, dev port, plugin permissions and imports, before and after `init`", () => {
+  assert.deepEqual(manifestDisagreements(TEMPLATE), []);
+  assert.deepEqual(manifestDisagreements(instance()), [], "init left the renamed instance with manifests that disagree");
+});
+
 test("the pre-push hook is committed, executable and what the pinned `rightkit-gate install-hook` writes; `prepare` installs it", () => {
   const hook = read(".githooks", "pre-push").replace(/\r\n/g, "\n");
   assert.equal(readJson("package.json").scripts.prepare, "rightkit-gate install-hook");
@@ -245,6 +310,14 @@ test("the pre-push hook is committed, executable and what the pinned `rightkit-g
   if (tracked.status === 0 && tracked.stdout.trim()) assert.match(tracked.stdout, /^100755 /, "git must record the hook as executable, or a fresh clone cannot run it");
   const tree = git(REPO, "ls-files", "-s", "desktop-app-template/package.json");
   if (tree.status === 0 && tree.stdout.trim()) assert.match(tree.stdout, /^100644 /, "package.json is a plain file");
+});
+
+test("the README warns that `prepare` acts on the enclosing repository, because the template lives inside RightKit's", () => {
+  // `rightkit-gate install-hook` resolves the git toplevel. Inside the RightKit repository that is RightKit's own `.githooks`, which differs
+  // from the app hook: `pnpm install` fails in `prepare`, and `--force` would replace RightKit's pre-push hook.
+  const readme = read("README.md");
+  assert.match(readme, /pnpm install --ignore-scripts/);
+  assert.match(readme, /never run\s+`rightkit-gate install-hook --force` from this directory/);
 });
 
 test("the README names the release the template waits for exactly while the pin is older than this tree's", () => {

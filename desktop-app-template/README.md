@@ -16,6 +16,12 @@ release config is loaded by every command from 0.6.5. Until 0.6.5 is published a
 `right-release` from a RightKit checkout (`node <rightkit checkout>/packages/release/cli/right-release.mjs <command>`) instead of
 `pnpm release:*` and `pnpm dev:build:*`.
 
+**Installing inside the RightKit repository.** This directory sits inside RightKit's own git repository, so `prepare`
+(`rightkit-gate install-hook`) acts on the hooks at that repository's root, not on the template: it finds RightKit's own
+`.githooks/pre-push`, refuses to touch it and fails `pnpm install`. Install here with `pnpm install --ignore-scripts`, and never run
+`rightkit-gate install-hook --force` from this directory: it would replace RightKit's own pre-push hook. An app copied into its own
+repository installs normally; delete this paragraph there.
+
 ## What is in it
 
 | Area | Files | What it does |
