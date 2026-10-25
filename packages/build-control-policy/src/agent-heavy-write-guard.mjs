@@ -37,7 +37,10 @@
 // `/Volumes/E` (not an agent volume) all fail.
 //
 // Not a sandbox and not confinement: scripts, services, child processes, makefiles, IDEs and tools that choose their
-// own locations escape every visible argument. Native write-location proof is still required (README).
+// own locations escape every visible argument. Native write-location proof is still required (README). Known limits of
+// the run-root rules, left alone on purpose: `gh repo clone`, `git init` followed by `git fetch`, scripts and heredocs
+// that clone or download, a shell redirect of curl's stdout to a workspace file, WGETRC, a server-chosen file name
+// (curl -J, wget --content-disposition) and archive members or cloned files that carry a lease file.
 // Nothing here changes SDK defaults, moves, deletes, resets or symlinks anything.
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -650,7 +653,7 @@ const WRITERS = {
   dd: { dest: 'dd', shortArg: '', shortFlag: '', longArg: [], longFlag: ['help', 'version'] },
   unzip: { dest: 'unzip', shortArg: 'dxP', shortFlag: 'aAbcCfjklLMnopqsStTuUvVXz2', longArg: [], longFlag: [], destOpts: ['d'] },
   curl: {
-    dest: 'curl', shortArg: 'AbcCdDeEFHKmoPQrtTuUwxXyYz', shortFlag: '0123456aBfgGhiIjJklLMnNOpqRsSvVZ#',
+    dest: 'curl', shortArg: 'AbcCdDeEFHKmoPQrtTuUwxXyYz', shortFlag: '0123456aBfgGhiIjJklLMnNOpqRsSvVZ#:',
     longArg: ['abstract-unix-socket', 'alt-svc', 'aws-sigv4', 'cacert', 'capath', 'cert', 'cert-type', 'ciphers', 'config', 'connect-timeout', 'connect-to', 'continue-at', 'cookie', 'cookie-jar', 'create-file-mode', 'crlfile', 'curves', 'data', 'data-ascii', 'data-binary', 'data-raw', 'data-urlencode', 'delegation', 'dns-interface', 'dns-ipv4-addr', 'dns-ipv6-addr', 'dns-servers', 'doh-url', 'dump-header', 'egd-file', 'engine', 'etag-compare', 'etag-save', 'expect100-timeout', 'form', 'form-string', 'ftp-account', 'ftp-alternative-to-user', 'ftp-method', 'ftp-port', 'happy-eyeballs-timeout-ms', 'haproxy-clientip', 'header', 'hostpubmd5', 'hostpubsha256', 'hsts', 'interface', 'ipfs-gateway', 'json', 'keepalive-time', 'key', 'key-type', 'krb', 'libcurl', 'limit-rate', 'local-port', 'login-options', 'mail-auth', 'mail-from', 'mail-rcpt', 'max-filesize', 'max-redirs', 'max-time', 'netrc-file', 'noproxy', 'oauth2-bearer', 'output', 'output-dir', 'parallel-max', 'pass', 'pinnedpubkey', 'preproxy', 'proto', 'proto-default', 'proto-redir', 'proxy', 'proxy-cacert', 'proxy-capath', 'proxy-cert', 'proxy-header', 'proxy-key', 'proxy-pass', 'proxy-user', 'proxy1.0', 'pubkey', 'quote', 'random-file', 'range', 'rate', 'referer', 'request', 'request-target', 'resolve', 'retry', 'retry-delay', 'retry-max-time', 'sasl-authzid', 'service-name', 'socks4', 'socks4a', 'socks5', 'socks5-hostname', 'speed-limit', 'speed-time', 'stderr', 'tftp-blksize', 'time-cond', 'tls-max', 'tls13-ciphers', 'tlsauthtype', 'tlspassword', 'tlsuser', 'trace', 'trace-ascii', 'unix-socket', 'upload-file', 'url', 'url-query', 'user', 'user-agent', 'variable', 'vlan-priority', 'write-out'],
     longFlag: ['anyauth', 'append', 'basic', 'buffer', 'ca-native', 'compressed', 'compressed-ssh', 'create-dirs', 'crlf', 'digest', 'disable', 'disable-eprt', 'disable-epsv', 'disallow-username-in-url', 'fail', 'fail-early', 'fail-with-body', 'false-start', 'get', 'globoff', 'head', 'help', 'http0.9', 'http1.0', 'http1.1', 'http2', 'http2-prior-knowledge', 'http3', 'http3-only', 'include', 'insecure', 'ipv4', 'ipv6', 'junk-session-cookies', 'list-only', 'location', 'location-trusted', 'manual', 'negotiate', 'netrc', 'netrc-optional', 'next', 'no-alpn', 'no-buffer', 'no-keepalive', 'no-npn', 'no-progress-meter', 'no-sessionid', 'ntlm', 'ntlm-wb', 'parallel', 'parallel-immediate', 'path-as-is', 'post301', 'post302', 'post303', 'progress-bar', 'proxy-anyauth', 'proxy-basic', 'proxy-digest', 'proxy-insecure', 'proxy-negotiate', 'proxy-ntlm', 'proxytunnel', 'raw', 'remote-header-name', 'remote-name', 'remote-name-all', 'remote-time', 'retry-all-errors', 'retry-connrefused', 'sasl-ir', 'show-error', 'silent', 'ssl', 'ssl-allow-beast', 'ssl-no-revoke', 'ssl-reqd', 'styled-output', 'suppress-connect-headers', 'tcp-fastopen', 'tcp-nodelay', 'tftp-no-options', 'tlsv1', 'tlsv1.0', 'tlsv1.1', 'tlsv1.2', 'tlsv1.3', 'tr-encoding', 'trace-time', 'use-ascii', 'verbose', 'version', 'xattr', 'fail-with-body'],
     allowNo: true, destOpts: ['o', 'output', 'D', 'dump-header', 'c', 'cookie-jar', 'trace', 'trace-ascii', 'stderr', 'libcurl', 'etag-save', 'hsts', 'alt-svc'],
@@ -663,7 +666,8 @@ const WRITERS = {
   },
 };
 
-function programName(word) { return path.basename(word.v.replace(/\\/g, '/')).replace(/\.exe$/i, ''); }
+// Lower-cased: APFS and NTFS are case-insensitive, so `Git`, `CURL` and `/usr/bin/Curl` run the real binaries.
+function programName(word) { return path.basename(word.v.replace(/\\/g, '/')).replace(/\.exe$/i, '').toLowerCase(); }
 
 /**
  * A write destination. G1: every unresolved destination is refused, including one with a safe-looking prefix (a
@@ -909,7 +913,8 @@ function writerRule(program, args, scope, ctx) {
   const operands = parsed.operands;
   const last = operands.at(-1);
   const remote = (word) => ['rsync', 'scp'].includes(program) && /^[^/]*:/.test(word.v) && !word.v.startsWith('/');
-  if (spec.destOpts) collect(spec.destOpts);
+  // curl's -o/--output is resolved per operation below (it is relative to that operation's --output-dir).
+  if (spec.destOpts) collect(program === 'curl' ? spec.destOpts.filter((name) => name !== 'o' && name !== 'output') : spec.destOpts);
   const hasDirectory = has('t', 'target-directory');
   if (spec.dest === 'last') {
     if (program === 'install' && has('d', 'directory')) {
@@ -942,25 +947,45 @@ function writerRule(program, args, scope, ctx) {
     // -K/--config can set any output option, so it is refused. -w/--write-out can write a file through %output{}.
     if (has('K', 'config')) return refuse('curl -K/--config: the config file can set any output path', 'Pass the options on the command line instead of a config file.');
     for (const word of valuesOf('w', 'write-out')) if (word.dyn || /%output\s*\{/.test(word.v)) return refuse('curl --write-out may write a file through %output{...} (or is built from a shell expansion)', 'Use a literal --write-out format without %output{}.');
-    // Implicit output: -O/--remote-name/--remote-name-all/-J write into --output-dir, else the working directory.
-    const dirs = valuesOf('output-dir');
-    for (const dir of dirs) targets.push({ word: dir, via: 'curl --output-dir', directory: true });
-    if (has('O', 'remote-name', 'remote-name-all', 'J') && !dirs.length) {
-      const here = cwdWord(scope);
-      if (here) targets.push({ word: here, via: 'curl -O/--remote-name-all (writes into the working directory)', directory: true });
-      else return refuse('curl -O/--remote-name-all writes into a working directory that is not known', 'Use "curl -o <absolute file>" or --output-dir with an absolute path.');
+    // `--next` (or `-:`) starts a new operation, and --output-dir, -O, -J and -o belong to ONE operation: `curl --output-dir R -O U --next -O U`
+    // writes its second file into the working directory. Each operation is checked on its own. --remote-name-all is
+    // applied to every operation (the conservative reading: it can only add a working-directory write).
+    const operations = [[]];
+    for (const opt of parsed.opts) { if (opt.name === 'next' || opt.name === ':') operations.push([]); else operations.at(-1).push(opt); }
+    const remoteNameAll = has('remote-name-all');
+    for (const operation of operations) {
+      const named = (...names) => operation.some((opt) => names.includes(opt.name));
+      const dirs = operation.filter((opt) => opt.name === 'output-dir' && opt.value).map((opt) => opt.value);
+      for (const dir of dirs) targets.push({ word: dir, via: 'curl --output-dir', directory: true });
+      // -o with a relative file name lands in --output-dir when the operation has one (the last wins), else in the working directory.
+      const base = dirs.at(-1);
+      for (const opt of operation) {
+        if ((opt.name !== 'o' && opt.name !== 'output') || !opt.value) continue;
+        const value = opt.value;
+        const inDir = base && !base.dyn && !value.dyn && value.v !== '-' && value.v !== '' && !value.v.startsWith('/');
+        targets.push({ word: inDir ? { v: `${base.v.replace(/\/+$/, '')}/${value.v}`, dyn: false } : value, via: `curl -${opt.name.length > 1 ? '-' : ''}${opt.name}` });
+      }
+      // Implicit output: -O/--remote-name/--remote-name-all/-J write into --output-dir, else the working directory.
+      if (named('O', 'remote-name', 'J') || remoteNameAll) {
+        if (dirs.length) continue;
+        const here = cwdWord(scope);
+        if (here) targets.push({ word: here, via: 'curl -O/--remote-name-all (writes into the working directory)', directory: true });
+        else return refuse('curl -O/--remote-name-all writes into a working directory that is not known', 'Use "curl -o <absolute file>" or --output-dir with an absolute path.');
+      }
     }
   }
   if (spec.dest === 'wget') {
     const document = parsed.opts.find((opt) => opt.name === 'O' || opt.name === 'output-document')?.value;
     const prefixes = valuesOf('P', 'directory-prefix');
+    const spiderOnly = has('spider') && !has('r', 'recursive', 'm', 'mirror', 'p', 'page-requisites');
     // -e/--execute runs a wgetrc command (dir_prefix=, output_document=, logfile=) and --config reads a whole wgetrc: either
     // can move every output, so only a few harmless settings are accepted.
     if (has('config')) return refuse('wget --config: the config file can set any output path', 'Pass the options on the command line instead of a config file.');
     for (const word of valuesOf('e', 'execute')) if (word.dyn || !/^\s*(?:robots|use_proxy|http_proxy|https_proxy|ftp_proxy|no_proxy|tries|wait|waitretry|timeout|content_disposition|check_certificate|retry_connrefused)\s*=/i.test(word.v)) return refuse(`wget -e/--execute ${word.dyn ? '(built from a shell expansion)' : word.v}: a wgetrc command can set any output path`, 'Use the dedicated wget options (-O, -P) instead of -e.');
     for (const prefix of prefixes) targets.push({ word: prefix, via: 'wget -P', directory: true });
-    // -i FILE writes into the working directory with no URL operand, and -b without a log file writes wget-log there.
-    const writesHere = operands.length || has('i', 'input-file');
+    // -i FILE writes into the working directory with no URL operand, and -b without a log file writes wget-log there. A plain
+    // --spider fetch saves nothing (a recursive or page-requisites one briefly writes the pages it scans, so it keeps the rule).
+    const writesHere = !spiderOnly && (operands.length || has('i', 'input-file'));
     const logsHere = has('b', 'background') && !has('o', 'output-file', 'a', 'append-output');
     if ((!document && !prefixes.length && writesHere) || logsHere) { const here = cwdWord(scope); if (here) targets.push({ word: here, via: 'wget (writes into the working directory)', directory: true }); else return refuse('wget writes into a working directory that is not known', 'Use "wget -O <absolute file>".'); }
   }

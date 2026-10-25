@@ -1887,7 +1887,13 @@ test('curl and wget write files only into a leased run root', () => {
   denied(`curl -O --output-dir ${ext} --output-dir /Volumes/D/claude ${url}`, dlRule); // the last one wins in curl: both are checked
   denied(`curl -O --output-dir /Volumes/D/claude --output-dir ${ext} ${url}`, dlRule);
   denied(`curl --output-dir /Volumes/D/claude -o x ${url}`, dlRule, ext);
-  denied(`curl -o x --output-dir ${ext} ${url}`, dlRule, ws); // x is read against the cwd, the stricter reading
+  allowed(`curl -o x --output-dir ${ext} ${url}`, ws); // curl puts a relative -o into --output-dir, whatever the cwd is
+  allowed(`curl --output-dir ${ext} -o x ${url}`, ws);
+  allowed(`curl --output-dir ${ext} -o sub/x ${url}`, ws);
+  denied(`curl --output-dir ${ext} -o ../x ${url}`, dlRule, ws); // ".." is never guessed
+  denied(`curl --output-dir ${ext} -o /Volumes/D/claude/x ${url}`, dlRule, ws); // an absolute -o ignores --output-dir
+  denied(`curl --output-dir /Volumes/D/claude -o x ${url}`, dlRule, ext); // the directory is checked, not the cwd
+  denied(`curl -o x ${url}`, dlRule, ws); // no --output-dir: the cwd decides
   allowed(`curl -O ${url}`, ext);
   allowed(`curl -OJ ${url}`, `${ext}/sub`);
   allowed(`curl --remote-name-all ${url}`, ext);
@@ -2024,3 +2030,92 @@ test('hf and huggingface-cli download write only into a leased run root', () => 
   denied(`bash -c "hf download org/m"`, dlRule, ext);
   allowed(`env HF_HOME=${ext}/hf hf download org/m --local-dir ${ext}/m`);
 });
+
+// ---------------------------------------------------------------------------------------------------------------
+// Review findings on the run-root rules. Each case below failed before the fix (and would still compile if it were allowed).
+test('program names match case-insensitively: APFS runs the real binary for Git, CURL and /usr/bin/Curl', () => {
+  denied(`Git clone ${repo} /Users/adrian/y`, runRule);
+  denied(`GIT clone ${repo}`, runRule, ws);
+  denied(`GiT worktree add ../wt`, runRule);
+  denied(`Curl -o /Users/adrian/x ${url}`, dlRule);
+  denied(`CURL -O ${url}`, dlRule, ws);
+  denied(`WGET -P /Users/adrian ${url}`, dlRule);
+  denied(`Wget ${url}`, dlRule, ws);
+  denied(`Hf download org/m`, dlRule);
+  denied(`HF download org/m --local-dir /Volumes/D/claude/m`, dlRule);
+  denied(`Huggingface-CLI download org/m`, dlRule);
+  denied(`/usr/bin/CURL -o /Users/adrian/x ${url}`, dlRule);
+  denied(`/opt/homebrew/bin/Git clone ${repo} /Users/adrian/y`, runRule);
+  denied(`/usr/bin/Curl.EXE -o /Users/adrian/x ${url}`, dlRule);
+  denied(`Env X=1 CURL -o /Users/adrian/x ${url}`, dlRule);
+  denied(`SUDO Wget -P /Users/adrian ${url}`, dlRule);
+  denied(`bash -c "Curl -O ${url}"`, dlRule, ws);
+  denied(`XARGS Curl -O`, 'undeterminable-destination');
+  // the same tables serve every other tool
+  denied(`CP x /Volumes/E/y`, 'non-agent-volume');
+  denied(`Tee /Volumes/E/f`, 'non-agent-volume');
+  denied(`SED -i '' s/a/b/ /Volumes/E/f`, 'non-agent-volume');
+  denied(`Tar -xf a.tar -C /Volumes/E/x`, 'non-agent-volume');
+  denied(`FIND /Volumes/E -delete`, 'non-agent-volume');
+  denied(`XCRUN SIMCTL create A ${device}`, 'simctl-no-simulators');
+  denied(`XCODEBUILD -scheme App build`, 'xcodebuild-derived-data');
+  // an upper-case spelling is not a way around the allowed cases either: it is judged exactly like the lower-case one
+  allowed(`Git clone ${repo} ${ext}/y`);
+  allowed(`CURL -o ${ext}/x ${url}`);
+  allowed(`WGET -P ${ext} ${url}`);
+  allowed(`Hf download org/m --local-dir ${ext}/m`);
+});
+
+test('curl checks every operation on its own: --next and -: reset --output-dir and -O', () => {
+  // the reviewer's counterexample: the second -O writes into the working directory, which is not a run root
+  denied(`curl --output-dir ${ext} -O ${url} --next -O ${url}`, dlRule, ws);
+  denied(`curl --output-dir ${ext} -O ${url} -: -O ${url}`, dlRule, ws);
+  denied(`curl --output-dir ${ext} -O ${url} --nex -O ${url}`, dlRule, ws); // an unambiguous abbreviation of --next
+  denied(`curl --output-dir ${ext} -sSO ${url} -s: -O ${url}`, dlRule, ws); // -: inside an option cluster
+  denied(`curl -O ${url} --next --output-dir ${ext} -O ${url}`, dlRule, ws); // the directory comes after: the first -O writes into the cwd
+  denied(`curl -O ${url} -: --output-dir ${ext} -O ${url}`, dlRule, ws);
+  denied(`curl -O ${url} --next -O ${url}`, dlRule, ws); // no directory at all
+  denied(`curl --output-dir ${ext} -O ${url} --next --output-dir /Volumes/D/claude -O ${url}`, dlRule, ws); // each operation's own directory
+  denied(`curl --output-dir ${ext} -O ${url} --next --output-dir ${scratch}/run2 -O ${url}`, dlRule, ws);
+  denied(`curl --output-dir ${ext} -o a ${url} --next -O ${url}`, dlRule, ws);
+  denied(`curl -o ${ext}/a ${url} --next -o /Users/adrian/b ${url}`, dlRule);
+  denied(`curl --output-dir ${ext} -o a ${url} --next -o b ${url}`, dlRule, ws); // b is relative to the cwd of the second operation
+  denied(`curl --output-dir ${ext} -o a ${url} -: -J -O ${url}`, dlRule, ws);
+  denied(`curl --remote-name-all --output-dir ${ext} ${url} --next ${url}`, dlRule, ws); // read as applying to every operation: it can only add a write
+  denied(`curl -O ${url} --next --next -O ${url}`, dlRule, ws);
+  // the same operations are fine when each one lands in a run root
+  allowed(`curl --output-dir ${ext} -O ${url} --next --output-dir ${ext}/sub -O ${url}`, ws);
+  allowed(`curl --output-dir ${ext} -O ${url} -: --output-dir ${ext} -O ${url}`, ws);
+  allowed(`curl -O ${url} --next -O ${url}`, ext);
+  allowed(`curl -O ${url} --next -o x ${url}`, ext);
+  allowed(`curl -o ${ext}/a ${url} --next -o ${ext}/b ${url}`, ws);
+  allowed(`curl --output-dir ${ext} -o a ${url} --next --output-dir ${ext} -o b ${url}`, ws);
+  allowed(`curl ${url} --next ${url}`, ws); // both go to stdout
+  allowed(`curl -o - ${url} --next -o /dev/null ${url}`, ws);
+});
+
+test('wget --spider and curl -o inside --output-dir write nothing outside the run root, so they are not refused', () => {
+  allowed(`wget --spider ${url}`, ws);
+  allowed(`wget -q --spider ${url}`, ws);
+  allowed(`wget --spider -nv ${url} ${url}`, ws);
+  allowed(`wget --spider -i urls.txt`, ws);
+  allowed(`wget --spider -O ${ext}/x ${url}`, ws); // an explicit output is still checked, and this one is fine
+  allowed(`wget --spider -P ${ext} ${url}`, ws);
+  allowed(`wget --spider -o ${ext}/log ${url}`, ext);
+  // ... but every output option and every spider that writes while it scans keeps its refusal
+  denied(`wget ${url}`, dlRule, ws);
+  denied(`wget -q ${url}`, dlRule, ws);
+  denied(`wget --spider -O /Volumes/D/claude/x ${url}`, dlRule, ws);
+  denied(`wget --spider -P /Volumes/D/claude ${url}`, dlRule, ws);
+  denied(`wget --spider -o /Volumes/D/claude/log ${url}`, dlRule, ws);
+  denied(`wget --spider -a /Volumes/D/claude/log ${url}`, dlRule, ws);
+  denied(`wget --spider -r ${url}`, dlRule, ws);
+  denied(`wget -r --spider ${url}`, dlRule, ws);
+  denied(`wget --spider --mirror ${url}`, dlRule, ws);
+  denied(`wget --spider -m ${url}`, dlRule, ws);
+  denied(`wget --spider -p ${url}`, dlRule, ws);
+  denied(`wget --spider --page-requisites ${url}`, dlRule, ws);
+  denied(`wget --spider -b ${url}`, dlRule, ws); // the background log is wget-log in the cwd
+  denied(`wget --spider -e dir_prefix=/Volumes/D/claude ${url}`, 'undeterminable-destination', ws);
+});
+
