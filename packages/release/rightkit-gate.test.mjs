@@ -1078,14 +1078,36 @@ test("quietLeaseLane: acquires through rustright with the gate pid, hands the le
 
 // ---- the check subcommand ----------------------------------------------------------------------------------------------------
 
-test("check delegates to the app check with its own arguments, label and cwd, reads no stdin and runs no git of its own", async () => {
+test("check is the full deterministic stage: a class A finding (here a broken package.json committed long ago) makes it red even when the app check is green", async (t) => {
+  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rk-gate-classa-")));
+  t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
+  const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
+  git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
+  fs.mkdirSync(path.join(repo, "conf"));
+  fs.writeFileSync(path.join(repo, "conf/settings.json"), "{ not json");
+  git("add", "-A"); git("commit", "-q", "-m", "old broken file");
+  fs.writeFileSync(path.join(repo, "README.md"), "later change\n");
+  git("add", "-A"); git("commit", "-q", "-m", "unrelated");
+  const appCheck = async () => 0;
+  const red = capture();
+  assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], { ...red.io, appCheck }), 1, red.out.join("\n"));
+  assert.match(red.out.join("\n"), /fail +json-parse/, "the whole tree is scanned, not the last commit's diff");
+  assert.match(red.err.join("\n"), /Class A is red: nothing compiles until it is green\./);
+  fs.writeFileSync(path.join(repo, "conf/settings.json"), "{}\n");
+  git("commit", "-q", "-am", "fixed");
+  const green = capture();
+  assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], { ...green.io, appCheck }), 0, green.err.join("\n"));
+  assert.match(green.out.at(-1), /class A pass/);
+});
+
+test("check delegates to the app check with its own arguments, label and cwd and reads no stdin (class A stubbed off)", async () => {
   const seen = [];
   const appCheck = async (argv, io) => { seen.push({ argv, label: io.label, cwd: io.cwd, hasOut: typeof io.out === "function" && typeof io.err === "function" }); return seen.length === 1 ? 1 : 2; };
   const spawn = () => { throw new Error("check must not spawn anything itself"); };
   const readStdin = () => { throw new Error("check must not read stdin"); };
   const c = capture();
   assert.equal(await main(["check", "--repo", "/r", "--commit", "abc", "--only", "qa-platform,skip-checks", "--print-baseline"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work" }), 1);
-  assert.equal(await main(["check", "--worktree"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work" }), 2);
+  assert.equal(await main(["check", "--worktree"], { ...c.io, appCheck, spawn, readStdin, cwd: "/work", classA: false }), 2);
   assert.deepEqual(seen, [
     { argv: ["--repo", "/r", "--commit", "abc", "--only", "qa-platform,skip-checks", "--print-baseline"], label: "check", cwd: "/work", hasOut: true },
     { argv: ["--worktree"], label: "check", cwd: "/work", hasOut: true },
@@ -1097,17 +1119,20 @@ test("check runs the real app check: findings on stdout, exit 0 green and 1 red,
   t.after(() => fs.rmSync(repo, { recursive: true, force: true }));
   const git = (...a) => spawnSync("git", a, { cwd: repo, encoding: "utf8" });
   git("init", "-q"); git("config", "user.email", "t@example.test"); git("config", "user.name", "t");
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } }));
+  // A valid package (licence and lockfile): class A, which check now runs too, is green, so only the app check decides.
+  fs.writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build --skip-checks" } }));
   git("add", "-A"); git("commit", "-q", "-m", "red");
   const red = capture();
   assert.equal(await main(["check", "--repo", repo, "--commit", "HEAD"], red.io), 1);
   assert.match(red.out.join("\n"), /^FAIL skip-checks \(G17\): package\.json:1 script "ship" runs right-release with --skip-checks$/m);
-  assert.match(red.out.at(-1), /^check: 1 problem\(s\) in \w{12} \(25 rules, /);
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build" } }));
+  assert.match(red.out.join("\n"), /^check: 1 problem\(s\) in \w{12} \(25 rules, /m);
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } }));
   git("commit", "-q", "-am", "green");
   const green = capture();
   assert.equal(await main(["check"], { ...green.io, cwd: repo }), 0, green.err.join("\n"));
-  assert.match(green.out.at(-1), /^check: \w{12} passed 25 rules in [\d.]+s$/, "no --repo: the git top-level of the working directory");
+  assert.match(green.out.join("\n"), /^check: \w{12} passed 25 rules in [\d.]+s$/m, "no --repo: the git top-level of the working directory");
+  assert.match(green.out.at(-1), /^rightkit-gate: class A pass: \d+ deterministic scan\(s\) over \d+ file\(s\) of HEAD$/, "then every class A scan over the whole commit");
   const unknown = capture();
   assert.equal(await main(["bogus"], unknown.io), 2);
   assert.match(unknown.err.join("\n"), /rightkit-gate check \[--repo <dir>\] \[--commit <rev> \| --worktree\] \[--only <rule,\.\.\.>\] \[--list\] \[--print-baseline\] \[--baseline <file>\]/);
@@ -1251,7 +1276,8 @@ test("a scratch repository with a red tree rejects git push through the installe
   // The gate binary is the real one for `check` and a recorder for the scans, which need a broker.
   const shim = `#!/bin/sh\nif [ "$1" = check ]; then exec "${process.execPath.replaceAll("\\", "/")}" "${gateCli}" "$@"; fi\ncat >/dev/null\necho "gate $*" >> "${log}"\nexit 0\n`;
   const root = hookRepo(t, {
-    "package.json": JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build --skip-checks" } }),
+    "package.json": JSON.stringify({ name: "app", license: "MIT", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build --skip-checks" } }),
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .:\n    devDependencies:\n      '@rightkit/release':\n        specifier: 0.6.5\n        version: 0.6.5\n\npackages:\n\n  '@rightkit/release@0.6.5':\n    resolution: {integrity: sha512-s2PA4qjj6q13RpWaRW4r12///Mj34IR+8DqXwCOVuqbQcZ3MsX7Zlyb6u/VWlVnwfKIwpt7/jN4yzOvPvyd+pA==}\n    hasBin: true\n\n  smol-toml@1.9.1:\n    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}\n    engines: {node: '>= 18'}\n\nsnapshots:\n\n  '@rightkit/release@0.6.5':\n    dependencies:\n      smol-toml: 1.9.1\n\n  smol-toml@1.9.1: {}\n",
     "node_modules/.bin/rightkit-gate": shim,
   });
   const git = (...a) => spawnSync("git", a, { cwd: root, encoding: "utf8" });
@@ -1269,7 +1295,7 @@ test("a scratch repository with a red tree rejects git push through the installe
   assert.match(red.stderr, /fix: drop --skip-checks/);
   assert.equal(fs.existsSync(log), false, "the gate never started");
   assert.notEqual(git("ls-remote", "origin").stdout.trim(), git("rev-parse", "HEAD").stdout.trim(), "nothing reached the remote");
-  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build" } }));
+  fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app", license: "MIT", devDependencies: { "@rightkit/release": "0.6.5" }, scripts: { ship: "right-release build" } }));
   assert.equal(git("commit", "-q", "-am", "green tree").status, 0);
   const green = git("push", "origin", "HEAD:refs/heads/main");
   assert.equal(green.status, 0, green.stderr);

@@ -28,8 +28,12 @@
 //                                             run the gate (default base origin/main); --plan prints the scans and runs none;
 //                                             --no-cache (or RK_GATE_CACHE=0) reruns every scan
 //   rightkit-gate check [--repo <dir>] [--commit <rev> | --worktree] [--only <rule,...>] [--list] [--print-baseline] [--baseline <file>]
-//                                             the offline app check (../app-check.mjs): committed files only, no network, compile or
-//                                             broker, every finding in one run. Exit 0 pass, 1 findings, 2 could not run
+//                                             the deterministic stage: the app check (../app-check.mjs), then every class A scan
+//                                             (lockfiles, cargo-deny/audit, secrets, licences, manifests, workflow lint, syntax) over the
+//                                             whole tree of the commit, not a diff. Nothing compiles; without a broker class A uses
+//                                             plain cargo for metadata/deny/audit only. The RustRight broker runs this before it admits
+//                                             any compile. --list/--print-baseline/--only show the app check alone. Exit 0 pass,
+//                                             1 findings, 2 could not run
 //   rightkit-gate install-hook [--force]      write .githooks/pre-push and set core.hooksPath. core.hooksPath hides .git/hooks, so the
 //                                             pre-push hook runs the repository's own .git/hooks/pre-push first, then `rightkit-gate
 //                                             check --commit HEAD`, then the gate; every other hook present in .git/hooks gets a
@@ -1235,8 +1239,19 @@ export async function main(argv, io = {}) {
   if (args.includes("--help") || args.includes("-h")) { o.out(USAGE); return 0; }
   const sub = args[0] && !args[0].startsWith("-") ? args[0] : null;
   if (sub && sub !== "install-hook" && sub !== "check") { o.err(`rightkit-gate: unknown command ${JSON.stringify(sub)}\n${USAGE}`); return 2; }
-  // The app check has its own export and reads no gate state: it needs neither the base ref nor the pushed refs on stdin.
-  if (sub === "check") return (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+  // `check` is the deterministic stage (Adrian, 2026-10-25: deterministic always first, one door): the app-check rules, then every
+  // class A scan (lockfiles, cargo-deny, cargo-audit, secrets, licences, manifests, workflow lint, syntax...) over the whole tree of the
+  // commit, never a diff. Nothing compiles. The RustRight broker runs exactly this before it admits any compile. `--list`,
+  // `--print-baseline` and `--only` stay app-check-only views.
+  if (sub === "check") {
+    const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) return appCheck;
+    const repoArg = option("--repo");
+    const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: repoArg ? path.resolve(o.cwd, repoArg) : o.cwd });
+    return Math.max(appCheck, classA);
+  }
+  const classAOnly = args.includes("--class-a");
+  const classACommit = classAOnly && !args.includes("--worktree") ? (option("--commit") ?? "HEAD") : null;
   if (args.includes("--base") && (!option("--base") || option("--base").startsWith("--"))) { o.err("rightkit-gate: --base needs a ref"); return 2; }
 
   const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: o.cwd });
@@ -1257,7 +1272,7 @@ export async function main(argv, io = {}) {
   // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.
   const pushedRefs = []; const pushedRemoteShas = [];
   const askedBase = base;
-  if (!planOnly) {
+  if (!planOnly && !classAOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
     if (parsed.malformed.length) {
@@ -1289,6 +1304,8 @@ export async function main(argv, io = {}) {
     manifests = tracked("Cargo.toml");
     if (manifests.length) {
       cargoCommand = resolveCargoCommand(o);
+      // Class A never compiles: with no broker or shim it reads metadata and runs deny/audit with plain cargo, on any host.
+      if (!cargoCommand && classAOnly) cargoCommand = ["cargo"];
       if (!cargoCommand) {
         // No broker and no shim. A pre-push of non-protected branches outside CI defers the Rust gate to host qualification; anything
         // else refuses exactly as before. The cargo command is then only the text of the argv the deferred scans would have had.
@@ -1302,7 +1319,7 @@ export async function main(argv, io = {}) {
         }
         deferral = decision;
         cargoCommand = ["rustright", "cargo"];
-      } else if (!o.exists(path.join(root, GRANT_FILE))) { o.err(`${tag} BLOCKED: no local compile grant (${GRANT_FILE}); the broker refuses cargo, so the Rust units cannot be discovered or scanned`); return 1; }
+      } else if (!classAOnly && !o.exists(path.join(root, GRANT_FILE))) { o.err(`${tag} BLOCKED: no local compile grant (${GRANT_FILE}); the broker refuses cargo, so the Rust units cannot be discovered or scanned`); return 1; }
     }
     // Untracked (not ignored) manifests only: git does not descend into ignored directories, so this stays cheap. A member of a
     // workspace that is untracked or ignored is dropped by discoverRustWorkspaces itself.
@@ -1324,8 +1341,8 @@ export async function main(argv, io = {}) {
   for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
 
   // Broker scans (cargo, pnpm) read the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
-  // otherwise hide a committed failure. Any change or untracked file under those paths blocks the gate.
-  if (!planOnly) {
+  // otherwise hide a committed failure. Any change or untracked file under those paths blocks the gate. Class A reads only the export.
+  if (!planOnly && !classAOnly) {
     // The install graph and linter configuration of a pnpm root: the repository root's, and those of every other root (its units' directories
     // hold only the units, and a workspace member's lock sits above it).
     const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
@@ -1347,16 +1364,19 @@ export async function main(argv, io = {}) {
   const signals = [];
   try {
     let repo = root;
-    if (!planOnly) {
+    if (!planOnly && !(classAOnly && !classACommit)) {
       exportRoot = fs.mkdtempSync(path.join(o.env.RK_GATE_TMPDIR || os.tmpdir(), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
-      const made = o.spawn("git", ["archive", "--format=tar", "--prefix=repo/", "-o", path.join(exportRoot, "head.tar"), "HEAD"], { cwd: root });
+      const made = o.spawn("git", ["archive", "--format=tar", "--prefix=repo/", "-o", path.join(exportRoot, "head.tar"), classACommit ?? "HEAD"], { cwd: root });
       const x = failed(made) ? made : o.spawn("tar", ["-xf", "head.tar"], { cwd: exportRoot });
       if (failed(made) || failed(x)) { o.err(`${tag} cannot export HEAD: ${why(made) || why(x)}`); return 2; }
     }
-    const diff = git("diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`);
-    if (failed(diff)) { o.err(`${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref>`); return 2; }
+    const diff = classAOnly
+      ? (classACommit ? git("ls-tree", "-r", "--name-only", classACommit) : git("ls-files", "--cached", "--others", "--exclude-standard"))
+      : git("diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`);
+    if (failed(diff)) { o.err(classAOnly ? `${tag} cannot list the files of ${classACommit ?? "the working tree"}: ${why(diff)}` : `${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref>`); return 2; }
     const changed = [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
+    if (classAOnly) base = classACommit ?? "the working tree";
 
     let crateFeatures = {}; let packageFeatures = {};
     try { const gateConfig = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))); crateFeatures = gateConfig.rust ?? {}; packageFeatures = gateConfig.npm ?? {}; } catch { /* no config: default feature sets */ }
@@ -1385,7 +1405,8 @@ export async function main(argv, io = {}) {
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
-      localCompile: deferral ? true : o.exists(path.join(root, GRANT_FILE)),
+      // Class A (metadata, deny, audit) compiles nothing, so it never waits for a local compile grant.
+      localCompile: deferral || classAOnly ? true : o.exists(path.join(root, GRANT_FILE)),
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
@@ -1434,7 +1455,7 @@ export async function main(argv, io = {}) {
     }
     // The result cache keys on the gated commit's object ids; the pre-push check above made HEAD the pushed commit.
     let cache = null;
-    if (!args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
+    if (!classAOnly && !args.includes("--no-cache") && o.env.RK_GATE_CACHE !== "0") {
       try {
         const headSha = text(git("rev-parse", "HEAD")).trim();
         const treeId = text(git("rev-parse", `${headSha}^{tree}`)).trim();
@@ -1462,7 +1483,7 @@ export async function main(argv, io = {}) {
       } catch { cache = null; }
     }
     const scanResult = await (o.runScans ?? runScans)(plan, {
-      classes: ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
+      classes: classAOnly ? ["A"] : ["A", "B"], jobs, testJobs, signal: ac.signal, ...(cache ? { cache } : {}),
       quietLane: quietLeaseLane(o, { tag, reason: `rightkit-gate-quiet-tests@${text(git("rev-parse", "--short", "HEAD")).trim()}` }),
       onResult: (row, p) => o.out(`${tag} [${p.done}/${p.total}] ${(row.cached ? "cached" : row.status).padEnd(7)} ${row.id} (${p.seconds}s)${row.status === "fail" ? ` :: ${String(row.detail ?? "").slice(0, 300)}` : ""}`),
     });
@@ -1480,8 +1501,12 @@ export async function main(argv, io = {}) {
     if (failures.length) {
       o.err(`${tag} BLOCKED (${failures.length})`);
       for (const f of failures) o.err(`  - ${f}`);
-      o.err("Fix and push again. Never bypass with --no-verify.");
+      o.err(classAOnly ? "Class A is red: nothing compiles until it is green." : "Fix and push again. Never bypass with --no-verify.");
       return 1;
+    }
+    if (classAOnly) {
+      o.out(`${tag} class A pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
+      return 0;
     }
     if (deferral) {
       o.out(`${tag} the scans that could run here passed (${changed.length} changed file(s) vs ${base}${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""})`);

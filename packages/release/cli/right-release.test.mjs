@@ -53,13 +53,15 @@ function app(t, { red = false } = {}) {
   fs.mkdirSync(path.join(repo, "sub"));
   fs.writeFileSync(path.join(repo, "sub", "right-release.config.mjs"), "export default {};\n");
   fs.writeFileSync(path.join(repo, "sub", "switches.json"), "{}\n"); // G20: a release config needs its switches inventory
-  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: red ? "right-release build --skip-checks" : "right-release build" } }));
+  // A valid package (licence, lockfile): `check` runs class A too, and that is green here, so the app check alone decides.
+  fs.writeFileSync(path.join(repo, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n");
+  fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: red ? "right-release build --skip-checks" : "right-release build" } }));
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "app");
   return repo;
 }
-const makeRed = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } })); };
-const makeGreen = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ scripts: { ship: "right-release build" } })); };
+const makeRed = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build --skip-checks" } })); };
+const makeGreen = (repo) => { fs.writeFileSync(path.join(repo, "package.json"), JSON.stringify({ license: "MIT", scripts: { ship: "right-release build" } })); };
 
 let preload;
 function runCli(t, cwd, args, { spy = true } = {}) {
@@ -163,7 +165,7 @@ test("a baseline entry cannot excuse what the build refuses: switches-inventory 
   fs.writeFileSync(path.join(repo, ".rightkit", "app-check-baseline.json"), JSON.stringify({ schema: 1, known: [{ id: "switches-inventory|sub/right-release.config.mjs|sub", issue: "app#9", added, sunset: addDays(added, 30) }] }));
   git(repo, "add", "-A");
   git(repo, "commit", "-q", "-m", "baseline the missing inventory");
-  const check = runCli(t, repo, ["check"]);
+  const check = runCli(t, repo, ["check"], { spy: false });
   assert.equal(check.status, 0, check.stdout + check.stderr);
   assert.match(check.stdout, /^KNOWN switches-inventory: /m);
   for (const args of [["build", "--platform", "win"], ["doctor", "--platform", "win"]]) {
@@ -288,20 +290,22 @@ test("dmg build has no repository: it dispatches from a directory that is no git
 
 test("check: the same findings as rightkit-gate check, exit 1 red and 0 green, --list, and --config picks the repository", (t) => {
   const repo = app(t, { red: true });
-  const red = runCli(t, repo, ["check", "--commit", "HEAD"]);
+  // `right-release check` is `rightkit-gate check`: the app check, then class A (real child processes, so no spawn spy here).
+  const runCheck = (cwd, args) => runCli(t, cwd, args, { spy: false });
+  const red = runCheck(repo, ["check", "--commit", "HEAD"]);
   assert.equal(red.status, 1);
   assert.match(red.stdout, /^FAIL skip-checks \(G17\): package\.json:1 /m);
   assert.match(red.stdout, /^check: 1 problem\(s\) in \w{12} \(25 rules, /m);
-  assert.deepEqual(red.calls, [], "check spawns nothing");
   const gate = spawnSync(process.execPath, [path.join(PACKAGE, "bin", "rightkit-gate.mjs"), "check", "--commit", "HEAD"], { cwd: repo, encoding: "utf8" });
   assert.equal(gate.stdout.replace(/[\d.]+s/, "Ns"), red.stdout.replace(/[\d.]+s/, "Ns"), "right-release check and rightkit-gate check print the same");
-  const fromElsewhere = runCli(t, tmpDir(t, "rk-cli-elsewhere-"), ["check", "--config", path.join(repo, "sub", "right-release.config.mjs")]);
+  const fromElsewhere = runCheck(tmpDir(t, "rk-cli-elsewhere-"), ["check", "--config", path.join(repo, "sub", "right-release.config.mjs")]);
   assert.equal(fromElsewhere.status, 1);
   assert.match(fromElsewhere.stdout, /FAIL skip-checks/);
   makeGreen(repo);
-  assert.equal(runCli(t, repo, ["check", "--worktree"]).status, 0, "the green tree on disk passes --worktree");
-  assert.equal(runCli(t, repo, ["check", "--commit", "HEAD"]).status, 1, "the committed HEAD is still red");
-  const list = runCli(t, repo, ["check", "--list"]);
+  const onDisk = runCheck(repo, ["check", "--worktree"]);
+  assert.equal(onDisk.status, 0, `the green tree on disk passes --worktree\n${onDisk.stdout}\n${onDisk.stderr}`);
+  assert.equal(runCheck(repo, ["check", "--commit", "HEAD"]).status, 1, "the committed HEAD is still red");
+  const list = runCheck(repo, ["check", "--list"]);
   assert.equal(list.status, 0);
   assert.match(list.stdout, /^qa-platform \(G13\)$/m);
   assert.equal(list.stdout.trim().split("\n").length, 25);

@@ -103,9 +103,11 @@ if (first === "--version" || first === "-v") {
     run("release.mjs", ["--doctor", ...args.slice(1)]);
   }
 } else if (first === "check") {
-  // The same offline check as `rightkit-gate check`; the repository is the git top-level of --config's folder, else the cwd.
-  const { appDirectory, main } = await import("../app-check.mjs");
-  process.exit(await main(args.slice(1), { label: "check", cwd: appDirectory(args, process.cwd()) }));
+  // Exactly `rightkit-gate check` (one door): the app check, then every class A scan over the whole commit. The repository is the git
+  // top-level of --config's folder, else the cwd.
+  const { appDirectory } = await import("../app-check.mjs");
+  const { main } = await import("../bin/rightkit-gate.mjs");
+  process.exit(await main(["check", ...args.slice(1)], { cwd: appDirectory(args, process.cwd()) }));
 } else if (first === "hooks" && args[1] === "install") {
   // One installer: `hooks install` is `rightkit-gate install-hook` (pre-push check and gate, ownership pre-commit step) run in the app.
   const app = args.indexOf("--app");
