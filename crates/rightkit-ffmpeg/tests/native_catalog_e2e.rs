@@ -4,7 +4,10 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use rightkit_ffmpeg::native::*;
 
@@ -192,6 +195,8 @@ fn an_exact_arch_record_is_preferred_over_a_universal_one() {
     let mut thin = libs[0].clone();
     thin["id"] = "onnxruntime-1.30.0-macos-arm64".into();
     thin["arch"] = "aarch64".into();
+    // The per-slice digests belong to the universal row only.
+    thin.as_object_mut().unwrap().remove("contentSha256ByArch");
     libs.push(thin.clone());
     let catalog = NativeCatalog::parse_native_only(&value.to_string()).unwrap();
     assert_eq!(
@@ -319,6 +324,190 @@ fn every_notice_file_is_packaged_with_the_crate() {
             );
         }
     }
+}
+
+/// Every row that can serve a dynamic library (approved or pinned) names its notices, and each
+/// notice is a file this crate packages under `third-party/`.
+#[test]
+fn every_serving_dynamic_library_row_names_an_existing_notice_under_third_party() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    catalog.validate().unwrap();
+    let serving: Vec<&NativeRecord> = catalog
+        .libraries
+        .iter()
+        .filter(|r| r.status.serves() && r.linkage == Linkage::DynamicLibrary)
+        .collect();
+    assert!(serving.iter().any(|r| r.status == NativeStatus::Pinned));
+    assert!(serving.iter().any(|r| r.status == NativeStatus::Approved));
+    for r in serving {
+        assert!(!r.notice_files.is_empty(), "{} names no notice", r.id);
+        for notice in &r.notice_files {
+            assert!(
+                notice.starts_with("third-party/"),
+                "{}: {notice} is outside third-party/",
+                r.id
+            );
+            assert!(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(notice).is_file(),
+                "{}: {notice} is not in the crate",
+                r.id
+            );
+        }
+    }
+}
+
+/// The Windows rows nobody has loaded on a Windows host. Each is `pinned` (digests measured by a
+/// session without a Windows host) or `planned` (no digest), carries `hostProof` `never-run`, and
+/// none is `approved`. A new non-FFmpeg Windows row must be listed here or the test fails, so
+/// its host proof is decided on purpose; promoting a row to `approved` means removing it.
+const NEVER_RUN_WINDOWS_ROWS: [&str; 9] = [
+    "onnxruntime-1.24.4-windows-x64-directml",
+    "directml-1.15.4-windows-x64",
+    "pdfium-chromium-8021-windows-x64",
+    "whisper-cpp-1.9.3-windows-x64",
+    "ggml-0.20.2-windows-x64",
+    "ggml-base-0.20.2-windows-x64",
+    "ggml-cpu-0.20.2-windows-x64",
+    "ggml-vulkan-0.20.2-windows-x64",
+    "sherpa-onnx-1.13.4-windows-x64",
+];
+
+#[test]
+fn the_windows_rows_that_were_never_run_say_so_and_none_is_approved() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    for id in NEVER_RUN_WINDOWS_ROWS {
+        let row = catalog
+            .libraries
+            .iter()
+            .find(|r| r.id == id)
+            .unwrap_or_else(|| panic!("{id} is not in the catalog"));
+        assert_eq!(row.os, "windows", "{id}");
+        assert_eq!(row.host_proof, Some(HostProof::NeverRun), "{id}");
+        assert!(
+            matches!(row.status, NativeStatus::Pinned | NativeStatus::Planned),
+            "{id} is {:?}",
+            row.status
+        );
+    }
+    let windows_rows: BTreeSet<&str> = catalog
+        .libraries
+        .iter()
+        .filter(|r| r.os == "windows" && r.library != NativeLibrary::Ffmpeg)
+        .map(|r| r.id.as_str())
+        .collect();
+    assert_eq!(
+        windows_rows,
+        BTreeSet::from(NEVER_RUN_WINDOWS_ROWS),
+        "a Windows row was added or removed without deciding its host proof"
+    );
+    // Only those rows are marked, and nothing marked is approved (the catalog validates that too).
+    for row in catalog.libraries.iter().filter(|r| r.host_proof.is_some()) {
+        assert!(
+            NEVER_RUN_WINDOWS_ROWS.contains(&row.id.as_str()),
+            "{}",
+            row.id
+        );
+        assert_ne!(row.status, NativeStatus::Approved, "{}", row.id);
+    }
+}
+
+/// A pinned row serves (loading it is how host proof gets produced); a planned or approved-less
+/// one does not, and the plain `approved_file` lookup still refuses the pinned one.
+#[test]
+fn pinned_windows_rows_serve_but_planned_ones_never_resolve() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    let pdfium = catalog
+        .serving_file(NativeLibrary::Pdfium, "windows", "x86_64", "pdfium.dll")
+        .unwrap();
+    assert_eq!(pdfium.id, "pdfium-chromium-8021-windows-x64");
+    assert_eq!(pdfium.status, NativeStatus::Pinned);
+    assert!(pdfium.content_sha256.is_some());
+    assert_eq!(
+        pdfium.archive.as_ref().unwrap().member.as_deref(),
+        Some("bin/pdfium.dll")
+    );
+    assert!(matches!(
+        catalog.approved_file(NativeLibrary::Pdfium, "windows", "x86_64", "pdfium.dll"),
+        Err(NativeCatalogError::NoApproved { .. })
+    ));
+    for (library, file) in [
+        (NativeLibrary::WhisperCpp, "whisper.dll"),
+        (NativeLibrary::Ggml, "ggml.dll"),
+        (NativeLibrary::Ggml, "ggml-base.dll"),
+        (NativeLibrary::Ggml, "ggml-cpu.dll"),
+        (NativeLibrary::Ggml, "ggml-vulkan.dll"),
+        (NativeLibrary::SherpaOnnx, "sherpa-onnx-c-api.dll"),
+    ] {
+        assert!(
+            matches!(
+                catalog.serving_file(library, "windows", "x86_64", file),
+                Err(NativeCatalogError::NoApproved { .. })
+            ),
+            "{file}"
+        );
+    }
+}
+
+/// The macOS ONNX Runtime row pins each slice; the Windows one names its member and its
+/// DirectML companion, which is in the catalog for the same OS.
+#[test]
+fn the_onnxruntime_rows_carry_their_slice_digests_member_and_companion() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    let universal = catalog
+        .approved(NativeLibrary::Onnxruntime, "macos", "aarch64")
+        .unwrap();
+    let by_arch = universal.content_sha256_by_arch.as_ref().unwrap();
+    assert_eq!(
+        by_arch.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["aarch64", "x86_64"]
+    );
+    assert!(universal.content_sha256.is_none());
+
+    let windows = catalog
+        .serving_file(
+            NativeLibrary::Onnxruntime,
+            "windows",
+            "x86_64",
+            "onnxruntime.dll",
+        )
+        .unwrap();
+    assert_eq!(windows.companions, ["directml-1.15.4-windows-x64"]);
+    assert_eq!(
+        windows.archive.as_ref().unwrap().member.as_deref(),
+        Some("runtimes/win-x64/native/onnxruntime.dll")
+    );
+    let directml = catalog
+        .serving_file(NativeLibrary::Directml, "windows", "x86_64", "DirectML.dll")
+        .unwrap();
+    assert_eq!(directml.id, windows.companions[0]);
+}
+
+/// The verified-library API is reachable from the crate root, beside the `native` module path.
+#[test]
+fn the_verified_library_api_is_exported_at_the_crate_root() {
+    let catalog = NativeCatalog::embedded().unwrap();
+    let relative = Path::new("relative-library");
+    let entries = [(NativeLibrary::WhisperCpp, "libwhisper.dylib")];
+    let unsafe_path = |result: Result<(), NativeCatalogError>| {
+        assert!(matches!(result, Err(NativeCatalogError::UnsafePath { .. })))
+    };
+    unsafe_path(rightkit_ffmpeg::verified_library(NativeLibrary::Pdfium, relative).map(drop));
+    unsafe_path(
+        rightkit_ffmpeg::verified_library_in(
+            &catalog,
+            "macos",
+            "aarch64",
+            NativeLibrary::Pdfium,
+            relative,
+        )
+        .map(drop),
+    );
+    unsafe_path(rightkit_ffmpeg::verified_libraries(relative, &entries).map(drop));
+    unsafe_path(
+        rightkit_ffmpeg::verified_libraries_in(&catalog, "macos", "aarch64", relative, &entries)
+            .map(drop),
+    );
+    let _: Option<(rightkit_ffmpeg::VerifiedLibrary, rightkit_ffmpeg::HostProof)> = None;
 }
 
 /// Real artifacts present on this machine must hash to their approved digests.

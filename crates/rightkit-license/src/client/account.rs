@@ -67,7 +67,7 @@ use super::time::{parse_rfc3339, to_ms};
 use super::types::{LicenseClientConfig, SecretString};
 use super::view::{LicenseError, LicenseView};
 use super::LicenseClient;
-use crate::MAX_TOKEN_BYTES;
+use crate::{suite_api, MAX_TOKEN_BYTES};
 
 /// Default credential account of the session item in the app's credential namespace.
 pub const DEFAULT_SESSION_ACCOUNT: &str = "account-session";
@@ -77,12 +77,12 @@ pub const DEFAULT_SESSION_ACCOUNT: &str = "account-session";
 /// found, and cleared, when an authenticated call answers 401.
 pub const ACCOUNT_SESSION_TTL_SECS: i64 = 365 * 24 * 60 * 60;
 
-const MAGIC_LINK_REQUEST: &str = "/v1/shop/auth/magic-link/request";
-const MAGIC_LINK_CONSUME: &str = "/v1/shop/auth/magic-link/consume";
-const AUTH_ME: &str = "/v1/shop/auth/me";
-const AUTH_LOGOUT: &str = "/v1/shop/auth/logout";
-const ACCOUNT_DEVICES: &str = "/v1/shop/account/devices";
-const ACCOUNT_DELETE: &str = "/v1/shop/account";
+const MAGIC_LINK_REQUEST: &str = suite_api::ACCOUNT_MAGIC_LINK_REQUEST_PATH;
+const MAGIC_LINK_CONSUME: &str = suite_api::ACCOUNT_MAGIC_LINK_CONSUME_PATH;
+const AUTH_ME: &str = suite_api::ACCOUNT_ME_PATH;
+const AUTH_LOGOUT: &str = suite_api::ACCOUNT_LOGOUT_PATH;
+const ACCOUNT_DEVICES: &str = suite_api::ACCOUNT_DEVICES_PATH;
+const ACCOUNT_DELETE: &str = suite_api::ACCOUNT_DELETE_PATH;
 
 /// A device row id is a server-generated identifier placed in a URL path.
 const MAX_DEVICE_ID_BYTES: usize = 128;

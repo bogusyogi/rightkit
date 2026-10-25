@@ -107,9 +107,19 @@ test("a pending endpoint in a non-pending app is refused", () => {
 });
 
 test("apps outside the contract keep only the host and capability checks", () => {
-  assert.deepEqual(scan({ "src-tauri/tauri.conf.json": confWith(["https://scraperight.cc/v1/apps/scraperight/releases/latest.json?platform={{target}}"]) }, "scraperight"), []);
-  const findings = scan({ "src-tauri/capabilities/default.json": "{\"allow\":[{\"url\":\"https://api.spoares.com/*\"}]}\n" }, "scraperight");
+  // Ember is not a suite app (its own updater key), so no registry entry applies to it.
+  assert.deepEqual(scan({ "src-tauri/tauri.conf.json": confWith(["https://updates.example.com/ember/latest.json?platform={{target}}"]) }, "ember"), []);
+  const findings = scan({ "src-tauri/capabilities/default.json": "{\"allow\":[{\"url\":\"https://api.spoares.com/*\"}]}\n" }, "ember");
   assert.deepEqual(findings.map((f) => f.kind), ["capability-scope"]);
+});
+
+test("a registered app that is not native yet may keep exactly the contract endpoint and no other", () => {
+  // scraperight is in the registry and in pendingNativeUpdater: its own host is refused, the contract endpoint is the one exemption.
+  const own = scan({ "src-tauri/tauri.conf.json": confWith(["https://scraperight.cc/v1/apps/scraperight/releases/latest.json?platform={{target}}"]) }, "scraperight");
+  assert.deepEqual(own.map((f) => f.kind), ["updater-endpoints"]);
+  assert.deepEqual(scan({ "src-tauri/tauri.conf.json": confWith([ENDPOINT("scraperight")]) }, "scraperight"), []);
+  // a registered app that is not pending gets no exemption at all
+  assert.deepEqual(scan({ "src-tauri/tauri.conf.json": confWith([ENDPOINT("viewright")]) }, "viewright").map((f) => f.kind), ["updater-endpoints", "host-literal"]);
 });
 
 test("untracked files are not scanned", () => {

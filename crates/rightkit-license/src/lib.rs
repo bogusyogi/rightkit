@@ -30,6 +30,13 @@
 //! expose `require(feature)`; it has no input for a pushed flag. See the `engine` module
 //! docs for the window-to-engine pattern.
 //!
+//! ## Owner-to-engine snapshot (features `engine-snapshot`, `client`)
+//! An engine process never reads the owner's credential store. The owner hands it the signed token,
+//! its device binding and a ledger flag as one `rightkit_credentials::handoff` snapshot
+//! (`LicenseClient::engine_snapshot`, `answer_engine_request`); the engine keeps it in an
+//! `EngineSnapshotCell` and verifies it again with `EngineEntitlements::from_snapshot` under the
+//! suite key ([`suite_api::LICENSE_PUBLIC_KEY`]). See the `engine_snapshot` module docs.
+//!
 //! ## Google-subject entitlement (feature `subject-entitlement`, 0.3.0)
 //! `SubjectEntitlementSource` asks the shared entitlement service whether the signed-in
 //! Google account holds Pro (Play Billing, Windows licence, or a linked StoreKit purchase),
@@ -64,6 +71,8 @@
 mod client;
 mod clock;
 mod engine;
+#[cfg(feature = "engine-snapshot")]
+mod engine_snapshot;
 mod file_store;
 #[cfg(feature = "engine-gate")]
 mod gate;
@@ -130,6 +139,11 @@ pub use engine::{
     CredentialTokenSource, EngineEntitlementError, EngineEntitlements, EngineEntitlementsConfig,
     FileTokenSource, TokenSource, DEFAULT_CACHE_TTL_SECS, DEFAULT_TOKEN_FILE, MAX_CACHE_TTL_SECS,
     MAX_TOKEN_BYTES,
+};
+#[cfg(feature = "engine-snapshot")]
+pub use engine_snapshot::{
+    EngineSnapshotCell, OwnerLedgerReader, SnapshotError, CLOCK_FRESH, CLOCK_INITIALIZED,
+    DEFAULT_CLOCK_FILE, SNAPSHOT_CLOCK, SNAPSHOT_DEVICE, SNAPSHOT_NAMES, SNAPSHOT_TOKEN,
 };
 pub use file_store::{
     ClosureClockStore, ClosureClockStoreError, CrossProcessLock, FileClockStore,

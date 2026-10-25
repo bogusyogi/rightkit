@@ -55,8 +55,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::{
-    system_now_unix, ClockRefusal, Entitlement, LicenseRequirement, SystemClock, TrustedClock,
-    VerifyError,
+    system_now_unix, verify_token_not_revoked, ClockRefusal, Entitlement, LicenseRequirement,
+    RevocationError, RevokedIds, SystemClock, TrustedClock, VerifyError,
 };
 
 #[path = "credential_source.rs"]
@@ -75,6 +75,7 @@ pub const MAX_TOKEN_BYTES: u64 = 16 * 1024;
 
 /// Why an engine entitlement check refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EngineEntitlementError {
     /// No token in the configured token source (Free).
     NoLicense,
@@ -88,6 +89,9 @@ pub enum EngineEntitlementError {
     Clock(ClockRefusal),
     /// The licence is authentic and current but does not satisfy the requirement.
     NotEntitled,
+    /// The entitlement id is on the engine's incident denylist
+    /// ([`EngineEntitlementsConfig::with_revoked_ids`]). Carries the revoked id.
+    Revoked(String),
 }
 
 impl fmt::Display for EngineEntitlementError {
@@ -99,6 +103,7 @@ impl fmt::Display for EngineEntitlementError {
             Self::Invalid(e) => write!(f, "{e}"),
             Self::Clock(e) => write!(f, "trusted clock refused: {e}"),
             Self::NotEntitled => write!(f, "licence does not include this feature"),
+            Self::Revoked(id) => write!(f, "licence '{id}' has been revoked"),
         }
     }
 }
@@ -106,6 +111,8 @@ impl std::error::Error for EngineEntitlementError {}
 
 type DeviceSource = Box<dyn Fn() -> Result<String, String> + Send + Sync>;
 type WallClock = Box<dyn Fn() -> Result<i64, String> + Send + Sync>;
+type ClockFlag = Box<dyn Fn() -> bool + Send + Sync>;
+type Generation = Box<dyn Fn() -> u64 + Send + Sync>;
 
 /// Static inputs of an engine verifier.
 pub struct EngineEntitlementsConfig {
@@ -116,6 +123,9 @@ pub struct EngineEntitlementsConfig {
     token_source: Option<Box<dyn TokenSource>>,
     ttl_secs: i64,
     device: DeviceSource,
+    revoked: RevokedIds,
+    clock_initialized: Option<ClockFlag>,
+    generation: Option<Generation>,
 }
 
 impl EngineEntitlementsConfig {
@@ -137,7 +147,37 @@ impl EngineEntitlementsConfig {
             token_source: None,
             ttl_secs: DEFAULT_CACHE_TTL_SECS,
             device: Box::new(device),
+            revoked: RevokedIds::new(),
+            clock_initialized: None,
+            generation: None,
         }
+    }
+
+    /// An incident denylist: a token whose authenticated entitlement id is listed is refused as
+    /// [`EngineEntitlementError::Revoked`], before the time and lifecycle checks. The list is
+    /// engine configuration; nothing a window or a message carries can edit it.
+    pub fn with_revoked_ids(mut self, revoked: RevokedIds) -> Self {
+        self.revoked = revoked;
+        self
+    }
+
+    /// Whether the licence record says the anti-rollback ledger was initialised (see
+    /// [`AntiRollbackClock::reconcile`](crate::AntiRollbackClock::reconcile)): when it is, a ledger
+    /// that has gone missing refuses instead of starting a fresh one. Without this the engine
+    /// passes `false`, as it always has.
+    pub fn with_clock_initialized(
+        mut self,
+        flag: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.clock_initialized = Some(Box::new(flag));
+        self
+    }
+
+    /// A change counter of whatever feeds this verifier (the engine snapshot cell). A verdict
+    /// cached under an older value is never served, exactly like a `LicenseInvalidation` bump.
+    pub fn with_generation(mut self, generation: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
+        self.generation = Some(Box::new(generation));
+        self
     }
 
     /// Token file name inside the data root. A name containing a path separator or `..`
@@ -231,15 +271,22 @@ impl<C: TrustedClock> EngineEntitlements<C> {
 
     /// The change generation a verdict verified now belongs to.
     fn generation_now(&self) -> u64 {
+        let fed = self
+            .cfg
+            .generation
+            .as_ref()
+            .map_or(0, |generation| generation());
         #[cfg(feature = "client")]
         {
-            self.invalidation
-                .as_ref()
-                .map_or(0, crate::LicenseInvalidation::generation)
+            fed.wrapping_add(
+                self.invalidation
+                    .as_ref()
+                    .map_or(0, crate::LicenseInvalidation::generation),
+            )
         }
         #[cfg(not(feature = "client"))]
         {
-            0
+            fed
         }
     }
 
@@ -269,9 +316,14 @@ impl<C: TrustedClock> EngineEntitlements<C> {
         let generation = self.generation_now();
         let wall = (self.wall)()
             .map_err(|e| EngineEntitlementError::Clock(ClockRefusal::Unavailable(e)))?;
+        let initialized = self
+            .cfg
+            .clock_initialized
+            .as_ref()
+            .is_some_and(|flag| flag());
         let now = self
             .clock
-            .trusted_now(wall, false)
+            .trusted_now(wall, initialized)
             .map_err(EngineEntitlementError::Clock)?;
         if let Ok(guard) = self.cache.lock() {
             if let Some(c) = guard.as_ref() {
@@ -332,7 +384,21 @@ impl<C: TrustedClock> EngineEntitlements<C> {
                 "empty device identity".to_string(),
             ));
         }
-        crate::verify_token(&token, &self.cfg.pubkey, &self.cfg.app, &device, now)
-            .map_err(EngineEntitlementError::Invalid)
+        if self.cfg.revoked.is_empty() {
+            return crate::verify_token(&token, &self.cfg.pubkey, &self.cfg.app, &device, now)
+                .map_err(EngineEntitlementError::Invalid);
+        }
+        match verify_token_not_revoked(
+            &token,
+            &self.cfg.pubkey,
+            &self.cfg.app,
+            &[device.as_str()],
+            now,
+            &self.cfg.revoked,
+        ) {
+            Ok(entitlement) => Ok(entitlement),
+            Err(RevocationError::Verify(error)) => Err(EngineEntitlementError::Invalid(error)),
+            Err(RevocationError::Revoked { id }) => Err(EngineEntitlementError::Revoked(id)),
+        }
     }
 }

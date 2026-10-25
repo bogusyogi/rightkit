@@ -34,6 +34,8 @@ pub use half;
 #[cfg(feature = "ndarray")]
 pub use ndarray;
 
+/// Find, verify, bind and report the installed runtime in one call ([`bind_installed_runtime`]).
+pub mod bind;
 #[cfg(feature = "session")]
 pub mod environment;
 /// Known-bad ONNX Runtime guard for Apple SME2 hosts (bogusyogi/rightkit#889).
@@ -47,6 +49,12 @@ pub mod runtime_bundle;
 #[cfg(feature = "session")]
 pub mod session;
 
+pub use bind::{
+    bind_installed_runtime, BindError, BindSpec, BindVerification, BoundRuntime, RuntimeReport,
+    VerificationFailure, VerificationReport,
+};
+#[cfg(feature = "catalog")]
+pub use bind::{CatalogReport, MissingCompanion};
 #[cfg(feature = "session")]
 pub use environment::{
     cpu_thread_budget, init_environment, init_environment_default_loader,
@@ -90,9 +98,16 @@ fn clear_inherited_runtime_with(remove_path: impl FnOnce()) {
 /// Unset or empty values return `None`; builds without the `dev-overrides` feature
 /// always return `None` without reading the variable. Path validation remains in runtime resolution.
 pub fn developer_override_candidate(env_name: &str) -> Option<RuntimeCandidate> {
+    developer_override_with(env_name, nonempty_env_path)
+}
+
+// Injected reader keeps the release/debug tests free of process env mutation.
+fn developer_override_with(
+    env_name: &str,
+    read_env: impl FnOnce(&str) -> Option<PathBuf>,
+) -> Option<RuntimeCandidate> {
     if cfg!(feature = "dev-overrides") {
-        nonempty_env_path(env_name)
-            .map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit))
+        read_env(env_name).map(|path| RuntimeCandidate::new(path, CandidateSource::Explicit))
     } else {
         None
     }

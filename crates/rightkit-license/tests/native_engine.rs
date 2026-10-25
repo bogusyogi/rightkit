@@ -4,7 +4,7 @@ use common::{pubkey, Claims, APP, DEVICE};
 use rightkit_license::{
     ClockState, ClockStore, Lifecycle, LifecyclePolicy, MemoryClockStore, NativeCredential,
     NativeEngineEntitlements, NativeEntitlementSource, NativeSignedCredential, NativeSourceError,
-    ProcessAnchor,
+    ProcessAnchor, RevokedIds,
 };
 use std::sync::{Arc, Mutex};
 
@@ -358,5 +358,34 @@ fn unclassified_clock_storage_failure_cannot_continue_authenticated_lifetime() {
     );
     assert!(gate.current_at(1000).unwrap().grants_access());
     *store.0.lock().unwrap() = Err("denied or unknown storage failure");
+    assert!(gate.current_at(1100).is_err());
+}
+
+#[test]
+fn an_incident_denylist_revokes_an_authentic_token_and_clears_lifetime_continuity() {
+    let source = Source::token(Claims::legacy(900, 2000));
+    let open = verifier(source.clone());
+    assert!(open.current_at(1000).unwrap().grants_access());
+    assert_eq!(open.current_at(2100).unwrap().lifecycle, Lifecycle::Expired);
+
+    let listed = verifier(source.clone()).with_revoked_ids(RevokedIds::new().with("lic_1"));
+    let report = listed.current_at(1000).unwrap();
+    assert_eq!(report.lifecycle, Lifecycle::Revoked);
+    assert!(!report.grants_access());
+    assert_eq!(
+        listed.current_at(2100).unwrap().lifecycle,
+        Lifecycle::Revoked
+    );
+    // An id that is not this licence changes nothing (a source of its own: the first verifier marked
+    // this record's ledger as initialised, which a fresh in-memory ledger rightly refuses).
+    let elsewhere = verifier(Source::token(Claims::legacy(900, 2000)))
+        .with_revoked_ids(RevokedIds::new().with("lic_other"));
+    assert!(elsewhere.current_at(1000).unwrap().grants_access());
+
+    // A revoked final lifetime licence is never carried over a transient storage failure.
+    let lifetime = Source::token(Claims::final_lifetime(100, 500, 900, 2000));
+    let gate = verifier(lifetime.clone()).with_revoked_ids(RevokedIds::new().with("lic_1"));
+    assert_eq!(gate.current_at(1000).unwrap().lifecycle, Lifecycle::Revoked);
+    lifetime.replace(Input::Error(NativeSourceError::Unavailable));
     assert!(gate.current_at(1100).is_err());
 }

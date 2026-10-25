@@ -57,8 +57,8 @@ const LC_SEGMENT_64: u32 = 0x19;
 const LC_CODE_SIGNATURE: u32 = 0x1D;
 const FAT_MAGIC: u32 = 0xCAFE_BABE;
 const FAT_MAGIC_64: u32 = 0xCAFE_BABF;
-const CPU_TYPE_X86_64: u32 = 0x0100_0007;
-const CPU_TYPE_ARM64: u32 = 0x0100_000C;
+pub(crate) const CPU_TYPE_X86_64: u32 = 0x0100_0007;
+pub(crate) const CPU_TYPE_ARM64: u32 = 0x0100_000C;
 const MACH_HEADER_64: usize = 32;
 const SEGMENT_64_MIN: usize = 72;
 const CODE_SIGNATURE_CMD: usize = 16;
@@ -515,13 +515,18 @@ fn pe_digest(bytes: &[u8]) -> Result<(&'static str, String), MediaError> {
     Ok((arch, digest_parts(parts)?))
 }
 
+// `pub(crate)` so the native-catalog tests build their Mach-O fixtures with `macho` and `fat`.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A minimal thin arm64 Mach-O: header, one `__TEXT`, `__LINKEDIT`, optional signature.
     /// `linkedit_payload` is the (possibly zero-padded) content before the signature.
-    fn macho(cputype: u32, linkedit_payload: &[u8], signature: Option<&[u8]>) -> Vec<u8> {
+    pub(crate) fn macho(
+        cputype: u32,
+        linkedit_payload: &[u8],
+        signature: Option<&[u8]>,
+    ) -> Vec<u8> {
         let ncmds = 2 + u32::from(signature.is_some());
         let sizeofcmds: u32 = 72 * 2 + if signature.is_some() { 16 } else { 0 };
         let cmds_end = 32 + sizeofcmds as usize;
@@ -712,7 +717,7 @@ mod tests {
         assert!(content_identity(&cpu).is_err());
     }
 
-    fn fat(slices: &[(u32, &[u8])], wide: bool) -> Vec<u8> {
+    pub(crate) fn fat(slices: &[(u32, &[u8])], wide: bool) -> Vec<u8> {
         let entry = if wide { 32 } else { 20 };
         let mut out = Vec::new();
         out.extend_from_slice(&(if wide { FAT_MAGIC_64 } else { FAT_MAGIC }).to_be_bytes());
