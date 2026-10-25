@@ -9,7 +9,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "
 import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "./background-process.mjs";
 import {
   exportKey,
@@ -266,3 +266,25 @@ for (const dir of CHECKOUTS) {
     if (unlisted.length > 0) t.diagnostic(`${dir}: ${unlisted.length} import(s) moved since docs/RELEASE-EXPORTS.md was cut (all still inside the map)`);
   });
 }
+
+// ------------------------------------------------------------------------------------------------- import side effects
+
+test("importing an exported module in a fresh process does nothing; a program (bin target or skipImport) is spawned, never imported", () => {
+  // The publish verify imports every exported module. 0.6.6's first verify (run 40168412670) imported cli/right-release.mjs and
+  // sign-windows.mjs, which read process.argv at import: the CLI ran with the plan file as its command and the signer refused.
+  // Bin targets are resolve-only by rule in scripts/ci/consume.mjs (their smoke run executes them); any other program is
+  // listed in rightkit.publishCheck.skipImport, and that list stays honest: an entry that imports quietly is stale.
+  const bins = new Set(Object.values(pkg.bin).map((target) => `./${target}`));
+  const skipImport = pkg.rightkit?.publishCheck?.skipImport ?? [];
+  for (const entry of skipImport) assert.ok(keys.includes(entry), `skipImport names ${entry}, which the exports map does not list`);
+  const env = { ...process.env, NODE_OPTIONS: "", NODE_ENV: "production" };
+  for (const key of keys) {
+    if (!/\.[cm]?js$/.test(key) || bins.has(key)) continue;
+    const url = pathToFileURL(path.join(here, key.slice(2))).href;
+    const ran = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(url)}); process.stdout.write("RK_IMPORTED");`], { encoding: "utf8", env, timeout: 30_000, input: "" });
+    const quiet = ran.status === 0 && ran.stdout === "RK_IMPORTED" && ran.stderr === "";
+    const shown = `${ran.stdout}${ran.stderr}`.replace("RK_IMPORTED", "").trim().slice(0, 200);
+    if (skipImport.includes(key)) assert.ok(!quiet, `${key} is listed in rightkit.publishCheck.skipImport but imports quietly: it is a module, not a program; drop the entry`);
+    else assert.ok(quiet, `${key} does something at import (status ${ran.status}): ${shown || "(no output)"}. A program that reads its command line is spawned by path, never imported: list it in rightkit.publishCheck.skipImport so the publish import check only resolves it`);
+  }
+});
