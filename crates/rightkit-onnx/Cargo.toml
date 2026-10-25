@@ -15,6 +15,10 @@ include = ["src/**", "tests/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LIC
 # Never implied by a build profile (a dev profile has debug_assertions on and still gets release behavior)
 # and never a default feature. An app enables it only from its QA/test configuration.
 dev-overrides = []
+# Catalog verification for `bind_installed_runtime` (`BindVerification::Catalog`): the runtime file and
+# its companion files are checked against the native-library catalog. Off by default so runtime builds
+# that only want the manifest check pull no catalog.
+catalog = ["dep:rightkit-ffmpeg"]
 # Build-time runtime provisioning (`rightkit_onnx::provision`, the `rightkit-onnx-provision` bin):
 # catalog row lookup, HTTPS download, archive extraction. Off by default so app runtime builds
 # pull no HTTP, tar or zip code. Use it from a build.rs or xtask, as a build-dependency.
@@ -70,7 +74,8 @@ ort = { version = "=2.0.0-rc.14", optional = true, default-features = false, fea
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11"
-# `provision` only. The native-library catalog, and the vetted download and archive extraction.
+# `catalog` and `provision`: the native-library catalog. `provision` also needs the vetted download and
+# archive extraction.
 rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.10", optional = true }
 rightkit-models = { path = "../rightkit-models", version = "0.5.0", optional = true, default-features = false }
 

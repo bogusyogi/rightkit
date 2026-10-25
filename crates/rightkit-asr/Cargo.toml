@@ -45,6 +45,8 @@ tokenizers = { version = "0.23.2", default-features = false, features = ["onig"]
 # whisper.cpp is bound through dlopen; it is not compiled for Android (see `src/whisper/cpp_android.rs`).
 [target.'cfg(not(target_os = "android"))'.dependencies]
 libloading = "0.9"
+# `WhisperCpp::load_verified` checks the library set against the native-library catalog before dlopen.
+rightkit-ffmpeg = { path = "../rightkit-ffmpeg", version = "0.2.10" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 ={ version = "0.6", features = ["exception"] }

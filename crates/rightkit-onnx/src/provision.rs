@@ -454,12 +454,19 @@ fn existing_matches(
             runtime.files.iter().any(|file| {
                 file.path == item.out_name
                     && item.record.sha256.as_deref().is_some_and(|expected| {
-                        item.record.content_sha256.is_some()
+                        has_content_digest(&item.record)
                             || expected.eq_ignore_ascii_case(&file.sha256)
                     })
             })
         });
     (same_identity && same_files).then_some(runtime)
+}
+
+/// A row with a signature-independent content digest (`contentSha256`, or `contentSha256ByArch`
+/// for a universal Mach-O) was verified by that digest when it was staged; the whole-file `sha256`
+/// of a re-signed file may differ from the row's.
+fn has_content_digest(record: &NativeRecord) -> bool {
+    record.content_sha256.is_some() || record.content_sha256_by_arch.is_some()
 }
 
 fn plan(catalog: &NativeCatalog, target: ProvisionTarget) -> Result<Vec<Planned>, ProvisionError> {
@@ -796,5 +803,76 @@ mod android_tests {
         assert_eq!(ProvisionTarget::parse("android-x64"), None);
         // The manifest platform string is accepted by the bundle verifier's platform rule.
         assert!(crate::runtime_bundle::valid_platform(target.platform()));
+    }
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A one-file bundle in `dir` (`libonnxruntime.dylib` with `bytes`, listed in its manifest as
+    /// the 1.30.0 universal2 row) and the plan that provisions the row `by_arch`.
+    fn bundle_and_plan(dir: &Path, bytes: &[u8], by_arch: bool) -> Vec<Planned> {
+        let file_sha: String = Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        fs::write(dir.join("libonnxruntime.dylib"), bytes).unwrap();
+        let manifest = ManifestOut {
+            schema: 1,
+            platform: "macos-arm64",
+            onnxruntime: IdentityOut {
+                version: "1.30.0",
+                variant: "coreml",
+                catalog_row: "onnxruntime-fixture-macos-universal2",
+            },
+            files: vec![FileOut {
+                path: "libonnxruntime.dylib".to_owned(),
+                sha256: file_sha,
+                bytes: bytes.len() as u64,
+            }],
+        };
+        fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        // The row's whole-file digest is not the staged file's: the shipped file was re-signed.
+        let mut record = json!({
+            "id": "onnxruntime-fixture-macos-universal2", "library": "onnxruntime",
+            "version": "1.30.0", "os": "macos", "arch": "universal", "status": "approved",
+            "linkage": "dynamic-library", "artifactFileName": "libonnxruntime.dylib",
+            "sha256": "0".repeat(64),
+            "archive": { "url": "https://example.test/a.zip", "sha256": "1".repeat(64) },
+            "sourceUrl": "https://example.test/source", "licenseSpdx": "MIT",
+            "noticeFiles": ["third-party/NOTICE.txt"],
+            "verification": { "method": "file-sha256", "evidence": "fixture" }
+        });
+        if by_arch {
+            record["contentSha256ByArch"] =
+                json!({ "aarch64": "2".repeat(64), "x86_64": "3".repeat(64) });
+        }
+        let catalog = NativeCatalog::parse_native_only(
+            &json!({ "schemaVersion": 1, "libraries": [record] }).to_string(),
+        )
+        .unwrap();
+        plan(&catalog, ProvisionTarget::MacosArm64).unwrap()
+    }
+
+    #[test]
+    fn a_by_arch_content_digest_row_reuses_its_verified_bundle() {
+        let root = tempfile::tempdir().unwrap();
+        let plan = bundle_and_plan(root.path(), b"fixture universal2 dylib", true);
+        let reused = existing_matches(root.path(), ProvisionTarget::MacosArm64, &plan);
+        assert!(reused.is_some(), "a by-arch content digest row is reusable");
+    }
+
+    #[test]
+    fn a_row_without_a_content_digest_reuses_only_a_bundle_with_its_whole_file_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let plan = bundle_and_plan(root.path(), b"fixture universal2 dylib", false);
+        let reused = existing_matches(root.path(), ProvisionTarget::MacosArm64, &plan);
+        assert!(reused.is_none(), "the staged file does not match the row");
     }
 }

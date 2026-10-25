@@ -16,7 +16,9 @@
 //! 56-byte struct by value) is deliberately not bound.
 use super::control::{check_interrupt, interrupted_error, AbortState, CancelToken, ProgressSlot};
 use super::{LanguageDetection, Segment, WindowDecoder, WindowOutput, WindowRequest, WordSpan};
+use super::verified::{verify_set, VerifiedLoadError};
 use crate::error::{Error, Result};
+use rightkit_ffmpeg::native::NativeCatalog;
 use std::ffi::{c_char, c_float, c_int, c_void, CStr, CString};
 use std::path::Path;
 use std::sync::Arc;
@@ -213,7 +215,62 @@ pub struct WhisperCpp {
 unsafe impl Send for WhisperCpp {}
 
 impl WhisperCpp {
-    /// Load the shared library and create a resident context from `model`.
+    /// [`WhisperCpp::load`] that first verifies the library and the ggml files beside it against
+    /// the embedded native-library catalog for this host, and refuses with
+    /// [`VerifiedLoadError::Verification`] before dlopen when any of them is not the catalog's
+    /// (see [`WhisperCpp::load_verified_in`]). This is the path for a shipped app; `library` must
+    /// be an absolute path.
+    ///
+    /// The digests are checked now, not while the loader maps the files: a local writer that
+    /// replaces one between the check and the load is outside it (the window
+    /// `rightkit_ffmpeg::verified_library` documents). Keep the files in a directory only the app
+    /// can write. The model file is not part of this check.
+    #[cfg(not(target_os = "android"))]
+    pub fn load_verified(
+        library: &Path,
+        model: &Path,
+        threads: usize,
+        deadline: Option<Duration>,
+    ) -> std::result::Result<Self, VerifiedLoadError> {
+        let catalog = NativeCatalog::embedded().map_err(VerifiedLoadError::Verification)?;
+        Self::load_verified_in(
+            &catalog,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            library,
+            model,
+            threads,
+            deadline,
+        )
+    }
+
+    /// [`WhisperCpp::load_verified`] against an explicit catalog and platform (`os` is `macos`,
+    /// `windows` or `linux`; `arch` is `aarch64` or `x86_64`), for tests.
+    ///
+    /// Verifies the whisper.cpp file and every `ggml` row of the platform beside it, all or
+    /// nothing, then loads the canonical path that was verified (not the path passed in) with
+    /// [`WhisperCpp::load`]. An `approved` or `pinned` row serves; a `planned` row, an absent
+    /// file or a digest mismatch is a [`VerifiedLoadError::Verification`] and nothing is opened.
+    #[cfg(not(target_os = "android"))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_verified_in(
+        catalog: &NativeCatalog,
+        os: &str,
+        arch: &str,
+        library: &Path,
+        model: &Path,
+        threads: usize,
+        deadline: Option<Duration>,
+    ) -> std::result::Result<Self, VerifiedLoadError> {
+        let verified = verify_set(catalog, os, arch, library).map_err(VerifiedLoadError::Verification)?;
+        // `verify_set` returns the whisper.cpp library first.
+        Self::load(verified[0].path(), model, threads, deadline).map_err(VerifiedLoadError::Load)
+    }
+
+    /// Load the shared library and create a resident context from `model`, without checking the
+    /// library against the native-library catalog: the unverified path, for tests and for
+    /// development builds with a locally built library. A shipped app uses
+    /// [`WhisperCpp::load_verified`].
     /// Never panics; any missing file/export/version mismatch is an `Err`.
     pub fn load(
         library: &Path,

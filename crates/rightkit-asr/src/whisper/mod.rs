@@ -60,6 +60,9 @@ pub(crate) mod cpp;
 #[cfg(target_os = "macos")]
 pub mod coreml;
 pub mod languages;
+// The verified load needs the native-library catalog, which is not built for Android with whisper.cpp.
+#[cfg(not(target_os = "android"))]
+mod verified;
 mod windowing;
 
 use crate::audio::{load_audio, AudioSource};
@@ -73,6 +76,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub use cpp::WhisperCpp;
+#[cfg(not(target_os = "android"))]
+pub use verified::VerifiedLoadError;
 #[cfg(target_os = "macos")]
 pub use coreml::ComputeUnits;
 #[cfg(all(target_os = "macos", feature = "whisper-tokenizers"))]
@@ -475,6 +480,9 @@ pub struct Whisper {
 }
 
 impl Whisper {
+    /// Load without checking the whisper.cpp library against the native-library catalog: the path
+    /// for tests and for development builds with a locally built library. A shipped app loads
+    /// through [`Whisper::load_verified`].
     pub fn load(model: WhisperModel, options: WhisperOptions) -> Result<Self> {
         let backend = match model {
             #[cfg(all(target_os = "macos", feature = "whisper-tokenizers"))]
@@ -492,6 +500,30 @@ impl Whisper {
             }
         };
         Ok(Self { backend, options, detected: None })
+    }
+
+    /// [`Whisper::load`] that first verifies the whisper.cpp library and the ggml files beside it
+    /// against the native-library catalog for this host ([`WhisperCpp::load_verified`]), and
+    /// refuses with [`VerifiedLoadError::Verification`] before anything is loaded when a file is
+    /// not the catalog's. [`WhisperModel::CoreMlDir`] has no native library of ours to verify and
+    /// loads as [`Whisper::load`] does (its error is [`VerifiedLoadError::Load`]).
+    #[cfg(not(target_os = "android"))]
+    pub fn load_verified(
+        model: WhisperModel,
+        options: WhisperOptions,
+    ) -> std::result::Result<Self, VerifiedLoadError> {
+        match model {
+            WhisperModel::Ggml { library, model } => {
+                let cpp = WhisperCpp::load_verified(
+                    &library,
+                    &model,
+                    options.threads,
+                    options.window_deadline,
+                )?;
+                Ok(Self { backend: Backend::Cpp(cpp), options, detected: None })
+            }
+            other => Self::load(other, options).map_err(VerifiedLoadError::Load),
+        }
     }
 
     pub fn language(&self) -> &Language {
