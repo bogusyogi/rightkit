@@ -764,6 +764,63 @@ test("G22 e2e-under-cargo-test: a bare cargo test follows default-members, selec
   assert.deepEqual(run("e2e-under-cargo-test", t, { ...docs, "crates/app-e2e/tests/scenarios.rs": "fn t() {}\n" }), [], "no end-to-end crate, nothing to find");
 });
 
+test("G22 e2e-under-cargo-test: a code span that is only the command is a command line when it is told to be run, not when it is mentioned; a PowerShell block comment is a comment", (t) => {
+  // Found running the check on PostRight, ScrapeRight, CutRight, Ember and GenRight: the root is a virtual workspace that holds an end-to-end crate, so a bare
+  // `cargo test` selects it, and each line below is prose that names the command, a label, a negation or a comment, not a command line.
+  const mentions = [
+    "- `cargo test` unit tests: `runtime::credential_store_guard` and `doctor::tests`.",
+    "The end-to-end crate compiles in the broker and runs outside it: `cargo test` would hold the broker's compile slot for the whole run.",
+    "- `cargo test`: Rust unit tests and crate tests.",
+    "`scripts/gate.sh` no longer runs `cargo test`.",
+    "Only FreeBSD runs `cargo test`.",
+    "Put the settings in `.cache/e2e/settings.env` because `rustright cargo test` drops the environment.",
+    "Do not run `cargo test` for the end-to-end crate.",
+    "Never use `rustright cargo test` here; run `rightkit-qa run-tests` instead.",
+    "You don't need to run `cargo test`.",
+    "Running `cargo test` takes 55 minutes.",
+  ];
+  const instructions = [
+    "Run `rustright cargo test` before you push.",
+    "1. Use `cargo test` to check the Rust side.",
+    "- **Run** `cargo test`",
+    "Tip: run `cargo test` when the engine changes.",
+    "Run `cargo test --manifest-path Cargo.toml` for Rust changes.",
+    "The Rust suite is `cargo test --locked`.",
+  ];
+  const readme = ["# App", ...mentions, ...instructions, "", "```sh", "# cargo test in a comment", "cargo test", "```", ""].join("\n");
+  const powershell = [
+    "<#",
+    "Falls back to cargo test --ignored if standalone not present.",
+    "rustright cargo test",
+    "#>",
+    "param()",
+    "rustright cargo test",
+    "<# note #> rustright cargo test",
+    "<# opens here",
+    "rustright cargo test",
+    "closes #>",
+    'Write-Host "<# not a block"',
+    "rustright cargo test",
+    "",
+  ].join("\n");
+  const failures = run("e2e-under-cargo-test", t, e2eApp({ "README.md": readme, "scripts/bench.ps1": powershell, "scripts/bench.psm1": "<#\ncargo test\n#>\n" }));
+  const found = failures.map((f) => `${f.problem.split(" ")[0]} ${f.subject}`).sort();
+  const expected = [
+    ...instructions.map((text) => `README.md:${lineIn(readme, text)} app-e2e`),
+    `README.md:${readme.split("\n").lastIndexOf("cargo test") + 1} app-e2e`, // the bare command in the fenced block
+    "scripts/bench.ps1:6 app-e2e", "scripts/bench.ps1:7 app-e2e", "scripts/bench.ps1:12 app-e2e",
+  ].sort();
+  assert.deepEqual(found, expected);
+  assert.match(failures.find((f) => f.file === "scripts/bench.ps1" && f.problem.startsWith("scripts/bench.ps1:6 ")).problem, /^scripts\/bench\.ps1:6 command runs the end-to-end crate app-e2e under cargo test \(rustright cargo test\)/);
+  // The same bare command in a package.json script, a recipe or a workflow step is a command line whatever stands around it.
+  const elsewhere = run("e2e-under-cargo-test", t, e2eApp({
+    "package.json": JSON.stringify({ scripts: { test: "rustright cargo test" } }),
+    Makefile: "unit:\n\trustright cargo test\n",
+    ".github/workflows/ci.yml": "jobs:\n  t:\n    steps:\n      - run: cargo test\n",
+  })).map((f) => `${f.file} ${f.subject}`).sort();
+  assert.deepEqual(elsewhere, [".github/workflows/ci.yml app-e2e", "Makefile app-e2e", "package.json test"]);
+});
+
 test("G22 e2e-under-cargo-test: ratchet: a baseline entry tolerates the finding, a fixed one is STALE, the build does not refuse it", async (t) => {
   const pkg = (command) => JSON.stringify({ scripts: { "test:e2e": command } }, null, 2);
   const { repo, parent } = appRepo(t, e2eApp({ "package.json": pkg("rustright cargo test -p app-e2e -- --test-threads=1") }));

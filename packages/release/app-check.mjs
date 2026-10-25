@@ -458,6 +458,8 @@ function speechLink({ root, files }) {
 // a member here), a command assembled from variables is matched on its literal text only, a package.json script that calls another
 // script is judged where the cargo text is, a cargo alias (`cargo t`) is not matched, and a bare `cargo test` selects nothing unless the
 // directory's manifest is a virtual workspace (a [workspace] with no [package]): there it tests every member, or the default-members.
+// A code span of a runbook that is only the command (no argument) is a mention unless it is told to be run (INSTRUCTION_VERB), and a PowerShell
+// `<# #>` block is a comment: the same command in a fenced block, a script, a package.json script, a recipe, a workflow or a hook is a command line.
 const E2E_DRIVER_MODULES = new Set(["harness", "control", "suite", "scenario", "engine", "in_app", "interactive", "page", "browser", "android"]);
 const E2E_GUARD_TARGET = "qa_surface_guard"; // the one test target of an end-to-end crate that only runs the static guard
 const E2E_NAME_ONLY = /-e2e$|^qa-/; // a name is not evidence: crates that match only this are listed for a reviewer by e2eCrates()
@@ -674,6 +676,40 @@ const HOOK_FILE = /(?:^|\/)(?:\.githooks|\.husky|githooks)\/(?!_\/)[^/]+/;
 const WORKFLOW_FILE = /^\.github\/(?:workflows\/[^/]+|actions\/.+\/action)\.ya?ml$/;
 const BUILD_FILE = /(?:^|\/)(?:Makefile|makefile|GNUmakefile|[Jj]ustfile|\.justfile)$|\.mk$/;
 const SCRIPT_FILE = /\.(?:sh|bash|zsh|ps1|psm1|bat|cmd|mjs|cjs|js|py)$/i;
+// A code span in running text that is only the cargo command (`cargo test`, `rustright cargo test`: no argument) names the command as often as it
+// tells a reader to run it ("`cargo test` unit tests: ...", "`cargo test` would hold the compile slot", "only CI runs `cargo test`", a list item
+// "`cargo test`: Rust unit tests"). It is a command line only where an imperative verb stands right before it in its clause and nothing in that
+// clause negates it: "Run `cargo test` before you push", not "Do not run `cargo test`". With an argument, in a fenced block, a script, a package.json
+// script, a recipe, a workflow step or a hook, the same words are a command line whatever stands around them.
+const INSTRUCTION_VERB = /\b(?:run|use|execute|invoke|call|type)[*_]*\s*$/i;
+const NEGATION = /\b(?:not|never|no longer|avoid|without|instead of|rather than)\b|n't\b/i;
+const instructsToRun = (before) => {
+  const clause = String(before ?? "").split(/[.;!?]\s+|:\s+/).pop();
+  return INSTRUCTION_VERB.test(clause) && !NEGATION.test(clause);
+};
+
+/** The physical lines ({ no, text }) of a PowerShell script with its `<# ... #>` block comments blanked, line numbers kept. A block opens only
+ * where `<#` is the first thing on a line, so a `<#` met after code (in a string, say) never hides what follows it; code after the `#>` that
+ * closes a block on the same line is kept. */
+function withoutPowerShellBlockComments(lines) {
+  let inBlock = false;
+  return lines.map(({ no, text }) => {
+    let rest = text;
+    for (;;) {
+      if (!inBlock) {
+        const open = /^\s*<#/.exec(rest);
+        if (!open) break;
+        inBlock = true;
+        rest = rest.slice(open[0].length);
+      }
+      const end = rest.indexOf("#>");
+      if (end < 0) { rest = ""; break; }
+      inBlock = false;
+      rest = rest.slice(end + 2);
+    }
+    return { no, text: rest };
+  });
+}
 
 /** A script's `cd` / `Set-Location` target applied to `cwd` (a posix path from the repository root). A target that is not a plain
  * relative path (a variable, a substitution, an absolute path, one that leaves the repository) leaves the directory as it was: the
@@ -746,22 +782,22 @@ function workflowSteps(text) {
   return steps;
 }
 
-/** The command-bearing units of a runbook document: each fenced code block (its lines) and each inline code span (one line). Prose
- * outside code is never a command. */
+/** The command-bearing units of a runbook document: each fenced code block ({ lines }) and each inline code span ({ lines: one line, inline, before: the
+ * text before it on its line }). Prose outside code is never a command. */
 function markdownUnits(text) {
   const units = [];
   let fence = null;
   text.split("\n").forEach((raw, i) => {
     if (fence) {
       const close = /^\s*(`{3,}|~{3,})\s*$/.exec(raw);
-      if (close && close[1][0] === fence.char && close[1].length >= fence.length) { units.push(fence.lines); fence = null; } else fence.lines.push({ no: i + 1, text: raw });
+      if (close && close[1][0] === fence.char && close[1].length >= fence.length) { units.push({ lines: fence.lines }); fence = null; } else fence.lines.push({ no: i + 1, text: raw });
       return;
     }
     const open = /^\s*(`{3,}|~{3,})/.exec(raw);
     if (open) { fence = { char: open[1][0], length: open[1].length, lines: [] }; return; }
-    for (const span of raw.matchAll(/(`+)(.+?)\1(?!`)/g)) units.push([{ no: i + 1, text: span[2].trim() }]);
+    for (const span of raw.matchAll(/(`+)(.+?)\1(?!`)/g)) units.push({ lines: [{ no: i + 1, text: span[2].trim() }], inline: true, before: raw.slice(0, span.index) });
   });
-  if (fence) units.push(fence.lines);
+  if (fence) units.push({ lines: fence.lines });
   return units;
 }
 
@@ -853,7 +889,7 @@ function e2eUnderCargoTest({ root, files }) {
       : `compile it with --no-run and run it outside the broker: ${runner}`;
   };
   /** Scan logical lines ({ no, text }) that run in order from `cwd`; `what` names the place and `subject` overrides the crate name in the identity. */
-  const scan = (file, lines, cwd, what, subject) => {
+  const scan = (file, lines, cwd, what, subject, span = null) => {
     for (const { no, text } of lines) {
       if (!/cargo|\bcd\b|Set-Location/i.test(text)) continue; // a line with neither a command nor a directory change cannot matter
       const events = [...text.matchAll(CD_COMMAND)].map((m) => ({ at: m.index, cd: m[1] })).concat([...text.matchAll(CARGO_COMMAND)].map((m) => ({ at: m.index, m })));
@@ -868,6 +904,8 @@ function e2eUnderCargoTest({ root, files }) {
         const tokens = (rest.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []).map((t) => t.replace(/["']/g, "").replace(/\)+$/, ""));
         const ownArguments = tokens.indexOf("--") < 0 ? tokens : tokens.slice(0, tokens.indexOf("--"));
         const segment = text.slice(Math.max(text.lastIndexOf("&", event.at), text.lastIndexOf(";", event.at), text.lastIndexOf("|", event.at), text.lastIndexOf("`", event.at)) + 1, event.at + event.m[0].length);
+        // A code span in running text that is only the command is a mention unless it is told to be run (INSTRUCTION_VERB).
+        if (span && tokens.length === 0 && text.trim() === event.m[0].trim() && !instructsToRun(span.before)) continue;
         if (ownArguments.includes("--no-run") || QA_RUNNER.test(segment)) continue;
         if (ownArguments.some((t) => t === "--help" || t === "-h" || t === "--version" || t === "-V")) continue;
         if (verb === "nextest" && NEXTEST_NO_TESTS.has(tokens[0])) continue;
@@ -899,8 +937,8 @@ function e2eUnderCargoTest({ root, files }) {
     const continuation = /\.(?:ps1|psm1)$/i.test(file) ? "`" : /\.(?:bat|cmd)$/i.test(file) ? "^" : "\\";
     const physical = content.split("\n").map((line, i) => ({ no: i + 1, text: line }));
     if (workflow) for (const step of workflowSteps(content)) scan(file, logicalLines(step.lines, continuation), step.cwd, "workflow step");
-    else if (runbook) for (const unit of markdownUnits(content)) scan(file, logicalLines(unit, continuation), ".", "runbook command");
-    else scan(file, logicalLines(physical, continuation), ".", hook ? "git hook" : recipe ? "recipe" : "command");
+    else if (runbook) for (const unit of markdownUnits(content)) scan(file, logicalLines(unit.lines, continuation), ".", "runbook command", undefined, unit.inline ? unit : null);
+    else scan(file, logicalLines(/\.(?:ps1|psm1)$/i.test(file) ? withoutPowerShellBlockComments(physical) : physical, continuation), ".", hook ? "git hook" : recipe ? "recipe" : "command");
   }
   return out;
 }
