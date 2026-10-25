@@ -1547,14 +1547,26 @@ mod tests {
     #[test]
     fn a_named_label_wins_over_the_declared_windows() {
         assert_eq!(declared_window_label(Some("tray"), &["hub"]), "tray");
-        assert_eq!(declared_window_label(Some("tray"), &["main", "hub"]), "tray");
+        assert_eq!(
+            declared_window_label(Some("tray"), &["main", "hub"]),
+            "tray"
+        );
         assert_eq!(declared_window_label(Some("tray"), &[]), "tray");
     }
     #[test]
     fn app_then_launcher_name_the_label_and_blank_counts_as_unset() {
-        assert_eq!(configured_window_label(Some("a"), Some("b")).as_deref(), Some("a"));
-        assert_eq!(configured_window_label(None, Some("b")).as_deref(), Some("b"));
-        assert_eq!(configured_window_label(Some("  "), Some(" b ")).as_deref(), Some("b"));
+        assert_eq!(
+            configured_window_label(Some("a"), Some("b")).as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            configured_window_label(None, Some("b")).as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            configured_window_label(Some("  "), Some(" b ")).as_deref(),
+            Some("b")
+        );
         assert_eq!(configured_window_label(None, Some("")), None);
         assert_eq!(configured_window_label(None, None), None);
     }

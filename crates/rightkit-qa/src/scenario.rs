@@ -2597,7 +2597,16 @@ screenshot = true
             );
         }
         // Every word the launch guard calls a credential is refused as an input name too: one list.
-        for word in ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "APIKEY", "PRIVATE_KEY", "CREDENTIAL"] {
+        for word in [
+            "TOKEN",
+            "SECRET",
+            "PASSWORD",
+            "PASSWD",
+            "API_KEY",
+            "APIKEY",
+            "PRIVATE_KEY",
+            "CREDENTIAL",
+        ] {
             let why = input_key_refusal(&format!("RIGHTKIT_APP_{word}")).unwrap();
             assert!(why.contains("names a credential"), "{word}: {why}");
         }
@@ -2699,10 +2708,16 @@ screenshot = true
             ]
         );
         // The data-dir variable sits below the inputs and above the config.
-        let c = cfg("app = \"demo\"\n[env]\nDATA = \"config\"\n[engine]\ndata_dir_env = \"DATA\"\n");
+        let c =
+            cfg("app = \"demo\"\n[env]\nDATA = \"config\"\n[engine]\ndata_dir_env = \"DATA\"\n");
         let env = ui_launch_env(&c, Path::new("/scenario/dir"), &map(&[]), vec![]);
         assert_eq!(env[0], pair("DATA", "/scenario/dir"));
-        let env = ui_launch_env(&c, Path::new("/scenario/dir"), &map(&[("DATA", "input")]), vec![]);
+        let env = ui_launch_env(
+            &c,
+            Path::new("/scenario/dir"),
+            &map(&[("DATA", "input")]),
+            vec![],
+        );
         assert_eq!(env[0], pair("DATA", "input"));
         // The step can still move the window label for one launch.
         let env = ui_launch_env(
@@ -2712,7 +2727,9 @@ screenshot = true
             vec![pair(control::WINDOW_LABEL_ENV, "other")],
         );
         assert_eq!(
-            env.iter().filter(|(k, _)| k == control::WINDOW_LABEL_ENV).collect::<Vec<_>>(),
+            env.iter()
+                .filter(|(k, _)| k == control::WINDOW_LABEL_ENV)
+                .collect::<Vec<_>>(),
             vec![&pair(control::WINDOW_LABEL_ENV, "other")]
         );
     }
@@ -3111,7 +3128,12 @@ mod ui_launch_env_tests {
 
     #[test]
     fn the_window_label_defaults_to_main() {
-        let env = ui_launch_env(&cfg("app = \"demo\"\n"), Path::new("/d"), &BTreeMap::new(), vec![]);
+        let env = ui_launch_env(
+            &cfg("app = \"demo\"\n"),
+            Path::new("/d"),
+            &BTreeMap::new(),
+            vec![],
+        );
         assert_eq!(value(&env, control::WINDOW_LABEL_ENV), Some("main"));
     }
 
