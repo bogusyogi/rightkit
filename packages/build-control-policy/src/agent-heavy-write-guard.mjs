@@ -923,9 +923,10 @@ function writerRule(program, args, scope, ctx) {
     if (has('config')) return refuse('wget --config: the config file can set any output path', 'Pass the options on the command line instead of a config file.');
     for (const word of valuesOf('e', 'execute')) if (word.dyn || !/^\s*(?:robots|use_proxy|http_proxy|https_proxy|ftp_proxy|no_proxy|tries|wait|waitretry|timeout|content_disposition|check_certificate|retry_connrefused)\s*=/i.test(word.v)) return refuse(`wget -e/--execute ${word.dyn ? '(built from a shell expansion)' : word.v}: a wgetrc command can set any output path`, 'Use the dedicated wget options (-O, -P) instead of -e.');
     for (const prefix of prefixes) targets.push({ word: prefix, via: 'wget -P', directory: true });
-    // -i FILE and -b (the wget-log file) write into the working directory with no URL operand.
-    const writesHere = operands.length || has('i', 'input-file') || (has('b', 'background') && !has('o', 'output-file', 'a', 'append-output'));
-    if (!document && !prefixes.length && writesHere) { const here = cwdWord(scope); if (here) targets.push({ word: here, via: 'wget (writes into the working directory)', directory: true }); else return refuse('wget writes into a working directory that is not known', 'Use "wget -O <absolute file>".'); }
+    // -i FILE writes into the working directory with no URL operand, and -b without a log file writes wget-log there.
+    const writesHere = operands.length || has('i', 'input-file');
+    const logsHere = has('b', 'background') && !has('o', 'output-file', 'a', 'append-output');
+    if ((!document && !prefixes.length && writesHere) || logsHere) { const here = cwdWord(scope); if (here) targets.push({ word: here, via: 'wget (writes into the working directory)', directory: true }); else return refuse('wget writes into a working directory that is not known', 'Use "wget -O <absolute file>".'); }
   }
   if (program === 'rsync') {
     // --write-batch=F and --only-write-batch=F write F and F.sh. --backup-dir and --partial-dir resolve against the
