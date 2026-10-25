@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-25T20:14:11Z",
-  "rightkitHead": "f3a15c6",
+  "generatedAt": "2026-10-25T20:52:18Z",
+  "rightkitHead": "3d90d29",
   "legend": [
     {
       "state": "adopted",
@@ -132,7 +132,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/coderight",
       "present": true,
-      "head": "c3ad825",
+      "head": "a562761",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -575,7 +575,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/cutright",
       "present": true,
-      "head": "2a9ff2a",
+      "head": "f45252a",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -594,7 +594,7 @@
         "ignored": []
       },
       "scan": {
-        "manifests": 28,
+        "manifests": 29,
         "parseErrors": 0,
         "pins": 109,
         "vendored": 0
@@ -978,7 +978,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/ember",
       "present": true,
-      "head": "d0b2cb6",
+      "head": "45c6cb5",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1377,7 +1377,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/genright",
       "present": true,
-      "head": "a1049d7",
+      "head": "02ec27f",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -1781,7 +1781,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/heardright",
       "present": true,
-      "head": "9ed91c1",
+      "head": "dbff0ad",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2226,7 +2226,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/mailright",
       "present": true,
-      "head": "a39128a",
+      "head": "9fab586",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -2630,7 +2630,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/postright",
       "present": true,
-      "head": "39f75b2",
+      "head": "275a793",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3034,7 +3034,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/pulse",
       "present": true,
-      "head": "f537839",
+      "head": "82ba594",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3548,7 +3548,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/scraperight",
       "present": true,
-      "head": "cf259bb",
+      "head": "dc0a18e",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {
@@ -3990,7 +3990,7 @@
       "group": "mandatory-set app",
       "dir": "/home/user/viewright",
       "present": true,
-      "head": "8f76c10",
+      "head": "3b843c2",
       "profile": "desktop",
       "inMandatorySet": true,
       "declaration": {

@@ -2186,7 +2186,7 @@ const CLASS_A_TOOL_STEPS = Object.freeze([
   "      - name: Install the pinned class A scan tools",
   "        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29",
   "        with:",
-  "          tool: cargo-deny@0.20.2,cargo-audit@0.22.2",
+  "          tool: cargo-deny@0.20.2,cargo-audit@0.22.2,shellcheck@0.11.0",
   "      - name: Install the pinned workflow linter",
   "        shell: bash",
   "        env:",

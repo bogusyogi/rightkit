@@ -771,7 +771,7 @@ None.
 
 | App | Present | Manifests read | Parse errors | RightKit pins matched |
 |---|---|---|---|---|
-| cutright | yes | 28 | 0 | 109 |
+| cutright | yes | 29 | 0 | 109 |
 | genright | yes | 11 | 0 | 104 |
 | scraperight | yes | 13 | 0 | 86 |
 | viewright | yes | 8 | 0 | 37 |

@@ -11,41 +11,9 @@
       "shell-csp|crates/rightkit-tauri-shell/example-app/tauri.conf.json|base:csp-missing",
       "shell-csp|spikes/rk2-macos/fixture-app/tauri.conf.json|base:csp-missing"
     ],
-    "coderight": [
-      "engine-record-store|engine/bins/coderight/src/license.rs|from_record_store",
-      "suite-key-literal|apps/coderight-ios/CodeRight/License/LicensePublicKey.swift|licence-key:base64url",
-      "suite-key-literal|apps/coderight-tauri/src-tauri/src/license_host.rs|licence-key:bytes",
-      "suite-key-literal|engine/bins/coderight/src/license.rs|licence-key:bytes",
-      "switches-inventory|apps/coderight-tauri/right-release.config.mjs|apps/coderight-tauri"
-    ],
-    "cutright": [
-      "switches-inventory|apps/cutright/right-release.config.mjs|apps/cutright"
-    ],
-    "genright": [
-      "suite-key-literal|crates/genright-engine/src/entitlement.rs|licence-key:bytes",
-      "switches-inventory|right-release.config.mjs|."
-    ],
-    "heardright": [
-      "suite-key-literal|cloudflare-workers/model-serve/worker.js|licence-key:bytes",
-      "suite-key-literal|ios-native/Shared/LicenseEntitlement.swift|licence-key:bytes",
-      "suite-key-literal|tauri-app-next/src-tauri/src/host_services.rs|licence-key:bytes"
-    ],
     "mailright": [
       "engine-record-store|src-tauri/src/pro_gate.rs|from_record_store",
-      "suite-key-literal|src-tauri/src/pro_gate.rs|licence-key:bytes",
-      "switches-inventory|right-release.config.mjs|."
-    ],
-    "postright": [
-      "suite-updater-key|src-tauri/tauri.conf.json|plugins.updater.pubkey"
-    ],
-    "scraperight": [
-      "engine-record-store|crates/engine/src/main_license.rs|from_record_store",
-      "suite-key-literal|crates/protocol/src/license.rs|licence-key:bytes",
-      "suite-key-literal|ios-native/Shared/LicenseEntitlement.swift|licence-key:bytes"
-    ],
-    "viewright": [
-      "suite-key-literal|src-tauri/src/license_host.rs|licence-key:bytes",
-      "switches-inventory|right-release.config.mjs|."
+      "suite-key-literal|src-tauri/src/pro_gate.rs|licence-key:bytes"
     ]
   }
 }

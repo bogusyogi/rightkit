@@ -1628,3 +1628,26 @@ test("advisory scans: a workspace without deny.toml gets RightKit's policy, neve
   const src = readFileSync(new URL("./deterministic-scans.mjs", import.meta.url), "utf8");
   assert.match(src, /deny-default\.toml/);
 });
+
+test("actionlint needs shellcheck: without it the workflow scan fails instead of passing its run: scripts unchecked", async () => {
+  const { fs, plan } = planFor([".github/workflows/ci.yml"], { ".github/workflows/ci.yml": "on: push\njobs: {}\n" }, { all: true });
+  const scan = plan.scans.find((s) => s.id === "actionlint");
+  assert.deepEqual(scan.requires, ["shellcheck"]);
+  const missing = await runScans(plan, deps({ ...fs, spawn: fakeSpawn({ missing: ["shellcheck"] }) }));
+  const row = missing.scans.find((s) => s.id === "actionlint");
+  assert.equal(row.status, "fail");
+  assert.equal(row.code, "TOOL_MISSING");
+  assert.match(row.detail, /shellcheck/);
+  const present = await runScans(plan, deps({ ...fs }));
+  assert.equal(present.scans.find((s) => s.id === "actionlint").status, "pass");
+});
+
+test("json-parse reads tsconfig, jsconfig and .vscode settings as JSON with comments; everything else stays strict", async () => {
+  const files = { "tsconfig.json": "{\n  // strict\n  \"compilerOptions\": { /* x */ \"strict\": true, },\n}\n", "app/tsconfig.app.json": "{ \"a\": 1, // c\n}", "package.json": "{ \"a\": 1 // c\n}" };
+  const { fs, plan } = planFor(Object.keys(files), files);
+  const result = await runScans(plan, deps({ ...fs }));
+  const row = result.scans.find((s) => s.id === "json-parse");
+  assert.equal(row.status, "fail");
+  assert.match(row.detail, /package\.json/);
+  assert.doesNotMatch(row.detail, /tsconfig/);
+});

@@ -56,6 +56,20 @@ export function deterministicScansEnabled(config) {
   return config?.deterministicScans?.enabled === true;
 }
 
+/** JSONC to JSON: drops line and block comments outside strings, and trailing commas before } or ]. */
+export function stripJsonComments(text) {
+  let out = ""; let i = 0; let inString = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inString) { out += c; if (c === "\\") { out += text[i + 1] ?? ""; i += 2; continue; } if (c === "\"") inString = false; i++; continue; }
+    if (c === "\"") { inString = true; out += c; i++; continue; }
+    if (c === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; continue; }
+    if (c === "/" && text[i + 1] === "*") { i += 2; while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++; i += 2; continue; }
+    out += c; i++;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
 /** "A", "B" or null for an id such as "clippy:rightkit-fs". */
 export function scanClassOf(id) {
   const prefix = String(id).split(":")[0];
@@ -222,7 +236,7 @@ const SUITE_API_INPUT = /^(contracts\/right-suite-api\.v1\.json|scripts\/gen-sui
 const GENERATOR_INPUT = /^(crates\/[^/]+\/(Cargo\.toml|README\.md)|packages\/[^/]+\/(package\.json|README\.md)|Cargo\.toml|packages\/release\/(rightkit-versions\.json|rightkit-ownership\.json|ownership-availability\.mjs)|scripts\/generate-(index|port-matrix)\.mjs|INDEX\.md|docs\/(ADOPTION|CAPABILITY-MAP|PORT-MATRIX)\.md|docs\/port-matrix\.(html|json))$/;
 const PROBES = Object.freeze({
   rustfmt: ["--version"], node: ["--version"], rustright: ["cargo", "--version"], pnpm: ["--version"],
-  actionlint: ["-version"], "right-git": ["--version"], swift: ["--version"],
+  actionlint: ["-version"], shellcheck: ["--version"], "right-git": ["--version"], swift: ["--version"],
 });
 
 function commandText(d) {
@@ -603,7 +617,9 @@ export function planScans({
   // Explicit files: the exported commit has no .git for actionlint's project discovery.
   const workflowFiles = files.filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f)).sort();
   const actionlintConfig = exists(path.join(contentRoot, ".github/actionlint.yaml")) ? ["-config-file", ".github/actionlint.yaml"] : [];
-  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", args: [...actionlintConfig, ...workflowFiles], root: "content" });
+  // actionlint lints every run: script with shellcheck only when shellcheck is found, and otherwise passes silently; class A
+  // requires it (`requires`), so a host without it fails the scan instead of skipping the shell checks.
+  if (workflowFiles.length) add({ id: "actionlint", class: A, tool: "actionlint", requires: ["shellcheck"], args: [...actionlintConfig, ...workflowFiles], root: "content" });
   // No right-git drift scan: the one workflow right-git renders here, ci.yml, is hand-owned (its header;
   // docs/CI.md) and held by scripts/ci/ci-scans-contract.mjs instead, so drift is always reported by design.
 
@@ -1012,7 +1028,9 @@ const INTERNAL = {
   "json-parse": (s, ctx) => {
     const bad = [];
     for (const f of s.files) {
-      try { JSON.parse(ctx.read(f).replace(/^﻿/, "")); } catch (e) { bad.push(`${f}: ${e.message}`); }
+      // tsconfig/jsconfig and editor settings are JSON with comments by their own spec (TypeScript reads them that way).
+      const jsonc = /(^|\/)(tsconfig|jsconfig)(\.[^/]*)?\.json$|(^|\/)\.vscode\/[^/]+\.json$/.test(f);
+      try { const text = ctx.read(f).replace(/^\uFEFF/, ""); JSON.parse(jsonc ? stripJsonComments(text) : text); } catch (e) { bad.push(`${f}: ${e.message}`); }
     }
     return bad;
   },
@@ -1226,7 +1244,10 @@ export async function runScans(plan, options = {}) {
       } else {
         const p = await probe(s.tool);
         row.toolVersion = p.ok ? p.version : null;
+        let missingDep = null;
+        for (const dep of s.requires ?? []) { const d = await probe(dep); if (!d.ok) { missingDep = `${dep} (${d.why})`; break; } }
         if (!p.ok) { status = "fail"; code = "TOOL_MISSING"; detail = `required tool ${s.tool} is missing or not runnable (${p.why}); a required scan is never skipped`; }
+        else if (missingDep) { status = "fail"; code = "TOOL_MISSING"; detail = `${s.tool} needs ${missingDep}, which is missing or not runnable; without it the scan would pass unchecked, so it fails`; }
         else {
           let cacheKey = null;
           if (cache) {

@@ -1072,7 +1072,7 @@ async function runStages(o, args, root, git, io) {
   }
   const binding = bindingOf({
     tree, lockFiles, gateFile: fileURLToPath(import.meta.url), executor: executor.kind,
-    toolchain: { node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
+    toolchain: { classA: { "cargo-deny": version("cargo-deny", ["--version"]), "cargo-audit": version("cargo-audit", ["--version"]), actionlint: version("actionlint", ["-version"]), shellcheck: version("shellcheck", ["--version"]) }, node: process.version, rustc: version(executor.kind === "broker" && executor.cargo[0] === "rustright" ? "rustright" : "rustc", executor.kind === "broker" && executor.cargo[0] === "rustright" ? ["rustc", "-V"] : ["-V"]), pnpm: version("pnpm", ["--version"]) },
   });
   // Release writes to R2. The write credential lives only in the trusted publisher: a GitHub Actions job in the protected
   // publication environment, which sets RIGHTKIT_PUBLISHER=github-environment. Hosts and agents never hold it, so the door refuses the
@@ -1274,8 +1274,21 @@ export async function main(argv, io = {}) {
     const appCheck = await (o.appCheck ?? (await import("../app-check.mjs")).main)(args.slice(1), { out: o.out, err: o.err, label: "check", cwd: o.cwd });
     if (args.includes("--list") || args.includes("--print-baseline") || args.includes("--only") || o.classA === false) return appCheck;
     const repoArg = option("--repo");
-    const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: repoArg ? path.resolve(o.cwd, repoArg) : o.cwd });
-    return Math.max(appCheck, classA);
+    const checkCwd = repoArg ? path.resolve(o.cwd, repoArg) : o.cwd;
+    const classA = await main(["--class-a", ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { ...io, cwd: checkCwd });
+    // RightKit checking itself: its own rules (consumer recipes, npm surface, version copies, dispatcher pins, consumer locks,
+    // generated docs: scripts/preflight.mjs) are class A for the RightKit repository. They run only when this gate is that
+    // repository's own in-tree copy, so a gate checking any other repository (the broker's pinned one included) never runs
+    // that repository's code.
+    let selfRules = 0;
+    const top = o.spawn("git", ["rev-parse", "--show-toplevel"], { cwd: checkCwd });
+    const root = failed(top) ? null : path.resolve(text(top).trim());
+    const self = fileURLToPath(import.meta.url);
+    if (root && self.startsWith(root + path.sep) && o.exists(path.join(root, "scripts", "preflight.mjs"))) {
+      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [path.join(root, "scripts", "preflight.mjs"), "--repo", root, ...(args.includes("--worktree") ? ["--worktree"] : ["--commit", option("--commit") ?? "HEAD"])], { cwd: root, env: o.env });
+      selfRules = r.status === 0 ? 0 : 1;
+    }
+    return Math.max(appCheck, classA, selfRules);
   }
   const classAOnly = args.includes("--class-a");
   const classACommit = classAOnly && !args.includes("--worktree") ? (option("--commit") ?? "HEAD") : null;

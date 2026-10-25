@@ -311,7 +311,7 @@ test("preflight keeps its rule order: the app rules sit where they always did am
 test("ratchet: this checkout's baseline keys one entry per repository with known debt", () => {
   const baseline = JSON.parse(fs.readFileSync(new URL("../ci/app-check-baseline.json", import.meta.url), "utf8"));
   assert.equal(baseline.schema, 1);
-  assert.deepEqual(Object.keys(baseline.known).sort(), ["coderight", "cutright", "genright", "heardright", "mailright", "postright", "rightkit", "scraperight", "viewright"], "one entry per repository with known debt; apps with none are absent");
+  assert.deepEqual(Object.keys(baseline.known).sort(), ["mailright", "rightkit"], "one entry per repository with known debt and no baseline of its own; apps with none, or with their own .rightkit/app-check-baseline.json, are absent");
 });
 
 test("scripts/retire-rightkit-alias.mjs still finds what it takes from preflight: the exempt list, the generated-file test and the rewrite", async () => {
