@@ -62,3 +62,17 @@ test("wrapped and option-prefixed forms are judged by what they run", () => {
   }
   for (const command of ["bash -c 'git status'", "cargo -C crates/x metadata", "right-release --help", "sh -c 'rightkit-gate --to compile'"]) assert.equal(doorViolation(command), null, command);
 });
+
+test("shell forms the policy simulation (scripts/sim/door-policy.mjs) found allowed are judged by what bash runs", () => {
+  const S = "'";
+  for (const command of [
+    "{ cargo build; }", "if true; then cargo test; fi", "for x in 1; do cargo build; done", "while true; do cargo check; break; done", "f() { cargo build; }; f",
+    "echo \"$(cargo build)\"", "echo `cargo build`", "echo \"$(case x in x) pnpm exec tauri build;; esac)\"", "T=cargo; $T build", "T=cargo; ${T} build",
+    "echo build | xargs cargo", "nohup echo tauri dev | xargs npx >/dev/null", "sudo timeout 60 cargo clippy", "eval 'echo \"$(cargo build --release)\"'",
+    `bash -c ${S}T=cargo; \${T} build${S}`, "true | T=rustright; ${T} cargo build", "false && T=rustright; $T cargo build", "(T=rustright); $T cargo build", "$UNKNOWN build",
+  ]) assert.ok(doorViolation(command), command);
+  for (const command of [
+    "T=rustright; $T cargo build", "if true; then T=rustright; $T cargo build; fi", "false || T=rustright; $T cargo build", "time T=cargo; $T --version",
+    "echo fmt --all | xargs cargo", "echo `T=pnpm; $T run lint`", "for x in 1; do T=pnpm; $T run lint; done", "echo \"cargo build\" > /dev/null",
+  ]) assert.equal(doorViolation(command), null, command);
+});

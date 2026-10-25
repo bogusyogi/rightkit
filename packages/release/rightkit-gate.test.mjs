@@ -1772,6 +1772,13 @@ test("--to release: package seals, qualify and release use exactly that sealed s
     },
   };
   const publisher = { ...process.env, GITHUB_ACTIONS: "true", RIGHTKIT_PUBLISHER: "github-environment" };
+  // The publisher only uploads: with nothing qualified yet it refuses, running no stage at all.
+  const early = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...early.io, cwd: root, ...io, env: publisher }), 1);
+  assert.match(early.err.join("\n"), /--to release only uploads/);
+  assert.deepEqual(calls, [], "no build or QA ran in the publisher");
+  const host = capture();
+  assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...host.io, cwd: root, ...io }), 0, host.err.join("\n"));
   const c = capture();
   assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...c.io, cwd: root, ...io, env: publisher }), 0, c.err.join("\n"));
   assert.deepEqual(calls.map((x) => x.args), [
@@ -1784,8 +1791,13 @@ test("--to release: package seals, qualify and release use exactly that sealed s
   const receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
   assert.deepEqual(Object.keys(receipt.stages), ["check", "compile", "package", "qualify", "release"]);
   assert.equal(receipt.stages.release.manifestSha256, "d".repeat(64), "the released set is the packaged and qualified one");
-  // The sealed set changes after packaging (rebuilt, re-signed, edited): qualify refuses it.
-  sealedDigest = "e".repeat(64);
+  // The sealed set changes after qualification: the publisher refuses it rather than rebuild or requalify.
+  sealedDigest = "e".repeat(64); calls.length = 0;
+  const swapped = capture();
+  assert.equal(await main(["--to", "release", "--platform", "win", "--tier", "patch"], { ...swapped.io, cwd: root, ...io, env: publisher }), 1);
+  assert.match(swapped.err.join("\n"), /--to release only uploads/);
+  assert.deepEqual(calls, [], "nothing rebuilt, requalified or uploaded");
+  // On the host, a changed sealed set is packaged again before it is qualified.
   const changed = capture();
   assert.equal(await main(["--to", "qualify", "--platform", "win"], { ...changed.io, cwd: root, ...io, sealedFor: () => ({ id: `app-1.0.0-${head.slice(0, 8)}`, manifest: "m", digest: sealedDigest }), spawnInherit: () => ({ status: 0 }) }), 0, "package runs again and binds the new seal");
 });

@@ -1190,6 +1190,12 @@ async function runStages(o, args, root, git, io) {
     if (stage === "qualify" && to !== "qualify" && sealedIntact && receipt.stages.qualify?.ok && receipt.stages.qualify.manifestSha256 === sealedNow.digest) {
       o.out(`${tag} [qualify] already passed for the sealed set ${sealedNow.id} (manifest ${sealedNow.digest.slice(0, 12)})`); continue;
     }
+    // The publisher only uploads. It never checks out a build environment, signs or runs installed QA, so every earlier stage must
+    // already stand in its receipt for exactly the sealed bytes on disk; anything else is refused, never rebuilt or requalified here.
+    if (to === "release" && stage !== "release") {
+      o.err(`${tag} BLOCKED: [${stage}] --to release only uploads: the receipt must already record ${stage} for the sealed bytes on disk (${sealedNow ? `manifest ${sealedNow.digest.slice(0, 12)}` : "none found"}); run --to qualify on the host and stage again`);
+      return 1;
+    }
     let ok = false; const at = new Date().toISOString(); let extra = {};
     if (stage === "check") ok = (await (o.runCheck ?? (() => main(["check", "--commit", "HEAD"], { ...io, cwd: root })))()) === 0;
     else if (stage === "compile") {
