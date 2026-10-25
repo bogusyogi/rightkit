@@ -133,6 +133,10 @@ See `tests/install.rs`, `tests/adoption.rs`, `tests/partial_alias_rewrite.rs`,
 retries, the total budget) against in-process listeners; its `dev-worker-override` tests run when the
 feature is enabled, and one test checks that the allowance is ignored when it is not.
 
+## Runtime libraries are not model files
+
+`FileSpec::shared` is for files that belong to a model and are reference-counted with it. A native runtime library an app loads itself (ONNX Runtime, DirectML, PDFium, whisper.cpp, ggml) is not a model file: pin it as a row of the native-library catalog (`crates/rightkit-ffmpeg/catalog/native-libraries.json`), stage it at build time with `right-release stage-sidecar` (entry kind `native-library`, see `docs/STAGE-SIDECAR.md`), and bind or load it at run time through the catalog-verified entry point (`rightkit_onnx::bind_installed_runtime`, `rightkit_asr::WhisperCpp::load_verified`).
+
 ## Runner probes, tiered fit and download options (unreleased)
 
 - `probe::ProbeRunner` (an async `run(program, args)` returning stdout and exit status) lets a confined caller run every probe child through its own adapter. `Hardware::probe_with_runner(&runner)` runs `nvidia-smi` plus `wmic` (Windows) or `system_profiler` (macOS) through it; RAM comes from `hardware::total_memory_bytes()`, which reads the OS in-process (macOS: `sysctlbyname`). The runner must bound each probe itself; the crate has no runtime to time it out.

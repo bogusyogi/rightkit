@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **New (feature `license-client`): `impl rightkit_license::DeviceIdSource for DeviceService<CredentialStore>`** (C3-04). `device_id` is `get_or_create` (a failed store is an error, never a fresh id) and `device_id_hash` the lowercase hex SHA-256 the lease routes take, so an app no longer hand-writes the adapter.
+
 ## 0.4.0 — unpublished staging
 
 - BREAKING: `credentials::CredentialStore::new(store: rightkit_credentials::Store, ..)` (`src/credentials.rs:25`, `Store` imported at `:4`) takes the `rightkit-credentials` 0.4 `Store`, which changes its identity from 0.3. The credentials dependency is 0.4.0 (`Cargo.toml:18`); published 0.3.1 pins `rightkit-credentials ^0.3.0`. Gated behind feature `credentials` (`src/lib.rs:10-11`).

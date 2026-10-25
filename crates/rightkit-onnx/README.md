@@ -18,6 +18,7 @@ The crate accepts ordered absolute candidates from the app. It validates the pla
 | `tracing`, `download-binaries`, `tls-native`, `copy-dylibs`, `preload-dylibs` | off | `session`, `ort/<same>` | Pass-through ort features, so no crate declares `ort`. |
 | `cuda`, `tensorrt`, `migraphx`, `openvino`, `webgpu`, `nnapi`, `acl`, `armnn`, `azure`, `cann`, `nvrtx`, `onednn`, `qnn`, `rknpu`, `tvm`, `vitis`, `xnnpack` | off | `session`, `ort/<same>` | Pass-through execution-provider features (asr, qts). |
 | `dev-overrides` | off | none | Development and QA builds only. Honors `ORT_DYLIB_PATH` as a developer runtime override and stops `clear_inherited_runtime_for_release` clearing it. Never implied by a build profile (installed dev builds with debug assertions behave like release) and never a default feature; an app enables it only from its QA/test configuration. |
+| `catalog` | off | `rightkit-ffmpeg` | `BindVerification::Catalog` for `bind_installed_runtime`: the runtime file and its companion files are checked against the native-library catalog. Without it only the manifest check exists and no catalog code is pulled. |
 | `provision` | off | `rightkit-ffmpeg`, `rightkit-models` (HTTP, tar, zip) | Build-time `rightkit_onnx::provision` and the `rightkit-onnx-provision` binary. Use it as a build-dependency, never in the shipped app. |
 | `half` | off | `session`, `ort/half`, `half` | Re-exports `half` (f16 tensors), so apps use `rightkit_onnx::half::f16`. |
 | `ndarray` | off | `session`, `ort/ndarray`, `ndarray` | Re-exports `ndarray` for `Tensor::from_array` and `try_extract_array`. |
@@ -114,6 +115,40 @@ never `AlreadyInitialized`; `tolerate_already_initialized` only covers repeated 
 Tests use temporary fixture files, an injected environment writer & a fake ORT
 backend; these option tests require no real runtime binary. Existing macOS E2E
 coverage remains separate.
+
+## Acquiring and binding the runtime
+
+Staging is the catalog-driven way to acquire the runtime; binding is the one way to use it. Two halves:
+
+- **Build time: stage the library.** `right-release stage-sidecar` copies the ONNX Runtime library out of the native-library catalog (`crates/rightkit-ffmpeg/catalog/native-libraries.json`) into the app bundle with an entry of kind `native-library` (`library: "onnxruntime"`; the `onnxruntime` kind is its alias). The pinned archive and the extracted file are digest-checked, a row's `companions` (`DirectML.dll` beside the Windows runtime) and the licence notices are staged with it, and the receipt records the catalog row. See `docs/STAGE-SIDECAR.md`. Apps keep no download or digest code of their own. `provision` (below) is a second, separate acquisition path that also writes a `manifest.json`; it is not the catalog-driven one: it still hardcodes the Windows member paths (`runtimes/win-x64/native/onnxruntime.dll`, `bin/x64-win/DirectML.dll`), derives the macOS member from the archive name, and ignores a row's `archive.member` and `companions`, so a catalog row that changes either is honoured by `stage-sidecar` and not by `provision`.
+- **Run time: bind it.** `bind_installed_runtime(&BindSpec)` finds, verifies, binds and reports the staged runtime. Apps keep only their declared `BindSpec`; they hand-write none of the glue (candidate search, digest check, `ORT_DYLIB_PATH`, `PATH`, the Doctor report).
+- `rightkit-models` `FileSpec::shared` stays for runtimes that belong to a model (files that install and are reference-counted with the model), not for an app's own ONNX Runtime library.
+
+```rust,no_run
+use rightkit_onnx::{bind_installed_runtime, BindSpec, BindVerification};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+// Single-threaded startup, before any ORT use.
+let bound = bind_installed_runtime(&BindSpec {
+    developer_env: Some("MYAPP_ORT_DYLIB".into()), // honoured only with `dev-overrides`
+    extra_dirs: vec![std::env::temp_dir().join("myapp").join("runtime")], // app data, searched last
+    prepend_path: true,
+    ..BindSpec::new(BindVerification::Manifest)
+})?;
+println!("runtime {} ({:?})", bound.report.path.display(), bound.report.source);
+# Ok(()) }
+```
+
+`bind_installed_runtime` runs these steps in order; none of them loads the library (ort does, later):
+
+1. `clear_inherited_runtime_for_release()`: an inherited `ORT_DYLIB_PATH` is dropped unless `dev-overrides` is on. Call `bind_installed_runtime` once, single-threaded, at startup: it removes and sets process environment variables, which needs exclusive access to the environment.
+2. Candidates, first regular file wins: the developer override named by `BindSpec::developer_env` (only with `dev-overrides`; a release build ignores the variable and never reads it), then the bundled runtime beside the installed executable (`installed_runtime_candidate`, in `BindSpec::resource_subdir`, `runtime` by default, of `BindSpec::executable` or the current executable), then each of `BindSpec::extra_dirs` (app data; relative directories are skipped). A bundled runtime beats an app-data copy.
+3. Verification of the resolved file, **before anything is bound and before any environment variable is written**. `BindVerification::Manifest` checks the `manifest.json` beside the library (`verify_library_in_manifest`). `BindVerification::Catalog` (feature `catalog`) checks the file against this host's `onnxruntime` row of the native-library catalog (`rightkit_ffmpeg::verified_library`; an `approved` or `pinned` row serves, `planned` and `stale-unverified` never do) and every companion file of that row that sits beside it: a companion that is present but not the catalog's (a tampered `DirectML.dll`) is an error, a companion that is absent is listed in the report, because a CPU-only app can run without it; set `BindSpec::require_companions` to refuse the bind instead (`VerificationFailed` with `VerificationFailure::MissingCompanions(..)`, nothing bound).
+4. The existing binding (`configure_runtime_with_options` semantics): the known-bad SME2 refusal surfaces as an error, a different inherited `ORT_DYLIB_PATH` conflicts unless `BindSpec::force_replace` is set, `BindSpec::allow_known_bad_runtime` is the QA opt-out. Then, with `BindSpec::prepend_path`, the runtime's directory goes first on `PATH` so sibling DLLs load, and the binding is recorded for `configured_runtime()`. Windows host proof pending: that directory (and `ORT_DYLIB_PATH`) is the canonical path of the selected file, which `std::fs::canonicalize` returns in verbatim form (`\\?\C:\...`) on Windows; this crate has not run a verbatim `PATH` entry through the loader's DLL search on a Windows host, so a Windows app proves it before relying on `prepend_path`.
+
+A failure is a typed `BindError`: `NoRuntime { candidates }` (the diagnostics of every candidate inspected), `Rejected(RuntimeError)` (an unsafe or `System32` path, a wrong file name, a conflicting `ORT_DYLIB_PATH`, `RuntimeError::KnownBadRuntime`) or `VerificationFailed { path, reason }` (the manifest or catalog error, or the missing companions that `require_companions` demands). Success is a `BoundRuntime { binding, report }`; `RuntimeReport` carries the selected path and source, the candidates inspected, and the verification that passed: the manifest entry, or for the catalog the row (`id`, `version`, `status`, `host_proof`: `Some(HostProof::NeverRun)` for a pinned row whose bytes were never run on a host of that OS) plus `companions_verified` and `companions_missing`. A pinned, never-run row still binds; the report is how a Doctor screen shows it. The file is verified before it is bound, not while ort loads it: a local writer that replaces it in that window is outside the check.
+
+Unit tests drive an internal function with an injected environment (reader, writer, `PATH` writer, executable and runtime check), so none of them mutates the process environment; one integration test (`tests/bind_installed_runtime.rs`) runs the real wrapper.
 
 ## Runtime bundle manifest
 

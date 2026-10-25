@@ -18,7 +18,7 @@ use rightkit_ffmpeg::{
     probe::run_ffprobe_json,
     quickprobe,
     runner::{run_checked, run_with_stdin, RunOptions},
-    CancellationToken, DevFfmpeg, FfmpegBinary, FfmpegCommand,
+    CancellationToken, FfmpegBinary, FfmpegCommand,
 };
 
 const T: Duration = Duration::from_secs(120);
@@ -106,7 +106,7 @@ fn ffprobe_json_of_a_generated_wav_reports_its_audio_stream() {
     let wav = dir.path().join("sine.wav");
     sine_wav(&bin, &wav);
 
-    let ffprobe = DevFfmpeg::unverified(ffprobe_path);
+    let ffprobe = common::TestBinary::new(ffprobe_path);
     let probe =
         run_ffprobe_json(&ffprobe, &wav, Some(T), &CancellationToken::new()).expect("ffprobe JSON");
     let audio = probe.first_audio().expect("audio stream");

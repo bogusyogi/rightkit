@@ -13,6 +13,48 @@ export const RIGHT_SUITE_GATED_ARTIFACT_HOST = "rightapps-license-gate.adrdsouza
 export const RIGHT_SUITE_PUBLIC_ARTIFACT_HOST = "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev";
 export const RIGHT_SUITE_PUBLIC_INSTALLER_BASE = "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev";
 export const RIGHT_SUITE_ARTIFACT_PATH_PREFIX = "/{app}";
+export const RIGHT_SUITE_LICENSE_PUBLIC_KEY_HEX = "730732885355c4400c115592a42c91b8b0277d460cb2b5d59c1e2815a74d5d22";
+export const RIGHT_SUITE_UPDATER_SIGNING_KEY_ID = "29395F9FF466261D";
+export const RIGHT_SUITE_UPDATER_PUBLIC_KEYS = [
+  {
+    "kid": "29395F9FF466261D",
+    "publicKey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlGRjQ2NjI2MUQKUldRZEptYjBuMTg1S1VSUXlBdFM4WmtzaHArYko0U2hRMDVlSDJmSExVZG82Q0hoQ2srUlhqanAK",
+    "notAfter": null,
+    "notAfterUnix": null
+  }
+];
+export const RIGHT_SUITE_CLIENT_PATHS = {
+  "licenseActivate": "/v1/licenses/activate",
+  "licenseRefresh": "/v1/licenses/refresh",
+  "licenseDeactivate": "/v1/licenses/deactivate",
+  "licenseTrial": "/v1/licenses/trial",
+  "bridgeFromActivation": "/v1/licenses/bridge/from-activation",
+  "bridgeExchange": "/v1/licenses/bridge/exchange",
+  "bridgeFromPlay": "/v1/licenses/bridge/from-play",
+  "bridgeFromStorekit": "/v1/licenses/bridge/from-storekit",
+  "leaseIssue": "/v1/pro/{app}/devices/lease",
+  "leaseRenew": "/v1/pro/{app}/devices/lease/renew",
+  "leaseRemove": "/v1/pro/{app}/devices/lease/remove",
+  "windowsLinkRequest": "/v1/pro/{app}/devices/windows-link/request",
+  "windowsLinkRedeem": "/v1/pro/{app}/devices/windows-link/redeem",
+  "accountMagicLinkRequest": "/v1/shop/auth/magic-link/request",
+  "accountMagicLinkConsume": "/v1/shop/auth/magic-link/consume",
+  "accountMe": "/v1/shop/auth/me",
+  "accountLogout": "/v1/shop/auth/logout",
+  "accountDevices": "/v1/shop/account/devices",
+  "accountDelete": "/v1/shop/account",
+  "entitlement": "/v1/entitlement"
+};
+export const RIGHT_SUITE_APP_KEYS = ["coderight","cutright","genright","heardright","mailright","postright","pulse","scraperight","viewright"];
+export const RIGHT_SUITE_APP_LICENSE_HOSTS = {
+  "coderight": "coderight.cc",
+  "genright": "heardright.app",
+  "heardright": "heardright.app",
+  "mailright": "mailright.cc",
+  "scraperight": "scraperight.cc",
+  "viewright": "viewright.cc"
+};
+export const RIGHT_SUITE_PENDING_NATIVE_UPDATER = ["cutright","genright","heardright","postright","pulse","scraperight"];
 export const APP_ARTIFACT_HOSTS = {
   "coderight": [
     "rightapps-license-gate.adrdsouza.workers.dev",
@@ -36,24 +78,37 @@ export const RIGHT_SUITE_API_CONTRACT = {
       "artifactHosts": [
         "gated",
         "public"
-      ]
+      ],
+      "licenseHost": "coderight.cc"
+    },
+    "cutright": {},
+    "genright": {
+      "licenseHost": "heardright.app"
     },
     "heardright": {
       "artifactHosts": [
         "gated",
         "public"
-      ]
+      ],
+      "licenseHost": "heardright.app"
     },
     "mailright": {
       "artifactHosts": [
         "gated",
         "public"
-      ]
+      ],
+      "licenseHost": "mailright.cc"
+    },
+    "postright": {},
+    "pulse": {},
+    "scraperight": {
+      "licenseHost": "scraperight.cc"
     },
     "viewright": {
       "artifactHosts": [
         "public"
-      ]
+      ],
+      "licenseHost": "viewright.cc"
     }
   },
   "artifactHostSets": {
@@ -61,7 +116,30 @@ export const RIGHT_SUITE_API_CONTRACT = {
     "public": "pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev"
   },
   "artifactPathPrefix": "/{app}",
+  "clientPaths": {
+    "accountDelete": "/v1/shop/account",
+    "accountDevices": "/v1/shop/account/devices",
+    "accountLogout": "/v1/shop/auth/logout",
+    "accountMagicLinkConsume": "/v1/shop/auth/magic-link/consume",
+    "accountMagicLinkRequest": "/v1/shop/auth/magic-link/request",
+    "accountMe": "/v1/shop/auth/me",
+    "bridgeExchange": "/v1/licenses/bridge/exchange",
+    "bridgeFromActivation": "/v1/licenses/bridge/from-activation",
+    "bridgeFromPlay": "/v1/licenses/bridge/from-play",
+    "bridgeFromStorekit": "/v1/licenses/bridge/from-storekit",
+    "entitlement": "/v1/entitlement",
+    "leaseIssue": "/v1/pro/{app}/devices/lease",
+    "leaseRemove": "/v1/pro/{app}/devices/lease/remove",
+    "leaseRenew": "/v1/pro/{app}/devices/lease/renew",
+    "licenseActivate": "/v1/licenses/activate",
+    "licenseDeactivate": "/v1/licenses/deactivate",
+    "licenseRefresh": "/v1/licenses/refresh",
+    "licenseTrial": "/v1/licenses/trial",
+    "windowsLinkRedeem": "/v1/pro/{app}/devices/windows-link/redeem",
+    "windowsLinkRequest": "/v1/pro/{app}/devices/windows-link/request"
+  },
   "host": "api.orthiclabs.com",
+  "licensePublicKeyHex": "730732885355c4400c115592a42c91b8b0277d460cb2b5d59c1e2815a74d5d22",
   "origin": "https://api.orthiclabs.com",
   "paths": {
     "adminPatches": "/v1/admin/apps/patches",
@@ -71,8 +149,20 @@ export const RIGHT_SUITE_API_CONTRACT = {
     "updaterManifest": "/v1/apps/{app}/releases/latest.json?platform={{target}}"
   },
   "pendingNativeUpdater": [
-    "heardright"
+    "cutright",
+    "genright",
+    "heardright",
+    "postright",
+    "pulse",
+    "scraperight"
   ],
   "publicInstallerBase": "https://pub-6c73208d46c245a9b4881d5e02f6b618.r2.dev",
-  "schema": "right-suite-api.v1"
+  "schema": "right-suite-api.v1",
+  "updaterPublicKeys": [
+    {
+      "kid": "29395F9FF466261D",
+      "publicKey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI5Mzk1RjlGRjQ2NjI2MUQKUldRZEptYjBuMTg1S1VSUXlBdFM4WmtzaHArYko0U2hRMDVlSDJmSExVZG82Q0hoQ2srUlhqanAK"
+    }
+  ],
+  "updaterSigningKeyId": "29395F9FF466261D"
 };

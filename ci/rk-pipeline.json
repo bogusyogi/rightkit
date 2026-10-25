@@ -38,7 +38,7 @@
     "maxAttemptsPerUnit": 1,
     "exceptions": {
       "rightkit-ffmpeg": {
-        "version": "0.2.10",
+        "version": "0.2.11",
         "allow": [
           "allow_missing_assets"
         ],
@@ -52,7 +52,7 @@
         "reason": "ci/asset-gated.json: the #[ignore]d tests/encode_e2e.rs needs an ffmpeg binary and encoders the publish workflow does not provision; a missing ffmpeg prints SKIP hosted."
       },
       "rightkit-asr": {
-        "version": "0.3.0",
+        "version": "0.3.1",
         "allow": [
           "allow_missing_assets"
         ],
@@ -73,7 +73,7 @@
         "reason": "ci/asset-gated.json: Chrome for Testing for the end-to-end tests; the publish workflow does not provision them, so those tests print SKIP markers recorded in the receipts and the crate's own compile, clippy, doc and remaining tests still qualify it."
       },
       "rightkit-onnx": {
-        "version": "0.2.7",
+        "version": "0.2.8",
         "allow": [
           "allow_missing_assets"
         ],
