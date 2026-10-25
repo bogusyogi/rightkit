@@ -266,7 +266,16 @@ function scheduleStatus({ platform, stdout, env = process.env, home: defaultHome
   stdout("  binding ok: stable root, target present");
   const now = injected.now ?? Date.now();
   const logFile = injected.logFile ?? path.join(readDiskPolicy().heavyVolume[platformKey(platform)], "disk-hygiene.jsonl");
-  const age = evaluateRunAge({ events: (injected.readEvents ?? readRecentEvents)(logFile), now });
+  // The newest full and light lines, each found by a backwards scan that grows until it hits one (a busy day can bury them under
+  // thousands of sweep lines). A log that cannot be read is said so: "no completed full run" would be a guess.
+  let events;
+  try {
+    events = injected.readEvents ? injected.readEvents(logFile) : [lastEvent(logFile, ["disk.run.ok", "disk.floor.warn"], { accept: (e) => e.pass !== "light" }), lastEvent(logFile, ["disk.run.light"])].filter(Boolean);
+  } catch (error) {
+    stdout(`  PROBLEM: the run log ${logFile} cannot be read (${error.code ?? error.message}: ${error.message}); the last run is unknown`);
+    return 1;
+  }
+  const age = evaluateRunAge({ events, now });
   if (age.lastFull) stdout(`  last full run: ${humanAge(now - Date.parse(age.lastFull.ts))} ago (${age.lastFull.ts}, ${age.lastFull.event})`);
   if (age.lastLight) stdout(`  last light run: ${humanAge(now - Date.parse(age.lastLight.ts))} ago`);
   else stdout("  last light run: none recorded");
@@ -693,8 +702,14 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     const log = (event) => logEvent(logFile, { ts: new Date(nowMs).toISOString(), ...event });
     // The hourly job passes --auto: the first run after the full-pass time is the full pass, every other run is light.
     // A bare `disk run` is always the full pass.
-    const lastFull = opts.auto ? lastEvent(logFile, ["disk.run.ok", "disk.floor.warn"], { accept: (e) => e.pass !== "light" }) : null;
-    const light = opts.light || (opts.auto && !fullPassDue({ now: nowMs, lastFullMs: lastFull ? Date.parse(lastFull.ts) : null }));
+    // A log that does not exist means the job never ran (full pass due). A log that exists but cannot be read (EIO, a volume that went away)
+    // proves nothing about the last full pass: the run stays light instead of repeating the full pass every hour.
+    let lastFull = null;
+    let logReadError = null;
+    if (opts.auto) {
+      try { lastFull = lastEvent(logFile, ["disk.run.ok", "disk.floor.warn"], { accept: (e) => e.pass !== "light" }); } catch (error) { logReadError = error; }
+    }
+    const light = opts.light || (opts.auto && (logReadError !== null || !fullPassDue({ now: nowMs, lastFullMs: lastFull ? Date.parse(lastFull.ts) : null })));
     // Only the agent volume running below its soft floor is an emergency: the undo window is spent
     // (days 0, so what this pass just moved is purged too). Warnings from other floors or writers are not.
     const emergencyFloor = (floors) => floors.find((f) => f.agentVolume && f.warn && !f.absent);
@@ -724,7 +739,8 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
       const purged = squeezed ? emergencyPurge(squeezed) : null;
       const floors = checkFloors(floorOptions);
       const lead = floors.find((f) => f.agentVolume && !f.absent) ?? floors[0];
-      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
+      if (logReadError) stdout(`WARNING: the run log ${logFile} cannot be read (${logReadError.message}), so this run stays light`);
+      log({ event: "disk.run.light", pass: "light", freeBytes: lead.freeBytes ?? null, ...(logReadError ? { logReadError: logReadError.message } : {}), floors: floors.map((f) => ({ id: f.id ?? f.label, freeBytes: f.freeBytes ?? null, warn: f.warn })), movedBytes: applied.movedBytes, emergency: Boolean(squeezed), kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
       stdout(`light pass: moved ${formatBytes(applied.movedBytes)} (${applied.results.filter((r) => r.ok).length}/${applied.results.length}), ${lead.absent ? `${lead.label} is not readable` : `${lead.label} ${formatBytes(lead.freeBytes)} free`}`);
       return { exitCode: 0, pass: "light", plan: p, applied, purged, floors, selfCheck: self };
     }
@@ -747,7 +763,8 @@ export async function runDiskCommand(args = process.argv.slice(2), { env = proce
     const warn = after.warn;
     log({ event: warn ? "disk.floor.warn" : "disk.run.ok", pass: "full", warnings: after.warnings, freeBytes: after.floor.freeBytes, movedBytes: applied.movedBytes, kept: p.skipped.filter((s) => s.reason === "kept").length, leased: p.skipped.filter((s) => s.reason === "leased").length });
     // One report a UTC day: its per-unit sizes need a du per scratch run, which only the daily pass may afford.
-    const previousReport = lastEvent(logFile, ["disk.report"]);
+    let previousReport = null;
+    try { previousReport = lastEvent(logFile, ["disk.report"]); } catch { /* unreadable log: this report has no delta */ }
     if (reportDue({ lastReportTs: previousReport?.ts, now: nowMs })) {
       const scratchUnits = measureScratchUnits({ policy, platform, env, ...(deps.check?.size ? { size: deps.check.size } : {}) });
       log(buildDiskReport({ check: after, previous: previousReport, now: nowMs, policy, scratchUnits, moved: applied.movedBytes, purged: purged.purgedBytes }));

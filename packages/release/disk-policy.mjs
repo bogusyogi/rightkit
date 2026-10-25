@@ -1,4 +1,4 @@
-import { closeSync, cpSync, existsSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
+import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, opendirSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, appendFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -877,13 +877,17 @@ export function moveEntry(source, destination) {
   return "copy-verify-remove";
 }
 
-/** Parsed events of the log's last `maxBytes`, oldest first. A partial first line and any unparsable line are skipped; a log
- * that cannot be read is an empty list. */
-export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
+// The tail of the log read by `readLogTail`, then more of it, until an event is found: a busy day appends thousands of sweep lines
+// after the last full pass, so the newest full-pass line can lie further back than any one window. 4, 16, 64 and 256 MiB.
+export const EVENT_SCAN_WINDOWS = [1 << 22, 1 << 24, 1 << 26, 1 << 28];
+
+/** Parsed events of the log's last `maxBytes`, oldest first, and whether that reached the start of the file. A partial first line and
+ * any unparsable line are skipped. Throws what the filesystem throws (a missing log is ENOENT). */
+function readLogTail(logFile, maxBytes) {
   let fd;
   try {
     fd = openSync(logFile, "r");
-    const { size } = statSync(logFile);
+    const { size } = fstatSync(fd);
     const start = Math.max(0, size - maxBytes);
     const buf = Buffer.alloc(size - start);
     readSync(fd, buf, 0, buf.length, start);
@@ -891,14 +895,27 @@ export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
     if (start > 0) lines.shift(); // starts mid-line
     const events = [];
     for (const line of lines) { try { const e = JSON.parse(line); if (e && typeof e === "object" && !Array.isArray(e)) events.push(e); } catch { /* blank or damaged line */ } }
-    return events;
-  } catch { return []; } finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } } }
+    return { events, whole: start === 0 };
+  } finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* ignore */ } } }
 }
 
-/** Newest event of the log whose `event` is one of `names` (and that `accept`s), or null. */
-export function lastEvent(logFile, names, { maxBytes, accept = () => true } = {}) {
-  const events = readRecentEvents(logFile, maxBytes ? { maxBytes } : {});
-  for (let i = events.length - 1; i >= 0; i -= 1) if (names.includes(events[i].event) && accept(events[i])) return events[i];
+/** Parsed events of the log's last `maxBytes`, oldest first. A partial first line and any unparsable line are skipped; a log
+ * that cannot be read is an empty list. */
+export function readRecentEvents(logFile, { maxBytes = 1 << 22 } = {}) {
+  try { return readLogTail(logFile, maxBytes).events; } catch { return []; }
+}
+
+/** Newest event of the log whose `event` is one of `names` (and that `accept`s), or null. The log is read backwards in growing
+ * windows (EVENT_SCAN_WINDOWS) until a match turns up or the whole file has been read. A log that does not exist has no event (null:
+ * the job never ran); any other read error (EIO, ENOTDIR, a volume that went away) is thrown, because "nothing found" would then
+ * be a guess. `maxBytes` limits the scan to one window of that size. */
+export function lastEvent(logFile, names, { maxBytes, accept = () => true, windows = EVENT_SCAN_WINDOWS } = {}) {
+  for (const window of maxBytes ? [maxBytes] : windows) {
+    let tail;
+    try { tail = readLogTail(logFile, window); } catch (error) { if (error?.code === "ENOENT") return null; throw error; }
+    for (let i = tail.events.length - 1; i >= 0; i -= 1) if (names.includes(tail.events[i].event) && accept(tail.events[i])) return tail.events[i];
+    if (tail.whole) return null;
+  }
   return null;
 }
 

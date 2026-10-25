@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, lutimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
+import { appendFileSync, existsSync, lutimesSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +9,7 @@ const execFileSync = (cmd, args) => { const r = spawnSync(cmd, args, { encoding:
 import { CACHEDIR_SIGNATURE, KEEP_MARKER, MAX_LEASE_DAYS, RUN_LEASE_FILE, createRunRoot, ensureScratchRoots, leasedByRunRoot, readRunLease, readRustrightBudget, releaseRunRoot, findStrayTargets, keptByMarker, scanWorkspaceRoots, workspaceSweepAllowed, workspaceTracked } from "./disk-policy.mjs";
 import { collectDependencies, evaluateBinding, installStableRoot, isUnderStable, readScheduleBinding, selfCheck, stableCliPath, stableRootPath } from "./disk-stable-root.mjs";
 import { cliFromGlobalRoots, cliFromPathBin, evaluateRunAge, fullPassDue, insideGitCheckout, renderCheck, resolveInstalledCli, runDiskCommand, scheduleSpec, renderSweep } from "./disk-command.mjs";
-import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, holdingBasesOnVolume, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
+import { HOLDING_MARKER, applySweep, checkDisk, defaultMounted, deviceOf, evaluateFloor, expandGlob, floorList, holdingBases, holdingBasesOnVolume, lastEvent, inUseByOpenPaths, literalRoot, moveEntry, pickHolding, planSweep, purgeHoldings, readDiskPolicy, symlinkAncestor, treeStats, volumeRoot, writerCoversPath, writerTouchesPath } from "./disk-policy.mjs";
 
 const OLD = Date.now() - 30 * 86400_000;
 
@@ -1701,7 +1701,7 @@ function statusFixture(events) {
     const r = await runDiskCommand(["schedule", "status"], { platform: "darwin", stdout: (l) => lines.push(l), deps: { schedule: { binding, loaded, now, logFile, home } } });
     return { exitCode: r.exitCode, text: lines.join("\n") };
   };
-  return { status };
+  return { status, logFile };
 }
 
 test("schedule status prints the age of the last full and light run and passes within 26 h", async () => {
@@ -2248,5 +2248,86 @@ test("holdingBasesOnVolume: the known bases and the legacy heavy dir on that vol
   assert.equal(bases.includes(heavy), true); // the legacy heavy dir sits on the squeezed volume here
   assert.equal(bases.some((b) => b.startsWith(other)), false);
   assert.deepEqual(holdingBasesOnVolume(root, { policy, platform: "darwin", deviceOf: () => null }), []);
+});
+
+// A full log: one full-pass line, then a busy day of sweep lines (about 450 bytes each, so over 4 MiB of them).
+function fillerLine(ts) {
+  return `${JSON.stringify({ ts, event: "disk.sweep.move", writer: "agent-tmp", path: `/Volumes/D/agent-cache/tmp/${"x".repeat(120)}`, root: "/Volumes/D/agent-cache/tmp", bytes: 123456, mtime: "2026-10-22T00:00:00.000Z", destination: `/Volumes/D/.rightkit-swept/2026-10-24/agent-tmp/${"x".repeat(100)}`, how: "rename" })}\n`;
+}
+function busyLog(file, fullTs, lines = 12000) {
+  writeFileSync(file, `${JSON.stringify({ ts: fullTs, event: "disk.run.ok", pass: "full" })}\n${JSON.stringify({ ts: fullTs, event: "disk.report" })}\n${fillerLine(fullTs).repeat(lines)}`);
+  assert.ok(statSync(file).size > 4 * 1024 * 1024, "the filler pushes the full-pass line out of the last 4 MiB");
+}
+
+test("lastEvent scans backwards in growing windows: a full-pass line under more than 4 MiB of sweep lines is still found", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-log-"));
+  const log = path.join(dir, "disk-hygiene.jsonl");
+  busyLog(log, "2026-10-24T04:05:00.000Z");
+  assert.equal(lastEvent(log, ["disk.run.ok", "disk.floor.warn"], { accept: (e) => e.pass !== "light" })?.ts, "2026-10-24T04:05:00.000Z"); // before: null
+  assert.equal(lastEvent(log, ["disk.report"])?.event, "disk.report");
+  assert.equal(lastEvent(log, ["disk.run.light"]), null); // the whole file was read and holds none
+  // the windows grow only as far as needed, and the last one reaches the start of the file
+  const small = path.join(dir, "small.jsonl");
+  writeFileSync(small, `${JSON.stringify({ ts: "t0", event: "needle" })}\n${fillerLine("t1").repeat(300)}`);
+  assert.equal(lastEvent(small, ["needle"], { windows: [1024, 4096, 1 << 20] })?.ts, "t0");
+  assert.equal(lastEvent(small, ["needle"], { windows: [1024, 4096] }), null); // the last window stops short: not found, not an error
+  assert.equal(lastEvent(small, ["needle"], { maxBytes: 1024 }), null);
+  assert.equal(lastEvent(small, ["fillerless"], { windows: [1024, 4096, 1 << 20] }), null);
+  // a newer match wins over an older one in an earlier window
+  appendFileSync(small, `${JSON.stringify({ ts: "t9", event: "needle" })}\n`);
+  assert.equal(lastEvent(small, ["needle"], { windows: [1024, 4096, 1 << 20] })?.ts, "t9");
+});
+
+test("lastEvent: a missing log means the job never ran (null); any other read error is thrown, never turned into 'nothing found'", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "rk-log-"));
+  assert.equal(lastEvent(path.join(dir, "absent.jsonl"), ["disk.run.ok"]), null);
+  assert.throws(() => lastEvent(dir, ["disk.run.ok"]), (error) => error.code === "EISDIR"); // a directory where the log should be
+  writeFileSync(path.join(dir, "plain"), "x");
+  assert.throws(() => lastEvent(path.join(dir, "plain", "disk-hygiene.jsonl"), ["disk.run.ok"]), (error) => error.code === "ENOTDIR");
+});
+
+test("run --auto: a full pass buried under more than 4 MiB of sweep lines still counts, so the hour stays light", async () => {
+  const lastSlot = new Date(2026, 9, 24, 3, 35).toISOString();
+  const now = local(24, 9, 0);
+  const { heavy, run } = lightFixture();
+  mkdirSync(heavy, { recursive: true });
+  busyLog(path.join(heavy, "disk-hygiene.jsonl"), lastSlot);
+  const r = await run(["--auto"], { now, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) } });
+  assert.equal(r.pass, "light"); // before: lastFull null, so a full pass every hour
+});
+
+test("run --auto: a log that exists but cannot be read keeps the run light and says why; a missing log is a full pass", async () => {
+  const now = local(24, 9, 0);
+  const broken = lightFixture();
+  mkdirSync(path.join(broken.heavy, "disk-hygiene.jsonl"), { recursive: true }); // EISDIR on read
+  const out = [];
+  const r = await runDiskCommand(["run", "--auto", "--policy", path.join(broken.root, "policy.json")], { platform: "darwin", stdout: (l) => out.push(l), deps: { selfCheck: () => ({ ok: true, problems: [] }), openPaths: [], now, plan: { size: () => 10, scan: () => ({ unknown: [], skipped: [] }) }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) }, purge: { bases: [] } } });
+  assert.equal(r.pass, "light");
+  assert.equal(r.exitCode, 0);
+  assert.match(out.join("\n"), /WARNING: the run log .* cannot be read .*EISDIR.*stays light/);
+  const missing = lightFixture(); // heavy dir exists after the first event only: no log file at all
+  mkdirSync(missing.heavy, { recursive: true });
+  const m = await missing.run(["--auto"], { now, plan: { size: () => 10 }, check: { size: () => 0, space: () => ({ freeBytes: 5000, totalBytes: 10000 }) } });
+  assert.equal(m.pass, "full");
+});
+
+test("schedule status: more than 4 MiB of sweep lines after the last full run do not hide it; an unreadable log is reported as such", async () => {
+  const busy = statusFixture([]);
+  busyLog(busy.logFile, "2026-10-24T09:00:00.000Z"); // 3 h before the fixture's clock
+  const ok = await busy.status();
+  assert.match(ok.text, /last full run: 3\.0 h ago/);
+  assert.doesNotMatch(ok.text, /PROBLEM/);
+  assert.equal(ok.exitCode, 0);
+  const broken = statusFixture([]);
+  rmSync(broken.logFile);
+  mkdirSync(broken.logFile); // a directory where the log should be
+  const r = await broken.status();
+  assert.equal(r.exitCode, 1);
+  assert.match(r.text, /PROBLEM: the run log .* cannot be read \(EISDIR/);
+  assert.doesNotMatch(r.text, /no completed full run/);
+  const missing = statusFixture(null); // no log at all: the job never ran
+  const none = await missing.status();
+  assert.equal(none.exitCode, 1);
+  assert.match(none.text, /PROBLEM: no completed full run recorded/);
 });
 
