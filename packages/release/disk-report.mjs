@@ -36,18 +36,17 @@ export function measureScratchUnits({ policy, platform = process.platform, env =
 const round = (n, places = 2) => Math.round(n * 10 ** places) / 10 ** places;
 
 // bytes per category: the outermost writers on the agent volume (a writer nested in another counts once) plus what no writer
-// holds, so the categories add up to the volume's used bytes and their deltas add up to the change in used bytes.
-function categoriesOf(check, agentUnmanaged) {
+// holds. The identity is  sum(categories) - overlapBytes = usedBytes: du sums allocated bytes per writer, so APFS clones and hard links
+// can make the writers add up to MORE than the volume's used bytes. Then `overlapBytes` = writers - used (the double-counted bytes),
+// `unmanaged` is 0 and no category is scaled; otherwise `overlapBytes` is 0 and `unmanaged` = used - writers. The change in used
+// bytes between two reports is therefore  sum(delta.categories) - delta.overlapBytes.
+function categoriesOf(check, agentUnmanaged, usedBytes) {
   const categories = {};
   const add = (name, bytes) => { categories[name] = (categories[name] ?? 0) + bytes; };
-  if (agentUnmanaged) {
-    for (const w of agentUnmanaged.writers ?? []) add(w.category ?? w.id, w.bytes);
-    categories.unmanaged = agentUnmanaged.unmanagedBytes;
-  } else {
-    for (const w of check.writers ?? []) add(w.category ?? w.id, w.bytes ?? 0);
-    categories.unmanaged = 0;
-  }
-  return categories;
+  for (const w of agentUnmanaged ? agentUnmanaged.writers ?? [] : check.writers ?? []) add(w.category ?? w.id, w.bytes ?? 0);
+  const writerBytes = Object.values(categories).reduce((a, b) => a + b, 0);
+  categories.unmanaged = Math.max(0, usedBytes - writerBytes);
+  return { categories, overlapBytes: Math.max(0, writerBytes - usedBytes) };
 }
 
 const sumDelta = (now, before) => {
@@ -60,10 +59,13 @@ const sumDelta = (now, before) => {
  * `disk.report` event (or null), `scratchUnits` the result of `measureScratchUnits`. */
 export function buildDiskReport({ check, previous = null, now, policy, scratchUnits = [], moved = 0, purged = 0, host = os.hostname() }) {
   const floors = check.floors ?? [check.floor];
-  const lead = floors.find((f) => f.agentVolume && !f.absent) ?? floors.find((f) => !f.absent) ?? null;
-  const agentUnmanaged = (check.unmanaged ?? []).find((u) => u.floor === (lead?.id ?? lead?.label)) ?? (check.unmanaged ?? [])[0] ?? null;
-  const categories = categoriesOf(check, agentUnmanaged);
+  // The report describes the agent volume. When one is flagged and cannot be read there is no lead: never another volume's numbers
+  // under its name (a day of internal-drive bytes next to a day of D: bytes makes a delta of terabytes). Policies that flag no
+  // agent volume at all report their first readable floor.
+  const lead = floors.some((f) => f.agentVolume) ? floors.find((f) => f.agentVolume && !f.absent) ?? null : floors.find((f) => !f.absent) ?? null;
+  const agentUnmanaged = lead ? (check.unmanaged ?? []).find((u) => u.floor === (lead.id ?? lead.label)) ?? (check.unmanaged ?? [])[0] ?? null : null;
   const usedBytes = lead ? lead.totalBytes - lead.freeBytes : null;
+  const { categories, overlapBytes } = lead ? categoriesOf(check, agentUnmanaged, usedBytes) : { categories: null, overlapBytes: null };
 
   const units = {};
   const owners = {};
@@ -80,8 +82,10 @@ export function buildDiskReport({ check, previous = null, now, policy, scratchUn
   let delta = null;
   let growers = [];
   const hours = previous ? Math.max(0, (now - Date.parse(previous.ts)) / 3600_000) : 0;
-  if (previous && Number.isFinite(hours)) {
-    delta = { hours: round(hours), usedBytes: (usedBytes ?? 0) - (previous.usedBytes ?? 0), categories: sumDelta(categories, previous.categories ?? {}) };
+  // No delta unless both reports describe the agent volume: a report without one (null sizes) is no baseline, and neither is this one.
+  const comparable = lead && previous && Number.isFinite(previous.usedBytes) && previous.categories && typeof previous.categories === "object";
+  if (comparable && Number.isFinite(hours)) {
+    delta = { hours: round(hours), usedBytes: usedBytes - previous.usedBytes, categories: sumDelta(categories, previous.categories), overlapBytes: overlapBytes - (previous.overlapBytes ?? 0) };
     growers = Object.entries(compact)
       .map(([id, bytes]) => ({ id, bytes, deltaBytes: bytes - (previous.units?.[id] ?? 0), owner: owners[id] ?? null }))
       .filter((g) => g.deltaBytes > 0)
@@ -114,7 +118,8 @@ export function buildDiskReport({ check, previous = null, now, policy, scratchUn
     units: compact,
     growers,
     budgetsOver,
-    unmanagedBytes: categories.unmanaged,
+    unmanagedBytes: categories ? categories.unmanaged : null,
+    overlapBytes,
     uncoveredTopLevel: (agentUnmanaged?.uncoveredTopLevel ?? []).map((e) => e.name),
     scratchByOwner,
     steadyState: { growthBytesPerDay, daysParked, estimateBytes: growthBytesPerDay * daysParked },
