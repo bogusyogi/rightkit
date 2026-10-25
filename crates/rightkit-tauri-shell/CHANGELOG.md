@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **New: `ShellPluginBuilder::host_windows()`, `Shell::host_windows_plugin()` and `ModuleSet::host_windows()`.** The profile for an app that owns its windows: it turns off `WindowState`, `ShowOnReady`, `Presence` and `Watchdog` (`Module::HOST_WINDOWS_OFF`) and keeps `JsHardening`, `NavigationPolicy`, `RevealOnReopen` and the state modules. Like `lifecycle_only`, it leaves `ShowOnReady` and the cache repair off by default, but it keeps the webview policy that `lifecycle_only` removes.
+- **New: `ShellPluginBuilder::with(Module)` and `ShellPluginBuilder::modules()`.** `with` re-enables one module after a profile or `without`; `modules()` returns the set `build()` would install.
+- **Docs: `lifecycle_only`, `Shell::lifecycle_plugin` and `ModuleSet::lifecycle_only` now say to prefer `host_windows`,** because `lifecycle_only` also removes JS hardening and the navigation policy. Behaviour is unchanged.
+- **BREAKING (source): `LogsRuntime::clear` now returns `ClearReport` instead of `io::Result<()>`.** A Rust caller that wrote `runtime.clear()?` must read the report (`is_complete()`, `cleared`, `failed`). The command `rightkit_logs_clear` answers the report when complete.
+- **Fixed: `rightkit_logs_clear` cleared only the renderer log.** It now also clears every `LogsConfig::clear_sources` entry (`ClearSource::new`, `ClearSource::jsonl`, a `tracing` family through its guard), attempts all of them even after a failure, and rejects with `clear failed for: <source> (<error>), ...` when any failed, so the client never reads a partial clear as success. Error text goes through `scrub_text` and `redact_url_text`.
+- **New: `LogsConfig::settings` (`SettingsSnapshot`).** Called on each collect; its value fills the bundle's `metadata.settings` after key redaction and scrubbing. A panicking closure yields `{"error":"settings snapshot unavailable"}`. Unset keeps `{}`.
+- **New: `crash_commands` (feature `crash`).** `rightkit_crash_window_error` no longer needs `host-services`: `crash_commands::install(app, CrashConfig, WindowErrorGate)` manages a `CrashSink`, and `handler!` lists the command whenever `crash` is on. The caller must be an app webview. With `host-services` and a registered `CrashHostService` the host path (central caller policy, then the owner's gate) is taken unchanged and wins over a sink. With neither, the command answers `unsupported`. `host::crash::CrashHostService` keeps its public items, but the command moved from `host::crash` to `crash_commands` and now rejects with `ShellError` (same `{ code, message }` wire shape).
+
 ## 0.6.0 (2026-10-23)
 
 - **BREAKING (source): `UpdatePolicy` gains the public field `release_status_url: Option<Url>`.** Apps building it with `UpdatePolicy::new(hosts)` (all current apps) are unaffected; a full struct literal must add the field.

@@ -37,8 +37,39 @@
 //! webview only); when the app installed host services (feature `host-services`) it is the
 //! `logs` service's trust in the central `HostCallerPolicy` instead (trusted labels and origins,
 //! enabled actions `write`, `collect`, `clear`), which is never weaker than the app caller gate.
+//!
+//! # What a clear does
+//!
+//! [`LogsRuntime::clear`] clears the renderer log (reported as `renderer`) and then every
+//! [`ClearSource`] in [`LogsConfig::clear_sources`], in order, and never stops at a failure. It
+//! answers a [`ClearReport`]: the sources it cleared and, for each one that failed, the source name
+//! and an error text scrubbed with [`scrub_text`] and [`redact_url_text`] (user names and URL
+//! secrets do not leave). `rightkit_logs_clear` answers that report when every source cleared and
+//! rejects with the failed sources named when any did not, so the `@rightkit/logs` client, which
+//! awaits the invoke, never mistakes a partial clear for a full one.
+//!
+//! * [`ClearSource::jsonl`] removes one JSONL log and its rotated predecessor (the engine log, say).
+//! * A `tracing` family is a closure over the app's own guard (this crate does not enable the
+//!   `tracing` feature of `rightkit-logs`):
+//!
+//! ```ignore
+//! let guard = Arc::new(rightkit_logs::install_tracing(TracingFileConfig::new(dir, "shell"))?);
+//! let shell = Arc::clone(&guard);
+//! config.clear_sources.push(ClearSource::new("shell", move || shell.clear()));
+//! config.clear_sources.push(ClearSource::jsonl("engine", app_data.join("logs/engine.jsonl")));
+//! ```
+//!
+//! # The settings snapshot
+//!
+//! [`LogsConfig::settings`] is a closure the app registers to describe its non-secret settings.
+//! Each [`LogsRuntime::collect`] calls it and puts the value in `metadata.settings` of the bundle,
+//! key-redacted with [`LogsConfig::redaction`] and scrubbed like every other collected string. A
+//! closure that panics yields `{"error":"settings snapshot unavailable"}` instead of failing the
+//! collect. With no closure the field stays `{}`.
 
+use std::fmt;
 use std::io;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,6 +120,72 @@ pub struct LogsConfig {
     pub collection: CollectionPolicy,
     /// Other logs the app owns, collected next to the renderer log (for example the engine log).
     pub extra_sources: Vec<LogSource>,
+    /// What [`LogsRuntime::clear`] clears after the renderer log, in order (see [`ClearSource`]).
+    /// Add every extra source and every `tracing` family the app collects or writes.
+    pub clear_sources: Vec<ClearSource>,
+    /// The app's non-secret settings for the bundle's `metadata.settings` (see
+    /// [`SettingsSnapshot`]). `None` leaves the field `{}`.
+    pub settings: Option<SettingsSnapshot>,
+}
+
+/// One log that [`LogsRuntime::clear`] clears besides the renderer log: a name for the report and
+/// what clears it. The renderer cannot name or add one; the app configures them natively.
+#[derive(Clone)]
+pub struct ClearSource {
+    name: String,
+    clear: Arc<dyn Fn() -> io::Result<()> + Send + Sync>,
+}
+
+impl ClearSource {
+    /// A source cleared by `clear`, for example a `tracing` family:
+    /// `ClearSource::new("shell", move || guard.clear())` over the app's
+    /// `Arc<rightkit_logs::TracingGuard>`.
+    pub fn new(
+        name: impl Into<String>,
+        clear: impl Fn() -> io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            clear: Arc::new(clear),
+        }
+    }
+
+    /// A JSONL log at `path`: removes that file and its rotated predecessor through
+    /// [`JsonlStore::clear`]. A log that is already absent clears successfully.
+    pub fn jsonl(name: impl Into<String>, path: impl Into<PathBuf>) -> Self {
+        let store = JsonlStore::new(path, 0);
+        Self::new(name, move || store.clear())
+    }
+
+    /// The name the [`ClearReport`] uses.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl fmt::Debug for ClearSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClearSource")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Describes the app's non-secret settings for a collected bundle. Called on every collect, so it
+/// reports the settings as they are then; its value is redacted and scrubbed before it is stored.
+#[derive(Clone)]
+pub struct SettingsSnapshot(Arc<dyn Fn() -> Value + Send + Sync>);
+
+impl SettingsSnapshot {
+    pub fn new(snapshot: impl Fn() -> Value + Send + Sync + 'static) -> Self {
+        Self(Arc::new(snapshot))
+    }
+}
+
+impl fmt::Debug for SettingsSnapshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("SettingsSnapshot").finish_non_exhaustive()
+    }
 }
 
 impl LogsConfig {
@@ -117,6 +214,8 @@ impl LogsConfig {
             redaction,
             collection: CollectionPolicy::default(),
             extra_sources: Vec::new(),
+            clear_sources: Vec::new(),
+            settings: None,
         }
     }
 }
@@ -146,6 +245,50 @@ pub struct WriteReport {
     pub errors_failed: usize,
 }
 
+/// What one clear did, source by source. Names only: a failure carries its error text scrubbed of
+/// user names and URL secrets, and nothing here says what the source held.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearReport {
+    /// Sources cleared, in the order they ran (`renderer` first).
+    pub cleared: Vec<String>,
+    /// Sources that failed. Every source is attempted, so a failure never hides a later one.
+    pub failed: Vec<ClearFailure>,
+}
+
+/// One source [`LogsRuntime::clear`] could not clear.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearFailure {
+    pub source: String,
+    /// The error, passed through [`scrub_text`] and [`redact_url_text`].
+    pub error: String,
+}
+
+impl ClearReport {
+    /// True when no source failed.
+    pub fn is_complete(&self) -> bool {
+        self.failed.is_empty()
+    }
+
+    /// The command's answer: the report when complete, otherwise an error naming every failed
+    /// source (`clear failed for: <source> (<error>), ...`), so a partial clear is never a success.
+    pub fn into_result(self) -> Result<Self, ShellError> {
+        if self.is_complete() {
+            return Ok(self);
+        }
+        let failed: Vec<String> = self
+            .failed
+            .iter()
+            .map(|f| format!("{} ({})", f.source, f.error))
+            .collect();
+        Err(ShellError::Other(format!(
+            "clear failed for: {}",
+            failed.join(", ")
+        )))
+    }
+}
+
 /// The renderer's collect options. Only bounded numeric knobs exist: no path, URL or policy.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -164,6 +307,8 @@ pub struct LogsRuntime {
     policy: CollectionPolicy,
     redaction: RedactionPolicy,
     batch_cap: usize,
+    clear_sources: Vec<ClearSource>,
+    settings: Option<SettingsSnapshot>,
 }
 
 /// Replace every string leaf with its scrubbed form: free-text identifiers first
@@ -256,6 +401,8 @@ impl LogsRuntime {
             policy,
             redaction: config.redaction,
             batch_cap: config.batch_cap.max(1),
+            clear_sources: config.clear_sources,
+            settings: config.settings,
         })
     }
 
@@ -335,13 +482,18 @@ impl LogsRuntime {
     }
 
     /// The support bundle: the renderer log and the extra sources, bounded by the collect policy,
-    /// key-redacted and scrubbed ([`sanitize_strings`]) a second time over the collected text.
+    /// key-redacted and scrubbed ([`sanitize_strings`]) a second time over the collected text. The
+    /// settings snapshot, when configured, is taken now (see the module documentation).
     pub fn collect(&self, options: Option<CollectOptions>) -> DiagnosticsBundle {
         let mut policy = self.policy.clone();
         if let Some(max) = options.and_then(|o| o.max_events) {
             policy.max_events = max.clamp(1, self.policy.max_events.max(1));
         }
-        let mut bundle = collect_diagnostics(&self.sources, self.metadata.clone(), &policy);
+        let mut metadata = self.metadata.clone();
+        if let Some(settings) = &self.settings {
+            metadata.settings = self.settings_value(settings);
+        }
+        let mut bundle = collect_diagnostics(&self.sources, metadata, &policy);
         sanitize_strings(&mut bundle.metadata.settings);
         for source in &mut bundle.sources {
             source.events.iter_mut().for_each(sanitize_strings);
@@ -349,9 +501,40 @@ impl LogsRuntime {
         bundle
     }
 
-    /// Remove the renderer log and its rotated predecessors.
-    pub fn clear(&self) -> io::Result<()> {
-        self.store.clear()
+    /// The settings snapshot, key-redacted then scrubbed. A snapshot that panics is replaced by an
+    /// error object: the support bundle is worth more without settings than not at all.
+    fn settings_value(&self, settings: &SettingsSnapshot) -> Value {
+        let mut value = catch_unwind(AssertUnwindSafe(|| (settings.0)()))
+            .unwrap_or_else(|_| serde_json::json!({"error": "settings snapshot unavailable"}));
+        self.redaction.redact_value(&mut value);
+        sanitize_strings(&mut value);
+        value
+    }
+
+    /// Clear the renderer log (`renderer`) and then every [`LogsConfig::clear_sources`] entry, in
+    /// order. A source that fails, or panics, is reported and the rest still run.
+    pub fn clear(&self) -> ClearReport {
+        let mut report = ClearReport::default();
+        attempt_clear(&mut report, "renderer", || self.store.clear());
+        for source in &self.clear_sources {
+            attempt_clear(&mut report, &source.name, || (source.clear)());
+        }
+        report
+    }
+}
+
+/// Run one clear and record its outcome in `report`.
+fn attempt_clear(report: &mut ClearReport, name: &str, clear: impl FnOnce() -> io::Result<()>) {
+    match catch_unwind(AssertUnwindSafe(clear)) {
+        Ok(Ok(())) => report.cleared.push(name.to_owned()),
+        Ok(Err(error)) => report.failed.push(ClearFailure {
+            source: name.to_owned(),
+            error: redact_url_text(&scrub_text(&error.to_string())),
+        }),
+        Err(_) => report.failed.push(ClearFailure {
+            source: name.to_owned(),
+            error: "clear panicked".to_owned(),
+        }),
     }
 }
 
@@ -421,13 +604,14 @@ pub async fn rightkit_logs_collect(
     blocking(move || Ok(app.state::<LogsRuntime>().collect(opts))).await
 }
 
-/// Remove the renderer log.
+/// Clear the renderer log and every configured clear source. Answers the [`ClearReport`] when all
+/// cleared; rejects naming each failed source after attempting all of them, otherwise.
 #[tauri::command]
 pub async fn rightkit_logs_clear(
     webview: Webview<Wry>,
     app: AppHandle<Wry>,
-) -> Result<(), ShellError> {
+) -> Result<ClearReport, ShellError> {
     authorize(&webview, "clear")?;
     runtime_of(&app)?;
-    blocking(move || app.state::<LogsRuntime>().clear().map_err(ShellError::from)).await
+    blocking(move || app.state::<LogsRuntime>().clear().into_result()).await
 }
