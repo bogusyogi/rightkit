@@ -63,6 +63,7 @@
     "templates",
     "*.mjs",
     "*.json",
+    "deny-default.toml",
     "*.sh",
     "msix-repair-guard.ps1",
     "bin/darwin/rightkit-swap",

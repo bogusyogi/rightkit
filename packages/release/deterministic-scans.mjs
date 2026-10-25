@@ -1194,7 +1194,11 @@ export async function runScans(plan, options = {}) {
     if (s.advisoryDb !== "deny") return { dbDir: db.dir };
     const prepare = deps.prepareDenyOverlay ?? prepareDenyOverlay;
     let denyToml = "";
-    try { denyToml = deps.readFile(path.join(rootDir(s.root), s.cwd ?? "", "deny.toml")); } catch { /* no deny.toml: the overlay carries only the database location */ }
+    try { denyToml = deps.readFile(path.join(rootDir(s.root), s.cwd ?? "", "deny.toml")); } catch {
+      // No deny.toml in the workspace: RightKit's own policy (deny-default.toml) applies, never cargo-deny's empty default,
+      // which allows no licence at all.
+      denyToml = deps.defaultDenyToml ?? fs.readFileSync(new URL("./deny-default.toml", import.meta.url), "utf8");
+    }
     const overlay = prepare({ denyToml, dbDir: db.dir, pin: s.advisoryPin });
     return { dbDir: db.dir, configPath: overlay.configPath, cleanup: overlay.cleanup };
   }

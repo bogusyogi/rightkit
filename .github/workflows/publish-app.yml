@@ -130,7 +130,7 @@ jobs:
             rm -rf "$unpack" && mkdir -p "$unpack"
             tar -xzf "$staged/sealed-$platform.tar.gz" -C "$unpack" --no-same-owner --no-same-permissions
             [ -z "$(find "$unpack" ! -type f ! -type d -print -quit)" ] || { echo "::error::staged archive holds a link or special file"; exit 1; }
-            stray="$(cd "$unpack" && find . -mindepth 1 \( -type f -o -type d \) -print | grep -Ev "^\./\.right-release(/sealed(/[A-Za-z0-9._-]+(/$platform(/.*)?)?)?)?$" || true)"
+            stray="$(find "$unpack" -mindepth 1 \( -type f -o -type d \) -print | sed "s#^$unpack#.#" | { grep -Ev "^\./\.right-release(/sealed(/[A-Za-z0-9._-]+(/$platform(/.*)?)?)?)?$" || true; })"
             [ -z "$stray" ] || { echo "::error::staged archive holds paths outside .right-release/sealed/<id>/$platform: $stray"; exit 1; }
             mkdir -p "$root/.right-release/sealed"
             cp -R "$unpack/.right-release/sealed/." "$root/.right-release/sealed/"

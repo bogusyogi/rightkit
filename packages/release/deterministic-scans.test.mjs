@@ -1619,3 +1619,12 @@ test("advisory scans: an unavailable pinned database fails both scans and no too
   assert.ok(!log.some((c) => c.includes("--offline") || c.includes("--no-fetch")));
   assert.equal(result.ok, false);
 });
+
+test("advisory scans: a workspace without deny.toml gets RightKit's policy, never cargo-deny's empty default", () => {
+  const text = readFileSync(new URL("./deny-default.toml", import.meta.url), "utf8");
+  assert.match(text, /\[licenses\][\s\S]*allow = \[[\s\S]*"MIT"[\s\S]*"Apache-2\.0"/);
+  assert.match(text, /\[licenses\.private\]\nignore = true/);
+  assert.match(text, /unknown-registry = "deny"/);
+  const src = readFileSync(new URL("./deterministic-scans.mjs", import.meta.url), "utf8");
+  assert.match(src, /deny-default\.toml/);
+});
