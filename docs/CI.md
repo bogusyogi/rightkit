@@ -43,7 +43,11 @@ What is implemented today:
   and as the first step of `publish.yml`'s `scans` job (every other job needs `scans`). It reads only the committed files of HEAD: no network, cargo, pnpm, broker or compile, a few
   seconds on any host. Its rules are the predicates the later stages already refuse with (consumer recipe hashes,
   npm surface & import closures, version copies, dispatcher helper digests, consumer locks, CRLF vs `.gitattributes`,
-  file-URL paths, generated docs), run for every unit rather than only the one being published. Each `FAIL` line names
+  file-URL paths, generated docs), run for every unit rather than only the one being published. Two more rules catch what
+  only the hosted Windows and macOS runners used to show: `eol-pinned` (G25) refuses a tracked text file whose line ending
+  `.gitattributes` leaves to `core.autocrlf` (the repository pins `* text=auto eol=lf` once, so a byte-compared or hashed
+  file cannot gain CRLF on a Windows checkout), and `tmpdir-realpath` (G26) refuses a test that passes its temp directory to
+  `realpath` yet compares the unresolved path (macOS answers `/private/var/...` for `/var/...`). Each `FAIL` line names
   the file and the change. `node scripts/preflight.mjs --list` lists the rules; `--commit <rev>` checks another commit, `--repo <dir>` another repository and `--worktree` what a compile would see.
 - `scripts/local-gate.mjs` (the pre-push hook, after preflight) invokes `rightkit-gate --pre-push`: all applicable
   class A scans, focused `scripts/ci` tests & deterministic `generated-docs` checks before each push

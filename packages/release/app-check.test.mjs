@@ -1294,7 +1294,7 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.ok(lines.some((l) => l.startsWith("FAIL eol-policy (G04):")) && lines.some((l) => l.startsWith("FAIL release-config (G16):")) && lines.some((l) => l.startsWith("FAIL scenario-skip (G15):")) && lines.some((l) => l.startsWith("FAIL qa-platform (G13):")), lines.join("\n"));
   assert.ok(lines.some((l) => l.startsWith("KNOWN skip-checks:")) && lines.some((l) => l.startsWith("STALE baseline entry qa-platform|tests/gone.rs|platform:macos")), "the app's own baseline is read in both");
   assert.match(gate.stdout, /^check: 6 problem\(s\) in \w{12} \(13 rules, [\d.]+s, 1 known\)\./m);
-  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(20 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(preflightRun.stdout, /^preflight: 6 problem\(s\) in \w{12} \(22 rules, [\d.]+s, 1 known\)\./m);
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap})`));
   // The same installed copy through the right-release command, and green once the app is fixed.
   const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
@@ -1336,6 +1336,6 @@ test("scripts/preflight.mjs runs the same app rules: its rule list is these rule
   const preflightModule = await import("../../scripts/preflight.mjs");
   const ids = preflightModule.RULES.map((r) => r.id);
   assert.deepEqual(ids.filter((id) => RULES.some((r) => r.id === id)), RULES.map((r) => r.id), "every app rule, in app-check's order");
-  assert.deepEqual(ids.filter((id) => !RULES.some((r) => r.id === id)), ["consumer-recipe", "npm-recipe", "npm-surface", "version-pins", "dispatch-pins", "consumer-locks", "generated-docs"]);
+  assert.deepEqual(ids.filter((id) => !RULES.some((r) => r.id === id)), ["eol-pinned", "consumer-recipe", "npm-recipe", "npm-surface", "version-pins", "dispatch-pins", "consumer-locks", "generated-docs", "tmpdir-realpath"]);
   for (const id of RULES.map((r) => r.id)) assert.equal(preflightModule.RULES.find((r) => r.id === id), RULES.find((r) => r.id === id), `${id} is the same rule object`);
 });

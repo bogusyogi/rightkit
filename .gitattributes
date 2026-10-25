@@ -2,7 +2,8 @@
 # Git for Windows and the hosted Windows runners default to autocrlf=true, which writes CRLF and breaks every byte-for-byte or hashed
 # comparison of a checked-in file: docs/RELEASE-EXPORTS.md in release-exports.test.mjs, the Swift Right Suite API projection in
 # scripts/gen-suite-api.mjs (rightkit#1175, #1187). One default removes that class instead of pinning each such file after it fails; `auto` leaves
-# binary files alone. Later lines override this one per path. scripts/preflight.mjs eol-policy (G04) refuses a CRLF blob under it.
+# binary files alone. Later lines override this one per path. scripts/preflight.mjs eol-pinned (G25) refuses a text file this line does
+# not reach, and eol-policy (G04) a CRLF blob under it.
 * text=auto eol=lf
 # cmd.exe mis-parses LF-only batch files (labels and goto), so these keep CRLF on every host. None is tracked today.
 *.bat text eol=crlf
