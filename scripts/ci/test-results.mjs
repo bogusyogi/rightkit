@@ -5,6 +5,9 @@
 //   vitest         `Tests  F failed | N passed | S skipped (T)`
 //   skip markers   a line holding the word SKIP, with or without a prefix (`SKIP x`, `[browser] SKIP x`)
 // Output is buffered by LINE, so a marker or summary split across two stream chunks is still one line.
+// A test's captured output (libtest's `---- name stdout ----` block, printed on failure or with
+// --show-output) is that test's own text, not a binary's report: a libtest summary quoted there (a
+// test of a test runner) is not counted. SKIP markers inside it still count; that is where they live.
 // A unit passes only when EVERY test command executed a positive count (the total is a summary, never a pool), no ignored or skipped test the request has not
 // allowed, and no red step (the caller checks exit codes).
 import { StringDecoder } from "node:string_decoder";
@@ -16,6 +19,10 @@ const LIBTEST = /\btest result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignore
 const NODE_SUMMARY = /^\s*(?:#|ℹ)\s+(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$/;
 const VITEST_TESTS = /^\s*Tests\s+(.+?)\s+\(\d+\)\s*$/;
 const SKIP_MARKER = /(?:^|[\s\]:])SKIP(?=[\s:]|$)/;
+// libtest prints each captured block after its header and closes the run of blocks with a bare
+// `successes:` or `failures:` list heading; `running N tests` starts the next binary.
+const CAPTURED_START = /^---- .+ std(?:out|err) ----$/;
+const CAPTURED_END = /^(?:successes|failures):$|^running \d+ tests?$/;
 
 /** What a test command is: used to decide which steps count toward a unit's executed total. */
 export const TEST_COMMAND = /(?:\bcargo test\b|\brun test\b|\bnode --test\b)/;
@@ -28,6 +35,7 @@ export class ResultScanner {
     this.tail = "";
     this.counts = emptyCounts();
     this.node = { pass: 0, fail: 0, cancelled: 0, skipped: 0, todo: 0, seen: false };
+    this.captured = false;
   }
 
   push(chunk) {
@@ -53,7 +61,9 @@ export class ResultScanner {
 
   line(raw) {
     const line = stripAnsi(raw);
-    let m = LIBTEST.exec(line);
+    if (CAPTURED_START.test(line)) this.captured = true;
+    else if (CAPTURED_END.test(line)) this.captured = false;
+    let m = this.captured ? null : LIBTEST.exec(line);
     if (m) {
       this.counts.binaries += 1;
       this.counts.executed += Number(m[2]);
