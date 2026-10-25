@@ -10,7 +10,7 @@ import { spawnSync } from "./background-process.mjs";
 import { HOOK_MARKER, renderPreCommitHook } from "./ownership-hooks.mjs";
 import { digestScanSet } from "./scan-digest.mjs";
 import {
-  EXTERNAL_INPUT_FILE_LIMIT, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, lockScope, main, manifestChangeIsLockReflected, manifestTables, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustUnitName, rustUnitOfScanId, trampolineText, workspaceExcludes,
+  DEFER_OPT_OUT_ENV, EXTERNAL_INPUT_FILE_LIMIT, PROTECTED_BRANCHES, QUIET_LEASE_TTL_MS, QUIET_LEASE_WAIT_DRAIN_MS, buildCacheDigest, deferredBlock, externalInputs, discoverNpmUnits, discoverRustUnits, discoverRustWorkspaces, globToRegExp, hookText, isDeferrableRef, lockScope, main, manifestChangeIsLockReflected, manifestTables, manifestWorkspaceMetadata, parseWorkspaceGlobs, prePushPlan, quietLeaseLane, rustDeferral, rustUnitName, rustUnitOfScanId, trampolineText, withoutScans, workspaceExcludes,
 } from "./bin/rightkit-gate.mjs";
 
 const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
@@ -1275,4 +1275,313 @@ test("a scratch repository with a red tree rejects git push through the installe
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } }));
   assert.equal(git("commit", "-q", "-am", "red again").status, 0);
   assert.equal(git("push", "origin", ":refs/heads/main").status, 0);
+});
+
+// ---- the Rust gate on a host without the broker: deferral to host qualification ------------------------------------------------
+
+const ZEROS = "0".repeat(40);
+const pushLine = (ref, { sha = HEAD, remote = ZEROS } = {}) => `${ref} ${sha} ${ref} ${remote}\n`;
+const NO_BROKER = /BLOCKED: neither `rustright` nor the managed cargo shim \(cargo-guard\.mjs\) is first on PATH; plain cargo is never used/;
+const snapshot = (root) => fs.readdirSync(root, { recursive: true }).map(String).sort().map((rel) => {
+  const abs = path.join(root, rel);
+  return [rel, fs.statSync(abs).isFile() ? fs.readFileSync(abs, "utf8") : null];
+});
+
+// A repository whose gate runs the whole of main(): git answers from the fixture, `tar` copies it as the exported HEAD, and the
+// scan runner is the recorded fake below, so nothing real runs. `broker`: a rustright on PATH; `shim`: a cargo on PATH that is the
+// managed shim (its file names cargo-guard.mjs, see shimRead).
+function pushSpawn(root, { log = [], diff = "crates/a/src/lib.rs\n", broker = false, shim = false, rustfmtAnswers = true } = {}) {
+  const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
+  return (cmd, args, opts = {}) => {
+    log.push([cmd, ...args]);
+    const line = args.join(" ");
+    if (cmd === "git") {
+      if (line === "rev-parse --show-toplevel") return ok(root);
+      if (line === "rev-parse HEAD") return ok(HEAD);
+      if (args[0] === "ls-files") return ok(args.at(-1).endsWith("Cargo.toml") ? "Cargo.toml\0crates/a/Cargo.toml\0crates/b/Cargo.toml\0" : "");
+      if (args[0] === "diff") return ok(diff);
+      if (args[0] === "status" || args[0] === "archive") return ok();
+      return no(`unexpected ${cmd} ${line}`);
+    }
+    if (cmd === "tar") { fs.cpSync(root, path.join(opts.cwd, "repo"), { recursive: true }); return ok(); }
+    if (cmd === "where" || cmd === "which") {
+      if (args[0] === "rustright") return broker ? ok("/bin/rustright\n") : no();
+      if (args[0] === "cargo") return shim ? ok("/shim/cargo\n") : no();
+      return no();
+    }
+    if (cmd === "rustright" && args[1] === "metadata") return ok(metadata);
+    if (cmd === "cargo" && args[0] === "metadata") return ok(metadata);
+    if (cmd === "/x/rustfmt" && line === "--version") return rustfmtAnswers ? ok("rustfmt 1.8.0\n") : no("error: rustup could not choose a version of rustfmt to run");
+    return no(`unexpected ${cmd} ${line}`);
+  };
+}
+const shimRead = (f) => (norm(f) === "/shim/cargo" ? "#!/usr/bin/env node\nimport \"./cargo-guard.mjs\";\n" : fs.readFileSync(f, "utf8"));
+function fakeRun(seen, { rows = {} } = {}) {
+  return async (plan, options) => {
+    seen.push({ plan, options });
+    return {
+      scans: plan.scans.map((s) => ({ id: s.id, class: s.class, status: "pass", ...(rows[s.id] ?? {}) })),
+      notes: plan.notes, cacheHits: [], deferred: [],
+    };
+  };
+}
+const noWrites = { writeFile: () => assert.fail("the gate wrote a file"), mkdir: () => assert.fail("the gate made a directory"), chmod: () => assert.fail("the gate changed a mode") };
+async function pushGate(t, { stdin = pushLine("refs/heads/claude/port"), env = {}, files = gateFiles(), spawnOptions = {}, rustfmt = "/x/rustfmt", rows = {}, args = ["--base", "origin/main"], readFile = undefined, io = {} } = {}) {
+  const root = mkRepo(files, t);
+  const log = []; const seen = []; const c = capture();
+  const before = snapshot(root);
+  const code = await main(args, {
+    ...c.io, ...noWrites, spawn: pushSpawn(root, { log, ...spawnOptions }), cwd: root, env, readStdin: () => stdin,
+    runScans: fakeRun(seen, { rows }), ...(rustfmt === false ? {} : { findRustfmt: () => rustfmt }), ...(readFile ? { readFile } : {}), ...io,
+  });
+  return { code, log, seen, root, before, after: snapshot(root), out: c.out.join("\n"), err: c.err.join("\n") };
+}
+
+test("deferral: a claude/* push from a host without the broker runs the non-Rust scans, names the deferred Rust units and scans, exits 0 and writes nothing", async (t) => {
+  const r = await pushGate(t);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.seen.length, 1, "the scan runner ran once");
+  const ids = r.seen[0].plan.scans.map((s) => s.id);
+  for (const id of ["rustfmt:2021", "license", "secret-scan"]) assert.ok(ids.includes(id), `${id} still runs: ${ids}`);
+  assert.ok(r.seen[0].plan.scans.every((s) => s.tool !== "rustright" && s.tool !== "cargo"), "no scan goes through the broker");
+  assert.ok(!r.log.some((l) => l[0] === "rustright" || l[0] === "cargo"), "neither the broker nor plain cargo was asked anything");
+  assert.doesNotMatch(r.err, /BLOCKED/);
+  const block = r.err.split("\n").filter((l) => /DEFERRED/.test(l));
+  assert.equal(block.length, 1, "one headline");
+  assert.match(block[0], /^rightkit-gate: rust gate DEFERRED to host qualification \(no RustRight broker on this host\): rust units a, b; scans not run [^;]+; the pull request needs a HOST RECEIPT before merge$/);
+  for (const id of ["cargo-metadata", "cargo-package-list:a", "check-features:a:0", "clippy:a", "doc:a", "test:rust:a"]) assert.ok(block[0].includes(id), `${id} named as not run`);
+  assert.ok(!block[0].includes("license") && !block[0].includes("secret-scan") && !block[0].includes("rustfmt"), "scans that ran are not listed as deferred");
+  assert.match(r.err, /pushed refs\/heads\/claude\/port \(non-protected, not CI\)\. The HOST RECEIPT .* stays the merge gate; RIGHTKIT_GATE_NO_DEFER=1 keeps the refusal/);
+  assert.match(r.out, /note: no RustRight broker on this host: 6 Rust scan\(s\) are deferred to host qualification, not run and not passed/);
+  assert.match(r.out, /the scans that could run here passed/);
+  assert.deepEqual(r.after, r.before, "the tree is byte for byte what it was");
+  assert.deepEqual(r.seen[0].plan.deferred, [], "nothing is left in the plan as deferred");
+  assert.equal(r.seen[0].plan.scanSetDigest, digestScanSet(r.seen[0].plan.scans), "the plan digest describes what runs");
+});
+
+test("deferral: the units come from the tracked manifests, not cargo, and a Rust-free diff still prints the block with no scan named", async (t) => {
+  const r = await pushGate(t, { spawnOptions: { diff: "README.md\n" } });
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.seen[0].plan.scans, []);
+  assert.match(r.err, /DEFERRED to host qualification \(no RustRight broker on this host\): rust units a, b; scans not run none \(no Rust scan was due for this diff\); the pull request needs a HOST RECEIPT before merge/);
+});
+
+test("deferral: every deferrable shape - several non-protected branches, a branch named like a protected one below another name, the deletion of one", async (t) => {
+  for (const [name, stdin] of [
+    ["two branches", pushLine("refs/heads/claude/a") + pushLine("refs/heads/feature/b")],
+    ["claude/main", pushLine("refs/heads/claude/main")],
+    ["a release-like name that is not release/*", pushLine("refs/heads/releases")],
+    ["a deletion of a feature branch", pushLine("refs/heads/claude/gone", { sha: ZEROS })],
+  ]) {
+    const r = await pushGate(t, { stdin });
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    assert.match(r.err, /rust gate DEFERRED/, name);
+  }
+});
+
+test("deferral refused: a protected branch in the push keeps today's refusal, before any scan, export or git work", async (t) => {
+  for (const [name, stdin] of [
+    ["main", pushLine("refs/heads/main")], ["master", pushLine("refs/heads/master")], ["trunk", pushLine("refs/heads/trunk")],
+    ["release/1.2", pushLine("refs/heads/release/1.2")], ["release/x/y", pushLine("refs/heads/release/x/y")], ["Main (case)", pushLine("refs/heads/Main")],
+    ["a protected branch among others", pushLine("refs/heads/claude/a") + pushLine("refs/heads/main")],
+    ["the deletion of main", pushLine("refs/heads/main", { sha: ZEROS })],
+    ["a tag", pushLine("refs/tags/v1")], ["a ref outside refs/heads", pushLine("refs/for/claude/a")],
+  ]) {
+    const r = await pushGate(t, { stdin });
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, NO_BROKER, name);
+    assert.equal(r.seen.length, 0, `${name}: no scan ran`);
+    assert.ok(!r.log.some((l) => l[0] === "tar" || (l[0] === "git" && (l[1] === "archive" || l[1] === "status"))), `${name}: nothing was exported or checked`);
+    assert.doesNotMatch(r.err, /DEFERRED/, name);
+  }
+});
+
+test("deferral refused: CI, the opt-out, no pushed refs and a plan keep the refusal", async (t) => {
+  for (const [name, o] of [
+    ["CI=1", { env: { CI: "1" } }], ["CI=true", { env: { CI: "true" } }], ["GITHUB_ACTIONS=true", { env: { GITHUB_ACTIONS: "true" } }],
+    ["RIGHTKIT_GATE_NO_DEFER=1", { env: { [DEFER_OPT_OUT_ENV]: "1" } }],
+    ["CI with the opt-out unset", { env: { CI: "1", [DEFER_OPT_OUT_ENV]: "0" } }],
+    ["no stdin (a manual run)", { stdin: "" }], ["a --plan (reads no stdin)", { args: ["--plan"] }],
+  ]) {
+    const r = await pushGate(t, o);
+    assert.equal(r.code, 1, name);
+    assert.match(r.err, NO_BROKER, name);
+    assert.equal(r.seen.length, 0, name);
+  }
+  assert.equal(DEFER_OPT_OUT_ENV, "RIGHTKIT_GATE_NO_DEFER");
+  // CI=false and CI=0 are not CI; the gate defers there.
+  for (const value of ["false", "0", ""]) assert.equal((await pushGate(t, { env: { CI: value } })).code, 0, `CI=${JSON.stringify(value)}`);
+});
+
+test("deferral: the repository's own default branch (.rightgit.json defaultBranch) is protected too", async (t) => {
+  const files = gateFiles({ ".rightgit.json": JSON.stringify({ schemaVersion: 1, defaultBranch: "develop" }) });
+  const dev = await pushGate(t, { files, stdin: pushLine("refs/heads/develop") });
+  assert.equal(dev.code, 1);
+  assert.match(dev.err, NO_BROKER);
+  assert.equal((await pushGate(t, { files, stdin: pushLine("refs/heads/claude/port") })).code, 0);
+  assert.equal((await pushGate(t, { files: gateFiles({ ".rightgit.json": "{not json" }), stdin: pushLine("refs/heads/claude/port") })).code, 0, "an unreadable manifest adds nothing and removes nothing");
+});
+
+test("deferral unchanged: a host with the broker or the managed shim runs the Rust gate whatever the branch, CI or the opt-out", async (t) => {
+  for (const [name, o] of [
+    ["rustright, claude/*", { spawnOptions: { broker: true } }],
+    ["rustright, main", { spawnOptions: { broker: true }, stdin: pushLine("refs/heads/main") }],
+    ["rustright, CI", { spawnOptions: { broker: true }, env: { CI: "1", GITHUB_ACTIONS: "true" } }],
+    ["rustright, opt-out", { spawnOptions: { broker: true }, env: { [DEFER_OPT_OUT_ENV]: "1" } }],
+    ["the managed shim, claude/*", { spawnOptions: { shim: true }, readFile: shimRead }],
+  ]) {
+    const r = await pushGate(t, o);
+    assert.equal(r.code, 0, `${name}: ${r.err}`);
+    const ids = r.seen[0].plan.scans.map((s) => s.id);
+    for (const id of ["clippy:a", "test:rust:a", "cargo-metadata", "cargo-package-list:a"]) assert.ok(ids.includes(id), `${name}: ${id} runs`);
+    assert.ok(r.log.some((l) => (l[0] === "rustright" && l[2] === "metadata") || (l[0] === "cargo" && l[1] === "metadata")), `${name}: cargo metadata ran through the broker`);
+    assert.doesNotMatch(r.err, /DEFERRED/, name);
+    assert.match(r.out, /pass \(1 changed file\(s\) vs origin\/main\); 0 scan\(s\) deferred, not passed/, name);
+    assert.doesNotMatch(r.out, /no RustRight broker/, name);
+  }
+  // A broker without its compile grant still refuses on a claude/* branch: the host has the broker, so nothing defers.
+  const { ".rightkit-local-build.json": _grant, ...noGrant } = gateFiles();
+  const r = await pushGate(t, { files: noGrant, spawnOptions: { broker: true } });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /BLOCKED: no local compile grant/);
+  assert.equal(r.seen.length, 0);
+});
+
+test("deferral: a failing scan that needs no broker still blocks the push, with no deferral block, and a deferred non-broker scan still blocks", async (t) => {
+  const failed = await pushGate(t, { rows: { license: { status: "fail", detail: "no license field" } } });
+  assert.equal(failed.code, 1);
+  assert.match(failed.err, /BLOCKED \(1\)\n  - license: no license field/);
+  assert.doesNotMatch(failed.err, /rust gate DEFERRED/);
+  const waiting = await pushGate(t, { rows: { "secret-scan": { status: "deferred", detail: "needs a trusted root" } } });
+  assert.equal(waiting.code, 1);
+  assert.match(waiting.err, /DEFERRED secret-scan: deferred, not passed \(needs a trusted root\)/);
+});
+
+test("deferral: without rustfmt on the host the rustfmt scan is named as not run; with it the scan runs and is not named", async (t) => {
+  const without = await pushGate(t, { rustfmt: null });
+  assert.equal(without.code, 0, without.err);
+  assert.ok(!without.seen[0].plan.scans.some((s) => s.tool === "rustfmt"));
+  assert.match(without.err, /scans not run [^;]*rustfmt:2021/);
+  assert.match(without.out, /7 Rust scan\(s\) are deferred .*\(rustfmt is not usable on this host either\)/);
+  const withIt = await pushGate(t);
+  assert.ok(withIt.seen[0].plan.scans.some((s) => s.id === "rustfmt:2021" && s.tool === "rustfmt"));
+  assert.doesNotMatch(withIt.err, /rustfmt:2021/);
+});
+
+test("deferral: the default rustfmt lookup needs the found rustfmt to answer --version; a rustup proxy without a toolchain counts as none", async (t) => {
+  // $RUSTFMT wins in findRustfmt; the fake host has that file and answers (or refuses) its --version.
+  const io = { exists: (p) => norm(p) === "/x/rustfmt" || fs.existsSync(p) };
+  const answers = await pushGate(t, { rustfmt: false, env: { RUSTFMT: "/x/rustfmt" }, io });
+  assert.equal(answers.code, 0, answers.err);
+  assert.ok(answers.seen[0].plan.scans.some((s) => s.id === "rustfmt:2021"));
+  assert.ok(answers.log.some((l) => l[0] === "/x/rustfmt" && l[1] === "--version"));
+  assert.doesNotMatch(answers.err, /rustfmt:2021/);
+  const refuses = await pushGate(t, { rustfmt: false, env: { RUSTFMT: "/x/rustfmt" }, io, spawnOptions: { rustfmtAnswers: false } });
+  assert.equal(refuses.code, 0, refuses.err);
+  assert.ok(!refuses.seen[0].plan.scans.some((s) => s.tool === "rustfmt"));
+  assert.match(refuses.err, /scans not run [^;]*rustfmt:2021/);
+});
+
+test("deferral: a workspace below the root and the lock scope are read from the tracked manifests; the pre-push plan keeps its class A scans", async (t) => {
+  const files = { ...gateFiles(), "hub/src-tauri/Cargo.toml": pkg("app", "\n[workspace]\n"), "hub/src-tauri/src/lib.rs": "pub fn f() {}\n", "hub/src-tauri/Cargo.lock": "version = 4\n" };
+  const root = mkRepo(files, t);
+  const log = []; const seen = []; const c = capture();
+  const base = pushSpawn(root, { log, diff: "hub/src-tauri/src/lib.rs\n" });
+  const spawn = (cmd, args, opts) => {
+    if (cmd === "git" && args[0] === "ls-files" && args.at(-1).endsWith("Cargo.toml")) return ok("Cargo.toml\0crates/a/Cargo.toml\0crates/b/Cargo.toml\0hub/src-tauri/Cargo.toml\0");
+    if (cmd === "git" && args[0] === "ls-files" && args.at(-1).endsWith("Cargo.lock")) return ok("Cargo.lock\0hub/src-tauri/Cargo.lock\0");
+    return base(cmd, args, opts);
+  };
+  const code = await main(["--pre-push", "--base", "origin/main"], { ...c.io, ...noWrites, spawn, cwd: root, env: {}, readStdin: () => pushLine("refs/heads/claude/port"), runScans: fakeRun(seen), findRustfmt: () => "/x/rustfmt" });
+  assert.equal(code, 0, c.err.join("\n"));
+  assert.match(c.err.join("\n"), /rust units a, b, hub\/src-tauri:app; scans not run /);
+  assert.ok(seen[0].plan.scans.every((s) => s.class === "A" || ["test:scripts-ci", "generated-docs"].includes(s.id)), "the pre-push selection still applies");
+  assert.ok(seen[0].plan.scans.some((s) => s.id === "license"));
+  assert.match(c.err.join("\n"), /cargo-package-list:hub\/src-tauri:app/);
+  assert.ok(!log.some((l) => l[0] === "rustright" || l[0] === "cargo"));
+});
+
+test("isDeferrableRef and rustDeferral: protected names, case, non-branch refs, CI and the opt-out", () => {
+  assert.deepEqual([...PROTECTED_BRANCHES], ["main", "master", "trunk"]);
+  for (const ref of ["refs/heads/claude/x", "refs/heads/feature", "refs/heads/claude/main", "refs/heads/releases", "refs/heads/mainline"]) assert.equal(isDeferrableRef(ref), true, ref);
+  for (const ref of ["refs/heads/main", "refs/heads/MASTER", "refs/heads/trunk", "refs/heads/release/1", "refs/heads/Release/2.0/rc", "refs/tags/v1", "refs/for/main", "HEAD", "", undefined]) assert.equal(isDeferrableRef(ref), false, String(ref));
+  assert.equal(isDeferrableRef("refs/heads/develop", ["develop"]), false);
+  assert.equal(isDeferrableRef("refs/heads/develop", ["Develop"]), false);
+  const refs = ["refs/heads/claude/x"];
+  assert.equal(rustDeferral({ refs, env: {} }).defer, true);
+  assert.equal(rustDeferral({ refs: [], env: {} }).defer, false);
+  assert.equal(rustDeferral({ refs, env: { CI: "1" } }).defer, false);
+  assert.equal(rustDeferral({ refs, env: { GITHUB_ACTIONS: "true" } }).defer, false);
+  assert.equal(rustDeferral({ refs, env: { [DEFER_OPT_OUT_ENV]: "1" } }).defer, false);
+  assert.match(rustDeferral({ refs, env: { [DEFER_OPT_OUT_ENV]: "1" } }).why, /RIGHTKIT_GATE_NO_DEFER/);
+  assert.equal(rustDeferral({ refs: [...refs, "refs/heads/main"], env: {} }).defer, false);
+  assert.match(rustDeferral({ refs: [...refs, "refs/heads/main"], env: {} }).why, /refs\/heads\/main/);
+  assert.equal(rustDeferral({ refs, env: { CI: "false", GITHUB_ACTIONS: "0", [DEFER_OPT_OUT_ENV]: "false" } }).defer, true);
+});
+
+test("deferredBlock and withoutScans: the lines name units, scans and the pushed refs; the plan keeps its other scans and digests them", () => {
+  const lines = deferredBlock({ units: ["a", "hub:app"], notRun: ["clippy:a", "test:rust:a"], refs: ["refs/heads/claude/x", "refs/heads/claude/y"] });
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0], "rightkit-gate: rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units a, hub:app; scans not run clippy:a, test:rust:a; the pull request needs a HOST RECEIPT before merge");
+  assert.match(lines[1], /pushed refs\/heads\/claude\/x, refs\/heads\/claude\/y .*HOST RECEIPT.*merge gate/);
+  assert.match(deferredBlock({ units: [], notRun: [], refs: ["refs/heads/x"] })[0], /rust units none found; scans not run none \(no Rust scan was due for this diff\); the pull request needs a HOST RECEIPT before merge/);
+  const scans = [{ id: "license", class: "A" }, { id: "cargo-deny", class: "A" }, { id: "clippy:a", class: "B" }, { id: "test:scripts-ci", class: "B" }];
+  const plan = { scans, deferred: ["clippy:a", "generated-docs"], notes: ["n"], inputDigest: "d" };
+  const next = withoutScans(plan, scans.filter((s) => s.id === "cargo-deny" || s.id === "clippy:a"), "dropped");
+  assert.deepEqual(next.scans.map((s) => s.id), ["license", "test:scripts-ci"]);
+  assert.deepEqual(next.deferred, ["generated-docs"]);
+  assert.deepEqual(next.notes, ["n", "dropped"]);
+  assert.equal(next.scanSetDigest, digestScanSet(next.scans));
+  assert.equal(next.classDigests.A, digestScanSet([scans[0]]));
+  assert.equal(next.classDigests.B, digestScanSet([scans[3]]));
+  assert.equal(next.inputDigest, "d");
+  assert.equal(plan.scans.length, 4, "the original plan is untouched");
+  assert.deepEqual(withoutScans(plan, [], "").notes, ["n"]);
+});
+
+test("manifestWorkspaceMetadata: members by glob and exclude, the root package, publish = false; a nested manifest under a workspace is refused as cargo would", (t) => {
+  const root = mkRepo({
+    "Cargo.toml": '[package]\nname = "rootpkg"\nversion = "1.0.0"\n\n[workspace]\nmembers = [\n  "crates/*", # all of them\n  "tools/b",\n]\nexclude = ["crates/old"]\n',
+    "crates/a/Cargo.toml": pkg("a"), "crates/old/Cargo.toml": pkg("old"), "tools/b/Cargo.toml": pkg("b", "publish = false\n"), "tools/c/Cargo.toml": pkg("c"),
+    "crates/a/vendored/Cargo.toml": pkg("deep"),
+    "hub/src-tauri/Cargo.toml": pkg("app"), "virtual/Cargo.toml": "[profile.release]\nlto = true\n",
+  }, t);
+  const all = ["Cargo.toml", "crates/a/Cargo.toml", "crates/a/vendored/Cargo.toml", "crates/old/Cargo.toml", "tools/b/Cargo.toml", "tools/c/Cargo.toml", "hub/src-tauri/Cargo.toml", "virtual/Cargo.toml"];
+  const tracked = (n) => (n === "Cargo.toml" ? all : []);
+  const readFile = (f) => fs.readFileSync(f, "utf8");
+  const found = manifestWorkspaceMetadata({ root, dir: ".", tracked, readFile });
+  assert.equal(found.cargoDir, ".");
+  assert.deepEqual(found.members, [
+    { name: "a", dir: "crates/a", manifest: "crates/a/Cargo.toml", publish: true },
+    { name: "b", dir: "tools/b", manifest: "tools/b/Cargo.toml", publish: false },
+    { name: "rootpkg", dir: ".", manifest: "Cargo.toml", publish: true },
+  ], "crates/old is excluded, crates/a/vendored is not a one-segment match, tools/c is not listed");
+  assert.throws(() => manifestWorkspaceMetadata({ root, dir: "tools/c", tracked, readFile }), /believes it's in a workspace when it's not/);
+  assert.throws(() => manifestWorkspaceMetadata({ root, dir: "virtual", tracked, readFile }), /believes it's in a workspace/);
+  const alone = mkRepo({ "src-tauri/Cargo.toml": pkg("app"), "empty/Cargo.toml": "[profile.dev]\n" }, t);
+  assert.deepEqual(manifestWorkspaceMetadata({ root: alone, dir: "src-tauri", tracked: () => ["src-tauri/Cargo.toml", "empty/Cargo.toml"], readFile }), { cargoDir: "src-tauri", members: [{ name: "app", dir: "src-tauri", manifest: "src-tauri/Cargo.toml", publish: true }] });
+  assert.throws(() => manifestWorkspaceMetadata({ root: alone, dir: "empty", tracked: () => ["src-tauri/Cargo.toml", "empty/Cargo.toml"], readFile }), /neither a \[package\] with a name nor a \[workspace\]/);
+});
+
+test("discoverRustWorkspaces with a metadata reader never asks cargo, and skips what cargo would refuse the way it does with the broker", (t) => {
+  const files = {
+    "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/old"]\n', "Cargo.lock": "version = 4\n",
+    "crates/a/Cargo.toml": pkg("a"), "crates/old/Cargo.toml": pkg("old"),
+    "hub/src-tauri/Cargo.toml": pkg("app", "\n[workspace]\n"), "hub/src-tauri/Cargo.lock": "version = 4\n",
+    "apps/x/Cargo.toml": pkg("x"), "apps/x/Cargo.lock": "version = 4\n", "fixtures/f/Cargo.toml": pkg("f"),
+  };
+  const root = mkRepo(files, t);
+  const names = Object.keys(files).filter((f) => f.endsWith("Cargo.toml") || f.endsWith("Cargo.lock"));
+  const tracked = (n) => names.filter((f) => f === n || f.endsWith(`/${n}`));
+  const readFile = (f) => fs.readFileSync(f, "utf8");
+  const found = discoverRustWorkspaces({
+    root, spawn: () => assert.fail("cargo was asked"), cargoCommand: ["rustright", "cargo"], tracked, readFile, fixtures: ["fixtures"],
+    metadata: (dir) => manifestWorkspaceMetadata({ root, dir, tracked, readFile }),
+  });
+  assert.deepEqual(found.workspaces.map((w) => w.cargoDir), [".", "hub/src-tauri"]);
+  assert.deepEqual(found.units.map((u) => u.name), ["a", "hub/src-tauri:app"]);
+  const why = (m) => found.skipped.find((k) => k.manifest === m)?.why ?? "";
+  assert.match(why("crates/old/Cargo.toml"), /excluded from the Cargo workspace \./);
+  assert.match(why("fixtures/f/Cargo.toml"), /fixture directory fixtures/);
+  assert.match(why("apps/x/Cargo.toml"), /below the Cargo workspace \. but not one of its members, and cargo refuses it on its own \(current package believes it's in a workspace when it's not/);
 });

@@ -150,6 +150,10 @@ it. Past its sunset an entry stops tolerating its finding (the finding fails wit
 `EXPIRED`; a listed identity that no finding has any more is `STALE` and fails, so the list only shrinks. A rule the build refuses
 whatever a baseline says (`switches-inventory`) fails even when listed.
 
+## The pre-push gate on a host without the broker: the Rust gate is deferred, the HOST RECEIPT gates the merge
+
+On a host with neither `rustright` nor the managed cargo shim on PATH (a cloud session), `rightkit-gate` defers the Rust gate to host qualification instead of refusing when git's stdin names only non-protected branches (not `main`, `master`, `trunk`, `release/*`, the `.rightgit.json` `defaultBranch` or a tag) and the process is not in CI (`CI` and `GITHUB_ACTIONS` unset): it reads the Rust units from the tracked manifests, runs every scan that needs no broker, prints `rightkit-gate: rust gate DEFERRED to host qualification (no RustRight broker on this host): <Rust units>; scans not run <ids>; the pull request needs a HOST RECEIPT before merge`, exits 0 and writes nothing into the tree. The pull request still needs a HOST RECEIPT (a host with the RustRight broker ran the full gate) before it merges, and that receipt, not the hook, remains the merge gate; a protected branch, a host with the broker or the shim, CI, a manual run or `--plan`, and `RIGHTKIT_GATE_NO_DEFER=1` keep the refusal exactly as before.
+
 ## Declared test suites, web build, npm notices and artifact mirroring
 
 These replace per-app wrapper scripts. Each is declared in `right-release.config.mjs` and runs without a shell from the app
