@@ -72,9 +72,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
+import { resolveExecutor } from "../gate-executor.mjs";
 
 const ZERO = /^0+$/;
-const GRANT_FILE = ".rightkit-local-build.json";
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const posix = (p) => String(p).replaceAll("\\", "/");
 const text = (r) => String(r?.stdout ?? "");
@@ -414,47 +414,7 @@ export function discoverRustWorkspaces({ root, spawn, cargoCommand, tracked, unt
   return { present: true, workspaces, units, cargoDir: workspaces[0]?.cargoDir ?? ".", skipped };
 }
 
-// ---- the Rust gate on a host without the broker: deferral to host qualification --------------------------------------
-
-// A push that only carries non-protected branches, from a host that has neither `rustright` nor the managed cargo shim and is not
-// CI, does not refuse on the missing broker: the Rust scans cannot run here, so the gate runs every other scan, names the Rust
-// units and scans it did not run, and exits 0. The pull request then needs a HOST RECEIPT (a host with the broker ran the full gate)
-// before it merges; that receipt, not this hook, is the merge gate. Everything else keeps today's behaviour: a push that includes a
-// protected branch, a host with the broker or the shim, CI, and RIGHTKIT_GATE_NO_DEFER=1 all refuse as before.
-
-/** Branches that never defer (compared case-insensitively); `release/*` and the repository's default branch join them. */
-export const PROTECTED_BRANCHES = Object.freeze(["main", "master", "trunk"]);
-/** Set to anything but ""/0/false to keep the refusal on a broker-less host. */
-export const DEFER_OPT_OUT_ENV = "RIGHTKIT_GATE_NO_DEFER";
-
-const envOn = (v) => v !== undefined && v !== null && !["", "0", "false"].includes(String(v).trim().toLowerCase());
-
-/**
- * True when `ref` (a pushed remote ref) is a plain branch the gate may defer for. A tag, a ref outside refs/heads/, main, master,
- * trunk, release/* and the `extra` names (the repository's own default branch, `.rightgit.json` defaultBranch) are not.
- */
-export function isDeferrableRef(ref, extra = []) {
-  const m = /^refs\/heads\/(.+)$/.exec(String(ref ?? ""));
-  if (!m) return false;
-  const name = m[1].toLowerCase();
-  return !(PROTECTED_BRANCHES.includes(name) || extra.some((x) => String(x).toLowerCase() === name) || name.startsWith("release/"));
-}
-
-/**
- * Whether the Rust gate defers to host qualification. `refs` are the remote refs of a git pre-push's stdin (deletions included); an
- * empty list is not a pre-push run. `unparsed` are the stdin lines parsePushLines could not read as four fields: a push whose refs
- * cannot all be read defers nothing (main refuses such a push before it gets here, on every host; this is the second lock). Every
- * pushed ref is judged, whatever its position. Returns { defer, why }. The caller asks only when no broker or shim resolved.
- */
-export function rustDeferral({ refs = [], env = {}, protectedBranches = [], unparsed = [] }) {
-  if (envOn(env[DEFER_OPT_OUT_ENV])) return { defer: false, why: `${DEFER_OPT_OUT_ENV} is set` };
-  if (envOn(env.CI) || envOn(env.GITHUB_ACTIONS)) return { defer: false, why: "running in CI" };
-  if (unparsed.length) return { defer: false, why: `pre-push stdin line ${unparsed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read` };
-  if (!refs.length) return { defer: false, why: "no pushed refs on stdin: not a git pre-push run" };
-  const blocking = refs.find((r) => !isDeferrableRef(r, protectedBranches));
-  if (blocking) return { defer: false, why: `${blocking} is not a plain non-protected branch (main, master, trunk, release/*, the repository's default branch and tags are never deferred)` };
-  return { defer: true, why: `only non-protected branches are pushed (${refs.join(", ")}) and this is not CI` };
-}
+// ---- pre-push input and lock scope ------------------------------------------------------------------------
 
 /**
  * git's pre-push stdin: one "<local ref> <local sha> <remote ref> <remote sha>" per line, the four fields joined by single ASCII spaces.
@@ -473,151 +433,6 @@ export function parsePushLines(stdin) {
     lines.push({ localRef: f[0], localSha: f[1], remoteRef: f[2], remoteSha: f[3] });
   });
   return { lines, malformed };
-}
-
-const rightgitDefaultBranch = (raw) => { try { const d = JSON.parse(String(raw).replace(/^\uFEFF/, "")).defaultBranch; return typeof d === "string" && d ? d : null; } catch { return null; } };
-
-/**
- * The names this repository calls its default branch, read from every side a push can be judged by, so a commit that edits
- * `.rightgit.json` cannot unprotect the branch it pushes: the manifest in the checkout, the manifest at origin/HEAD and at each of
- * `revisions` (the base ref and the remote commits being replaced), and the branch origin/HEAD names. `git(...args)` answers like
- * spawnSync; a revision git cannot show contributes nothing. Residual, not closable offline: with no origin/HEAD, no manifest at the base
- * and a replaced remote commit that is not in the local object store (a force-push whose tip was never fetched), the only manifest left
- * is the checkout's, which the pushed commit supplies. The union only ever adds names, so a local branch or tag called `origin/HEAD`
- * cannot remove one: the unambiguous `refs/remotes/origin/HEAD` symbolic-ref read still names the real branch.
- */
-export function defaultBranchNames({ git, readCheckout, revisions = [] }) {
-  const names = new Set();
-  const add = (n) => { if (n) names.add(n); };
-  try { add(rightgitDefaultBranch(readCheckout())); } catch { /* no right-git manifest in the checkout */ }
-  // A revision that starts with "-" would be read by git as an option, not a revision.
-  for (const rev of new Set(["origin/HEAD", ...revisions.filter((r) => typeof r === "string" && r && !r.startsWith("-"))])) {
-    const shown = git("show", `${rev}:.rightgit.json`);
-    if (!failed(shown)) add(rightgitDefaultBranch(text(shown)));
-  }
-  const head = git("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD");
-  if (!failed(head)) add(/^refs\/remotes\/origin\/(.+)$/.exec(text(head).trim())?.[1]);
-  return [...names];
-}
-
-// The path dependencies a manifest declares: `path = "..."` in a [dependencies], [dev-dependencies], [build-dependencies],
-// [target.*.dependencies] or [workspace.dependencies] table, inline (`foo = { path = "../foo" }`) or under `[dependencies.foo]`.
-function pathDependencies(tables) {
-  const out = [];
-  for (const [name, body] of tables) {
-    if (!/(?:^|\.)(?:dev-|build-)?dependencies(?:\.|$)/.test(name)) continue;
-    for (const m of body.matchAll(/(?:^|[\s{,.])path[ \t]*=[ \t]*(?:"((?:[^"\\\n]|\\.)*)"|'([^'\n]*)')/gm)) out.push(m[1] ?? m[2]);
-  }
-  return out;
-}
-
-/**
- * A cargo-free stand-in for `cargo metadata --no-deps` in one workspace directory, read from the tracked manifests: the same
- * { cargoDir, members } as workspaceMetadata. A workspace root lists its `[package]` and every tracked manifest below it that its
- * `members` globs name and its `exclude` does not, then (as cargo does) every tracked package below the root that a member, or the root's
- * [workspace.dependencies], reaches by a path dependency and `exclude` does not name. A manifest with no `[workspace]` is a standalone
- * package unless an ancestor workspace owns that directory (cargo refuses it there, so this throws and discoverRustWorkspaces skips it).
- * Strings may be "basic" or 'literal', arrays may carry comments, and `package.name = ...` / `workspace.members = [...]` dotted keys read like
- * their tables. It is a reader, not a TOML parser: a manifest a glob or a path dependency reaches but whose package name it cannot read is
- * returned in `unplaced` (beside { cargoDir, members }; empty for a standalone package, which has nothing to place), any other it cannot place
- * is reported by unmatchedManifests, and the host receipt runs the real metadata.
- */
-export function manifestWorkspaceMetadata({ root, dir, tracked, readFile }) {
-  const manifestOf = (d) => (d === "." ? "Cargo.toml" : `${d}/Cargo.toml`);
-  const cache = new Map();
-  const read = (m) => { if (!cache.has(m)) cache.set(m, manifestTables(readFile(path.join(root, m)))); return cache.get(m); };
-  const hasPackage = (m) => hasTomlTable(read(m), "package");
-  const memberOf = (m) => {
-    const tables = read(m);
-    const name = tomlString(tomlValue(tables, "package", "name"));
-    if (!name) return null;
-    const publish = tomlValue(tables, "package", "publish");
-    return { name, dir: dirOfManifest(m), manifest: m, publish: !(publish !== null && /^(?:false\b|\[\s*\])/.test(publish)) };
-  };
-  const all = tracked("Cargo.toml");
-  const tables = read(manifestOf(dir));
-  const byName = (a, b) => (a.name < b.name ? -1 : 1);
-  if (!hasTomlTable(tables, "workspace")) {
-    for (let up = dir; up !== "."; ) {
-      up = path.posix.dirname(up);
-      if (all.includes(manifestOf(up)) && hasTomlTable(read(manifestOf(up)), "workspace")) throw new Error(`current package believes it's in a workspace when it's not (the workspace root is ${up === "." ? "the repository root" : up})`);
-    }
-    const self = memberOf(manifestOf(dir));
-    if (!self) throw new Error(`${manifestOf(dir)} has neither a [package] with a name nor a [workspace]`);
-    return { cargoDir: dir, members: [self], unplaced: [] };
-  }
-  const patterns = tomlStrings(tomlValue(tables, "workspace", "members")).map((g) => globToRegExp(g));
-  const excluded = workspaceExcludes(readFile, root, dir);
-  const isExcluded = (d) => excluded.some((x) => d === x || d.startsWith(`${x}/`));
-  const rel = (d) => (d === dir ? "." : dir === "." ? d : d.startsWith(`${dir}/`) ? d.slice(dir.length + 1) : null);
-  const found = new Map(); const unplaced = new Set();
-  const add = (m) => {
-    if (found.has(m)) return false;
-    const member = memberOf(m);
-    if (member) found.set(m, member); else unplaced.add(m);
-    return Boolean(member);
-  };
-  for (const m of all) {
-    const d = dirOfManifest(m);
-    const r = rel(d);
-    if (r === null || r === "." || isExcluded(d) || !patterns.some((re) => re.test(r))) continue;
-    add(m);
-  }
-  if (hasPackage(manifestOf(dir))) add(manifestOf(dir));
-  // Path dependencies below the workspace root become members on their own, transitively.
-  const queue = [manifestOf(dir), ...found.keys()];
-  for (let m = queue.pop(); m !== undefined; m = queue.pop()) {
-    for (const p of pathDependencies(read(m))) {
-      const target = path.posix.normalize(path.posix.join(dirOfManifest(m), p)).replace(/\/$/, "");
-      const tm = manifestOf(target);
-      if (rel(target) === null || rel(target) === "." || isExcluded(target) || !all.includes(tm) || found.has(tm) || !hasPackage(tm)) continue;
-      if (add(tm)) queue.push(tm);
-    }
-  }
-  return { cargoDir: dir, members: [...found.values()].sort(byName), unplaced: [...unplaced].sort() };
-}
-
-/**
- * The tracked Cargo.toml with a package that no unit covers and discoverRustWorkspaces did not skip: what the manifest reader could
- * not place (an unreadable name, a shape it does not know). A manifest it cannot read at all is listed too. Sorted.
- */
-export function unmatchedManifests({ root, manifests, rust, readFile }) {
-  const covered = new Set([...rust.units.map((u) => (u.dir === "." ? "Cargo.toml" : `${u.dir}/Cargo.toml`)), ...rust.skipped.map((k) => k.manifest)]);
-  return manifests.filter((m) => {
-    if (covered.has(m)) return false;
-    try { return hasTomlTable(manifestTables(readFile(path.join(root, m))), "package"); } catch { return true; }
-  }).sort();
-}
-
-/** `plan` without the scans in `dropped` (by id), its digests recomputed over what is left, and `note` appended. */
-export function withoutScans(plan, dropped, note) {
-  const gone = new Set(dropped.map((s) => s.id));
-  const scans = plan.scans.filter((s) => !gone.has(s.id));
-  return {
-    ...plan, scans, deferred: plan.deferred.filter((id) => !gone.has(id)),
-    scanSetDigest: digestScanSet(scans),
-    classDigests: { A: digestScanSet(scans.filter((s) => s.class === "A")), B: digestScanSet(scans.filter((s) => s.class === "B")) },
-    notes: note ? [...plan.notes, note] : plan.notes,
-  };
-}
-
-/**
- * The lines the gate prints when it defers: the Rust units and scans that did not run, the pushed refs, and who gates the merge.
- * `manifests` is the number of tracked Cargo.toml: when it is above zero and no unit was found, the block says the reader found none
- * and that the scans cannot be named, instead of claiming no Rust scan was due. `unmatched` lists the tracked manifests with a package
- * that no unit covers (unmatchedManifests); they get a line of their own. `npmCalls` are the npm test scans deferred with the Rust
- * gate because their package script runs `rustright` or `cargo` ([{ id, tool, via, command }]); `notRun` names them too, and a line of their
- * own gives each one's reason.
- */
-export function deferredBlock({ units, notRun, refs, manifests = 0, unmatched = [], tag = "rightkit-gate:", npmCalls = [] }) {
-  const noUnits = units.length === 0 && manifests > 0;
-  const lines = [
-    `${tag} rust gate DEFERRED to host qualification (no RustRight broker on this host): rust units ${units.length ? units.join(", ") : noUnits ? `none found among the ${manifests} tracked Cargo.toml (read without cargo)` : "none found"}; scans not run ${notRun.length ? notRun.join(", ") : noUnits ? "unknown (no unit was found, so no Rust scan could be planned)" : "none (no Rust scan was due for this diff)"}; the pull request needs a HOST RECEIPT before merge`,
-    `${tag}   pushed ${refs.join(", ")} (non-protected, not CI). The HOST RECEIPT (a host with the RustRight broker ran the full gate) stays the merge gate; ${DEFER_OPT_OUT_ENV}=1 keeps the refusal on this host.`,
-  ];
-  if (unmatched.length) lines.push(`${tag}   tracked Cargo.toml with a package that matched no unit (the manifest reader runs no cargo; the HOST RECEIPT does): ${unmatched.join(", ")}`);
-  if (npmCalls.length) lines.push(`${tag}   npm test scan(s) deferred with the Rust gate, never run and never passed, because the package script runs ${[...new Set(npmCalls.map((c) => c.tool))].join(" or ")} and this host has no broker: ${npmCalls.map((c) => `${c.id} (script ${c.via.join(" -> ")}: ${c.command})`).join("; ")}`);
-  return lines;
 }
 
 /**
@@ -719,7 +534,6 @@ exit 0
 // names are chained; anything else is reported and skipped, never interpolated.
 const HOOK_FILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const chainableHook = (name) => !name.endsWith(".sample") && HOOK_FILE_NAME.test(name);
-
 // ---- result cache inputs ------------------------------------------------------------------------------------
 
 // The build inputs that change how every crate compiles, relative to the Cargo workspace root, plus the gate's own config.
@@ -1094,25 +908,7 @@ export function quietLeaseLane(o, { tag = "rightkit-gate:", reason = "rightkit-g
   };
 }
 
-// ---- command resolution -------------------------------------------------------------------------------------
 
-// The rustfmt this host can run: the one findRustfmt names, when it answers `--version` (a rustup proxy with no toolchain does not).
-function usableRustfmt(o) {
-  const found = findRustfmt({ env: o.env, exists: o.exists, readdir: o.readdir, platform: o.platform, spawn: o.spawn });
-  return found && !failed(o.spawn(found, ["--version"], { cwd: o.cwd })) ? found : null;
-}
-
-// Cargo only through the broker: `rustright cargo`, or a `cargo` on PATH that is the managed shim (it runs cargo-guard.mjs).
-function resolveCargoCommand(o) {
-  const which = (cmd) => {
-    const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]);
-    return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  };
-  if (which("rustright").length) return ["rustright", "cargo"];
-  const first = which("cargo")[0];
-  if (first) { try { if (o.readFile(first).includes("cargo-guard.mjs")) return ["cargo"]; } catch { /* unreadable: not the shim */ } }
-  return null;
-}
 
 // ---- install-hook -------------------------------------------------------------------------------------------
 
@@ -1270,8 +1066,6 @@ export async function main(argv, io = {}) {
   // (git hands the local field over verbatim, so a rev expression such as `HEAD@{1 minute ago}` or `HEAD^{/one thing}` holds spaces)
   // refuses the push on every host and in every repository, never a line that disappears: its pushed commit could not be compared with
   // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.
-  const pushedRefs = []; const pushedRemoteShas = [];
-  const askedBase = base;
   if (!planOnly && !classAOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
@@ -1280,8 +1074,6 @@ export async function main(argv, io = {}) {
       return 1;
     }
     for (const { localSha, remoteRef, remoteSha } of parsed.lines) {
-      pushedRefs.push(remoteRef);
-      if (!ZERO.test(remoteSha)) pushedRemoteShas.push(remoteSha);
       if (ZERO.test(localSha)) continue; // a delete pushes no content
       if (localSha !== head) {
         o.err(`${tag} BLOCKED: pushing ${localSha.slice(0, 10)} to ${remoteRef}, but HEAD is ${head.slice(0, 10)}; broker scans read the checkout, so check the pushed commit out first (git checkout --detach ${localSha.slice(0, 10)}), push HEAD:<branch>, then return`);
@@ -1291,72 +1083,16 @@ export async function main(argv, io = {}) {
     }
   }
 
-  const tracked = (name) => {
-    const r = git("ls-files", "-z", "--", `:(glob)**/${name}`);
-    if (failed(r)) throw new Error(`git ls-files failed: ${why(r)}`);
-    return text(r).split("\0").filter(Boolean).map(posix);
-  };
-  const readLive = (f) => o.readFile(f);
-
-  // Units come from the live checkout (cargo reads it); a dirty checkout then blocks below.
-  let rust; let npm; let npmRoots = []; let cargoCommand = ["rustright", "cargo"]; let deferral = null; let manifests = []; const unplaced = [];
-  try {
-    manifests = tracked("Cargo.toml");
-    if (manifests.length) {
-      cargoCommand = resolveCargoCommand(o);
-      // Class A never compiles: with no broker or shim it reads metadata and runs deny/audit with plain cargo, on any host.
-      if (!cargoCommand && classAOnly) cargoCommand = ["cargo"];
-      if (!cargoCommand) {
-        // No broker and no shim. A pre-push of non-protected branches outside CI defers the Rust gate to host qualification; anything
-        // else refuses exactly as before. The cargo command is then only the text of the argv the deferred scans would have had.
-        // The default branch is named by the checkout, the base, the remote commits being replaced and origin/HEAD, never by the pushed commit alone.
-        const configured = defaultBranchNames({ git, readCheckout: () => o.readFile(path.join(root, ".rightgit.json")), revisions: [askedBase, ...pushedRemoteShas] });
-        const decision = rustDeferral({ refs: pushedRefs, env: o.env, protectedBranches: configured });
-        if (!decision.defer) {
-          o.err(`${tag} BLOCKED: neither \`rustright\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`);
-          o.err(`${tag}   not deferred to host qualification: ${decision.why}`);
-          return 1;
-        }
-        deferral = decision;
-        cargoCommand = ["rustright", "cargo"];
-      } else if (!classAOnly && !o.exists(path.join(root, GRANT_FILE))) { o.err(`${tag} BLOCKED: no local compile grant (${GRANT_FILE}); the broker refuses cargo, so the Rust units cannot be discovered or scanned`); return 1; }
-    }
-    // Untracked (not ignored) manifests only: git does not descend into ignored directories, so this stays cheap. A member of a
-    // workspace that is untracked or ignored is dropped by discoverRustWorkspaces itself.
-    const untracked = () => {
-      const r = git("ls-files", "-z", "--others", "--exclude-standard", "--", ":(glob)**/Cargo.toml");
-      return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
-    };
-    // ci/gate.config.json `fixtures` (optional): directories whose manifests are consumer or sample crates, gated through the
-    // consumer rows of the crates they exercise (CI treats them the same: scripts/ci/gate.mjs consumerRowInvocations), never as units.
-    let fixtures = [];
-    try { const f = JSON.parse(o.readFile(path.join(root, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
-    rust = discoverRustWorkspaces({
-      root, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readLive,
-      ...(deferral ? { metadata: (dir) => { const read = manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }); unplaced.push(...(read.unplaced ?? [])); return read; } } : {}),
-    });
-    npm = discoverNpmUnits({ root, tracked, readFile: readLive, exists: o.exists });
-    npmRoots = discoverPnpmRoots({ root, tracked, exists: o.exists });
-  } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
-  for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
-
-  // Broker scans (cargo, pnpm) read the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
-  // otherwise hide a committed failure. Any change or untracked file under those paths blocks the gate. Class A reads only the export.
-  if (!planOnly && !classAOnly) {
-    // The install graph and linter configuration of a pnpm root: the repository root's, and those of every other root (its units' directories
-    // hold only the units, and a workspace member's lock sits above it).
-    const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
-    const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
-      "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
-    const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
-    const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`]
-      : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules") && !l.includes(GRANT_FILE));
-    if (dirtyFiles.length) {
-      o.err(`${tag} BLOCKED: the checkout differs from HEAD where broker scans read it; commit or stash first:`);
-      for (const l of dirtyFiles.slice(0, 20)) o.err(`  ${l}`);
-      return 1;
-    }
-  }
+  // ---- one door: the executor, then the exact snapshot every scan plans from and reads -----------------------------------
+  // The executor is chosen here, never by the caller (Adrian, 2026-10-25): the RustRight broker where this machine has it, a refusal
+  // on a broker-managed machine whose broker cannot be reached, direct cargo on any other host (a cloud container, a CI runner).
+  const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
+  const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
+  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
+  const cargoCommand = executor.cargo;
+  // The snapshot: the commit or tree being checked (check --commit), HEAD for the gate, or the working tree (check --worktree, --plan).
+  const allFilesMode = classAOnly || args.includes("--all");
+  const snapshot = planOnly ? null : classAOnly ? classACommit : "HEAD";
 
   const ac = o.abort ?? new AbortController();
   let exportRoot = null;
@@ -1364,19 +1100,59 @@ export async function main(argv, io = {}) {
   const signals = [];
   try {
     let repo = root;
-    if (!planOnly && !(classAOnly && !classACommit)) {
+    if (snapshot) {
       exportRoot = fs.mkdtempSync(path.join(o.env.RK_GATE_TMPDIR || os.tmpdir(), "rk-gate-"));
       repo = path.join(exportRoot, "repo");
-      const made = o.spawn("git", ["archive", "--format=tar", "--prefix=repo/", "-o", path.join(exportRoot, "head.tar"), classACommit ?? "HEAD"], { cwd: root });
+      const made = o.spawn("git", ["archive", "--format=tar", "--prefix=repo/", "-o", path.join(exportRoot, "head.tar"), snapshot], { cwd: root });
       const x = failed(made) ? made : o.spawn("tar", ["-xf", "head.tar"], { cwd: exportRoot });
-      if (failed(made) || failed(x)) { o.err(`${tag} cannot export HEAD: ${why(made) || why(x)}`); return 2; }
+      if (failed(made) || failed(x)) { o.err(`${tag} cannot export ${snapshot}: ${why(made) || why(x)}`); return 2; }
     }
-    const diff = classAOnly
-      ? (classACommit ? git("ls-tree", "-r", "--name-only", classACommit) : git("ls-files", "--cached", "--others", "--exclude-standard"))
-      : git("diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`);
-    if (failed(diff)) { o.err(classAOnly ? `${tag} cannot list the files of ${classACommit ?? "the working tree"}: ${why(diff)}` : `${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref>`); return 2; }
-    const changed = [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
-    if (classAOnly) base = classACommit ?? "the working tree";
+    // Every file of the snapshot, once: units, manifests, lockfiles and the changed set are all read from what is scanned, never from
+    // the live checkout (a live edit cannot change what gets planned).
+    const listed = snapshot ? git("ls-tree", "-r", "--name-only", "-z", snapshot) : git("ls-files", "-z", "--cached", ...(classAOnly ? ["--others", "--exclude-standard"] : []));
+    if (failed(listed)) { o.err(`${tag} cannot list the files of ${snapshot ?? "the working tree"}: ${why(listed)}`); return 2; }
+    const files = text(listed).split("\0").filter(Boolean).map(posix);
+    const tracked = (name) => files.filter((f) => f === name || f.endsWith(`/${name}`));
+    const readSnap = (f) => o.readFile(f);
+
+    let rust; let npm; let npmRoots = []; let manifests = [];
+    try {
+      manifests = tracked("Cargo.toml");
+      // ci/gate.config.json `fixtures` (optional): directories whose manifests are consumer or sample crates, gated through the
+      // consumer rows of the crates they exercise (CI treats them the same), never as units.
+      let fixtures = [];
+      try { const f = JSON.parse(o.readFile(path.join(repo, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
+      // A snapshot has nothing untracked; the working tree (--plan, check --worktree) names its untracked manifests as skipped.
+      const untracked = () => {
+        if (snapshot) return [];
+        const r = git("ls-files", "-z", "--others", "--exclude-standard", "--", ":(glob)**/Cargo.toml");
+        return failed(r) ? [] : text(r).split("\0").filter(Boolean).map(posix);
+      };
+      rust = discoverRustWorkspaces({ root: repo, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readSnap });
+      npm = discoverNpmUnits({ root: repo, tracked, readFile: readSnap, exists: o.exists });
+      npmRoots = discoverPnpmRoots({ root: repo, tracked, exists: o.exists });
+    } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
+    for (const k of rust.skipped) o.out(`${tag} note: ${k.manifest} is skipped, not scanned: ${k.why}`);
+
+    // Class B scans (compile, lint, tests) run in the live checkout, so it must equal HEAD where they read it: an uncommitted fix could
+    // otherwise hide a committed failure. Class A reads only the snapshot.
+    if (!planOnly && !classAOnly) {
+      const npmRootFiles = ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ...ESLINT_CONFIG_FILES, ...BIOME_CONFIG_FILES];
+      const inputs = [...new Set([...rust.units.map((u) => u.dir), ...npm.map((u) => u.dir), ...rust.workspaces.map((w) => w.cargoDir), "ci", "scripts", "vendor", "Cargo.toml", "Cargo.lock", ".cargo", "rust-toolchain.toml", "rust-toolchain",
+        "deny.toml", "clippy.toml", "rustfmt.toml", ...npmRootFiles, ...npmRoots.filter((r) => r !== ".").flatMap((r) => npmRootFiles.map((f) => `${r}/${f}`))])];
+      const dirty = git("status", "--porcelain", "--untracked-files=all", "--", ...inputs);
+      const dirtyFiles = failed(dirty) ? [`git status failed: ${why(dirty)}`] : text(dirty).split(/\r?\n/).filter(Boolean).filter((l) => !l.includes("node_modules"));
+      if (dirtyFiles.length) {
+        o.err(`${tag} BLOCKED: the checkout differs from HEAD where compile scans read it; commit or stash first:`);
+        for (const l of dirtyFiles.slice(0, 20)) o.err(`  ${l}`);
+        return 1;
+      }
+    }
+
+    const diff = allFilesMode ? null : git("diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`);
+    if (diff && failed(diff)) { o.err(`${tag} cannot diff against ${base}: ${why(diff)}; pass --base <ref> or --all`); return 2; }
+    const changed = allFilesMode ? files : [...new Set(text(diff).split(/\r?\n/).map((f) => f.trim()).filter(Boolean))].filter((f) => o.exists(path.join(repo, f)));
+    if (allFilesMode) base = snapshot ?? "the working tree";
 
     let crateFeatures = {}; let packageFeatures = {};
     try { const gateConfig = JSON.parse(o.readFile(path.join(repo, "ci/gate.config.json"))); crateFeatures = gateConfig.rust ?? {}; packageFeatures = gateConfig.npm ?? {}; } catch { /* no config: default feature sets */ }
@@ -1405,27 +1181,11 @@ export async function main(argv, io = {}) {
       // RK_GATE_QUIET_TESTS=local asks for the serial quiet lane here (no CI, or a CI outage).
       quietTests: o.env.RK_GATE_QUIET_TESTS === "local" ? "local" : "ci", packageFeatures,
       rustUnits: rust.units, npmUnits: npm, npmRoots, cargoDir: ".", rustLocks, crateFeatures,
-      // Class A (metadata, deny, audit) compiles nothing, so it never waits for a local compile grant.
-      localCompile: deferral || classAOnly ? true : o.exists(path.join(root, GRANT_FILE)),
+      // The broker (or, on a direct host, the gate itself) admits compiles; no separate grant file decides it here.
+      localCompile: true,
       exists: o.exists, readFile: o.readFile, platform: o.platform,
     });
     let plan = args.includes("--pre-push") ? prePushPlan(fullPlan) : fullPlan;
-    // Deferred Rust gate: every scan that goes through the broker is taken out of the plan and named; rustfmt too when this host has
-    // none (it is a Rust-toolchain scan, not a content scan, on such a host). Every other scan stays exactly as planned.
-    let notRun = []; let deferNote = null; let npmCalls = [];
-    if (deferral) {
-      const rustfmt = (o.findRustfmt ?? usableRustfmt)(o);
-      const dropped = plan.scans.filter((s) => s.tool === "rustright" || (s.tool === "rustfmt" && !rustfmt));
-      // An npm test scan whose script runs `rustright` or `cargo` through its package script chain (planScans marks it `brokerCall`: ViewRight's
-      // test:e2e is `rustright storage run ... -- right-release test`) cannot run on this host either. It goes the way of the Rust scans, named
-      // with its reason and never passed. On a host with the broker, in CI, on a protected ref or with the opt-out there is no deferral and it runs.
-      const npmDropped = plan.scans.filter((s) => s.brokerCall && s.tool === "pnpm" && !dropped.includes(s));
-      npmCalls = npmDropped.map((s) => ({ id: s.id, ...s.brokerCall }));
-      notRun = [...dropped, ...npmDropped].map((s) => s.id);
-      plan = withoutScans(plan, [...dropped, ...npmDropped]);
-      deferNote = `no RustRight broker on this host: ${dropped.length} Rust scan(s) are deferred to host qualification, not run and not passed${rustfmt ? "" : " (rustfmt is not usable on this host either)"}`
-        + (npmDropped.length ? `; ${npmDropped.length} npm test scan(s) whose script runs the broker or cargo are deferred with them, not run and not passed: ${npmDropped.map((s) => s.id).join(", ")}` : "");
-    }
     const jobs = Math.max(1, Number(o.env.RK_GATE_JOBS ?? 4) || 4);
     const testJobs = Math.max(1, Number(o.env.RK_GATE_TEST_JOBS ?? jobs) || jobs);
 
@@ -1440,7 +1200,7 @@ export async function main(argv, io = {}) {
     }
 
     for (const n of plan.notes) o.out(`${tag} note: ${n}`);
-    if (deferNote) o.out(`${tag} note: ${deferNote}`);
+    o.out(`${tag} executor: ${executor.kind}${executor.kind === "broker" ? ` (${cargoCommand.join(" ")})` : " (no broker on this host: cargo runs directly, through the same gates)"}`);
     const quietCount = plan.scans.filter((s) => s.quiet === true).length;
     o.out(`${tag} ${plan.scans.length} scan(s) for ${changed.length} changed file(s) vs ${base.slice(0, 12)}; compile scans ${jobs} at a time, tests ${testJobs} at a time${quietCount ? `, ${quietCount} quiet test scan(s) last under the broker's quiet lease` : ""}`);
     let signalCode = 0;
@@ -1506,12 +1266,6 @@ export async function main(argv, io = {}) {
     }
     if (classAOnly) {
       o.out(`${tag} class A pass: ${scanResult.scans.length} deterministic scan(s) over ${changed.length} file(s) of ${base}`);
-      return 0;
-    }
-    if (deferral) {
-      o.out(`${tag} the scans that could run here passed (${changed.length} changed file(s) vs ${base}${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""})`);
-      const unmatched = [...new Set([...unplaced, ...unmatchedManifests({ root, manifests, rust, readFile: readLive })])].sort();
-      for (const line of deferredBlock({ units: rust.units.map((u) => u.name), notRun, refs: pushedRefs, manifests: manifests.length, unmatched, npmCalls, tag })) o.err(line);
       return 0;
     }
     o.out(`${tag} pass (${changed.length} changed file(s) vs ${base}); ${deferrals.length} scan(s) deferred, not passed${scanResult.cacheHits.length ? `; ${scanResult.cacheHits.length} reused from the result cache` : ""}`);
