@@ -16,6 +16,7 @@
   },
   "npm": {
     "@rightkit/release": "sibling product checkouts (coderight, heardright, scraperight, ...) beside rightkit",
-    "@rightkit/legal": "packages/legal/test/tooling.test.mjs 'npm generator invokes production pnpm scanner in app root & preserves output on failure' is skipped on win32 by design (POSIX shebang scanner fixture); every other legal test runs on both hosts"
+    "@rightkit/legal": "packages/legal/test/tooling.test.mjs 'npm generator invokes production pnpm scanner in app root & preserves output on failure' is skipped on win32 by design (POSIX shebang scanner fixture); every other legal test runs on both hosts",
+    "@rightkit/ci": "actionlint is not provisioned on the verify runners (publish.yml installs it in scans only), so the five tests that render workflows and lint them skip (pnpm-lock-patch.test.mjs, render.test.mjs x3, swift-check.test.mjs); four tests are win32-skipped by design (POSIX shell behaviour: cli.test.mjs x3, pnpm-lock-patch.test.mjs x1). Every other ci test runs on both hosts. Follow-up: provision actionlint in verify so the five execute (rightkit issue 'publish verify: provision actionlint')."
   }
 }
