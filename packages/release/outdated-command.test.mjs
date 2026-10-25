@@ -52,7 +52,8 @@ test("UPDATE_COMMAND is what the stale-pin refusal tells an app to run", () => {
 });
 
 test("npm-flat layout: the updater installed beside @rightkit/release is found and run with the caller's arguments and cwd", (t) => {
-  const app = tempDir(t);
+  // The lookup answers real paths; macOS puts the temporary directory behind the /var -> /private/var symlink.
+  const app = realpathSync(tempDir(t));
   installRelease(path.join(app, "node_modules", "@rightkit", "release"));
   installOutdated(path.join(app, "node_modules", "@rightkit", "outdated"));
   const releaseDir = path.join(app, "node_modules", "@rightkit", "release");
