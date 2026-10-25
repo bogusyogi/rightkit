@@ -8,7 +8,7 @@ import path from "node:path";
 import {
   CLASS_A_SCAN_PREFIXES, CLASS_B_SCAN_PREFIXES, canonicalJson, fileScanCache, inheritedEnvDigest, requiredScanIds, scanCacheKey, checkArgs, clippyArgs, digestScanSet, docArgs, fmtCheckArgs,
   defaultSpawn, deterministicScansEnabled, metadataArgs, planScans, resolveInvocation, runScans, scanClassOf, scanDeferrals, scanFailures,
-} from "./deterministic-scans.mjs";
+ CHECKER_VERSION } from "./deterministic-scans.mjs";
 import { requiredScanProblems } from "./scan-digest.mjs";
 import * as scansModule from "./deterministic-scans.mjs";
 
@@ -463,6 +463,10 @@ test("runner: class B alone is refused without valid class A evidence, and runs 
   assert.equal(await refused({ ...a, classDigests: { ...a.classDigests, A: "0".repeat(64) } }), true);
   assert.equal(await refused({ ...a, scans: a.scans.slice(1) }), true);
   assert.equal(await refused({ ...a, schema: "other/1" }), true);
+  // Evidence produced by another checker version never unlocks class B (the checker is part of what the evidence proves).
+  assert.equal(a.checker, CHECKER_VERSION);
+  assert.equal(await refused({ ...a, checker: "@rightkit/release@0.0.0" }), true);
+  assert.equal(await refused({ ...a, checker: undefined }), true);
   const other = planFor(["crates/foo/Cargo.toml"]).plan;
   assert.notEqual(other.classDigests.A, plan.classDigests.A);
   assert.equal((await runScans(other, deps({ ...fakeFs(crateFiles, crateFiles), classes: ["B"], priorClassA: a }))).scans.every((s) => s.code === "CLASS_A_REQUIRED"), true);

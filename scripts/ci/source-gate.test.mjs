@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkPackage, runtimeTargets } from "./exports-import-effects.mjs";
+import { checkPackage, main, runtimeTargets } from "./exports-import-effects.mjs";
 import { RULES } from "../preflight.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -20,11 +20,37 @@ test("G27 feed-legacy: a published version dropped from legacy while its success
   const root = tmp(t);
   const feed = (legacy) => JSON.stringify({ registry: { npm: { "@rightkit/qa-chrome": "0.1.11" }, cargo: {} }, stagedNpm: { "@rightkit/qa-chrome": "0.1.12" }, legacyNpm: { "@rightkit/qa-chrome": legacy } });
   write(root, "packages/release/rightkit-versions.json", feed(["0.1.10"]));
-  const bad = rule.run({ root });
+  const rk = ["scripts/preflight.mjs"];
+  const bad = rule.run({ root, files: rk });
   assert.equal(bad.length, 1);
   assert.match(bad[0].problem, /@rightkit\/qa-chrome 0\.1\.11 is published .* 0\.1\.12 is staged .* does not list 0\.1\.11/);
   write(root, "packages/release/rightkit-versions.json", feed(["0.1.10", "0.1.11"]));
-  assert.deepEqual(rule.run({ root }), []);
+  assert.deepEqual(rule.run({ root, files: rk }), []);
+  // A feed that cannot be read is a failure, never a clean pass (simulation A4.05); an app without a feed is not checked.
+  write(root, "packages/release/rightkit-versions.json", "{not json");
+  assert.match(rule.run({ root, files: rk })[0]?.problem ?? "", /missing or not valid JSON/);
+  assert.deepEqual(rule.run({ root, files: ["package.json"] }), []);
+});
+
+test("exports-import-effects: wildcard exports are expanded and probed; a missing non-dist target is a finding; dist output is printed as not checked (simulation A5.06/A5.07)", (t) => {
+  const dir = tmp(t);
+  write(dir, "src/quiet.mjs", "export const q = 1;\n");
+  write(dir, "src/loud.mjs", "console.log('ran at import');\n");
+  write(dir, "package.json", JSON.stringify({ name: "@rk/wild", type: "module", exports: { "./*": "./src/*.mjs", "./gone": "./lib/gone.mjs", ".": "./dist/index.js" } }));
+  const r = checkPackage(dir);
+  assert.deepEqual(r.findings.map((f) => f.key).sort(), ["./gone", "./loud"], JSON.stringify(r.findings));
+  assert.match(r.findings.find((f) => f.key === "./loud").problem, /ran at import/);
+  assert.match(r.findings.find((f) => f.key === "./gone").problem, /does not exist in the source tree and is not build output/);
+  assert.equal(r.checked, 2, "both wildcard matches were imported");
+  assert.deepEqual(r.notChecked.map((n) => n.key), ["."]);
+  write(dir, "package.json", JSON.stringify({ name: "@rk/wild", type: "module", exports: { "./none/*": "./nowhere/*.mjs" } }));
+  assert.match(checkPackage(dir).findings[0]?.problem ?? "", /matches no file/);
+  // main() prints every not-checked export and exits 0 when that is all there is.
+  write(dir, "package.json", JSON.stringify({ name: "@rk/wild", type: "module", exports: { ".": "./dist/index.js" } }));
+  const io = { logs: [], errs: [] };
+  assert.equal(main([dir], { log: (m) => io.logs.push(m), error: (m) => io.errs.push(m) }), 0);
+  assert.ok(io.logs.some((l) => /not checked here: @rk\/wild \.: \.\/dist\/index\.js/.test(l)), io.logs.join("\n"));
+  assert.ok(io.logs.at(-1).includes("1 build-output export(s) left to the sealed-byte check"));
 });
 
 test("exports-import-effects: a module that reads its command line at import is refused; a guarded one, a bin and a skipImport program pass", (t) => {

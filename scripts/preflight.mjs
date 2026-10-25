@@ -453,10 +453,12 @@ function tmpdirRealpath({ root, files }) {
 // first runs minutes into a native verify (rightkit#1188 dropped @rightkit/qa-chrome 0.1.11; #1190). Same rule, files only.
 const semverParts = (v) => String(v).split(/[.+-]/).slice(0, 3).map((n) => Number.parseInt(n, 10) || 0);
 const olderThan = (a, b) => { const x = semverParts(a), y = semverParts(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
-function feedLegacy({ root }) {
+function feedLegacy({ root, files = [] }) {
   const out = [];
+  if (!files.includes(RIGHTKIT_TREE)) return out; // an app has no version feed
   const feed = readJson(root, "packages/release/rightkit-versions.json");
-  if (!feed) return out;
+  // A feed that cannot be read is not a clean feed: without it no rollout check can run (simulation A4.05 found the silent pass).
+  if (!feed || typeof feed !== "object") return [{ subject: "rightkit-versions.json", problem: "packages/release/rightkit-versions.json is missing or not valid JSON, so the published/staged/legacy rollout check cannot run", fix: "restore the feed (valid JSON with registry, stagedNpm/stagedCargo and legacyNpm/legacyCargo)" }];
   for (const [registry, stagedKey, legacyKey] of [["npm", "stagedNpm", "legacyNpm"], ["cargo", "stagedCargo", "legacyCargo"]]) {
     for (const [name, published] of Object.entries(feed.registry?.[registry] ?? {})) {
       const staged = feed[stagedKey]?.[name];

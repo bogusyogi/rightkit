@@ -4,8 +4,10 @@
 // the publish verify's import check (scripts/ci/consume.mjs) imports every export of the sealed tarball, and 0.6.6's verify
 // (run 40168412670) failed there after 27 minutes because cli/right-release.mjs and sign-windows.mjs ran at import (#1189).
 // Declared bin targets are skipped (consume.mjs only resolves them; their smoke run executes them), as are entries in
-// rightkit.publishCheck.skipImport, and a skipImport entry that imports quietly fails as stale. Exports that point at build
-// output that does not exist in the source tree (dist/) are listed as not checked here; the sealed-byte import check owns them.
+// rightkit.publishCheck.skipImport, and a skipImport entry that imports quietly fails as stale. A wildcard key (`./*`) is expanded
+// against the source tree and every match is probed. An export whose target is missing from the source tree is accepted as
+// "not checked here" only under ./dist/ (build output the sealed-byte import check of the verify job owns) and is always printed;
+// any other missing target, and a wildcard that matches nothing, is a finding: a silent skip was a false green (simulation A5.06/A5.07).
 //
 //   node scripts/ci/exports-import-effects.mjs [--root <repo>] [package-dir...]
 // Needs the workspace's dependencies installed (pnpm install). Exit 0 clean, 1 on any finding, 2 on a usage error.
@@ -25,8 +27,19 @@ export function runtimeTargets(exportsField) {
     else if (Array.isArray(node)) node.forEach((n) => walk(key, n, underTypes));
     else if (node && typeof node === "object") for (const [k, v] of Object.entries(node)) walk(key, v, underTypes || k === "types");
   };
-  for (const [key, target] of Object.entries(map ?? {})) if (!key.includes("*")) walk(key, target, false);
+  for (const [key, target] of Object.entries(map ?? {})) walk(key, target, false);
   return [...out.values()];
+}
+
+/** Expand one wildcard export (`./lib/*` → `./src/*.mjs`) against the package directory. Returns [{ key, target }] of real files. */
+export function expandWildcard(dir, key, target) {
+  const star = target.indexOf("*");
+  if (star < 0) return [{ key, target }];
+  const prefix = target.slice(0, star); const suffix = target.slice(star + 1);
+  const base = path.join(dir, prefix.slice(0, prefix.lastIndexOf("/") + 1)); const head = prefix.slice(prefix.lastIndexOf("/") + 1);
+  const list = (d, rel) => { let names = []; try { names = fs.readdirSync(d, { withFileTypes: true }); } catch { return []; } return names.flatMap((e) => (e.isDirectory() ? list(path.join(d, e.name), `${rel}${e.name}/`) : [`${rel}${e.name}`])); };
+  return list(base, "").filter((rel) => rel.startsWith(head) && rel.endsWith(suffix) && rel.length >= head.length + suffix.length).sort()
+    .map((rel) => { const inner = rel.slice(head.length, rel.length - suffix.length); return { key: key.replace("*", inner), target: `${prefix.slice(0, prefix.lastIndexOf("/") + 1)}${rel}` }; });
 }
 
 /** Check one package directory. Returns { name, checked, notChecked: [{ key, why }], findings: [{ key, problem, fix }] }. */
@@ -36,13 +49,26 @@ export function checkPackage(dir, { spawn = spawnSync, node = process.execPath }
   if (!pkg.exports) return result;
   const bins = new Set(Object.values(typeof pkg.bin === "string" ? { [pkg.name]: pkg.bin } : (pkg.bin ?? {})).map((b) => `./${String(b).replace(/^\.\//, "")}`));
   const skipImport = pkg.rightkit?.publishCheck?.skipImport ?? [];
-  const keys = new Set(runtimeTargets(pkg.exports).map((t) => t.key));
+  const declared = runtimeTargets(pkg.exports);
+  const targets = [];
+  for (const { key, target } of declared) {
+    if (!key.includes("*")) { targets.push({ key, target }); continue; }
+    const matches = expandWildcard(dir, key, target);
+    if (matches.length === 0 && !target.startsWith("./dist/")) result.findings.push({ key, problem: `${pkg.name}: wildcard export ${key} → ${target} matches no file in the source tree`, fix: "fix the pattern or drop the export; a wildcard that resolves nothing is a broken surface" });
+    if (matches.length === 0 && target.startsWith("./dist/")) result.notChecked.push({ key, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` });
+    targets.push(...matches);
+  }
+  const keys = new Set(targets.map((t) => t.key));
   for (const entry of skipImport) if (!keys.has(entry)) result.findings.push({ key: entry, problem: `${pkg.name}: rightkit.publishCheck.skipImport names ${entry}, which the exports map does not list`, fix: "drop the entry" });
   const env = { ...process.env, NODE_OPTIONS: "", NODE_ENV: "production" };
-  for (const { key, target } of runtimeTargets(pkg.exports)) {
+  for (const { key, target } of targets) {
     if (!/\.(?:[cm]?js)$/.test(target) || bins.has(target)) continue;
     const file = path.join(dir, target);
-    if (!fs.existsSync(file)) { result.notChecked.push({ key, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` }); continue; }
+    if (!fs.existsSync(file)) {
+      if (target.startsWith("./dist/")) { result.notChecked.push({ key, why: `${target} is build output (not in the source tree); the sealed-byte import check covers it` }); continue; }
+      result.findings.push({ key, problem: `${pkg.name}: export ${key} → ${target} does not exist in the source tree and is not build output under ./dist/`, fix: "fix the export target; a missing non-dist target is a broken surface, not something to skip" });
+      continue;
+    }
     const ran = spawn(node, ["--input-type=module", "-e", `await import(${JSON.stringify(pathToFileURL(file).href)}); process.stdout.write("RK_IMPORTED");`], { cwd: dir, encoding: "utf8", env, timeout: 30_000, input: "", windowsHide: true });
     result.checked++;
     const quiet = ran.status === 0 && ran.stdout === "RK_IMPORTED" && (ran.stderr ?? "") === "";
@@ -68,13 +94,14 @@ export function main(argv, io = { log: console.log, error: console.error }) {
     else if (argv[i].startsWith("-")) { io.error(`exports-import-effects: unknown option ${argv[i]}`); return 2; }
     else dirs.push(path.resolve(root, argv[i]));
   }
-  let findings = 0; let checked = 0;
+  let findings = 0; let checked = 0; let notChecked = 0;
   for (const dir of dirs.length ? dirs : packageDirs(root)) {
     const r = checkPackage(dir);
     checked += r.checked;
+    for (const n of r.notChecked) { notChecked++; io.log(`not checked here: ${r.name} ${n.key}: ${n.why}`); }
     for (const f of r.findings) { findings++; io.error(`FAIL exports-import-effects: ${f.problem}\n  fix: ${f.fix}`); }
   }
-  io.log(`exports-import-effects: ${checked} exported module(s) imported in fresh processes; ${findings} finding(s)`);
+  io.log(`exports-import-effects: ${checked} exported module(s) imported in fresh processes; ${notChecked} build-output export(s) left to the sealed-byte check; ${findings} finding(s)`);
   return findings ? 1 : 0;
 }
 

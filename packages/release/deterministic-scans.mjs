@@ -29,6 +29,8 @@ import { reach } from "./lock-graph.mjs";
 import { cargoManifestState } from "./cargo-manifest-text.mjs";
 
 export const SCAN_RESULT_SCHEMA = "rightkit.deterministic-scans/1";
+/** The checker that produced a scan result: this package's name@version. Prior class A evidence must carry the same value. */
+export const CHECKER_VERSION = (() => { try { const p = JSON.parse(fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")); return `${p.name}@${p.version}`; } catch { return "@rightkit/release@unknown"; } })();
 export const SCAN_CLASS = Object.freeze({ A: "A", B: "B" });
 
 /** Scan id prefixes (the text before the first ":") that belong to each class. */
@@ -1098,9 +1100,12 @@ export async function runScans(plan, options = {}) {
   const priorRows = Array.isArray(priorA?.scans) ? priorA.scans.filter((r) => r.class === SCAN_CLASS.A) : [];
   // Prior evidence binds to the input content (inputDigest of the changed files), the class A scan set, and a
   // class A run that actually included class A.
+  // ... and to the checker that produced it: evidence from another @rightkit/release version does not unlock class B.
+  const checker = options.checker ?? CHECKER_VERSION;
   const priorClassAValid = Boolean(priorA) && priorA.schema === SCAN_RESULT_SCHEMA && Boolean(plan.classDigests?.A) && Boolean(plan.inputDigest)
     && priorA.inputDigest === plan.inputDigest && Array.isArray(priorA.classes) && priorA.classes.includes(SCAN_CLASS.A)
-    && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass");
+    && priorA.classDigests?.A === plan.classDigests.A && digestScanSet(priorRows) === plan.classDigests.A && priorRows.every((r) => r.status === "pass")
+    && priorA.checker === checker;
   // Class A ran "in this call" only when it was selected, the plan has class A scans, and none was excluded:
   // excluding every class A scan (or a plan with none) never unlocks class B; explicit prior evidence is needed.
   const planA = plan.scans.filter((x) => x.class === SCAN_CLASS.A);
@@ -1221,7 +1226,7 @@ export async function runScans(plan, options = {}) {
 
   const cancelled = signal?.aborted === true;
   return {
-    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, ...(cancelled ? { cancelled: true } : {}),
+    schema: SCAN_RESULT_SCHEMA, ok: !cancelled && results.every((r) => r.status === "pass"), complete: !cancelled && results.every((r) => r.status === "pass"), classes, checker, ...(cancelled ? { cancelled: true } : {}),
     inputDigest: plan.inputDigest ?? null,
     deferred: results.filter((r) => r.status === "deferred").map((r) => r.id),
     scans: results, toolVersions, cacheHits: [...cacheHits].sort(), notes: plan.notes ?? [],
