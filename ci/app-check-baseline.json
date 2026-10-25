@@ -12,7 +12,6 @@
       "shell-csp|spikes/rk2-macos/fixture-app/tauri.conf.json|base:csp-missing",
       "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-close",
       "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-minimize",
-      "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-start-dragging",
       "shell-grants|desktop-app-template/src-tauri/capabilities/default.json|core:window:allow-toggle-maximize",
       "shell-window-hidden|desktop-app-template/src-tauri/tauri.conf.json|base:main",
       "switches-inventory|desktop-app-template/right-release.config.mjs|desktop-app-template"
