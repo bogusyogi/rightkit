@@ -389,8 +389,8 @@ export function isDeferrableRef(ref, extra = []) {
 /**
  * Whether the Rust gate defers to host qualification. `refs` are the remote refs of a git pre-push's stdin (deletions included); an
  * empty list is not a pre-push run. `unparsed` are the stdin lines parsePushLines could not read as four fields: a push whose refs
- * cannot all be read defers nothing. Every pushed ref is judged, whatever its position. Returns { defer, why }. The caller asks only
- * when no broker or shim resolved.
+ * cannot all be read defers nothing (main refuses such a push before it gets here, on every host; this is the second lock). Every
+ * pushed ref is judged, whatever its position. Returns { defer, why }. The caller asks only when no broker or shim resolved.
  */
 export function rustDeferral({ refs = [], env = {}, protectedBranches = [], unparsed = [] }) {
   if (envOn(env[DEFER_OPT_OUT_ENV])) return { defer: false, why: `${DEFER_OPT_OUT_ENV} is set` };
@@ -427,7 +427,10 @@ const rightgitDefaultBranch = (raw) => { try { const d = JSON.parse(String(raw).
  * The names this repository calls its default branch, read from every side a push can be judged by, so a commit that edits
  * `.rightgit.json` cannot unprotect the branch it pushes: the manifest in the checkout, the manifest at origin/HEAD and at each of
  * `revisions` (the base ref and the remote commits being replaced), and the branch origin/HEAD names. `git(...args)` answers like
- * spawnSync; a revision git cannot show contributes nothing.
+ * spawnSync; a revision git cannot show contributes nothing. Residual, not closable offline: with no origin/HEAD, no manifest at the base
+ * and a replaced remote commit that is not in the local object store (a force-push whose tip was never fetched), the only manifest left
+ * is the checkout's, which the pushed commit supplies. The union only ever adds names, so a local branch or tag called `origin/HEAD`
+ * cannot remove one: the unambiguous `refs/remotes/origin/HEAD` symbolic-ref read still names the real branch.
  */
 export function defaultBranchNames({ git, readCheckout, revisions = [] }) {
   const names = new Set();
@@ -462,8 +465,8 @@ function pathDependencies(tables) {
  * package unless an ancestor workspace owns that directory (cargo refuses it there, so this throws and discoverRustWorkspaces skips it).
  * Strings may be "basic" or 'literal', arrays may carry comments, and `package.name = ...` / `workspace.members = [...]` dotted keys read like
  * their tables. It is a reader, not a TOML parser: a manifest a glob or a path dependency reaches but whose package name it cannot read is
- * returned in `unplaced` (beside { cargoDir, members }), any other it cannot place is reported by unmatchedManifests, and the host receipt runs
- * the real metadata.
+ * returned in `unplaced` (beside { cargoDir, members }; empty for a standalone package, which has nothing to place), any other it cannot place
+ * is reported by unmatchedManifests, and the host receipt runs the real metadata.
  */
 export function manifestWorkspaceMetadata({ root, dir, tracked, readFile }) {
   const manifestOf = (d) => (d === "." ? "Cargo.toml" : `${d}/Cargo.toml`);
@@ -487,7 +490,7 @@ export function manifestWorkspaceMetadata({ root, dir, tracked, readFile }) {
     }
     const self = memberOf(manifestOf(dir));
     if (!self) throw new Error(`${manifestOf(dir)} has neither a [package] with a name nor a [workspace]`);
-    return { cargoDir: dir, members: [self] };
+    return { cargoDir: dir, members: [self], unplaced: [] };
   }
   const patterns = tomlStrings(tomlValue(tables, "workspace", "members")).map((g) => globToRegExp(g));
   const excluded = workspaceExcludes(readFile, root, dir);
@@ -1180,14 +1183,19 @@ export async function main(argv, io = {}) {
 
   // git pre-push: "<local ref> <local sha> <remote ref> <remote sha>" per pushed ref. A plan reads no stdin.
   // `pushedRefs` is every remote ref named, deletions included: it decides whether the Rust gate may defer (rustDeferral). The fields are
-  // split on single ASCII spaces only (parsePushLines): a ref name may hold Unicode whitespace, and a line that does not read as four
-  // fields is `unparsed`, which defers nothing, never a line that disappears. `pushedRemoteShas` are the remote commits being replaced.
-  const pushedRefs = []; const pushedRemoteShas = []; let unparsed = [];
+  // split on single ASCII spaces only (parsePushLines): a ref name may hold Unicode whitespace. A line that does not read as four fields
+  // (git hands the local field over verbatim, so a rev expression such as `HEAD@{1 minute ago}` or `HEAD^{/one thing}` holds spaces)
+  // refuses the push on every host and in every repository, never a line that disappears: its pushed commit could not be compared with
+  // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.
+  const pushedRefs = []; const pushedRemoteShas = [];
   const askedBase = base;
   if (!planOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
-    unparsed = parsed.malformed;
+    if (parsed.malformed.length) {
+      o.err(`${tag} BLOCKED: pre-push stdin line ${parsed.malformed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read and the pushed commit cannot be compared with HEAD; push a plain ref (git push <remote> HEAD:<branch>)`);
+      return 1;
+    }
     for (const { localSha, remoteRef, remoteSha } of parsed.lines) {
       pushedRefs.push(remoteRef);
       if (!ZERO.test(remoteSha)) pushedRemoteShas.push(remoteSha);
@@ -1218,7 +1226,7 @@ export async function main(argv, io = {}) {
         // else refuses exactly as before. The cargo command is then only the text of the argv the deferred scans would have had.
         // The default branch is named by the checkout, the base, the remote commits being replaced and origin/HEAD, never by the pushed commit alone.
         const configured = defaultBranchNames({ git, readCheckout: () => o.readFile(path.join(root, ".rightgit.json")), revisions: [askedBase, ...pushedRemoteShas] });
-        const decision = rustDeferral({ refs: pushedRefs, env: o.env, protectedBranches: configured, unparsed });
+        const decision = rustDeferral({ refs: pushedRefs, env: o.env, protectedBranches: configured });
         if (!decision.defer) {
           o.err(`${tag} BLOCKED: neither \`rustright\` nor the managed cargo shim (cargo-guard.mjs) is first on PATH; plain cargo is never used`);
           o.err(`${tag}   not deferred to host qualification: ${decision.why}`);
@@ -1240,7 +1248,7 @@ export async function main(argv, io = {}) {
     try { const f = JSON.parse(o.readFile(path.join(root, GATE_CONFIG))).fixtures; if (Array.isArray(f)) fixtures = f.filter((d) => typeof d === "string"); } catch { /* no config: no fixtures */ }
     rust = discoverRustWorkspaces({
       root, spawn: (c, a, opts) => o.spawn(c, a, opts), cargoCommand, tracked, untracked, fixtures, readFile: readLive,
-      ...(deferral ? { metadata: (dir) => { const read = manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }); unplaced.push(...read.unplaced); return read; } } : {}),
+      ...(deferral ? { metadata: (dir) => { const read = manifestWorkspaceMetadata({ root, dir, tracked, readFile: readLive }); unplaced.push(...(read.unplaced ?? [])); return read; } } : {}),
     });
     npm = discoverNpmUnits({ root, tracked, readFile: readLive, exists: o.exists });
   } catch (e) { o.err(`${tag} BLOCKED: cannot discover the repository's units: ${e.message}`); return 1; }
