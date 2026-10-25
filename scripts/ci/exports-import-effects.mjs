@@ -163,6 +163,9 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   const onPath = String(found.stdout ?? "").split(/\r?\n/).find((l) => l.trim()) ?? "";
   if (found.status !== 0 || !onPath) return { problem: "pnpm is not on PATH" };
   let real; try { real = fs.realpathSync(onPath.trim()); } catch { return { problem: `pnpm at ${onPath} cannot be resolved` }; }
+  // A package-manager shim (pnpm/action-setup, npm's .bin on Windows) is a shell or cmd script that execs node on the real entry
+  // file next to it: the identity is that entry file, not the shim text.
+  real = pnpmEntryFile(real);
   const sha256 = crypto.createHash("sha256").update(fs.readFileSync(real)).digest("hex");
   // pnpm's `manage-package-manager-versions` silently execs ANOTHER pnpm (the tree's `packageManager` pin, fetched into
   // `<pnpm home>/.tools`), so the file on PATH would not be the pnpm that installs. The install environment disables that, and the
@@ -179,6 +182,15 @@ export function pnpmIdentity({ spawn = spawnSync, env = installEnvironment() } =
   if (!declared) return { problem: `pnpm at ${real} has no package.json naming its version; its identity cannot be bound` };
   if (declared !== answered) return { problem: `pnpm at ${real} is version ${declared} but "pnpm --version" answered ${answered}: another pnpm executable would run (package manager version management); refusing to bind the identity` };
   return { path: onPath.trim(), realPath: real, sha256, version: answered, node: process.version };
+}
+
+/** The JavaScript entry a pnpm shim execs (resolved and real), or `file` itself when it is already the entry. */
+export function pnpmEntryFile(file) {
+  let head; try { head = fs.readFileSync(file, "utf8").slice(0, 8192); } catch { return file; }
+  if (!/^#!\s*\/(?:usr\/)?bin\/(?:env\s+)?(?:sh|bash|dash)\b|^@(?:ECHO|SETLOCAL|IF)\b/im.test(head)) return file;
+  const m = /["']?(?:\$basedir|%~dp0|%dp0%|\$\(dirname\s+"\$0"\))?[\\/]?((?:\.\.?[\\/])+[^"'\s]+\.(?:[cm]?js))["']?/i.exec(head);
+  if (!m) return file;
+  try { return fs.realpathSync(path.resolve(path.dirname(file), m[1].replace(/\\/g, "/"))); } catch { return file; }
 }
 
 /** The version named by the package.json of the pnpm package that owns `file` (walking up at most four directories), or null. */

@@ -318,6 +318,12 @@ test("exports-import-effects: dependency setup executes no candidate code — pn
   const truthful = shim("7.7.7"); const ok = pnpmIdentity({ env: truthful.env });
   assert.equal(ok.version, "7.7.7", ok.problem); assert.equal(ok.realPath, fs.realpathSync(path.join(truthful.home, "pkg", "bin", "pnpm.cjs")));
   assert.equal(ok.sha256, crypto.createHash("sha256").update(fs.readFileSync(ok.realPath)).digest("hex"));
+  // The same package behind a POSIX shell shim (what pnpm/action-setup puts on PATH): the identity is the entry file the shim execs.
+  const shimmed = shim("7.7.7"); fs.unlinkSync(path.join(shimmed.home, "bin", "pnpm"));
+  fs.writeFileSync(path.join(shimmed.home, "bin", "pnpm"), `#!/bin/sh\nbasedir=$(dirname "$(readlink -f "$0")")\nexec node "$basedir/../pkg/bin/pnpm.cjs" "$@"\n`, { mode: 0o755 });
+  const viaShim = pnpmIdentity({ env: shimmed.env });
+  assert.equal(viaShim.version, "7.7.7", viaShim.problem); assert.equal(viaShim.realPath, fs.realpathSync(path.join(shimmed.home, "pkg", "bin", "pnpm.cjs")), "the shim's target, not the shim text, is the identity");
+  assert.equal(viaShim.sha256, ok.sha256, "same entry bytes as the symlinked form");
   const lying = shim("9.9.9"); const refused = pnpmIdentity({ env: lying.env });
   assert.match(refused.problem ?? "", /is version 7\.7\.7 but "pnpm --version" answered 9\.9\.9/);
   // A distinct hook vector, separate from install-time hooks and from ignore-scripts: merely asking `pnpm --version` INSIDE a tree
