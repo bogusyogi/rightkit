@@ -46,4 +46,4 @@ tempfile = "3"
 
 [package.metadata.rightkit]
 continuous = false
-continuous_reason = "SQLite open, migrate, backup and restore helpers; sleep is a 25 ms back-off between retries of one busy or locked backup step, bounded by the call and its busy_timeout, and the crate spawns no thread or continuous work"
+continuous_reason = "SQLite open, migrate, backup and restore helpers; sleep is a 25 ms back-off between retries of one busy or locked backup step, bounded by the call and its busy_timeout, and a 100 ms pause between at most 20 retries of one Windows sharing or access-denied file operation (backup publish, journal write, relocation cleanup), and the crate spawns no thread or continuous work"

@@ -20,8 +20,10 @@
 
 use super::error::LifecycleError;
 use crate::{DbError, StoreLock};
-use rightkit_fs::FileKey;
+use rightkit_fs::atomic::{atomic_write_with_access_denied_retry, AccessDeniedRetry, RetryPolicy};
+use rightkit_fs::{AtomicWriteOptions, FileKey};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -545,10 +547,21 @@ mod relocation_journal_tests {
     }
 }
 
-/// Remove the journal beside `db`; a missing one is fine.
+/// The bounded opt-in that lets a Windows publish step ride out `ERROR_ACCESS_DENIED` (and the
+/// sharing and lock violations) while a scanner or indexer still holds a file it just saw. The
+/// bound is `crate::transient`'s; after it the original error is returned unchanged.
+pub(super) fn access_denied_retry() -> AccessDeniedRetry {
+    AccessDeniedRetry::new(RetryPolicy::new(
+        crate::transient::ATTEMPTS,
+        crate::transient::DELAY,
+    ))
+}
+
+/// Remove the journal beside `db`; a missing one is fine. A Windows delete refusal that clears by
+/// itself (a scanner holding the file) is retried a bounded number of times.
 pub(crate) fn remove_journal(db: &Path) -> Result<(), LifecycleError> {
     let path = journal_path(db);
-    match std::fs::remove_file(&path) {
+    match crate::transient::retry_transient(|| std::fs::remove_file(&path)) {
         Ok(()) => {
             rightkit_fs::atomic::sync_dir(
                 path.parent()
@@ -636,11 +649,22 @@ impl StoreTransition {
         &self.roots
     }
 
-    /// Write `journal` atomically (private, synced) beside every guarded root.
+    /// Write `journal` atomically (private, synced) beside every guarded root. Every write after
+    /// the first replaces the previous journal, which on Windows a scanner holding it without
+    /// delete sharing refuses with a transient `ERROR_ACCESS_DENIED`, so the replace is retried a
+    /// bounded number of times ([`access_denied_retry`]).
     pub(crate) fn write_journal(&self, journal: &Journal) -> Result<(), LifecycleError> {
         let body = encode(journal)?;
         for root in &self.roots {
-            rightkit_fs::atomic::atomic_write_private(&journal_path(root), body.as_bytes())?;
+            atomic_write_with_access_denied_retry(
+                &journal_path(root),
+                AtomicWriteOptions {
+                    private: true,
+                    ..AtomicWriteOptions::default()
+                },
+                access_denied_retry(),
+                |file| file.write_all(body.as_bytes()),
+            )?;
         }
         Ok(())
     }

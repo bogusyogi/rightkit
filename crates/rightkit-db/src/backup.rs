@@ -48,7 +48,11 @@ pub fn online_backup_to(
         #[cfg(not(test))]
         let now = Instant::now();
         if now >= deadline {
-            Err(DbError::Backup("backup operation timeout expired".into()))
+            Err(DbError::Backup(format!(
+                "backup operation timeout expired after {:?} (budget {:?})",
+                now.saturating_duration_since(started),
+                options.busy_timeout
+            )))
         } else {
             Ok(())
         }
@@ -114,15 +118,31 @@ pub fn online_backup_to(
         }
         drop(dst);
         rightkit_fs::restrict_owner_only(&temp)?;
+        // The staged copy is finished and verified. An indexer or scanner that still holds it on
+        // Windows makes the next open or rename fail with a sharing or access error that clears
+        // by itself, so both steps retry that class a bounded number of times, and only while the
+        // staging is still the file this call created.
+        let mut synced_before = false;
         // Windows FlushFileBuffers needs a writable handle; a read-only open fails "Access is denied".
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&temp)
-            .and_then(|f| f.sync_all())
-            .map_err(|e| DbError::Backup(format!("fsync backup: {e}")))?;
+        crate::transient::retry_transient(|| {
+            if std::mem::replace(&mut synced_before, true) {
+                staging_still_ours(&temp, created)?;
+            }
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&temp)
+                .and_then(|f| f.sync_all())
+        })
+        .map_err(|e| DbError::Backup(format!("fsync backup: {e}")))?;
         check_deadline()?;
-        std::fs::rename(&temp, target)
-            .map_err(|e| DbError::Backup(format!("publish backup: {e}")))?;
+        let mut published_before = false;
+        crate::transient::retry_transient(|| {
+            if std::mem::replace(&mut published_before, true) {
+                staging_still_ours(&temp, created)?;
+            }
+            std::fs::rename(&temp, target)
+        })
+        .map_err(|e| DbError::Backup(format!("publish backup: {e}")))?;
         if let Some(parent) = target.parent().filter(|p| !p.as_os_str().is_empty()) {
             rightkit_fs::atomic::sync_dir(parent);
         }
@@ -153,6 +173,19 @@ fn create_private_staging(target: &Path) -> Result<(PathBuf, Option<rightkit_fs:
     Err(DbError::Backup(
         "could not create a unique backup staging file".into(),
     ))
+}
+
+/// A retry of a publish step may only touch the staging this call created: a staging file whose
+/// identity changed during the pause belongs to someone else and is left alone.
+fn staging_still_ours(temp: &Path, created: Option<rightkit_fs::FileKey>) -> std::io::Result<()> {
+    if let (Some(want), Ok(now)) = (created, rightkit_fs::FileKey::of_path(temp)) {
+        if now != want {
+            return Err(std::io::Error::other(
+                "backup staging was replaced while a publish step was retried",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Removes this call's staging family only while the main staged file still has the
@@ -514,6 +547,18 @@ mod deadline_tests {
             run_from(Duration::from_millis(50), Vec::new(), Some(Duration::ZERO));
         assert_timeout(&result);
         assert_eq!((steps, callbacks), (0, 0));
+    }
+
+    #[test]
+    fn expiry_message_names_the_elapsed_time_and_the_budget() {
+        let (result, _, _) = run_from(Duration::from_millis(50), Vec::new(), Some(Duration::ZERO));
+        match result {
+            Err(DbError::Backup(message)) => {
+                assert!(message.contains("after 50ms"), "{message}");
+                assert!(message.contains("budget 50ms"), "{message}");
+            }
+            other => panic!("expected the total deadline, got {other:?}"),
+        }
     }
 
     #[test]

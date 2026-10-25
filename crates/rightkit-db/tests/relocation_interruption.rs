@@ -1030,3 +1030,80 @@ fn optional_old_root_recovery_does_not_treat_unreadable_journal_as_absence() {
     assert!(!fixture.new_db().exists());
     assert_eq!(value(&fixture.old()), 41);
 }
+
+/// Windows refuses a rename over a file, or a delete of it, with `ERROR_ACCESS_DENIED` (5) or
+/// `ERROR_SHARING_VIOLATION` (32) while another handle holds it without delete sharing (an indexer,
+/// a virus scanner). The hold ends by itself, so a relocation must ride it out instead of failing
+/// or retaining its journals. These cases cannot be reproduced off Windows.
+#[cfg(windows)]
+mod windows_transient_refusals {
+    use super::*;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    /// `FILE_SHARE_READ | FILE_SHARE_WRITE`: everything but `FILE_SHARE_DELETE`.
+    const SHARE_READ_WRITE: u32 = 0x1 | 0x2;
+    const HOLD: Duration = Duration::from_millis(250);
+
+    /// Holds `path` open without delete sharing for `HOLD`, then lets go.
+    fn hold_without_delete_sharing(path: &Path) -> std::thread::JoinHandle<()> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(SHARE_READ_WRITE)
+            .open(path)
+            .unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(HOLD);
+            drop(file);
+        })
+    }
+
+    /// The candidate file inside the relocation workspace under the destination's directory.
+    fn candidate(fixture: &Fixture) -> PathBuf {
+        let workspace = fs::read_dir(fixture.root.join("new"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with(".rkdb-relocate-"))
+            })
+            .expect("the relocation workspace exists until committed settlement");
+        workspace.join("candidate.db")
+    }
+
+    #[test]
+    fn journal_replace_rides_out_a_holder_without_delete_sharing() {
+        let fixture = Fixture::new();
+        let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+        let mut session = store.prepare_relocation(fixture.plan()).unwrap();
+        session.quiesce().unwrap();
+        let holder = hold_without_delete_sharing(&journal(&fixture.old()));
+        session.copy().unwrap();
+        holder.join().unwrap();
+        session.reopen().unwrap();
+        let report = session.settle(RelocationSettlement::Committed).unwrap();
+        assert!(report.cleanup_retained.is_empty(), "{report:?}");
+        assert!(!journal(&fixture.old()).exists());
+        assert!(!journal(&fixture.new_db()).exists());
+        assert_eq!(value(&fixture.new_db()), 41);
+    }
+
+    #[test]
+    fn committed_cleanup_rides_out_a_holder_without_delete_sharing() {
+        let fixture = Fixture::new();
+        let store = Arc::new(EncryptedStore::open(fixture.config()).unwrap());
+        let mut session = store.prepare_relocation(fixture.plan()).unwrap();
+        session.quiesce().unwrap();
+        session.copy().unwrap();
+        session.reopen().unwrap();
+        let candidate = candidate(&fixture);
+        let holder = hold_without_delete_sharing(&candidate);
+        let report = session.settle(RelocationSettlement::Committed).unwrap();
+        holder.join().unwrap();
+        assert!(report.cleanup_retained.is_empty(), "{report:?}");
+        assert!(!candidate.exists());
+        assert!(!candidate.parent().unwrap().exists());
+        assert!(!journal(&fixture.old()).exists());
+        assert!(!journal(&fixture.new_db()).exists());
+        assert_eq!(value(&fixture.new_db()), 41);
+    }
+}

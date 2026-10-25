@@ -380,10 +380,14 @@ fn count(store: &EncryptedStore) -> i64 {
         .unwrap()
 }
 
-fn journal_exists(db: &Path) -> bool {
+fn journal_file(db: &Path) -> PathBuf {
     let mut name = db.as_os_str().to_os_string();
     name.push(".transition-journal");
-    std::fs::symlink_metadata(PathBuf::from(name)).is_ok()
+    PathBuf::from(name)
+}
+
+fn journal_exists(db: &Path) -> bool {
+    std::fs::symlink_metadata(journal_file(db)).is_ok()
 }
 
 fn rotate(store: &EncryptedStore, faults: &TestFaults) -> RotationReport {
@@ -1367,7 +1371,13 @@ fn relocation_acquires_destination_session_before_publishing_copy() {
     let held = destination.lock_rotation(Duration::ZERO).unwrap();
     let report = store
         .relocate(RelocationPlan::new(&new_path).with_new_key_store(Arc::new(destination.clone())));
-    assert!(matches!(report, RelocationReport::NotRelocated { .. }));
+    match report {
+        RelocationReport::NotRelocated { error, .. } => assert!(
+            matches!(error, LifecycleError::KeyStore { .. }),
+            "the busy destination session is a key-store refusal: {error:?}"
+        ),
+        other => panic!("expected NotRelocated, got {other:?}"),
+    }
     assert!(!new_path.exists());
     assert_eq!(count(&store), 1);
     drop(held);
@@ -1383,8 +1393,99 @@ fn relocation_reuses_only_same_configured_key_store_arc() {
     let cfg = config(&path, &keys);
     let same = cfg.key_store.clone();
     let store = EncryptedStore::open(cfg).unwrap();
+    let started = std::time::Instant::now();
     let report = store.relocate(RelocationPlan::new(&new_path).with_new_key_store(same));
-    assert!(matches!(report, RelocationReport::Relocated { .. }));
+    assert!(
+        matches!(report, RelocationReport::Relocated { .. }),
+        "expected Relocated, got {report:?} after {:?}",
+        started.elapsed()
+    );
+    assert_eq!(count(&store), 1);
+}
+
+#[test]
+fn relocation_copy_budget_is_independent_of_the_sqlite_busy_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = make_db(dir.path(), "source-budget.db", OLD);
+    let new_path = dir.path().join("destination-budget.db");
+    let keys = FakeKeys::with_primary(OLD);
+    let mut cfg = config(&path, &keys);
+    // The online backup used to bound the whole copy by this value, so a zero wait made every
+    // relocation expire before its first step, on every OS.
+    cfg.db.busy_timeout = Duration::ZERO;
+    let store = EncryptedStore::open(cfg).unwrap();
+    let report = store.relocate(RelocationPlan::new(&new_path));
+    assert!(
+        matches!(report, RelocationReport::Relocated { .. }),
+        "{report:?}"
+    );
+    assert_eq!(store.db_path(), new_path);
+    assert_eq!(count(&store), 1);
+    assert!(!journal_exists(&path));
+    assert!(!journal_exists(&new_path));
+    let workspaces: Vec<String> = dir_names(dir.path())
+        .into_iter()
+        .filter(|name| name.starts_with(".rkdb-relocate-"))
+        .collect();
+    assert!(workspaces.is_empty(), "{workspaces:?}");
+}
+
+#[test]
+fn a_failed_publishing_record_aborts_cleanly_and_a_retry_can_relocate() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let path = make_db(dir.path(), "source-record.db", OLD);
+    let new_path = dir.path().join("destination-record.db");
+    let keys = FakeKeys::with_primary(OLD);
+    // Once the candidate has validated, the destination's journal slot becomes a non-empty
+    // directory, so the next journal write (the "publishing" record) fails on every OS.
+    let obstacle = journal_file(&new_path);
+    let armed = Arc::new(AtomicBool::new(true));
+    let cfg = config(&path, &keys).with_validate({
+        let obstacle = obstacle.clone();
+        let armed = armed.clone();
+        move |options: &DbOptions| {
+            let candidate = options.path.file_name() == Some(std::ffi::OsStr::new("candidate.db"));
+            if candidate && armed.swap(false, Ordering::SeqCst) {
+                std::fs::remove_file(&obstacle).map_err(|e| e.to_string())?;
+                std::fs::create_dir(&obstacle).map_err(|e| e.to_string())?;
+                std::fs::write(obstacle.join("held"), b"x").map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
+    });
+    let store = EncryptedStore::open(cfg).unwrap();
+    let report = store.relocate(RelocationPlan::new(&new_path));
+    match &report {
+        RelocationReport::NotRelocated { copy_retained, .. } => {
+            assert!(copy_retained.is_none(), "{report:?}")
+        }
+        other => panic!("expected NotRelocated, got {other:?}"),
+    }
+    assert!(!armed.load(Ordering::SeqCst), "the obstacle was placed");
+    assert_eq!(store.db_path(), path);
+    assert_eq!(count(&store), 1, "the old root still serves");
+    assert!(!new_path.exists());
+    let workspaces: Vec<String> = dir_names(dir.path())
+        .into_iter()
+        .filter(|name| name.starts_with(".rkdb-relocate-"))
+        .collect();
+    assert!(
+        workspaces.is_empty(),
+        "nothing was published, so the aborted copy is not retained: {workspaces:?}"
+    );
+    assert!(!journal_exists(&path), "the source journal was cleared");
+    assert!(
+        obstacle.is_dir(),
+        "the obstacle is not the relocation's to remove"
+    );
+    std::fs::remove_dir_all(&obstacle).unwrap();
+    let report = store.relocate(RelocationPlan::new(&new_path));
+    assert!(
+        matches!(report, RelocationReport::Relocated { .. }),
+        "{report:?}"
+    );
+    assert_eq!(store.db_path(), new_path);
     assert_eq!(count(&store), 1);
 }
 

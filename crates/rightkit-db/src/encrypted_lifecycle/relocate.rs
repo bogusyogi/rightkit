@@ -9,8 +9,8 @@ use super::store::{
     EncryptedStoreConfig, Probe,
 };
 use super::transition::{
-    next_id, read_journal, Journal, JournalState, RelocationJournal, RootIdentity, StoreTransition,
-    TransitionKind,
+    access_denied_retry, next_id, read_journal, Journal, JournalState, RelocationJournal,
+    RootIdentity, StoreTransition, TransitionKind,
 };
 use crate::{online_backup_to, IntegrityCheck};
 use rightkit_fs::transaction::{
@@ -21,6 +21,16 @@ use rusqlite::OpenFlags;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Floor of the time the verified copy of the database may take. The copy writes, syncs and
+/// re-reads the whole file, so on a slow or scanned disk it is not bounded by how long SQLite waits
+/// for a lock (`DbOptions::busy_timeout`, five seconds by default).
+const COPY_BUDGET_FLOOR: Duration = Duration::from_secs(120);
+/// Pessimistic sustained rate (bytes per second) used to grow the copy budget with the database.
+const COPY_BYTES_PER_SECOND: u64 = 4 * 1024 * 1024;
+/// The copy budget never exceeds this, so a stalled copy always ends.
+const COPY_BUDGET_CEILING: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// Database destination & caller-authorized filesystem transaction root.
 pub struct RelocationPlan {
@@ -100,6 +110,19 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     name.push(suffix);
     PathBuf::from(name)
 }
+/// The finite budget for copying the database at `source`: a floor plus time proportional to its
+/// size (database and `-wal`), capped. An unreadable size counts as zero, so the floor still applies.
+/// It is independent of `busy_timeout`: that is SQLite's wait for a lock, not a copy deadline.
+fn copy_budget(source: &Path) -> Duration {
+    let bytes = ["", "-wal"].iter().fold(0u64, |total, suffix| {
+        let len = std::fs::metadata(with_suffix(source, suffix)).map_or(0, |meta| meta.len());
+        total.saturating_add(len)
+    });
+    let extra = Duration::from_secs(bytes / COPY_BYTES_PER_SECOND);
+    COPY_BUDGET_FLOOR
+        .saturating_add(extra)
+        .min(COPY_BUDGET_CEILING)
+}
 fn check_destination(path: &Path) -> Result<(), LifecycleError> {
     for suffix in ["", "-wal", "-shm", "-journal"] {
         let candidate = with_suffix(path, suffix);
@@ -124,6 +147,38 @@ fn check_destination(path: &Path) -> Result<(), LifecycleError> {
 fn same_identity(recorded: &RootIdentity) -> bool {
     let now = RootIdentity::capture(&recorded.path);
     recorded.file.is_some() && recorded.file == now.file && recorded.dir == now.dir
+}
+fn remove_file_at(path: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(path)
+}
+fn remove_dir_at(path: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir(path)
+}
+/// Delete `path` with `remove`, retrying a Windows refusal that clears by itself (a scanner or
+/// indexer holding the file) a bounded number of times. Identity is proven again before every
+/// retry, so a name that changed hands during a pause is never deleted. A path that is gone is
+/// `Ok`.
+fn remove_identified(
+    path: &Path,
+    expected: Option<rightkit_fs::FileKey>,
+    remove: impl Fn(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let mut retrying = false;
+    crate::transient::retry_transient(|| {
+        if std::mem::replace(&mut retrying, true) {
+            match rightkit_fs::FileKey::of_path(path) {
+                Ok(now) if Some(now) == expected => {}
+                Ok(_) => {
+                    return Err(std::io::Error::other(
+                        "identity changed while a removal was retried",
+                    ))
+                }
+                Err(error) if error.kind() == Some(std::io::ErrorKind::NotFound) => return Ok(()),
+                Err(error) => return Err(std::io::Error::other(error.to_string())),
+            }
+        }
+        remove(path)
+    })
 }
 fn absolute(path: &Path) -> Result<PathBuf, LifecycleError> {
     std::path::absolute(path).map_err(|e| rightkit_fs::FsError::io(path, e).into())
@@ -369,6 +424,23 @@ impl RelocationCore {
         }
         Ok(())
     }
+    /// Advance the journal to `phase` and persist it. The in-memory phase changes only if the
+    /// write succeeds, so a failed write cannot make later settlement act on a phase that was
+    /// never recorded.
+    fn record_phase(&mut self, phase: &str) -> Result<(), LifecycleError> {
+        let journal = self
+            .journal
+            .as_mut()
+            .ok_or_else(|| pending("relocation journal missing"))?;
+        let previous = std::mem::replace(&mut journal.phase, phase.to_string());
+        if let Err(error) = self.persist() {
+            if let Some(journal) = self.journal.as_mut() {
+                journal.phase = previous;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
     fn metadata(&self) -> &RelocationJournal {
         self.journal
             .as_ref()
@@ -412,8 +484,14 @@ impl RelocationCore {
         self.metadata_mut().candidate = RootIdentity::capture(&candidate);
         self.persist()?;
         let db = self.cfg.keyed(&self.key);
-        let conn = db.open_existing_at(&db.effective_path(), OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        online_backup_to(&db, &conn, &candidate, None)?;
+        let source = db.effective_path();
+        let conn = db.open_existing_at(&source, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        // The backup bounds the whole copy by `busy_timeout`. That is SQLite's lock wait, not a
+        // copy deadline, so the copy gets its own finite budget (the connection above keeps the
+        // configured lock wait).
+        let mut copy_options = db.clone();
+        copy_options.busy_timeout = copy_budget(&source);
+        online_backup_to(&copy_options, &conn, &candidate, None)?;
         drop(conn);
         let recorded = RootIdentity::capture(&candidate);
         if recorded.file.is_none() {
@@ -426,8 +504,9 @@ impl RelocationCore {
         if !same_identity(&self.metadata().candidate) {
             return Err(pending("candidate changed during validation"));
         }
-        self.journal.as_mut().expect("journal").phase = "publishing".into();
-        self.persist()?;
+        // Nothing is published yet: if this write fails the phase stays "candidate-created", so an
+        // abort cleans up instead of retaining the workspace as an unresolved FS publication.
+        self.record_phase("publishing")?;
         let root = self.plan.transaction_root.as_ref().expect("root");
         let destination_parent_path = self.plan.new_path.parent().expect("checked destination");
         let destination_parent = rightkit_fs::canonicalize_plain(destination_parent_path)
@@ -440,7 +519,9 @@ impl RelocationCore {
         let prepared = match FileTransaction::prepare(
             root,
             vec![TransactionEntry::create_new(relative, &candidate).private()],
-            TransactionOptions::default().lock_timeout(self.cfg.transition.acquire_timeout),
+            TransactionOptions::default()
+                .lock_timeout(self.cfg.transition.acquire_timeout)
+                .access_denied_retry(access_denied_retry()),
         ) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -733,11 +814,13 @@ impl RelocationCore {
         };
         let candidate = &metadata.candidate;
         if same_identity(candidate) {
-            match std::fs::remove_file(&candidate.path) {
+            match remove_identified(&candidate.path, candidate.file, remove_file_at) {
                 Ok(()) => {
                     if let Some(parent) = candidate.path.parent() {
                         if rightkit_fs::FileKey::of_path(parent).ok() == candidate.dir {
-                            if let Err(error) = std::fs::remove_dir(parent) {
+                            if let Err(error) =
+                                remove_identified(parent, candidate.dir, remove_dir_at)
+                            {
                                 if error.kind() != std::io::ErrorKind::NotFound {
                                     self.cleanup.push(parent.to_path_buf());
                                 }
@@ -754,7 +837,7 @@ impl RelocationCore {
             if candidate.dir.is_some()
                 && rightkit_fs::FileKey::of_path(parent).ok() == candidate.dir
             {
-                if let Err(error) = std::fs::remove_dir(parent) {
+                if let Err(error) = remove_identified(parent, candidate.dir, remove_dir_at) {
                     if error.kind() != std::io::ErrorKind::NotFound {
                         self.cleanup.push(parent.to_path_buf());
                     }
@@ -778,7 +861,9 @@ impl RelocationCore {
         }
         let report = recover_transactions_with(
             &root.path,
-            &TransactionOptions::default().lock_timeout(self.cfg.transition.acquire_timeout),
+            &TransactionOptions::default()
+                .lock_timeout(self.cfg.transition.acquire_timeout)
+                .access_denied_retry(access_denied_retry()),
         )?;
         if !report.is_clean() {
             return Err(pending(
