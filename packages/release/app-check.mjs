@@ -67,6 +67,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "./background-process.mjs";
+import { CONSUMER_CONTRACT_RULES } from "./consumer-contracts.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
@@ -964,6 +965,7 @@ export const RULES = Object.freeze([
   { id: "suite-updater-key", gap: "C3-14", run: ({ root, files }) => suiteUpdaterKey(root, files) },
   { id: "engine-record-store", gap: "C3-05", run: ({ root, files }) => engineRecordStore(root, files) },
   ...SHELL_CONTRACT_RULES,
+  ...CONSUMER_CONTRACT_RULES,
 ]);
 
 // ---- export: the committed files, by git alone ----------------------------------------------------------------------------------
@@ -1058,14 +1060,14 @@ export function resolveCommit(repo, rev) {
 }
 
 /** Run the selected rules over an exported tree. Returns { failures: [{ rule, gap, problem, fix, file?, subject?, identity? }], timings }. */
-export function runRules({ root, commit, files, repo = process.cwd(), only = null, rules = RULES }) {
+export function runRules({ root, commit, files, repo = process.cwd(), only = null, rules = RULES, now = new Date() }) {
   const failures = [];
   const timings = [];
   for (const rule of rules) {
     if (only && !only.includes(rule.id)) continue;
     const started = Date.now();
     let found;
-    try { found = rule.run({ root, commit, files, repo }); }
+    try { found = rule.run({ root, commit, files, repo, now }); }
     catch (error) { found = [{ problem: `the rule itself failed: ${error.message}` }]; }
     timings.push({ rule: rule.id, ms: Date.now() - started, failures: found.length });
     for (const f of found) failures.push({ rule: rule.id, gap: rule.gap, ...f, ...(f.file && f.subject !== undefined ? { identity: `${rule.id}|${f.file}|${f.subject}` } : {}) });
@@ -1207,7 +1209,7 @@ export function runAppCheck({ repo, mode = "commit", commit, only = null, baseli
     return finish(2);
   }
   try {
-    const { failures: found } = runRules({ root, commit: checked, files, repo, only, rules });
+    const { failures: found } = runRules({ root, commit: checked, files, repo, only, rules, now });
     if (printBaseline) {
       lines.push(JSON.stringify([...new Set(found.map((f) => f.identity).filter(Boolean))].sort(), null, 2));
       const unkeyed = found.filter((f) => !f.identity).length;
