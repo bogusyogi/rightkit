@@ -194,13 +194,21 @@ export function initTemplate(root, options) {
   }
   // The rename changes Cargo.lock's bytes (the app's own crates), so every notice that records the lock's digest
   // (`Cargo.lock sha256 <hex>` / `sha256=<hex>`, checked by notice-lock-digest CA-14) would go stale: carry the new digest.
-  const pairs = [...lockDigestsBefore].map(([file, old]) => ({ old, now: createHash("sha256").update(renamed.get(file)).digest("hex") }));
+  // Only the provenance field moves: `<lock> sha256 <hex>` or `<lock> sha256=<hex>` (optionally backticked, optionally with a
+  // parenthesised label), where <lock> names this lock (its file name or its path from the root) and <hex> is its old digest.
+  // The same 64 hex characters anywhere else (another input's digest, archived evidence, a source literal) are left alone.
+  const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pairs = [...lockDigestsBefore].map(([file, old]) => {
+    const names = [...new Set([path.basename(file), path.relative(root, file).split(path.sep).join("/")])].map(escapeRe).join("|");
+    const field = new RegExp(`(\`?(?:${names})\`?(?:[ \\t]*\\([^)\\n]*\\))?[ \\t]+sha256(?:=|[ \\t]+)\`?)${old}(?![0-9a-f])`, "g");
+    return { field, now: createHash("sha256").update(renamed.get(file)).digest("hex") };
+  });
   if (pairs.length) {
     for (const file of walkTextFiles(root)) {
       if (path.basename(file) === SELF || path.basename(file) === LOCK_FILE) continue;
       const before = renamed.get(path.resolve(file)) ?? readFileSync(file, "utf8");
       let after = before;
-      for (const { old, now } of pairs) after = after.split(old).join(now);
+      for (const { field, now } of pairs) after = after.replace(field, (_, prefix) => `${prefix}${now}`);
       if (after === before) continue;
       renamed.set(path.resolve(file), after);
       if (!options.dryRun) writeFileSync(file, after);

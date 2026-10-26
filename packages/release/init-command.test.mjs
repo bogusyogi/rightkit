@@ -65,6 +65,30 @@ test("initTemplate carries the renamed Cargo.lock's digest into every notice tha
   assert.ok(result.changed.includes("legal/THIRD_PARTY_NOTICES.md") && result.changed.includes("legal/THIRD_PARTY_RUST_LICENSES.html"));
 });
 
+test("initTemplate moves only the lock's provenance field: the same digest anywhere else is left alone", async () => {
+  const { createHash } = await import("node:crypto");
+  const sha = (text) => createHash("sha256").update(text).digest("hex");
+  const root = fixture();
+  const lock = `version = 4\n\n[[package]]\nname = "${LOWER}"\nversion = "0.1.0"\n`;
+  const old = sha(lock);
+  writeFileSync(path.join(root, "Cargo.lock"), lock);
+  mkdirSync(path.join(root, "legal"), { recursive: true });
+  mkdirSync(path.join(root, "evidence"), { recursive: true });
+  // Same 64 hex characters as the lock's digest, but not the lock's provenance field.
+  const unrelated = {
+    "legal/THIRD_PARTY_NOTICES.md": `inputs: pnpm-lock.yaml sha256 ${old}; Cargo.lock sha256 ${old}\n`,
+    "evidence/run.json": `{"input":"${old}","lock":"Cargo.lock"}\n`,
+    "src-tauri/fixture.rs": `const PINNED: &str = "${old}"; // Cargo.lock\n`,
+    "legal/other.md": `Cargo.toml sha256 ${old}\n`,
+  };
+  for (const [file, text] of Object.entries(unrelated)) writeFileSync(path.join(root, file), text);
+  initTemplate(root, { name: "Heard Right", id: "app.orthiclabs.heardright" });
+  const now = sha(readFileSync(path.join(root, "Cargo.lock"), "utf8"));
+  assert.notEqual(now, old);
+  assert.equal(readFileSync(path.join(root, "legal", "THIRD_PARTY_NOTICES.md"), "utf8"), `inputs: pnpm-lock.yaml sha256 ${old}; Cargo.lock sha256 ${now}\n`, "the pnpm-lock field keeps its value; only the Cargo.lock field moves");
+  for (const file of ["evidence/run.json", "src-tauri/fixture.rs", "legal/other.md"]) assert.equal(readFileSync(path.join(root, file), "utf8"), unrelated[file], `${file} is not a Cargo.lock provenance field`);
+});
+
 test("renameText leaves the RightApps distribution service alone: only the template identity renames", () => {
   const identity = { name: "Play Right", id: "app.orthiclabs.playright", slug: "playright" };
   const text = [`"provider": "r2-${LOWER}s"`, `${TITLE}s registry`, `${UPPER}S_HOST`, `${LOWER}-engine ${LOWER}_protocol ${UPPER}_HOME ${TITLE}_0.1.0 app.rightsuite.${LOWER}`, `${LOWER}s.`, `${LOWER}store`].join("\n");
