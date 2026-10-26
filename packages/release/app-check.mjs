@@ -90,6 +90,7 @@ import { CONSUMER_CONTRACT_RULES } from "./consumer-contracts.mjs";
 import { OWNERSHIP_CLASS_RULES } from "./ownership-class-rules.mjs";
 import { SOURCE_CLOSURE_RULES } from "./source-closure-rules.mjs";
 import { SHELL_CONTRACT_RULES } from "./shell-contract.mjs";
+import { CONSUMER_SOURCE_RULES } from "./consumer-source-contracts.mjs";
 import { engineRecordStore, suiteKeyLiteral, suiteUpdaterKey } from "./suite-trust-roots.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1073,6 +1074,7 @@ export const RULES = Object.freeze([
   ...SHELL_CONTRACT_RULES,
   ...CONSUMER_CONTRACT_RULES,
   ...CONSUMER_INPUT_RULES,
+  ...CONSUMER_SOURCE_RULES,
   ...SOURCE_CLOSURE_RULES,
   ...OWNERSHIP_CLASS_RULES,
 ]);

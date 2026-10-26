@@ -1069,7 +1069,7 @@ test("runAppCheck returns the findings, the tolerated ones, the stale ones and t
   assert.deepEqual(red.findings.map((f) => f.identity).sort(), ["qa-platform|tests/q.rs|platform:macos", "skip-checks|package.json|ship"]);
   assert.deepEqual([red.known, red.stale, red.expired], [[], [], []]);
   assert.match(red.text, /^FAIL qa-platform \(G13\): tests\/q\.rs:1 /m);
-  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(37 rules, /m);
+  assert.match(red.text, /^preflight: 2 problem\(s\) in \w{12} \(40 rules, /m);
   const baseline = writeBaseline(parent, { apprepo: [KNOWN_ID, "skip-checks|package.json|ship", "qa-platform|tests/gone.rs|platform:macos"] });
   const ratcheted = runAppCheck({ repo, central: null, baseline });
   assert.equal(ratcheted.exitCode, 1);
@@ -1543,8 +1543,8 @@ test("an installed copy of the package, with no RightKit checkout, prints the sa
   assert.deepEqual(lines, findingLines(preflightRun.stdout), "the findings are byte-identical");
   assert.ok(lines.some((l) => l.startsWith("FAIL eol-policy (G04):")) && lines.some((l) => l.startsWith("FAIL release-config (G16):")) && lines.some((l) => l.startsWith("FAIL scenario-skip (G15):")) && lines.some((l) => l.startsWith("FAIL qa-platform (G13):")), lines.join("\n"));
   assert.ok(lines.some((l) => l.startsWith("KNOWN skip-checks:")) && lines.some((l) => l.startsWith("STALE baseline entry qa-platform|tests/gone.rs|platform:macos")), "the app's own baseline is read in both");
-  assert.match(gate.stdout, /^check: 7 problem\(s\) in \w{12} \(37 rules, [\d.]+s, 1 known\)\./m);
-  assert.match(preflightRun.stdout, /^preflight: 7 problem\(s\) in \w{12} \(47 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(gate.stdout, /^check: 7 problem\(s\) in \w{12} \(40 rules, [\d.]+s, 1 known\)\./m);
+  assert.match(preflightRun.stdout, /^preflight: 7 problem\(s\) in \w{12} \(50 rules, [\d.]+s, 1 known\)\./m);
   assert.deepEqual(spawnSync(process.execPath, [path.join(installed, "bin", "rightkit-gate.mjs"), "check", "--list"], { cwd: path.dirname(installed), encoding: "utf8" }).stdout.trim().split("\n"), RULES.map((r) => `${r.id} (${r.gap})`));
   // The same installed copy through the right-release command, and green once the app is fixed.
   const cli = spawnSync(process.execPath, [path.join(installed, "cli", "right-release.mjs"), "check", "--repo", repo, "--commit", "HEAD"], { cwd: path.dirname(installed), encoding: "utf8" });
