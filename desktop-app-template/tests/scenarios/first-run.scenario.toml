@@ -1,0 +1,77 @@
+name = "first run: the legal receipt is native, settings persist, setup is not shown again"
+tier = "fast"
+target = "ui"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+env = { RIGHTAPP_ENGINE_BIN = "${engine}" }
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the first-run legal gate is shown"
+js = "return document.querySelector('[data-testid=\"onboarding-legal\"][data-variant=\"first-run\"] .rk-legal-gate__agree') !== null;"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "no receipt exists before the user agrees"
+js = "return window.__TAURI_INTERNALS__.invoke('rightkit_legal_receipt_read').then((r) => r === null);"
+
+[[step]]
+kind = "ui_click"
+label = "eligibility: individual"
+selector = "input[name=\"rk-legal-gate-eligibility\"][value=\"individual\"]"
+
+[[step]]
+kind = "ui_click"
+label = "tick the agreement"
+selector = ".rk-legal-gate__checkbox-row input"
+
+[[step]]
+kind = "ui_click"
+label = "agree"
+selector = ".rk-legal-gate__agree"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the native receipt carries the contract's version and digest and a native UTC time"
+js = "return window.__TAURI_INTERNALS__.invoke('rightkit_legal_receipt_read').then((r) => r !== null && r.eligibilityBasis === 'individual' && /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/.test(r.acceptedAt) && r.version.length > 0 && r.documentsHash.length === 64);"
+
+[[step]]
+kind = "ui_click"
+label = "finish setup"
+selector = "[data-testid=\"onboarding\"] footer button:last-child"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "the app is shown after setup"
+js = "return document.querySelector('[data-testid=\"platform\"]') !== null;"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "settings hold the onboarding progress"
+js = "return window.__TAURI_INTERNALS__.invoke('rightkit_settings_get').then((s) => Array.isArray(s.values['onboarding.state'].completed) && s.values['onboarding.state'].completed.includes('legal'));"
+
+[[step]]
+kind = "ui_wait_eval"
+label = "licensing is disabled until the app registers its key"
+js = "return window.__TAURI_INTERNALS__.invoke('rightkit_license_status').then((v) => v.mode === 'disabled');"
+
+[[step]]
+kind = "ui_stop"
+
+[[step]]
+kind = "ui_launch"
+mode = "hidden"
+env = { RIGHTAPP_ENGINE_BIN = "${engine}" }
+  [[step.expect]]
+  path = "health.ok"
+  eq = true
+
+[[step]]
+kind = "ui_wait_eval"
+label = "on relaunch the accepted agreement is not shown again"
+js = "return document.querySelector('[data-testid=\"platform\"]') !== null && document.querySelector('[data-testid=\"onboarding-legal\"]') === null;"

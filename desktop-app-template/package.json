@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "prepare": "rightkit-gate install-hook",
+    "check": "rightkit-gate check",
     "dev": "vite --host 127.0.0.1 --port 5190 --strictPort",
     "build": "pnpm exec vite build",
     "typecheck": "tsc --noEmit",
@@ -53,7 +54,7 @@
   "devDependencies": {
     "@rightkit/qa": "0.6.1",
     "@rightkit/qa-chrome": "0.1.11",
-    "@rightkit/release": "0.6.5",
+    "@rightkit/release": "0.6.6",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.2.18",
