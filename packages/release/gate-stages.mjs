@@ -63,11 +63,20 @@ function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 }
 
-/** Reads the receipt for `commit`, or a fresh one bound to it. */
-export function readReceipt({ commonDir, commit, readFile = (f) => fs.readFileSync(f, "utf8") }) {
+/**
+ * The receipt file for `commit` and the app it was run for: a repository with one app at its root keeps `<commit>.json`; an app in a
+ * nested directory (CodeRight's apps/coderight-tauri and apps/coderight-ios, CutRight's apps/cutright, HeardRight's tauri-app-next)
+ * gets `<commit>--<dir with / as __>.json`, so two apps of one repository never share or overwrite a receipt (Astra, 2026-10-26).
+ */
+export function receiptKey(commit, app = ".") {
+  return app && app !== "." ? `${commit}--${app.replaceAll("/", "__")}` : commit;
+}
+
+/** Reads the receipt for `commit` (and `app`), or null. */
+export function readReceipt({ commonDir, commit, app = ".", readFile = (f) => fs.readFileSync(f, "utf8") }) {
   try {
-    const r = JSON.parse(readFile(path.join(gateStateDir(commonDir), "receipts", `${commit}.json`)));
-    if (r.schema === RECEIPT_SCHEMA && r.commit === commit) return r;
+    const r = JSON.parse(readFile(path.join(gateStateDir(commonDir), "receipts", `${receiptKey(commit, app)}.json`)));
+    if (r.schema === RECEIPT_SCHEMA && r.commit === commit && (r.app ?? ".") === (app ?? ".")) return r;
   } catch { /* none yet */ }
   return null;
 }
@@ -75,7 +84,7 @@ export function readReceipt({ commonDir, commit, readFile = (f) => fs.readFileSy
 export function writeReceipt({ commonDir, receipt, write = fs.writeFileSync, mkdir = fs.mkdirSync }) {
   const dir = path.join(gateStateDir(commonDir), "receipts");
   mkdir(dir, { recursive: true });
-  write(path.join(dir, `${receipt.commit}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
+  write(path.join(dir, `${receiptKey(receipt.commit, receipt.app ?? ".")}.json`), `${JSON.stringify(receipt, null, 2)}\n`);
 }
 
 /**

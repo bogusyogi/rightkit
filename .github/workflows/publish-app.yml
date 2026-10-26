@@ -84,7 +84,8 @@ jobs:
         run: |
           set -euo pipefail
           corepack enable
-          pnpm install --frozen-lockfile --ignore-scripts
+          # No repository code before class A: lifecycle scripts off, and the repository's pnpmfile (hooks that run on install) off too.
+          pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
       - name: Install the pinned class A scan tools
         uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:

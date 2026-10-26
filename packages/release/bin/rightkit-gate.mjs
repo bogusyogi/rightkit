@@ -70,7 +70,7 @@ import { fileURLToPath } from "node:url";
 import { BIOME_CONFIG_FILES, ESLINT_CONFIG_FILES, WORKSPACE_RUST_FILE, ancestorConfigChanged, ancestorDirsOf, canonicalJson, defaultSpawn, digestScanSet, fileScanCache, findRustfmt, metadataArgs, planScans, runScans, scanDeferrals, scanFailures } from "../deterministic-scans.mjs";
 import { changedLockNames, parseLock, reach } from "../lock-graph.mjs";
 import { resolveExecutor } from "../gate-executor.mjs";
-import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
+import { bindingOf, endRun, readReceipt, RECEIPT_SCHEMA, receiptKey, sameBinding, sameSource, sealedFor, stagesTo, startRun, STAGES, writeReceipt } from "../gate-stages.mjs";
 import { spawnSync as spawnInherit } from "../background-process.mjs";
 import { readDiskPolicy, scratchRoots } from "../disk-policy.mjs";
 
@@ -265,8 +265,11 @@ export const CARGO_INPUT_NAMES = Object.freeze(["Cargo.toml", "Cargo.lock", "den
  */
 export function cargoInputsDiffer({ root, snapshot, manifests, spawn = defaultSpawn }) {
   const git = (...a) => spawn("git", a, { cwd: root });
-  const dirs = [...new Set(["", ...manifests.map((m) => { const d = path.posix.dirname(m); return d === "." ? "" : d; })])];
-  const paths = dirs.flatMap((d) => CARGO_INPUT_NAMES.map((n) => (d ? `${d}/${n}` : n)));
+  // Every manifest directory and every ancestor up to the root: cargo reads a .cargo/config.toml or a rust-toolchain file from any of them.
+  const dirs = new Set([""]);
+  for (const m of manifests) { const parts = path.posix.dirname(m).split("/").filter((x) => x && x !== "."); for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join("/")); }
+  const dirList = [...dirs];
+  const paths = dirList.flatMap((d) => CARGO_INPUT_NAMES.map((n) => (d ? `${d}/${n}` : n)));
   const listed = git("ls-tree", "-r", "-z", snapshot, "--", ...paths);
   if (failed(listed)) return [`(cannot list ${snapshot}: ${why(listed)})`];
   const snap = new Map();
@@ -280,10 +283,12 @@ export function cargoInputsDiffer({ root, snapshot, manifests, spawn = defaultSp
   }
   // Untracked under the input paths, ignored files included: cargo reads a .cargo/config.toml or a deny.toml whether or not git tracks it.
   const others = git("ls-files", "-z", "--others", "--", ...paths);
-  if (!failed(others)) for (const p of text(others).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+  if (failed(others)) differ.add(`(cannot list untracked Cargo inputs: ${why(others)})`); // fail closed: an unlisted input is an unknown input
+  else for (const p of text(others).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
   // A tracked input the snapshot lacks (added in HEAD after the snapshot, say) is live-only too.
   const tracked = git("ls-files", "-z", "--", ...paths);
-  if (!failed(tracked)) for (const p of text(tracked).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
+  if (failed(tracked)) differ.add(`(cannot list tracked Cargo inputs: ${why(tracked)})`);
+  else for (const p of text(tracked).split("\0").filter(Boolean)) if (!snap.has(p)) differ.add(p);
   return [...differ].sort();
 }
 
@@ -1147,9 +1152,22 @@ async function installHook(o, root, force) {
  * the receipt only when every bound input is unchanged; the right-release stages run under a live door run, so they refuse any other
  * caller (gate-stages.mjs requireDoorRun).
  */
+/**
+ * The app a door run is for: the directory the gate was run from when it holds a release config (a nested app such as
+ * apps/coderight-tauri), else the repository root. Every right-release stage runs there, the sealed set is read from there, and the
+ * receipt is keyed to it (receiptKey). Returns { appRoot, appDir } with appDir relative to the repository root, "." at the root.
+ */
+export function appRootOf({ root, cwd, exists = fs.existsSync }) {
+  const inside = cwd && (cwd === root || cwd.startsWith(root + path.sep));
+  const hasConfig = (d) => ["right-release.config.json", "right-release.config.mjs"].some((f) => exists(path.join(d, f)));
+  const appRoot = inside && cwd !== root && hasConfig(cwd) ? cwd : root;
+  return { appRoot, appDir: path.relative(root, appRoot).split(path.sep).join("/") || "." };
+}
+
 async function runStages(o, args, root, git, io) {
   const option = (name) => { const i = args.indexOf(name); return i < 0 ? undefined : args[i + 1]; };
   const tag = "rightkit-gate:";
+  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, exists: o.exists });
   const to = option("--to");
   if (to === "dev" || to === "test") return await runWorktreeCompile(o, args, root, git, io, to);
   let stages = stagesTo(to);
@@ -1162,6 +1180,7 @@ async function runStages(o, args, root, git, io) {
   // recorded as passed. Qualification is the store's test track, after the release stage uploads the sealed build from this host
   // (TestFlight, Play internal track; right-release upload --apply, no patch/update tier).
   const mobile = MOBILE_PLATFORMS.has(platform);
+  if (mobile && to === "qualify") { o.err(`${tag} --to qualify has no stage for ${platform}: there is no installed-QA lane for a mobile build; qualification is the store's test track after --to release. Run --to package or --to release.`); return 2; }
   if (mobile) stages = stages.filter((s) => s !== "qualify");
   if (stages.includes("release") && !mobile && !["patch", "update"].includes(tier)) { o.err(`${tag} --to release needs --tier patch|update (chosen explicitly, never defaulted)`); return 2; }
   const commit = text(git("rev-parse", "HEAD")).trim();
@@ -1205,12 +1224,12 @@ async function runStages(o, args, root, git, io) {
     }
     (o.writeReceipt ?? writeReceipt)({ commonDir, receipt: imported });
   }
-  const previous = (o.readReceipt ?? readReceipt)({ commonDir, commit });
+  const previous = (o.readReceipt ?? readReceipt)({ commonDir, commit, app: appDir });
   // Same host and inputs: every recorded stage counts. Same source on another host: only the stages bound to sealed bytes (package and
   // later) carry over; check and compile run again here.
   const receipt = previous && sameBinding(previous.binding, binding) ? previous
     : previous && sameSource(previous.binding, binding) ? { ...previous, binding, stages: Object.fromEntries(Object.entries(previous.stages ?? {}).filter(([k]) => k !== "check" && k !== "compile")) }
-      : { schema: RECEIPT_SCHEMA, commit, binding, stages: {} };
+      : { schema: RECEIPT_SCHEMA, commit, app: appDir, binding, stages: {} };
   const receiptOut = option("--receipt-out");
   const save = () => {
     (o.writeReceipt ?? writeReceipt)({ commonDir, receipt });
@@ -1222,15 +1241,15 @@ async function runStages(o, args, root, git, io) {
     const run = startRun({ commonDir, commit, tree, stage });
     try {
       o.out(`${tag} [${stage}] right-release ${cliArgs.join(" ")}`);
-      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, ...cliArgs], { cwd: root, env: { ...o.env, ...run.env } });
+      const r = (o.spawnInherit ?? ((cmd, a, opts) => spawnInherit(cmd, a, { ...opts, stdio: "inherit" })))(process.execPath, [cli, ...cliArgs], { cwd: appRoot, env: { ...o.env, ...run.env } });
       return r.status === 0;
     } finally { endRun(run); }
   };
 
-  o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}: ${stages.join(" -> ")}; executor ${executor.kind}`);
+  o.out(`${tag} --to ${to} for ${commit.slice(0, 12)}${appDir === "." ? "" : ` (app ${appDir})`}: ${stages.join(" -> ")}; executor ${executor.kind}`);
   // A later stage on the sealed bytes: check, compile and package already passed for them (in this receipt) and the bytes on disk are
   // the ones they sealed, so they are not run again.
-  const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+  const sealedNow = receipt.stages.package?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   const sealedIntact = Boolean(sealedNow && sealedNow.id === receipt.stages.package.sealed && sealedNow.digest === receipt.stages.package.manifestSha256);
   for (const stage of stages) {
     if ((stage === "check" || stage === "compile") && receipt.stages[stage]?.ok) { o.out(`${tag} [${stage}] already passed for this exact input (commit, tree, lockfiles, gate, toolchain)`); continue; }
@@ -1254,7 +1273,7 @@ async function runStages(o, args, root, git, io) {
       // A Tauri crate with externalBin needs its sidecars in src-tauri/binaries before it compiles (its build script refuses
       // otherwise), so every release config that declares `sidecars` is staged first, through right-release under this door run.
       const listedConfigs = git("ls-tree", "-r", "--name-only", "-z", "HEAD");
-      const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)))
+      const sidecarConfigs = (failed(listedConfigs) ? [] : text(listedConfigs).split("\0").filter((f) => /(^|\/)right-release\.config\.(json|mjs)$/.test(f)).filter((f) => appDir === "." || f.startsWith(`${appDir}/`)))
         .filter((f) => { try { return /\bsidecars\b/.test(o.readFile(path.join(root, f))); } catch { return false; } });
       ok = true;
       for (const config of sidecarConfigs) if (!rightRelease(stage, ["stage-sidecar", "--config", config])) { ok = false; break; }
@@ -1263,12 +1282,12 @@ async function runStages(o, args, root, git, io) {
     else if (stage === "package") {
       // Source QA (right-release qa --stage source) exists for mac and win only; a mobile package is the signed build alone.
       ok = (mobile || rightRelease(stage, ["qa", "--stage", "source", "--platform", platform])) && rightRelease(stage, ["build", "--platform", platform]);
-      const sealed = ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+      const sealed = ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
       if (ok && !sealed) { o.err(`${tag} [package] the build reported success but sealed nothing for ${commit.slice(0, 8)} on ${platform}`); ok = false; }
       if (sealed) extra = { platform, sealed: sealed.id, manifestSha256: sealed.digest };
     } else {
       const sealed = receipt.stages.package?.ok ? receipt.stages.package : null;
-      const current = sealed ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+      const current = sealed ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
       if (!sealed || !current || current.id !== sealed.sealed || current.digest !== sealed.manifestSha256) {
         o.err(`${tag} BLOCKED: [${stage}] needs the sealed set the package stage produced for this commit, unchanged (sealed manifest digest)`);
         ok = false;
@@ -1317,9 +1336,10 @@ function stageForPublisher(o, args, root, git) {
   const common = text(git("rev-parse", "--git-common-dir")).trim();
   if (!/^[0-9a-f]{40}$/.test(commit) || !common) { o.err(`${tag} cannot read HEAD and the git directory`); return 2; }
   const commonDir = path.resolve(root, common);
-  const receipt = (o.readReceipt ?? readReceipt)({ commonDir, commit });
+  const { appRoot, appDir } = appRootOf({ root, cwd: o.cwd, exists: o.exists });
+  const receipt = (o.readReceipt ?? readReceipt)({ commonDir, commit, app: appDir });
   const pack = receipt?.stages?.package; const qual = receipt?.stages?.qualify;
-  const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root, commit, platform }) : null;
+  const sealed = pack?.ok ? (o.sealedFor ?? sealedFor)({ root: appRoot, commit, platform }) : null;
   if (!pack?.ok || !qual?.ok || pack.platform !== platform || qual.manifestSha256 !== pack.manifestSha256 || !sealed || sealed.id !== pack.sealed || sealed.digest !== pack.manifestSha256) {
     o.err(`${tag} BLOCKED: stage needs this host's receipt for ${commit.slice(0, 12)} with package and qualify passed on ${platform} and the sealed set unchanged; run rightkit-gate --to qualify --platform ${platform} first`);
     return 1;
@@ -1330,7 +1350,7 @@ function stageForPublisher(o, args, root, git) {
     const receiptFile = path.join(work, `receipt-${platform}.json`);
     fs.writeFileSync(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
     const archive = path.join(work, `sealed-${platform}.tar.gz`);
-    const tar = o.spawn("tar", ["-czf", archive, "-C", root, path.join(".right-release", "sealed", sealed.id, platform)]);
+    const tar = o.spawn("tar", ["-czf", archive, "-C", appRoot, path.join(".right-release", "sealed", sealed.id, platform)]);
     if (failed(tar)) { o.err(`${tag} could not pack ${sealed.id}/${platform}`); return 1; }
     const gh = (...a) => o.spawn("gh", a, { cwd: root });
     if (failed(gh("release", "view", releaseTag))) {
@@ -1343,7 +1363,6 @@ function stageForPublisher(o, args, root, git) {
     if (tier) {
       // The trusted publisher is RightKit's publish-app workflow: app repositories are private and run no Actions.
       const slug = text(gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")).trim();
-      const appDir = path.relative(root, o.cwd).replaceAll("\\", "/") || ".";
       const run = gh("workflow", "run", "publish-app.yml", "-R", PUBLISHER_REPO, "-f", `app=${slug}`, "-f", `app_dir=${appDir}`, "-f", `source_revision=${commit}`, "-f", `tier=${tier}`, "-f", `platforms=${platform}`);
       if (!slug || failed(run)) { o.err(`${tag} staged, but could not dispatch ${PUBLISHER_REPO} publish-app.yml: ${text(run).trim()}`); return 1; }
       o.out(`${tag} dispatched ${PUBLISHER_REPO} publish-app.yml for ${slug}@${commit.slice(0, 12)} (${platform}, ${tier}); the publisher re-runs class A, verifies the receipt and the bytes, then uploads`);
@@ -1503,9 +1522,11 @@ export async function main(argv, io = {}) {
   // (git hands the local field over verbatim, so a rev expression such as `HEAD@{1 minute ago}` or `HEAD^{/one thing}` holds spaces)
   // refuses the push on every host and in every repository, never a line that disappears: its pushed commit could not be compared with
   // HEAD and its remote ref could not be judged. `pushedRemoteShas` are the remote commits being replaced.
+  let deletionsOnly = false; // a push of ref deletions alone carries no content: nothing to check, nothing to plan
   if (!planOnly && !classAOnly) {
     const head = text(git("rev-parse", "HEAD")).trim();
     const parsed = parsePushLines(o.readStdin());
+    deletionsOnly = parsed.lines.length > 0 && parsed.lines.every((l) => ZERO.test(l.localSha));
     if (parsed.malformed.length) {
       o.err(`${tag} BLOCKED: pre-push stdin line ${parsed.malformed[0].number} is not "<local ref> <local sha> <remote ref> <remote sha>" (four fields separated by single spaces), so the pushed refs cannot all be read and the pushed commit cannot be compared with HEAD; push a plain ref (git push <remote> HEAD:<branch>)`);
       return 1;
@@ -1525,11 +1546,19 @@ export async function main(argv, io = {}) {
   // on a broker-managed machine whose broker cannot be reached, direct cargo on any other host (a cloud container, a CI runner).
   const which = (cmd) => { const r = o.spawn(o.platform === "win32" ? "where" : "which", [cmd]); return failed(r) ? [] : text(r).split(/\r?\n/).map((l) => l.trim()).filter(Boolean); };
   const executor = (o.resolveExecutor ?? resolveExecutor)({ env: o.env, platform: o.platform, exists: o.exists, which, readFile: o.readFile });
-  if (executor.kind === "refuse") { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
-  const cargoCommand = executor.cargo;
+  // A broker-managed host whose broker is unreachable refuses the moment a Cargo manifest is in the snapshot (below): a repository
+  // with no Rust owes nothing to the broker (a git hook's minimal PATH, a JS-only app), and the class A scans never compile.
+  const cargoCommand = executor.cargo ?? ["cargo"];
   // The snapshot: the commit or tree being checked (check --commit), HEAD for the gate, or the working tree (check --worktree, --plan).
   const allFilesMode = classAOnly || args.includes("--all");
   const snapshot = planOnly ? null : classAOnly ? classACommit : "HEAD";
+  // Every effectful gate entry owes the app rules, not only `check` (Astra, 2026-10-26): a bare, --all or pre-push run on HEAD runs them
+  // first, in the tier asked for (compile by default), and plans nothing while they are red. --plan and --class-a (which runs them in
+  // `check`) are untouched.
+  if (snapshot && !classAOnly && !deletionsOnly) {
+    const appRules = await (o.appCheck ?? (await import("../app-check.mjs")).main)(["--repo", root, "--commit", snapshot, "--rule-tier", option("--rule-tier") ?? "compile"], { out: o.out, err: o.err, label: "check", cwd: o.cwd });
+    if (appRules !== 0) { const id = git("rev-parse", String(snapshot)); o.err(`${tag} BLOCKED: the app rules are red for ${(failed(id) ? String(snapshot) : text(id).trim()).slice(0, 12)}; no scan was planned or run`); return appRules; }
+  }
 
   const ac = o.abort ?? new AbortController();
   let exportRoot = null;
@@ -1572,6 +1601,7 @@ export async function main(argv, io = {}) {
     let rust; let npm; let npmRoots = []; let manifests = [];
     try {
       manifests = tracked("Cargo.toml");
+      if (executor.kind === "refuse" && manifests.length) { o.err(`${tag} BLOCKED: ${executor.problem}`); return 1; }
       // ci/gate.config.json `fixtures` (optional): directories whose manifests are consumer or sample crates, gated through the
       // consumer rows of the crates they exercise (CI treats them the same), never as units.
       let fixtures = [];

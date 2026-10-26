@@ -17,6 +17,10 @@ test("one door: every way an agent could build an app outside rightkit-gate is n
     "./gradlew assembleRelease": "gradle assembleRelease", "gradle bundleRelease": "gradle bundleRelease", "cd android && ./gradlew.bat build": "gradle build",
     "pnpm build": "pnpm build", "pnpm run build:mac": "pnpm build:mac", "npm run tauri": "npm tauri", "pnpm exec vite build": "vite build", "npx webpack --mode production": "webpack",
     "cargo tauri android build": "cargo tauri android", "pnpm tauri ios build": "tauri ios",
+    // Astra, 2026-10-26: combined shell flags, option-prefixed tools, several Gradle tasks, vite options, and test scripts.
+    "bash -lc 'cargo build'": "cargo build", "zsh -xc 'swift build'": "swift build", "xcrun --sdk iphoneos xcodebuild -scheme A archive": "xcodebuild archive",
+    "swift --package-path Sources build": "swift build", "./gradlew tasks assembleRelease": "gradle assembleRelease", "vite --config vite.qa.ts --mode qa build": "vite build",
+    "pnpm test": "pnpm test", "pnpm run test:e2e": "pnpm test:e2e", "npm run qa": "npm qa", "pnpm exec vite --config x build": "vite build",
     "right-release build --platform win": "right-release build", "npx right-release upload --release r --platform win --tier patch": "right-release upload",
     "node node_modules/@rightkit/release/cli/right-release.mjs qa --stage installed": "right-release qa", "echo hi; right-release package": "right-release package",
   };
@@ -30,7 +34,7 @@ test("one door: the door itself, the broker, read-only cargo and ordinary comman
     "cargo update -p serde --precise 1.0.1", "cargo tree", "cargo --version", "right-release check",
     "git commit -m 'cargo build fixed'", "echo \"pnpm tauri build\"", "grep -rn 'cargo test' docs", "pnpm install --frozen-lockfile", "pnpm run lint", "",
     "xcodebuild -version", "xcodebuild -list -project A.xcodeproj", "xcodebuild -showsdks", "swift package resolve", "swift --version", "./gradlew --version", "gradle tasks", "gradlew dependencies",
-    "pnpm run lint:fix", "pnpm test", "pnpm exec tsc --noEmit", "vite --version",
+    "pnpm run lint:fix", "pnpm exec tsc --noEmit", "vite --version", "xcrun --sdk iphoneos --show-sdk-path", "swift --package-path Sources package resolve", "./gradlew tasks --all",
   ]) assert.equal(doorViolation(command), null, command);
 });
 

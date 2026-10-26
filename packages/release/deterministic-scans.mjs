@@ -724,7 +724,10 @@ export function planScans({
   if (files.some((f) => SUITE_API_INPUT.test(f)) && exists(path.join(contentRoot, "contracts/right-suite-api.v1.json"))) add({ id: "suite-api", class: A, internal: "suite-api" });
   if (rustTouched) {
     for (const ws of touchedWs) add({ id: `cargo-metadata${wsIdSuffix(ws)}`, class: A, ...cargoIn(ws, ...metadataArgs()) });
-    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
+    // rustright classifies `cargo package` as a build (command_policy.rs), so from the primary checkout it re-enters broker admission,
+    // which is running this very check: on a broker host the package-list scan is deferred, named, never passed; the release tier runs it
+    // on a direct host (CI). rightkit#1216 asks rustright to classify a locked `package --list` as an observation.
+    for (const name of crateNames.filter((n) => rustMap?.get(n).publish !== false)) add({ id: rustScanId.packageList(name), class: A, ...(cargoLiveRoot ? { deferred: "rustright classifies cargo package as a build, so on a broker host this scan would re-enter the admission that runs it (rightkit#1216); it runs in the release tier on a direct host" } : {}), ...cargoIn(wsOf(name), "package", "-p", crateOf(name), "--list", "--allow-dirty", "--locked") });
   }
   for (const ws of [...configWs].sort()) {
     // Offline against the pinned database. The pin commit is part of the command (env), so a pin change is a different scan, and the
@@ -1277,7 +1280,7 @@ export async function runScans(plan, options = {}) {
       // rustright is the one exception: the RustRight client refuses to run anywhere that is not a Cargo workspace inside a repository
       // (RK_NOT_PRIMARY_CHECKOUT, "workspace discovery failed"), so from a neutral directory every cargo scan read as TOOL_MISSING on
       // every broker host (rightkit#1215). Its probe runs where the scan itself will run; `cargo --version` reads no repository config.
-      const cwd = tool === "rustright" && scanDir ? scanDir : (deps.probeDir ?? probeDir());
+      const cwd = (tool === "rustright" || (tool === "cargo" && cargoLiveRoot)) && scanDir ? scanDir : (deps.probeDir ?? probeDir());
       const r = await deps.spawn(command, PROBES[tool] ?? ["--version"], { cwd, env: { ...deps.env, ...PNPM_NO_HOOKS_ENV, COREPACK_ENABLE_AUTO_PIN: "0" }, ...sig });
       if (!r || r.error || r.status !== 0) outcome = { ok: false, why: r?.error?.message ?? `exit ${r?.status}` };
       else {
@@ -1298,7 +1301,14 @@ export async function runScans(plan, options = {}) {
   const quietLane = options.quietLane && typeof options.quietLane.acquire === "function" ? options.quietLane : null;
   const onResult = typeof options.onResult === "function" ? options.onResult : () => {};
   const total = ordered.length; let done = 0;
+  // Every class A failure latches, whichever branch produced it (Astra, 2026-10-26: two early returns bypassed the latch below, so a
+  // missing advisory database or a failed deny metadata could be followed by a class B compile). Class B reads the latch before it starts.
   async function runOne(s, extraEnv = null) {
+    const row = await runOneBody(s, extraEnv);
+    if (row.status === "fail" && s.class === SCAN_CLASS.A) classAFailed = true;
+    return row;
+  }
+  async function runOneBody(s, extraEnv = null) {
     if (signal?.aborted) return { id: s.id, class: s.class, command: s.command, tool: s.tool ?? null, toolVersion: null, status: "not-run", code: "CANCELLED", detail: "cancelled before it started" };
     const started = Date.now();
     const row = await scanRow(s, extraEnv);

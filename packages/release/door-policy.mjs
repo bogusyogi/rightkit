@@ -26,7 +26,15 @@ const GRADLE_READONLY = new Set(["--version", "-v", "-version", "--help", "-h", 
 const FRONTEND_BUNDLERS = new Set(["webpack", "rollup", "esbuild", "tsup", "parcel"]);
 // A package script whose name says it builds (`pnpm build`, `pnpm run build:mac`, `npm run tauri`): the apps have no scripts, and a
 // script that builds would be a second door even if they did.
-const SCRIPT_BUILDS = /^(build|bundle|package|dist|compile|release|tauri|android|ios|xcode|gradle)(:|$)/;
+const SCRIPT_BUILDS = /^(build|bundle|package|dist|compile|release|tauri|android|ios|xcode|gradle|test|tests|e2e|qa)(:|$)/;
+// Tools whose own options take a value, so the word after them is not the subcommand.
+const XCRUN_VALUE_OPTIONS = new Set(["--sdk", "-sdk", "--toolchain", "-toolchain", "--log", "-f", "--find", "--run"]);
+const SWIFT_VALUE_OPTIONS = new Set(["--package-path", "-c", "--configuration", "--build-path", "--scratch-path", "--cache-path", "--sdk", "--toolchain", "-Xswiftc", "-Xcc", "-Xlinker", "--triple", "--arch", "-j", "--jobs"]);
+const GRADLE_VALUE_OPTIONS = new Set(["-p", "--project-dir", "-b", "--build-file", "-c", "--settings-file", "-g", "--gradle-user-home", "-I", "--init-script", "--max-workers", "--console", "-x", "--exclude-task", "--project-cache-dir"]);
+const VITE_VALUE_OPTIONS = new Set(["--config", "-c", "--mode", "-m", "--base", "--logLevel", "-l", "--outDir", "--target", "--assetsDir", "--filter"]);
+/** The non-option words of argv, skipping the value of each option named in `valued` (`--config x`, and `--config=x` as one word). */
+const wordsOf = (argv, valued) => { const out = []; for (let i = 0; i < argv.length; i++) { const w = argv[i]; if (w.startsWith("-")) { if (valued.has(w)) i++; continue; } out.push(w); } return out; };
+const firstWord = (argv, valued) => wordsOf(argv, valued)[0] ?? null;
 const DOOR_TOOLS = new Set(["cargo", "tauri", "right-release", "xcodebuild", "swift", "swiftc", "gradle", "gradlew", "vite", ...FRONTEND_BUNDLERS]);
 
 /** Splits a shell command into simple commands (on ; && || | and newlines), each an argv of words. Quotes are respected. */
@@ -108,7 +116,8 @@ function argvViolation(argv, depth = 0, stdin = null) {
   let tool = base(a[0]);
   // A command string handed to another shell (`bash -c "cargo build"`, `eval "..."`) is judged as the command it is.
   if (depth < 4 && (SHELLS.has(tool.toLowerCase()) || tool === "eval")) {
-    const flag = a.findIndex((w, i) => i > 0 && /^(-c|\/c|-Command|-command)$/.test(w));
+    // `-c`, and combined short flags that carry it (`-lc`, `-xec`); pwsh `-Command`; cmd `/c`.
+    const flag = a.findIndex((w, i) => i > 0 && /^(-[a-zA-Z]*c[a-zA-Z]*|\/c|-Command|-command)$/.test(w));
     const script = tool === "eval" ? a.slice(1).join(" ") : flag > 0 ? a.slice(flag + 1).join(" ") : null;
     return script ? doorViolation(script, depth + 1) : null;
   }
@@ -138,24 +147,29 @@ function argvViolation(argv, depth = 0, stdin = null) {
   if (tool === "rightkit-gate" || tool === "rustright") return null;
   if (tool === "tauri" && TAURI_BUILDS.has(a[1])) return `tauri ${a[1]}`;
   // Apple: xcrun wraps the tool it names; xcodebuild builds by default (no action word is `build`); swift build|test|run and swiftc compile.
-  if (tool === "xcrun" && a.length > 1) return argvViolation(a.slice(1), depth + 1, stdin);
+  if (tool === "xcrun" && a.length > 1) {
+    // xcrun's own options come first (`--sdk iphoneos`, `--toolchain x`, `-f`); the tool it runs is the first word after them.
+    let rest = a.slice(1);
+    while (rest.length && rest[0].startsWith("-")) rest = XCRUN_VALUE_OPTIONS.has(rest[0]) ? rest.slice(2) : rest.slice(1);
+    return rest.length ? argvViolation(rest, depth + 1, stdin) : null;
+  }
   if (tool === "xcodebuild") {
     const words = a.slice(1);
     const action = words.find((w) => XCODE_ACTIONS.has(w));
     if (action) return `xcodebuild ${action}`;
     return words.some((w) => XCODE_READONLY.has(w)) ? null : "xcodebuild build";
   }
-  if (tool === "swift" && SWIFT_COMPILES.has(a[1])) return `swift ${a[1]}`;
+  if (tool === "swift") { const sub = firstWord(a.slice(1), SWIFT_VALUE_OPTIONS); if (sub && SWIFT_COMPILES.has(sub)) return `swift ${sub}`; }
   if (tool === "swiftc") return "swiftc";
   // Android: a Gradle task that is not one of the read-only reports.
   if (tool === "gradle" || tool === "gradlew") {
-    const task = a.slice(1).find((w) => !w.startsWith("-"));
-    if (task && !GRADLE_READONLY.has(task)) return `gradle ${task}`;
-    if (!task && !a.slice(1).some((w) => GRADLE_READONLY.has(w))) return null; // bare gradle prints help
-    return null;
+    // Every task named counts (`gradle tasks assembleRelease` builds); a bare call prints help.
+    const tasks = wordsOf(a.slice(1), GRADLE_VALUE_OPTIONS);
+    const building = tasks.find((t) => !GRADLE_READONLY.has(t));
+    return building ? `gradle ${building}` : null;
   }
   // Frontend: a production bundle is the compile stage's frontend build.
-  if (tool === "vite" && a[1] === "build") return "vite build";
+  if (tool === "vite" && wordsOf(a.slice(1), VITE_VALUE_OPTIONS).includes("build")) return "vite build";
   if (FRONTEND_BUNDLERS.has(tool)) return tool;
   if (tool === "cargo") {
     let sub = null;

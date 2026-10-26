@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   APP_BASELINE_MAX_DAYS, APP_BASELINE_RULE, BUILD_REFUSES, CHECKED_COMMANDS, COMPILE_TIER_IDS, RELEASE_TIER_COMMANDS, RULES, TIERS, UNCHECKED_COMMANDS, UNCHECKED_PROOF, addDays, appBaselineEntries, appDirectory, applyBaseline, baselineKnown, cargoTestTargets, checkModeFor,
-  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, rulesForTier, runAppCheck, runRules, tierOf,
+  e2eCrates, exportCommit, exportTarget, exportWorktree, guardCommand, hasNoCommit, main, repoRoot, retireAliasText, rightkitCheckout, rulesForTier, runAppCheck, runRules, tierForCommand, tierOf,
 } from "./app-check.mjs";
 
 // The app rules, the export, the ratchet and the commands that run the check (packages/release/app-check.mjs). The rule tests moved
@@ -1159,10 +1159,14 @@ test("guardCommand: commands that qualify, sign, ship or upload owe the release 
   const { repo } = appRepo(t, { "right-release.config.mjs": "export default {};\n" });
   const seen = [];
   const run = (opts) => { seen.push([opts.mode, opts.tier]); return { exitCode: 0, lines: [], errLines: [] }; };
-  for (const args of [["build"], ["dev"], ["package"], ["test"], ["doctor"], ["web-build"]]) guardCommand({ args, cwd: repo, run });
+  for (const args of [["build"], ["dev"], ["package"], ["test"], ["doctor"], ["web-build"], ["qa", "--stage", "source", "--platform", "mac"]]) guardCommand({ args, cwd: repo, run });
   for (const args of [["release"], ["qa", "--stage", "installed"], ["upload"], ["publish-update"], ["github"], ["sign-windows"], ["sign-updater"], ["create-mac-updater"], ["sign-candidate"]]) guardCommand({ args, cwd: repo, run });
-  assert.deepEqual(seen.map(([, tier]) => tier), ["compile", "compile", "compile", "compile", "compile", "compile", "release", "release", "release", "release", "release", "release", "release", "release", "release"]);
+  assert.deepEqual(seen.map(([, tier]) => tier), ["compile", "compile", "compile", "compile", "compile", "compile", "compile", "release", "release", "release", "release", "release", "release", "release", "release", "release"]);
   for (const name of RELEASE_TIER_COMMANDS) assert.ok(CHECKED_COMMANDS.has(name), `${name} is a checked command`);
+  assert.ok(!RELEASE_TIER_COMMANDS.has("qa"), "qa owes the release tier only at its installed stage");
+  assert.equal(tierForCommand("qa", ["--stage", "installed"]), "release");
+  assert.equal(tierForCommand("qa", ["--stage", "source"]), "compile");
+  assert.equal(tierForCommand("build"), "compile");
 });
 
 test("main: --list, a repository outside git, unknown rules and exclusive flags", async (t) => {

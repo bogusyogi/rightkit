@@ -228,6 +228,9 @@ function hookSpawn(root, state) {
     return no(`unexpected ${cmd} ${line}`);
   };
 }
+// `exists` for a host with no RustRight install: the real file system, minus the managed client the Mac and the Dell carry.
+const unmanagedHost = (p) => !/RustRight|RightKit|\.rightkit-managed/.test(String(p)) && fs.existsSync(p);
+
 const capture = () => { const out = []; const err = []; return { out, err, io: { out: (m) => out.push(m), err: (m) => err.push(m) } }; };
 
 test("install-hook writes the hook, sets core.hooksPath, and refuses to overwrite a different hook without --force", async (t) => {
@@ -391,12 +394,16 @@ test("executor: a broker-managed machine without a reachable broker is refused; 
   const managed = capture();
   assert.equal(await main(["--plan"], { ...managed.io, spawn: repoSpawn(root, { cargoLines: "" }), cwd: root, env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" } }), 1);
   assert.match(managed.err.join("\n"), /BLOCKED: this machine is broker-managed \(RustRight\) but `rustright` is not reachable from this shell/);
+  // The same host, a repository with no Cargo manifest (a JS-only app, a git hook's minimal PATH): nothing owes the broker, the check runs.
+  const noRust = mkRepo(stripUndefined(jsRepo()), t);
+  const n = capture();
+  assert.equal(await main(["--plan"], { ...n.io, spawn: pushSpawn(noRust, { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" }), cwd: noRust, env: { RIGHTKIT_BUILD_BROKER_SOCKET: "/tmp/broker.sock" } }), 0, n.err.join("\n"));
   // An unmanaged host (a cloud container, a CI runner): direct cargo, the same scans.
   const metadata = meta(root, ".", [["a", "crates/a"], ["b", "crates/b", []]]);
   const base = repoSpawn(root, { cargoLines: "" });
   const direct = capture();
   const spawn = (cmd, args, opts) => (cmd === "cargo" && args[0] === "metadata" ? ok(metadata) : base(cmd, args, opts));
-  assert.equal(await main(["--plan"], { ...direct.io, spawn, cwd: root, env: {} }), 0, direct.err.join("\n"));
+  assert.equal(await main(["--plan"], { ...direct.io, spawn, cwd: root, env: {}, exists: unmanagedHost }), 0, direct.err.join("\n"));
   assert.match(direct.out.join("\n"), /\[B\] clippy:a :: cargo clippy -p a /, "the same compile scans, through plain cargo");
 });
 
@@ -1465,6 +1472,8 @@ test("a scratch repository with a red tree rejects git push through the installe
   fs.writeFileSync(path.join(root, ".gitignore"), "node_modules/\n");
   const remote = path.join(tmp, "remote.git");
   assert.equal(spawnSync("git", ["init", "-q", "--bare", remote], { encoding: "utf8" }).status, 0);
+  // The last push deletes main; a bare repository whose HEAD names main refuses that by default (receive.denyDeleteCurrent).
+  spawnSync("git", ["-C", remote, "config", "receive.denyDeleteCurrent", "ignore"], { encoding: "utf8" });
   git("remote", "add", "origin", remote);
   assert.equal(await main(["install-hook"], { ...capture().io, cwd: root, spawn: (cmd, args, opts) => spawnSync(cmd, args, { ...opts, encoding: "utf8" }) }), 0);
   git("add", "-A"); git("add", "--chmod=+x", ".githooks/pre-push");
@@ -1484,7 +1493,8 @@ test("a scratch repository with a red tree rejects git push through the installe
   // Deleting the branch is not blocked by a red tree: there is nothing to check.
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ scripts: { ship: "right-release build --skip-checks" } }));
   assert.equal(git("commit", "-q", "-am", "red again").status, 0);
-  assert.equal(git("push", "origin", ":refs/heads/main").status, 0);
+  const deletion = git("push", "origin", ":refs/heads/main");
+  assert.equal(deletion.status, 0, deletion.stderr);
 });
 
 // ---- the Rust gate on a host without the broker: deferral to host qualification ------------------------------------------------
@@ -1551,6 +1561,8 @@ async function pushGate(t, { stdin = pushLine("refs/heads/claude/port"), env = {
   const before = snapshot(root);
   const code = await main(args, {
     ...c.io, ...noWrites, spawn: pushSpawn(root, { log, ...spawnOptions }), cwd: root, env, readStdin: () => stdin,
+    // Every bare run owes the app rules first (Astra, 2026-10-26): green unless a test says otherwise.
+    appCheck: async () => 0,
     runScans: fakeRun(seen, { rows }), ...(rustfmt === false ? {} : { findRustfmt: () => rustfmt }), ...(readFile ? { readFile } : {}), ...io,
   });
   return { code, log, seen, root, before, after: snapshot(root), out: c.out.join("\n"), err: c.err.join("\n") };
@@ -1714,6 +1726,27 @@ test("gate: a repository of independent pnpm roots plans the lockfile and audit 
   // The checkout must equal HEAD where these scans read it: each root's install graph and linter configuration is checked, not only the units' directories.
   const status = r.log.find((l) => l[0] === "git" && l[1] === "status");
   for (const p of ["apps/coderight-web/pnpm-lock.yaml", "apps/coderight-tauri/package.json", "apps/coderight-web/.npmrc", "apps/coderight-tauri/biome.json", "apps/coderight-web/eslint.config.js", "apps/coderight-web/biome.jsonc"]) assert.ok(status.includes(p), `${p} is checked against HEAD`);
+});
+
+test("bare gate run: the app rules run first on HEAD; a red result stops the run before any scan is planned or run, and a green one proceeds", async (t) => {
+  const red = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port"), files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" },
+    io: { appCheck: async () => 1, resolveExecutor: directExecutor },
+  });
+  assert.equal(red.code, 1, red.out);
+  assert.match(red.err, /BLOCKED: the app rules are red for \w{12}; no scan was planned or run/);
+  assert.equal(red.seen.length, 0, "runScans was never called");
+  const seenRules = [];
+  const green = await pushGate(t, {
+    stdin: pushLine("refs/heads/claude/port"), files: stripUndefined(jsRepo()),
+    spawnOptions: { manifests: [], tracked: trackedJs, diff: "apps/coderight-web/src/b.ts\n" },
+    io: { appCheck: async (argv) => { seenRules.push(argv); return 0; }, resolveExecutor: directExecutor },
+  });
+  assert.equal(green.code, 0, green.err);
+  assert.deepEqual(seenRules[0].slice(0, 1), ["--repo"]);
+  assert.deepEqual(seenRules[0].slice(2), ["--commit", "HEAD", "--rule-tier", "compile"]);
+  assert.equal(green.seen.length, 1, "a green app rules result proceeds to the scans");
 });
 
 test("gate --plan: lists the pnpm roots' units with their root-carrying names and the per-root scans", async (t) => {
@@ -1989,6 +2022,44 @@ test("class A of a commit scans every file of that commit: export-ignore hides n
   assert.doesNotMatch(clean.out, /good\.json/);
 });
 
+test("a nested app goes through the door: a run from apps/<app> keys its receipt to that app, runs right-release there, reads its sealed set there, and two apps of one repository never share a receipt (Astra, 2026-10-26)", async (t) => {
+  const { root, head } = stageRepo(t);
+  const appDir = path.join("apps", "one");
+  fs.mkdirSync(path.join(root, appDir), { recursive: true });
+  fs.writeFileSync(path.join(root, appDir, "right-release.config.json"), "{}\n");
+  fs.mkdirSync(path.join(root, "apps", "two"), { recursive: true });
+  fs.writeFileSync(path.join(root, "apps", "two", "right-release.config.json"), "{}\n");
+  spawnSync("git", ["add", "-A"], { cwd: root }); spawnSync("git", ["commit", "-q", "-m", "two apps"], { cwd: root });
+  const commit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
+  const calls = [];
+  const io = {
+    resolveExecutor: directExecutor, runCheck: async () => 0, runCompile: async () => 0, runReleaseCheck: async () => 0,
+    sealedFor: ({ root: r }) => { calls.push(`sealed@${path.relative(root, r) || "."}`); return { id: `one-1.0.0-${commit.slice(0, 8)}`, manifest: "m", digest: "d".repeat(64) }; },
+    spawnInherit: (cmd, a, opts) => { calls.push(`${a.slice(1).join(" ")} @${path.relative(root, opts.cwd) || "."}`); return { status: 0 }; },
+  };
+  const c = capture();
+  assert.equal(await main(["--to", "package", "--platform", "mac"], { ...c.io, cwd: path.join(root, appDir), ...io }), 0, c.err.join("\n"));
+  assert.match(c.out.join("\n"), /--to package for \w{12} \(app apps\/one\): check -> compile -> package/);
+  assert.ok(calls.includes("qa --stage source --platform mac @apps/one") && calls.includes("build --platform mac @apps/one"), calls.join(" | "));
+  assert.ok(calls.some((x) => x === "sealed@apps/one"), calls.join(" | "));
+  const receipts = path.join(root, ".git", "rightkit-gate", "receipts");
+  assert.ok(fs.existsSync(path.join(receipts, `${commit}--apps__one.json`)), fs.readdirSync(receipts).join(", "));
+  assert.ok(!fs.existsSync(path.join(receipts, `${commit}.json`)), "no root-keyed receipt for a nested app");
+  const one = JSON.parse(fs.readFileSync(path.join(receipts, `${commit}--apps__one.json`), "utf8"));
+  assert.deepEqual([one.app, one.commit, Object.keys(one.stages)], ["apps/one", commit, ["check", "compile", "package"]]);
+  // The second app of the same repository starts with no receipt: nothing of apps/one is reused.
+  calls.length = 0;
+  const d = capture();
+  assert.equal(await main(["--to", "package", "--platform", "mac"], { ...d.io, cwd: path.join(root, "apps", "two"), ...io }), 0, d.err.join("\n"));
+  assert.ok(calls.includes("build --platform mac @apps/two"), "apps/two packaged on its own: " + calls.join(" | "));
+  assert.ok(fs.existsSync(path.join(receipts, `${commit}--apps__two.json`)));
+  // From the repository root (no config there) the run is for the root, as before.
+  const e = capture();
+  await main(["--to", "check"], { ...e.io, cwd: root, ...io });
+  assert.ok(fs.existsSync(path.join(receipts, `${commit}.json`)), fs.readdirSync(receipts).join(", "));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(receipts, `${commit}.json`), "utf8")).app, ".");
+});
+
 test("ios and android are door platforms: check, compile, package (build only), then release uploads to the store's test track from the host; no qualify stage exists or is recorded (Adrian, 2026-10-26)", async (t) => {
   for (const [platform, track] of [["android", "play-internal"], ["ios", "testflight"]]) {
     const { root, head } = stageRepo(t);
@@ -2002,11 +2073,12 @@ test("ios and android are door platforms: check, compile, package (build only), 
     assert.equal(await main(["--to", "package", "--platform", platform], { ...pkg.io, cwd: root, ...io }), 0, pkg.err.join("\n"));
     assert.deepEqual(calls, [`build --platform ${platform}`], "no source QA lane for a mobile platform: the package is the signed build");
     assert.match(pkg.out.join("\n"), new RegExp(`--to package for \\w{12}: check -> compile -> package; executor`));
-    // --to qualify: there is no mobile qualify stage; the run ends at package and records none.
-    const qual = capture();
-    assert.equal(await main(["--to", "qualify", "--platform", platform], { ...qual.io, cwd: root, ...io }), 0, qual.err.join("\n"));
+    // The receipt after --to package records no qualify stage; --to qualify refuses on a mobile platform, which has no such stage.
     let receipt = JSON.parse(fs.readFileSync(path.join(root, ".git", "rightkit-gate", "receipts", `${head}.json`), "utf8"));
     assert.equal(receipt.stages.qualify, undefined, "a mobile platform never records a qualify pass");
+    const qual = capture();
+    assert.equal(await main(["--to", "qualify", "--platform", platform], { ...qual.io, cwd: root, ...io }), 2, qual.out.join("\n"));
+    assert.match(qual.err.join("\n"), new RegExp(`--to qualify has no stage for ${platform}`));
     // --to release: on the host, no publisher environment and no patch|update tier; the upload goes to the store's test track with --apply.
     calls.length = 0;
     const rel = capture();

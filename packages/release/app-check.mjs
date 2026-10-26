@@ -1441,7 +1441,9 @@ export function checkedCommandOf(args) {
 export const BUILD_REFUSES = Object.freeze(["switches-inventory"]);
 
 /** The checked commands that qualify, sign, ship or upload: they owe the release tier (every rule). The rest owe the compile tier. */
-export const RELEASE_TIER_COMMANDS = Object.freeze(new Set(["release", "qa", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "sign-candidate"]));
+export const RELEASE_TIER_COMMANDS = Object.freeze(new Set(["release", "upload", "publish", "publish-update", "github", "sign-windows", "sign-updater", "create-mac-updater", "sign-candidate"]));
+/** `qa --stage installed` qualifies the sealed build and owes the release tier; `qa --stage source` runs inside the package stage and owes the compile tier. */
+export const tierForCommand = (name, args = []) => (name === "qa" ? (args.includes("installed") ? "release" : "compile") : RELEASE_TIER_COMMANDS.has(name) ? "release" : "compile");
 
 /** Every other right-release command, each with why the check does not guard it. A command that is in neither map fails the
  * classification test in app-check.test.mjs, so a new command cannot appear unclassified. */
@@ -1545,7 +1547,7 @@ export function guardCommand({ args, cwd = process.cwd(), run = runAppCheck } = 
   const dir = appDirectory(args, cwd);
   const repo = repoRoot(dir);
   if (!repo) return { exitCode: 1, lines: [`right-release ${name}: the app check needs a git repository and ${dir} is not inside one; nothing was started`] };
-  const result = run({ repo, mode, tier: RELEASE_TIER_COMMANDS.has(name) ? "release" : "compile", label: "check", refuse: BUILD_REFUSES });
+  const result = run({ repo, mode, tier: tierForCommand(name, args), label: "check", refuse: BUILD_REFUSES });
   if (result.exitCode === 0) return null;
   const why = result.exitCode === 2 ? "could not run" : "found problems";
   return { exitCode: 1, lines: [...result.lines, ...result.errLines, `right-release ${name}: the app check ${why} in ${repo}; nothing was started. Fix the above and commit, then run it again.`] };

@@ -365,6 +365,7 @@ export async function cmdDispatch(opts, deps = {}) {
   // default 2), one dispatch at a time as the count allows. A hold is not a failure: nothing was sent, run it again when a run ends.
   const pipeline = deps.pipeline ?? readJson(path.join(ROOT, "ci", "rk-pipeline.json"), {});
   const maxInFlight = Number(pipeline.dispatch?.maxInFlightRuns ?? 2);
+  if (!Number.isInteger(maxInFlight) || maxInFlight < 1) { fail(`ci/rk-pipeline.json dispatch.maxInFlightRuns must be a positive integer, not ${JSON.stringify(pipeline.dispatch?.maxInFlightRuns)}`); return 2; }
   let inFlight = await (deps.inFlight ?? hostedRunsInFlight)();
   if (inFlight === null) { fail("cannot count the hosted runs in flight (gh run list failed); not dispatching blind"); return 2; }
   if (inFlight >= maxInFlight) { fail(`hold: ${inFlight} hosted publish run(s) queued or running, limit ${maxInFlight}; nothing dispatched, run again when one ends`); return 3; }
@@ -418,6 +419,7 @@ export async function cmdDispatch(opts, deps = {}) {
       fail(`dispatch ${unit} failed (exit ${r.code}): ${r.out.trim().split("\n").slice(-3).join(" | ").slice(0, 300)}`);
       const current = readState(); current.dispatches[key].status = "unknown"; writeState(current);
       exit = 1;
+      inFlight += 1; // an ambiguous POST may have started a run: count it rather than overshoot
       continue;
     }
     const current = readState();
@@ -437,7 +439,7 @@ export async function hostedRunsInFlight(run = runChild) {
     for (const status of ["queued", "in_progress", "waiting"]) {
       const r = await run("gh", ["run", "list", "-R", "bogusyogi/rightkit", "--workflow", workflow, "--status", status, "--limit", "50", "--json", "databaseId"]);
       if (r.code !== 0) return null;
-      try { total += JSON.parse(r.out || "[]").length; } catch { return null; }
+      try { const parsed = JSON.parse(r.out || "[]"); if (!Array.isArray(parsed)) return null; total += parsed.length; } catch { return null; }
     }
   }
   return total;

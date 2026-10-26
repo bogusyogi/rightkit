@@ -1660,6 +1660,22 @@ test("advisory scans: an unavailable pinned database fails both scans and no too
   assert.equal(result.ok, false);
 });
 
+test("class A latch: an ADVISORY_DB failure in cargo-deny (the early return before the scan spawns) still stops class B, whose rows report not-run", async () => {
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  assert.ok(ids(plan, "B").length > 0, "the plan has class B scans to hold back");
+  const result = await runScans(plan, deps({ ...fs, ensureAdvisoryDb: () => { throw new Error("no advisory db"); } }), { classes: ["A", "B"] });
+  const deny = result.scans.find((s) => s.id === "cargo-deny");
+  assert.equal(deny.status, "fail");
+  assert.equal(deny.code, "ADVISORY_DB");
+  assert.match(deny.detail, /no advisory db/);
+  assert.equal(result.ok, false);
+  assert.ok(bRows(result).length > 0, "class B rows are in the result");
+  for (const row of bRows(result)) {
+    assert.equal(row.status, "not-run", row.id);
+    assert.match(row.detail, /class A scan failed/, row.id);
+  }
+});
+
 test("advisory scans: a workspace without deny.toml gets RightKit's policy, never cargo-deny's empty default", () => {
   const text = readFileSync(new URL("./deny-default.toml", import.meta.url), "utf8");
   assert.match(text, /\[licenses\][\s\S]*allow = \[[\s\S]*"MIT"[\s\S]*"Apache-2\.0"/);
@@ -1876,6 +1892,22 @@ test("cargoLiveRoot: cargo scans take the cargoLive root, the plan records it an
   assert.equal(without.roots.cargoLiveRoot, undefined);
 });
 
+test("deferred package list: on a broker host (cargoLiveRoot) every cargo-package-list scan is deferred for rightkit#1216 and reports deferred; without cargoLiveRoot it has no deferral and passes", async () => {
+  const broker = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"], {}, { cargoLiveRoot: "/primary/checkout" });
+  const packageLists = broker.plan.scans.filter((s) => s.id.startsWith("cargo-package-list"));
+  assert.ok(packageLists.length > 0, "the plan has a package-list scan");
+  for (const s of packageLists) assert.match(s.deferred, /rightkit#1216/, s.id);
+  const result = await runScans(broker.plan, deps({ ...broker.fs }), { classes: ["A"] });
+  const row = result.scans.find((s) => s.id === "cargo-package-list:foo");
+  assert.equal(row.status, "deferred");
+  assert.match(row.detail, /rightkit#1216/);
+  const direct = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml"]);
+  const plain = direct.plan.scans.find((s) => s.id === "cargo-package-list:foo");
+  assert.equal(plain.deferred, undefined, "a direct host runs the package list");
+  const plainResult = await runScans(direct.plan, deps({ ...direct.fs }), { classes: ["A"] });
+  assert.equal(plainResult.scans.find((s) => s.id === "cargo-package-list:foo").status, "pass");
+});
+
 test("rule tiers: the compile tier (the default) plans no shellcheck and no shellcheck requirement for actionlint; the release tier plans both; an unknown tier throws", () => {
   const files = { "deploy/release.sh": "#!/bin/sh\necho hi\n", ".github/workflows/ci.yml": "on: push\njobs: {}\n" };
   const compile = planFor(Object.keys(files), files, { all: true }).plan;
@@ -1899,6 +1931,22 @@ test("the rustright probe runs where its scan runs (the client refuses a directo
   assert.notEqual(rustright.cwd, "/neutral/probe");
   assert.ok(rustright.cwd === LIVE || rustright.cwd.startsWith(LIVE + path.sep) || rustright.cwd === CONTENT || rustright.cwd.startsWith(CONTENT + path.sep), `the probe ran in the scanned tree, not ${rustright.cwd}`);
   for (const p of calls.filter((c) => c.command !== "rustright" && c.args.length === 1 && /version/.test(c.args[0]))) assert.equal(p.cwd, "/neutral/probe", `${p.command} probe stays outside the repository`);
+});
+
+test("broker shim probe: with cargoCommand [\"cargo\"] and cargoLiveRoot, the cargo --version probe runs in the primary checkout, while pnpm's probe stays in the neutral directory", async () => {
+  const files = { "package.json": '{"name":"app","license":"MIT"}', "pnpm-lock.yaml": "lockfileVersion: '9.0'\n" };
+  const { fs, plan } = planFor(["crates/foo/src/lib.rs", "crates/foo/Cargo.toml", "package.json"], files, { npmUnits: [{ name: "app", dir: "." }], cargoLiveRoot: "/primary/checkout", cargoCommand: ["cargo"] });
+  assert.ok(plan.scans.some((s) => s.tool === "cargo"), "the cargo scans run the plain cargo shim");
+  const calls = [];
+  const base = fakeSpawn();
+  const spawn = (command, args, options = {}) => { calls.push({ command: path.basename(command), args, cwd: options.cwd }); return base(command, args, options); };
+  await runScans(plan, deps({ ...fs, spawn, probeDir: "/neutral/probe" }), { classes: ["A"] });
+  const cargoProbe = calls.find((c) => c.command === "cargo" && c.args.length === 1 && c.args[0] === "--version");
+  assert.ok(cargoProbe, "cargo was probed");
+  assert.ok(cargoProbe.cwd === "/primary/checkout" || cargoProbe.cwd.startsWith("/primary/checkout" + path.sep), `the cargo probe ran in ${cargoProbe.cwd}, not the neutral directory`);
+  const pnpmProbe = calls.find((c) => c.command === "pnpm" && c.args.length === 1 && c.args[0] === "--version");
+  assert.ok(pnpmProbe, "pnpm was probed");
+  assert.equal(pnpmProbe.cwd, "/neutral/probe", "pnpm's probe stays outside the repository");
 });
 
 test("shellcheck: every tracked .sh/.bash script is a class A scan; a zsh script is left to its own shell", () => {
