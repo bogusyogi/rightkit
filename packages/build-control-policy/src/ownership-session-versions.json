@@ -32,7 +32,7 @@
     "@rightkit/qa": "0.6.1",
     "@rightkit/qa-chrome": "0.1.12",
     "@rightkit/react-shell": "0.7.2",
-    "@rightkit/release": "0.6.7",
+    "@rightkit/release": "0.6.8",
     "@rightkit/settings-ui": "0.7.0",
     "@rightkit/tauri": "0.3.0",
     "@rightkit/tauri-shell": "0.1.3",

@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.6.7 (unpublished staging)
+## 0.6.8
+
+- `door.mjs` (public): `requireDoor(command)` / `doorRefusal()` let an app's own config-declared build step (a payload assembler, an installer packager) refuse unless a live `rightkit-gate --to` run for HEAD launched it, the same door check `right-release` makes for itself. Apps restore their assembly steps behind it instead of keeping side doors around class A.
+
+## 0.6.7
 
 - **Docs: the gate's executor, stated as implemented.** The `bin/rightkit-gate.mjs` header and the README said a host without RustRight refuses the Rust gate or defers it to host qualification; `gate-executor.mjs` has run direct cargo through the same gates on such a host (a cloud session, a CI runner) since the one-door change, and the deferral code is gone. Both now say so: the broker where the machine has it, a refusal only on a broker-managed machine whose broker is unreachable, direct cargo elsewhere.
 - **`source-closure` (SF-01): a sealed qualification record whose sources changed fails before the build.** New module `source-closure-rules.mjs`. Any committed `*.json` record `{ sourceClosure: { sources: { path: sha256 }, digest } }` fails when a listed source is missing or its bytes no longer hash to the recorded digest, or when `digest` is not sha256 over the canonical JSON of `sources`. A digest over a projection is declared in `.rightkit/source-closures.json` only by naming a RightKit-approved transform identity (`APPROVED_TRANSFORMS`: the two Legion provider-registry projections, cited to Legion's producers, and the lossless `text-lf/v1`); each binds its source path, families, dropped keys and an input schema that refuses unknown fields, and is applied to the current bytes and compared. A repository never supplies pointers or a reason-only exemption. Closure membership a producer would now add is not judged (it is computed by repository code). Legion's `qualification/provider-accuracy/index.json` failed so only after a full Windows build (runs 40149636641, 40158717069).
